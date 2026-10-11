@@ -37,7 +37,7 @@ class AskReadyServingTest {
 
     private AskReadyStore.Stored saturdayBest(LocalDateTime built, int rating) {
         AskPick pick = new AskPick(1, 1L, "Bamburgh", "Northumberland", oct(10),
-                com.gregochr.goldenhour.entity.TargetType.SUNSET, "2026-10-10_sunset", "Clear sky and the tide.",
+                AskWindowKind.SUNSET, "2026-10-10_sunset", "Clear sky and the tide.",
                 rating, com.gregochr.goldenhour.model.DisplayVerdict.WORTH_IT.name());
         return new AskReadyStore.Stored("ALL", "BEST_WEEKEND", "Best spot this weekend?",
                 List.of("2026-10-10_sunrise", "2026-10-10_sunset", "2026-10-11_sunrise", "2026-10-11_sunset"), built,
@@ -52,7 +52,7 @@ class AskReadyServingTest {
 
     private AskReadyStore.Stored tonight(LocalDateTime built) {
         AskPick pick = new AskPick(1, 1L, "Bamburgh", "Northumberland", oct(9),
-                com.gregochr.goldenhour.entity.TargetType.SUNSET, "2026-10-09_sunset", "Why.", 5,
+                AskWindowKind.SUNSET, "2026-10-09_sunset", "Why.", 5,
                 com.gregochr.goldenhour.model.DisplayVerdict.WORTH_IT.name());
         return new AskReadyStore.Stored("ALL", "BEST_NEXT", "Best spot tonight?", List.of("2026-10-09_sunset"), built,
                 new AskAnswer(true, "Tonight.", List.of(pick), List.of(), null));

@@ -70,7 +70,7 @@ class AskThreadContextTest {
     private AskThreadContext context(AskThread thread, AskSnapshot snapshot, AskScope scope,
             AskUserContext user) {
         AskTools tools = new AskTools(snapshot, user, scope, driveTimes, new ObjectMapper());
-        return AskThreadContext.of(thread, snapshot, scope, tools, names);
+        return AskThreadContext.of(thread, snapshot, scope, tools, names, false, false);
     }
 
     private AskThreadContext context(AskThread thread) {
@@ -258,7 +258,7 @@ class AskThreadContextTest {
     private AskThreadContext turnedDownContext(boolean turnedDown, AskThread thread) {
         AskSnapshot snapshot = snapshot(4);
         AskTools tools = new AskTools(snapshot, PRO, AskScope.ALL, driveTimes, new ObjectMapper());
-        return AskThreadContext.of(thread, snapshot, AskScope.ALL, tools, names, turnedDown);
+        return AskThreadContext.of(thread, snapshot, AskScope.ALL, tools, names, turnedDown, false);
     }
 
     @Test

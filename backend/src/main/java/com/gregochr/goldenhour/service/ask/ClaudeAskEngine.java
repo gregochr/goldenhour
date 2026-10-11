@@ -205,8 +205,13 @@ public class ClaudeAskEngine implements AskEngine {
         AskSnapshot.Window contextWindow = question.windowId() == null
                 ? null : snapshot.window(question.windowId()).orElse(null);
         AskThreadContext thread = conversation.thread();
+        // A night the Map is on (its Ask-local id): only a night the snapshot holds, and an aurora one only for
+        // an asker who may see aurora; anything else is no context, as an unresolved solar id is.
+        AskSnapshot.Night contextNight = question.windowId() == null ? null
+                : snapshot.nights().night(question.windowId())
+                        .filter(n -> n.kind() != AskWindowKind.AURORA || user.canSeeAurora()).orElse(null);
         String system = promptBuilder.systemPrompt(snapshot.today(), conversation.scope(), contextWindow,
-                user.hasUser(), !thread.isEmpty());
+                contextNight, snapshot.nights().tonight(), user.hasUser(), !thread.isEmpty());
         // Built once: re-joining the thread reads the asker's drive times and, for a place that has left
         // the forecast, one query for names, neither of which should repeat each turn.
         String userMessage = promptBuilder.userMessage(question.sanitised(), thread);
@@ -414,12 +419,14 @@ public class ClaudeAskEngine implements AskEngine {
             result = switch (name) {
                 case AskToolSchemas.LIST_WINDOWS -> tools.listWindows();
                 case AskToolSchemas.RANK_SPOTS -> tools.rankSpots(AskToolArguments.rankSpots(input));
+                case AskToolSchemas.RANK_NIGHT_SPOTS ->
+                        tools.rankNightSpots(AskToolArguments.rankNightSpots(input));
                 case AskToolSchemas.GET_HOT_TOPICS -> tools.getHotTopics(AskToolArguments.hotTopics(input));
                 case AskToolSchemas.GET_COMING_UP -> tools.getComingUp(AskToolArguments.comingUp(input));
                 default -> AskToolResult.error("Unknown tool '" + clip(name) + "'. The tools are "
                         + AskToolSchemas.LIST_WINDOWS + ", " + AskToolSchemas.RANK_SPOTS + ", "
-                        + AskToolSchemas.GET_HOT_TOPICS + ", " + AskToolSchemas.GET_COMING_UP + " and "
-                        + AskToolSchemas.SUBMIT_ANSWER + ".");
+                        + AskToolSchemas.RANK_NIGHT_SPOTS + ", " + AskToolSchemas.GET_HOT_TOPICS + ", "
+                        + AskToolSchemas.GET_COMING_UP + " and " + AskToolSchemas.SUBMIT_ANSWER + ".");
             };
         } catch (BadArguments e) {
             result = AskToolResult.error(e.getMessage());

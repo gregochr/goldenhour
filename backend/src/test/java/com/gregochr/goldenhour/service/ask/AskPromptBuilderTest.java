@@ -109,6 +109,37 @@ class AskPromptBuilderTest {
                 .contains("Say there are no events only after both returned nothing");
     }
 
+    @Test
+    @DisplayName("a night question goes to rank_night_spots: clear skies is the astro forecast, tonight is the "
+            + "running night, an aurora claim needs auroraStars, the Pro clause, and the facts a night pick quotes")
+    void nightRules() {
+        String prompt = builder.systemPrompt(MONDAY, TestScopes.of(), null, true).replaceAll("\\s+", " ");
+
+        assertThat(prompt).contains("call rank_night_spots")
+                .contains("\"Clear skies tonight\" is the astro cloud forecast, not the sunrise and sunset one")
+                .contains("before dawn is the night still running")
+                .contains("Never say an aurora is visible without an auroraStars figure")
+                .contains("aurora ratings are a Pro feature, say so in one clause")
+                .contains("quotes the clearSky and Bortle facts")
+                .contains("astroWindowId for the sky, auroraWindowId for the northern lights");
+    }
+
+    @Test
+    @DisplayName("the night the Map is on is named with its id, tonight or tomorrow night; with none the "
+            + "prompt is the prompt of the solar overload, byte for byte")
+    void namesTheContextNight() {
+        AskSnapshot.Night tonight = AskNightFixtures.astroNight(MONDAY);
+        AskSnapshot.Night tomorrow = AskNightFixtures.auroraNight(MONDAY.plusDays(1));
+
+        String tonightPrompt = builder.systemPrompt(MONDAY, TestScopes.of(), null, tonight, MONDAY, true, false);
+        String tomorrowPrompt = builder.systemPrompt(MONDAY, TestScopes.of(), null, tomorrow, MONDAY, true, false);
+
+        assertThat(tonightPrompt).contains("looking at tonight's astro night (windowId 2026-10-05_astro)");
+        assertThat(tomorrowPrompt).contains("looking at tomorrow night's aurora night (windowId 2026-10-06_aurora)");
+        assertThat(builder.systemPrompt(MONDAY, TestScopes.of(), null, null, null, true, false))
+                .isEqualTo(builder.systemPrompt(MONDAY, TestScopes.of(), null, true));
+    }
+
     // -- the thread ---------------------------------------------------------------------------
 
     @Test
@@ -166,7 +197,7 @@ class AskPromptBuilderTest {
         ThreadExchange earlier = new ThreadExchange("best sunset?", "Whitby.",
                 List.of(new PickRef(1L, "2026-10-05_sunset")), List.of(), AskFixtures.GENERATED_AT, false);
         return AskThreadContext.of(new AskThread(List.of(earlier)), snapshot, TestScopes.of(), tools,
-                AskLocationNames.NONE, turnedDown);
+                AskLocationNames.NONE, turnedDown, false);
     }
 
     @Test
@@ -214,7 +245,7 @@ class AskPromptBuilderTest {
                 List.of(new PickRef(3L, "2026-10-05_sunset"), new PickRef(41L, "2026-10-05_sunrise")),
                 List.of(new EventRef("AURORA", wednesday)), AskFixtures.GENERATED_AT, false);
         return AskThreadContext.of(new AskThread(List.of(first, second)), snapshot, scope, tools,
-                () -> Map.of(41L, new AskLocationNames.Place("Dunstanburgh", 55.5, -1.6)));
+                () -> Map.of(41L, new AskLocationNames.Place("Dunstanburgh", 55.5, -1.6)), false, false);
     }
 
     private static String golden(String name) throws Exception {

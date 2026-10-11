@@ -6,12 +6,14 @@ import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.service.evaluation.RatingValidator;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.TreeSet;
 
 /**
  * A read-only picture of the served briefing, for Ask's tools and validator (plan §2.2).
@@ -36,22 +38,53 @@ import java.util.Optional;
  * @param briefingStale true when the served briefing is the last-known-good one rather than a fresh
  *                    build ({@code DailyBriefingResponse.stale()}); Ready precompute does not
  *                    answer from one
+ * @param nights      tonight's and tomorrow night's astro and aurora forecasts (ask-night plan §2.1);
+ *                    {@link Nights#NONE} when there are none. User-less like the rest of the snapshot:
+ *                    aurora figures are in it and are withheld by role where an asker is known
  */
 public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate today,
         List<Window> windows, List<Topic> hotTopics, List<ComingUp> comingUp,
-        boolean briefingStale) {
+        boolean briefingStale, Nights nights) {
 
     /** The least served rating a slot may carry and still be offered as a pick. */
     public static final int MIN_PICK_RATING = 3;
 
+    /**
+     * The least astro rating a night spot may carry and still be offered as a pick. Four, not three:
+     * the astro template's BASE score is 3★ ("no factor moved it"), so a 3 is not a good night the way a
+     * Claude-judged 3★ sunrise is; 4 means cloud, visibility and moon all left it better than the base.
+     */
+    public static final int MIN_ASTRO_PICK_RATING = 4;
+
+    /** The least aurora rating a night spot may carry and still be offered as a pick (Claude's own judgement). */
+    public static final int MIN_AURORA_PICK_RATING = 3;
+
     /** The furthest ahead the {@link #timeline} (and so {@code get_coming_up}) looks, in days. */
     public static final int MAX_COMING_UP_DAYS = 90;
 
-    /** Canonical constructor: takes immutable copies; a null list reads as empty. */
+    /** Canonical constructor: takes immutable copies; a null list reads as empty, null nights as none. */
     public AskSnapshot {
         windows = windows == null ? List.of() : List.copyOf(windows);
         hotTopics = hotTopics == null ? List.of() : List.copyOf(hotTopics);
         comingUp = comingUp == null ? List.of() : List.copyOf(comingUp);
+        nights = nights == null ? Nights.NONE : nights;
+    }
+
+    /**
+     * A snapshot with no night forecast.
+     *
+     * @param generatedAt   when the briefing was built (UTC), or null
+     * @param runLabel      {@code HH:mm} Europe/London of {@code generatedAt}, or null
+     * @param today         today on the UK civil calendar
+     * @param windows       the window set
+     * @param hotTopics     the served hot topics
+     * @param comingUp      the almanac entries
+     * @param briefingStale whether the served briefing is the last-known-good one
+     */
+    public AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate today,
+            List<Window> windows, List<Topic> hotTopics, List<ComingUp> comingUp,
+            boolean briefingStale) {
+        this(generatedAt, runLabel, today, windows, hotTopics, comingUp, briefingStale, Nights.NONE);
     }
 
     /**
@@ -66,7 +99,7 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
      */
     public AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate today,
             List<Window> windows, List<Topic> hotTopics, List<ComingUp> comingUp) {
-        this(generatedAt, runLabel, today, windows, hotTopics, comingUp, false);
+        this(generatedAt, runLabel, today, windows, hotTopics, comingUp, false, Nights.NONE);
     }
 
     /**
@@ -255,6 +288,257 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
      * @param slot   the slot
      */
     public record Candidate(Window window, Region region, Slot slot) {
+    }
+
+    /**
+     * The night forecasts of the snapshot (ask-night plan §2.1).
+     *
+     * @param tonight the date of the night in progress or next to begin, per
+     *                {@code AuroraForecastRunService.currentNightDate()} — never the UK civil date, which
+     *                at 00:30 would name the unscored next night and drop the one in progress; null when
+     *                the snapshot carries no nights
+     * @param nights  the nights, each kind separately: for {@code tonight} and {@code tonight + 1}, an
+     *                ASTRO night when astro rows exist for it and an AURORA night when non-simulated
+     *                aurora results do
+     * @param aurora  the aurora alert state for tonight, or null when it must not be reported (an
+     *                admin simulation is active, or the snapshot carries no nights)
+     */
+    public record Nights(LocalDate tonight, List<Night> nights, AuroraState aurora) {
+
+        /** No night forecast at all. */
+        public static final Nights NONE = new Nights(null, List.of(), null);
+
+        /** Canonical constructor: an immutable copy; a null list reads as empty. */
+        public Nights {
+            nights = nights == null ? List.of() : List.copyOf(nights);
+        }
+
+        /**
+         * Finds a night by its window id.
+         *
+         * @param windowId {@code yyyy-MM-dd_astro} or {@code yyyy-MM-dd_aurora}
+         * @return the night, or empty when it is not in the set
+         */
+        public Optional<Night> night(String windowId) {
+            return nights.stream().filter(n -> n.id().equals(windowId)).findFirst();
+        }
+
+        /**
+         * Finds a night by date and kind.
+         *
+         * @param date the date whose dusk opens the night
+         * @param kind ASTRO or AURORA
+         * @return the night, or empty when there is none
+         */
+        public Optional<Night> night(LocalDate date, AskWindowKind kind) {
+            return nights.stream().filter(n -> n.date().equals(date) && n.kind() == kind).findFirst();
+        }
+
+        /**
+         * The distinct dates the snapshot holds a night for, earliest first.
+         *
+         * @return the dates
+         */
+        public List<LocalDate> dates() {
+            return List.copyOf(new TreeSet<>(nights.stream().map(Night::date).toList()));
+        }
+    }
+
+    /**
+     * One kind of night: the astro conditions or the aurora results scored for the night that opens at
+     * dusk on {@code date}.
+     *
+     * @param id         the window id ({@link AskWindowId}), {@code yyyy-MM-dd_astro} or {@code _aurora}
+     * @param date       the date whose dusk opens the night
+     * @param kind       ASTRO or AURORA
+     * @param start      the night's nautical dusk (UTC), or null when no window is known: an aurora night
+     *                   carries its date's astro window, and the aurora entity holds none of its own
+     * @param end        the night's nautical dawn (UTC), or null
+     * @param generation the instant of the run these spots came from: for ASTRO the night's latest
+     *                   generation ({@code max(run_timestamp)}, one instant per scoring run), the identity
+     *                   a night answer is versioned on; for AURORA the latest result's run instant
+     * @param spots      the places the night was scored for: enabled, with a Bortle class and a region,
+     *                   never canopy-only, and (for ASTRO) of the latest generation only
+     */
+    public record Night(String id, LocalDate date, AskWindowKind kind, LocalDateTime start,
+            LocalDateTime end, Instant generation, List<NightSpot> spots) {
+
+        /** Canonical constructor: an immutable copy; a null list reads as empty. */
+        public Night {
+            spots = spots == null ? List.of() : List.copyOf(spots);
+        }
+    }
+
+    /**
+     * One place's night forecast. The astro and aurora figures are each null when that kind has no row
+     * for the place and night; an AURORA night's spot carries its astro figures beside the aurora ones
+     * when the same place has an astro row for the date.
+     *
+     * @param locationId            the location id
+     * @param name                  the location name
+     * @param regionName            the region name; never null (a place with no region is not a spot)
+     * @param lat                   the latitude, for {@code nearHome}
+     * @param lon                   the longitude, for {@code nearHome}
+     * @param canopy                true when the place's only subject is under canopy, whose star means
+     *                              the opposite of a sky star; such a spot is never pick-eligible
+     * @param bortleClass           the Bortle class (1 darkest); never null here
+     * @param skyBrightnessSqm      the sky quality reading, or null
+     * @param astroStars            the astro conditions rating (1-5), or null
+     * @param astroSummary          the served astro summary, or null
+     * @param cloudExplanation      the served cloud explanation: what "clear skies tonight" asks about
+     * @param visibilityExplanation the served visibility explanation, or null
+     * @param moonExplanation       the served moon explanation, or null
+     * @param moonPhase             the lunar phase name at the night's midpoint, or null
+     * @param moonIlluminationPct   the moon's illumination at the midpoint (0-100), or null
+     * @param auroraStars           the aurora rating (1-5), or null
+     * @param auroraSummary         the served aurora summary, or null
+     * @param triaged               true when the aurora row is a weather-triage template, not a Claude score
+     * @param triageReason          why the triage stood it down, or null
+     * @param alertLevel            the alert level that drove the aurora scoring, or null
+     * @param maxKp                 the highest Kp forecast for the night's dark window, or null
+     */
+    public record NightSpot(long locationId, String name, String regionName, double lat, double lon,
+            boolean canopy, Integer bortleClass, Double skyBrightnessSqm, Integer astroStars,
+            String astroSummary, String cloudExplanation, String visibilityExplanation,
+            String moonExplanation, String moonPhase, Double moonIlluminationPct, Integer auroraStars,
+            String auroraSummary, boolean triaged, String triageReason, String alertLevel, Double maxKp) {
+    }
+
+    /**
+     * The aurora alert state for tonight, read from {@code AuroraStateCache}.
+     *
+     * @param level the alert level name; {@code QUIET} when no alert is active
+     * @param kp    the Kp that drove the alert, or null when none is active or none was recorded
+     */
+    public record AuroraState(String level, Double kp) {
+    }
+
+    /**
+     * A pick resolved against the live snapshot, solar or night: the one shape the validator, the
+     * thread re-join and the Ready freshness re-check read, so a night pick is held to the same
+     * three-step test as a solar one (offered, live, in scope) with the night eligibility rule.
+     *
+     * @param kind         the window's kind
+     * @param windowId     the window id
+     * @param date         the window's date
+     * @param locationName the live location name
+     * @param regionName   the live region name
+     * @param rating       the live served rating: the slot's rating, or a night spot's eligible figure
+     * @param verdict      the live display verdict name; null for a night pick
+     */
+    public record ResolvedPick(AskWindowKind kind, String windowId, LocalDate date, String locationName,
+            String regionName, Integer rating, String verdict) {
+    }
+
+    /**
+     * A night spot with the night it belongs to.
+     *
+     * @param night the night
+     * @param spot  the spot
+     */
+    public record NightCandidate(Night night, NightSpot spot) {
+    }
+
+    /**
+     * The night pick-eligibility rule (ask-night plan §2.4), the sibling of {@link #isPickEligible} and
+     * the one place it is decided. Never a canopy-only place. On an ASTRO night the astro rating is at
+     * least {@value #MIN_ASTRO_PICK_RATING}; on an AURORA night the asker may see aurora figures at all
+     * ({@code canSeeAurora}, derived from the role and threaded here because a snapshot is user-less),
+     * the row is a Claude score rather than a weather-triage template, and the aurora rating is at
+     * least {@value #MIN_AURORA_PICK_RATING}. Ratings are held to Claude's 1-5 scale first.
+     *
+     * @param kind         the night's kind
+     * @param spot         the spot
+     * @param canSeeAurora whether the asker's role may see aurora figures
+     * @return true when the spot may be offered as a pick on that night
+     */
+    public static boolean isNightPickEligible(AskWindowKind kind, NightSpot spot, boolean canSeeAurora) {
+        if (spot.canopy() || spot.name() == null || spot.name().isBlank()) {
+            return false;
+        }
+        return switch (kind) {
+            case ASTRO -> RatingValidator.isInRange(spot.astroStars())
+                    && spot.astroStars() >= MIN_ASTRO_PICK_RATING;
+            case AURORA -> canSeeAurora && !spot.triaged() && RatingValidator.isInRange(spot.auroraStars())
+                    && spot.auroraStars() >= MIN_AURORA_PICK_RATING;
+            default -> false;
+        };
+    }
+
+    /**
+     * The figure a night spot is held to on a night of this kind: the astro or the aurora rating.
+     *
+     * @param kind ASTRO or AURORA
+     * @param spot the spot
+     * @return the rating, or null when the spot has none of that kind or the kind is not a night
+     */
+    public static Integer nightRating(AskWindowKind kind, NightSpot spot) {
+        return switch (kind) {
+            case ASTRO -> spot.astroStars();
+            case AURORA -> spot.auroraStars();
+            default -> null;
+        };
+    }
+
+    /**
+     * Finds a location's spot on a night whether or not it is pick-eligible. Only the thread's prompt
+     * lines use this, to say what became of an earlier night pick; nothing is served from it.
+     *
+     * @param windowId   a night window id
+     * @param locationId the location id
+     * @return the spot with its night, or empty when the night is not in the set or the place is not on it
+     */
+    public Optional<NightCandidate> nightSlotAt(String windowId, long locationId) {
+        return nights.night(windowId).flatMap(n -> n.spots().stream()
+                .filter(s -> s.locationId() == locationId)
+                .findFirst()
+                .map(s -> new NightCandidate(n, s)));
+    }
+
+    /**
+     * Finds a location's pick-eligible spot on a night: the night's counterpart of {@link #candidate}.
+     *
+     * @param windowId     a night window id
+     * @param locationId   the location id
+     * @param canSeeAurora whether the asker's role may see aurora figures
+     * @return the spot with its night, or empty when the night is not in the set, the place is not on it,
+     *         or it is not eligible
+     */
+    public Optional<NightCandidate> nightCandidate(String windowId, long locationId, boolean canSeeAurora) {
+        return nightSlotAt(windowId, locationId)
+                .filter(c -> isNightPickEligible(c.night().kind(), c.spot(), canSeeAurora));
+    }
+
+    /**
+     * Whether a window id names a window the snapshot holds: a solar window of the set, or a night.
+     *
+     * @param windowId the window id
+     * @return true when the window is in the snapshot
+     */
+    public boolean hasWindow(String windowId) {
+        return window(windowId).isPresent() || nights.night(windowId).isPresent();
+    }
+
+    /**
+     * Resolves a pick against the live snapshot, solar or night, applying the matching eligibility
+     * rule: the one lookup the validator, the thread re-join and the Ready freshness re-check make.
+     *
+     * @param windowId     the window id
+     * @param locationId   the location id
+     * @param canSeeAurora whether the asker's role may see aurora figures (only a night pick reads it)
+     * @return the live pick, or empty when the window is not in the set or the slot is not eligible
+     */
+    public Optional<ResolvedPick> resolvePick(String windowId, long locationId, boolean canSeeAurora) {
+        boolean night = AskWindowId.parse(windowId).map(p -> p.kind().isNight()).orElse(false);
+        if (night) {
+            return nightCandidate(windowId, locationId, canSeeAurora).map(c -> new ResolvedPick(
+                    c.night().kind(), c.night().id(), c.night().date(), c.spot().name(),
+                    c.spot().regionName(), nightRating(c.night().kind(), c.spot()), null));
+        }
+        return candidate(windowId, locationId).map(c -> new ResolvedPick(
+                AskWindowKind.of(c.window().targetType()), c.window().id(), c.window().date(),
+                c.slot().name(), c.region().name(), c.slot().rating(),
+                c.slot().verdict() == null ? null : c.slot().verdict().name()));
     }
 
     /**

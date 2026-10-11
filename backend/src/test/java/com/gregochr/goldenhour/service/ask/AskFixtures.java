@@ -13,7 +13,12 @@ import com.gregochr.goldenhour.model.LocationTideFact;
 import com.gregochr.goldenhour.model.PlanRenderedEvent;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.model.comingup.ComingUpResponse;
+import com.gregochr.goldenhour.repository.AstroConditionsRepository;
+import com.gregochr.goldenhour.repository.AuroraForecastResultRepository;
 import com.gregochr.goldenhour.service.AlmanacService;
+import com.gregochr.goldenhour.service.AstroConditionsService;
+import com.gregochr.goldenhour.service.aurora.AuroraForecastRunService;
+import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.SolarEventFreshness;
 import com.gregochr.goldenhour.service.TravelDayService;
@@ -219,7 +224,9 @@ final class AskFixtures {
         when(almanacService.getFeed(AlmanacService.DEFAULT_DAYS))
                 .thenReturn(new ComingUpResponse(TODAY, null, null, List.of(), new ArrayList<>(almanac)));
         return new AskSnapshotBuilder(briefingService, travelDays, almanacService, freshness,
-                clockAt(now)).build().orElseThrow();
+                clockAt(now), Mockito.mock(AstroConditionsRepository.class),
+                Mockito.mock(AuroraForecastResultRepository.class), Mockito.mock(AstroConditionsService.class),
+                Mockito.mock(AuroraForecastRunService.class), new AuroraStateCache()).build().orElseThrow();
     }
 
     static Instant instant(LocalDateTime utc) {

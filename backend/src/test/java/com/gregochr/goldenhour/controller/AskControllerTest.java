@@ -1,7 +1,7 @@
 package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.RegionEntity;
-import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.service.ask.AskWindowKind;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.ask.AskEvent;
 import com.gregochr.goldenhour.service.ask.AskProperties;
@@ -78,7 +78,7 @@ class AskControllerTest extends AbstractControllerTest {
 
     private static AskReadyResponse.Question question() {
         AskReadyResponse.Pick pick = new AskReadyResponse.Pick(1, 123L, "Whitby", "North York Moors & Coast",
-                LocalDate.of(2026, 10, 5), TargetType.SUNSET, "2026-10-05_sunset", "Clear and the tide suits.");
+                LocalDate.of(2026, 10, 5), AskWindowKind.SUNSET, "2026-10-05_sunset", "Clear and the tide suits.");
         AskEvent noWarning = new AskEvent("AURORA", "Aurora tonight", LocalDate.of(2026, 10, 5), "Kp 6.", null);
         AskEvent warning = new AskEvent("ECLIPSE", "Partial solar eclipse", LocalDate.of(2026, 10, 10),
                 "Visible.", "Certified solar filter on the lens");

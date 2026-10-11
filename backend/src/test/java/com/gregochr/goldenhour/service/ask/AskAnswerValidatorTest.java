@@ -55,8 +55,14 @@ class AskAnswerValidatorTest {
         return new RawPick(id, SUNSET_TODAY, why);
     }
 
+    /** The validator for an asker who may not see aurora figures: the solar tests are blind to the flag. */
+    private Result validateAs(Raw raw, AskSnapshot snapshot, AskEvidence evidence, AskScope scope,
+            AskAnswerValidator.BestAnchor anchor, ReadyQuestion eventsQuestion) {
+        return validator.validate(raw, snapshot, evidence, scope, anchor, eventsQuestion, false);
+    }
+
     private Result validate(Raw raw, AskSnapshot snapshot, AskEvidence evidence) {
-        return validator.validate(raw, snapshot, evidence, AskScope.ALL, null, null);
+        return validateAs(raw, snapshot, evidence, AskScope.ALL, null, null);
     }
 
     // -- picks ------------------------------------------------------------------------------
@@ -76,7 +82,7 @@ class AskAnswerValidatorTest {
         assertThat(pick.locationName()).isEqualTo("Whitby");
         assertThat(pick.regionName()).isEqualTo("Coast");
         assertThat(pick.date()).isEqualTo(TODAY);
-        assertThat(pick.targetType()).isEqualTo(TargetType.SUNSET);
+        assertThat(pick.targetType()).isEqualTo(AskWindowKind.SUNSET);
         assertThat(pick.windowId()).isEqualTo(SUNSET_TODAY);
         assertThat(pick.why()).isEqualTo("Clear west");
         assertThat(pick.ratingAtAnswer()).isEqualTo(4);
@@ -491,7 +497,7 @@ class AskAnswerValidatorTest {
                 List.of(AskSnapshotBuilderTest.almanacEntry("lunar-eclipse", "Total lunar eclipse", day, day,
                         "d")));
 
-        Result result = validator.validate(new Raw(true, "None.", List.of(), List.of(), null), snapshot,
+        Result result = validateAs(new Raw(true, "None.", List.of(), List.of(), null), snapshot,
                 new AskEvidence(Set.of(), Set.of(), 2), AskScope.ALL, null, ReadyQuestion.RARE_EVENTS);
 
         assertThat(result.reason()).isEqualTo("events question answered \"none\" while 1 events were offered");
@@ -604,7 +610,7 @@ class AskAnswerValidatorTest {
     @Test
     @DisplayName("BEST_*: pick 1 on the BEST BET window is accepted, whichever location leads there")
     void bestAnchor_leadingWithTheBestWindowIsAccepted() {
-        Result result = validator.validate(answer("Tonight.", rawPick(2L, "Brightest")),
+        Result result = validateAs(answer("Tonight.", rawPick(2L, "Brightest")),
                 twoWindowSnapshot(), BOTH_WINDOWS, AskScope.ALL, ANCHOR, null);
 
         assertThat(result.accepted()).isTrue();
@@ -613,7 +619,7 @@ class AskAnswerValidatorTest {
     @Test
     @DisplayName("BEST_*: pick 1 on any other window discards the answer")
     void bestAnchor_leadingElsewhereIsDiscarded() {
-        Result result = validator.validate(
+        Result result = validateAs(
                 answer("Tomorrow.", new RawPick(2L, SUNRISE_TOMORROW, "x"), rawPick(1L, "y")),
                 twoWindowSnapshot(), BOTH_WINDOWS, AskScope.ALL, ANCHOR, null);
 
@@ -624,7 +630,7 @@ class AskAnswerValidatorTest {
     @Test
     @DisplayName("BEST_*: an answer with no surviving pick at all is discarded when a BEST BET exists")
     void bestAnchor_noPickIsDiscarded() {
-        Result result = validator.validate(answer("Nothing."), twoWindowSnapshot(), BOTH_WINDOWS,
+        Result result = validateAs(answer("Nothing."), twoWindowSnapshot(), BOTH_WINDOWS,
                 AskScope.ALL, ANCHOR, null);
 
         assertThat(result.accepted()).isFalse();
@@ -633,7 +639,7 @@ class AskAnswerValidatorTest {
     @Test
     @DisplayName("BEST_*: unanswerable is not an escape from the anchor")
     void bestAnchor_unanswerableIsDiscarded() {
-        Result result = validator.validate(new Raw(false, "No.", null, null, "data"),
+        Result result = validateAs(new Raw(false, "No.", null, null, "data"),
                 twoWindowSnapshot(), BOTH_WINDOWS, AskScope.ALL, ANCHOR, null);
 
         assertThat(result.accepted()).isFalse();
@@ -644,7 +650,7 @@ class AskAnswerValidatorTest {
     void bestAnchor_notAnchoredWithoutABestWindowCovered() {
         BestAnchor tomorrowOnly = new BestAnchor(Set.of(SUNRISE_TOMORROW));
 
-        Result result = validator.validate(
+        Result result = validateAs(
                 answer("Tomorrow.", new RawPick(2L, SUNRISE_TOMORROW, "x")),
                 twoWindowSnapshot(), BOTH_WINDOWS, AskScope.ALL, tomorrowOnly, null);
 
@@ -656,7 +662,7 @@ class AskAnswerValidatorTest {
     void bestAnchor_bestBetOutOfScope() {
         BestAnchor otherScope = new BestAnchor(Set.of(SUNSET_TODAY));
 
-        Result result = validator.validate(
+        Result result = validateAs(
                 answer("Tomorrow.", new RawPick(2L, SUNRISE_TOMORROW, "x")),
                 twoWindowSnapshot(), BOTH_WINDOWS, TestScopes.of("Hills"), otherScope, null);
 
@@ -672,7 +678,7 @@ class AskAnswerValidatorTest {
                         AskFixtures.region("Coast", true, AskFixtures.slot(1L, "Whitby", 2)))),
                 List.of()));
 
-        Result result = validator.validate(answer("Nothing is worth it tonight."), snapshot,
+        Result result = validateAs(answer("Nothing is worth it tonight."), snapshot,
                 new AskEvidence(Set.of(), Set.of(), 1), AskScope.ALL, new BestAnchor(Set.of(SUNSET_TODAY)), null);
 
         assertThat(result.accepted()).isTrue();
@@ -693,9 +699,9 @@ class AskAnswerValidatorTest {
         BestAnchor coastOnly = new BestAnchor(Set.of(SUNSET_TODAY));
         AskEvidence toolsCalled = new AskEvidence(Set.of(), Set.of(), 1);
 
-        Result noPicks = validator.validate(answer("Nothing is worth it in Coast tonight."),
+        Result noPicks = validateAs(answer("Nothing is worth it in Coast tonight."),
                 snapshot, toolsCalled, TestScopes.of("coast"), coastOnly, null);
-        Result unanswerable = validator.validate(new Raw(false, "No.", null, null, "data"),
+        Result unanswerable = validateAs(new Raw(false, "No.", null, null, "data"),
                 snapshot, toolsCalled, TestScopes.of("coast"), coastOnly, null);
 
         assertThat(noPicks.accepted()).isTrue();
@@ -709,7 +715,7 @@ class AskAnswerValidatorTest {
         BestAnchor everywhere = new BestAnchor(Set.of(SUNSET_TODAY));
         AskEvidence toolsCalled = new AskEvidence(Set.of(), Set.of(), 1);
 
-        Result noPicks = validator.validate(answer("Nothing."), snapshot, toolsCalled, TestScopes.of(),
+        Result noPicks = validateAs(answer("Nothing."), snapshot, toolsCalled, TestScopes.of(),
                 everywhere, null);
 
         assertThat(noPicks.accepted()).isFalse();
@@ -722,7 +728,7 @@ class AskAnswerValidatorTest {
         BestAnchor hillsOnly = new BestAnchor(Set.of(SUNSET_TODAY));
         AskEvidence toolsCalled = new AskEvidence(Set.of(), Set.of(), 1);
 
-        Result noPicks = validator.validate(answer("Nothing."), snapshot, toolsCalled,
+        Result noPicks = validateAs(answer("Nothing."), snapshot, toolsCalled,
                 TestScopes.of("Coast", "HILLS"), hillsOnly, null);
 
         assertThat(noPicks.accepted()).isFalse();
@@ -758,7 +764,7 @@ class AskAnswerValidatorTest {
         AskEvidence evidence = evidenceOf(pair(1L), pair(5L));
         Raw raw = answer("Two.", rawPick(5L, "Hills"), rawPick(1L, "Coast"));
 
-        Result result = validator.validate(raw, snapshot, evidence, TestScopes.of("coast"), null, null);
+        Result result = validateAs(raw, snapshot, evidence, TestScopes.of("coast"), null, null);
 
         assertThat(result.answer().picks()).singleElement().satisfies(p -> {
             assertThat(p.locationId()).isEqualTo(1L);
@@ -773,9 +779,9 @@ class AskAnswerValidatorTest {
         AskEvidence evidence = evidenceOf(pair(1L), pair(5L));
         Raw raw = answer("Two.", rawPick(5L, "Hills"), rawPick(1L, "Coast"));
 
-        assertThat(validator.validate(raw, snapshot, evidence, TestScopes.of(), null, null).answer().picks())
+        assertThat(validateAs(raw, snapshot, evidence, TestScopes.of(), null, null).answer().picks())
                 .hasSize(2);
-        assertThat(validator.validate(raw, snapshot, evidence, TestScopes.of("COAST", "hills"), null, null)
+        assertThat(validateAs(raw, snapshot, evidence, TestScopes.of("COAST", "hills"), null, null)
                 .answer().picks()).hasSize(2);
     }
 
@@ -784,7 +790,7 @@ class AskAnswerValidatorTest {
     void scope_allPicksOutOfScope() {
         AskSnapshot snapshot = twoRegionSnapshot();
 
-        Result result = validator.validate(answer("Hills.", rawPick(5L, "Hills")), snapshot,
+        Result result = validateAs(answer("Hills.", rawPick(5L, "Hills")), snapshot,
                 evidenceOf(pair(5L)), TestScopes.of("Coast"), null, null);
 
         assertThat(result.accepted()).isTrue();
@@ -821,7 +827,7 @@ class AskAnswerValidatorTest {
                 new AskEvidence.Pair(2L, SUNRISE_TOMORROW), new AskEvidence.Pair(1L, SUNSET_TODAY)),
                 Set.of(), 1);
 
-        Result result = validator.validate(answer("Two.", rawPick(2L, "a"),
+        Result result = validateAs(answer("Two.", rawPick(2L, "a"),
                 new RawPick(2L, SUNRISE_TOMORROW, "b"), rawPick(1L, "c")),
                 twoWindowSnapshot(), evidence, AskScope.ALL, null, null);
 
@@ -859,7 +865,7 @@ class AskAnswerValidatorTest {
                 new AskTools.RankSpotsArgs(List.of(SUNSET_TODAY), null, null, null, null, 1))
                 .payload()).spots().getFirst();
 
-        Result result = validator.validate(
+        Result result = validateAs(
                 answer("Top.", new RawPick(top.locationId(), top.windowId(), "Best")),
                 snapshot, tools.evidence(), AskScope.ALL, null, null);
 
@@ -874,7 +880,7 @@ class AskAnswerValidatorTest {
     }
 
     private Result validateEvents(Raw raw, AskSnapshot snapshot, ReadyQuestion question) {
-        return validator.validate(raw, snapshot, new AskEvidence(Set.of(), Set.of(), 2), AskScope.ALL, null, question);
+        return validateAs(raw, snapshot, new AskEvidence(Set.of(), Set.of(), 2), AskScope.ALL, null, question);
     }
 
     private static Raw none() {
@@ -929,7 +935,7 @@ class AskAnswerValidatorTest {
         Raw raw = new Raw(true, "An eclipse.", List.of(), List.of(new RawEvent("eclipse", null, "Low sun")),
                 null);
 
-        Result result = validator.validate(raw, snapshot, evidence, AskScope.ALL, null, ReadyQuestion.RARE_EVENTS);
+        Result result = validateAs(raw, snapshot, evidence, AskScope.ALL, null, ReadyQuestion.RARE_EVENTS);
 
         assertThat(result.accepted()).isTrue();
         assertThat(result.answer().events()).extracting(AskEvent::type).containsExactly("ECLIPSE");
@@ -943,7 +949,7 @@ class AskAnswerValidatorTest {
                 AskFixtures.topic("ECLIPSE", "Partial solar eclipse", "d", TODAY.plusDays(4), List.of()));
         Raw raw = new Raw(true, "An eclipse.", List.of(), List.of(new RawEvent("ECLIPSE", null, "x")), null);
 
-        Result result = validator.validate(raw, snapshot, new AskEvidence(Set.of(), Set.of(), 1), AskScope.ALL, null,
+        Result result = validateAs(raw, snapshot, new AskEvidence(Set.of(), Set.of(), 1), AskScope.ALL, null,
                 ReadyQuestion.RARE_EVENTS);
 
         assertThat(result.accepted()).isFalse();
@@ -957,13 +963,13 @@ class AskAnswerValidatorTest {
                 AskFixtures.topic("KING_TIDE", "King tide", "d", TODAY, List.of("Coast")));
         AskEvidence evidence = new AskEvidence(Set.of(), Set.of(), 1);
 
-        assertThat(validator.validate(none(), snapshot, evidence, TestScopes.of("coast"), null,
+        assertThat(validateAs(none(), snapshot, evidence, TestScopes.of("coast"), null,
                 ReadyQuestion.SNOW_TOPS).accepted())
                 .as("snow question: neither a king tide nor an aurora answers it").isTrue();
-        assertThat(validator.validate(none(), snapshot, evidence, TestScopes.of("Hills"), null,
+        assertThat(validateAs(none(), snapshot, evidence, TestScopes.of("Hills"), null,
                 ReadyQuestion.RARE_EVENTS).accepted())
                 .as("every offered topic names another region").isTrue();
-        assertThat(validator.validate(none(), snapshot, evidence, TestScopes.of("Coast"), null,
+        assertThat(validateAs(none(), snapshot, evidence, TestScopes.of("Coast"), null,
                 ReadyQuestion.RARE_EVENTS).accepted())
                 .as("the king tide is in scope").isFalse();
     }
@@ -1012,7 +1018,7 @@ class AskAnswerValidatorTest {
         Raw raw = new Raw(true, "No snow, but an aurora.", List.of(),
                 List.of(new RawEvent("AURORA", null, "Kp 6")), null);
 
-        Result result = validator.validate(raw, snapshot, evidence, AskScope.ALL, null, ReadyQuestion.SNOW_TOPS);
+        Result result = validateAs(raw, snapshot, evidence, AskScope.ALL, null, ReadyQuestion.SNOW_TOPS);
 
         assertThat(result.accepted()).isFalse();
         assertThat(result.reason()).isEqualTo("events question answered \"none\" while 1 events were offered");
@@ -1027,7 +1033,7 @@ class AskAnswerValidatorTest {
                 new AskEvidence.EventFact("AURORA", "Aurora", TODAY)), 1);
         Raw raw = new Raw(true, "An aurora.", List.of(), List.of(new RawEvent("AURORA", null, "Kp 6")), null);
 
-        Result result = validator.validate(raw, snapshot, evidence, AskScope.ALL, null, ReadyQuestion.RARE_EVENTS);
+        Result result = validateAs(raw, snapshot, evidence, AskScope.ALL, null, ReadyQuestion.RARE_EVENTS);
 
         assertThat(result.accepted()).isTrue();
         assertThat(result.answer().events()).extracting(AskEvent::type).containsExactly("AURORA");
@@ -1076,7 +1082,7 @@ class AskAnswerValidatorTest {
         AskEvidence evidence = threadEvidence(1,
                 new AskEvidence.ThreadFact(Set.of(pair(1L)), Set.of(), Set.of()));
 
-        Result result = validator.validate(answer("Whitby.", rawPick(1L, "x")), snapshot, evidence,
+        Result result = validateAs(answer("Whitby.", rawPick(1L, "x")), snapshot, evidence,
                 TestScopes.of("Hills"), null, null);
 
         assertThat(result.answer().picks()).isEmpty();
@@ -1128,7 +1134,7 @@ class AskAnswerValidatorTest {
         AskEvidence evidence = offeredByThread(0, Set.of(), at(1L, SUNSET_TODAY), at(1L, SUNRISE_TOMORROW),
                 at(2L, SUNSET_TODAY), at(2L, SUNRISE_TOMORROW));
 
-        Result result = validator.validate(answer("Ranked.",
+        Result result = validateAs(answer("Ranked.",
                 new RawPick(2L, SUNRISE_TOMORROW, "a"), new RawPick(1L, SUNRISE_TOMORROW, "b"),
                 new RawPick(1L, SUNSET_TODAY, "c"), new RawPick(2L, SUNSET_TODAY, "d")),
                 twoWindowSnapshot(), evidence, AskScope.ALL, null, null);
@@ -1155,7 +1161,7 @@ class AskAnswerValidatorTest {
         AskEvidence evidence = offeredByThread(0, Set.of(), at(1L, SUNSET_TODAY), at(1L, SUNRISE_TOMORROW),
                 at(2L, SUNSET_TODAY), at(2L, SUNRISE_TOMORROW), at(3L, SUNSET_TODAY), at(3L, SUNRISE_TOMORROW));
 
-        Result result = validator.validate(answer("Ranked.",
+        Result result = validateAs(answer("Ranked.",
                 rawPick(1L, "a"), rawPick(1L, "again"), new RawPick(1L, SUNRISE_TOMORROW, "b"),
                 rawPick(2L, "c"), new RawPick(2L, SUNRISE_TOMORROW, "d"), rawPick(3L, "e")),
                 snapshot, evidence, AskScope.ALL, null, null);
@@ -1176,7 +1182,7 @@ class AskAnswerValidatorTest {
         AskEvidence evidence = evidenceOf(at(1L, SUNSET_TODAY), at(1L, SUNRISE_TOMORROW), at(2L, SUNSET_TODAY),
                 at(2L, SUNRISE_TOMORROW));
 
-        Result result = validator.validate(answer("Four.",
+        Result result = validateAs(answer("Four.",
                 new RawPick(2L, SUNRISE_TOMORROW, "a"), new RawPick(1L, SUNRISE_TOMORROW, "b"),
                 new RawPick(1L, SUNSET_TODAY, "c"), new RawPick(2L, SUNSET_TODAY, "d")),
                 twoWindowSnapshot(), evidence, AskScope.ALL, null, null);
@@ -1193,7 +1199,7 @@ class AskAnswerValidatorTest {
         AskEvidence evidence = offeredByThread(1, Set.of(at(2L, SUNSET_TODAY)),
                 at(1L, SUNSET_TODAY), at(1L, SUNRISE_TOMORROW));
 
-        Result result = validator.validate(answer("Mixed.",
+        Result result = validateAs(answer("Mixed.",
                 rawPick(1L, "a"), new RawPick(1L, SUNRISE_TOMORROW, "b"), rawPick(2L, "c")),
                 twoWindowSnapshot(), evidence, AskScope.ALL, null, null);
 
@@ -1208,7 +1214,7 @@ class AskAnswerValidatorTest {
         AskEvidence evidence = new AskEvidence(Set.of(at(1L, SUNSET_TODAY), at(1L, SUNRISE_TOMORROW)),
                 Set.of(), 1).withThread(AskEvidence.ThreadFact.NONE);
 
-        Result result = validator.validate(answer("Two.", rawPick(1L, "a"),
+        Result result = validateAs(answer("Two.", rawPick(1L, "a"),
                 new RawPick(1L, SUNRISE_TOMORROW, "b")), twoWindowSnapshot(), evidence, AskScope.ALL, null, null);
 
         assertThat(result.answer().picks()).hasSize(1);
@@ -1230,7 +1236,7 @@ class AskAnswerValidatorTest {
         AskEvidence evidence = turnedDownEvidence(1, Set.of(at(1L, SUNSET_TODAY), at(1L, SUNRISE_TOMORROW),
                 at(2L, SUNSET_TODAY)), Set.of(at(1L, SUNSET_TODAY)), Set.of(1L));
 
-        Result result = validator.validate(answer("Different places.", rawPick(1L, "a"),
+        Result result = validateAs(answer("Different places.", rawPick(1L, "a"),
                 new RawPick(1L, SUNRISE_TOMORROW, "b"), rawPick(2L, "c")),
                 twoWindowSnapshot(), evidence, AskScope.ALL, null, null);
 
@@ -1245,7 +1251,7 @@ class AskAnswerValidatorTest {
         AskEvidence evidence = turnedDownEvidence(1, Set.of(at(1L, SUNSET_TODAY), at(1L, SUNRISE_TOMORROW),
                 at(2L, SUNSET_TODAY)), Set.of(at(1L, SUNSET_TODAY)), Set.of());
 
-        Result result = validator.validate(answer("Same.", rawPick(1L, "a"),
+        Result result = validateAs(answer("Same.", rawPick(1L, "a"),
                 new RawPick(1L, SUNRISE_TOMORROW, "b"), rawPick(2L, "c")),
                 twoWindowSnapshot(), evidence, AskScope.ALL, null, null);
 
@@ -1260,7 +1266,7 @@ class AskAnswerValidatorTest {
         AskEvidence evidence = turnedDownEvidence(1, Set.of(at(1L, SUNSET_TODAY)),
                 Set.of(at(1L, SUNSET_TODAY)), Set.of(1L));
 
-        Result result = validator.validate(answer("Whitby again, it is the best.", rawPick(1L, "a")),
+        Result result = validateAs(answer("Whitby again, it is the best.", rawPick(1L, "a")),
                 twoWindowSnapshot(), evidence, AskScope.ALL, null, null);
 
         assertThat(result.accepted()).isTrue();
@@ -1278,7 +1284,7 @@ class AskAnswerValidatorTest {
     void turnedDown_emptyAnswerAfterAToolCall_isACant() {
         AskEvidence evidence = turnedDownEvidence(1, Set.of(), Set.of(at(1L, SUNSET_TODAY)), Set.of(1L));
 
-        Result result = validator.validate(answer("Nothing else."), twoWindowSnapshot(), evidence,
+        Result result = validateAs(answer("Nothing else."), twoWindowSnapshot(), evidence,
                 AskScope.ALL, null, null);
 
         assertThat(result.answer().answerable()).isFalse();
@@ -1291,7 +1297,7 @@ class AskAnswerValidatorTest {
     void turnedDown_emptyAnswerWithNoToolCall_isStillDiscarded() {
         AskEvidence evidence = turnedDownEvidence(0, Set.of(), Set.of(at(1L, SUNSET_TODAY)), Set.of(1L));
 
-        Result result = validator.validate(answer("Nothing."), twoWindowSnapshot(), evidence, AskScope.ALL,
+        Result result = validateAs(answer("Nothing."), twoWindowSnapshot(), evidence, AskScope.ALL,
                 null, null);
 
         assertThat(result.accepted()).isFalse();
@@ -1304,7 +1310,7 @@ class AskAnswerValidatorTest {
         AskEvidence evidence = turnedDownEvidence(1, Set.of(at(2L, SUNSET_TODAY)), Set.of(at(1L, SUNSET_TODAY)),
                 Set.of(1L));
 
-        Result result = validator.validate(answer("One.", rawPick(2L, "a"), rawPick(99L, "unknown")),
+        Result result = validateAs(answer("One.", rawPick(2L, "a"), rawPick(99L, "unknown")),
                 twoWindowSnapshot(), evidence, AskScope.ALL, null, null);
 
         assertThat(result.answer().picks()).extracting(AskPick::locationId).containsExactly(2L);
@@ -1430,7 +1436,7 @@ class AskAnswerValidatorTest {
                 AskFixtures.topic("AURORA", "Aurora", "d", TODAY, List.of()));
         Raw raw = new Raw(true, "Nothing.", List.of(), List.of(), null);
 
-        Result result = validator.validate(raw, snapshot, threadEvidence(1,
+        Result result = validateAs(raw, snapshot, threadEvidence(1,
                 new AskEvidence.ThreadFact(Set.of(), Set.of(), Set.of())), AskScope.ALL, null,
                 ReadyQuestion.RARE_EVENTS);
 

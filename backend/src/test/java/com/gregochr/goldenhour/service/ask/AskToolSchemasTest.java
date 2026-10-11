@@ -38,13 +38,13 @@ class AskToolSchemasTest {
     }
 
     @Test
-    @DisplayName("five tools, submit_answer last, named by the constants the engine dispatches on")
+    @DisplayName("six tools, submit_answer last, named by the constants the engine dispatches on")
     void toolNames() {
         List<Tool> tools = AskToolSchemas.tools(true);
 
         assertThat(tools).extracting(Tool::name).containsExactly(AskToolSchemas.LIST_WINDOWS,
-                AskToolSchemas.RANK_SPOTS, AskToolSchemas.GET_HOT_TOPICS, AskToolSchemas.GET_COMING_UP,
-                AskToolSchemas.SUBMIT_ANSWER);
+                AskToolSchemas.RANK_SPOTS, AskToolSchemas.RANK_NIGHT_SPOTS, AskToolSchemas.GET_HOT_TOPICS,
+                AskToolSchemas.GET_COMING_UP, AskToolSchemas.SUBMIT_ANSWER);
         assertThat(tools).allSatisfy(t -> assertThat(t.description()).isPresent());
     }
 
@@ -55,6 +55,8 @@ class AskToolSchemasTest {
 
         assertThat(properties(tool(tools, AskToolSchemas.RANK_SPOTS)))
                 .isEqualTo(components(AskTools.RankSpotsArgs.class));
+        assertThat(properties(tool(tools, AskToolSchemas.RANK_NIGHT_SPOTS)))
+                .isEqualTo(components(AskTools.RankNightSpotsArgs.class));
         assertThat(properties(tool(tools, AskToolSchemas.GET_HOT_TOPICS)))
                 .isEqualTo(components(AskTools.HotTopicsArgs.class));
         assertThat(properties(tool(tools, AskToolSchemas.GET_COMING_UP)))
@@ -72,6 +74,20 @@ class AskToolSchemasTest {
         assertThat(userLess).doesNotContain("maxDriveMinutes", "nearHome")
                 .containsExactlyInAnyOrderElementsOf(withUser.stream()
                         .filter(p -> !p.equals("maxDriveMinutes") && !p.equals("nearHome")).toList());
+    }
+
+    @Test
+    @DisplayName("the night tool advertises maxDriveMinutes and nearHome only with a user, names the two window "
+            + "ids a pick must use, and offers the three kinds")
+    void nightToolSchema() {
+        Tool withUser = tool(AskToolSchemas.tools(true), AskToolSchemas.RANK_NIGHT_SPOTS);
+        Tool userLess = tool(AskToolSchemas.tools(false), AskToolSchemas.RANK_NIGHT_SPOTS);
+
+        assertThat(properties(withUser)).contains("maxDriveMinutes", "nearHome");
+        assertThat(properties(userLess)).doesNotContain("maxDriveMinutes", "nearHome").contains("night", "kind");
+        assertThat(withUser.description().orElseThrow()).contains("astroWindowId").contains("auroraWindowId")
+                .contains("clear skies tonight");
+        assertThat(property(withUser, "kind").get("enum")).hasSize(3);
     }
 
     @Test

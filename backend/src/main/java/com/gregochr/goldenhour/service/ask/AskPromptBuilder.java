@@ -52,6 +52,14 @@ public class AskPromptBuilder {
             up, call BOTH get_hot_topics (the live forecast's next few days) and get_coming_up (the \
             almanac of months ahead) before you answer. Say there are no events only after both \
             returned nothing that bears on the question.
+            - For a night question (aurora, the northern lights, stars, stargazing, the Milky Way, \
+            dark skies, Bortle, "clear skies tonight") call rank_night_spots. "Clear skies tonight" is \
+            the astro cloud forecast, not the sunrise and sunset one. "Tonight" is the night \
+            list_windows names as tonight, which before dawn is the night still running. Never say an \
+            aurora is visible without an auroraStars figure for that place and night. When a result \
+            says aurora ratings are a Pro feature, say so in one clause. A night pick's "why" quotes \
+            the clearSky and Bortle facts the tool returned, and the pick is at the window id of the \
+            figure it cites: astroWindowId for the sky, auroraWindowId for the northern lights.
             - For a general "best" question lead with the window list_windows marks bestBet, when \
             it is in scope. If your answer leads elsewhere, the summary says why.
             - Say the tide "suits" a spot only when tideAligned is true. tideState is the water at \
@@ -139,6 +147,25 @@ public class AskPromptBuilder {
      */
     public String systemPrompt(LocalDate today, AskScope scope,
             AskSnapshot.Window contextWindow, boolean hasUser, boolean hasThread) {
+        return systemPrompt(today, scope, contextWindow, null, null, hasUser, hasThread);
+    }
+
+    /**
+     * Builds the system prompt, naming the night the reader is looking at when the Map is on a night row.
+     * With no night it is byte for byte the prompt of the overload above.
+     *
+     * @param today         today on the UK civil calendar
+     * @param scope         the regions asked about; {@link AskScope#ALL} means every region
+     * @param contextWindow the solar window the reader is looking at, or null
+     * @param contextNight  the night the reader is looking at, or null
+     * @param tonight       the date of the night in progress (the poller's), which words the night as
+     *                      "tonight" or "tomorrow night"; may be null when there is no night
+     * @param hasUser       whether a user (and so their drive times) is behind the conversation
+     * @param hasThread     whether the question follows earlier exchanges
+     * @return the prompt
+     */
+    public String systemPrompt(LocalDate today, AskScope scope, AskSnapshot.Window contextWindow,
+            AskSnapshot.Night contextNight, LocalDate tonight, boolean hasUser, boolean hasThread) {
         StringBuilder sb = new StringBuilder(RULES).append('\n');
         sb.append(hasUser ? WITH_USER : USER_LESS).append('\n');
         sb.append("Today is ").append(LONG_DATE.format(today)).append(" in the UK.\n");
@@ -154,6 +181,13 @@ public class AskPromptBuilder {
                     .append(' ').append(contextWindow.targetType().name().toLowerCase(Locale.ROOT))
                     .append(" (windowId ").append(contextWindow.id()).append("). Read \"it\", \"then\" and "
                             + "\"that day\" as that window unless the question says otherwise.\n");
+        }
+        if (contextNight != null) {
+            sb.append("The reader is looking at ")
+                    .append(contextNight.date().equals(tonight) ? "tonight" : "tomorrow night")
+                    .append("'s ").append(contextNight.kind().name().toLowerCase(Locale.ROOT))
+                    .append(" night (windowId ").append(contextNight.id()).append("). Read \"it\", \"then\" and "
+                            + "\"that night\" as that night unless the question says otherwise.\n");
         }
         if (hasThread) {
             sb.append('\n').append(THREAD_RULES);

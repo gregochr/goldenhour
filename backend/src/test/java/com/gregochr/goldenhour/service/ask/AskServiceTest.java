@@ -1361,6 +1361,164 @@ class AskServiceTest {
                         e -> assertThat(e.code()).isEqualTo(AskErrorCode.UNAUTHENTICATED));
     }
 
+    // -- the night (ask-night plan §2.2) ------------------------------------------------------
+
+    private static final String ASTRO_TONIGHT = "2026-10-05_astro";
+
+    /** The snapshot with tonight's astro night holding Bamburgh at 5 stars, and the aurora state as given. */
+    private AskSnapshot withTonightsAstro(AskSnapshot.AuroraState state) {
+        AskSnapshot withNights = AskNightFixtures.withNights(snapshot, state, AskNightFixtures.astroNight(
+                AskNightFixtures.TONIGHT, AskNightFixtures.astro(1L, "Bamburgh", "Northumberland", 5, 3)));
+        when(snapshotBuilder.current()).thenReturn(Optional.of(withNights));
+        return withNights;
+    }
+
+    private static AskRun nightRun() {
+        AskPick pick = new AskPick(1, 1L, "Bamburgh", "Northumberland", AskNightFixtures.TONIGHT,
+                AskWindowKind.ASTRO, ASTRO_TONIGHT, "Clear skies, Bortle 3.", 5, null);
+        return new AskRun(new AskOutcome(AskOutcome.Status.OK, ReadyFixtures.answer(pick), false, 2, true,
+                Set.of(AskNightFixtures.TONIGHT)), List.of(), null);
+    }
+
+    private ThreadExchange nightExchange(String version, boolean ready) {
+        return new ThreadExchange("clear skies tonight?", "Bamburgh is clear.",
+                List.of(new ThreadExchange.PickRef(1L, ASTRO_TONIGHT)), List.of(), snapshot.generatedAt(), ready,
+                version);
+    }
+
+    private static String liveNightVersion() {
+        return "n1;2026-10-05=" + AskNightFixtures.GENERATION.toEpochMilli();
+    }
+
+    @Test
+    @DisplayName("a night answer is never offered to the typed cache, and carries the night version it was "
+            + "given against, with the aurora level for an asker who may see it")
+    void nightAnswerIsUncacheableAndVersioned() {
+        role = UserRole.PRO_USER;
+        withTonightsAstro(new AskSnapshot.AuroraState("MODERATE", 6.0));
+        when(engine.run(any(), any(), any(), any())).thenAnswer(inv -> nightRun());
+
+        AskResponse response = ask("Clear skies tonight?");
+
+        assertThat(response.kind()).isEqualTo("own");
+        assertThat(response.nightVersion()).isEqualTo(liveNightVersion() + ";a=MODERATE");
+        verify(cache, never()).store(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("a LITE asker's night version holds no aurora level; a solar answer carries no night version")
+    void liteVersionAndSolarAnswer() {
+        withTonightsAstro(new AskSnapshot.AuroraState("MODERATE", 6.0));
+        when(engine.run(any(), any(), any(), any())).thenAnswer(inv -> nightRun());
+
+        assertThat(ask("Clear skies tonight?").nightVersion()).isEqualTo(liveNightVersion());
+
+        when(engine.run(any(), any(), any(), any())).thenAnswer(inv -> ok());
+        assertThat(ask("Best spot tonight?").nightVersion()).isNull();
+        verify(cache).store(any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("a follow-up whose night version is live keeps the thread")
+    void liveNightVersionKeepsTheThread() {
+        withTonightsAstro(null);
+
+        AskResponse response = submit(followUp("And tomorrow?", nightExchange(liveNightVersion(), false)));
+
+        assertThat(response.threadReset()).isNull();
+        assertThat(engineOptions().thread().size()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("a moved astro refresh drops the whole thread with its own reason: the briefing had not moved")
+    void movedNightVersionResets() {
+        withTonightsAstro(null);
+
+        AskResponse response = submit(followUp("And tomorrow?", sameRun(),
+                nightExchange("n1;2026-10-05=1000", false)));
+
+        assertThat(response.threadReset()).isTrue();
+        assertThat(response.threadResetReason()).isEqualTo("night forecast updated");
+        assertThat(engineOptions()).isEqualTo(AskRunOptions.none());
+        verify(matcher).match(any(), any());
+    }
+
+    @Test
+    @DisplayName("a Ready-origin night exchange resets too: the Ready exemption is for exchanges whose picks "
+            + "re-join live, and a verbatim night summary does not")
+    void readyOriginNightExchangeResets() {
+        withTonightsAstro(new AskSnapshot.AuroraState("QUIET", null));
+        role = UserRole.PRO_USER;
+
+        AskResponse response = submit(followUp("And later?",
+                nightExchange(liveNightVersion() + ";a=MODERATE", true)));
+
+        assertThat(response.threadResetReason()).isEqualTo("night forecast updated");
+    }
+
+    @Test
+    @DisplayName("when both the briefing and a night moved, the reason is the briefing's")
+    void briefingReasonWins() {
+        withTonightsAstro(null);
+
+        AskResponse response = submit(followUp("And later?", otherRun(),
+                nightExchange("n1;2026-10-05=1000", false)));
+
+        assertThat(response.threadResetReason()).isEqualTo("forecast updated");
+    }
+
+    @Test
+    @DisplayName("a night version that is not the server's format is 400 INVALID")
+    void forgedNightVersionIsInvalid() {
+        withTonightsAstro(null);
+
+        assertThat(codeOf(followUp("And later?", nightExchange("not a version", false))))
+                .isEqualTo(AskErrorCode.INVALID);
+    }
+
+    @Test
+    @DisplayName("a well-formed night windowId for a night the snapshot does not hold (ended, or beyond the two "
+            + "nights) is answered as a solar id for a passed window is: 200, the context dropped, never a 400")
+    void unheldNightWindowIdIsAnsweredWithoutContext() {
+        properties.setLimitLite(100);
+        rebuild();
+        withTonightsAstro(null);
+        for (String id : new String[] {"2026-10-04_astro", "2026-10-04_aurora", "2026-10-09_astro",
+                "2026-10-06_astro"}) {
+            AskResponse response = submit(new AskRequest("Is it any good?", id, null, "map"));
+            assertThat(response.answerable()).isTrue();
+            assertThat(response.kind()).isEqualTo("own");
+        }
+
+        ArgumentCaptor<AskQuestion> captured = ArgumentCaptor.forClass(AskQuestion.class);
+        verify(engine, times(4)).run(captured.capture(), any(), any(), any());
+        assertThat(captured.getAllValues()).extracting(AskQuestion::windowId).containsOnlyNulls();
+    }
+
+    @Test
+    @DisplayName("a night windowId the snapshot holds reaches the engine as the context; an aurora night only "
+            + "for a role that may see aurora")
+    void heldNightWindowIdIsContext() {
+        properties.setLimitLite(100);
+        properties.setLimitPro(100);
+        rebuild();
+        AskSnapshot withNights = AskNightFixtures.withNights(snapshot, null, AskNightFixtures.astroNight(
+                AskNightFixtures.TONIGHT, AskNightFixtures.astro(1L, "Bamburgh", "Northumberland", 5, 3)),
+                AskNightFixtures.auroraNight(AskNightFixtures.TONIGHT,
+                        AskNightFixtures.aurora(1L, "Bamburgh", "Northumberland", 5, 4, 3)));
+        when(snapshotBuilder.current()).thenReturn(Optional.of(withNights));
+
+        submit(new AskRequest("Is it any good?", "2026-10-05_astro", null, "map"));
+        submit(new AskRequest("Is it any good?", "2026-10-05_aurora", null, "map"));
+        role = UserRole.PRO_USER;
+        submit(new AskRequest("Is it any good?", "2026-10-05_aurora", null, "map"));
+
+        ArgumentCaptor<AskQuestion> captured = ArgumentCaptor.forClass(AskQuestion.class);
+        verify(engine, times(3)).run(captured.capture(), any(), any(), any());
+        assertThat(captured.getAllValues()).extracting(AskQuestion::windowId)
+                .containsExactly("2026-10-05_astro", null, "2026-10-05_aurora");
+    }
+
     @Test
     @DisplayName("the refusal body is exactly {error, code} and each code fixes its status")
     void refusalBodies() {

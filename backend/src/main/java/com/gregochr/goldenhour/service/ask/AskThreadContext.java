@@ -39,7 +39,15 @@ final class AskThreadContext {
 
     /** A fresh question: nothing earlier, nothing offered, nothing rendered. */
     static final AskThreadContext NONE = new AskThreadContext(AskThread.EMPTY, ThreadFact.NONE,
-            Map.of(), null, null, null, null);
+            Map.of(), null, null, null, null, false);
+
+    /**
+     * Said of an earlier night answer in place of its summary: a night summary states things that move
+     * under the thread ("active, Kp 6", a clear-sky claim), so it is never rendered verbatim — its picks
+     * are re-joined live below it, like every pick.
+     */
+    static final String NIGHT_SUMMARY_WITHHELD =
+            "(an answer about the night sky; its places are listed below with today's figures)";
 
     /** Said of a pick whose place has left the forecast and whose name is not known either. */
     static final String UNLISTED_PLACE = "a place no longer listed";
@@ -64,13 +72,15 @@ final class AskThreadContext {
     private final AskScope scope;
     private final AskTools tools;
     private final AskLocationNames names;
+    private final boolean canSeeAurora;
     private Map<Long, AskLocationNames.Place> nameById;
 
     /** The line that tells the model the reader has turned the earlier places down. */
     static final String TURNED_DOWN_MARK = " · the reader has turned this place down";
 
     private AskThreadContext(AskThread thread, ThreadFact fact, Map<String, EventFact> liveEvents,
-            AskSnapshot snapshot, AskScope scope, AskTools tools, AskLocationNames names) {
+            AskSnapshot snapshot, AskScope scope, AskTools tools, AskLocationNames names,
+            boolean canSeeAurora) {
         this.thread = thread;
         this.fact = fact;
         this.liveEvents = liveEvents;
@@ -78,21 +88,7 @@ final class AskThreadContext {
         this.scope = scope;
         this.tools = tools;
         this.names = names;
-    }
-
-    /**
-     * Reconciles a thread with the live snapshot.
-     *
-     * @param thread   the validated thread; an empty one gives {@link #NONE}
-     * @param snapshot the snapshot the conversation runs against
-     * @param scope    the follow-up's scope, which may differ from the earlier questions'
-     * @param tools    the conversation's tools, for the asker's drive minutes and the spot vocabulary
-     * @param names    the names of enabled locations, read only for a pick whose slot has gone
-     * @return the context
-     */
-    static AskThreadContext of(AskThread thread, AskSnapshot snapshot, AskScope scope, AskTools tools,
-            AskLocationNames names) {
-        return of(thread, snapshot, scope, tools, names, false);
+        this.canSeeAurora = canSeeAurora;
     }
 
     /**
@@ -105,10 +101,13 @@ final class AskThreadContext {
      * @param names      the names of enabled locations, read only for a pick whose slot has gone
      * @param turnedDown whether the follow-up turns the earlier places down: every earlier pick's location
      *                   is then excluded from the answer and marked so in the prompt
+     * @param canSeeAurora whether the asker's role may see aurora figures: a client could echo a forged
+     *                   {@code _aurora} pick reference, so an earlier aurora pick is offered only to an asker
+     *                   who could have been given one, and is otherwise reported as gone
      * @return the context
      */
     static AskThreadContext of(AskThread thread, AskSnapshot snapshot, AskScope scope, AskTools tools,
-            AskLocationNames names, boolean turnedDown) {
+            AskLocationNames names, boolean turnedDown, boolean canSeeAurora) {
         if (thread == null || thread.isEmpty()) {
             return NONE;
         }
@@ -124,8 +123,9 @@ final class AskThreadContext {
                 if (turnedDown) {
                     turnedDownIds.add(ref.locationId());
                 }
-                Optional<AskSnapshot.Candidate> candidate = snapshot.candidate(ref.windowId(), ref.locationId());
-                boolean stillOffered = candidate.isPresent() && scope.contains(candidate.get().region().name());
+                Optional<AskSnapshot.ResolvedPick> resolved =
+                        snapshot.resolvePick(ref.windowId(), ref.locationId(), canSeeAurora);
+                boolean stillOffered = resolved.isPresent() && scope.contains(resolved.get().regionName());
                 (stillOffered ? offered : dropped).add(pair);
             }
             for (EventRef ref : exchange.events()) {
@@ -136,7 +136,7 @@ final class AskThreadContext {
         // A pick named twice is offered if it is offered at all: nothing is both.
         dropped.removeAll(offered);
         ThreadFact fact = new ThreadFact(offered, dropped, new LinkedHashSet<>(live.values()), turnedDownIds);
-        return new AskThreadContext(thread, fact, live, snapshot, scope, tools, names);
+        return new AskThreadContext(thread, fact, live, snapshot, scope, tools, names, canSeeAurora);
     }
 
     private static boolean hasEvents(AskThread thread) {
@@ -211,7 +211,11 @@ final class AskThreadContext {
                 picks.add(rank++ + ". " + pickLine(ref));
             }
             List<String> events = exchange.events().stream().map(this::eventLine).toList();
-            views.add(new ExchangeView(quoted(exchange.question()), quoted(exchange.summary()), picks, events));
+            // A night answer's summary is never shown verbatim: it states things that move under the
+            // thread. Its picks are re-joined live, like every pick, and say what the figures are now.
+            String summary = exchange.nightVersion() == null ? quoted(exchange.summary())
+                    : NIGHT_SUMMARY_WITHHELD;
+            views.add(new ExchangeView(quoted(exchange.question()), summary, picks, events));
         }
         return views;
     }
@@ -230,6 +234,9 @@ final class AskThreadContext {
     }
 
     private String pickLineBody(PickRef ref) {
+        if (AskWindowId.parse(ref.windowId()).map(p -> p.kind().isNight()).orElse(false)) {
+            return nightPickLineBody(ref);
+        }
         Optional<AskSnapshot.Candidate> slot = snapshot.slotAt(ref.windowId(), ref.locationId());
         if (slot.isEmpty()) {
             return nameOf(ref.locationId()) + " · no longer in the forecast";
@@ -260,6 +267,44 @@ final class AskThreadContext {
         } else if (spot.tideState() != null) {
             line.append(" · tide ").append(spot.tideState().toLowerCase(Locale.ROOT))
                     .append(", not the water it wants");
+        }
+        return line.toString();
+    }
+
+    /**
+     * An earlier night pick, re-joined live in {@code rank_night_spots}' vocabulary (the ids the model needs
+     * to name it again, the figure of the window's own kind, the Bortle class, the clear-sky line). An
+     * aurora pick the asker could not have been given reads as gone, whatever the snapshot holds.
+     */
+    private String nightPickLineBody(PickRef ref) {
+        Optional<AskSnapshot.NightCandidate> slot = snapshot.nightSlotAt(ref.windowId(), ref.locationId());
+        boolean hidden = slot.isPresent() && slot.get().night().kind() == AskWindowKind.AURORA && !canSeeAurora;
+        if (slot.isEmpty() || hidden) {
+            return nameOf(ref.locationId()) + " · no longer in the forecast";
+        }
+        AskSnapshot.Night night = slot.get().night();
+        AskSnapshot.NightSpot spot = slot.get().spot();
+        if (!scope.contains(spot.regionName())) {
+            return spot.name() + " · outside the area you are now asking about";
+        }
+        if (!AskSnapshot.isNightPickEligible(night.kind(), spot, canSeeAurora)) {
+            return spot.name() + " · no longer rated well enough to pick";
+        }
+        StringBuilder line = new StringBuilder(spot.name()).append(" (").append(spot.regionName()).append(") · ")
+                .append("locationId ").append(spot.locationId()).append(" · windowId ").append(night.id())
+                .append(" · ").append(night.date().equals(snapshot.nights().tonight()) ? "tonight"
+                        : "tomorrow night")
+                .append(' ').append(night.kind().name().toLowerCase(Locale.ROOT)).append(" · ")
+                .append(AskSnapshot.nightRating(night.kind(), spot)).append('★');
+        if (spot.bortleClass() != null) {
+            line.append(" · Bortle ").append(spot.bortleClass());
+        }
+        if (night.kind() == AskWindowKind.ASTRO && spot.cloudExplanation() != null) {
+            line.append(" · ").append(AskTools.cap(spot.cloudExplanation(), AskTools.CLEAR_SKY_CAP));
+        }
+        Integer drive = tools.driveMinutesOf(ref.locationId());
+        if (drive != null) {
+            line.append(" · ").append(drive).append(" min from home");
         }
         return line.toString();
     }

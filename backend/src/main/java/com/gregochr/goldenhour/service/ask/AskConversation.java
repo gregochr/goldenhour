@@ -88,9 +88,12 @@ final class AskConversation {
     private final ReadyQuestion eventsQuestion;
     private final AskAnswerValidator validator;
     private final AskThreadContext thread;
+    private final boolean canSeeAurora;
 
     private AskConversation(AskSnapshot snapshot, AskScope scope, AskRunOptions options, AskTools tools,
-            ReadyQuestion eventsQuestion, AskAnswerValidator validator, AskThreadContext thread) {
+            ReadyQuestion eventsQuestion, AskAnswerValidator validator, AskThreadContext thread,
+            boolean canSeeAurora) {
+        this.canSeeAurora = canSeeAurora;
         this.snapshot = snapshot;
         this.scope = scope;
         this.options = options;
@@ -128,10 +131,13 @@ final class AskConversation {
         ReadyQuestion eventsQuestion = ReadyIntentRules.eventsQuestion(question).orElse(null);
         // The thread's earlier picks and events are reconciled with the live forecast once, here: what
         // is still there is offered to the validator beside what the tools return.
+        // Derived once from the asker's role and threaded to the tools, the thread re-join and the validator:
+        // the snapshot is user-less and holds the aurora rows, so none of them may decide it for itself.
+        boolean canSeeAurora = user.canSeeAurora();
         AskThreadContext thread = AskThreadContext.of(opts.thread(), snapshot, scope, tools, places,
-                ReadyIntentRules.turnsDownEarlierPlaces(question));
+                ReadyIntentRules.turnsDownEarlierPlaces(question), canSeeAurora);
         return new Opening.Open(new AskConversation(snapshot, scope, opts, tools, eventsQuestion,
-                deps.validator(), thread));
+                deps.validator(), thread, canSeeAurora));
     }
 
     /**
@@ -192,7 +198,7 @@ final class AskConversation {
     AskRun submit(Raw raw, int turns, List<AskTools.ToolCall> trace) {
         List<AskTools.ToolCall> full = withSubmit(trace, false);
         Result result = validator.validate(raw, snapshot, tools.evidence().withThread(thread.fact()), scope,
-                options.anchor(), eventsQuestion);
+                options.anchor(), eventsQuestion, canSeeAurora);
         if (result.turnedDownDropped() > 0) {
             LOG.info("Ask follow-up turned earlier places down: dropped {} submitted pick(s) at them",
                     result.turnedDownDropped());
@@ -202,7 +208,8 @@ final class AskConversation {
         }
         AskOutcome.Status status = result.answer().answerable() ? AskOutcome.Status.OK
                 : AskOutcome.Status.CANT;
-        return new AskRun(new AskOutcome(status, result.answer(), tools.personal(), turns), full, null);
+        return new AskRun(new AskOutcome(status, result.answer(), tools.personal(), turns, tools.uncacheable(),
+                tools.nightsConsulted()), full, null);
     }
 
     /**

@@ -3,15 +3,19 @@ package com.gregochr.goldenhour.service.ask;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.model.BriefingWindow;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
 import com.gregochr.goldenhour.util.DayLabels;
 import com.gregochr.goldenhour.util.GeoUtils;
 
 import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -73,6 +77,36 @@ public class AskTools {
     /** The note {@code rank_spots} gives when {@code nearHome} is asked of an account with no saved home. */
     static final String NO_HOME_NOTE = "nearHome is not available: no home postcode is saved.";
 
+    /** The most spots {@code rank_night_spots} returns. */
+    public static final int MAX_NIGHT_SPOTS = 10;
+
+    /** The {@code minStars} {@code rank_night_spots} applies when the model leaves it out. */
+    static final int DEFAULT_MIN_NIGHT_STARS = 3;
+
+    /** The top of the star scale, the bound of {@code minStars}. */
+    static final int MAX_NIGHT_STARS = 5;
+
+    /** The dimmest sky on the Bortle scale, the bound of {@code maxBortle}. */
+    static final int MAX_BORTLE = 9;
+
+    /** The longest summary returned for a night spot. */
+    static final int NIGHT_SUMMARY_CAP = 120;
+
+    /** The longest cloud explanation ("clear skies") returned for a night spot. */
+    static final int CLEAR_SKY_CAP = 100;
+
+    /** What {@code rank_night_spots} notes, and the model repeats, for an asker with no aurora access. */
+    static final String AURORA_PRO_NOTE = "aurora ratings are a Pro feature";
+
+    /** The note {@code rank_night_spots} gives when the filters leave no night spot. */
+    static final String NOTHING_NIGHT_MATCHES_NOTE =
+            "Nothing matches those filters. Try fewer filters or a lower minStars.";
+
+    /** What the aurora state reads for a later night with no result rows: the state cache is tonight's only. */
+    static final String AURORA_NOT_FORECAST_YET = "not forecast yet";
+
+    private static final String RANK_NIGHT = AskToolSchemas.RANK_NIGHT_SPOTS;
+
     private static final String LIMIT_REACHED =
             "Tool output limit reached for this conversation. Answer now with what you have.";
 
@@ -88,8 +122,10 @@ public class AskTools {
     private final Set<AskEvidence.Pair> pairs = new LinkedHashSet<>();
     private final Set<AskEvidence.EventFact> events = new LinkedHashSet<>();
     private final List<ToolCall> trace = new ArrayList<>();
+    private final Set<LocalDate> nightsConsulted = new TreeSet<>();
     private int charsUsed;
     private boolean personal;
+    private boolean uncacheable;
     private Map<Long, Integer> driveMinutes;
 
     /**
@@ -180,6 +216,25 @@ public class AskTools {
     public record ComingUpArgs(Integer days, Integer limit) {
     }
 
+    /**
+     * Arguments of {@code rank_night_spots}; every field is optional.
+     *
+     * @param night           {@code tonight} (the default), {@code tomorrow}, or the ISO date of one of the
+     *                        two nights {@code list_windows} names
+     * @param kind            {@code astro}, {@code aurora} or {@code any} (the default: the union of
+     *                        whichever kinds have results)
+     * @param regionNames     regions to rank within; null or empty means every region in scope
+     * @param minStars        the least rating a spot's figure may carry, 1-5; defaults to 3
+     * @param maxBortle       keep only spots at or under this Bortle class, 1-9
+     * @param maxDriveMinutes keep only spots within this many minutes' drive of the asker's home
+     * @param nearHome        true to keep only spots within the asker's saved local radius of home, as the
+     *                        crow flies (exactly as {@code rank_spots})
+     * @param limit           how many spots, at most {@value AskTools#MAX_NIGHT_SPOTS}
+     */
+    public record RankNightSpotsArgs(String night, String kind, List<String> regionNames, Integer minStars,
+            Integer maxBortle, Integer maxDriveMinutes, Boolean nearHome, Integer limit) {
+    }
+
     // -- result records ---------------------------------------------------------------------
 
     /**
@@ -264,6 +319,56 @@ public class AskTools {
     }
 
     /**
+     * One place's night as {@code rank_night_spots} returns it. A figure is present only when that kind has
+     * a result for the place and night, and the aurora ones only for an asker who may see them. A pick must
+     * be on the window of the figure it cites: {@code astroWindowId} for the sky, {@code auroraWindowId} for
+     * the northern lights.
+     *
+     * @param locationId    the location id
+     * @param name          the location name
+     * @param region        the region name
+     * @param astroWindowId the astro window id, present with the astro figures
+     * @param auroraWindowId the aurora window id, present with the aurora figures
+     * @param nightStart    the night's nautical dusk, {@code HH:mm} UK local, or null
+     * @param nightEnd      the night's nautical dawn, {@code HH:mm} UK local, or null
+     * @param bortle        the Bortle class (1 darkest)
+     * @param astroStars    the astro conditions rating, 1-5, or null
+     * @param clearSky      the served cloud explanation, which is what "clear skies tonight" asks about
+     * @param astroSummary  the served astro summary, capped at {@value AskTools#NIGHT_SUMMARY_CAP} characters
+     * @param moon          the moon's phase and illumination at the night's midpoint, or null
+     * @param auroraStars   the aurora rating, 1-5, or null (never for an asker without aurora access)
+     * @param auroraSummary the served aurora summary, capped, or null
+     * @param alertLevel    the alert level that drove the aurora scoring, or null
+     * @param maxKp         the highest Kp forecast for the night, or null
+     * @param driveMinutes  minutes from the asker's home; present only when a drive limit was given
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record NightSpotInfo(long locationId, String name, String region, String astroWindowId,
+            String auroraWindowId, String nightStart, String nightEnd, int bortle, Integer astroStars,
+            String clearSky, String astroSummary, String moon, Integer auroraStars, String auroraSummary,
+            String alertLevel, Double maxKp, Integer driveMinutes) {
+    }
+
+    /**
+     * The {@code rank_night_spots} result.
+     *
+     * @param night             the night asked about, ISO date
+     * @param when              {@code tonight} or {@code tomorrow night}
+     * @param spots             the spots, best first
+     * @param note              why the list is empty, or what is missing beside a non-empty one, or null
+     * @param auroraAvailable   false when the asker may not see aurora ratings; null otherwise
+     * @param auroraNote        the clause to say when {@code auroraAvailable} is false, or null
+     * @param auroraState       the aurora alert state for tonight, or {@value AskTools#AURORA_NOT_FORECAST_YET}
+     *                          for a later night with no results; null for an asker without aurora access, and
+     *                          whenever nothing may be reported (an admin simulation is active)
+     * @param withinMilesOfHome the radius {@code nearHome} was resolved to, in miles; null otherwise
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record RankNightSpotsResult(String night, String when, List<NightSpotInfo> spots, String note,
+            Boolean auroraAvailable, String auroraNote, String auroraState, Integer withinMilesOfHome) {
+    }
+
+    /**
      * One hot topic as {@code get_hot_topics} returns it.
      *
      * @param type    the topic type
@@ -330,8 +435,44 @@ public class AskTools {
      * @return the windows
      */
     public AskToolResult<ListWindowsResult> listWindows() {
-        List<WindowInfo> windows = snapshot.windows().stream().map(this::windowInfo).toList();
+        List<WindowInfo> windows = new ArrayList<>(snapshot.windows().stream().map(this::windowInfo).toList());
+        windows.addAll(nightWindowInfos());
         return finish("list_windows", new ListWindowsResult(windows), () -> { });
+    }
+
+    /**
+     * The night windows {@code list_windows} appends after the solar ones: tonight's and tomorrow night's
+     * astro window when it holds a place in scope, and the aurora window likewise <em>only for an asker
+     * who may see aurora figures</em>. An aurora window's existence is derived from the aurora results,
+     * whose endpoints are PRO/ADMIN, so a LITE conversation (and the user-less Ready one) lists astro
+     * windows alone. {@code bestRating} is the best figure among the in-scope places, a max of served
+     * ratings; a night has no verdict word.
+     */
+    private List<WindowInfo> nightWindowInfos() {
+        boolean canSeeAurora = user.canSeeAurora();
+        List<WindowInfo> infos = new ArrayList<>();
+        for (AskSnapshot.Night night : snapshot.nights().nights()) {
+            if (night.kind() == AskWindowKind.AURORA && !canSeeAurora) {
+                continue;
+            }
+            Integer best = night.spots().stream()
+                    .filter(s -> scope.contains(s.regionName()))
+                    .map(s -> AskSnapshot.nightRating(night.kind(), s))
+                    .filter(Objects::nonNull)
+                    .max(Comparator.naturalOrder())
+                    .orElse(null);
+            if (best != null) {
+                infos.add(new WindowInfo(night.id(), nightWord(night.date()),
+                        night.kind().name().toLowerCase(Locale.ROOT), AskClock.londonHHmm(night.start()), null,
+                        best, null, null));
+            }
+        }
+        return infos;
+    }
+
+    /** {@code Tonight} for the night in progress or next to begin, else {@code Tomorrow night}. */
+    private String nightWord(LocalDate date) {
+        return date.equals(snapshot.nights().tonight()) ? "Tonight" : "Tomorrow night";
     }
 
     /**
@@ -454,6 +595,271 @@ public class AskTools {
     }
 
     /**
+     * {@code rank_night_spots}: tonight's or tomorrow night's places by the astro conditions forecast (cloud,
+     * visibility, moon, with the location's Bortle class) and, for an asker who may see them, the aurora
+     * forecast, best first (ask-night plan §2.2). Every figure is a served one: no score is derived here.
+     *
+     * <p><b>The conversation is marked {@linkplain #uncacheable() uncacheable} the moment this is called,
+     * whichever branch runs</b>, beside {@code personal}: a night answer depends on the asker's role (the
+     * aurora figures) and on facts that move under the typed cache's TTL (the aurora alert state, the astro
+     * refresh), so it is never stored. The aurora figures and the aurora alert state reach only an asker
+     * whose role may see them ({@link AskUserContext#canSeeAurora}); the alert state is read for the night
+     * that is {@code currentNightDate()} only, because the state cache holds no date-keyed state.
+     *
+     * @param args the optional filters
+     * @return the spots, or an error result for a bad argument
+     */
+    public AskToolResult<RankNightSpotsResult> rankNightSpots(RankNightSpotsArgs args) {
+        uncacheable = true;
+        RankNightSpotsArgs a = args == null
+                ? new RankNightSpotsArgs(null, null, null, null, null, null, null, null) : args;
+        AskSnapshot.Nights nights = snapshot.nights();
+        if (nights.tonight() == null) {
+            return finish(RANK_NIGHT, new RankNightSpotsResult(null, null, List.of(),
+                    "No night forecast is available yet.", null, null, null, null), () -> { });
+        }
+        LocalDate date = nightDate(a.night(), nights);
+        if (date == null) {
+            return fail(RANK_NIGHT, "Unknown night '" + cap(a.night(), 40)
+                    + "'. Use tonight, tomorrow, or the date of a night list_windows names.");
+        }
+        String kind = a.kind() == null || a.kind().isBlank() ? "any" : a.kind().strip().toLowerCase(Locale.ROOT);
+        if (!Set.of("astro", "aurora", "any").contains(kind)) {
+            return fail(RANK_NIGHT, "kind must be astro, aurora or any.");
+        }
+        Set<String> regionFilter = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        if (a.regionNames() != null) {
+            for (String name : a.regionNames()) {
+                String canonical = canonicalRegion(name);
+                if (canonical == null) {
+                    return fail(RANK_NIGHT, "Unknown region '" + cap(name, 40)
+                            + "'. Region names appear in the list_windows and rank_night_spots results.");
+                }
+                if (!scope.contains(canonical)) {
+                    return fail(RANK_NIGHT, "Region '" + canonical
+                            + "' is outside the scope of this question.");
+                }
+                regionFilter.add(canonical);
+            }
+        }
+        Integer maxDrive = a.maxDriveMinutes();
+        if (maxDrive != null) {
+            if (!user.hasUser()) {
+                return fail(RANK_NIGHT, "maxDriveMinutes is not available in this conversation.");
+            }
+            if (maxDrive < 1) {
+                return fail(RANK_NIGHT, "maxDriveMinutes must be at least 1.");
+            }
+            personal = true;
+        }
+        boolean nearHome = Boolean.TRUE.equals(a.nearHome());
+        if (nearHome) {
+            if (!user.hasUser()) {
+                return fail(RANK_NIGHT, "nearHome is not available in this conversation.");
+            }
+            personal = true;
+        }
+
+        boolean canSeeAurora = user.canSeeAurora();
+        boolean wantAstro = !"aurora".equals(kind);
+        boolean wantAurora = canSeeAurora && !"astro".equals(kind);
+        Optional<AskSnapshot.Night> astroNight = nights.night(date, AskWindowKind.ASTRO);
+        Optional<AskSnapshot.Night> auroraNight = canSeeAurora
+                ? nights.night(date, AskWindowKind.AURORA) : Optional.empty();
+        String when = nightLabel(date, nights);
+        Runnable consulted = () -> nightsConsulted.add(date);
+        String missing = missingNote(when, wantAstro && astroNight.isEmpty(), wantAurora && auroraNight.isEmpty(),
+                wantAstro, wantAurora);
+        String auroraState = auroraState(date, nights, wantAurora, auroraNight.isPresent());
+
+        if (maxDrive != null && !user.hasDriveTimes()) {
+            return finish(RANK_NIGHT, nightResult(date, when, List.of(), NO_DRIVE_TIMES_NOTE, canSeeAurora,
+                    auroraState, null), consulted);
+        }
+        if (nearHome && !user.hasHome()) {
+            return finish(RANK_NIGHT, nightResult(date, when, List.of(), NO_HOME_NOTE, canSeeAurora, auroraState,
+                    null), consulted);
+        }
+
+        Map<Long, NightRow> pool = new LinkedHashMap<>();
+        if (wantAstro) {
+            astroNight.ifPresent(n -> n.spots().forEach(s -> pool.put(s.locationId(),
+                    new NightRow(s, astroNight.get().id(), null))));
+        }
+        if (wantAurora) {
+            auroraNight.ifPresent(n -> n.spots().forEach(s -> pool.put(s.locationId(), new NightRow(s,
+                    s.astroStars() == null ? null : astroNight.map(AskSnapshot.Night::id).orElse(null),
+                    n.id()))));
+        } else if (!wantAstro) {
+            // A kind the asker may not see: nothing is listed and the result says why.
+            return finish(RANK_NIGHT, nightResult(date, when, List.of(), null, canSeeAurora, auroraState, null),
+                    consulted);
+        }
+        List<NightRow> inScope = pool.values().stream().filter(r -> scope.contains(r.spot().regionName())).toList();
+
+        String emptyNote = missing;
+        if (!regionFilter.isEmpty() && inScope.stream().noneMatch(r -> regionFilter.contains(r.spot().regionName()))) {
+            emptyNote = "no night-scored places in " + String.join(", ", regionFilter);
+        }
+        int minStars = a.minStars() == null ? DEFAULT_MIN_NIGHT_STARS : Math.clamp(a.minStars(), 1, MAX_NIGHT_STARS);
+        Integer maxBortle = a.maxBortle() == null ? null : Math.clamp(a.maxBortle(), 1, MAX_BORTLE);
+        Map<Long, Integer> minutes = maxDrive == null ? Map.of() : driveMinutesByLocation();
+        int limit = clamp(a.limit(), DEFAULT_LIMIT, MAX_NIGHT_SPOTS);
+        List<NightSpotInfo> spots = inScope.stream()
+                .filter(r -> regionFilter.isEmpty() || regionFilter.contains(r.spot().regionName()))
+                .filter(r -> r.best() >= minStars)
+                .filter(r -> maxBortle == null || r.spot().bortleClass() != null && r.spot().bortleClass() <= maxBortle)
+                .filter(r -> maxDrive == null || minutes.get(r.spot().locationId()) != null
+                        && minutes.get(r.spot().locationId()) <= maxDrive)
+                .filter(r -> !nearHome || withinHomeRadius(r.spot()))
+                .sorted(nightOrder(minutes))
+                .limit(limit)
+                .map(r -> nightSpotInfo(r, astroNight.orElse(null),
+                        maxDrive == null ? null : minutes.get(r.spot().locationId())))
+                .toList();
+        Integer radius = nearHome ? user.home().radiusMiles() : null;
+        String note;
+        if (!spots.isEmpty()) {
+            note = missing;
+        } else if (emptyNote != null) {
+            note = emptyNote;
+        } else if (nearHome) {
+            note = "Nothing within " + radius + " miles of home matches those filters.";
+        } else {
+            note = NOTHING_NIGHT_MATCHES_NOTE;
+        }
+        return finish(RANK_NIGHT, nightResult(date, when, spots, note, canSeeAurora, auroraState, radius), () -> {
+            consulted.run();
+            for (NightSpotInfo s : spots) {
+                if (s.astroWindowId() != null) {
+                    pairs.add(new AskEvidence.Pair(s.locationId(), s.astroWindowId()));
+                }
+                if (s.auroraWindowId() != null) {
+                    pairs.add(new AskEvidence.Pair(s.locationId(), s.auroraWindowId()));
+                }
+            }
+        });
+    }
+
+    /** The night a {@code night} argument names: tonight by default, tomorrow, or an ISO date of one of the two. */
+    private static LocalDate nightDate(String night, AskSnapshot.Nights nights) {
+        LocalDate tonight = nights.tonight();
+        String text = night == null ? "" : night.strip().toLowerCase(Locale.ROOT);
+        if (text.isEmpty() || "tonight".equals(text)) {
+            return tonight;
+        }
+        if ("tomorrow".equals(text) || "tomorrow night".equals(text)) {
+            return tonight.plusDays(1);
+        }
+        try {
+            LocalDate date = LocalDate.parse(text);
+            return date.equals(tonight) || date.equals(tonight.plusDays(1)) ? date : null;
+        } catch (DateTimeParseException e) {
+            return null;
+        }
+    }
+
+    private static String nightLabel(LocalDate date, AskSnapshot.Nights nights) {
+        return date.equals(nights.tonight()) ? "tonight" : "tomorrow night";
+    }
+
+    /** What is missing beside, or instead of, the spots: the per-kind empty answer (plan §2.2), never a blanket one. */
+    private static String missingNote(String when, boolean astroMissing, boolean auroraMissing, boolean wantAstro,
+            boolean wantAurora) {
+        if (wantAstro && wantAurora) {
+            if (astroMissing && auroraMissing) {
+                return "no night forecast for " + when + " yet";
+            }
+            return astroMissing ? "no astro forecast for " + when + " yet" : null;
+        }
+        if (wantAstro) {
+            return astroMissing ? "no astro forecast for " + when + " yet" : null;
+        }
+        return wantAurora && auroraMissing ? "no aurora forecast for " + when + " yet" : null;
+    }
+
+    /**
+     * The aurora alert state for a PRO/ADMIN asker, <em>for the night that is {@code currentNightDate()}
+     * only</em>: the state cache holds "the rest of tonight" and no date-keyed state, so a later night is
+     * never given tonight's state relabelled; with no result rows it reads "not forecast yet". Null for an
+     * asker without aurora access, for a question that did not ask about aurora, and whenever the snapshot
+     * holds no state (an admin simulation is active).
+     */
+    private String auroraState(LocalDate date, AskSnapshot.Nights nights, boolean wantAurora, boolean auroraRows) {
+        if (!wantAurora) {
+            return null;
+        }
+        if (date.equals(nights.tonight())) {
+            AskSnapshot.AuroraState state = nights.aurora();
+            if (state == null) {
+                return null;
+            }
+            if (AlertLevel.QUIET.name().equals(state.level())) {
+                return "quiet: no aurora alert is active";
+            }
+            return "alert " + state.level().toLowerCase(Locale.ROOT)
+                    + (state.kp() == null ? "" : String.format(Locale.ROOT, ", Kp %.1f", state.kp()));
+        }
+        return auroraRows ? null : AURORA_NOT_FORECAST_YET;
+    }
+
+    private static RankNightSpotsResult nightResult(LocalDate date, String when, List<NightSpotInfo> spots,
+            String note, boolean canSeeAurora, String auroraState, Integer radius) {
+        return new RankNightSpotsResult(date.toString(), when, spots, note,
+                canSeeAurora ? null : Boolean.FALSE, canSeeAurora ? null : AURORA_PRO_NOTE, auroraState, radius);
+    }
+
+    /** One place on the night being ranked, with the window of each kind its figures belong to. */
+    private record NightRow(AskSnapshot.NightSpot spot, String astroWindowId, String auroraWindowId) {
+
+        /** The best figure the row shows: the astro rating, or the aurora one when it has that. */
+        int best() {
+            int astro = astroWindowId == null || spot.astroStars() == null ? 0 : spot.astroStars();
+            int aurora = auroraWindowId == null || spot.auroraStars() == null ? 0 : spot.auroraStars();
+            return Math.max(astro, aurora);
+        }
+    }
+
+    /** Best figure first, then the shorter drive when one was asked for, then name and id. */
+    private static Comparator<NightRow> nightOrder(Map<Long, Integer> minutes) {
+        return Comparator.<NightRow>comparingInt(r -> -r.best())
+                .thenComparing(r -> minutes.get(r.spot().locationId()), Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparing(r -> r.spot().name(), Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER))
+                .thenComparingLong(r -> r.spot().locationId());
+    }
+
+    private boolean withinHomeRadius(AskSnapshot.NightSpot spot) {
+        AskUserContext.Home home = user.home();
+        return GeoUtils.distanceMiles(home.latitude(), home.longitude(), spot.lat(), spot.lon())
+                <= home.radiusMiles();
+    }
+
+    private NightSpotInfo nightSpotInfo(NightRow row, AskSnapshot.Night astroNight, Integer minutes) {
+        AskSnapshot.NightSpot s = row.spot();
+        boolean astro = row.astroWindowId() != null && s.astroStars() != null;
+        boolean aurora = row.auroraWindowId() != null && s.auroraStars() != null;
+        return new NightSpotInfo(s.locationId(), s.name(), s.regionName(), astro ? row.astroWindowId() : null,
+                aurora ? row.auroraWindowId() : null,
+                astroNight == null ? null : AskClock.londonHHmm(astroNight.start()),
+                astroNight == null ? null : AskClock.londonHHmm(astroNight.end()),
+                s.bortleClass() == null ? 0 : s.bortleClass(),
+                astro ? s.astroStars() : null, astro ? cap(s.cloudExplanation(), CLEAR_SKY_CAP) : null,
+                astro ? cap(s.astroSummary(), NIGHT_SUMMARY_CAP) : null, astro ? moonText(s) : null,
+                aurora ? s.auroraStars() : null, aurora ? cap(s.auroraSummary(), NIGHT_SUMMARY_CAP) : null,
+                aurora ? s.alertLevel() : null, aurora ? s.maxKp() : null, minutes);
+    }
+
+    /** {@code Waxing gibbous, 85% lit}, from the served phase name and illumination. */
+    private static String moonText(AskSnapshot.NightSpot s) {
+        if (s.moonPhase() == null) {
+            return null;
+        }
+        String phase = s.moonPhase().toLowerCase(Locale.ROOT).replace('_', ' ');
+        String text = Character.toUpperCase(phase.charAt(0)) + phase.substring(1);
+        return s.moonIlluminationPct() == null ? text : text + ", " + Math.round(s.moonIlluminationPct()) + "% lit";
+    }
+
+    /**
      * {@code get_hot_topics}: the served hot topics, optionally of given types, limited to the
      * question's scope when a topic names regions.
      *
@@ -528,6 +934,26 @@ public class AskTools {
      */
     public boolean personal() {
         return personal;
+    }
+
+    /**
+     * Whether the conversation called {@code rank_night_spots} (whichever branch ran), which makes the
+     * answer unfit for the typed cache: it depends on the asker's role and on facts that move under the
+     * cache's TTL.
+     *
+     * @return true once {@code rank_night_spots} has been called
+     */
+    public boolean uncacheable() {
+        return uncacheable;
+    }
+
+    /**
+     * The dates of the nights {@code rank_night_spots} answered about, which version a night answer.
+     *
+     * @return the dates, earliest first; empty when no night was consulted
+     */
+    public Set<LocalDate> nightsConsulted() {
+        return Collections.unmodifiableSet(new TreeSet<>(nightsConsulted));
     }
 
     /**
@@ -674,6 +1100,9 @@ public class AskTools {
         String wanted = name.strip().toLowerCase(Locale.ROOT);
         TreeSet<String> names = new TreeSet<>();
         snapshot.windows().forEach(w -> w.regions().forEach(r -> names.add(r.name())));
+        // The night spots' regions count too: a question about a region that has night forecasts and no
+        // solar window in the set must still be able to name it.
+        snapshot.nights().nights().forEach(n -> n.spots().forEach(s -> names.add(s.regionName())));
         return names.stream()
                 .filter(n -> n.toLowerCase(Locale.ROOT).equals(wanted))
                 .findFirst()

@@ -24,9 +24,13 @@ import java.util.List;
  * @param ready       whether the exchange began as a Ready answer (absent reads as false), whose
  *                    {@code generatedAt} is the precompute's snapshot and is therefore not compared by
  *                    the reset rule
+ * @param nightVersion the opaque version the server wrote on an answer that consulted or named a night
+ *                    ({@code AskNightVersion}), echoed back verbatim; null (absent) for every other
+ *                    exchange. An exchange carrying one whose version is no longer the live one — typed or
+ *                    Ready-origin — ends the whole thread
  */
 public record ThreadExchange(String question, String summary, List<PickRef> picks, List<EventRef> events,
-        LocalDateTime generatedAt, Boolean ready) {
+        LocalDateTime generatedAt, Boolean ready, String nightVersion) {
 
     /**
      * Canonical constructor: unmodifiable copies; a null list reads as empty and an absent
@@ -40,10 +44,25 @@ public record ThreadExchange(String question, String summary, List<PickRef> pick
     }
 
     /**
+     * An exchange of a conversation that touched no night.
+     *
+     * @param question    the reader's question
+     * @param summary     the words the reader was shown
+     * @param picks       the answer's picks
+     * @param events      the answer's event cards
+     * @param generatedAt the briefing {@code generatedAt} the answer was given against
+     * @param ready       whether the exchange began as a Ready answer
+     */
+    public ThreadExchange(String question, String summary, List<PickRef> picks, List<EventRef> events,
+            LocalDateTime generatedAt, Boolean ready) {
+        this(question, summary, picks, events, generatedAt, ready, null);
+    }
+
+    /**
      * A pick the answer carried.
      *
      * @param locationId the location's id
-     * @param windowId   the window ({@code yyyy-MM-dd_sunrise|sunset})
+     * @param windowId   the window ({@code yyyy-MM-dd_sunrise|sunset|astro|aurora})
      */
     public record PickRef(Long locationId, String windowId) {
     }
