@@ -23,6 +23,10 @@ import java.util.List;
  * (a {@code submit_answer} that could not be read) and {@link #fail}, and every FAILED run reports
  * whether the asker's own drive times were used, as the tools saw it.
  *
+ * <p>A <b>thread</b> ({@link AskRunOptions#thread()}) is reconciled with the live forecast at opening
+ * ({@link AskThreadContext}): the earlier answers' picks and events that are still there are offered to
+ * the validator beside what the tools return, and the prompt renders them re-joined live.
+ *
  * <p>The validator decides everything: nothing a caller passes to {@link #submit} reaches a reader
  * without going through it.
  */
@@ -34,8 +38,22 @@ final class AskConversation {
      * @param validator  holds a submitted answer to what the tools returned
      * @param driveTimes the asker's own drive times, for {@code maxDriveMinutes}
      * @param mapper     serialises tool results
+     * @param names      the names of enabled locations, for a thread's earlier pick that has left the
+     *                   forecast
      */
-    record Deps(AskAnswerValidator validator, DriveTimeResolver driveTimes, ObjectMapper mapper) {
+    record Deps(AskAnswerValidator validator, DriveTimeResolver driveTimes, ObjectMapper mapper,
+            AskLocationNames names) {
+
+        /**
+         * Deps that know no location names: an engine that never renders a thread (the stub).
+         *
+         * @param validator  holds a submitted answer to what the tools returned
+         * @param driveTimes the asker's own drive times, for {@code maxDriveMinutes}
+         * @param mapper     serialises tool results
+         */
+        Deps(AskAnswerValidator validator, DriveTimeResolver driveTimes, ObjectMapper mapper) {
+            this(validator, driveTimes, mapper, AskLocationNames.NONE);
+        }
     }
 
     /** How opening ended: a conversation to run, or a FAILED run that ends it before it starts. */
@@ -64,15 +82,17 @@ final class AskConversation {
     private final AskTools tools;
     private final ReadyQuestion eventsQuestion;
     private final AskAnswerValidator validator;
+    private final AskThreadContext thread;
 
     private AskConversation(AskSnapshot snapshot, AskScope scope, AskRunOptions options, AskTools tools,
-            ReadyQuestion eventsQuestion, AskAnswerValidator validator) {
+            ReadyQuestion eventsQuestion, AskAnswerValidator validator, AskThreadContext thread) {
         this.snapshot = snapshot;
         this.scope = scope;
         this.options = options;
         this.tools = tools;
         this.eventsQuestion = eventsQuestion;
         this.validator = validator;
+        this.thread = thread;
     }
 
     /**
@@ -98,8 +118,21 @@ final class AskConversation {
         AskScope scope = question.scope();
         AskTools tools = new AskTools(snapshot, user, scope, deps.driveTimes(), deps.mapper());
         ReadyQuestion eventsQuestion = ReadyIntentRules.eventsQuestion(question).orElse(null);
+        // The thread's earlier picks and events are reconciled with the live forecast once, here: what
+        // is still there is offered to the validator beside what the tools return.
+        AskThreadContext thread = AskThreadContext.of(opts.thread(), snapshot, scope, tools, deps.names());
         return new Opening.Open(new AskConversation(snapshot, scope, opts, tools, eventsQuestion,
-                deps.validator()));
+                deps.validator(), thread));
+    }
+
+    /**
+     * The thread this conversation carries, reconciled with the live forecast ({@code NONE} for a
+     * fresh question).
+     *
+     * @return the thread context
+     */
+    AskThreadContext thread() {
+        return thread;
     }
 
     /**
@@ -149,8 +182,8 @@ final class AskConversation {
      */
     AskRun submit(Raw raw, int turns, List<AskTools.ToolCall> trace) {
         List<AskTools.ToolCall> full = withSubmit(trace, false);
-        Result result = validator.validate(raw, snapshot, tools.evidence(), scope, options.anchor(),
-                eventsQuestion);
+        Result result = validator.validate(raw, snapshot, tools.evidence().withThread(thread.fact()), scope,
+                options.anchor(), eventsQuestion);
         if (!result.accepted()) {
             return fail("the answer was discarded: " + result.reason(), turns, full);
         }

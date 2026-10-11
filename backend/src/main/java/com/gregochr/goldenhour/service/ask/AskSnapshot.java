@@ -395,4 +395,22 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
                 .filter(c -> c.slot().locationId() == locationId)
                 .findFirst());
     }
+
+    /**
+     * Finds a location's slot in a window whether or not it is pick-eligible. Only the thread's
+     * prompt lines use this, to say what became of an earlier pick; nothing is ever served from it
+     * (every served pick goes through {@link #candidate}).
+     *
+     * @param windowId   the window id
+     * @param locationId the location id
+     * @return the slot with its window and region, or empty when the window is not in the set or the
+     *         location has no slot in it
+     */
+    public Optional<Candidate> slotAt(String windowId, long locationId) {
+        return window(windowId).flatMap(w -> w.regions().stream()
+                .flatMap(r -> r.slots().stream()
+                        .filter(s -> s.locationId() != null && s.locationId() == locationId)
+                        .map(s -> new Candidate(w, r, s)))
+                .findFirst());
+    }
 }

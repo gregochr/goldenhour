@@ -1032,4 +1032,208 @@ class AskAnswerValidatorTest {
         assertThat(result.accepted()).isTrue();
         assertThat(result.answer().events()).extracting(AskEvent::type).containsExactly("AURORA");
     }
+
+    // -- the thread ---------------------------------------------------------------------------
+
+    private static AskEvidence threadEvidence(int toolCalls, AskEvidence.ThreadFact fact) {
+        return new AskEvidence(Set.of(), Set.of(), toolCalls).withThread(fact);
+    }
+
+    @Test
+    @DisplayName("a pick the thread offered survives with no tool call, every fact joined from the live "
+            + "snapshot")
+    void thread_offeredPick_survivesWithoutATool() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "Whitby", 4));
+        AskEvidence evidence = threadEvidence(0,
+                new AskEvidence.ThreadFact(Set.of(pair(1L)), Set.of(), Set.of()));
+
+        Result result = validate(answer("Whitby first.", rawPick(1L, "Clear west")), snapshot, evidence);
+
+        assertThat(result.accepted()).isTrue();
+        AskPick pick = result.answer().picks().getFirst();
+        assertThat(pick.locationName()).isEqualTo("Whitby");
+        assertThat(pick.ratingAtAnswer()).isEqualTo(4);
+        assertThat(pick.verdictAtAnswer()).isEqualTo("WORTH_IT");
+    }
+
+    @Test
+    @DisplayName("a thread pick is still held to the live snapshot: rated down since it was offered, it is "
+            + "dropped")
+    void thread_offeredPickRatedDown_isDropped() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "Whitby", 2));
+        AskEvidence evidence = threadEvidence(1,
+                new AskEvidence.ThreadFact(Set.of(pair(1L)), Set.of(), Set.of()));
+
+        Result result = validate(answer("Whitby first.", rawPick(1L, "x")), snapshot, evidence);
+
+        assertThat(result.answer().picks()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a thread pick outside the question's scope is dropped by the validator's own scope check")
+    void thread_offeredPickOutsideScope_isDropped() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "Whitby", 4));
+        AskEvidence evidence = threadEvidence(1,
+                new AskEvidence.ThreadFact(Set.of(pair(1L)), Set.of(), Set.of()));
+
+        Result result = validator.validate(answer("Whitby.", rawPick(1L, "x")), snapshot, evidence,
+                TestScopes.of("Hills"), null, null);
+
+        assertThat(result.answer().picks()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a pick neither a tool returned nor the thread offered is dropped, as before")
+    void thread_unofferedPick_isDropped() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "Whitby", 4),
+                AskFixtures.slot(2L, "Staithes", 5));
+        AskEvidence evidence = threadEvidence(1,
+                new AskEvidence.ThreadFact(Set.of(pair(1L)), Set.of(), Set.of()));
+
+        Result result = validate(answer("Staithes.", rawPick(2L, "x")), snapshot, evidence);
+
+        assertThat(result.answer().picks()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("tool-returned and thread-offered picks mix in one answer, ranks renumbered")
+    void thread_mixesWithToolPicks() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "Whitby", 4),
+                AskFixtures.slot(2L, "Staithes", 5));
+        AskEvidence evidence = new AskEvidence(Set.of(pair(2L)), Set.of(), 1).withThread(
+                new AskEvidence.ThreadFact(Set.of(pair(1L)), Set.of(), Set.of()));
+
+        Result result = validate(answer("Both.", rawPick(2L, "a"), rawPick(1L, "b")), snapshot, evidence);
+
+        assertThat(result.answer().picks()).extracting(AskPick::locationName, AskPick::rank)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple("Staithes", 1),
+                        org.assertj.core.groups.Tuple.tuple("Whitby", 2));
+    }
+
+    @Test
+    @DisplayName("an event the thread offered survives with the served label and safety note, never the model's")
+    void thread_offeredEvent_survives() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "Whitby", 4));
+        AskEvidence evidence = threadEvidence(0, new AskEvidence.ThreadFact(Set.of(), Set.of(),
+                Set.of(new AskEvidence.EventFact("KING_TIDE", "King tide", TOMORROW, "A served note"))));
+        Raw raw = new Raw(true, "The king tide stands.", List.of(),
+                List.of(new RawEvent("king-tide", null, "Big water")), null);
+
+        Result result = validate(raw, snapshot, evidence);
+
+        assertThat(result.accepted()).isTrue();
+        assertThat(result.answer().events()).singleElement().satisfies(event -> {
+            assertThat(event.type()).isEqualTo("KING_TIDE");
+            assertThat(event.label()).isEqualTo("King tide");
+            assertThat(event.date()).isEqualTo(TOMORROW);
+            assertThat(event.safetyNote()).isEqualTo("A served note");
+        });
+    }
+
+    @Test
+    @DisplayName("an event type neither a tool nor the thread offered is dropped")
+    void thread_unofferedEvent_isDropped() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "Whitby", 4));
+        AskEvidence evidence = threadEvidence(1, new AskEvidence.ThreadFact(Set.of(), Set.of(),
+                Set.of(new AskEvidence.EventFact("KING_TIDE", "King tide", TOMORROW))));
+        Raw raw = new Raw(true, "An aurora.", List.of(), List.of(new RawEvent("AURORA", null, "x")), null);
+
+        assertThat(validate(raw, snapshot, evidence).answer().events()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a follow-up whose every pick was an earlier place that has gone, with no tool call, is a "
+            + "can't-answer in the server's words - not the failure a fresh question gets")
+    void thread_everyPickDropped_isACant() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "Whitby", 4));
+        AskEvidence evidence = threadEvidence(0,
+                new AskEvidence.ThreadFact(Set.of(), Set.of(pair(7L), pair(8L)), Set.of()));
+
+        Result result = validate(answer("Dunstanburgh is best.", rawPick(7L, "x"), rawPick(8L, "y")),
+                snapshot, evidence);
+
+        assertThat(result.accepted()).isTrue();
+        assertThat(result.answer().answerable()).isFalse();
+        assertThat(result.answer().summary())
+                .isEqualTo("The places from your earlier answers are no longer in the forecast.");
+        assertThat(result.answer().missing()).isEqualTo("those places are no longer in the forecast");
+        assertThat(result.answer().picks()).isEmpty();
+        assertThat(result.answer().events()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("the can't-answer's missing phrase fits the word cap the model's own does")
+    void thread_staleMissingFitsTheCap() {
+        assertThat(AskAnswerValidator.STALE_THREAD_MISSING.split(" ")).hasSizeLessThanOrEqualTo(
+                AskAnswerValidator.MISSING_WORDS);
+    }
+
+    @Test
+    @DisplayName("a follow-up that names no place but whose earlier places have all gone is the same "
+            + "can't-answer")
+    void thread_noPicksButEverythingGone_isACant() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "Whitby", 4));
+        AskEvidence evidence = threadEvidence(0,
+                new AskEvidence.ThreadFact(Set.of(), Set.of(pair(7L)), Set.of()));
+
+        Result result = validate(answer("They are gone."), snapshot, evidence);
+
+        assertThat(result.accepted()).isTrue();
+        assertThat(result.answer().answerable()).isFalse();
+    }
+
+    @Test
+    @DisplayName("a pick a tool never returned and the thread never named is a failure, not a stale thread")
+    void thread_unrelatedPick_isStillAFailure() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "Whitby", 4));
+        AskEvidence evidence = threadEvidence(0,
+                new AskEvidence.ThreadFact(Set.of(), Set.of(pair(7L)), Set.of()));
+
+        Result result = validate(answer("Whitby.", rawPick(7L, "x"), rawPick(1L, "y")), snapshot, evidence);
+
+        assertThat(result.accepted()).isFalse();
+        assertThat(result.reason()).isEqualTo("answerable with no pick, no event and no tool call");
+    }
+
+    @Test
+    @DisplayName("a tool call means the answer is judged as ever: nothing survived, but the model looked")
+    void thread_afterAToolCall_isNotStale() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "Whitby", 4));
+        AskEvidence evidence = threadEvidence(1,
+                new AskEvidence.ThreadFact(Set.of(), Set.of(pair(7L)), Set.of()));
+
+        Result result = validate(answer("Gone.", rawPick(7L, "x")), snapshot, evidence);
+
+        assertThat(result.accepted()).isTrue();
+        assertThat(result.answer().answerable()).isTrue();
+        assertThat(result.answer().picks()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a fresh question keeps today's rule exactly: answerable with nothing and no tool call is "
+            + "discarded")
+    void fresh_noPickNoEventNoTool_isStillDiscarded() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "Whitby", 4));
+
+        Result result = validate(answer("Whitby."), snapshot, new AskEvidence(Set.of(), Set.of(), 0));
+
+        assertThat(result.accepted()).isFalse();
+        assertThat(result.reason()).isEqualTo("answerable with no pick, no event and no tool call");
+    }
+
+    @Test
+    @DisplayName("the events-question rule reads the live snapshot, not the thread: a thread that offers "
+            + "nothing does not make 'none' true")
+    void thread_eventsQuestionStillReadsTheSnapshot() {
+        AskSnapshot snapshot = snapshotWithTopics(
+                AskFixtures.topic("AURORA", "Aurora", "d", TODAY, List.of()));
+        Raw raw = new Raw(true, "Nothing.", List.of(), List.of(), null);
+
+        Result result = validator.validate(raw, snapshot, threadEvidence(1,
+                new AskEvidence.ThreadFact(Set.of(), Set.of(), Set.of())), AskScope.ALL, null,
+                ReadyQuestion.RARE_EVENTS);
+
+        assertThat(result.accepted()).isFalse();
+        assertThat(result.reason()).contains("events question answered \"none\"");
+    }
 }

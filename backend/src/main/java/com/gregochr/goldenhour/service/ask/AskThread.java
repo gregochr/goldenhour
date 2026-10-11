@@ -9,8 +9,9 @@ import java.util.Objects;
  * sanitised and checked by {@link AskThreadValidation}, and already reconciled with the live forecast
  * (a thread that has outlived its forecast run is dropped whole, never carried here).
  *
- * <p>An immutable value that travels to the engine inside {@link AskRunOptions}. Phase T1 only
- * <em>carries</em> it to the engine boundary; the prompt and the validator read it from T2.
+ * <p>An immutable value that travels to the engine inside {@link AskRunOptions}. The conversation
+ * reconciles it with the live forecast ({@link AskThreadContext}): the prompt renders it re-joined
+ * live and the validator is offered what is still there to be named.
  *
  * @param exchanges the exchanges, oldest first; null reads as none
  */

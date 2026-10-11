@@ -70,7 +70,7 @@ class AskReadyClaudeEngineTest {
         when(askJobRuns.accountingAvailable()).thenReturn(true);
         org.mockito.Mockito.doAnswer(inv -> turns.add(inv.getArgument(0))).when(askJobRuns).recordTurn(any());
         engine = new ClaudeAskEngine(client, properties, askJobRuns, driveTimes,
-                new AskAnswerValidator(), new AskPromptBuilder(), new ObjectMapper(), clock);
+                new AskAnswerValidator(), new AskPromptBuilder(), new ObjectMapper(), clock, AskLocationNames.NONE);
         AskSnapshot snapshot = ReadyFixtures.at(ReadyFixtures.FRIDAY_NOON,
                 List.of(day(oct(9), false, true, null, ReadyFixtures.teesdale())),
                 List.of(AskFixtures.topic("AURORA", "Aurora tonight", "Kp 6", oct(9), List.of()),

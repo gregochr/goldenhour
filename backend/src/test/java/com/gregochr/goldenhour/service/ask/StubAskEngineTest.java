@@ -89,20 +89,115 @@ class StubAskEngineTest {
         return run.outcome().answer().picks().stream().map(AskPick::locationName).toList();
     }
 
+    private static AskRunOptions threadOf(ThreadExchange.PickRef... picks) {
+        return AskRunOptions.typed(new AskThread(List.of(new ThreadExchange("Where is the best spot?",
+                "Whitby.", List.of(picks), List.of(), java.time.LocalDateTime.of(2026, 10, 5, 12, 0), false))));
+    }
+
+    // -- the thread -------------------------------------------------------------------------
+
     @Test
-    @DisplayName("a thread rides the run options and changes nothing yet: the same answer as a fresh question "
-            + "(the prompt phase reads it)")
-    void aThreadIsAcceptedAndIgnored() {
-        AskThread thread = new AskThread(List.of(new ThreadExchange("Where is the best spot?", "Whitby.",
-                List.of(new ThreadExchange.PickRef(1L, TODAY_SUNSET)), List.of(),
-                java.time.LocalDateTime.of(2026, 10, 5, 12, 0), false)));
+    @DisplayName("a follow-up ranks the thread's still-eligible picks, best first, with no tool call - and "
+            + "names no place the thread did not")
+    void aFollowUpRanksTheThreadsPicks() {
+        AskRun run = engine.run(question("Rank those"), snapshot(null), USER, threadOf(
+                new ThreadExchange.PickRef(2L, TODAY_SUNSET), new ThreadExchange.PickRef(3L, TODAY_SUNSET),
+                new ThreadExchange.PickRef(4L, TODAY_SUNSET)));
 
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.OK);
+        assertThat(names(run)).containsExactly("Inland Edge", "Saltburn");
+        assertThat(run.outcome().answer().summary())
+                .isEqualTo("Of your earlier options, Inland Edge at today sunset ranks first at 4★, "
+                        + "then Saltburn.");
+        assertThat(run.trace()).extracting(AskTools.ToolCall::tool).containsExactly("submit_answer");
+        assertThat(run.outcome().turns()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("the ranking is rank_spots' own order: rating first, so a better-rated earlier pick leads")
+    void followUpRankingUsesTheRankSpotsOrder() {
+        AskRun run = engine.run(question("Which is best of those?"), snapshot(null), USER, threadOf(
+                new ThreadExchange.PickRef(2L, TODAY_SUNSET), new ThreadExchange.PickRef(1L, TODAY_SUNSET),
+                new ThreadExchange.PickRef(11L, TODAY_SUNSET)));
+
+        assertThat(names(run)).containsExactly("Whitby", "High Crag", "Saltburn");
+        assertThat(run.outcome().answer().summary()).contains("Whitby at today sunset ranks first at 5★")
+                .contains("then High Crag and Saltburn.");
+    }
+
+    @Test
+    @DisplayName("an earlier pick whose window has gone, or whose rating has fallen, is not ranked; with none "
+            + "left the stub falls back to its ordinary script, the same as a fresh question")
+    void noEarlierPickLeft_fallsBackToTheScript() {
+        AskRunOptions gone = threadOf(new ThreadExchange.PickRef(1L, "2026-10-04_sunset"),
+                new ThreadExchange.PickRef(4L, TODAY_SUNSET));
+
+        AskRun followUp = engine.run(question("Where is the best spot?"), snapshot(null), USER, gone);
         AskRun fresh = run("Where is the best spot?");
-        AskRun withThread = engine.run(question("Where is the best spot?"), snapshot(null), USER,
-                AskRunOptions.typed(thread));
 
-        assertThat(withThread.outcome()).isEqualTo(fresh.outcome());
-        assertThat(withThread.reason()).isNull();
+        assertThat(followUp.outcome()).isEqualTo(fresh.outcome());
+        assertThat(followUp.trace()).extracting(AskTools.ToolCall::tool).contains("rank_spots");
+    }
+
+    @Test
+    @DisplayName("an earlier pick outside the follow-up's scope is not ranked")
+    void earlierPickOutsideScope_isNotRanked() {
+        AskQuestion coastOnly = new AskQuestion("Rank those", "rank those", null, TestScopes.of("Coast"), "plan");
+
+        AskRun run = engine.run(coastOnly, snapshot(null), USER, threadOf(
+                new ThreadExchange.PickRef(11L, TODAY_SUNSET), new ThreadExchange.PickRef(2L, TODAY_SUNSET)));
+
+        assertThat(names(run)).containsExactly("Saltburn");
+    }
+
+    @Test
+    @DisplayName("a follow-up that points back at the earlier picks but asks for a new day and the coast is "
+            + "a new-place question: rank_spots runs for that day, and the earlier picks are not repeated")
+    void newPlacesQuestionRerunsRankSpots() {
+        AskRun run = engine.run(question("neither of those; coastal spots tonight"), snapshot(null), USER,
+                threadOf(new ThreadExchange.PickRef(3L, TODAY_SUNSET)));
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.OK);
+        assertThat(run.trace()).extracting(AskTools.ToolCall::tool).contains("rank_spots");
+        assertThat(run.outcome().answer().picks()).extracting(AskPick::windowId).containsOnly(TODAY_SUNSET);
+        assertThat(names(run)).containsExactly("Whitby", "Saltburn").doesNotContain("Inland Edge");
+    }
+
+    @Test
+    @DisplayName("a question that never points back at the earlier options runs the ordinary script even with "
+            + "a live thread, and a window of its own makes it a new-place question too")
+    void noBackReference_orAWindow_runsTheOrdinaryScript() {
+        AskRunOptions thread = threadOf(new ThreadExchange.PickRef(2L, TODAY_SUNSET));
+
+        AskRun plain = engine.run(question("Where is the best spot?"), snapshot(null), USER, thread);
+        AskQuestion inWindow = new AskQuestion("rank those", "rank those", TOMORROW_SUNRISE, AskScope.ALL, "map");
+        AskRun windowed = engine.run(inWindow, snapshot(null), USER, thread);
+
+        assertThat(plain.trace()).extracting(AskTools.ToolCall::tool).contains("rank_spots");
+        assertThat(names(plain)).contains("Whitby");
+        assertThat(windowed.trace()).extracting(AskTools.ToolCall::tool).contains("rank_spots");
+        assertThat(windowed.outcome().answer().picks()).extracting(AskPick::windowId)
+                .containsOnly(TOMORROW_SUNRISE);
+    }
+
+    @Test
+    @DisplayName("'the other one' points back at the earlier options too")
+    void theOtherOneRanksTheThread() {
+        AskRun run = engine.run(question("What about the other one?"), snapshot(null), USER,
+                threadOf(new ThreadExchange.PickRef(2L, TODAY_SUNSET)));
+
+        assertThat(names(run)).containsExactly("Saltburn");
+        assertThat(run.trace()).extracting(AskTools.ToolCall::tool).containsExactly("submit_answer");
+    }
+
+    @Test
+    @DisplayName("an events word still sends a follow-up to the events script, thread or not")
+    void eventsWordsBeatTheThread() {
+        AskRun run = engine.run(question("any rare events?"), snapshot(null), USER,
+                threadOf(new ThreadExchange.PickRef(2L, TODAY_SUNSET)));
+
+        assertThat(run.outcome().answer().picks()).isEmpty();
+        assertThat(run.trace()).extracting(AskTools.ToolCall::tool).contains("get_hot_topics");
     }
 
     // -- where and when ---------------------------------------------------------------------

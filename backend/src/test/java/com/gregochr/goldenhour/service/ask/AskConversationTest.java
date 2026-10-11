@@ -235,6 +235,72 @@ class AskConversationTest {
         assertThat(run.trace().getLast().error()).isTrue();
     }
 
+    // -- the thread -------------------------------------------------------------------------
+
+    private static AskRunOptions threadOf(ThreadExchange.PickRef... picks) {
+        return AskRunOptions.typed(new AskThread(List.of(new ThreadExchange("best spot?", "Whitby.",
+                List.of(picks), List.of(), AskFixtures.GENERATED_AT, false))));
+    }
+
+    @Test
+    @DisplayName("a fresh question carries the NONE thread; a follow-up's thread is reconciled once, at "
+            + "opening, and exposed")
+    void threadIsReconciledAtOpening() {
+        AskConversation fresh = open(question("best spot"), snapshot(null), USER, null);
+        AskConversation followUp = open(question("rank those"), snapshot(null), USER,
+                threadOf(new ThreadExchange.PickRef(1L, SUNSET_TODAY),
+                        new ThreadExchange.PickRef(9L, SUNSET_TODAY)));
+
+        assertThat(fresh.thread()).isSameAs(AskThreadContext.NONE);
+        assertThat(followUp.thread().size()).isEqualTo(1);
+        assertThat(followUp.thread().fact().picks()).containsExactly(new AskEvidence.Pair(1L, SUNSET_TODAY));
+        assertThat(followUp.thread().fact().droppedPicks()).containsExactly(new AskEvidence.Pair(9L, SUNSET_TODAY));
+        assertThat(followUp.tools().trace()).as("opening makes no tool call").isEmpty();
+    }
+
+    @Test
+    @DisplayName("a thread pick reaches the validator as offered evidence: submitted with no tool call it is "
+            + "an OK run, where the same answer to a fresh question is FAILED")
+    void submitAcceptsAThreadPickWithNoTool() {
+        AskConversation followUp = open(question("rank those"), snapshot(null), USER,
+                threadOf(new ThreadExchange.PickRef(1L, SUNSET_TODAY)));
+        AskConversation fresh = open(question("rank those"), snapshot(null), USER, null);
+
+        AskRun accepted = followUp.submit(picks(1L), 1, List.of());
+        AskRun refused = fresh.submit(picks(1L), 1, List.of());
+
+        assertThat(accepted.outcome().status()).isEqualTo(AskOutcome.Status.OK);
+        assertThat(accepted.outcome().answer().picks()).extracting(AskPick::locationName)
+                .containsExactly("Whitby");
+        assertThat(refused.outcome().status()).isEqualTo(AskOutcome.Status.FAILED);
+    }
+
+    @Test
+    @DisplayName("a follow-up about a place that has left the forecast is a CANT run from the frame")
+    void submitStaleThreadIsCant() {
+        AskConversation followUp = open(question("rank those"), snapshot(null), USER,
+                threadOf(new ThreadExchange.PickRef(9L, SUNSET_TODAY)));
+
+        AskRun run = followUp.submit(picks(9L), 1, List.of());
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.CANT);
+        assertThat(run.outcome().answer().missing()).isEqualTo("those places are no longer in the forecast");
+    }
+
+    @Test
+    @DisplayName("the location names the deps carry reach the thread's rendering, for a place that has gone")
+    void depsNamesReachTheThread() {
+        AskConversation.Deps named = new AskConversation.Deps(validator, driveTimes, new ObjectMapper(),
+                () -> Map.of(9L, "Dunstanburgh"));
+        AskConversation.Opening opening = AskConversation.open(question("rank those"), snapshot(null), USER,
+                threadOf(new ThreadExchange.PickRef(9L, SUNSET_TODAY)), named);
+
+        AskConversation conversation = ((AskConversation.Opening.Open) opening).conversation();
+
+        assertThat(conversation.thread().exchanges().getFirst().pickLines())
+                .containsExactly("1. Dunstanburgh · no longer in the forecast");
+    }
+
     // -- failing ----------------------------------------------------------------------------
 
     @Test

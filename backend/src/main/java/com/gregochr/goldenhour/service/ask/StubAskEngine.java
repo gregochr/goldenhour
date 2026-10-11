@@ -30,6 +30,7 @@ import java.util.Set;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.IntStream;
 
 /**
  * The engine that makes <b>no Anthropic call</b>, selected by {@code photocast.ask.stub=true}
@@ -120,6 +121,15 @@ public class StubAskEngine implements AskEngine {
         String text = question.sanitised().toLowerCase(Locale.ROOT);
 
         AskAnswerValidator.Raw raw;
+        if (!EVENT_WORDS.matcher(text).find() && asksAboutEarlierPicks(text, question, snapshot)) {
+            // A question about the earlier picks themselves (rank, compare, "those") ranks them with no
+            // tool call. Anything that asks for new places (a day, the coast, a tide, a window) falls
+            // through to the ordinary script, with the thread still in evidence for the validator.
+            Optional<AskAnswerValidator.Raw> earlier = threadAnswer(conversation, snapshot);
+            if (earlier.isPresent()) {
+                return conversation.submit(earlier.get(), 1, tools.trace());
+            }
+        }
         try {
             raw = EVENT_WORDS.matcher(text).find()
                     ? eventsAnswer(text, tools)
@@ -128,6 +138,66 @@ public class StubAskEngine implements AskEngine {
             return conversation.fail(e.getMessage(), 0, tools.trace());
         }
         return conversation.submit(raw, 1, tools.trace());
+    }
+
+    // -- the thread ---------------------------------------------------------------------------
+
+    /** Words that point back at the answers already given. */
+    private static final Set<String> EARLIER_WORDS = Set.of("rank", "order", "those", "them", "these",
+            "either", "both", "closer", "nearer", "earlier", "which");
+
+    /**
+     * Whether the question is about the earlier options rather than a request for new places: it
+     * points back at them (a deterministic word test, whole words) and names no day, coast, tide or
+     * window of its own, since any of those asks the forecast a new question.
+     */
+    private static boolean asksAboutEarlierPicks(String text, AskQuestion question, AskSnapshot snapshot) {
+        List<String> words = PhraseAskPreFilter.words(text);
+        boolean pointsBack = words.stream().anyMatch(EARLIER_WORDS::contains)
+                || IntStream.range(0, words.size() - 1)
+                        .anyMatch(i -> "the".equals(words.get(i)) && "other".equals(words.get(i + 1)));
+        boolean newPlaces = TODAY_WORDS.matcher(text).find() || TOMORROW_WORD.matcher(text).find()
+                || WEEKEND_WORD.matcher(text).find() || WEEKDAY_WORDS.matcher(text).find()
+                || COASTAL_WORDS.matcher(text).find() || HIGH_TIDE.matcher(text).find()
+                || LOW_TIDE.matcher(text).find()
+                || question.windowId() != null && snapshot.window(question.windowId()).isPresent();
+        return pointsBack && !newPlaces;
+    }
+
+    /**
+     * The thread's picks that are still in scope and pick-eligible, ranked the way {@code rank_spots}
+     * ranks (rating, the forecast's own pick, tide met, name), best three at distinct places. Empty
+     * when the conversation has no earlier pick left, which sends the question to the ordinary script.
+     */
+    private static Optional<AskAnswerValidator.Raw> threadAnswer(AskConversation conversation,
+            AskSnapshot snapshot) {
+        List<AskSnapshot.Candidate> earlier = conversation.thread().fact().picks().stream()
+                .flatMap(pair -> snapshot.candidate(pair.windowId(), pair.locationId()).stream())
+                .sorted(AskTools.RANK)
+                .toList();
+        List<SpotInfo> chosen = new ArrayList<>();
+        Set<Long> seen = new HashSet<>();
+        for (AskSnapshot.Candidate c : earlier) {
+            if (chosen.size() < PICKS && seen.add(c.slot().locationId())) {
+                chosen.add(conversation.tools().spotInfo(c, null));
+            }
+        }
+        if (chosen.isEmpty()) {
+            return Optional.empty();
+        }
+        List<RawPick> picks = chosen.stream()
+                .map(s -> new RawPick(s.locationId(), s.windowId(), why(s, snapshot.today())))
+                .toList();
+        StringBuilder summary = new StringBuilder("Of your earlier options, ")
+                .append(chosen.getFirst().name()).append(" at ")
+                .append(windowWords(chosen.getFirst().windowId(), snapshot.today())).append(" ranks first at ")
+                .append(chosen.getFirst().rating()).append('★');
+        for (int i = 1; i < chosen.size(); i++) {
+            summary.append(i == 1 ? ", then " : i == chosen.size() - 1 ? " and " : ", ")
+                    .append(chosen.get(i).name());
+        }
+        return Optional.of(new AskAnswerValidator.Raw(true, summary.append('.').toString(), picks,
+                List.of(), null));
     }
 
     // -- where and when -----------------------------------------------------------------------

@@ -49,6 +49,13 @@ public class AskAnswerValidator {
     /** Word cap of the {@code missing} phrase. */
     public static final int MISSING_WORDS = 8;
 
+    /** The {@code missing} phrase of a follow-up whose earlier places have left the forecast (8 words). */
+    static final String STALE_THREAD_MISSING = "those places are no longer in the forecast";
+
+    /** The summary of that same can't-answer: ours, never the model's, which assumed the places stood. */
+    static final String STALE_THREAD_SUMMARY =
+            "The places from your earlier answers are no longer in the forecast.";
+
     private static final Pattern URL_LIKE = Pattern.compile(
             "(?i)(?:\\b(?:https?|ftp)://\\S+|\\bmailto:\\S+|\\bwww\\.\\S+"
                     + "|\\b[a-z0-9-]+(?:\\.[a-z0-9-]+)*\\.(?:com|net|org|co\\.uk|uk|io|app|dev|info"
@@ -177,6 +184,12 @@ public class AskAnswerValidator {
 
         List<AskPick> picks = validPicks(raw.picks(), snapshot, evidence, scope);
         if (picks.isEmpty() && events.isEmpty() && !evidence.anyToolCalled()) {
+            if (evidence.thread().staleOnly(submittedPairs(raw.picks()))) {
+                // A follow-up about places the thread named and the forecast has since lost: an honest
+                // can't-answer in our words, not the model's, and not an engine fault.
+                return new Result(new AskAnswer(false, STALE_THREAD_SUMMARY, List.of(), List.of(),
+                        STALE_THREAD_MISSING), null);
+            }
             return discard("answerable with no pick, no event and no tool call");
         }
         if (anchor != null) {
@@ -232,7 +245,9 @@ public class AskAnswerValidator {
             if (out.size() >= MAX_PICKS) {
                 break;
             }
-            if (!evidence.pairs().contains(new AskEvidence.Pair(pick.locationId(), pick.windowId()))
+            // Offered by a tool in this conversation or by the thread; either way it must still be a live,
+            // in-scope, pick-eligible slot below.
+            if (!evidence.offers(new AskEvidence.Pair(pick.locationId(), pick.windowId()))
                     || seen.contains(pick.locationId())) {
                 continue;
             }
@@ -263,7 +278,7 @@ public class AskAnswerValidator {
         List<AskEvent> out = new ArrayList<>();
         Set<String> seen = new HashSet<>();
         for (RawEvent event : raw) {
-            Optional<AskEvidence.EventFact> fact = evidence.events().stream()
+            Optional<AskEvidence.EventFact> fact = evidence.offeredEvents().stream()
                     .filter(f -> AskEventType.same(f.type(), event.type()))
                     .filter(f -> event.date() == null || event.date().equals(f.date()))
                     .min(Comparator.comparing(AskEvidence.EventFact::date,
@@ -296,6 +311,14 @@ public class AskAnswerValidator {
         String branded = PromptUtils.sanitizeBrand(noUrls);
         String collapsed = WHITESPACE.matcher(branded).replaceAll(" ").strip();
         return PromptUtils.truncateToWords(collapsed, maxWords);
+    }
+
+    private static Set<AskEvidence.Pair> submittedPairs(List<RawPick> picks) {
+        Set<AskEvidence.Pair> pairs = new HashSet<>();
+        for (RawPick pick : picks) {
+            pairs.add(new AskEvidence.Pair(pick.locationId(), pick.windowId()));
+        }
+        return pairs;
     }
 
     /**
