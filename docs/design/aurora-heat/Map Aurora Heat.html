@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PhotoCast — Map tab, aurora heat</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#181210;--surface:#221A15;--panel:#1E1712;--border:#3A2C23;--border-light:#4A3A2E;--ink:#F2E7D3;--ink-2:rgba(242,231,211,.66);--ink-3:rgba(242,231,211,.42);--tide:#6FA8B0;--aur:#76FFA0;--sans:'IBM Plex Sans',system-ui,sans-serif;--mono:'IBM Plex Mono',monospace}
+html,body{background:#0e0b09;color:var(--ink)}
+body{font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased;padding:26px 22px 60px}
+a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
+.hd,.cap,.sec,.two{max-width:1300px;margin-left:auto;margin-right:auto}
+.hd{margin-bottom:18px}
+.hd .m{font-family:var(--mono);font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px}
+.hd h1{font-size:21px;font-weight:700;letter-spacing:-.02em}
+.hd p{font-size:13.5px;color:var(--ink-2);max-width:90ch;margin-top:7px;text-wrap:pretty}
+.hd b{font-weight:600;color:var(--ink)}
+.cap{margin-bottom:9px;font-family:var(--mono);font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3)}
+.sec{margin-bottom:28px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start}
+@media(max-width:900px){.two{grid-template-columns:1fr}}
+.frame{position:relative;overflow:hidden;background:var(--bg);border:1px solid var(--border);border-radius:12px}
+#mapwrap{position:relative;height:720px}
+#map{position:absolute;inset:0;background:#161310}
+.leaflet-container{background:#161310;font-family:var(--mono)}
+.leaflet-control-zoom a{background:#221A15!important;color:var(--ink)!important;border-color:var(--border)!important}
+.leaflet-bar{border:1px solid var(--border)!important}
+.leaflet-control-attribution{background:rgba(20,16,13,.7)!important;color:var(--ink-3)!important}
+.leaflet-control-attribution a{color:var(--ink-2)!important}
+#heat,#pins{position:absolute;inset:0;z-index:410;pointer-events:none}
+#pins{z-index:420}
+.pin{position:absolute;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;border-radius:50%;font-family:var(--mono);font-weight:700;font-size:12px;pointer-events:auto;border:2px solid rgba(0,0,0,.35);cursor:pointer}
+.hlbl{position:absolute;transform:translateX(-50%);font-family:var(--mono);font-size:10px;font-weight:600;color:#F2E7D3;text-shadow:0 1px 3px rgba(0,0,0,.92),0 0 9px rgba(0,0,0,.7);white-space:nowrap;pointer-events:none}
+.vlab{background:none;border:none}
+.vlab span{display:inline-block;transform:translate(-50%,-130%);font-family:var(--mono);font-size:10px;font-weight:600;color:#E0A542;background:rgba(20,15,12,.85);border:1px solid rgba(224,165,66,.4);border-radius:6px;padding:3px 8px;white-space:nowrap}
+.bar{position:absolute;top:14px;left:60px;right:14px;z-index:1100;display:flex;gap:9px;align-items:center;flex-wrap:wrap;pointer-events:none}
+.bar>*{pointer-events:auto}
+.bar .sp{flex:1;pointer-events:none}
+.seg{display:flex;background:rgba(30,23,18,.92);border:1px solid var(--border);border-radius:9px;overflow:hidden;backdrop-filter:blur(6px)}
+.seg button{font-family:var(--mono);font-size:12px;font-weight:600;padding:9px 14px;background:none;border:none;border-right:1px solid var(--border);color:var(--ink-2);cursor:pointer;display:flex;align-items:center;gap:7px;min-height:38px}
+.seg button:last-child{border-right:none}
+.seg button.on{background:rgba(201,162,75,.2);color:#EBD9A8}
+.seg.area button.on{background:rgba(111,168,176,.2);color:#9CCBD1}
+.seg.rmp button.on[data-ramp="aurora"]{background:rgba(118,255,160,.14);color:var(--aur)}
+.seg .dot{width:16px;height:8px;border-radius:2px}
+.hpanel{position:absolute;left:14px;bottom:16px;z-index:1100;width:280px;background:rgba(24,18,15,.94);border:1px solid var(--border-light);border-radius:12px;padding:13px 14px 14px;backdrop-filter:blur(8px);box-shadow:0 18px 44px rgba(0,0,0,.6)}
+.lab{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);margin:0 0 7px}
+.hpanel select{width:100%;font-family:var(--mono);font-size:12px;appearance:none;color:var(--ink);background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px 11px;cursor:pointer;margin-bottom:13px}
+.best{font-family:var(--mono);font-size:11px;color:var(--ink-2);background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:9px 11px;margin-bottom:13px;line-height:1.45}
+.best b{color:var(--ink);font-weight:600}
+.legbar{height:9px;border-radius:999px;border:1px solid rgba(0,0,0,.3)}
+.legbar.aurora{background:linear-gradient(90deg,#384262,#2C5470 25%,#22867E 50%,#3AC884 75%,#76FFA0);box-shadow:0 0 10px rgba(118,255,160,.25)}
+.legbar.temp{background:linear-gradient(90deg,#3A5C70,#506878 30%,#C49440 50%,#DF6B2A 72%,#C82820)}
+.legrow{display:flex;justify-content:space-between;font-family:var(--mono);font-size:9.5px;color:var(--ink-3);margin-top:5px}
+.hnote{font-family:var(--mono);font-size:10px;color:var(--ink-3);line-height:1.5;margin-top:11px;padding-top:10px;border-top:1px solid var(--border);text-wrap:pretty}
+.hnote b{color:var(--ink-2);font-weight:600}
+#tip{position:absolute;z-index:1200;pointer-events:none;background:rgba(20,15,12,.97);border:1px solid var(--border-light);border-radius:8px;padding:7px 10px;font-family:var(--mono);font-size:11px;color:var(--ink);display:none;max-width:240px}
+#tip .n{font-weight:600;font-size:12px}#tip .s{color:var(--ink-2);margin-top:3px}#tip .s b{color:#EBD9A8}
+.notes{display:flex;flex-direction:column;gap:14px}
+.notes h3{font-family:var(--mono);font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3)}
+.nt{font-size:13px;color:var(--ink-2);text-wrap:pretty}
+.nt b{display:block;color:var(--ink);font-weight:700;font-size:13.5px;margin-bottom:4px}
+.try{border:1px dashed var(--border-light);border-radius:10px;padding:12px 13px;font-family:var(--mono);font-size:11px;color:var(--ink-3);display:flex;flex-direction:column;gap:7px;align-items:flex-start}
+.try b{color:var(--ink-2);font-size:11.5px}
+.try button{font-family:var(--mono);font-size:11px;color:var(--tide);background:none;border:none;cursor:pointer;padding:0;text-align:left}
+.try button:hover{color:#8fc4cc}
+</style>
+</head>
+<body>
+<div class="hd">
+<div class="m">PhotoCast · map tab · aurora mode</div>
+<h1>Aurora on the heat field, with its own ramp</h1>
+<p>Aurora mode drops the medallions and paints the same field as sunrise and sunset: each location's own aurora rating, blended where they overlap, coverage-clamped so empty ground stays empty. What changes is the <b>colour scale</b>. Aurora runs from night slate through teal to <b>aurora green at 5★</b>, so the mode is obvious at a glance and a good aurora night can never be mistaken for a good sunset. The Kp viewline sits on top as the physical boundary the scores respect.</p>
+</div>
+<div class="cap">Interactive — drag, zoom, switch night, compare ramps</div>
+<div class="sec">
+<div class="frame">
+<div id="mapwrap">
+<div id="map"></div>
+<canvas id="heat"></canvas>
+<div id="pins"></div>
+<div id="tip"></div>
+<div class="bar">
+<div class="seg area" id="areaseg"><button data-area="1" class="on">◎ My area</button><button data-area="0">Whole catalogue</button></div>
+<div class="sp"></div>
+<div class="seg rmp" id="rampseg"><button data-ramp="aurora" class="on"><span class="dot" style="background:linear-gradient(90deg,#22867E,#76FFA0)"></span>Aurora ramp</button><button data-ramp="temp"><span class="dot" style="background:linear-gradient(90deg,#3A5C70,#C49440,#C82820)"></span>Shared ramp</button></div>
+</div>
+<div class="hpanel">
+<div class="lab">Night · aurora forecast</div>
+<select id="night"></select>
+<div class="lab">Best tonight</div>
+<div class="best" id="best"></div>
+<div class="lab">Colour = aurora rating</div>
+<div class="legbar aurora" id="legbar"></div>
+<div class="legrow"><span id="leg1">1★</span><span>3★</span><span id="leg5">5★</span></div>
+<div class="hnote"><b>Rating, not Kp.</b> Each location's score already folds in latitude, cloud and sky darkness. The dashed line is where the aurora clears the northern horizon.</div>
+</div>
+</div>
+</div>
+</div>
+<div class="two">
+<div class="notes">
+<div class="try"><b>Walk it</b>
+<button data-do="night:0">1 · tonight Kp 6 — clear north-east, cloud over the Lakes</button>
+<button data-do="night:1">2 · tomorrow Kp 5 — viewline lifts, Borders carry it</button>
+<button data-do="night:2">3 · Saturday Kp 7 — reaches the Peak, low confidence haze</button>
+<button data-do="ramp:temp">4 · same night on the shared sunset ramp</button>
+<button data-do="ramp:aurora">5 · back to aurora green</button>
+<button data-do="go:55.2,-2.45,11.8">6 · zoom into Kielder — locations take over</button>
+<button data-do="area:0">7 · whole catalogue — Highlands appear</button>
+</div>
+</div>
+<div class="notes">
+<h3>Why a separate ramp</h3>
+<div class="nt"><b>The mode should announce itself</b>The shared temperature ramp puts red at 5★. On an aurora night red would read as "hot sunset", and the screen would look like the Sunset tab with different numbers. A green field is unmistakably aurora.</div>
+<div class="nt"><b>Brightness ranks it for free</b>This ramp gets brighter with every step, so on the dark basemap the best places literally glow. The shared ramp's darkest colour is its best score and needs the bloom pass to compensate.</div>
+<div class="nt"><b>Low end means "dark sky, no show"</b>1★ is a dim slate, not red. A poor aurora night is not a failure state, just an ordinary night, and red would overstate it. It stays visible so "poor" still differs from "no data".</div>
+<div class="nt"><b>One kernel still</b>Only the score source and the ramp change. Cull, bucketing, coverage clamp, confidence haze and zoom handover are untouched.</div>
+</div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="https://unpkg.com/d3@7.9.0/dist/d3.min.js" integrity="sha384-CjloA8y00+1SDAUkjs099PVfnY2KmDC2BZnws9kh8D/lX1s46w6EPhpXdqMfjK6i" crossorigin="anonymous"></script>
+<script src="heat-field.js"></script>
+<script src="plan-data.js"></script>
+<script src="aurora-map.js"></script>
+</body>
+</html>
