@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildEclipseIndex, buildEvaluationGateIndex, buildLocationSheet, buildScoreIndex, buildSlotIndex,
+  buildEclipseIndex, buildLocationSheet, buildScoreIndex, buildSlotIndex,
   buildTideAlignmentIndex, lookupForWindow,
   sheetSpotOf, indexByWindow, windowsOf,
 } from '../utils/locationSheet.js';
@@ -111,10 +111,10 @@ const build = (overrides = {}) => buildLocationSheet(SPOT, WINDOWS, {
 describe('buildSlotIndex', () => {
   it('carries each slot\'s own event time and its REGION\'s confidence', () => {
     expect(lookupForWindow(SLOTS, 7, 'Bamburgh', '2026-08-14', 'SUNSET'))
-      .toEqual({ eventTime: '2026-08-14T19:41:00', confidence: 'low', evaluationGate: null });
+      .toEqual({ eventTime: '2026-08-14T19:41:00', confidence: 'low' });
     // Unregioned: a region's confidence is a fact about a region, so there is none to carry.
     expect(lookupForWindow(SLOTS, 7, 'Bamburgh', '2026-08-15', 'SUNSET'))
-      .toEqual({ eventTime: '2026-08-15T19:39:00', confidence: null, evaluationGate: null });
+      .toEqual({ eventTime: '2026-08-15T19:39:00', confidence: null });
     // Name-keyed fallback for a payload with no ids on its slots.
     expect(lookupForWindow(SLOTS, null, 'Bamburgh', '2026-08-15', 'SUNRISE').eventTime)
       .toBe('2026-08-15T04:38:00');
@@ -183,10 +183,10 @@ describe('buildSlotIndex', () => {
 describe('buildTideAlignmentIndex', () => {
   /**
    * One SUNSET window carrying Bamburgh's tide as `window.tideFacts` (what the index reads since
-   * window-tide-facts-plan P2). The two evaluation-side fields stay on the slot, where the index
-   * joins them from; every other override is a fact field.
+   * window-tide-facts-plan P2). The evaluation-side field, `skyRating`, stays on the slot, where the index
+   * joins it from; every other override is a fact field.
    */
-  const SLOT_SIDE = ['skyRating', 'evaluationGate'];
+  const SLOT_SIDE = ['skyRating'];
   const daysWithTide = (overrides) => {
     const slotSide = Object.fromEntries(Object.entries(overrides).filter(([k]) => SLOT_SIDE.includes(k)));
     const factSide = Object.fromEntries(Object.entries(overrides).filter(([k]) => !SLOT_SIDE.includes(k)));
@@ -228,7 +228,6 @@ describe('buildTideAlignmentIndex', () => {
       height: '3.9 m',
       shortfall: null,
       fitPhrase: 'high water, falling · HW 19:52 · 36m before sunset · 3.9 m',
-      gated: false,
       skyRating: null,
     });
   });
@@ -282,19 +281,6 @@ describe('buildTideAlignmentIndex', () => {
     expect(idx.byId.size).toBe(0);
   });
 
-  it('reads gated true only when evaluationGate is set, independent of aligned', () => {
-    const gatedIdx = buildTideAlignmentIndex(daysWithTide({
-      ...MATCH_SLOT,
-      tideAligned: false,
-      evaluationGate: '≈ Tide not right at sunset · needs low water instead · HW 19:52 · 36m before sunset',
-    }));
-    expect(lookupForWindow(gatedIdx, 7, 'Bamburgh', '2026-08-14', 'SUNSET').gated).toBe(true);
-
-    // The weather-stood-down-first path (tide-window-plan.md §1 #3): a rated miss, no gate.
-    const ratedMissIdx = buildTideAlignmentIndex(daysWithTide({ ...MATCH_SLOT, tideAligned: false }));
-    expect(lookupForWindow(ratedMissIdx, 7, 'Bamburgh', '2026-08-14', 'SUNSET').gated).toBe(false);
-  });
-
   it('falls back to null for every optional field absent from the slot', () => {
     // Defensive: the deriver always sets the whole family of T1 fields together, but the index
     // must not crash or fabricate a value if a future payload ever separates them.
@@ -309,7 +295,6 @@ describe('buildTideAlignmentIndex', () => {
       height: null,
       shortfall: null,
       fitPhrase: null,
-      gated: false,
       skyRating: null,
     });
   });
@@ -358,7 +343,7 @@ describe('buildTideAlignmentIndex', () => {
         }],
       }]);
       expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-10-11', 'SUNRISE'))
-        .toMatchObject({ aligned: true, state: 'HIGH', gated: false, skyRating: null });
+        .toMatchObject({ aligned: true, state: 'HIGH', skyRating: null });
     });
 
     it('reads NOTHING from slots: slot tide with no tideFacts gives an empty index and does not throw', () => {
@@ -389,17 +374,17 @@ describe('buildTideAlignmentIndex', () => {
       expect(idx.byId.size).toBe(0);
     });
 
-    it('joins skyRating and gated from the same window\'s slot by id', () => {
+    it('joins skyRating from the same window\'s slot by id', () => {
       const idx = buildTideAlignmentIndex([{
         date: '2026-08-14',
         eventSummaries: [{
           targetType: 'SUNSET',
-          regions: [{ slots: [{ locationId: 7, locationName: 'Renamed', skyRating: 4, evaluationGate: 'gate' }] }],
+          regions: [{ slots: [{ locationId: 7, locationName: 'Renamed', skyRating: 4 }] }],
           window: { tideFacts: [FACT] },
         }],
       }]);
       expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET'))
-        .toMatchObject({ skyRating: 4, gated: true });
+        .toMatchObject({ skyRating: 4 });
     });
 
     it('joins skyRating from the slot by NAME when the fact or slot has no id', () => {
@@ -427,7 +412,7 @@ describe('buildTideAlignmentIndex', () => {
         ],
       }]);
       expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET'))
-        .toMatchObject({ skyRating: null, gated: false });
+        .toMatchObject({ skyRating: null });
     });
 
     it('keeps the FIRST fact on a repeated location', () => {
@@ -1311,142 +1296,5 @@ describe('buildLocationSheet — the region-gloss fallback (increment §2)', () 
       { date: '2026-08-14', targetType: 'SUNSET', rating: 3, summary: null },
     ]));
     expect(rowFor('2026-08-14:SUNSET', { scoreIndex: noSummary }).summary).toBeNull();
-  });
-});
-
-/**
- * The evaluation gate — the pipeline's own served reason a window has no score
- * (`BriefingSlot.evaluationGate`, today the tide gate's sentence).
- *
- * <p>The defect this pins: a tide-gated coastal window rendered "Not scored yet" above its REGION's
- * sky gloss, unlabelled, and read as "a Claude narrative but no score". Seaham Chemical Beach,
- * Saturday 19 Sept 2026 sunrise — `forecast_run_disposition` said `SKIPPED_HARD_CONSTRAINT · Tide
- * mismatch` on both cycles, and nothing on screen did.
- */
-describe('the evaluation gate', () => {
-  const GATE = "Tide not right at sunset · needs low water, mid tide instead · HW 18:10 · 1h37 before sunset";
-  const GATED_DAYS = [
-    ...DAYS,
-    {
-      date: '2026-08-16',
-      eventSummaries: [{
-        targetType: 'SUNSET',
-        regions: [{
-          regionName: 'Northumberland',
-          confidence: 'low',
-          glossHeadline: null,
-          glossDetail: 'High cloud canvas with modest colour potential across the region.',
-          slots: [{
-            locationId: 7, locationName: 'Bamburgh', solarEventTime: '2026-08-16T19:33:00',
-            verdict: 'STANDDOWN', standdownReason: 'Tide mismatch', evaluationGate: GATE,
-          }],
-        }],
-      }],
-    },
-  ];
-
-  describe('buildSlotIndex', () => {
-    it('carries the slot\'s served gate, trimmed, and null where the slot has none', () => {
-      const idx = buildSlotIndex(GATED_DAYS);
-      expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-08-16', 'SUNSET').evaluationGate).toBe(GATE);
-      expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET').evaluationGate).toBeNull();
-    });
-
-    // The legacy shape — the key ABSENT, which is what a cache payload written before the field
-    // existed carries (`NON_NULL`) — is the `DAYS` fixture above, pinned by the first test's null.
-    it('treats a blank gate as none, and trims a padded one', () => {
-      const withGate = (evaluationGate) => buildSlotIndex([{
-        date: '2026-08-14',
-        eventSummaries: [{
-          targetType: 'SUNSET',
-          regions: [{ regionName: 'N', slots: [
-            { locationId: 7, locationName: 'Bamburgh', solarEventTime: '2026-08-14T19:41:00', evaluationGate },
-          ] }],
-        }],
-      }]);
-      expect(lookupForWindow(withGate('   '), 7, 'Bamburgh', '2026-08-14', 'SUNSET').evaluationGate).toBeNull();
-      expect(lookupForWindow(withGate(`  ${GATE}  `), 7, 'Bamburgh', '2026-08-14', 'SUNSET').evaluationGate).toBe(GATE);
-      expect(lookupForWindow(withGate(42), 7, 'Bamburgh', '2026-08-14', 'SUNSET').evaluationGate).toBeNull();
-    });
-  });
-
-  describe('buildEvaluationGateIndex', () => {
-    it('indexes only gated slots, keyed like every sibling index', () => {
-      const idx = buildEvaluationGateIndex(GATED_DAYS);
-      expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-08-16', 'SUNSET')).toEqual({ gate: GATE });
-      // Ungated: absent, not `{gate: null}` — a missing entry means "eligible or unknown".
-      expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET')).toBeNull();
-      expect(lookupForWindow(idx, null, 'Bamburgh', '2026-08-16', 'SUNSET')).toEqual({ gate: GATE });
-    });
-
-    it('is empty for a payload with no gates, and for no payload', () => {
-      expect(buildEvaluationGateIndex(DAYS).byId.size).toBe(0);
-      expect(buildEvaluationGateIndex(null).byName.size).toBe(0);
-    });
-
-    it('skips a blank gate and trims a padded one — the same rule as buildSlotIndex', () => {
-      const withGate = (evaluationGate) => buildEvaluationGateIndex([{
-        date: '2026-08-14',
-        eventSummaries: [{
-          targetType: 'SUNSET',
-          regions: [{ regionName: 'N', slots: [
-            { locationId: 7, locationName: 'Bamburgh', solarEventTime: '2026-08-14T19:41:00', evaluationGate },
-          ] }],
-        }],
-      }]);
-      expect(withGate('   ').byId.size).toBe(0);
-      expect(lookupForWindow(withGate(`  ${GATE} `), 7, 'Bamburgh', '2026-08-14', 'SUNSET')).toEqual({ gate: GATE });
-    });
-  });
-
-  describe('buildLocationSheet', () => {
-    const GLOSS = buildRegionGlossIndex(GATED_DAYS);
-    const rowFor = (key, opts = {}) => build({
-      slotIndex: buildSlotIndex(GATED_DAYS), regionGlossIndex: GLOSS, ...opts,
-    }).rows.find((r) => r.key === key);
-
-    it('carries the gate on an unrated window, and names the REGION whose gloss fills the prose', () => {
-      const row = rowFor('2026-08-16:SUNSET');
-      expect(row.rating).toBeNull();
-      expect(row.gate).toBe(GATE);
-      // The gloss still shows — "the sky could be good, shame about the tide" is the reading —
-      // but it is labelled as the region's, never passed off as this location's own.
-      expect(row.summary).toBe('High cloud canvas with modest colour potential across the region.');
-      expect(row.summaryRegion).toBe('Northumberland');
-    });
-
-    it('⚠️ a rating outranks the gate — the rating is real evidence, the gate is a later build\'s decision', () => {
-      const scored = buildScoreIndex(rows([
-        { date: '2026-08-16', targetType: 'SUNSET', rating: 3, summary: 'Own read.' },
-      ]));
-      const row = rowFor('2026-08-16:SUNSET', { scoreIndex: scored });
-      expect(row.rating).toBe(3);
-      expect(row.gate).toBeNull();
-      expect(row.summary).toBe('Own read.');
-      expect(row.summaryRegion).toBeNull();
-    });
-
-    it('names no region when the prose is the location\'s own', () => {
-      const row = rowFor('2026-08-14:SUNSET');
-      expect(row.summary).toBe('High cloud thins after eight.');
-      expect(row.summaryRegion).toBeNull();
-      expect(row.gate).toBeNull();
-    });
-
-    it('carries no gate on an away day — nothing was consulted, so nothing was gated', () => {
-      const away = build({
-        slotIndex: buildSlotIndex([{
-          date: '2026-08-17',
-          eventSummaries: [{
-            targetType: 'SUNRISE',
-            regions: [{ regionName: 'Northumberland', slots: [
-              { locationId: 7, locationName: 'Bamburgh', solarEventTime: '2026-08-17T04:42:00', evaluationGate: GATE },
-            ] }],
-          }],
-        }]),
-      }).rows.find((r) => r.key === '2026-08-17:SUNRISE');
-      expect(away.away).toBe(true);
-      expect(away.gate).toBeNull();
-    });
   });
 });

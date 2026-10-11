@@ -1427,7 +1427,7 @@ const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
  *       this component's own state.</li>
  * </ul>
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, evaluationGateIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, askPhase = 'empty', panelShown = true }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, askPhase = 'empty', panelShown = true }) {
   // `MapView` is `React.memo`'d, and its two long-lived mounts (the Map pane, the standalone
   // overlay) sit hidden rather than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -3411,7 +3411,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
 
   const hasStandDown = typeFiltered.some((loc) => isStandDownLocation(loc));
   // ⚠️ Excludes a tide-gated coastal location (tide-window-plan.md §3 T4 item 1): it is not
-  // "unknown" — it carries a served reason (`evaluationGate`) or a served miss — so it must not
+  // "unknown" — it carries a served miss — so it must not
   // make the admin "unknown" toggle read as actionable, nor be the thing that toggle's title
   // claims exists to reveal. `visibleLocations` below already lets it through the rating stage
   // unconditionally; this just stops it also being counted as the OTHER kind of absence.
@@ -3975,7 +3975,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         // The served state at the light this window (tide-window-plan.md §4 #21) — the match
         // glyph's own letter reads this, never a level or threshold computed here.
         tideState: tide?.state ?? null,
-        tideGated: Boolean(tide?.gated),
         // Whether the light was ASSESSED for this location in this window (window-tide-facts-plan
         // §4.2): a sky rating or a combined rating exists. Only then may a tide miss be headed
         // "wrong water, not wrong light"; on a window nothing scored (T+3/T+4, a travel day) the
@@ -6225,7 +6224,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               ratingKnown={ratingKnown}
               ratingRetrying={ratingRetrying}
               regionGlossIndex={regionGlossIndex}
-              evaluationGateIndex={evaluationGateIndex}
               evRows={mapEvents}
               astroConditionsByDate={astroConditionsByDate}
               auroraResultsByDate={auroraResultsByDate}
@@ -7249,12 +7247,6 @@ MapView.propTypes = {
    * `docs/engineering/lunar-eclipse-plan.md` §3 L7).
    */
   eclipseIndex: PropTypes.object,
-  /**
-   * From `utils/locationSheet.buildEvaluationGateIndex` — per location per window, the pipeline's
-   * own served reason a slot was withheld from Claude (today only the tide gate). Passed straight
-   * through to the selection callout, which prints it above the reason prose.
-   */
-  evaluationGateIndex: PropTypes.object,
   /**
    * The per-user HOME reach map (`{driveMinutes, distanceMiles}`). Originally read ONLY for the
    * callout's straight-line miles fact; since D1 (plan-to-map-doors-plan.md) also the tab's home

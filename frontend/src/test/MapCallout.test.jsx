@@ -15,7 +15,7 @@ import {
 import {
   act, fireEvent, render, screen, within,
 } from '@testing-library/react';
-import { buildEvaluationGateIndex, buildScoreIndex, lookupForWindow } from '../utils/locationSheet.js';
+import { buildScoreIndex } from '../utils/locationSheet.js';
 import { buildRegionGlossIndex } from '../utils/mapCallout.js';
 
 let currentMap = null;
@@ -515,69 +515,6 @@ describe('MapCallout — the tide-fit block (T5)', () => {
     });
     expect(screen.getByTestId('tide-fit-denial')).toHaveTextContent('Nothing in these four days');
     expect(screen.queryByRole('button', { name: /Next/ })).toBeNull();
-  });
-});
-
-/**
- * The gate row (#866) and the tide-fit block (T5) beside it — plan §5 #6's rule: no fact prints
- * twice on one card. The gate sentence owns the offset clause; the block's miss phrase owns the
- * level, height and "wants" clause, and T1 built it to omit the offset clause for exactly this
- * reason. This is the composition test, not a re-test of either component's own content.
- *
- * ⚠️ Production no longer produces an `evaluationGate` for tide — the tide gate lift (2026-09-18,
- * docs/engineering/tide-window-plan.md §6 Q1) emptied `BriefingGatingPolicy.HARD_CONSTRAINT_REASONS`,
- * so `BriefingSlotBuilder` never words this sentence for a `TIDE_MISMATCH` standdown any more (a
- * mismatched tide reaches Claude and scores through `TideVisitor` instead). The fixture below is
- * kept as a valid GENERIC test of the composition rule — a served `evaluationGate` string still
- * renders this way for any future hard constraint the mechanism might gate again — not as a claim
- * that today's pipeline still builds one for tide.
- */
-describe('MapCallout — the gate row and the tide-fit block together (T5, §5 #6)', () => {
-  let restore;
-  beforeEach(() => { currentMap = makeMap(); restore = withMeasuredCard(286, 260); });
-  afterEach(() => restore());
-
-  const OFFSET_CLAUSE = 'LW 20:40 · 30m before sunset';
-  const GATE = `Tide not right at sunset · needs high water, mid tide instead · ${OFFSET_CLAUSE}`;
-  const GATED_DAY = {
-    date: TODAY,
-    eventSummaries: [{
-      targetType: 'SUNSET',
-      regions: [{
-        regionName: 'North East',
-        slots: [{
-          locationId: LOCATION.id, locationName: LOCATION.name, solarEventTime: `${TODAY}T20:10:00`,
-          verdict: 'STANDDOWN', standdownReason: 'Tide mismatch', evaluationGate: GATE,
-        }],
-      }],
-    }],
-  };
-  const evaluationGateIndex = buildEvaluationGateIndex([GATED_DAY]);
-  // The block's own miss phrase, built by T1 to NEVER repeat the nearest-extreme offset clause
-  // the gate sentence above already states.
-  const GATED_MISS = {
-    aligned: false, state: 'HIGH', onTheLight: false, phrase: OFFSET_CLAUSE, shortfall: 'LOWER',
-    fitPhrase: 'wants high water, mid tide · low tide, rising at 20:40 · 1.2 m of 4.3 m',
-  };
-
-  it('renders BOTH the gate row and the tide-fit block, with the offset clause appearing exactly once in the card\'s text', async () => {
-    await mount({
-      rating: null, scoreIndex: null, evaluationGateIndex, tideOnLight: GATED_MISS,
-    });
-    const gate = screen.getByTestId('map-callout-gate');
-    const block = screen.getByTestId('tide-fit-block');
-    expect(gate).toHaveTextContent(GATE);
-    expect(block).toHaveAttribute('data-tier', 'miss');
-    // Unassessed (no rating, no sky rating): window-tide-facts-plan §4.2 drops the claim about the light.
-    expect(block).toHaveTextContent('Tide misses the light here');
-
-    const cardText = screen.getByTestId('map-callout').textContent;
-    const occurrences = cardText.split(OFFSET_CLAUSE).length - 1;
-    expect(occurrences).toBe(1);
-    // And the "wants" clause is the block's alone — the gate sentence's own "needs …" clause
-    // names the water differently ("needs high water, mid tide instead"), so this checks the
-    // block's own clause appears, not a coincidental substring match against the gate's.
-    expect(cardText).toContain('wants high water, mid tide');
   });
 });
 
@@ -1319,110 +1256,6 @@ describe('MapCallout — the reason routes into the location sheet (increment §
     // a speech-input user says (2.5.3).
     expect(screen.getByRole('button', { name: /Bamburgh — four days here/ }))
       .toBe(screen.getByTestId('map-callout-reason'));
-  });
-});
-
-/**
- * The evaluation gate on the callout — the same served sentence the location sheet prints, above
- * the reason prose, so the card and the sheet it opens never disagree about one window.
- */
-describe('MapCallout — evaluation gate', () => {
-  let restore;
-  beforeEach(() => { currentMap = makeMap(); restore = withMeasuredCard(286, 260); });
-  afterEach(() => restore());
-
-  const GATE = "Tide not right at sunset · needs high water, mid tide instead · LW 20:40 · 30m before sunset";
-  const GATED_DAY = {
-    date: TODAY,
-    eventSummaries: [{
-      targetType: 'SUNSET',
-      regions: [{
-        regionName: 'North East',
-        glossHeadline: null,
-        glossDetail: 'A settled coastal evening across the region.',
-        slots: [{
-          locationId: LOCATION.id, locationName: LOCATION.name, solarEventTime: `${TODAY}T20:10:00`,
-          verdict: 'STANDDOWN', standdownReason: 'Tide mismatch', evaluationGate: GATE,
-        }],
-      }],
-    }],
-  };
-  const evaluationGateIndex = buildEvaluationGateIndex([GATED_DAY]);
-  const regionGlossIndex = buildRegionGlossIndex([GATED_DAY]);
-
-  it('prints the gate above the region gloss on an unrated window, and labels the gloss as the region\'s', async () => {
-    await mount({ rating: null, scoreIndex: null, evaluationGateIndex, regionGlossIndex });
-    const gate = screen.getByTestId('map-callout-gate');
-    const reason = screen.getByTestId('map-callout-reason');
-    expect(gate).toHaveTextContent(GATE);
-    expect(reason).toHaveTextContent('A settled coastal evening across the region.');
-    expect(screen.getByTestId('map-callout-reason-region')).toHaveTextContent('North East sky');
-    expect(gate.compareDocumentPosition(reason) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  });
-
-  it('says "Not scored" in the header — no "yet" — when the gate says nothing is coming', async () => {
-    // The sheet this opens says the same two words for the same reason; "yet" above "the tide
-    // is wrong" is the card telling the reader to wait for something the pipeline has ruled out.
-    await mount({ rating: null, scoreIndex: null, ratingKnown: true, evaluationGateIndex });
-    expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Not scored');
-    expect(screen.getByTestId('map-callout-score')).not.toHaveTextContent('yet');
-  });
-
-  it('announces the prose\'s owner first — the reason button\'s name opens with the region kicker', async () => {
-    await mount({ rating: null, scoreIndex: null, evaluationGateIndex, regionGlossIndex });
-    // `\s*` because the jsdom name polyfill trims each element's text at the span boundary — in a
-    // browser the space survives. The claim is the ORDER: owner, then prose, then the place.
-    expect(screen.getByRole('button', { name: /^North East sky ·\s*A settled coastal evening/ }))
-      .toBe(screen.getByTestId('map-callout-reason'));
-  });
-
-  it('⚠️ EITHER rating source alone hides the gate — the header prop and the batch score row are different engines', async () => {
-    // The header's `rating` can come from `/api/forecast` (the synchronous engine) where the score
-    // index reads only the batch scores. A star in the header above "Not scored" below is the
-    // contradiction the gate exists to remove, so each source alone must be enough to hide it.
-    await mount({ rating: 3, scoreIndex: null, evaluationGateIndex });
-    expect(screen.queryByTestId('map-callout-gate')).toBeNull();
-    document.body.innerHTML = '';
-    currentMap = makeMap();
-    await mount({ rating: null, scoreIndex: buildScoreIndex([scoreRow({ summary: null })]), evaluationGateIndex });
-    expect(screen.queryByTestId('map-callout-gate')).toBeNull();
-  });
-
-  it('prints the gate alone when there is no gloss to borrow', async () => {
-    await mount({ rating: null, scoreIndex: null, evaluationGateIndex, regionGlossIndex: null });
-    expect(screen.getByTestId('map-callout-gate')).toHaveTextContent(GATE);
-    expect(screen.queryByTestId('map-callout-reason')).toBeNull();
-  });
-
-  it('⚠️ a rated window shows no gate — the rating is the evidence, the gate a later build\'s decision', async () => {
-    await mount({ rating: 4, scoreIndex: buildScoreIndex([scoreRow()]), evaluationGateIndex, regionGlossIndex });
-    expect(screen.queryByTestId('map-callout-gate')).toBeNull();
-    expect(screen.getByTestId('map-callout-reason')).toHaveTextContent('A warm, layered sky');
-    expect(screen.queryByTestId('map-callout-reason-region')).toBeNull();
-  });
-
-  it('never prints a gate for a night row — the gate is a solar-window fact', async () => {
-    // ⚠️ Keyed on the NIGHT row's own event type, so the lookup WOULD hit and only the
-    // `event.kind === 'solar'` guard stands between the index and the card. A sunset-keyed index
-    // here proves nothing about the guard — the key shape alone would miss.
-    const nightKeyed = buildEvaluationGateIndex([{
-      date: TODAY,
-      eventSummaries: [{
-        targetType: 'ASTRO',
-        regions: [{ regionName: 'North East', slots: [
-          { locationId: LOCATION.id, locationName: LOCATION.name, solarEventTime: `${TODAY}T23:40:00`, evaluationGate: GATE },
-        ] }],
-      }],
-    }]);
-    expect(lookupForWindow(nightKeyed, LOCATION.id, LOCATION.name, TODAY, 'ASTRO'))
-      .toEqual({ gate: GATE });
-    await mount({ event: ASTRO_EVENT, rating: null, scoreIndex: null, evaluationGateIndex: nightKeyed, regionGlossIndex });
-    expect(screen.queryByTestId('map-callout-gate')).toBeNull();
-  });
-
-  it('prints nothing when no index was supplied', async () => {
-    await mount({ rating: null, scoreIndex: null });
-    expect(screen.queryByTestId('map-callout-gate')).toBeNull();
   });
 });
 

@@ -473,9 +473,6 @@ describe('LocationFourDaySheet — the v3 anatomy (plan-matrix §6 M4.1)', () =>
     // Phase 2's light line joins the same rule for the same reason the prose does — plain text on
     // the body's own ground, no plate of its own to lighten as the ink darkens.
     expect(dimmed[0]).toContain('.wf-loc-light');
-    // The evaluation gate line joins for the same reason — and a cached rating and a gate CAN
-    // coexist on one slot, so the row it sits on can be dimmed.
-    expect(dimmed[0]).toContain('.wf-loc-gate');
     // ⚠️ And its COLOUR, because the rejected alternative is a measured AA failure rather than a
     // matter of taste: `--color-plex-text-muted` is 3.53:1 on this surface and 2.73:1 once this
     // very rule dims it — under the 3:1 large-text floor, let alone AA. Membership in the dim list
@@ -862,22 +859,10 @@ describe('LocationFourDaySheet — the map’s one added row (increment §2)', (
 });
 
 /**
- * A tide-gated window — the pipeline's own reason there is no score, served on the slot.
- *
- * <p>Before this the row read "Not scored yet" above its region's sky gloss, unlabelled: a Claude
- * narrative apparently about this place, and no score for it. Seaham Chemical Beach, 19 Sept 2026.
- *
- * ⚠️ Production no longer produces an `evaluationGate` for tide — the tide gate lift (2026-09-18,
- * docs/engineering/tide-window-plan.md §6 Q1) emptied `BriefingGatingPolicy
- * .HARD_CONSTRAINT_REASONS`, so a mismatched tide now reaches Claude and is scored through
- * `TideVisitor` rather than withheld. This fixture stays valid as a test of how the sheet renders
- * ANY served `evaluationGate` (a pre-lift cache row still served until it ages out, or any future
- * hard constraint the mechanism might gate again) — not as a claim that today's pipeline still
- * gates tide.
+ * An unscored window that borrows its region's sky gloss: the row says whose prose it is.
  */
-describe('LocationFourDaySheet — a gated window', () => {
-  const GATE = "Tide not right at sunset · needs low water, mid tide instead · HW 18:10 · 1h37 before sunset";
-  const GATED_DAY = {
+describe('LocationFourDaySheet — a borrowed region gloss', () => {
+  const DAY = {
     date: '2026-08-15',
     eventSummaries: [{
       targetType: 'SUNSET',
@@ -886,10 +871,7 @@ describe('LocationFourDaySheet — a gated window', () => {
         confidence: 'low',
         glossHeadline: null,
         glossDetail: 'High cloud canvas with modest colour potential across the region.',
-        slots: [{
-          locationId: 7, locationName: 'Bamburgh', solarEventTime: '2026-08-15T19:39:00',
-          verdict: 'STANDDOWN', standdownReason: 'Tide mismatch', evaluationGate: GATE,
-        }],
+        slots: [{ locationId: 7, locationName: 'Bamburgh', solarEventTime: '2026-08-15T19:39:00' }],
       }],
     }],
   };
@@ -898,87 +880,30 @@ describe('LocationFourDaySheet — a gated window', () => {
     { locationId: 7, locationName: 'Bamburgh', date: '2026-08-14', targetType: 'SUNSET', rating: 3, summary: 'High cloud thins after eight.' },
     { locationId: 7, locationName: 'Bamburgh', date: '2026-08-15', targetType: 'SUNRISE', rating: 5, summary: 'A clear eastern horizon under mid cloud.' },
   ]);
-  const gated = (props = {}) => setup({
-    scoreIndex: UNSCORED_SAT_SUNSET,
-    slotIndex: buildSlotIndex([GATED_DAY]),
-    regionGlossIndex: buildRegionGlossIndex([GATED_DAY]),
-    ...props,
-  });
 
-  it('says "Not scored" — no "yet", because nothing is coming — and states the gate in the backend\'s words', () => {
-    gated();
-    const r = within(row('2026-08-15:SUNSET'));
-    expect(r.getByTestId('location-sheet-state')).toHaveTextContent('Not scored');
-    expect(r.getByTestId('location-sheet-state')).not.toHaveTextContent('yet');
-    expect(r.getByTestId('location-sheet-gate')).toHaveTextContent(GATE);
-    // The glyph is decoration; the sentence is the whole accessible answer.
-    expect(r.getByTestId('location-sheet-gate').textContent.replace(/^≈\s*/, '')).toBe(GATE);
-  });
-
-  it('keeps the region\'s sky gloss, labelled as the region\'s — "shame about the tide"', () => {
-    gated();
-    const r = within(row('2026-08-15:SUNSET'));
-    expect(r.getByTestId('location-sheet-why'))
-      .toHaveTextContent('High cloud canvas with modest colour potential across the region.');
-    expect(r.getByTestId('location-sheet-why-region')).toHaveTextContent('Northumberland sky');
-    expect(r.queryByTestId('location-sheet-nowhy')).toBeNull();
-  });
-
-  it('puts the water BEFORE the sky it would have lit — order is the meaning', () => {
-    gated();
-    const r = within(row('2026-08-15:SUNSET'));
-    const gate = r.getByTestId('location-sheet-gate');
-    const why = r.getByTestId('location-sheet-why');
-    expect(gate.compareDocumentPosition(why) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(r.getByTestId('location-sheet-body')).toContainElement(gate);
-  });
-
-  it('prints the gate alone when the region has no gloss either — never "nothing written YET"', () => {
-    gated({ regionGlossIndex: null });
-    const r = within(row('2026-08-15:SUNSET'));
-    expect(r.getByTestId('location-sheet-gate')).toHaveTextContent(GATE);
-    expect(r.queryByTestId('location-sheet-why')).toBeNull();
-    expect(r.queryByTestId('location-sheet-nowhy')).toBeNull();
-  });
-
-  it('states the gate even while the ratings request is unanswered — it rides the briefing, not the fetch', () => {
-    gated({ scoreIndex: null, scoresKnown: false });
-    const r = within(row('2026-08-15:SUNSET'));
-    expect(r.getByTestId('location-sheet-state')).toHaveTextContent('Not scored');
-    expect(r.getByTestId('location-sheet-gate')).toHaveTextContent(GATE);
-  });
-
-  it('⚠️ a rated window shows its rating and its own prose, and no gate line', () => {
-    gated({ scoreIndex: SCORES });
-    const r = within(row('2026-08-15:SUNSET'));
-    expect(r.getByTestId('location-sheet-rating')).toHaveTextContent('2★');
-    expect(r.queryByTestId('location-sheet-gate')).toBeNull();
-    expect(r.getByTestId('location-sheet-why')).toHaveTextContent('Blanket low cloud to the west.');
-    expect(r.queryByTestId('location-sheet-why-region')).toBeNull();
-  });
-
-  it('labels a borrowed region gloss on an UNGATED unscored window too', () => {
-    // The label is about whose prose it is, not about the tide: an unscored window for any other
-    // reason (stability, triage, cache) borrows the same gloss and must say so the same way.
-    const ungated = {
-      ...GATED_DAY,
-      eventSummaries: [{
-        ...GATED_DAY.eventSummaries[0],
-        regions: [{
-          ...GATED_DAY.eventSummaries[0].regions[0],
-          slots: [{ locationId: 7, locationName: 'Bamburgh', solarEventTime: '2026-08-15T19:39:00' }],
-        }],
-      }],
-    };
+  it('labels a borrowed region gloss on an unscored window', () => {
+    // The label is about whose prose it is: an unscored window for any reason (stability, triage,
+    // cache) borrows the region's gloss and must say so.
     setup({
       scoreIndex: UNSCORED_SAT_SUNSET,
-      slotIndex: buildSlotIndex([ungated]),
-      regionGlossIndex: buildRegionGlossIndex([ungated]),
+      slotIndex: buildSlotIndex([DAY]),
+      regionGlossIndex: buildRegionGlossIndex([DAY]),
     });
     const r = within(row('2026-08-15:SUNSET'));
     expect(r.getByTestId('location-sheet-state')).toHaveTextContent('Not scored yet');
-    expect(r.queryByTestId('location-sheet-gate')).toBeNull();
     expect(r.getByTestId('location-sheet-why-region')).toHaveTextContent('Northumberland sky');
+  });
+
+  it('a rated window shows its own prose and no region label', () => {
+    setup({
+      scoreIndex: SCORES,
+      slotIndex: buildSlotIndex([DAY]),
+      regionGlossIndex: buildRegionGlossIndex([DAY]),
+    });
+    const r = within(row('2026-08-15:SUNSET'));
+    expect(r.getByTestId('location-sheet-rating')).toHaveTextContent('2★');
+    expect(r.getByTestId('location-sheet-why')).toHaveTextContent('Blanket low cloud to the west.');
+    expect(r.queryByTestId('location-sheet-why-region')).toBeNull();
   });
 });
 

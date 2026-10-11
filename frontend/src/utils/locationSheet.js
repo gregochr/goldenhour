@@ -280,14 +280,9 @@ export function indexByWindow(days, entriesOf) {
  * factual questions about one location and has no aggregate to protect. Such a slot carries a null
  * confidence, which is the honest answer — a region's confidence is a fact about a region.
  *
- * <p>Also carries the slot's {@code evaluationGate} — the pipeline's own served reason a window has
- * no score (a hard-constraint skip). The tide gate that produced it was lifted on 2026-09-18, so
- * the field is rare today, but it is a served seam and stays read. Null is "eligible or unknown",
- * never "eligible": the field is absent from every cache payload written before it existed.
- *
  * @param {Array} days {@code briefing.days}
  * @returns {{byId: Map<string, object>, byName: Map<string, object>}} the two indexes, each valued
- *          {@code {eventTime, confidence, evaluationGate}}
+ *          {@code {eventTime, confidence}}
  */
 export function buildSlotIndex(days) {
   return indexByWindow(days, ({ summary }) => slotsOf(summary)
@@ -298,35 +293,7 @@ export function buildSlotIndex(days) {
       value: {
         eventTime: slot.solarEventTime,
         confidence: region?.confidence ?? null,
-        evaluationGate: typeof slot.evaluationGate === 'string' && slot.evaluationGate.trim() !== ''
-          ? slot.evaluationGate.trim()
-          : null,
       },
-    })));
-}
-
-/**
- * Each GATED slot's served reason per window — the map callout's source for the same line the
- * location sheet reads through {@link buildSlotIndex}, keyed identically so `MapView` reads it
- * through the same {@link lookupForWindow} as `scoreIndex`.
- *
- * <p>Its own index rather than a fourth field on {@link buildTideAlignmentIndex}'s entries, because
- * that index SKIPS a slot with no tide-on-the-light fact and this one must not: the two facts have
- * different producers, and folding them would let a gated slot with no nearby extreme vanish from
- * the callout while the sheet still showed it. Ungated slots are skipped — a missing entry means
- * "eligible or unknown", the same claim the sheet's null makes.
- *
- * @param {Array} days {@code briefing.days}
- * @returns {{byId: Map<string, object>, byName: Map<string, object>}} the two indexes, each valued
- *          {@code {gate}}
- */
-export function buildEvaluationGateIndex(days) {
-  return indexByWindow(days, ({ summary }) => slotsOf(summary)
-    .filter(({ slot }) => typeof slot?.evaluationGate === 'string' && slot.evaluationGate.trim() !== '')
-    .map(({ slot }) => ({
-      locationId: slot.locationId,
-      locationName: slot.locationName,
-      value: { gate: slot.evaluationGate.trim() },
     })));
 }
 
@@ -343,8 +310,8 @@ export function buildEvaluationGateIndex(days) {
  * {@code tideOnTheLight}, {@code nearestSolarOffsetPhrase}, {@code tideLevel},
  * {@code tideDirection}, {@code tideHeight}, {@code tideShortfall}, {@code tideFitPhrase}). A payload
  * with no {@code tideFacts} gives an empty index and there is NO fallback to slots. The two
- * evaluation-side fields, {@code evaluationGate} and {@code skyRating}, live on the slot, so they are
- * joined from the same window's slot (id first, then name) and read as "not gated, no sky rating"
+ * evaluation-side field, {@code skyRating}, lives on the slot, so it is
+ * joined from the same window's slot (id first, then name) and reads as "no sky rating"
  * when the window has none. The two wire fields with no reader on any arm of
  * this increment ({@code nearestSolarOffsetMinutes}, {@code nearestExtremeKind}) stay unindexed —
  * the chip, tooltip, callout and strip only ever need the already-formatted phrase — so this INDEX
@@ -384,7 +351,7 @@ export function buildEvaluationGateIndex(days) {
  * @param {Array} days {@code briefing.days}
  * @returns {{byId: Map<string, object>, byName: Map<string, object>}} the two indexes, each valued
  *          {@code {aligned, state, onTheLight, phrase, level, direction, height, shortfall,
- *          fitPhrase, gated, skyRating}} — {@code state} is the served {@code tideState}
+ *          fitPhrase, skyRating}} — {@code state} is the served {@code tideState}
  *          (HIGH/MID/LOW), so a reader can ask WHICH want an alignment satisfied, not only that
  *          one did
  */
@@ -423,9 +390,8 @@ export function buildTideAlignmentIndex(days) {
             height: fact.tideHeight ?? null,
             shortfall: fact.tideShortfall ?? null,
             fitPhrase: fact.tideFitPhrase ?? null,
-            // The evaluation-side fields live on the window's slot, not the fact: a window the
-            // honesty filter blanked has no slot, so they default to "not gated, no sky rating".
-            gated: slot?.evaluationGate != null,
+            // The evaluation-side field lives on the window's slot, not the fact: a window the
+            // honesty filter blanked has no slot, so it defaults to "no sky rating".
             skyRating: slot?.skyRating ?? null,
           },
         };
@@ -442,8 +408,7 @@ export function buildTideAlignmentIndex(days) {
  * <p>Reads {@code BriefingSlot.eclipse} (the served {@code EclipseSight}, {@code NON_NULL} on the
  * wire) straight off each slot. A slot outside the eclipse's own window — or any night with no
  * catalogued or simulated eclipse at all — carries no field and is simply skipped, the same "a
- * missing entry means eligible-or-unknown, never a fabricated miss" rule {@link
- * buildEvaluationGateIndex} states for its own field.
+ * missing entry means eligible-or-unknown, never a fabricated miss" rule.
  *
  * @param {Array} days {@code briefing.days}
  * @returns {{byId: Map<string, object>, byName: Map<string, object>}} the two indexes, each valued
@@ -812,17 +777,6 @@ export function buildLocationSheet(spot, windows, {
       ? null
       : lookupForWindow(scoreIndex, locationId, name, card.date, card.targetType);
     const rating = score?.rating ?? null;
-    /**
-     * The pipeline's OWN reason this window carries no score — `BriefingSlot.evaluationGate`, the
-     * tide gate's sentence — and the fix for a card that read "a Claude narrative but no score":
-     * the narrative was the REGION's sky gloss (below), filling a window nothing had looked at.
-     *
-     * <p>Shown only while there is no rating. A rating and a gate can coexist on one slot — the
-     * gate is THIS build's decision, the rating can be a cache row from a cycle the slot was
-     * eligible for — and then the rating is real evidence about the sky, so it wins the line. Null
-     * on an away day like every sibling: nothing was consulted, so nothing was gated.
-     */
-    const gate = card.away || rating != null ? null : (slot?.evaluationGate ?? null);
     const ownSummary = card.away ? null : (score?.summary ?? null);
     // The region's gloss is read only when the location has no prose of its own, and the row
     // records WHOSE prose it is showing — the sheet labels a borrowed sky read as the region's,
@@ -874,7 +828,6 @@ export function buildLocationSheet(spot, windows, {
       summary: ownSummary ?? regionSummary,
       /** The region whose gloss `summary` is, or null when the prose is this location's own. */
       summaryRegion: regionSummary != null ? (spot?.regionName ?? null) : null,
-      gate,
       // Location-sheet superset plan, Phase 1: the SAME score row rating and summary come from —
       // never a second lookup, which is P8's load-bearing rule restated for two more fields.
       fierySky: card.away ? null : (score?.fierySky ?? null),

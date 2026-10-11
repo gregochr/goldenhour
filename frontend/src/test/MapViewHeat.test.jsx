@@ -884,17 +884,8 @@ describe('MapView heat — the tide-alignment index join (bundle rev 2)', () => 
 describe('MapView heat — dimmed, not dropped (tide-window-plan.md §3 T4)', () => {
   /**
    * A slot with a served tide state — `tideAligned` toggles which tier it reads as.
-   *
-   * ⚠️ The `evaluationGate` parameter is a GENERIC fixture, not a live tide-gate claim: production
-   * no longer produces one for tide (the tide gate lift, 2026-09-18,
-   * docs/engineering/tide-window-plan.md §6 Q1, emptied `BriefingGatingPolicy
-   * .HARD_CONSTRAINT_REASONS`, so a mismatched tide now reaches Claude and scores through
-   * `TideVisitor` instead of being withheld). Callers below that pass a non-null gate are still
-   * exercising a real client behaviour — a cache row built before the lift, still served until it
-   * ages out, or any future hard constraint the mechanism might gate again — kept as fixtures for
-   * that reason, not because today's pipeline still builds one for tide.
    */
-  function tideBriefing(locationId, locationName, tideAligned, evaluationGate = null, state = null) {
+  function tideBriefing(locationId, locationName, tideAligned, state = null) {
     return {
       days: [{
         date: TODAY,
@@ -907,7 +898,6 @@ describe('MapView heat — dimmed, not dropped (tide-window-plan.md §3 T4)', ()
               locationName,
               tideState: state ?? (tideAligned ? 'HIGH' : 'LOW'),
               tideAligned,
-              evaluationGate,
             }],
           }],
         }],
@@ -987,7 +977,7 @@ describe('MapView heat — dimmed, not dropped (tide-window-plan.md §3 T4)', ()
     // not exercise). The tide index's join is ID-first regardless (`locationId: 7`), so the name
     // only has to match what `labelSpots` will actually print.
     const tideAlignmentIndex = tideIndexOf(
-      tideBriefing(7, 'Gated Coastal', false, '≈ Tide not right at sunset').days,
+      tideBriefing(7, 'Gated Coastal', false).days,
     );
     await renderMap({
       heat: heatProp({ areaSpots: AREA_SPOTS_WITH_FIXTURES }),
@@ -1007,7 +997,7 @@ describe('MapView heat — dimmed, not dropped (tide-window-plan.md §3 T4)', ()
     // were present, since enabling it would change nothing about a location already on screen.
     role = 'ADMIN';
     const tideAlignmentIndex = tideIndexOf(
-      tideBriefing(7, 'Gated Coastal', false, '≈ Tide not right at sunset').days,
+      tideBriefing(7, 'Gated Coastal', false).days,
     );
     await renderMap({
       heat: heatProp({ areaSpots: AREA_SPOTS_WITH_FIXTURES }),
@@ -1096,7 +1086,7 @@ describe('MapView heat — dimmed, not dropped (tide-window-plan.md §3 T4)', ()
   it('§7 check 1 — tide never moves the heat: the field\'s own points are unaffected by tide alignment, across HIGH/MID/LOW', async () => {
     const heat = heatProp();
     const forState = (state, tideAligned) => tideIndexOf(
-      tideBriefing(1, 'Bamburgh-0', tideAligned, null, state).days,
+      tideBriefing(1, 'Bamburgh-0', tideAligned, state).days,
     );
 
     await renderMap({ heat, tideAlignmentIndex: forState('HIGH', true) });
