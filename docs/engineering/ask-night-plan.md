@@ -75,6 +75,14 @@ N0 does not change the service; instead the N1 snapshot query joins the location
 `enabled = true AND bortle_class IS NOT NULL` rows (the Map's `/api/astro/conditions` keeps its
 existing, unfiltered read — a pre-existing surface, out of scope here).
 
+⚠️ **(3) The Ready precompute must follow the astro refresh** (round 6): the pipeline dispatches
+`AskReadyPrecompute` after its own cycle, but this job is standalone, and §2.5's version rule means
+the 15:30 run's new `run_timestamp` withholds the `NIGHT_SKY` answer the 14:00 cycle wrote — for
+the whole evening, until the 18:00 cycle. N2 therefore has `AstroConditionsRefreshJob` dispatch
+the precompute after a SUCCESSFUL refresh (the orchestrator's own shape: background executor,
+5-minute deadline, nothing thrown reaches the job; counted against `ready.max-cycles-per-day` like
+a scheduled one). N0 itself does not touch Ask.
+
 ### §2.1 The snapshot — `AskSnapshot.nights`
 
 `AskSnapshotBuilder` adds `nights: List<Night>` for **tonight and tomorrow night** — tonight per
@@ -90,7 +98,11 @@ List<NightSpot>)`:
   region, coordinates or Bortle off a lazily-loaded location there is a `LazyInitializationException`
   and no `NIGHT_SKY` answer is ever written; its spots are those rows: `NightSpot(locationId, name, regionName, lat, lon,
   astroStars, astroSummary, cloudExplanation, visibilityExplanation, moonExplanation, moonPhase,
-  moonIlluminationPct, bortleClass, skyBrightnessSqm)`; `nightStart/End` from the row
+  moonIlluminationPct, bortleClass, skyBrightnessSqm, canopy)` — `regionName` is NEVER null here:
+  the builder SKIPS a row whose location has no region (`LocationEntity.region` is optional, the
+  admin form allows "None", the query is `LEFT JOIN FETCH l.region`), exactly as the briefing
+  collector never walks `unregioned()`, and it skips a row whose location is now disabled or has
+  no Bortle class, for astro AND aurora rows alike; `nightStart/End` from the row
   (`nauticalDuskUtc`/`nauticalDawnUtc`, the same `resolveNightWindow` the DTO uses). The rows come
   through the fetch-joined, enabled-and-Bortle-filtered query named above — the DTO path's
   `findByForecastDate` is never used here (lazy location, background precompute). ⚠️ **Two more
@@ -105,7 +117,11 @@ List<NightSpot>)`:
 - `AURORA` night for date D exists when `aurora_forecast_result` holds non-simulated rows for D
   (`findByForecastDateAndSimulatedFalseFetchingLocation`); its spots carry `auroraStars`,
   `auroraSummary`, `triaged`/`triageReason`, `alertLevel`, `maxKp`, plus the location's Bortle and
-  — when the same location has an astro row for D — that astro figure beside it.
+  — when the same location has an astro row for D — that astro figure beside it. ⚠️ That query
+  filters only date and `simulated`, so the builder applies the SAME eligibility it applies to astro
+  rows (location enabled, Bortle class present, region present, not canopy-only) before a row
+  becomes a spot — a location disabled or de-Bortled after the aurora run otherwise stays
+  recommendable until the next run replaces the date.
 - **Window ids are Ask's own** `YYYY-MM-DD_astro` / `YYYY-MM-DD_aurora` (`AskWindowId.parse` splits
   on the first `_`, so the two night kinds extend its `switch` without touching the solar arms; the
   thread's `PickRef` validation follows). The Map's night rows use a different id
@@ -117,7 +133,8 @@ List<NightSpot>)`:
   passes `isNight: true` (~3090). Before nautical dawn `currentNightDate()` is YESTERDAY, so `App`
   would read an Ask night pick as a stale solar date and refuse it. N3 changes that handoff to pass
   `isNight: row.kind !== 'solar'` (and `setLocalNightDate` the row's date for a night row), with a
-  test that fires an `_astro` pick for yesterday's running night before dawn.
+  test that fires an `_astro` pick for yesterday's running night before dawn — and the same effect
+  must NOT consume the nonce until the row exists (see the ⚠️ at the end of this bullet).
   The Map-to-Ask direction needs the same: `utils/askMapContext.js`'s `askWindowOf` returns `null`
   for every non-solar row, so a question asked while the Map shows tomorrow's ASTRO or AURORA row
   carries no `windowId` and "is this any good?" cannot mean that night; N3 extends `askWindowOf`
@@ -217,8 +234,9 @@ data (a re-run that drops a place's stars below 3 withholds the answer, as for s
 ### §2.5 The Ready question — `NIGHT_SKY`
 
 Freshness (serve-time, all-or-nothing like every Ready answer): the stored answer carries
-`astroEvaluatedAt` (the max `AstroConditionsEntity.runTimestamp` — column `run_timestamp`; the
-table has no `evaluated_at` — over the night's astro rows at write time) and is
+`astroVersion` (the max `AstroConditionsEntity.runTimestamp` — column `run_timestamp`, the
+entity's only generation instant — over the night's astro rows at write time, persisted with the
+Ready row) and is
 withheld whole when the live max differs, when any pick's live astro star differs from the stored
 one, when a pick is no longer night-eligible (ASTRO ≥ 4), or when the night has passed (nautical
 dawn, `currentNightDate()` moved on). It never carries an aurora figure or state-cache prose.
@@ -236,8 +254,13 @@ tabs: Map and Plan; relevance admits only night picks and the `AURORA` hot topic
 `utils/askModel.buildPickCards` joins a night pick by (date, kind) to the two nights' astro and
 aurora payloads instead of the briefing days — ⚠️ its guard `!meridiemOf(pick.targetType)` drops
 every non-solar pick today; it must gate on the KIND, not the meridiem. The payloads are fetched
-ONCE at the shell level while Ask is available (`GET /api/astro/conditions?date=` ×2 and, for
-PRO/ADMIN, `GET /api/aurora/forecast/results?date=` ×2; LITE never requests the aurora ones) — the
+ONCE at the shell level, **for the night DATES the live answer's picks name** (each night pick's
+`windowId` carries its date and kind, so the shell issues `GET /api/astro/conditions?date=` per
+distinct astro date and, for PRO/ADMIN, `GET /api/aurora/forecast/results?date=` per distinct
+aurora date; LITE never requests the aurora ones, and never needs to know which date "tonight" is
+— ⚠️ it cannot: `currentNightDate` is served only by the PRO/ADMIN aurora status endpoint and
+`resolveAuroraNight(null)` falls back to the civil date, so a client-computed "tonight" would omit
+the running night's payload before dawn and `buildPickCards` would drop a valid pick) — the
 Map's own `astroConditionsByDate`/`auroraResultsByDate` are `useState` inside `MapView`, not a cache
 the Plan tab or the dock can read, and nothing on the Map uses SWR. An aurora window draws no map
 chips and the camera still fits (CLAUDE.md, unchanged); an astro window draws them. the card reads **`Tonight · 21:40–05:10 · Bortle 4`**, a `4★ sky` pill (astro) and,
