@@ -409,6 +409,23 @@ is `maxDriveMinutes`, that the model never needs to know where home is, and that
 (`list_windows, rank_spots, submit_answer`) and the three regression cases pass. The error contract is unchanged: a FAILED run is
 still a refund and "No question used".
 
+**As built (2026-10-11): the last permitted turn forces `submit_answer`.** `tool_choice` `any` makes every turn a tool call but
+nothing made the conversation END. Production, 10:30 UTC on v2.26.0, the owner's fifth question in a thread (thread=4, `Map ·
+Everywhere`, window tomorrow's sunrise): "are there clear skies on the durham coast?" failed with `no submit_answer within 4
+turns` (502, "Couldn't answer just now"). All four model calls returned 200: there is no per-location "clear skies" tool, so the
+model kept exploring with tools and never submitted. Fix, deterministic and in the engine alone: on the last permitted turn
+(`turn == max-turns`) `tool_choice` is `{"type":"tool","name":"submit_answer"}` (the SDK's `ToolChoiceTool`; `disable_parallel_tool_use`
+still not sent) and the user message carrying that turn's tool results gains a trailing `text` block,
+`ClaudeAskEngine.LAST_TURN_LINE`: *"This is your last turn: call submit_answer now with what you have, or with answerable:false
+and what is missing."* (a `tool_result` block must lead its message, so the line follows the results in the same message, not a
+new one). Turns before the last are byte-for-byte what they were (`any`, no line), and the system prompt is untouched, so the
+golden prompt files did not move: the rule lives only in the last-turn line. With `max-turns` 1 the first turn is the last:
+`submit_answer` is forced with no tool consulted and no line (there is no tool-result message to carry it), the honest answer for
+a one-turn budget (a decline, since no pick can be returned without `rank_spots`). The `no submit_answer within N turns` FAILED
+path stays as the defence and is now reachable only if the forced call is malformed, refused or cut by `max_tokens`.
+Pinned by `ClaudeAskEngineWireTest` (turn 4 of 4 on the wire, the CANT variant, the still-no-submit failure, the one-turn
+budget, and turn 2 of 4 unchanged) and `ClaudeAskEngineTest`.
+
 ### 2.4 Ready answers (B3)
 
 | Id | Text | Available when | Tabs |

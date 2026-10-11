@@ -154,6 +154,10 @@ class ClaudeAskEngineWireTest {
         assertThat(toolResult.get("type").asText()).isEqualTo("tool_result");
         assertThat(toolResult.get("tool_use_id").asText()).isEqualTo("toolu_1");
         assertThat(toolResult.get("content").asText()).contains("Bamburgh").contains(WINDOW);
+        assertThat(messages.get(2).get("content")).as("turn 2 of 4 is not the last: the tool result stands alone")
+                .hasSize(1);
+        assertThat(requests.get(0).getBodyAsString()).doesNotContain(ClaudeAskEngine.LAST_TURN_LINE);
+        assertThat(requests.get(1).getBodyAsString()).doesNotContain(ClaudeAskEngine.LAST_TURN_LINE);
 
         ArgumentCaptor<AskJobRunService.Turn> turns = ArgumentCaptor.forClass(AskJobRunService.Turn.class);
         verify(jobRuns, times(2)).recordTurn(turns.capture());
@@ -161,6 +165,110 @@ class ClaudeAskEngineWireTest {
                 .containsOnly(new TokenUsage(1200, 60, 0, 0));
         WIRE_MOCK.verify(2, postRequestedFor(urlPathEqualTo(PATH))
                 .withHeader("x-api-key", equalTo("test-key-wiremock")));
+    }
+
+    /** Stubs a model that explores with {@code list_windows} until it is told it is on its last turn. */
+    private void stubExplorerThen(String lastTurnContent, String lastTurnStopReason) {
+        WIRE_MOCK.stubFor(post(urlPathEqualTo(PATH)).atPriority(2)
+                .willReturn(aResponse().withStatus(200).withHeader("Content-Type", "application/json")
+                        .withBody(reply("tool_use", "[{\"type\":\"tool_use\",\"id\":\"toolu_x\","
+                                + "\"name\":\"list_windows\",\"input\":{}}]"))));
+        WIRE_MOCK.stubFor(post(urlPathEqualTo(PATH)).atPriority(1)
+                .withRequestBody(containing("This is your last turn"))
+                .willReturn(aResponse().withStatus(200).withHeader("Content-Type", "application/json")
+                        .withBody(reply(lastTurnStopReason, lastTurnContent))));
+    }
+
+    private AskRun runTyped() {
+        return engine.run(new AskQuestion("Clear skies on the coast?", "clear skies on the coast", null,
+                AskScope.ALL, "map"), snapshot(), new AskUserContext(7L, UserRole.PRO_USER, true),
+                AskRunOptions.none());
+    }
+
+    @Test
+    @DisplayName("the last of four turns forces submit_answer and its tool-result message ends with the last-turn "
+            + "line; turns 1 to 3 stay tool_choice any and carry no such line")
+    void lastTurnForcesSubmitAnswer() throws Exception {
+        stubExplorerThen("[{\"type\":\"tool_use\",\"id\":\"toolu_s\",\"name\":\"submit_answer\","
+                + "\"input\":{\"answerable\":true,\"summary\":\"Bamburgh is clear.\",\"picks\":[{"
+                + "\"locationId\":1,\"windowId\":\"" + WINDOW + "\",\"why\":\"Clear.\"}]}}]", "tool_use");
+
+        AskRun run = runTyped();
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.OK);
+        assertThat(run.outcome().turns()).isEqualTo(4);
+        List<LoggedRequest> requests = WIRE_MOCK.findAll(postRequestedFor(urlPathEqualTo(PATH)));
+        assertThat(requests).hasSize(4);
+        for (int i = 0; i < 3; i++) {
+            JsonNode earlier = json.readTree(requests.get(i).getBodyAsString());
+            assertThat(earlier.get("tool_choice").get("type").asText()).as("turn %d", i + 1).isEqualTo("any");
+            assertThat(requests.get(i).getBodyAsString()).doesNotContain(ClaudeAskEngine.LAST_TURN_LINE);
+        }
+        JsonNode last = json.readTree(requests.get(3).getBodyAsString());
+        assertThat(last.get("tool_choice").get("type").asText()).isEqualTo("tool");
+        assertThat(last.get("tool_choice").get("name").asText()).isEqualTo("submit_answer");
+        assertThat(last.get("tool_choice").has("disable_parallel_tool_use")).isFalse();
+        assertThat(last.get("tools")).as("the tools stay on the request").hasSize(5);
+        JsonNode messages = last.get("messages");
+        assertThat(messages).hasSize(7);
+        JsonNode lastUser = messages.get(6);
+        assertThat(lastUser.get("role").asText()).isEqualTo("user");
+        assertThat(lastUser.get("content")).hasSize(2);
+        assertThat(lastUser.get("content").get(0).get("type").asText()).isEqualTo("tool_result");
+        assertThat(lastUser.get("content").get(1).get("type").asText()).isEqualTo("text");
+        assertThat(lastUser.get("content").get(1).get("text").asText()).isEqualTo(
+                "This is your last turn: call submit_answer now with what you have, "
+                        + "or with answerable:false and what is missing.");
+        assertThat(messages.get(4).get("content")).as("an earlier tool-result turn is untouched").hasSize(1);
+    }
+
+    @Test
+    @DisplayName("a model that answers the forced last turn with answerable:false is an honest CANT, not a failure")
+    void forcedLastTurnMayDeclineHonestly() {
+        stubExplorerThen("[{\"type\":\"tool_use\",\"id\":\"toolu_s\",\"name\":\"submit_answer\","
+                + "\"input\":{\"answerable\":false,\"summary\":\"No per-place cloud forecast here.\","
+                + "\"missing\":\"cloud cover for one place\"}}]", "tool_use");
+
+        AskRun run = runTyped();
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.CANT);
+        assertThat(run.outcome().turns()).isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("a model that still calls no submit_answer on the forced turn fails with the existing reason")
+    void forcedLastTurnWithoutSubmitStillFails() {
+        stubExplorerThen("[{\"type\":\"tool_use\",\"id\":\"toolu_y\",\"name\":\"list_windows\","
+                + "\"input\":{}}]", "tool_use");
+
+        AskRun run = runTyped();
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.FAILED);
+        assertThat(run.reason()).contains("no submit_answer within 4 turns");
+        WIRE_MOCK.verify(4, postRequestedFor(urlPathEqualTo(PATH)));
+    }
+
+    @Test
+    @DisplayName("with max-turns 1 the first turn is the last: submit_answer is forced, no tool is consulted and "
+            + "the request is the plain question")
+    void singleTurnBudgetForcesSubmitAtOnce() throws Exception {
+        properties.setMaxTurns(1);
+        WIRE_MOCK.stubFor(post(urlPathEqualTo(PATH)).willReturn(aResponse().withStatus(200)
+                .withHeader("Content-Type", "application/json")
+                .withBody(reply("tool_use", "[{\"type\":\"tool_use\",\"id\":\"toolu_s\","
+                        + "\"name\":\"submit_answer\",\"input\":{\"answerable\":false,"
+                        + "\"summary\":\"Not enough turns to look.\"}}]"))));
+
+        AskRun run = runTyped();
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.CANT);
+        List<LoggedRequest> requests = WIRE_MOCK.findAll(postRequestedFor(urlPathEqualTo(PATH)));
+        assertThat(requests).hasSize(1);
+        JsonNode only = json.readTree(requests.getFirst().getBodyAsString());
+        assertThat(only.get("tool_choice").get("type").asText()).isEqualTo("tool");
+        assertThat(only.get("tool_choice").get("name").asText()).isEqualTo("submit_answer");
+        assertThat(only.get("messages")).hasSize(1);
+        assertThat(requests.getFirst().getBodyAsString()).doesNotContain(ClaudeAskEngine.LAST_TURN_LINE);
     }
 
     @Test

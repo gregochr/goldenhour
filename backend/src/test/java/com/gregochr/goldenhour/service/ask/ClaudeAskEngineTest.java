@@ -360,6 +360,15 @@ class ClaudeAskEngineTest {
                 submit(answer(pick(1, WINDOW))));
         assertThat(atLimit.outcome().status()).isEqualTo(AskOutcome.Status.OK);
         assertThat(atLimit.outcome().turns()).isEqualTo(4);
+        List<MessageCreateParams> four = sentParams();
+        assertThat(four.subList(0, 3)).allSatisfy(params -> assertThat(params.toolChoice().orElseThrow().isAny())
+                .isTrue());
+        assertThat(four.get(3).toolChoice().orElseThrow().asTool().name()).isEqualTo("submit_answer");
+        assertThat(four.get(3).messages().getLast().content().asBlockParams())
+                .as("the last turn's tool results are followed by the last-turn line")
+                .last().satisfies(block -> assertThat(block.asText().text()).isEqualTo(ClaudeAskEngine.LAST_TURN_LINE));
+        assertThat(four.get(2).messages().getLast().content().asBlockParams())
+                .noneSatisfy(block -> assertThat(block.isText()).isTrue());
 
         // Four tool-only turns: turn 4 ends without submit_answer.
         reset(client);
@@ -377,13 +386,32 @@ class ClaudeAskEngineTest {
     }
 
     @Test
-    @DisplayName("the turn limit is the property: max-turns 1 allows a single tool-only turn")
+    @DisplayName("the turn limit is the property: max-turns 1 makes the first turn the last, so submit_answer "
+            + "is forced and no tool is consulted")
     void turnLimitFollowsTheProperty() {
+        properties.setMaxTurns(1);
+
+        // No rank_spots ran, so no pick could be returned: the honest answer is a decline.
+        AskRun run = run(USER, submit(Map.of("answerable", false, "summary", "Can't look further.")));
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.CANT);
+        assertThat(run.outcome().turns()).isEqualTo(1);
+        List<MessageCreateParams> sent = sentParams();
+        assertThat(sent).hasSize(1);
+        assertThat(sent.getFirst().toolChoice().orElseThrow().isTool()).isTrue();
+        assertThat(sent.getFirst().toolChoice().orElseThrow().asTool().name()).isEqualTo("submit_answer");
+        assertThat(sent.getFirst().messages()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("max-turns 1 and a tool-only reply anyway (a malformed forced call) is still the FAILED path")
+    void singleTurnWithoutSubmitFails() {
         properties.setMaxTurns(1);
 
         AskRun run = run(USER, toolTurn(tool("1", "list_windows", Map.of())));
 
         assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.FAILED);
+        assertThat(run.reason()).contains("no submit_answer within 1 turns");
         verify(client, times(1)).createAskMessage(any(), any(), any());
     }
 

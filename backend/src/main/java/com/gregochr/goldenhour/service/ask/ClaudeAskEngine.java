@@ -11,6 +11,7 @@ import com.anthropic.models.messages.StopReason;
 import com.anthropic.models.messages.TextBlockParam;
 import com.anthropic.models.messages.Tool;
 import com.anthropic.models.messages.ToolChoiceAny;
+import com.anthropic.models.messages.ToolChoiceTool;
 import com.anthropic.models.messages.ToolResultBlockParam;
 import com.anthropic.models.messages.ToolUseBlock;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -45,8 +46,8 @@ import java.util.concurrent.TimeoutException;
 
 /**
  * The Claude tool loop (plan §2.3, D-1): at most {@code max-turns} model turns, {@code tool_choice}
- * {@code any} (every turn must be a tool call, so a prose reply cannot happen), and the reply is the
- * input of the model's {@code submit_answer} call.
+ * {@code any} (every turn must be a tool call, so a prose reply cannot happen) except the last, which
+ * forces {@code submit_answer}, and the reply is the input of the model's {@code submit_answer} call.
  *
  * <p><b>Nothing safety- or cost-relevant depends on the model behaving.</b>
  * <ul>
@@ -55,7 +56,8 @@ import java.util.concurrent.TimeoutException;
  *       exception), its reply is read by {@link AskAnswerParser} and then held to what the tools
  *       returned by {@link AskAnswerValidator}, and every card fact is joined by the server.</li>
  *   <li>A turn that ends in a refusal, {@code max_tokens}, a context-window stop, no tool call, or a
- *       fourth turn without {@code submit_answer} is a FAILED outcome. The stop-reason test is
+ *       last turn without {@code submit_answer} (reachable only if the forced call is malformed or
+ *       cut short) is a FAILED outcome. The stop-reason test is
  *       {@link ModelRequestSupport#checkStopReason}, the one every other Claude path uses.</li>
  *   <li>The conversation has a {@code deadline-seconds} deadline. It is checked before every turn,
  *       the time left is that call's timeout, <em>and</em> the engine stops waiting at the deadline
@@ -97,6 +99,14 @@ public class ClaudeAskEngine implements AskEngine {
     private static final Logger LOG = LoggerFactory.getLogger(ClaudeAskEngine.class);
 
     private static final int HTTP_OK = 200;
+
+    /**
+     * Appended to the tool-result message of the last permitted turn, where {@code tool_choice} also
+     * forces {@code submit_answer}. Kept out of the system prompt so the fresh and thread prompts
+     * are untouched.
+     */
+    static final String LAST_TURN_LINE = "This is your last turn: call submit_answer now with what you have, "
+            + "or with answerable:false and what is missing.";
 
     private final AnthropicApiClient client;
     private final AskProperties properties;
@@ -230,7 +240,7 @@ public class ClaudeAskEngine implements AskEngine {
             }
             Duration callTimeout = min(Duration.ofSeconds(properties.getCallTimeoutSeconds()), remaining);
             MessageCreateParams params = buildParams(model, system, toolDefinitions, userMessage,
-                    assistantTurns, toolResults);
+                    assistantTurns, toolResults, turn == properties.getMaxTurns());
             turns = turn;
 
             Instant started = clock.instant();
@@ -284,15 +294,28 @@ public class ClaudeAskEngine implements AskEngine {
                 trace);
     }
 
-    /** The params of one turn: the rules, the tools, the question, then every earlier turn. */
+    /**
+     * The params of one turn: the rules, the tools, the question, then every earlier turn. Every turn
+     * but the last is {@code tool_choice any}. The last permitted turn forces {@code submit_answer}
+     * ({@code tool_choice} {@code tool}) and its tool-result message gains {@link #LAST_TURN_LINE}, so
+     * a model that spent every earlier turn exploring still ends the conversation with an answer
+     * (production, 2026-10-11: four tool turns and no {@code submit_answer} was a 502). With a single
+     * permitted turn the first turn is the last: no tool result exists to carry the line, and the
+     * forced call alone is the whole request.
+     */
     private MessageCreateParams buildParams(EvaluationModel model, String system, List<Tool> tools,
-            String userMessage, List<Message> assistantTurns, List<List<ContentBlockParam>> results) {
+            String userMessage, List<Message> assistantTurns, List<List<ContentBlockParam>> results,
+            boolean lastTurn) {
         MessageCreateParams.Builder builder = MessageCreateParams.builder()
                 .model(model.getModelId())
                 .maxTokens(ModelRequestSupport.maxTokens(model, properties.getMaxTokens()))
                 .systemOfTextBlockParams(List.of(TextBlockParam.builder().text(system).build()))
-                .toolChoice(ToolChoiceAny.builder().build())
                 .addUserMessage(userMessage);
+        if (lastTurn) {
+            builder.toolChoice(ToolChoiceTool.builder().name(AskToolSchemas.SUBMIT_ANSWER).build());
+        } else {
+            builder.toolChoice(ToolChoiceAny.builder().build());
+        }
         tools.forEach(builder::addTool);
         ModelRequestSupport.tune(builder, model);
         // The two lists are appended together, one entry per completed turn; the bound is the shorter
@@ -300,7 +323,13 @@ public class ClaudeAskEngine implements AskEngine {
         int completedTurns = Math.min(assistantTurns.size(), results.size());
         for (int i = 0; i < completedTurns; i++) {
             builder.addMessage(assistantTurns.get(i));
-            builder.addUserMessageOfBlockParams(results.get(i));
+            List<ContentBlockParam> blocks = results.get(i);
+            if (lastTurn && i == completedTurns - 1) {
+                // After the tool results (a tool_result block must lead its message), in the same turn.
+                blocks = new ArrayList<>(blocks);
+                blocks.add(ContentBlockParam.ofText(TextBlockParam.builder().text(LAST_TURN_LINE).build()));
+            }
+            builder.addUserMessageOfBlockParams(blocks);
         }
         return builder.build();
     }
