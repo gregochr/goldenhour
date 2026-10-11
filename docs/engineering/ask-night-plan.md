@@ -55,9 +55,11 @@ yet" most nights, so **N0 schedules the astro job**: a `DynamicSchedulerService`
 `astro_conditions_refresh` (seeded by a migration like `wildlife_comfort_refresh`), once a day at
 **15:30 UTC** (after the 14:00 intraday cycle, before dusk), evaluating **tonight and tomorrow
 night** for every enabled location with a Bortle class, through `AstroConditionsService
-.evaluateAndPersist(dates)` exactly as the engine calls it — Open-Meteo only, no Claude cost, **followed (from N2) by a Ready precompute
-dispatch on success**, since §2.5 versions `NIGHT_SKY` on this run's timestamp (the pipeline's own
-precompute ran at 14:00, before it) — one
+.evaluateAndPersist(dates)` exactly as the engine calls it — Open-Meteo only, no Claude cost, and **N2 makes this job itself dispatch `AskReadyPrecompute` after a
+successful run** (background executor, 5-minute deadline, nothing thrown reaches the job, counted
+against `ready.max-cycles-per-day`), because `PipelineOrchestrator` dispatches the precompute only
+after ITS cycles (14:00, 18:00) and §2.5 versions `NIGHT_SKY` on this run's timestamp — without the
+dispatch the 14:00 answer is withheld from 15:30 until the 18:00 cycle rewrites it — one
 `job_run` of `RunType.WEATHER`-style accounting (decide the run type by reading how the engine
 records it today). An upsert per (location, date) — see the two corrections below §2.0: the running night is left as scored before dawn, and stale rows of now-ineligible locations are excluded by N1's query, not deleted here. Aurora rows stay as they
 are (the poller's alert decides when a night is scored; a quiet night is reported from
@@ -210,9 +212,12 @@ allowance and the spend cap. (`roleBound`, the earlier design, is withdrawn.) �
 repeat "active, Kp 6" or a clear-sky claim after the state cache went quiet or the 15:30 refresh
 moved the forecast. A night answer therefore carries `nightVersion` on the wire (the astro
 generation of each night it named plus the aurora state level at answer time, an opaque string the
-client echoes on the exchange, exactly as `generatedAt` is echoed), and a typed exchange whose
-`nightVersion` is not the live one drops the whole thread with `threadReset: true`,
-`threadResetReason: "night forecast updated"` — the forecast-moved rule, one more trigger. The Ready `NIGHT_SKY`
+client echoes on the exchange, exactly as `generatedAt` is echoed), and ANY exchange carrying a
+`nightVersion` that is not the live one — typed OR Ready-origin, since `staleAgainst`'s Ready
+exemption exists because a Ready exchange's picks re-join live, which a verbatim night summary does
+not — drops the whole thread with `threadReset: true`, `threadResetReason: "night forecast
+updated"` (the forecast-moved rule, one more trigger), and `AskThreadContext` never renders a
+night exchange's summary verbatim: it re-joins the exchange's night picks live, like every pick. The Ready `NIGHT_SKY`
 answer is the one night answer that IS stored (`ask_ready_answer`), and its freshness identity
 (§2.5) therefore carries the night's own version: the max `runTimestamp` (`run_timestamp`) of the astro rows the
 answer was written from, withheld whole when the live max differs — astro only, no aurora, no
