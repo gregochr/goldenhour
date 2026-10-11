@@ -26,6 +26,7 @@ import {
   LOCATION_TYPE_META, DISPLAY_TYPES, locationTypeLabel, isWildlifeOnly,
 } from '../utils/locationTypes.js';
 import AuroraViewlineOverlay from './AuroraViewlineOverlay.jsx';
+import { viewlineDrawable } from '../utils/viewlineDrawable.js';
 import { rampHex, rampGradientCss, getMode } from '../utils/scoreRamp.js';
 import { AURORA_RAMP, AURORA_BLOOM } from '../utils/auroraRamp.js';
 import WindowControl from './map/WindowControl.jsx';
@@ -1976,6 +1977,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const liveAuroraOnScreen = nightDate === auroraNight;
   const viewlineEnabled = role !== 'LITE_USER' && auroraStatus != null
     && ALERT_WORTHY_LEVELS.has(auroraStatus.level);
+  // Whether the overlay is ELIGIBLE to mount: role, alert level, event and night. It says nothing
+  // about whether a line exists (the fetch may be pending, failed or answer inactive).
+  const viewlineEligible = viewlineEnabled && eventType === 'AURORA' && liveAuroraOnScreen;
   const [viewlineUpsellDismissed, setViewlineUpsellDismissed] = useState(false);
   const showViewlineUpsell = role === 'LITE_USER' && !viewlineUpsellDismissed
     && auroraStatus != null && ALERT_WORTHY_LEVELS.has(auroraStatus.level);
@@ -2093,6 +2097,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // forecast-triggered alert moves it without moving `viewlineEnabled` or the trigger, and without
   // it the hook would go on offering the old Kp's line under an overlay label quoting the new one.
   const { viewline } = useAuroraViewline(viewlineEnabled, auroraStatus?.triggerType, auroraStatus?.forecastKp);
+  // What the legend may say about the dashed line: the overlay is eligible AND its own test says it
+  // will draw (`viewlineDrawable`, shared with the overlay so the two cannot drift).
+  const viewlineShown = viewlineEligible && viewlineDrawable(viewline);
   const [auroraScores, setAuroraScores] = useState({});
   // The last stored-aurora ANSWER that landed, tagged with the night it answers for —
   // `{night, byName}`, or null before any has. Set by a successful response and by nothing else.
@@ -6015,7 +6022,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               when the EV-ownership rule kept the row local (`localNightDate`), and in exactly that
               case a raw `date` compare would have hidden the viewline on the night the reader had
               just picked. */}
-          {viewlineEnabled && eventType === 'AURORA' && liveAuroraOnScreen && (
+          {viewlineEligible && (
             <AuroraViewlineOverlay viewline={viewline} forecastKp={auroraStatus?.forecastKp} />
           )}
 
@@ -6821,10 +6828,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                     </button>
                   </div>
                 )}
-                {/* A3 adds the aurora variant of the legend panel (aurora-heat-plan.md §3 A3). Until
-                    then the solar legend must not describe the aurora field, so aurora is named
-                    out HERE and nowhere else (2026-10-11, A2) — never on `heatOffered`. */}
-                {heatOffered && heatView === 'heat' && !isMobile && !isAuroraMode && (
+                {heatOffered && heatView === 'heat' && !isMobile && (
                   <MapLegendPanel
                     open={openMapMenu === 'legend'}
                     onOpenChange={(next) => setOpenMapMenu(next ? 'legend' : null)}
@@ -6833,6 +6837,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                     onToggleRings={() => setRingsEnabled((v) => !v)}
                     hasHome={hasHomeCoords}
                     reachMeasured={mapReachMeasured}
+                    variant={isAuroraMode ? 'aurora' : 'solar'}
+                    viewlineShown={viewlineShown}
                   />
                 )}
                 {!isMobile && (

@@ -47,17 +47,17 @@ facts PR; #815 is a measurement doc).
 
 ## §0 Status
 
-**Status: A1 merged (#1097); A2 BUILT 2026-10-11 (PR pending); A3–A6 not started.** Phase log (every phase appends its own row in
+**Status: A1 merged (#1097); A2 merged (#1100); A3 BUILT 2026-10-11 (PR pending); A4 merged (#1095); A5–A6 not started.** Phase log (every phase appends its own row in
 the same commit as its code; the `PR` column names the PR, not a SHA, because the repo
 squash-merges):
 
 | phase | what | PR | notes |
 |---|---|---|---|
 | A0 | vendoring, this plan, the prompts, the viewline findings | — | this document |
-| A1 | ramp + bloom injection in the kernel; `utils/auroraRamp.js` | pending | built 2026-10-11 on `feature/aurora-heat-a1`; `drawTiles → paint → field` already passed `opts` whole, so no threading was needed; byte-equality and both default-removal mutants verified |
-| A2 | aurora mode paints the field (points, confidence, pins, chips) | pending | built 2026-10-11 on `feature/aurora-heat-a2`; field points follow D1; the aurora `<Marker>` loop and `getRatingForLocation` untouched (Q1 still open) |
-| A3 | legend, toolbar key, peek-sheet swatch in aurora mode | | |
-| A4 | best-location card dismiss | pending | independent — may run beside A1; `bestAuroraDismissedKey` = `nightDate\|name`; focus to the window pill, else the first other pane control |
+| A1 | ramp + bloom injection in the kernel; `utils/auroraRamp.js` | #1097 | built 2026-10-11 on `feature/aurora-heat-a1`; `drawTiles → paint → field` already passed `opts` whole, so no threading was needed; byte-equality and both default-removal mutants verified |
+| A2 | aurora mode paints the field (points, confidence, pins, chips) | #1100 | built 2026-10-11 on `feature/aurora-heat-a2`; field points follow D1; the aurora `<Marker>` loop and `getRatingForLocation` untouched (Q1 still open) |
+| A3 | legend, toolbar key, peek-sheet swatch in aurora mode | pending | built 2026-10-11 on `feature/aurora-heat-a3`; `MapLegendPanel` `variant`/`viewlineShown` (one shared `viewlineShown` const in `MapView` for overlay and note); the toolbar ramp key was already done in A2; peek swatch keyed on `row.kind === EVENT_KIND.AURORA`; solar legend HTML pinned byte-identical |
+| A4 | best-location card dismiss | #1095 | independent — may run beside A1; `bestAuroraDismissedKey` = `nightDate\|name`; focus to the window pill, else the first other pane control |
 | A5 | viewline: 10 Oct reconstruction + owner answers | | **owner-gated** (§5) |
 | A6 | viewline fix | | after A5 |
 
@@ -314,8 +314,8 @@ Scope is whatever §6 decided. The shape the findings point at, for sizing only:
    `MapLabels` take an `omitUnrated` prop (default false, byte-identical elsewhere) that `MapView`
    sets in aurora mode. Also in A2: the dark-sky toggle narrows the aurora field like a solar one;
    Ask pick pins keep the SHARED ramp (a pick belongs to its own solar window); the three colour
-   keys read 1★ to 5★ in aurora, and the legend PANEL is withheld in aurora until A3 (named on that
-   one mount, never on `heatOffered`).
+   keys read 1★ to 5★ in aurora, and the legend PANEL was withheld in aurora until A3 (since mounted with
+   the aurora variant).
 
 ## §5 Decisions
 

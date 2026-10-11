@@ -1,6 +1,8 @@
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import { rampHex } from '../utils/scoreRamp.js';
+import { auroraRampHex } from '../utils/auroraRamp.js';
 import MapPeekSheet, { OtherWindowValue, MapPeekWindowsSection } from '../components/map/MapPeekSheet.jsx';
 
 /**
@@ -438,6 +440,19 @@ describe('MapPeekWindowsSection', () => {
     const rows = screen.getAllByTestId('wf-map-peek-win-row');
     expect(rows[0]).toHaveTextContent('Worth it');
     expect(screen.getByTestId('wf-map-peek-wr-best-of-night')).toHaveTextContent('3★ best');
+  });
+
+  it('swatches an aurora row on the aurora ramp, an astro row on the shared ramp (aurora heat A3)', () => {
+    const rows = [
+      { id: 'au', kind: 'aur', eventType: 'AURORA', dayLabel: 'Tonight', label: 'Tonight, aurora', time: '22:00', scored: true, bestRating: 4 },
+      { id: 'as', kind: 'astro', eventType: 'ASTRO', dayLabel: 'Tonight', label: 'Tonight, astro', time: '22:00', scored: true, bestRating: 4 },
+    ];
+    render(<MapPeekWindowsSection heading="H" rows={rows} verdicts={new Map()} onSelect={() => {}} />);
+    const swatch = (i) => screen.getAllByTestId('wf-map-peek-wr-best-of-night')[i].querySelector('i');
+    const hexOf = (hex) => { const d = document.createElement('div'); d.style.background = hex; return d.style.background; };
+    expect(swatch(0).style.background).toBe(hexOf(auroraRampHex(4)));
+    expect(swatch(1).style.background).toBe(hexOf(rampHex(4)));
+    expect(hexOf(auroraRampHex(4))).not.toBe(hexOf(rampHex(4)));
   });
 
   it('tapping a row calls onSelect with that row — the sheet itself decides whether to stay open', () => {

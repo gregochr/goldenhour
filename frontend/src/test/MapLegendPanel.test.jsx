@@ -4,10 +4,20 @@
  * (`MapViewHeat.test.jsx`) already exercises the chip's mount/hide gating through a real `MapView`,
  * so this file tests the component as a pure, fully-controlled one instead.
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import MapLegendPanel, { handoverPhase } from '../components/map/MapLegendPanel.jsx';
 import { rampGradientCss, setMode } from '../utils/scoreRamp.js';
+import { AURORA_RAMP } from '../utils/auroraRamp.js';
+
+const { rampGradientCss: realRampGradientCss } = await vi.importActual('../utils/scoreRamp.js');
+
+// Both variants' bar colours are read through the module under test's own imports, so a mock of
+// `rampGradientCss` is observable only if the aurora branch (wrongly) reached it.
+vi.mock('../utils/scoreRamp.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, rampGradientCss: vi.fn(actual.rampGradientCss) };
+});
 
 function baseProps(overrides = {}) {
   return {
@@ -226,5 +236,81 @@ describe('MapLegendPanel — the confidence note', () => {
     expect(screen.getByTestId('wf-legend-note')).toHaveTextContent(
       'Colour appears only near rated locations, and only over land. Later days look hazier — lower confidence.',
     );
+  });
+});
+
+/**
+ * The default-variant rendered HTML, captured BEFORE the aurora variant existed (aurora-heat-plan.md
+ * §3 A3) with the temperature scale, handover 0.5, rings on and a home. Any pixel the aurora work
+ * moves in the solar legend breaks this literal.
+ */
+const SOLAR_BASELINE_HTML = '<div data-testid="wf-legend" class="wf-legend"><button type="button" data-testid="wf-legend-chip" class="wf-legend-chip" aria-haspopup="dialog" aria-expanded="true" aria-controls="wf-legend-panel"><span aria-hidden="true">▤ </span>Legend<span aria-hidden="true" class="wf-win-caret">▾</span></button><div id="wf-legend-panel" data-testid="wf-legend-panel" class="wf-legend-panel" role="dialog" aria-label="Map legend"><div data-testid="wf-legend-ramp" class="wf-legend-ramp" style="background: linear-gradient(90deg, rgb(58, 92, 112) 0.0%, rgb(80, 104, 120) 30.0%, rgb(146, 140, 128) 45.0%, rgb(196, 148, 64) 50.0%, rgb(201, 146, 48) 55.0%, rgb(223, 107, 42) 72.5%, rgb(222, 72, 38) 82.5%, rgb(200, 40, 32) 100.0%);"></div><div class="wf-legend-ramp-row"><span>1★ poor</span><span>3★</span><span>5★ worth it</span></div><div data-testid="wf-legend-hand" class="wf-legend-hand"><span class="wf-legend-hand-bar"><i style="width: 60%;"></i></span><span class="wf-legend-hand-txt"><b>Zooming in</b>regions giving way to places</span></div><button type="button" data-testid="wf-legend-rings-toggle" aria-pressed="true" class="wf-legend-ring-toggle on"><span aria-hidden="true" class="wf-legend-ring-box"></span>Reach rings · 25 mi, 50 mi</button><div data-testid="wf-legend-note" class="wf-legend-note">Colour appears only near rated locations, and only over land. Later days look hazier — lower confidence.</div></div></div>';
+
+describe('MapLegendPanel — the aurora variant (aurora heat, A3)', () => {
+  afterEach(() => {
+    vi.mocked(rampGradientCss).mockReset().mockImplementation(realRampGradientCss);
+  });
+
+  it('renders the default variant byte-identically to the pre-A3 markup, with and without the explicit prop', () => {
+    setMode('temp');
+    const props = baseProps({ open: true, handoverFraction: 0.5 });
+    const implicit = render(<MapLegendPanel {...props} />);
+    expect(implicit.container.innerHTML).toBe(SOLAR_BASELINE_HTML);
+    implicit.unmount();
+    const explicit = render(<MapLegendPanel {...props} variant="solar" viewlineShown />);
+    expect(explicit.container.innerHTML).toBe(SOLAR_BASELINE_HTML);
+  });
+
+  it('words the label, ends and note for an aurora night', () => {
+    render(<MapLegendPanel {...baseProps({ open: true })} variant="aurora" />);
+    const panel = screen.getByTestId('wf-legend-panel');
+    expect(panel).toHaveTextContent('COLOUR = AURORA RATING');
+    expect(panel).toHaveTextContent('1\u2605 dark sky, no show');
+    expect(panel).toHaveTextContent('3\u2605');
+    expect(panel).toHaveTextContent('5\u2605 aurora green');
+    expect(panel).not.toHaveTextContent('poor');
+    expect(panel).not.toHaveTextContent('worth it');
+    expect(screen.getByTestId('wf-legend-note')).toHaveTextContent(
+      'Rating, not Kp. Each location\u2019s score already folds in latitude, cloud and sky darkness.',
+    );
+  });
+
+  const SENTINEL = 'linear-gradient(90deg, red, blue)';
+
+  it('paints the aurora bar from the aurora ramp with its glow class, never from the solar ramp', () => {
+    vi.mocked(rampGradientCss).mockReturnValue(SENTINEL);
+    const { rerender } = render(<MapLegendPanel {...baseProps({ open: true })} variant="aurora" />);
+    const bar = screen.getByTestId('wf-legend-ramp');
+    const probe = document.createElement('div');
+    probe.style.background = AURORA_RAMP.gradientCss();
+    expect(bar.style.background).toBe(probe.style.background);
+    expect(bar.style.background).not.toContain('blue');
+    expect(bar).toHaveClass('wf-legend-ramp', 'wf-legend-ramp-aurora');
+    expect(rampGradientCss).not.toHaveBeenCalled();
+
+    rerender(<MapLegendPanel {...baseProps({ open: true })} variant="solar" />);
+    const solarBar = screen.getByTestId('wf-legend-ramp');
+    expect(rampGradientCss).toHaveBeenCalled();
+    expect(solarBar.style.background).toContain('blue');
+    expect(solarBar).not.toHaveClass('wf-legend-ramp-aurora');
+  });
+
+  it('names the dashed line only when the viewline is shown', () => {
+    const { rerender } = render(<MapLegendPanel {...baseProps({ open: true })} variant="aurora" />);
+    expect(screen.getByTestId('wf-legend-note')).not.toHaveTextContent('dashed line');
+    rerender(<MapLegendPanel {...baseProps({ open: true })} variant="aurora" viewlineShown />);
+    expect(screen.getByTestId('wf-legend-note')).toHaveTextContent(
+      'The dashed line is where the aurora clears the northern horizon.',
+    );
+  });
+
+  it('keeps the handover text and the home-gated reach-rings toggle as they are', () => {
+    const { rerender } = render(
+      <MapLegendPanel {...baseProps({ open: true, handoverFraction: 0.5 })} variant="aurora" />,
+    );
+    expect(screen.getByTestId('wf-legend-hand')).toHaveTextContent('Zooming in');
+    expect(screen.getByTestId('wf-legend-rings-toggle')).toBeInTheDocument();
+    rerender(<MapLegendPanel {...baseProps({ open: true, hasHome: false })} variant="aurora" />);
+    expect(screen.queryByTestId('wf-legend-rings-toggle')).toBeNull();
   });
 });
