@@ -1,5 +1,9 @@
 package com.gregochr.goldenhour.service.ask;
 
+import com.gregochr.goldenhour.entity.AlertLevel;
+import com.gregochr.goldenhour.entity.AstroConditionsEntity;
+import com.gregochr.goldenhour.entity.AuroraForecastResultEntity;
+import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
@@ -11,13 +15,18 @@ import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.LocationTideFact;
 import com.gregochr.goldenhour.model.PlanRenderedEvent;
 import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
+import com.gregochr.goldenhour.repository.AstroConditionsRepository;
+import com.gregochr.goldenhour.repository.AuroraForecastResultRepository;
 import com.gregochr.goldenhour.service.AlmanacService;
+import com.gregochr.goldenhour.service.AstroConditionsService;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.EclipseAlmanacSource;
 import com.gregochr.goldenhour.service.EclipseHotTopicStrategy;
 import com.gregochr.goldenhour.service.PlanWindowProjector;
 import com.gregochr.goldenhour.service.SolarEventFreshness;
 import com.gregochr.goldenhour.service.TravelDayService;
+import com.gregochr.goldenhour.service.aurora.AuroraForecastRunService;
+import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import com.gregochr.goldenhour.util.Rewind;
 import org.slf4j.Logger;
@@ -33,6 +42,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -55,6 +65,20 @@ import java.util.Set;
  * {@code BriefingRollupBuilder} applies before the best-bet advisor sees a date, so it is used
  * here, once per distinct date.
  *
+ * <p><b>The nights</b> (ask-night plan §2.1) are tonight's and tomorrow night's astro conditions and
+ * aurora results, read from the same rows the Map's night rows read. "Tonight" is the poller's night,
+ * {@link AuroraForecastRunService#currentNightDate()} — before nautical dawn that is yesterday's date,
+ * the night still running — never the UK civil date. The ASTRO rows come through a query that fetch-joins
+ * the location and its region: the Ready precompute builds a snapshot on the background executor
+ * outside any transaction, where a lazily-loaded location is a {@code LazyInitializationException} and
+ * no night answer would ever be written. A row becomes a spot only if its location is enabled, has a
+ * Bortle class and a region (the briefing never walks {@code unregioned()}) and is not canopy-only (a
+ * wood's star means the opposite of a sky star), and — for ASTRO — only if it belongs to the night's
+ * latest generation: {@code AstroConditionsService.evaluateAndPersist} stamps one instant per run, a
+ * run that fails for some places leaves their rows from the previous afternoon beside the fresh ones,
+ * and a date filter alone would rank a day-old clear-sky forecast with today's. The night read is
+ * fail-soft: a failure there leaves a snapshot with no nights, never none at all.
+ *
  * <p>{@link #current()} memoises the snapshot for {@value #MEMO_SECONDS} seconds: the assembly it
  * reads is the full Plan-tab one and is not cheap.
  */
@@ -75,6 +99,11 @@ public class AskSnapshotBuilder {
     private final AlmanacService almanacService;
     private final SolarEventFreshness freshness;
     private final Clock clock;
+    private final AstroConditionsRepository astroRepository;
+    private final AuroraForecastResultRepository auroraRepository;
+    private final AstroConditionsService astroService;
+    private final AuroraForecastRunService nightSelector;
+    private final AuroraStateCache auroraStateCache;
 
     private Instant memoBuiltAt;
     private AskSnapshot memo;
@@ -87,14 +116,27 @@ public class AskSnapshotBuilder {
      * @param almanacService   the source of the "Coming up" entries
      * @param freshness        the project's single answer to "now" for solar events
      * @param clock            the application clock, for the memo and the UK civil date
+     * @param astroRepository  the astro conditions rows, read with their location fetched
+     * @param auroraRepository the stored (non-simulated) aurora results, read with their location fetched
+     * @param astroService     resolves the window a stored astro row was scored over
+     * @param nightSelector    the one owner of "which night is current"
+     * @param auroraStateCache the aurora alert state, reported for tonight only and never while simulated
      */
     public AskSnapshotBuilder(BriefingService briefingService, TravelDayService travelDayService,
-            AlmanacService almanacService, SolarEventFreshness freshness, Clock clock) {
+            AlmanacService almanacService, SolarEventFreshness freshness, Clock clock,
+            AstroConditionsRepository astroRepository, AuroraForecastResultRepository auroraRepository,
+            AstroConditionsService astroService, AuroraForecastRunService nightSelector,
+            AuroraStateCache auroraStateCache) {
         this.briefingService = briefingService;
         this.travelDayService = travelDayService;
         this.almanacService = almanacService;
         this.freshness = freshness;
         this.clock = clock;
+        this.astroRepository = astroRepository;
+        this.auroraRepository = auroraRepository;
+        this.astroService = astroService;
+        this.nightSelector = nightSelector;
+        this.auroraStateCache = auroraStateCache;
     }
 
     /**
@@ -161,7 +203,150 @@ public class AskSnapshotBuilder {
         windows.sort(CHRONOLOGICAL);
         LocalDateTime generatedAt = briefing.generatedAt();
         return Optional.of(new AskSnapshot(generatedAt, AskClock.londonHHmm(generatedAt),
-                ForecastHorizon.today(clock), windows, topics(briefing), comingUp(), briefing.stale()));
+                ForecastHorizon.today(clock), windows, topics(briefing), comingUp(), briefing.stale(),
+                nights()));
+    }
+
+    // -- the nights ---------------------------------------------------------------------------
+
+    /**
+     * Tonight's and tomorrow night's forecasts, or none when the read fails: the nights are an extra
+     * surface, and Ask still answers about the solar windows without them.
+     */
+    private AskSnapshot.Nights nights() {
+        try {
+            return buildNights();
+        } catch (RuntimeException e) {
+            LOG.warn("[ASK] Could not read the night forecasts for the snapshot: {}", e.toString());
+            return AskSnapshot.Nights.NONE;
+        }
+    }
+
+    private AskSnapshot.Nights buildNights() {
+        LocalDate tonight = nightSelector.currentNightDate();
+        List<AskSnapshot.Night> nights = new ArrayList<>();
+        for (LocalDate date : List.of(tonight, tonight.plusDays(1))) {
+            Optional<AskSnapshot.Night> astro = astroNight(date);
+            astro.ifPresent(nights::add);
+            auroraNight(date, astro.orElse(null)).ifPresent(nights::add);
+        }
+        return new AskSnapshot.Nights(tonight, nights, auroraState());
+    }
+
+    /**
+     * The ASTRO night for a date: the rows of its latest generation whose places are eligible. The
+     * generation is the maximum {@code run_timestamp} over the date's enabled, Bortle-enriched rows (the
+     * query's own filter, repeated here because the rule is the builder's), so a stale row beside fresh
+     * ones is never a spot.
+     */
+    private Optional<AskSnapshot.Night> astroNight(LocalDate date) {
+        List<AstroConditionsEntity> rows = astroRepository.findByForecastDateFetchingLocation(date).stream()
+                .filter(r -> r.getLocation() != null && r.getLocation().isEnabled()
+                        && r.getLocation().getBortleClass() != null)
+                .toList();
+        Optional<Instant> generation = rows.stream().map(AstroConditionsEntity::getRunTimestamp)
+                .max(Comparator.naturalOrder());
+        if (generation.isEmpty()) {
+            return Optional.empty();
+        }
+        List<AstroConditionsEntity> latest = rows.stream()
+                .filter(r -> generation.get().equals(r.getRunTimestamp()))
+                .filter(r -> isNightSpot(r.getLocation()))
+                .toList();
+        if (latest.isEmpty()) {
+            return Optional.empty();
+        }
+        AstroConditionsService.NightWindow window = astroService.resolveNightWindow(latest.getFirst());
+        List<AskSnapshot.NightSpot> spots = latest.stream().map(AskSnapshotBuilder::astroSpot).toList();
+        return Optional.of(new AskSnapshot.Night(AskWindowId.format(date, AskWindowKind.ASTRO), date,
+                AskWindowKind.ASTRO, window.start(), window.end(), generation.get(), spots));
+    }
+
+    /**
+     * The AURORA night for a date: the stored non-simulated results whose places are eligible, each
+     * carrying its astro figures beside it when the same place has a spot on the date's astro night.
+     * The aurora entity holds no window of its own, so the night's window is the astro night's, or none.
+     */
+    private Optional<AskSnapshot.Night> auroraNight(LocalDate date, AskSnapshot.Night astro) {
+        List<AuroraForecastResultEntity> rows = auroraRepository
+                .findByForecastDateAndSimulatedFalseFetchingLocation(date).stream()
+                .filter(r -> r.getLocation() != null && r.getLocation().isEnabled()
+                        && r.getLocation().getBortleClass() != null && isNightSpot(r.getLocation()))
+                .toList();
+        if (rows.isEmpty()) {
+            return Optional.empty();
+        }
+        Map<Long, AskSnapshot.NightSpot> astroByLocation = new LinkedHashMap<>();
+        if (astro != null) {
+            astro.spots().forEach(s -> astroByLocation.put(s.locationId(), s));
+        }
+        List<AskSnapshot.NightSpot> spots = rows.stream()
+                .map(r -> auroraSpot(r, astroByLocation.get(r.getLocation().getId())))
+                .toList();
+        Instant generation = rows.stream().map(AuroraForecastResultEntity::getRunTimestamp)
+                .max(Comparator.naturalOrder()).orElse(null);
+        return Optional.of(new AskSnapshot.Night(AskWindowId.format(date, AskWindowKind.AURORA), date,
+                AskWindowKind.AURORA, astro == null ? null : astro.start(),
+                astro == null ? null : astro.end(), generation, spots));
+    }
+
+    /**
+     * Whether a place may be a night spot: a region to name it under (the briefing never walks
+     * {@code unregioned()}, and the admin form lets a location have none) and not canopy-only (a wood's
+     * star means the opposite of a sky star). Enabled and Bortle are the caller's, which have already
+     * filtered on them.
+     */
+    private static boolean isNightSpot(LocationEntity location) {
+        return location.getRegion() != null && location.getRegion().getName() != null
+                && !location.isWoodlandOnly();
+    }
+
+    private static AskSnapshot.NightSpot astroSpot(AstroConditionsEntity r) {
+        LocationEntity l = r.getLocation();
+        return new AskSnapshot.NightSpot(l.getId(), l.getName(), l.getRegion().getName(), l.getLat(),
+                l.getLon(), l.isWoodlandOnly(), l.getBortleClass(), l.getSkyBrightnessSqm(), r.getStars(),
+                r.getSummary(), r.getCloudExplanation(), r.getVisibilityExplanation(),
+                r.getMoonExplanation(), r.getMoonPhase(), r.getMoonIlluminationPct(), null, null, false,
+                null, null, null);
+    }
+
+    private static AskSnapshot.NightSpot auroraSpot(AuroraForecastResultEntity r,
+            AskSnapshot.NightSpot astro) {
+        LocationEntity l = r.getLocation();
+        return new AskSnapshot.NightSpot(l.getId(), l.getName(), l.getRegion().getName(), l.getLat(),
+                l.getLon(), l.isWoodlandOnly(), l.getBortleClass(), l.getSkyBrightnessSqm(),
+                astro == null ? null : astro.astroStars(), astro == null ? null : astro.astroSummary(),
+                astro == null ? null : astro.cloudExplanation(),
+                astro == null ? null : astro.visibilityExplanation(),
+                astro == null ? null : astro.moonExplanation(), astro == null ? null : astro.moonPhase(),
+                astro == null ? null : astro.moonIlluminationPct(), r.getStars(), r.getSummary(),
+                r.isTriaged(), r.getTriageReason(), r.getAlertLevel(), r.getMaxKp());
+    }
+
+    /**
+     * The aurora alert state for tonight, or null while an admin simulation is active (its Kp is fake,
+     * and nothing of it may reach an answer). No active alert reads as {@code QUIET}, so a quiet night
+     * with no result rows is reported as quiet rather than unknown.
+     *
+     * <p><b>The simulation check brackets the alert reads.</b> {@code AuroraStateCache}'s getters take no
+     * lock, so a reader making several reads can straddle a transition, and the cache exposes no atomic
+     * snapshot to read instead. An admin starting a simulation between the check and the level/Kp reads would
+     * publish the fake alert into a snapshot memoised for {@value #MEMO_SECONDS} seconds and served to PRO
+     * askers. The cache writes a new simulation before it writes the level, so a reader that has seen a fake
+     * level is bound to see the simulation on a read made after it: the check is therefore made again once
+     * the alert fields are in hand, and the state is discarded if a simulation is now active.
+     */
+    private AskSnapshot.AuroraState auroraState() {
+        if (auroraStateCache.getSimulatedData() != null) {
+            return null;
+        }
+        AlertLevel level = auroraStateCache.getCurrentLevel();
+        Double kp = level == null ? null : auroraStateCache.getLastTriggerKp();
+        if (auroraStateCache.getSimulatedData() != null) {
+            return null;
+        }
+        return level == null ? new AskSnapshot.AuroraState(AlertLevel.QUIET.name(), null)
+                : new AskSnapshot.AuroraState(level.name(), kp);
     }
 
     private AskSnapshot.Window toWindow(LocalDate date, BriefingEventSummary summary,

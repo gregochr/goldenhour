@@ -1,7 +1,5 @@
 package com.gregochr.goldenhour.service.ask;
 
-import com.gregochr.goldenhour.entity.TargetType;
-
 import java.time.LocalDate;
 
 /**
@@ -12,14 +10,17 @@ import java.time.LocalDate;
  * @param locationId      the location's id
  * @param locationName    the served location name
  * @param regionName      the served region name
- * @param date            the window's date
- * @param targetType      the window's event
+ * @param date            the window's date (a night's date is the date whose dusk opens it)
+ * @param targetType      the window's kind: {@code SUNRISE}, {@code SUNSET}, {@code ASTRO} or
+ *                        {@code AURORA}; serialised by name, so a solar pick reads as it always did
  * @param windowId        the window id
  * @param why             the cleaned, word-capped reason
- * @param ratingAtAnswer  the served rating when the answer was written
- * @param verdictAtAnswer the served display verdict name when the answer was written
+ * @param ratingAtAnswer  the served rating when the answer was written (for a night pick, the
+ *                        eligible figure: the astro or the aurora stars)
+ * @param verdictAtAnswer the served display verdict name when the answer was written; null for a night
+ *                        pick, which has no verdict word
  */
 public record AskPick(int rank, long locationId, String locationName, String regionName,
-        LocalDate date, TargetType targetType, String windowId, String why,
+        LocalDate date, AskWindowKind targetType, String windowId, String why,
         Integer ratingAtAnswer, String verdictAtAnswer) {
 }

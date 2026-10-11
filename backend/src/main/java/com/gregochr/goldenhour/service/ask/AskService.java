@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service.ask;
 
 import com.gregochr.goldenhour.entity.AppUserEntity;
+import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
@@ -17,6 +18,8 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * {@code POST /api/ask}: a reader's typed question (plan §2.5), run through the guards <b>in the
@@ -82,12 +85,16 @@ public class AskService {
 
     /**
      * What a request's thread did to its answer: how many earlier exchanges the engine saw (after any
-     * reset) and whether the thread was dropped because the forecast had moved.
+     * reset) and why the thread was dropped, when it was: the briefing moved, or only a night forecast did.
      */
-    private record Carry(int threadSize, boolean reset) {
+    private record Carry(int threadSize, String resetReason) {
+
+        boolean reset() {
+            return resetReason != null;
+        }
 
         AskResponse apply(AskResponse response) {
-            return reset ? response.withThreadReset() : response;
+            return reset() ? response.withThreadReset(resetReason) : response;
         }
     }
 
@@ -228,17 +235,21 @@ public class AskService {
         if (refused.isPresent()) {
             // Before the snapshot exists the thread cannot yet be reconciled: the size is what was sent.
             return cant(userId, user, refused.get(), question, startedAt, AskLog.Outcome.PREFILTER_CANT,
-                    snapshotBuilder.current().orElse(null), new Carry(validated.thread().size(), false));
+                    snapshotBuilder.current().orElse(null), new Carry(validated.thread().size(), null));
         }
 
         // 4. Snapshot — the first place it is built.
         AskSnapshot snapshot = snapshotBuilder.current()
                 .orElseThrow(() -> denied(userId, new AskRefusal(AskErrorCode.TYPED_UNAVAILABLE)));
-        question = withWindow(question, snapshot);
-        // The reset rule (plan §2.2): a typed exchange answered against another run ends the thread.
-        boolean reset = validated.thread().staleAgainst(snapshot.generatedAt());
-        AskThread thread = reset ? AskThread.EMPTY : validated.thread();
-        Carry carry = new Carry(thread.size(), reset);
+        question = withWindow(question, snapshot, user.getRole());
+        // The reset rules (plan §2.2): a typed exchange answered against another run ends the thread, and
+        // so does any exchange, typed or Ready, whose night version is no longer the live one.
+        String resetReason = validated.thread().staleAgainst(snapshot.generatedAt())
+                ? AskResponse.THREAD_RESET_REASON
+                : validated.thread().nightStaleAgainst(snapshot, AskUserContext.mayViewAurora(user.getRole()))
+                        ? AskResponse.NIGHT_THREAD_RESET_REASON : null;
+        AskThread thread = resetReason != null ? AskThread.EMPTY : validated.thread();
+        Carry carry = new Carry(thread.size(), resetReason);
         AskUserContext context = new AskUserContext(userId, user.getRole(),
                 driveTimeResolver.hasDriveTimes(userId), homeOf(user));
         LocalDate day = ForecastHorizon.today(clock);
@@ -294,11 +305,12 @@ public class AskService {
                     snapshot, carry);
         }
 
-        // 10. Respond, cache (a fresh question only), log.
-        if (thread.isEmpty()) {
+        // 10. Respond, cache (a fresh question only, and never a night answer), log.
+        if (thread.isEmpty() && !outcome.uncacheable()) {
             offerToCache(question, snapshot, context, outcome);
         }
-        AskResponse response = own(outcome.answer(), snapshot, left(userId, day, limit), limit, true);
+        AskResponse response = own(outcome.answer(), snapshot, left(userId, day, limit), limit, true)
+                .withNightVersion(nightVersion(snapshot, context, outcome));
         log(userId, question, AskLog.Outcome.CLAUDE_OK, outcome.answer().missing(), startedAt, carry);
         return carry.apply(response);
     }
@@ -376,10 +388,21 @@ public class AskService {
         return text == null || text.isBlank() ? null : text.strip();
     }
 
-    /** A window that is not in the window set is ignored: the question is asked without one. */
-    private static AskQuestion withWindow(AskQuestion question, AskSnapshot snapshot) {
-        String windowId = question.windowId() != null && snapshot.window(question.windowId()).isPresent()
-                ? question.windowId() : null;
+    /**
+     * A window that is not in the snapshot is ignored: the question is asked without one. That covers a solar
+     * window that has passed or was never rendered and, the same way, a well-formed night id
+     * ({@code yyyy-MM-dd_astro} / {@code _aurora}) for a night the snapshot does not hold: the Map keeps an
+     * ended night row on screen and publishes its id as the question's context, so such an id is routine and is
+     * never a 400. A night the snapshot does hold is kept, except an aurora night for a role that may not see
+     * aurora (the window's existence is itself aurora data).
+     */
+    private static AskQuestion withWindow(AskQuestion question, AskSnapshot snapshot, UserRole role) {
+        String id = question.windowId();
+        boolean canSeeAurora = AskUserContext.mayViewAurora(role);
+        boolean known = id != null && (snapshot.window(id).isPresent()
+                || snapshot.nights().night(id).filter(n -> n.kind() != AskWindowKind.AURORA || canSeeAurora)
+                        .isPresent());
+        String windowId = known ? id : null;
         return new AskQuestion(question.sanitised(), question.normalised(), windowId,
                 question.scope(), question.view());
     }
@@ -440,6 +463,18 @@ public class AskService {
     }
 
     // -- responses ----------------------------------------------------------------------------
+
+    /**
+     * The version of the night forecast an answer was given against ({@link AskNightVersion}): over the
+     * nights the conversation consulted through {@code rank_night_spots} and the nights its picks name
+     * (a follow-up can name one it never called the tool for). Null when no night is involved, which keeps
+     * the wire shape of every solar answer as it was.
+     */
+    private static String nightVersion(AskSnapshot snapshot, AskUserContext context, AskOutcome outcome) {
+        Set<LocalDate> nights = new TreeSet<>(outcome.nights());
+        outcome.answer().picks().stream().filter(p -> p.targetType().isNight()).forEach(p -> nights.add(p.date()));
+        return AskNightVersion.of(snapshot, nights, context.canSeeAurora()).orElse(null);
+    }
 
     private AskResponse own(AskAnswer answer, AskSnapshot snapshot, Integer left, int limit,
             boolean charged) {

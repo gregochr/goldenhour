@@ -1,7 +1,7 @@
 package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.RegionEntity;
-import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.service.ask.AskWindowKind;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import com.gregochr.goldenhour.service.ask.AskAnswer;
@@ -87,7 +87,7 @@ class AskAdminControllerTest extends AbstractControllerTest {
         when(snapshotBuilder.current()).thenReturn(Optional.of(snapshot));
         when(settingsService.getUserId(any())).thenReturn(7L);
         when(driveTimeResolver.hasDriveTimes(7L)).thenReturn(true);
-        AskPick pick = new AskPick(1, 5L, "Bamburgh", "Coast", LocalDate.of(2026, 10, 5), TargetType.SUNSET,
+        AskPick pick = new AskPick(1, 5L, "Bamburgh", "Coast", LocalDate.of(2026, 10, 5), AskWindowKind.SUNSET,
                 "2026-10-05_sunset", "Clear sky.", 5, "WORTH_IT");
         AskAnswer answer = new AskAnswer(true, "Bamburgh looks best.", List.of(pick), List.of(), null);
         when(engine.run(any(), any(), any(), any())).thenReturn(new AskRun(

@@ -26,6 +26,8 @@ public final class AskToolSchemas {
     public static final String LIST_WINDOWS = "list_windows";
     /** {@code rank_spots}. */
     public static final String RANK_SPOTS = "rank_spots";
+    /** {@code rank_night_spots}. */
+    public static final String RANK_NIGHT_SPOTS = "rank_night_spots";
     /** {@code get_hot_topics}. */
     public static final String GET_HOT_TOPICS = "get_hot_topics";
     /** {@code get_coming_up}. */
@@ -57,15 +59,16 @@ public final class AskToolSchemas {
      * @return the tools, {@code submit_answer} last
      */
     public static List<Tool> tools(boolean withUser, boolean withThread) {
-        return List.of(listWindows(), rankSpots(withUser), getHotTopics(), getComingUp(),
-                submitAnswer(withThread));
+        return List.of(listWindows(), rankSpots(withUser), rankNightSpots(withUser), getHotTopics(),
+                getComingUp(), submitAnswer(withThread));
     }
 
     private static Tool listWindows() {
         return tool(LIST_WINDOWS,
                 "Lists the upcoming sunrise and sunset windows, with the forecast's verdict, best "
-                        + "rating and its own BEST BET / ALSO GOOD pick for each. Call this first for "
-                        + "any question about when to go.",
+                        + "rating and its own BEST BET / ALSO GOOD pick for each, then the night windows "
+                        + "(tonight's and tomorrow night's astro, and aurora where the reader may see it). "
+                        + "Call this first for any question about when to go.",
                 m(), List.of());
     }
 
@@ -94,6 +97,42 @@ public final class AskToolSchemas {
                 "The spots worth going to, best first: only places rated 3 stars or better, never a "
                         + "wood. Every pick in your answer must be a locationId and windowId this "
                         + "tool returned.",
+                props, List.of());
+    }
+
+    private static Tool rankNightSpots(boolean withUser) {
+        Map<String, Object> props = new LinkedHashMap<>();
+        props.put("night", m("type", "string",
+                "description", "tonight (the default), tomorrow, or the date of a night list_windows names."));
+        props.put("kind", m("type", "string", "enum", List.of("astro", "aurora", "any"),
+                "description", "astro: the clear-sky and stargazing forecast. aurora: the northern lights "
+                        + "forecast. any (the default): whichever have a forecast."));
+        props.put("regionNames", array(string(), "Only these region names."));
+        props.put("minStars", m("type", "integer", "minimum", 1, "maximum", AskTools.MAX_NIGHT_STARS,
+                "description", "The least rating a place's figure may have; the default is "
+                        + AskTools.DEFAULT_MIN_NIGHT_STARS + "."));
+        props.put("maxBortle", m("type", "integer", "minimum", 1, "maximum", AskTools.MAX_BORTLE,
+                "description", "Only places at or under this Bortle class (1 is the darkest sky)."));
+        if (withUser) {
+            props.put("maxDriveMinutes", m("type", "integer", "minimum", 1,
+                    "description", "Only places within this many minutes' drive of the reader's home. "
+                            + "Use when the reader names a number of minutes."));
+            props.put("nearHome", m("type", "boolean",
+                    "description", "True to keep only places within the reader's own saved local "
+                            + "radius of home, in straight-line miles. Use for 'close to home', "
+                            + "'near', 'nearby' or 'local' with no number. The result says the "
+                            + "radius: quote it as 'within N miles of home'."));
+        }
+        props.put("limit", m("type", "integer", "minimum", 1, "maximum", AskTools.MAX_NIGHT_SPOTS,
+                "description", "How many places, at most " + AskTools.MAX_NIGHT_SPOTS + "."));
+        return tool(RANK_NIGHT_SPOTS,
+                "Night questions: clear skies tonight, stargazing, the stars, the Milky Way, dark skies, "
+                        + "Bortle, aurora, the northern lights. The places for tonight or tomorrow night, "
+                        + "best first, with the clear-sky forecast and the Bortle class, and the aurora "
+                        + "forecast where the reader may see it. Pick a place at the astroWindowId or "
+                        + "auroraWindowId this tool returned for the figure you cite: a sky pick needs 4 "
+                        + "stars or better, an aurora pick 3 or better, never a wood. Every pick in your "
+                        + "answer must be a locationId and window id this tool returned.",
                 props, List.of());
     }
 
@@ -127,9 +166,9 @@ public final class AskToolSchemas {
     private static Tool submitAnswer(boolean withThread) {
         Map<String, Object> pick = object(m(
                 "locationId", m("type", "integer",
-                        "description", "The locationId rank_spots returned."),
+                        "description", "The locationId rank_spots or rank_night_spots returned."),
                 "windowId", m("type", "string",
-                        "description", "The windowId rank_spots returned for it."),
+                        "description", "The windowId rank_spots or rank_night_spots returned for it."),
                 "why", m("type", "string",
                         "description", "Under 22 words: the sky, tide or rating that makes it good.")),
                 List.of("locationId", "windowId", "why"));

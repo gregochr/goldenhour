@@ -14,11 +14,16 @@ import com.gregochr.goldenhour.model.LocationTideFact;
 import com.gregochr.goldenhour.model.PlanRenderedEvent;
 import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
 import com.gregochr.goldenhour.model.comingup.ComingUpResponse;
+import com.gregochr.goldenhour.repository.AstroConditionsRepository;
+import com.gregochr.goldenhour.repository.AuroraForecastResultRepository;
 import com.gregochr.goldenhour.service.AlmanacService;
+import com.gregochr.goldenhour.service.AstroConditionsService;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.EclipseHotTopicStrategy;
 import com.gregochr.goldenhour.service.SolarEventFreshness;
 import com.gregochr.goldenhour.service.TravelDayService;
+import com.gregochr.goldenhour.service.aurora.AuroraForecastRunService;
+import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import com.gregochr.goldenhour.util.Rewind;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -64,6 +69,20 @@ class AskSnapshotBuilderTest {
     @Mock
     private SolarEventFreshness freshness;
 
+    @Mock
+    private AstroConditionsRepository astroRepository;
+
+    @Mock
+    private AuroraForecastResultRepository auroraRepository;
+
+    @Mock
+    private AstroConditionsService astroService;
+
+    @Mock
+    private AuroraForecastRunService nightSelector;
+
+    private final AuroraStateCache auroraStateCache = new AuroraStateCache();
+
     private MutableClock clock;
     private AskSnapshotBuilder builder;
 
@@ -71,7 +90,8 @@ class AskSnapshotBuilderTest {
     void setUp() {
         clock = new MutableClock(NOW.toInstant(ZoneOffset.UTC));
         builder = new AskSnapshotBuilder(briefingService, travelDayService, almanacService,
-                freshness, clock);
+                freshness, clock, astroRepository, auroraRepository, astroService, nightSelector,
+                auroraStateCache);
     }
 
     @Test
@@ -527,7 +547,8 @@ class AskSnapshotBuilderTest {
     /** A builder on the real rewind-aware clock bean, over the test's own moving clock. */
     private AskSnapshotBuilder rewindAwareBuilder() {
         return new AskSnapshotBuilder(briefingService, travelDayService, almanacService, freshness,
-                new RewindAwareClock(clock));
+                new RewindAwareClock(clock), astroRepository, auroraRepository, astroService, nightSelector,
+                auroraStateCache);
     }
 
     @Test

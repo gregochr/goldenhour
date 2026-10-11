@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -114,6 +115,18 @@ class CaffeineAskAnswerCacheTest {
                 assertThat(p.windowId()).isEqualTo(SAT_SUNSET);
             });
         }
+    }
+
+    @Test
+    @DisplayName("an uncacheable outcome (a conversation that called rank_night_spots) is never stored")
+    void uncacheableOutcomeIsNeverStored() {
+        AskOutcome night = new AskOutcome(AskOutcome.Status.OK, ReadyFixtures.answer(bamburgh()), false, 2, true,
+                java.util.Set.of(LocalDate.of(2026, 10, 9)));
+
+        cache.store(question("clear skies tonight"), live(), ALICE, night);
+
+        assertThat(cache.size()).isZero();
+        assertThat(cache.lookup(question("clear skies tonight"), live(), ALICE)).isEmpty();
     }
 
     @Test

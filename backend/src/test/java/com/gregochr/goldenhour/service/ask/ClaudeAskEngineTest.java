@@ -192,6 +192,39 @@ class ClaudeAskEngineTest {
     }
 
     @Test
+    @DisplayName("rank_night_spots is dispatched: its night pick is served as ASTRO with no verdict, and the "
+            + "outcome is uncacheable and records the night it consulted")
+    void nightToolIsDispatched() {
+        AskSnapshot withNights = AskNightFixtures.withNights(snapshot(null), null, AskNightFixtures.astroNight(
+                AskNightFixtures.TONIGHT, AskNightFixtures.astro(1L, "Bamburgh", "Northumberland", 5, 3)));
+        when(client.createAskMessage(any(), any(), any())).thenReturn(
+                toolTurn(tool("n", "rank_night_spots", Map.of("night", "tonight", "kind", "astro"))),
+                submit(answer(pick(1, "2026-10-05_astro"))));
+
+        AskRun run = engine.run(question("Clear skies tonight?"), withNights, USER, AskRunOptions.none());
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.OK);
+        assertThat(run.outcome().uncacheable()).isTrue();
+        assertThat(run.outcome().nights()).containsExactly(AskNightFixtures.TONIGHT);
+        assertThat(run.outcome().answer().picks()).singleElement().satisfies(p -> {
+            assertThat(p.targetType()).isEqualTo(AskWindowKind.ASTRO);
+            assertThat(p.verdictAtAnswer()).isNull();
+            assertThat(p.ratingAtAnswer()).isEqualTo(5);
+        });
+        assertThat(run.trace()).extracting(AskTools.ToolCall::tool).containsExactly("rank_night_spots",
+                "submit_answer");
+    }
+
+    @Test
+    @DisplayName("a solar conversation is cacheable and consulted no night")
+    void solarConversationIsCacheable() {
+        AskRun run = run(USER, toolTurn(tool("t1", "rank_spots", Map.of())), submit(answer(pick(1, WINDOW))));
+
+        assertThat(run.outcome().uncacheable()).isFalse();
+        assertThat(run.outcome().nights()).isEmpty();
+    }
+
+    @Test
     @DisplayName("a turn's cache diagnostics ride the recorded turn beside its token usage")
     void turnCarriesCacheDiagnostics() {
         Message reply = submit(Map.of("answerable", false, "summary", "I can't tell from the forecast.",
@@ -532,7 +565,8 @@ class ClaudeAskEngineTest {
             + "the question counted failed: nothing escapes the engine")
     void unexpectedErrorIsFailed() {
         AskAnswerValidator broken = mock(AskAnswerValidator.class);
-        when(broken.validate(any(), any(), any(), any(), any(), any())).thenThrow(new IllegalStateException("boom"));
+        when(broken.validate(any(), any(), any(), any(), any(), any(), anyBoolean()))
+                .thenThrow(new IllegalStateException("boom"));
         engine = new ClaudeAskEngine(client, properties, jobRuns, driveTimes, broken,
                 new AskPromptBuilder(), new ObjectMapper(), clock, AskLocationNames.NONE);
         when(client.createAskMessage(any(), any(), any())).thenReturn(
@@ -896,7 +930,7 @@ class ClaudeAskEngineTest {
         MessageCreateParams params = sentParams().getFirst();
         assertThat(params.model().asString()).isEqualTo(EvaluationModel.HAIKU.getModelId());
         assertThat(params.maxTokens()).isEqualTo(600);
-        assertThat(params.tools().orElseThrow()).hasSize(5);
+        assertThat(params.tools().orElseThrow()).hasSize(6);
         assertThat(params.toolChoice().orElseThrow().isAny()).isTrue();
         assertThat(params.outputConfig()).as("Haiku and Sonnet 4.6 take no effort setting").isEmpty();
     }

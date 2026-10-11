@@ -60,7 +60,8 @@ import java.util.concurrent.TimeUnit;
  * from the live snapshot, so names, dates and safety notes are always today's.
  *
  * <h2>What is stored</h2>
- * Only an {@code OK} answer that has a pick or an event to re-check. An answer with neither
+ * Only an {@code OK} answer that has a pick or an event to re-check, and never a night answer
+ * ({@link AskOutcome#uncacheable()}: a conversation that called {@code rank_night_spots}). An answer with neither
  * ("nothing is worth it today") is prose about the whole forecast with nothing the freshness test can
  * hold it to, so it is not cached: serving it later could contradict the forecast. Nothing is stored
  * while a simulation is active (plan §1 #21): the data was not real.
@@ -138,7 +139,7 @@ public class CaffeineAskAnswerCache implements AskAnswerCache {
                 continue;
             }
             AskReadyFreshness.Verdict verdict = AskReadyFreshness.recheck(stored.answer(), snapshot,
-                    stored.scope());
+                    stored.scope(), user != null && user.canSeeAurora());
             if (verdict.fresh()) {
                 return Optional.of(verdict.answer());
             }
@@ -154,6 +155,11 @@ public class CaffeineAskAnswerCache implements AskAnswerCache {
             AskOutcome outcome) {
         if (outcome == null || outcome.status() != AskOutcome.Status.OK || outcome.answer() == null
                 || !outcome.answer().answerable()) {
+            return;
+        }
+        if (outcome.uncacheable()) {
+            // A night answer is never stored (ask-night plan §2.2): the key carries no role, so one asker's
+            // figures could reach another, and the facts behind it move under the TTL.
             return;
         }
         AskAnswer answer = outcome.answer();

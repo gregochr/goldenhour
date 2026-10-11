@@ -14,7 +14,7 @@ import java.util.Set;
  * ({@code docs/engineering/ask-thread-plan.md} §2.3 item 3). Offering is never serving: the
  * validator still holds every pick to the live snapshot.
  *
- * @param pairs     the (location, window) pairs {@code rank_spots} returned
+ * @param pairs     the (location, window) pairs {@code rank_spots} or {@code rank_night_spots} returned
  * @param events    the events {@code get_hot_topics} and {@code get_coming_up} returned
  * @param toolCalls how many tool calls the conversation made (errors included)
  * @param thread    what the thread offered; null reads as nothing
@@ -31,7 +31,7 @@ public record AskEvidence(Set<Pair> pairs, Set<EventFact> events, int toolCalls,
     /**
      * Evidence with nothing offered by a thread.
      *
-     * @param pairs     the (location, window) pairs {@code rank_spots} returned
+     * @param pairs     the (location, window) pairs {@code rank_spots} or {@code rank_night_spots} returned
      * @param events    the events the event tools returned
      * @param toolCalls how many tool calls the conversation made
      */
@@ -50,7 +50,8 @@ public record AskEvidence(Set<Pair> pairs, Set<EventFact> events, int toolCalls,
     }
 
     /**
-     * Whether a pick was offered: returned by {@code rank_spots} in this conversation, or offered by
+     * Whether a pick was offered: returned by {@code rank_spots} or {@code rank_night_spots} in this
+     * conversation, or offered by
      * the thread.
      *
      * @param pair the (location, window) pair

@@ -81,8 +81,8 @@ class AskPromptBuilderTest {
         String typed = builder.systemPrompt(MONDAY, TestScopes.of(), null, true).replaceAll("\\s+", " ");
 
         assertThat(typed).contains("never ask the reader a question")
-                .contains("'Close to home', 'near', 'nearby' or 'local' with no number: pass rank_spots' "
-                        + "nearHome true")
+                .contains("'Close to home', 'near', 'nearby' or 'local' with no number: pass nearHome "
+                        + "true to rank_spots, or to rank_night_spots for a night question")
                 .contains("A number of minutes: pass it as maxDriveMinutes")
                 .contains("'Closer' in a follow-up: pass a maxDriveMinutes smaller than the earlier picks' "
                         + "drive, or nearHome true if it was not used")
@@ -107,6 +107,56 @@ class AskPromptBuilderTest {
         assertThat(prompt).contains("call BOTH get_hot_topics")
                 .contains("and get_coming_up")
                 .contains("Say there are no events only after both returned nothing");
+    }
+
+    @Test
+    @DisplayName("a night question goes to rank_night_spots: clear skies is the astro forecast, tonight is the "
+            + "running night, an aurora claim needs auroraStars, the Pro clause, and the facts a night pick quotes")
+    void nightRules() {
+        String prompt = builder.systemPrompt(MONDAY, TestScopes.of(), null, true).replaceAll("\\s+", " ");
+
+        assertThat(prompt).contains("call rank_night_spots")
+                .contains("\"Clear skies tonight\" is the astro cloud forecast, not the sunrise and sunset one")
+                .contains("before dawn is the night still running")
+                .contains("Never say an aurora is visible without an auroraStars figure")
+                .contains("aurora ratings are a Pro feature, say so in one clause")
+                .contains("quotes the clearSky and Bortle facts")
+                .contains("astroWindowId for the sky, auroraWindowId for the northern lights");
+    }
+
+    @Test
+    @DisplayName("no shared rule restricts picks, nearby searches or follow-up searches to rank_spots alone: a "
+            + "night question's prompt names rank_night_spots in each, for a fresh question and a follow-up")
+    void sharedRulesAdmitTheNightTool() {
+        for (boolean thread : new boolean[] {false, true}) {
+            String prompt = builder.systemPrompt(MONDAY, TestScopes.of(), null, true, thread)
+                    .replaceAll("\\s+", " ");
+
+            assertThat(prompt)
+                    .contains("that rank_spots returned or, for a night question, that rank_night_spots returned")
+                    .contains("pass nearHome true to rank_spots, or to rank_night_spots for a night question")
+                    .doesNotContain("that rank_spots returned. ")
+                    .doesNotContain("pass rank_spots' nearHome");
+        }
+        assertThat(builder.systemPrompt(MONDAY, TestScopes.of(), null, true, true).replaceAll("\\s+", " "))
+                .contains("Call `rank_spots` (or `rank_night_spots` for a night question) again")
+                .doesNotContain("Call `rank_spots` again");
+    }
+
+    @Test
+    @DisplayName("the night the Map is on is named with its id, tonight or tomorrow night; with none the "
+            + "prompt is the prompt of the solar overload, byte for byte")
+    void namesTheContextNight() {
+        AskSnapshot.Night tonight = AskNightFixtures.astroNight(MONDAY);
+        AskSnapshot.Night tomorrow = AskNightFixtures.auroraNight(MONDAY.plusDays(1));
+
+        String tonightPrompt = builder.systemPrompt(MONDAY, TestScopes.of(), null, tonight, MONDAY, true, false);
+        String tomorrowPrompt = builder.systemPrompt(MONDAY, TestScopes.of(), null, tomorrow, MONDAY, true, false);
+
+        assertThat(tonightPrompt).contains("looking at tonight's astro night (windowId 2026-10-05_astro)");
+        assertThat(tomorrowPrompt).contains("looking at tomorrow night's aurora night (windowId 2026-10-06_aurora)");
+        assertThat(builder.systemPrompt(MONDAY, TestScopes.of(), null, null, null, true, false))
+                .isEqualTo(builder.systemPrompt(MONDAY, TestScopes.of(), null, true));
     }
 
     // -- the thread ---------------------------------------------------------------------------
@@ -135,8 +185,8 @@ class AskPromptBuilderTest {
         assertThat(threaded).startsWith(fresh).endsWith(AskPromptBuilder.THREAD_RULES);
         assertThat(threaded.replaceAll("\\s+", " ")).contains("Earlier picks are real candidates: you may "
                 + "rank, compare, or exclude them. Resolve 'closer', 'earlier', 'the other one', 'those' "
-                + "against them. Call `rank_spots` again when the reader asks for new places; you do not "
-                + "need to for a question only about the earlier picks.")
+                + "against them. Call `rank_spots` (or `rank_night_spots` for a night question) again when "
+                + "the reader asks for new places; you do not need to for a question only about the earlier picks.")
                 .contains("Never use emoji or symbols other than ★ in the summary.")
                 .contains("no longer in the forecast, or outside the area, cannot be a pick");
     }
@@ -166,7 +216,7 @@ class AskPromptBuilderTest {
         ThreadExchange earlier = new ThreadExchange("best sunset?", "Whitby.",
                 List.of(new PickRef(1L, "2026-10-05_sunset")), List.of(), AskFixtures.GENERATED_AT, false);
         return AskThreadContext.of(new AskThread(List.of(earlier)), snapshot, TestScopes.of(), tools,
-                AskLocationNames.NONE, turnedDown);
+                AskLocationNames.NONE, turnedDown, false);
     }
 
     @Test
@@ -214,7 +264,7 @@ class AskPromptBuilderTest {
                 List.of(new PickRef(3L, "2026-10-05_sunset"), new PickRef(41L, "2026-10-05_sunrise")),
                 List.of(new EventRef("AURORA", wednesday)), AskFixtures.GENERATED_AT, false);
         return AskThreadContext.of(new AskThread(List.of(first, second)), snapshot, scope, tools,
-                () -> Map.of(41L, new AskLocationNames.Place("Dunstanburgh", 55.5, -1.6)));
+                () -> Map.of(41L, new AskLocationNames.Place("Dunstanburgh", 55.5, -1.6)), false, false);
     }
 
     private static String golden(String name) throws Exception {

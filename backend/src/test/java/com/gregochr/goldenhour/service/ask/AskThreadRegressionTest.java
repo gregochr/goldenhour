@@ -195,7 +195,7 @@ class AskThreadRegressionTest {
         assertThat(one.picks()).as("step 1 picks").hasSizeGreaterThanOrEqualTo(2);
         assertThat(one.picks()).as("step 1: every pick is a sunrise window on a Saturday or Sunday")
                 .allSatisfy(pick -> {
-                    assertThat(pick.targetType()).isEqualTo(TargetType.SUNRISE);
+                    assertThat(pick.targetType()).isEqualTo(AskWindowKind.SUNRISE);
                     assertThat(pick.date().getDayOfWeek()).isIn(DayOfWeek.SATURDAY, DayOfWeek.SUNDAY);
                 });
         assertThat(one.picks()).as("step 1: every pick is coastal with the tide on its own wanted water")
@@ -238,7 +238,7 @@ class AskThreadRegressionTest {
         assertThat(three.picks()).as("step 3: no place from steps 1 or 2, at any window")
                 .extracting(AskPick::locationId).doesNotContainAnyElementsOf(earlierLocations);
         assertThat(three.picks()).as("step 3: every pick is a sunset window")
-                .allSatisfy(pick -> assertThat(pick.targetType()).isEqualTo(TargetType.SUNSET));
+                .allSatisfy(pick -> assertThat(pick.targetType()).isEqualTo(AskWindowKind.SUNSET));
         assertLiveAndRanked(three);
         remember(three, "neither of those take my fancy, i've been to both recently. what's the best sunset option?",
                 thread, earlierPicks, earlierLocations);

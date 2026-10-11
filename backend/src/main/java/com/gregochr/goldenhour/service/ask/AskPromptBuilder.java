@@ -41,9 +41,9 @@ public class AskPromptBuilder {
             - summary: one or two plain sentences that answer the question directly, in plain \
             British English with no hype and no exclamation marks. No web addresses.
             - For where or when questions give 2 or 3 picks at different spots, best first. Every \
-            pick must be a locationId and windowId that rank_spots returned. For other questions \
-            picks may be empty. Each "why" is under 22 words and cites the sky, the tide or the \
-            rating.
+            pick must be a locationId and windowId that rank_spots returned or, for a night \
+            question, that rank_night_spots returned. For other questions picks may be empty. Each \
+            "why" is under 22 words and cites the sky, the tide or the rating.
             - If the tools show nothing worth going for, say so plainly: answerable true, no picks.
             - Add events only from get_hot_topics or get_coming_up results that bear on the \
             question, with the type exactly as returned. If a result carries a safetyNote for an \
@@ -52,6 +52,14 @@ public class AskPromptBuilder {
             up, call BOTH get_hot_topics (the live forecast's next few days) and get_coming_up (the \
             almanac of months ahead) before you answer. Say there are no events only after both \
             returned nothing that bears on the question.
+            - For a night question (aurora, the northern lights, stars, stargazing, the Milky Way, \
+            dark skies, Bortle, "clear skies tonight") call rank_night_spots. "Clear skies tonight" is \
+            the astro cloud forecast, not the sunrise and sunset one. "Tonight" is the night \
+            list_windows names as tonight, which before dawn is the night still running. Never say an \
+            aurora is visible without an auroraStars figure for that place and night. When a result \
+            says aurora ratings are a Pro feature, say so in one clause. A night pick's "why" quotes \
+            the clearSky and Bortle facts the tool returned, and the pick is at the window id of the \
+            figure it cites: astroWindowId for the sky, auroraWindowId for the northern lights.
             - For a general "best" question lead with the window list_windows marks bestBet, when \
             it is in scope. If your answer leads elsewhere, the summary says why.
             - Say the tide "suits" a spot only when tideAligned is true. tideState is the water at \
@@ -75,12 +83,12 @@ public class AskPromptBuilder {
     /** Added when the conversation has a user. */
     static final String WITH_USER = """
             The reader may have a home saved; you never need to know where it is. 'Close to home', \
-            'near', 'nearby' or 'local' with no number: pass rank_spots' nearHome true. A number of \
-            minutes: pass it as maxDriveMinutes. 'Closer' in a follow-up: pass a maxDriveMinutes \
-            smaller than the earlier picks' drive, or nearHome true if it was not used. When \
-            nearHome was used, say in the summary that the places are within N miles of home, with \
-            N the radius the result returned, and never say within reach. Quote a drive time for a \
-            spot only when a tool returned it.
+            'near', 'nearby' or 'local' with no number: pass nearHome true to rank_spots, or to \
+            rank_night_spots for a night question. A number of minutes: pass it as maxDriveMinutes. \
+            'Closer' in a follow-up: pass a maxDriveMinutes smaller than the earlier \
+            picks' drive, or nearHome true if it was not used. When nearHome was used, say in the \
+            summary that the places are within N miles of home, with N the radius the result returned, and \
+            never say within reach. Quote a drive time for a spot only when a tool returned it.
             """;
 
     /**
@@ -92,9 +100,9 @@ public class AskPromptBuilder {
      */
     static final String THREAD_RULES = """
             Earlier picks are real candidates: you may rank, compare, or exclude them. Resolve \
-            'closer', 'earlier', 'the other one', 'those' against them. Call `rank_spots` again when \
-            the reader asks for new places; you do not need to for a question only about the earlier \
-            picks.
+            'closer', 'earlier', 'the other one', 'those' against them. Call `rank_spots` (or \
+            `rank_night_spots` for a night question) again when the reader asks for new places; you do \
+            not need to for a question only about the earlier picks.
             When the reader turns down the places you gave them ("neither of those", "I've been to \
             both"), leave those places out of your new picks, at every window. Each earlier pick \
             lists its locationId and windowId: use those exact ids when you pick it again. When asked \
@@ -139,6 +147,25 @@ public class AskPromptBuilder {
      */
     public String systemPrompt(LocalDate today, AskScope scope,
             AskSnapshot.Window contextWindow, boolean hasUser, boolean hasThread) {
+        return systemPrompt(today, scope, contextWindow, null, null, hasUser, hasThread);
+    }
+
+    /**
+     * Builds the system prompt, naming the night the reader is looking at when the Map is on a night row.
+     * With no night it is byte for byte the prompt of the overload above.
+     *
+     * @param today         today on the UK civil calendar
+     * @param scope         the regions asked about; {@link AskScope#ALL} means every region
+     * @param contextWindow the solar window the reader is looking at, or null
+     * @param contextNight  the night the reader is looking at, or null
+     * @param tonight       the date of the night in progress (the poller's), which words the night as
+     *                      "tonight" or "tomorrow night"; may be null when there is no night
+     * @param hasUser       whether a user (and so their drive times) is behind the conversation
+     * @param hasThread     whether the question follows earlier exchanges
+     * @return the prompt
+     */
+    public String systemPrompt(LocalDate today, AskScope scope, AskSnapshot.Window contextWindow,
+            AskSnapshot.Night contextNight, LocalDate tonight, boolean hasUser, boolean hasThread) {
         StringBuilder sb = new StringBuilder(RULES).append('\n');
         sb.append(hasUser ? WITH_USER : USER_LESS).append('\n');
         sb.append("Today is ").append(LONG_DATE.format(today)).append(" in the UK.\n");
@@ -154,6 +181,13 @@ public class AskPromptBuilder {
                     .append(' ').append(contextWindow.targetType().name().toLowerCase(Locale.ROOT))
                     .append(" (windowId ").append(contextWindow.id()).append("). Read \"it\", \"then\" and "
                             + "\"that day\" as that window unless the question says otherwise.\n");
+        }
+        if (contextNight != null) {
+            sb.append("The reader is looking at ")
+                    .append(contextNight.date().equals(tonight) ? "tonight" : "tomorrow night")
+                    .append("'s ").append(contextNight.kind().name().toLowerCase(Locale.ROOT))
+                    .append(" night (windowId ").append(contextNight.id()).append("). Read \"it\", \"then\" and "
+                            + "\"that night\" as that night unless the question says otherwise.\n");
         }
         if (hasThread) {
             sb.append('\n').append(THREAD_RULES);

@@ -1,6 +1,5 @@
 package com.gregochr.goldenhour.service.ask;
 
-import com.gregochr.goldenhour.entity.TargetType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -33,7 +32,7 @@ class ReadyIntentRulesTest {
 
     private static AskReadyResponse.Pick pickOn(int rank, LocalDate date) {
         return new AskReadyResponse.Pick(rank, rank, "Spot " + rank, "Northumberland", date,
-                TargetType.SUNSET, date + "_sunset", "Clear sky.");
+                AskWindowKind.SUNSET, date + "_sunset", "Clear sky.");
     }
 
     private static AskReadyResponse.Question ready(ReadyQuestion id, String text, LocalDate... pickDates) {

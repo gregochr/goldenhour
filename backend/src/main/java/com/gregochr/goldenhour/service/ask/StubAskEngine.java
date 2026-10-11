@@ -10,6 +10,9 @@ import com.gregochr.goldenhour.service.ask.AskTools.ComingUpInfo;
 import com.gregochr.goldenhour.service.ask.AskTools.ComingUpResult;
 import com.gregochr.goldenhour.service.ask.AskTools.HotTopicsArgs;
 import com.gregochr.goldenhour.service.ask.AskTools.HotTopicsResult;
+import com.gregochr.goldenhour.service.ask.AskTools.NightSpotInfo;
+import com.gregochr.goldenhour.service.ask.AskTools.RankNightSpotsArgs;
+import com.gregochr.goldenhour.service.ask.AskTools.RankNightSpotsResult;
 import com.gregochr.goldenhour.service.ask.AskTools.RankSpotsArgs;
 import com.gregochr.goldenhour.service.ask.AskTools.RankSpotsResult;
 import com.gregochr.goldenhour.service.ask.AskTools.SpotInfo;
@@ -42,6 +45,9 @@ import java.util.stream.IntStream;
  * <ul>
  *   <li>a question about events, rare things, aurora, snow, an eclipse or a meteor shower is
  *       answered from {@code get_hot_topics} and {@code get_coming_up};</li>
+ *   <li>a question about the night sky (stars, stargazing, the Milky Way, dark skies, clear skies, the
+ *       northern lights) is answered from {@code rank_night_spots}: the top three different places whose
+ *       figure is pick-eligible, for tonight or, when the question says tomorrow, tomorrow night;</li>
  *   <li>anything else is a where-or-when question: the top three <em>different</em> spots from
  *       {@code rank_spots}, narrowed to coastal spots or to one tide state when the question names
  *       the coast or the tide, and to the context window when there is one;</li>
@@ -74,6 +80,14 @@ public class StubAskEngine implements AskEngine {
 
     private static final Pattern EVENT_WORDS = Pattern.compile(
             "\\b(?:rare|events?|aurora|snow|eclipses?|meteors?)\\b");
+    /**
+     * The words that make a question one about the night sky. A bare "aurora" is deliberately not among them:
+     * the stub has always answered it as an event.
+     */
+    private static final Pattern NIGHT_WORDS = Pattern.compile(
+            "\\b(?:stars?|stargazing|milky way|dark skies|dark sky|night sky|clear skies|clear sky|bortle"
+                    + "|northern lights)\\b");
+    private static final Pattern AURORA_WORDS = Pattern.compile("\\b(?:aurora|northern lights)\\b");
     private static final Pattern TODAY_WORDS = Pattern.compile("\\b(?:today|tonight|this morning)\\b");
     private static final Pattern TOMORROW_WORD = Pattern.compile("\\btomorrow\\b");
     private static final Pattern WEEKEND_WORD = Pattern.compile("\\bweekend\\b");
@@ -131,9 +145,13 @@ public class StubAskEngine implements AskEngine {
             }
         }
         try {
-            raw = EVENT_WORDS.matcher(text).find()
-                    ? eventsAnswer(text, tools)
-                    : spotsAnswer(text, question, snapshot, conversation);
+            if (NIGHT_WORDS.matcher(text).find()) {
+                raw = nightAnswer(text, tools);
+            } else {
+                raw = EVENT_WORDS.matcher(text).find()
+                        ? eventsAnswer(text, tools)
+                        : spotsAnswer(text, question, snapshot, conversation);
+            }
         } catch (StubFailure e) {
             return conversation.fail(e.getMessage(), 0, tools.trace());
         }
@@ -254,6 +272,73 @@ public class StubAskEngine implements AskEngine {
                 List.of(), null);
     }
 
+    // -- the night ----------------------------------------------------------------------------
+
+    /**
+     * A night-sky question: {@code rank_night_spots} for tonight (tomorrow night when the question says
+     * tomorrow), the top places whose figure is pick-eligible, at distinct locations. The kind is aurora
+     * when the question names the northern lights and any otherwise; the tool withholds aurora from an
+     * asker without access, and the summary then says so.
+     */
+    private AskAnswerValidator.Raw nightAnswer(String text, AskTools tools) throws StubFailure {
+        String kind = AURORA_WORDS.matcher(text).find() ? "aurora" : "any";
+        String night = TOMORROW_WORD.matcher(text).find() ? "tomorrow" : "tonight";
+        AskToolResult<RankNightSpotsResult> result = tools.rankNightSpots(new RankNightSpotsArgs(night, kind,
+                null, null, null, null, null, AskTools.MAX_NIGHT_SPOTS));
+        if (result.error()) {
+            throw new StubFailure("rank_night_spots returned an error: " + result.content());
+        }
+        RankNightSpotsResult found = result.payload();
+        List<RawPick> picks = new ArrayList<>();
+        List<String> names = new ArrayList<>();
+        Set<Long> seen = new HashSet<>();
+        for (NightSpotInfo spot : found.spots()) {
+            String windowId = pickWindow(spot, kind);
+            if (picks.size() < PICKS && windowId != null && seen.add(spot.locationId())) {
+                picks.add(new RawPick(spot.locationId(), windowId, nightWhy(spot, windowId)));
+                names.add(spot.name());
+            }
+        }
+        String when = found.when() == null ? night : found.when();
+        String summary;
+        if (picks.isEmpty()) {
+            summary = "Nothing is rated well enough for the night sky " + when + " in the forecast."
+                    + (Boolean.FALSE.equals(found.auroraAvailable()) && "aurora".equals(kind)
+                            ? " Aurora ratings are a Pro feature." : "");
+        } else {
+            summary = names.getFirst() + " looks best for the night sky " + when
+                    + (names.size() > 1 ? ", followed by " + String.join(" and ", names.subList(1, names.size()))
+                            : "") + ".";
+        }
+        return new AskAnswerValidator.Raw(true, summary, picks, List.of(), null);
+    }
+
+    /**
+     * The window a night spot may be picked at: the astro window when its sky figure reaches the pick bar,
+     * else the aurora window when that does ({@code kind} aurora looks at the aurora one alone); null when
+     * neither figure is pickable, so the stub never offers what the validator would drop.
+     */
+    private static String pickWindow(NightSpotInfo spot, String kind) {
+        boolean astro = !"aurora".equals(kind) && spot.astroWindowId() != null && spot.astroStars() != null
+                && spot.astroStars() >= AskSnapshot.MIN_ASTRO_PICK_RATING;
+        if (astro) {
+            return spot.astroWindowId();
+        }
+        boolean aurora = spot.auroraWindowId() != null && spot.auroraStars() != null
+                && spot.auroraStars() >= AskSnapshot.MIN_AURORA_PICK_RATING;
+        return aurora ? spot.auroraWindowId() : null;
+    }
+
+    private static String nightWhy(NightSpotInfo spot, String windowId) {
+        boolean astro = windowId.equals(spot.astroWindowId());
+        StringBuilder why = new StringBuilder("Rated ").append(astro ? spot.astroStars() : spot.auroraStars())
+                .append("★ for ").append(astro ? "stargazing" : "the northern lights");
+        if (astro && spot.clearSky() != null) {
+            why.append(": ").append(spot.clearSky());
+        }
+        return why.append(". Bortle ").append(spot.bortle()).append('.').toString();
+    }
+
     /** The windows a day word in the question names, or empty when it names none that exist. */
     private static Optional<List<String>> dayWindows(String text, AskSnapshot snapshot) {
         Predicate<LocalDate> wanted = null;
@@ -313,7 +398,7 @@ public class StubAskEngine implements AskEngine {
     private static String windowWords(String windowId, LocalDate today) {
         return AskWindowId.parse(windowId).map(parts -> {
             return DayLabels.relative(parts.date(), today) + " "
-                    + parts.targetType().name().toLowerCase(Locale.ROOT);
+                    + parts.kind().name().toLowerCase(Locale.ROOT);
         }).orElse(windowId);
     }
 

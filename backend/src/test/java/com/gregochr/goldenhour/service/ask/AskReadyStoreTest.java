@@ -3,7 +3,6 @@ package com.gregochr.goldenhour.service.ask;
 import com.gregochr.goldenhour.entity.AskReadyAnswerEntity;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
-import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.repository.AskReadyAnswerRepository;
 import com.gregochr.goldenhour.repository.JobRunRepository;
@@ -46,7 +45,7 @@ class AskReadyStoreTest {
 
     private static AskAnswer answer(String summary) {
         AskPick pick = new AskPick(1, 1L, "Bamburgh", "Northumberland", LocalDate.of(2026, 10, 10),
-                TargetType.SUNSET, "2026-10-10_sunset", "Clear sky.", 5, DisplayVerdict.WORTH_IT.name());
+                AskWindowKind.SUNSET, "2026-10-10_sunset", "Clear sky.", 5, DisplayVerdict.WORTH_IT.name());
         AskEvent event = new AskEvent("ECLIPSE", "Partial solar eclipse", LocalDate.of(2026, 10, 14),
                 "Visible.", "Certified solar filter on the lens");
         return new AskAnswer(true, summary, List.of(pick), List.of(event), null);

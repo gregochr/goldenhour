@@ -2,7 +2,6 @@ package com.gregochr.goldenhour.service.ask;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.gregochr.goldenhour.entity.TargetType;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -59,12 +58,12 @@ public record AskReadyResponse(String scope, List<Question> questions) {
      * @param locationName the live location name
      * @param regionName   the live region name
      * @param date         the window's date
-     * @param targetType   the window's event
+     * @param targetType   the window's kind (SUNRISE, SUNSET, ASTRO or AURORA)
      * @param windowId     the window id
      * @param why          the model's reason, cleaned
      */
     public record Pick(int rank, long locationId, String locationName, String regionName,
-            LocalDate date, TargetType targetType, String windowId, String why) {
+            LocalDate date, AskWindowKind targetType, String windowId, String why) {
 
         /**
          * Drops the freshness record from a validated pick.

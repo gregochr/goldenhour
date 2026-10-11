@@ -17,7 +17,9 @@ import java.util.regex.Pattern;
  * of 200 code points); each summary
  * through {@link AskQuestionSanitiser#sanitiseThreadSummary}; each pick as a positive location id and
  * a well-formed {@link AskWindowId}; each event as a plain type token and a date; and a
- * {@code generatedAt} on every exchange. A null entry anywhere is refused too. The refusals say
+ * {@code generatedAt} on every exchange; a {@code nightVersion}, when present, in the server's own
+ * format and under its length bound ({@link AskNightVersion#wellFormed}), which is the only thing the
+ * client may echo of it. A null entry anywhere is refused too. The refusals say
  * <em>which kind</em> of thing was wrong and never echo any of the text.
  */
 final class AskThreadValidation {
@@ -80,8 +82,11 @@ final class AskThreadValidation {
         if (exchange.generatedAt() == null) {
             throw invalid(NO_TIME);
         }
+        if (exchange.nightVersion() != null && !AskNightVersion.wellFormed(exchange.nightVersion())) {
+            throw invalid(BAD_REFERENCES);
+        }
         return new ThreadExchange(question.sanitised(), summary.sanitised(), picks(exchange.picks()),
-                events(exchange.events()), exchange.generatedAt(), exchange.ready());
+                events(exchange.events()), exchange.generatedAt(), exchange.ready(), exchange.nightVersion());
     }
 
     private static List<PickRef> picks(List<PickRef> picks) {

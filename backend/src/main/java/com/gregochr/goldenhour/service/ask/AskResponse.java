@@ -32,8 +32,12 @@ import java.util.List;
  * @param threadReset    {@code true} when the request carried a thread that was dropped because the
  *                       forecast had been rebuilt since its last typed answer and this answer is fresh;
  *                       absent from the wire otherwise
- * @param threadResetReason the fixed sentence naming why ({@code "forecast updated"}); absent from the
- *                       wire whenever {@code threadReset} is
+ * @param threadResetReason the fixed sentence naming why ({@code "forecast updated"} or, when only a night's
+ *                       forecast moved, {@code "night forecast updated"}); absent from the wire whenever
+ *                       {@code threadReset} is
+ * @param nightVersion   the opaque version of an answer that consulted or named a night
+ *                       ({@link AskNightVersion}), which the client echoes on the exchange so a follow-up can
+ *                       tell whether the night forecast has moved; absent from the wire for every other answer
  */
 public record AskResponse(boolean answerable, String kind, String summary,
         List<AskReadyResponse.Pick> picks, List<AskEvent> events,
@@ -42,10 +46,14 @@ public record AskResponse(boolean answerable, String kind, String summary,
         @JsonInclude(JsonInclude.Include.ALWAYS) Integer allowanceLeft, int allowanceLimit, boolean charged,
         LocalDateTime generatedAt, String runLabel,
         @JsonInclude(JsonInclude.Include.NON_NULL) Boolean threadReset,
-        @JsonInclude(JsonInclude.Include.NON_NULL) String threadResetReason) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) String threadResetReason,
+        @JsonInclude(JsonInclude.Include.NON_NULL) String nightVersion) {
 
     /** Why a thread was dropped (plan §2.2); the client words its own line. */
     public static final String THREAD_RESET_REASON = "forecast updated";
+
+    /** Why a thread was dropped when the briefing had not moved but a night forecast had (ask-night plan §2.2). */
+    public static final String NIGHT_THREAD_RESET_REASON = "night forecast updated";
 
     /** An answer from the typed engine (or a typed-cache hit). */
     public static final String KIND_OWN = "own";
@@ -85,16 +93,28 @@ public record AskResponse(boolean answerable, String kind, String summary,
             Integer allowanceLeft, int allowanceLimit, boolean charged, LocalDateTime generatedAt,
             String runLabel) {
         this(answerable, kind, summary, picks, events, missing, tryThese, allowanceLeft, allowanceLimit,
-                charged, generatedAt, runLabel, null, null);
+                charged, generatedAt, runLabel, null, null, null);
     }
 
     /**
-     * The same answer marked as given after a thread was dropped because the forecast had been rebuilt.
+     * The same answer marked as given after a thread was dropped.
      *
-     * @return a copy carrying {@code threadReset: true} and {@link #THREAD_RESET_REASON}
+     * @param reason why: {@link #THREAD_RESET_REASON} or {@link #NIGHT_THREAD_RESET_REASON}
+     * @return a copy carrying {@code threadReset: true} and the reason
      */
-    public AskResponse withThreadReset() {
+    public AskResponse withThreadReset(String reason) {
         return new AskResponse(answerable, kind, summary, picks, events, missing, tryThese, allowanceLeft,
-                allowanceLimit, charged, generatedAt, runLabel, Boolean.TRUE, THREAD_RESET_REASON);
+                allowanceLimit, charged, generatedAt, runLabel, Boolean.TRUE, reason, nightVersion);
+    }
+
+    /**
+     * The same answer carrying the version of the night forecast it was given against.
+     *
+     * @param version the version, or null for none
+     * @return a copy carrying {@code nightVersion}
+     */
+    public AskResponse withNightVersion(String version) {
+        return new AskResponse(answerable, kind, summary, picks, events, missing, tryThese, allowanceLeft,
+                allowanceLimit, charged, generatedAt, runLabel, threadReset, threadResetReason, version);
     }
 }
