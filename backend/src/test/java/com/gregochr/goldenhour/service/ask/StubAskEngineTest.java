@@ -26,6 +26,7 @@ import static com.gregochr.goldenhour.service.ask.AskFixtures.TODAY;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -627,7 +628,7 @@ class StubAskEngineTest {
     @DisplayName("an answer the validator discards is a FAILED run with the reason: the stub is not trusted either")
     void discardedAnswerFails() {
         AskAnswerValidator rejecting = mock(AskAnswerValidator.class);
-        when(rejecting.validate(any(), any(), any(), any(), any(), any()))
+        when(rejecting.validate(any(), any(), any(), any(), any(), any(), anyBoolean()))
                 .thenReturn(new AskAnswerValidator.Result(null, "no summary"));
         StubAskEngine strict = new StubAskEngine(rejecting, driveTimes, new ObjectMapper());
 
@@ -642,8 +643,9 @@ class StubAskEngineTest {
     @DisplayName("a validated unanswerable reply is a CANT outcome (the stub's validator path, not its script)")
     void cantStatusIsReportedFromTheValidator() {
         AskAnswerValidator cant = mock(AskAnswerValidator.class);
-        when(cant.validate(any(), any(), any(), any(), any(), any())).thenReturn(new AskAnswerValidator.Result(
-                new AskAnswer(false, "Cannot tell.", List.of(), List.of(), "parking"), null));
+        when(cant.validate(any(), any(), any(), any(), any(), any(), anyBoolean())).thenReturn(
+                new AskAnswerValidator.Result(
+                        new AskAnswer(false, "Cannot tell.", List.of(), List.of(), "parking"), null));
         StubAskEngine stub = new StubAskEngine(cant, driveTimes, new ObjectMapper());
 
         AskRun run = stub.run(question("best spot"), snapshot(null), USER, AskRunOptions.none());
@@ -651,6 +653,61 @@ class StubAskEngineTest {
         assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.CANT);
     }
 
+
+    // -- the night ----------------------------------------------------------------------------
+
+    private static AskSnapshot withNights() {
+        return AskNightFixtures.withNights(snapshot(null), new AskSnapshot.AuroraState("MODERATE", 6.0),
+                AskNightFixtures.astroNight(AskNightFixtures.TONIGHT,
+                        AskNightFixtures.astro(1L, "Whitby", "Coast", 5, 3),
+                        AskNightFixtures.astro(2L, "Saltburn", "Coast", 4, 3),
+                        AskNightFixtures.astro(3L, "Inland Edge", "Coast", 3, 4)),
+                AskNightFixtures.auroraNight(AskNightFixtures.TONIGHT,
+                        AskNightFixtures.aurora(10L, "Hill Top", "Hills", null, 4, 2)));
+    }
+
+    @Test
+    @DisplayName("a night-sky question is answered from rank_night_spots: the top eligible astro places, the "
+            + "conversation marked uncacheable and versioned on tonight")
+    void nightQuestion_answersFromTheNightTool() {
+        AskRun run = engine.run(question("Any clear skies tonight for stars?"), withNights(), USER,
+                AskRunOptions.none());
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.OK);
+        assertThat(names(run)).containsExactly("Whitby", "Hill Top", "Saltburn");
+        assertThat(run.outcome().answer().picks()).extracting(AskPick::targetType)
+                .containsExactly(AskWindowKind.ASTRO, AskWindowKind.AURORA, AskWindowKind.ASTRO);
+        assertThat(run.outcome().answer().summary()).startsWith("Whitby looks best for the night sky tonight");
+        assertThat(run.outcome().uncacheable()).isTrue();
+        assertThat(run.outcome().nights()).containsExactly(AskNightFixtures.TONIGHT);
+        assertThat(run.trace()).extracting(AskTools.ToolCall::tool).containsExactly("rank_night_spots",
+                "submit_answer");
+    }
+
+    @Test
+    @DisplayName("the northern lights: aurora picks for a PRO asker, and the Pro clause, no picks, for a LITE one")
+    void auroraQuestion_roleGate() {
+        AskRun pro = engine.run(question("Any chance of the northern lights?"), withNights(), USER,
+                AskRunOptions.none());
+        AskRun lite = engine.run(question("Any chance of the northern lights?"), withNights(),
+                new AskUserContext(8L, UserRole.LITE_USER, false), AskRunOptions.none());
+
+        assertThat(names(pro)).containsExactly("Hill Top");
+        assertThat(pro.outcome().answer().picks().getFirst().targetType()).isEqualTo(AskWindowKind.AURORA);
+        assertThat(lite.outcome().answer().picks()).isEmpty();
+        assertThat(lite.outcome().answer().summary()).contains("Aurora ratings are a Pro feature");
+    }
+
+    @Test
+    @DisplayName("a bare 'aurora' stays an events question, as it always was; tomorrow moves the night")
+    void bareAuroraIsAnEventsQuestion() {
+        AskRun events = engine.run(question("Any aurora?"), withNights(), USER, AskRunOptions.none());
+        AskRun tomorrow = engine.run(question("Stars tomorrow?"), withNights(), USER, AskRunOptions.none());
+
+        assertThat(events.trace()).extracting(AskTools.ToolCall::tool).contains("get_hot_topics");
+        assertThat(tomorrow.outcome().answer().picks()).isEmpty();
+        assertThat(tomorrow.outcome().answer().summary()).contains("tomorrow night");
+    }
 
     @SuppressWarnings("unused")
     private static LocalDate unused() {

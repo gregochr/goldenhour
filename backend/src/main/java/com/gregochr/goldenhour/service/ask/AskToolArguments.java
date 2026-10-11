@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.gregochr.goldenhour.service.ask.AskTools.ComingUpArgs;
 import com.gregochr.goldenhour.service.ask.AskTools.HotTopicsArgs;
+import com.gregochr.goldenhour.service.ask.AskTools.RankNightSpotsArgs;
 import com.gregochr.goldenhour.service.ask.AskTools.RankSpotsArgs;
 
 import java.util.ArrayList;
@@ -44,6 +45,20 @@ final class AskToolArguments {
         JsonNode in = object(input);
         return new RankSpotsArgs(strings(in, "windowIds"), strings(in, "regionNames"),
                 bool(in, "coastalOnly"), text(in, "tideState"), whole(in, "maxDriveMinutes"),
+                bool(in, "nearHome"), whole(in, "limit"));
+    }
+
+    /**
+     * Reads {@code rank_night_spots} arguments.
+     *
+     * @param input the tool input
+     * @return the arguments
+     * @throws BadArguments when a field has the wrong type
+     */
+    static RankNightSpotsArgs rankNightSpots(JsonNode input) throws BadArguments {
+        JsonNode in = object(input);
+        return new RankNightSpotsArgs(text(in, "night"), text(in, "kind"), strings(in, "regionNames"),
+                whole(in, "minStars"), whole(in, "maxBortle"), whole(in, "maxDriveMinutes"),
                 bool(in, "nearHome"), whole(in, "limit"));
     }
 

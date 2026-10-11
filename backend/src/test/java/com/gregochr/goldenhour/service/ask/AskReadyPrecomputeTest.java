@@ -127,7 +127,7 @@ class AskReadyPrecomputeTest {
         }
         AskSnapshot.Candidate chosen = chosenCandidate(snap, scope, asked, offer, call.options());
         AskPick pick = new AskPick(1, chosen.slot().locationId(), chosen.slot().name(), chosen.region().name(),
-                chosen.window().date(), chosen.window().targetType(), chosen.window().id(), "Why.",
+                chosen.window().date(), AskWindowKind.of(chosen.window().targetType()), chosen.window().id(), "Why.",
                 chosen.slot().rating(), chosen.slot().verdict().name());
         return ok(new AskAnswer(true, "Go there.", List.of(pick), List.of(), null));
     }
@@ -525,7 +525,7 @@ class AskReadyPrecomputeTest {
     private static AskPick onWindow(AskPick pick, String windowId) {
         AskWindowId.Parts parts = AskWindowId.parse(windowId).orElseThrow();
         return new AskPick(pick.rank(), pick.locationId(), pick.locationName(), pick.regionName(), parts.date(),
-                parts.targetType(), windowId, pick.why(), pick.ratingAtAnswer(), pick.verdictAtAnswer());
+                parts.kind(), windowId, pick.why(), pick.ratingAtAnswer(), pick.verdictAtAnswer());
     }
 
     // -- the last-moment re-checks and the deadline -----------------------------------------

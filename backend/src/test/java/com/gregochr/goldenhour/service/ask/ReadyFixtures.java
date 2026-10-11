@@ -119,7 +119,7 @@ final class ReadyFixtures {
     static AskPick pick(int rank, long locationId, String name, String region, String windowId,
             int rating, DisplayVerdict verdict) {
         AskWindowId.Parts parts = AskWindowId.parse(windowId).orElseThrow();
-        return new AskPick(rank, locationId, name, region, parts.date(), parts.targetType(), windowId,
+        return new AskPick(rank, locationId, name, region, parts.date(), parts.kind(), windowId,
                 "Clear sky.", rating, verdict.name());
     }
 

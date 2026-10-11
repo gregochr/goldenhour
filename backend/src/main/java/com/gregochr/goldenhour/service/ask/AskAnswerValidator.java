@@ -183,10 +183,13 @@ public class AskAnswerValidator {
      * @param eventsQuestion which events question this is ({@link ReadyIntentRules#eventsQuestion}),
      *                 or null when it is not one: an answer to it with no event it admits is discarded while
      *                 the snapshot offers an event the question admits, whatever the model concluded
+     * @param canSeeAurora whether the asker's role may see aurora figures ({@link AskUserContext#canSeeAurora},
+     *                 false for a user-less conversation): the snapshot is user-less and holds the aurora
+     *                 rows, so a night pick on an AURORA window is eligible only when this is true
      * @return the validated answer, or the reason it was discarded
      */
     public Result validate(Raw raw, AskSnapshot snapshot, AskEvidence evidence,
-            AskScope scope, BestAnchor anchor, ReadyQuestion eventsQuestion) {
+            AskScope scope, BestAnchor anchor, ReadyQuestion eventsQuestion, boolean canSeeAurora) {
         // Strip what a follow-up would refuse the summary for, THEN the word cap and the code-point bound, so
         // every summary served is accepted back verbatim as an earlier exchange.
         String summary = boundCodePoints(
@@ -217,7 +220,8 @@ public class AskAnswerValidator {
         }
 
         int[] turnedDownDropped = {0};
-        List<AskPick> picks = validPicks(raw.picks(), snapshot, evidence, scope, turnedDownDropped);
+        List<AskPick> picks = validPicks(raw.picks(), snapshot, evidence, scope, turnedDownDropped,
+                canSeeAurora);
         if (!evidence.thread().turnedDown().isEmpty() && picks.isEmpty() && events.isEmpty()
                 && (turnedDownDropped[0] > 0 || evidence.anyToolCalled())) {
             // The reader turned the earlier places down and nothing else survives: an honest can't-answer in
@@ -280,7 +284,7 @@ public class AskAnswerValidator {
     }
 
     private List<AskPick> validPicks(List<RawPick> raw, AskSnapshot snapshot, AskEvidence evidence,
-            AskScope scope, int[] turnedDownDropped) {
+            AskScope scope, int[] turnedDownDropped, boolean canSeeAurora) {
         List<AskPick> out = new ArrayList<>();
         boolean ranking = isRankingFollowUp(raw, evidence);
         int cap = ranking ? MAX_RANKED_PICKS : MAX_PICKS;
@@ -301,18 +305,17 @@ public class AskAnswerValidator {
                     || seen.contains(key)) {
                 continue;
             }
-            Optional<AskSnapshot.Candidate> candidate =
-                    snapshot.candidate(pick.windowId(), pick.locationId());
-            if (candidate.isEmpty() || !scope.contains(candidate.get().region().name())) {
+            // Solar or night, each held to its own eligibility rule (the night's reads canSeeAurora).
+            Optional<AskSnapshot.ResolvedPick> live =
+                    snapshot.resolvePick(pick.windowId(), pick.locationId(), canSeeAurora);
+            if (live.isEmpty() || !scope.contains(live.get().regionName())) {
                 continue;
             }
             seen.add(key);
-            AskSnapshot.Candidate c = candidate.get();
+            AskSnapshot.ResolvedPick r = live.get();
             String why = clean(pick.why(), WHY_WORDS);
-            out.add(new AskPick(out.size() + 1, pick.locationId(), c.slot().name(),
-                    c.region().name(), c.window().date(), c.window().targetType(),
-                    c.window().id(), why == null ? "" : why, c.slot().rating(),
-                    c.slot().verdict() == null ? null : c.slot().verdict().name()));
+            out.add(new AskPick(out.size() + 1, pick.locationId(), r.locationName(), r.regionName(),
+                    r.date(), r.kind(), r.windowId(), why == null ? "" : why, r.rating(), r.verdict()));
         }
         return out;
     }

@@ -79,7 +79,8 @@ final class AskReadyFreshness {
         if (!offer.get().text().equals(stored.questionText())) {
             return Verdict.stale("the question is now asked differently: " + offer.get().text());
         }
-        Verdict rechecked = recheck(stored.answer(), live, scope);
+        // A Ready answer is shared by every reader, so it is re-checked as one who may not see aurora.
+        Verdict rechecked = recheck(stored.answer(), live, scope, false);
         if (!rechecked.fresh()) {
             return rechecked;
         }
@@ -111,32 +112,33 @@ final class AskReadyFreshness {
      * @param answer the stored answer
      * @param live   the live snapshot
      * @param scope  the answer's scope
+     * @param canSeeAurora whether the reader may see aurora figures: false for a Ready answer (shared by
+     *               every reader, so never aurora), the asker's own role for a typed-cache hit. A night pick
+     *               is re-checked against its live night figure under that flag
      * @return the re-decorated answer, or the reason it is withheld
      */
-    static Verdict recheck(AskAnswer answer, AskSnapshot live, AskScope scope) {
+    static Verdict recheck(AskAnswer answer, AskSnapshot live, AskScope scope, boolean canSeeAurora) {
         List<AskPick> picks = new ArrayList<>();
         for (AskPick pick : answer.picks()) {
-            Optional<AskSnapshot.Window> window = live.window(pick.windowId());
-            if (window.isEmpty()) {
+            if (!live.hasWindow(pick.windowId())) {
                 return Verdict.stale("pick " + pick.rank() + "'s window has passed");
             }
-            Optional<AskSnapshot.Candidate> candidate =
-                    live.candidate(pick.windowId(), pick.locationId());
-            if (candidate.isEmpty()
-                    || !scope.contains(candidate.get().region().name())) {
+            // Solar or night: the live pick under its own eligibility rule (a night pick's reads the
+            // asker's aurora access, which a user-less Ready answer never has).
+            Optional<AskSnapshot.ResolvedPick> resolved =
+                    live.resolvePick(pick.windowId(), pick.locationId(), canSeeAurora);
+            if (resolved.isEmpty() || !scope.contains(resolved.get().regionName())) {
                 return Verdict.stale("pick " + pick.rank() + " is no longer pick-eligible");
             }
-            AskSnapshot.Slot slot = candidate.get().slot();
-            String verdict = slot.verdict() == null ? null : slot.verdict().name();
-            if (!Objects.equals(slot.rating(), pick.ratingAtAnswer())) {
+            AskSnapshot.ResolvedPick r = resolved.get();
+            if (!Objects.equals(r.rating(), pick.ratingAtAnswer())) {
                 return Verdict.stale("pick " + pick.rank() + "'s rating changed");
             }
-            if (!Objects.equals(verdict, pick.verdictAtAnswer())) {
+            if (!Objects.equals(r.verdict(), pick.verdictAtAnswer())) {
                 return Verdict.stale("pick " + pick.rank() + "'s verdict changed");
             }
-            picks.add(new AskPick(pick.rank(), pick.locationId(), slot.name(),
-                    candidate.get().region().name(), window.get().date(), window.get().targetType(),
-                    window.get().id(), pick.why(), slot.rating(), verdict));
+            picks.add(new AskPick(pick.rank(), pick.locationId(), r.locationName(), r.regionName(), r.date(),
+                    r.kind(), r.windowId(), pick.why(), r.rating(), r.verdict()));
         }
         List<AskEvent> events = new ArrayList<>();
         for (AskEvent event : answer.events()) {

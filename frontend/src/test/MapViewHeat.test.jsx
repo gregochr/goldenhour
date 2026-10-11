@@ -103,12 +103,22 @@ vi.mock('../components/map/MapLabels.jsx', () => ({
   },
 }));
 
+/** The lazy pins layer, replaced by the same probe pattern: what `MapView` hands it is the assertion. */
+const pinsProps = { last: null };
+vi.mock('../components/map/PinsLayer.jsx', () => ({
+  default: (props) => {
+    pinsProps.last = props;
+    return <div data-testid="map-pins-stub" />;
+  },
+}));
+
 let role = 'PRO_USER';
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role }) }));
 vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => false }));
 let auroraStatus = null;
 vi.mock('../hooks/useAuroraStatus.js', () => ({ useAuroraStatus: () => ({ status: auroraStatus }) }));
-vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ viewline: null }) }));
+let viewlineAnswer = null;
+vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ viewline: viewlineAnswer }) }));
 vi.mock('../api/auroraApi.js', () => ({
   getAuroraLocations: vi.fn().mockResolvedValue([]),
   getAuroraForecastResults: vi.fn().mockResolvedValue([]),
@@ -123,7 +133,8 @@ vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn().mockRes
 vi.mock('../components/BottomSheet.jsx', () => ({ default: ({ children }) => <div>{children}</div> }));
 vi.mock('../components/MarkerPopupContent.jsx', () => ({ default: () => <div /> }));
 vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
-vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null }));
+// Marker only: a test can ask whether the overlay is MOUNTED (the legend's `viewlineShown` tracks it).
+vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => <div data-testid="aurora-viewline-overlay" /> }));
 
 /** The real ramp, because "which colour did the marker take" is the assertion. */
 const markerCalls = [];
@@ -140,7 +151,11 @@ vi.mock('../components/markerUtils.js', async (importOriginal) => {
 
 import MapView from '../components/MapView.jsx';
 import { buildRegionVerdictIndex } from '../utils/mapVerdict.js';
-import { STOPS_VERDICT, STOPS_TEMP, setMode } from '../utils/scoreRamp.js';
+import {
+  STOPS_VERDICT, STOPS_TEMP, setMode, rampHex,
+} from '../utils/scoreRamp.js';
+import { AURORA_RAMP, AURORA_BLOOM } from '../utils/auroraRamp.js';
+import { getAuroraLocations, getAuroraForecastResults, getAuroraForecastAvailableDates } from '../api/auroraApi.js';
 import { markerLabelAndColour } from '../components/markerUtils.js';
 import { getAstroConditions, getAstroAvailableDates } from '../api/astroApi.js';
 import { ukDateStrOffset } from '../utils/mapDates.js';
@@ -362,17 +377,27 @@ beforeEach(() => {
   localStorage.clear();
   heatLayerProps.last = null;
   heatLayerProps.mounts = 0;
+  labelSpotsProps.last = null;
+  pinsProps.last = null;
   mapContainerProps.last = null;
   markerCalls.length = 0;
   fitBounds.mockClear();
   markerNonce += 1;
   auroraStatus = null;
+  viewlineAnswer = { active: true, points: [{ latitude: 54, longitude: -3 }] };
   role = 'PRO_USER';
   mapEventHandlers = [];
   mockMapZoomAtMount = 9;
   polylineCalls.length = 0;
 });
-afterEach(() => { vi.useRealTimers(); localStorage.clear(); });
+afterEach(() => {
+  vi.useRealTimers();
+  localStorage.clear();
+  // The aurora mocks are reassigned per test; put them back so no test inherits another's night.
+  getAuroraLocations.mockReset().mockResolvedValue([]);
+  getAuroraForecastResults.mockReset().mockResolvedValue([]);
+  getAuroraForecastAvailableDates.mockReset().mockResolvedValue([]);
+});
 
 describe('MapView heat — the opt-in is off by default', () => {
   it('renders no toolbar and no field for the Plan overlay, which passes no heat prop', async () => {
@@ -1097,16 +1122,284 @@ describe('MapView heat — dimmed, not dropped (tide-window-plan.md §3 T4)', ()
 });
 
 describe('MapView heat — the modes it stands down for', () => {
-  it('paints no field and offers no toolbar in aurora mode', async () => {
-    // The markers there carry Kp visibility, not sky colour. A sky-colour field painted under them
-    // would be two scales on one picture with nothing saying so.
-    //
-    // Aurora mode has to be REACHABLE to be tested: `MapView` resets the event type to SUNSET
-    // whenever aurora is unavailable, so a stored result is what lets the mode stand.
+  // ⚠️ Rewritten for aurora-heat-plan.md §3 A2 (the successor of "paints no field and offers no
+  // toolbar in aurora mode"): aurora now paints the field exactly as astro does, scored from that
+  // night's aurora stars and in its own ramp. See the four tests below.
+  //
+  // Aurora mode has to be REACHABLE to be tested: `MapView` resets the event type to SUNSET
+  // whenever aurora is unavailable, so a live alert (or a stored result) is what lets it stand.
+  it('offers the toolbar and the field in aurora mode', async () => {
     auroraStatus = { active: true, level: 'QUIET' };
     await renderMap({ heat: heatProp(), handoffEventType: 'AURORA' });
-    expect(screen.queryByTestId('wf-map-toolbar')).toBeNull();
-    expect(screen.queryByTestId('map-heat-layer')).toBeNull();
+    expect(screen.getByTestId('wf-map-toolbar')).toBeInTheDocument();
+    await screen.findByTestId('map-heat-layer');
+  });
+
+  it('paints the live night from the LIVE aurora stars, and leaves an unrated location out', async () => {
+    auroraStatus = { active: true, level: 'MODERATE', currentNightDate: TODAY };
+    getAuroraLocations.mockResolvedValue([
+      { location: { name: SPOTS[0].name }, stars: 4 },
+      { location: { name: SPOTS[2].name }, stars: 2 },
+    ]);
+    // A STORED result for the same night that says something different: on the night in progress
+    // the medallion rule (plan D1) reads the live source, so this must not reach the field.
+    getAuroraForecastResults.mockResolvedValue([{ locationName: SPOTS[0].name, stars: 1 }]);
+    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA' });
+    await waitFor(() => expect(heatLayerProps.last.points).toHaveLength(2));
+    // Tynemouth has no aurora rating: ABSENT, never a 1-star placeholder.
+    expect(heatLayerProps.last.points.map((p) => [p.name, p.r[0]]).sort()).toEqual(
+      [[SPOTS[0].name, 4], [SPOTS[2].name, 2]].sort(),
+    );
+  });
+
+  it('paints any OTHER night from that night\'s STORED results, never tonight\'s live stars', async () => {
+    auroraStatus = { active: true, level: 'MODERATE', currentNightDate: TOMORROW };
+    getAuroraLocations.mockResolvedValue([{ location: { name: SPOTS[0].name }, stars: 5 }]);
+    getAuroraForecastResults.mockImplementation((night) => Promise.resolve(
+      night === TODAY ? [{ locationName: SPOTS[2].name, stars: 3 }] : [],
+    ));
+    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA' });
+    await waitFor(() => expect(heatLayerProps.last.points).toHaveLength(1));
+    expect(heatLayerProps.last.points[0].name).toBe(SPOTS[2].name);
+    expect(heatLayerProps.last.points[0].r).toEqual([3]);
+  });
+
+  it('hands the aurora field its own capped-inference confidence, never null/full strength', async () => {
+    auroraStatus = { active: true, level: 'QUIET' };
+    await renderMap({ heat: heatProp(), date: '2026-01-20', handoffEventType: 'AURORA' });
+    await screen.findByTestId('map-heat-layer');
+    // A T+5 night: the capped-inference tier is 'low', scalar 0.5 — not the null-default 1.
+    expect(heatLayerProps.last.conf).toBe(0.5);
+  });
+
+  it('swaps the ramp with the window: aurora ramp, then none on a sunset, then the aurora ramp again', async () => {
+    auroraStatus = { active: true, level: 'MODERATE', currentNightDate: TODAY };
+    getAuroraLocations.mockResolvedValue([{ location: { name: SPOTS[0].name }, stars: 4 }]);
+    // A stored night is what puts an aurora ROW in the window control to switch back to.
+    getAuroraForecastAvailableDates.mockResolvedValue([TODAY]);
+    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA' });
+    await waitFor(() => expect(heatLayerProps.last.ramp).toBe(AURORA_RAMP.rgb));
+    expect(heatLayerProps.last.bloom).toBe(AURORA_BLOOM);
+
+    pickWindow(`${TODAY}:SUNSET`);
+    await waitFor(() => expect(heatLayerProps.last.ramp).toBeNull());
+    expect(heatLayerProps.last.bloom).toBeNull();
+
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    const auroraRow = screen.getAllByTestId('wf-win-row')
+      .find((r) => r.getAttribute('data-ev-id').startsWith('aur:'));
+    expect(auroraRow).toBeTruthy();
+    fireEvent.click(auroraRow);
+    await waitFor(() => expect(heatLayerProps.last.ramp).toBe(AURORA_RAMP.rgb));
+    expect(heatLayerProps.last.bloom).toBe(AURORA_BLOOM);
+  });
+
+  it('hands the chips the aurora ramp in aurora mode and the shared ramp otherwise', async () => {
+    auroraStatus = { active: true, level: 'QUIET' };
+    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA' });
+    await waitFor(() => expect(labelSpotsProps.last).not.toBeNull());
+    expect(labelSpotsProps.last.rampHex).toBe(AURORA_RAMP.hex);
+  });
+
+  it('hands the heat layer NO ramp or bloom in a solar window', async () => {
+    await renderMap({ heat: heatProp() });
+    await screen.findByTestId('map-heat-layer');
+    expect(heatLayerProps.last.ramp).toBeNull();
+    expect(heatLayerProps.last.bloom).toBeNull();
+    expect(labelSpotsProps.last.rampHex).toBe(rampHex);
+  });
+
+  /** Locations named exactly as `SPOTS` are, so a chip's own rating join and the field's agree. */
+  const plainLocations = () => SPOTS.map((sp) => ({
+    id: sp.id,
+    name: sp.name,
+    lat: sp.lat,
+    lon: sp.lng,
+    regionName: sp.rid,
+    bortleClass: sp.bortleClass,
+    locationType: ['LANDSCAPE'],
+    forecastsByDate: new Map(),
+  }));
+  const liveNight = (rows) => {
+    auroraStatus = { active: true, level: 'MODERATE', currentNightDate: TODAY };
+    getAuroraLocations.mockResolvedValue(rows.map(([i, stars]) => ({ location: { name: SPOTS[i].name }, stars })));
+  };
+
+  it('omits a NaN, a null and a missing aurora rating from the field points', async () => {
+    liveNight([[0, 4], [1, Number.NaN], [2, null]]);
+    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA', locations: plainLocations() });
+    await waitFor(() => expect(heatLayerProps.last.points).toHaveLength(1));
+    expect(heatLayerProps.last.points[0].name).toBe(SPOTS[0].name);
+  });
+
+  it('omits a null stored rating on a stored night too', async () => {
+    auroraStatus = { active: true, level: 'MODERATE', currentNightDate: TOMORROW };
+    getAuroraForecastResults.mockImplementation((night) => Promise.resolve(
+      night === TODAY
+        ? [{ locationName: SPOTS[0].name, stars: 3 }, { locationName: SPOTS[1].name, stars: null }]
+        : [],
+    ));
+    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA', locations: plainLocations() });
+    await waitFor(() => expect(heatLayerProps.last.points).toHaveLength(1));
+  });
+
+  it('on the live night, falls back to the stored result for a spot the live cache does not hold', async () => {
+    liveNight([[0, 4]]);
+    getAuroraForecastResults.mockResolvedValue([{ locationName: SPOTS[2].name, stars: 3 }]);
+    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA', locations: plainLocations() });
+    await waitFor(() => expect(heatLayerProps.last.points).toHaveLength(2));
+    expect(heatLayerProps.last.points.map((p) => [p.name, p.r[0]]).sort()).toEqual(
+      [[SPOTS[0].name, 4], [SPOTS[2].name, 3]].sort(),
+    );
+  });
+
+  it('shows the unscored line in aurora mode when nothing is rated, and not when something is', async () => {
+    auroraStatus = { active: true, level: 'QUIET' };
+    getAuroraForecastAvailableDates.mockResolvedValue([TODAY]);
+    const { unmount } = await renderMap({ heat: heatProp(), handoffEventType: 'AURORA' });
+    await screen.findByTestId('map-heat-layer');
+    expect(screen.getByTestId('wf-map-heat-unscored')).toHaveTextContent('This event is not scored yet');
+    expect(screen.queryByTestId('wf-map-heat-legend')).toBeNull();
+    unmount();
+
+    liveNight([[0, 4]]);
+    getAuroraForecastAvailableDates.mockResolvedValue([TODAY]);
+    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA', locations: plainLocations() });
+    await waitFor(() => expect(heatLayerProps.last.points).toHaveLength(1));
+    expect(screen.queryByTestId('wf-map-heat-unscored')).toBeNull();
+    expect(screen.getByTestId('wf-map-heat-legend')).toBeInTheDocument();
+  });
+
+  it('computes the aurora confidence on the NIGHT on screen, not on the date prop', async () => {
+    // `date` stays TODAY (T+0, full strength) while the reader picks a far night through the window
+    // control, which keeps it local: a scalar computed on `date` would read 1 here, not 0.5.
+    const FAR = '2026-01-20';
+    auroraStatus = { active: true, level: 'QUIET' };
+    getAuroraForecastAvailableDates.mockResolvedValue([FAR]);
+    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA' });
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    const row = screen.getAllByTestId('wf-win-row')
+      .find((r) => r.getAttribute('data-ev-id') === `aur:${FAR}:AURORA`);
+    expect(row).toBeTruthy();
+    fireEvent.click(row);
+    await waitFor(() => expect(heatLayerProps.last.conf).toBe(0.5));
+  });
+
+  it('narrows the aurora field by a dark-sky filter set in a solar window, as the chips are narrowed', async () => {
+    // The toggle itself is withheld in aurora mode (`FiltersPopover`), but its state persists across
+    // a window switch, and the chips obey it. The field must too.
+    liveNight([[0, 4], [1, 4], [2, 4]]);
+    getAuroraForecastAvailableDates.mockResolvedValue([TODAY]);
+    await renderMap({ heat: heatProp(), locations: plainLocations() });
+    openFilters();
+    fireEvent.click(screen.getByTestId('dark-sky-filter-toggle'));
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    fireEvent.click(screen.getAllByTestId('wf-win-row')
+      .find((r) => r.getAttribute('data-ev-id').startsWith('aur:')));
+    // Tynemouth is Bortle 6, above the threshold: gone from the field AND from the chips.
+    await waitFor(() => expect(heatLayerProps.last.points.map((p) => p.name).sort()).toEqual(
+      [SPOTS[0].name, SPOTS[2].name].sort(),
+    ));
+    expect(labelSpotsProps.last.spots.map((sp) => sp.name)).not.toContain(SPOTS[1].name);
+    expect(labelSpotsProps.last.spots.map((sp) => sp.name)).toContain(SPOTS[0].name);
+  });
+
+  it('counts the aurora points in the footer', async () => {
+    liveNight([[0, 4], [2, 3]]);
+    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA', locations: plainLocations() });
+    await waitFor(() => expect(screen.getByTestId('wf-map-counts-footer')).toHaveTextContent('2 of 5 shown'));
+  });
+
+  it('draws the colour key as a 1-star to 5-star aurora rating, not Poor to Worth it', async () => {
+    liveNight([[0, 4]]);
+    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA', locations: plainLocations() });
+    const key = await screen.findByTestId('wf-map-heat-legend');
+    expect(key).toHaveAttribute('aria-label', 'Colour key: the field runs from 1★ to 5★ aurora rating');
+    expect(key).toHaveTextContent('1★');
+    expect(key).toHaveTextContent('5★');
+    expect(key).not.toHaveTextContent('Poor');
+    const probe = document.createElement('div');
+    probe.style.background = AURORA_RAMP.gradientCss();
+    expect(screen.getByTestId('wf-map-heat-legend-ramp').style.background).toBe(probe.style.background);
+  });
+
+  it('keeps the solar colour key and the solar legend in a solar window', async () => {
+    await renderMap({ heat: heatProp() });
+    expect(screen.getByTestId('wf-map-heat-legend')).toHaveAttribute(
+      'aria-label', 'Colour key: the field runs from Poor to Worth it',
+    );
+    expect(screen.getByTestId('wf-legend-chip')).toBeInTheDocument();
+
+    openLegend();
+    expect(screen.getByTestId('wf-legend-panel')).toHaveTextContent('1\u2605 poor');
+    expect(screen.getByTestId('wf-legend-panel')).not.toHaveTextContent('AURORA RATING');
+  });
+
+  it('mounts the legend panel in aurora mode with the aurora variant; the note names the viewline on the live night', async () => {
+    // Reverses A2's "withheld in aurora until A3".
+    liveNight([[0, 4]]);
+    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA', locations: plainLocations() });
+    await screen.findByTestId('wf-map-heat-legend');
+    openLegend();
+    const panel = screen.getByTestId('wf-legend-panel');
+    expect(panel).toHaveTextContent('COLOUR = AURORA RATING');
+    expect(panel).toHaveTextContent('5\u2605 aurora green');
+    // viewlineShown tracks the overlay's own mount: both true on the live night.
+    expect(screen.getByTestId('aurora-viewline-overlay')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-legend-note')).toHaveTextContent('The dashed line is where the aurora clears');
+  });
+
+  it('drops the viewline sentence while the viewline has not answered, or answered inactive or empty', async () => {
+    for (const answer of [null, { active: false, points: [] }, { active: true, points: [] }]) {
+      viewlineAnswer = answer;
+      liveNight([[0, 4]]);
+      const { unmount } = await renderMap({
+        heat: heatProp(), handoffEventType: 'AURORA', locations: plainLocations(),
+      });
+      await screen.findByTestId('wf-map-heat-legend');
+      openLegend();
+      // Eligible night: the overlay is mounted, but no line is drawn, so the note must not name one.
+      expect(screen.getByTestId('wf-legend-note')).toHaveTextContent('Rating, not Kp.');
+      expect(screen.getByTestId('wf-legend-note')).not.toHaveTextContent('dashed line');
+      unmount();
+    }
+  });
+
+  it('drops the viewline sentence on a stored past night, where the overlay is not mounted either', async () => {
+    auroraStatus = { active: true, level: 'MODERATE', currentNightDate: TOMORROW };
+    getAuroraForecastResults.mockImplementation((night) => Promise.resolve(
+      night === TODAY ? [{ locationName: SPOTS[0].name, stars: 3 }] : [],
+    ));
+    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA', locations: plainLocations() });
+    await waitFor(() => expect(heatLayerProps.last.points).toHaveLength(1));
+    openLegend();
+    expect(screen.getByTestId('wf-legend-panel')).toHaveTextContent('COLOUR = AURORA RATING');
+    expect(screen.queryByTestId('aurora-viewline-overlay')).toBeNull();
+    expect(screen.getByTestId('wf-legend-note')).toHaveTextContent('Rating, not Kp.');
+    expect(screen.getByTestId('wf-legend-note')).not.toHaveTextContent('dashed line');
+  });
+
+  it('hands PinsLayer and MapLabels the aurora ramp, the glow and omitUnrated in aurora mode only', async () => {
+    liveNight([[0, 4]]);
+    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA', locations: plainLocations() });
+    await waitFor(() => expect(labelSpotsProps.last).not.toBeNull());
+    expect(labelSpotsProps.last.omitUnrated).toBe(true);
+    fireEvent.click(screen.getByTestId('wf-map-view-pins'));
+    await waitFor(() => expect(pinsProps.last).not.toBeNull());
+    expect(pinsProps.last.rampHex).toBe(AURORA_RAMP.hex);
+    expect(pinsProps.last.glow).toBe(true);
+    expect(pinsProps.last.omitUnrated).toBe(true);
+  });
+
+  it('hands PinsLayer and MapLabels the defaults in a solar window', async () => {
+    await renderMap({ heat: heatProp() });
+    expect(labelSpotsProps.last.omitUnrated).toBe(false);
+    expect(labelSpotsProps.last.rampHex).toBe(rampHex);
+    fireEvent.click(screen.getByTestId('wf-map-view-pins'));
+    await waitFor(() => expect(pinsProps.last).not.toBeNull());
+    expect(pinsProps.last.rampHex).toBe(rampHex);
+    expect(pinsProps.last.glow).toBe(false);
+    expect(pinsProps.last.omitUnrated).toBe(false);
   });
 
   // ⚠️ Rewritten for map-tab-v2-plan.md §3 P6, which is a genuine behaviour change here, not a
@@ -1116,7 +1409,7 @@ describe('MapView heat — the modes it stands down for', () => {
   // tests below for its successor, one per branch (nothing scored yet, and a real score).
   it('offers the toolbar in astro mode, painting nothing while nothing is scored', async () => {
     // This file's `astroApi` mock resolves no conditions for any date, so the field exists but has
-    // nothing to paint — distinct from aurora, which stands the toolbar down outright.
+    // nothing to paint — the same shape aurora now has (aurora heat A2 offers the toolbar there too).
     await renderMap({ heat: heatProp(), handoffEventType: 'ASTRO' });
     expect(screen.getByTestId('wf-map-toolbar')).toBeInTheDocument();
     await screen.findByTestId('map-heat-layer');

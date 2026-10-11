@@ -57,4 +57,23 @@ public record AskThread(List<ThreadExchange> exchanges) {
                 .filter(exchange -> !exchange.ready())
                 .anyMatch(exchange -> !Objects.equals(exchange.generatedAt(), liveGeneratedAt));
     }
+
+    /**
+     * The night reset rule (ask-night plan §2.2): whether any exchange — typed <em>or</em> Ready-origin —
+     * carries a night version that is no longer the live one. Unlike {@link #staleAgainst} it does not
+     * exempt a Ready exchange: that exemption exists because a Ready exchange's picks re-join live, which
+     * a verbatim night summary ("active, Kp 6", a clear-sky claim) does not. An exchange with no night
+     * version is never stale by this rule.
+     *
+     * @param live         the live snapshot the versions are re-derived from
+     * @param canSeeAurora whether the asker's role may see aurora figures: for one who may not, the aurora
+     *                     part of an echoed version is ignored ({@code AskNightVersion#isLive}), so the
+     *                     check cannot be used to probe the alert state
+     * @return true when the thread must be dropped and the question answered fresh
+     */
+    public boolean nightStaleAgainst(AskSnapshot live, boolean canSeeAurora) {
+        return exchanges.stream()
+                .filter(exchange -> exchange.nightVersion() != null)
+                .anyMatch(exchange -> !AskNightVersion.isLive(exchange.nightVersion(), live, canSeeAurora));
+    }
 }

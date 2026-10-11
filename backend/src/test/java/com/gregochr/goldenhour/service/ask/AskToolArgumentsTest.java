@@ -48,6 +48,23 @@ class AskToolArgumentsTest {
     }
 
     @Test
+    @DisplayName("every rank_night_spots field is read; a wrong type is a BadArguments the model can correct")
+    void rankNightSpotsFields() throws Exception {
+        AskTools.RankNightSpotsArgs a = AskToolArguments.rankNightSpots(json("""
+                {"night": "tomorrow", "kind": "astro", "regionNames": ["Coast"], "minStars": 4, "maxBortle": 3,
+                 "maxDriveMinutes": 45, "nearHome": true, "limit": 6}"""));
+
+        assertThat(a).isEqualTo(new AskTools.RankNightSpotsArgs("tomorrow", "astro", List.of("Coast"), 4, 3, 45,
+                true, 6));
+        assertThat(AskToolArguments.rankNightSpots(null))
+                .isEqualTo(new AskTools.RankNightSpotsArgs(null, null, null, null, null, null, null, null));
+        assertThatThrownBy(() -> AskToolArguments.rankNightSpots(json("{\"night\": 5}")))
+                .isInstanceOf(BadArguments.class).hasMessageContaining("night");
+        assertThatThrownBy(() -> AskToolArguments.rankNightSpots(json("{\"minStars\": \"high\"}")))
+                .isInstanceOf(BadArguments.class).hasMessageContaining("minStars");
+    }
+
+    @Test
     @DisplayName("a missing, null or missing-node input is an empty object: every argument is optional")
     void emptyInputs() throws Exception {
         assertThat(AskToolArguments.rankSpots(null))

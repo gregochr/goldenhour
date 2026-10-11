@@ -1,5 +1,13 @@
 # Ask PhotoCast — the night (astro conditions, Bortle and aurora as a tool)
 
+**Status (2026-10-11):** N0 merged (#1093). **N1 built, PR pending** (branch `feat/ask-night-tool`): the snapshot's
+nights, `AskWindowKind`, `rank_night_spots`, `list_windows` night rows, the prompt block, the night eligibility rule
+and `canSeeAurora` threading, the thread's `nightVersion` reset and the stub. Where the code and this plan differ,
+the code is recorded in CLAUDE.md's *Ask — the night tool*: `AuroraStateCache` has no `isSimulated()` (the test is
+`getSimulatedData() != null`), the tool returns `astroWindowId`/`auroraWindowId` per place instead of one `windowId`,
+and the canopy rule drops a wood in the builder (`NightSpot.canopy` stays as the defence in `isNightPickEligible`).
+N2 (Ready `NIGHT_SKY`), N3 (client) and N4 (docs, regression) are not started.
+
 Owner ask, 2026-10-11: *"are there clear skies on the durham coast tonight?"* failed (the model
 explored for four turns and never submitted — fixed separately by forcing `submit_answer` on the
 last turn) and would, after that fix, have been an honest can't-answer: Ask's five tools reach only

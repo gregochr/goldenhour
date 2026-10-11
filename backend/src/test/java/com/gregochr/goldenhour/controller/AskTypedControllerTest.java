@@ -2,7 +2,7 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.config.AskBodyLimitFilter;
 import com.gregochr.goldenhour.entity.AppUserEntity;
-import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.service.ask.AskWindowKind;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.service.ask.AskErrorCode;
 import com.gregochr.goldenhour.service.ask.AskEvent;
@@ -100,7 +100,7 @@ class AskTypedControllerTest extends AbstractControllerTest {
 
     private static AskResponse answer() {
         AskReadyResponse.Pick pick = new AskReadyResponse.Pick(1, 123L, "Whitby", "North York Moors & Coast",
-                LocalDate.of(2026, 10, 5), TargetType.SUNSET, "2026-10-05_sunset", "Clear and the tide suits.");
+                LocalDate.of(2026, 10, 5), AskWindowKind.SUNSET, "2026-10-05_sunset", "Clear and the tide suits.");
         AskEvent event = new AskEvent("ECLIPSE", "Partial solar eclipse", LocalDate.of(2026, 10, 10), "Visible.",
                 "Certified solar filter on the lens");
         return new AskResponse(true, "own", "Whitby at sunset.", List.of(pick), List.of(event), null, List.of(),
@@ -504,7 +504,7 @@ class AskTypedControllerTest extends AbstractControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", not(hasKey("threadReset"))))
                 .andExpect(jsonPath("$", not(hasKey("threadResetReason")))).andReturn();
-        when(askService.ask(any(), any())).thenReturn(answer().withThreadReset());
+        when(askService.ask(any(), any())).thenReturn(answer().withThreadReset(AskResponse.THREAD_RESET_REASON));
 
         mockMvc.perform(post(URL).contentType(MediaType.APPLICATION_JSON).content(THREAD_BODY))
                 .andExpect(status().isOk())

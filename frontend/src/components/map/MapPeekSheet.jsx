@@ -1,8 +1,10 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { rampHex } from '../../utils/scoreRamp.js';
+import { auroraRampHex } from '../../utils/auroraRamp.js';
 import { VERDICT_LABEL } from '../../utils/windowFirstCards.js';
 import { isNightRow } from '../../utils/mapPeek.js';
+import { EVENT_KIND } from '../../utils/mapEvents.js';
 import { meridiemOf } from '../../utils/askModel.js';
 import { KindChip } from './WindowControl.jsx';
 
@@ -343,7 +345,7 @@ export function MapPeekWindowsSection({
               {night ? (
                 row.scored && row.bestRating != null ? (
                   <b className="wf-map-peek-wr-verdict" data-testid="wf-map-peek-wr-best-of-night">
-                    <i aria-hidden="true" style={{ background: rampHex(row.bestRating) }} />
+                    <i aria-hidden="true" style={{ background: row.kind === EVENT_KIND.AURORA ? auroraRampHex(row.bestRating) : rampHex(row.bestRating) }} />
                     {row.bestRating}&#9733; best
                   </b>
                 ) : (

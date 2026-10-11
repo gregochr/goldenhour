@@ -126,14 +126,14 @@ class ClaudeAskEngineWireTest {
         assertThat(first.get("messages").get(0).get("role").asText()).isEqualTo("user");
         assertThat(first.get("messages").get(0).get("content").asText()).isEqualTo("Best spot tonight?");
         JsonNode tools = first.get("tools");
-        assertThat(tools).hasSize(5);
+        assertThat(tools).hasSize(6);
         assertThat(tools.get(1).get("name").asText()).isEqualTo("rank_spots");
         assertThat(tools.get(1).get("input_schema").get("type").asText()).isEqualTo("object");
         assertThat(tools.get(1).get("input_schema").get("properties").get("limit").get("maximum").asInt())
                 .isEqualTo(AskTools.MAX_SPOTS);
         assertThat(tools.get(1).get("input_schema").get("properties").has("maxDriveMinutes")).isTrue();
-        assertThat(tools.get(4).get("name").asText()).isEqualTo("submit_answer");
-        assertThat(tools.get(4).get("input_schema").get("required")).extracting(JsonNode::asText)
+        assertThat(tools.get(5).get("name").asText()).isEqualTo("submit_answer");
+        assertThat(tools.get(5).get("input_schema").get("required")).extracting(JsonNode::asText)
                 .containsExactly("answerable", "summary");
 
         JsonNode second = json.readTree(requests.get(1).getBodyAsString());
@@ -208,7 +208,7 @@ class ClaudeAskEngineWireTest {
         assertThat(last.get("tool_choice").get("type").asText()).isEqualTo("tool");
         assertThat(last.get("tool_choice").get("name").asText()).isEqualTo("submit_answer");
         assertThat(last.get("tool_choice").has("disable_parallel_tool_use")).isFalse();
-        assertThat(last.get("tools")).as("the tools stay on the request").hasSize(5);
+        assertThat(last.get("tools")).as("the tools stay on the request").hasSize(6);
         JsonNode messages = last.get("messages");
         assertThat(messages).hasSize(7);
         JsonNode lastUser = messages.get(6);

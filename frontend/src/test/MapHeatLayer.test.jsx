@@ -307,6 +307,107 @@ describe('MapHeatLayer — the heat bloom (map-tab-v2-plan.md §3 P2)', () => {
     await mount();
     expect('bloom' in drawTiles.mock.calls.at(-1)[4]).toBe(false);
   });
+
+  // The injected ramp and bloom (aurora-heat-plan.md §3 A2). Aurora is NOT a colourMode value.
+  describe('an injected ramp and bloom', () => {
+    const RAMP = () => [1, 2, 3];
+    const BLOOM = { rgb: [120, 255, 170], from: 3.4, a: 150 };
+
+    it('hands the ramp to the kernel, and carries no ramp key at all without one', async () => {
+      currentMap = makeMap({ panes: markerPanes() });
+      await mount({ ramp: RAMP, bloom: BLOOM });
+      expect(drawTiles.mock.calls.at(-1)[4].ramp).toBe(RAMP);
+      await mount();
+      expect('ramp' in drawTiles.mock.calls.at(-1)[4]).toBe(false);
+    });
+
+    it('asks for the bloom with its own colour, gate and strength', async () => {
+      setMode('verdict');
+      currentMap = makeMap({ panes: markerPanes() });
+      await mount({ ramp: RAMP, bloom: BLOOM });
+      const opts = drawTiles.mock.calls.at(-1)[4];
+      expect(opts.bloom).toBe(1);
+      expect(opts.bloomFrom).toBe(3.4);
+      expect(opts.bloomA).toBe(150);
+      expect(opts.bloomRGB).toEqual([120, 255, 170]);
+    });
+
+    it('lets the aurora bloom win over the temperature arm — no half-mixed dials', async () => {
+      // In temperature mode the bare flag would be set with NO dials; the injected bloom must carry
+      // all four keys, so a swapped order of the two arms is caught here.
+      setMode('temp');
+      currentMap = makeMap({ panes: markerPanes() });
+      await mount({ ramp: RAMP, bloom: BLOOM });
+      const opts = drawTiles.mock.calls.at(-1)[4];
+      expect(opts.bloomRGB).toEqual([120, 255, 170]);
+      expect(opts.bloomFrom).toBe(3.4);
+      expect(opts.bloomA).toBe(150);
+    });
+
+    it('with no bloom prop in verdict mode there is still no bloom, whatever ramp is injected', async () => {
+      setMode('verdict');
+      currentMap = makeMap({ panes: markerPanes() });
+      await mount({ ramp: RAMP });
+      const opts = drawTiles.mock.calls.at(-1)[4];
+      expect('bloom' in opts).toBe(false);
+      expect('bloomRGB' in opts).toBe(false);
+    });
+
+    it('a ramp injected without a bloom adds the ramp and no bloom key of any kind (verdict mode)', async () => {
+      setMode('verdict');
+      currentMap = makeMap({ panes: markerPanes() });
+      await mount({ ramp: RAMP, bloom: null });
+      const opts = drawTiles.mock.calls.at(-1)[4];
+      expect(opts.ramp).toBe(RAMP);
+      for (const key of ['bloom', 'bloomFrom', 'bloomA', 'bloomRGB']) expect(key in opts).toBe(false);
+    });
+
+    it('in temperature mode with no injected bloom the bare flag carries none of the aurora dials', async () => {
+      setMode('temp');
+      currentMap = makeMap({ panes: markerPanes() });
+      await mount({ ramp: null, bloom: null });
+      const opts = drawTiles.mock.calls.at(-1)[4];
+      expect(opts.bloom).toBe(1);
+      for (const key of ['bloomFrom', 'bloomA', 'bloomRGB', 'ramp']) expect(key in opts).toBe(false);
+    });
+
+    it('repaints when ONLY the ramp changes', async () => {
+      currentMap = makeMap({ panes: markerPanes() });
+      const { rerender } = await mount({ ramp: RAMP, bloom: BLOOM });
+      const before = drawTiles.mock.calls.length;
+      const OTHER = () => [9, 9, 9];
+      await act(async () => {
+        rerender(<MapHeatLayer points={POINTS} conf={1} ramp={OTHER} bloom={BLOOM} />);
+      });
+      expect(drawTiles.mock.calls.length).toBeGreaterThan(before);
+      expect(drawTiles.mock.calls.at(-1)[4].ramp).toBe(OTHER);
+    });
+
+    it('repaints when ONLY the bloom changes', async () => {
+      currentMap = makeMap({ panes: markerPanes() });
+      const { rerender } = await mount({ ramp: RAMP, bloom: BLOOM });
+      const before = drawTiles.mock.calls.length;
+      await act(async () => {
+        rerender(<MapHeatLayer points={POINTS} conf={1} ramp={RAMP} bloom={{ ...BLOOM, a: 99 }} />);
+      });
+      expect(drawTiles.mock.calls.length).toBeGreaterThan(before);
+      expect(drawTiles.mock.calls.at(-1)[4].bloomA).toBe(99);
+    });
+
+    it('drops the ramp and bloom again when they go back to null (Aurora to Sunset and back)', async () => {
+      currentMap = makeMap({ panes: markerPanes() });
+      const { rerender } = await mount({ ramp: RAMP, bloom: BLOOM });
+      const after = (props) => act(async () => {
+        rerender(<MapHeatLayer points={POINTS} conf={1} {...props} />);
+      });
+      await after({ ramp: null, bloom: null });
+      expect('ramp' in drawTiles.mock.calls.at(-1)[4]).toBe(false);
+      expect('bloomRGB' in drawTiles.mock.calls.at(-1)[4]).toBe(false);
+      await after({ ramp: RAMP, bloom: BLOOM });
+      expect(drawTiles.mock.calls.at(-1)[4].ramp).toBe(RAMP);
+      expect(drawTiles.mock.calls.at(-1)[4].bloomFrom).toBe(3.4);
+    });
+  });
 });
 
 describe('MapHeatLayer — throttle, never debounce', () => {
@@ -611,10 +712,11 @@ describe('MapHeatLayer — the zoom handover (D8)', () => {
   });
 
   it('hands the markers back to the keyboard when it lets go of them', async () => {
-    // The other half, and what keeps AURORA honest: `heatOffered` is false for an aurora window, so
-    // this layer unmounts and the medallions become the tab's ONLY location vocabulary — no chips,
-    // no pins. If `inert` outlived the unmount they would be unreachable by keyboard exactly where
-    // they are the whole answer. Same path covers a tab change and a logout.
+    // The other half: the unmount is the ONLY route back to a reachable medallion. The Plan-tab
+    // overlay never mounts this layer, but a tab change, a logout, or a window that unmounts the
+    // layer (a roster with no join) must not leave `inert` on the markers — they would then be
+    // unreachable by keyboard where they are the whole answer. (Aurora used to be the case that
+    // unmounted it; since aurora heat A2 it paints the field like any other window.)
     currentMap = makeMap({ zoom: 4, panes: markerPanes() });
     const { unmount } = await mount();
     expect(currentMap.panes.markerPane.hasAttribute('inert')).toBe(true);
@@ -700,9 +802,9 @@ describe('MapHeatLayer — the zoom handover (D8)', () => {
   it('hands the marker panes back exactly as it found them when it unmounts', async () => {
     // ⚠️ Since the hide became unconditional this is the ONLY route back to a visible medallion,
     // so it carries the whole "this host does not latch the panes off forever" property on its own
-    // — it is what keeps aurora (where `heatOffered` is false and this layer never mounts), a tab
-    // change and a logout honest. Restoring to '' rather than to '1'/'auto'/'visible' matters: an
-    // inline declaration would keep overriding the stylesheet on a map this layer no longer owns.
+    // — it is what keeps the Plan overlay's medallions (which share the pane), a tab change and a
+    // logout honest. (Aurora used to be the case here, until aurora heat A2 mounted the layer.)
+    // Restoring to '' rather than to '1'/'auto'/'visible' matters: an inline declaration would keep overriding the stylesheet on a map this layer no longer owns.
     currentMap = makeMap({ zoom: 9, panes: markerPanes() });
     const { unmount } = await mount();
     expect(currentMap.panes.markerPane.style.opacity).toBe('0');
