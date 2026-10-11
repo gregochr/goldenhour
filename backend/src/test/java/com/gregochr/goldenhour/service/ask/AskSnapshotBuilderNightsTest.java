@@ -305,6 +305,25 @@ class AskSnapshotBuilderNightsTest {
         assertThat(nights().aurora()).isNull();
     }
 
+    @Test
+    @DisplayName("a simulation that starts between the check and the alert reads leaves no aurora state: the "
+            + "check is made again once the level and Kp are in hand")
+    void auroraState_simulationStartingMidRead() {
+        nightIs(TODAY);
+        AuroraStateCache flipping = org.mockito.Mockito.mock(AuroraStateCache.class);
+        when(flipping.getSimulatedData()).thenReturn(null, new AuroraStateCache.SimulatedNoaaData(8.0, 80.0, -10.0,
+                "G4"));
+        when(flipping.getCurrentLevel()).thenReturn(AlertLevel.STRONG);
+        when(flipping.getLastTriggerKp()).thenReturn(8.0);
+        AskSnapshotBuilder racing = new AskSnapshotBuilder(briefingService, travelDayService, almanacService,
+                freshness, AskFixtures.clockAt(NOW), astroRepository, auroraRepository, astroService, nightSelector,
+                flipping);
+
+        AskSnapshot snapshot = racing.build().orElseThrow();
+
+        assertThat(snapshot.nights().aurora()).isNull();
+    }
+
     // -- fail-soft --------------------------------------------------------------------------
 
     @Test

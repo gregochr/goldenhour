@@ -327,14 +327,26 @@ public class AskSnapshotBuilder {
      * The aurora alert state for tonight, or null while an admin simulation is active (its Kp is fake,
      * and nothing of it may reach an answer). No active alert reads as {@code QUIET}, so a quiet night
      * with no result rows is reported as quiet rather than unknown.
+     *
+     * <p><b>The simulation check brackets the alert reads.</b> {@code AuroraStateCache}'s getters take no
+     * lock, so a reader making several reads can straddle a transition, and the cache exposes no atomic
+     * snapshot to read instead. An admin starting a simulation between the check and the level/Kp reads would
+     * publish the fake alert into a snapshot memoised for {@value #MEMO_SECONDS} seconds and served to PRO
+     * askers. The cache writes a new simulation before it writes the level, so a reader that has seen a fake
+     * level is bound to see the simulation on a read made after it: the check is therefore made again once
+     * the alert fields are in hand, and the state is discarded if a simulation is now active.
      */
     private AskSnapshot.AuroraState auroraState() {
         if (auroraStateCache.getSimulatedData() != null) {
             return null;
         }
         AlertLevel level = auroraStateCache.getCurrentLevel();
+        Double kp = level == null ? null : auroraStateCache.getLastTriggerKp();
+        if (auroraStateCache.getSimulatedData() != null) {
+            return null;
+        }
         return level == null ? new AskSnapshot.AuroraState(AlertLevel.QUIET.name(), null)
-                : new AskSnapshot.AuroraState(level.name(), auroraStateCache.getLastTriggerKp());
+                : new AskSnapshot.AuroraState(level.name(), kp);
     }
 
     private AskSnapshot.Window toWindow(LocalDate date, BriefingEventSummary summary,
