@@ -16,6 +16,7 @@ vi.mock('react-leaflet', () => ({ useMap: () => currentMap }));
 
 import PinsLayer from '../components/map/PinsLayer.jsx';
 import { rampHex, setMode } from '../utils/scoreRamp.js';
+import { auroraRampHex } from '../utils/auroraRamp.js';
 
 /**
  * Ask PhotoCast's picks in Pins mode (F3, plan §2.7) — the dot is drawn from the PICK'S window, carries
@@ -109,6 +110,19 @@ describe('a pick pin', () => {
     expect(pin).not.toHaveTextContent('★');
     // 5★ from the pick, not the 2★ the spot carries for the window on screen.
     expect(pin.style.background).toBe(hexToRgb(rampHex(5)));
+  });
+
+  it('keeps the SHARED ramp and no glow on an aurora window: a pick belongs to its own solar window', async () => {
+    currentMap = makeMap();
+    await mount({
+      spots: [{ ...WHITBY, askPick: PICK(1, { rating: 4 }) }],
+      rampHex: auroraRampHex,
+      glow: true,
+    });
+    const [pin] = picks();
+    expect(pin.style.background).toBe(hexToRgb(rampHex(4)));
+    expect(pin.style.background).not.toBe(hexToRgb(auroraRampHex(4)));
+    expect(pin.style.boxShadow).not.toContain('14px');
   });
 
   it('names itself like the card and the chip: "Pick 2, Whitby, Saturday sunrise, 5 stars"', async () => {

@@ -713,8 +713,9 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
     point count**") was considered and rejected: the chips carry those same stars from the same
     accessor, so it would restore a duplicate vocabulary to no one's benefit.
     **What ships**: `applyMarkerFade(map, 0)` on every paint while the layer is mounted;
-    `restoreMarkerPanes` is reached only by the unmount cleanup, which is what keeps aurora (where
-    `heatOffered` is false and the layer never mounts), an unscored *catalogue*, a tab change and a
+    `restoreMarkerPanes` is reached only by the unmount cleanup, which is what keeps the Plan overlay
+    (no field; aurora was the other case until aurora heat A2 mounted the layer there — see the
+    ⚠️ below), an unscored *catalogue*, a tab change and a
     logout honest. `fadeAt().markers` survives as the Legend indicator's progress fraction, painting
     nothing. `markersLocked` is gone — its premise was the overlay's Leaflet popup leader tip, and
     the tab's selection is `MapCallout`, which anchors on the location's own coordinates and draws
@@ -928,6 +929,12 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
     `restoreMarkerPanes` clears the attribute: aurora has no chips and no pins, so the medallions
     are the whole location vocabulary there and must stay reachable. Both fall out of "set while
     hiding, clear while restoring".
+    ⚠️ **2026-10-11, aurora heat A2 (`docs/engineering/aurora-heat-plan.md`): the aurora half of
+    that no longer holds.** An aurora window now MOUNTS the layer (`heatOffered` is no longer
+    `!isAuroraMode`) and paints the field in the aurora ramp; chips and pins draw there, and the
+    marker panes are hidden like any other window's. The unmount cleanup is still what hands the
+    panes back, and it still matters for a tab change, a logout and the Plan overlay (which shares
+    the pane and has no field). The aurora `<Marker>` loop is left in place for exactly that reason.
     ⚠️ **jsdom implements no `inert` behaviour**, so the tests assert the ATTRIBUTE; a test there
     trying to prove non-focusability would pass against a no-op. Both new pins were verified to fail
     without the fix. The `visibility`-vs-`display` half of the original decision is still pinned, and

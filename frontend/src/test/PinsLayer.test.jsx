@@ -17,6 +17,7 @@ vi.mock('react-leaflet', () => ({ useMap: () => currentMap }));
 
 import PinsLayer from '../components/map/PinsLayer.jsx';
 import { rampHex, setMode } from '../utils/scoreRamp.js';
+import { auroraRampHex } from '../utils/auroraRamp.js';
 import { readableInkOn } from '../utils/windowFirstSpots.js';
 import { NO_DATA_COLOUR, STAND_DOWN_COLOUR } from '../components/markerUtils.js';
 
@@ -768,5 +769,86 @@ describe('PinsLayer — re-paints on the same rAF-guarded cadence as the field',
     await act(async () => { currentMap.fire('moveend'); });
     const after = [...document.querySelectorAll('[data-testid="map-pin"]')].map((el) => el.style.left);
     expect(after).not.toEqual(before);
+  });
+});
+
+describe('PinsLayer — the aurora ramp and glow (aurora-heat-plan.md §3 A2)', () => {
+  const pinNamed = (label) => [...document.querySelectorAll('[data-testid="map-pin"]')]
+    .find((el) => el.getAttribute('aria-label') === label);
+  const colourOf = (value) => {
+    const probe = document.createElement('div');
+    probe.style.background = value;
+    return probe.style.background;
+  };
+
+  it('fills from the injected rampHex, not the shared ramp', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({ rampHex: auroraRampHex, glow: true });
+    expect(pinNamed('Bamburgh, 5 star').style.background).toBe(colourOf(auroraRampHex(5)));
+    expect(auroraRampHex(5)).not.toBe(rampHex(5));
+  });
+
+  it('puts a 14px halo in its own fill on a 4 star and up pin and none on a 3 star pin', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({ rampHex: auroraRampHex, glow: true });
+    // 5 star #76FFA0 is rgb(118,255,160); 4 star #3AC884 is rgb(58,200,132)
+    expect(pinNamed('Bamburgh, 5 star').style.boxShadow).toContain('0 0 14px rgba(118,255,160,.7)');
+    expect(pinNamed('Buttermere, 4 star').style.boxShadow).toContain('0 0 14px rgba(58,200,132,.7)');
+    expect(pinNamed('Whitby, 3 star').style.boxShadow).not.toContain('14px');
+  });
+
+  it('draws no halo without the glow flag, even with the aurora ramp', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({ rampHex: auroraRampHex });
+    expect(pinNamed('Bamburgh, 5 star').style.boxShadow).not.toContain('14px');
+  });
+
+  it('glows a 4 star and up UNNAMED dot too — the spec applies the halo at both sizes', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({
+      spots: [{
+        name: 'Quiet corner', lat: 55, lng: -2, rid: 'X', rating: 4, named: false,
+      }],
+      rampHex: auroraRampHex,
+      glow: true,
+    });
+    const pin = document.querySelector('[data-testid="map-pin"]');
+    expect(pin.dataset.named).toBe('false');
+    expect(pin.style.boxShadow).toContain('0 0 14px rgba(58,200,132,.7)');
+  });
+
+  it('never glows an unrated pin, even with the glow flag set', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({
+      spots: [{
+        name: 'No data', lat: 55, lng: -2, rid: 'X', rating: null,
+      }],
+      glow: true,
+    });
+    expect(document.querySelector('[data-testid="map-pin"]').style.boxShadow).not.toContain('14px');
+  });
+
+  it('omitUnrated drops an unrated pin and keeps the rated ones; off by default', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    const spots = [...SPOTS, {
+      name: 'No data', lat: 55, lng: -2, rid: 'X', rating: null,
+    }];
+    const { unmount } = await mount({ spots, omitUnrated: true });
+    const names = [...document.querySelectorAll('[data-testid="map-pin"]')].map((el) => el.getAttribute('aria-label'));
+    expect(names).not.toContain('No data');
+    expect(names).toHaveLength(SPOTS.length);
+    unmount();
+    await mount({ spots });
+    expect(document.querySelectorAll('[data-testid="map-pin"]')).toHaveLength(SPOTS.length + 1);
+  });
+
+  it('with the defaults the fill is the shared ramp and the shadow carries no halo', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount();
+    const pin = pinNamed('Bamburgh, 5 star');
+    expect(pin.style.background).toBe(colourOf(rampHex(5)));
+    expect(pin.style.boxShadow).not.toContain('14px');
+    // Byte-identical to the pre-aurora shadow: the rim, then the drop, nothing in front.
+    expect(pin.style.boxShadow).toBe('0 2px 0 -1px rgb(100,20,16), 0 5px 12px rgba(0,0,0,.5)');
   });
 });

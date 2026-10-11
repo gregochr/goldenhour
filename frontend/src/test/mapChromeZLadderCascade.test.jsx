@@ -42,7 +42,8 @@ import {
  * as the chips, so labels have to clear THAT pane and not merely the heat canvas. The reason
  * originally given here — that the app "fades them back to full opacity and interactivity past the
  * zoom handover" — no longer holds: `MapHeatLayer` hides those panes unconditionally now. They are
- * still restored on unmount and fully painted in aurora mode, which is why 650 stays). That z-index is set directly in JS on the Leaflet pane (`MapLabels.jsx`'s
+ * still restored on unmount and mounted in the Plan overlay, which has no field, which is why 650
+ * stays). That z-index is set directly in JS on the Leaflet pane (`MapLabels.jsx`'s
  * `LABEL_PANE_Z`) rather than through a CSS rule on a class, so — like the heat field's own pane
  * above — it has nothing for this file's slicer to extract and stays untested HERE by construction;
  * `MapLabels.test.jsx` pins the numeric value and its relation to Leaflet's marker/popup panes

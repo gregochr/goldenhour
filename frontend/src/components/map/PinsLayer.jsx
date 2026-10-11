@@ -1,5 +1,5 @@
 import {
-  useCallback, useEffect, useLayoutEffect, useRef, useState,
+  useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
 } from 'react';
 import PropTypes from 'prop-types';
 import { createPortal } from 'react-dom';
@@ -8,7 +8,7 @@ import { useMap } from 'react-leaflet';
 import { seedObstacles } from '../../utils/labelPlacement.js';
 import { homeLabelItems, placeLabelPass, verdictWord } from '../../utils/mapLabels.js';
 import { formatDriveDuration } from '../../utils/briefingDisplay.js';
-import { rampHex } from '../../utils/scoreRamp.js';
+import { rampHex as sharedRampHex } from '../../utils/scoreRamp.js';
 import { readableInkOn } from '../../utils/windowFirstSpots.js';
 import { tideAccessibleClause, tideTierHeading } from '../../utils/mapTideFit.js';
 import {
@@ -116,6 +116,15 @@ function darkenHex(hex, factor) {
   return `rgb(${r},${g},${b})`;
 }
 
+/** Rating at or above which a glowing (aurora) pin carries its halo. */
+const GLOW_MIN_RATING = 4;
+
+/** The aurora halo: a 14px glow in the pin's own fill colour (`#rrggbb`), spec Task 1. */
+function glowShadow(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return `0 0 14px rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},.7)`;
+}
+
 /**
  * The Map tab's Pins mode (map-tab-v2-plan.md §3 P10,
  * `docs/design/map-tab-v2/README.md` §3 "Heat / Pins segmented control") — "the honest comparison":
@@ -172,10 +181,20 @@ function darkenHex(hex, factor) {
  * @param {string} [props.eventLabel] the active EV row's label+time, for the hover tooltip
  */
 export default function PinsLayer({
-  spots, homeCoords = null, selectedName = null, onSelect = null, onSelectAskPick = null,
-  eventLabel = '',
+  spots: allSpots, homeCoords = null, selectedName = null, onSelect = null, onSelectAskPick = null,
+  eventLabel = '', rampHex = sharedRampHex, glow = false, omitUnrated = false,
 }) {
   const map = useMap();
+
+  // Aurora only (aurora-heat-plan.md §4 #8): an unrated spot is not drawn. The aurora 1-star fill
+  // (#384262) is 1.10:1 against the no-data grey, so a poor night and no data would be the same
+  // pixels — the spec's own "no data is not 1 star" rule. A pick is always kept.
+  const spots = useMemo(
+    () => (omitUnrated
+      ? allSpots.filter((spot) => Number.isFinite(spot.rating) || spot.askPick)
+      : allSpots),
+    [allSpots, omitUnrated],
+  );
 
   const [pane] = useState(() => {
     if (!map?.createPane) return null;
@@ -405,7 +424,9 @@ export default function PinsLayer({
           // the card's own accessible name, no tooltip and no tide cue (both would speak for the
           // window on screen). The size is the named pin's.
           const pickHasRating = Number.isFinite(pick.rating);
-          const pickFill = pickHasRating ? rampHex(pick.rating) : NO_DATA_COLOUR;
+          // The SHARED ramp, never the injected one: a pick belongs to its OWN solar window, and an
+          // aurora ramp would colour a solar rating wrongly.
+          const pickFill = pickHasRating ? sharedRampHex(pick.rating) : NO_DATA_COLOUR;
           // The ink is chosen against the fill either way: the rank is printed whether or not a rating is.
           const pickInk = readableInkOn(pickFill);
           return (
@@ -485,7 +506,12 @@ export default function PinsLayer({
               height: size,
               background: fill,
               color: ink,
-              boxShadow: `0 2px 0 -1px ${darkenHex(fill, 0.5)}, 0 5px 12px rgba(0,0,0,.5)`,
+              boxShadow: [
+                // Aurora only (`glow`): a 4★+ pin is a lit thing, so it carries a halo in its own fill.
+                glow && hasRating && spot.rating >= GLOW_MIN_RATING ? glowShadow(fill) : null,
+                `0 2px 0 -1px ${darkenHex(fill, 0.5)}`,
+                '0 5px 12px rgba(0,0,0,.5)',
+              ].filter(Boolean).join(', '),
             }}
             onClick={() => {
               // Belt and braces: a tooltip already showing never sits over the callout this opens.
@@ -591,4 +617,10 @@ PinsLayer.propTypes = {
   onSelect: PropTypes.func,
   onSelectAskPick: PropTypes.func,
   eventLabel: PropTypes.string,
+  /** A `(score) => '#rrggbb'` for the dot fill; defaults to the shared ramp (aurora passes its own). */
+  rampHex: PropTypes.func,
+  /** Aurora only: a 4★+ pin carries a 14px halo in its own fill colour. */
+  glow: PropTypes.bool,
+  /** Aurora only: spots with no rating are not drawn (an Ask pick is always kept). Default false. */
+  omitUnrated: PropTypes.bool,
 };
