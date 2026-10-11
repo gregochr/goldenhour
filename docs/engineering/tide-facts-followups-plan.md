@@ -1,33 +1,32 @@
 # Window tide facts: the three follow-ups
 
-Status: **plan, not built.** Draft 1, 2026-10-11. This plan follows the window tide facts series
-(`window-tide-facts-plan.md`, P0–P5, released in v2.25.0), which left three items for separate PRs:
+Status: **plan, not built.** Draft 2, 2026-10-11, after an adversarial review: three reviewers, one per item, each refuting
+its own charges, all "ready with fixes". §F records what the review changed.
 
-| # | Item | Kind | Needs an owner decision first |
+The window tide facts series (`window-tide-facts-plan.md`, P0–P5, released in v2.25.0) left three items for separate PRs:
+
+| # | Item | Kind | Owner decision first |
 |---|---|---|---|
 | A | The honesty filter's "Too unsettled to forecast" wording on windows that are unscored by design | user-visible fix | the wording (D1) |
 | B | The briefing build reads `tide_extreme` about 1,220–1,400 times | internal efficiency | none |
-| C | Removing the inert `evaluationGate` seam and the callerless Close-to-home stack | deletion | whether to delete each (D2, D3) |
+| C | Removing the inert `evaluationGate` seam and the callerless Close-to-home stack | deletion | whether, and how much (D2, D3) |
 
-Each item is written as a self-contained brief: a Sonnet subagent builds it from the text alone. The decisions it needs are
-made here, not by the builder, and so are the hazards, tests, mutants and gates.
+Each item is a self-contained brief for a Sonnet subagent. Every decision, hazard, test and mutant is stated here, so the
+builder decides nothing.
 
-**Order.** B is independent and can start at once. C and A both touch `ServedBriefingAssembler` (C3 folds
-`assembleWithoutPlan` away; A adds a reason pass to the serve path), so **C3 lands before A**, and A is built on the result.
-C1 and C2 are independent of everything.
-
-**Common rules for every PR** (stated once, applied to all):
-- One PR per numbered phase, each mergeable alone, with a `changelog.d/YYYYMMDD-<slug>.md` entry (see `changelog.d/README.md`).
-- CLAUDE.md's review cadence: build, tests, adversarial review by read-only reviewers, fix, re-verify, commit, PR, CI and Codex
-  👍 on the head sha, merge.
-- Backend gate (no JDK 25 on this Mac: JDK 23 with `-Djava.version=23 -Dmaven.compiler.enablePreview=true`,
-  `MAVEN_OPTS=--enable-preview`, and exclude `EvaluationModelTest`):
-  `./mvnw clean verify --batch-mode --no-transfer-progress -Dtest='!**/integration/**,!EvaluationModelTest' -DfailIfNoSpecifiedTests=false`,
-  plus `./mvnw checkstyle:check`, gated on the exit code, never on a grep.
-- Frontend gate: `npm run lint && npx vitest run && npm audit --audit-level=high && npm run build`.
-- Mutation checks restore by editing the file, never with `git checkout` or `git stash`.
-- A full run that fails one timing-sensitive test while other builds load the machine (seen: `AnthropicApiClientAskWireTest`,
-  `AskShellKey.test.jsx`) is rerun on its own before it counts as a failure.
+**Common rules for every PR:**
+- One PR per numbered phase, each mergeable on its own, with a `changelog.d/YYYYMMDD-<slug>.md` entry (`changelog.d/README.md`).
+- CLAUDE.md's review cadence: build, tests, adversarial review by read-only reviewers, fix, re-verify, commit, then a PR. Merge
+  on green CI plus a Codex 👍 on the head sha.
+- **Backend gate.** There is no JDK 25 on this Mac, so run on JDK 23 with `JAVA_HOME=…/openjdk-23.0.2`,
+  `MAVEN_OPTS=--enable-preview`, `-Djava.version=23 -Dmaven.compiler.enablePreview=true`, and exclude `EvaluationModelTest`:
+  `./mvnw clean verify --batch-mode --no-transfer-progress -Dtest='!**/integration/**,!EvaluationModelTest' -DfailIfNoSpecifiedTests=false`
+  plus `./mvnw checkstyle:check`. Gate on the exit code, never on a grep.
+- **Frontend gate:** `npm run lint && npx vitest run && npm audit --audit-level=high && npm run build`.
+- **Mutation checks** are restored by editing the file, never with `git checkout` or `git stash`.
+- **Flaky timing tests under load.** A full run that fails one timing-sensitive test while other builds load the machine
+  (`AnthropicApiClientAskWireTest` and `AskShellKey.test.jsx` have done this) is rerun alone before it counts as a failure.
+- **Line numbers** below are from `main` at `0bd19aec`. Re-find them after any earlier phase in this plan has merged.
 
 ---
 
@@ -35,153 +34,186 @@ C1 and C2 are independent of everything.
 
 ### A.1 The defect
 
-`BriefingHonestyFilter.fullRewrite` (`service/BriefingHonestyFilter.java`) runs on the API read path for any region with
-`scoreable > 0` and `scoredLocationCount == 0`. It empties the slots and stamps:
+On the API path, `BriefingHonestyFilter.rewriteRegionByCoverage` calls `fullRewrite` for any region with `scoreable > 0`
+(`BriefingSlot::couldCarryRating`) and `scoredLocationCount == 0`. `fullRewrite` empties the slots and stamps these values:
 
 | Field | Value |
 |---|---|
 | `displayVerdict` | `STAND_DOWN` |
-| `verdictLabel` | `"Too unsettled to forecast"` |
-| `summary` | `"No per-location forecast — conditions too unsettled to evaluate"` |
-| `glossDetail` | `"Conditions across this region were classified as too unsettled to evaluate confidently at this horizon. …"` |
+| `verdictLabel` | "Too unsettled to forecast" |
+| `summary` | "No per-location forecast — conditions too unsettled to evaluate" |
+| `glossDetail` | "Conditions across this region were classified as too unsettled to evaluate confidently at this horizon. …" |
 
-The filter was written for a failed batch, but zero coverage is the designed state of several windows:
+That wording is true only when weather triage stood the region down (`SKIPPED_TRIAGED`). It is false in four cases:
+- **Gate 4 never scores the window:** all of T+4, T+3 unless the cell is SETTLED, and T+2 UNSETTLED.
+- **The day is marked as a travel day:** that day's batch is skipped.
+- **The run failed.**
 
-- **T+4 and later**: never scored by Gate 4.
-- **T+3** unless the cell is SETTLED.
-- **T+2 UNSETTLED**.
-- **Travel days**: their batch is skipped.
-
-For those windows every one of these statements is false. They are also false for a failed batch, which is a failure, not
-weather. They are true only for a region whose slots were all weather-triaged (`SKIPPED_TRIAGED`).
-
-**What a reader sees today:**
-
-| Window | Surface | What it says |
-|---|---|---|
-| Unscored T+3 | Plan card | **"Poor"** (`VERDICT_LABEL.STAND_DOWN` from the window verdict) over a hatched plate |
-| Unscored T+3 | Plan popup prose (`WindowProseSlot`, via `glossDetail`) | the "too unsettled" detail |
-| Any blanked region | Map callout and location-sheet fallbacks (`regionGloss`) | the "too unsettled" detail |
-| Any blanked region | Map region panel | the "too unsettled" detail |
-| Any blanked region | Regional planner drill-down (`HeatmapGrid`) | the "Too unsettled to forecast" pill and summary |
-| Any blanked region | Ask (`AskTools`) | `STAND_DOWN` |
-| Any blanked region | Digest | `STAND_DOWN` |
-
-The Map pill and landing card already render nothing for such a window.
+**What readers see today.**
+- On an unscored T+3 the **Plan card** says **"Poor"**. The card reads the window verdict through `VERDICT_LABEL`, and
+  `PlanWindowProjector.verdict()` takes the top region's verdict.
+- The "too unsettled" detail appears in the **Plan popup prose** (`WindowProseSlot`), the **Map callout and location-sheet
+  fallbacks** (`regionGloss`) and the **Map region panel**.
+- The **Regional planner drill-down** (`HeatmapGrid`) shows the pill and the summary.
+- **Ask** and the **digest** receive `STAND_DOWN`.
+- The Map pill and the landing card already show nothing for such a window.
 
 ### A.2 Design
 
-Each region gets a **coverage reason** on the serve path. `fullRewrite` uses it to choose its wording and verdict.
+On the serve path, each region gets a **coverage reason**. The reason comes from what the pipeline actually did: the latest
+non-`SKIPPED_CACHED` disposition per slot, plus the horizon. `fullRewrite` uses it to choose the wording and the verdict.
 
-- **The reason comes from what the pipeline actually did**: the latest non-`SKIPPED_CACHED` disposition for each of the region's
-  slots.
-  - The serve path already loads exactly that row per slot, in `EvaluationViewService.loadTriagedByBatch`
-    (`findLatestNonCachedDispositions`).
-  - It then collapses each row to a boolean, "was it `SKIPPED_TRIAGED`", and throws the category away.
-  - Keeping the category costs **no new query**.
-- A horizon rule (`ForecastHorizon.daysAhead`, the assembler already holds `clock`) covers a slot with no disposition at all,
-  where T+4 and later means "not attempted".
-- Travel days are written as `SKIPPED_TRAVEL_DAY` dispositions, so the same read covers them.
+**Where the data comes from.**
+- `EvaluationViewService.loadTriagedByBatch` (via `findLatestNonCachedDispositions`) already loads exactly this row per slot
+  on every serve.
+- It then reduces each row to "was it `SKIPPED_TRIAGED`?" and discards the category.
+- Keeping the category costs **no new query**, provided the assembler reads both views from one load (A.3).
 
-**`CoverageReason` (new enum, `model/CoverageReason.java`)**: the fold over a region's scoreable slots. The first matching rule
-wins, in this order:
+**`CoverageReason`** is a new enum, `model/CoverageReason.java`. A fold over a region's **scoreable** slots (the slots
+`couldCarryRating` admits) produces it. `daysAhead` is the region's horizon from the UK civil date. The rules are tried in
+this order:
 
-| Value | When |
-|---|---|
-| `AWAY` | every scoreable slot's latest disposition is `SKIPPED_TRAVEL_DAY` |
-| `NOT_ATTEMPTED` | every scoreable slot's latest disposition is `SKIPPED_STABILITY`, or the slot has no disposition and its date is T+4 or later |
-| `STOOD_DOWN` | every scoreable slot's latest disposition is `SKIPPED_TRIAGED` |
-| `FAILED` | any scoreable slot's latest disposition is `SUBMISSION_FAILED` or `SKIPPED_ERROR`, and none of the above applies |
-| `UNKNOWN` | anything else: a mix, `EVALUATED` with no result yet (in flight or expired), or no disposition at T+0–T+3 |
+| # | Reason | When |
+|---|---|---|
+| 1 | `AWAY` | every scoreable slot's latest disposition is `SKIPPED_TRAVEL_DAY` |
+| 2 | `NOT_ATTEMPTED` | `daysAhead >= 4`, and no scoreable slot is `EVALUATED`, `FORCE_EVALUATED`, `SUBMISSION_FAILED` or `SKIPPED_ERROR`. This holds whatever the triage mix: from T+4 Gate 4 skips everything, so "not attempted" is true even where triage ran first. |
+| 3 | `NOT_ATTEMPTED` | `daysAhead <= 3`, and every scoreable slot is `SKIPPED_STABILITY` |
+| 4 | `STOOD_DOWN` | every scoreable slot is `SKIPPED_TRIAGED` |
+| 5 | `FAILED` | `daysAhead <= 3`, and at least half of the scoreable slots are `SUBMISSION_FAILED` or `SKIPPED_ERROR` |
+| 6 | `UNKNOWN` | anything else |
 
-The rule is fixed in that order: mixed-category regions fall to `UNKNOWN`, never to a guess. `UNKNOWN` keeps **today's
-behaviour exactly**, so the change can only make a region more honest, never less.
+`UNKNOWN` covers, among other things:
+- a T+2 or T+3 mix of `SKIPPED_TRIAGED` and `SKIPPED_STABILITY`;
+- `EVALUATED` with no result yet (in flight, or expired);
+- `SKIPPED_NO_REFRESH_NEEDED` from the intraday cycle;
+- a slot with no disposition at T+0 to T+3;
+- a disposition string that `DispositionCategory.fromString` cannot parse;
+- two different categories tied on `created_at`;
+- a location renamed since its disposition (a name-keyed miss);
+- a failed lookup.
 
-**Wording.** These are **owner decision D1**; the defaults below stand unless changed.
+**`UNKNOWN` keeps today's behaviour exactly**, so the change can only make a region more honest, never less.
+
+**Wording.** This is owner decision **D1**; these defaults stand unless changed.
 
 | Reason | `displayVerdict` | `verdictLabel` | `summary` | `glossDetail` |
 |---|---|---|---|---|
-| `AWAY` | `AWAITING` | `"Away — not forecast"` (matches the client's `AWAY_STATE_LABEL`) | `"Away this day — no forecast was made"` | `"You're away this day, so no per-location forecast was made for it."` |
-| `NOT_ATTEMPTED` | `AWAITING` | `"Not scored at this range"` | `"Too far ahead to score — forecasts firm up nearer the day"` | `"Locations this far ahead are only scored when the weather pattern is settled. This one isn't yet, so no per-location forecast exists. It will be scored as the day gets closer."` |
-| `STOOD_DOWN` | `STAND_DOWN` | `"Too unsettled to forecast"` (today's, true here) | today's | today's |
-| `FAILED` | `AWAITING` | `"Forecast unavailable"` | `"No per-location forecast — the forecast run didn't complete"` | `"The forecast run for this window didn't complete, so there is no per-location forecast. It will be retried at the next run."` |
+| `AWAY` | `AWAITING` | "Not forecast", the client's own `AWAY_STATE_LABEL` (`utils/windowFirstStrip.js:51`) | "Marked as a travel day — no forecast was made" | "This day is marked as a travel day, so no per-location forecast was made for it." |
+| `NOT_ATTEMPTED` | `AWAITING` | "Not scored at this range" | "Not scored this far ahead — forecasts firm up nearer the day" | "Forecasts this far ahead are only made when the weather pattern is settled, and not at all from four days out, so there is no per-location forecast for this window yet." |
+| `STOOD_DOWN` | `STAND_DOWN` | today's | today's | today's |
+| `FAILED` | `AWAITING` | "Forecast unavailable" | "No per-location forecast — the forecast run didn't complete" | "The forecast run for this window didn't complete, so there is no per-location forecast. It may be tried again at the next run." |
 | `UNKNOWN` | `STAND_DOWN` | today's | today's | today's |
 
-- **`AWAITING`, not `STAND_DOWN`, for the three not-weather reasons.** The client already renders `AWAITING` as a neutral
-  "Not scored" everywhere: the card word, the popup chip, `VerdictPill`, the strip and the map panel. The Plan card then stops
-  saying "Poor".
-- **`PlanWindowProjector.verdict()`** takes the top region's verdict, so an all-`NOT_ATTEMPTED` window becomes `AWAITING`. That
-  reaches Ask and the digest with no change to either.
-- **The slots stay emptied for every reason.** The filter's `blanked` set (`BriefingHonestyFilter`, ~:154: a region counts as
-  blanked when `rewritten != region && rewritten.slots().isEmpty()`) still drives Best Bet withdrawal. That predicate must keep
-  meaning "a region with zero coverage".
+Travel days are global, not per reader: `TravelDayService` marks dates the operator is away. That is why the AWAY copy
+says "marked as a travel day", never "you're away".
 
-### A.3 Where it is built
+**How these regions now behave.**
+- **Neutral verdict.** `AWAITING` already renders as a neutral "Not scored" on every client surface: the card word, the popup
+  chip, `VerdictPill`, the map panel and `HeatmapGrid`'s `regionIsPoor`. The strip's tint is null for `AWAITING`
+  (`WindowFirstHeatStrip`'s `verdictTint`), so such a card loses its red tint. That is intended.
+- **Slots still emptied.** Every reason still empties the slots, so the filter's `blanked` predicate (`BriefingHonestyFilter`
+  :154) and Best Bet withdrawal are unchanged.
+- **Nulled fields unchanged.** `fullRewrite` still nulls `confidence`, `meanRating`, `bestRating`, `meanRatingDelta`,
+  `sampleSufficient` and `forcedSample`. Do not change which fields it nulls:
+  - `attachMovement` depends on the null `meanRating`;
+  - `verdictEligible()` depends on the null `sampleSufficient` and `forcedSample`.
 
-- **A1 (backend).** The serve path computes the reason and the filter uses it.
-  - `EvaluationViewService`: `getTriagedByBatchLocationNamesBulk` keeps its current contract for existing callers. Add a sibling
-    `getLatestDispositionsBulk(start, end, types)` returning `Map<String /* region|date|type */, Map<String /* location name */, DispositionCategory>>`.
-    It is built from the same `findLatestNonCachedDispositions` rows, so it costs **no extra query** if
-    `ServedBriefingAssembler.reEnrichVerdicts` reads both from one load: refactor `loadTriagedByBatch` so that both views come
-    from one query result. The ⚠️ CLAUDE.md note about the `NOT EXISTS` anti-join form stays true; do not touch the SQL.
-  - `ServedBriefingAssembler.reEnrichVerdicts` passes the per-region disposition map to the filter. `BriefingHonestyFilter.apply`
-    takes it, through a new overload (keep the old one for its 700-line test, defaulting every region to `UNKNOWN`), plus
-    `LocalDate today`.
-  - `CoverageReasons.of(region, dispositionsByLocation, daysAhead)` is a new package-private static fold: pure, unit-tested, with
-    the table above as its spec.
-  - `fullRewrite(r, reason)` picks the row. It still uses the 15-arg `BriefingRegion` constructor, which the P0 wither guard
-    cannot see, so add a test asserting that every field `fullRewrite` does not set is kept, per reason.
-  - **No new `BriefingRegion` component.** The reason only chooses the rewrite's words and verdict; nothing downstream needs
-    the enum, and adding a component means the wither guard plus legacy-payload work for no reader. If a later client needs it,
-    add it then.
-  - Stale text to fix:
-    - the `[ZERO COVERAGE]` log in `BriefingRegionEvaluationRollup` (~:177–184), which says the rewrite "should only fire on
-      batch failures";
-    - the garbled comment tail at `BriefingHonestyFilter` ~:259–262;
-    - the comments at `PlanWindowProjector` ~:249 and `BriefingWindow` ~:63, which say the filter writes `STAND_DOWN`.
-- **A2 (frontend), only if A1's review finds a client string that still says "Poor" or "too unsettled" for an `AWAITING`
-  region.** The research found none: every surface reads `VERDICT_LABEL[tier]` or the served prose. The heat-strip footer
-  (`heatField.js` ~:497–503, `WindowFirstHeatStrip` ~:1610–1622) says the client "cannot tell a stability skip from … a failed
-  batch". With A1 it no longer has to; reword that comment, with no behaviour change. If nothing else is found, fold A2 into
-  A1's PR as that comment change.
+### A.3 Where it is built (A1, backend)
 
-### A.4 Tests (A1)
+1. **`EvaluationViewService`** gains one public method that reads the disposition query **once**:
+   `ServeTriage loadServeTriage(LocalDate start, LocalDate end, Set<TargetType> types)`, where
+   `record ServeTriage(Map<String, Set<String>> triagedByKey, Map<String, DispositionCategory> latestBySlot)`.
+   - `triagedByKey` is exactly what `getTriagedByBatchLocationNamesBulk` returns today: keyed `region|date|type`, built with
+     the same one `findAllEnabled()`.
+   - `latestBySlot` is keyed by the `stabilitySkipKey` shape (`location|date|type`), so it needs no roster join.
+   - Both views come from one `findLatestNonCachedDispositions` pass. Do not change that query's SQL; the CLAUDE.md ⚠️ about
+     its `NOT EXISTS` form stands.
+   - **Fail soft, like `loadTriagedByBatch`:** on a `RuntimeException`, return empty maps.
+   - **Ties:** a tie of different categories at the same `created_at` maps to no entry, which the fold reads as `UNKNOWN`.
+     This matches the existing tie fold.
+   - **Unparseable categories:** a category `fromString` cannot parse also maps to no entry.
+   - `getTriagedByBatchLocationNamesBulk` stays as a thin wrapper over `loadServeTriage(...).triagedByKey()` for its other
+     caller, `BriefingService.bulkTriagedResolver`.
+2. **`ServedBriefingAssembler.reEnrichVerdicts`** calls `loadServeTriage` once, in place of `getTriagedByBatchLocationNamesBulk`.
+   - It uses `triagedByKey` exactly as now.
+   - It passes `latestBySlot` and a `Clock` (the assembler already holds `clock`) to the filter.
+3. **`BriefingHonestyFilter.apply(response, minCoverageRatio, Map<String, DispositionCategory> latestBySlot, Clock clock)`**
+   is a new overload.
+   - The existing overloads stay and **bypass the fold** (every region reads `UNKNOWN`), so the 32 existing filter tests and
+     `PlanWindowProjectorTest:1523` are unchanged.
+   - `daysAhead` comes from `ForecastHorizon.daysAhead(date, clock)`.
+4. **`CoverageReasons.of(List<BriefingSlot> scoreableSlots, LocalDate date, TargetType type, int daysAhead, Map<String, DispositionCategory> latestBySlot)`**
+   is a new package-private static, pure. The table in A.2 is its spec. It looks up each slot by `location|date|type`.
+5. **`fullRewrite(r, reason)`** picks the wording row. It keeps the 15-arg constructor and the same nulled fields.
+6. **`PlanWindowProjector.BY_RANK`** (:91–103) needs a new step. Blanked regions tie on rating and count, so today the final
+   tie-break is the region **name**. Its own comment records that renaming a region once flipped the window's verdict.
+   - With A, one blanked region can be `AWAITING` and another `STAND_DOWN`, so the window verdict would again depend on name
+     order.
+   - Add a step before the name: among blanked regions, `STAND_DOWN` ranks ahead of `AWAITING`. The rule is that a region
+     with a real stand-down speaks for the window over one with no forecast.
+7. **Stale text:**
+   - the `[ZERO COVERAGE]` log in `BriefingRegionEvaluationRollup` (:133–140), which says the rewrite "should only fire on
+     batch failures";
+   - the garbled comment tail at `BriefingHonestyFilter` :262 (re-find it if C2 has merged and rewritten the lines);
+   - the comments at `PlanWindowProjector` ~:249 and `BriefingWindow` ~:63, which say the filter always writes `STAND_DOWN`;
+   - the client heat-strip comments (`heatField.js` ~:497–503, `WindowFirstHeatStrip` ~:1610–1622), which say the client
+     "cannot tell a stability skip from … a failed batch". These change wording only, with no behaviour change, and replace
+     the separate A2 phase.
 
-- **`CoverageReasonsTest`.** Every row of the fold table, plus:
-  - mixed categories give `UNKNOWN`;
-  - a T+4 slot with no disposition gives `NOT_ATTEMPTED`;
-  - a T+3 slot with no disposition gives `UNKNOWN`;
-  - a T+4 slot that was `SKIPPED_TRIAGED` gives `STOOD_DOWN`, not `NOT_ATTEMPTED`, because triage runs before Gate 4;
-  - canopy and other non-scoreable slots are ignored;
-  - a location renamed since its disposition (name-keyed join miss) gives `UNKNOWN`.
-- **`BriefingHonestyFilterTest`.**
-  - The existing 32 cases pass unchanged through the old overload (`UNKNOWN` = today).
-  - New per-reason cases cover the verdict, the three strings, emptied slots, and the region staying in the blanked set, so a
-    Best Bet on it is still withdrawn.
-  - A further case checks that every field `fullRewrite` does not set is preserved.
-- **`ServedBriefingAssemblerTest`.**
-  - The production shape end to end: a T+4 region with `SKIPPED_STABILITY` dispositions serves `AWAITING` with the
-    `NOT_ATTEMPTED` wording.
-  - A travel-day region serves `AWAY`.
-  - A `SUBMISSION_FAILED` region serves `FAILED`.
-  - The window verdict follows: `PlanWindowProjector` gives the window `AWAITING`.
-  - The query count is unchanged. Assert the repository's `findLatestNonCachedDispositions` is called **once** per serve.
-- **`EvaluationViewServiceTest`.** The new bulk view, and that the old boolean view is unchanged.
+**No new `BriefingRegion` component.** Nothing downstream reads the reason, and a component would add work on the wither
+guard and on legacy payloads.
+
+### A.4 Tests
+
+- **`CoverageReasonsTest`:**
+  - every row of the table;
+  - the six `UNKNOWN` sources listed in A.2;
+  - a T+4 region that is triaged and stability-skipped gives `NOT_ATTEMPTED`;
+  - a T+4 region with one `SKIPPED_ERROR` among skips gives `NOT_ATTEMPTED`, not `FAILED`;
+  - a T+3 region with one `SKIPPED_ERROR` among 19 `SKIPPED_STABILITY` gives `UNKNOWN`, below the half;
+  - a T+3 region that is half failed gives `FAILED`;
+  - canopy slots are ignored;
+  - a partial travel day (some slots away) gives `UNKNOWN`.
+- **`BriefingHonestyFilterTest`:**
+  - the existing cases pass unchanged through the old overloads;
+  - new per-reason cases cover the verdict and the three strings, that the slots are emptied, and that the region stays in
+    `blanked`, so a Best Bet on it is still withdrawn;
+  - a per-reason case asserts exactly the fields `fullRewrite` carries from `r` (`regionName`, `verdict`, `tideHighlights`,
+    and the four weather fields), and that the six nulled fields stay null.
+- **`EvaluationViewServiceTest`** runs a real service over a mocked repository:
+  - `loadServeTriage` calls `findLatestNonCachedDispositions` and `findAllEnabled` **once each**;
+  - `triagedByKey` equals the old method's output on the same rows;
+  - ties and unknown strings map to no entry;
+  - a repository exception gives empty maps.
+- **`ServedBriefingAssemblerTest`:**
+  - `loadServeTriage` is called once per serve and `getTriagedByBatchLocationNamesBulk` never;
+  - production-shaped end-to-end cases cover T+4 with `SKIPPED_STABILITY` (gives `AWAITING` and the `NOT_ATTEMPTED` copy),
+    a travel day (gives `AWAY`), and a majority `SUBMISSION_FAILED` at T+2 (gives `FAILED`);
+  - the window verdict follows the region verdict.
+- **`PlanWindowProjectorTest`:** two blanked regions, one `STAND_DOWN` and one `AWAITING`. The window verdict is `STAND_DOWN`
+  whichever name sorts first, so the test renames the regions to swap the order.
+- **Frontend, unchanged code:** add one `windowFirstCards` or `WindowFirstHeatStrip` test that an `AWAITING` window card
+  reads "Not scored" with no tint.
 - **Mutants:**
-  - the fold returns `UNKNOWN` always;
+  - the fold always returns `UNKNOWN`;
   - `AWAY` checked after `NOT_ATTEMPTED`;
-  - the horizon threshold at T+3 instead of T+4;
+  - rule 2's horizon at `>= 3`;
+  - `FAILED` on any single failure;
   - `fullRewrite` ignores the reason;
   - a not-weather reason keeps `STAND_DOWN`;
-  - a non-`UNKNOWN` reason drops the region from `blanked`;
-  - a second disposition query.
+  - a non-`UNKNOWN` region drops out of `blanked`;
+  - the `BY_RANK` step removed;
+  - `loadServeTriage` queries twice.
 
 ### A.5 Not changed
 
+- `dayPeak`: an all-`AWAITING` day still yields `STAND_DOWN`, because `BriefingDayPeak` is documented as never `AWAITING`,
+  and `peak` is write-only.
 - Close-to-home, if C3 has not removed it.
-- The `TideFitBlock` heading (P2).
-- The phone Auto tide rule.
-- The `[ZERO COVERAGE]` metric's existence. Only its wording changes.
+- The `TideFitBlock` heading, the phone Auto tide rule, and whether the `[ZERO COVERAGE]` metric exists (only its wording
+  changes).
+- A stale `SKIPPED_TRAVEL_DAY` can outlive a travel day that was removed, until the next cycle. This is accepted: the
+  disposition records what the pipeline did. Ask's live `TravelDayService` read is a different question.
 
 ---
 
@@ -189,91 +221,109 @@ behaviour exactly**, so the change can only make a region more honest, never les
 
 ### B.1 The cost today
 
-`BriefingService.doRefreshBriefing` loops over location × 5 dates × sunrise/sunset. For each coastal slot,
-`BriefingSlotBuilder.calculateTideData` triggers these reads of the same location's rows:
+For each coastal slot, `BriefingService.doRefreshBriefing` → `BriefingSlotBuilder.buildSlot` → `calculateTideData` reads the
+same location's rows several times:
 
 | Read | Path | When |
 |---|---|---|
-| Q1 | `TideFactDeriver.derive` → `TideService.deriveDualWindowTideData` → `fetchExtremesAround`, `[solar−2d, solar+2d]` | every coastal slot |
-| Q2 | `BriefingSlotBuilder.curveFacts`, the **identical** query again | every slot where Q1 returned rows |
-| Q3 | `TideService.nearestMidpointOffsetMinutes`, the same query again | MID-preference slots only |
-| S | `getTideStats` (2–3 queries) | memoised per location per UTC day (`DayScopedMemo`) |
+| Q1 | `TideFactDeriver.derive` → `TideService.deriveDualWindowTideData` → private `fetchExtremesAround`, `[solar−2d, solar+2d]` (`QUERY_WINDOW_DAYS`, `TideService:59`) | every coastal slot |
+| Q2 | `BriefingSlotBuilder.curveFacts`, the identical query (`CURVE_QUERY_WINDOW_DAYS`, `:50`) | when Q1 found rows |
+| Q3 | `TideService.nearestMidpointOffsetMinutes`, the same query | MID-preference slots |
+| S | `getTideStats` | memoised per location per UTC day |
 
-That is about 1,220 to 1,400 queries per build across 61 coastal locations. One bulk query
-(`findByLocationIdInAndEventTimeBetweenOrderByEventTimeAsc`, already used by `WindowTideRollupBuilder`) returns all of it: about
-35 rows per location, about 2,100 rows in total. Q3 also carries a recorded TOCTOU risk (`TideFactDeriver` ~:107–119): a
-refresh landing between Q1 and Q3 can make `tideAligned` and the quality figure disagree. One snapshot removes it.
+That comes to about 1,220–1,400 queries per build. Q3 also carries a recorded TOCTOU risk (`TideFactDeriver` ~:107–119): a
+write between Q1 and Q3 can make `tideAligned` and its quality disagree.
+
+The derived query is `BETWEEN`, which is **inclusive**, ordered ascending. `event_time` is a naive-UTC `LocalDateTime`.
+`UNIQUE(location_id, event_time)` (V14) means no two rows tie.
 
 ### B.2 Design
 
-- **`TideExtremeSnapshot`** (new, `service/TideExtremeSnapshot.java`): an immutable per-build view.
-  - `static TideExtremeSnapshot load(TideExtremeRepository repo, Collection<Long> locationIds, Instant from, Instant to)` makes
-    one bulk query and groups the rows by location, ordered ascending.
-  - `List<TideExtremeEntity> between(long locationId, LocalDateTime from, LocalDateTime to)` filters with **inclusive bounds on
-    both ends**, exactly as the repository's `BETWEEN` does, and keeps ascending order.
-  - It is never cached across builds; it lives for one `doRefreshBriefing` call. **No eviction rule applies**, because nothing
-    outlives the build. A `tide_refresh` write landing mid-build is seen by the next build instead of by some of this build's
-    slots, which is more consistent than today.
-- **The window.** Use the earliest date in the build at `00:00 Europe/London` minus 3 days, to the latest date at `24:00` plus
-  3 days, converted to UTC. That is wider than every `[solar ± 2d]` window any slot can ask for, with a day's margin. A test
-  pins that every slot's window falls inside it.
-- **Threading.** These methods gain **overloads** taking a `TideExtremeSnapshot`; the existing signatures stay for every other
-  caller:
-  - `BriefingSlotBuilder.buildSlot` and `calculateTideData`;
-  - `TideFactDeriver.derive`;
-  - `TideService.deriveDualWindowTideData`;
-  - `TideService.nearestMidpointOffsetMinutes`;
-  - `curveFacts`.
+**`TideExtremeSnapshot`** (new, `service/TideExtremeSnapshot.java`) is an immutable view that lives for one build.
+- **Constant:** `public static final int READ_WINDOW_DAYS = 2`, the one source for `TideService.QUERY_WINDOW_DAYS` and
+  `BriefingSlotBuilder.CURVE_QUERY_WINDOW_DAYS`, both of which now reference it.
+- **Window:** `static Window windowFor(List<LocalDate> dates)`.
+  - `from` is `dates.getFirst().minusDays(READ_WINDOW_DAYS + 1).atStartOfDay(LONDON)` converted to UTC, as a naive
+    `LocalDateTime`.
+  - `to` is `dates.getLast().plusDays(READ_WINDOW_DAYS + 2).atStartOfDay(LONDON)`, converted the same way. That is the last
+    date + 3 days at 24:00.
+  - It is the same London-to-UTC idiom as `WindowTideRollupBuilder:229–232`.
+- **Load:** `static TideExtremeSnapshot load(TideExtremeRepository repo, Collection<Long> locationIds, Window window)` runs one
+  `findByLocationIdInAndEventTimeBetweenOrderByEventTimeAsc`, then groups by location in ascending order. It records
+  `coveredIds` and the window. With no ids it makes no query.
+- **Read:** `List<TideExtremeEntity> between(TideExtremeRepository repo, long locationId, LocalDateTime from, LocalDateTime to)`.
+  - It filters **inclusively at both ends**, in ascending order.
+  - ⚠️ If `locationId` is not covered, or `[from, to]` is not inside the loaded window, it **falls back to the per-location
+    repository query**. Never return a silent empty list: empty means "no tide" downstream and would quietly drop a coastal
+    slot to `TideResult.NONE`. Use a fallback, not an exception, because an exception would abort the whole build.
+- **Lifetime:** it is never cached across builds, so **no eviction rule applies**. The build is single-threaded under
+  `refreshLock`, and a `tide_refresh` write that lands mid-build is seen by the next build.
 
-  The other callers, which must not change behaviour, are:
-  - `ForecastDataAugmentor`, `CoastalTideFactsBuilder` and the sync engine;
-  - `PromptTestService` and `ModelTestService`;
-  - `TideRunBuilder`, `TideSizeIndex`, `SurgeRunDayBuilder` and `TopicDailyLogJob`.
+**Threading.** The existing methods stay exactly as they are, called by every other caller with exactly their current
+repository and `TideService` calls. Only overloads are added:
+- `TideService.deriveDualWindowTideData(Long, LocalDateTime, long, long, TideExtremeSnapshot)` (public). It reads its rows
+  through `snapshot.between(…)` and shares a private core with the 4-arg method, which keeps calling `fetchExtremesAround`.
+- `TideService.nearestMidpointOffsetMinutes(Long, LocalDateTime, TideExtremeSnapshot)` (public), with the same shape.
+- `TideFactDeriver.derive(…, TargetType, TideExtremeSnapshot snapshot)`.
+  - With `snapshot == null` it calls the **old** `TideService` methods, so `TideFactDeriverTest`'s strict stubs keep working.
+  - Otherwise it calls the snapshot overloads.
+  - The snapshot is threaded through the private `computeAlignmentQuality` and `offsetMinutesForWant`.
+- `BriefingSlotBuilder.buildSlot(lw, date, type, horizonForecast, TideExtremeSnapshot snapshot)`, five parameters. Do **not**
+  add a 4-arg `(…, snapshot)` overload: it would be ambiguous with `(…, horizon)` for a literal `null`.
+  - `calculateTideData` and `curveFacts` take the snapshot.
+  - `curveFacts` reads through `snapshot.between(…)` when there is one.
+- `BriefingSlotBuilder.snapshotFor(Collection<LocationEntity> locations, List<LocalDate> dates)` returns the snapshot for the
+  coastal ones (`locationService.isCoastal`, the same test `calculateTideData` uses). The builder already holds the
+  repository, so **`BriefingService` gains no dependency**, and `BriefingServiceTest`'s six real constructions are unchanged.
+- `BriefingService.doRefreshBriefing` calls `slotBuilder.snapshotFor(colourLocations, dates)` once, after the weather
+  prefetch and immediately before the slot loop, and passes it to every `buildSlot`.
 
-  Each old method delegates to a shared private core that takes the rows, so both paths run the same logic. With a snapshot
-  the core reads `snapshot.between(…)`; without one it queries exactly as today.
-- **`BriefingService.doRefreshBriefing`** loads the snapshot once, before the slot loop, for the coastal locations in the roster
-  (`LocationService.isCoastal`), and passes it to every `buildSlot`.
-- **`getTideStats`** is unchanged: it is already memoised.
-- **Measure.** `doRefreshBriefing` logs only a total. Add one DEBUG line around the slot loop (`slotLoopMs`, `tideQueries` if
-  cheaply countable). A query-count test is the real proof (below).
+Add one DEBUG line around the slot loop with `slotLoopMs` and the snapshot's row count.
 
 ### B.3 Tests
 
-- **Equivalence (the core proof).** For a fixture of several coastal locations, every tide-type mix (including MID), and dates
-  that cross a GMT/BST change, build every slot twice: once on the old path (repository per slot) and once through a snapshot.
-  Assert the resulting `TideInfo` is **equal** for every slot. Use a fake in-memory `TideExtremeRepository`, or a mock answering
-  from a list with real `BETWEEN` semantics, so both paths read the same data.
-- **Query count.** With the repository mocked:
-  - one `buildSlot` loop over N coastal slots calls the bulk method exactly once;
-  - the per-location method zero times;
-  - `getTideStats` at most once per location.
-  If feasible, also add a Hibernate-statistics test in the shape of `controller/ForecastHistoryQueryCountTest`
-  (`@DataJpaTest`, `generate_statistics=true`) over a small seeded roster: assert the build-loop query count does not grow with
-  the number of dates.
-- **`TideExtremeSnapshot` unit tests:**
-  - inclusive bounds at both ends;
-  - ordering;
-  - unknown location gives an empty list;
+- **Equivalence (the core proof).**
+  - Use the real `TideService`, `TideFactDeriver` and `BriefingSlotBuilder`. Back the repository mock with `thenAnswer`
+    implementing `BETWEEN` for both the per-location and the bulk method, marked `lenient`.
+  - Build every slot twice: once with `snapshot == null` (the old path) and once with a snapshot. Assert the `TideInfo` is
+    equal for every slot.
+  - The fixtures must make the mutants observable:
+    - several coastal locations, with every tide-type mix including MID;
+    - dates crossing a BST/GMT change;
+    - a location whose **only** extremes sit exactly at `solar−2d` and `solar+2d` (an exclusive bound turns it into `NONE`);
+    - rows in `[d−2d, d−1d)` and `(d+1d, d+2d]` for the first and last build dates (a ±1-day window changes the result).
+- **Fallback.**
+  - An uncovered location reads through the per-location query, and the result is equal to the old path.
+  - A range outside the loaded window does the same.
+- **Query count**, with the repository mocked:
+  - a `doRefreshBriefing`-shaped loop over N coastal slots calls the bulk method exactly once, the per-location method zero
+    times, and `getTideStats` at most once per location;
   - an empty roster makes no query.
+
+  Optionally, add a Hibernate-statistics test in the shape of `controller/ForecastHistoryQueryCountTest`: `@DataJpaTest` on
+  H2 with `generate_statistics=true`, needing no Docker. Build `TideService` and `BriefingSlotBuilder` manually, with mocks
+  for the non-JPA collaborators, and assert the loop's statement count does not grow with the number of dates.
+- **`TideExtremeSnapshot`** unit tests:
+  - inclusive bounds;
+  - ordering;
+  - `windowFor` over a BST/GMT-crossing date list, pinned exactly;
+  - no query for no ids.
 - **Existing tests.**
-  - `TideFactDeriverTest`, `TideServiceTest` and the other callers' tests pass **unchanged**, because the old signatures and
-    their exact repository calls are kept.
-  - `BriefingSlotBuilderTest` stubs the per-location window in four places (~:1680, :1783, :1833, :1873) and runs under strict
-    stubs. Its build-path cases move to the snapshot overload (a fixture change, not an assertion change); keep one case on the
-    old overload.
-  - `TideSurfaceAgreementTest` wires both builders over one mocked repository. Give it the snapshot for the slot side and keep
-    its assertion.
+  - `TideFactDeriverTest`, `TideServiceTest` and the other callers' tests pass **unchanged**.
+  - `BriefingSlotBuilderTest`'s four window-pinned curve stubs (:1680, :1783, :1833, :1873) stay on the null-snapshot path.
+    Add snapshot-path cases beside them.
+  - `TideSurfaceAgreementTest` **stays on the old path**, because it is the cross-surface window pin (:480, :484–488). Add a
+    second case reading `buildSlot(…, snapshot)` over the same extremes, asserting the same agreement.
 - **Mutants:**
   - an exclusive upper bound in `between`;
-  - the snapshot window shrunk to ±1 day;
-  - `buildSlot` ignoring the snapshot and querying;
+  - `windowFor` at ±1 day;
+  - `windowFor` from UTC midnight instead of London midnight (the BST case);
+  - `between` returning empty instead of falling back;
+  - `buildSlot` ignoring the snapshot;
   - `curveFacts` re-querying;
   - descending order.
 
-### B.4 Phase
-
-**B1**, a single backend PR. No frontend, no migration, no behaviour change, proven by the equivalence test.
+**B1** is a single backend PR. No frontend change, no migration, and no behaviour change, as the equivalence test proves.
 
 ---
 
@@ -281,125 +331,252 @@ refresh landing between Q1 and Q3 can make `tideAligned` and the quality figure 
 
 ### C.0 Decisions (owner)
 
-- **D2: Close-to-home.** Delete the stack?
-  - Recommendation: **delete**.
-  - It has had no caller since v1 retirement D2.
-  - "Near me tonight" for a widget or Web Push would be a new design. `plan-panel-data-contracts.md` §4 says it would not be a
-    port.
-  - A future client would more likely reuse `/api/briefing/digest` with a per-user reach join.
-  - Keeping it costs about 2,100 lines, an extra assembly path, and the P5 asymmetry.
-- **D3: `evaluationGate`.** Delete the seam? It was kept deliberately for "the next hard physical constraint" (recorded in
-  `BriefingGatingPolicy`, `BriefingSlot`, `tide-window-plan.md`).
-  - Recommendation: **delete the frontend readers and the slot field; keep a trimmed `BriefingGatingPolicy` only if D3 says
-    keep**.
-  - It has been inert since 2026-09-18.
-  - The client half has no functional reader (`tideGated` is written and never read; `gated` is unread).
-  - A future hard constraint would want a design informed by the tide gate's history, not this field revived.
-- **D4: `SKIPPED_HARD_CONSTRAINT`.** Keep the enum constant as a historical category: its rows are pruned within 30 days, and
-  the admin breakdown shows unknown keys raw anyway.
-  - Recommendation: **keep the constant, with a javadoc that it is historical**.
-  - Retiring it saves nothing and makes old rows render as raw keys.
+**D2: Close-to-home.** Recommendation: **delete**.
+- It has had no caller since v1 retirement D2.
+- A "near me tonight" widget or Web Push would be a new design (`plan-panel-data-contracts.md` §4: not a port), probably over
+  `/api/briefing/digest` with a per-user reach join.
+- Keeping it costs about 2,100 lines plus a second assembly path.
 
-If D2 or D3 is "keep", skip that phase.
+**D3: `evaluationGate`.** There are three options.
 
-### C.1 Phases
+| Option | What it removes | Phases |
+|---|---|---|
+| **(a) Delete client, field and policy** (recommended) | the client readers, the `BriefingSlot.evaluationGate` field and `BriefingGatingPolicy` | C1 and C2 |
+| (b) Delete the client only | the client readers, which have no functional reader | C1 only |
+| (c) Keep everything | nothing | neither |
 
-- **C1: frontend `evaluationGate` readers** (only if D3 = delete).
-  - **What goes:**
-    - `buildEvaluationGateIndex`;
-    - `gate` on `buildSlotIndex` entries and `gated` on the tide index entry;
-    - the `evaluationGateIndex` prop chain (`WindowFirstMapPane` → `MapView` → `MapCallout`, `LocationFourDaySheet`);
-    - `MapCallout`'s gate row and its "Not scored" versus "yet" branch;
-    - the location sheet's `row.gate`, gate row and no-prose fallback;
-    - `MapView`'s `tideGated`;
-    - the gate CSS (`.wf-loc-gate*`, `.wf-callout-gate*`, the dim rule).
-  - **Wire-safe:** the key has always been absent since 2026-09-18.
-  - **Wording:** the "Not scored" versus "Not scored yet" choice collapses to "Not scored yet". That is what every slot reads
-    today, because no slot is gated.
-  - **Tests:**
-    - delete the gate-specific blocks (`locationSheet.test.js` ~1312–1450, `MapCallout.test.jsx` ~527–575 and ~1345–1420,
-      `LocationFourDaySheet.test.jsx` ~865–985 and :476–478, `MapViewHeat.test.jsx` ~888–1010);
-    - adjust `WindowFirstMapPane.test.jsx` ~355–370.
-  - **No new behaviour:** prove it with the full suite and a grep that `evaluationGate`, `gated` and `tideGated` are gone from
-    `src`.
-- **C2: backend `evaluationGate`** (only if D3 = delete).
-  - **What goes:**
-    - the `BriefingSlot.evaluationGate` component, `withEvaluationGate`, and the field's parameter in the 17-arg constructor (the
-      constructor becomes 16-arg, and its 9 test call sites change);
-    - the `BriefingSlotBuilder` seam block (~:263–277);
-    - `couldCarryRating` collapses to `claudeRating != null || !canopy`;
-    - `BriefingGatingPolicy` and `BriefingGatingPolicyTest`: delete them if D3 removes the seam entirely, and inline their
-      always-true predicates at `BriefingGlossService` (:200, :264), `ForceEvalHeadlineSelector` (:153) and
-      `BriefingCandidateCollector` (:231–250, a dead branch);
-    - the `RecordWitherPreservationTest` row;
-    - `DailyBriefingResponseJsonTest`'s gate cases (~761–802).
-  - **Replace the "legacy payload reads null" case** with one asserting a legacy payload **carrying** an `evaluationGate` key
-    still deserialises. Do this by adding `@JsonIgnoreProperties(ignoreUnknown = true)` on `BriefingSlot` only, never
-    mapper-wide.
-    - The persisted `daily_briefing_cache` row is overwritten every cycle and has carried no such key since 2026-09-18, so the
-      real exposure is nil.
-    - But `AppConfig`'s Jackson 2 mapper keeps `FAIL_ON_UNKNOWN_PROPERTIES` at its default (true). An unknown key would make
-      `loadPersistedBriefing` throw and leave the Plan tab empty until the next build.
-    - The annotation makes that impossible at the cost of one line.
-  - **Keep `DispositionCategory.SKIPPED_HARD_CONSTRAINT`** (D4), with its javadoc corrected to "historical".
-  - **Also update:** the honesty-filter comments, the `CycleLocationOutcomeResolver`, `SupersedingDispositionService` and
-    `BatchRetryService` comments, and the docs (CLAUDE.md :177, :387, :575, :581; `tide-window-plan.md`'s seam sentences;
-    `window-tide-facts-plan.md` :210).
-  - **Mutants:**
-    - `couldCarryRating` still counting a gate;
-    - `ignoreUnknown` removed;
-    - a canopy slot counted as scoreable.
-- **C3: Close-to-home** (only if D2 = delete).
-  - **What goes:**
-    - `CloseToHomeController` and its test;
-    - `CloseToHomeService` and `CloseToHomeResponse` and the service test;
-    - `AbstractControllerTest`'s mock bean (:245–246);
-    - `BriefingService.getServedBriefing()` and its three tests (`BriefingServiceTest` ~3490–3517, ~3870–3893);
-    - the `HttpCachingConfigTest` row for the path (:117–120). Keep another personal-data path pinned there.
-  - **Fold `ServedBriefingAssembler.assembleWithoutPlan` into `assembleForPlan`,** its one remaining caller.
-    - Reword the ordering comment (~:129–135) and the P5 `stripSlotTide` javadoc, which loses its exception.
-    - Remove `ServedBriefingAssemblerTest`'s `cacheAndCloseToHomePathKeepSlotTide`.
-    - Keep a test that the raw cache keeps slot tide.
-  - ⚠️ **`photocast.close-to-home.radius-miles` stays.** `AskService` (:151) reads it. Leave the property name; renaming it is a
-    separate config change touching every profile.
-  - **Keep** `UserSettingsService.getHomeLocation`, `localRadiusMiles` and the `--color-close-to-home` CSS token: all are live.
-  - **Docs:**
-    - CLAUDE.md (:147, :177, :370–371, :393, :1022);
-    - `plan-panel-data-contracts.md` §4;
-    - `v1-retirement-plan.md` §8.3, which gets a resolution line;
-    - `served-briefing-assembler-plan.md`;
-    - `window-tide-facts-plan.md`.
-  - **Changelog:** a `### Removed — …` entry.
-  - **Mutants:**
-    - the fold drops the honesty filter;
-    - the fold drops the best-bet fallback;
-    - the fold drops movement.
+The seam was kept on purpose for "the next hard physical constraint" (`BriefingGatingPolicy`, `BriefingSlot`,
+`tide-window-plan.md`). It has been inert since 2026-09-18, and a future constraint deserves a design informed by the tide
+gate's history.
 
-### C.2 Line counts
+**D4: `SKIPPED_HARD_CONSTRAINT`.** Recommendation: **keep the enum constant**.
+- After C2 nothing writes it.
+- Its rows are pruned within 30 days, and the admin breakdown already shows unknown keys raw.
+- Correct its javadoc to "no longer written; historical rows only".
 
-These are estimates from the research and will be measured in each PR.
+### C.1 C1: frontend `evaluationGate` readers (D3 a or b)
 
-| Phase | Approximate lines removed |
+**What goes:**
+- **`utils/locationSheet.js`:**
+  - `buildEvaluationGateIndex`;
+  - `evaluationGate` on `buildSlotIndex` entries and its doc (:283–303);
+  - `gated` on the tide index entry (:346–347, :387, :427–428);
+  - the row gate (:816–825), and `gate` in the row object (:877).
+- **`components/WindowFirstMapPane.jsx`:** the import and index build (:18, :435–440), and the prop (:689).
+- **`components/MapView.jsx`:**
+  - the `evaluationGateIndex` destructure (:1430), pass-through (:6228), and doc and PropTypes (:7253–7257);
+  - `tideGated` (:3978), which has no reader;
+  - the comment at :3414.
+- **`components/map/MapCallout.jsx`:**
+  - the prop (:284);
+  - the lookup (:570–583) and its dependency-array entry (:462);
+  - the comment block (:428–440), the gate paragraph, and the comment at :955;
+  - the `gated` typedef and PropType (:173, :1106), and the `evaluationGateIndex` PropType (:1124–1125).
+- **`components/LocationFourDaySheet.jsx`:** `row.gate`, the gate row, the no-prose fallback, and the comments (:566–573,
+  :669, :687–698, :713).
+- **`index.css`:**
+  - `.wf-loc-gate` in the dim list (:9974–9984);
+  - the gate rules (:10174–10215);
+  - the comments at :7111 and :7413.
+
+**Wording.** Delete **only** the `gate ? 'Not scored' :` arm in `MapCallout` (:798) and the `row.gate ? 'Not scored' :` arm
+in the sheet (:571). Keep the remaining `ratingKnown` / `ratingRetrying` / `scoresKnown` ternary byte for byte: it is what
+every slot reads today, and `MapViewNightScoresLoading.test.jsx` pins it. Do not hardcode "Not scored yet".
+
+**Tests:**
+- Delete the gate blocks:
+  - `locationSheet.test.js` ~1312–1450;
+  - `MapCallout.test.jsx` ~527–575 and ~1345–1420;
+  - `LocationFourDaySheet.test.jsx` ~865–985;
+  - `MapViewHeat.test.jsx` ~888–1010.
+- Adjust the remaining references:
+  - `locationSheet.test.js`: :114, :117 (`toEqual` with `evaluationGate: null`), :189, :231, :285–295, :312, :361, :397–402,
+    :430;
+  - `MapCallout.test.jsx`: the :18 import;
+  - `MapViewHeat.test.jsx`: the :897 and :910 helper parameter, the callers at :990 and :1010, and `LocationFourDaySheet.test.jsx`
+    :476–478;
+  - `WindowFirstMapPane.test.jsx` ~355–370.
+
+**Acceptance.** `npx vitest run` is green, and this grep has no hits in `frontend/src`:
+`grep -rnE "evaluationGate|EvaluationGate|tideGated|wf-(loc|callout)-gate|(map-callout|location-sheet)-gate" frontend/src`.
+Do not grep for `gated` alone; it matches `reach-gated`, `.wf-tab-gated` and unrelated tests.
+
+**Mutants:**
+- the callout's ternary reduced to a constant;
+- the sheet's `scoresKnown` arm removed.
+
+### C.2 C2: backend `evaluationGate` (D3 a)
+
+**`BriefingSlot`:**
+- Remove the `evaluationGate` component, so the canonical constructor goes from 18 to 17 arguments. Update the legacy 17-arg
+  constructor, which becomes 16, the convenience constructor (:307–312), the withers (:249, :268, :443) and the
+  `withClaudeScores` overloads.
+- Remove `withEvaluationGate`.
+- Collapse `couldCarryRating` to `claudeRating != null || !canopy`. That is exactly equivalent today, because the gate is
+  always null. Its readers are `BriefingHonestyFilter:270` and `BriefingRegionEvaluationRollup:359`.
+- Fix the javadoc at :72–98, :112, :150–153, :196 and :212–216.
+- Update every `new BriefingSlot(` call site the compiler flags, including `BriefingSlotBuilder:252`; do not trust a count.
+
+**`BriefingSlotBuilder`:** remove the seam block (:263–277).
+
+**`BriefingGatingPolicy`:** delete it, with `BriefingGatingPolicyTest`, and inline at each caller:
+- `isEligibleForEvaluation` is always true, so it is dropped at `BriefingGlossService:264`, `ForceEvalHeadlineSelector:153`
+  and the collector.
+- `hasAnyEligibleSlot` is **not** always true: it is false for a region with no slots. `BriefingGlossService:200` becomes
+  `!region.slots().isEmpty()`.
+- The collector's dead branch (`BriefingCandidateCollector:231–250`) goes, with its `skippedVerdict` counter (:113, :248) and
+  the `verdict={}` slot in its log (:270–272).
+- Remove the imports (`BriefingGlossService:22`, `BriefingCandidateCollector:15`, `ForceEvalHeadlineSelector:10`) and the
+  `{@link BriefingGatingPolicy}` references (`BriefingGlossService:35, :189`; `BriefingHonestyFilter:27`).
+
+**Tests:**
+- Remove the gate cases:
+  - `BriefingSlotTest` (:228–316 and the gate-dependent part of :348–374);
+  - `BriefingSlotBuilderTest` (:1452–1609, :1896–1904);
+  - `BriefingHonestyFilterTest` (:204–233);
+  - `BriefingServiceRosterTest` (:59 helper and the `GatedRegion` class);
+  - `RecordWitherPreservationTest`'s `withEvaluationGate` row;
+  - `DailyBriefingResponseJsonTest` (~761–802).
+- **Replace the JSON case.** Add a test that a `DailyBriefingResponse` JSON whose slot carries `"evaluationGate":"x"` still
+  deserialises through `AppConfig.objectMapper()`, which `loadPersistedBriefing` uses.
+  - Because `BriefingSlot` is `@JsonUnwrapped`, Jackson 2 already ignores unknown slot-level keys. A reviewer verified this
+    on jackson-databind 2.21.4.
+  - So **do not add `@JsonIgnoreProperties`**. Run the test before and after removing the component to confirm it.
+  - Jackson 3 on the API is unaffected.
+- Reword the comment-only references:
+  - `BriefingGlossServiceTest` :140–141, :192;
+  - `ForecastTaskCollectorTest` :165, :1258, :1367;
+  - `TideWordingTest` :83–84;
+  - `ForecastResultHandlerTest` :1181;
+  - `DispositionWriteIntegrationTest` :175.
+
+**Keep `DispositionCategory.SKIPPED_HARD_CONSTRAINT`** (D4) and correct its javadoc.
+
+**Docs:**
+- CLAUDE.md :177, :387, :575, :581;
+- `tide-window-plan.md`'s seam sentences;
+- `window-tide-facts-plan.md` :210;
+- the comments in `BriefingHonestyFilter` (:258–270), `CycleLocationOutcomeResolver:54`, `SupersedingDispositionService:64`
+  and `BatchRetryService:49`.
+
+**Mutants:**
+- `couldCarryRating` ignoring `canopy`;
+- `BriefingGlossService:200` made a bare `true`.
+
+### C.3 C3: Close-to-home (D2 = delete)
+
+**What goes:**
+- `CloseToHomeController` and its test;
+- `CloseToHomeService`, `CloseToHomeResponse` and the service test;
+- `AbstractControllerTest`'s mock bean (:245–246);
+- `BriefingService.getServedBriefing()` and its tests (`BriefingServiceTest` ~3490–3517, ~3870–3893);
+- the `HttpCachingConfigTest` row for the path (:117–120), keeping another personal-data path pinned there.
+
+**`assembleWithoutPlan` stays** as a package-private method, called by `assembleForPlan` and by
+`ServedBriefingAssemblerTest.stripPreservesEverythingButSlotTide`, which uses it as the unstripped oracle (:196). Only the
+public accessor goes.
+- Reword its javadoc (:82–95), the ordering comment (:129–135) and the `stripSlotTide` javadoc (:178), which lose the
+  Close-to-home exception.
+- Remove `cacheAndCloseToHomePathKeepSlotTide` (:226–241), and keep a test that the raw cache keeps slot tide.
+
+**`photocast.close-to-home.radius-miles` stays.** It is in no committed YAML; the default of 22 lives only in `AskService`'s
+`@Value` (:151), its sole reader after this phase. The production host's config is hand-edited and may set it, so leave the
+name. Reword the `AskService` javadoc (~:142, "the Close-to-home default"). CLAUDE.md :153 stays as it is.
+
+**Keep** `UserSettingsService.getHomeLocation`, used by `ReachService:84` and `TodaysLightService:92`, along with
+`localRadiusMiles` and the `--color-close-to-home` token.
+
+**Comments to reword or remove:**
+- `PlanWindowProjector` :114, :352, :509, :528;
+- `AppUserEntity:134`;
+- `AskTools:1079`;
+- `BriefingRegion:101`;
+- `TodaysLightService:30`;
+- `BriefingService` :378–380, :395–405;
+- `ServedBriefingAssembler` :87–88;
+- `frontend/src/utils/firstClause.js:5`;
+- `frontend/src/api/lightApi.js:9`;
+- `frontend/src/api/settingsApi.js:29`;
+- `frontend/src/components/UserSettingsModal.jsx:618`.
+
+**Docs:**
+- CLAUDE.md :147, :177, :370–371, :393, :1022;
+- `plan-panel-data-contracts.md` §4;
+- `v1-retirement-plan.md` §8.3, which gets a resolution line;
+- `served-briefing-assembler-plan.md`;
+- `window-tide-facts-plan.md`.
+
+**Changelog:** `### Removed — …`.
+
+**Mutants** (`getCachedBriefingForApi` must be unchanged):
+- `assembleForPlan` skipping the honesty filter;
+- skipping the best-bet fallback;
+- skipping movement.
+
+### C.4 Size
+
+These are estimates; each PR measures the real figure.
+
+| Phase | Lines removed |
 |---|---|
-| C1 | ~600 (~150 source and CSS, ~450 tests) |
+| C1 | ~600 |
 | C2 | ~900 |
 | C3 | ~2,100 |
 
 ---
 
-## D. Sequencing and parallelism
+## D. Sequencing
 
-1. **B1, C1 and C2** start together: B1 is backend tide, C1 is frontend, C2 is backend slot and gating. C1 and C2 touch
-   different layers. C2 and B1 both touch `BriefingSlotBuilder`, but different methods (the seam block at ~:263–277, and
-   `calculateTideData` and `curveFacts`), so expect at most a trivial merge.
-2. **C3** next, after C2 merges, because both edit `ServedBriefingAssemblerTest` and nearby docs.
-3. **A1** last, built on C3's folded assembler.
+1. **B1, C1 and C2 start together.**
+   - C1 is the frontend; C2 and B1 are the backend.
+   - C2's seam block sits **inside** `buildSlot`, the method B1 re-signatures, and both edit `BriefingSlotBuilderTest`, so
+     expect a small real merge conflict. Whichever lands second merges `main` and resolves it.
+2. **C3 after C2.**
+   - Both edit CLAUDE.md :177 and `window-tide-facts-plan.md`.
+   - They do not overlap in code.
+3. **A1 last.**
+   - It edits `reEnrichVerdicts` and `BriefingHonestyFilter`, which C3 and C2 both touch.
+   - Its builder re-finds the honesty-filter lines after C2's rewrite.
 
-## E. Open owner decisions
+If D2 or D3 removes a phase, the rest of the order stands.
+
+## E. Owner decisions
 
 | | Question | Default |
 |---|---|---|
 | D1 | The wording table in A.2 | as written |
 | D2 | Delete Close-to-home | delete |
-| D3 | Delete the `evaluationGate` seam (client and slot field; trimmed or removed gating policy) | delete client and field, remove the policy |
+| D3 | `evaluationGate`: (a) client + field + policy, (b) client only, (c) keep | (a) |
 | D4 | Keep `SKIPPED_HARD_CONSTRAINT` as a historical category | keep |
+
+## F. What the review changed (draft 1 → draft 2)
+
+**A:**
+- T+4 is "not attempted" whatever the triage mix; without that, mixed regions would have hidden almost every case.
+- `FAILED` now needs at least half the slots failing, and never applies at T+4.
+- The AWAY copy says "travel day", not "you're away", and its label is the client's real "Not forecast".
+- The "fields kept" test now asserts the six deliberately nulled fields stay null; draft 1 contradicted the code.
+- A `BY_RANK` tie-break stops the window verdict depending on region names.
+- One combined `loadServeTriage` makes "no new query" true, with fail-soft, tie and unparseable-value rules.
+- The query-count test moved to where the repository is visible.
+- The old filter overloads bypass the fold.
+- A2 was folded into A1 as comment work.
+
+**B:**
+- An uncovered location or range falls back to the live query; draft 1 silently returned empty.
+- The types are `LocalDateTime`, and `windowFor` is exact.
+- Exact signatures, with old methods untouched for strict stubs and no ambiguous 4-arg overload.
+- The snapshot is built through `BriefingSlotBuilder.snapshotFor`, so `BriefingService` gains no dependency.
+- `TideSurfaceAgreementTest` stays as the window pin.
+- The equivalence fixtures make the mutants observable.
+- One `READ_WINDOW_DAYS` constant.
+
+**C:**
+- The redundant `@JsonIgnoreProperties` is dropped; `@JsonUnwrapped` already tolerates unknown keys.
+- Only the gate arm of the "Not scored" ternary goes.
+- The file, test and grep lists are completed.
+- `hasAnyEligibleSlot` is not always true.
+- `assembleWithoutPlan` is kept as the test oracle.
+- The radius property claim is corrected.
+- D3 is defined as three options.
+- The sequencing claims are corrected.
