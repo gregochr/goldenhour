@@ -105,6 +105,14 @@ public class AskPromptBuilder {
             """;
 
     /**
+     * Added to the user message when the follow-up turns the earlier places down ("neither of those", "I've
+     * been to both"): the earlier picks are then marked in the message and excluded by the validator.
+     */
+    static final String TURNED_DOWN_RULE =
+            "The reader has turned down the earlier places. Turned-down places must not be picked again, "
+                    + "at any window: pick different places.";
+
+    /**
      * Builds the system prompt of a fresh question.
      *
      * @param today        today on the UK civil calendar
@@ -178,6 +186,9 @@ public class AskPromptBuilder {
                 sb.append("  Events:\n");
                 exchange.eventLines().forEach(line -> sb.append("    ").append(line).append('\n'));
             }
+        }
+        if (thread.turnedDown()) {
+            sb.append(TURNED_DOWN_RULE).append('\n');
         }
         return sb.append("Now the reader asks: \"").append(question).append('"').toString();
     }

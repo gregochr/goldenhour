@@ -157,6 +157,39 @@ class AskPromptBuilderTest {
                 .isEqualTo(golden("user-message-thread.txt"));
     }
 
+    private static AskThreadContext turnedDownThread(boolean turnedDown) {
+        BriefingRegion coast = AskFixtures.region("Coast", true, AskFixtures.coastal(1L, "Whitby", 4, "HIGH", true));
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(
+                List.of(AskFixtures.sunsetDay(MONDAY, null, coast)), List.of()));
+        AskTools tools = new AskTools(snapshot, new AskUserContext(7L, UserRole.PRO_USER, false),
+                TestScopes.of(), mock(DriveTimeResolver.class), new ObjectMapper());
+        ThreadExchange earlier = new ThreadExchange("best sunset?", "Whitby.",
+                List.of(new PickRef(1L, "2026-10-05_sunset")), List.of(), AskFixtures.GENERATED_AT, false);
+        return AskThreadContext.of(new AskThread(List.of(earlier)), snapshot, TestScopes.of(), tools,
+                AskLocationNames.NONE, turnedDown);
+    }
+
+    @Test
+    @DisplayName("turned down: the earlier pick is marked, and the message says turned-down places must not be "
+            + "picked again, before the question")
+    void turnedDownUserMessage() {
+        String message = builder.userMessage("neither of those, best sunset?", turnedDownThread(true));
+
+        assertThat(message).contains("1. Whitby (Coast) · locationId 1")
+                .contains(" · the reader has turned this place down\n")
+                .contains("Turned-down places must not be picked again")
+                .endsWith("Now the reader asks: \"neither of those, best sunset?\"");
+        assertThat(message.indexOf("Turned-down places")).isLessThan(message.indexOf("Now the reader asks"));
+    }
+
+    @Test
+    @DisplayName("not turned down: neither the mark nor the rule line appears")
+    void notTurnedDownUserMessage() {
+        String message = builder.userMessage("best sunset?", turnedDownThread(false));
+
+        assertThat(message).doesNotContain("turned this place down").doesNotContain("Turned-down");
+    }
+
     private static AskThreadContext goldenThread() {
         LocalDate wednesday = MONDAY.plusDays(2);
         BriefingRegion coast = AskFixtures.region("Coast", true,

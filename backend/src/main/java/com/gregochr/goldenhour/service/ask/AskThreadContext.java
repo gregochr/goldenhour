@@ -66,6 +66,9 @@ final class AskThreadContext {
     private final AskLocationNames names;
     private Map<Long, AskLocationNames.Place> nameById;
 
+    /** The line that tells the model the reader has turned the earlier places down. */
+    static final String TURNED_DOWN_MARK = " · the reader has turned this place down";
+
     private AskThreadContext(AskThread thread, ThreadFact fact, Map<String, EventFact> liveEvents,
             AskSnapshot snapshot, AskScope scope, AskTools tools, AskLocationNames names) {
         this.thread = thread;
@@ -89,9 +92,27 @@ final class AskThreadContext {
      */
     static AskThreadContext of(AskThread thread, AskSnapshot snapshot, AskScope scope, AskTools tools,
             AskLocationNames names) {
+        return of(thread, snapshot, scope, tools, names, false);
+    }
+
+    /**
+     * Reconciles a thread with the live snapshot, optionally marking its places as turned down.
+     *
+     * @param thread     the validated thread; an empty one gives {@link #NONE}
+     * @param snapshot   the snapshot the conversation runs against
+     * @param scope      the follow-up's scope, which may differ from the earlier questions'
+     * @param tools      the conversation's tools, for the asker's drive minutes and the spot vocabulary
+     * @param names      the names of enabled locations, read only for a pick whose slot has gone
+     * @param turnedDown whether the follow-up turns the earlier places down: every earlier pick's location
+     *                   is then excluded from the answer and marked so in the prompt
+     * @return the context
+     */
+    static AskThreadContext of(AskThread thread, AskSnapshot snapshot, AskScope scope, AskTools tools,
+            AskLocationNames names, boolean turnedDown) {
         if (thread == null || thread.isEmpty()) {
             return NONE;
         }
+        Set<Long> turnedDownIds = new LinkedHashSet<>();
         Set<Pair> offered = new LinkedHashSet<>();
         Set<Pair> dropped = new LinkedHashSet<>();
         Map<String, EventFact> live = new LinkedHashMap<>();
@@ -100,6 +121,9 @@ final class AskThreadContext {
         for (ThreadExchange exchange : thread.exchanges()) {
             for (PickRef ref : exchange.picks()) {
                 Pair pair = new Pair(ref.locationId(), ref.windowId());
+                if (turnedDown) {
+                    turnedDownIds.add(ref.locationId());
+                }
                 Optional<AskSnapshot.Candidate> candidate = snapshot.candidate(ref.windowId(), ref.locationId());
                 boolean stillOffered = candidate.isPresent() && scope.contains(candidate.get().region().name());
                 (stillOffered ? offered : dropped).add(pair);
@@ -111,7 +135,7 @@ final class AskThreadContext {
         }
         // A pick named twice is offered if it is offered at all: nothing is both.
         dropped.removeAll(offered);
-        ThreadFact fact = new ThreadFact(offered, dropped, new LinkedHashSet<>(live.values()));
+        ThreadFact fact = new ThreadFact(offered, dropped, new LinkedHashSet<>(live.values()), turnedDownIds);
         return new AskThreadContext(thread, fact, live, snapshot, scope, tools, names);
     }
 
@@ -143,6 +167,15 @@ final class AskThreadContext {
      */
     ThreadFact fact() {
         return fact;
+    }
+
+    /**
+     * Whether the follow-up turns the earlier places down, so the prompt must say they are not to be picked.
+     *
+     * @return true when the earlier picks' locations are excluded
+     */
+    boolean turnedDown() {
+        return !fact.turnedDown().isEmpty();
     }
 
     /**
@@ -192,6 +225,11 @@ final class AskThreadContext {
     }
 
     private String pickLine(PickRef ref) {
+        String line = pickLineBody(ref);
+        return fact.turnedDown().contains(ref.locationId()) ? line + TURNED_DOWN_MARK : line;
+    }
+
+    private String pickLineBody(PickRef ref) {
         Optional<AskSnapshot.Candidate> slot = snapshot.slotAt(ref.windowId(), ref.locationId());
         if (slot.isEmpty()) {
             return nameOf(ref.locationId()) + " · no longer in the forecast";

@@ -59,6 +59,74 @@ import java.util.stream.Stream;
 final class ReadyIntentRules {
 
     /**
+     * The whole-word phrases by which a follow-up turns the earlier places down ("neither of those take my
+     * fancy", "I've been to both recently"). Each is a contiguous run of words as
+     * {@link PhraseAskPreFilter#words} splits them, so an apostrophe is a break: "don't fancy" is
+     * {@code don t fancy}. Deliberately conservative: a bare "those", or "I've been to Bamburgh" with a place
+     * the reader names, or a negated "I haven't been to those", is not a turn-down (the reader may be asking
+     * ABOUT it), and a wrongly missed turn-down costs only what a follow-up cost before the rule existed.
+     */
+    private static final List<List<String>> TURN_DOWN_PHRASES = List.of(
+            List.of("neither"),
+            List.of("not", "those"),
+            List.of("none", "of", "those"),
+            List.of("been", "to", "both"),
+            List.of("been", "to", "those"),
+            List.of("been", "to", "them"),
+            List.of("been", "to", "all"),
+            List.of("don", "t", "fancy"),
+            List.of("dont", "fancy"),
+            List.of("something", "else"),
+            List.of("somewhere", "else"),
+            List.of("other", "than", "those"),
+            List.of("apart", "from", "those"),
+            List.of("instead", "of", "those"));
+
+    /**
+     * Whether a follow-up turns the earlier places down: the words hold one of the {@linkplain
+     * #TURN_DOWN_PHRASES turn-down phrases}. Meaningful only for a question that has a thread; a fresh
+     * question has no earlier places to turn down. When it is true the thread's picks' LOCATIONS are
+     * excluded from the answer (the validator drops them, the prompt says so, the stub honours it).
+     *
+     * @param words the question's words, as {@link PhraseAskPreFilter#words} splits them
+     * @return true when a turn-down phrase is present as whole words
+     */
+    static boolean turnsDownEarlierPlaces(List<String> words) {
+        for (List<String> phrase : TURN_DOWN_PHRASES) {
+            for (int i = 0; i + phrase.size() <= words.size(); i++) {
+                if (words.subList(i, i + phrase.size()).equals(phrase) && !negatedHaveBeen(words, i, phrase)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * "I haven't been to those" / "I've never been to those" say the opposite of "I've been to those": a
+     * {@code been to ...} phrase directly after {@code not}, {@code never} or the {@code t} of "haven't" is
+     * not a turn-down.
+     */
+    private static boolean negatedHaveBeen(List<String> words, int at, List<String> phrase) {
+        if (!"been".equals(phrase.getFirst()) || at == 0) {
+            return false;
+        }
+        String before = words.get(at - 1);
+        return "not".equals(before) || "never".equals(before) || "t".equals(before);
+    }
+
+    /**
+     * {@link #turnsDownEarlierPlaces(List)} for a question as the engines receive it.
+     *
+     * @param question the question
+     * @return true when its sanitised text turns the earlier places down
+     */
+    static boolean turnsDownEarlierPlaces(AskQuestion question) {
+        return question != null && question.sanitised() != null
+                && turnsDownEarlierPlaces(PhraseAskPreFilter.words(question.sanitised()));
+    }
+
+    /**
      * Words that carry a constraint a shared Ready answer ignores. Every one is also an unknown word
      * (so the whitelist would refuse it anyway); naming them keeps the intent in the code and in the
      * tests: drive time and distance, home, proximity, and negation or comparison.

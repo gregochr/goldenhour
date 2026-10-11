@@ -1128,6 +1128,103 @@ class AskAnswerValidatorTest {
         assertThat(result.answer().picks()).hasSize(1);
     }
 
+    // -- turned-down places -------------------------------------------------------------------
+
+    private static AskEvidence turnedDownEvidence(int toolCalls, Set<AskEvidence.Pair> toolPairs,
+            Set<AskEvidence.Pair> offered, Set<Long> turnedDown) {
+        return new AskEvidence(toolPairs, Set.of(), toolCalls).withThread(
+                new AskEvidence.ThreadFact(offered, Set.of(), Set.of(), turnedDown));
+    }
+
+    @Test
+    @DisplayName("turned down: a submitted pick at an earlier place is dropped at every window, the others "
+            + "are kept, and the count of dropped picks is reported")
+    void turnedDown_dropsEarlierPlacesAtEveryWindow() {
+        // Whitby (1) was offered at sunset and turned down; a new rank_spots returned both places at both windows.
+        AskEvidence evidence = turnedDownEvidence(1, Set.of(at(1L, SUNSET_TODAY), at(1L, SUNRISE_TOMORROW),
+                at(2L, SUNSET_TODAY)), Set.of(at(1L, SUNSET_TODAY)), Set.of(1L));
+
+        Result result = validator.validate(answer("Different places.", rawPick(1L, "a"),
+                new RawPick(1L, SUNRISE_TOMORROW, "b"), rawPick(2L, "c")),
+                twoWindowSnapshot(), evidence, AskScope.ALL, null, null);
+
+        assertThat(result.answer().picks()).extracting(AskPick::locationId).containsExactly(2L);
+        assertThat(result.answer().picks().getFirst().rank()).isEqualTo(1);
+        assertThat(result.turnedDownDropped()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("not turned down: the same submission is unchanged, nothing is dropped or counted")
+    void turnedDown_absent_leavesTheAnswerUnchanged() {
+        AskEvidence evidence = turnedDownEvidence(1, Set.of(at(1L, SUNSET_TODAY), at(1L, SUNRISE_TOMORROW),
+                at(2L, SUNSET_TODAY)), Set.of(at(1L, SUNSET_TODAY)), Set.of());
+
+        Result result = validator.validate(answer("Same.", rawPick(1L, "a"),
+                new RawPick(1L, SUNRISE_TOMORROW, "b"), rawPick(2L, "c")),
+                twoWindowSnapshot(), evidence, AskScope.ALL, null, null);
+
+        assertThat(result.answer().picks()).extracting(AskPick::locationId).containsExactly(1L, 2L);
+        assertThat(result.turnedDownDropped()).isZero();
+    }
+
+    @Test
+    @DisplayName("turned down with nothing else surviving: an honest can't-answer in our words, never the "
+            + "model's, not a failed run")
+    void turnedDown_nothingElse_isACant() {
+        AskEvidence evidence = turnedDownEvidence(1, Set.of(at(1L, SUNSET_TODAY)),
+                Set.of(at(1L, SUNSET_TODAY)), Set.of(1L));
+
+        Result result = validator.validate(answer("Whitby again, it is the best.", rawPick(1L, "a")),
+                twoWindowSnapshot(), evidence, AskScope.ALL, null, null);
+
+        assertThat(result.accepted()).isTrue();
+        assertThat(result.answer().answerable()).isFalse();
+        assertThat(result.answer().missing()).isEqualTo(AskAnswerValidator.TURNED_DOWN_MISSING)
+                .isEqualTo("the other places are not rated well enough");
+        assertThat(result.answer().summary()).isEqualTo(AskAnswerValidator.TURNED_DOWN_SUMMARY);
+        assertThat(result.answer().picks()).isEmpty();
+        assertThat(result.turnedDownDropped()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("turned down, the model submitted no pick at all after a tool call that returned nothing new: "
+            + "the same honest can't-answer")
+    void turnedDown_emptyAnswerAfterAToolCall_isACant() {
+        AskEvidence evidence = turnedDownEvidence(1, Set.of(), Set.of(at(1L, SUNSET_TODAY)), Set.of(1L));
+
+        Result result = validator.validate(answer("Nothing else."), twoWindowSnapshot(), evidence,
+                AskScope.ALL, null, null);
+
+        assertThat(result.answer().answerable()).isFalse();
+        assertThat(result.answer().missing()).isEqualTo(AskAnswerValidator.TURNED_DOWN_MISSING);
+        assertThat(result.turnedDownDropped()).isZero();
+    }
+
+    @Test
+    @DisplayName("turned down with an empty answer and no tool call is still the old model fault, not a can't-answer")
+    void turnedDown_emptyAnswerWithNoToolCall_isStillDiscarded() {
+        AskEvidence evidence = turnedDownEvidence(0, Set.of(), Set.of(at(1L, SUNSET_TODAY)), Set.of(1L));
+
+        Result result = validator.validate(answer("Nothing."), twoWindowSnapshot(), evidence, AskScope.ALL,
+                null, null);
+
+        assertThat(result.accepted()).isFalse();
+    }
+
+    @Test
+    @DisplayName("turned down: a pick the model was not offered is still dropped for that reason, and is not "
+            + "counted as a turned-down drop")
+    void turnedDown_countsOnlyTurnedDownPicks() {
+        AskEvidence evidence = turnedDownEvidence(1, Set.of(at(2L, SUNSET_TODAY)), Set.of(at(1L, SUNSET_TODAY)),
+                Set.of(1L));
+
+        Result result = validator.validate(answer("One.", rawPick(2L, "a"), rawPick(99L, "unknown")),
+                twoWindowSnapshot(), evidence, AskScope.ALL, null, null);
+
+        assertThat(result.answer().picks()).extracting(AskPick::locationId).containsExactly(2L);
+        assertThat(result.turnedDownDropped()).isZero();
+    }
+
     @Test
     @DisplayName("an event the thread offered survives with the served label and safety note, never the model's")
     void thread_offeredEvent_survives() {

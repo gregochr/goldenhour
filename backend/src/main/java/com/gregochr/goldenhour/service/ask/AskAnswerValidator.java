@@ -62,6 +62,13 @@ public class AskAnswerValidator {
     static final String STALE_THREAD_SUMMARY =
             "The places from your earlier answers are no longer in the forecast.";
 
+    /** The {@code missing} phrase of a follow-up that turned the earlier places down and has nothing else to offer. */
+    static final String TURNED_DOWN_MISSING = "the other places are not rated well enough";
+
+    /** The summary of that same can't-answer: ours, never the model's. */
+    static final String TURNED_DOWN_SUMMARY =
+            "Apart from the places you have turned down, nothing else is rated well enough to suggest.";
+
     private static final Pattern URL_LIKE = Pattern.compile(
             "(?i)(?:\\b(?:https?|ftp)://\\S+|\\bmailto:\\S+|\\bwww\\.\\S+"
                     + "|\\b[a-z0-9-]+(?:\\.[a-z0-9-]+)*\\.(?:com|net|org|co\\.uk|uk|io|app|dev|info"
@@ -130,8 +137,20 @@ public class AskAnswerValidator {
      *
      * @param answer the validated answer, or null when the answer was discarded
      * @param reason why it was discarded, or null when it was accepted
+     * @param turnedDownDropped how many submitted picks were dropped because the reader had turned their
+     *                          place down (a count for the log, never a name)
      */
-    public record Result(AskAnswer answer, String reason) {
+    public record Result(AskAnswer answer, String reason, int turnedDownDropped) {
+
+        /**
+         * A verdict that dropped no turned-down pick.
+         *
+         * @param answer the validated answer, or null when the answer was discarded
+         * @param reason why it was discarded, or null when it was accepted
+         */
+        public Result(AskAnswer answer, String reason) {
+            this(answer, reason, 0);
+        }
 
         /**
          * Whether the answer survived.
@@ -184,7 +203,15 @@ public class AskAnswerValidator {
             return new Result(new AskAnswer(false, summary, List.of(), List.of(), missing), null);
         }
 
-        List<AskPick> picks = validPicks(raw.picks(), snapshot, evidence, scope);
+        int[] turnedDownDropped = {0};
+        List<AskPick> picks = validPicks(raw.picks(), snapshot, evidence, scope, turnedDownDropped);
+        if (!evidence.thread().turnedDown().isEmpty() && picks.isEmpty() && events.isEmpty()
+                && (turnedDownDropped[0] > 0 || evidence.anyToolCalled())) {
+            // The reader turned the earlier places down and nothing else survives: an honest can't-answer in
+            // our words, the same shape as the stale-thread exit.
+            return new Result(new AskAnswer(false, TURNED_DOWN_SUMMARY, List.of(), List.of(),
+                    TURNED_DOWN_MISSING), null, turnedDownDropped[0]);
+        }
         if (picks.isEmpty() && events.isEmpty() && !evidence.anyToolCalled()) {
             if (evidence.thread().staleOnly(submittedPairs(raw.picks()))) {
                 // A follow-up about places the thread named and the forecast has since lost: an honest
@@ -201,7 +228,7 @@ public class AskAnswerValidator {
                 return discard("pick 1 is not on the BEST BET window " + lead.get().id());
             }
         }
-        return new Result(new AskAnswer(true, summary, picks, events, null), null);
+        return new Result(new AskAnswer(true, summary, picks, events, null), null, turnedDownDropped[0]);
     }
 
     /**
@@ -240,7 +267,7 @@ public class AskAnswerValidator {
     }
 
     private List<AskPick> validPicks(List<RawPick> raw, AskSnapshot snapshot, AskEvidence evidence,
-            AskScope scope) {
+            AskScope scope, int[] turnedDownDropped) {
         List<AskPick> out = new ArrayList<>();
         boolean ranking = isRankingFollowUp(raw, evidence);
         int cap = ranking ? MAX_RANKED_PICKS : MAX_PICKS;
@@ -248,6 +275,11 @@ public class AskAnswerValidator {
         for (RawPick pick : raw) {
             if (out.size() >= cap) {
                 break;
+            }
+            if (evidence.thread().turnedDown().contains(pick.locationId())) {
+                // The reader turned this place down: it is excluded at every window, however it was offered.
+                turnedDownDropped[0]++;
+                continue;
             }
             Object key = ranking ? new AskEvidence.Pair(pick.locationId(), pick.windowId()) : pick.locationId();
             // Offered by a tool in this conversation or by the thread; either way it must still be a live,
