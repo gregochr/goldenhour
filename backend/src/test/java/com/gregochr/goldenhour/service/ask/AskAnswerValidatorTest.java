@@ -202,6 +202,92 @@ class AskAnswerValidatorTest {
         assertThat(result.answer().missing().split(" ")).hasSize(AskAnswerValidator.MISSING_WORDS);
     }
 
+    /** The summary the validator serves for a raw one. */
+    private String servedSummary(String raw) {
+        return validate(new Raw(false, raw, null, null, null),
+                snapshot(null, AskFixtures.slot(1L, "A", 4)), evidenceOf()).answer().summary();
+    }
+
+    @Test
+    @DisplayName("a 60-word summary of 20-character words is served within 500 code points, cut at a word "
+            + "boundary, and the served text round-trips through the thread validation unchanged")
+    void summary_isBoundedToWhatAThreadMayEcho() {
+        String word = "abcdefghijklmnopqrst";
+        String sixty = String.join(" ", java.util.Collections.nCopies(AskAnswerValidator.SUMMARY_WORDS, word));
+        assertThat(sixty.codePointCount(0, sixty.length())).isEqualTo(1_259);
+
+        String served = servedSummary(sixty);
+
+        assertThat(served.codePointCount(0, served.length())).isLessThanOrEqualTo(500);
+        assertThat(served).isEqualTo(String.join(" ", java.util.Collections.nCopies(23, word)));
+        assertThat(served.split(" ")).allMatch(word::equals);
+        ThreadExchange echoed = new ThreadExchange("Best spot?", served, null, null,
+                java.time.LocalDateTime.of(2026, 10, 5, 12, 0), false);
+        assertThat(AskThreadValidation.validate(List.of(echoed), 8).exchanges().get(0).summary()).isEqualTo(served);
+    }
+
+    @Test
+    @DisplayName("an emoji, a zero-width joiner and a bare combining mark are removed from a served summary, "
+            + "the prose characters stay, and the result round-trips through the thread validation unchanged")
+    void summary_isStrippedOfWhatAFollowUpRefuses() {
+        String raw = "Lovely \uD83C\uDF05 sunrise\u200D at Bamburgh \u2605\u2605\u2605\u2605 \u2014 high water "
+                + "\u2026 \"worth it\" at 4\u00B0C near Caf\u00E9, rain\u2614 later, \u0307ok.\u00A0Go early.";
+
+        String served = servedSummary(raw);
+
+        assertThat(served).isEqualTo("Lovely sunrise at Bamburgh \u2605\u2605\u2605\u2605 \u2014 high water "
+                + "\u2026 \"worth it\" at 4\u00B0C near Caf\u00E9, rain later, ok. Go early.");
+        ThreadExchange echoed = new ThreadExchange("Best spot?", served, null, null,
+                java.time.LocalDateTime.of(2026, 10, 5, 12, 0), false);
+        assertThat(AskThreadValidation.validate(List.of(echoed), 8).exchanges().get(0).summary()).isEqualTo(served);
+    }
+
+    @Test
+    @DisplayName("a decomposed accent is composed, not stripped, and a plain summary is served byte for byte")
+    void summary_plainTextIsUntouched() {
+        String plain = "Bamburgh has high water on the light on Saturday, so go early.";
+
+        assertThat(servedSummary(plain)).isEqualTo(plain);
+        assertThat(servedSummary("Cafe\u0301 by the sea")).isEqualTo("Caf\u00E9 by the sea");
+    }
+
+    @Test
+    @DisplayName("a summary that is only emoji and invisible characters becomes empty, so the answer is discarded "
+            + "as having no summary")
+    void summary_onlyEmojiIsDiscarded() {
+        Result result = validate(new Raw(false, "\uD83C\uDF05\u200D\uD83C\uDF05 \u2614\uFE0F", null, null, null),
+                snapshot(null, AskFixtures.slot(1L, "A", 4)), evidenceOf());
+
+        assertThat(result.answer()).isNull();
+        assertThat(result.reason()).isEqualTo("no summary");
+    }
+
+    @Test
+    @DisplayName("a summary within the bound is served byte for byte, and one long word is cut at the bound")
+    void summary_boundIsOnlyAppliedWhenNeeded() {
+        String normal = "Bamburgh has high water on the light on Saturday, so go early.";
+        String hugeWord = "a".repeat(800);
+
+        assertThat(servedSummary(normal))
+                .isEqualTo(normal);
+        assertThat(servedSummary(hugeWord))
+                .isEqualTo("a".repeat(500));
+    }
+
+    @Test
+    @DisplayName("the bound is counted in code points and never splits a surrogate pair")
+    void boundCodePoints_neverSplitsAPair() {
+        String astral = "\uD83C\uDF05".repeat(600);
+
+        String cut = AskAnswerValidator.boundCodePoints(astral, 500);
+
+        assertThat(cut.codePointCount(0, cut.length())).isEqualTo(500);
+        assertThat(AskAnswerValidator.boundCodePoints(null, 500)).isNull();
+        assertThat(AskAnswerValidator.boundCodePoints("short text", 500)).isEqualTo("short text");
+        assertThat(AskAnswerValidator.THREAD_SUMMARY_MAX_CODE_POINTS)
+                .isEqualTo(AskQuestionSanitiser.MAX_THREAD_SUMMARY_LENGTH);
+    }
+
     @Test
     @DisplayName("exactly 60 summary words and 24 reason words are kept whole")
     void caps_boundaryIsInclusive() {
