@@ -86,6 +86,14 @@ import static org.mockito.Mockito.when;
  * outside it. Step 3's exclusion set is built from every earlier step's picks (so places step 2 re-offers are
  * still turned down), and step 4 needs only two picks, since steps 1 to 3 may offer few.
  *
+ * <p><b>First passing run, 2026-10-11, on 297dfa82</b> (the coordinator's third paid run), verbatim. Step 1 OK:
+ * Bamburgh 5 stars and Whitby at sunrise (trace list_windows, get_hot_topics, rank_spots, submit_answer). Step 2 OK,
+ * personal: "Nothing pick-eligible with high tide alignment is within 25 miles of home for tomorrow's sunrise.
+ * Bamburgh at 70 minutes remains the best option." (one pick, Bamburgh: the re-offer shape). Step 3 OK: Cheviot Edge
+ * (today sunset), Saltburn (tomorrow sunset) and Seahouses (today sunset), Bamburgh and Whitby excluded by the
+ * turn-down rule. Step 4 OK in one turn, submit_answer only: Bamburgh sunrise, Cheviot Edge sunset and Whitby
+ * sunrise, ranked.
+ *
  * <p>This class is excluded from {@code mvn verify} (tagged "prompt-regression") and from PIT, and skips
  * when no API key is present. Run on demand, spending real money (a few pence a run), with:
  * <pre>
