@@ -175,6 +175,73 @@ describe('the 🏆 best-location card', () => {
   });
 });
 
+describe('the 🏆 best-location card — dismissal (aurora heat A4)', () => {
+  /** Re-render with a NEW status object (the live fetch is keyed on its identity) and the given scores. */
+  async function reRead(view, night, scores) {
+    auroraStatusRef.current = { level: 'MODERATE', kpIndex: 6, currentNightDate: night, active: true };
+    getAuroraLocations.mockResolvedValue(scores);
+    await act(async () => {
+      view.rerender(
+        <MapView locations={locations()} date={night} autoEventType={null} handoffEventType="AURORA" />,
+      );
+    });
+    await act(async () => { await Promise.resolve(); });
+  }
+
+  async function dismiss() {
+    await screen.findByTestId('aurora-best-location-card');
+    fireEvent.click(screen.getByTestId('aurora-best-location-dismiss'));
+  }
+
+  it('offers a named dismiss button', async () => {
+    await renderOn(THE_NIGHT);
+    const button = await screen.findByTestId('aurora-best-location-dismiss');
+    expect(button).toHaveAccessibleName('Dismiss best aurora location');
+  });
+
+  it('hides the card when dismissed', async () => {
+    await renderOn(THE_NIGHT);
+    await dismiss();
+    expect(screen.queryByTestId('aurora-best-location-card')).not.toBeInTheDocument();
+  });
+
+  it('keeps it hidden across a re-render with the same best location', async () => {
+    const view = await renderOn(THE_NIGHT);
+    await dismiss();
+    await reRead(view, THE_NIGHT, [liveScore()]);
+    // The live read did run again — so an absent card is the key, not an empty cache.
+    expect(getAuroraLocations.mock.calls.length).toBeGreaterThan(1);
+    expect(screen.queryByTestId('aurora-best-location-card')).not.toBeInTheDocument();
+  });
+
+  it('shows it again when a different location takes the top spot', async () => {
+    const view = await renderOn(THE_NIGHT);
+    await dismiss();
+    const other = `${LOC}-other`;
+    await reRead(view, THE_NIGHT, [
+      { location: { name: other, lat: 55.1, lon: -1.8 }, stars: 5, summary: 'A new top spot' },
+    ]);
+    expect(await screen.findByTestId('aurora-best-location-card')).toHaveTextContent(other);
+  });
+
+  it('shows it again for a different night, even for the same location', async () => {
+    const view = await renderOn(THE_NIGHT);
+    await dismiss();
+    await reRead(view, ANOTHER_NIGHT, [liveScore()]);
+    expect(await screen.findByTestId('aurora-best-location-card')).toHaveTextContent(LOC);
+  });
+
+  it('does not strand focus on <body> when the card unmounts', async () => {
+    await renderOn(THE_NIGHT);
+    await screen.findByTestId('aurora-best-location-card');
+    const button = screen.getByTestId('aurora-best-location-dismiss');
+    button.focus();
+    fireEvent.click(button);
+    expect(screen.queryByTestId('aurora-best-location-card')).not.toBeInTheDocument();
+    expect(document.activeElement).not.toBe(document.body);
+  });
+});
+
 describe('the aurora medallions', () => {
   it('carry the live stars on the night in progress, exactly as before', async () => {
     await renderOn(THE_NIGHT);

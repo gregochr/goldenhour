@@ -57,7 +57,7 @@ squash-merges):
 | A1 | ramp + bloom injection in the kernel; `utils/auroraRamp.js` | | |
 | A2 | aurora mode paints the field (points, confidence, pins, chips) | | |
 | A3 | legend, toolbar key, peek-sheet swatch in aurora mode | | |
-| A4 | best-location card dismiss | | independent — may run beside A1 |
+| A4 | best-location card dismiss | pending | independent — may run beside A1; `bestAuroraDismissedKey` = `nightDate\|name`; focus to the window pill, else the first other pane control |
 | A5 | viewline: 10 Oct reconstruction + owner answers | | **owner-gated** (§5) |
 | A6 | viewline fix | | after A5 |
 

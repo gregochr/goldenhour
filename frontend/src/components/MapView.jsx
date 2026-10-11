@@ -2115,6 +2115,19 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const [astroConditionsByDate, setAstroConditionsByDate] = useState(new Map());
   const [auroraResultsByDate, setAuroraResultsByDate] = useState(new Map());
   const [flyTarget, setFlyTarget] = useState(null);
+  // The best-aurora card's dismissal (aurora heat A4): `${nightDate}|${best location name}`, so the
+  // card returns for a different night or a different top spot. Session-only, deliberately.
+  const [bestAuroraDismissedKey, setBestAuroraDismissedKey] = useState(null);
+  /**
+   * Where focus goes when the best-aurora card's ✕ unmounts the card: the window pill (this tab's
+   * return address) or, when no window exists to draw one, the first focusable control in the pane
+   * that is not inside the card itself. Null only if the pane holds nothing else to focus.
+   */
+  const dismissFocusTarget = (card) => {
+    if (winPillRef.current) return winPillRef.current;
+    const candidates = mapPaneRef.current?.querySelectorAll('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled])') ?? [];
+    return Array.from(candidates).find((el) => !card?.contains(el)) ?? null;
+  };
   const [fitBoundsTarget, setFitBoundsTarget] = useState(null);
   const [tideFetchedAt, setTideFetchedAt] = useState({});
   // Live Leaflet marker instances keyed by location name — used to open a popup
@@ -5558,7 +5571,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       )}
 
       {/* Best aurora location card — visible only in aurora mode */}
-      {isAuroraMode && bestAuroraLocation && (
+      {isAuroraMode && bestAuroraLocation
+        && bestAuroraDismissedKey !== `${nightDate}|${bestAuroraLocation.location.name}` && (
         <div
           style={overlayMode ? { margin: '10px 18px' } : undefined}
           className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-lg border border-indigo-500/30 bg-indigo-900/20 text-sm"
@@ -5579,6 +5593,20 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             className="shrink-0 px-3 py-1 text-xs font-medium rounded-full border border-indigo-500/40 text-indigo-300 bg-indigo-900/40 hover:bg-indigo-800/40 transition-colors"
           >
             Centre map
+          </button>
+          {/* ⚠️ The card unmounts on this press, so focus is handed to a surviving control first —
+              otherwise it falls to <body>, where the pane's key handler never fires. */}
+          <button
+            type="button"
+            onClick={(pressEvent) => {
+              dismissFocusTarget(pressEvent.currentTarget.closest('[data-testid="aurora-best-location-card"]'))?.focus();
+              setBestAuroraDismissedKey(`${nightDate}|${bestAuroraLocation.location.name}`);
+            }}
+            aria-label="Dismiss best aurora location"
+            data-testid="aurora-best-location-dismiss"
+            className="shrink-0 flex items-center justify-center w-11 h-11 -mr-2 rounded-full text-indigo-300 hover:text-indigo-100 hover:bg-indigo-800/40 transition-colors"
+          >
+            <span aria-hidden="true">✕</span>
           </button>
         </div>
       )}
