@@ -181,6 +181,31 @@ class StubAskEngineTest {
     }
 
     @Test
+    @DisplayName("a follow-up that turns the earlier places down is a new-place question even though 'those' "
+            + "points back: rank_spots runs and the turned-down places are not offered")
+    void turnedDownFollowUpExcludesTheEarlierPlaces() {
+        AskRun run = engine.run(question("neither of those, what is the best sunset?"), snapshot(null), USER,
+                threadOf(new ThreadExchange.PickRef(1L, TODAY_SUNSET), new ThreadExchange.PickRef(2L, TODAY_SUNSET)));
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.OK);
+        assertThat(run.trace()).extracting(AskTools.ToolCall::tool).contains("rank_spots");
+        assertThat(names(run)).isNotEmpty().doesNotContain("Whitby", "Saltburn");
+    }
+
+    @Test
+    @DisplayName("turned down with every eligible place already given: the stub's answer is the honest "
+            + "can't-answer naming what is missing")
+    void turnedDownEveryPlace_isACant() {
+        AskRun run = engine.run(question("something else, in the hills"), snapshot(null), USER,
+                threadOf(new ThreadExchange.PickRef(1L, TODAY_SUNSET), new ThreadExchange.PickRef(2L, TODAY_SUNSET),
+                        new ThreadExchange.PickRef(3L, TODAY_SUNSET), new ThreadExchange.PickRef(11L, TODAY_SUNSET),
+                        new ThreadExchange.PickRef(10L, TODAY_SUNSET)));
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.CANT);
+        assertThat(run.outcome().answer().missing()).isEqualTo(AskAnswerValidator.TURNED_DOWN_MISSING);
+    }
+
+    @Test
     @DisplayName("'the other one' points back at the earlier options too")
     void theOtherOneRanksTheThread() {
         AskRun run = engine.run(question("What about the other one?"), snapshot(null), USER,

@@ -1110,6 +1110,207 @@ class AskAnswerValidatorTest {
                         org.assertj.core.groups.Tuple.tuple("Whitby", 2));
     }
 
+    // -- the two pick rules: fresh (3, distinct locations) and ranking follow-up (4, distinct pairs) --
+
+    private static AskEvidence.Pair at(long id, String windowId) {
+        return new AskEvidence.Pair(id, windowId);
+    }
+
+    private static AskEvidence offeredByThread(int toolCalls, Set<AskEvidence.Pair> toolPairs,
+            AskEvidence.Pair... offered) {
+        return new AskEvidence(toolPairs, Set.of(), toolCalls).withThread(
+                new AskEvidence.ThreadFact(Set.of(offered), Set.of(), Set.of()));
+    }
+
+    @Test
+    @DisplayName("a ranking follow-up over the thread's picks keeps four, one place at two windows, ranks 1-4")
+    void picks_rankingFollowUpKeepsAPlaceAtTwoWindows() {
+        AskEvidence evidence = offeredByThread(0, Set.of(), at(1L, SUNSET_TODAY), at(1L, SUNRISE_TOMORROW),
+                at(2L, SUNSET_TODAY), at(2L, SUNRISE_TOMORROW));
+
+        Result result = validator.validate(answer("Ranked.",
+                new RawPick(2L, SUNRISE_TOMORROW, "a"), new RawPick(1L, SUNRISE_TOMORROW, "b"),
+                new RawPick(1L, SUNSET_TODAY, "c"), new RawPick(2L, SUNSET_TODAY, "d")),
+                twoWindowSnapshot(), evidence, AskScope.ALL, null, null);
+
+        assertThat(result.answer().picks()).extracting(AskPick::locationId, AskPick::windowId, AskPick::rank)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(2L, SUNRISE_TOMORROW, 1),
+                        org.assertj.core.groups.Tuple.tuple(1L, SUNRISE_TOMORROW, 2),
+                        org.assertj.core.groups.Tuple.tuple(1L, SUNSET_TODAY, 3),
+                        org.assertj.core.groups.Tuple.tuple(2L, SUNSET_TODAY, 4));
+    }
+
+    @Test
+    @DisplayName("a ranking follow-up drops a repeated (location, window) pair and stops at four")
+    void picks_rankingFollowUpIsDistinctByPairAndCappedAtFour() {
+        BriefingRegion region = AskFixtures.region("Coast", true, AskFixtures.slot(1L, "Whitby", 4),
+                AskFixtures.slot(2L, "Staithes", 5), AskFixtures.slot(3L, "Saltburn", 4));
+        BriefingWindow tonight = AskFixtures.window(TODAY.atTime(18, 0), DisplayVerdict.WORTH_IT, 5, null);
+        BriefingWindow morning = AskFixtures.window(TOMORROW.atTime(5, 40), DisplayVerdict.WORTH_IT, 5, null);
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(
+                AskFixtures.day(TODAY, AskFixtures.summary(TargetType.SUNSET, tonight, region)),
+                AskFixtures.day(TOMORROW, AskFixtures.summary(TargetType.SUNRISE, morning, region))),
+                List.of()));
+        AskEvidence evidence = offeredByThread(0, Set.of(), at(1L, SUNSET_TODAY), at(1L, SUNRISE_TOMORROW),
+                at(2L, SUNSET_TODAY), at(2L, SUNRISE_TOMORROW), at(3L, SUNSET_TODAY), at(3L, SUNRISE_TOMORROW));
+
+        Result result = validator.validate(answer("Ranked.",
+                rawPick(1L, "a"), rawPick(1L, "again"), new RawPick(1L, SUNRISE_TOMORROW, "b"),
+                rawPick(2L, "c"), new RawPick(2L, SUNRISE_TOMORROW, "d"), rawPick(3L, "e")),
+                snapshot, evidence, AskScope.ALL, null, null);
+
+        assertThat(result.answer().picks()).hasSize(AskAnswerValidator.MAX_RANKED_PICKS);
+        assertThat(result.answer().picks()).extracting(AskPick::locationId, AskPick::windowId)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(1L, SUNSET_TODAY),
+                        org.assertj.core.groups.Tuple.tuple(1L, SUNRISE_TOMORROW),
+                        org.assertj.core.groups.Tuple.tuple(2L, SUNSET_TODAY),
+                        org.assertj.core.groups.Tuple.tuple(2L, SUNRISE_TOMORROW));
+        assertThat(result.answer().picks().getFirst().why()).isEqualTo("a");
+    }
+
+    @Test
+    @DisplayName("a fresh answer keeps the old rule: the same four pairs from a tool give two picks, one per place")
+    void picks_freshQuestionStaysDistinctByLocation() {
+        AskEvidence evidence = evidenceOf(at(1L, SUNSET_TODAY), at(1L, SUNRISE_TOMORROW), at(2L, SUNSET_TODAY),
+                at(2L, SUNRISE_TOMORROW));
+
+        Result result = validator.validate(answer("Four.",
+                new RawPick(2L, SUNRISE_TOMORROW, "a"), new RawPick(1L, SUNRISE_TOMORROW, "b"),
+                new RawPick(1L, SUNSET_TODAY, "c"), new RawPick(2L, SUNSET_TODAY, "d")),
+                twoWindowSnapshot(), evidence, AskScope.ALL, null, null);
+
+        assertThat(result.answer().picks()).extracting(AskPick::locationId, AskPick::windowId)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple(2L, SUNRISE_TOMORROW),
+                        org.assertj.core.groups.Tuple.tuple(1L, SUNRISE_TOMORROW));
+    }
+
+    @Test
+    @DisplayName("a mixed answer, one pick that is not the thread's, falls under the fresh rule: one pick per place")
+    void picks_mixedAnswerFallsUnderTheFreshRule() {
+        // The thread offered Whitby at both windows; a new rank_spots returned Staithes at sunset.
+        AskEvidence evidence = offeredByThread(1, Set.of(at(2L, SUNSET_TODAY)),
+                at(1L, SUNSET_TODAY), at(1L, SUNRISE_TOMORROW));
+
+        Result result = validator.validate(answer("Mixed.",
+                rawPick(1L, "a"), new RawPick(1L, SUNRISE_TOMORROW, "b"), rawPick(2L, "c")),
+                twoWindowSnapshot(), evidence, AskScope.ALL, null, null);
+
+        assertThat(result.answer().picks()).extracting(AskPick::locationId, AskPick::windowId)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple(1L, SUNSET_TODAY),
+                        org.assertj.core.groups.Tuple.tuple(2L, SUNSET_TODAY));
+    }
+
+    @Test
+    @DisplayName("a follow-up submission with no thread picks at all is never a ranking: the fresh rule applies")
+    void picks_noThreadPicksIsNotARanking() {
+        AskEvidence evidence = new AskEvidence(Set.of(at(1L, SUNSET_TODAY), at(1L, SUNRISE_TOMORROW)),
+                Set.of(), 1).withThread(AskEvidence.ThreadFact.NONE);
+
+        Result result = validator.validate(answer("Two.", rawPick(1L, "a"),
+                new RawPick(1L, SUNRISE_TOMORROW, "b")), twoWindowSnapshot(), evidence, AskScope.ALL, null, null);
+
+        assertThat(result.answer().picks()).hasSize(1);
+    }
+
+    // -- turned-down places -------------------------------------------------------------------
+
+    private static AskEvidence turnedDownEvidence(int toolCalls, Set<AskEvidence.Pair> toolPairs,
+            Set<AskEvidence.Pair> offered, Set<Long> turnedDown) {
+        return new AskEvidence(toolPairs, Set.of(), toolCalls).withThread(
+                new AskEvidence.ThreadFact(offered, Set.of(), Set.of(), turnedDown));
+    }
+
+    @Test
+    @DisplayName("turned down: a submitted pick at an earlier place is dropped at every window, the others "
+            + "are kept, and the count of dropped picks is reported")
+    void turnedDown_dropsEarlierPlacesAtEveryWindow() {
+        // Whitby (1) was offered at sunset and turned down; a new rank_spots returned both places at both windows.
+        AskEvidence evidence = turnedDownEvidence(1, Set.of(at(1L, SUNSET_TODAY), at(1L, SUNRISE_TOMORROW),
+                at(2L, SUNSET_TODAY)), Set.of(at(1L, SUNSET_TODAY)), Set.of(1L));
+
+        Result result = validator.validate(answer("Different places.", rawPick(1L, "a"),
+                new RawPick(1L, SUNRISE_TOMORROW, "b"), rawPick(2L, "c")),
+                twoWindowSnapshot(), evidence, AskScope.ALL, null, null);
+
+        assertThat(result.answer().picks()).extracting(AskPick::locationId).containsExactly(2L);
+        assertThat(result.answer().picks().getFirst().rank()).isEqualTo(1);
+        assertThat(result.turnedDownDropped()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("not turned down: the same submission is unchanged, nothing is dropped or counted")
+    void turnedDown_absent_leavesTheAnswerUnchanged() {
+        AskEvidence evidence = turnedDownEvidence(1, Set.of(at(1L, SUNSET_TODAY), at(1L, SUNRISE_TOMORROW),
+                at(2L, SUNSET_TODAY)), Set.of(at(1L, SUNSET_TODAY)), Set.of());
+
+        Result result = validator.validate(answer("Same.", rawPick(1L, "a"),
+                new RawPick(1L, SUNRISE_TOMORROW, "b"), rawPick(2L, "c")),
+                twoWindowSnapshot(), evidence, AskScope.ALL, null, null);
+
+        assertThat(result.answer().picks()).extracting(AskPick::locationId).containsExactly(1L, 2L);
+        assertThat(result.turnedDownDropped()).isZero();
+    }
+
+    @Test
+    @DisplayName("turned down with nothing else surviving: an honest can't-answer in our words, never the "
+            + "model's, not a failed run")
+    void turnedDown_nothingElse_isACant() {
+        AskEvidence evidence = turnedDownEvidence(1, Set.of(at(1L, SUNSET_TODAY)),
+                Set.of(at(1L, SUNSET_TODAY)), Set.of(1L));
+
+        Result result = validator.validate(answer("Whitby again, it is the best.", rawPick(1L, "a")),
+                twoWindowSnapshot(), evidence, AskScope.ALL, null, null);
+
+        assertThat(result.accepted()).isTrue();
+        assertThat(result.answer().answerable()).isFalse();
+        assertThat(result.answer().missing()).isEqualTo(AskAnswerValidator.TURNED_DOWN_MISSING)
+                .isEqualTo("the other places are not rated well enough");
+        assertThat(result.answer().summary()).isEqualTo(AskAnswerValidator.TURNED_DOWN_SUMMARY);
+        assertThat(result.answer().picks()).isEmpty();
+        assertThat(result.turnedDownDropped()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("turned down, the model submitted no pick at all after a tool call that returned nothing new: "
+            + "the same honest can't-answer")
+    void turnedDown_emptyAnswerAfterAToolCall_isACant() {
+        AskEvidence evidence = turnedDownEvidence(1, Set.of(), Set.of(at(1L, SUNSET_TODAY)), Set.of(1L));
+
+        Result result = validator.validate(answer("Nothing else."), twoWindowSnapshot(), evidence,
+                AskScope.ALL, null, null);
+
+        assertThat(result.answer().answerable()).isFalse();
+        assertThat(result.answer().missing()).isEqualTo(AskAnswerValidator.TURNED_DOWN_MISSING);
+        assertThat(result.turnedDownDropped()).isZero();
+    }
+
+    @Test
+    @DisplayName("turned down with an empty answer and no tool call is still the old model fault, not a can't-answer")
+    void turnedDown_emptyAnswerWithNoToolCall_isStillDiscarded() {
+        AskEvidence evidence = turnedDownEvidence(0, Set.of(), Set.of(at(1L, SUNSET_TODAY)), Set.of(1L));
+
+        Result result = validator.validate(answer("Nothing."), twoWindowSnapshot(), evidence, AskScope.ALL,
+                null, null);
+
+        assertThat(result.accepted()).isFalse();
+    }
+
+    @Test
+    @DisplayName("turned down: a pick the model was not offered is still dropped for that reason, and is not "
+            + "counted as a turned-down drop")
+    void turnedDown_countsOnlyTurnedDownPicks() {
+        AskEvidence evidence = turnedDownEvidence(1, Set.of(at(2L, SUNSET_TODAY)), Set.of(at(1L, SUNSET_TODAY)),
+                Set.of(1L));
+
+        Result result = validator.validate(answer("One.", rawPick(2L, "a"), rawPick(99L, "unknown")),
+                twoWindowSnapshot(), evidence, AskScope.ALL, null, null);
+
+        assertThat(result.answer().picks()).extracting(AskPick::locationId).containsExactly(2L);
+        assertThat(result.turnedDownDropped()).isZero();
+    }
+
     @Test
     @DisplayName("an event the thread offered survives with the served label and safety note, never the model's")
     void thread_offeredEvent_survives() {

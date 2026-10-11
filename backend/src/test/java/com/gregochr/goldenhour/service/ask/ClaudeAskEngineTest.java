@@ -834,7 +834,8 @@ class ClaudeAskEngineTest {
     void staleThreadIsACant() {
         engine.shutdown();
         engine = new ClaudeAskEngine(client, properties, jobRuns, driveTimes, new AskAnswerValidator(),
-                new AskPromptBuilder(), new ObjectMapper(), clock, () -> Map.of(99L, "Dunstanburgh"));
+                new AskPromptBuilder(), new ObjectMapper(), clock,
+                () -> Map.of(99L, new AskLocationNames.Place("Dunstanburgh", 55.5, -1.6)));
         when(client.createAskMessage(any(), any(), any())).thenReturn(submit(answer(pick(99, WINDOW))));
 
         AskRun run = engine.run(question("Rank those"), snapshot(null), USER,

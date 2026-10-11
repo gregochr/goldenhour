@@ -195,7 +195,7 @@ class AskThreadContextTest {
     @DisplayName("a pick whose slot has left the forecast says so, by the name the repository knows; with "
             + "no name it says a place no longer listed")
     void noLongerInTheForecast() {
-        when(names.byId()).thenReturn(Map.of(41L, "Dunstanburgh"));
+        when(names.byId()).thenReturn(Map.of(41L, new AskLocationNames.Place("Dunstanburgh", 55.5, -1.6)));
 
         List<String> lines = context(thread(exchange(
                 List.of(new PickRef(41L, SUNSET_TODAY), new PickRef(42L, SUNSET_TODAY)), List.of())))
@@ -253,6 +253,42 @@ class AskThreadContextTest {
                 .getFirst().eventLines();
 
         assertThat(lines).containsExactly("King tide · Wednesday", "AURORA · 2026-10-07 · no longer flagged");
+    }
+
+    private AskThreadContext turnedDownContext(boolean turnedDown, AskThread thread) {
+        AskSnapshot snapshot = snapshot(4);
+        AskTools tools = new AskTools(snapshot, PRO, AskScope.ALL, driveTimes, new ObjectMapper());
+        return AskThreadContext.of(thread, snapshot, AskScope.ALL, tools, names, turnedDown);
+    }
+
+    @Test
+    @DisplayName("turned down: every earlier pick's place, live or gone, is excluded and says the reader has "
+            + "turned it down; the prompt is told")
+    void turnedDownMarksEveryEarlierPlace() {
+        when(names.byId()).thenReturn(Map.of(41L, new AskLocationNames.Place("Dunstanburgh", 55.5, -1.6)));
+        AskThreadContext context = turnedDownContext(true, thread(
+                exchange(List.of(ref(1), new PickRef(41L, SUNSET_TODAY)), List.of()),
+                exchange(List.of(ref(3)), List.of())));
+
+        assertThat(context.turnedDown()).isTrue();
+        assertThat(context.fact().turnedDown()).containsExactlyInAnyOrder(1L, 41L, 3L);
+        assertThat(context.exchanges().get(0).pickLines()).allSatisfy(line ->
+                assertThat(line).endsWith(AskThreadContext.TURNED_DOWN_MARK));
+        assertThat(context.exchanges().get(0).pickLines().get(1))
+                .isEqualTo("2. Dunstanburgh · no longer in the forecast" + AskThreadContext.TURNED_DOWN_MARK);
+        assertThat(context.exchanges().get(1).pickLines().getFirst())
+                .endsWith(" · the reader has turned this place down");
+    }
+
+    @Test
+    @DisplayName("not turned down: no place is excluded and no line carries the mark")
+    void notTurnedDownMarksNothing() {
+        AskThreadContext context = turnedDownContext(false, thread(exchange(List.of(ref(1)), List.of())));
+
+        assertThat(context.turnedDown()).isFalse();
+        assertThat(context.fact().turnedDown()).isEmpty();
+        assertThat(context.exchanges().getFirst().pickLines().getFirst())
+                .doesNotContain(AskThreadContext.TURNED_DOWN_MARK);
     }
 
     @Test

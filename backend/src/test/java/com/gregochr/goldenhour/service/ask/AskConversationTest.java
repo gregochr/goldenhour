@@ -259,6 +259,23 @@ class AskConversationTest {
     }
 
     @Test
+    @DisplayName("a follow-up whose question turns the earlier places down excludes their locations, so the "
+            + "validator drops them; the same follow-up without the phrase excludes nothing")
+    void turnedDownQuestionExcludesTheEarlierPlaces() {
+        AskRunOptions thread = threadOf(new ThreadExchange.PickRef(1L, SUNSET_TODAY));
+
+        AskConversation turned = open(question("Neither of those, what else is good?"), snapshot(null), USER,
+                thread);
+        AskConversation plain = open(question("What else is good?"), snapshot(null), USER, thread);
+
+        assertThat(turned.thread().fact().turnedDown()).containsExactly(1L);
+        assertThat(plain.thread().fact().turnedDown()).isEmpty();
+        turned.tools().rankSpots(new AskTools.RankSpotsArgs(null, null, null, null, null, 3));
+        AskRun run = turned.submit(picks(1L, 2L), 1, List.of());
+        assertThat(run.outcome().answer().picks()).extracting(AskPick::locationId).containsExactly(2L);
+    }
+
+    @Test
     @DisplayName("a thread pick reaches the validator as offered evidence: submitted with no tool call it is "
             + "an OK run, where the same answer to a fresh question is FAILED")
     void submitAcceptsAThreadPickWithNoTool() {
@@ -291,7 +308,7 @@ class AskConversationTest {
     @DisplayName("the location names the deps carry reach the thread's rendering, for a place that has gone")
     void depsNamesReachTheThread() {
         AskConversation.Deps named = new AskConversation.Deps(validator, driveTimes, new ObjectMapper(),
-                () -> Map.of(9L, "Dunstanburgh"));
+                () -> Map.of(9L, new AskLocationNames.Place("Dunstanburgh", 55.5, -1.6)));
         AskConversation.Opening opening = AskConversation.open(question("rank those"), snapshot(null), USER,
                 threadOf(new ThreadExchange.PickRef(9L, SUNSET_TODAY)), named);
 

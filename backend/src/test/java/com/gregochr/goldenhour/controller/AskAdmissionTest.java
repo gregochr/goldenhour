@@ -88,7 +88,7 @@ class AskAdmissionTest {
                 new AskSpendGuard(properties, jobRuns, mock(AdminAlertService.class), clock),
                 mock(AskReadyServing.class), mock(DriveTimeResolver.class), mock(AskPreFilter.class),
                 mock(AskIntentMatcher.class), mock(AskAnswerCache.class), mock(AskLog.class),
-                new AskDenialCounter(clock), clock);
+                new AskDenialCounter(clock), clock, 22);
         AskController controller = new AskController(mock(AskReadyServing.class),
                 mock(RegionRepository.class), service);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)

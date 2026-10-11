@@ -284,15 +284,15 @@ class AskThreadValidationTest {
     }
 
     @Test
-    @DisplayName("a null pick is INVALID and four picks are too many: an answer carries at most three")
+    @DisplayName("a null pick is INVALID and five picks are too many: a ranking follow-up carries at most four")
     void pickCount() {
         assertThat(refused(List.of(withPicks(Arrays.asList(new PickRef(1L, "2026-10-11_sunrise"), null)))).code())
                 .isEqualTo(AskErrorCode.INVALID);
         PickRef pick = new PickRef(1L, "2026-10-11_sunrise");
 
-        assertThat(AskThreadValidation.validate(List.of(withPicks(List.of(pick, pick, pick))), MAX).size())
+        assertThat(AskThreadValidation.validate(List.of(withPicks(List.of(pick, pick, pick, pick))), MAX).size())
                 .isEqualTo(1);
-        assertThat(refused(List.of(withPicks(List.of(pick, pick, pick, pick)))).code())
+        assertThat(refused(List.of(withPicks(List.of(pick, pick, pick, pick, pick)))).code())
                 .isEqualTo(AskErrorCode.INVALID);
     }
 

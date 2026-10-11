@@ -6,6 +6,9 @@ import com.gregochr.goldenhour.service.ask.AskAnswerValidator.BestAnchor;
 import com.gregochr.goldenhour.service.ask.AskAnswerValidator.Raw;
 import com.gregochr.goldenhour.service.ask.AskAnswerValidator.Result;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -31,6 +34,8 @@ import java.util.List;
  * without going through it.
  */
 final class AskConversation {
+
+    private static final Logger LOG = LoggerFactory.getLogger(AskConversation.class);
 
     /**
      * What a conversation is built from, held once by each engine.
@@ -116,11 +121,15 @@ final class AskConversation {
             return new Opening.Refused(AskRun.failed("the question is empty", 0, false, List.of()));
         }
         AskScope scope = question.scope();
-        AskTools tools = new AskTools(snapshot, user, scope, deps.driveTimes(), deps.mapper());
+        // One lookup of the enabled locations, shared by nearHome's coordinates and the thread's names:
+        // however many readers ask, the conversation pays for one query.
+        AskLocationNames places = AskLocationNames.memoised(deps.names());
+        AskTools tools = new AskTools(snapshot, user, scope, deps.driveTimes(), deps.mapper(), places);
         ReadyQuestion eventsQuestion = ReadyIntentRules.eventsQuestion(question).orElse(null);
         // The thread's earlier picks and events are reconciled with the live forecast once, here: what
         // is still there is offered to the validator beside what the tools return.
-        AskThreadContext thread = AskThreadContext.of(opts.thread(), snapshot, scope, tools, deps.names());
+        AskThreadContext thread = AskThreadContext.of(opts.thread(), snapshot, scope, tools, places,
+                ReadyIntentRules.turnsDownEarlierPlaces(question));
         return new Opening.Open(new AskConversation(snapshot, scope, opts, tools, eventsQuestion,
                 deps.validator(), thread));
     }
@@ -184,6 +193,10 @@ final class AskConversation {
         List<AskTools.ToolCall> full = withSubmit(trace, false);
         Result result = validator.validate(raw, snapshot, tools.evidence().withThread(thread.fact()), scope,
                 options.anchor(), eventsQuestion);
+        if (result.turnedDownDropped() > 0) {
+            LOG.info("Ask follow-up turned earlier places down: dropped {} submitted pick(s) at them",
+                    result.turnedDownDropped());
+        }
         if (!result.accepted()) {
             return fail("the answer was discarded: " + result.reason(), turns, full);
         }

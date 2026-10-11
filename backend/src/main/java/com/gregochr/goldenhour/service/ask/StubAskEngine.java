@@ -153,6 +153,10 @@ public class StubAskEngine implements AskEngine {
      */
     private static boolean asksAboutEarlierPicks(String text, AskQuestion question, AskSnapshot snapshot) {
         List<String> words = PhraseAskPreFilter.words(text);
+        if (ReadyIntentRules.turnsDownEarlierPlaces(words)) {
+            // "Neither of those", "something else": the reader wants new places, never the earlier ones ranked.
+            return false;
+        }
         boolean pointsBack = words.stream().anyMatch(EARLIER_WORDS::contains)
                 || IntStream.range(0, words.size() - 1)
                         .anyMatch(i -> "the".equals(words.get(i)) && "other".equals(words.get(i + 1)));
@@ -235,10 +239,11 @@ public class StubAskEngine implements AskEngine {
         List<SpotInfo> ranked = spots(tools.rankSpots(
                 new RankSpotsArgs(windowIds, null, coastal, tide, null, AskTools.MAX_SPOTS)));
 
+        Set<Long> turnedDown = conversation.thread().fact().turnedDown();
         List<SpotInfo> chosen = new ArrayList<>();
         Set<Long> seen = new HashSet<>();
         for (SpotInfo spot : concat(lead, ranked)) {
-            if (chosen.size() < PICKS && seen.add(spot.locationId())) {
+            if (chosen.size() < PICKS && !turnedDown.contains(spot.locationId()) && seen.add(spot.locationId())) {
                 chosen.add(spot);
             }
         }

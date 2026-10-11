@@ -401,4 +401,53 @@ class ReadyIntentRulesTest {
 
         assertThat(ReadyIntentRules.eventsQuestion(question)).contains(ReadyQuestion.valueOf(expected));
     }
+
+    // -- turning the earlier places down ----------------------------------------------------------
+
+    private static boolean turnsDown(String typed) {
+        AskQuestionSanitiser.Result cleaned = AskQuestionSanitiser.sanitiseTyped(typed);
+        assertThat(cleaned.ok()).as(typed).isTrue();
+        return ReadyIntentRules.turnsDownEarlierPlaces(
+                new AskQuestion(cleaned.sanitised(), cleaned.normalised(), null, AskScope.ALL, "plan"));
+    }
+
+    @ParameterizedTest(name = "\"{0}\" turns the earlier places down")
+    @ValueSource(strings = {
+            "Hmm... neither of those take my fancy. I've been to both recently. What's the best sunset option?",
+            "Neither", "Not those, something nearer",
+            "None of those please", "I've been to both", "I have been to those", "Been to them all",
+            "I've been to all of them", "I don't fancy either of those", "I dont fancy them",
+            "Something else?", "Is there somewhere else?", "Other than those, where is good?",
+            "Apart from those, what is best?", "Instead of those, anything on the coast?",
+            "NEITHER OF THOSE", "i\u2019ve been to both"})
+    @DisplayName("each turn-down phrase, in the words the reader types them, is a turn-down")
+    void turnsDown_phrases(String typed) {
+        assertThat(turnsDown(typed)).isTrue();
+    }
+
+    @ParameterizedTest(name = "\"{0}\" does not turn anything down")
+    @ValueSource(strings = {
+            "I've been to Bamburgh", "I've been to Bamburgh, how is it tomorrow?", "Rank those",
+            "Which of those is best?", "those", "Anything closer to home?", "What about the other one?",
+            "Is Whitby better than the others?", "Not today, tomorrow?", "None", "Something good tonight?",
+            "Where else is the tide right?", "Best sunset option?", "Neighbours of Whitby",
+            "I have not been to those", "I haven't been to those", "I've never been to those"})
+    @DisplayName("a place named alone, 'those' alone, a comparison and a different word that merely shares one "
+            + "are not turn-downs: the rule is whole-word phrases and nothing looser")
+    void turnsDown_negatives(String typed) {
+        assertThat(turnsDown(typed)).isFalse();
+    }
+
+    @Test
+    @DisplayName("the word test is whole-word and order-sensitive: a phrase split by another word or reversed "
+            + "does not match, and empty words do not match")
+    void turnsDown_wordTest() {
+        assertThat(ReadyIntentRules.turnsDownEarlierPlaces(List.of("none", "really", "of", "those"))).isFalse();
+        assertThat(ReadyIntentRules.turnsDownEarlierPlaces(List.of("those", "not"))).isFalse();
+        assertThat(ReadyIntentRules.turnsDownEarlierPlaces(List.of("neither"))).isTrue();
+        assertThat(ReadyIntentRules.turnsDownEarlierPlaces(List.of())).isFalse();
+        assertThat(ReadyIntentRules.turnsDownEarlierPlaces((AskQuestion) null)).isFalse();
+        assertThat(ReadyIntentRules.turnsDownEarlierPlaces(
+                new AskQuestion(null, null, null, AskScope.ALL, "plan"))).isFalse();
+    }
 }

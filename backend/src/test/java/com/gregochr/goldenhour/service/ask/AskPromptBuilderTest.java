@@ -75,13 +75,26 @@ class AskPromptBuilderTest {
     }
 
     @Test
-    @DisplayName("the model may never ask the reader anything, and 'close to home' is a drive filter it applies "
-            + "itself (production 2026-10-10: it asked how far the reader would travel and the question failed)")
-    void neverAsksAndReadsCloseToHomeAsADriveLimit() {
-        String typed = builder.systemPrompt(MONDAY, TestScopes.of(), null, true);
+    @DisplayName("the model may never ask the reader anything, and 'close to home' is nearHome, a number of "
+            + "minutes is maxDriveMinutes, 'closer' narrows the earlier drive (the 60-minute rule is gone)")
+    void neverAsksAndReadsCloseToHomeAsNearHome() {
+        String typed = builder.systemPrompt(MONDAY, TestScopes.of(), null, true).replaceAll("\\s+", " ");
 
         assertThat(typed).contains("never ask the reader a question")
-                .contains("close to home, near, nearby or local without a time, pass 60");
+                .contains("'Close to home', 'near', 'nearby' or 'local' with no number: pass rank_spots' "
+                        + "nearHome true")
+                .contains("A number of minutes: pass it as maxDriveMinutes")
+                .contains("'Closer' in a follow-up: pass a maxDriveMinutes smaller than the earlier picks' "
+                        + "drive, or nearHome true if it was not used")
+                .contains("within N miles of home")
+                .contains("never say within reach")
+                .doesNotContain("pass 60").doesNotContain("an hour's drive");
+    }
+
+    @Test
+    @DisplayName("a user-less prompt says nothing of nearHome")
+    void userLessPromptDoesNotMentionNearHome() {
+        assertThat(builder.systemPrompt(MONDAY, TestScopes.of(), null, false)).doesNotContain("nearHome");
     }
 
     @Test
@@ -144,6 +157,39 @@ class AskPromptBuilderTest {
                 .isEqualTo(golden("user-message-thread.txt"));
     }
 
+    private static AskThreadContext turnedDownThread(boolean turnedDown) {
+        BriefingRegion coast = AskFixtures.region("Coast", true, AskFixtures.coastal(1L, "Whitby", 4, "HIGH", true));
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(
+                List.of(AskFixtures.sunsetDay(MONDAY, null, coast)), List.of()));
+        AskTools tools = new AskTools(snapshot, new AskUserContext(7L, UserRole.PRO_USER, false),
+                TestScopes.of(), mock(DriveTimeResolver.class), new ObjectMapper());
+        ThreadExchange earlier = new ThreadExchange("best sunset?", "Whitby.",
+                List.of(new PickRef(1L, "2026-10-05_sunset")), List.of(), AskFixtures.GENERATED_AT, false);
+        return AskThreadContext.of(new AskThread(List.of(earlier)), snapshot, TestScopes.of(), tools,
+                AskLocationNames.NONE, turnedDown);
+    }
+
+    @Test
+    @DisplayName("turned down: the earlier pick is marked, and the message says turned-down places must not be "
+            + "picked again, before the question")
+    void turnedDownUserMessage() {
+        String message = builder.userMessage("neither of those, best sunset?", turnedDownThread(true));
+
+        assertThat(message).contains("1. Whitby (Coast) · locationId 1")
+                .contains(" · the reader has turned this place down\n")
+                .contains("Turned-down places must not be picked again")
+                .endsWith("Now the reader asks: \"neither of those, best sunset?\"");
+        assertThat(message.indexOf("Turned-down places")).isLessThan(message.indexOf("Now the reader asks"));
+    }
+
+    @Test
+    @DisplayName("not turned down: neither the mark nor the rule line appears")
+    void notTurnedDownUserMessage() {
+        String message = builder.userMessage("best sunset?", turnedDownThread(false));
+
+        assertThat(message).doesNotContain("turned this place down").doesNotContain("Turned-down");
+    }
+
     private static AskThreadContext goldenThread() {
         LocalDate wednesday = MONDAY.plusDays(2);
         BriefingRegion coast = AskFixtures.region("Coast", true,
@@ -168,7 +214,7 @@ class AskPromptBuilderTest {
                 List.of(new PickRef(3L, "2026-10-05_sunset"), new PickRef(41L, "2026-10-05_sunrise")),
                 List.of(new EventRef("AURORA", wednesday)), AskFixtures.GENERATED_AT, false);
         return AskThreadContext.of(new AskThread(List.of(first, second)), snapshot, scope, tools,
-                () -> Map.of(41L, "Dunstanburgh"));
+                () -> Map.of(41L, new AskLocationNames.Place("Dunstanburgh", 55.5, -1.6)));
     }
 
     private static String golden(String name) throws Exception {

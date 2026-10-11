@@ -50,7 +50,7 @@ import java.nio.charset.StandardCharsets;
  * <p><b>How the budget is sized.</b> The service refuses a thread question over 200 raw code points and a
  * thread summary over 500 raw code points ({@code AskThreadValidation}, 400 {@code INVALID}), counted before
  * any collapse. One exchange as the client writes it is then at most 700 astral code points at 4 bytes of
- * UTF-8 (2,800 bytes) plus three picks, ten events, a {@code generatedAt} and the keys, about 4 KiB in all.
+ * UTF-8 (2,800 bytes) plus four picks, ten events, a {@code generatedAt} and the keys, about 4 KiB in all.
  * {@value #PER_EXCHANGE_BYTES} bytes per exchange also covers the same text if a client escaped it (700 x 12 =
  * 8,400 bytes plus the structure, about 9.5 KiB), which is a bound on escaped <em>text</em>, not a guarantee
  * for escaped keys or padding. The limit is {@value #BASE_BYTES} bytes for the outer body plus

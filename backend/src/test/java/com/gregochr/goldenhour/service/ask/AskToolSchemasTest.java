@@ -63,15 +63,41 @@ class AskToolSchemasTest {
     }
 
     @Test
-    @DisplayName("a user-less conversation is not even told about maxDriveMinutes")
+    @DisplayName("a user-less conversation is not even told about maxDriveMinutes or nearHome")
     void driveLimitIsAdvertisedOnlyWithAUser() {
         Set<String> withUser = properties(tool(AskToolSchemas.tools(true), AskToolSchemas.RANK_SPOTS));
         Set<String> userLess = properties(tool(AskToolSchemas.tools(false), AskToolSchemas.RANK_SPOTS));
 
-        assertThat(withUser).contains("maxDriveMinutes");
-        assertThat(userLess).doesNotContain("maxDriveMinutes")
-                .containsExactlyInAnyOrderElementsOf(
-                        withUser.stream().filter(p -> !p.equals("maxDriveMinutes")).toList());
+        assertThat(withUser).contains("maxDriveMinutes", "nearHome");
+        assertThat(userLess).doesNotContain("maxDriveMinutes", "nearHome")
+                .containsExactlyInAnyOrderElementsOf(withUser.stream()
+                        .filter(p -> !p.equals("maxDriveMinutes") && !p.equals("nearHome")).toList());
+    }
+
+    @Test
+    @DisplayName("nearHome is a boolean whose description says the straight-line saved radius and to quote it as "
+            + "'within N miles of home'; maxDriveMinutes no longer carries the 60-minute default")
+    void nearHomeIsDescribedAsTheSavedRadius() {
+        Tool rank = tool(AskToolSchemas.tools(true), AskToolSchemas.RANK_SPOTS);
+
+        assertThat(property(rank, "nearHome").get("type").asText()).isEqualTo("boolean");
+        assertThat(property(rank, "nearHome").get("description").asText())
+                .contains("straight-line miles").contains("within N miles of home");
+        assertThat(property(rank, "maxDriveMinutes").get("description").asText()).doesNotContain("60");
+    }
+
+    @Test
+    @DisplayName("a follow-up's submit_answer allows four picks for a ranking; a fresh question's stays at three, "
+            + "and nothing else differs")
+    void followUpAllowsAFourthPick() {
+        Tool fresh = tool(AskToolSchemas.tools(true, false), AskToolSchemas.SUBMIT_ANSWER);
+        Tool followUp = tool(AskToolSchemas.tools(true, true), AskToolSchemas.SUBMIT_ANSWER);
+
+        assertThat(property(fresh, "picks").get("maxItems").intValue()).isEqualTo(AskAnswerValidator.MAX_PICKS);
+        assertThat(property(followUp, "picks").get("maxItems").intValue())
+                .isEqualTo(AskAnswerValidator.MAX_RANKED_PICKS);
+        assertThat(AskToolSchemas.tools(true)).hasToString(AskToolSchemas.tools(true, false).toString());
+        assertThat(properties(followUp)).isEqualTo(properties(fresh));
     }
 
     @Test
@@ -116,6 +142,7 @@ class AskToolSchemasTest {
     void schemasAreUnchangedFromTheGolden() throws Exception {
         assertThat(AskToolSchemas.tools(true).toString()).isEqualTo(golden("tool-schemas-with-user.txt"));
         assertThat(AskToolSchemas.tools(false).toString()).isEqualTo(golden("tool-schemas-user-less.txt"));
+        assertThat(AskToolSchemas.tools(true, true).toString()).isEqualTo(golden("tool-schemas-with-user-thread.txt"));
     }
 
     private static String golden(String name) throws Exception {

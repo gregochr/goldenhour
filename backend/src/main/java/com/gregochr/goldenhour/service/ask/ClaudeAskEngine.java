@@ -200,7 +200,7 @@ public class ClaudeAskEngine implements AskEngine {
         // Built once: re-joining the thread reads the asker's drive times and, for a place that has left
         // the forecast, one query for names, neither of which should repeat each turn.
         String userMessage = promptBuilder.userMessage(question.sanitised(), thread);
-        List<Tool> toolDefinitions = AskToolSchemas.tools(user.hasUser());
+        List<Tool> toolDefinitions = AskToolSchemas.tools(user.hasUser(), !thread.isEmpty());
         List<AskTools.ToolCall> trace = new ArrayList<>();
         List<Message> assistantTurns = new ArrayList<>();
         List<List<ContentBlockParam>> toolResults = new ArrayList<>();

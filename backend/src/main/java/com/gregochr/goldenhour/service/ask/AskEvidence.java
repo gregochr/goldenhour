@@ -84,11 +84,15 @@ public record AskEvidence(Set<Pair> pairs, Set<EventFact> events, int toolCalls,
      *                     question's scope
      * @param events       the earlier events still flagged in scope, as the live forecast serves them
      *                     (label, date and safety note are the served ones)
+     * @param turnedDown   the locations of every earlier pick, when the follow-up turns the earlier places
+     *                     down ({@code ReadyIntentRules.turnsDownEarlierPlaces}); empty otherwise. The
+     *                     validator drops any submitted pick at one of them, at every window
      */
-    public record ThreadFact(Set<Pair> picks, Set<Pair> droppedPicks, Set<EventFact> events) {
+    public record ThreadFact(Set<Pair> picks, Set<Pair> droppedPicks, Set<EventFact> events,
+            Set<Long> turnedDown) {
 
         /** No thread: nothing offered. */
-        public static final ThreadFact NONE = new ThreadFact(Set.of(), Set.of(), Set.of());
+        public static final ThreadFact NONE = new ThreadFact(Set.of(), Set.of(), Set.of(), Set.of());
 
         /** Canonical constructor: immutable copies, in order; null reads as empty. */
         public ThreadFact {
@@ -96,6 +100,19 @@ public record AskEvidence(Set<Pair> pairs, Set<EventFact> events, int toolCalls,
             droppedPicks = droppedPicks == null ? Set.of()
                     : Collections.unmodifiableSet(new LinkedHashSet<>(droppedPicks));
             events = events == null ? Set.of() : Collections.unmodifiableSet(new LinkedHashSet<>(events));
+            turnedDown = turnedDown == null ? Set.of()
+                    : Collections.unmodifiableSet(new LinkedHashSet<>(turnedDown));
+        }
+
+        /**
+         * A thread fact that turns nothing down.
+         *
+         * @param picks        the earlier picks still offered
+         * @param droppedPicks the earlier picks that are not
+         * @param events       the earlier events still flagged
+         */
+        public ThreadFact(Set<Pair> picks, Set<Pair> droppedPicks, Set<EventFact> events) {
+            this(picks, droppedPicks, events, Set.of());
         }
 
         /**
