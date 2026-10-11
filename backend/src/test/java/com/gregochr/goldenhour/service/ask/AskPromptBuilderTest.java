@@ -81,8 +81,8 @@ class AskPromptBuilderTest {
         String typed = builder.systemPrompt(MONDAY, TestScopes.of(), null, true).replaceAll("\\s+", " ");
 
         assertThat(typed).contains("never ask the reader a question")
-                .contains("'Close to home', 'near', 'nearby' or 'local' with no number: pass rank_spots' "
-                        + "nearHome true")
+                .contains("'Close to home', 'near', 'nearby' or 'local' with no number: pass nearHome "
+                        + "true to rank_spots, or to rank_night_spots for a night question")
                 .contains("A number of minutes: pass it as maxDriveMinutes")
                 .contains("'Closer' in a follow-up: pass a maxDriveMinutes smaller than the earlier picks' "
                         + "drive, or nearHome true if it was not used")
@@ -122,6 +122,25 @@ class AskPromptBuilderTest {
                 .contains("aurora ratings are a Pro feature, say so in one clause")
                 .contains("quotes the clearSky and Bortle facts")
                 .contains("astroWindowId for the sky, auroraWindowId for the northern lights");
+    }
+
+    @Test
+    @DisplayName("no shared rule restricts picks, nearby searches or follow-up searches to rank_spots alone: a "
+            + "night question's prompt names rank_night_spots in each, for a fresh question and a follow-up")
+    void sharedRulesAdmitTheNightTool() {
+        for (boolean thread : new boolean[] {false, true}) {
+            String prompt = builder.systemPrompt(MONDAY, TestScopes.of(), null, true, thread)
+                    .replaceAll("\\s+", " ");
+
+            assertThat(prompt)
+                    .contains("that rank_spots returned or, for a night question, that rank_night_spots returned")
+                    .contains("pass nearHome true to rank_spots, or to rank_night_spots for a night question")
+                    .doesNotContain("that rank_spots returned. ")
+                    .doesNotContain("pass rank_spots' nearHome");
+        }
+        assertThat(builder.systemPrompt(MONDAY, TestScopes.of(), null, true, true).replaceAll("\\s+", " "))
+                .contains("Call `rank_spots` (or `rank_night_spots` for a night question) again")
+                .doesNotContain("Call `rank_spots` again");
     }
 
     @Test
@@ -166,8 +185,8 @@ class AskPromptBuilderTest {
         assertThat(threaded).startsWith(fresh).endsWith(AskPromptBuilder.THREAD_RULES);
         assertThat(threaded.replaceAll("\\s+", " ")).contains("Earlier picks are real candidates: you may "
                 + "rank, compare, or exclude them. Resolve 'closer', 'earlier', 'the other one', 'those' "
-                + "against them. Call `rank_spots` again when the reader asks for new places; you do not "
-                + "need to for a question only about the earlier picks.")
+                + "against them. Call `rank_spots` (or `rank_night_spots` for a night question) again when "
+                + "the reader asks for new places; you do not need to for a question only about the earlier picks.")
                 .contains("Never use emoji or symbols other than ★ in the summary.")
                 .contains("no longer in the forecast, or outside the area, cannot be a pick");
     }

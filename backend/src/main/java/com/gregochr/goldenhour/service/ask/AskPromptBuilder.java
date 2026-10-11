@@ -41,9 +41,9 @@ public class AskPromptBuilder {
             - summary: one or two plain sentences that answer the question directly, in plain \
             British English with no hype and no exclamation marks. No web addresses.
             - For where or when questions give 2 or 3 picks at different spots, best first. Every \
-            pick must be a locationId and windowId that rank_spots returned. For other questions \
-            picks may be empty. Each "why" is under 22 words and cites the sky, the tide or the \
-            rating.
+            pick must be a locationId and windowId that rank_spots returned or, for a night \
+            question, that rank_night_spots returned. For other questions picks may be empty. Each \
+            "why" is under 22 words and cites the sky, the tide or the rating.
             - If the tools show nothing worth going for, say so plainly: answerable true, no picks.
             - Add events only from get_hot_topics or get_coming_up results that bear on the \
             question, with the type exactly as returned. If a result carries a safetyNote for an \
@@ -83,12 +83,12 @@ public class AskPromptBuilder {
     /** Added when the conversation has a user. */
     static final String WITH_USER = """
             The reader may have a home saved; you never need to know where it is. 'Close to home', \
-            'near', 'nearby' or 'local' with no number: pass rank_spots' nearHome true. A number of \
-            minutes: pass it as maxDriveMinutes. 'Closer' in a follow-up: pass a maxDriveMinutes \
-            smaller than the earlier picks' drive, or nearHome true if it was not used. When \
-            nearHome was used, say in the summary that the places are within N miles of home, with \
-            N the radius the result returned, and never say within reach. Quote a drive time for a \
-            spot only when a tool returned it.
+            'near', 'nearby' or 'local' with no number: pass nearHome true to rank_spots, or to \
+            rank_night_spots for a night question. A number of minutes: pass it as maxDriveMinutes. \
+            'Closer' in a follow-up: pass a maxDriveMinutes smaller than the earlier \
+            picks' drive, or nearHome true if it was not used. When nearHome was used, say in the \
+            summary that the places are within N miles of home, with N the radius the result returned, and \
+            never say within reach. Quote a drive time for a spot only when a tool returned it.
             """;
 
     /**
@@ -100,9 +100,9 @@ public class AskPromptBuilder {
      */
     static final String THREAD_RULES = """
             Earlier picks are real candidates: you may rank, compare, or exclude them. Resolve \
-            'closer', 'earlier', 'the other one', 'those' against them. Call `rank_spots` again when \
-            the reader asks for new places; you do not need to for a question only about the earlier \
-            picks.
+            'closer', 'earlier', 'the other one', 'those' against them. Call `rank_spots` (or \
+            `rank_night_spots` for a night question) again when the reader asks for new places; you do \
+            not need to for a question only about the earlier picks.
             When the reader turns down the places you gave them ("neither of those", "I've been to \
             both"), leave those places out of your new picks, at every window. Each earlier pick \
             lists its locationId and windowId: use those exact ids when you pick it again. When asked \

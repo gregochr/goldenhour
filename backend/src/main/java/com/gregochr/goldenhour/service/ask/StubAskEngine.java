@@ -146,7 +146,7 @@ public class StubAskEngine implements AskEngine {
         }
         try {
             if (NIGHT_WORDS.matcher(text).find()) {
-                raw = nightAnswer(text, tools, snapshot);
+                raw = nightAnswer(text, tools);
             } else {
                 raw = EVENT_WORDS.matcher(text).find()
                         ? eventsAnswer(text, tools)
@@ -280,8 +280,7 @@ public class StubAskEngine implements AskEngine {
      * when the question names the northern lights and any otherwise; the tool withholds aurora from an
      * asker without access, and the summary then says so.
      */
-    private AskAnswerValidator.Raw nightAnswer(String text, AskTools tools, AskSnapshot snapshot)
-            throws StubFailure {
+    private AskAnswerValidator.Raw nightAnswer(String text, AskTools tools) throws StubFailure {
         String kind = AURORA_WORDS.matcher(text).find() ? "aurora" : "any";
         String night = TOMORROW_WORD.matcher(text).find() ? "tomorrow" : "tonight";
         AskToolResult<RankNightSpotsResult> result = tools.rankNightSpots(new RankNightSpotsArgs(night, kind,
