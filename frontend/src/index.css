@@ -3439,7 +3439,7 @@ button.wf-hc.also.on:hover {
    would sit, and hit-test, UNDER the very marker its chip names. (⚠️ The reason this used to give —
    that the app "fades them back to full opacity AND interactivity past the zoom handover" — no
    longer holds: `MapHeatLayer` hides those panes unconditionally. They are still restored on
-   unmount and painted in full in aurora mode, so 650 stands.) 650 clears the
+   unmount (and still mounted in the Plan overlay, which has no field), so 650 stands.) 650 clears the
    marker pane while staying below Leaflet's popup pane (700) and every chip in this file (1100+).
    That z-index is set in JS on the Leaflet pane itself, never in this stylesheet, so it has no CSS
    rule to slice here — see `mapChromeZLadderCascade.test.jsx`'s own note on why its cascade
@@ -5960,7 +5960,7 @@ button.wf-hc.also.on:hover {
    z-index 650 (Leaflet pane, set in JS — see `MapLabels.jsx`'s `LABEL_PANE_Z`), NOT the design
    bundle's 420 the P7 chrome comment above records: Leaflet's real marker pane sits at a built-in
    600 and this app keeps its markers mounted there (hidden by `MapHeatLayer` on the tab, restored
-   on unmount and painted in full in aurora mode — they no longer fade back by zoom), so the label
+   on unmount and in the Plan overlay, which mounts no field — they no longer fade back by zoom), so the label
    layer has to clear that pane too, not merely the heat canvas beneath it (PR #733 review — the
    bundle's prototype never renders a marker under its own label layer at all).
    The home marker (`.wf-hm`/`.wf-hm-mk`/`.wf-hm-lb`) and ring labels (`.wf-ringlb`) REUSE the

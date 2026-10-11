@@ -1,5 +1,5 @@
 import {
-  useCallback, useEffect, useLayoutEffect, useRef, useState,
+  useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
 } from 'react';
 import PropTypes from 'prop-types';
 import { createPortal } from 'react-dom';
@@ -12,7 +12,7 @@ import {
   REGION_TINY_FRAME_WIDTH,
 } from '../../utils/mapLabels.js';
 import { formatDriveDuration } from '../../utils/briefingDisplay.js';
-import { rampHex } from '../../utils/scoreRamp.js';
+import { rampHex as defaultRampHex } from '../../utils/scoreRamp.js';
 import { tideAccessibleClause, tideTierHeading } from '../../utils/mapTideFit.js';
 import {
   isMultiRank, rankBadge, rankOnPress, ranksOf,
@@ -272,10 +272,21 @@ const TOOLTIP_WIDTH_FALLBACK = 240;
  *   thing a label may sit under
  */
 export default function MapLabels({
-  spots, homeCoords = null, rings = false, reachMeasured = false, selectedName = null,
-  onSelect = null, onSelectAskPick = null, eventLabel = '', bottomInset = 0,
+  spots: allSpots, homeCoords = null, rings = false, reachMeasured = false, selectedName = null,
+  onSelect = null, onSelectAskPick = null, eventLabel = '', bottomInset = 0, rampHex = defaultRampHex,
+  omitUnrated = false,
 }) {
   const map = useMap();
+
+  // Aurora only (aurora-heat-plan.md §4 #8): an unrated spot is not drawn. The aurora 1-star fill
+  // (#384262) is 1.10:1 against the no-data grey, so a poor night and no data would be the same
+  // pixels — the spec's own "no data is not 1 star" rule. A pick is always kept.
+  const spots = useMemo(
+    () => (omitUnrated
+      ? allSpots.filter((spot) => Number.isFinite(spot.rating) || spot.askPick)
+      : allSpots),
+    [allSpots, omitUnrated],
+  );
 
   const [pane] = useState(() => {
     if (!map?.createPane) return null;
@@ -880,6 +891,10 @@ export default function MapLabels({
 }
 
 MapLabels.propTypes = {
+  /** A `(score) => '#rrggbb'` for the chip swatch; defaults to the shared ramp (aurora passes its own). */
+  rampHex: PropTypes.func,
+  /** Aurora only: spots with no rating get no chip (an Ask pick is always kept). Default false. */
+  omitUnrated: PropTypes.bool,
   spots: PropTypes.arrayOf(PropTypes.shape({
     name: PropTypes.string.isRequired,
     lat: PropTypes.number.isRequired,

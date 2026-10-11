@@ -47,7 +47,7 @@ facts PR; #815 is a measurement doc).
 
 ## §0 Status
 
-**Status: A1 BUILT 2026-10-11 (PR pending); A2–A6 not started.** Phase log (every phase appends its own row in
+**Status: A1 merged (#1097); A2 BUILT 2026-10-11 (PR pending); A3–A6 not started.** Phase log (every phase appends its own row in
 the same commit as its code; the `PR` column names the PR, not a SHA, because the repo
 squash-merges):
 
@@ -55,7 +55,7 @@ squash-merges):
 |---|---|---|---|
 | A0 | vendoring, this plan, the prompts, the viewline findings | — | this document |
 | A1 | ramp + bloom injection in the kernel; `utils/auroraRamp.js` | pending | built 2026-10-11 on `feature/aurora-heat-a1`; `drawTiles → paint → field` already passed `opts` whole, so no threading was needed; byte-equality and both default-removal mutants verified |
-| A2 | aurora mode paints the field (points, confidence, pins, chips) | | |
+| A2 | aurora mode paints the field (points, confidence, pins, chips) | pending | built 2026-10-11 on `feature/aurora-heat-a2`; field points follow D1; the aurora `<Marker>` loop and `getRatingForLocation` untouched (Q1 still open) |
 | A3 | legend, toolbar key, peek-sheet swatch in aurora mode | | |
 | A4 | best-location card dismiss | pending | independent — may run beside A1; `bestAuroraDismissedKey` = `nightDate\|name`; focus to the window pill, else the first other pane control |
 | A5 | viewline: 10 Oct reconstruction + owner answers | | **owner-gated** (§5) |
@@ -307,6 +307,15 @@ Scope is whatever §6 decided. The shape the findings point at, for sizing only:
    spec's `docs/aurora-viewline-investigation.md` — every engineering doc lives under
    `docs/engineering/`.
 7. **No `localStorage` for the dismiss** (spec: "only if the user asks"). Session-only.
+8. **Unrated spots draw no pin and no chip in aurora mode** (2026-10-11, A2 review). The spec draws
+   pins "same as other modes", where an unrated spot is a no-data grey dot. In aurora the 1★ fill
+   (#384262) is 1.10:1 against that grey (`NO_DATA_COLOUR` #3A3D45), so a poor night and no data
+   would be the same pixels — which the spec's own "no data is not 1★" rule forbids. `PinsLayer` and
+   `MapLabels` take an `omitUnrated` prop (default false, byte-identical elsewhere) that `MapView`
+   sets in aurora mode. Also in A2: the dark-sky toggle narrows the aurora field like a solar one;
+   Ask pick pins keep the SHARED ramp (a pick belongs to its own solar window); the three colour
+   keys read 1★ to 5★ in aurora, and the legend PANEL is withheld in aurora until A3 (named on that
+   one mount, never on `heatOffered`).
 
 ## §5 Decisions
 
@@ -323,18 +332,27 @@ Taken at plan time (2026-10-11) so sessions build rather than reopen:
   ramp needs no bloom to rank, but the spec's glow is part of the design, and the preference is
   about the *solar* scale.
 - **D4 — Ask pick chips in aurora mode.** With the field offered, `MapLabels` mounts and Ask's
-  numbered picks would draw. Picks are solar windows only (`AskSnapshot.isPickEligible` — solar
-  only), so an aurora window carries none; nothing to decide, but the CLAUDE.md sentence changes
+  numbered picks would draw. Picks are solar windows only (a pick's window must be in the served
+  `renderedEvents`, which are solar only), so an aurora window carries none; nothing to decide, but the CLAUDE.md sentence changes
   (A2).
 - **D5 — the viewline's colour is an A5 question** (§6 #5 of the findings), not pre-decided.
 
 Open for the owner (do not block A1–A4):
 
 - **Q1** Should `getRatingForLocation`'s AURORA precedence (stored first) be made the medallion
-  rule (live first on the live night), so the callout and the field agree on one night?
+  rule (live first on the live night), so the callout and the field agree on one night? A2 review
+  widened this: the chips, pins, rating floor and counts also read the stored-first accessor, so on
+  the live night with BOTH sources present the field (live first) and a chip's swatch (stored first)
+  can differ. A2 refined D1 in one way only: on the live night a spot the live cache does not hold
+  (it is empty below MODERATE) falls back to its stored result, so the field is never blank under
+  rated chips.
 - **Q2** Should the aurora field be offered to **LITE**? Today `auroraAvailable` is PRO/ADMIN
   (aurora rows are absent for LITE — map-tab-v2 O-9), so the question is moot until that changes;
   recorded so A2 does not accidentally widen it.
+- **Q3** The aurora 3★ stop (#22867E) gives 4.39:1 against the best ink (white): just under the AA
+  4.5:1 for the 11px bold pin numeral; every other stop and interpolated value passes. The spec says
+  "port exactly"; a one-stop darkening (e.g. #1F7F78) would pass. Not blocking A2 — the owner
+  decides (measured with the repo's `readableInkOn`).
 
 ## §6 Risks
 

@@ -27,6 +27,7 @@ import {
 } from '../utils/locationTypes.js';
 import AuroraViewlineOverlay from './AuroraViewlineOverlay.jsx';
 import { rampHex, rampGradientCss, getMode } from '../utils/scoreRamp.js';
+import { AURORA_RAMP, AURORA_BLOOM } from '../utils/auroraRamp.js';
 import WindowControl from './map/WindowControl.jsx';
 import FiltersPopover from './map/FiltersPopover.jsx';
 import MapCallout from './map/MapCallout.jsx';
@@ -2670,7 +2671,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * keyed on other things, so across UK midnight they could and did disagree with the third.
    *
    * <p>Not every date read on this tab: {@code tomorrowStr} beside the EV build is still its own
-   * {@code ukDateStrOffset(1)} call, and {@code astroConfidenceScalar} its own {@code ukDateStr()}.
+   * {@code ukDateStrOffset(1)} call, and {@code astroConfidenceScalar} and {@code auroraConfidenceScalar} their own {@code ukDateStr()}.
    * Both feed labels and a haze scalar rather than deciding whether a row or a rating exists, so
    * neither is on this rule's path — named here so the omission reads as a bound, not an oversight.
    */
@@ -2846,16 +2847,37 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * the field or renders the toolbar. Deliberate, not an oversight: a field and toolbar over a
    * modal would be a second plan.
    *
-   * <p>Withheld in AURORA mode even when handed: aurora's marker quantity (Kp visibility) is
-   * latitude-led rather than a place property, so a field over it would be a smear over a signal
-   * the field's own geography has nothing to say about.
+   * <p>Offered in every mode, AURORA included (aurora-heat-plan.md §3 A2). It was withheld there
+   * until then, on the argument that aurora's marker quantity is latitude-led and a field over it
+   * would be a smear over a signal the field's geography has nothing to say about. The field
+   * paints each location's RATING, though, and that rating already folds in latitude, cloud and
+   * sky darkness — the viewline carries the latitude signal on top of it.
    *
-   * <p>ASTRO is the one exception, since map-tab-v2-plan.md §3 P6 — an astro night's observing
-   * quality IS a place property, exactly like a solar window's sky colour, so the field paints it
-   * the same way; see {@code astroHeatPoints} below for how it is scored.
+   * <p>ASTRO has painted the field since map-tab-v2-plan.md §3 P6 (see {@code astroHeatPoints});
+   * aurora is its twin with a different score source and its own ramp ({@code auroraHeatPoints}).
    */
-  const heatOffered = Boolean(heat?.enabled) && !isAuroraMode;
+  const heatOffered = Boolean(heat?.enabled);
   const heatOn = heatOffered && heatView === 'heat';
+  /**
+   * The colour key's words and gradient, one definition for the three places it is drawn (desktop
+   * toolbar, the phone peek sheet's Layers legend, and the legacy toolbar branch). An aurora night
+   * is painted in the aurora ramp and is a RATING, not a verdict, so its ends are 1★ and 5★ (the
+   * solar "Poor"/"Worth it" are verdict words); the gradient is read at render, never memoised,
+   * because the solar one follows the live colour-scale preference.
+   */
+  const colourKey = isAuroraMode
+    ? {
+      gradient: AURORA_RAMP.gradientCss(),
+      low: '1★',
+      high: '5★',
+      label: 'Colour key: the field runs from 1★ to 5★ aurora rating',
+    }
+    : {
+      gradient: rampGradientCss(),
+      low: 'Poor',
+      high: 'Worth it',
+      label: 'Colour key: the field runs from Poor to Worth it',
+    };
   /**
    * Pins mode, tab-only (map-tab-v2-plan.md §3 P10) — `heatView === 'pins'` can only be reached
    * through the tab's own segment button (the overlay's dead render branch still writes/reads the
@@ -2952,6 +2974,38 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }, [isAstroMode, heat, astroScores]);
 
   /**
+   * The aurora field's points (aurora-heat-plan.md §3 A2, D1): the astro arm's shape over aurora
+   * stars. ⚠️ Which star follows the MEDALLION rule, not {@code getRatingForLocation}'s: on the
+   * night in progress the live {@code auroraScores}, otherwise that night's STORED results — the
+   * field replaces the medallions, and `MapViewAuroraLiveNight.test.jsx` pins that rule as the
+   * tab's behaviour. (Whether the callout's stored-first rule should follow is the plan's Q1.)
+   * A location with no aurora rating is absent, never a 1★ placeholder.
+   */
+  const auroraHeatPoints = useMemo(() => {
+    if (!isAuroraMode || !heat?.spots?.length) return EMPTY_POINTS;
+    const points = [];
+    for (const spot of heat.spots) {
+      // Live first on the night in progress, but a spot the live cache does not hold falls back to
+      // its stored result: `auroraScores` is empty whenever the alert is below MODERATE, while
+      // tonight's stored run can still exist — and the chips and pins read stored-first, so a
+      // live-only field would be blank under rated chips and a "not scored" key (A2 review).
+      const live = liveAuroraOnScreen ? auroraScores[spot.name]?.stars : undefined;
+      const score = Number.isFinite(live) ? live : storedAuroraResults[spot.name]?.stars;
+      if (typeof score !== 'number' || !Number.isFinite(score)) continue;
+      points.push({
+        id: spot.id, name: spot.name, lat: spot.lat, lng: spot.lng, rid: spot.rid, r: [score],
+      });
+    }
+    return points;
+  }, [isAuroraMode, heat, liveAuroraOnScreen, auroraScores, storedAuroraResults]);
+
+  /** The aurora field's own confidence — the astro arm's formula, on the aurora night (plan D2). */
+  const auroraConfidenceScalar = useMemo(() => {
+    if (!isAuroraMode) return null;
+    return confidenceScalar(resolveConfidence(null, daysOut(nightDate, ukDateStr())));
+  }, [isAuroraMode, nightDate]);
+
+  /**
    * The astro field's own confidence — adversarial review finding (real #3). Astro carries no
    * `heat.windows` entry, so `heatWindow?.conf` (the solar path's own scalar, computed once in
    * `WindowFirstMapPane.jsx`) is always null for it, and the field was painting at full strength
@@ -2978,12 +3032,20 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   const heatPoints = useMemo(() => {
     if (isAstroMode) return astroHeatPoints;
+    if (isAuroraMode) {
+      // The dark-sky toggle narrows the aurora field exactly as it narrows a solar one (the chips
+      // and pins already follow it): darkness is a property of the place. Astro does not, by
+      // construction — its roster is dark-sky-enriched already (see above).
+      if (!heatSpotPool) return auroraHeatPoints;
+      const allowedAurora = new Set(heatSpotPool.map(heatSpotKey));
+      return auroraHeatPoints.filter((p) => allowedAurora.has(heatSpotKey(p)));
+    }
     if (!heatOn || !heatWindow) return EMPTY_POINTS;
     const points = heat.pointsByKey?.get(heatWindow.key) || EMPTY_POINTS;
     if (!heatSpotPool) return points;
     const allowed = new Set(heatSpotPool.map(heatSpotKey));
     return points.filter((p) => allowed.has(heatSpotKey(p)));
-  }, [isAstroMode, astroHeatPoints, heatOn, heatWindow, heat, heatSpotPool]);
+  }, [isAstroMode, astroHeatPoints, isAuroraMode, auroraHeatPoints, heatOn, heatWindow, heat, heatSpotPool]);
 
   /**
    * Whether the payload says nothing in the selected window is rated — the Plan tab's mark, adapted
@@ -3031,7 +3093,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const windowUnscored = Boolean(
     heatOn && (isAstroMode
       ? astroHeatPoints.length === 0
-      : heatWindow?.bestRating == null),
+      : isAuroraMode
+        ? auroraHeatPoints.length === 0
+        : heatWindow?.bestRating == null),
   );
 
   /**
@@ -3564,8 +3628,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * a Worth it, because no reader filter reaches this list at all.
    *
    * <p>⚠️ <b>Built from {@code heat?.enabled}, NOT from {@code heatOffered}</b>, and the difference
-   * is a real defect this phase's review caught. {@code heatOffered} folds in {@code !isAuroraMode}
-   * because it gates whether the FIELD is drawable — and selecting any aurora night row sets
+   * is a real defect this phase's review caught. {@code heatOffered} used to fold in
+   * {@code !isAuroraMode} (until aurora heat A2 it gated whether the FIELD was drawable), and selecting any aurora night row sets
    * {@code eventType} to `AURORA`, so routing the verdict through it emptied the scope and silently
    * deleted the verdict from every SOLAR window in the list. Which regions are in the reader's scope
    * is a fact about geography and has nothing to do with which layer is currently painted. L2's
@@ -4371,7 +4435,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   /**
    * What that line says: {@code NIGHT_RETRY_LINE} while the night on screen's own request has failed
    * and is being asked again with no answer in hand ({@link ratingRetrying} — astro in practice,
-   * since an aurora night withholds the field), otherwise that the event is not scored. "Not scored"
+   * since an aurora night is not retried the way an astro night's rating is, though both now paint the field), otherwise that the event is not scored. "Not scored"
    * is a claim about the forecast, which a failed request is no evidence for, and the callout beside
    * this says the same failure in the same words. Both render sites below read it.
    */
@@ -5688,8 +5752,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
              not a fallback itself, and it is written down because the first cut's comment claimed
              the opposite.
 
-             Gated on `heat.enabled` rather than on `heatOffered`, which additionally excludes aurora
-             and astro modes: `MapContainer` reads `bounds` once at construction, so a tab that
+             Gated on `heat.enabled` rather than on `heatOffered` (since aurora heat A2 the two agree
+             outside the overlay, but this is the construction-time read, so it names its own input): `MapContainer` reads `bounds` once at construction, so a tab that
              happened to mount in aurora mode would have taken the heat framing and kept it for the
              session. */
           bounds={openingBounds || bounds}
@@ -5741,7 +5805,14 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 points={heatPoints}
                 // ASTRO has no `heat.windows` entry to read a scalar off (adversarial review,
                 // real #3) — `astroConfidenceScalar` is this mode's own capped-inference figure.
-                conf={isAstroMode ? astroConfidenceScalar : (heatWindow?.conf ?? null)}
+                // AURORA likewise (aurora-heat-plan.md D2): its own capped-inference scalar.
+                conf={isAstroMode ? astroConfidenceScalar
+                  : isAuroraMode ? auroraConfidenceScalar
+                    : (heatWindow?.conf ?? null)}
+                // An aurora night is an event-type override of the colour preference, never a
+                // persisted mode (plan §4 #1): the ramp and bloom ride down as props.
+                ramp={isAuroraMode ? AURORA_RAMP.rgb : null}
+                bloom={isAuroraMode ? AURORA_BLOOM : null}
                 homeCoords={homeGeo}
                 rings={ringsEnabled}
                 fieldEnabled={heatOn}
@@ -5768,6 +5839,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 onSelect={selectMapLocation}
                 onSelectAskPick={onSelectAskPick ? handleSelectAskPick : null}
                 eventLabel={mapEventLabel}
+                rampHex={isAuroraMode ? AURORA_RAMP.hex : rampHex}
+                omitUnrated={isAuroraMode}
                 // The phone's peek sheet is an obstacle while an answer's picks are on the map (F4),
                 // from its TARGET height; with no answer it is not one, as it never was.
                 bottomInset={isMobile && askActive ? peekTarget : 0}
@@ -5783,12 +5856,15 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 onSelect={selectMapLocation}
                 onSelectAskPick={onSelectAskPick ? handleSelectAskPick : null}
                 eventLabel={mapEventLabel}
+                rampHex={isAuroraMode ? AURORA_RAMP.hex : rampHex}
+                glow={isAuroraMode}
+                omitUnrated={isAuroraMode}
               />
             </Suspense>
           )}
           {/* ⚠️ Gated on `!overlayMode`, NOT `heatOffered` (PR #740 review — a confirmed Codex
-              finding). `heatOffered` is `Boolean(heat?.enabled) && !isAuroraMode` — false for the
-              whole time an aurora window is active — but `RegionsJump`/`⌂` are mounted regardless
+              finding). `heatOffered` WAS `Boolean(heat?.enabled) && !isAuroraMode` — false for the
+              whole time an aurora window was active, until aurora heat A2 — but `RegionsJump`/`⌂` are mounted regardless
               of aurora mode and write ONLY `jumpFitOverride`/`heatArea`/`heatFitNonce`, which this
               controller is the SOLE reader of. Gating the controller itself on `heatOffered` meant
               a jump or a `⌂` press during an aurora window silently moved nothing (the state changed,
@@ -6204,16 +6280,16 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                     data-testid="wf-map-heat-legend"
                     className="wf-map-key"
                     role="img"
-                    aria-label="Colour key: the field runs from Poor to Worth it"
+                    aria-label={colourKey.label}
                   >
-                    <span aria-hidden="true">Poor</span>
+                    <span aria-hidden="true">{colourKey.low}</span>
                     <span
                       aria-hidden="true"
                       data-testid="wf-map-heat-legend-ramp"
                       className="wf-map-key-ramp"
-                      style={{ background: rampGradientCss() }}
+                      style={{ background: colourKey.gradient }}
                     />
-                    <span aria-hidden="true">Worth it</span>
+                    <span aria-hidden="true">{colourKey.high}</span>
                   </div>
                 )}
               </div>
@@ -6468,16 +6544,16 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                       data-testid="wf-map-heat-legend"
                       className="wf-map-key"
                       role="img"
-                      aria-label="Colour key: the field runs from Poor to Worth it"
+                      aria-label={colourKey.label}
                     >
-                      <span aria-hidden="true">Poor</span>
+                      <span aria-hidden="true">{colourKey.low}</span>
                       <span
                         aria-hidden="true"
                         data-testid="wf-map-heat-legend-ramp"
                         className="wf-map-key-ramp"
-                        style={{ background: rampGradientCss() }}
+                        style={{ background: colourKey.gradient }}
                       />
-                      <span aria-hidden="true">Worth it</span>
+                      <span aria-hidden="true">{colourKey.high}</span>
                     </div>
                   )}
                 </div>
@@ -6660,18 +6736,18 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                           data-testid="wf-map-peek-legend"
                           className="wf-map-peek-lay-row"
                           role="img"
-                          aria-label="Colour key: the field runs from Poor to Worth it"
+                          aria-label={colourKey.label}
                         >
                           <span className="wf-map-peek-lay-label">Legend</span>
                           <span className="wf-map-peek-legend-scale">
-                            <span aria-hidden="true">Poor</span>
+                            <span aria-hidden="true">{colourKey.low}</span>
                             <span
                               aria-hidden="true"
                               data-testid="wf-map-peek-legend-ramp"
                               className="wf-map-key-ramp"
-                              style={{ background: rampGradientCss() }}
+                              style={{ background: colourKey.gradient }}
                             />
-                            <span aria-hidden="true">Worth it</span>
+                            <span aria-hidden="true">{colourKey.high}</span>
                           </span>
                         </div>
                       )}
@@ -6704,8 +6780,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 the Legend chip STACK here rather than one suppressing the other. ⚠️ They are NOT
                 mutually exclusive: `showViewlineUpsell` is keyed on `auroraStatus`'s ALERT LEVEL
                 (a background poll, live regardless of which event type is on screen), while the
-                Legend chip is keyed on `heatView`/`heatOffered`, which excludes AURORA MODE
-                (`eventType === 'AURORA'`) specifically — and a LITE reader can never enter aurora
+                Legend chip is keyed on `heatView`/`heatOffered` and, until A3, excludes AURORA MODE
+                (`eventType === 'AURORA'`) by name — and a LITE reader can never enter aurora
                 mode in the first place (`viewlineEnabled` above is PRO/ADMIN-only), so an alert can
                 fire while a LITE reader sits on an ordinary Heat-view sunset. An earlier revision
                 of this comment conflated those two different "aurora" axes and claimed the chips
@@ -6745,7 +6821,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                     </button>
                   </div>
                 )}
-                {heatOffered && heatView === 'heat' && !isMobile && (
+                {/* A3 adds the aurora variant of the legend panel (aurora-heat-plan.md §3 A3). Until
+                    then the solar legend must not describe the aurora field, so aurora is named
+                    out HERE and nowhere else (2026-10-11, A2) — never on `heatOffered`. */}
+                {heatOffered && heatView === 'heat' && !isMobile && !isAuroraMode && (
                   <MapLegendPanel
                     open={openMapMenu === 'legend'}
                     onOpenChange={(next) => setOpenMapMenu(next ? 'legend' : null)}

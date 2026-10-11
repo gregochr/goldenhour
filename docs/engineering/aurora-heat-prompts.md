@@ -79,7 +79,7 @@ MapLabels.jsx's chip fill.
 Build plan §3 A2. D1 decides the star: live `auroraScores` on the night in progress, else
 `storedAuroraResults` — the medallion rule, not `getRatingForLocation`'s. Thread `ramp`/`bloom`
 props with defaults equal to today's behaviour; every non-aurora render must be byte-identical.
-Rewrite the one test the plan names (`MapViewHeat.test.jsx` "paints no field … in aurora mode")
+Rewrite the one test the plan names (`MapViewHeat.test.jsx` "paints no field and offers no toolbar in aurora mode", now "offers the toolbar and the field in aurora mode")
 into the astro triplet's shape and add the ones listed; re-word, never delete, the "keeps AURORA
 honest" comments. A test must switch Aurora → Sunset → Aurora in the window control and assert a
 repaint with the right ramp each time (§6, repaint key). Update the two CLAUDE.md sentences the

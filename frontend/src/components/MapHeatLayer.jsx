@@ -276,10 +276,11 @@ export function markersAreInteractive(opacity) {
  * <p>⚠️ <b>Scoped by construction, which matters twice.</b> This layer only ever mounts on the MAP
  * TAB (`heat` is passed by `WindowFirstMapPane` alone), so the Plan-tab overlay — where the markers
  * DO carry popups and ARE a real keyboard route — never has {@code inert} applied. And on the tab,
- * an AURORA window unmounts this layer entirely, at which point {@link restoreMarkerPanes} removes
- * the attribute: aurora has no chips and no pins, so the medallions are the location vocabulary
- * there and must stay reachable. Both fall out of "set it while hiding, clear it while restoring"
- * rather than needing a mode test of their own.
+ * whenever this layer unmounts (a tab change, a logout), {@link restoreMarkerPanes} removes the
+ * attribute so the medallions stay reachable. (Until aurora heat A2 an AURORA window was the
+ * routine case: it unmounted this layer and the medallions were its whole location vocabulary.
+ * It now paints the field with chips and pins like any other window.) Both fall out of "set it
+ * while hiding, clear it while restoring" rather than needing a mode test of their own.
  *
  * <p>⚠️ {@code inert} is a silent no-op in jsdom, so the tests assert the ATTRIBUTE rather than
  * focus behaviour. A test trying to prove non-focusability there proves nothing.
@@ -377,10 +378,16 @@ function restoreMarkerPanes(map) {
  *        reaches the fill inside the draw and nothing else, so the coastline stroke and the reach
  *        rings that share the canvas keep their own strength. A change repaints (it is a dependency
  *        of the paint callback, which is what the canvas hook repaints on).
+ * @param {Function} [props.ramp] a `(score) => [r, g, b]` colour function handed to the kernel as
+ *        `opts.ramp` (aurora, `aurora-heat-plan.md` §3 A2); null by default, which leaves the
+ *        kernel on `scoreRamp`'s module state exactly as before.
+ * @param {{rgb: number[], from: number, a: number}} [props.bloom] the bloom colour, gate and
+ *        strength of an injected ramp (`AURORA_BLOOM`). When set it asks for the bloom whatever the
+ *        colour-scale preference is (plan D3); null leaves the temperature-only rule.
  */
 export default function MapHeatLayer({
   points, conf = null, colourMode = null, homeCoords = null, rings = false,
-  fieldEnabled = true, dim = 1,
+  fieldEnabled = true, dim = 1, ramp = null, bloom = null,
 }) {
   const map = useMap();
 
@@ -533,7 +540,12 @@ export default function MapHeatLayer({
         // rationale is the temp ramp's luminance inversion, and the verdict ramp has none — an ember
         // glow over a green "go" would be a false signal. In verdict mode this spreads NO keys at
         // all, not a falsy one, so `drawTiles` sees today's exact options object.
-        ...(getMode() === 'temp' ? { bloom: FIELD_BLOOM } : null),
+        // The aurora arm comes FIRST (plan D3): an injected `bloom` asks for the glow with its own
+        // colour, gate and strength whatever the persisted colour scale is.
+        ...(bloom
+          ? { bloom: FIELD_BLOOM, bloomFrom: bloom.from, bloomA: bloom.a, bloomRGB: bloom.rgb }
+          : getMode() === 'temp' ? { bloom: FIELD_BLOOM } : null),
+        ...(ramp ? { ramp } : null),
         // Same rule as the bloom above: below LAND_CLIP_MAX_ZOOM this spreads all five clip keys
         // (clipPath may still be null); at/above it, none at all — absence, not a falsy value.
         ...(clipOpts || null),
@@ -584,11 +596,13 @@ export default function MapHeatLayer({
   // thumbnails and the map bitmap disagreeing with everything around them, and it is a RACE:
   // whether it happens depends on which fetch resolves first. Threading the resolved mode into
   // the dependency array is what makes the repaint happen; its value is never read for colour.
+  // `ramp`/`bloom` are the opposite — REAL inputs, read above — and sit in the same array so that
+  // Aurora -> Sunset -> Aurora repaints with the right ramp each way (aurora-heat-plan.md §6).
     // Referenced so it is a REAL dependency, not a suppressed one: `exhaustive-deps` cannot see
     // that this callback's colours come from `scoreRamp`'s module state, so it reads the entry as
     // unnecessary. `void` makes the dependency honest and keeps the rule on.
     void colourMode;
-  }, [map, points, conf, colourMode, landMask, rings, homeCoords, fieldEnabled, dim]);
+  }, [map, points, conf, colourMode, landMask, rings, homeCoords, fieldEnabled, dim, ramp, bloom]);
 
   const {
     attachFrame, canvasRef, geoFailed, repaint, repaintNow,
@@ -746,4 +760,12 @@ MapHeatLayer.propTypes = {
   fieldEnabled: PropTypes.bool,
   /** A factor on the field's fill opacity (default 1) — Ask's picks dim the field behind them. */
   dim: PropTypes.number,
+  /** An injected `(score) => [r, g, b]` ramp (aurora); null keeps the scoreRamp module state. */
+  ramp: PropTypes.func,
+  /** An injected bloom `{rgb, from, a}` (aurora's `AURORA_BLOOM`); null keeps the temp-only rule. */
+  bloom: PropTypes.shape({
+    rgb: PropTypes.arrayOf(PropTypes.number).isRequired,
+    from: PropTypes.number.isRequired,
+    a: PropTypes.number.isRequired,
+  }),
 };
