@@ -55,7 +55,9 @@ yet" most nights, so **N0 schedules the astro job**: a `DynamicSchedulerService`
 `astro_conditions_refresh` (seeded by a migration like `wildlife_comfort_refresh`), once a day at
 **15:30 UTC** (after the 14:00 intraday cycle, before dusk), evaluating **tonight and tomorrow
 night** for every enabled location with a Bortle class, through `AstroConditionsService
-.evaluateAndPersist(dates)` exactly as the engine calls it — Open-Meteo only, no Claude cost, one
+.evaluateAndPersist(dates)` exactly as the engine calls it — Open-Meteo only, no Claude cost, **followed (from N2) by a Ready precompute
+dispatch on success**, since §2.5 versions `NIGHT_SKY` on this run's timestamp (the pipeline's own
+precompute ran at 14:00, before it) — one
 `job_run` of `RunType.WEATHER`-style accounting (decide the run type by reading how the engine
 records it today). An upsert per (location, date) — see the two corrections below §2.0: the running night is left as scored before dawn, and stale rows of now-ineligible locations are excluded by N1's query, not deleted here. Aurora rows stay as they
 are (the poller's alert decides when a night is scored; a quiet night is reported from
@@ -72,8 +74,14 @@ today). (2) **`evaluateAndPersist` is an upsert per (location, date), not a repl
 loads existing ids and saves only the locations it rescored, never calling `deleteByForecastDateIn`,
 so a location disabled or stripped of its Bortle class after a run keeps its old row for that date.
 N0 does not change the service; instead the N1 snapshot query joins the location and takes only
-`enabled = true AND bortle_class IS NOT NULL` rows (the Map's `/api/astro/conditions` keeps its
-existing, unfiltered read — a pre-existing surface, out of scope here).
+`enabled = true AND bortle_class IS NOT NULL` rows, **and only the rows of the night's LATEST
+GENERATION**: `evaluateAndPersist` stamps one `Instant now` per call (line ~90) onto every row it
+writes, so a night's generation is `max(runTimestamp)` for that date and a spot is a row whose
+`runTimestamp` equals it — a run that fails for some Open-Meteo chunks (each chunk's failure is
+caught per location, ~114) leaves the failed locations' rows from the previous afternoon, when D was
+"tomorrow", beside the fresh ones, and a date filter alone would rank a day-old clear-sky forecast
+with today's. (The Map's `/api/astro/conditions` keeps its existing, unfiltered read — a
+pre-existing surface, out of scope here.)
 
 ⚠️ **(3) The Ready precompute must follow the astro refresh** (round 6): the pipeline dispatches
 `AskReadyPrecompute` after its own cycle, but this job is standalone, and §2.5's version rule means
@@ -179,10 +187,11 @@ night with no result rows is reported as quiet rather than unknown — ⚠️ **
 resolves to `currentNightDate()` ONLY**: the cache holds no date-keyed state (its level and trigger
 Kp are "the rest of tonight", `AuroraStateCache` ~282–295), so `night: "tomorrow"` or a later date
 gets `auroraState: "not forecast yet"` from the result rows alone, never tonight's state relabelled. Sorted by the best of (astro,
-aurora) stars, then drive. The empty answers are per KIND, never blanket: `kind: "astro"` (or `any`)
-with no astro rows for the night answers `{spots: [], note: "no astro forecast for <night> yet"}`,
-but `kind: "aurora"` (or `any`) still returns the aurora-only spots whenever aurora result rows
-exist for that night — an admin or batch aurora run can succeed on a night the scheduled astro job
+aurora) stars, then drive. The empty answers are per KIND, never blanket, and **`any` is the UNION of
+whichever kinds have rows** (empty only when neither does): `kind: "astro"` with no astro rows for
+the night answers `{spots: [], note: "no astro forecast for <night> yet"}`; `kind: "aurora"`
+returns the aurora-only spots whenever aurora result rows exist for that night, and so does `any`,
+with the astro note carried as `note` beside them — an admin or batch aurora run can succeed on a night the scheduled astro job
 failed, and that persisted PRO/ADMIN result must not be hidden behind the astro table's absence; a
 region with rows elsewhere but none in it answers `note: "no night-scored places in <region>"`. `regions` are matched by `canonicalRegion`, whose name set is
 the UNION of the solar windows' and the nights' regions (today it reads solar windows only). ⚠️ **A night answer is never stored in the typed cache** (`AskTools` marks the conversation
@@ -195,7 +204,15 @@ serving an aurora figure in its retained `summary`/`why` to a user downgraded in
 (c) go on saying "alert active, Kp 6" after `AuroraStateCache` has gone quiet or the astro
 refresh changed `clearSky` without moving the integer star. Each of those was a review finding; one
 rule closes all three. The cost is one Claude call per repeat of a night question, inside the
-allowance and the spend cap. (`roleBound`, the earlier design, is withdrawn.) The Ready `NIGHT_SKY`
+allowance and the spend cap. (`roleBound`, the earlier design, is withdrawn.) ⚠️ **The thread needs the same discipline**
+(round 7): `AskThread.staleAgainst` compares only the briefing `generatedAt`, and
+`AskThreadContext.exchanges()` renders an earlier answer's summary verbatim, so a follow-up could
+repeat "active, Kp 6" or a clear-sky claim after the state cache went quiet or the 15:30 refresh
+moved the forecast. A night answer therefore carries `nightVersion` on the wire (the astro
+generation of each night it named plus the aurora state level at answer time, an opaque string the
+client echoes on the exchange, exactly as `generatedAt` is echoed), and a typed exchange whose
+`nightVersion` is not the live one drops the whole thread with `threadReset: true`,
+`threadResetReason: "night forecast updated"` — the forecast-moved rule, one more trigger. The Ready `NIGHT_SKY`
 answer is the one night answer that IS stored (`ask_ready_answer`), and its freshness identity
 (§2.5) therefore carries the night's own version: the max `runTimestamp` (`run_timestamp`) of the astro rows the
 answer was written from, withheld whole when the live max differs — astro only, no aurora, no
@@ -237,7 +254,7 @@ Freshness (serve-time, all-or-nothing like every Ready answer): the stored answe
 `astroVersion` (the max `AstroConditionsEntity.runTimestamp` — column `run_timestamp`, the
 entity's only generation instant — over the night's astro rows at write time, persisted with the
 Ready row) and is
-withheld whole when the live max differs, when any pick's live astro star differs from the stored
+withheld whole when the live generation (§2.0's `max(runTimestamp)`) differs, when any pick's live astro star differs from the stored
 one, when a pick is no longer night-eligible (ASTRO ≥ 4), or when the night has passed (nautical
 dawn, `currentNightDate()` moved on). It never carries an aurora figure or state-cache prose.
 
