@@ -1,5 +1,9 @@
 # Ask PhotoCast — the thread (follow-up questions)
 
+**Status (2026-10-11): built T1–T5, merged as #1081 #1080 #1082 #1083 #TBD.** The feature stays behind
+`photocast.ask.enabled`. Its real-API script is `AskThreadRegressionTest` (`prompt-regression` profile,
+assertions pending the owner's approval); CLAUDE.md's *Ask — the thread* bullet states the feature as built.
+
 Owner ask, 2026-10-10, after the first real session on v2.25.0:
 
 > anything for sunrise with tide alignment this weekend? → *answer*
@@ -309,3 +313,10 @@ dependency on T2.
 
 Per-question cost fresh vs at the cap; thread length distribution from the `[ASK] thread=N` lines
 over the first week; how often `threadReset` fires.
+
+Still to be filled in from production once the flag is on. How to read it: every follow-up writes one INFO line,
+`[ASK] User N answered a follow-up: outcome=… thread=N reset=…` (ints only, never the thread's text), so the thread
+length distribution is the histogram of `thread=N` over the first week and how often the forecast moves under a
+session is the share of those lines whose `reset` is set. A fresh question writes no such line, so the follow-up rate is
+those lines over `GET /api/admin/ask/metrics`'s typed-question total. Cost per question, fresh versus at the cap, comes
+from the `api_call_log` rows of the `ASK` runs (the plan's estimate is about 1.6x the input at the cap).

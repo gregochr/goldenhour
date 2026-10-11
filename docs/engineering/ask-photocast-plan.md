@@ -20,6 +20,9 @@ to the Plan tab.
 The orchestrating session updates this table at merge time. Implementing sessions do **not** edit
 it (adjacent rows conflict between open PRs).
 
+Follow-up questions — the session's thread — are a separate, later series with its own plan and status:
+`docs/engineering/ask-thread-plan.md` (T1–T5).
+
 | Phase | What | Size | State |
 |---|---|---|---|
 | P0 | Commit this plan, the prompts file and `docs/design/ask-photocast/` to `main` | XS | not started |
