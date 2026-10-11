@@ -19,7 +19,7 @@ describe('AskPickCard — the three lines', () => {
     const score = screen.getByTestId('ask-pick-score-1');
     expect(score).toHaveAttribute('data-tier', 'WORTH_IT');
     // The VISIBLE star: the text a sighted reader sees, apart from the screen-reader-only ", 5 stars".
-    expect(within(score).getByText('· 5')).toHaveAttribute('aria-hidden', 'true');
+    expect(within(score).getByText('· 5★')).toHaveAttribute('aria-hidden', 'true');
     expect(score).toHaveTextContent(/^Worth it/);
   });
 

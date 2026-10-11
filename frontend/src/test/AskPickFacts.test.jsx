@@ -39,8 +39,12 @@ describe('PickScore', () => {
     const score = screen.getByTestId('score');
     expect(score).toHaveAttribute('data-tier', 'WORTH_IT');
     expect(score).toHaveClass('wf-ask-sc');
-    expect(within(score).getByText('· 5')).toHaveAttribute('aria-hidden', 'true');
-    expect(score).toHaveTextContent('Worth it · 5, 5 stars');
+    expect(within(score).getByText('· 5★')).toHaveAttribute('aria-hidden', 'true');
+    expect(score).toHaveTextContent('Worth it · 5★, 5 stars');
+    // The glyph lives only in the aria-hidden span; the spoken sentence says "stars" once and no ★.
+    const spoken = score.querySelector('.sr-only');
+    expect(spoken).toHaveTextContent(/^, 5 stars$/);
+    expect(spoken.textContent).not.toContain('★');
   });
 
   it('says "1 star" in the singular', () => {

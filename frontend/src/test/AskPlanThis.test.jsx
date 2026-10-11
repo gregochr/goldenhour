@@ -413,7 +413,7 @@ describe('the four figures and the note, as the view prints them', () => {
     expect(screen.getByTestId('ask-plan-when')).toHaveTextContent('Mon 18:41');
     const score = screen.getByTestId('ask-plan-score');
     expect(score).toHaveAttribute('data-tier', 'WORTH_IT');
-    expect(score).toHaveTextContent('Worth it · 5');
+    expect(score).toHaveTextContent('Worth it · 5★');
     expect(score).toHaveTextContent('5 stars');
   });
 
