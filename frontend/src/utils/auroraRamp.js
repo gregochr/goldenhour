@@ -1,7 +1,7 @@
 /**
  * The aurora ramp — night slate through teal to aurora green, for an aurora night painted through
  * the shared heat kernel (`docs/engineering/aurora-heat-plan.md`, A1; spec
- * `docs/design/aurora-heat/README.md`, "Aurora ramp — port exactly").
+ * `docs/design/aurora-heat/README.md`, "Aurora ramp — port exactly"; stop 3 deviates, see {@link AURORA_STOPS}).
  *
  * <p>Why this is its own module and NOT a third {@link setMode} mode in `scoreRamp.js` (plan §4
  * #1): `scoreRamp.js`'s mode is module state backing a persisted user preference
@@ -20,13 +20,17 @@
  */
 
 /**
- * The five stops, lowest score first, ported byte for byte from the bundle's `ASTOPS`
- * (`docs/design/aurora-heat/aurora-map.js`). Each entry is `[score, [r, g, b]]`.
+ * The five stops, lowest score first, ported from the bundle's `ASTOPS`
+ * (`docs/design/aurora-heat/aurora-map.js`) with ONE deliberate deviation: stop 3 is [31, 127, 120]
+ * (`#1F7F78`), not the spec's [34, 134, 126] (`#22867E`). White ink on the spec's teal is 4.39:1,
+ * just under WCAG AA 4.5:1 for the 11px bold pin numeral; this one clears it (4.81:1) and is the
+ * same teal to the eye (plan §4 #9, §5 Q3, decided 2026-10-11). Luminance stays monotonic. Each
+ * entry is `[score, [r, g, b]]`.
  */
 export const AURORA_STOPS = [
   [1, [56, 66, 98]],
   [2, [44, 84, 112]],
-  [3, [34, 134, 126]],
+  [3, [31, 127, 120]],
   [4, [58, 200, 132]],
   [5, [118, 255, 160]],
 ];
@@ -39,7 +43,7 @@ export const AURORA_STOPS = [
 export const AURORA_BLOOM = { rgb: [120, 255, 170], from: 3.4, a: 150 };
 
 /** The Heat toggle's swatch while an aurora night is showing. */
-export const AURORA_TOGGLE_SWATCH = 'linear-gradient(90deg,#22867E,#76FFA0)';
+export const AURORA_TOGGLE_SWATCH = 'linear-gradient(90deg,#1F7F78,#76FFA0)';
 
 /**
  * A 1–5 aurora rating to an [r, g, b] triple, linearly interpolated between {@link AURORA_STOPS}
@@ -81,7 +85,7 @@ export function auroraRampHex(score) {
  * @returns {string} the spec's exact `linear-gradient(90deg,…)` value
  */
 export function auroraRampGradientCss() {
-  return 'linear-gradient(90deg,#384262,#2C5470 25%,#22867E 50%,#3AC884 75%,#76FFA0)';
+  return 'linear-gradient(90deg,#384262,#2C5470 25%,#1F7F78 50%,#3AC884 75%,#76FFA0)';
 }
 
 /**

@@ -199,6 +199,21 @@ public class AuroraForecastRunService {
     }
 
     /**
+     * The highest Kp NOAA forecasts for the rest of the night {@link #currentNight()} names — the
+     * figure the poller itself reads tonight through, {@link AuroraOrchestrator#maxKpRestOfTonight},
+     * handed this class's own window for that night and one read of the clock, so the viewline
+     * endpoint and the state machine cannot disagree about what "tonight" or "the rest of it" is.
+     *
+     * @param forecast NOAA's Kp product: observed, estimated and predicted blocks alike
+     * @return the highest Kp of the blocks still ahead in the current or next dark window, or 0 if none
+     */
+    public double maxKpRestOfCurrentNight(List<KpForecast> forecast) {
+        ZonedDateTime now = ZonedDateTime.now(clock);
+        TonightWindow window = computeWindowForDate(currentNight().date());
+        return AuroraOrchestrator.maxKpRestOfTonight(forecast, window, now);
+    }
+
+    /**
      * Nautical dawn on {@code date} at the reference point, as {@link #computeWindowForDate} places
      * the end of the window named the day before.
      *

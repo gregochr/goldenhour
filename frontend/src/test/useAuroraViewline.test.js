@@ -10,38 +10,35 @@ vi.mock('../api/auroraApi.js', () => ({
 import { getAuroraViewline, getAuroraForecastViewline } from '../api/auroraApi.js';
 
 const liveViewline = {
-  points: [{ longitude: -5, latitude: 54 }],
-  summary: 'Visible as far south as northern England',
-  southernmostLatitude: 54,
+  points: [{ longitude: -5, latitude: 49 }],
+  summary: 'Visible across the whole of the UK',
+  southernmostLatitude: 49,
   active: true,
   isForecast: false,
+  kp: null,
+  asOf: '2026-10-10T21:40:00Z',
 };
 
 const forecastViewline = {
-  points: [{ longitude: -12, latitude: 56 }, { longitude: 4, latitude: 56 }],
-  summary: 'Visible as far south as central Scotland',
-  southernmostLatitude: 56,
+  points: [{ longitude: -12, latitude: 45 }, { longitude: 4, latitude: 47 }],
+  summary: 'Visible across the whole of the UK',
+  southernmostLatitude: 45,
   active: true,
   isForecast: true,
+  kp: 6.67,
+  asOf: '2026-10-10T18:40:00Z',
 };
 
-/** The forecast line after an escalation to a higher Kp — its cap moves south, so the two differ. */
-const escalatedForecastViewline = {
-  points: [{ longitude: -12, latitude: 52 }, { longitude: 4, latitude: 52 }],
-  summary: 'Visible as far south as the Midlands',
-  southernmostLatitude: 52,
-  active: true,
-  isForecast: true,
+/** A later forecast, drawn for a revised Kp, so the two forecast answers cannot be confused. */
+const revisedForecastViewline = {
+  ...forecastViewline,
+  points: [{ longitude: -12, latitude: 42 }, { longitude: 4, latitude: 44 }],
+  southernmostLatitude: 42,
+  kp: 7.0,
 };
 
-/** A later alert's live line — further south than `liveViewline`, so the two cannot be confused. */
-const laterLiveViewline = {
-  points: [{ longitude: -3, latitude: 52 }],
-  summary: 'Visible as far south as the Midlands',
-  southernmostLatitude: 52,
-  active: true,
-  isForecast: false,
-};
+const inactive = { points: [], summary: 'No significant aurora in UK range', active: false, isForecast: false };
+const inactiveForecast = { points: [], summary: 'No forecast available', active: false, isForecast: true };
 
 /** Flush all pending microtasks (resolved promises). */
 function flushPromises() {
@@ -58,28 +55,12 @@ function deferred() {
 
 /**
  * Settles a hand-held request inside an AWAITED `act`, so the hook's write — if it makes one — has
- * run and committed before the test reads it. ⚠️ The `await` is the load-bearing part, not the async
- * callback. Measured with the write's guard deleted: an un-awaited `act(() => settle())` lets the
- * late-answer test below pass, because the late write lands after `act` has returned, while
- * `await act(() => settle())` — the same plain callback, awaited — fails it as this form does.
+ * run and committed before the test reads it. The `await` is the load-bearing part: an un-awaited
+ * `act(() => settle())` lets a late-answer test pass because the late write lands after `act` has
+ * returned.
  */
 async function land(settle) {
   await act(async () => { settle(); });
-}
-
-/**
- * Renders the hook and records what EVERY render handed out, not only the last. `rerender` flushes
- * effects inside `act`, so `result.current` only ever shows the state after them — a line handed out
- * by the render that made a change, before its effect had run, is visible only in `seen`.
- */
-function renderLogged(initialProps) {
-  const seen = [];
-  const utils = renderHook((props) => {
-    const out = useAuroraViewline(props.enabled, props.triggerType, props.forecastKp);
-    seen.push({ ...props, viewline: out.viewline });
-    return out;
-  }, { initialProps });
-  return { ...utils, seen };
 }
 
 describe('useAuroraViewline', () => {
@@ -88,319 +69,259 @@ describe('useAuroraViewline', () => {
     // be the next test's first answer.
     vi.resetAllMocks();
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    getAuroraViewline.mockResolvedValue(liveViewline);
-    getAuroraForecastViewline.mockResolvedValue(forecastViewline);
   });
 
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  // ---------------------------------------------------------------------------
-  // Disabled state
-  // ---------------------------------------------------------------------------
+  describe('selection: always live, the forecast as the fallback, never both', () => {
+    it('offers the live line when both are drawable', async () => {
+      getAuroraViewline.mockResolvedValue(liveViewline);
+      getAuroraForecastViewline.mockResolvedValue(forecastViewline);
 
-  it('returns null viewline when not enabled', async () => {
-    const { result } = renderHook(() => useAuroraViewline(false));
-    await flushPromises();
+      const { result } = renderHook(() => useAuroraViewline(true));
+      await flushPromises();
 
-    expect(result.current.viewline).toBeNull();
-    expect(getAuroraViewline).not.toHaveBeenCalled();
-    expect(getAuroraForecastViewline).not.toHaveBeenCalled();
+      expect(result.current.viewline).toBe(liveViewline);
+      expect(result.current.source).toBe('live');
+    });
+
+    it('offers the forecast line while the live answer is inactive', async () => {
+      getAuroraViewline.mockResolvedValue(inactive);
+      getAuroraForecastViewline.mockResolvedValue(forecastViewline);
+
+      const { result } = renderHook(() => useAuroraViewline(true));
+      await flushPromises();
+
+      expect(result.current.viewline).toBe(forecastViewline);
+      expect(result.current.source).toBe('forecast');
+    });
+
+    it('offers the forecast line while the live request is still pending', async () => {
+      const liveRequest = deferred();
+      getAuroraViewline.mockReturnValue(liveRequest.promise);
+      getAuroraForecastViewline.mockResolvedValue(forecastViewline);
+
+      const { result } = renderHook(() => useAuroraViewline(true));
+      await flushPromises();
+      expect(result.current.source).toBe('forecast');
+
+      await land(() => liveRequest.resolve(liveViewline));
+      expect(result.current.viewline).toBe(liveViewline);
+      expect(result.current.source).toBe('live');
+    });
+
+    it('offers the forecast line when the live request fails', async () => {
+      getAuroraViewline.mockRejectedValue(new Error('network'));
+      getAuroraForecastViewline.mockResolvedValue(forecastViewline);
+
+      const { result } = renderHook(() => useAuroraViewline(true));
+      await flushPromises();
+
+      expect(result.current.source).toBe('forecast');
+    });
+
+    it('offers nothing when neither is drawable', async () => {
+      getAuroraViewline.mockResolvedValue(inactive);
+      getAuroraForecastViewline.mockResolvedValue(inactiveForecast);
+
+      const { result } = renderHook(() => useAuroraViewline(true));
+      await flushPromises();
+
+      expect(result.current).toEqual({ viewline: null, source: null });
+    });
+
+    it('offers nothing when both come back null (a LITE reader\'s 403)', async () => {
+      getAuroraViewline.mockResolvedValue(null);
+      getAuroraForecastViewline.mockResolvedValue(null);
+
+      const { result } = renderHook(() => useAuroraViewline(true));
+      await flushPromises();
+
+      expect(result.current).toEqual({ viewline: null, source: null });
+    });
   });
 
-  // ---------------------------------------------------------------------------
-  // Realtime (live) path
-  // ---------------------------------------------------------------------------
+  describe('polling', () => {
+    it('asks both endpoints on mount, and both again every 5 minutes', async () => {
+      getAuroraViewline.mockResolvedValue(liveViewline);
+      getAuroraForecastViewline.mockResolvedValue(forecastViewline);
 
-  it('calls getAuroraViewline for realtime triggerType', async () => {
-    const { result } = renderHook(() => useAuroraViewline(true, 'realtime'));
-    await flushPromises();
-
-    expect(getAuroraViewline).toHaveBeenCalledTimes(1);
-    expect(getAuroraForecastViewline).not.toHaveBeenCalled();
-    expect(result.current.viewline).toEqual(liveViewline);
-  });
-
-  it('calls getAuroraViewline when triggerType is null (backwards compat)', async () => {
-    const { result } = renderHook(() => useAuroraViewline(true, null));
-    await flushPromises();
-
-    expect(getAuroraViewline).toHaveBeenCalledTimes(1);
-    expect(getAuroraForecastViewline).not.toHaveBeenCalled();
-    expect(result.current.viewline).toEqual(liveViewline);
-  });
-
-  it('polls every 5 minutes for realtime', async () => {
-    renderHook(() => useAuroraViewline(true, 'realtime'));
-    await flushPromises();
-
-    expect(getAuroraViewline).toHaveBeenCalledTimes(1);
-
-    await act(async () => { vi.advanceTimersByTime(5 * 60 * 1000); });
-    await flushPromises();
-    expect(getAuroraViewline).toHaveBeenCalledTimes(2);
-
-    await act(async () => { vi.advanceTimersByTime(5 * 60 * 1000); });
-    await flushPromises();
-    expect(getAuroraViewline).toHaveBeenCalledTimes(3);
-  });
-
-  // ---------------------------------------------------------------------------
-  // Forecast path
-  // ---------------------------------------------------------------------------
-
-  it('calls getAuroraForecastViewline for forecast triggerType', async () => {
-    const { result } = renderHook(() => useAuroraViewline(true, 'forecast'));
-    await flushPromises();
-
-    expect(getAuroraForecastViewline).toHaveBeenCalledTimes(1);
-    expect(getAuroraViewline).not.toHaveBeenCalled();
-    expect(result.current.viewline).toEqual(forecastViewline);
-  });
-
-  it('does not re-ask for a forecast line that has landed', async () => {
-    renderHook(() => useAuroraViewline(true, 'forecast'));
-    await flushPromises();
-
-    expect(getAuroraForecastViewline).toHaveBeenCalledTimes(1);
-
-    await act(async () => { vi.advanceTimersByTime(5 * 60 * 1000); });
-    await flushPromises();
-    // Still just the one call — the forecast line changes only with its Kp.
-    expect(getAuroraForecastViewline).toHaveBeenCalledTimes(1);
-  });
-
-  it('retries a failed forecast fetch on the poll cadence until one lands, then stops asking', async () => {
-    // ⚠️ The forecast mode used to ask exactly once. Now that a change of trigger or Kp withholds the
-    // line it had, one failed request would otherwise leave the map with no line for the whole alert.
-    getAuroraForecastViewline.mockRejectedValueOnce(new Error('network'));
-    const { result } = renderHook(() => useAuroraViewline(true, 'forecast', 6));
-    await flushPromises();
-
-    // The first request failed, so there is no line yet...
-    expect(getAuroraForecastViewline).toHaveBeenCalledTimes(1);
-    expect(result.current.viewline).toBeNull();
-
-    // ...the next tick asks again, and that answer is offered...
-    await act(async () => { vi.advanceTimersByTime(5 * 60 * 1000); });
-    await flushPromises();
-    expect(getAuroraForecastViewline).toHaveBeenCalledTimes(2);
-    expect(result.current.viewline).toEqual(forecastViewline);
-
-    // ...and once one has landed, nothing asks again.
-    await act(async () => { vi.advanceTimersByTime(5 * 60 * 1000); });
-    await flushPromises();
-    expect(getAuroraForecastViewline).toHaveBeenCalledTimes(2);
-  });
-
-  // ---------------------------------------------------------------------------
-  // Cleanup and transitions
-  // ---------------------------------------------------------------------------
-
-  it('clears viewline when disabled after being enabled', async () => {
-    const { result, rerender, seen } = renderLogged({ enabled: true, triggerType: 'realtime' });
-    await flushPromises();
-
-    expect(result.current.viewline).toEqual(liveViewline);
-
-    seen.length = 0;
-    rerender({ enabled: false, triggerType: 'realtime' });
-    expect(result.current.viewline).toBeNull();
-    // ⚠️ On EVERY render since, not only the last. The effect clears the held line too, and under
-    // `act` that clear has landed before `result.current` is read — so the check above alone passes
-    // with the render-time `enabled &&` deleted, while the first disabled render still handed out the
-    // ended alert's line.
-    expect(seen.length).toBeGreaterThan(0);
-    expect(seen.filter((s) => s.viewline !== null)).toEqual([]);
-  });
-
-  it('stops polling when disabled', async () => {
-    const { rerender } = renderHook(
-      ({ enabled }) => useAuroraViewline(enabled, 'realtime'),
-      { initialProps: { enabled: true } },
-    );
-    await flushPromises();
-
-    expect(getAuroraViewline).toHaveBeenCalledTimes(1);
-
-    rerender({ enabled: false });
-
-    await act(async () => { vi.advanceTimersByTime(5 * 60 * 1000); });
-    await flushPromises();
-    // No additional calls after disabling
-    expect(getAuroraViewline).toHaveBeenCalledTimes(1);
-  });
-
-  // ---------------------------------------------------------------------------
-  // Error resilience
-  // ---------------------------------------------------------------------------
-
-  it('retains existing viewline on fetch error', async () => {
-    const { result } = renderHook(() => useAuroraViewline(true, 'realtime'));
-    await flushPromises();
-
-    expect(result.current.viewline).toEqual(liveViewline);
-
-    // Next poll fails
-    getAuroraViewline.mockRejectedValueOnce(new Error('network'));
-    await act(async () => { vi.advanceTimersByTime(5 * 60 * 1000); });
-    await flushPromises();
-
-    // Still has the original viewline
-    expect(result.current.viewline).toEqual(liveViewline);
-  });
-
-  // ---------------------------------------------------------------------------
-  // A line is offered only as what it was fetched as
-  // ---------------------------------------------------------------------------
-  //
-  // The live OVATION nowcast and the forecast lookup are two different lines, and a forecast line
-  // is a different line again at a different Kp. A line held under one key must not be handed out
-  // while another is in force — in ANY render, which is why several tests below read `seen` as well
-  // as `result.current`.
-
-  describe('a line is offered only as what it was fetched as', () => {
-    it('drops a late LIVE answer once the alert has turned forecast-triggered', async () => {
-      // ⚠️ The out-of-order case. The live request is still out when the trigger flips to forecast,
-      // and it lands LAST. Unguarded, it overwrote the forecast line on hand — which, since each line
-      // is held with its key, takes the forecast line off the map instead of putting the live one up.
-      const liveInFlight = deferred();
-      getAuroraViewline.mockReturnValueOnce(liveInFlight.promise);
-      const { result, rerender } = renderHook(
-        ({ triggerType }) => useAuroraViewline(true, triggerType),
-        { initialProps: { triggerType: 'realtime' } },
-      );
-      // The live request really is out — without it there is no late answer to drop.
+      renderHook(() => useAuroraViewline(true));
+      await flushPromises();
       expect(getAuroraViewline).toHaveBeenCalledTimes(1);
-
-      rerender({ triggerType: 'forecast' });
-      await flushPromises();
-      // Control: the forecast line is the one on hand.
-      expect(result.current.viewline).toEqual(forecastViewline);
-
-      await land(() => liveInFlight.resolve(liveViewline));
-
-      // Still the forecast line. Broken, the late live answer replaced it.
-      expect(result.current.viewline).toEqual(forecastViewline);
-    });
-
-    it('offers no line while a changed trigger\'s first answer is out — in no render the other mode\'s', async () => {
-      // ⚠️ The stale-window case. Nothing used to withhold the live line on the flip, so it stood in
-      // for the forecast one until the forecast request landed.
-      const forecastInFlight = deferred();
-      getAuroraForecastViewline.mockReturnValueOnce(forecastInFlight.promise);
-      const { result, rerender, seen } = renderLogged({ enabled: true, triggerType: 'realtime' });
-      await flushPromises();
-      // Control: the live line is on hand before the change.
-      expect(result.current.viewline).toEqual(liveViewline);
-
-      seen.length = 0;
-      rerender({ enabled: true, triggerType: 'forecast' });
-
-      // The forecast request really is out, and no render since the flip has offered a line —
-      // including the one that made it, before any effect ran.
       expect(getAuroraForecastViewline).toHaveBeenCalledTimes(1);
-      expect(seen.length).toBeGreaterThan(0);
-      expect(seen.filter((s) => s.viewline !== null)).toEqual([]);
 
-      // ...and once it lands, the forecast line is what is offered.
-      await land(() => forecastInFlight.resolve(forecastViewline));
-      expect(result.current.viewline).toEqual(forecastViewline);
+      await act(async () => { vi.advanceTimersByTime(5 * 60 * 1000); });
+      expect(getAuroraViewline).toHaveBeenCalledTimes(2);
+      expect(getAuroraForecastViewline).toHaveBeenCalledTimes(2);
+
+      await act(async () => { vi.advanceTimersByTime(5 * 60 * 1000); });
+      expect(getAuroraViewline).toHaveBeenCalledTimes(3);
+      expect(getAuroraForecastViewline).toHaveBeenCalledTimes(3);
     });
 
-    it('offers no line when a changed trigger\'s first fetch fails', async () => {
+    it('follows a revised forecast on the next poll with nothing else changing', async () => {
+      getAuroraViewline.mockResolvedValue(inactive);
+      getAuroraForecastViewline.mockResolvedValueOnce(forecastViewline);
+
+      const { result } = renderHook(() => useAuroraViewline(true));
+      await flushPromises();
+      expect(result.current.viewline.kp).toBe(6.67);
+
+      getAuroraForecastViewline.mockResolvedValueOnce(revisedForecastViewline);
+      await act(async () => { vi.advanceTimersByTime(5 * 60 * 1000); });
+
+      expect(result.current.viewline.kp).toBe(7.0);
+      expect(result.current.source).toBe('forecast');
+    });
+
+    it('hands the map to the forecast when a later live poll answers inactive', async () => {
+      getAuroraViewline.mockResolvedValueOnce(liveViewline);
+      getAuroraForecastViewline.mockResolvedValue(forecastViewline);
+
+      const { result } = renderHook(() => useAuroraViewline(true));
+      await flushPromises();
+      expect(result.current.source).toBe('live');
+
+      getAuroraViewline.mockResolvedValueOnce(inactive);
+      await act(async () => { vi.advanceTimersByTime(5 * 60 * 1000); });
+
+      expect(result.current.source).toBe('forecast');
+    });
+
+    it('keeps an endpoint\'s previous line when its next poll fails', async () => {
+      getAuroraViewline.mockResolvedValueOnce(liveViewline);
+      getAuroraForecastViewline.mockResolvedValue(forecastViewline);
+
+      const { result } = renderHook(() => useAuroraViewline(true));
+      await flushPromises();
+
+      getAuroraViewline.mockRejectedValueOnce(new Error('network'));
+      await act(async () => { vi.advanceTimersByTime(5 * 60 * 1000); });
+
+      expect(result.current.viewline).toBe(liveViewline);
+    });
+
+    it('keeps the forecast endpoint\'s previous line when its next poll fails', async () => {
+      getAuroraViewline.mockResolvedValue(inactive);
+      getAuroraForecastViewline.mockResolvedValueOnce(forecastViewline);
+
+      const { result } = renderHook(() => useAuroraViewline(true));
+      await flushPromises();
+
       getAuroraForecastViewline.mockRejectedValueOnce(new Error('network'));
-      const { result, rerender } = renderHook(
-        ({ triggerType }) => useAuroraViewline(true, triggerType),
-        { initialProps: { triggerType: 'realtime' } },
-      );
-      await flushPromises();
-      expect(result.current.viewline).toEqual(liveViewline);
+      await act(async () => { vi.advanceTimersByTime(5 * 60 * 1000); });
 
-      rerender({ triggerType: 'forecast' });
-      await flushPromises();
+      expect(result.current.viewline).toBe(forecastViewline);
+      expect(result.current.source).toBe('forecast');
+    });
 
-      // The forecast request was made, and failed...
+    it('does not ask the forecast endpoint, nor offer a forecast line, with includeForecast false', async () => {
+      getAuroraViewline.mockResolvedValue(inactive);
+      getAuroraForecastViewline.mockResolvedValue(forecastViewline);
+
+      const { result } = renderHook(() => useAuroraViewline(true, { includeForecast: false }));
+      await flushPromises();
+      await act(async () => { vi.advanceTimersByTime(5 * 60 * 1000); });
+
+      expect(getAuroraForecastViewline).not.toHaveBeenCalled();
+      expect(getAuroraViewline).toHaveBeenCalledTimes(2);
+      expect(result.current).toEqual({ viewline: null, source: null });
+    });
+
+    it('stops polling on unmount', async () => {
+      getAuroraViewline.mockResolvedValue(liveViewline);
+      getAuroraForecastViewline.mockResolvedValue(forecastViewline);
+
+      const { unmount } = renderHook(() => useAuroraViewline(true));
+      await flushPromises();
+      unmount();
+
+      await act(async () => { vi.advanceTimersByTime(15 * 60 * 1000); });
+      expect(getAuroraViewline).toHaveBeenCalledTimes(1);
       expect(getAuroraForecastViewline).toHaveBeenCalledTimes(1);
-      // ...leaving nothing until a retry lands. Broken, the live line was kept — for good, since
-      // the forecast mode never asked again.
+    });
+  });
+
+  describe('enabled', () => {
+    it('asks nothing while disabled', async () => {
+      const { result } = renderHook(() => useAuroraViewline(false));
+      await flushPromises();
+
+      expect(getAuroraViewline).not.toHaveBeenCalled();
+      expect(getAuroraForecastViewline).not.toHaveBeenCalled();
+      expect(result.current).toEqual({ viewline: null, source: null });
+    });
+
+    it('withholds the line in the render that disables it, and starts the next alert with none', async () => {
+      getAuroraViewline.mockResolvedValue(liveViewline);
+      getAuroraForecastViewline.mockResolvedValue(forecastViewline);
+
+      const seen = [];
+      const { result, rerender } = renderHook(({ enabled }) => {
+        const out = useAuroraViewline(enabled);
+        seen.push({ enabled, viewline: out.viewline });
+        return out;
+      }, { initialProps: { enabled: true } });
+      await flushPromises();
+      expect(result.current.viewline).toBe(liveViewline);
+
+      rerender({ enabled: false });
+      // Every render with the hook disabled, including the first (before any effect ran), is empty.
+      expect(seen.filter((s) => !s.enabled).every((s) => s.viewline === null)).toBe(true);
+
+      // A later alert asks afresh and is not handed the ended alert's line while it waits.
+      const liveRequest = deferred();
+      getAuroraViewline.mockReturnValue(liveRequest.promise);
+      getAuroraForecastViewline.mockReturnValue(deferred().promise);
+      rerender({ enabled: true });
+      await flushPromises();
       expect(result.current.viewline).toBeNull();
     });
 
-    it('offers no line for a new alert until its own first answer — in no render the previous alert\'s', async () => {
-      const { result, rerender, seen } = renderLogged({ enabled: true, triggerType: 'realtime' });
+    it('drops a response that lands after the hook was disabled', async () => {
+      const liveRequest = deferred();
+      getAuroraViewline.mockReturnValue(liveRequest.promise);
+      getAuroraForecastViewline.mockResolvedValue(forecastViewline);
+
+      const { result, rerender } = renderHook(({ enabled }) => useAuroraViewline(enabled), {
+        initialProps: { enabled: true },
+      });
       await flushPromises();
-      // Control: the first alert's line.
-      expect(result.current.viewline).toEqual(liveViewline);
+      rerender({ enabled: false });
 
-      rerender({ enabled: false, triggerType: 'realtime' }); // that alert ends
-      const secondInFlight = deferred();
-      getAuroraViewline.mockReturnValueOnce(secondInFlight.promise);
-      seen.length = 0;
-      rerender({ enabled: true, triggerType: 'realtime' }); // a later one begins, on the very same key
+      await land(() => liveRequest.resolve(liveViewline));
 
-      // Its request really is out, and no render since has offered a line. ⚠️ Including the first
-      // one enabled again, before its effect ran: a clear made on the way IN rather than on the way
-      // out still leaves `result.current` null after `act`, and fails only this.
-      expect(getAuroraViewline).toHaveBeenCalledTimes(2);
-      expect(seen.length).toBeGreaterThan(0);
-      expect(seen.filter((s) => s.viewline !== null)).toEqual([]);
+      // Re-enabled with both new requests still out: the old run's late answer must not be there.
+      getAuroraViewline.mockReturnValue(deferred().promise);
+      getAuroraForecastViewline.mockReturnValue(deferred().promise);
+      rerender({ enabled: true });
+      await flushPromises();
 
-      await land(() => secondInFlight.resolve(laterLiveViewline));
-      expect(result.current.viewline).toEqual(laterLiveViewline);
+      expect(result.current).toEqual({ viewline: null, source: null });
     });
 
-    it('withholds the forecast line the moment its Kp changes, and asks for the new Kp\'s', async () => {
-      // ⚠️ An escalation inside a forecast-triggered alert re-sets the Kp the forecast line is built
-      // from without moving `enabled` or the mode. Keyed on those two alone, nothing asked again, and
-      // the old line stood for the rest of the alert under an overlay label quoting the new Kp.
-      const { result, rerender, seen } = renderLogged({ enabled: true, triggerType: 'forecast', forecastKp: 6 });
+    it('drops a FORECAST response that lands after the hook was disabled', async () => {
+      const forecastRequest = deferred();
+      getAuroraViewline.mockResolvedValue(inactive);
+      getAuroraForecastViewline.mockReturnValue(forecastRequest.promise);
+
+      const { result, rerender } = renderHook(({ enabled }) => useAuroraViewline(enabled), {
+        initialProps: { enabled: true },
+      });
       await flushPromises();
-      // Control: the Kp-6 line.
-      expect(result.current.viewline).toEqual(forecastViewline);
+      rerender({ enabled: false });
 
-      const escalated = deferred();
-      getAuroraForecastViewline.mockReturnValueOnce(escalated.promise);
-      seen.length = 0;
-      rerender({ enabled: true, triggerType: 'forecast', forecastKp: 7 });
+      await land(() => forecastRequest.resolve(forecastViewline));
 
-      // The Kp-7 line really is asked for, and no render since the escalation has offered the Kp-6 one.
-      expect(getAuroraForecastViewline).toHaveBeenCalledTimes(2);
-      expect(seen.length).toBeGreaterThan(0);
-      expect(seen.filter((s) => s.viewline !== null)).toEqual([]);
-
-      await land(() => escalated.resolve(escalatedForecastViewline));
-      expect(result.current.viewline).toEqual(escalatedForecastViewline);
-    });
-
-    it('keeps its line, and does not refetch, when the trigger changes without changing the mode', async () => {
-      // ⚠️ `null` and `'realtime'` both mean the live line (a status with no trigger recorded yet
-      // reads null). A hook keyed on the raw string would withhold the line and re-ask for it on a
-      // flip that asks for nothing different.
-      const { result, rerender } = renderHook(
-        ({ triggerType }) => useAuroraViewline(true, triggerType),
-        { initialProps: { triggerType: null } },
-      );
+      getAuroraViewline.mockReturnValue(deferred().promise);
+      getAuroraForecastViewline.mockReturnValue(deferred().promise);
+      rerender({ enabled: true });
       await flushPromises();
-      expect(result.current.viewline).toEqual(liveViewline);
 
-      rerender({ triggerType: 'realtime' });
-
-      expect(getAuroraViewline).toHaveBeenCalledTimes(1);
-      expect(result.current.viewline).toEqual(liveViewline);
-    });
-
-    it('ignores the forecast Kp in live mode — the live line is neither withheld nor re-asked for', async () => {
-      // The live endpoint reads no trigger state, so a Kp change asks for nothing different there.
-      const { result, rerender } = renderLogged({ enabled: true, triggerType: 'realtime', forecastKp: 6 });
-      await flushPromises();
-      expect(result.current.viewline).toEqual(liveViewline);
-
-      rerender({ enabled: true, triggerType: 'realtime', forecastKp: 7 });
-
-      expect(getAuroraViewline).toHaveBeenCalledTimes(1);
-      expect(result.current.viewline).toEqual(liveViewline);
+      expect(result.current).toEqual({ viewline: null, source: null });
     });
   });
 });

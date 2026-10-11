@@ -295,12 +295,12 @@ describe('MapLegendPanel — the aurora variant (aurora heat, A3)', () => {
     expect(solarBar).not.toHaveClass('wf-legend-ramp-aurora');
   });
 
-  it('names the dashed line only when the viewline is shown', () => {
+  it('describes the viewline only when it is shown', () => {
     const { rerender } = render(<MapLegendPanel {...baseProps({ open: true })} variant="aurora" />);
-    expect(screen.getByTestId('wf-legend-note')).not.toHaveTextContent('dashed line');
+    expect(screen.getByTestId('wf-legend-note')).not.toHaveTextContent('clears the northern horizon');
     rerender(<MapLegendPanel {...baseProps({ open: true })} variant="aurora" viewlineShown />);
     expect(screen.getByTestId('wf-legend-note')).toHaveTextContent(
-      'The dashed line is where the aurora clears the northern horizon.',
+      'The line is where the aurora clears the northern horizon on camera; dashed amber is the forecast, pale is live.',
     );
   });
 

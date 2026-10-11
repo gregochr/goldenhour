@@ -11,6 +11,7 @@ import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.model.KpForecast;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.aurora.AuroraForecastRunService;
+import com.gregochr.goldenhour.service.aurora.AuroraViewlineRule;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -211,11 +212,12 @@ class AuroraHotTopicStrategyTest {
     }
 
     @Test
-    @DisplayName("tonight pill emits the Kp+glow headline (real cap) and the optional moon chip")
+    @DisplayName("tonight pill emits the Kp+glow headline (the viewline rule's latitude) and the moon chip")
     void detect_tonightPill_emitsKpGlowAndMoonFacts() {
+        double glow = AuroraViewlineRule.geographicLatitudeFor(4.0, AuroraViewlineRule.UK_REFERENCE_LONGITUDE_DEG);
         when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
-        when(auroraStateCache.getLastTriggerKp()).thenReturn(6.0);
-        when(noaaSwpcClient.getGlowLatitudeCap(6.0)).thenReturn(54.0);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(4.0);
+        when(noaaSwpcClient.getGlowLatitudeCap(4.0)).thenReturn(glow);
         when(auroraSummaryBuilder.buildAuroraTonightCached()).thenReturn(
                 new AuroraTonightSummary(AlertLevel.MODERATE, 6.0, 8, 30, List.of(),
                         null, null, 18.0, null, null, null, null));
@@ -225,7 +227,9 @@ class AuroraHotTopicStrategyTest {
                 .filter(t -> t.date().equals(TODAY)).findFirst().orElseThrow();
 
         assertThat(tonight.facts())
-                .anyMatch(f -> "Kp 6 · glow reaches ~54°N and north".equals(f.value()));
+                .anyMatch(f -> String.format("Kp 4 · glow reaches ~%.0f°N and north", glow).equals(f.value()));
+        // The rule puts Kp 4 near 52N; the old table said 58N. The figure on the pill moved with it.
+        assertThat(glow).isBetween(51.0, 54.0);
         HotTopicFact moon = tonight.facts().stream()
                 .filter(f -> f.value() != null && f.value().startsWith("moon"))
                 .findFirst().orElseThrow();
@@ -235,11 +239,12 @@ class AuroraHotTopicStrategyTest {
     }
 
     @Test
-    @DisplayName("extreme Kp (glow cap 0) reads 'glow across the whole UK', not a latitude")
-    void detect_glowCapZero_saysWholeUk() {
+    @DisplayName("a glow line at or south of the UK's south coast reads 'glow across the whole UK', not a latitude")
+    void detect_glowSouthOfTheUk_saysWholeUk() {
+        double glow = AuroraViewlineRule.geographicLatitudeFor(9.0, AuroraViewlineRule.UK_REFERENCE_LONGITUDE_DEG);
         when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.STRONG);
         when(auroraStateCache.getLastTriggerKp()).thenReturn(10.0);
-        when(noaaSwpcClient.getGlowLatitudeCap(10.0)).thenReturn(0.0);
+        when(noaaSwpcClient.getGlowLatitudeCap(10.0)).thenReturn(glow);
         stubDarkSkyLocations("Northumberland");
 
         HotTopic tonight = strategy.detect(TODAY, TO_DATE).stream()
@@ -251,11 +256,30 @@ class AuroraHotTopicStrategyTest {
     }
 
     @Test
+    @DisplayName("the whole-UK wording switches at the south coast: 50.5N names a latitude, 49.5N does not")
+    void detect_glowEitherSideOfTheSouthCoast_wordsItself() {
+        when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
+        when(auroraStateCache.getLastTriggerKp()).thenReturn(5.0);
+        stubDarkSkyLocations("Northumberland");
+
+        when(noaaSwpcClient.getGlowLatitudeCap(5.0)).thenReturn(50.5);
+        HotTopic north = strategy.detect(TODAY, TO_DATE).stream()
+                .filter(t -> t.date().equals(TODAY)).findFirst().orElseThrow();
+        when(noaaSwpcClient.getGlowLatitudeCap(5.0)).thenReturn(49.5);
+        HotTopic south = strategy.detect(TODAY, TO_DATE).stream()
+                .filter(t -> t.date().equals(TODAY)).findFirst().orElseThrow();
+
+        assertThat(north.facts()).anyMatch(f -> "Kp 5 · glow reaches ~51°N and north".equals(f.value()));
+        assertThat(south.facts()).anyMatch(f -> "Kp 5 · glow across the whole UK".equals(f.value()));
+    }
+
+    @Test
     @DisplayName("unknown moon illumination omits the moon chip (no fabricated figure)")
     void detect_moonUnknown_omitsMoonChip() {
         when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
         when(auroraStateCache.getLastTriggerKp()).thenReturn(6.0);
-        when(noaaSwpcClient.getGlowLatitudeCap(6.0)).thenReturn(54.0);
+        when(noaaSwpcClient.getGlowLatitudeCap(6.0)).thenReturn(
+                AuroraViewlineRule.geographicLatitudeFor(6.0, AuroraViewlineRule.UK_REFERENCE_LONGITUDE_DEG));
         when(auroraSummaryBuilder.buildAuroraTonightCached()).thenReturn(
                 new AuroraTonightSummary(AlertLevel.MODERATE, 6.0, 8, 30, List.of(),
                         null, null, null, null, null, null, null));

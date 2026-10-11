@@ -2,40 +2,63 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import { Polygon, Polyline, Tooltip } from 'react-leaflet';
 import { viewlineDrawable } from '../utils/viewlineDrawable.js';
+import { formatEventTimeUk } from '../utils/conversions.js';
 
-/** Aurora green — used for live viewline boundary and fill. */
-const AURORA_GREEN = '#33ff33';
+/**
+ * Pale cream — the live viewline boundary and fill. Not green: the aurora heat field is green, and a
+ * green line on a green field disappears.
+ */
+const LIVE_CREAM = '#F2E7D3';
+
+/** Opacity of the live line. */
+const LIVE_LINE_OPACITY = 0.85;
 
 /** Amber — used for forecast viewline boundary and fill. */
 const FORECAST_AMBER = '#ff9900';
 
 /**
- * Leaflet overlay showing the OVATION aurora viewline on the map.
+ * The permanent label: where the line comes from, the Kp it was drawn for (forecast only) and the
+ * UK clock time it is true of — "Forecast · Kp 6.7 · 19:40", "Live · 22:40". A part the response
+ * does not carry is left out rather than guessed.
+ *
+ * @param {object} viewline AuroraViewlineResponse
+ * @param {boolean} isForecast whether the line is the forecast one
+ * @returns {string}
+ */
+function viewlineLabel(viewline, isForecast) {
+  const parts = [isForecast ? 'Forecast' : 'Live'];
+  if (isForecast && typeof viewline.kp === 'number') parts.push(`Kp ${viewline.kp.toFixed(1)}`);
+  const time = viewline.asOf ? formatEventTimeUk(viewline.asOf) : null;
+  if (time) parts.push(time);
+  return parts.join(' · ');
+}
+
+/**
+ * Leaflet overlay showing the aurora viewline on the map.
  *
  * Renders a semi-transparent polygon from the north map boundary down to the
  * viewline polyline, plus a southern boundary line. Non-interactive so
  * map markers remain clickable.
  *
- * When {@code isForecast} is true (from viewline response), the line is dashed amber.
- * When false, it is solid green.
+ * When {@code isForecast} is true (from the viewline response), the line is dashed amber. When
+ * false it is the live OVATION contour: solid pale cream at .85. The label names the source, the
+ * forecast's Kp and the time ({@code kp} and {@code asOf} from the response).
  *
  * @param {object}  props
  * @param {object}  props.viewline    - AuroraViewlineResponse from the API
- * @param {number}  props.forecastKp  - Kp value for forecast label (optional)
  */
-export default function AuroraViewlineOverlay({ viewline = null, forecastKp = null }) {
+export default function AuroraViewlineOverlay({ viewline = null }) {
   if (!viewlineDrawable(viewline)) {
     return null;
   }
 
   const isForecast = viewline.isForecast === true;
-  const colour = isForecast ? FORECAST_AMBER : AURORA_GREEN;
+  const colour = isForecast ? FORECAST_AMBER : LIVE_CREAM;
   const fillOpacity = isForecast ? 0.04 : 0.08;
+  const lineOpacity = isForecast ? 1 : LIVE_LINE_OPACITY;
   const dashArray = isForecast ? '10, 6' : undefined;
 
-  const tooltipLabel = isForecast
-    ? `- - - Forecast extent${forecastKp != null ? ` (Kp ${Math.round(forecastKp)})` : ''} - - -`
-    : `━━━ Live aurora extent ━━━`;
+  const tooltipLabel = viewlineLabel(viewline, isForecast);
 
   // Build the viewline as [lat, lon] pairs (Leaflet format)
   const viewlineLatLngs = viewline.points.map(p => [p.latitude, p.longitude]);
@@ -68,6 +91,7 @@ export default function AuroraViewlineOverlay({ viewline = null, forecastKp = nu
         positions={viewlineLatLngs}
         pathOptions={{
           color: colour,
+          opacity: lineOpacity,
           weight: 2,
           dashArray,
           interactive: false,
@@ -93,6 +117,7 @@ AuroraViewlineOverlay.propTypes = {
     forecastTime: PropTypes.string,
     active: PropTypes.bool,
     isForecast: PropTypes.bool,
+    kp: PropTypes.number,
+    asOf: PropTypes.string,
   }),
-  forecastKp: PropTypes.number,
 };

@@ -118,7 +118,7 @@ vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => false }));
 let auroraStatus = null;
 vi.mock('../hooks/useAuroraStatus.js', () => ({ useAuroraStatus: () => ({ status: auroraStatus }) }));
 let viewlineAnswer = null;
-vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ viewline: viewlineAnswer }) }));
+vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ viewline: viewlineAnswer, source: viewlineAnswer ? 'live' : null }) }));
 vi.mock('../api/auroraApi.js', () => ({
   getAuroraLocations: vi.fn().mockResolvedValue([]),
   getAuroraForecastResults: vi.fn().mockResolvedValue([]),
@@ -1346,7 +1346,7 @@ describe('MapView heat — the modes it stands down for', () => {
     expect(panel).toHaveTextContent('5\u2605 aurora green');
     // viewlineShown tracks the overlay's own mount: both true on the live night.
     expect(screen.getByTestId('aurora-viewline-overlay')).toBeInTheDocument();
-    expect(screen.getByTestId('wf-legend-note')).toHaveTextContent('The dashed line is where the aurora clears');
+    expect(screen.getByTestId('wf-legend-note')).toHaveTextContent('The line is where the aurora clears the northern horizon on camera');
   });
 
   it('drops the viewline sentence while the viewline has not answered, or answered inactive or empty', async () => {
@@ -1360,7 +1360,7 @@ describe('MapView heat — the modes it stands down for', () => {
       openLegend();
       // Eligible night: the overlay is mounted, but no line is drawn, so the note must not name one.
       expect(screen.getByTestId('wf-legend-note')).toHaveTextContent('Rating, not Kp.');
-      expect(screen.getByTestId('wf-legend-note')).not.toHaveTextContent('dashed line');
+      expect(screen.getByTestId('wf-legend-note')).not.toHaveTextContent('clears the northern horizon');
       unmount();
     }
   });
@@ -1376,7 +1376,7 @@ describe('MapView heat — the modes it stands down for', () => {
     expect(screen.getByTestId('wf-legend-panel')).toHaveTextContent('COLOUR = AURORA RATING');
     expect(screen.queryByTestId('aurora-viewline-overlay')).toBeNull();
     expect(screen.getByTestId('wf-legend-note')).toHaveTextContent('Rating, not Kp.');
-    expect(screen.getByTestId('wf-legend-note')).not.toHaveTextContent('dashed line');
+    expect(screen.getByTestId('wf-legend-note')).not.toHaveTextContent('clears the northern horizon');
   });
 
   it('hands PinsLayer and MapLabels the aurora ramp, the glow and omitUnrated in aurora mode only', async () => {

@@ -12,6 +12,8 @@ import com.gregochr.goldenhour.model.OvationReading;
 import com.gregochr.goldenhour.service.aurora.AuroraForecastRunService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import com.gregochr.goldenhour.service.aurora.TriggerType;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -35,6 +37,8 @@ import java.util.List;
 @PreAuthorize("hasAnyRole('ADMIN', 'PRO_USER')")
 public class AuroraController {
 
+    private static final Logger LOG = LoggerFactory.getLogger(AuroraController.class);
+
     private static final String DATA_SOURCE = "NOAA SWPC";
 
     private final AuroraStateCache stateCache;
@@ -46,10 +50,11 @@ public class AuroraController {
      *
      * @param stateCache         the aurora state machine and score cache
      * @param noaaClient         NOAA SWPC client for enriching the status response
-     * @param forecastRunService consulted only for {@code currentNight()} — the map needs the same
-     *                           night the run pipeline uses, and when it ends, and this keeps that
-     *                           rule in the one class that owns it rather than reimplementing
-     *                           dusk/dawn geometry in the browser
+     * @param forecastRunService consulted for {@code currentNight()} and
+     *                           {@code maxKpRestOfCurrentNight()} — the map needs the same night
+     *                           the run pipeline uses, and the same rest-of-tonight Kp the poller
+     *                           reads, and this keeps both rules in the classes that own them
+     *                           rather than reimplementing them here or in the browser
      */
     public AuroraController(AuroraStateCache stateCache, NoaaSwpcClient noaaClient,
             AuroraForecastRunService forecastRunService) {
@@ -199,65 +204,71 @@ public class AuroraController {
     }
 
     /**
-     * Returns the aurora viewline — the southernmost visible aurora boundary for UK longitudes.
+     * Returns the live aurora viewline — the southernmost visible aurora boundary for UK longitudes.
      *
-     * <p>Derived from NOAA SWPC OVATION nowcast data, clamped by a Kp-to-latitude hard cap
-     * based on real-world UK observer reports. Returns {@code active: false} when no
-     * significant aurora probability exists in the UK range.
+     * <p>Derived from the NOAA SWPC OVATION nowcast's 5% probability contour, served unchanged: no
+     * Kp clamp. Returns {@code active: false} when no significant aurora probability exists in the
+     * UK range.
      *
      * @return viewline response
      */
     @GetMapping("/viewline")
     public AuroraViewlineResponse getViewline() {
-        double currentKp = resolveCurrentKp();
-        return noaaClient.fetchViewline(currentKp);
+        AuroraViewlineResponse live = noaaClient.fetchViewline();
+        LOG.info("Aurora viewline served: source=live southernmost={} points={}",
+                live.southernmostLatitude(), live.points().size());
+        return live;
     }
 
     /**
-     * Returns a forecast aurora extent line based on the Kp-to-latitude lookup table.
+     * Returns the forecast viewline: {@code AuroraViewlineRule} drawn for the highest Kp NOAA
+     * forecasts for the rest of tonight, read live on every request.
      *
-     * <p>Used when the alert was triggered by a forecast (not live data). Returns a
-     * straight line at the cap latitude for the forecast Kp value.
+     * <p>The Kp is the poller's own figure ({@code AuroraForecastRunService.maxKpRestOfCurrentNight},
+     * the orchestrator's method over the same night), so the line follows NOAA's revisions without
+     * waiting for an alert to escalate. If the forecast is unavailable, has nothing for tonight or gives
+     * 0, it falls back to the Kp the current alert was raised on; with neither, the response is
+     * inactive. During an admin simulation the line follows the simulated Kp, like every other surface
+     * the simulation reaches, and NOAA is not read.
      *
      * @return forecast viewline response with {@code isForecast: true}
      */
     @GetMapping("/viewline/forecast")
     public AuroraViewlineResponse getForecastViewline() {
-        Double forecastKp = stateCache.getLastTriggerKp();
-        if (forecastKp == null) {
+        Double kp = resolveForecastKp();
+        if (kp == null) {
             return new AuroraViewlineResponse(
                     List.of(), "No forecast available", 90.0,
                     ZonedDateTime.now(ZoneOffset.UTC), false, true);
         }
-        return noaaClient.buildForecastViewline(forecastKp);
+        AuroraViewlineResponse forecast = noaaClient.buildForecastViewline(kp);
+        LOG.info("Aurora viewline served: source=forecast kp={} southernmost={} asOf={}",
+                kp, forecast.southernmostLatitude(), forecast.asOf());
+        return forecast;
     }
 
     /**
-     * Resolves the current Kp index for viewline capping.
-     *
-     * <p>Uses the latest real-time Kp reading (same source as the banner). Falls back to
-     * the peak Kp from the 3-day NOAA forecast if no real-time data is available, or a
-     * conservative default of 4.0 if both sources fail.
-     *
-     * @return best-available current Kp value
+     * The Kp the forecast line is drawn for: the highest Kp of the rest of tonight from a live read
+     * of NOAA's forecast, else the Kp the current alert was raised on, else {@code null}. A running
+     * simulation answers with its own Kp (the state cache stores it as the trigger Kp).
      */
-    private double resolveCurrentKp() {
+    private Double resolveForecastKp() {
+        if (stateCache.getSimulatedData() != null) {
+            return stateCache.getLastTriggerKp();
+        }
         try {
-            List<KpReading> recentKp = noaaClient.fetchKp();
-            if (!recentKp.isEmpty()) {
-                return recentKp.get(recentKp.size() - 1).kp();
-            }
             List<KpForecast> forecast = noaaClient.fetchKpForecast();
             if (!forecast.isEmpty()) {
-                return forecast.stream()
-                        .mapToDouble(KpForecast::kp)
-                        .max()
-                        .orElse(4.0);
+                double restOfTonight = forecastRunService.maxKpRestOfCurrentNight(forecast);
+                if (restOfTonight > 0.0) {
+                    return restOfTonight;
+                }
             }
-        } catch (Exception ignored) {
-            // Fail-safe — use conservative default
+        } catch (Exception e) {
+            LOG.warn("Forecast viewline: NOAA Kp forecast unavailable, using the alert's Kp: {}",
+                    e.getMessage());
         }
-        return 4.0;
+        return stateCache.getLastTriggerKp();
     }
 
     /**
