@@ -1,6 +1,6 @@
 # Ask PhotoCast — the thread (follow-up questions)
 
-**Status (2026-10-11): built T1–T5, merged as #1081 #1080 #1082 #1083 #TBD.** The feature stays behind
+**Status (2026-10-11): built T1–T5, merged as #1081 #1080 #1082 #1083 #1084.** The feature stays behind
 `photocast.ask.enabled`. Its real-API script is `AskThreadRegressionTest` (`prompt-regression` profile,
 assertions pending the owner's approval); CLAUDE.md's *Ask — the thread* bullet states the feature as built.
 
