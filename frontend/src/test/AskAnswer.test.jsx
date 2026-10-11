@@ -67,7 +67,17 @@ describe('AskConversation — a Ready answer', () => {
   it('holds it for 400 ms — the design’s figure, not a number this file borrows from the code', async () => {
     expect(READY_OPEN_MS).toBe(400);
     await renderAsk();
-    await tapReady('BEST_NEXT');
+    const ready = await screen.findByTestId('ask-ready-BEST_NEXT');
+    // From here the timing has to be exact, so the clock stops tracking real time: the harness's
+    // clock (`shouldAdvanceTime`) also moves with the wall clock, every 20 ms by however much real
+    // time passed, so under a loaded full-suite run the 400 ms the press arms could elapse before
+    // the explicit 399 below — the summary was already on screen at the "still held" check (seen
+    // once in each of two full runs on 2026-10-11, never alone; stalling 30 ms of real time after
+    // the press made it fail 5 of 5). Vitest carries the frozen instant across the re-install (the
+    // `App.test.jsx` night-end test does the same), and the button is found BEFORE the freeze
+    // because a `findBy*` on a frozen clock hangs rather than waits.
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    fireEvent.click(ready);
 
     await act(async () => { await vi.advanceTimersByTimeAsync(399); });
     expect(screen.queryByTestId('ask-summary')).toBeNull();
