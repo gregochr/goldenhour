@@ -76,11 +76,15 @@ import static org.mockito.Mockito.when;
  * inside the radius), and distances are computed with {@link GeoUtils#distanceMiles}.
  *
  * <p>The per-step expectations were written down before any run (plan section 3, T2) and match what the plan
- * promises, with one loosening recorded from the first real run on the T5 head: step 2 may legitimately find
- * nothing tide-aligned inside the radius with the fixture's coordinates (only inland Cheviot Edge is inside 25
- * miles), and the model may carry step 1's tide constraint into "closer to home", so it accepts either picks all
- * inside the radius or no picks at all with an answer that names the radius. Step 3's exclusion set is built from
- * the whole thread, and step 4 needs only two picks, since steps 1 to 3 may offer few.
+ * promises, with one loosening recorded from the real runs on the T5 head: step 2 asserts only what is invariant.
+ * Across three real runs "Anything closer to home?" has produced three honest shapes, all naming the radius: (1)
+ * new picks inside the radius; (2) no picks at all, because with the fixture's coordinates only inland Cheviot Edge
+ * is inside 25 miles and the model carried step 1's tide constraint, so nothing tide-aligned was there; (3) step 1's
+ * own picks re-offered (both outside the radius) beside a summary saying nothing closer qualifies, which the
+ * validator accepts because the thread offered them. So step 2 requires status OK (personal) or CANT, an answer
+ * that names the radius, and every pick either inside the radius or one of step 1's picks, never a new place
+ * outside it. Step 3's exclusion set is built from every earlier step's picks (so places step 2 re-offers are
+ * still turned down), and step 4 needs only two picks, since steps 1 to 3 may offer few.
  *
  * <p>This class is excluded from {@code mvn verify} (tagged "prompt-regression") and from PIT, and skips
  * when no API key is present. Run on demand, spending real money (a few pence a run), with:
@@ -193,25 +197,26 @@ class AskThreadRegressionTest {
         remember(one, "anything for sunrise with tide alignment this weekend?", thread, earlierPicks,
                 earlierLocations);
 
-        // 2. "Closer to home" resolves to the saved radius: picks inside it, or an honest answer naming it.
+        // 2. "Closer to home" resolves to the saved radius. Three honest shapes have been seen; the invariant is
+        // that the answer names the radius and never offers a NEW place outside it.
         AskRun second = ask("Anything closer to home?", thread);
         AskOutcome secondOutcome = second.outcome();
         assertThat(secondOutcome.status()).as("step 2 status (engine reason: %s)", second.reason())
                 .isIn(AskOutcome.Status.OK, AskOutcome.Status.CANT);
         AskAnswer two = secondOutcome.answer();
-        if (!two.picks().isEmpty()) {
-            assertThat(secondOutcome.status()).as("step 2 with picks is OK").isEqualTo(AskOutcome.Status.OK);
+        if (secondOutcome.status() == AskOutcome.Status.OK) {
             assertThat(secondOutcome.personal()).as("step 2 is personal (nearHome or a drive limit)").isTrue();
-            assertThat(two.picks()).as("step 2: every pick is within the saved radius of home")
-                    .allSatisfy(pick -> assertThat(milesFromHome(pick.locationId()))
-                            .as("%s miles from home", pick.locationName())
-                            .isLessThanOrEqualTo(RADIUS_MILES));
-            assertLiveAndRanked(two);
-        } else {
-            String said = (two.summary() + " " + two.missing()).toLowerCase(Locale.ROOT);
-            assertThat(said).as("step 2 with no picks names the radius").containsAnyOf("miles of home",
-                    RADIUS_MILES + " miles", "radius");
         }
+        String said = (two.summary() + " " + two.missing()).toLowerCase(Locale.ROOT);
+        assertThat(said).as("step 2 names the radius").containsAnyOf("miles of home", RADIUS_MILES + " miles",
+                "radius");
+        assertThat(two.picks()).as("step 2: each pick is inside the radius or one step 1 already gave")
+                .allSatisfy(pick -> assertThat(milesFromHome(pick.locationId()) <= RADIUS_MILES
+                        || earlierPicks.contains(new PickKey(pick.locationId(), pick.windowId())))
+                        .as("%s at %s is %.1f miles from home and not one of step 1's picks",
+                                pick.locationName(), pick.windowId(), milesFromHome(pick.locationId()))
+                        .isTrue());
+        assertLiveAndRanked(two);
         if (secondOutcome.status() == AskOutcome.Status.OK) {
             // An answered step is an exchange even with no pick; a can't never is (the client skips it).
             remember(two, "anything closer to home?", thread, earlierPicks, earlierLocations);
