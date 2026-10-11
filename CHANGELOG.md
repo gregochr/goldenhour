@@ -5,6 +5,44 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.26.2] - 2026-10-11
+
+### Added — the aurora best-location card can be dismissed (aurora heat, A4)
+
+The Map tab's "best aurora location" card now has a ✕ (44×44) after `Centre map`. Dismissing hides the card for the session; it returns when a different location takes the top spot or the night on screen changes (keyed on the night, not the viewed date). Focus moves to the window pill, or the first other control in the pane, so it never drops to the page body. Session-only React state; nothing is stored.
+
+### Changed — the heat legend and ramp key describe the aurora ramp in aurora mode (aurora heat, A3)
+
+On an aurora night the Map tab's Legend panel is back and now describes the aurora scale: the bar
+runs night slate to aurora green with a soft green glow, the ends read "1 star dark sky, no show"
+and "5 star aurora green", and the note says the colour is the rating, not Kp. The sentence about
+the dashed viewline appears only while that line is actually drawn. On a phone, the window list's
+aurora night row colours its best-rating swatch in the aurora ramp (astro nights keep the shared
+one). The solar legend, the reach-rings toggle and the star-floor swatches are unchanged.
+
+### Changed — the Map tab paints an aurora night as a heat field, aurora green (aurora heat, A2)
+
+An aurora window on the Map tab now draws the same heat field every other window does, in the aurora
+ramp (night slate, teal, aurora green) with a green glow, instead of one star disc per location.
+The field is painted from each location's own aurora rating (the live stars on the night in
+progress, that night's stored results on any other), a location with no rating is left out rather
+than drawn as one star, and it fades with the forecast horizon like the astro field. The Heat and
+Pins toggle and the toolbar are now offered in aurora mode, location chips and pins take the aurora
+colours, and a 4 star or better pin carries a green halo. Switching to a sunrise or sunset and back
+swaps the ramp each way and never touches the saved colour-scale preference. The legend and the
+ramp key still describe the solar scale in aurora mode until the next phase.
+
+### Added — the heat kernel takes a ramp and a bloom colour (aurora heat, A1)
+
+The first step of painting an aurora night as a heat field in aurora green. The shared kernel
+(`heatField.js`) now accepts an optional `ramp` (a score-to-colour function) and `bloomRGB` (the
+glow colour); left out, it uses the active colour scale and the ember orange exactly as before, and
+a test pins the two renderings byte for byte. A new `utils/auroraRamp.js` carries the aurora ramp
+(night slate, teal, aurora green), its bloom settings, its legend gradient and its toggle swatch,
+kept apart from the persisted colour-scale preference on purpose: an aurora night overrides the
+scale, it is not a third choice the reader makes. Nothing on screen changes yet; the Map tab picks
+these up in the next phase.
+
 ## [v2.26.1] - 2026-10-11
 
 ### Docs — aurora heat: the design bundle, its port plan, and the viewline findings
