@@ -57,14 +57,28 @@ yet" most nights, so **N0 schedules the astro job**: a `DynamicSchedulerService`
 night** for every enabled location with a Bortle class, through `AstroConditionsService
 .evaluateAndPersist(dates)` exactly as the engine calls it — Open-Meteo only, no Claude cost, one
 `job_run` of `RunType.WEATHER`-style accounting (decide the run type by reading how the engine
-records it today). Replace-per-date semantics as the service already has. Aurora rows stay as they
+records it today). An upsert per (location, date) — see the two corrections below §2.0: the running night is left as scored before dawn, and stale rows of now-ineligible locations are excluded by N1's query, not deleted here. Aurora rows stay as they
 are (the poller's alert decides when a night is scored; a quiet night is reported from
 `AuroraStateCache`'s level, §2.2).
 
+⚠️ **Two N0 corrections from review (round 3).** (1) **Pre-dawn "Run now" must not rescore the
+running night**: `OpenMeteoClient.fetchForecastBatch` returns hours from UTC today, and
+`AstroConditionsService.coversWholeNight` checks only that the array reaches the DAWN date, so a
+run between midnight and nautical dawn would score yesterday's night on its post-midnight hours
+alone and overwrite the complete row the 15:30 run wrote. The job therefore scores the nights
+`max(currentNightDate(), today)` and that + 1 — before dawn that is today's and tomorrow's nights,
+the running one left as scored; the scheduled 15:30 run is unaffected (`currentNightDate()` is
+today). (2) **`evaluateAndPersist` is an upsert per (location, date), not a replace-per-date**: it
+loads existing ids and saves only the locations it rescored, never calling `deleteByForecastDateIn`,
+so a location disabled or stripped of its Bortle class after a run keeps its old row for that date.
+N0 does not change the service; instead the N1 snapshot query joins the location and takes only
+`enabled = true AND bortle_class IS NOT NULL` rows (the Map's `/api/astro/conditions` keeps its
+existing, unfiltered read — a pre-existing surface, out of scope here).
+
 ### §2.1 The snapshot — `AskSnapshot.nights`
 
-`AskSnapshotBuilder` adds `nights: List<Night>` for **tonight and tomorrow night** on the UK
-calendar (the two nights the Map's window control carries: `mapEvents.nightRow` for `ASTRO` and
+`AskSnapshotBuilder` adds `nights: List<Night>` for **tonight and tomorrow night** — tonight per
+§1.7's `currentNightDate()` rule (the two nights the Map's window control carries: `mapEvents.nightRow` for `ASTRO` and
 `AURORA`), each `Night(date, kind ASTRO|AURORA, windowId, nightStart, nightEnd, spots:
 List<NightSpot>)`:
 
@@ -93,7 +107,12 @@ List<NightSpot>)`:
   passes `isNight: true` (~3090). Before nautical dawn `currentNightDate()` is YESTERDAY, so `App`
   would read an Ask night pick as a stale solar date and refuse it. N3 changes that handoff to pass
   `isNight: row.kind !== 'solar'` (and `setLocalNightDate` the row's date for a night row), with a
-  test that fires an `_astro` pick for yesterday's running night before dawn. **The kind is an Ask-local
+  test that fires an `_astro` pick for yesterday's running night before dawn.
+  The Map-to-Ask direction needs the same: `utils/askMapContext.js`'s `askWindowOf` returns `null`
+  for every non-solar row, so a question asked while the Map shows tomorrow's ASTRO or AURORA row
+  carries no `windowId` and "is this any good?" cannot mean that night; N3 extends `askWindowOf`
+  and `buildMapAskContext` to publish the Ask-local night id (`date_astro` / `date_aurora`) and
+  its label. **The kind is an Ask-local
   `AskWindowKind {SUNRISE, SUNSET, ASTRO, AURORA}`, NOT a new `TargetType` value**: `TargetType` is
   persisted in `forecast_evaluation.target_type` (`@Enumerated(STRING)`, the `LocalH2EnumWidener`
   trap) and must not grow for an Ask-only need; `AskPick.targetType` is serialised as the kind's
@@ -133,20 +152,21 @@ but `kind: "aurora"` (or `any`) still returns the aurora-only spots whenever aur
 exist for that night — an admin or batch aurora run can succeed on a night the scheduled astro job
 failed, and that persisted PRO/ADMIN result must not be hidden behind the astro table's absence; a
 region with rows elsewhere but none in it answers `note: "no night-scored places in <region>"`. `regions` are matched by `canonicalRegion`, whose name set is
-the UNION of the solar windows' and the nights' regions (today it reads solar windows only). The
-tool sets **`roleBound` on EVERY call, whichever branch runs** (the same discipline as `personal`,
-set at the call, not at the result): a role-bound answer is cached under the asker's user id, never
-shared. The typed cache keys on scope/date/question/window/user with no role and `lookup` reads the
-shared key before the per-user one, so binding only the branch that returned an aurora figure would
-still let a LITE asker's figure-less answer be stored under the shared key and served to the next
-PRO asker with the same words — the tool never running for them. Every night answer is therefore
-per-user; sharing is given up for the whole tool rather than keyed by role, since a role-keyed
-namespace would halve the solar questions' sharing for nothing. ⚠️ **A role-bound entry also
-records the PRODUCING role and is a miss when the asker's role differs** (`CaffeineAskAnswerCache`
-stores it beside `personal`): an admin downgrading a PRO user to LITE inside the 30-minute TTL must
-not let that user's own cached answer keep serving an aurora figure in its retained `summary`/`why`
-(the validator re-joins card facts, not the prose), and the reverse upgrade should run the tool
-rather than serve the figure-less answer. The tool records `(locationId, windowId)` as
+the UNION of the solar windows' and the nights' regions (today it reads solar windows only). ⚠️ **A night answer is never stored in the typed cache** (`AskTools` marks the conversation
+`uncacheable` the moment `rank_night_spots` is called, whichever branch runs — the same place
+`personal` is set; `AskService` reads it like `personal` and skips the store): the typed cache keys
+on scope/date/question/window/user with no role, `lookup` reads the shared key before the per-user
+one, and freshness compares only window, eligibility, rating and verdict — so a cached night answer
+could (a) hand a LITE asker's figure-less answer to the next PRO asker with the same words, (b) keep
+serving an aurora figure in its retained `summary`/`why` to a user downgraded inside the TTL, and
+(c) go on saying "alert active, Kp 6" after `AuroraStateCache` has gone quiet or the astro
+refresh changed `clearSky` without moving the integer star. Each of those was a review finding; one
+rule closes all three. The cost is one Claude call per repeat of a night question, inside the
+allowance and the spend cap. (`roleBound`, the earlier design, is withdrawn.) The Ready `NIGHT_SKY`
+answer is the one night answer that IS stored (`ask_ready_answer`), and its freshness identity
+(§2.5) therefore carries the night's own version: the max `evaluated_at` of the astro rows the
+answer was written from, withheld whole when the live max differs — astro only, no aurora, no
+state-cache prose. The tool records `(locationId, windowId)` as
 evidence exactly as `rank_spots` does.
 
 ### §2.3 The prompt
@@ -175,6 +195,12 @@ same place are two windows). `AskReadyFreshness` re-checks a night pick against 
 data (a re-run that drops a place's stars below 3 withholds the answer, as for solar).
 
 ### §2.5 The Ready question — `NIGHT_SKY`
+
+Freshness (serve-time, all-or-nothing like every Ready answer): the stored answer carries
+`astroEvaluatedAt` (the max `evaluated_at` over the night's astro rows at write time) and is
+withheld whole when the live max differs, when any pick's live astro star differs from the stored
+one, when a pick is no longer night-eligible (ASTRO ≥ 4), or when the night has passed (nautical
+dawn, `currentNightDate()` moved on). It never carries an aurora figure or state-cache prose.
 
 "Anything for the night sky tonight?" — offered when tonight has an ASTRO night in the snapshot;
 tabs: Map and Plan; relevance admits only night picks and the `AURORA` hot topic; computed user-less
@@ -217,7 +243,7 @@ each, cached by SWR as the Map does; LITE gets 403 on aurora and the card shows 
 
 | Phase | Scope | Size |
 |---|---|---|
-| **N0 backend — the astro schedule** | §2.0: `astro_conditions_refresh` job (migration seed + `DynamicSchedulerService` target, 15:30 UTC, tonight + tomorrow night per `currentNightDate()`, every Bortle-enriched enabled location, `evaluateAndPersist`); its `job_run`; an admin "Run now" works through the scheduler as every job does. Tests mirror `WildlifeComfortRefreshJob`'s. | S–M |
+| **N0 backend — the astro schedule** | §2.0: `astro_conditions_refresh` job (migration seed + `DynamicSchedulerService` target, 15:30 UTC, the nights `max(currentNightDate(), today)` and +1, every Bortle-enriched enabled location, `evaluateAndPersist`); its `job_run`; an admin "Run now" works through the scheduler as every job does. Tests mirror `WildlifeComfortRefreshJob`'s. | S–M |
 | **N1 backend — snapshot, tool, prompt, validator** | §2.1–§2.4: `AskSnapshot.nights` + builder read (same repositories the DTOs use), `AskWindowId` night kinds, `rank_night_spots` in `AskTools`/`AskToolSchemas`/`AskToolArguments` (role-gated aurora), `list_windows` night rows, prompt block, `isPickEligible` night rule, `AskPick` night kind, `AskReadyFreshness` night re-check, thread re-join of a night pick ("no longer in the forecast" when the run is gone). Goldens regenerated. Tests for every rule; a real-API check (≤ 3 paid runs) of the owner's question "are there clear skies on the durham coast tonight?" with a fixture that gains an astro night and an aurora night (PRO asker → aurora figure; LITE asker → "Pro feature" clause, no figure). | L |
 | **N2 backend — Ready `NIGHT_SKY`** | §2.5: the constant, availability, relevance, matcher words, precompute (astro only), serve-time withholding; tests. | S–M |
 | **N3 frontend — night pick card** | §2.6: the night join, the card, label/kind words, the Plan tab's night fetches, "Show on map"/"Plan this" for a night window; adversarial review before merge (a11y of the new pill, the LITE card without aurora, the 266px phone card). | M–L |
@@ -268,6 +294,14 @@ shell-level fetch, §2.6); `buildPickCards`' meridiem guard would drop every nig
 civil date (§1.7); N2 deferred behind N0 in practice (§3). Refuted: the `why` text and the Ready path
 as aurora leaks; the in-process memo; `triaged`/`simulated`/date meaning; `departureWithDay` for a
 night; schema size (measurable, not a design problem).
+
+Codex, three rounds on this PR (#1091): the shared cache served a LITE answer to a PRO asker
+(round 1) → `roleBound` per user (round 2) → still wrong on a downgrade inside the TTL and on live
+night facts moving under the TTL (round 3) → **no typed cache for a night answer at all** (§2.2);
+the state cache is tonight-only (§2.2); the 4★ astro bar stated once (§4); per-kind empty answers
+(§2.2); the astro read must fetch-join the location for the background precompute (§2.1); the Ask
+→ Map handoff passes `isNight: false` unconditionally and the Map → Ask context publishes no night
+window (§2.1, N3); N0's pre-dawn run and the upsert-not-replace semantics (§2.0).
 
 ## §6 Measured (N4)
 
