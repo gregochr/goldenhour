@@ -1,7 +1,0 @@
-### Changed — Ask: "close to home" means the saved local radius; a ranking follow-up may return the same place at two windows (T3)
-
-"Close to home", "near", "nearby" and "local" in an Ask question now resolve on the server to the reader's own saved local radius (the Close-to-home setting, 22 miles when none is saved), measured in straight-line miles from the saved home postcode, through a new `rank_spots.nearHome` argument; the answer says "within N miles of home". This replaces the stopgap that read "close to home" as 60 minutes' drive. It needs no drive times, so an account with a home and no drive times gets it; with no home saved the answer says so. A number of minutes is still a drive limit, and "closer" in a follow-up narrows the earlier picks' drive or uses the radius.
-
-A follow-up that asks to rank the options already given (up to four picks, the same place at two windows allowed) is no longer cut to one pick per place; a fresh question and any answer mixing in a new place keep three picks at three different places.
-
-A follow-up that turns the earlier places down ("neither of those take my fancy", "I've been to both", "something else") now excludes those places in code rather than only in the prompt: the earlier picks' locations are dropped from the answer at every window, the prompt marks them as turned down, and if nothing else is rated well enough the answer says so honestly.
