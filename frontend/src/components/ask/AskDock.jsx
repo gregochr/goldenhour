@@ -110,7 +110,7 @@ function useKeepFocusAlive(ref, inert, fallbackFocus) {
  * propagating, so the same key does not also close a layer the reader never meant. An IME's
  * composing Escape is left alone.
  *
- * <p><b>Closing keeps the conversation</b> (✕ and Escape only close); "Clear answer" ends it. The
+ * <p><b>Closing keeps the conversation</b> (✕ and Escape only close); "New conversation" ends it. The
  * dock unmounts when closed, so its input row's text resets with each opening — the sheet's rule.
  *
  * <p>{@code data-ask-surface} is what {@code useOutsideDismiss} reads: a press in here dismisses no

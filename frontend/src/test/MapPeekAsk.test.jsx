@@ -192,23 +192,26 @@ describe('expanded — the row holds the field and a ✕, the conversation fills
     expect(screen.getByTestId('ask-input')).toHaveAttribute('readonly');
   });
 
-  it('the ✕ names what it will do: "Clear answer" over an answer, "Close Ask" otherwise', () => {
+  it('the ✕ names what it will do: "New conversation" over an answer, "Close Ask" otherwise', () => {
     mockAsk = ask({ phase: 'answer', pickCards: [card(1)] });
     mount('expanded');
-    expect(screen.getByTestId('wf-map-peek-ask-x')).toHaveAccessibleName('Clear answer');
+    expect(screen.getByTestId('wf-map-peek-ask-x')).toHaveAccessibleName('New conversation');
 
     mockAsk = ask({ phase: 'busy' });
     setMode('expanded');
     expect(screen.getByTestId('wf-map-peek-ask-x')).toHaveAccessibleName('Close Ask');
   });
 
-  it('the ✕ says "Clear" once a thread stands above the answer — it ends the whole conversation', () => {
+  it('the ✕ says "New conversation" over a thread too, and describes what it ends', () => {
     mockAsk = ask({
       phase: 'answer', pickCards: [card(1)], history: [{ question: 'One?', summary: 's', answerId: 1 }],
     });
     mount('expanded');
 
-    expect(screen.getByTestId('wf-map-peek-ask-x')).toHaveAccessibleName('Clear');
+    expect(screen.getByTestId('wf-map-peek-ask-x')).toHaveAccessibleName('New conversation');
+    expect(screen.getByTestId('wf-map-peek-ask-x')).toHaveAccessibleDescription(
+      'Ends this conversation. Your earlier questions are kept until then.',
+    );
     fireEvent.click(screen.getByTestId('wf-map-peek-ask-x'));
     expect(mockAsk.clear).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);

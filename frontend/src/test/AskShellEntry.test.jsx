@@ -420,7 +420,7 @@ describe('the sheet', () => {
     const scroller = screen.getByTestId('bottom-sheet-scroller');
     expect(within(scroller).getAllByTestId('ask-thread-exchange')).toHaveLength(2);
     expect(scroller).not.toContainElement(screen.getByTestId('ask-input-row'));
-    expect(within(scroller).getByTestId('ask-clear')).toHaveTextContent(/^Clear$/);
+    expect(within(scroller).getByTestId('ask-clear')).toHaveTextContent(/^New conversation$/);
   });
 
   describe('closing it', () => {
@@ -501,7 +501,7 @@ describe('the sheet', () => {
     });
   });
 
-  describe('"Clear answer"', () => {
+  describe('"New conversation"', () => {
     /** Opens the sheet on a finished Ready answer. */
     async function answered() {
       renderAskShell({ width: 390 });
@@ -513,7 +513,7 @@ describe('the sheet', () => {
     it('is the way back to the Ready suggestions, which only the empty state shows', async () => {
       await answered();
       expect(screen.queryByTestId('ask-ready-list')).toBeNull();
-      fireEvent.click(screen.getByRole('button', { name: 'Clear answer' }));
+      fireEvent.click(screen.getByRole('button', { name: 'New conversation' }));
       expect(await screen.findByTestId('ask-ready-list')).toBeInTheDocument();
       expect(screen.queryByTestId('ask-picks')).toBeNull();
     });

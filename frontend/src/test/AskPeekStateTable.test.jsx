@@ -692,7 +692,7 @@ describe('§2.7 table — row: ✕ in the ask row', () => {
   it('with an answer expanded: clears the answer, and the three buttons are restored', async () => {
     await mount('answer');
     expandMinimised();
-    expect(screen.getByTestId('wf-map-peek-ask-x')).toHaveAccessibleName('Clear answer');
+    expect(screen.getByTestId('wf-map-peek-ask-x')).toHaveAccessibleName('New conversation');
 
     fireEvent.click(screen.getByTestId('wf-map-peek-ask-x'));
     expect(mockAsk.clear).toHaveBeenCalledTimes(1);

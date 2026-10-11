@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback, useEffect, useId, useRef, useState,
+} from 'react';
 import PropTypes from 'prop-types';
 import { useAsk } from '../../context/AskContext.jsx';
 import { SETTLED_PHASES } from '../../utils/askModel.js';
 import { foreignModalOverPaneOf } from '../../utils/mapForeignModal.js';
+import { NEW_CONVERSATION_HINT, NEW_CONVERSATION_LABEL } from '../ask/AskClearAnswer.jsx';
 import AskConversation from '../ask/AskConversation.jsx';
 import AskInputRow from '../ask/AskInputRow.jsx';
 import { objectRefShape, planActionsShape } from '../ask/askShapes.js';
@@ -33,7 +36,7 @@ const picksWord = (n) => (n === 1 ? '1 pick' : `${n} picks`);
  *   <li><b>expanded</b> — the row holds the question field ({@code AskInputRow}, the same piece the
  *       sheet and the dock repeat) and a ✕; the conversation fills the body below it.</li>
  * </ul>
- * The ✕ ends what is settled and closes the section ("clear answer, restore the buttons"), or just
+ * The ✕ ends what is settled ("New conversation") and closes the section, or just
  * closes it while there is nothing settled to clear — never while an answer is still being fetched,
  * since clearing then would drop a charged answer (the rule {@code AskClearAnswer} keeps).
  *
@@ -67,6 +70,7 @@ export default function MapPeekAsk({
 }) {
   const ask = useAsk();
   const wrapRef = useRef(null);
+  const hintId = useId();
   const inputRef = useRef(null);
   const wasExpanded = useRef(false);
   const expanded = mode === 'expanded';
@@ -148,11 +152,13 @@ export default function MapPeekAsk({
               type="button"
               className="wf-map-peek-ask-x"
               data-testid="wf-map-peek-ask-x"
-              aria-label={settled ? (ask.history.length > 0 ? 'Clear' : 'Clear answer') : 'Close Ask'}
+              aria-label={settled ? NEW_CONVERSATION_LABEL : 'Close Ask'}
+              aria-describedby={settled ? hintId : undefined}
               onClick={closeSection}
             >
               <span aria-hidden="true">✕</span>
             </button>
+            {settled && <span id={hintId} className="sr-only">{NEW_CONVERSATION_HINT}</span>}
           </>
         ) : (
           <button

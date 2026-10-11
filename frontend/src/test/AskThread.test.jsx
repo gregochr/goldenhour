@@ -209,7 +209,7 @@ describe('what a step that is not an answer does to the session', () => {
     expect(screen.queryByTestId('ask-chip-followup')).toBeNull();
   });
 
-  it('"Clear" ends the session: the next question is a first one again', async () => {
+  it('"New conversation" ends the session: the next question is a first one again', async () => {
     await renderAsk();
     await askAll(FIRST, 'And closer?');
 

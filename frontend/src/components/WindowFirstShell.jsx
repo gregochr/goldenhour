@@ -1373,7 +1373,7 @@ export default function WindowFirstShell({
   /**
    * The ✕, the scrim and Escape: CLOSE, and keep the conversation (plan §2.6, §2.8 — the answer
    * survives a close, and a Plan-card highlight is "applied when the sheet closes"). Ending it is the
-   * sheet's own "Clear answer" control. A scrim is a full-viewport target and Escape is global; either
+   * sheet's own "New conversation" control. A scrim is a full-viewport target and Escape is global; either
    * discarding an answer the reader was charged a question for would be a trap.
    */
   const closeAskSheet = () => setAskSheetOpen(false);

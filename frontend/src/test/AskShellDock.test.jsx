@@ -352,7 +352,7 @@ describe('opening, closing and the conversation', () => {
     fireEvent.click(field());
 
     expect(await screen.findByTestId('ask-picks')).toBeInTheDocument();
-    // "Clear answer" is the one way to END it, and it moves focus to the field first.
+    // "New conversation" is the one way to END it, and it moves focus to the field first.
     const clear = screen.getByTestId('ask-clear');
     clear.focus();
     fireEvent.click(clear);
@@ -430,8 +430,8 @@ describe('a thread in the dock (T4)', () => {
     expect(scroller).not.toContainElement(screen.getByTestId('ask-input-row'));
     expect(scroller.compareDocumentPosition(screen.getByTestId('ask-input-row')) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBeTruthy();
-    // "Clear" ends the lot, and sits in the scroller after the conversation.
-    expect(within(scroller).getByTestId('ask-clear')).toHaveTextContent(/^Clear$/);
+    // "New conversation" ends the lot, and sits in the scroller after the conversation.
+    expect(within(scroller).getByTestId('ask-clear')).toHaveTextContent(/^New conversation$/);
   });
 
   it('keeps focus on the question field through a follow-up: the answer does not take it', async () => {

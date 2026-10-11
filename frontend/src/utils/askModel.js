@@ -48,7 +48,7 @@ export const KIND = { READY: 'ready', OWN: 'own', CANT: 'cant' };
  * Includes {@code 'plan'} — a conversation that has an answer and is looking at one pick's plan is
  * still an answer.
  *
- * <p>The ONE list: {@code AskClearAnswer} (is a "Clear answer" drawn?), {@code askPeek} (is the phone
+ * <p>The ONE list: {@code AskClearAnswer} (is a "New conversation" button drawn?), {@code askPeek} (is the phone
  * sheet minimised?), {@code MapPeekAsk} (does the ✕ clear?) and {@code MapView} all read it. They used
  * to be two copies that nothing pinned together, and adding the plan phase was two edits.
  */

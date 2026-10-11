@@ -324,7 +324,7 @@ describe('on the dock (1024px and up)', () => {
     expect(screen.getByTestId('ask-summary')).toHaveTextContent('Something else entirely.');
   });
 
-  it('"Clear answer" is offered in the plan view and ends the conversation', async () => {
+  it('"New conversation" is offered in the plan view and ends the conversation', async () => {
     await dockWithAnswer();
     await planThis(1);
 
