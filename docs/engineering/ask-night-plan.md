@@ -1,12 +1,15 @@
 # Ask PhotoCast — the night (astro conditions, Bortle and aurora as a tool)
 
-**Status (2026-10-11):** N0 merged (#1093). **N1 built, PR pending** (branch `feat/ask-night-tool`): the snapshot's
-nights, `AskWindowKind`, `rank_night_spots`, `list_windows` night rows, the prompt block, the night eligibility rule
-and `canSeeAurora` threading, the thread's `nightVersion` reset and the stub. Where the code and this plan differ,
-the code is recorded in CLAUDE.md's *Ask — the night tool*: `AuroraStateCache` has no `isSimulated()` (the test is
-`getSimulatedData() != null`), the tool returns `astroWindowId`/`auroraWindowId` per place instead of one `windowId`,
-and the canopy rule drops a wood in the builder (`NightSpot.canopy` stays as the defence in `isNightPickEligible`).
-N2 (Ready `NIGHT_SKY`), N3 (client) and N4 (docs, regression) are not started.
+**Status (2026-10-11):** **N0 merged** (#1093, the astro schedule). **N1 built, PR #1099 pending** (branch
+`feat/ask-night-tool`): the snapshot's nights, `AskWindowKind`, `rank_night_spots`, `list_windows` night rows,
+the prompt block, the night eligibility rule and `canSeeAurora` threading, the thread's `nightVersion` reset and
+the stub. **N3 built, PR #1098 pending** (branch `feat/ask-night-client`): the night pick card, the night
+payload fetch, the Ask-Map handoff both ways and the `nightVersion` echo. **N4 built, PR pending** (branch
+`feat/ask-night-docs`, stacked on N1 and N3): `AskNightRegressionTest` (assertions pending the owner's
+approval, never run) and the docs sweep, including the "As built" notes in §3 below. **N2 (Ready
+`NIGHT_SKY`) is not started** and is only worth building once N0 has run in production for a night (§3).
+Where the code and this plan differ, the "As built" notes in §3 and CLAUDE.md's *Ask — the night tool* and
+*Ask — the client* say what shipped; the sections above them are the intent.
 
 Owner ask, 2026-10-11: *"are there clear skies on the durham coast tonight?"* failed (the model
 explored for four turns and never submitted — fixed separately by forcing `submit_answer` on the
@@ -307,6 +310,8 @@ each, cached by SWR as the Map does; LITE gets 403 on aurora and the card shows 
 
 ### §2.7 Not built
 
+Reconciled with what shipped (N0, N1, N3; 2026-10-11). Still not built, by design:
+
 - No new scoring: the tool reads the astro and aurora rows as scored; no "clear skies" derivation
   of its own.
 - No per-hour sky; the night window and the cloud explanation are what the row holds.
@@ -315,17 +320,40 @@ each, cached by SWR as the Map does; LITE gets 403 on aurora and the card shows 
   schedule this plan does change); a night with no aurora run is answered from the state cache
   (tonight) or as "not forecast yet" (later nights), never synthesised.
 
+Not built YET, because a phase has not run:
+
+- **The Ready `NIGHT_SKY` question (N2)**: the constant, its availability and relevance rules, the matcher's
+  words, the precompute, the serve-time withholding, and `AstroConditionsRefreshJob` dispatching the Ready
+  precompute after a successful refresh (§2.0 (3)). What N2 will lean on is already in place: `AskReadyFreshness`
+  re-checks a night pick against the live night data with the `canSeeAurora = false` a user-less conversation
+  has, and `AskNightVersion` already ends a thread whose Ready-origin exchange carries a version that is not
+  live. Two contract questions N3 left for N2: a Ready night answer's `nightVersion` may ride the question or
+  its answer (the client's `openReady` accepts either), and that answer carries astro only.
+
+Not built, decided during the build (named so they are not refiled as bugs):
+
+- **"Open in Plan ›" is not drawn for a night pick** (the plan was silent): the location sheet's rows are all
+  solar, so the press would land on a place's sunrises under a pick about its sky; "Show on map ›" is the
+  night's door. A night pick highlights no Plan card either.
+- **LITE has no night-in-progress signal on the Ask → Map handoff** (O-21): only the PRO/ADMIN aurora status
+  serves `currentNightDate`, so before nautical dawn a LITE reader's `_astro` pick for yesterday's running
+  night finds no Map row and the handoff waits unspent.
+- **A failed night payload fetch drops that night's cards silently** until the next answer (the rule for a
+  pick with no data: dropped, never half-drawn).
+- **No `nightVersion` on a Ready answer yet** (N2).
+- **The night card's pills are untested at 320px in a real browser** (jsdom/CSS tests only).
+
 ---
 
 ## §3 Phases (Sonnet agents, the usual loop: worktree → gate → PR → Codex clean + CI + CodeQL → merge)
 
 | Phase | Scope | Size |
 |---|---|---|
-| **N0 backend — the astro schedule** | §2.0: `astro_conditions_refresh` job (migration seed + `DynamicSchedulerService` target, 15:30 UTC, the nights `max(currentNightDate(), today)` and +1, every Bortle-enriched enabled location, `evaluateAndPersist`); its `job_run`; an admin "Run now" works through the scheduler as every job does. Tests mirror `WildlifeComfortRefreshJob`'s. | S–M |
-| **N1 backend — snapshot, tool, prompt, validator** | §2.1–§2.4: `AskSnapshot.nights` + builder read (same repositories the DTOs use), `AskWindowId` night kinds, `rank_night_spots` in `AskTools`/`AskToolSchemas`/`AskToolArguments` (role-gated aurora), `list_windows` night rows, prompt block, `isPickEligible` night rule, `AskPick` night kind, `AskReadyFreshness` night re-check, thread re-join of a night pick ("no longer in the forecast" when the run is gone). Goldens regenerated. Tests for every rule; a real-API check (≤ 3 paid runs) of the owner's question "are there clear skies on the durham coast tonight?" with a fixture that gains an astro night and an aurora night (PRO asker → aurora figure; LITE asker → "Pro feature" clause, no figure). | L |
-| **N2 backend — Ready `NIGHT_SKY`** | §2.5: the constant, availability, relevance, matcher words, precompute (astro only), serve-time withholding; tests. | S–M |
-| **N3 frontend — night pick card** | §2.6: the night join, the card, label/kind words, the Plan tab's night fetches, "Show on map"/"Plan this" for a night window; adversarial review before merge (a11y of the new pill, the LITE card without aurora, the 266px phone card). **N3 built, PR pending** (branch `feat/ask-night-client`; "Open in Plan ›" is withheld for a night pick, the night payloads are fetched by the picks' own dates in `AskContext`, not at the shell). | M–L |
-| **N4 docs + regression** | CLAUDE.md "Ask — the night" bullet (folded, not fragments), the Roles note, plan status line; `AskNightRegressionTest` (pending the owner's approval) with the owner's question for a PRO asker and a LITE asker. | S |
+| **N0 backend — the astro schedule** | §2.0: `astro_conditions_refresh` job (migration seed + `DynamicSchedulerService` target, 15:30 UTC, the nights `max(currentNightDate(), today)` and +1, every Bortle-enriched enabled location, `evaluateAndPersist`); its `job_run`; an admin "Run now" works through the scheduler as every job does. Tests mirror `WildlifeComfortRefreshJob`'s. **As built (N0, #1093, merged):** `AstroConditionsRefreshJob` (`astro_conditions_refresh`, seeded by V170, `0 30 15 * * *` UTC) scores `max(currentNightDate(), UK civil today)` and that + 1 for every enabled Bortle-enriched location through `evaluateAndPersist`; its `job_run` is `RunType.WEATHER` with a null model (no new enum value). It deletes nothing (the service upserts per location and date), so N1's query excludes the stale rows. A failed Open-Meteo fetch is swallowed inside the service (WARN, 0 scored), so the job cannot tell it from "no locations"; only a thrown exception fails the run. Local dev has no scheduler row (no migrations run locally). | S–M |
+| **N1 backend — snapshot, tool, prompt, validator** | §2.1–§2.4: `AskSnapshot.nights` + builder read (same repositories the DTOs use), `AskWindowId` night kinds, `rank_night_spots` in `AskTools`/`AskToolSchemas`/`AskToolArguments` (role-gated aurora), `list_windows` night rows, prompt block, `isPickEligible` night rule, `AskPick` night kind, `AskReadyFreshness` night re-check, thread re-join of a night pick ("no longer in the forecast" when the run is gone). Goldens regenerated. Tests for every rule; a real-API check (≤ 3 paid runs) of the owner's question "are there clear skies on the durham coast tonight?" with a fixture that gains an astro night and an aurora night (PRO asker → aurora figure; LITE asker → "Pro feature" clause, no figure). **As built (N1, #1099):** `AskSnapshot.nights` (`Nights(tonight, nights, aurora)`; `Night(id, date, kind, start, end, generation, spots)`; `NightSpot` carries the astro and aurora figures, `canopy`, `triaged`), read by `AskSnapshotBuilder` fail-soft through the new fetch-joined `AstroConditionsRepository.findByForecastDateFetchingLocation` and the existing non-simulated aurora query; `AskWindowKind {SUNRISE, SUNSET, ASTRO, AURORA}` with `AskWindowId` learning `_astro`/`_aurora`; `rank_night_spots`; `list_windows` night rows; the prompt block; `AskSnapshot.isNightPickEligible` and `resolvePick`; `AskUserContext.canSeeAurora()` threaded to the tool, `list_windows`, the validator, `AskThreadContext` and `AskReadyFreshness`; `AskNightVersion`; the stub. **Where the code differs from the plan above:** (1) the argument is `regionNames`, not `regions`, and `night` also takes `tomorrow night`; (2) a spot carries `astroWindowId` and `auroraWindowId` separately, not one `windowId`, because a pick is held to the window of the figure it cites; (3) `AuroraStateCache` has no `isSimulated()`: the test is `getSimulatedData() != null`; (4) a wood is dropped by the builder, and `NightSpot.canopy` stays as the defence in `isNightPickEligible`; (5) the tool's `minStars` default is 3 (§5 Q2) while the astro pick bar is 4, so the tool can list a 3-star sky the validator will not accept as a pick, and the tool description tells the model so; (6) `AskOutcome` gained `uncacheable` and `nights`, and `AskResponse` gained `nightVersion` (`NON_NULL`) and a `threadResetReason` of `"night forecast updated"`; (7) the `nightVersion` format is the server's own, `n1;<date>=<astro generation ms|->[;a=<LEVEL|->]`, validated on the way in (400 `INVALID`, at most 200 characters), and the aurora part is present only for a PRO/ADMIN asker with tonight among the nights, so a LITE thread never resets for a state they were not told; (8) a well-formed night `windowId` the snapshot does not hold (an ended night the Map keeps on screen) is context, never a 400: it is dropped and the question answered, exactly as a passed solar window is. The three tool-schema golden files moved once. Gate: `clean verify` with the integration classes excluded, 11,700 backend tests, 0 failures, 1 skipped; no paid real-API run. `AskThreadRegressionTest` changed in two lines only (the pick's `targetType` is now an `AskWindowKind`). | L |
+| **N2 backend — Ready `NIGHT_SKY`** | §2.5: the constant, availability, relevance, matcher words, precompute (astro only), serve-time withholding; tests. **Not built** (2026-10-11): nothing is blocked on it, the typed tool already answers a night question; build it once N0 has produced a few nights of astro rows in production, and have it dispatch the Ready precompute from `AstroConditionsRefreshJob` (§2.0 (3)). | S–M |
+| **N3 frontend — night pick card** | §2.6: the night join, the card, label/kind words, the Plan tab's night fetches, "Show on map"/"Plan this" for a night window; adversarial review before merge (a11y of the new pill, the LITE card without aurora, the 266px phone card). **As built (N3, #1098):** `utils/askModel.buildPickCards` gates on the KIND (the old `!meridiemOf(...)` guard dropped every non-solar pick) and joins a night pick by date and kind to the night payloads, dropping a pick with no payload row; `hooks/useAskNights.js` + `utils/askNights.js` fetch `GET /api/astro/conditions?date=` per distinct astro date and, for PRO/ADMIN only, `GET /api/aurora/forecast/results?date=` per distinct aurora date, **the dates the live answer's picks name**, held in `AskContext` state (nothing in `swrCache`/`localStorage`). **Where it differs from the plan:** (1) the fetch lives in `AskContext`, not at the shell, because that is where the picks and their dates are known; (2) the verdict slot shows the star pills ("4★ sky", "aurora 3★") and the kind badge reads `ASTRO`/`AURORA` (the Map's own night kind chips), not the `SKY`/`AURORA` word §5 Q3 chose; (3) "Open in Plan ›" is not drawn for a night pick (§2.7); (4) `nightLabel` is civil-date based, so before dawn the running night reads by its day name, like the Map pill. (5) the aurora pill beside an astro pick appears only when an aurora pick on the same date made the client fetch that night's aurora payload (§2.6 had it for any PRO/ADMIN pick with a result). The Ask → Map handoff (`MapView`'s `askWindow` effect) now passes `isNight` per row kind and does not consume the nonce until `findEvIndex` finds the row; the Map → Ask direction (`askWindowOf`) publishes the Ask-local night id and a kind-naming label. The thread echoes `nightVersion` per exchange only when present, and `"night forecast updated"` renders its own sentence. Gate: lint, 8,994 Vitest tests in 355 files, `npm audit --audit-level=high` and build, all exit 0, lockfile unchanged; mutation-checked on the branches named in the PR. **Tested, not seen**: no browser sign-in is possible for an agent, so the pills at 320px, the badge colours, the live Plan → Map race and the Leaflet chips are pinned by jsdom/CSS tests only; the owner's browser check is still owed. | M–L |
+| **N4 docs + regression** | CLAUDE.md "Ask — the night" bullet (folded, not fragments), the Roles note, plan status line; `AskNightRegressionTest` (pending the owner's approval) with the owner's question for a PRO asker and a LITE asker. **As built (N4):** `AskNightRegressionTest` beside `AskThreadRegressionTest` (same `prompt-regression` tag, same real `ClaudeAskEngine` over a fixture snapshot, header "assertions pending the owner's approval, 2026-10-11"; it test-compiles under `-Pprompt-regression` and was **never run**, since it bills the key and none was available to the build). The fixture is two nights: tonight astro (Seaham 5, Easington 4 and Hartlepool 3 on the Durham coast, Allenheads 4 inside the home radius, Kielder 5 far inland, Dunstanburgh 4, and a canopy-only wood with Bortle 2 and 5 stars that must never be picked), tonight aurora (Dunstanburgh 4, Allenheads a triaged row; alert MODERATE, Kp 6) and tomorrow astro (Allenheads 5, Kielder 4, Seaham 3, no aurora rows). Five scripts, invariants only: (a) the owner's question, (b) the aurora question as PRO and as LITE, (c) tomorrow night, (d) "anything closer to home?" carrying an earlier night exchange with a live `nightVersion`, (e) the same with a stale one. (d) and (e) seed their earlier exchange rather than chain a paid call, and (e)'s reset is asserted through `AskThread.nightStaleAgainst` and `AskResponse.NIGHT_THREAD_RESET_REASON` (the rule `AskService` applies; `AskService` needs a database to construct, so its own wiring stays pinned by `AskServiceTest`), then the fresh question runs through the real engine with the empty thread. About seven paid calls. The fixture was checked without the model (versions live and stale, pick eligibility per role). The docs sweep reconciled CLAUDE.md's night bullets with the code. | S |
 
 N0 → N1 → N2 sequential; N3 after N1 (it needs the served pick shape); N4 last. N2's Ready
 question is only worth having once N0 has run in production for a night.
@@ -355,7 +383,8 @@ question is only worth having once N0 has run in production for a night.
   the Ready answer is shared text; the typed tool result carries the clause instead.
 - Q2 `minStars` default 3 — same bar as solar picks.
 - Q3 The night pick's "verdict" slot shows the kind word (`SKY` / `AURORA`) in the verdict's place
-  so the card's row keeps its shape.
+  so the card's row keeps its shape. **As built (N3):** the stars stand where the verdict does ("4★ sky", "aurora
+  3★") and the kind badge reads `ASTRO`/`AURORA`, the Map's own night chips; there is no `SKY` word.
 
 ## §5a Adversarial review of this plan (2026-10-11)
 

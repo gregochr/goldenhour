@@ -174,7 +174,9 @@ completion. §2.3 gives the scheme that keeps Ask spend visible in Operations an
 ### 23. Role, horizon and drive
 `GET /api/briefing` has no role variance and Ask reads the same assembly, so every role sees the
 same ratings in Ask as on the Plan tab. Ask is open to every role; the allowance is the gate. There
-is no aurora-score tool, so nothing PRO-only can reach LITE. `maxDriveMinutes` filters on the
+is no aurora-score tool, so nothing PRO-only can reach LITE. (Superseded 2026-10-11: the sixth tool,
+`rank_night_spots`, returns aurora ratings to PRO and ADMIN only; `ask-night-plan.md` §1.2 and CLAUDE.md's *Ask — the night
+tool* state the rule.) `maxDriveMinutes` filters on the
 asker's own stored drive times; a user with none (most LITE accounts — the refresh button is
 Pro-only in the UI) gets an explanatory empty result (§6 Q7).
 
