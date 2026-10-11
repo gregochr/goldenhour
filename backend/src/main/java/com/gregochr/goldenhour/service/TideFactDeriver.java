@@ -87,14 +87,37 @@ public class TideFactDeriver {
      */
     public Optional<TideDerivation> derive(Long locationId, LocalDateTime eventTime,
             Set<TideType> tideTypes, double lat, double lon, TargetType targetType) {
+        return derive(locationId, eventTime, tideTypes, lat, lon, targetType, null);
+    }
+
+    /**
+     * As {@link #derive(Long, LocalDateTime, Set, double, double, TargetType)}, reading stored
+     * extremes from a build-scoped snapshot when one is given. With a {@code null} snapshot it calls
+     * exactly the {@code TideService} methods the six-argument form always has.
+     *
+     * @param locationId the location primary key, or {@code null} for inland
+     * @param eventTime  UTC time of the solar event
+     * @param tideTypes  the location's tide preferences (empty/null if inland)
+     * @param lat        observer latitude
+     * @param lon        observer longitude
+     * @param targetType SUNRISE or SUNSET
+     * @param snapshot   the build's tide snapshot, or {@code null} to query
+     * @return the derived tide facts, or empty when inland or the tide could not be derived
+     */
+    public Optional<TideDerivation> derive(Long locationId, LocalDateTime eventTime,
+            Set<TideType> tideTypes, double lat, double lon, TargetType targetType,
+            TideExtremeSnapshot snapshot) {
         boolean isCoastal = locationId != null && tideTypes != null && !tideTypes.isEmpty();
         if (!isCoastal) {
             return Optional.empty();
         }
         long tightWindowMinutes = tightAlignmentWindowMinutes(lat, lon, eventTime, targetType);
         long widenedWindowMinutes = tightWindowMinutes + WIDENED_ALIGNMENT_EXTENSION_MINUTES;
-        Optional<TideService.DualWindowTideData> dualMaybe = tideService.deriveDualWindowTideData(
-                locationId, eventTime, tightWindowMinutes, widenedWindowMinutes);
+        Optional<TideService.DualWindowTideData> dualMaybe = snapshot == null
+                ? tideService.deriveDualWindowTideData(
+                        locationId, eventTime, tightWindowMinutes, widenedWindowMinutes)
+                : tideService.deriveDualWindowTideData(
+                        locationId, eventTime, tightWindowMinutes, widenedWindowMinutes, snapshot);
         if (dualMaybe.isEmpty()) {
             return Optional.empty();
         }
@@ -102,7 +125,8 @@ public class TideFactDeriver {
         boolean tideAligned = tideService.calculateTideAligned(tideData, tideTypes);
         boolean widenedAligned = tideService.calculateTideAligned(dualMaybe.get().widened(), tideTypes);
         Double tideAlignmentQuality = tideAligned
-                ? computeAlignmentQuality(locationId, eventTime, tideData, tideTypes, tightWindowMinutes)
+                ? computeAlignmentQuality(locationId, eventTime, tideData, tideTypes, tightWindowMinutes,
+                        snapshot)
                 : null;
         if (tideAligned && tideAlignmentQuality == null) {
             // Should not occur — tideAligned already confirmed at least one want matches — but
@@ -182,15 +206,18 @@ public class TideFactDeriver {
      * @param tideTypes          the location's wanted tide states
      * @param tightWindowMinutes the tight alignment window half-width, the quality figure's own
      *                           denominator
+     * @param snapshot           the build's tide snapshot, or {@code null} to query
      * @return the best quality across every aligned wanted state, or {@code null} if none yielded
      *     one (should not occur when {@code tideAligned} is true, but fails soft rather than
      *     asserting it)
      */
     private Double computeAlignmentQuality(Long locationId, LocalDateTime eventTime,
-            TideData tideData, Set<TideType> tideTypes, long tightWindowMinutes) {
+            TideData tideData, Set<TideType> tideTypes, long tightWindowMinutes,
+            TideExtremeSnapshot snapshot) {
         Double best = null;
         for (TideType want : tideTypes) {
-            Long offsetMinutes = offsetMinutesForWant(locationId, eventTime, tideData, want);
+            Long offsetMinutes = offsetMinutesForWant(locationId, eventTime, tideData, want,
+                    snapshot);
             if (offsetMinutes == null) {
                 continue;
             }
@@ -208,14 +235,17 @@ public class TideFactDeriver {
      * the one behind this slot's alignment.
      */
     private Long offsetMinutesForWant(Long locationId, LocalDateTime eventTime, TideData tideData,
-            TideType want) {
+            TideType want, TideExtremeSnapshot snapshot) {
         return switch (want) {
             case HIGH -> tideData.tideState() == TideState.HIGH
                     ? minutesBetween(eventTime, tideData.nearestHighTideTime()) : null;
             case LOW -> tideData.tideState() == TideState.LOW
                     ? minutesBetween(eventTime, tideData.nearestLowTideTime()) : null;
             case MID -> tideData.nearMidPoint()
-                    ? tideService.nearestMidpointOffsetMinutes(locationId, eventTime).orElse(null)
+                    ? (snapshot == null
+                            ? tideService.nearestMidpointOffsetMinutes(locationId, eventTime)
+                            : tideService.nearestMidpointOffsetMinutes(locationId, eventTime,
+                                    snapshot)).orElse(null)
                     : null;
         };
     }

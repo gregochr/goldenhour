@@ -22,7 +22,9 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -47,7 +49,7 @@ public class BriefingSlotBuilder {
      * second fetch (see {@link #curveFacts}) sees the same rows rather than a differently-shaped
      * one; it is still a second query, not a reuse of the first.
      */
-    private static final long CURVE_QUERY_WINDOW_DAYS = 2;
+    private static final long CURVE_QUERY_WINDOW_DAYS = TideExtremeSnapshot.READ_WINDOW_DAYS;
 
     private final SolarService solarService;
     private final LocationService locationService;
@@ -115,6 +117,43 @@ public class BriefingSlotBuilder {
      */
     public BriefingSlot buildSlot(LocationWeather lw, LocalDate date, TargetType eventType,
             OpenMeteoForecastResponse horizonForecast) {
+        return buildSlot(lw, date, eventType, horizonForecast, null);
+    }
+
+    /**
+     * Builds the tide snapshot for a briefing build: one query for every coastal location over the
+     * window the dates need.
+     *
+     * @param locations the build's locations (inland ones are skipped)
+     * @param dates     the build's dates, ascending
+     * @return the snapshot, covering no locations when none is coastal or there are no dates
+     */
+    public TideExtremeSnapshot snapshotFor(Collection<LocationEntity> locations,
+            List<LocalDate> dates) {
+        List<Long> ids = dates.isEmpty() ? List.of() : locations.stream()
+                .filter(locationService::isCoastal)
+                .map(LocationEntity::getId)
+                .filter(Objects::nonNull)
+                .toList();
+        TideExtremeSnapshot.Window window = dates.isEmpty()
+                ? new TideExtremeSnapshot.Window(LocalDateTime.MIN, LocalDateTime.MIN)
+                : TideExtremeSnapshot.windowFor(dates);
+        return TideExtremeSnapshot.load(tideExtremeRepository, ids, window);
+    }
+
+    /**
+     * Builds a briefing slot as the four-argument form does, reading tide extremes from a
+     * build-scoped snapshot when one is given.
+     *
+     * @param lw              the location and its fetched forecast data
+     * @param date            the target date
+     * @param eventType       SUNRISE or SUNSET
+     * @param horizonForecast cloud-only forecast at the solar horizon point (nullable)
+     * @param snapshot        the build's tide snapshot, or {@code null} to query per slot
+     * @return the briefing slot, or null if the solar event time cannot be determined
+     */
+    public BriefingSlot buildSlot(LocationWeather lw, LocalDate date, TargetType eventType,
+            OpenMeteoForecastResponse horizonForecast, TideExtremeSnapshot snapshot) {
         LocationEntity loc = lw.location();
         OpenMeteoForecastResponse forecast = lw.forecast();
 
@@ -171,7 +210,7 @@ public class BriefingSlotBuilder {
         List<Integer> lowCloudTrend = extractLowCloudTrend(h, idx);
 
         // Tide data from DB (using elevation-based window)
-        TideResult tideResult = calculateTideData(loc, solarTime, eventType);
+        TideResult tideResult = calculateTideData(loc, solarTime, eventType, snapshot);
 
         // Determine weather verdict (base check)
         Verdict verdict = verdictEvaluator.determineVerdict(lowCloud, precip, visibility, humidity);
@@ -391,12 +430,13 @@ public class BriefingSlotBuilder {
      * @return tide calculation result
      */
     private TideResult calculateTideData(LocationEntity loc, LocalDateTime solarTime,
-            TargetType eventType) {
+            TargetType eventType, TideExtremeSnapshot snapshot) {
         if (!locationService.isCoastal(loc)) {
             return TideResult.NONE;
         }
         Optional<TideDerivation> derived = tideFactDeriver.derive(
-                loc.getId(), solarTime, loc.getTideType(), loc.getLat(), loc.getLon(), eventType);
+                loc.getId(), solarTime, loc.getTideType(), loc.getLat(), loc.getLon(), eventType,
+                snapshot);
         if (derived.isEmpty()) {
             return TideResult.NONE;
         }
@@ -442,7 +482,7 @@ public class BriefingSlotBuilder {
         // Never a second definition of "aligned": d.tideAligned() (the tight, time-proximity
         // alignment TideFactDeriver already derived) is the one input the tier and the shortfall
         // are built from (CLAUDE.md's two-tide-axes rule).
-        CurveFacts curve = curveFacts(loc.getId(), solarTime);
+        CurveFacts curve = curveFacts(loc.getId(), solarTime, snapshot);
         Double tideLevel = curve == null ? null : curve.level();
         String tideDirection = curve == null ? null : curve.direction().name();
         String tideHeight = curve == null ? null : TideWording.metres(curve.heightMetres());
@@ -491,13 +531,17 @@ public class BriefingSlotBuilder {
      *
      * @param locationId the location primary key
      * @param solarTime  UTC time of the solar event
+     * @param snapshot   the build's tide snapshot, or {@code null} to query
      * @return the curve facts, or null when no extremes were found close enough to draw from
      */
-    private CurveFacts curveFacts(Long locationId, LocalDateTime solarTime) {
-        List<TideExtremeEntity> extremes = tideExtremeRepository
-                .findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(locationId,
-                        solarTime.minusDays(CURVE_QUERY_WINDOW_DAYS),
-                        solarTime.plusDays(CURVE_QUERY_WINDOW_DAYS));
+    private CurveFacts curveFacts(Long locationId, LocalDateTime solarTime,
+            TideExtremeSnapshot snapshot) {
+        LocalDateTime from = solarTime.minusDays(CURVE_QUERY_WINDOW_DAYS);
+        LocalDateTime to = solarTime.plusDays(CURVE_QUERY_WINDOW_DAYS);
+        List<TideExtremeEntity> extremes = snapshot == null
+                ? tideExtremeRepository.findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
+                        locationId, from, to)
+                : snapshot.between(tideExtremeRepository, locationId, from, to);
         if (extremes.isEmpty()) {
             return null;
         }

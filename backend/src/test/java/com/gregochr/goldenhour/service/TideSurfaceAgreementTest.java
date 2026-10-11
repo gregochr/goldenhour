@@ -500,6 +500,61 @@ class TideSurfaceAgreementTest {
             assertThat(slot.tide().tideDirection()).isEqualTo(window.direction().name());
         }
 
+        @Test
+        @DisplayName("the same agreement holds when the slot reads its extremes from the build's "
+                + "snapshot instead of its own queries")
+        void windowLevelAndSnapshotSlotLevelAgree() {
+            LocationEntity location = coastalLocation();
+            List<TideExtremeEntity> extremes = symmetricDay();
+            TideFactDeriver tideFactDeriver =
+                    new TideFactDeriver(tideService, lunarPhaseService, solarService);
+            when(solarService.goldenBlueWindow(anyDouble(), anyDouble(), any(), anyBoolean()))
+                    .thenReturn(new SolarService.SolarWindow(
+                            SUNSET.minusMinutes(30), SUNSET.minusMinutes(15),
+                            SUNSET.minusMinutes(45), SUNSET.minusMinutes(30)));
+            when(solarService.sunsetUtc(eq(location.getLat()), eq(location.getLon()), eq(DAY)))
+                    .thenReturn(SUNSET);
+
+            when(locationRepository.findCoastalLocations()).thenReturn(List.of(location));
+            when(tideExtremeRepository.findByLocationIdInAndEventTimeBetweenOrderByEventTimeAsc(
+                    eq(List.of(location.getId())),
+                    eq(DAY.minusDays(1).atStartOfDay()), eq(DAY.plusDays(2).atStartOfDay())))
+                    .thenReturn(extremes);
+            WindowTideRollupBuilder rollupBuilder = new WindowTideRollupBuilder(locationRepository,
+                    tideExtremeRepository, marineWaveRepository, tideService, solarService,
+                    tideFactDeriver, "");
+            BriefingDay day = new BriefingDay(DAY, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(), List.of())));
+            BriefingWindowTide window = rollupBuilder.build(List.of(day))
+                    .get(new PlanWindowProjector.WindowKey(DAY, TargetType.SUNSET));
+            assertThat(window).isNotNull();
+
+            when(locationService.isCoastal(location)).thenReturn(true);
+            TideData midTide = new TideData(
+                    TideState.MID, false, null, null, null, null, null, null);
+            when(tideService.deriveDualWindowTideData(eq(location.getId()), eq(SUNSET),
+                    eq(15L), eq(75L), any(TideExtremeSnapshot.class)))
+                    .thenReturn(Optional.of(new TideService.DualWindowTideData(midTide, midTide)));
+            when(tideService.calculateTideAligned(any(), any())).thenReturn(true);
+            // The snapshot's one bulk read: January is UTC in London, the window is bare arithmetic.
+            when(tideExtremeRepository.findByLocationIdInAndEventTimeBetweenOrderByEventTimeAsc(
+                    eq(Set.of(location.getId())),
+                    eq(DAY.minusDays(3).atStartOfDay()), eq(DAY.plusDays(4).atStartOfDay())))
+                    .thenReturn(extremes);
+            BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(solarService, locationService,
+                    tideFactDeriver, new BriefingVerdictEvaluator(), new WoodlandVerdictEvaluator(),
+                    tideExtremeRepository, mock(EclipseSightAssembler.class));
+            TideExtremeSnapshot snapshot = slotBuilder.snapshotFor(List.of(location), List.of(DAY));
+            BriefingSlot slot = slotBuilder.buildSlot(
+                    new BriefingSlotBuilder.LocationWeather(location, weatherResponse()),
+                    DAY, TargetType.SUNSET, null, snapshot);
+
+            assertThat(slot.tide().tideLevel())
+                    .as("driven from the same extremes as the window rollup")
+                    .isCloseTo(window.windowLevel(), within(0.01));
+            assertThat(slot.tide().tideDirection()).isEqualTo(window.direction().name());
+        }
+
         private OpenMeteoForecastResponse weatherResponse() {
             OpenMeteoForecastResponse response = new OpenMeteoForecastResponse();
             OpenMeteoForecastResponse.Hourly hourly = new OpenMeteoForecastResponse.Hourly();
