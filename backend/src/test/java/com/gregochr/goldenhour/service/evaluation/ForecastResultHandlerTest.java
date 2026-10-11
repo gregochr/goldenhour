@@ -1177,8 +1177,8 @@ class ForecastResultHandlerTest {
     }
 
     // ── Tide gate lift (2026-09-18, docs/engineering/tide-window-plan.md §6 Q1): the
-    // end-to-end seam proving "the star is the shot" — a mismatched tide reaches Claude (the
-    // gate is lifted upstream, in BriefingGatingPolicy/BriefingCandidateCollector) and its sky
+    // end-to-end seam proving "the star is the shot" — a mismatched tide reaches Claude (nothing
+    // gates it upstream, in BriefingCandidateCollector) and its sky
     // score is combined with TideVisitor's R1 penalty exactly as it always was; skyRating (added
     // by this same lift) carries the sky component alongside the combined figure. ─────────────
 

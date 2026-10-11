@@ -901,7 +901,7 @@ class AskToolsTest {
         BriefingSlot base = AskFixtures.slot(1L, "Rated", 4);
         BriefingSlot withReason = new BriefingSlot(1L, "Rated", base.solarEventTime(), base.verdict(),
                 null, base.tide(), List.of(), "Heavy low cloud", 4, 4, null, null, null,
-                base.displayVerdict(), null, false, "gate");
+                base.displayVerdict(), null, false);
         BriefingRegion region = AskFixtures.region("Coast", true, withReason);
 
         List<SpotInfo> found = spots(tools(snapshotOfRegions(region)).rankSpots(rank(5)));

@@ -260,20 +260,6 @@ public class BriefingSlotBuilder {
             slot = slot.withEclipse(eclipseSight);
         }
 
-        // Asked of the FINISHED slot through the policy, not inferred from `tidesNotAligned`
-        // above: BriefingCandidateCollector drops a slot with exactly this call, so this is the
-        // same decision the disposition trail records, not a second one that could drift from it.
-        // Worded per DECODED reason: the policy's set is documented as one that evolves, and this
-        // stays wired even though BriefingGatingPolicy.HARD_CONSTRAINT_REASONS is empty today (the
-        // tide gate lift retired its one member) — `gate` is therefore always empty and this block
-        // never fires in production, but it is the seam a genuinely new hard physical constraint
-        // would reuse rather than re-invent. An unworded reason serves its own label — terse, but
-        // never wrong.
-        Optional<BriefingVerdictEvaluator.StanddownReason> gate =
-                BriefingGatingPolicy.hardConstraintReason(slot);
-        if (gate.isPresent()) {
-            slot = slot.withEvaluationGate(gate.get().label());
-        }
         return slot;
     }
 

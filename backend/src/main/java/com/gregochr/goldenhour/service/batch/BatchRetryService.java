@@ -46,7 +46,7 @@ import java.util.Objects;
  *
  * <p><b>What is never retryable.</b> Every deliberate skip
  * ({@code SKIPPED_STABILITY}, {@code SKIPPED_TRIAGED}, {@code SKIPPED_PAST_DATE},
- * {@code SKIPPED_HARD_CONSTRAINT}, {@code SKIPPED_CACHED}, ...). These were
+ * {@code SKIPPED_HARD_CONSTRAINT} (historical), {@code SKIPPED_CACHED}, ...). These were
  * intentional non-evaluations recorded in {@code forecast_run_disposition}; they
  * are never sent to the model and therefore have <em>no {@code api_call_log}
  * row</em>. The retry set is derived purely from {@code api_call_log} failures,

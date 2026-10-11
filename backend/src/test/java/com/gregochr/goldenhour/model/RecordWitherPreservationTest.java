@@ -91,7 +91,6 @@ class RecordWitherPreservationTest {
             Wither.of(BriefingEventSummary.class, "withWindow", "window"),
             Wither.of(BriefingWindow.Pick.class, "withKind", "kind"),
             Wither.of(BriefingSlot.class, "withTide", "tide"),
-            Wither.of(BriefingSlot.class, "withEvaluationGate", "evaluationGate"),
             Wither.of(BriefingSlot.class, "withEclipse", "eclipse"));
 
     /**
