@@ -414,18 +414,27 @@ public class TideService {
      * @param eventTime  UTC time of the solar event
      * @return the stored extremes in the ± day range, ascending by event time (possibly empty)
      */
-    private List<TideExtremeEntity> fetchExtremesAround(Long locationId, LocalDateTime eventTime,
-            TideExtremeSnapshot snapshot) {
-        return snapshot.between(tideExtremeRepository, locationId,
-                eventTime.minusDays(QUERY_WINDOW_DAYS), eventTime.plusDays(QUERY_WINDOW_DAYS));
-    }
-
     private List<TideExtremeEntity> fetchExtremesAround(Long locationId, LocalDateTime eventTime) {
         return tideExtremeRepository
                 .findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
                         locationId,
                         eventTime.minusDays(QUERY_WINDOW_DAYS),
                         eventTime.plusDays(QUERY_WINDOW_DAYS));
+    }
+
+    /**
+     * As {@link #fetchExtremesAround(Long, LocalDateTime)}, reading the same ± day range from the
+     * build's snapshot (which falls back to the live query for anything it did not load).
+     *
+     * @param locationId the location primary key
+     * @param eventTime  UTC time of the solar event
+     * @param snapshot   the build's snapshot
+     * @return the extremes in the ± day range, ascending by event time (possibly empty)
+     */
+    private List<TideExtremeEntity> fetchExtremesAround(Long locationId, LocalDateTime eventTime,
+            TideExtremeSnapshot snapshot) {
+        return snapshot.between(tideExtremeRepository, locationId,
+                eventTime.minusDays(QUERY_WINDOW_DAYS), eventTime.plusDays(QUERY_WINDOW_DAYS));
     }
 
     /**

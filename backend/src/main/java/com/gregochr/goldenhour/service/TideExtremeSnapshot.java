@@ -115,14 +115,15 @@ public final class TideExtremeSnapshot {
      * loaded or the range is not inside the loaded window.
      *
      * @param repo       the repository used for the fallback
-     * @param locationId the location primary key
+     * @param locationId the location primary key (null falls back to the live query)
      * @param from       range start (inclusive)
      * @param to         range end (inclusive)
      * @return the extremes in the range, possibly empty
      */
-    public List<TideExtremeEntity> between(TideExtremeRepository repo, long locationId,
+    public List<TideExtremeEntity> between(TideExtremeRepository repo, Long locationId,
             LocalDateTime from, LocalDateTime to) {
-        if (!coveredIds.contains(locationId) || !window.contains(from, to)) {
+        if (locationId == null || !coveredIds.contains(locationId)
+                || !window.contains(from, to)) {
             return repo.findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(locationId, from, to);
         }
         List<TideExtremeEntity> rows = byLocation.getOrDefault(locationId, List.of());

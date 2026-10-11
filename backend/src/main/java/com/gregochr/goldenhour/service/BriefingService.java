@@ -578,7 +578,7 @@ public class BriefingService {
 
         LOG.debug("Briefing slot loop: slotLoopMs={} tideSnapshotRows={}",
                 (System.nanoTime() - slotLoopStart) / 1_000_000,
-                tideSnapshot == null ? 0 : tideSnapshot.rowCount());
+                tideSnapshot.rowCount());
 
         // Group into days → event summaries → regions
         List<BriefingDay> days = hierarchyBuilder.buildDays(allSlots, colourLocations, dates);

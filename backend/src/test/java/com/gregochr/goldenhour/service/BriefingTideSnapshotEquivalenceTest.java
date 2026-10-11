@@ -48,6 +48,10 @@ import static org.mockito.Mockito.verifyNoInteractions;
  * {@link BriefingSlotBuilder} build every slot twice, once on the old per-slot-query path and once
  * on the snapshot path, over a repository fake that implements the inclusive {@code BETWEEN} of
  * both query methods.
+ *
+ * <p>Limits: {@code sun()} uses fixed UTC times, so the BST crossing and the {@code windowFor}
+ * +/-1-day and UTC-midnight mutants are not observable here; {@code TideExtremeSnapshotTest}'s
+ * exact {@code windowFor} tests pin them.
  */
 @ExtendWith(MockitoExtension.class)
 class BriefingTideSnapshotEquivalenceTest {

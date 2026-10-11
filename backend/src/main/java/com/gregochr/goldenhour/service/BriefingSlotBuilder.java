@@ -47,7 +47,8 @@ public class BriefingSlotBuilder {
      * Days either side of the solar event to fetch extremes for the tide-fit curve — the identical
      * window {@code TideService}'s own extremes fetch for this location and event uses, so this
      * second fetch (see {@link #curveFacts}) sees the same rows rather than a differently-shaped
-     * one; it is still a second query, not a reuse of the first.
+     * one; on the null-snapshot (or snapshot-fallback) path it is still a second query, not a
+     * reuse of the first.
      */
     private static final long CURVE_QUERY_WINDOW_DAYS = TideExtremeSnapshot.READ_WINDOW_DAYS;
 

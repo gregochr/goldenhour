@@ -131,7 +131,8 @@ public class TideFactDeriver {
         if (tideAligned && tideAlignmentQuality == null) {
             // Should not occur — tideAligned already confirmed at least one want matches — but
             // the one avenue that COULD disagree is TideType.MID: it re-fetches extremes through
-            // a second, time-separated query (TideService#nearestMidpointOffsetMinutes) rather
+            // a second, time-separated query (TideService#nearestMidpointOffsetMinutes; only on the
+            // null-snapshot or fallback path, a snapshot gives both reads the same rows) rather
             // than reading the same tight-window TideData tideAligned was decided from, so a
             // tide refresh landing between the two calls is a genuine (if narrow) way for them to
             // part company. Logged rather than silently degrading C1's meanQuality sample, the
@@ -139,7 +140,7 @@ public class TideFactDeriver {
             // gated-but-unexplained case.
             LOG.warn("tideAligned=true but tideAlignmentQuality computed null for locationId={} "
                     + "eventTime={} tideTypes={} — a MID want's second extremes fetch likely saw "
-                    + "different rows than the first", locationId, eventTime, tideTypes);
+                    + "different rows than the first (live-query path only)", locationId, eventTime, tideTypes);
         }
 
         // Lunar classification (deterministic, from moon phase + perigee).
