@@ -1,9 +1,12 @@
 package com.gregochr.goldenhour.service.ask;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -153,6 +156,92 @@ class AskReadyServingTest {
         when(store.findScope("3")).thenReturn(List.of());
 
         assertThat(service.suggestions(AskScope.of(List.of(3L), Set.of("Northumberland")), snapshot, 2)).isEmpty();
+    }
+
+    // -- NIGHT_SKY (ask-night plan section 2.5) -----------------------------------------------------------------
+
+    private static final Instant ASTRO_RUN = Instant.parse("2026-10-09T14:30:00Z");
+    private static final String NIGHT_ID = "2026-10-09_astro";
+
+    /** The Friday snapshot with tonight's astro night, scored by the run at {@code generation}. */
+    private AskSnapshot fridayWithNight(Instant generation, AskSnapshot.NightSpot... spots) {
+        LocalDate tonight = oct(9);
+        AskSnapshot.Night night = new AskSnapshot.Night(NIGHT_ID, tonight, AskWindowKind.ASTRO,
+                AskNightFixtures.DUSK, AskNightFixtures.DAWN, generation, List.of(spots));
+        return new AskSnapshot(snapshot.generatedAt(), snapshot.runLabel(), snapshot.today(), snapshot.windows(),
+                snapshot.hotTopics(), snapshot.comingUp(), false,
+                new AskSnapshot.Nights(tonight, List.of(night), null));
+    }
+
+    private AskReadyStore.Stored nightSky(String version) {
+        AskPick pick = new AskPick(1, 1L, "Whitby", "Coast", oct(9), AskWindowKind.ASTRO, NIGHT_ID, "Clear and dark.",
+                5, null);
+        return new AskReadyStore.Stored("ALL", "NIGHT_SKY", "Anything for the night sky tonight?", List.of(NIGHT_ID),
+                BUILT, new AskAnswer(true, "Whitby is clear tonight.", List.of(pick), List.of(), null), version);
+    }
+
+    @Test
+    @DisplayName("a fresh NIGHT_SKY is served in catalogue order with its nightVersion on the QUESTION (the "
+            + "version it was written under, which is the live one), and no other question carries one")
+    void serveCarriesTheNightVersion() throws Exception {
+        AskSnapshot live = fridayWithNight(ASTRO_RUN, AskNightFixtures.astro(1L, "Whitby", "Coast", 5, 3));
+        String version = "n1;2026-10-09=" + ASTRO_RUN.toEpochMilli();
+        when(snapshotBuilder.current()).thenReturn(Optional.of(live));
+        when(store.findScope("ALL")).thenReturn(List.of(aurora(BUILT), nightSky(version), tonight(BUILT)));
+
+        AskReadyResponse response = service.serve(AskScope.ALL);
+
+        assertThat(response.questions()).extracting(AskReadyResponse.Question::id)
+                .containsExactly("BEST_NEXT", "NIGHT_SKY", "RARE_EVENTS");
+        AskReadyResponse.Question night = response.questions().get(1);
+        assertThat(night.nightVersion()).isEqualTo(version);
+        assertThat(night.tabs()).containsExactly("plan", "map");
+        assertThat(night.answer().picks()).singleElement().satisfies(p -> {
+            assertThat(p.targetType()).isEqualTo(AskWindowKind.ASTRO);
+            assertThat(p.windowId()).isEqualTo(NIGHT_ID);
+            assertThat(p.locationName()).isEqualTo("Whitby");
+        });
+        assertThat(response.questions().get(0).nightVersion()).isNull();
+        assertThat(response.questions().get(2).nightVersion()).isNull();
+        // The version is the string a typed night answer carries for a user-less reader: the thread's night
+        // rule judges both alike.
+        assertThat(AskNightVersion.isLive(night.nightVersion(), live, false)).isTrue();
+        assertThat(night.nightVersion()).isEqualTo(AskNightVersion.of(live, List.of(oct(9)), false).orElseThrow());
+        // On the wire it is a property of the question, and absent where there is none.
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        assertThat(mapper.readTree(mapper.writeValueAsString(night)).get("nightVersion").asText())
+                .isEqualTo(version);
+        assertThat(mapper.readTree(mapper.writeValueAsString(response.questions().get(0))).has("nightVersion"))
+                .isFalse();
+    }
+
+    @Test
+    @DisplayName("a NIGHT_SKY written under an older astro run is withheld whole, and is not suggested either")
+    void serveWithholdsANightSkyFromAnOlderRun() {
+        AskSnapshot live = fridayWithNight(ASTRO_RUN.plusSeconds(3600),
+                AskNightFixtures.astro(1L, "Whitby", "Coast", 5, 3));
+        when(snapshotBuilder.current()).thenReturn(Optional.of(live));
+        when(store.findScope("ALL")).thenReturn(List.of(nightSky("n1;2026-10-09=" + ASTRO_RUN.toEpochMilli()),
+                tonight(BUILT)));
+
+        AskReadyResponse response = service.serve(AskScope.ALL);
+
+        assertThat(response.questions()).extracting(AskReadyResponse.Question::id).containsExactly("BEST_NEXT");
+        assertThat(response.questions().getFirst().answer().tryThese()).isEmpty();
+        assertThat(service.suggestions(AskScope.ALL, live, 2)).extracting(AskReadyResponse.Suggestion::id)
+                .containsExactly("BEST_NEXT");
+    }
+
+    @Test
+    @DisplayName("a fresh NIGHT_SKY is one of the suggestions of a question that cannot be answered")
+    void aFreshNightSkyIsSuggested() {
+        AskSnapshot live = fridayWithNight(ASTRO_RUN, AskNightFixtures.astro(1L, "Whitby", "Coast", 5, 3));
+        when(store.findScope("ALL")).thenReturn(List.of(nightSky("n1;2026-10-09=" + ASTRO_RUN.toEpochMilli())));
+
+        assertThat(service.suggestions(AskScope.ALL, live, 2)).singleElement().satisfies(s -> {
+            assertThat(s.id()).isEqualTo("NIGHT_SKY");
+            assertThat(s.text()).isEqualTo("Anything for the night sky tonight?");
+        });
     }
 
     @Test

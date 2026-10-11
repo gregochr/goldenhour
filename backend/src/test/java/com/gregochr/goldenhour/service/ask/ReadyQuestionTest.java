@@ -268,6 +268,7 @@ class ReadyQuestionTest {
         assertThat(ReadyQuestion.BEST_NEXT.tabs()).containsExactly("plan", "map");
         assertThat(ReadyQuestion.COASTAL_HIGH.tabs()).containsExactly("map");
         assertThat(ReadyQuestion.AM_OR_PM.tabs()).containsExactly("plan");
+        assertThat(ReadyQuestion.NIGHT_SKY.tabs()).containsExactly("plan", "map");
         assertThat(ReadyQuestion.RARE_EVENTS.tabs()).containsExactly("coming-up", "map");
         assertThat(ReadyQuestion.SNOW_TOPS.tabs()).containsExactly("coming-up");
         assertThat(List.of(ReadyQuestion.values()).stream().filter(ReadyQuestion::anchored))

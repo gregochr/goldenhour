@@ -28,9 +28,29 @@ public record AskReadyResponse(String scope, List<Question> questions) {
      * @param generatedAt when the briefing the answer was built from was generated (UTC)
      * @param runLabel    {@code HH:mm} Europe/London of {@code generatedAt}
      * @param answer      the answer
+     * @param nightVersion the opaque night-forecast version ({@link AskNightVersion}) the answer was
+     *                    written under, present only on a night-bound question (user-less, so it has no
+     *                    aurora segment); the client echoes it on the exchange a tap opens, exactly as
+     *                    it echoes a typed answer's, so a Ready-origin exchange resets the thread by the
+     *                    same rule. Omitted from the wire when null
      */
     public record Question(String id, String text, List<String> tabs, LocalDateTime generatedAt,
-            String runLabel, Answer answer) {
+            String runLabel, Answer answer, @JsonInclude(JsonInclude.Include.NON_NULL) String nightVersion) {
+
+        /**
+         * A question that is not night-bound: no night version.
+         *
+         * @param id          the question's name
+         * @param text        the question text
+         * @param tabs        the tabs the question is offered on
+         * @param generatedAt when the briefing the answer was built from was generated (UTC)
+         * @param runLabel    {@code HH:mm} Europe/London of {@code generatedAt}
+         * @param answer      the answer
+         */
+        public Question(String id, String text, List<String> tabs, LocalDateTime generatedAt,
+                String runLabel, Answer answer) {
+            this(id, text, tabs, generatedAt, runLabel, answer, null);
+        }
     }
 
     /**

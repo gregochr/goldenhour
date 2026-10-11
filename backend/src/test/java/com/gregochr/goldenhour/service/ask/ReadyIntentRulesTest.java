@@ -257,6 +257,80 @@ class ReadyIntentRulesTest {
                 amOrPm("Sunrise or sunset on Saturday?"))).isFalse();
     }
 
+    // -- NIGHT_SKY --------------------------------------------------------------------------------
+
+    private static AskReadyResponse.Question nightSky() {
+        return new AskReadyResponse.Question(ReadyQuestion.NIGHT_SKY.name(), ReadyQuestion.NIGHT_SKY_TEXT,
+                ReadyQuestion.NIGHT_SKY.tabs(), LocalDateTime.of(2026, 10, 9, 5, 2), "06:02",
+                new AskReadyResponse.Answer(true, "ready", "Whitby is clear.", List.of(), List.of(), null,
+                        List.of()),
+                "n1;2026-10-09=1760000000000");
+    }
+
+    @ParameterizedTest(name = "NIGHT_SKY matches \"{0}\"")
+    @ValueSource(strings = {"Anything for the night sky tonight?", "Any stars tonight?", "Stars tonight",
+            "Stargazing tonight?", "Is there a milky way tonight?", "Any clear skies tonight?",
+            "Is it clear tonight?", "Clear tonight?", "Dark sky tonight?", "Good night sky tonight?",
+            "Where's good for stargazing tonight?", "Anything good for stars tonight?",
+            "Please, any stars tonight?", "Star gazing tonight?", "Best stars tonight?"})
+    @DisplayName("NIGHT_SKY: the phrasings that are the night-sky-tonight question")
+    void nightSkyPositives(String typed) {
+        assertThat(matches(ReadyQuestion.NIGHT_SKY, typed, nightSky())).isTrue();
+    }
+
+    @ParameterizedTest(name = "NIGHT_SKY declines \"{0}\"")
+    @ValueSource(strings = {
+            "Anything for the night sky?", "Any stars?", "Night sky", "Tonight",
+            "Anything for the night sky tomorrow night?", "Any stars tomorrow?", "Any stars this weekend?",
+            "Any stars on Saturday night?", "Stars tonight and tomorrow?", "Any stars tonight tonight?",
+            "Anything for the night sky tonight in Whitby?", "Any stars tonight at the coast?",
+            "Stars tonight near me?", "Best stars tonight within an hour?", "Stars tonight from home?",
+            "Northern lights tonight?", "Any aurora tonight?", "Is the aurora visible tonight?",
+            "Is the Bortle low tonight?", "Clear sunset tonight?", "Is the weather clear tonight?",
+            "No stars tonight?", "Worst stars tonight?", "Any stars tonight at 10pm?", "Best spot tonight?",
+            "Any rare events tonight?"})
+    @DisplayName("NIGHT_SKY: no time, another night, a place, a drive, aurora, Bortle or a different subject is not "
+            + "the question")
+    void nightSkyNegatives(String typed) {
+        assertThat(matches(ReadyQuestion.NIGHT_SKY, typed, nightSky())).isFalse();
+    }
+
+    @Test
+    @DisplayName("NIGHT_SKY: the question text it is stored under is read back as itself by its own rule")
+    void nightSkyOwnText() {
+        assertThat(matches(ReadyQuestion.NIGHT_SKY, ReadyQuestion.NIGHT_SKY_TEXT, nightSky())).isTrue();
+    }
+
+    @Test
+    @DisplayName("NIGHT_SKY is no other question's: its phrasings match no other Ready question, and none of the "
+            + "other questions' phrasings match it")
+    void nightSkyIsExclusive() {
+        for (String typed : List.of("Anything for the night sky tonight?", "Any stars tonight?",
+                "Clear skies tonight?", "Is it clear tonight?")) {
+            for (ReadyQuestion other : ReadyQuestion.values()) {
+                if (other != ReadyQuestion.NIGHT_SKY) {
+                    assertThat(matches(other, typed, ready(other, anyTextFor(other), SAT, SAT)))
+                            .as(typed + " vs " + other).isFalse();
+                }
+            }
+        }
+        for (String typed : List.of("Best spot tonight?", "Best spot this weekend?", "Any rare events coming up?",
+                "Is there snow on the tops?", "Sunrise or sunset tomorrow?", "Best coastal spot at high tide?")) {
+            assertThat(matches(ReadyQuestion.NIGHT_SKY, typed, nightSky())).as(typed).isFalse();
+        }
+    }
+
+    @Test
+    @DisplayName("NIGHT_SKY's words are accepted by the cheap pre-check, and aurora, Bortle and place words are not")
+    void nightSkyWordsAndThePreCheck() {
+        assertThat(ReadyIntentRules.couldMatchAny(List.of("night", "sky", "tonight"))).isTrue();
+        assertThat(ReadyIntentRules.couldMatchAny(List.of("milky", "way", "tonight"))).isTrue();
+        assertThat(ReadyIntentRules.couldMatchAny(List.of("stargazing", "tonight"))).isTrue();
+        assertThat(ReadyIntentRules.couldMatchAny(List.of("aurora", "tonight"))).isFalse();
+        assertThat(ReadyIntentRules.couldMatchAny(List.of("bortle", "tonight"))).isFalse();
+        assertThat(ReadyIntentRules.couldMatchAny(List.of("stars", "tonight", "whitby"))).isFalse();
+    }
+
     // -- RARE_EVENTS ------------------------------------------------------------------------------
 
     private static AskReadyResponse.Question rare() {
@@ -321,13 +395,15 @@ class ReadyIntentRulesTest {
     }
 
     @Test
-    @DisplayName("every one of the seven Ready questions has a rule that can match its own text")
+    @DisplayName("every one of the eight Ready questions has a rule that can match its own text")
     void everyReadyQuestionHasARule() {
         String[] typed = {"Best spot this weekend?", "Best spot in the next few days?", "Best spot tonight?",
-                "Best coastal spot at high tide?", "Sunrise or sunset tomorrow?", "Any rare events coming up?",
+                "Best coastal spot at high tide?", "Sunrise or sunset tomorrow?",
+                "Anything for the night sky tonight?", "Any rare events coming up?",
                 "Is there snow on the tops?"};
         String[] texts = {"Best spot this weekend?", "Best spot in the next few days?", "Best spot tonight?",
-                "Best coastal spot at high tide?", "Sunrise or sunset tomorrow?", "Any rare events coming up?",
+                "Best coastal spot at high tide?", "Sunrise or sunset tomorrow?",
+                "Anything for the night sky tonight?", "Any rare events coming up?",
                 "Is there snow on the tops?"};
         assertThat(ReadyQuestion.values()).hasSize(typed.length);
         for (int i = 0; i < typed.length; i++) {
@@ -341,7 +417,8 @@ class ReadyIntentRulesTest {
     void noQuestionMatchesTwo() {
         List<String> typed = List.of("Best spot this weekend?", "Best spot in the next few days?",
                 "Best spot tonight?", "Best coastal spot at high tide?", "Sunrise or sunset tomorrow?",
-                "Any rare events coming up?", "Is there snow on the tops?", "Best spot?");
+                "Any rare events coming up?", "Is there snow on the tops?", "Best spot?",
+                "Anything for the night sky tonight?", "Any stars tonight?", "Is it clear tonight?");
         for (String text : typed) {
             long matched = Arrays.stream(ReadyQuestion.values()).filter(id -> matches(id, text,
                     ready(id, anyTextFor(id), SAT, SAT))).count();
@@ -356,6 +433,7 @@ class ReadyIntentRulesTest {
             case BEST_NEXT -> "Best spot tonight?";
             case COASTAL_HIGH -> "Best coastal spot at high tide?";
             case AM_OR_PM -> "Sunrise or sunset tomorrow?";
+            case NIGHT_SKY -> ReadyQuestion.NIGHT_SKY_TEXT;
             case RARE_EVENTS -> "Any rare events coming up?";
             case SNOW_TOPS -> "Is there snow on the tops?";
         };

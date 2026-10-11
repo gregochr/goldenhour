@@ -35,6 +35,7 @@ import static com.gregochr.goldenhour.service.ask.ReadyFixtures.oct;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -109,9 +110,9 @@ class AskReadyClaudeEngineTest {
 
         AskReadyPrecompute.Result result = service.precompute(42L);
 
-        // Three asked; the weekend, next-few-days, coastal-high and sunrise-or-sunset questions are not
-        // available on a forecast of one inland sunset.
-        assertThat(result).isEqualTo(new AskReadyPrecompute.Result(3, 4, 0, null));
+        // Three asked; the weekend, next-few-days, coastal-high, sunrise-or-sunset and night-sky questions are
+        // not available on a forecast of one inland sunset with no night forecast.
+        assertThat(result).isEqualTo(new AskReadyPrecompute.Result(3, 5, 0, null));
         List<MessageCreateParams> sent = sent();
         ToolResultBlockParam refusal = toolResultsIn(sent.get(1)).getFirst();
         assertThat(refusal.isError()).contains(true);
@@ -121,7 +122,7 @@ class AskReadyClaudeEngineTest {
         ArgumentCaptor<AskAnswer> answer = ArgumentCaptor.forClass(AskAnswer.class);
         ArgumentCaptor<ReadyQuestion> question = ArgumentCaptor.forClass(ReadyQuestion.class);
         verify(store, org.mockito.Mockito.times(3)).upsert(any(), question.capture(), any(), answer.capture(),
-                any(), any());
+                any(), any(), isNull());
         assertThat(question.getAllValues()).containsExactly(ReadyQuestion.BEST_NEXT, ReadyQuestion.RARE_EVENTS,
                 ReadyQuestion.SNOW_TOPS);
         assertThat(answer.getAllValues().getFirst().picks()).singleElement().satisfies(p -> {

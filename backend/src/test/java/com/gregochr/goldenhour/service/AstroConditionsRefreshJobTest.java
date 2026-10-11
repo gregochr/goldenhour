@@ -3,6 +3,8 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.config.AuroraProperties;
+import com.gregochr.goldenhour.service.ask.AskReadyPrecompute;
+import com.gregochr.goldenhour.service.ask.ReadyQuestion;
 import com.gregochr.goldenhour.service.aurora.AuroraForecastRunService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import com.gregochr.solarutils.SolarCalculator;
@@ -11,6 +13,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -18,8 +21,12 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
@@ -27,6 +34,7 @@ import java.util.function.Consumer;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -54,6 +62,9 @@ class AstroConditionsRefreshJobTest {
     @Mock
     private DynamicSchedulerService dynamicSchedulerService;
 
+    @Mock
+    private AskReadyPrecompute askReadyPrecompute;
+
     private final SolarCalculator sun = new SolarCalculator();
     private JobRunEntity jobRun;
 
@@ -68,8 +79,13 @@ class AstroConditionsRefreshJobTest {
     }
 
     private AstroConditionsRefreshJob jobAt(Instant instant) {
+        return jobAt(instant, Runnable::run);
+    }
+
+    /** The job with the given executor standing in for the background one the precompute runs on. */
+    private AstroConditionsRefreshJob jobAt(Instant instant, Executor executor) {
         return new AstroConditionsRefreshJob(astroConditionsService, selectorAt(instant), jobRunService,
-                dynamicSchedulerService, Clock.fixed(instant, ZoneOffset.UTC));
+                dynamicSchedulerService, askReadyPrecompute, executor, Clock.fixed(instant, ZoneOffset.UTC));
     }
 
     /** Nautical dawn on {@link #TODAY}: the instant the selector itself says the small-hours night ends. */
@@ -261,6 +277,148 @@ class AstroConditionsRefreshJobTest {
     void construction_doesNothing() {
         jobAt(Instant.parse("2026-10-11T15:30:00Z"));
 
-        verifyNoInteractions(astroConditionsService, jobRunService, dynamicSchedulerService);
+        verifyNoInteractions(astroConditionsService, jobRunService, dynamicSchedulerService,
+                askReadyPrecompute);
+    }
+
+    // -- the Ready precompute that follows a successful run (ask-night plan section 2.0 (3)) ------------------
+
+    private static final Instant AFTERNOON = Instant.parse("2026-10-11T15:30:00Z");
+    /** The only question the dispatched precompute may carry: the one the astro run makes stale. */
+    private static final Set<ReadyQuestion> NIGHT_ONLY = Set.of(ReadyQuestion.NIGHT_SKY);
+    private static final List<LocalDate> NIGHTS = List.of(TODAY, TODAY.plusDays(1));
+
+    @Test
+    @DisplayName("a scheduled run that scored something dispatches the COUNTED precompute, after the job run "
+            + "is complete")
+    void scheduledSuccess_dispatchesTheCountedPrecomputeAfterTheRun() {
+        stubRun(false);
+        when(astroConditionsService.evaluateAndPersist(NIGHTS)).thenReturn(526);
+        when(askReadyPrecompute.precompute(null, NIGHT_ONLY)).thenReturn(new AskReadyPrecompute.Result(14, 3, 0, null));
+
+        jobAt(AFTERNOON).run(false);
+
+        InOrder order = inOrder(jobRunService, askReadyPrecompute);
+        order.verify(jobRunService).completeRun(jobRun, 526, 0, NIGHTS);
+        order.verify(askReadyPrecompute).precompute(null, NIGHT_ONLY);
+        verify(askReadyPrecompute, never()).precomputeOnDemand(NIGHT_ONLY);
+    }
+
+    @Test
+    @DisplayName("a manual run takes the on-demand route the admin endpoint takes: not counted against the "
+            + "per-day ceiling")
+    void manualSuccess_dispatchesTheOnDemandPrecompute() {
+        stubRun(true);
+        when(astroConditionsService.evaluateAndPersist(NIGHTS)).thenReturn(3);
+        when(askReadyPrecompute.precomputeOnDemand(NIGHT_ONLY))
+                .thenReturn(new AskReadyPrecompute.Result(1, 0, 0, null));
+
+        jobAt(AFTERNOON).run(true);
+
+        verify(askReadyPrecompute).precomputeOnDemand(NIGHT_ONLY);
+        verify(askReadyPrecompute, never()).precompute(null, NIGHT_ONLY);
+    }
+
+    @Test
+    @DisplayName("a run that scored nothing wrote no new generation, so nothing is dispatched")
+    void nothingScored_dispatchesNothing() {
+        stubRun(false);
+        when(astroConditionsService.evaluateAndPersist(NIGHTS)).thenReturn(0);
+
+        jobAt(AFTERNOON).run(false);
+
+        verifyNoInteractions(askReadyPrecompute);
+    }
+
+    @Test
+    @DisplayName("a run that threw dispatches nothing")
+    void failedRun_dispatchesNothing() {
+        stubRun(false);
+        when(astroConditionsService.evaluateAndPersist(NIGHTS)).thenThrow(new IllegalStateException("boom"));
+
+        jobAt(AFTERNOON).run(false);
+
+        verifyNoInteractions(askReadyPrecompute);
+    }
+
+    @Test
+    @DisplayName("the precompute is queued, never run on the job's own thread: the run returns before it starts")
+    void dispatch_isQueuedOffTheJobsThread() {
+        stubRun(false);
+        when(astroConditionsService.evaluateAndPersist(NIGHTS)).thenReturn(2);
+        when(askReadyPrecompute.precompute(null, NIGHT_ONLY)).thenReturn(new AskReadyPrecompute.Result(1, 0, 0, null));
+        List<Runnable> queued = new ArrayList<>();
+
+        jobAt(AFTERNOON, queued::add).run(false);
+
+        assertThat(queued).hasSize(1);
+        verifyNoInteractions(askReadyPrecompute);
+        queued.getFirst().run();
+        verify(askReadyPrecompute).precompute(null, NIGHT_ONLY);
+    }
+
+    @Test
+    @DisplayName("a precompute that is refused (Ask off, a simulation, no fresh briefing) is logged, not thrown")
+    void refusedPrecompute_isHarmless() {
+        stubRun(false);
+        when(astroConditionsService.evaluateAndPersist(NIGHTS)).thenReturn(2);
+        when(askReadyPrecompute.precompute(null, NIGHT_ONLY))
+                .thenReturn(new AskReadyPrecompute.Result(0, 0, 0, "Ask is switched off"));
+
+        jobAt(AFTERNOON).run(false);
+
+        verify(askReadyPrecompute).precompute(null, NIGHT_ONLY);
+        verify(jobRunService).completeRun(jobRun, 2, 0, NIGHTS);
+    }
+
+    @Test
+    @DisplayName("an exception inside the precompute never reaches the job, and the job's guard is released")
+    void precomputeThrows_neverReachesTheJob() {
+        stubRun(false);
+        when(astroConditionsService.evaluateAndPersist(NIGHTS)).thenReturn(2);
+        when(askReadyPrecompute.precompute(null, NIGHT_ONLY)).thenThrow(new IllegalStateException("model down"));
+        AstroConditionsRefreshJob job = jobAt(AFTERNOON);
+
+        job.run(false);
+        job.run(false);
+
+        verify(jobRunService, times(2)).startRun(RunType.WEATHER, false, null);
+        verify(jobRunService, times(2)).completeRun(jobRun, 2, 0, NIGHTS);
+        verify(jobRunService, never()).completeRun(jobRun, 0, 2, NIGHTS);
+    }
+
+    @Test
+    @DisplayName("the dispatch carries NIGHT_SKY and nothing else, on both routes, never the unfiltered precompute")
+    void dispatch_carriesOnlyTheNightQuestion() {
+        stubRun(false);
+        when(astroConditionsService.evaluateAndPersist(NIGHTS)).thenReturn(2);
+        jobAt(AFTERNOON).run(false);
+        ArgumentCaptor<Set<ReadyQuestion>> scheduled = ArgumentCaptor.captor();
+        verify(askReadyPrecompute).precompute(eq(null), scheduled.capture());
+        assertThat(scheduled.getValue()).containsExactly(ReadyQuestion.NIGHT_SKY);
+
+        stubRun(true);
+        jobAt(AFTERNOON).run(true);
+        ArgumentCaptor<Set<ReadyQuestion>> manual = ArgumentCaptor.captor();
+        verify(askReadyPrecompute).precomputeOnDemand(manual.capture());
+        assertThat(manual.getValue()).containsExactly(ReadyQuestion.NIGHT_SKY);
+        verify(askReadyPrecompute, never()).precompute(null);
+        verify(askReadyPrecompute, never()).precomputeOnDemand();
+    }
+
+    @Test
+    @DisplayName("an executor that refuses the work is logged and the run still ends complete, not failed")
+    void executorRejects_runStillComplete() {
+        stubRun(false);
+        when(astroConditionsService.evaluateAndPersist(NIGHTS)).thenReturn(2);
+        Executor rejecting = task -> {
+            throw new RejectedExecutionException("shut down");
+        };
+
+        jobAt(AFTERNOON, rejecting).run(false);
+
+        verify(jobRunService).completeRun(jobRun, 2, 0, NIGHTS);
+        verify(jobRunService, never()).completeRun(jobRun, 0, 2, NIGHTS);
+        verifyNoInteractions(askReadyPrecompute);
     }
 }

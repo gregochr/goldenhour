@@ -36,9 +36,9 @@ final class ReadyRelevance {
 
     /**
      * Whether an event of this type is relevant to the question: the one event predicate. A pick
-     * question keeps no event card (its cards are picks); {@code RARE_EVENTS} keeps any;
-     * {@code SNOW_TOPS} keeps only the snow topic types ({@code SNOW_TOPS}, {@code SNOW_FRESH},
-     * {@code SNOW_MIST}).
+     * question keeps no event card (its cards are picks), except {@code NIGHT_SKY}, which keeps the
+     * {@code AURORA} hot topic and nothing else; {@code RARE_EVENTS} keeps any; {@code SNOW_TOPS} keeps
+     * only the snow topic types ({@code SNOW_TOPS}, {@code SNOW_FRESH}, {@code SNOW_MIST}).
      *
      * @param question the question
      * @param type     the event's served type, any case or spelling ({@link AskEventType#key})
@@ -70,7 +70,9 @@ final class ReadyRelevance {
      * ({@code BEST_WEEKEND}: the Saturday and Sunday windows; {@code BEST_SOON}: the windows with a
      * pick; {@code BEST_NEXT}: the next window alone; {@code COASTAL_HIGH}: the windows with a coastal
      * slot at high water; {@code AM_OR_PM}: that date's two windows), its live slot is pick-eligible
-     * within the question's scope, and the slot suits the question ({@link #admitsSlot}).
+     * within the question's scope, and the slot suits the question ({@link #admitsSlot}). A night-bound
+     * question ({@code NIGHT_SKY}) admits only an ASTRO night's spot, pick-eligible as a reader who may
+     * not see aurora would find it.
      *
      * @param question the question
      * @param pick     the pick
@@ -84,10 +86,27 @@ final class ReadyRelevance {
         if (!question.picks() || !offer.windowIds().contains(pick.windowId())) {
             return false;
         }
+        if (question.nightBound()) {
+            return admitsNightPick(pick, snapshot, scope);
+        }
         Optional<AskSnapshot.Candidate> candidate = snapshot.candidate(pick.windowId(), pick.locationId());
         return candidate.isPresent()
                 && scope.contains(candidate.get().region().name())
                 && admitsSlot(question, candidate.get().slot());
+    }
+
+    /**
+     * Whether a night pick is relevant to a night-bound question: an ASTRO night's spot that is
+     * pick-eligible within the scope for a reader who may NOT see aurora. A Ready answer is shared by
+     * every reader, so an aurora pick is refused outright, whatever its figure and whoever asked the
+     * engine, and the live spot is read as that reader would.
+     */
+    private static boolean admitsNightPick(AskPick pick, AskSnapshot snapshot, AskScope scope) {
+        return pick.targetType() == AskWindowKind.ASTRO
+                && snapshot.nightCandidate(pick.windowId(), pick.locationId(), false)
+                        .filter(c -> c.night().kind() == AskWindowKind.ASTRO)
+                        .filter(c -> scope.contains(c.spot().regionName()))
+                        .isPresent();
     }
 
     /**

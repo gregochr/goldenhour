@@ -25,7 +25,9 @@ import java.util.Optional;
  *   <li>for a {@code BEST_*} question, the live BEST BET window is not the one the answer leads
  *       with;</li>
  *   <li>the answer would no longer pass the same checks it was stored under (every pick still
- *       within the question's windows; a coastal-high question's picks still at high water).</li>
+ *       within the question's windows; a coastal-high question's picks still at high water);</li>
+ *   <li>for the night-bound {@code NIGHT_SKY}, the night's astro generation is no longer the one the
+ *       answer was written from, or the night has passed ({@code nightMoved}).</li>
  * </ol>
  * Rules 1, 3, 4 and 5 are the plan's; rules 2, 6 and 7 are the same test applied to the rest of what
  * the answer claims, so a day word, a supersession or a moved BEST BET cannot slip past the plan's
@@ -68,8 +70,8 @@ final class AskReadyFreshness {
      */
     static Verdict check(ReadyQuestion question, AskReadyStore.Stored stored, AskSnapshot live,
             AskScope scope) {
-        if (!stored.windowIds().isEmpty()
-                && stored.windowIds().stream().noneMatch(id -> live.window(id).isPresent())) {
+        // hasWindow, not window: a night-bound question names a night, which is not a solar window.
+        if (!stored.windowIds().isEmpty() && stored.windowIds().stream().noneMatch(live::hasWindow)) {
             return Verdict.stale("every window the question names has passed");
         }
         Optional<ReadyQuestion.Offer> offer = question.offer(live, scope);
@@ -78,6 +80,12 @@ final class AskReadyFreshness {
         }
         if (!offer.get().text().equals(stored.questionText())) {
             return Verdict.stale("the question is now asked differently: " + offer.get().text());
+        }
+        if (question.nightBound()) {
+            Optional<String> moved = nightMoved(stored, offer.get(), live);
+            if (moved.isPresent()) {
+                return Verdict.stale(moved.get());
+            }
         }
         // A Ready answer is shared by every reader, so it is re-checked as one who may not see aurora.
         Verdict rechecked = recheck(stored.answer(), live, scope, false);
@@ -99,6 +107,31 @@ final class AskReadyFreshness {
             return Verdict.stale(violation.get());
         }
         return new Verdict(decorated, null);
+    }
+
+    /**
+     * Why a night-bound answer no longer describes the night it was written about, or empty when it
+     * still does (ask-night plan §2.5). Three conditions, all of the night and none of a pick: the
+     * question is now about another night than the one stored (the offer's window differs); the answer
+     * carries no night version (a row from before the version existed cannot be shown to be current);
+     * and the version is no longer the live one ({@link AskNightVersion#isLive}, which re-derives it
+     * from the night the string itself names), which is true when the astro job has re-run the night (a
+     * new generation) and when the night has passed (it is no longer in the snapshot). A pick whose own
+     * star moved, or that stopped being night-eligible, is the pick checks' to find.
+     */
+    private static Optional<String> nightMoved(AskReadyStore.Stored stored, ReadyQuestion.Offer offer,
+            AskSnapshot live) {
+        if (!offer.windowIds().equals(stored.windowIds())) {
+            return Optional.of("the question is now about another night");
+        }
+        if (stored.astroVersion() == null) {
+            return Optional.of("the answer carries no night version");
+        }
+        // The aurora segment is never part of a Ready answer's version: it is user-less.
+        if (!AskNightVersion.isLive(stored.astroVersion(), live, false)) {
+            return Optional.of("the night forecast has been re-run or has passed");
+        }
+        return Optional.empty();
     }
 
     /**

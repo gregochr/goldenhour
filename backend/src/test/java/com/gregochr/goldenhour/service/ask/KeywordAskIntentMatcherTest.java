@@ -250,6 +250,77 @@ class KeywordAskIntentMatcherTest {
         verify(store, never()).findScope("ALL");
     }
 
+    // -- NIGHT_SKY (ask-night plan section 2.5) -----------------------------------------------------------------
+
+    private static final java.time.Instant ASTRO_RUN = java.time.Instant.parse("2026-10-09T14:30:00Z");
+
+    /** The Friday forecast with tonight's astro night of these spots, scored by {@link #ASTRO_RUN}. */
+    private static AskSnapshot fridayWithNight(AskSnapshot.NightSpot... spots) {
+        AskSnapshot base = friday();
+        AskSnapshot.Night night = new AskSnapshot.Night("2026-10-09_astro", oct(9), AskWindowKind.ASTRO,
+                AskNightFixtures.DUSK, AskNightFixtures.DAWN, ASTRO_RUN, List.of(spots));
+        return new AskSnapshot(base.generatedAt(), base.runLabel(), base.today(), base.windows(), base.hotTopics(),
+                base.comingUp(), false, new AskSnapshot.Nights(oct(9), List.of(night), null));
+    }
+
+    private static AskReadyStore.Stored nightSkyRow() {
+        AskPick pick = new AskPick(1, 1L, "Whitby", "Northumberland", oct(9), AskWindowKind.ASTRO,
+                "2026-10-09_astro", "Clear and dark.", 5, null);
+        return new AskReadyStore.Stored("ALL", "NIGHT_SKY", "Anything for the night sky tonight?",
+                List.of("2026-10-09_astro"), BUILT, new AskAnswer(true, "Whitby is clear.", List.of(pick), List.of(),
+                        null), "n1;2026-10-09=" + ASTRO_RUN.toEpochMilli());
+    }
+
+    @Test
+    @DisplayName("a typed night-sky-tonight question is served the stored NIGHT_SKY answer, free, carrying its "
+            + "night version on the question; a near-miss that names a place, a night or aurora is not")
+    void nightSkyIsServedAndNearMissesAreNot() {
+        when(store.findScope("ALL")).thenReturn(List.of(nightSkyRow()));
+        AskSnapshot live = fridayWithNight(AskNightFixtures.astro(1L, "Whitby", "Northumberland", 5, 3));
+
+        for (String text : List.of("Anything for the night sky tonight?", "Any stars tonight?",
+                "Is it clear tonight?", "Stargazing tonight")) {
+            Optional<AskReadyResponse.Question> hit = match(text, live);
+
+            assertThat(hit).as(text).isPresent();
+            assertThat(hit.get().id()).isEqualTo("NIGHT_SKY");
+            assertThat(hit.get().answer().kind()).isEqualTo("ready");
+            assertThat(hit.get().nightVersion()).isEqualTo("n1;2026-10-09=" + ASTRO_RUN.toEpochMilli());
+            assertThat(hit.get().answer().picks()).singleElement()
+                    .satisfies(p -> assertThat(p.targetType()).isEqualTo(AskWindowKind.ASTRO));
+        }
+        for (String text : List.of("Any stars tomorrow night?", "Any stars tonight in Whitby?",
+                "Northern lights tonight?", "Any stars tonight near me?", "Any stars?", "Best spot tonight?")) {
+            assertThat(match(text, live)).as(text).isEmpty();
+        }
+    }
+
+    @Test
+    @DisplayName("the night-sky match is a miss once the astro job has re-run the night, even though no star moved")
+    void nightSkyIsAMissAfterARerun() {
+        when(store.findScope("ALL")).thenReturn(List.of(nightSkyRow()));
+        AskSnapshot base = fridayWithNight(AskNightFixtures.astro(1L, "Whitby", "Northumberland", 5, 3));
+        AskSnapshot.Night rerun = new AskSnapshot.Night("2026-10-09_astro", oct(9), AskWindowKind.ASTRO,
+                AskNightFixtures.DUSK, AskNightFixtures.DAWN, ASTRO_RUN.plusSeconds(3600),
+                base.nights().nights().getFirst().spots());
+        AskSnapshot live = new AskSnapshot(base.generatedAt(), base.runLabel(), base.today(), base.windows(),
+                base.hotTopics(), base.comingUp(), false, new AskSnapshot.Nights(oct(9), List.of(rerun), null));
+
+        assertThat(match("Anything for the night sky tonight?", live)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a night spot named in ordinary words stops the match, as a solar spot does")
+    void aNightSpotNamedInOrdinaryWordsStopsTheMatch() {
+        when(store.findScope("ALL")).thenReturn(List.of(nightSkyRow()));
+        AskSnapshot live = fridayWithNight(AskNightFixtures.astro(1L, "Whitby", "Northumberland", 5, 3),
+                AskNightFixtures.astro(7L, "Dark Sky", "Northumberland", 4, 2));
+
+        assertThat(match("Any stars tonight?", live)).isPresent();
+        assertThat(match("Dark sky tonight?", live)).isEmpty();
+        assertThat(KeywordAskIntentMatcher.namesAPlace("dark sky tonight", live)).isTrue();
+    }
+
     @Test
     @DisplayName("a stored row whose id is not in the catalogue is never served, and is not an error")
     void unknownStoredIdIsIgnored() {
