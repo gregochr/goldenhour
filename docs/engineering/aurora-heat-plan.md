@@ -47,14 +47,14 @@ facts PR; #815 is a measurement doc).
 
 ## §0 Status
 
-**Status: PLANNED 2026-10-11 — nothing built.** Phase log (every phase appends its own row in
+**Status: A1 BUILT 2026-10-11 (PR pending); A2–A6 not started.** Phase log (every phase appends its own row in
 the same commit as its code; the `PR` column names the PR, not a SHA, because the repo
 squash-merges):
 
 | phase | what | PR | notes |
 |---|---|---|---|
 | A0 | vendoring, this plan, the prompts, the viewline findings | — | this document |
-| A1 | ramp + bloom injection in the kernel; `utils/auroraRamp.js` | | |
+| A1 | ramp + bloom injection in the kernel; `utils/auroraRamp.js` | pending | built 2026-10-11 on `feature/aurora-heat-a1`; `drawTiles → paint → field` already passed `opts` whole, so no threading was needed; byte-equality and both default-removal mutants verified |
 | A2 | aurora mode paints the field (points, confidence, pins, chips) | | |
 | A3 | legend, toolbar key, peek-sheet swatch in aurora mode | | |
 | A4 | best-location card dismiss | | independent — may run beside A1 |
@@ -156,7 +156,7 @@ Pure utilities, no UI. Lands first because A2 and A3 both import it.
   `AURORA_BLOOM = { rgb: [120,255,170], from: 3.4, a: 150 }`, `AURORA_TOGGLE_SWATCH =
   'linear-gradient(90deg,#22867E,#76FFA0)'`. Export a `AURORA_RAMP` object `{ rgb, hex,
   gradientCss }` so consumers take one prop. ⚠️ Never a ramp colour as text (map-tab-v2 rule) —
-  ink via `heatField.js`'s existing `ink()`.
+  pick ink per fill for contrast with `windowFirstSpots.readableInkOn(fillHex)` (there is no `ink()` in `heatField.js`; that is the bundle's `HF.ink`).
 - `frontend/src/utils/heatField.js`: `field()` takes `opts.ramp` (a `(s)=>[r,g,b]`, default the
   module's `rampRgb`) and `opts.bloomRGB` (default `[255,138,66]`), written through a local
   `bc`. **Nothing else in the kernel moves.** Threading: `drawTiles` → `paint` → `field` already

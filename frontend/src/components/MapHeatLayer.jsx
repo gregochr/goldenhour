@@ -83,8 +83,10 @@ const BLUR = 4;
  * on a dark ground)" table's "Map tab field" row (3.0/190/2.4). No `bloomFrom`/`bloomA`/`bloomBlur`
  * dial is set here: the kernel's own defaults in `heatField.js` (`field()`'s `bloomFrom`/`bloomA`,
  * `blitField`'s `bloomBlur`) already ARE that row, so this host asks only for the layer to exist.
- * `bloomFrom` must stay at 3.0 on every surface regardless — to tame a small surface, cut
- * `bloomBlur`, never raise the gate.
+ * `bloomFrom` must stay at 3.0 on every surface painted with the shared/temperature ramp,
+ * whose luminance peaks at 3★ — to tame a small surface, cut `bloomBlur`, never raise the gate.
+ * A monotonic ramp injected via `opts.ramp` (aurora, plan §4 #4) may pass its own `bloomFrom`
+ * (3.4), because it has no dead band to leave.
  */
 const FIELD_BLOOM = 1;
 
@@ -723,7 +725,11 @@ export default function MapHeatLayer({
 }
 
 MapHeatLayer.propTypes = {
-  /** The active scoreRamp mode — a repaint key only; see the paint callback's note. */
+  /**
+   * The active scoreRamp mode — a repaint key only; see the paint callback's note. Aurora is NOT
+   * a colourMode value: in A2 it arrives as separate `ramp`/`bloom` props, and the aurora bloom
+   * arm must precede the `getMode() === 'temp'` check in `paint`.
+   */
   colourMode: PropTypes.oneOf(['temp', 'verdict']),
   points: PropTypes.arrayOf(PropTypes.shape({
     lat: PropTypes.number,
