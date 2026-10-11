@@ -19,8 +19,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -170,7 +172,22 @@ public class AskReadyPrecompute {
      * @return what it did; never throws for a refusal
      */
     public Result precompute(Long pipelineRunId) {
-        return run(pipelineRunId, false);
+        return run(pipelineRunId, false, EnumSet.allOf(ReadyQuestion.class));
+    }
+
+    /**
+     * A scheduled precompute of only some questions: the astro job's, which re-answers just the night
+     * question its own run has made stale. Everything else is as {@link #precompute(Long)}: counted
+     * against the per-day ceiling, one {@code ASK_READY} job run, one precompute at a time and refused
+     * while another runs. Only the listed questions are asked and written: no other question's stored
+     * row is read, rewritten or counted as skipped.
+     *
+     * @param pipelineRunId the run that triggered it, or null when none did
+     * @param only          the questions to run; none at all runs nothing
+     * @return what it did; never throws for a refusal
+     */
+    public Result precompute(Long pipelineRunId, Set<ReadyQuestion> only) {
+        return run(pipelineRunId, false, only);
     }
 
     /**
@@ -181,10 +198,21 @@ public class AskReadyPrecompute {
      * @return what it did
      */
     public Result precomputeOnDemand() {
-        return run(null, true);
+        return run(null, true, EnumSet.allOf(ReadyQuestion.class));
     }
 
-    private Result run(Long pipelineRunId, boolean manual) {
+    /**
+     * {@link #precomputeOnDemand()} of only some questions: an administrator's lever on the astro job,
+     * not counted against the per-day ceiling.
+     *
+     * @param only the questions to run
+     * @return what it did
+     */
+    public Result precomputeOnDemand(Set<ReadyQuestion> only) {
+        return run(null, true, only);
+    }
+
+    private Result run(Long pipelineRunId, boolean manual, Set<ReadyQuestion> only) {
         if (!properties.isEnabled()) {
             return Result.refused("Ask is switched off");
         }
@@ -195,13 +223,13 @@ public class AskReadyPrecompute {
             return Result.refused("a precompute is already running");
         }
         try {
-            return runExclusively(pipelineRunId, manual);
+            return runExclusively(pipelineRunId, manual, only);
         } finally {
             running.set(false);
         }
     }
 
-    private Result runExclusively(Long pipelineRunId, boolean manual) {
+    private Result runExclusively(Long pipelineRunId, boolean manual, Set<ReadyQuestion> only) {
         LocalDate today = ForecastHorizon.today(clock);
         if (!manual) {
             long cycles = jobRunRepository.countByRunTypeAndTriggeredManuallyAndStartedAtGreaterThanEqual(
@@ -228,7 +256,7 @@ public class AskReadyPrecompute {
         JobRunEntity job = jobRunService.startRun(RunType.ASK_READY, manual, properties.getModel());
         Counts counts = new Counts();
         try {
-            work(snapshot, job.getId(), pipelineRunId, counts);
+            work(snapshot, job.getId(), pipelineRunId, counts, only);
         } finally {
             complete(job, counts);
         }
@@ -248,10 +276,14 @@ public class AskReadyPrecompute {
     private record Task(AskScope scope, ReadyQuestion question, ReadyQuestion.Offer offer) {
     }
 
-    private void work(AskSnapshot snapshot, long jobRunId, Long pipelineRunId, Counts counts) {
+    private void work(AskSnapshot snapshot, long jobRunId, Long pipelineRunId, Counts counts,
+            Set<ReadyQuestion> only) {
         List<Task> tasks = new ArrayList<>();
         for (AskScope scope : scopes()) {
             for (ReadyQuestion question : ReadyQuestion.values()) {
+                if (!only.contains(question)) {
+                    continue;
+                }
                 Optional<ReadyQuestion.Offer> offer = question.offer(snapshot, scope);
                 if (offer.isPresent()) {
                     tasks.add(new Task(scope, question, offer.get()));

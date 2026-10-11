@@ -20,6 +20,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -782,5 +783,77 @@ class AskReadyPrecomputeTest {
         assertThat(storedAnswer("ALL", ReadyQuestion.NIGHT_SKY).events()).extracting(AskEvent::type)
                 .containsExactly("AURORA");
         assertThat(storedAnswer("ALL", ReadyQuestion.NIGHT_SKY).picks()).hasSize(1);
+    }
+
+    // -- a filtered precompute (the astro job's night-only dispatch) --------------------------------------------
+
+    private static final Set<ReadyQuestion> NIGHT_ONLY = Set.of(ReadyQuestion.NIGHT_SKY);
+
+    @Test
+    @DisplayName("a filtered precompute asks and writes only the listed questions: every other question's stored "
+            + "row is untouched, and the skipped count covers the filter alone")
+    void filteredPrecomputeLeavesTheOtherQuestionsAlone() {
+        useSnapshot(fridayWithNights(northernNight()));
+
+        AskReadyPrecompute.Result result = service.precompute(null, NIGHT_ONLY);
+
+        // ALL and Northumberland offer it; Teesdale does not (its only spot is a 3 star): skipped, not asked.
+        assertThat(result).isEqualTo(new AskReadyPrecompute.Result(2, 1, 0, null));
+        assertThat(storedKeys()).containsExactly("ALL/NIGHT_SKY", "1/NIGHT_SKY");
+        assertThat(calls).extracting(c -> c.question().sanitised()).containsExactly(NIGHT_TEXT, NIGHT_TEXT);
+        verify(store, never()).upsert(any(), eq(ReadyQuestion.BEST_NEXT), any(), any(), any(), any(), any());
+        verify(store, never()).upsert(any(), eq(ReadyQuestion.RARE_EVENTS), any(), any(), any(), any(), any());
+        verify(store, never()).upsert(any(), eq(ReadyQuestion.SNOW_TOPS), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("a filtered scheduled precompute is still one ASK_READY job run counted against the ceiling, and "
+            + "is refused while another precompute runs")
+    void filteredPrecomputeKeepsTheGuards() throws Exception {
+        useSnapshot(fridayWithNights(northernNight()));
+        service.precompute(null, NIGHT_ONLY);
+        verify(jobRunService).startRun(RunType.ASK_READY, false, properties.getModel());
+        verify(jobRunService).completeRun(job, 2, 0);
+
+        todaysScheduledRuns(6);
+        assertThat(service.precompute(null, NIGHT_ONLY).refusal()).contains("ceiling of 6");
+
+        todaysScheduledRuns(0);
+        CountDownLatch inside = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        model = call -> {
+            inside.countDown();
+            try {
+                release.await(10, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return goodModel(call, snapshot);
+        };
+        ExecutorService other = Executors.newVirtualThreadPerTaskExecutor();
+        try {
+            Future<AskReadyPrecompute.Result> first = other.submit(() -> service.precompute(1L));
+            assertThat(inside.await(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(service.precompute(null, NIGHT_ONLY).refusal()).contains("already running");
+            release.countDown();
+            first.get(30, TimeUnit.SECONDS);
+        } finally {
+            release.countDown();
+            other.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("the on-demand filtered precompute is a manual run, exempt from the ceiling; an empty filter runs "
+            + "nothing")
+    void filteredOnDemandAndEmptyFilter() {
+        useSnapshot(fridayWithNights(northernNight()));
+        todaysScheduledRuns(99);
+
+        AskReadyPrecompute.Result result = service.precomputeOnDemand(NIGHT_ONLY);
+
+        assertThat(result.written()).isEqualTo(2);
+        verify(jobRunService).startRun(RunType.ASK_READY, true, properties.getModel());
+        assertThat(service.precompute(null, Set.of()).written()).isZero();
     }
 }

@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.service.ask.AskReadyPrecompute;
+import com.gregochr.goldenhour.service.ask.ReadyQuestion;
 import com.gregochr.goldenhour.service.aurora.AuroraForecastRunService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import com.gregochr.solarutils.SolarCalculator;
@@ -22,6 +23,7 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
@@ -282,6 +284,8 @@ class AstroConditionsRefreshJobTest {
     // -- the Ready precompute that follows a successful run (ask-night plan section 2.0 (3)) ------------------
 
     private static final Instant AFTERNOON = Instant.parse("2026-10-11T15:30:00Z");
+    /** The only question the dispatched precompute may carry: the one the astro run makes stale. */
+    private static final Set<ReadyQuestion> NIGHT_ONLY = Set.of(ReadyQuestion.NIGHT_SKY);
     private static final List<LocalDate> NIGHTS = List.of(TODAY, TODAY.plusDays(1));
 
     @Test
@@ -290,14 +294,14 @@ class AstroConditionsRefreshJobTest {
     void scheduledSuccess_dispatchesTheCountedPrecomputeAfterTheRun() {
         stubRun(false);
         when(astroConditionsService.evaluateAndPersist(NIGHTS)).thenReturn(526);
-        when(askReadyPrecompute.precompute(null)).thenReturn(new AskReadyPrecompute.Result(14, 3, 0, null));
+        when(askReadyPrecompute.precompute(null, NIGHT_ONLY)).thenReturn(new AskReadyPrecompute.Result(14, 3, 0, null));
 
         jobAt(AFTERNOON).run(false);
 
         InOrder order = inOrder(jobRunService, askReadyPrecompute);
         order.verify(jobRunService).completeRun(jobRun, 526, 0, NIGHTS);
-        order.verify(askReadyPrecompute).precompute(null);
-        verify(askReadyPrecompute, never()).precomputeOnDemand();
+        order.verify(askReadyPrecompute).precompute(null, NIGHT_ONLY);
+        verify(askReadyPrecompute, never()).precomputeOnDemand(NIGHT_ONLY);
     }
 
     @Test
@@ -306,12 +310,13 @@ class AstroConditionsRefreshJobTest {
     void manualSuccess_dispatchesTheOnDemandPrecompute() {
         stubRun(true);
         when(astroConditionsService.evaluateAndPersist(NIGHTS)).thenReturn(3);
-        when(askReadyPrecompute.precomputeOnDemand()).thenReturn(new AskReadyPrecompute.Result(1, 0, 0, null));
+        when(askReadyPrecompute.precomputeOnDemand(NIGHT_ONLY))
+                .thenReturn(new AskReadyPrecompute.Result(1, 0, 0, null));
 
         jobAt(AFTERNOON).run(true);
 
-        verify(askReadyPrecompute).precomputeOnDemand();
-        verify(askReadyPrecompute, never()).precompute(null);
+        verify(askReadyPrecompute).precomputeOnDemand(NIGHT_ONLY);
+        verify(askReadyPrecompute, never()).precompute(null, NIGHT_ONLY);
     }
 
     @Test
@@ -341,7 +346,7 @@ class AstroConditionsRefreshJobTest {
     void dispatch_isQueuedOffTheJobsThread() {
         stubRun(false);
         when(astroConditionsService.evaluateAndPersist(NIGHTS)).thenReturn(2);
-        when(askReadyPrecompute.precompute(null)).thenReturn(new AskReadyPrecompute.Result(1, 0, 0, null));
+        when(askReadyPrecompute.precompute(null, NIGHT_ONLY)).thenReturn(new AskReadyPrecompute.Result(1, 0, 0, null));
         List<Runnable> queued = new ArrayList<>();
 
         jobAt(AFTERNOON, queued::add).run(false);
@@ -349,7 +354,7 @@ class AstroConditionsRefreshJobTest {
         assertThat(queued).hasSize(1);
         verifyNoInteractions(askReadyPrecompute);
         queued.getFirst().run();
-        verify(askReadyPrecompute).precompute(null);
+        verify(askReadyPrecompute).precompute(null, NIGHT_ONLY);
     }
 
     @Test
@@ -357,12 +362,12 @@ class AstroConditionsRefreshJobTest {
     void refusedPrecompute_isHarmless() {
         stubRun(false);
         when(astroConditionsService.evaluateAndPersist(NIGHTS)).thenReturn(2);
-        when(askReadyPrecompute.precompute(null))
+        when(askReadyPrecompute.precompute(null, NIGHT_ONLY))
                 .thenReturn(new AskReadyPrecompute.Result(0, 0, 0, "Ask is switched off"));
 
         jobAt(AFTERNOON).run(false);
 
-        verify(askReadyPrecompute).precompute(null);
+        verify(askReadyPrecompute).precompute(null, NIGHT_ONLY);
         verify(jobRunService).completeRun(jobRun, 2, 0, NIGHTS);
     }
 
@@ -371,7 +376,7 @@ class AstroConditionsRefreshJobTest {
     void precomputeThrows_neverReachesTheJob() {
         stubRun(false);
         when(astroConditionsService.evaluateAndPersist(NIGHTS)).thenReturn(2);
-        when(askReadyPrecompute.precompute(null)).thenThrow(new IllegalStateException("model down"));
+        when(askReadyPrecompute.precompute(null, NIGHT_ONLY)).thenThrow(new IllegalStateException("model down"));
         AstroConditionsRefreshJob job = jobAt(AFTERNOON);
 
         job.run(false);
@@ -380,6 +385,25 @@ class AstroConditionsRefreshJobTest {
         verify(jobRunService, times(2)).startRun(RunType.WEATHER, false, null);
         verify(jobRunService, times(2)).completeRun(jobRun, 2, 0, NIGHTS);
         verify(jobRunService, never()).completeRun(jobRun, 0, 2, NIGHTS);
+    }
+
+    @Test
+    @DisplayName("the dispatch carries NIGHT_SKY and nothing else, on both routes, never the unfiltered precompute")
+    void dispatch_carriesOnlyTheNightQuestion() {
+        stubRun(false);
+        when(astroConditionsService.evaluateAndPersist(NIGHTS)).thenReturn(2);
+        jobAt(AFTERNOON).run(false);
+        ArgumentCaptor<Set<ReadyQuestion>> scheduled = ArgumentCaptor.captor();
+        verify(askReadyPrecompute).precompute(eq(null), scheduled.capture());
+        assertThat(scheduled.getValue()).containsExactly(ReadyQuestion.NIGHT_SKY);
+
+        stubRun(true);
+        jobAt(AFTERNOON).run(true);
+        ArgumentCaptor<Set<ReadyQuestion>> manual = ArgumentCaptor.captor();
+        verify(askReadyPrecompute).precomputeOnDemand(manual.capture());
+        assertThat(manual.getValue()).containsExactly(ReadyQuestion.NIGHT_SKY);
+        verify(askReadyPrecompute, never()).precompute(null);
+        verify(askReadyPrecompute, never()).precomputeOnDemand();
     }
 
     @Test

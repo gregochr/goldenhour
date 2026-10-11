@@ -16,11 +16,14 @@ re-runs the night, when a pick's star moves or stops being eligible, or when the
 version is served on the Ready question as `nightVersion`, the same string a typed night answer carries,
 so a Ready-origin exchange resets the follow-up thread by the rule a typed one does.
 
-The 15:30 UTC astro job now dispatches the Ready precompute after a run that scored at least one
-location-date, on a background executor with the precompute's own 5-minute deadline, so nothing it does
-can fail the run. Without it the 14:00 answer would be withheld from 15:30 until the 18:00 cycle rewrote it.
-A scheduled run counts against `photocast.ask.ready.max-cycles-per-day`; an administrator's "Run now"
-takes the on-demand route and does not.
+The 15:30 UTC astro job now dispatches a night-only Ready precompute after a run that scored at least
+one location-date, on a background executor with the precompute's own 5-minute deadline, so nothing it
+does can fail the run. Without it the 14:00 answer would be withheld from 15:30 until the 18:00 cycle
+rewrote it. `AskReadyPrecompute` takes an optional set of questions (every existing caller still runs
+all of them) and the job passes only `NIGHT_SKY`, so no other stored answer is touched and the cost
+after an astro run is at most regions + 1 Haiku conversations. A scheduled run counts against
+`photocast.ask.ready.max-cycles-per-day`; an administrator's "Run now" takes the on-demand route and
+does not.
 
 Also fixed on the way: the Ready freshness check's "every window has passed" rule asked only for solar
 windows, so a night window id would always have read as passed.

@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.service.ask.AskReadyPrecompute;
+import com.gregochr.goldenhour.service.ask.ReadyQuestion;
 import com.gregochr.goldenhour.service.aurora.AuroraForecastRunService;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import jakarta.annotation.PostConstruct;
@@ -14,6 +15,7 @@ import org.springframework.stereotype.Service;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -62,7 +64,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * on the write), {@code failed} counts the nights the run was asked to score, the exception message
  * goes in the run's notes, and the previous rows stand.
  *
- * <p><b>It dispatches Ask PhotoCast's Ready precompute after a successful run</b> (ask-night plan
+ * <p><b>It dispatches a night-only Ask PhotoCast Ready precompute after a successful run</b> (ask-night plan
  * §2.0 (3)). The Ready {@code NIGHT_SKY} answer is versioned on the night's astro generation
  * ({@code max(run_timestamp)}), which this job's run changes; the pipeline dispatches the precompute
  * only after its own cycles (14:00, 18:00), so without this the 14:00 answer would be withheld from
@@ -73,9 +75,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * failure to queue it or an exception inside it logged and stopped there ({@link #dispatchReady}) so
  * it can never fail the run or hold the job's guard. The precompute refuses itself, whole and
  * cheaply, when Ask is off, a simulation is active or the briefing is missing or last-known-good.
+ * It asks {@link #NIGHT_ONLY} alone, the one question this run makes stale, so it costs at most one
+ * conversation per scope (the enabled regions and everywhere) and leaves every other stored answer as
+ * it was.
  * ⚠️ <b>It counts against {@code photocast.ask.ready.max-cycles-per-day} exactly as a scheduled
- * run does, and a manual one does not</b>: a scheduled astro run takes {@code precompute(null)}, the
- * counted route, while an administrator's "Run now" takes {@code precomputeOnDemand()}, the route
+ * run does, and a manual one does not</b>: a scheduled astro run takes {@code precompute(null, NIGHT_ONLY)}, the
+ * counted route, while an administrator's "Run now" takes {@code precomputeOnDemand(NIGHT_ONLY)}, the route
  * the admin precompute endpoint takes, which is a person's decision and neither counted nor stopped
  * by the ceiling, so a lever pressed locally cannot lock the nightly cycles out. (The pipeline's own
  * "Run now" counts like a scheduled run because nothing records that trigger; this job's manual flag
@@ -88,6 +93,13 @@ public class AstroConditionsRefreshJob {
 
     /** Scheduler key; matches the {@code scheduler_job_config} row seeded by V170. */
     static final String JOB_KEY = "astro_conditions_refresh";
+
+    /**
+     * The one Ready question this job's run makes stale (it is versioned on this run's astro generation).
+     * The precompute it dispatches asks this alone: every other question's stored answer is untouched, so
+     * the cost is at most one conversation per scope, not a full precompute.
+     */
+    static final Set<ReadyQuestion> NIGHT_ONLY = Set.of(ReadyQuestion.NIGHT_SKY);
 
     /** Longest failure message kept in the job run's {@code notes} column (length 500). */
     private static final int MAX_NOTE_LENGTH = 400;
@@ -186,8 +198,8 @@ public class AstroConditionsRefreshJob {
         try {
             backgroundExecutor.execute(() -> {
                 try {
-                    AskReadyPrecompute.Result result = manual ? askReadyPrecompute.precomputeOnDemand()
-                            : askReadyPrecompute.precompute(null);
+                    AskReadyPrecompute.Result result = manual ? askReadyPrecompute.precomputeOnDemand(NIGHT_ONLY)
+                            : askReadyPrecompute.precompute(null, NIGHT_ONLY);
                     LOG.info("Astro conditions refresh: Ask Ready precompute {}",
                             result.wasRefused() ? "refused: " + result.refusal()
                                     : "wrote " + result.written() + ", skipped " + result.skipped()
