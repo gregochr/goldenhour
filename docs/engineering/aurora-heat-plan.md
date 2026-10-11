@@ -316,6 +316,14 @@ Scope is whatever §6 decided. The shape the findings point at, for sizing only:
    Ask pick pins keep the SHARED ramp (a pick belongs to its own solar window); the three colour
    keys read 1★ to 5★ in aurora, and the legend PANEL was withheld in aurora until A3 (since mounted with
    the aurora variant).
+9. **The aurora ramp's 3★ stop is darkened, `#22867E` → `#1F7F78`** (owner decision, Q3,
+   2026-10-11). The spec says "port exactly", but white ink on `#22867E` is 4.39:1 on the 11px
+   bold pin numeral, just under WCAG AA 4.5:1. `#1F7F78` (31,127,120) gives 4.81:1 and is the same
+   teal to the eye; luminance stays monotonic (0.056, 0.081, 0.168, 0.439, 0.779). It reaches
+   `AURORA_STOPS`, the gradient string and the toggle swatch (one source). Measured, the best ink
+   (white or the dark badge ink) clears 4.5:1 on every stop and the 2.5/3.5/4.5 midpoints; between
+   3★ and 3.3 the *interpolated field* colour dips below AA for either ink (4.0:1 at worst) but no
+   ink is ever drawn on it: pins show whole-star ratings.
 
 ## §5 Decisions
 
@@ -352,7 +360,8 @@ Open for the owner (do not block A1–A4):
 - **Q3** The aurora 3★ stop (#22867E) gives 4.39:1 against the best ink (white): just under the AA
   4.5:1 for the 11px bold pin numeral; every other stop and interpolated value passes. The spec says
   "port exactly"; a one-stop darkening (e.g. #1F7F78) would pass. Not blocking A2 — the owner
-  decides (measured with the repo's `readableInkOn`).
+  decides (measured with the repo's `readableInkOn`). **DECIDED 2026-10-11 (option 2):** darken the
+  one stop to `#1F7F78` — see §4 #9.
 
 ## §6 Risks
 

@@ -1615,7 +1615,7 @@ describe('heatField — ramp and bloom colour injection (aurora heat, A1)', () =
 
   it('hands the ramp the blended score unrounded — a fractional score interpolates', () => {
     const f = field([{ x: 50, y: 20, sc: 2.5 }], 100, 40, { radius: 20, grid: 1, ramp: auroraRampRgb });
-    expect(cell(f, 50, 20).slice(0, 3)).toEqual([39, 109, 119]);
+    expect(cell(f, 50, 20).slice(0, 3)).toEqual([38, 106, 116]);
   });
 
   it('reaches the kernel through drawTiles unchanged — opts are passed whole', () => {
