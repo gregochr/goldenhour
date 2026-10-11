@@ -49,6 +49,10 @@ import java.util.stream.Stream;
  *   <li>{@code COASTAL_HIGH}: "high tide" / "high water", optionally with a coastal word.</li>
  *   <li>{@code AM_OR_PM}: "sunrise or sunset" (either order), with the Ready question's own day or no
  *       day at all.</li>
+ *   <li>{@code NIGHT_SKY}: "tonight" and one night-sky phrase ("night sky", "stars", "stargazing", "milky
+ *       way", "dark sky", "clear skies" or "clear"), with nothing left but asking words and "anything" or
+ *       "something". "Tonight" is required (the answer is about the running night) and aurora is not a
+ *       night-sky word (the shared answer is astro only).</li>
  *   <li>{@code RARE_EVENTS}: a "rare", "special" or "unusual" and an "event(s)", "anything",
  *       "happening" or "things", with nothing time-bound.</li>
  *   <li>{@code SNOW_TOPS}: "snow" and "tops" (or hills, fells, mountains, summits).</li>
@@ -167,6 +171,21 @@ final class ReadyIntentRules {
             "summits");
     private static final Set<String> SNOW_WORDS = Set.of("snow", "up", "high");
 
+    /**
+     * The phrases that name the night sky as the subject of {@code NIGHT_SKY}. Every one is about
+     * tonight's astro conditions and nothing else: "aurora" and "northern lights" are deliberately not
+     * here (a shared Ready answer is astro only, never an aurora figure), and neither is "bortle" or
+     * any place or drive word.
+     */
+    private static final List<List<String>> NIGHT_SKY_SUBJECTS = List.of(
+            List.of("night", "skies"), List.of("night", "sky"), List.of("dark", "skies"),
+            List.of("dark", "sky"), List.of("milky", "way"), List.of("clear", "skies"),
+            List.of("clear", "sky"), List.of("star", "gazing"), List.of("stargazing"),
+            List.of("stars"), List.of("clear"));
+
+    /** The words a night-sky question may add around its subject: nothing about where, which or when else. */
+    private static final Set<String> NIGHT_SKY_WORDS = Set.of("anything", "something");
+
     /** Every word any rule can accept: a question with a word outside it cannot match anything. */
     private static final Set<String> EVERY_ACCEPTED_WORD;
 
@@ -182,6 +201,8 @@ final class ReadyIntentRules {
         all.addAll(EVENT_WORDS);
         all.addAll(SNOW_PLACES);
         all.addAll(SNOW_WORDS);
+        NIGHT_SKY_SUBJECTS.forEach(all::addAll);
+        all.addAll(NIGHT_SKY_WORDS);
         // The words of a day-specific Ready text: "tonight", "this morning", "on Saturday evening".
         all.addAll(List.of("tonight", "this", "tomorrow", "today", "morning", "evening", "night"));
         for (DayOfWeek day : DayOfWeek.values()) {
@@ -226,6 +247,7 @@ final class ReadyIntentRules {
             case BEST_NEXT -> bestNext(words, ready);
             case COASTAL_HIGH -> asksForAPlace(words, COASTAL_SUBJECTS, COASTAL_WORDS);
             case AM_OR_PM -> amOrPm(words, ready);
+            case NIGHT_SKY -> nightSky(words);
             case RARE_EVENTS -> rareEvents(words);
             case SNOW_TOPS -> snowTops(words);
         };
@@ -337,6 +359,24 @@ final class ReadyIntentRules {
         return words.stream().filter("or"::equals).count() == 1
                 && words.stream().filter("sunrise"::equals).count() == 1
                 && words.stream().filter("sunset"::equals).count() == 1;
+    }
+
+    /**
+     * "Anything for the night sky tonight?", "stars tonight", "stargazing tonight", "clear skies
+     * tonight", "milky way tonight", "dark sky tonight". It must name {@code tonight} exactly once (the
+     * answer is about the running night, so a question that names no time, or another one, is the
+     * engine's), hold one night-sky subject, and have nothing left over but asking words and
+     * {@code anything}/{@code something}. A place, a drive word, "aurora", "tomorrow" or a day name is
+     * not accepted, so each of those goes to the engine.
+     */
+    private static boolean nightSky(List<String> words) {
+        if (words.stream().filter("tonight"::equals).count() != 1) {
+            return false;
+        }
+        List<String> withoutTonight = new ArrayList<>(words);
+        withoutTonight.remove("tonight");
+        return withoutSubject(withoutTonight, NIGHT_SKY_SUBJECTS)
+                .filter(rest -> allIn(rest, ASKING, NIGHT_SKY_WORDS)).isPresent();
     }
 
     private static boolean rareEvents(List<String> words) {

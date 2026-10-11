@@ -335,6 +335,16 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
         }
 
         /**
+         * Tonight's ASTRO night: the night of the poller's current date, when astro conditions were
+         * scored for it. The one night a user-less Ready answer is written about.
+         *
+         * @return the night, or empty when the snapshot carries no nights or no astro row for tonight
+         */
+        public Optional<Night> tonightAstro() {
+            return tonight == null ? Optional.empty() : night(tonight, AskWindowKind.ASTRO);
+        }
+
+        /**
          * The distinct dates the snapshot holds a night for, earliest first.
          *
          * @return the dates
@@ -507,6 +517,25 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
     public Optional<NightCandidate> nightCandidate(String windowId, long locationId, boolean canSeeAurora) {
         return nightSlotAt(windowId, locationId)
                 .filter(c -> isNightPickEligible(c.night().kind(), c.spot(), canSeeAurora));
+    }
+
+    /**
+     * The pick-eligible spots of one night within a question's scope: the night counterpart of
+     * {@link #candidates(Window, AskScope)}, and the one definition of what is reachable on a night under
+     * a scope. {@code ReadyQuestion.NIGHT_SKY} offers on it, so the question is asked exactly when
+     * {@code rank_night_spots} could return something for it.
+     *
+     * @param night        a night of this snapshot
+     * @param scope        the regions the question is about
+     * @param canSeeAurora whether the asker's role may see aurora figures (false for a Ready answer)
+     * @return its in-scope, pick-eligible spots; never null
+     */
+    public List<NightCandidate> nightCandidates(Night night, AskScope scope, boolean canSeeAurora) {
+        return night.spots().stream()
+                .filter(s -> scope.contains(s.regionName()))
+                .filter(s -> isNightPickEligible(night.kind(), s, canSeeAurora))
+                .map(s -> new NightCandidate(night, s))
+                .toList();
     }
 
     /**

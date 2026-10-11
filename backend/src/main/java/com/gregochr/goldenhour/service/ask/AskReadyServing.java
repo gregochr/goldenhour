@@ -133,6 +133,9 @@ public class AskReadyServing {
         // different precomputes (a question whose run failed keeps its earlier answer).
         return new AskReadyResponse.Question(self.question().name(), self.stored().questionText(),
                 self.question().tabs(), self.stored().briefingGeneratedAt(),
-                AskClock.londonHHmm(self.stored().briefingGeneratedAt()), wire);
+                AskClock.londonHHmm(self.stored().briefingGeneratedAt()), wire,
+                // A night-bound question's version: equal to the live one (a stale answer is withheld
+                // before it gets here), so the thread's night rule judges the client's echo of it.
+                self.question().nightBound() ? self.stored().astroVersion() : null);
     }
 }

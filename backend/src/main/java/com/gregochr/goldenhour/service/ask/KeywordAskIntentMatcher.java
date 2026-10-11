@@ -97,6 +97,18 @@ public class KeywordAskIntentMatcher implements AskIntentMatcher {
                 }
             }
         }
+        // A night's places count too: "NIGHT_SKY" is matched on ordinary words, and a spot named in them
+        // ("Dark Sky Park") must decline the question just as a solar spot does.
+        for (AskSnapshot.Night night : snapshot.nights().nights()) {
+            for (AskSnapshot.NightSpot spot : night.spots()) {
+                if (spot.name() != null && !spot.name().isBlank()) {
+                    names.add(spot.name());
+                }
+                if (spot.regionName() != null && !spot.regionName().isBlank()) {
+                    names.add(spot.regionName());
+                }
+            }
+        }
         return names;
     }
 }

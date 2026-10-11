@@ -53,6 +53,12 @@ class AskReadyPrecomputeTest {
     private static final Instant FRIDAY = Instant.parse("2026-10-09T12:00:00Z");
     private static final LocalDateTime BUILT = LocalDateTime.of(2026, 10, 9, 5, 2, 11);
 
+    /**
+     * The questions the Friday forecast does not offer: BEST_SOON in every scope (a weekend is on) and
+     * COASTAL_HIGH for Teesdale (no coast), plus NIGHT_SKY in all three scopes (the fixture holds no nights).
+     */
+    private static final int NOT_OFFERED = 4 + 3;
+
     private final AskProperties properties = new AskProperties();
     private final AskSnapshotBuilder snapshotBuilder = mock(AskSnapshotBuilder.class);
     private final RegionRepository regions = mock(RegionRepository.class);
@@ -118,6 +124,14 @@ class AskReadyPrecomputeTest {
         if (asked == null) {
             throw new AssertionError("not a question of the catalogue: " + q.sanitised());
         }
+        if (asked.nightBound()) {
+            AskSnapshot.NightCandidate night = snap.nightCandidates(snap.nights().tonightAstro().orElseThrow(),
+                    scope, false).getFirst();
+            AskPick pick = new AskPick(1, night.spot().locationId(), night.spot().name(), night.spot().regionName(),
+                    night.night().date(), AskWindowKind.ASTRO, night.night().id(), "Clear and dark.",
+                    night.spot().astroStars(), null);
+            return ok(new AskAnswer(true, "Clear tonight.", List.of(pick), List.of(), null));
+        }
         if (!asked.picks()) {
             String type = asked == ReadyQuestion.SNOW_TOPS ? "SNOW_TOPS" : "AURORA";
             AskSnapshot.Topic topic = snap.hotTopics().stream().filter(t -> t.type().equals(type)).findFirst()
@@ -158,7 +172,7 @@ class AskReadyPrecomputeTest {
         ArgumentCaptor<String> scope = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<ReadyQuestion> question = ArgumentCaptor.forClass(ReadyQuestion.class);
         verify(store, org.mockito.Mockito.atLeast(0)).upsert(scope.capture(), question.capture(), any(), any(),
-                any(), any());
+                any(), any(), any());
         List<String> keys = new ArrayList<>();
         for (int i = 0; i < scope.getAllValues().size(); i++) {
             keys.add(scope.getAllValues().get(i) + "/" + question.getAllValues().get(i));
@@ -175,7 +189,7 @@ class AskReadyPrecomputeTest {
         AskReadyPrecompute.Result result = service.precompute(42L);
 
         // ALL: 6 (BEST_SOON off with a weekend on); Northumberland: 6; Teesdale: 5 (no coastal high water).
-        assertThat(result).isEqualTo(new AskReadyPrecompute.Result(17, 4, 0, null));
+        assertThat(result).isEqualTo(new AskReadyPrecompute.Result(17, NOT_OFFERED, 0, null));
         assertThat(storedKeys()).containsExactly(
                 "ALL/BEST_WEEKEND", "ALL/BEST_NEXT", "ALL/COASTAL_HIGH", "ALL/AM_OR_PM", "ALL/RARE_EVENTS",
                 "ALL/SNOW_TOPS",
@@ -187,7 +201,8 @@ class AskReadyPrecomputeTest {
             assertThat(c.question().view()).isEqualTo("plan");
         });
         ArgumentCaptor<ReadyQuestion.Offer> offer = ArgumentCaptor.forClass(ReadyQuestion.Offer.class);
-        verify(store, org.mockito.Mockito.times(17)).upsert(any(), any(), offer.capture(), any(), any(), any());
+        verify(store, org.mockito.Mockito.times(17)).upsert(any(), any(), offer.capture(), any(), any(), any(),
+                any());
         assertThat(offer.getAllValues()).extracting(ReadyQuestion.Offer::text).contains("Best spot this weekend?",
                 "Best spot tonight?", "Best coastal spot at high tide?", "Sunrise or sunset tomorrow?",
                 "Any rare events coming up?", "Is there snow on the tops?");
@@ -227,7 +242,7 @@ class AskReadyPrecomputeTest {
         verify(jobRunService).completeRun(job, 17, 0);
         assertThat(job.getLocationsProcessed()).isEqualTo(17);
         verify(store, org.mockito.Mockito.times(17)).upsert(any(), any(), any(), any(), eq(snapshot.generatedAt()),
-                eq(42L));
+                eq(42L), isNull());
     }
 
     @Test
@@ -237,7 +252,8 @@ class AskReadyPrecomputeTest {
 
         assertThat(result.written()).isEqualTo(17);
         verify(jobRunService).startRun(RunType.ASK_READY, true, properties.getModel());
-        verify(store, org.mockito.Mockito.times(17)).upsert(any(), any(), any(), any(), any(), isNull());
+        verify(store, org.mockito.Mockito.times(17)).upsert(any(), any(), any(), any(), any(), isNull(),
+                isNull());
     }
 
     @Test
@@ -273,7 +289,7 @@ class AskReadyPrecomputeTest {
         assertThat(result.written() + result.skipped() + result.failed()).isZero();
         assertThat(calls).isEmpty();
         verifyNoInteractions(jobRunService);
-        verify(store, never()).upsert(any(), any(), any(), any(), any(), any());
+        verify(store, never()).upsert(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -395,7 +411,7 @@ class AskReadyPrecomputeTest {
 
         AskReadyPrecompute.Result result = service.precompute(1L);
 
-        assertThat(result).isEqualTo(new AskReadyPrecompute.Result(14, 4, 3, null));
+        assertThat(result).isEqualTo(new AskReadyPrecompute.Result(14, NOT_OFFERED, 3, null));
         assertThat(calls).hasSize(17);
         verify(jobRunService).completeRun(job, 14, 3);
     }
@@ -404,11 +420,11 @@ class AskReadyPrecomputeTest {
     @DisplayName("a store failure for one answer is counted and the next question is still stored")
     void storeFailureDoesNotStopTheRest() {
         doThrow(new IllegalStateException("db down")).when(store).upsert(eq("ALL"),
-                eq(ReadyQuestion.BEST_WEEKEND), any(), any(), any(), any());
+                eq(ReadyQuestion.BEST_WEEKEND), any(), any(), any(), any(), any());
 
         AskReadyPrecompute.Result result = service.precompute(1L);
 
-        assertThat(result).isEqualTo(new AskReadyPrecompute.Result(16, 4, 1, null));
+        assertThat(result).isEqualTo(new AskReadyPrecompute.Result(16, NOT_OFFERED, 1, null));
     }
 
     @Test
@@ -438,7 +454,7 @@ class AskReadyPrecomputeTest {
         // ALL: weekend (no pick), tonight (outside its windows), coastal (personal) fail; rare is skipped.
         assertThat(result.failed()).isEqualTo(3);
         assertThat(result.written()).isEqualTo(13);
-        assertThat(result.skipped()).isEqualTo(4 + 1);
+        assertThat(result.skipped()).isEqualTo(NOT_OFFERED + 1);
         assertThat(storedKeys()).doesNotContain("ALL/BEST_WEEKEND", "ALL/BEST_NEXT", "ALL/COASTAL_HIGH",
                 "ALL/RARE_EVENTS");
     }
@@ -449,7 +465,7 @@ class AskReadyPrecomputeTest {
         ArgumentCaptor<ReadyQuestion> questions = ArgumentCaptor.forClass(ReadyQuestion.class);
         ArgumentCaptor<AskAnswer> answers = ArgumentCaptor.forClass(AskAnswer.class);
         verify(store, org.mockito.Mockito.atLeast(0)).upsert(scopes.capture(), questions.capture(), any(),
-                answers.capture(), any(), any());
+                answers.capture(), any(), any(), any());
         for (int i = 0; i < scopes.getAllValues().size(); i++) {
             if (scopes.getAllValues().get(i).equals(scope) && questions.getAllValues().get(i) == question) {
                 return answers.getAllValues().get(i);
@@ -501,7 +517,7 @@ class AskReadyPrecomputeTest {
         AskReadyPrecompute.Result result = service.precompute(1L);
 
         // The three SNOW_TOPS questions (ALL and both regions) are skipped; nothing failed.
-        assertThat(result).isEqualTo(new AskReadyPrecompute.Result(14, 4 + 3, 0, null));
+        assertThat(result).isEqualTo(new AskReadyPrecompute.Result(14, NOT_OFFERED + 3, 0, null));
         assertThat(storedKeys()).doesNotContain("ALL/SNOW_TOPS", "1/SNOW_TOPS", "2/SNOW_TOPS");
     }
 
@@ -546,7 +562,7 @@ class AskReadyPrecomputeTest {
 
         assertThat(calls).hasSize(2);
         assertThat(result.written()).isEqualTo(1);
-        assertThat(result.skipped()).isEqualTo(4 + 1 + 15);
+        assertThat(result.skipped()).isEqualTo(NOT_OFFERED + 1 + 15);
     }
 
     @Test
@@ -576,7 +592,7 @@ class AskReadyPrecomputeTest {
         AskReadyPrecompute.Result result = service.precompute(1L);
 
         assertThat(calls).hasSize(3);
-        assertThat(result).isEqualTo(new AskReadyPrecompute.Result(3, 4 + 14, 0, null));
+        assertThat(result).isEqualTo(new AskReadyPrecompute.Result(3, NOT_OFFERED + 14, 0, null));
         verify(jobRunService).completeRun(job, 3, 0);
     }
 
@@ -610,7 +626,7 @@ class AskReadyPrecomputeTest {
         AskReadyPrecompute.Result result = service.precompute(1L);
 
         assertThat(calls).hasSize(2);
-        assertThat(result).isEqualTo(new AskReadyPrecompute.Result(1, 4 + 15, 1, null));
+        assertThat(result).isEqualTo(new AskReadyPrecompute.Result(1, NOT_OFFERED + 15, 1, null));
     }
 
     @Test
@@ -643,5 +659,128 @@ class AskReadyPrecomputeTest {
             other.shutdownNow();
         }
         assertThat(service.precomputeOnDemand().wasRefused()).isFalse();
+    }
+
+    // -- NIGHT_SKY (ask-night plan section 2.5) -----------------------------------------------------------------
+
+    private static final String NIGHT_TEXT = "Anything for the night sky tonight?";
+    private static final String NIGHT_ID = "2026-10-09_astro";
+
+    /** The Friday forecast carrying tonight's (Friday's) astro night of these spots, scored by the fixtures' run. */
+    private AskSnapshot fridayWithNights(AskSnapshot.Night... nights) {
+        AskSnapshot base = ReadyFixtures.fridaySnapshot();
+        return new AskSnapshot(base.generatedAt(), base.runLabel(), base.today(), base.windows(), base.hotTopics(),
+                base.comingUp(), false, new AskSnapshot.Nights(oct(9), List.of(nights), null));
+    }
+
+    private static AskSnapshot.Night astroTonight(AskSnapshot.NightSpot... spots) {
+        return new AskSnapshot.Night(NIGHT_ID, oct(9), AskWindowKind.ASTRO, AskNightFixtures.DUSK,
+                AskNightFixtures.DAWN, AskNightFixtures.GENERATION, List.of(spots));
+    }
+
+    /** Whitby (Northumberland) at 5 stars, and a 3 star Teesdale spot that is not a pick. */
+    private AskSnapshot.Night northernNight() {
+        return astroTonight(AskNightFixtures.astro(1L, "Whitby", "Northumberland", 5, 3),
+                AskNightFixtures.astro(2L, "Hamsterley", "Teesdale", 3, 4));
+    }
+
+    private void useSnapshot(AskSnapshot night) {
+        snapshot = night;
+        when(snapshotBuilder.build()).thenReturn(Optional.of(night));
+    }
+
+    @Test
+    @DisplayName("NIGHT_SKY is asked and stored only for the scopes whose night holds a 4 star spot, each stored "
+            + "with the night's version; the question carries no anchor and no context window")
+    void nightSkyIsStoredPerScopeThatHasASpot() {
+        useSnapshot(fridayWithNights(northernNight()));
+
+        AskReadyPrecompute.Result result = service.precompute(42L);
+
+        // ALL and Northumberland offer it; Teesdale's only spot is a 3 star, so it is skipped, not asked.
+        assertThat(result).isEqualTo(new AskReadyPrecompute.Result(19, NOT_OFFERED - 2, 0, null));
+        assertThat(storedKeys()).contains("ALL/NIGHT_SKY", "1/NIGHT_SKY").doesNotContain("2/NIGHT_SKY");
+        ArgumentCaptor<ReadyQuestion> questions = ArgumentCaptor.forClass(ReadyQuestion.class);
+        ArgumentCaptor<ReadyQuestion.Offer> offers = ArgumentCaptor.forClass(ReadyQuestion.Offer.class);
+        ArgumentCaptor<String> versions = ArgumentCaptor.forClass(String.class);
+        verify(store, org.mockito.Mockito.times(19)).upsert(any(), questions.capture(), offers.capture(), any(), any(),
+                any(), versions.capture());
+        for (int i = 0; i < questions.getAllValues().size(); i++) {
+            if (questions.getAllValues().get(i) == ReadyQuestion.NIGHT_SKY) {
+                assertThat(offers.getAllValues().get(i).text()).isEqualTo(NIGHT_TEXT);
+                assertThat(offers.getAllValues().get(i).windowIds()).containsExactly(NIGHT_ID);
+                assertThat(versions.getAllValues().get(i))
+                        .isEqualTo("n1;2026-10-09=" + AskNightFixtures.GENERATION.toEpochMilli());
+            } else {
+                assertThat(versions.getAllValues().get(i)).isNull();
+            }
+        }
+        Call call = callFor(NIGHT_TEXT, List.of());
+        assertThat(call.options().anchor()).isNull();
+        assertThat(call.question().windowId()).isNull();
+        assertThat(call.user().hasUser()).isFalse();
+        assertThat(storedAnswer("ALL", ReadyQuestion.NIGHT_SKY).picks()).singleElement().satisfies(p -> {
+            assertThat(p.targetType()).isEqualTo(AskWindowKind.ASTRO);
+            assertThat(p.locationName()).isEqualTo("Whitby");
+            assertThat(p.verdictAtAnswer()).isNull();
+            assertThat(p.ratingAtAnswer()).isEqualTo(5);
+        });
+    }
+
+    @Test
+    @DisplayName("NIGHT_SKY is not asked at all when no astro night is eligible: no engine call is paid for it")
+    void nightSkyIsNotAskedWithoutAnEligibleSpot() {
+        useSnapshot(fridayWithNights(astroTonight(AskNightFixtures.astro(1L, "Whitby", "Northumberland", 3, 3))));
+
+        AskReadyPrecompute.Result result = service.precompute(42L);
+
+        assertThat(result).isEqualTo(new AskReadyPrecompute.Result(17, NOT_OFFERED, 0, null));
+        assertThat(calls).extracting(c -> c.question().sanitised()).doesNotContain(NIGHT_TEXT);
+    }
+
+    @Test
+    @DisplayName("an answer that cites an AURORA window is discarded, never stored: a shared Ready answer carries "
+            + "no aurora figure, whatever the model returned")
+    void anAuroraPickIsNeverStored() {
+        AskSnapshot.Night aurora = new AskSnapshot.Night("2026-10-09_aurora", oct(9), AskWindowKind.AURORA,
+                AskNightFixtures.DUSK, AskNightFixtures.DAWN, AskNightFixtures.GENERATION,
+                List.of(AskNightFixtures.aurora(1L, "Whitby", "Northumberland", 5, 5, 3)));
+        useSnapshot(fridayWithNights(northernNight(), aurora));
+        model = call -> {
+            AskRun good = goodModel(call, snapshot);
+            if (!call.question().sanitised().equals(NIGHT_TEXT)) {
+                return good;
+            }
+            return ok(new AskAnswer(true, "Aurora tonight.", List.of(onWindow(good.outcome().answer().picks()
+                    .getFirst(), "2026-10-09_aurora")), List.of(), null));
+        };
+
+        AskReadyPrecompute.Result result = service.precompute(42L);
+
+        assertThat(result.failed()).isEqualTo(2);
+        assertThat(storedKeys()).doesNotContain("ALL/NIGHT_SKY", "1/NIGHT_SKY");
+    }
+
+    @Test
+    @DisplayName("a night answer keeps the AURORA hot topic card beside its picks and loses every other event")
+    void nightSkyKeepsOnlyTheAuroraCard() {
+        useSnapshot(fridayWithNights(northernNight()));
+        AskEvent aurora = new AskEvent("AURORA", "Aurora tonight", oct(12), "Kp 6.", null);
+        AskEvent snow = new AskEvent("SNOW_TOPS", "Snow on the Cheviot", oct(12), "Fresh snow.", null);
+        model = call -> {
+            AskRun good = goodModel(call, snapshot);
+            if (!call.question().sanitised().equals(NIGHT_TEXT)) {
+                return good;
+            }
+            return ok(new AskAnswer(true, "Clear, with an aurora forecast.", good.outcome().answer().picks(),
+                    List.of(aurora, snow), null));
+        };
+
+        AskReadyPrecompute.Result result = service.precompute(42L);
+
+        assertThat(result.failed()).isZero();
+        assertThat(storedAnswer("ALL", ReadyQuestion.NIGHT_SKY).events()).extracting(AskEvent::type)
+                .containsExactly("AURORA");
+        assertThat(storedAnswer("ALL", ReadyQuestion.NIGHT_SKY).picks()).hasSize(1);
     }
 }

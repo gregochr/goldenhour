@@ -143,6 +143,85 @@ class AskReadyStoreTest {
         assertThat(repository.findByScopeKeyAndQuestionId("ALL", "SNOW_TOPS")).isEqualTo(Optional.empty());
     }
 
+    // -- the night version (ask-night plan section 2.5) ---------------------------------------------------
+
+    private static AskAnswer nightAnswer() {
+        AskPick pick = new AskPick(1, 1L, "Whitby", "Coast", LocalDate.of(2026, 10, 5), AskWindowKind.ASTRO,
+                "2026-10-05_astro", "Clear and dark.", 5, null);
+        return new AskAnswer(true, "Whitby is the one.", List.of(pick), List.of(), null);
+    }
+
+    @Test
+    @DisplayName("a night-bound answer keeps its night version beside the answer in answer_json, with no column, "
+            + "and a night pick round-trips with a null verdict")
+    void nightVersionRoundTrips() {
+        String version = "n1;2026-10-05=1760000000000";
+        store().upsert("ALL", ReadyQuestion.NIGHT_SKY,
+                new ReadyQuestion.Offer("Anything for the night sky tonight?", List.of("2026-10-05_astro"), null),
+                nightAnswer(), BUILT, null, version);
+
+        AskReadyStore.Stored found = store().findScope("ALL").getFirst();
+
+        assertThat(found.astroVersion()).isEqualTo(version);
+        assertThat(found.windowIds()).containsExactly("2026-10-05_astro");
+        assertThat(found.answer().summary()).isEqualTo("Whitby is the one.");
+        assertThat(found.answer().picks()).singleElement().satisfies(p -> {
+            assertThat(p.targetType()).isEqualTo(AskWindowKind.ASTRO);
+            assertThat(p.verdictAtAnswer()).isNull();
+            assertThat(p.ratingAtAnswer()).isEqualTo(5);
+            assertThat(p.date()).isEqualTo(LocalDate.of(2026, 10, 5));
+        });
+        assertThat(repository.findAll()).singleElement().satisfies(row ->
+                assertThat(row.getAnswerJson()).contains("\"astroVersion\":\"" + version + "\""));
+    }
+
+    @Test
+    @DisplayName("an answer written with no version (every other question, every row from before the property "
+            + "existed) reads back with a null version and carries no such property")
+    void noVersionByDefault() {
+        store().upsert("ALL", ReadyQuestion.BEST_WEEKEND, offer("Best spot this weekend?"), answer("First."),
+                BUILT, 42L);
+
+        assertThat(store().findScope("ALL").getFirst().astroVersion()).isNull();
+        assertThat(repository.findAll().getFirst().getAnswerJson()).doesNotContain("astroVersion");
+    }
+
+    @Test
+    @DisplayName("a row written before the version existed, with no such property, still decodes")
+    void aLegacyRowStillDecodes() {
+        AskReadyAnswerEntity legacy = new AskReadyAnswerEntity();
+        legacy.setScopeKey("ALL");
+        legacy.setQuestionId("BEST_NEXT");
+        legacy.setQuestionText("Best spot tonight?");
+        legacy.setWindowIds("2026-10-05_sunset");
+        legacy.setBriefingGeneratedAt(BUILT);
+        legacy.setAnswerJson("{\"answerable\":true,\"summary\":\"Old.\",\"picks\":[],\"events\":[],"
+                + "\"missing\":null}");
+        legacy.setCreatedAt(NOW);
+        repository.save(legacy);
+
+        assertThat(store().findScope("ALL")).singleElement().satisfies(s -> {
+            assertThat(s.astroVersion()).isNull();
+            assertThat(s.answer().summary()).isEqualTo("Old.");
+        });
+    }
+
+    @Test
+    @DisplayName("a later write replaces the earlier version, and one without a version clears it: the old version "
+            + "never outlives its answer")
+    void aLaterWriteReplacesTheVersion() {
+        ReadyQuestion.Offer offer = new ReadyQuestion.Offer("Anything for the night sky tonight?",
+                List.of("2026-10-05_astro"), null);
+        store().upsert("ALL", ReadyQuestion.NIGHT_SKY, offer, nightAnswer(), BUILT, null, "n1;2026-10-05=1");
+        store().upsert("ALL", ReadyQuestion.NIGHT_SKY, offer, nightAnswer(), BUILT, null, "n1;2026-10-05=2");
+        assertThat(store().findScope("ALL").getFirst().astroVersion()).isEqualTo("n1;2026-10-05=2");
+
+        store().upsert("ALL", ReadyQuestion.NIGHT_SKY, offer, nightAnswer(), BUILT, null);
+
+        assertThat(repository.findAll()).hasSize(1);
+        assertThat(store().findScope("ALL").getFirst().astroVersion()).isNull();
+    }
+
     // -- the daily ceiling's count ----------------------------------------------------------
 
     private void run(RunType type, boolean manual, LocalDateTime startedAt) {

@@ -112,6 +112,24 @@ public enum ReadyQuestion {
         }
     },
 
+    /**
+     * The night sky tonight (ask-night plan §2.5): tonight's ASTRO night holds a pick-eligible spot in
+     * scope. Offered only then, never merely because astro rows exist: every offered scope is a paid
+     * engine call and {@link ReadyRelevance} refuses a pick question that comes back with no pick.
+     * Astro only, because a Ready answer is shared by every reader and an aurora figure is PRO/ADMIN's;
+     * it may carry the {@code AURORA} hot topic, which the Plan tab serves to every role. Its answer
+     * rests on the night's astro generation, so it is versioned ({@link #nightVersion}) and withheld
+     * whole when the astro job re-runs.
+     */
+    NIGHT_SKY(true, false, Events.AURORA, "plan", "map") {
+        @Override
+        Optional<Offer> offer(AskSnapshot snapshot, AskScope scope) {
+            return snapshot.nights().tonightAstro()
+                    .filter(night -> !snapshot.nightCandidates(night, scope, false).isEmpty())
+                    .map(night -> new Offer(NIGHT_SKY_TEXT, List.of(night.id()), null));
+        }
+    },
+
     /** Rare events coming up. Always asked; the answer is stored only when it finds something. */
     RARE_EVENTS(false, false, Events.ANY, "coming-up", "map") {
         @Override
@@ -140,6 +158,9 @@ public enum ReadyQuestion {
         /** Every event a tool returned (null reads as "any"). */
         static final Set<String> ANY = null;
 
+        /** The aurora hot topic: the one event card a night-sky answer may carry. */
+        static final Set<String> AURORA = Set.of("AURORA");
+
         /**
          * The snow hot-topic types: {@code SnowTopsHotTopicStrategy}'s {@code SNOW_TOPS} and the two
          * {@code SnowFreshHotTopicStrategy} raises, {@code SNOW_FRESH} and {@code SNOW_MIST}. No
@@ -148,6 +169,12 @@ public enum ReadyQuestion {
          */
         static final Set<String> SNOW = Set.of("SNOW_TOPS", "SNOW_FRESH", "SNOW_MIST");
     }
+
+    /**
+     * The text {@link #NIGHT_SKY} is asked, stored and matched under. Fixed (no day word to go stale: it
+     * is always about the running night), and held here so the matcher's tests can pin it.
+     */
+    static final String NIGHT_SKY_TEXT = "Anything for the night sky tonight?";
 
     private final boolean picks;
     private final boolean anchored;
@@ -213,6 +240,34 @@ public enum ReadyQuestion {
      */
     public List<String> tabs() {
         return tabs;
+    }
+
+    /**
+     * Whether the question is about one night's astro forecast, so that its answer rests on the astro
+     * generation and is versioned on it. Only {@link #NIGHT_SKY}.
+     *
+     * @return true for a night-bound question
+     */
+    public boolean nightBound() {
+        return this == NIGHT_SKY;
+    }
+
+    /**
+     * The version a night-bound answer is written under and checked against at serve time: the opaque
+     * {@link AskNightVersion} of the night the offer names (its date and astro generation, no aurora
+     * segment because a Ready answer is user-less). The same string is served on the Ready question as
+     * {@code nightVersion}, so a Ready-origin exchange resets the thread by the rule a typed one does.
+     *
+     * @param snapshot the snapshot the offer was made against
+     * @param offer    what the question is asked under
+     * @return the version, or empty for a question that is not night-bound or names no night
+     */
+    Optional<String> nightVersion(AskSnapshot snapshot, Offer offer) {
+        if (!nightBound() || offer.windowIds().isEmpty()) {
+            return Optional.empty();
+        }
+        return AskWindowId.parse(offer.windowIds().getFirst())
+                .flatMap(parts -> AskNightVersion.of(snapshot, List.of(parts.date()), false));
     }
 
     /**
