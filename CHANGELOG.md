@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [v2.26.4] - 2026-10-11
 
+### Fixed — the Ask "holds a Ready answer for 400 ms" test no longer races the wall clock
+
+`AskAnswer.test.jsx`'s hold test failed once in each of two unrelated full-suite runs on 2026-10-11 and passed alone every time. The harness fakes timers with `shouldAdvanceTime`, so the fake clock also moves with real time, every 20 ms by however much has passed; under a loaded full-suite run the 400 ms the press arms could elapse before the test's explicit 399 ms advance, and the summary was already on screen at the "still held" check. Stalling 30 ms of real time between the press and the advance made it fail 5 of 5. The test now freezes the clock (`vi.useFakeTimers({ shouldAdvanceTime: false })`, the re-install `App.test.jsx`'s night-end test already uses, which carries the frozen instant) after finding the Ready button and before pressing it, so the only time that passes is the time the test advances. No timeout was widened; 20 of 20 file runs pass before and after, the after runs under a load average above 300.
+
 ### Fixed — the aurora viewline drew over North Yorkshire through a G3 storm seen from the south coast
 
 On the night of 10 October the map's aurora line sat at about 54°N while the storm was being photographed from
