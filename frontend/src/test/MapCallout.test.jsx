@@ -518,6 +518,45 @@ describe('MapCallout — the tide-fit block (T5)', () => {
   });
 });
 
+describe('MapCallout — whose prose the reason is', () => {
+  let restore;
+  beforeEach(() => { currentMap = makeMap(); restore = withMeasuredCard(286, 260); });
+  afterEach(() => restore());
+
+  const regionGlossIndex = buildRegionGlossIndex([{
+    date: TODAY,
+    eventSummaries: [{
+      targetType: 'SUNSET',
+      regions: [{
+        regionName: 'North East',
+        glossHeadline: null,
+        glossDetail: 'A settled coastal evening across the region.',
+      }],
+    }],
+  }]);
+
+  it('labels a borrowed region gloss on an unscored window as the region\'s', async () => {
+    await mount({ rating: null, scoreIndex: null, regionGlossIndex });
+    expect(screen.getByTestId('map-callout-reason'))
+      .toHaveTextContent('A settled coastal evening across the region.');
+    expect(screen.getByTestId('map-callout-reason-region')).toHaveTextContent('North East sky');
+  });
+
+  it('announces the prose\'s owner first — the reason button\'s name opens with the region kicker', async () => {
+    await mount({ rating: null, scoreIndex: null, regionGlossIndex });
+    // `\s*` because the jsdom name polyfill trims each element's text at the span boundary — in a
+    // browser the space survives. The claim is the ORDER: owner, then prose, then the place.
+    expect(screen.getByRole('button', { name: /^North East sky ·\s*A settled coastal evening/ }))
+      .toBe(screen.getByTestId('map-callout-reason'));
+  });
+
+  it('a rated window shows its own prose and no region label', async () => {
+    await mount({ rating: 4, scoreIndex: buildScoreIndex([scoreRow()]), regionGlossIndex });
+    expect(screen.getByTestId('map-callout-reason')).toHaveTextContent('A warm, layered sky');
+    expect(screen.queryByTestId('map-callout-reason-region')).toBeNull();
+  });
+});
+
 /**
  * The eclipse spot line (L7, `docs/engineering/lunar-eclipse-plan.md` §3 L7) — a sibling block
  * right after the tide-fit block, mounted from the SAME `buildEclipseIndex`/`lookupForWindow` join

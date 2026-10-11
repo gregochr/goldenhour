@@ -891,6 +891,9 @@ describe('LocationFourDaySheet — a borrowed region gloss', () => {
     });
     const r = within(row('2026-08-15:SUNSET'));
     expect(r.getByTestId('location-sheet-state')).toHaveTextContent('Not scored yet');
+    expect(r.getByTestId('location-sheet-why'))
+      .toHaveTextContent('High cloud canvas with modest colour potential across the region.');
+    expect(r.queryByTestId('location-sheet-nowhy')).toBeNull();
     expect(r.getByTestId('location-sheet-why-region')).toHaveTextContent('Northumberland sky');
   });
 

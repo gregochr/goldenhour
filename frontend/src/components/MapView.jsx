@@ -3410,10 +3410,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   ), [locations, activeTypeFilters]);
 
   const hasStandDown = typeFiltered.some((loc) => isStandDownLocation(loc));
-  // ⚠️ Excludes a tide-gated coastal location (tide-window-plan.md §3 T4 item 1): it is not
-  // "unknown" — it carries a served miss — so it must not
-  // make the admin "unknown" toggle read as actionable, nor be the thing that toggle's title
-  // claims exists to reveal. `visibleLocations` below already lets it through the rating stage
+  // ⚠️ Excludes a coastal location with a served tide fact (tide-window-plan.md §3 T4 item 1): it
+  // is not "unknown" — it carries a served miss — so it must not make the admin "unknown" toggle
+  // read as actionable, nor be the thing that toggle's title claims exists to reveal. `visibleLocations` below already lets it through the rating stage
   // unconditionally; this just stops it also being counted as the OTHER kind of absence.
   const hasUnrated = typeFiltered.some((loc) => (
     !isStandDownLocation(loc) && getRatingForLocation(loc) == null
@@ -3427,7 +3426,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     const ratingFiltered = typeFiltered.filter((loc) => {
       if (isStandDownLocation(loc)) return showStandDown;
       // Tide-window increment (T4, tide-window-plan.md §3 T4 item 1): a coastal slot with a
-      // served tide fact — aligned or not, gated, or RATED (the weather-stood-down-then-rated
+      // served tide fact — aligned or not, or RATED (the weather-stood-down-then-rated
       // path, §1 #3, which can land a real 1–2★) — passes the rating stage WHATEVER that rating
       // is, before either the null-rating branch below or the ordinary star floor at the foot of
       // this callback. It is withheld or answered for a STATED reason, never "nothing scored

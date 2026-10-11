@@ -1282,6 +1282,15 @@ describe('buildLocationSheet — the region-gloss fallback (increment §2)', () 
       .toBe('A settled coastal evening.');
   });
 
+  it('names the region whose gloss is borrowed, and no region when the prose is the location’s own', () => {
+    const noSummary = buildScoreIndex(rows([
+      { date: '2026-08-14', targetType: 'SUNSET', rating: 3, summary: null },
+    ]));
+    expect(rowFor('2026-08-14:SUNSET', { scoreIndex: noSummary, regionGlossIndex: GLOSS }).summaryRegion)
+      .toBe('Northumberland');
+    expect(rowFor('2026-08-14:SUNSET', { regionGlossIndex: GLOSS }).summaryRegion).toBeNull();
+  });
+
   it('prefers the location’s OWN summary over the region gloss', () => {
     expect(rowFor('2026-08-14:SUNSET', { regionGlossIndex: GLOSS }).summary)
       .toBe('High cloud thins after eight.');

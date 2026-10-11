@@ -7410,7 +7410,7 @@ button.wf-hc.also.on:hover {
   color: var(--color-plex-text-secondary);
 }
 /* The sheet's `.wf-loc-body` is normal block flow and needs its own bottom margin, exactly the
-   reason the sheet and the callout carry separate rules: the
+   reason the sheet and the callout need separate treatment: the
    callout's `.wf-callout-body` is flex with its OWN 8px gap already, and a margin here would
    stack on top of it there. Scoping by ancestor, rather than forking the class, keeps the ONE
    component's CSS in one place. */
