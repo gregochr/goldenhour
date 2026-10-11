@@ -667,27 +667,31 @@ public class NoaaSwpcClient {
     /**
      * Returns the southernmost latitude (°N) to which aurora glow realistically reaches for the
      * given Kp: {@link AuroraViewlineRule} evaluated at the UK centre longitude
-     * ({@value AuroraViewlineRule#CENTRE_LONGITUDE_DEG}°). A public accessor so a service-layer caller
+     * ({@value AuroraViewlineRule#UK_REFERENCE_LONGITUDE_DEG}°). A public accessor so a service-layer caller
      * (the aurora hot topic) can label the glow extent without crossing the client package boundary.
      *
      * @param kp the Kp index
      * @return glow latitude in degrees north
      */
     public double getGlowLatitudeCap(double kp) {
-        return AuroraViewlineRule.geographicLatitudeFor(kp, AuroraViewlineRule.CENTRE_LONGITUDE_DEG);
+        return AuroraViewlineRule.geographicLatitudeFor(kp, AuroraViewlineRule.UK_REFERENCE_LONGITUDE_DEG);
     }
 
     /**
      * Builds the forecast viewline for a Kp from {@link AuroraViewlineRule}: the camera-visibility
      * line, one point per integer longitude across the UK range (17 points), dipping further south to
-     * the west. Used when no live OVATION line is drawable.
+     * the west. Its {@code southernmostLatitude} (and so the summary band) is the rule at
+     * {@value AuroraViewlineRule#UK_REFERENCE_LONGITUDE_DEG}°, not the curve's minimum. Used when no
+     * live OVATION line is drawable.
      *
      * @param forecastKp the forecast Kp index (clamped to 0..9 by the rule)
      * @return forecast viewline with {@code isForecast: true}, {@code kp} and {@code asOf} set
      */
     public AuroraViewlineResponse buildForecastViewline(double forecastKp) {
         List<ViewlinePoint> points = AuroraViewlineRule.line(forecastKp);
-        double southernmost = points.stream().mapToDouble(ViewlinePoint::latitude).min().orElse(90.0);
+        // The reference longitude, not the curve's west end (-12, mid-Atlantic): the same figure the
+        // Plan card's glow reads, so the Map's summary band and the card agree for one Kp.
+        double southernmost = getGlowLatitudeCap(forecastKp);
         ZonedDateTime now = ZonedDateTime.now(clock).withZoneSameInstant(ZoneOffset.UTC);
         return new AuroraViewlineResponse(
                 points, viewlineSummary(southernmost), southernmost, now, true, true,

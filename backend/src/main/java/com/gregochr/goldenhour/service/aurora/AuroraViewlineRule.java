@@ -70,8 +70,11 @@ public final class AuroraViewlineRule {
     /** Eastern end of the UK viewline, degrees east. */
     public static final int LON_EAST_DEG = 4;
 
-    /** Longitude (UK centre) at which the Plan card's single "visible as far south as" figure is read. */
-    public static final double CENTRE_LONGITUDE_DEG = -2.0;
+    /**
+     * The UK reference longitude: where the single "visible as far south as" figure is read, for the
+     * Plan card's glow and the forecast response's {@code southernmostLatitude} alike.
+     */
+    public static final double UK_REFERENCE_LONGITUDE_DEG = -2.0;
 
     /** Bisection bracket, low end: well south of any latitude the rule can return, degrees. */
     private static final double SEARCH_LOW_DEG = 20.0;

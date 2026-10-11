@@ -214,7 +214,7 @@ class AuroraHotTopicStrategyTest {
     @Test
     @DisplayName("tonight pill emits the Kp+glow headline (the viewline rule's latitude) and the moon chip")
     void detect_tonightPill_emitsKpGlowAndMoonFacts() {
-        double glow = AuroraViewlineRule.geographicLatitudeFor(4.0, AuroraViewlineRule.CENTRE_LONGITUDE_DEG);
+        double glow = AuroraViewlineRule.geographicLatitudeFor(4.0, AuroraViewlineRule.UK_REFERENCE_LONGITUDE_DEG);
         when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
         when(auroraStateCache.getLastTriggerKp()).thenReturn(4.0);
         when(noaaSwpcClient.getGlowLatitudeCap(4.0)).thenReturn(glow);
@@ -241,7 +241,7 @@ class AuroraHotTopicStrategyTest {
     @Test
     @DisplayName("a glow line at or south of the UK's south coast reads 'glow across the whole UK', not a latitude")
     void detect_glowSouthOfTheUk_saysWholeUk() {
-        double glow = AuroraViewlineRule.geographicLatitudeFor(9.0, AuroraViewlineRule.CENTRE_LONGITUDE_DEG);
+        double glow = AuroraViewlineRule.geographicLatitudeFor(9.0, AuroraViewlineRule.UK_REFERENCE_LONGITUDE_DEG);
         when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.STRONG);
         when(auroraStateCache.getLastTriggerKp()).thenReturn(10.0);
         when(noaaSwpcClient.getGlowLatitudeCap(10.0)).thenReturn(glow);
@@ -279,7 +279,7 @@ class AuroraHotTopicStrategyTest {
         when(auroraStateCache.getCurrentLevel()).thenReturn(AlertLevel.MODERATE);
         when(auroraStateCache.getLastTriggerKp()).thenReturn(6.0);
         when(noaaSwpcClient.getGlowLatitudeCap(6.0)).thenReturn(
-                AuroraViewlineRule.geographicLatitudeFor(6.0, AuroraViewlineRule.CENTRE_LONGITUDE_DEG));
+                AuroraViewlineRule.geographicLatitudeFor(6.0, AuroraViewlineRule.UK_REFERENCE_LONGITUDE_DEG));
         when(auroraSummaryBuilder.buildAuroraTonightCached()).thenReturn(
                 new AuroraTonightSummary(AlertLevel.MODERATE, 6.0, 8, 30, List.of(),
                         null, null, null, null, null, null, null));

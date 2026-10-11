@@ -758,8 +758,10 @@ class NoaaSwpcClientTest {
         assertThat(result.points().get(16).longitude()).isEqualTo(NoaaSwpcClient.VIEWLINE_LON_EAST);
         assertThat(result.points().get(10).longitude()).isEqualTo(-2.0);
         assertThat(result.points().get(10).latitude()).isBetween(46.2, 47.2);
+        // southernmost is the rule at the reference longitude (-2), NOT the curve's west-end minimum.
+        assertThat(result.southernmostLatitude()).isEqualTo(result.points().get(10).latitude());
         assertThat(result.southernmostLatitude())
-                .isEqualTo(result.points().stream().mapToDouble(ViewlinePoint::latitude).min().orElseThrow());
+                .isGreaterThan(result.points().stream().mapToDouble(ViewlinePoint::latitude).min().orElseThrow());
         assertThat(result.points().get(0).latitude()).isLessThan(result.points().get(16).latitude());
     }
 
@@ -772,6 +774,20 @@ class NoaaSwpcClientTest {
         assertThat(result.active()).isTrue();
         assertThat(result.kp()).isEqualTo(6.67);
         assertThat(result.asOf()).isEqualTo(clock.instant().atZone(ZoneOffset.UTC));
+    }
+
+    @Test
+    @DisplayName("the forecast summary band and the Plan card's glow figure agree for the same Kp")
+    void buildForecastViewline_summaryAgreesWithGlow() {
+        for (double kp : new double[] {0.0, 3.0, 4.0, 5.0, 6.67, 9.0}) {
+            AuroraViewlineResponse result = client.buildForecastViewline(kp);
+
+            assertThat(result.southernmostLatitude()).as("Kp %.2f", kp).isEqualTo(client.getGlowLatitudeCap(kp));
+            assertThat(result.summary()).as("Kp %.2f", kp)
+                    .isEqualTo(client.viewlineSummary(client.getGlowLatitudeCap(kp)));
+        }
+        // The band the Map names at Kp 4 is the one the card's ~52N sits in, not the west end's 50.4.
+        assertThat(client.buildForecastViewline(4.0).summary()).isEqualTo("Visible as far south as the Midlands");
     }
 
     @Test

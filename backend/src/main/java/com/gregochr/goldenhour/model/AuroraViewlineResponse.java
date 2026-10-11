@@ -12,7 +12,10 @@ import java.util.List;
  * @param points               smoothed viewline as a west-to-east polyline
  * @param summary              human-readable description of the viewline position
  *                             (e.g. "Visible as far south as northern England")
- * @param southernmostLatitude the lowest latitude reached by the viewline (degrees N)
+ * @param southernmostLatitude degrees N. LIVE: the true minimum of the parsed OVATION contour (measured).
+ *                             FORECAST: the rule evaluated at the UK reference longitude (-2), not the
+ *                             curve's minimum (its west end is mid-Atlantic), so it agrees with the
+ *                             Plan card's glow; the summary band is read from it
  * @param forecastTime         OVATION model run timestamp
  * @param active               {@code true} when aurora probability above threshold exists
  *                             in the UK longitude range; {@code false} otherwise
