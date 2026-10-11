@@ -112,15 +112,22 @@ explanation — this is what "clear skies tonight?" is asking), and **only for P
 `auroraAvailable: false` with the note *"aurora ratings are a Pro feature"* so the model says so
 instead of guessing. The result also carries, for PRO/ADMIN, the night's **aurora state** read
 from `AuroraStateCache` (the alert level and tonight's max Kp; `isSimulated()` → nothing) so a quiet
-night with no result rows is reported as quiet rather than unknown. Sorted by the best of (astro,
+night with no result rows is reported as quiet rather than unknown — ⚠️ **for the night that
+resolves to `currentNightDate()` ONLY**: the cache holds no date-keyed state (its level and trigger
+Kp are "the rest of tonight", `AuroraStateCache` ~282–295), so `night: "tomorrow"` or a later date
+gets `auroraState: "not forecast yet"` from the result rows alone, never tonight's state relabelled. Sorted by the best of (astro,
 aurora) stars, then drive. A night with no astro rows answers `{spots: [], note: "no night forecast
 for <night> yet"}`; a region with astro rows elsewhere but none in it answers `note: "no
 astro-scored places in <region>"`. `regions` are matched by `canonicalRegion`, whose name set is
 the UNION of the solar windows' and the nights' regions (today it reads solar windows only). The
-tool sets **`roleBound`** the moment it returns an aurora figure (the same discipline as
-`personal`): a role-bound answer is cached under the asker's user id, never shared — the typed cache
-keys on scope/date/question/window/user with no role, so a PRO "aurora tonight?" would otherwise
-be served to a LITE asker with the same words. The tool records `(locationId, windowId)` as
+tool sets **`roleBound` on EVERY call, whichever branch runs** (the same discipline as `personal`,
+set at the call, not at the result): a role-bound answer is cached under the asker's user id, never
+shared. The typed cache keys on scope/date/question/window/user with no role and `lookup` reads the
+shared key before the per-user one, so binding only the branch that returned an aurora figure would
+still let a LITE asker's figure-less answer be stored under the shared key and served to the next
+PRO asker with the same words — the tool never running for them. Every night answer is therefore
+per-user; sharing is given up for the whole tool rather than keyed by role, since a role-keyed
+namespace would halve the solar questions' sharing for nothing. The tool records `(locationId, windowId)` as
 evidence exactly as `rank_spots` does.
 
 ### §2.3 The prompt
@@ -205,8 +212,10 @@ question is only worth having once N0 has run in production for a night.
    in one breath; two tools would make the model choose before it knows which the night has.
 2. **Aurora withheld by the tool, not by the snapshot** — the snapshot is shared and memoised;
    role belongs to the asker, so the gate sits where the asker is known.
-3. **Night eligibility = stars ≥ 3 on the kind's own figure**, mirroring the solar "rating ≥ 3"
-   rule; `verdictAtAnswer` null rather than inventing a night verdict word.
+3. **Night eligibility is split by kind — ASTRO ≥ 4, AURORA ≥ 3** (§2.4, and `AskReadyFreshness`'s
+   re-check applies the same pair): the astro template's base is 3★, so 3 is "nothing moved it", not
+   a good night, where an aurora 3★ is Claude's own judgement like a solar one; `verdictAtAnswer`
+   null rather than inventing a night verdict word.
 4. **The client joins night picks to the Map's payloads** rather than adding night facts to the
    briefing payload — the briefing is the solar contract and ETag-shared; the night payloads already
    exist per date.
