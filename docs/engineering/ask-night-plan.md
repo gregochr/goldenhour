@@ -69,7 +69,12 @@ calendar (the two nights the Map's window control carries: `mapEvents.nightRow` 
 List<NightSpot>)`:
 
 - `ASTRO` night for date D exists when `astro_conditions` holds rows for D (the Map's
-  `available-dates`); its spots are those rows: `NightSpot(locationId, name, regionName, lat, lon,
+  `available-dates`), read through a NEW `AstroConditionsRepository.findByForecastDateFetchingLocation`
+  (a `JOIN FETCH` of the location and its region, the shape of the aurora query below) — never the
+  existing `findByForecastDate`: `AstroConditionsEntity.location` is `LAZY`, and `AskReadyPrecompute`
+  builds the snapshot on the background executor outside any transaction, so reading the name,
+  region, coordinates or Bortle off a lazily-loaded location there is a `LazyInitializationException`
+  and no `NIGHT_SKY` answer is ever written; its spots are those rows: `NightSpot(locationId, name, regionName, lat, lon,
   astroStars, astroSummary, cloudExplanation, visibilityExplanation, moonExplanation, moonPhase,
   moonIlluminationPct, bortleClass, skyBrightnessSqm)`; `nightStart/End` from the row
   (`nauticalDuskUtc`/`nauticalDawnUtc`, the same `resolveNightWindow` the DTO uses).
@@ -82,7 +87,13 @@ List<NightSpot>)`:
   thread's `PickRef` validation follows). The Map's night rows use a different id
   (`astro:2026-10-11:ASTRO`), and that does not matter: every door already resolves a window by
   **(date, kind)** — `WindowFirstMapPane` sends `eventType` + `date`, `MapView.findEvIndex` looks it
-  up — so a night pick opens the Map's night row unchanged. **The kind is an Ask-local
+  up — so a night pick opens the Map's night row — ⚠️ **but not through the Ask handoff as it stands**:
+  `MapView`'s `askWindow` effect (~3679–3685) resolves the row by (date, kind) and then calls
+  `onSelectDate(row.date, { isNight: false })` unconditionally, where the ordinary night-row path
+  passes `isNight: true` (~3090). Before nautical dawn `currentNightDate()` is YESTERDAY, so `App`
+  would read an Ask night pick as a stale solar date and refuse it. N3 changes that handoff to pass
+  `isNight: row.kind !== 'solar'` (and `setLocalNightDate` the row's date for a night row), with a
+  test that fires an `_astro` pick for yesterday's running night before dawn. **The kind is an Ask-local
   `AskWindowKind {SUNRISE, SUNSET, ASTRO, AURORA}`, NOT a new `TargetType` value**: `TargetType` is
   persisted in `forecast_evaluation.target_type` (`@Enumerated(STRING)`, the `LocalH2EnumWidener`
   trap) and must not grow for an Ask-only need; `AskPick.targetType` is serialised as the kind's
@@ -116,9 +127,12 @@ night with no result rows is reported as quiet rather than unknown — ⚠️ **
 resolves to `currentNightDate()` ONLY**: the cache holds no date-keyed state (its level and trigger
 Kp are "the rest of tonight", `AuroraStateCache` ~282–295), so `night: "tomorrow"` or a later date
 gets `auroraState: "not forecast yet"` from the result rows alone, never tonight's state relabelled. Sorted by the best of (astro,
-aurora) stars, then drive. A night with no astro rows answers `{spots: [], note: "no night forecast
-for <night> yet"}`; a region with astro rows elsewhere but none in it answers `note: "no
-astro-scored places in <region>"`. `regions` are matched by `canonicalRegion`, whose name set is
+aurora) stars, then drive. The empty answers are per KIND, never blanket: `kind: "astro"` (or `any`)
+with no astro rows for the night answers `{spots: [], note: "no astro forecast for <night> yet"}`,
+but `kind: "aurora"` (or `any`) still returns the aurora-only spots whenever aurora result rows
+exist for that night — an admin or batch aurora run can succeed on a night the scheduled astro job
+failed, and that persisted PRO/ADMIN result must not be hidden behind the astro table's absence; a
+region with rows elsewhere but none in it answers `note: "no night-scored places in <region>"`. `regions` are matched by `canonicalRegion`, whose name set is
 the UNION of the solar windows' and the nights' regions (today it reads solar windows only). The
 tool sets **`roleBound` on EVERY call, whichever branch runs** (the same discipline as `personal`,
 set at the call, not at the result): a role-bound answer is cached under the asker's user id, never
@@ -127,7 +141,12 @@ shared key before the per-user one, so binding only the branch that returned an 
 still let a LITE asker's figure-less answer be stored under the shared key and served to the next
 PRO asker with the same words — the tool never running for them. Every night answer is therefore
 per-user; sharing is given up for the whole tool rather than keyed by role, since a role-keyed
-namespace would halve the solar questions' sharing for nothing. The tool records `(locationId, windowId)` as
+namespace would halve the solar questions' sharing for nothing. ⚠️ **A role-bound entry also
+records the PRODUCING role and is a miss when the asker's role differs** (`CaffeineAskAnswerCache`
+stores it beside `personal`): an admin downgrading a PRO user to LITE inside the 30-minute TTL must
+not let that user's own cached answer keep serving an aurora figure in its retained `summary`/`why`
+(the validator re-joins card facts, not the prose), and the reverse upgrade should run the tool
+rather than serve the figure-less answer. The tool records `(locationId, windowId)` as
 evidence exactly as `rank_spots` does.
 
 ### §2.3 The prompt
@@ -188,8 +207,9 @@ each, cached by SWR as the Map does; LITE gets 403 on aurora and the card shows 
   of its own.
 - No per-hour sky; the night window and the cloud explanation are what the row holds.
 - No night Ready answer with aurora figures (shared answers stay role-free).
-- No change to the aurora poller, the astro job or their schedules; a night with no run is a night
-  with no answer.
+- No change to the aurora poller or its schedule (N0 adds the ASTRO schedule — that is the one
+  schedule this plan does change); a night with no aurora run is answered from the state cache
+  (tonight) or as "not forecast yet" (later nights), never synthesised.
 
 ---
 
