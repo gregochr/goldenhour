@@ -27,8 +27,8 @@ export function pickWhen(card) {
 }
 
 /**
- * The verdict word and star, in the score pill. The star is drawn in the visible ("· 4") and spoken
- * (", 4 stars") forms side by side, since the visible one is a bare figure.
+ * The verdict word and star, in the score pill. The star is drawn in the visible ("· 4★") and spoken
+ * (", 4 stars") forms side by side, the glyph appears only in the visible form, so the spoken one says "stars" once.
  *
  * @param {object} props
  * @param {object} props.card a card of {@code buildPickCards}
@@ -45,7 +45,7 @@ export function PickScore({ card, testId, className = undefined }) {
       {card.verdictLabel}
       {card.rating != null && (
         <>
-          <span aria-hidden="true">{` · ${card.rating}`}</span>
+          <span aria-hidden="true">{` · ${card.rating}★`}</span>
           <span className="sr-only">{`, ${card.rating} ${starsWord(card.rating)}`}</span>
         </>
       )}
