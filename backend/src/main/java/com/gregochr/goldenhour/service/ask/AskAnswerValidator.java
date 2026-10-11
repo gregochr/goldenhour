@@ -34,6 +34,15 @@ public class AskAnswerValidator {
     /** Word cap of a summary. */
     public static final int SUMMARY_WORDS = 60;
 
+    /**
+     * The most code points a served summary may hold, and the most a thread summary may be sent back with
+     * ({@link AskQuestionSanitiser#MAX_THREAD_SUMMARY_LENGTH} is this value). One constant, so the two can
+     * never drift: the bound exists for the round trip, so that every summary the server serves is accepted
+     * back verbatim as an earlier exchange. The word cap alone bounds nothing in characters (sixty long
+     * words is over a thousand).
+     */
+    public static final int THREAD_SUMMARY_MAX_CODE_POINTS = 500;
+
     /** Word cap of one pick's or event's reason. */
     public static final int WHY_WORDS = 24;
 
@@ -144,7 +153,11 @@ public class AskAnswerValidator {
      */
     public Result validate(Raw raw, AskSnapshot snapshot, AskEvidence evidence,
             AskScope scope, BestAnchor anchor, ReadyQuestion eventsQuestion) {
-        String summary = clean(raw.summary(), SUMMARY_WORDS);
+        // Strip what a follow-up would refuse the summary for, THEN the word cap and the code-point bound, so
+        // every summary served is accepted back verbatim as an earlier exchange.
+        String summary = boundCodePoints(
+                clean(AskQuestionSanitiser.stripRefusedInProse(raw.summary()), SUMMARY_WORDS),
+                THREAD_SUMMARY_MAX_CODE_POINTS);
         if (summary == null || summary.isBlank()) {
             return discard("no summary");
         }
@@ -306,6 +319,25 @@ public class AskAnswerValidator {
             pairs.add(new AskEvidence.Pair(pick.locationId(), pick.windowId()));
         }
         return pairs;
+    }
+
+    /**
+     * Cuts already-cleaned text to at most {@code maxCodePoints} code points, at a word boundary: the
+     * longest whole-word prefix that fits. A single word longer than the bound is cut at the bound (never
+     * inside a surrogate pair). Text already within the bound is returned as it is, byte for byte.
+     *
+     * @param text          cleaned text with single spaces between words; may be null
+     * @param maxCodePoints the bound
+     * @return the text, within the bound; null for null input
+     */
+    static String boundCodePoints(String text, int maxCodePoints) {
+        if (text == null || text.codePointCount(0, text.length()) <= maxCodePoints) {
+            return text;
+        }
+        int end = text.offsetByCodePoints(0, maxCodePoints);
+        int boundary = text.charAt(end) == ' ' ? end : text.lastIndexOf(' ', end);
+        String cut = boundary > 0 ? text.substring(0, boundary) : text.substring(0, end);
+        return cut.strip();
     }
 
     private static Result discard(String reason) {

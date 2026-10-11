@@ -8,4 +8,5 @@ the live question's sanitiser, each summary through a new `sanitiseThreadSummary
 marked `threadReset: true` / `threadResetReason: "forecast updated"`. A follow-up skips the Ready matcher and the typed cache and is
 otherwise charged, capped and reserved like any typed question. The request body cap is no longer a flat 8 KiB: it is derived from the thread cap (8 KiB plus 10 KiB per permitted exchange, 88 KiB at the default of 8; an earlier question over 200 raw code points or summary over 500 is refused before any collapse, which is what keeps every exchange under its share), so a full thread fits.
 Nothing reads the thread yet: the engines accept it and ignore it, so answers are unchanged until the prompt phase lands.
+A served summary is now also bounded to 500 code points (a word-boundary cut after the existing 60-word cap), and stripped of control, format, emoji and combining characters, so a summary the server serves is always accepted back as part of a thread.
 A question with no thread behaves exactly as before.
