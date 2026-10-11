@@ -93,7 +93,15 @@ List<NightSpot>)`:
   moonIlluminationPct, bortleClass, skyBrightnessSqm)`; `nightStart/End` from the row
   (`nauticalDuskUtc`/`nauticalDawnUtc`, the same `resolveNightWindow` the DTO uses). The rows come
   through the fetch-joined, enabled-and-Bortle-filtered query named above — the DTO path's
-  `findByForecastDate` is never used here (lazy location, background precompute).
+  `findByForecastDate` is never used here (lazy location, background precompute). ⚠️ **Two more
+  exclusions, both the briefing's own rules**: a location with NO region is dropped (the collector
+  walks `eventSummary.regions()` and never `unregioned()`, `LocationEntity.region` is optional and
+  the admin form allows "None", so the query is `LEFT JOIN FETCH l.region` and the builder skips a
+  null region rather than throwing on `regionName`); and a **canopy-only** location
+  (`LocationEntity.isWoodlandOnly()` — V169's northern bluebell woods are enabled AND carry a Bortle
+  class) is dropped, because a wood's star means the opposite of a sky star — `NightSpot` carries
+  `canopy` so the rule is visible, and `isPickEligible`'s night arm repeats the solar arm's
+  non-canopy test.
 - `AURORA` night for date D exists when `aurora_forecast_result` holds non-simulated rows for D
   (`findByForecastDateAndSimulatedFalseFetchingLocation`); its spots carry `auroraStars`,
   `auroraSummary`, `triaged`/`triageReason`, `alertLevel`, `maxKp`, plus the location's Bortle and
@@ -114,7 +122,13 @@ List<NightSpot>)`:
   for every non-solar row, so a question asked while the Map shows tomorrow's ASTRO or AURORA row
   carries no `windowId` and "is this any good?" cannot mean that night; N3 extends `askWindowOf`
   and `buildMapAskContext` to publish the Ask-local night id (`date_astro` / `date_aurora`) and
-  its label. **The kind is an Ask-local
+  its label. ⚠️ **And the handoff must wait for the night rows**: that same `askWindow` effect
+  marks `appliedAskNonce.current` BEFORE the lookup and depends only on the nonce and pane
+  visibility (~3673–3690), while a freshly mounted Map's astro/aurora rows arrive asynchronously
+  from the availability/result fetches — so a "Show on map" from the Plan tab would consume the
+  handoff with the row still absent and never apply it. N3 marks the nonce applied only once
+  `findEvIndex` finds the row (re-running when `mapEvents` changes), tested with a Map whose night
+  rows load AFTER the handoff fires, not a preloaded one. **The kind is an Ask-local
   `AskWindowKind {SUNRISE, SUNSET, ASTRO, AURORA}`, NOT a new `TargetType` value**: `TargetType` is
   persisted in `forecast_evaluation.target_type` (`@Enumerated(STRING)`, the `LocalH2EnumWidener`
   trap) and must not grow for an Ask-only need; `AskPick.targetType` is serialised as the kind's
@@ -166,7 +180,7 @@ refresh changed `clearSky` without moving the integer star. Each of those was a 
 rule closes all three. The cost is one Claude call per repeat of a night question, inside the
 allowance and the spend cap. (`roleBound`, the earlier design, is withdrawn.) The Ready `NIGHT_SKY`
 answer is the one night answer that IS stored (`ask_ready_answer`), and its freshness identity
-(§2.5) therefore carries the night's own version: the max `evaluated_at` of the astro rows the
+(§2.5) therefore carries the night's own version: the max `runTimestamp` (`run_timestamp`) of the astro rows the
 answer was written from, withheld whole when the live max differs — astro only, no aurora, no
 state-cache prose. The tool records `(locationId, windowId)` as
 evidence exactly as `rank_spots` does.
@@ -191,7 +205,7 @@ new tool + two windows) — regenerate and say so.
 `AskSnapshot.isPickEligible` gains the night rule: a `(locationId, windowId)` on an ASTRO night is
 eligible when `astroStars ≥ 4` (⚠️ the astro template's BASE score is 3★ — "no factor moved it" —
 so 3 is not a good night the way a Claude-judged 3★ sunrise is; 4 means cloud, visibility and moon
-all left it better than the base); on an AURORA night when `auroraStars ≥ 3` and `canSeeAurora`
+all left it better than the base); a canopy-only location (`NightSpot.canopy`) never, as for a solar pick; on an AURORA night when `auroraStars ≥ 3` and `canSeeAurora`
 (§2.1; a LITE asker is never offered, served or re-served an aurora pick); a `triaged` aurora row is
 never eligible. `AskPick.targetType` carries the `AskWindowKind` name (§2.1), `ratingAtAnswer` is
 the eligible figure, `verdictAtAnswer` is `null` (nights have no GO/MARGINAL/STANDDOWN word — the
