@@ -766,8 +766,9 @@ class DailyBriefingResponseJsonTest {
             + "deserialises through the application's own ObjectMapper")
     void deserialize_removedEvaluationGateKey_isIgnored() throws Exception {
         // loadPersistedBriefing reads daily_briefing_cache with AppConfig.objectMapper(); rows written
-        // before the component was removed carry the key until they age out. BriefingSlot is
-        // @JsonUnwrapped, so Jackson 2 ignores an unknown slot-level key; no @JsonIgnoreProperties.
+        // before the component was removed carry the key until they age out. BriefingSlot has
+        // @JsonUnwrapped components (weather, tide), so Jackson 2 buffers an unknown slot-level key
+        // rather than failing; no @JsonIgnoreProperties.
         ObjectMapper mapper = new AppConfig().objectMapper();
         BriefingSlot slot = new BriefingSlot("Seaham Chemical Beach",
                 LocalDateTime.of(2026, 9, 19, 5, 44), Verdict.STANDDOWN,

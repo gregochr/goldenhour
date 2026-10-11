@@ -95,7 +95,7 @@ public final class BriefingCandidateCollector {
      * {@link CandidateDisposition} for every slot the briefing considered, both
      * inclusions (passed to the triage loop) and skips (PAST_DATE, CACHED,
      * UNKNOWN_LOCATION). Skips are recorded with
-     * {@code location_id = null} since the verdict/cache/past-date paths never
+     * {@code location_id = null} since the cache/past-date paths never
      * look the location up. The inclusion entries are NOT finalised here; the
      * triage loop assigns the final disposition (EVALUATED / SKIPPED_TRIAGED /
      * SKIPPED_STABILITY / SKIPPED_ERROR) once weather + stability data is available.

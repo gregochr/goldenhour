@@ -23,8 +23,8 @@ import java.util.Set;
  * messaging.
  *
  * <p><b>Role after the Gate 2 redesign:</b> failure-defence. Under the Gate 2
- * verdict-as-attribute redesign, weather-condition STANDDOWN slots reach Claude
- * to Claude, so zero coverage from a weather stand-down is
+ * verdict-as-attribute redesign, weather-condition STANDDOWN slots reach Claude,
+ * so zero coverage from a weather stand-down is
  * rare. It is NOT rare overall: it is the designed state of every window Gate 4
  * does not score (T+3 except SETTLED, and all of T+4) and of every travel day,
  * whose batch is skipped. Zero-coverage now comes from:
@@ -36,12 +36,13 @@ import java.util.Set;
  *       slots before this runs.</li>
  *   <li>Batch API failures or partial results that write zero rows to a
  *       region's cache for a given (date, target).</li>
- *   <li>Regions whose every slot is a canopy slot with no rating: a wood is
- *       deliberately kept out of the sky batch, so it expects no sky coverage.</li>
  *   <li>The narrow window between a briefing refresh and the first batch
  *       result writing back. Briefings refresh every ~8h; batches arrive
  *       within minutes-to-hours.</li>
  * </ul>
+ *
+ * <p>A region in which no slot could carry a rating (an all-canopy region: woods are kept out of
+ * the sky batch) is passed through unchanged, not rewritten.
  *
  * <p><b>Before the redesign</b> the filter also caught the dominant
  * policy-driven zero-coverage case where Gate 2 had filtered every slot
