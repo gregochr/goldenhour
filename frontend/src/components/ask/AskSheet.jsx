@@ -25,7 +25,7 @@ export const ASK_SHEET_LABEL = 'Ask PhotoCast';
  * one dialog scrim (`.app-scrim`, 74%), not the mock's 50%: every sheet and modal shares it.
  *
  * <p><b>Closing keeps the conversation</b> (the ✕, the scrim and Escape all just close — plan §2.6,
- * §2.8); <b>"Clear answer" ends it</b>, and is the only way back to the Ready suggestions, which the
+ * §2.8); <b>"New conversation" ends it</b>, and is the only way back to the Ready suggestions, which the
  * conversation shows only in its empty phase. It moves focus to the field first: the button
  * unmounts when pressed, and a focused node that goes takes focus to {@code <body>} with it.
  *

@@ -11935,7 +11935,7 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
 .app-safe-sheet[data-size="tall"] { display: flex; flex-direction: column; }
 .app-safe-sheet[data-size="tall"] > [data-testid="bottom-sheet-scroller"] { flex: 1 1 auto; min-height: 0; }
 
-/* "Clear answer" — ends the conversation in the sheet. A text control after the conversation, 44px
+/* "New conversation" — ends the conversation in the sheet. A text control after the conversation, 44px
    tall so it is an easy target at the foot of a long scroll. */
 .wf-ask-clear {
   align-self: flex-start;
