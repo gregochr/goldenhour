@@ -5,6 +5,74 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.26.3] - 2026-10-11
+
+### Added — Ask PhotoCast answers night questions: clear skies, stars and the northern lights (N1, backend)
+
+Ask had five tools and all of them read the sunrise and sunset forecast, so "are there clear skies on the
+Durham coast tonight?" could only ever be a can't-answer. It now has a sixth, `rank_night_spots`, over the
+rows the Map's night rows already read: the astro conditions forecast (cloud, visibility, moon, with the
+location's Bortle class) and, for PRO and ADMIN accounts only, the aurora forecast results and the aurora
+alert state. `list_windows` gains the night windows (`yyyy-MM-dd_astro` and `_aurora`, tonight and tomorrow
+night; an aurora window only for an asker who may see aurora), the system prompt gains the night rules, and
+the stub engine answers a night question from the same tool.
+
+"Tonight" is the poller's night (`AuroraForecastRunService.currentNightDate()`), never the civil date, so
+before nautical dawn it is the night still running. A night spot is an enabled, Bortle-enriched, regioned,
+non-canopy place; for astro only the night's latest generation counts (a run that failed for some places
+leaves their rows from the previous afternoon, which a date filter alone would rank beside today's). The
+snapshot reads astro rows through a new fetch-joining query, because the Ready precompute builds it outside a
+transaction. A night pick must be 4 stars or better for astro (the template's base is 3) or 3 for aurora, and
+an aurora pick is never offered, served or re-served to an asker without aurora access: the role is derived
+once and handed to the tool, the validator, the thread re-join and the Ready freshness re-check. A pick's
+`targetType` is now an Ask-local `AskWindowKind` (`SUNRISE`, `SUNSET`, `ASTRO`, `AURORA`), not a new
+`TargetType`; a solar pick reads exactly as before.
+
+A night answer is never stored in the typed cache (the key carries no role, and the aurora state and the
+afternoon astro refresh move under the TTL), and it carries an opaque `nightVersion` which the client echoes
+on the exchange: any earlier exchange, typed or Ready, whose night forecast has since moved ends the whole
+thread (`threadReset`, `"night forecast updated"`), and a night answer's summary is never shown to the model
+verbatim in a follow-up. The three tool-schema golden files move once (a new tool). No frontend change and no
+Ready `NIGHT_SKY` question yet (N2, N3).
+
+### Added — the Ask thread carries the night version
+
+A 200 that names a night carries an opaque `nightVersion`, which the client echoes on that exchange in
+`thread[]` exactly as it echoes `generatedAt` (and only on an exchange that has one, so a solar thread is
+unchanged on the wire). A thread the server ends because the night forecast moved
+(`threadResetReason: "night forecast updated"`) tells the reader so: "The night forecast has updated since
+your last question — this is a fresh answer."
+
+### Fixed — the Map follows an Ask pick on a night window
+
+`MapView`'s Ask window-follow effect told the app a night pick was a solar date (`isNight: false`), which
+`App` refuses once it is past — every pick of the night in progress before nautical dawn, when that night is
+yesterday's. It now passes the row's own provenance and keeps a night `App` would refuse local, as the
+window control does. And it no longer spends the choice before the night's row exists: a freshly mounted Map
+loads its astro and aurora rows from fetches still in flight when "Show on map ›" fires, so the choice used
+to be consumed with nothing to apply it to. It now waits for the row and applies it the moment it appears.
+In the other direction, a question asked while the Map shows an astro or aurora row now carries that night's
+window id ("is this any good?" on tomorrow's night row means that night).
+
+### Added — Ask PhotoCast's night pick card (N3 of the Ask night series)
+
+The client half of `docs/engineering/ask-night-plan.md`: an Ask pick on a night window (`ASTRO` or
+`AURORA`, window ids `YYYY-MM-DD_astro` / `_aurora`) now draws a card. It reads the place with
+"4★ sky" and, for a PRO or ADMIN reader whose answer also named an aurora night, "aurora 3★", then the
+kind, "Tonight · 20:40–05:10", "Bortle 3" and the home drive; a night has no verdict word and no tide, so
+neither is drawn. The card is joined by (date, kind) to the night payloads, never to the briefing, and a
+pick with no row in them is dropped rather than half-drawn (`buildPickCards` used to gate on the AM/PM word
+and dropped every non-solar pick). The payloads are fetched once per answer for the DATES its picks name —
+`GET /api/astro/conditions?date=` per astro date and `GET /api/aurora/forecast/results?date=` per aurora
+date for PRO and ADMIN only — never for "tonight": the running night is yesterday before nautical dawn, and
+only the PRO/ADMIN aurora status says so. A LITE client never calls the aurora endpoint. Nothing is kept in
+`swrCache`, `localStorage` or module scope.
+
+"Plan this ›" for a night pick shows "Leave home" counted back from the night's start, the drive, the served
+dark window and the served Bortle class and moon, with the served astro summary as the note. It offers no
+"Open in Plan ›": that door opens the location sheet, whose windows are all solar. "Show on map ›" is the
+night's door.
+
 ## [v2.26.2] - 2026-10-11
 
 ### Added — the aurora best-location card can be dismissed (aurora heat, A4)
