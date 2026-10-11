@@ -30,8 +30,11 @@ public final class AskQuestionSanitiser {
     /**
      * The longest earlier-answer summary accepted from a thread, in code points, counted on the RAW text
      * before any normalising or whitespace collapse, so padding cannot smuggle a longer exchange past it.
+     * It is {@link AskAnswerValidator#THREAD_SUMMARY_MAX_CODE_POINTS}, the bound the validator puts on every
+     * summary it serves: the two are one constant so that a summary the server served is always accepted back
+     * verbatim.
      */
-    public static final int MAX_THREAD_SUMMARY_LENGTH = 500;
+    public static final int MAX_THREAD_SUMMARY_LENGTH = AskAnswerValidator.THREAD_SUMMARY_MAX_CODE_POINTS;
 
     /**
      * The longest earlier question accepted from a thread, in code points, counted on the RAW text. The live
@@ -178,7 +181,7 @@ public final class AskQuestionSanitiser {
         for (int i = 0; i < composed.length(); ) {
             int cp = composed.codePointAt(i);
             i += Character.charCount(cp);
-            if (Character.isWhitespace(cp) || Character.isSpaceChar(cp)) {
+            if (isSpace(cp)) {
                 pendingSpace = collapsed.length() > 0;
                 continue;
             }
@@ -204,17 +207,54 @@ public final class AskQuestionSanitiser {
     }
 
     /**
-     * The characters a thread summary may not hold: the invisible ones a question refuses (control,
-     * format, surrogate), combining marks (which includes the variation selector that turns a symbol
-     * into an emoji) and emoji themselves.
+     * The one definition of "a character a thread summary may not hold": the invisible ones a question refuses
+     * (control, format, surrogate), combining marks (which includes the variation selector that turns a symbol
+     * into an emoji) and emoji themselves. Shared by {@link #sanitiseThreadSummary}, which <em>refuses</em> a
+     * summary that holds one, and {@link #stripRefusedInProse}, which the validator applies to every summary it
+     * <em>serves</em>, so a served summary is never refused when it is sent back and the two cannot drift.
+     * Whitespace is not one (it is collapsed, never refused): callers test {@link #isSpace} first.
      */
-    private static boolean refusedInProse(int cp) {
+    static boolean refusedInProse(int cp) {
         return switch (Character.getType(cp)) {
             case Character.CONTROL, Character.FORMAT, Character.SURROGATE, Character.NON_SPACING_MARK,
                     Character.ENCLOSING_MARK, Character.COMBINING_SPACING_MARK -> true;
             default -> Character.isEmojiPresentation(cp)
                     || (cp >= FIRST_PICTOGRAPH_PLANE_CODE_POINT && Character.isExtendedPictographic(cp));
         };
+    }
+
+    /**
+     * Whether a code point is whitespace to the sanitiser: collapsed to one space, never refused.
+     *
+     * @param cp the code point
+     * @return true for white space and for any Unicode space separator
+     */
+    static boolean isSpace(int cp) {
+        return Character.isWhitespace(cp) || Character.isSpaceChar(cp);
+    }
+
+    /**
+     * Removes from text the model wrote exactly what {@link #sanitiseThreadSummary} would refuse it for: after
+     * composing to NFC, every code point {@link #refusedInProse} names is dropped, and every space-like code
+     * point becomes a plain space (the caller collapses runs). Stars, dashes, ellipses, quotes, accents, digits
+     * and punctuation are kept. Applied to a SERVED summary so the summary round-trips through a thread.
+     *
+     * @param text the text; may be null
+     * @return the text without those characters, or null for null input
+     */
+    static String stripRefusedInProse(String text) {
+        if (text == null) {
+            return null;
+        }
+        StringBuilder kept = new StringBuilder(text.length());
+        Normalizer.normalize(text, Normalizer.Form.NFC).codePoints().forEach(cp -> {
+            if (isSpace(cp)) {
+                kept.append(' ');
+            } else if (!refusedInProse(cp)) {
+                kept.appendCodePoint(cp);
+            }
+        });
+        return kept.toString();
     }
 
     /**
