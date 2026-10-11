@@ -8,7 +8,7 @@ import {
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
 import { tideIndexOf } from './tideFactsFixture.js';
 import {
-  briefing, pick, ROSEBERRY, SALTBURN, WHITBY,
+  astroRow, briefing, KIELDER, nightPick, pick, ROSEBERRY, SALTBURN, WHITBY,
 } from './askFixtures.js';
 
 /**
@@ -203,5 +203,64 @@ describe('the exports it stands on are the sheet’s own', () => {
     expect(departureWithDay('2026-10-05T17:41:00', 95)).toMatchObject({ time: '16:46', dayWord: null });
     expect(departureWithDay('2026-10-05T17:41:00', null)).toBeNull();
     expect(departureWithDay(null, 95)).toBeNull();
+  });
+});
+
+describe('a NIGHT pick’s figures (docs/engineering/ask-night-plan.md §2.6)', () => {
+  const nightCard = (reach = home([[KIELDER, 95]]), over = {}) => buildPickCards(
+    [nightPick()],
+    briefing().days,
+    reach,
+    {
+      astro: new Map([[TONIGHT, [astroRow(over)]]]), aurora: new Map(), canSeeAurora: true, todayStr: TONIGHT,
+    },
+  )[0];
+
+  it('Leave home is the sheet’s own departure over the night’s START — the same function, the same drive', () => {
+    const card = nightCard();
+    const figures = planFigures(card, null);
+
+    expect(figures.leave).toEqual(departureWithDay('2026-10-05T19:40:00', 95));
+    // Grounded: 20:40 BST dusk minus the 1h35 drive minus the 20 min setup.
+    expect(figures.leave).toMatchObject({ time: '18:45', sameDay: true, dayWord: null });
+    expect(figures.drive).toBe('1h 35min');
+  });
+
+  it('has no golden or blue hour and no tide — and does not read the solar score index at all', () => {
+    const figures = planFigures(nightCard(), buildScoreIndex(scoreRows()));
+
+    expect(figures.light).toBeNull();
+    expect(figures.tide).toBeNull();
+  });
+
+  it('carries the served dark window and the served sky: Bortle class and the moon', () => {
+    const figures = planFigures(nightCard(), null);
+
+    expect(figures.window).toBe('20:40–05:10');
+    expect(figures.sky).toBe('Bortle 3 · Waxing Crescent · 23%');
+  });
+
+  it('says the Bortle class alone with no moon, the moon alone with no Bortle, and nothing with neither', () => {
+    expect(planFigures(nightCard(home([]), { moonPhase: null, moonIlluminationPct: null }), null).sky)
+      .toBe('Bortle 3');
+    expect(planFigures(nightCard(home([]), { bortleClass: null }), null).sky).toBe('Waxing Crescent · 23%');
+    expect(planFigures(nightCard(home([]), {
+      bortleClass: null, moonPhase: null, moonIlluminationPct: null,
+    }), null).sky).toBeNull();
+  });
+
+  it('a known night with no drive gives no departure and no drive — silence, not zero', () => {
+    const figures = planFigures(nightCard(home([])), null);
+
+    expect(figures.leave).toBeNull();
+    expect(figures.drive).toBeNull();
+    expect(figures.window).toBe('20:40–05:10');
+  });
+
+  it('a solar pick has no window and no sky — those are the night’s alone', () => {
+    const { figures } = both();
+
+    expect(figures.window).toBeNull();
+    expect(figures.sky).toBeNull();
   });
 });

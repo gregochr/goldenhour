@@ -1,7 +1,9 @@
 import { forwardRef, useId, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { useWindowFirstBriefing } from '../../context/WindowFirstBriefingContext.jsx';
-import { PickScore, PickTide, pickWhen } from './AskPickFacts.jsx';
+import {
+  nightKindWord, NightScore, PickScore, PickTide, pickWhen,
+} from './AskPickFacts.jsx';
 import { pickCardShape, planActionsShape } from './askShapes.js';
 import { buildScoreIndex } from '../../utils/locationSheet.js';
 import { planFigures } from '../../utils/askPlan.js';
@@ -31,6 +33,15 @@ import { SET_POSTCODE_LONG, SET_POSTCODE_SHORT } from '../../utils/postcodeNudge
  * <p><b>"Add to Coming up" was removed by owner decision</b> (plan §1 #9), so "Open in Plan ›" is the
  * only action — and takes the primary style the removed button used to carry, because a lone secondary
  * button reads as disabled.
+ *
+ * <p><b>A night pick</b> ({@code card.night}, `docs/engineering/ask-night-plan.md` §2.6) keeps "Leave home" (the
+ * sheet's own departure over the night's START and the home drive) and "Drive", and swaps the two cells that
+ * are solar — Best light and Tide — for the served dark window and the served sky (Bortle, moon). The
+ * note is the served astro (or aurora) summary and, when it says something else, the served cloud line.
+ * ⚠️ <b>"Open in Plan ›" is NOT drawn for a night pick</b>: it opens the location sheet at the pick's window,
+ * and that sheet's six windows are solar — no row of it is a night, so the press would open a place's
+ * sunrises and sunsets under a pick about its sky. The pick's night is reached through "Show on map ›", the
+ * door that does hold it (the Map's night rows). A control whose door goes somewhere else is not offered.
  *
  * <p>The root is a labelled group a programmatic focus can land on ({@code tabIndex -1}): pressing
  * "Plan this ›" unmounts the control that was pressed, and focus on a node that goes falls to
@@ -76,9 +87,13 @@ const AskPlanThis = forwardRef(function AskPlanThis({ card, onBack, actions = nu
             {card.name}
           </h3>
           <div className="wf-ask-l2" data-testid="ask-plan-sub">
-            <span className="wf-ask-evb" data-target={card.targetType}>{card.targetType}</span>
+            <span className="wf-ask-evb" data-target={card.targetType}>
+              {card.night ? nightKindWord(card) : card.targetType}
+            </span>
             <span data-testid="ask-plan-when">{pickWhen(card)}</span>
-            <PickScore card={card} testId="ask-plan-score" className="wf-ask-plh-sc" />
+            {card.night
+              ? <NightScore card={card} testId="ask-plan-score" />
+              : <PickScore card={card} testId="ask-plan-score" className="wf-ask-plh-sc" />}
           </div>
         </div>
       </div>
@@ -102,19 +117,34 @@ const AskPlanThis = forwardRef(function AskPlanThis({ card, onBack, actions = nu
             </>
           )}
         </Figure>
-        <Figure label="Best light" testId="ask-plan-light" multi>
-          {figures.light && figures.light.map((w) => (
-            // The location sheet's own words (`label range`); the range never breaks, as there.
-            <span key={w.label} className="wf-ask-fig-w">
-              {w.label}
-              {' '}
-              <span className="whitespace-nowrap">{w.range}</span>
-            </span>
-          ))}
-        </Figure>
-        <Figure label="Tide" testId="ask-plan-tide" tier={figures.tide?.tier} emptyWords="No tide data">
-          {figures.tide && <PickTide tide={figures.tide} labelled={false} />}
-        </Figure>
+        {card.night ? (
+          <>
+            {/* A night has no golden or blue hour and no tide: its own two cells are the served dark window
+                and the served sky (Bortle class, moon). */}
+            <Figure label="Dark window" testId="ask-plan-window">
+              {figures.window && <span className="whitespace-nowrap">{figures.window}</span>}
+            </Figure>
+            <Figure label="Sky" testId="ask-plan-sky" multi>
+              {figures.sky}
+            </Figure>
+          </>
+        ) : (
+          <>
+            <Figure label="Best light" testId="ask-plan-light" multi>
+              {figures.light && figures.light.map((w) => (
+                // The location sheet's own words (`label range`); the range never breaks, as there.
+                <span key={w.label} className="wf-ask-fig-w">
+                  {w.label}
+                  {' '}
+                  <span className="whitespace-nowrap">{w.range}</span>
+                </span>
+              ))}
+            </Figure>
+            <Figure label="Tide" testId="ask-plan-tide" tier={figures.tide?.tier} emptyWords="No tide data">
+              {figures.tide && <PickTide tide={figures.tide} labelled={false} />}
+            </Figure>
+          </>
+        )}
       </dl>
       {showNudge && (
         // The tick line's own button, word for word: the name is the LONG form whatever width draws
@@ -133,7 +163,10 @@ const AskPlanThis = forwardRef(function AskPlanThis({ card, onBack, actions = nu
         </button>
       )}
       {card.summary && <p className="wf-ask-why2" data-testid="ask-plan-note">{card.summary}</p>}
-      {typeof openInPlan === 'function' && (
+      {card.night && card.clearSky && card.clearSky !== card.summary && (
+        <p className="wf-ask-why2" data-testid="ask-plan-clear-sky">{card.clearSky}</p>
+      )}
+      {typeof openInPlan === 'function' && !card.night && (
         <div className="wf-ask-acts">
           <button
             type="button"

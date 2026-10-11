@@ -151,8 +151,9 @@ vi.mock('../context/WindowFirstBriefingContext.jsx', () => ({
 import WindowFirstMapPane from '../components/WindowFirstMapPane.jsx';
 import { AskProvider, useAsk } from '../context/AskContext.jsx';
 import {
-  briefing, NOW, ownResponse, pick, readyResponse, ROSEBERRY, SALTBURN, settings, WHITBY,
+  astroRow, briefing, nightPick, NOW, ownResponse, pick, readyResponse, ROSEBERRY, SALTBURN, settings, WHITBY,
 } from './askFixtures.js';
+import { getAstroAvailableDates, getAstroConditions } from '../api/astroApi.js';
 
 const TODAY = '2026-10-05';
 const TOMORROW = '2026-10-06';
@@ -581,6 +582,59 @@ describe('Escape from an expanded answer, from where focus really is', () => {
   });
 });
 
+
+describe('a NIGHT pick in the phone peek (docs/engineering/ask-night-plan.md §2.6)', () => {
+  afterEach(() => {
+    getAstroConditions.mockReset();
+    getAstroConditions.mockResolvedValue([]);
+    getAstroAvailableDates.mockReset();
+    getAstroAvailableDates.mockResolvedValue([]);
+  });
+
+  /** Saltburn's astro night tonight, asked about in the open sheet. */
+  async function askNight() {
+    getAstroAvailableDates.mockResolvedValue([TODAY]);
+    getAstroConditions.mockResolvedValue([astroRow({ locationId: SALTBURN, locationName: 'Saltburn' })]);
+    await renderMap();
+    await openAsk();
+    ask.mockResolvedValue(ownResponse({
+      picks: [nightPick({ locationId: SALTBURN, locationName: 'Saltburn' })],
+      events: [],
+      nightVersion: 'v1',
+    }));
+    await act(async () => { fireEvent.change(screen.getByTestId('ask-input'), { target: { value: 'Clear skies tonight?' } }); });
+    await act(async () => { fireEvent.submit(screen.getByTestId('ask-input-row')); });
+    await screen.findByTestId('ask-pick-1');
+  }
+
+  it('draws the night card in the sheet and numbers the pick on the map', async () => {
+    await askNight();
+
+    expect(screen.getByTestId('ask-pick-score-1-sky')).toHaveTextContent('4★ sky');
+    expect(screen.getByTestId('ask-pick-when-1')).toHaveTextContent('Tonight · 20:40–05:10');
+    await waitFor(() => expect(pickChips()).toHaveLength(1));
+    expect(pickChips()[0]).toHaveAccessibleName('Pick 1, Saltburn, Tonight astro, 4 stars');
+  });
+
+  it('choosing the pick moves the map to the astro night, handed up to the parent as a night', async () => {
+    await askNight();
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/sunset/i);
+
+    await act(async () => { fireEvent.click(screen.getByTestId('ask-pick-select-1')); });
+
+    await waitFor(() => expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/astro/i));
+    expect(selectedDates).toContain(TODAY);
+  });
+
+  it('the minimised line names the night and its start', async () => {
+    await askNight();
+
+    await dragMap();
+
+    expect(screen.getByTestId('wf-map-peek-mini')).toHaveTextContent('Saltburn');
+    expect(screen.getByTestId('wf-map-peek-mini')).toHaveTextContent('Mon night 20:40');
+  });
+});
 
 describe('Plan this, in the expanded Ask section (F5)', () => {
   /** An answer in the open sheet, then "Plan this ›" on pick 2 — Whitby's sunrise, ANOTHER window from tonight. */

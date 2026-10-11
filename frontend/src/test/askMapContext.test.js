@@ -22,6 +22,11 @@ describe('askWindowId — the server\'s own encoding', () => {
     expect(askWindowId('2026-10-10', 'SUNRISE')).toBe('2026-10-10_sunrise');
     expect(askWindowId('2026-10-05', 'SUNSET')).toBe('2026-10-05_sunset');
   });
+
+  it('is yyyy-MM-dd_astro / _aurora for a night — Ask\'s id, never the Map\'s `astro:DATE:ASTRO`', () => {
+    expect(askWindowId('2026-10-11', 'ASTRO')).toBe('2026-10-11_astro');
+    expect(askWindowId('2026-10-11', 'AURORA')).toBe('2026-10-11_aurora');
+  });
 });
 
 describe('askWindowOf', () => {
@@ -33,9 +38,25 @@ describe('askWindowOf', () => {
     expect(askWindowOf(row())).toEqual(WINDOW);
   });
 
-  it('⚠️ is null for a night row — astro and aurora nights are no window of the forecast\'s', () => {
-    expect(askWindowOf(row({ kind: 'astro', eventType: 'ASTRO' }))).toBeNull();
-    expect(askWindowOf(row({ kind: 'aur', eventType: 'AURORA' }))).toBeNull();
+  it('⚠️ is the window of a NIGHT row too, by (date, kind) — "is this any good?" on tomorrow\'s astro row means that night', () => {
+    expect(askWindowOf(row({
+      kind: 'astro', eventType: 'ASTRO', label: 'Tomorrow night', served: undefined,
+    }))).toEqual({ date: '2026-10-10', eventType: 'ASTRO', label: 'Tomorrow night · astro' });
+    expect(askWindowOf(row({
+      kind: 'aur', eventType: 'AURORA', label: 'Tonight', served: undefined,
+    }))).toEqual({ date: '2026-10-10', eventType: 'AURORA', label: 'Tonight · aurora' });
+  });
+
+  it('a night row\'s label names the kind, because the two nights of a date share their words', () => {
+    const astro = askWindowOf(row({ kind: 'astro', eventType: 'ASTRO', label: 'Tonight' }));
+    const aurora = askWindowOf(row({ kind: 'aur', eventType: 'AURORA', label: 'Tonight' }));
+
+    expect(astro.label).not.toBe(aurora.label);
+  });
+
+  it('is null for a night-shaped row whose event is neither night kind, and for a night row with no date', () => {
+    expect(askWindowOf(row({ kind: 'astro', eventType: 'SUNSET' }))).toBeNull();
+    expect(askWindowOf(row({ kind: 'astro', eventType: 'ASTRO', date: undefined }))).toBeNull();
   });
 
   it('is null for a filler row the briefing did not serve — the server has no such window', () => {
@@ -142,7 +163,21 @@ describe('buildMapAskContext — the window', () => {
     expect(out.windowLabel).toBe('Saturday sunrise');
   });
 
-  it('no window (a night row, or an unserved one) sends none and draws no chip', () => {
+  it('⚠️ a night window becomes Ask\'s night id and a chip label that names the kind', () => {
+    const astro = buildMapAskContext(facts({
+      window: askWindowOf({ kind: 'astro', date: '2026-10-11', eventType: 'ASTRO', label: 'Tomorrow night' }),
+    }), REGIONS);
+    const aurora = buildMapAskContext(facts({
+      window: askWindowOf({ kind: 'aur', date: '2026-10-11', eventType: 'AURORA', label: 'Tomorrow night' }),
+    }), REGIONS);
+
+    expect(astro.windowId).toBe('2026-10-11_astro');
+    expect(astro.windowLabel).toBe('Tomorrow night · astro');
+    expect(aurora.windowId).toBe('2026-10-11_aurora');
+    expect(aurora.windowLabel).toBe('Tomorrow night · aurora');
+  });
+
+  it('no window (an unserved one) sends none and draws no chip', () => {
     const out = buildMapAskContext(facts({ window: null }), REGIONS);
 
     expect(out.windowId).toBeNull();

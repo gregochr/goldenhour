@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import AskThreadHistory from '../components/ask/AskThreadHistory.jsx';
-import AskThreadReset, { THREAD_RESET_LINE } from '../components/ask/AskThreadReset.jsx';
+import AskThreadReset, {
+  NIGHT_RESET_REASON, NIGHT_THREAD_RESET_LINE, THREAD_RESET_LINE, threadResetLine,
+} from '../components/ask/AskThreadReset.jsx';
 
 /**
  * The collapsed earlier exchanges and the reset line (`docs/engineering/ask-thread-plan.md` §2.5, §5 Q1 and
@@ -66,6 +68,23 @@ describe('AskThreadReset', () => {
       'The forecast has updated since your last question — this is a fresh answer.',
     );
     expect(THREAD_RESET_LINE).toBe('The forecast has updated since your last question — this is a fresh answer.');
+  });
+
+  it('says the NIGHT forecast moved when that is the server’s reason (docs/engineering/ask-night-plan.md §2.2)', () => {
+    render(<AskThreadReset ask={{ resetReason: NIGHT_RESET_REASON }} />);
+
+    expect(NIGHT_RESET_REASON).toBe('night forecast updated');
+    expect(screen.getByTestId('ask-thread-reset')).toHaveTextContent(
+      'The night forecast has updated since your last question — this is a fresh answer.',
+    );
+    expect(threadResetLine(NIGHT_RESET_REASON)).toBe(NIGHT_THREAD_RESET_LINE);
+  });
+
+  it('keeps the forecast’s sentence for any other reason, so an unknown one never reads as a night', () => {
+    render(<AskThreadReset ask={{ resetReason: 'something else' }} />);
+
+    expect(screen.getByTestId('ask-thread-reset')).toHaveTextContent(THREAD_RESET_LINE);
+    expect(threadResetLine(null)).toBe(THREAD_RESET_LINE);
   });
 
   it.each([null, undefined, ''])('draws nothing for a reason of %s', (resetReason) => {

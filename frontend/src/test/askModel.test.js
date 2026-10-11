@@ -5,7 +5,7 @@ import {
 } from '../utils/askModel.js';
 import { windowKey } from '../utils/windowKeys.js';
 import {
-  briefing, pick, readyResponse, ROSEBERRY, SALTBURN, slot, WHITBY,
+  astroRow, auroraRow, briefing, KIELDER, nightPick, pick, readyResponse, ROSEBERRY, SALTBURN, slot, WHITBY,
 } from './askFixtures.js';
 
 /** The reader's HOME reach map, as the provider's `reachById` serves it. */
@@ -339,5 +339,193 @@ describe('eventKicker and readyBusyLine', () => {
     expect(readyBusyLine('18:03')).toBe('Opening this evening’s answer');
     expect(readyBusyLine(null)).toBe('Opening the answer');
     expect(readyBusyLine('soon')).toBe('Opening the answer');
+  });
+});
+
+describe('buildPickCards — a NIGHT pick (docs/engineering/ask-night-plan.md §2.6)', () => {
+  const TODAY = '2026-10-05';
+  const TOMORROW = '2026-10-06';
+  /** The night payloads the provider holds for the live answer, by date. */
+  const nightsOf = (over = {}) => ({
+    astro: new Map([[TODAY, [astroRow()]]]),
+    aurora: new Map(),
+    canSeeAurora: true,
+    todayStr: TODAY,
+    tomorrowStr: TOMORROW,
+    ...over,
+  });
+  const build = (picks, nights = nightsOf(), reach = null) => buildPickCards(picks, briefing().days, reach, nights);
+
+  it('is built from the astro payload, not the briefing: the place has no solar slot at all', () => {
+    const [card] = build([nightPick()]);
+
+    expect(card).toMatchObject({
+      rank: 1,
+      locationId: KIELDER,
+      name: 'Kielder Observatory',
+      regionName: 'Northumberland & Tyneside',
+      targetType: 'ASTRO',
+      night: true,
+      kind: 'astro',
+      date: TODAY,
+      windowId: '2026-10-05_astro',
+      windowKey: `${TODAY}:ASTRO`,
+      rating: 4,
+      astroStars: 4,
+      auroraStars: null,
+      bortle: 3,
+    });
+  });
+
+  it('reads the night as the Map pill does, with its served dark window on the UK clock', () => {
+    const [card] = build([nightPick()]);
+
+    expect(card.nightWord).toBe('Tonight');
+    // 19:40Z and 04:10Z on a BST date are 20:40 and 05:10 on the reader's clock — never the UTC digits.
+    expect(card.nightWindow).toBe('20:40–05:10');
+    expect(card.eventTime).toBe('20:40');
+    expect(card.eventInstant).toBe('2026-10-05T19:40:00');
+  });
+
+  it('words the other nights the way the window control does', () => {
+    const nights = nightsOf({ astro: new Map([[TOMORROW, [astroRow()]], ['2026-10-09', [astroRow()]]]) });
+
+    expect(build([nightPick({ date: TOMORROW })], nights)[0].nightWord).toBe('Tomorrow night');
+    expect(build([nightPick({ date: '2026-10-09' })], nights)[0].nightWord).toBe('Friday night');
+  });
+
+  it('has no verdict and no tide — a night has neither — and says so rather than inventing a word', () => {
+    const [card] = build([nightPick()]);
+
+    expect(card.verdict).toBeNull();
+    expect(card.verdictLabel).toBeNull();
+    expect(card.tide).toBeNull();
+  });
+
+  it('carries the served astro summary, the clear-sky line and the moon', () => {
+    const [card] = build([nightPick()]);
+
+    expect(card.summary).toBe('Clear and dark: low cloud, good visibility, little moon.');
+    expect(card.clearSky).toBe('Cloud cover 12% — clear for most of the night.');
+    expect(card.moon).toBe('Waxing Crescent · 23%');
+  });
+
+  it('gives a rank circle a name that says the night and the kind, as the map marker for the pick will', () => {
+    expect(build([nightPick()])[0].label).toBe('Pick 1, Kielder Observatory, Tonight astro, 4 stars');
+  });
+
+  it('joins the HOME drive, never anything else', () => {
+    const [card] = build([nightPick()], nightsOf(), home([[KIELDER, 95]]));
+
+    expect(card.driveMinutes).toBe(95);
+    expect(card.driveLabel).toBe('1h 35min');
+  });
+
+  it('puts the aurora star beside the astro one for a reader who may see it, when that payload is held', () => {
+    const nights = nightsOf({ aurora: new Map([[TODAY, [auroraRow()]]]) });
+    const [card] = build([nightPick()], nights);
+
+    expect(card).toMatchObject({ rating: 4, astroStars: 4, auroraStars: 3 });
+    expect(card.label).toBe('Pick 1, Kielder Observatory, Tonight astro, 4 stars, aurora 3 stars');
+  });
+
+  it('⚠️ never prints an aurora figure for a reader who may not see it, even when one was somehow held', () => {
+    const nights = nightsOf({ aurora: new Map([[TODAY, [auroraRow()]]]), canSeeAurora: false });
+    const [card] = build([nightPick()], nights);
+
+    expect(card.auroraStars).toBeNull();
+    expect(card.label).not.toContain('aurora');
+  });
+
+  it('an AURORA pick is built from the aurora payload, its own star first, the astro one beside it', () => {
+    const nights = nightsOf({ aurora: new Map([[TODAY, [auroraRow()]]]) });
+    const [card] = build([nightPick({ targetType: 'AURORA', windowId: '2026-10-05_aurora', ratingAtAnswer: 3 })], nights);
+
+    expect(card).toMatchObject({
+      kind: 'aurora', rating: 3, auroraStars: 3, astroStars: 4, windowKey: `${TODAY}:AURORA`,
+    });
+    expect(card.summary).toBe('Kp 6 forecast; dark horizon to the north.');
+    expect(card.label).toBe('Pick 1, Kielder Observatory, Tonight aurora, 3 stars, astro 4 stars');
+  });
+
+  it('⚠️ drops an AURORA pick for a reader who may not see aurora: no aurora payload is ever read for them', () => {
+    const nights = nightsOf({ aurora: new Map([[TODAY, [auroraRow()]]]), canSeeAurora: false });
+
+    expect(build([nightPick({ targetType: 'AURORA', windowId: '2026-10-05_aurora' })], nights)).toEqual([]);
+  });
+
+  it('drops a night pick whose night the client does not hold — never a half-drawn card', () => {
+    expect(build([nightPick({ date: TOMORROW })])).toEqual([]);
+  });
+
+  it('drops a night pick whose place is not on the night it holds', () => {
+    expect(build([nightPick({ locationId: 999 })])).toEqual([]);
+  });
+
+  it('drops every night pick when no night payloads were handed in at all', () => {
+    expect(buildPickCards([nightPick()], briefing().days, null)).toEqual([]);
+    expect(buildPickCards([nightPick()], briefing().days, null, null)).toEqual([]);
+  });
+
+  it('⚠️ gates on the KIND, not the meridiem: a night pick is kept and an unknown kind is dropped', () => {
+    const cards = build([nightPick(), nightPick({ rank: 2, targetType: 'MOONRISE' })]);
+
+    expect(cards.map((c) => c.rank)).toEqual([1]);
+  });
+
+  it('keeps a solar pick and a night pick together, in the server’s order, ranks never renumbered', () => {
+    const cards = build([pick({ rank: 1 }), nightPick({ rank: 3 }), pick({ rank: 2, locationId: 999 })]);
+
+    expect(cards.map((c) => [c.rank, c.targetType])).toEqual([[1, 'SUNSET'], [3, 'ASTRO']]);
+  });
+
+  it('names the place by its payload name when the pick’s own is missing, and drops it when neither has one', () => {
+    expect(build([nightPick({ locationName: undefined })])[0].name).toBe('Kielder Observatory');
+    const nameless = nightsOf({ astro: new Map([[TODAY, [astroRow({ locationName: '' })]]]) });
+    expect(build([nightPick({ locationName: undefined })], nameless)).toEqual([]);
+  });
+
+  it('takes the Bortle class and window from the other kind’s row when its own lacks them', () => {
+    const nights = nightsOf({
+      astro: new Map([[TODAY, [astroRow()]]]),
+      aurora: new Map([[TODAY, [auroraRow({ bortleClass: null, nightStart: null, nightEnd: null })]]]),
+    });
+    const [card] = build([nightPick({ targetType: 'AURORA', windowId: '2026-10-05_aurora' })], nights);
+
+    expect(card.bortle).toBe(3);
+    expect(card.nightWindow).toBe('20:40–05:10');
+  });
+
+  it('has no window, and says no Bortle, when none is served — silence, not a placeholder', () => {
+    const bare = nightsOf({
+      astro: new Map([[TODAY, [astroRow({ nightStart: null, nightEnd: null, bortleClass: null })]]]),
+    });
+    const [card] = build([nightPick()], bare);
+
+    expect(card.nightWindow).toBeNull();
+    expect(card.eventTime).toBeNull();
+    expect(card.bortle).toBeNull();
+  });
+
+  it('a rating off Claude’s 1–5 scale is no number at all', () => {
+    const odd = nightsOf({ astro: new Map([[TODAY, [astroRow({ stars: 0 })]]]) });
+
+    expect(build([nightPick()], odd)[0].rating).toBeNull();
+  });
+});
+
+describe('the night kinds in the short window words', () => {
+  it('has no meridiem for a night, and says "night" / "aurora" in its place', () => {
+    expect(meridiemOf('ASTRO')).toBeNull();
+    expect(meridiemOf('AURORA')).toBeNull();
+    expect(shortWindow({ date: '2026-10-05', targetType: 'ASTRO' })).toBe('Mon night');
+    expect(shortWindow({ date: '2026-10-05', targetType: 'AURORA' })).toBe('Mon aurora');
+  });
+
+  it('still says AM and PM for a solar window and null for a kind it does not know', () => {
+    expect(shortWindow({ date: '2026-10-05', targetType: 'SUNRISE' })).toBe('Mon AM');
+    expect(shortWindow({ date: '2026-10-05', targetType: 'SUNSET' })).toBe('Mon PM');
+    expect(shortWindow({ date: '2026-10-05', targetType: 'MOONRISE' })).toBeNull();
+    expect(shortWindow({ date: '', targetType: 'ASTRO' })).toBeNull();
   });
 });

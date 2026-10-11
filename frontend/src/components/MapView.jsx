@@ -65,6 +65,7 @@ import MapPeekAsk from './map/MapPeekAsk.jsx';
 import { askPeekMode, peekRestingHeight, peekTargetHeight } from '../utils/askPeek.js';
 import { SETTLED_PHASES } from '../utils/askModel.js';
 import { askWindowOf } from '../utils/askMapContext.js';
+import { isNightType } from '../utils/askNights.js';
 import { ranksPhrase } from '../utils/askPickChip.js';
 import { ASK_HEAT_DIM, NO_INSET } from '../utils/askCamera.js';
 
@@ -3627,6 +3628,15 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   /** The last `askWindow` nonce this map applied — see the window-follow effect below. */
   const appliedAskNonce = useRef(null);
+  /**
+   * Whether the EV list holds the row a chosen pick names — by (date, kind), never by the row's id (the Map's
+   * night ids, `astro:DATE:ASTRO`, are not Ask's, and no door ever converts one to the other). A plain value
+   * read at render so the window-follow effect below can WAIT for a night row and run again the moment it
+   * arrives: a freshly mounted Map's astro/aurora rows come from two fetches still in flight when a "Show on
+   * map ›" from the Plan tab fires its handoff (`docs/engineering/ask-night-plan.md` §2.1).
+   */
+  const askRowFound = askWindow != null
+    && findEvIndex(mapEvents, askWindow.eventType, askWindow.date) >= 0;
   const askWindowFacts = askWindowOf(activeMapEvent);
   const askFocusRegion = jumpFitOverride?.regionName ?? null;
   const askScoped = Boolean(heat?.hasHome) && heatArea;
@@ -3671,23 +3681,44 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // chosen in the tablet's sheet applies when the sheet closes, with the camera. A choice made while
     // the pane was never mounted applies on its first mount, which is what "Show on map ›" needs.
     if (!askWindow || !paneVisible || appliedAskNonce.current === askWindow.nonce) return;
+    // ⚠️ A NIGHT choice is not spent until its row exists. The astro and aurora rows arrive from fetches of
+    // their own (the availability lists, then the nights), so on a Map that has only just mounted — "Show on
+    // map ›" from the Plan tab is exactly that — the row is not there when the handoff fires, and marking the
+    // nonce applied first consumed the choice with nothing to apply it to. Re-run on `askRowFound`, the moment
+    // the row appears. A solar row has always been in the briefing the pick was joined to, so its choice is
+    // spent at once, as it always was: a window the map never carries stays unfollowed, not pending forever.
+    if (isNightType(askWindow.eventType) && !askRowFound) return;
     appliedAskNonce.current = askWindow.nonce;
     // The async wrapper is this file's own idiom for `react-hooks/set-state-in-effect` (see the
     // handoff effects above): the body still runs synchronously in this tick.
     (async () => {
       setSelectedLocationName(null);
       const row = mapEvents[findEvIndex(mapEvents, askWindow.eventType, askWindow.date)];
-      if (!row || !isForwardableRow(row, { todayStr: mapTodayStr, currentNightDate: auroraNight })) return;
+      if (!row) return;
+      const forwardable = isForwardableRow(row, { todayStr: mapTodayStr, currentNightDate: auroraNight });
+      const night = row.kind !== EVENT_KIND.SOLAR;
+      if (!night && !forwardable) return;
       setEventType(row.eventType);
       setUserHasOverriddenEvent(true);
-      setLocalNightDate(null);
-      if (row.date !== date) forwardedDateRef.current = row.date;
-      onSelectDate?.(row.date, { isNight: false });
+      if (forwardable) {
+        setLocalNightDate(null);
+        if (row.date !== date) forwardedDateRef.current = row.date;
+        // ⚠️ `isNight` is the ROW's kind, not a constant: `selectEvRow` and the aurora auto-jump both say a
+        // night's provenance, and `App.resolveMapDate` refuses a night passed as a solar date once it is past —
+        // which is every pick of the night in progress before nautical dawn, when `currentNightDate` is
+        // YESTERDAY (`docs/engineering/ask-night-plan.md` §2.1). The third `onSelectDate` site to need it.
+        onSelectDate?.(row.date, { isNight: night });
+      } else {
+        // A night `App` would refuse (beyond the forecast's own dates, or the one on screen once it has
+        // ended) is kept local, exactly as `selectEvRow` keeps it, so the fetches and the viewline gate land on it.
+        setLocalNightDate(row.date);
+      }
     })();
-    // The nonce IS the trigger (every other handoff effect here reasons the same way), and the pane
-    // being on screen is the other; the rest are read at the moment it fires.
+    // The nonce IS the trigger (every other handoff effect here reasons the same way), the pane
+    // being on screen is the other, and a night row's arrival the third; the rest are read at the
+    // moment it fires.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [askWindow?.nonce, paneVisible]);
+  }, [askWindow?.nonce, paneVisible, askRowFound]);
 
   /**
    * The peek sheet's "Other windows" button value (map-mobile-sheet-plan.md §3 M2 task 3) — a scan

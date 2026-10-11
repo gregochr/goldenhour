@@ -19,6 +19,8 @@ export const NOW = new Date('2026-10-05T09:00:00Z');
 export const WHITBY = 123;
 export const SALTBURN = 124;
 export const ROSEBERRY = 125;
+/** A dark-sky place that only the night payloads carry (it has no solar slot in the fixture briefing). */
+export const KIELDER = 130;
 
 /** The eclipse's lens-filter warning, as the server serves it on the event. */
 export const ECLIPSE_SAFETY_NOTE = 'Certified solar filter on the lens — not only over your eye';
@@ -258,6 +260,70 @@ export function cantResponse(over = {}) {
 /** `GET /api/user/settings/ask`. */
 export function settings(over = {}) {
   return { enabled: true, used: 0, limit: 3, left: 3, typedAvailable: true, ...over };
+}
+
+/**
+ * A night pick exactly as `POST /api/ask` serves one (`docs/engineering/ask-night-plan.md` §2.1): Ask's own
+ * window kind in `targetType` (`ASTRO` | `AURORA`, never a persisted `TargetType`), the `YYYY-MM-DD_astro`
+ * window id, the star at answer time and no verdict.
+ */
+export function nightPick(over = {}) {
+  return {
+    rank: 1,
+    locationId: KIELDER,
+    locationName: 'Kielder Observatory',
+    regionName: 'Northumberland & Tyneside',
+    date: '2026-10-05',
+    targetType: 'ASTRO',
+    windowId: '2026-10-05_astro',
+    why: 'Low cloud all night and Bortle 3 — the clearest sky on offer.',
+    ratingAtAnswer: 4,
+    verdictAtAnswer: null,
+    ...over,
+  };
+}
+
+/** One row of `GET /api/astro/conditions?date=` (`AstroConditionsDto`). 05 Oct is BST: 19:40Z is 20:40. */
+export function astroRow(over = {}) {
+  return {
+    locationId: KIELDER,
+    locationName: 'Kielder Observatory',
+    lat: 55.23,
+    lon: -2.58,
+    bortleClass: 3,
+    stars: 4,
+    summary: 'Clear and dark: low cloud, good visibility, little moon.',
+    cloudExplanation: 'Cloud cover 12% — clear for most of the night.',
+    visibilityExplanation: 'Visibility 30 km.',
+    moonExplanation: 'Moon 23%, set before midnight.',
+    forecastDate: '2026-10-05',
+    moonPhase: 'Waxing Crescent',
+    moonIlluminationPct: 23.4,
+    nightStart: '2026-10-05T19:40:00',
+    nightEnd: '2026-10-06T04:10:00',
+    ...over,
+  };
+}
+
+/** One row of `GET /api/aurora/forecast/results?date=` (`AuroraForecastResultDto`). */
+export function auroraRow(over = {}) {
+  return {
+    locationId: KIELDER,
+    locationName: 'Kielder Observatory',
+    lat: 55.23,
+    lon: -2.58,
+    bortleClass: 3,
+    stars: 3,
+    summary: 'Kp 6 forecast; dark horizon to the north.',
+    detail: null,
+    triaged: false,
+    triageReason: null,
+    alertLevel: 'MODERATE',
+    maxKp: 6,
+    nightStart: '2026-10-05T19:40:00',
+    nightEnd: '2026-10-06T04:10:00',
+    ...over,
+  };
 }
 
 /** A promise a test settles by hand — the late-response tests' hand-held request. */

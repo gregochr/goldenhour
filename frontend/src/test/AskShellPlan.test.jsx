@@ -12,7 +12,7 @@ import {
   MAP_PANE, matrixCtx, renderAskShell, TODAY,
 } from './askShellHarness.jsx';
 import {
-  NOW, ownResponse, pick, readyResponse, SALTBURN, settings,
+  astroRow, nightPick, NOW, ownResponse, pick, readyResponse, SALTBURN, settings,
 } from './askFixtures.js';
 
 /**
@@ -42,6 +42,11 @@ vi.mock('../api/askApi.js', async (importOriginal) => ({
   getAskSettings: vi.fn(),
 }));
 import { ask, getAskSettings, getReady } from '../api/askApi.js';
+vi.mock('../api/astroApi.js', async (importOriginal) => ({
+  ...(await importOriginal()),
+  getAstroConditions: vi.fn(),
+}));
+import { getAstroConditions } from '../api/astroApi.js';
 
 const TOMORROW = '2026-10-06';
 
@@ -333,6 +338,39 @@ describe('on the dock (1024px and up)', () => {
     expect(screen.queryByTestId('ask-plan')).toBeNull();
     expect(screen.getByTestId('ask-conversation')).toHaveAttribute('data-phase', 'empty');
     expect(highlighted()).toHaveLength(0);
+  });
+});
+
+describe('a NIGHT pick on the dock (docs/engineering/ask-night-plan.md §2.6)', () => {
+  const nightAnswer = () => ownResponse({ picks: [nightPick({ rank: 1 })], events: [], nightVersion: 'v1' });
+
+  it('highlights no Plan card — and throws nothing — because no card of the matrix is a night', async () => {
+    getAstroConditions.mockResolvedValue([astroRow()]);
+    renderAskShell({ width: 1280, ctx: planCtx() });
+    fireEvent.click(await screen.findByTestId('ask-field'));
+    await screen.findByTestId('ask-dock');
+    await askOne(nightAnswer());
+    await screen.findByTestId('wf-heat-strip');
+
+    fireEvent.click(screen.getByTestId('ask-pick-select-1'));
+
+    expect(screen.getByTestId('ask-pick-select-1')).toHaveAttribute('aria-current', 'true');
+    expect(highlighted()).toHaveLength(0);
+    expect(screen.queryByTestId('wf-heat-ask-rank')).toBeNull();
+  });
+
+  it('offers "Show on map ›" and "Plan this ›" on the card, and no "Open in Plan ›" in the plan view', async () => {
+    getAstroConditions.mockResolvedValue([astroRow()]);
+    renderAskShell({ width: 1280, ctx: planCtx(), props: { mapPane: MAP_PANE } });
+    fireEvent.click(await screen.findByTestId('ask-field'));
+    await screen.findByTestId('ask-dock');
+    await askOne(nightAnswer());
+
+    expect(screen.getByTestId('ask-show-on-map-1')).toBeInTheDocument();
+    await planThis(1);
+
+    expect(screen.getByTestId('ask-plan-name')).toHaveTextContent('Kielder Observatory');
+    expect(screen.queryByTestId('ask-plan-open')).toBeNull();
   });
 });
 
