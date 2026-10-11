@@ -7,6 +7,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [v2.26.1] - 2026-10-11
 
+### Docs — aurora heat: the design bundle, its port plan, and the viewline findings
+
+Vendors the owner's `PhotoCast Aurora Heat` design handoff at `docs/design/aurora-heat/` and
+adds `docs/engineering/aurora-heat-plan.md` (the port plan — six phases, A1–A6, with the spec's
+six stale claims about the code corrected, seven deliberate disagreements and the plan-time
+decisions recorded) and `docs/engineering/aurora-heat-prompts.md` (one kickoff prompt per phase
+for Sonnet sessions). `docs/engineering/aurora-viewline-investigation.md` holds Task 3's findings:
+the southern viewline is a geographic Kp→latitude table whose rows are NOAA's *geomagnetic*
+boundary figures (about 2° too far north over the UK), read with the Kp truncated to an integer,
+fed from the Kp frozen at the alert's first NOTIFY, and applied as a cap on the live OVATION line
+too — which is why it drew at 54°N through the 10 Oct 2026 G3 storm. The 10 Oct log
+reconstruction and nine owner questions are left open; no viewline code changes until they are
+answered.
+
 ### Added — a scheduled job keeps the astro conditions forecast fresh
 
 `astro_conditions` had no row in production since 2026-07-31: the only caller of `AstroConditionsService.evaluateAndPersist` was the hand-started synchronous engine, which the scheduled pipeline never reaches, so the night forecast was missing on almost every night. `AstroConditionsRefreshJob` (`astro_conditions_refresh`, seeded by V170, 15:30 UTC daily, runnable from the Scheduler screen's Run now) scores tonight and tomorrow night for every enabled location with a Bortle class. Before nautical dawn a manual run skips the night in progress, because the batch forecast starts at 00:00 UTC and would score it on its post-midnight hours alone, overwriting the complete row. Open-Meteo only, no Claude call; the run is recorded as a `WEATHER` job run. Rows are upserted per location and night and never deleted, so a place disabled after a run keeps its old row. A failed Open-Meteo fetch writes nothing and the run completes as zero scored, leaving the previous rows in place.
