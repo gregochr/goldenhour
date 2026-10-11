@@ -91,7 +91,9 @@ List<NightSpot>)`:
   and no `NIGHT_SKY` answer is ever written; its spots are those rows: `NightSpot(locationId, name, regionName, lat, lon,
   astroStars, astroSummary, cloudExplanation, visibilityExplanation, moonExplanation, moonPhase,
   moonIlluminationPct, bortleClass, skyBrightnessSqm)`; `nightStart/End` from the row
-  (`nauticalDuskUtc`/`nauticalDawnUtc`, the same `resolveNightWindow` the DTO uses).
+  (`nauticalDuskUtc`/`nauticalDawnUtc`, the same `resolveNightWindow` the DTO uses). The rows come
+  through the fetch-joined, enabled-and-Bortle-filtered query named above — the DTO path's
+  `findByForecastDate` is never used here (lazy location, background precompute).
 - `AURORA` night for date D exists when `aurora_forecast_result` holds non-simulated rows for D
   (`findByForecastDateAndSimulatedFalseFetchingLocation`); its spots carry `auroraStars`,
   `auroraSummary`, `triaged`/`triageReason`, `alertLevel`, `maxKp`, plus the location's Bortle and
@@ -176,8 +178,12 @@ stars / milky way / dark sky / "clear skies tonight" / Bortle — call `rank_nig
 skies tonight" is the astro cloud forecast, not the solar one; never claim an aurora is visible
 without an `auroraStars` figure for that place and night; when the result says aurora ratings are
 a Pro feature, say so in one clause; a night pick's `why` quotes the served clear-sky and Bortle
-facts.* `list_windows` gains the two night windows (kind, label "Tonight · astro", "Tomorrow night ·
-aurora") so the model can resolve "tonight". The fresh-question golden prompt files move once (a
+facts.* `list_windows` gains the night windows (kind, label "Tonight · astro", "Tomorrow night ·
+aurora") so the model can resolve "tonight" — ⚠️ **AURORA windows only when `canSeeAurora`**: an
+aurora window's existence is derived from `aurora_forecast_result`, whose endpoints (results and
+available dates) are PRO/ADMIN, so a LITE conversation (and the user-less Ready one) lists astro
+windows alone; `canSeeAurora` therefore reaches `list_windows` as well as `rank_night_spots`, the
+thread re-join and the validator. The fresh-question golden prompt files move once (a
 new tool + two windows) — regenerate and say so.
 
 ### §2.4 The validator and the picks
@@ -197,12 +203,15 @@ data (a re-run that drops a place's stars below 3 withholds the answer, as for s
 ### §2.5 The Ready question — `NIGHT_SKY`
 
 Freshness (serve-time, all-or-nothing like every Ready answer): the stored answer carries
-`astroEvaluatedAt` (the max `evaluated_at` over the night's astro rows at write time) and is
+`astroEvaluatedAt` (the max `AstroConditionsEntity.runTimestamp` — column `run_timestamp`; the
+table has no `evaluated_at` — over the night's astro rows at write time) and is
 withheld whole when the live max differs, when any pick's live astro star differs from the stored
 one, when a pick is no longer night-eligible (ASTRO ≥ 4), or when the night has passed (nautical
 dawn, `currentNightDate()` moved on). It never carries an aurora figure or state-cache prose.
 
-"Anything for the night sky tonight?" — offered when tonight has an ASTRO night in the snapshot;
+"Anything for the night sky tonight?" — offered only when tonight's ASTRO night holds at least one pick-eligible (≥ 4★) spot IN THE
+SCOPE being precomputed — not merely when astro rows exist, since every offered scope/question is a
+paid engine call and `ReadyRelevance` rejects a pick question with no pick afterwards;
 tabs: Map and Plan; relevance admits only night picks and the `AURORA` hot topic; computed user-less
 (astro only); withheld at serve when tonight's astro run is gone or any pick's stars moved.
 `KeywordAskIntentMatcher` learns its words (`night sky`, `stars`, `stargazing`, `milky way`,
@@ -220,7 +229,9 @@ the Plan tab or the dock can read, and nothing on the Map uses SWR. An aurora wi
 chips and the camera still fits (CLAUDE.md, unchanged); an astro window draws them. the card reads **`Tonight · 21:40–05:10 · Bortle 4`**, a `4★ sky` pill (astro) and,
 for PRO/ADMIN with a result, `aurora 3★` beside it; the `why` is the model's; the summary line the
 served astro summary. `pickLabel`/`meridiemOf` learn the night kinds (no AM/PM word). "Show on map"
-hands the night `windowId` to the Map, whose window control already selects astro/aurora rows;
+hands the night `windowId` to the Map, whose window control already selects astro/aurora rows
+(through the corrected handoff and the extended `askWindowOf` in §2.1 — `isNight` per row kind,
+the night id published as request context);
 "Plan this" shows the night window's start/end and the drive (`askPlan` extends `departureWithDay`
 for a night start). The multi-rank chip, the thread stack, the peek — unchanged. A pick whose night
 data the client does not hold (the Map has not fetched that night) is dropped, never half-drawn —
