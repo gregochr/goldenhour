@@ -47,7 +47,7 @@ facts PR; #815 is a measurement doc).
 
 ## §0 Status
 
-**Status: A1 #1097, A2 #1100, A3 #1101, A4 #1095 all merged and ✅ RELEASED in v2.26.2 (2026-10-11); A5 done 2026-10-11 (findings §5–§7); A6 in progress.** Phase log (every phase appends its own row in
+**Status: A1 #1097, A2 #1100, A3 #1101, A4 #1095 all merged and ✅ RELEASED in v2.26.2 (2026-10-11); A5 done 2026-10-11 (findings §5–§7); A6 BUILT 2026-10-11 (PR pending).** Phase log (every phase appends its own row in
 the same commit as its code; the `PR` column names the PR, not a SHA, because the repo
 squash-merges):
 
@@ -58,8 +58,8 @@ squash-merges):
 | A2 | aurora mode paints the field (points, confidence, pins, chips) | #1100 | built 2026-10-11 on `feature/aurora-heat-a2`; field points follow D1; the aurora `<Marker>` loop and `getRatingForLocation` untouched (Q1 still open) |
 | A3 | legend, toolbar key, peek-sheet swatch in aurora mode | pending | built 2026-10-11 on `feature/aurora-heat-a3`; `MapLegendPanel` `variant`/`viewlineShown` (one shared `viewlineShown` const in `MapView` for overlay and note); the toolbar ramp key was already done in A2; peek swatch keyed on `row.kind === EVENT_KIND.AURORA`; solar legend HTML pinned byte-identical |
 | A4 | best-location card dismiss | #1095 | independent — may run beside A1; `bestAuroraDismissedKey` = `nightDate\|name`; focus to the window pill, else the first other pane control |
-| A5 | viewline: 10 Oct reconstruction + owner answers | pending | done 2026-10-11 — findings §5 reconstructed from the host log, §6 nine decisions taken, §7 is now the A6 spec |
-| A6 | viewline fix | | after A5 |
+| A5 | viewline: 10 Oct reconstruction + owner answers | #1104 | done 2026-10-11 — findings §5 reconstructed from the host log, §6 nine decisions taken, §7 is now the A6 spec |
+| A6 | viewline fix | pending | built 2026-10-11 on `fix/aurora-viewline`; `AuroraViewlineRule` (dipole + 4° horizon allowance), the Kp cap machinery deleted, `/viewline/forecast` reads `maxKpRestOfTonight` per request, hook polls both and offers live-else-forecast, cream live / amber forecast with a `Forecast · Kp · time` label; southernmost is at the west end (Kp 6.67: 44.9°N at −12°, 46.5°N at −2°) |
 
 ---
 

@@ -778,6 +778,17 @@ describe('AuroraBanner', () => {
     expect(el.textContent).toContain('Visible as far south as northern England');
   });
 
+  it('asks the viewline hook for the live line only, so the forecast rule\'s line never reaches its sentence', () => {
+    renderBanner({
+      level: 'MODERATE',
+      hexColour: '#ff9900',
+      description: 'Amber alert',
+      active: true,
+      eligibleLocations: 3,
+    });
+    expect(useAuroraViewline).toHaveBeenCalledWith(true, { includeForecast: false });
+  });
+
   it('hides viewline when not active', () => {
     useAuroraViewline.mockReturnValue({
       viewline: { active: false, summary: 'No aurora' },

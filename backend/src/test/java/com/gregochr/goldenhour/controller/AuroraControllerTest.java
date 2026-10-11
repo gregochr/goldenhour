@@ -5,15 +5,19 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
 import com.gregochr.goldenhour.model.AuroraViewlineResponse;
 import com.gregochr.goldenhour.model.CurrentNight;
+import com.gregochr.goldenhour.model.KpForecast;
 import com.gregochr.goldenhour.model.KpReading;
 import com.gregochr.goldenhour.model.SolarWindReading;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
+import com.gregochr.goldenhour.service.aurora.AuroraViewlineRule;
+import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -21,6 +25,9 @@ import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -258,39 +265,26 @@ class AuroraControllerTest extends AbstractControllerTest {
     // -------------------------------------------------------------------------
 
     @Test
-    @DisplayName("GET /api/aurora/viewline resolves Kp from latest reading and returns capped viewline")
+    @DisplayName("GET /api/aurora/viewline serves the live contour as the client returns it, whatever the Kp")
     @WithMockUser(roles = {"ADMIN"})
-    void getViewline_usesLatestKpReading() throws Exception {
+    void getViewline_servesContourUnclamped() throws Exception {
         ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        // A published Kp of 6 used to clamp this to 54N; the controller no longer reads a Kp at all.
         when(noaaClient.fetchKp()).thenReturn(List.of(new KpReading(now, 6.0)));
         AuroraViewlineResponse viewline = new AuroraViewlineResponse(
-                List.of(), "Visible as far south as northern England",
-                54.0, now, true, false);
-        when(noaaClient.fetchViewline(6.0)).thenReturn(viewline);
+                List.of(new AuroraViewlineResponse.ViewlinePoint(0.0, 49.0)),
+                "Visible as far south as the whole UK", 49.0, now, true, false, null, now);
+        when(noaaClient.fetchViewline()).thenReturn(viewline);
 
         mockMvc.perform(get("/api/aurora/viewline"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.active").value(true))
-                .andExpect(jsonPath("$.southernmostLatitude").value(54.0))
-                .andExpect(jsonPath("$.summary").value("Visible as far south as northern England"));
-    }
-
-    @Test
-    @DisplayName("GET /api/aurora/viewline falls back to default Kp 4.0 when no data available")
-    @WithMockUser(roles = {"ADMIN"})
-    void getViewline_noKpData_usesDefault() throws Exception {
-        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
-        when(noaaClient.fetchKp()).thenReturn(List.of());
-        when(noaaClient.fetchKpForecast()).thenReturn(List.of());
-        AuroraViewlineResponse viewline = new AuroraViewlineResponse(
-                List.of(), "Visible as far south as northern Scotland",
-                58.0, now, true, false);
-        when(noaaClient.fetchViewline(4.0)).thenReturn(viewline);
-
-        mockMvc.perform(get("/api/aurora/viewline"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.active").value(true))
-                .andExpect(jsonPath("$.southernmostLatitude").value(58.0));
+                .andExpect(jsonPath("$.isForecast").value(false))
+                .andExpect(jsonPath("$.southernmostLatitude").value(49.0))
+                .andExpect(jsonPath("$.points[0].latitude").value(49.0))
+                .andExpect(jsonPath("$.kp").doesNotExist())
+                .andExpect(jsonPath("$.asOf").exists());
+        verify(noaaClient, never()).fetchKp();
     }
 
     @Test
@@ -306,35 +300,124 @@ class AuroraControllerTest extends AbstractControllerTest {
     // -------------------------------------------------------------------------
 
     @Test
-    @DisplayName("GET /api/aurora/viewline/forecast returns forecast viewline with isForecast=true")
+    @DisplayName("GET /api/aurora/viewline/forecast draws the rest-of-tonight Kp from NOAA's live forecast")
     @WithMockUser(roles = {"ADMIN"})
-    void getForecastViewline_withTriggerKp_returnsForecastViewline() throws Exception {
-        when(stateCache.getLastTriggerKp()).thenReturn(6.0);
-        AuroraViewlineResponse forecast = new AuroraViewlineResponse(
-                List.of(new AuroraViewlineResponse.ViewlinePoint(-12.0, 54.0),
-                        new AuroraViewlineResponse.ViewlinePoint(4.0, 54.0)),
-                "Visible as far south as northern England",
-                54.0, ZonedDateTime.now(ZoneOffset.UTC), true, true);
-        when(noaaClient.buildForecastViewline(6.0)).thenReturn(forecast);
+    void getForecastViewline_usesLiveRestOfTonightKp() throws Exception {
+        // A higher block that has already ended is in the product too: the Kp drawn is the service's
+        // rest-of-tonight figure, never the raw maximum of the list.
+        List<KpForecast> forecast = List.of(kpBlock(9.0), kpBlock(6.67));
+        when(noaaClient.fetchKpForecast()).thenReturn(forecast);
+        when(forecastRunService.maxKpRestOfCurrentNight(forecast)).thenReturn(6.67);
+        when(stateCache.getLastTriggerKp()).thenReturn(5.0);
+        stubForecastViewlineFromTheRule();
 
         mockMvc.perform(get("/api/aurora/viewline/forecast"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.isForecast").value(true))
                 .andExpect(jsonPath("$.active").value(true))
-                .andExpect(jsonPath("$.southernmostLatitude").value(54.0));
+                .andExpect(jsonPath("$.kp").value(6.67))
+                .andExpect(jsonPath("$.asOf").exists())
+                .andExpect(jsonPath("$.points.length()").value(17))
+                .andExpect(jsonPath("$.southernmostLatitude")
+                        .value(AuroraViewlineRule.line(6.67).get(0).latitude()));
+        verify(noaaClient, never()).buildForecastViewline(5.0);
     }
 
     @Test
-    @DisplayName("GET /api/aurora/viewline/forecast returns inactive when no trigger Kp")
+    @DisplayName("a forecast revised 5.67 to 7.0 moves the line with no NOTIFY and no change to the stored trigger Kp")
     @WithMockUser(roles = {"ADMIN"})
-    void getForecastViewline_noTriggerKp_returnsInactive() throws Exception {
+    void getForecastViewline_revisedForecast_movesLineWithoutNotify() throws Exception {
+        List<KpForecast> before = List.of(kpBlock(5.67));
+        List<KpForecast> after = List.of(kpBlock(7.0));
+        when(stateCache.getLastTriggerKp()).thenReturn(5.67);
+        when(forecastRunService.maxKpRestOfCurrentNight(before)).thenReturn(5.67);
+        when(forecastRunService.maxKpRestOfCurrentNight(after)).thenReturn(7.0);
+        stubForecastViewlineFromTheRule();
+
+        when(noaaClient.fetchKpForecast()).thenReturn(before);
+        double first = southernmostOf(mockMvc.perform(get("/api/aurora/viewline/forecast")).andReturn());
+        when(noaaClient.fetchKpForecast()).thenReturn(after);
+        double second = southernmostOf(mockMvc.perform(get("/api/aurora/viewline/forecast")).andReturn());
+
+        assertThat(second).isLessThan(first);
+        assertThat(second).isEqualTo(AuroraViewlineRule.line(7.0).get(0).latitude());
+        // The line was built for each request's own Kp, and the alert's stored trigger (5.67 throughout)
+        // was only ever read, never written: there was no NOTIFY.
+        verify(noaaClient).buildForecastViewline(5.67);
+        verify(noaaClient).buildForecastViewline(7.0);
+        verify(stateCache, never()).updateTrigger(any(), anyDouble());
+    }
+
+    @Test
+    @DisplayName("during an admin simulation the forecast line follows the simulated Kp, not NOAA's")
+    @WithMockUser(roles = {"ADMIN"})
+    void getForecastViewline_simulation_usesSimulatedKp() throws Exception {
+        when(stateCache.getSimulatedData())
+                .thenReturn(new AuroraStateCache.SimulatedNoaaData(8.0, 45.0, -12.0, "G4"));
+        when(stateCache.getLastTriggerKp()).thenReturn(8.0);
+        when(noaaClient.fetchKpForecast()).thenReturn(List.of(kpBlock(2.0)));
+        stubForecastViewlineFromTheRule();
+
+        mockMvc.perform(get("/api/aurora/viewline/forecast"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.kp").value(8.0));
+        verify(noaaClient, never()).fetchKpForecast();
+    }
+
+    @Test
+    @DisplayName("forecast viewline falls back to the alert's trigger Kp when NOAA's forecast is empty")
+    @WithMockUser(roles = {"ADMIN"})
+    void getForecastViewline_emptyForecast_fallsBackToTriggerKp() throws Exception {
+        when(noaaClient.fetchKpForecast()).thenReturn(List.of());
+        when(stateCache.getLastTriggerKp()).thenReturn(6.0);
+        stubForecastViewlineFromTheRule();
+
+        mockMvc.perform(get("/api/aurora/viewline/forecast"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.kp").value(6.0));
+    }
+
+    @Test
+    @DisplayName("forecast viewline falls back to the trigger Kp when the forecast read throws")
+    @WithMockUser(roles = {"ADMIN"})
+    void getForecastViewline_forecastThrows_fallsBackToTriggerKp() throws Exception {
+        when(noaaClient.fetchKpForecast()).thenThrow(new IllegalStateException("NOAA down"));
+        when(stateCache.getLastTriggerKp()).thenReturn(6.0);
+        stubForecastViewlineFromTheRule();
+
+        mockMvc.perform(get("/api/aurora/viewline/forecast"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.kp").value(6.0));
+    }
+
+    @Test
+    @DisplayName("forecast viewline falls back to the trigger Kp when nothing of tonight is forecast")
+    @WithMockUser(roles = {"ADMIN"})
+    void getForecastViewline_nothingTonight_fallsBackToTriggerKp() throws Exception {
+        List<KpForecast> forecast = List.of(kpBlock(3.0));
+        when(noaaClient.fetchKpForecast()).thenReturn(forecast);
+        when(forecastRunService.maxKpRestOfCurrentNight(forecast)).thenReturn(0.0);
+        when(stateCache.getLastTriggerKp()).thenReturn(6.0);
+        stubForecastViewlineFromTheRule();
+
+        mockMvc.perform(get("/api/aurora/viewline/forecast"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.kp").value(6.0));
+    }
+
+    @Test
+    @DisplayName("GET /api/aurora/viewline/forecast returns inactive when there is neither a forecast nor a trigger Kp")
+    @WithMockUser(roles = {"ADMIN"})
+    void getForecastViewline_noKpAnywhere_returnsInactive() throws Exception {
+        when(noaaClient.fetchKpForecast()).thenReturn(List.of());
         when(stateCache.getLastTriggerKp()).thenReturn(null);
 
         mockMvc.perform(get("/api/aurora/viewline/forecast"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.isForecast").value(true))
                 .andExpect(jsonPath("$.active").value(false))
-                .andExpect(jsonPath("$.summary").value("No forecast available"));
+                .andExpect(jsonPath("$.summary").value("No forecast available"))
+                .andExpect(jsonPath("$.kp").doesNotExist());
     }
 
     @Test
@@ -348,6 +431,29 @@ class AuroraControllerTest extends AbstractControllerTest {
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
+
+    /** A Kp forecast block covering the current hour, so a real-clock "rest of tonight" would see it. */
+    private static KpForecast kpBlock(double kp) {
+        ZonedDateTime from = ZonedDateTime.now(ZoneOffset.UTC).minusHours(1);
+        return new KpForecast(from, from.plusHours(3), kp);
+    }
+
+    /** Makes the mocked client answer {@code buildForecastViewline(kp)} with the real rule's line. */
+    private void stubForecastViewlineFromTheRule() {
+        when(noaaClient.buildForecastViewline(anyDouble())).thenAnswer(invocation -> {
+            double kp = invocation.getArgument(0);
+            List<AuroraViewlineResponse.ViewlinePoint> points = AuroraViewlineRule.line(kp);
+            ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+            return new AuroraViewlineResponse(points, "forecast",
+                    points.stream().mapToDouble(AuroraViewlineResponse.ViewlinePoint::latitude).min().orElse(90.0),
+                    now, true, true, kp, now);
+        });
+    }
+
+    private static double southernmostOf(MvcResult result) throws Exception {
+        Number value = JsonPath.read(result.getResponse().getContentAsString(), "$.southernmostLatitude");
+        return value.doubleValue();
+    }
 
     private AuroraForecastScore stubScore(int stars) {
         return stubScoreWithBortle(stars, 3);

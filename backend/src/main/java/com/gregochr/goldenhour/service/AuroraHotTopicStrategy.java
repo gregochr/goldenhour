@@ -51,6 +51,12 @@ public class AuroraHotTopicStrategy implements HotTopicStrategy {
     /** The italic "where to look" cue on the enriched aurora fact line. */
     private static final String AURORA_NOTE = "look due N, low";
 
+    /**
+     * Latitude (°N) of the UK's south coast: a glow line at or south of it covers the whole UK, so the
+     * fact says that rather than naming a latitude below the country.
+     */
+    private static final double UK_SOUTH_COAST_LATITUDE = 50.0;
+
     /** Minimum Kp forecast to emit a tomorrow-night topic. */
     private static final double TOMORROW_KP_THRESHOLD = 4.0;
 
@@ -222,7 +228,7 @@ public class AuroraHotTopicStrategy implements HotTopicStrategy {
         List<HotTopicFact> facts = new ArrayList<>();
         if (kp != null) {
             double cap = noaaSwpcClient.getGlowLatitudeCap(kp);
-            String value = cap > 0
+            String value = cap > UK_SOUTH_COAST_LATITUDE
                     ? String.format("Kp %.0f · glow reaches ~%.0f°N and north", kp, cap)
                     : String.format("Kp %.0f · glow across the whole UK", kp);
             facts.add(HotTopicFact.metric(null, value));

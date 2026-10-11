@@ -8,7 +8,7 @@ vi.mock('react-leaflet', () => ({
     <div data-testid="viewline-polygon" data-fill-color={pathOptions?.fillColor} data-fill-opacity={pathOptions?.fillOpacity} data-interactive={String(pathOptions?.interactive)} />
   ),
   Polyline: ({ pathOptions, children }) => (
-    <div data-testid="viewline-polyline" data-color={pathOptions?.color} data-dash-array={pathOptions?.dashArray} data-interactive={String(pathOptions?.interactive)}>
+    <div data-testid="viewline-polyline" data-color={pathOptions?.color} data-opacity={pathOptions?.opacity} data-dash-array={pathOptions?.dashArray} data-interactive={String(pathOptions?.interactive)}>
       {children}
     </div>
   ),
@@ -27,6 +27,8 @@ const activeViewline = {
   forecastTime: '2026-04-01T22:00:00Z',
   active: true,
   isForecast: false,
+  kp: null,
+  asOf: '2026-04-01T21:55:00Z',
 };
 
 const forecastViewline = {
@@ -39,6 +41,8 @@ const forecastViewline = {
   forecastTime: '2026-04-01T22:00:00Z',
   active: true,
   isForecast: true,
+  kp: 6.67,
+  asOf: '2026-07-01T18:40:00Z',
 };
 
 describe('AuroraViewlineOverlay', () => {
@@ -74,10 +78,11 @@ describe('AuroraViewlineOverlay', () => {
   // Live viewline (isForecast: false)
   // ---------------------------------------------------------------------------
 
-  it('live line uses aurora green colour', () => {
+  it('live line is solid pale cream, not green, at .85', () => {
     render(<AuroraViewlineOverlay viewline={activeViewline} />);
-    expect(screen.getByTestId('viewline-polygon')).toHaveAttribute('data-fill-color', '#33ff33');
-    expect(screen.getByTestId('viewline-polyline')).toHaveAttribute('data-color', '#33ff33');
+    expect(screen.getByTestId('viewline-polygon')).toHaveAttribute('data-fill-color', '#F2E7D3');
+    expect(screen.getByTestId('viewline-polyline')).toHaveAttribute('data-color', '#F2E7D3');
+    expect(screen.getByTestId('viewline-polyline')).toHaveAttribute('data-opacity', '0.85');
   });
 
   it('live line has no dash array (solid)', () => {
@@ -91,10 +96,19 @@ describe('AuroraViewlineOverlay', () => {
     expect(screen.getByTestId('viewline-polygon')).toHaveAttribute('data-fill-opacity', '0.08');
   });
 
-  it('live tooltip shows "Live aurora extent"', () => {
+  it('live label is "Live" and the UK clock time of the OVATION run — April is BST', () => {
     render(<AuroraViewlineOverlay viewline={activeViewline} />);
-    const tooltip = screen.getByTestId('viewline-tooltip');
-    expect(tooltip).toHaveTextContent('Live aurora extent');
+    expect(screen.getByTestId('viewline-tooltip')).toHaveTextContent(/^Live · 22:55$/);
+  });
+
+  it('live label has no Kp, even if one is present', () => {
+    render(<AuroraViewlineOverlay viewline={{ ...activeViewline, kp: 5 }} />);
+    expect(screen.getByTestId('viewline-tooltip')).toHaveTextContent(/^Live · 22:55$/);
+  });
+
+  it('live label is just "Live" when the response carries no asOf', () => {
+    render(<AuroraViewlineOverlay viewline={{ ...activeViewline, asOf: null }} />);
+    expect(screen.getByTestId('viewline-tooltip')).toHaveTextContent(/^Live$/);
   });
 
   // ---------------------------------------------------------------------------
@@ -118,28 +132,30 @@ describe('AuroraViewlineOverlay', () => {
     expect(screen.getByTestId('viewline-polygon')).toHaveAttribute('data-fill-opacity', '0.04');
   });
 
-  it('forecast tooltip shows "Forecast extent" with Kp when provided', () => {
-    render(<AuroraViewlineOverlay viewline={forecastViewline} forecastKp={6} />);
-    const tooltip = screen.getByTestId('viewline-tooltip');
-    expect(tooltip).toHaveTextContent('Forecast extent (Kp 6)');
+  it('forecast line is full opacity', () => {
+    render(<AuroraViewlineOverlay viewline={forecastViewline} />);
+    expect(screen.getByTestId('viewline-polyline')).toHaveAttribute('data-opacity', '1');
   });
 
-  it('forecast tooltip shows "Forecast extent" without Kp when not provided', () => {
+  it('forecast label is "Forecast · Kp 6.7 · 19:40" — Kp to one decimal, UK time (July is BST)', () => {
     render(<AuroraViewlineOverlay viewline={forecastViewline} />);
-    const tooltip = screen.getByTestId('viewline-tooltip');
-    expect(tooltip).toHaveTextContent('Forecast extent');
-    expect(tooltip).not.toHaveTextContent('Kp');
+    expect(screen.getByTestId('viewline-tooltip')).toHaveTextContent(/^Forecast · Kp 6\.7 · 19:40$/);
+  });
+
+  it('forecast label leaves out the Kp and the time when the response carries neither', () => {
+    render(<AuroraViewlineOverlay viewline={{ ...forecastViewline, kp: null, asOf: null }} />);
+    expect(screen.getByTestId('viewline-tooltip')).toHaveTextContent(/^Forecast$/);
   });
 
   // ---------------------------------------------------------------------------
   // Backwards compatibility (no isForecast field = live)
   // ---------------------------------------------------------------------------
 
-  it('treats missing isForecast as live (green, solid)', () => {
+  it('treats missing isForecast as live (cream, solid)', () => {
     const legacyViewline = { ...activeViewline };
     delete legacyViewline.isForecast;
     render(<AuroraViewlineOverlay viewline={legacyViewline} />);
-    expect(screen.getByTestId('viewline-polyline')).toHaveAttribute('data-color', '#33ff33');
+    expect(screen.getByTestId('viewline-polyline')).toHaveAttribute('data-color', '#F2E7D3');
     expect(screen.getByTestId('viewline-polyline').getAttribute('data-dash-array')).toBeNull();
   });
 });

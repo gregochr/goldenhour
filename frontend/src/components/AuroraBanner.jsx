@@ -178,7 +178,8 @@ function AuroraGlyph() {
 export default function AuroraBanner({ onViewOnMap = null }) {
   const { status } = useAuroraStatus();
   const viewlineEnabled = status != null && ALERT_WORTHY.has(status.level);
-  const { viewline } = useAuroraViewline(viewlineEnabled);
+  // Live only: the sentence below is about the OVATION nowcast, never the forecast rule's line.
+  const { viewline } = useAuroraViewline(viewlineEnabled, { includeForecast: false });
   const [dismissedLevel, setDismissedLevel] = useState(null);
 
   // Not eligible (free-tier, 403) or not yet loaded

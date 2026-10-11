@@ -165,7 +165,7 @@ class NoaaSwpcClientContractTest {
                 .andExpect(method(HttpMethod.GET))
                 .andRespond(withSuccess(fixture("ovation.json"), MediaType.APPLICATION_JSON));
 
-        assertThat(client.fetchViewline(6.0)).isNotNull();
+        assertThat(client.fetchViewline()).isNotNull();
         server.verify();
     }
 

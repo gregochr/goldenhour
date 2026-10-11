@@ -2094,11 +2094,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // notice describing a ramp they are not looking at.
   const showColourScaleNotice = colourScaleDefaulted && getMode() === 'temp'
     && !colourScaleNoticeDismissed;
-  // The Kp rides along because the forecast line is built from it: an escalation inside a
-  // forecast-triggered alert moves it without moving `viewlineEnabled` or the trigger, and without
-  // it the hook would go on offering the old Kp's line under an overlay label quoting the new one.
-  const { viewline } = useAuroraViewline(viewlineEnabled, auroraStatus?.triggerType, auroraStatus?.forecastKp);
-  // What the legend may say about the dashed line: the overlay is eligible AND its own test says it
+  // Always live, forecast as the fallback, never both: the hook asks both viewline endpoints and
+  // offers one line. It needs only whether to poll — the forecast endpoint reads NOAA's live forecast
+  // per request, so the alert's trigger and Kp are no longer its input.
+  const { viewline } = useAuroraViewline(viewlineEnabled);
+  // What the legend may say about the line: the overlay is eligible AND its own test says it
   // will draw (`viewlineDrawable`, shared with the overlay so the two cannot drift).
   const viewlineShown = viewlineEligible && viewlineDrawable(viewline);
   const [auroraScores, setAuroraScores] = useState({});
@@ -6054,7 +6054,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               case a raw `date` compare would have hidden the viewline on the night the reader had
               just picked. */}
           {viewlineEligible && (
-            <AuroraViewlineOverlay viewline={viewline} forecastKp={auroraStatus?.forecastKp} />
+            <AuroraViewlineOverlay viewline={viewline} />
           )}
 
           {/* Azimuth lines for the selected location. Overlay-only in Pins mode (map-tab-v2-

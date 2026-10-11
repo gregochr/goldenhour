@@ -16,8 +16,13 @@ import java.util.List;
  * @param forecastTime         OVATION model run timestamp
  * @param active               {@code true} when aurora probability above threshold exists
  *                             in the UK longitude range; {@code false} otherwise
- * @param isForecast           {@code true} when derived from the Kp-to-latitude cap table
- *                             (forecast trigger), {@code false} for live OVATION data
+ * @param isForecast           {@code true} when derived from the Kp rule
+ *                             ({@code AuroraViewlineRule}), {@code false} for live OVATION data
+ * @param kp                   the Kp the forecast line was drawn for; {@code null} for the live line
+ *                             and for an inactive response
+ * @param asOf                 when the line is true of: the OVATION run time for the live line, the
+ *                             moment the forecast line was built for the forecast one; {@code null}
+ *                             when inactive
  */
 public record AuroraViewlineResponse(
         List<ViewlinePoint> points,
@@ -25,11 +30,29 @@ public record AuroraViewlineResponse(
         double southernmostLatitude,
         ZonedDateTime forecastTime,
         boolean active,
-        boolean isForecast) {
+        boolean isForecast,
+        Double kp,
+        ZonedDateTime asOf) {
 
     /** Defensive copy. */
     public AuroraViewlineResponse {
         points = List.copyOf(points);
+    }
+
+    /**
+     * A response with no Kp and no as-of instant — the shape of every inactive answer.
+     *
+     * @param points               the polyline
+     * @param summary              the human-readable position
+     * @param southernmostLatitude the lowest latitude reached
+     * @param forecastTime         the OVATION model run timestamp
+     * @param active               whether there is a line to draw
+     * @param isForecast           whether the line is the Kp-rule forecast
+     */
+    public AuroraViewlineResponse(List<ViewlinePoint> points, String summary,
+            double southernmostLatitude, ZonedDateTime forecastTime, boolean active,
+            boolean isForecast) {
+        this(points, summary, southernmostLatitude, forecastTime, active, isForecast, null, null);
     }
 
     /**

@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.model.KpForecast;
 import com.gregochr.goldenhour.model.KpReading;
 import com.gregochr.goldenhour.model.OvationReading;
 import com.gregochr.goldenhour.model.SpaceWeatherAlert;
+import com.gregochr.goldenhour.service.aurora.AuroraViewlineRule;
 import com.gregochr.goldenhour.model.SolarWindReading;
 import com.gregochr.goldenhour.util.RestClientMocks;
 import org.junit.jupiter.api.BeforeEach;
@@ -733,199 +734,53 @@ class NoaaSwpcClientTest {
     }
 
     // -------------------------------------------------------------------------
-    // Kp latitude cap
+    // Glow latitude and the forecast viewline — both read AuroraViewlineRule. The Kp-to-latitude
+    // table and its applyKpCap_* / getGlowLatitudeCap_* pins are gone with the code: they pinned
+    // the defect (geomagnetic figures read as geographic, Kp truncated, the live line clamped).
     // -------------------------------------------------------------------------
 
     @Test
-    @DisplayName("getGlowLatitudeCap exposes the Kp→latitude table (Kp6→54, Kp<4→60, Kp≥10→0)")
-    void getGlowLatitudeCap_returnsCapTable() {
-        assertThat(client.getGlowLatitudeCap(6.0)).isEqualTo(54.0);
-        assertThat(client.getGlowLatitudeCap(3.0)).isEqualTo(60.0);
-        assertThat(client.getGlowLatitudeCap(10.0)).isEqualTo(0.0);
+    @DisplayName("getGlowLatitudeCap is the viewline rule at the UK centre longitude, continuous in Kp")
+    void getGlowLatitudeCap_isTheRuleAtMinusTwoDegrees() {
+        assertThat(client.getGlowLatitudeCap(6.67))
+                .isEqualTo(AuroraViewlineRule.geographicLatitudeFor(6.67, -2.0))
+                .isBetween(46.2, 47.2);
+        assertThat(client.getGlowLatitudeCap(6.0)).isGreaterThan(client.getGlowLatitudeCap(7.0));
     }
 
     @Test
-    @DisplayName("Kp 6 + OVATION 49°N → capped to 54°N (northern England)")
-    void applyKpCap_kp6_ovation49_cappedTo54() {
-        AuroraViewlineResponse raw = viewlineAt(49.0);
+    @DisplayName("buildForecastViewline Kp 6.67 is a 17-point curve, about 46.7N at -2 and further south to the west")
+    void buildForecastViewline_kp667_seventeenPointCurve() {
+        AuroraViewlineResponse result = client.buildForecastViewline(6.67);
 
-        AuroraViewlineResponse capped = client.applyKpCap(raw, 6.0);
-
-        assertThat(capped.southernmostLatitude()).isEqualTo(54.0);
-        assertThat(capped.summary()).contains("northern England");
-    }
-
-    @Test
-    @DisplayName("Kp 5 + OVATION 53°N → capped to 56°N (central Scotland)")
-    void applyKpCap_kp5_ovation53_cappedTo56() {
-        AuroraViewlineResponse raw = viewlineAt(53.0);
-
-        AuroraViewlineResponse capped = client.applyKpCap(raw, 5.0);
-
-        assertThat(capped.southernmostLatitude()).isEqualTo(56.0);
-        assertThat(capped.summary()).contains("central Scotland");
-    }
-
-    @Test
-    @DisplayName("Kp 8 + OVATION 51°N → OVATION wins (more conservative than 50°N cap)")
-    void applyKpCap_kp8_ovation51_ovationWins() {
-        AuroraViewlineResponse raw = viewlineAt(51.0);
-
-        AuroraViewlineResponse capped = client.applyKpCap(raw, 8.0);
-
-        assertThat(capped.southernmostLatitude()).isEqualTo(51.0);
-    }
-
-    @Test
-    @DisplayName("Kp 7 + OVATION 49°N → capped to 52°N (Midlands)")
-    void applyKpCap_kp7_ovation49_cappedTo52() {
-        AuroraViewlineResponse raw = viewlineAt(49.0);
-
-        AuroraViewlineResponse capped = client.applyKpCap(raw, 7.0);
-
-        assertThat(capped.southernmostLatitude()).isEqualTo(52.0);
-        assertThat(capped.summary()).contains("Midlands");
-    }
-
-    @Test
-    @DisplayName("Kp 4 + OVATION 55°N → capped to 58°N (northern Scotland)")
-    void applyKpCap_kp4_ovation55_cappedTo58() {
-        AuroraViewlineResponse raw = viewlineAt(55.0);
-
-        AuroraViewlineResponse capped = client.applyKpCap(raw, 4.0);
-
-        assertThat(capped.southernmostLatitude()).isEqualTo(58.0);
-        assertThat(capped.summary()).contains("northern Scotland");
-    }
-
-    @Test
-    @DisplayName("Fractional Kp 5.3 → uses Kp 5 cap of 56°N")
-    void applyKpCap_fractionalKp5point3_usesKp5Cap() {
-        assertThat(client.getKpLatitudeCap(5.3)).isEqualTo(56.0);
-
-        AuroraViewlineResponse raw = viewlineAt(50.0);
-        AuroraViewlineResponse capped = client.applyKpCap(raw, 5.3);
-
-        assertThat(capped.southernmostLatitude()).isEqualTo(56.0);
-    }
-
-    @Test
-    @DisplayName("Kp 9 → cap at 48°N allows 'whole of the UK'")
-    void applyKpCap_kp9_allowsWholeUk() {
-        assertThat(client.getKpLatitudeCap(9.0)).isEqualTo(48.0);
-
-        AuroraViewlineResponse raw = viewlineAt(49.0);
-        AuroraViewlineResponse capped = client.applyKpCap(raw, 9.0);
-
-        assertThat(capped.southernmostLatitude()).isEqualTo(49.0);
-        assertThat(capped.summary()).contains("whole of the UK");
-    }
-
-    @Test
-    @DisplayName("Viewline points are clamped to Kp cap latitude")
-    void applyKpCap_clampsIndividualPoints() {
-        List<ViewlinePoint> points = List.of(
-                new ViewlinePoint(-5, 49.0),
-                new ViewlinePoint(-3, 52.0),
-                new ViewlinePoint(0, 55.0),
-                new ViewlinePoint(2, 48.0));
-        AuroraViewlineResponse raw = new AuroraViewlineResponse(
-                points, "test", 48.0, ZonedDateTime.now(ZoneOffset.UTC), true, false);
-
-        AuroraViewlineResponse capped = client.applyKpCap(raw, 6.0);
-
-        assertThat(capped.points()).allSatisfy(
-                p -> assertThat(p.latitude()).isGreaterThanOrEqualTo(54.0));
-        assertThat(capped.points().get(2).latitude()).isEqualTo(55.0); // already above cap
-    }
-
-    @Test
-    @DisplayName("Banner consistency: Kp 6 cap produces 'northern England' summary")
-    void applyKpCap_kp6_summaryMatchesBannerHeadline() {
-        AuroraViewlineResponse raw = viewlineAt(49.0);
-
-        AuroraViewlineResponse capped = client.applyKpCap(raw, 6.0);
-
-        assertThat(capped.southernmostLatitude()).isEqualTo(54.0);
-        assertThat(capped.summary()).isEqualTo("Visible as far south as northern England");
-    }
-
-    @Test
-    @DisplayName("applyKpCap preserves isForecast as false (live OVATION data)")
-    void applyKpCap_preservesIsForecastFalse() {
-        AuroraViewlineResponse raw = viewlineAt(49.0);
-        assertThat(raw.isForecast()).isFalse();
-
-        AuroraViewlineResponse capped = client.applyKpCap(raw, 6.0);
-
-        assertThat(capped.isForecast()).isFalse();
-    }
-
-    // -------------------------------------------------------------------------
-    // buildForecastViewline
-    // -------------------------------------------------------------------------
-
-    @Test
-    @DisplayName("buildForecastViewline Kp 6 returns horizontal line at 54°N")
-    void buildForecastViewline_kp6_lineAt54() {
-        AuroraViewlineResponse result = client.buildForecastViewline(6.0);
-
-        assertThat(result.southernmostLatitude()).isEqualTo(54.0);
-        assertThat(result.points()).hasSize(2);
-        assertThat(result.points().get(0).latitude()).isEqualTo(54.0);
-        assertThat(result.points().get(1).latitude()).isEqualTo(54.0);
+        assertThat(result.points()).hasSize(17);
         assertThat(result.points().get(0).longitude()).isEqualTo(NoaaSwpcClient.VIEWLINE_LON_WEST);
-        assertThat(result.points().get(1).longitude()).isEqualTo(NoaaSwpcClient.VIEWLINE_LON_EAST);
+        assertThat(result.points().get(16).longitude()).isEqualTo(NoaaSwpcClient.VIEWLINE_LON_EAST);
+        assertThat(result.points().get(10).longitude()).isEqualTo(-2.0);
+        assertThat(result.points().get(10).latitude()).isBetween(46.2, 47.2);
+        assertThat(result.southernmostLatitude())
+                .isEqualTo(result.points().stream().mapToDouble(ViewlinePoint::latitude).min().orElseThrow());
+        assertThat(result.points().get(0).latitude()).isLessThan(result.points().get(16).latitude());
     }
 
     @Test
-    @DisplayName("buildForecastViewline Kp 5 returns horizontal line at 56°N")
-    void buildForecastViewline_kp5_lineAt56() {
-        AuroraViewlineResponse result = client.buildForecastViewline(5.0);
-
-        assertThat(result.southernmostLatitude()).isEqualTo(56.0);
-        assertThat(result.points()).hasSize(2);
-        assertThat(result.points().get(0).latitude()).isEqualTo(56.0);
-    }
-
-    @Test
-    @DisplayName("buildForecastViewline sets isForecast to true")
-    void buildForecastViewline_isForecastTrue() {
-        AuroraViewlineResponse result = client.buildForecastViewline(6.0);
+    @DisplayName("buildForecastViewline carries isForecast, the Kp it was drawn for and when")
+    void buildForecastViewline_carriesProvenance() {
+        AuroraViewlineResponse result = client.buildForecastViewline(6.67);
 
         assertThat(result.isForecast()).isTrue();
         assertThat(result.active()).isTrue();
+        assertThat(result.kp()).isEqualTo(6.67);
+        assertThat(result.asOf()).isEqualTo(clock.instant().atZone(ZoneOffset.UTC));
     }
 
     @Test
-    @DisplayName("buildForecastViewline summary matches latitude band")
+    @DisplayName("buildForecastViewline summary band follows the southernmost latitude")
     void buildForecastViewline_summaryMatchesLatitude() {
-        AuroraViewlineResponse result = client.buildForecastViewline(7.0);
-
-        assertThat(result.southernmostLatitude()).isEqualTo(52.0);
-        assertThat(result.summary()).contains("Midlands");
-    }
-
-    @Test
-    @DisplayName("buildForecastViewline Kp < 4 uses DEFAULT_KP_CAP (60°N)")
-    void buildForecastViewline_kpBelow4_usesDefaultCap() {
-        AuroraViewlineResponse result = client.buildForecastViewline(3.7);
-
-        assertThat(result.southernmostLatitude()).isEqualTo(NoaaSwpcClient.DEFAULT_KP_CAP);
-        assertThat(result.points()).hasSize(2);
-        assertThat(result.points().get(0).latitude()).isEqualTo(60.0);
-        assertThat(result.isForecast()).isTrue();
-    }
-
-    /** Creates a simple active viewline response with the given southernmost latitude. */
-    private AuroraViewlineResponse viewlineAt(double southernmostLat) {
-        List<ViewlinePoint> points = List.of(
-                new ViewlinePoint(-5, southernmostLat),
-                new ViewlinePoint(0, southernmostLat + 1),
-                new ViewlinePoint(3, southernmostLat + 2));
-        return new AuroraViewlineResponse(
-                points, client.viewlineSummary(southernmostLat),
-                southernmostLat, ZonedDateTime.now(ZoneOffset.UTC), true, false);
+        assertThat(client.buildForecastViewline(9.0).summary()).contains("whole of the UK");
+        AuroraViewlineResponse quiet = client.buildForecastViewline(0.0);
+        assertThat(quiet.summary()).isEqualTo(client.viewlineSummary(quiet.southernmostLatitude()));
+        assertThat(quiet.summary()).isNotEqualTo(client.buildForecastViewline(9.0).summary());
     }
 
     // -------------------------------------------------------------------------
@@ -1015,26 +870,41 @@ class NoaaSwpcClientTest {
     void fetchViewline_withinTtl_doesNotRefetch() {
         RestClientMocks.stubGet(restClient, String.class, viewlineJson());
 
-        client.fetchViewline(5.0);
+        client.fetchViewline();
         clock.advanceMinutes(4);
-        client.fetchViewline(5.0);
+        client.fetchViewline();
 
         verify(restClient, times(1)).get();
     }
 
     @Test
-    @DisplayName("fetchViewline re-applies the Kp cap on a cache hit — caching must not freeze the Kp clamp")
-    void fetchViewline_cacheHit_stillAppliesCurrentKp() {
-        RestClientMocks.stubGet(restClient, String.class, viewlineJson());
+    @DisplayName("fetchViewline serves the OVATION 5% contour unchanged: 49N stays 49N, on a fetch and on a cache hit")
+    void fetchViewline_neverClampsTheContour() {
+        RestClientMocks.stubGet(restClient, String.class, viewlineJsonFrom(49));
 
-        AuroraViewlineResponse lowKp = client.fetchViewline(1.0);
+        AuroraViewlineResponse fetched = client.fetchViewline();
         clock.advanceMinutes(1);
-        AuroraViewlineResponse highKp = client.fetchViewline(8.0);
+        AuroraViewlineResponse cached = client.fetchViewline();
 
-        // One download, but the clamp still tracks the Kp passed on each call.
         verify(restClient, times(1)).get();
-        assertThat(highKp.southernmostLatitude())
-                .isLessThan(lowKp.southernmostLatitude());
+        assertThat(fetched.southernmostLatitude()).isEqualTo(49.0);
+        assertThat(cached.southernmostLatitude()).isEqualTo(49.0);
+        assertThat(cached.points()).allSatisfy(p -> assertThat(p.latitude()).isEqualTo(49.0));
+        assertThat(cached.isForecast()).isFalse();
+        assertThat(cached.kp()).isNull();
+        assertThat(cached.asOf()).isEqualTo(ZonedDateTime.parse("2026-07-17T12:00:00Z"));
+    }
+
+    @Test
+    @DisplayName("fetchViewline keeps serving the unclamped contour when NOAA fails after a good fetch")
+    void fetchViewline_staleOnFailure_isUnclamped() {
+        RestClientMocks.stubGet(restClient, String.class, viewlineJsonFrom(49));
+        client.fetchViewline();
+
+        clock.advanceMinutes(6);
+        RestClientMocks.stubGetThrows(restClient, String.class, new RestClientException("NOAA down"));
+
+        assertThat(client.fetchViewline().southernmostLatitude()).isEqualTo(49.0);
     }
 
     @Test
@@ -1042,9 +912,9 @@ class NoaaSwpcClientTest {
     void fetchViewline_afterTtl_refetches() {
         RestClientMocks.stubGet(restClient, String.class, viewlineJson());
 
-        client.fetchViewline(5.0);
+        client.fetchViewline();
         clock.advanceMinutes(6);
-        client.fetchViewline(5.0);
+        client.fetchViewline();
 
         verify(restClient, times(2)).get();
     }
@@ -1053,12 +923,12 @@ class NoaaSwpcClientTest {
     @DisplayName("fetchViewline fails open — an outage keeps the overlay rather than blanking it")
     void fetchViewline_failureAfterSuccess_retainsStale() {
         RestClientMocks.stubGet(restClient, String.class, viewlineJson());
-        AuroraViewlineResponse fresh = client.fetchViewline(5.0);
+        AuroraViewlineResponse fresh = client.fetchViewline();
         assertThat(fresh.active()).isTrue();
 
         clock.advanceMinutes(6);
         RestClientMocks.stubGetThrows(restClient, String.class, new RestClientException("NOAA down"));
-        AuroraViewlineResponse stale = client.fetchViewline(5.0);
+        AuroraViewlineResponse stale = client.fetchViewline();
 
         assertThat(stale.active()).isTrue();
         assertThat(stale.southernmostLatitude()).isEqualTo(fresh.southernmostLatitude());
@@ -1069,7 +939,7 @@ class NoaaSwpcClientTest {
     void fetchViewline_failureWhenCold_returnsInactive() {
         RestClientMocks.stubGetThrows(restClient, String.class, new RestClientException("NOAA down"));
 
-        AuroraViewlineResponse response = client.fetchViewline(5.0);
+        AuroraViewlineResponse response = client.fetchViewline();
 
         assertThat(response.active()).isFalse();
         assertThat(response.summary()).isEqualTo("Aurora viewline unavailable");
@@ -1077,9 +947,14 @@ class NoaaSwpcClientTest {
 
     /** OVATION grid with a UK-longitude band well above the viewline threshold. */
     private static String viewlineJson() {
+        return viewlineJsonFrom(50);
+    }
+
+    /** OVATION grid whose 60% band starts at {@code southLat} for longitudes 0..3. */
+    private static String viewlineJsonFrom(int southLat) {
         StringBuilder coords = new StringBuilder();
         for (int lon = 0; lon <= 3; lon++) {
-            for (int lat = 50; lat <= 70; lat++) {
+            for (int lat = southLat; lat <= 70; lat++) {
                 if (coords.length() > 0) {
                     coords.append(',');
                 }
