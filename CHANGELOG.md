@@ -5,6 +5,83 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.26.4] - 2026-10-11
+
+### Fixed — the aurora viewline drew over North Yorkshire through a G3 storm seen from the south coast
+
+On the night of 10 October the map's aurora line sat at about 54°N while the storm was being photographed from
+the south coast. Four faults compounded. The forecast line came from a hard-coded table whose rows were NOAA's
+*geomagnetic* latitudes read as geographic, about 2° too far north over the UK. It truncated Kp to an integer
+(6.9 read as 6). It was drawn for the Kp stored when the alert fired, which only changed when the alert level
+escalated, so a revised forecast never moved it. And the same table clamped the live OVATION line as well, so it
+could only ever move the line north.
+
+The forecast line is now a rule, `AuroraViewlineRule`: NOAA's oval edge at 66 − 2×Kp geomagnetic latitude,
+converted to geographic latitude per longitude with a centred dipole, then 4° further south for what a camera
+sees low on the horizon. It is continuous in Kp, and it dips further south to the west (Kp 6.67 is about 46.5°N
+at 2°W). The forecast endpoint reads NOAA's Kp forecast on every request, with the poller's own rest-of-tonight
+figure, so the line follows NOAA's revisions without waiting for an alert to escalate; it falls back to the
+alert's Kp if the forecast is unavailable. The live line is the OVATION 5% contour, no longer clamped.
+
+The map now polls both lines and draws one: the live line when OVATION has one, else the forecast. Live is solid
+pale cream (the aurora field is green, so a green line disappeared on it), the forecast dashed amber. The line
+is labelled with its source, the forecast's Kp and the UK time ("Forecast · Kp 6.7 · 19:40", "Live · 22:40"), and
+the legend says what it means. Each served line is logged at INFO. The old Kp-to-latitude pins in
+`NoaaSwpcClientTest` are deleted with the table: they pinned the defect.
+
+### Changed — the aurora ramp's 3★ stop clears AA for the pin numeral
+
+White ink on the aurora ramp's 3★ teal (`#22867E`) was 4.39:1, just under WCAG AA's 4.5:1 for the 11px bold pin
+numeral. The stop is now `#1F7F78` (4.81:1), the same teal to the eye, with luminance still rising monotonically
+from 1★ to 5★. The legend bar and the Heat toggle swatch follow, since they read the same stops.
+
+### Added — Ask PhotoCast's Ready "Anything for the night sky tonight?" (N2 of the Ask night series)
+
+A new Ready question, `NIGHT_SKY`, answered ahead of time like the others and free to tap. It is offered
+for a scope (every region, and everywhere) only when tonight's astro night holds at least one 4-star
+spot in that scope, never merely because astro rows exist, so a scope with nothing to say costs no model
+call. It is astro only: a Ready answer is shared by every reader, so no aurora pick or figure is ever
+stored (the aurora hot-topic card, which every role already sees on the Plan tab, may sit beside the
+picks). The typed matcher learns its words conservatively: "tonight" plus the night sky, stars,
+stargazing, the Milky Way, dark skies or clear skies, with nothing left over but asking words. A
+question with no time, another night, a place, a drive word, "aurora" or "Bortle" still goes to the
+model.
+
+The answer rests on the night's astro run, so it carries a version (the night's date and the latest
+`run_timestamp`, kept in the stored answer's JSON, no migration) and is withheld whole when the astro job
+re-runs the night, when a pick's star moves or stops being eligible, or when the night has passed. The
+version is served on the Ready question as `nightVersion`, the same string a typed night answer carries,
+so a Ready-origin exchange resets the follow-up thread by the rule a typed one does.
+
+The 15:30 UTC astro job now dispatches a night-only Ready precompute after a run that scored at least
+one location-date, on a background executor with the precompute's own 5-minute deadline, so nothing it
+does can fail the run. Without it the 14:00 answer would be withheld from 15:30 until the 18:00 cycle
+rewrote it. `AskReadyPrecompute` takes an optional set of questions (every existing caller still runs
+all of them) and the job passes only `NIGHT_SKY`, so no other stored answer is touched and the cost
+after an astro run is at most regions + 1 Haiku conversations. A scheduled run counts against
+`photocast.ask.ready.max-cycles-per-day`; an administrator's "Run now" takes the on-demand route and
+does not.
+
+Also fixed on the way: the Ready freshness check's "every window has passed" rule asked only for solar
+windows, so a night window id would always have read as passed.
+
+### Docs — Ask's night tool: the real-API regression class, and the docs reconciled with what shipped (N4)
+
+Phase N4 of the Ask night series (`docs/engineering/ask-night-plan.md`). `AskNightRegressionTest` joins the
+thread class as a second real-API script (`prompt-regression` profile, excluded from the default run, assertions
+pending the owner's approval, written without an API key and not yet run). Over a two-night fixture with a
+canopy-only wood that must never be picked, it asks the owner's own question ("are there clear skies on the
+Durham coast tonight?"), the aurora question as a PRO asker and as a LITE asker, "is tomorrow night any good?",
+and "anything closer to home?" with a live and with a stale `nightVersion`, asserting invariants only (which kinds,
+which stars, which words must or must not appear, never wording).
+
+CLAUDE.md's night bullets (the astro schedule, the night tool, the client's night card) now agree with each other
+and with the code. The Roles note and the role-gating assessment say how an aurora rating is withheld from a LITE
+asker (one role test, handed to the tool, `list_windows`, the validator, the thread re-join and the Ready
+freshness re-check), the engine bullet counts six tools, the typed-cache and thread bullets name the night
+exceptions, and the API section lists `nightVersion` and the second thread-reset reason. The plan gains an "As built"
+note per phase and a reconciled not-built list; the Ready `NIGHT_SKY` question (N2) is still not built.
+
 ## [v2.26.3] - 2026-10-11
 
 ### Docs — the 10 Oct aurora viewline night reconstructed, and the fix decided
