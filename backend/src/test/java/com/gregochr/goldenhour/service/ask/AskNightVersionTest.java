@@ -62,8 +62,8 @@ class AskNightVersionTest {
     void liveAgainstItself() {
         AskSnapshot snapshot = snapshot(new AuroraState("MODERATE", 6.0));
 
-        assertThat(AskNightVersion.isLive(version(snapshot, true, TONIGHT, TOMORROW_NIGHT), snapshot)).isTrue();
-        assertThat(AskNightVersion.isLive(version(snapshot, false, TONIGHT), snapshot)).isTrue();
+        assertThat(AskNightVersion.isLive(version(snapshot, true, TONIGHT, TOMORROW_NIGHT), snapshot, true)).isTrue();
+        assertThat(AskNightVersion.isLive(version(snapshot, false, TONIGHT), snapshot, false)).isTrue();
     }
 
     @Test
@@ -81,9 +81,9 @@ class AskNightVersionTest {
         AskSnapshot quieter = snapshot(new AuroraState("QUIET", null));
         AskSnapshot gone = nightsOnly(new AuroraState("MODERATE", 6.0));
 
-        assertThat(AskNightVersion.isLive(version, refreshed)).isFalse();
-        assertThat(AskNightVersion.isLive(version, quieter)).isFalse();
-        assertThat(AskNightVersion.isLive(version, gone)).isFalse();
+        assertThat(AskNightVersion.isLive(version, refreshed, true)).isFalse();
+        assertThat(AskNightVersion.isLive(version, quieter, true)).isFalse();
+        assertThat(AskNightVersion.isLive(version, gone, true)).isFalse();
     }
 
     @Test
@@ -91,7 +91,27 @@ class AskNightVersionTest {
     void liteVersionIgnoresTheState() {
         String version = version(snapshot(new AuroraState("MODERATE", 6.0)), false, TONIGHT);
 
-        assertThat(AskNightVersion.isLive(version, snapshot(new AuroraState("QUIET", null)))).isTrue();
+        assertThat(AskNightVersion.isLive(version, snapshot(new AuroraState("QUIET", null)), false)).isTrue();
+    }
+
+    @Test
+    @DisplayName("the aurora segment of an echoed version is never compared for an asker without aurora access: "
+            + "appending ;a=STRONG cannot probe the alert state, and a downgraded user's old segment is ignored")
+    void auroraSegmentIsNotAnOracleForLite() {
+        AskSnapshot quiet = snapshot(new AuroraState("QUIET", null));
+        String forged = version(quiet, false, TONIGHT) + ";a=STRONG";
+        String matching = version(quiet, false, TONIGHT) + ";a=QUIET";
+        String proIssued = version(snapshot(new AuroraState("MODERATE", 6.0)), true, TONIGHT);
+
+        // Whatever the client claims, the answer is the same for a LITE asker: live, and so no reset to read.
+        assertThat(AskNightVersion.isLive(forged, quiet, false)).isTrue();
+        assertThat(AskNightVersion.isLive(matching, quiet, false)).isTrue();
+        assertThat(AskNightVersion.isLive(proIssued, quiet, false)).isTrue();
+        // A PRO asker's comparison does include it.
+        assertThat(AskNightVersion.isLive(forged, quiet, true)).isFalse();
+        assertThat(AskNightVersion.isLive(matching, quiet, true)).isTrue();
+        // The astro part is still compared for LITE, segment or not.
+        assertThat(AskNightVersion.isLive("n1;2026-10-05=1;a=STRONG", quiet, false)).isFalse();
     }
 
     @Test
@@ -108,7 +128,7 @@ class AskNightVersionTest {
         assertThat(AskNightVersion.wellFormed("n1;2026-13-45=-")).isFalse();
         assertThat(AskNightVersion.wellFormed("n1;2026-10-05=-;a=quiet")).isFalse();
         assertThat(AskNightVersion.wellFormed("n1;2026-10-05=-" + ";2026-10-06=1".repeat(30))).isFalse();
-        assertThat(AskNightVersion.isLive("n1;2026-13-45=-", snapshot)).isFalse();
-        assertThat(AskNightVersion.isLive(null, snapshot)).isFalse();
+        assertThat(AskNightVersion.isLive("n1;2026-13-45=-", snapshot, true)).isFalse();
+        assertThat(AskNightVersion.isLive(null, snapshot, true)).isFalse();
     }
 }

@@ -65,12 +65,15 @@ public record AskThread(List<ThreadExchange> exchanges) {
      * a verbatim night summary ("active, Kp 6", a clear-sky claim) does not. An exchange with no night
      * version is never stale by this rule.
      *
-     * @param live the live snapshot the versions are re-derived from
+     * @param live         the live snapshot the versions are re-derived from
+     * @param canSeeAurora whether the asker's role may see aurora figures: for one who may not, the aurora
+     *                     part of an echoed version is ignored ({@code AskNightVersion#isLive}), so the
+     *                     check cannot be used to probe the alert state
      * @return true when the thread must be dropped and the question answered fresh
      */
-    public boolean nightStaleAgainst(AskSnapshot live) {
+    public boolean nightStaleAgainst(AskSnapshot live, boolean canSeeAurora) {
         return exchanges.stream()
                 .filter(exchange -> exchange.nightVersion() != null)
-                .anyMatch(exchange -> !AskNightVersion.isLive(exchange.nightVersion(), live));
+                .anyMatch(exchange -> !AskNightVersion.isLive(exchange.nightVersion(), live, canSeeAurora));
     }
 }

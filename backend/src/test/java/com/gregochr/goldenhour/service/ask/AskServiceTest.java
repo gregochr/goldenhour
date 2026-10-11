@@ -1457,6 +1457,31 @@ class AskServiceTest {
     }
 
     @Test
+    @DisplayName("a LITE thread echoing an appended ;a=STRONG against a live QUIET learns nothing: no reset, no "
+            + "mention of the level in the response; the same echo from a PRO asker resets")
+    void auroraSegmentIsNoOracleForLite() {
+        withTonightsAstro(new AskSnapshot.AuroraState("QUIET", null));
+        properties.setLimitPro(100);
+        rebuild();
+        String forged = liveNightVersion() + ";a=STRONG";
+
+        AskResponse lite = submit(followUp("And later?", nightExchange(forged, false)));
+
+        assertThat(lite.threadReset()).isNull();
+        assertThat(lite.threadResetReason()).isNull();
+        assertThat(lite.nightVersion()).isNull();
+        assertThat(lite.toString()).doesNotContain("STRONG").doesNotContain("QUIET");
+        assertThat(engineOptions().thread().size()).isEqualTo(1);
+
+        org.mockito.Mockito.clearInvocations(engine);
+        role = UserRole.PRO_USER;
+        AskResponse pro = submit(followUp("And later?", nightExchange(forged, false)));
+
+        assertThat(pro.threadReset()).isTrue();
+        assertThat(pro.threadResetReason()).isEqualTo("night forecast updated");
+    }
+
+    @Test
     @DisplayName("when both the briefing and a night moved, the reason is the briefing's")
     void briefingReasonWins() {
         withTonightsAstro(null);

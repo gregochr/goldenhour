@@ -66,7 +66,18 @@ public record AskUserContext(Long userId, UserRole role, boolean hasDriveTimes, 
      * @return true when a user is present and holds the ADMIN or PRO_USER role
      */
     public boolean canSeeAurora() {
-        return hasUser() && (role == UserRole.ADMIN || role == UserRole.PRO_USER);
+        return hasUser() && mayViewAurora(role);
+    }
+
+    /**
+     * The role rule behind {@link #canSeeAurora}, for the places that hold a role and no context yet: ADMIN
+     * and PRO_USER, the roles {@code AuroraForecastController} serves to.
+     *
+     * @param role the account's role; may be null
+     * @return true when the role may see aurora figures
+     */
+    public static boolean mayViewAurora(UserRole role) {
+        return role == UserRole.ADMIN || role == UserRole.PRO_USER;
     }
 
     /**

@@ -132,9 +132,9 @@ class AskThreadContextNightTest {
         ThreadExchange readyOld = new ThreadExchange("q", "s", List.of(), List.of(), GENERATED_AT, true,
                 "n1;2026-10-05=1");
 
-        assertThat(new AskThread(List.of(plain, live)).nightStaleAgainst(snapshot)).isFalse();
-        assertThat(new AskThread(List.of(plain, old)).nightStaleAgainst(snapshot)).isTrue();
-        assertThat(new AskThread(List.of(live, readyOld)).nightStaleAgainst(snapshot)).isTrue();
-        assertThat(AskThread.EMPTY.nightStaleAgainst(snapshot)).isFalse();
+        assertThat(new AskThread(List.of(plain, live)).nightStaleAgainst(snapshot, true)).isFalse();
+        assertThat(new AskThread(List.of(plain, old)).nightStaleAgainst(snapshot, true)).isTrue();
+        assertThat(new AskThread(List.of(live, readyOld)).nightStaleAgainst(snapshot, true)).isTrue();
+        assertThat(AskThread.EMPTY.nightStaleAgainst(snapshot, true)).isFalse();
     }
 }

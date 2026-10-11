@@ -37,6 +37,7 @@ final class AskNightVersion {
     private static final String AURORA_SEGMENT = ";a=";
     private static final Pattern FORMAT = Pattern.compile(
             "n1(?:;\\d{4}-\\d{2}-\\d{2}=(?:\\d{1,19}|-))+(?:;a=(?:[A-Z]{1,12}|-))?");
+    private static final Pattern AURORA_PART = Pattern.compile(";a=(?:[A-Z]{1,12}|-)$");
     private static final Pattern DATE_PART = Pattern.compile(";(\\d{4}-\\d{2}-\\d{2})=");
 
     private AskNightVersion() {
@@ -64,12 +65,20 @@ final class AskNightVersion {
     /**
      * Whether an exchange's version is the live one.
      *
-     * @param version  the version the client echoed
-     * @param snapshot the live snapshot
+     * <p><b>The aurora part is compared only for an asker who may see aurora.</b> Whether the live aurora
+     * level takes part would otherwise be decided by the {@code ;a=} segment the client sends, and a LITE
+     * caller could append {@code ;a=STRONG} to its own version and watch whether the thread resets, learning
+     * a PRO/ADMIN-only alert level. For an asker without aurora access the segment is therefore IGNORED: it is
+     * never compared, so it can reveal nothing. It is ignored rather than refused, so that a user downgraded
+     * mid-thread, whose earlier version carries one, is not turned away.
+     *
+     * @param version      the version the client echoed
+     * @param snapshot     the live snapshot
+     * @param canSeeAurora whether the asker's role may see aurora figures
      * @return true when the version is in the server's format and re-deriving it from the live snapshot,
-     *         for the same nights and the same aurora part, gives the identical string
+     *         for the same nights and (for such an asker) the same aurora part, gives the identical string
      */
-    static boolean isLive(String version, AskSnapshot snapshot) {
+    static boolean isLive(String version, AskSnapshot snapshot, boolean canSeeAurora) {
         if (!wellFormed(version)) {
             return false;
         }
@@ -78,7 +87,9 @@ final class AskNightVersion {
         while (matcher.find()) {
             dates.add(LocalDate.parse(matcher.group(1)));
         }
-        return compose(snapshot, dates, version.contains(AURORA_SEGMENT)).equals(version);
+        boolean aurora = canSeeAurora && version.contains(AURORA_SEGMENT);
+        String comparable = canSeeAurora ? version : AURORA_PART.matcher(version).replaceFirst("");
+        return compose(snapshot, dates, aurora).equals(comparable);
     }
 
     /**

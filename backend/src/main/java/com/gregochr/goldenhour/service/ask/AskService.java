@@ -246,7 +246,8 @@ public class AskService {
         // so does any exchange, typed or Ready, whose night version is no longer the live one.
         String resetReason = validated.thread().staleAgainst(snapshot.generatedAt())
                 ? AskResponse.THREAD_RESET_REASON
-                : validated.thread().nightStaleAgainst(snapshot) ? AskResponse.NIGHT_THREAD_RESET_REASON : null;
+                : validated.thread().nightStaleAgainst(snapshot, AskUserContext.mayViewAurora(user.getRole()))
+                        ? AskResponse.NIGHT_THREAD_RESET_REASON : null;
         AskThread thread = resetReason != null ? AskThread.EMPTY : validated.thread();
         Carry carry = new Carry(thread.size(), resetReason);
         AskUserContext context = new AskUserContext(userId, user.getRole(),
@@ -397,7 +398,7 @@ public class AskService {
      */
     private static AskQuestion withWindow(AskQuestion question, AskSnapshot snapshot, UserRole role) {
         String id = question.windowId();
-        boolean canSeeAurora = role == UserRole.ADMIN || role == UserRole.PRO_USER;
+        boolean canSeeAurora = AskUserContext.mayViewAurora(role);
         boolean known = id != null && (snapshot.window(id).isPresent()
                 || snapshot.nights().night(id).filter(n -> n.kind() != AskWindowKind.AURORA || canSeeAurora)
                         .isPresent());
