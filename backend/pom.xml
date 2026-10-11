@@ -750,6 +750,7 @@
                         <param>com.gregochr.goldenhour.service.evaluation.PromptRegressionTest</param>
                         <param>com.gregochr.goldenhour.service.ask.AskPromptRegressionTest</param>
                         <param>com.gregochr.goldenhour.service.ask.AskThreadRegressionTest</param>
+                        <param>com.gregochr.goldenhour.service.ask.AskNightRegressionTest</param>
                         <param>com.gregochr.goldenhour.eval.SkyRatingEvalTest</param>
                         <param>com.gregochr.goldenhour.service.evaluation.SystemPromptTokenCountTest</param>
                     </excludedTestClasses>
