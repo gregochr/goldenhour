@@ -437,7 +437,15 @@ public class AskTools {
     public AskToolResult<ListWindowsResult> listWindows() {
         List<WindowInfo> windows = new ArrayList<>(snapshot.windows().stream().map(this::windowInfo).toList());
         windows.addAll(nightWindowInfos());
-        return finish("list_windows", new ListWindowsResult(windows), () -> { });
+        // An aurora row exists only for an asker who may see aurora: an answer built from it is role-bound, so
+        // it is never stored (as rank_night_spots'). Astro rows alone are public and leave it cacheable.
+        boolean auroraListed = windows.stream()
+                .anyMatch(w -> AskWindowKind.AURORA.name().equalsIgnoreCase(w.event()));
+        return finish("list_windows", new ListWindowsResult(windows), () -> {
+            if (auroraListed) {
+                uncacheable = true;
+            }
+        });
     }
 
     /**
@@ -445,8 +453,9 @@ public class AskTools {
      * astro window when it holds a place in scope, and the aurora window likewise <em>only for an asker
      * who may see aurora figures</em>. An aurora window's existence is derived from the aurora results,
      * whose endpoints are PRO/ADMIN, so a LITE conversation (and the user-less Ready one) lists astro
-     * windows alone. {@code bestRating} is the best figure among the in-scope places, a max of served
-     * ratings; a night has no verdict word.
+     * windows alone. A night row carries its id, day word, kind and start time and <em>no figure</em> (no
+     * {@code bestRating}, no verdict): the figures come only from {@code rank_night_spots}, which is
+     * uncacheable, so prose built from this list cannot carry an aurora star into the shared cache.
      */
     private List<WindowInfo> nightWindowInfos() {
         boolean canSeeAurora = user.canSeeAurora();
@@ -455,16 +464,12 @@ public class AskTools {
             if (night.kind() == AskWindowKind.AURORA && !canSeeAurora) {
                 continue;
             }
-            Integer best = night.spots().stream()
-                    .filter(s -> scope.contains(s.regionName()))
-                    .map(s -> AskSnapshot.nightRating(night.kind(), s))
-                    .filter(Objects::nonNull)
-                    .max(Comparator.naturalOrder())
-                    .orElse(null);
-            if (best != null) {
+            boolean hasPlace = night.spots().stream().anyMatch(s -> scope.contains(s.regionName())
+                    && AskSnapshot.nightRating(night.kind(), s) != null);
+            if (hasPlace) {
                 infos.add(new WindowInfo(night.id(), nightWord(night.date()),
                         night.kind().name().toLowerCase(Locale.ROOT), AskClock.londonHHmm(night.start()), null,
-                        best, null, null));
+                        null, null, null));
             }
         }
         return infos;

@@ -302,6 +302,20 @@ final class AskThreadContext {
         if (night.kind() == AskWindowKind.ASTRO && spot.cloudExplanation() != null) {
             line.append(" · ").append(AskTools.cap(spot.cloudExplanation(), AskTools.CLEAR_SKY_CAP));
         }
+        if (night.kind() == AskWindowKind.AURORA && canSeeAurora) {
+            // The CURRENT aurora facts, so "what Kp was that?" or "why is the aurora good there?" can be answered
+            // without another ranking call. Only for an asker who may see aurora: the hidden branch above has
+            // already reported an aurora pick as gone for anyone else, and this repeats the gate.
+            if (spot.alertLevel() != null) {
+                line.append(" · alert ").append(spot.alertLevel().toLowerCase(Locale.ROOT));
+            }
+            if (spot.maxKp() != null) {
+                line.append(String.format(Locale.ROOT, " · max Kp %.1f", spot.maxKp()));
+            }
+            if (spot.auroraSummary() != null) {
+                line.append(" · ").append(AskTools.cap(spot.auroraSummary(), AskTools.NIGHT_SUMMARY_CAP));
+            }
+        }
         Integer drive = tools.driveMinutesOf(ref.locationId());
         if (drive != null) {
             line.append(" · ").append(drive).append(" min from home");

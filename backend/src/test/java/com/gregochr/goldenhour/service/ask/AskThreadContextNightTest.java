@@ -113,7 +113,10 @@ class AskThreadContextNightTest {
         AskThreadContext lite = context(snapshot(), AskScope.ALL, false, exchange);
 
         assertThat(pro.fact().picks()).containsExactly(new AskEvidence.Pair(1L, AURORA));
-        assertThat(pro.exchanges().getFirst().pickLines().getFirst()).contains("tonight aurora").contains("4★");
+        assertThat(pro.exchanges().getFirst().pickLines().getFirst()).contains("tonight aurora").contains("4★")
+                .contains("alert moderate").contains("max Kp 6.0").contains("Aurora summary 4");
+        assertThat(lite.exchanges().getFirst().pickLines().getFirst()).doesNotContain("Kp")
+                .doesNotContain("alert").doesNotContain("Aurora summary");
         assertThat(lite.fact().picks()).isEmpty();
         assertThat(lite.fact().droppedPicks()).containsExactly(new AskEvidence.Pair(1L, AURORA));
         assertThat(lite.exchanges().getFirst().pickLines().getFirst())

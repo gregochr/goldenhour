@@ -394,7 +394,7 @@ class AskNightToolsTest {
         AskTools ok = tools(snapshot, PRO);
         AskTools badArgument = tools(snapshot, PRO);
         AskTools noNights = tools(AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of())), PRO);
-        AskTools untouched = tools(snapshot, PRO);
+        AskTools untouched = tools(snapshot, LITE);
 
         ok.rankNightSpots(args(null, null));
         badArgument.rankNightSpots(args(null, "meteors"));
@@ -443,9 +443,37 @@ class AskNightToolsTest {
         assertThat(tonightAstro.day()).isEqualTo("Tonight");
         assertThat(tonightAstro.event()).isEqualTo("astro");
         assertThat(tonightAstro.time()).isEqualTo("19:30");
-        assertThat(tonightAstro.bestRating()).isEqualTo(4);
         assertThat(tonightAstro.verdict()).isNull();
         assertThat(pro.getLast().day()).isEqualTo("Tomorrow night");
+        // A night row carries no figure, aurora or astro: the stars come only from the uncacheable night tool.
+        assertThat(pro).allSatisfy(w -> assertThat(w.bestRating()).isNull());
+        assertThat(lite).allSatisfy(w -> assertThat(w.bestRating()).isNull());
+    }
+
+    @Test
+    @DisplayName("a list_windows that returns an aurora row makes the conversation uncacheable (PRO and ADMIN); "
+            + "LITE, the user-less conversation and an astro-only list stay cacheable")
+    void listWindows_auroraRowMakesTheConversationUncacheable() {
+        AskSnapshot withAurora = nightsOnly(null, astroNight(TONIGHT, astro(1L, "W", "Coast", 4, 3)),
+                auroraNight(TONIGHT, aurora(1L, "W", "Coast", 4, 3, 3)));
+        AskSnapshot astroOnly = nightsOnly(null, astroNight(TONIGHT, astro(1L, "W", "Coast", 4, 3)));
+        AskTools pro = tools(withAurora, PRO);
+        AskTools admin = tools(withAurora, ADMIN);
+        AskTools lite = tools(withAurora, LITE);
+        AskTools userLess = tools(withAurora, AskUserContext.userLess());
+        AskTools proAstroOnly = tools(astroOnly, PRO);
+        AskTools proNoNights = tools(AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of())), PRO);
+
+        for (AskTools t : List.of(pro, admin, lite, userLess, proAstroOnly, proNoNights)) {
+            t.listWindows();
+        }
+
+        assertThat(pro.uncacheable()).isTrue();
+        assertThat(admin.uncacheable()).isTrue();
+        assertThat(lite.uncacheable()).isFalse();
+        assertThat(userLess.uncacheable()).isFalse();
+        assertThat(proAstroOnly.uncacheable()).isFalse();
+        assertThat(proNoNights.uncacheable()).isFalse();
     }
 
     @Test
