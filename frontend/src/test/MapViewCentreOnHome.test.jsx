@@ -413,7 +413,7 @@ describe('centre on home — ⌂ resets scope to My area and refits (map-tab-v2-
 /**
  * PR #740 review (a confirmed Codex finding): `HeatBoundsController` — the SOLE reader of
  * `jumpFitOverride`/`heatArea`/`heatFitNonce` — used to be gated on `heatOffered`
- * (`Boolean(heat?.enabled) && !isAuroraMode`), which is false for the whole time an aurora window is
+ * (`Boolean(heat?.enabled) && !isAuroraMode` at the time), which was false for the whole time an aurora window is
  * active. `RegionsJump` and `⌂` are mounted regardless of aurora mode, so a jump or a `⌂` press
  * during one wrote state nothing was mounted to act on — a completed-looking press (the menu closed,
  * or Settings did not open) that silently moved nothing. Fixed by mounting the controller on
@@ -426,8 +426,8 @@ describe('centre on home — the camera controller stays mounted through aurora 
   it('⌂ still resets scope and refits during an aurora window', async () => {
     auroraStatus = { active: true, level: 'QUIET' };
     await renderHeatMap({ homeCoords: HOME, heat: heatProp(), handoffEventType: 'AURORA' });
-    // Sanity: genuinely in aurora mode, not merely passing the prop.
-    expect(screen.queryByTestId('wf-map-toolbar')).toBeNull();
+    // (The toolbar's absence used to be this test's proxy for "in aurora mode"; aurora heat A2
+    // offers the toolbar there, so the proxy is gone. The handoff prop is the premise.)
     openFilters();
     fireEvent.click(screen.getByRole('button', { name: 'Everywhere' }));
     mapStub.fitBounds.mockClear();
@@ -441,7 +441,6 @@ describe('centre on home — the camera controller stays mounted through aurora 
   it('selecting a jump row still fits the map during an aurora window', async () => {
     auroraStatus = { active: true, level: 'QUIET' };
     await renderHeatMap({ homeCoords: HOME, heat: heatProp(), handoffEventType: 'AURORA' });
-    expect(screen.queryByTestId('wf-map-toolbar')).toBeNull();
     mapStub.fitBounds.mockClear();
 
     fireEvent.click(screen.getByTestId('wf-jump-chip'));
@@ -459,7 +458,7 @@ describe('centre on home — the camera controller stays mounted through aurora 
     // WITHOUT firing (the "MapContainer already opened here" race it exists to avoid) — so a jump
     // made while the controller did not exist would have been silently adopted as "already applied"
     // the moment it reappeared, rather than replayed. With the controller mounted throughout
-    // (`!overlayMode`, never `heatOffered`), it never unmounts on an aurora↔solar switch, so there is
+    // (`!overlayMode`, never `heatOffered`, which excluded aurora when this was written), it never unmounts on an aurora↔solar switch, so there is
     // no remount to lose the pending fit to — asserted here by proving the fit actually happens.
     //
     // The switch itself goes through a fresh `handoffEventType` rather than `WindowControl` — this
@@ -469,7 +468,6 @@ describe('centre on home — the camera controller stays mounted through aurora 
     // `isAuroraMode`/`heatOffered` transition.
     auroraStatus = { active: true, level: 'QUIET' };
     const { rerender } = await renderHeatMap({ homeCoords: HOME, heat: heatProp(), handoffEventType: 'AURORA' });
-    expect(screen.queryByTestId('wf-map-toolbar')).toBeNull();
 
     fireEvent.click(screen.getByTestId('wf-jump-chip'));
     fireEvent.click(screen.getAllByTestId('wf-jump-row').find((r) => r.textContent.includes('The Borders')));

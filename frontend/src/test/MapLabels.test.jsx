@@ -382,6 +382,36 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
     expect(square.style.background).toBe(probe.style.background);
   });
 
+  it('omitUnrated gives an unrated spot no chip, and by default it keeps one', async () => {
+    restoreMeasure = withMeasuredLabels(50, 14);
+    currentMap = makeFullMap({ zoom: 13 });
+    const spots = [...SPOTS, {
+      name: 'Zzz Unrated', lat: 55.0, lng: -1.0, rid: 'North East', rating: null,
+    }];
+    const { unmount } = await mount({ spots, omitUnrated: true });
+    await act(async () => { runFrames(); });
+    const has = () => [...document.querySelectorAll('[data-testid="map-label-chip"]')]
+      .some((el) => el.textContent.includes('Zzz Unrated'));
+    expect(has()).toBe(false);
+    unmount();
+    await mount({ spots });
+    await act(async () => { runFrames(); });
+    expect(has()).toBe(true);
+  });
+
+  it('takes its swatch from an injected rampHex (aurora), leaving the numeral and name alone', async () => {
+    restoreMeasure = withMeasuredLabels(50, 14);
+    currentMap = makeFullMap({ zoom: 13 });
+    await mount({ rampHex: () => '#76ffa0' });
+    await act(async () => { runFrames(); });
+    const chip = [...document.querySelectorAll('[data-testid="map-label-chip"]')]
+      .find((el) => el.textContent.includes('Bamburgh'));
+    const probe = document.createElement('div');
+    probe.style.background = '#76ffa0';
+    expect(chip.querySelector('.wf-maplab-chip-m').style.background).toBe(probe.style.background);
+    expect(chip).toHaveAttribute('aria-label', 'Bamburgh, 5 star');
+  });
+
   it('carries a real accessible name — the text equivalent for the aria-hidden canvas beneath it (map-tab-v2-plan.md §3 P12)', async () => {
     // The heat/pins canvas is `aria-hidden` (`MapHeatLayer.test.jsx`'s own pin); a location chip is
     // this layer's own interactive surface, and its `aria-label` — not merely visible text inside
