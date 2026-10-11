@@ -6606,6 +6606,19 @@ button.wf-hc.also.on:hover {
   border-radius: 999px;
   border: 1px solid rgba(0, 0, 0, 0.3);
 }
+.wf-legend-ramp-label {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  color: var(--color-plex-text-secondary);
+  margin-bottom: 4px;
+}
+/* Aurora variant (aurora-heat-plan.md §3 A3): the gradient is an inline background from
+   `AURORA_RAMP.gradientCss()`, exactly as the solar bar's is from `rampGradientCss()`; only the
+   aurora glow lives here. */
+.wf-legend-ramp-aurora {
+  box-shadow: 0 0 10px rgba(118, 255, 160, 0.25);
+}
 .wf-legend-ramp-row {
   display: flex;
   align-items: center;

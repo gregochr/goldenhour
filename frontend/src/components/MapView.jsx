@@ -1976,6 +1976,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const liveAuroraOnScreen = nightDate === auroraNight;
   const viewlineEnabled = role !== 'LITE_USER' && auroraStatus != null
     && ALERT_WORTHY_LEVELS.has(auroraStatus.level);
+  // The ONE condition for the viewline overlay: the overlay mount and the legend note that
+  // describes it both read it, so the note can never name a line that is not drawn (A3).
+  const viewlineShown = viewlineEnabled && eventType === 'AURORA' && liveAuroraOnScreen;
   const [viewlineUpsellDismissed, setViewlineUpsellDismissed] = useState(false);
   const showViewlineUpsell = role === 'LITE_USER' && !viewlineUpsellDismissed
     && auroraStatus != null && ALERT_WORTHY_LEVELS.has(auroraStatus.level);
@@ -6015,7 +6018,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               when the EV-ownership rule kept the row local (`localNightDate`), and in exactly that
               case a raw `date` compare would have hidden the viewline on the night the reader had
               just picked. */}
-          {viewlineEnabled && eventType === 'AURORA' && liveAuroraOnScreen && (
+          {viewlineShown && (
             <AuroraViewlineOverlay viewline={viewline} forecastKp={auroraStatus?.forecastKp} />
           )}
 
@@ -6821,10 +6824,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                     </button>
                   </div>
                 )}
-                {/* A3 adds the aurora variant of the legend panel (aurora-heat-plan.md §3 A3). Until
-                    then the solar legend must not describe the aurora field, so aurora is named
-                    out HERE and nowhere else (2026-10-11, A2) — never on `heatOffered`. */}
-                {heatOffered && heatView === 'heat' && !isMobile && !isAuroraMode && (
+                {heatOffered && heatView === 'heat' && !isMobile && (
                   <MapLegendPanel
                     open={openMapMenu === 'legend'}
                     onOpenChange={(next) => setOpenMapMenu(next ? 'legend' : null)}
@@ -6833,6 +6833,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                     onToggleRings={() => setRingsEnabled((v) => !v)}
                     hasHome={hasHomeCoords}
                     reachMeasured={mapReachMeasured}
+                    variant={isAuroraMode ? 'aurora' : 'solar'}
+                    viewlineShown={viewlineShown}
                   />
                 )}
                 {!isMobile && (

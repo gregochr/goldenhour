@@ -132,7 +132,8 @@ vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn().mockRes
 vi.mock('../components/BottomSheet.jsx', () => ({ default: ({ children }) => <div>{children}</div> }));
 vi.mock('../components/MarkerPopupContent.jsx', () => ({ default: () => <div /> }));
 vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
-vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null }));
+// Marker only: a test can ask whether the overlay is MOUNTED (the legend's `viewlineShown` tracks it).
+vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => <div data-testid="aurora-viewline-overlay" /> }));
 
 /** The real ramp, because "which colour did the marker take" is the assertion. */
 const markerCalls = [];
@@ -1320,18 +1321,44 @@ describe('MapView heat — the modes it stands down for', () => {
     expect(screen.getByTestId('wf-map-heat-legend-ramp').style.background).toBe(probe.style.background);
   });
 
-  it('keeps the solar colour key and the legend chip in a solar window, and withholds the legend chip in aurora', async () => {
-    const solar = await renderMap({ heat: heatProp() });
+  it('keeps the solar colour key and the solar legend in a solar window', async () => {
+    await renderMap({ heat: heatProp() });
     expect(screen.getByTestId('wf-map-heat-legend')).toHaveAttribute(
       'aria-label', 'Colour key: the field runs from Poor to Worth it',
     );
     expect(screen.getByTestId('wf-legend-chip')).toBeInTheDocument();
-    solar.unmount();
 
+    openLegend();
+    expect(screen.getByTestId('wf-legend-panel')).toHaveTextContent('1\u2605 poor');
+    expect(screen.getByTestId('wf-legend-panel')).not.toHaveTextContent('AURORA RATING');
+  });
+
+  it('mounts the legend panel in aurora mode with the aurora variant; the note names the viewline on the live night', async () => {
+    // Reverses A2's "withheld in aurora until A3".
     liveNight([[0, 4]]);
     await renderMap({ heat: heatProp(), handoffEventType: 'AURORA', locations: plainLocations() });
     await screen.findByTestId('wf-map-heat-legend');
-    expect(screen.queryByTestId('wf-legend-chip')).toBeNull();
+    openLegend();
+    const panel = screen.getByTestId('wf-legend-panel');
+    expect(panel).toHaveTextContent('COLOUR = AURORA RATING');
+    expect(panel).toHaveTextContent('5\u2605 aurora green');
+    // viewlineShown tracks the overlay's own mount: both true on the live night.
+    expect(screen.getByTestId('aurora-viewline-overlay')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-legend-note')).toHaveTextContent('The dashed line is where the aurora clears');
+  });
+
+  it('drops the viewline sentence on a stored past night, where the overlay is not mounted either', async () => {
+    auroraStatus = { active: true, level: 'MODERATE', currentNightDate: TOMORROW };
+    getAuroraForecastResults.mockImplementation((night) => Promise.resolve(
+      night === TODAY ? [{ locationName: SPOTS[0].name, stars: 3 }] : [],
+    ));
+    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA', locations: plainLocations() });
+    await waitFor(() => expect(heatLayerProps.last.points).toHaveLength(1));
+    openLegend();
+    expect(screen.getByTestId('wf-legend-panel')).toHaveTextContent('COLOUR = AURORA RATING');
+    expect(screen.queryByTestId('aurora-viewline-overlay')).toBeNull();
+    expect(screen.getByTestId('wf-legend-note')).toHaveTextContent('Rating, not Kp.');
+    expect(screen.getByTestId('wf-legend-note')).not.toHaveTextContent('dashed line');
   });
 
   it('hands PinsLayer and MapLabels the aurora ramp, the glow and omitUnrated in aurora mode only', async () => {
