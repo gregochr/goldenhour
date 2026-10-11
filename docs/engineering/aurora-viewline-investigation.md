@@ -116,68 +116,145 @@ North-America-only experimental product built from the max forecast Kp 6pm–6am
 no published machine-readable UK equivalent, so a server-side table of some kind stays
 necessary for the forecast line. The question is which table, in which latitude system.
 
-## 5. OPEN — reconstructing the 10 Oct night (owner, on the host)
+## 5. The 10 Oct night, reconstructed (DONE 2026-10-11, from the host log)
 
 Nothing logs the viewline that was served (no INFO line in `fetchViewline`, `buildForecastViewline`,
-`applyKpCap` or the controller), so it has to be inferred. On the host:
+`applyKpCap` or the controller), so it was inferred from the poller's lines
+(`grep -hE "Aurora (NOTIFY|night poll|scoring complete|event ended)|Forecast lookahead"
+~/goldenhour-data/logs/goldenhour*.log | grep 2026-10-10` — the rolled file, since the log rolls
+daily). Log times are **UTC**; the banner's `DETECTED 19:47` (BST) is the 18:47 NOTIFY.
 
-```bash
-grep -E "Aurora (NOTIFY|night poll|scoring complete|event ended)|Forecast lookahead" ~/goldenhour-data/logs/goldenhour.log | grep "2026-10-10" | tail -40
-```
+| UTC | poller line | stored trigger / Kp | table row → line |
+|---|---|---|---|
+| 00:14–04:44 | night polls, QUIET (rest of tonight 2.67) | — | — |
+| **16:14** | `Forecast lookahead: maxKp=5.67 level=MODERATE action=NOTIFY`, 220 candidates (Bortle ≤ 4), `highest=1★` | FORECAST_LOOKAHEAD / **5.67** | 5 → **56°N**, dashed amber |
+| 16:47–18:17 | forecast 5.67 → SUPPRESS ×4 | unchanged | 56°N |
+| **18:47** | `night poll: level=STRONG from REALTIME (rest of tonight Kp 5.67, Kp now 7.0) action=NOTIFY`, 249 candidates (Bortle ≤ 5), `highest=1★` | REALTIME / **7.0** | live path: `max(OVATION 5% contour, 52°N)` — **never south of 52°N**, solid green |
+| 19:22 | STRONG from REALTIME (5.67 / 7.0) → SUPPRESS | unchanged | ≥ 52°N |
+| 19:52–20:52 | STRONG from FORECAST_LOOKAHEAD (forecast revised to **7.0** / 7.0) → SUPPRESS ×3 | unchanged (same level: nothing rewritten) | ≥ 52°N |
+| **21:21** | **v2.25.1 deploy restarted the backend → cache IDLE.** First poll: `level=MODERATE from FORECAST_LOOKAHEAD (rest of tonight Kp 6.67, Kp now 6.67) action=NOTIFY`, 220 candidates (Bortle ≤ 4), `highest=1★` | FORECAST_LOOKAHEAD / **6.67** | `(int) 6.67 = 6` → **54°N**, dashed amber |
+| 22:00–23:30 | MODERATE (6.67 / 6.67) → SUPPRESS ×4 | unchanged | 54°N |
 
-What to read off it:
+**What this settles.**
 
-- Every `Aurora NOTIFY (LEVEL)` line and the `night poll: level=… from TRIGGER (rest of tonight Kp
-  X, Kp now Y) action=NOTIFY` line preceding it give `lastTriggerType` and `lastTriggerKp` at each
-  NOTIFY. ⚠️ A `night poll` line logs that poll's *computed* trigger even on SUPPRESS; only the
-  NOTIFY lines tell you what the state cache stored.
-- The forecast line at any time = `table[(int) lastTriggerKp]` from the last NOTIFY before it.
-- Whether a second NOTIFY (MODERATE → STRONG) happened after 19:47, and with which trigger — this
-  decides §2's inconsistency.
-- ⚠️ v2.25.1 (#1076) deployed at 21:21 UTC **restarted the backend**, which resets the in-memory
-  `AuroraStateCache` to IDLE; the first poll after it NOTIFIED afresh. Lines after 21:21 describe
-  a *new* alert, not the one in the 22:43 screenshot's `DETECTED 19:47`… unless the screenshot's
-  status was itself stale. Read the timestamps carefully.
+- §2's inconsistency is resolved, and no frontend staleness is needed to explain it: the 22:43 BST
+  (21:43 UTC) screenshot is **after the restart**. It shows the *second* alert of the night — a
+  MODERATE on a 6.67 forecast, truncated to row 6, 54°N, dashed amber. The `STRONG · G3 ·
+  DETECTED 19:47` banner was a different, earlier screenshot of the first alert.
+- Before the restart (18:47–21:21) the trigger was REALTIME/7.0, so the frontend was on the **live**
+  path — but `applyKpCap` clamps that line to `table[7] = 52°N`, so the best the app could have
+  drawn through the whole G3 window was a line over Birmingham, while aurora was photographed on
+  the south coast.
+- The restart's own cost: STRONG → MODERATE (Bortle ≤ 5 → ≤ 4, 249 → 220 candidates), a fresh
+  NOTIFY (alerts re-sent), and the forecast-truncation error swapped in for the live-cap error.
+- Every `scoring complete` that night reads `highest=1★` — the missing-system-prompt bug #1076
+  fixed, visible here as its own line.
+- The forecast was revised upward during the alert (5.67 → 7.0 at 19:52) and the stored Kp did
+  not follow, exactly as §2 predicted (same level → SUPPRESS → nothing rewritten). On this night it
+  was harmless only because the trigger was already REALTIME/7.0.
 
-The live line cannot be reconstructed from our logs at all (needs the NOAA OVATION archive for the
-hour plus the published Kp readings); `services.swpc.noaa.gov/products/noaa-planetary-k-index.json`
-still holds the 3-hour readings for the night, which bounds the cap.
+**What the corrected rule would have drawn** at 21:43 UTC for the stored 6.67: interpolated row
+**52.7°N**; NOAA's rule in geomagnetic latitude converted for the UK (−2°) **≈ 50.7°N**; with the
+"hundreds of km equatorward" horizon allowance (3–5°) **≈ 46–48°N** — south of the UK entirely,
+which is what was observed. For the live window's 7.0: 52 → 50 → ≈ 46°N.
 
-## 6. OPEN — questions for the owner before any fix
+The live line itself (the OVATION contour under the cap) is still not reconstructable from our
+logs; it is now moot, since the cap bounded it at 52°N regardless.
 
-From the bundle, plus three the findings add:
+## 6. Owner decisions (TAKEN 2026-10-11)
 
-1. What time was the screenshot taken, and had the app been open since before 19:47 or freshly
-   loaded? (Decides whether §2's stale-hook explanation is in play.)
-2. Did the line move at all during the night?
-3. **Naked-eye or camera?** The table's javadoc says camera; NOAA's boundary is the edge the
-   aurora is *observed from*; phone cameras reach several degrees further south than eyes.
-4. When forecast and live disagree once a storm is in progress: always live, or both lines?
-5. Is dashed-amber / solid-green still wanted over the new green aurora field (Task 1)? A green
-   line on a green field will clash; the plan's A6 proposes a recolour if so.
-6. *(new)* Should the table be replaced by a **geomagnetic** boundary converted per longitude
-   (NOAA's rule, −2°/Kp from 66°, converted with a dipole or AACGM offset of ~2–2.5° for the UK),
-   plus an explicit **horizon-visibility** allowance (NOAA: "hundreds of km"; a defensible figure
-   is 3–5° further south)? Or keep a hand table and re-row it (e.g. 5 → 54, 6 → 52, 7 → 50,
-   8 → 48, 9 → 46 geographic)?
-7. *(new)* Should the Kp lookup **interpolate** (6.67 → between the 6 and 7 rows) instead of
-   truncating? Truncation is the single largest avoidable error at any non-integer Kp.
-8. *(new)* Should `applyKpCap` stop clamping the **live** OVATION line? OVATION is the better
-   product for "now"; the cap was added as a sanity floor and now overrides it. If it stays, it
-   should at least use the same corrected, interpolated table.
-9. *(new)* Should `lastTriggerKp` be refreshed on every NOTIFY-worthy *reading* within a level
-   (so the forecast line follows NOAA's revisions), or should the forecast line be derived from
-   `maxKpRestOfTonight` per request rather than from the stored trigger? The second is simpler and
-   is what the status response's `forecastKp` already claims to be.
+The bundle's five questions and the four the findings added, answered by the owner on 2026-10-11
+after reading §5. A6 builds these; it does not reopen them.
 
-## 7. Likely fixes (after §6 — do not build yet)
+| # | question | decision |
+|---|---|---|
+| 1–2 | screenshot time / app freshly loaded / did the line move | Settled by §5 without needing recall: the 22:43 BST shot is the post-restart MODERATE alert (6.67 → row 6 → 54°N); the line did not move because nothing rewrites the stored Kp within a level. |
+| 3 | naked-eye or camera | **Camera.** It is a photography app and phones reach several degrees further south than eyes; the table's own javadoc already claimed camera. |
+| 4 | forecast vs live once a storm is in progress | **Always live when a live answer exists; forecast as the fallback** (before a live answer lands, or when live is inactive/unavailable). Never both at once. |
+| 5 | colours over the green aurora field | **Forecast stays dashed amber** (`#ff9900` — it reads as a warning, which a forecast is). **Live changes from green to the ink colour `#F2E7D3`**, solid, so it does not vanish into the field. Both lines carry a label with source and age. |
+| 6 | the latitude rule | **NOAA's geomagnetic rule plus a horizon allowance**: equatorward edge at `66° − 2°·Kp` geomagnetic (NOAA, *Tips on viewing the aurora*), converted to geographic **per longitude** with a centred-dipole conversion (IGRF-14 2025 pole ≈ 80.9°N, 72.6°W — ≈ −2° over the UK), then **4° further south** for the horizon (NOAA: "hundreds of kilometers equatorward"; 4° ≈ 445 km). Not a re-rowed hand table. |
+| 7 | interpolate fractional Kp | **Yes** — inherent in the continuous rule; truncation is gone. |
+| 8 | the table capping the live OVATION line | **Stop capping.** The live line is the OVATION 5% contour as parsed, nothing else. |
+| 9 | which Kp feeds the forecast line | **Per request, from the live `maxKpRestOfTonight`** (one NOAA forecast read, its existing cache), not the Kp frozen at the first NOTIFY. `lastTriggerKp` stays what it is for the status response and the glow cap's successor; the line stops reading it. |
 
-- Correct the table's latitude system and re-row or interpolate it; apply the horizon allowance.
-- Stop capping the live line with the table, or cap with the corrected one.
-- Derive the forecast line per request from the live `maxKpRestOfTonight` (one NOAA snapshot
-  read, 15-minute cache) rather than the stored trigger Kp.
-- Label the line with its source and age (`Forecast · Kp 6.7 · 19:40` / `Live · 22:40`).
-- Log the served viewline at INFO (Kp in, cap, southernmost out) so the next night can be read
-  from the log instead of reconstructed.
-- Tests: a FORECAST_LOOKAHEAD alert whose Kp rises within a level (today untested — the gap the
-  trace found); fractional Kp; the live line *not* clamped north of OVATION.
+## 7. The A6 specification
+
+What A6 builds, from §6. Phase A6 in `docs/engineering/aurora-heat-plan.md` §3 points here.
+
+### Backend
+
+1. **One rule, one class.** `service/aurora/AuroraViewlineRule` (new, pure, unit-tested):
+   `double geographicLatitudeFor(double kp, double longitudeDeg)` — clamp Kp to 0..9, target
+   geomagnetic latitude `66 − 2·kp − HORIZON_ALLOWANCE_DEG` (`HORIZON_ALLOWANCE_DEG = 4.0`, a named
+   constant whose javadoc cites NOAA's wording and the owner decision), solved for the geographic
+   latitude at that longitude under the centred dipole (pole constants named and dated; the
+   conversion is the inverse of the standard `sin(λm) = sin(λ)sin(λp) + cos(λ)cos(λp)cos(φ−φp)`,
+   found by a short monotonic bisection on λ at fixed φ — no new dependency). Javadoc states
+   plainly: **camera** visibility; geomagnetic in, geographic out; the three known checks below.
+   `List<ViewlinePoint> line(double kp)` — points at every integer longitude from `VIEWLINE_LON_WEST`
+   (−12) to `VIEWLINE_LON_EAST` (4), so the forecast line is a shallow curve like the live one, not
+   a flat two-point segment.
+2. **`NoaaSwpcClient.buildForecastViewline(kp)`** uses the rule. `KP_LATITUDE_CAP`,
+   `DEFAULT_KP_CAP`, `getKpLatitudeCap` and **`applyKpCap` are deleted**; `fetchViewline` returns
+   the parsed OVATION contour unchanged (cache hit or miss; the stale-on-failure path too).
+   `viewlineSummary`'s bands are unchanged. `getGlowLatitudeCap` (the Plan card's "visible as far
+   south as", `AuroraHotTopicStrategy`) is replaced by the rule evaluated at the UK's central
+   longitude (−2°), so the Plan and the Map agree.
+3. **`AuroraController` `/viewline/forecast`** computes the Kp per request: the current night's
+   window from `AuroraForecastRunService.currentNight()`/`computeWindowForDate`, the forecast from
+   `noaaClient.fetchKpForecast()`, and `maxKpRestOfTonight` — the orchestrator's own method, made
+   package-visible or moved to a small shared helper so the poller and the endpoint cannot
+   disagree. Fallback when no forecast block remains or the fetch fails: `lastTriggerKp`; when that
+   is null too, the existing inactive response. `/viewline` is unchanged except for the cap removal.
+4. **`AuroraViewlineResponse`** gains `kp` (the Kp the line was computed from; null for live) and
+   `asOf` (the forecast's fetch instant for the forecast line, the OVATION `forecastTime` for live)
+   — `isForecast` stays the discriminator. Both new fields are nullable and additive (no client
+   breaks; the existing Jackson-3 wire-format contract test covers the date).
+5. **One INFO line per served viewline**: `Aurora viewline served: source=forecast kp=6.67
+   southernmost=47.9 asOf=…` / `source=live southernmost=… points=17`, so the next night is read
+   from the log, not reconstructed.
+6. **`docs/pipeline-reference.html` "Kp Latitude Hard Caps"** → the rule, the allowance and a
+   worked row (Kp 6.67 at −2°).
+7. **Tests.** `AuroraViewlineRuleTest`: Kp 0 at −2° ≈ 60°N geographic (66 − 4 = 62 geomagnetic →
+   ≈ 60), Kp 6.67 at −2° ≈ 46.7°N, Kp 9 at −2° ≈ 42°N (all ±0.5° — the dipole figures are
+   approximate and the tolerance is deliberate); strictly decreasing in Kp; varies with longitude
+   (west of the UK sits at a higher geomagnetic latitude, so the line dips further south there —
+   assert the sign, not a figure); Kp outside 0..9 clamps. `NoaaSwpcClientTest`: the
+   `applyKpCap_*` and `getGlowLatitudeCap_*` tests are **deleted** with the code (they pinned the
+   defect); `buildForecastViewline` at 6.67 is a 17-point curve with southernmost ≈ 46.7; a live
+   contour at 49°N under Kp 6 stays at 49 (the inverse of the deleted `applyKpCap` pin).
+   `AuroraControllerTest`: the forecast endpoint reads the live forecast (a revised 5.67 → 7.0
+   moves the line without any NOTIFY — the gap the trace found); falls back to `lastTriggerKp`;
+   the two new fields. `AuroraHotTopicStrategyTest`: the glow figure moves with the rule.
+
+### Frontend
+
+8. **`hooks/useAuroraViewline`** implements "always live, forecast as fallback": when eligible it
+   fetches **both** endpoints, polls `/viewline` every 5 minutes as today, re-fetches
+   `/viewline/forecast` on the same cadence (its Kp now changes per request), and returns
+   `{ viewline, source }` where `viewline` is the live answer whenever `viewlineDrawable(live)`,
+   else the forecast answer, else null. The `forecast:${kp}` key goes (the Kp is in the answer).
+9. **`AuroraViewlineOverlay`**: live → solid `#F2E7D3` at 0.85 (fill 0.08 of the same); forecast →
+   dashed `#ff9900` unchanged. The permanent tooltip becomes the label: `Forecast · Kp 6.7 · 19:40`
+   / `Live · 22:40` (Europe/London clock, `kp` to one decimal, from the response's new fields).
+   `utils/viewlineDrawable.js` unchanged.
+10. **`MapLegendPanel`** aurora note: "The dashed line…" → wording that is true for both lines —
+    *"The line is where the aurora clears the northern horizon on camera; dashed amber is the
+    forecast, pale is live."* — still gated on `viewlineShown`.
+11. **Tests**: hook selection (live wins; forecast while live is pending/inactive; null when
+    neither drawable; both polled); overlay colours per source and the label text; legend wording.
+    `MapViewViewline.test.jsx`'s hook-argument assertions change with the signature.
+
+### Docs
+
+12. CLAUDE.md's *Aurora photography* bullet: the viewline sentence ("OVATION nowcast southernmost
+    visibility boundary, `AuroraViewlineOverlay` with colour-coded zones") gains the rule, the
+    always-live policy and the new colours; the *Aurora API* section's endpoint list is unchanged.
+    `changelog.d/<date>-aurora-viewline-a6.md`: `### Fixed — the aurora viewline drew over North
+    Yorkshire through a G3 storm seen from the south coast`.
+
+### Not in A6
+
+- Refreshing `lastTriggerKp` within a level (the poller's own rule) — the line no longer reads it,
+  so the poller's behaviour is out of scope here; `aurora-polling-flap` territory.
+- A per-location "visible from here" verdict — the field's own ratings carry that.
