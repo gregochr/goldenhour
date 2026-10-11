@@ -5,6 +5,74 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.25.2] - 2026-10-11
+
+### Added — Ask: follow-up questions (the thread) — docs and the regression script
+
+Ask's follow-up questions (the four entries above: the contract and guards, the prompt and validator, "close to home" as the
+saved radius with the turn-down rule, and the stacked client) are now written up as one feature in CLAUDE.md and the thread
+plan, and the owner's four-question script is a regression case of its own: `AskThreadRegressionTest` drives the real engine
+through "anything for sunrise with tide alignment this weekend?", "anything closer to home?", "neither of those take my
+fancy, what's the best sunset option?" and "rank those options", asserting what a good answer to each must still be. It runs
+only on demand (the `prompt-regression` profile, a real API key, a few pence) and its assertions are pending the owner's
+approval; the four entries can be folded under this one at release. Still behind `photocast.ask.enabled`.
+
+### Added — Ask: follow-up questions — the answers stack and each question carries the session (T4: client)
+
+Ask's conversation is now a thread on the client (`docs/engineering/ask-thread-plan.md` §2.5; the server half is T1–T3). Every
+answered exchange of the session, typed or Ready, is kept (the last eight), and the next typed question sends them with it as
+`thread` — a first question's request is exactly what it was. The answers stack: each earlier exchange is drawn collapsed above
+the live answer (the reader's question and the answer's summary, plain text, nothing to press), the chips say "follow-up · N so
+far", and "Clear answer" reads "Clear" once there is a thread to lose. A failed, refused or can't-answer step never ends the
+thread. When the server answers a follow-up against a newer forecast it drops the thread (`threadReset`); the client empties its
+own first and shows one line above the fresh answer: "The forecast has updated since your last question — this is a fresh
+answer." The map's picks and camera, and the phone peek's minimised line, follow the live answer alone, and the conversation
+keeps one live region (earlier exchanges are static text and are not announced again). A follow-up scrolls the conversation to its
+new question, leaving the field focused. Still behind `photocast.ask.enabled`.
+
+### Changed — Ask: "close to home" means the saved local radius; a ranking follow-up may return the same place at two windows (T3)
+
+"Close to home", "near", "nearby" and "local" in an Ask question now resolve on the server to the reader's own saved local radius (the Close-to-home setting, 22 miles when none is saved), measured in straight-line miles from the saved home postcode, through a new `rank_spots.nearHome` argument; the answer says "within N miles of home". This replaces the stopgap that read "close to home" as 60 minutes' drive. It needs no drive times, so an account with a home and no drive times gets it; with no home saved the answer says so. A number of minutes is still a drive limit, and "closer" in a follow-up narrows the earlier picks' drive or uses the radius.
+
+A follow-up that asks to rank the options already given (up to four picks, the same place at two windows allowed) is no longer cut to one pick per place; a fresh question and any answer mixing in a new place keep three picks at three different places.
+
+A follow-up that turns the earlier places down ("neither of those take my fancy", "I've been to both", "something else") now excludes those places in code rather than only in the prompt: the earlier picks' locations are dropped from the answer at every window, the prompt marks them as turned down, and if nothing else is rated well enough the answer says so honestly.
+
+### Added — Ask: a follow-up sees the session's earlier answers, re-joined live, and may rank or exclude them (T2)
+
+A typed follow-up (a request carrying a `thread`) now reaches Claude with the earlier exchanges in its user message: each earlier pick is re-joined from the live forecast (name, region, window, rating, verdict, the asker's drive minutes, tide, and the `locationId`/`windowId` the model needs to name it again), a pick that has left the forecast says so, and one outside the area now asked about says that and is not offered. The system prompt gains the thread rules only for a follow-up, so a fresh question's prompt is unchanged byte for byte. The validator accepts an earlier pick or event the thread offered, still held to the live snapshot and scope, and a follow-up about places that have all since gone is a can't-answer ("those places are no longer in the forecast") rather than a failed run. The stub engine ranks the thread's still-eligible picks so local rehearsal works without a key. Nothing is persisted and the endpoint's contract is unchanged since T1.
+
+### Added — Ask: a question can carry the session's earlier exchanges (T1: contract and guards)
+
+`POST /api/ask` now accepts an optional `thread`: the earlier exchanges of the session, oldest first, each as the reader's question,
+the answer's summary, the answer's picks and events as ids only, the briefing `generatedAt` it was answered against and a `ready` flag.
+The server validates all of it before anything is spent (at most `photocast.ask.thread.max-exchanges`, default 8; each question through
+the live question's sanitiser, each summary through a new `sanitiseThreadSummary`; ids and times checked), and answers a bad thread as
+`400 INVALID`. A thread whose typed exchanges were answered against an older briefing run is dropped whole and the answer is fresh,
+marked `threadReset: true` / `threadResetReason: "forecast updated"`. A follow-up skips the Ready matcher and the typed cache and is
+otherwise charged, capped and reserved like any typed question. The request body cap is no longer a flat 8 KiB: it is derived from the thread cap (8 KiB plus 10 KiB per permitted exchange, 88 KiB at the default of 8; an earlier question over 200 raw code points or summary over 500 is refused before any collapse, which is what keeps every exchange under its share), so a full thread fits.
+Nothing reads the thread yet: the engines accept it and ignore it, so answers are unchanged until the prompt phase lands.
+A served summary is now also bounded to 500 code points (a word-boundary cut after the existing 60-word cap), and stripped of control, format, emoji and combining characters, so a summary the server serves is always accepted back as part of a thread.
+A question with no thread behaves exactly as before.
+
+### Added — an Ask chip carries every rank its place won in a ranking follow-up
+
+A ranking follow-up ("rank those") can return one place at two windows — Bamburgh sunrise is pick 1, Bamburgh sunset pick 2. The
+map has one position per place, and its chip used to keep only the lowest rank, so the second pick had nothing to highlight or fly
+to. The place is still one chip (and one pin), but its badge now reads every rank it won in order (`1·2`) and its accessible name
+says "Ask picks 1 and 2" followed by both cards' names. It is selected when either pick is, shows the chosen pick's window and
+rating, and a press steps through its picks (the lowest, the next, round to the first). A place with a single pick is exactly what
+it was. The camera keys on the choice and the place, never on a rank, so choosing either pick flies to the one chip.
+
+### Fixed — Ask no longer fails when the model answers in prose: every turn must be a tool call
+
+Asking "What's the best location close to home for Tuesday's sunset?" on the phone Map failed every time with "Couldn't answer
+just now". The model had replied in plain text, asking how far the reader was willing to travel, and the engine treats a turn
+with no tool call as a failed run. Every Ask turn is now sent with `tool_choice` `any`, so a prose reply cannot happen, and the
+prompt and the `rank_spots` description now say that "close to home" or "nearby" without a time is a drive-time filter the model
+applies itself (60 minutes), that it never needs to know where home is, and that it may not ask the reader anything. A failed run
+still refunds the question.
+
 ## [v2.25.1] - 2026-10-10
 
 ### Fixed — live aurora scoring sent Claude the data without the instructions, so every location was 1★
