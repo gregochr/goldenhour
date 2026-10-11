@@ -2119,14 +2119,27 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // card returns for a different night or a different top spot. Session-only, deliberately.
   const [bestAuroraDismissedKey, setBestAuroraDismissedKey] = useState(null);
   /**
-   * Where focus goes when the best-aurora card's ✕ unmounts the card: the window pill (this tab's
-   * return address) or, when no window exists to draw one, the first focusable control in the pane
-   * that is not inside the card itself. Null only if the pane holds nothing else to focus.
+   * Hands focus to a surviving control when the best-aurora card's ✕ is about to unmount the card:
+   * the window pill (this tab's return address) or, when no window exists to draw one, the first
+   * control in the pane that is outside the card, enabled, not hidden/inert/aria-hidden and not
+   * `tabindex="-1"`, and that actually accepts focus (the result is read back from
+   * `document.activeElement`, falling through to the next candidate otherwise).
    */
-  const dismissFocusTarget = (card) => {
-    if (winPillRef.current) return winPillRef.current;
-    const candidates = mapPaneRef.current?.querySelectorAll('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled])') ?? [];
-    return Array.from(candidates).find((el) => !card?.contains(el)) ?? null;
+  const moveFocusOffCard = (card) => {
+    const pill = winPillRef.current;
+    if (pill) {
+      pill.focus();
+      if (document.activeElement === pill) return;
+    }
+    const candidates = mapPaneRef.current?.querySelectorAll(
+      'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled])',
+    ) ?? [];
+    Array.from(candidates).some((el) => {
+      if (card?.contains(el) || el.getAttribute('tabindex') === '-1'
+        || el.closest('[aria-hidden="true"], [inert], [hidden]')) return false;
+      el.focus();
+      return document.activeElement === el;
+    });
   };
   const [fitBoundsTarget, setFitBoundsTarget] = useState(null);
   const [tideFetchedAt, setTideFetchedAt] = useState({});
@@ -5599,7 +5612,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           <button
             type="button"
             onClick={(pressEvent) => {
-              dismissFocusTarget(pressEvent.currentTarget.closest('[data-testid="aurora-best-location-card"]'))?.focus();
+              moveFocusOffCard(pressEvent.currentTarget.closest('[data-testid="aurora-best-location-card"]'));
               setBestAuroraDismissedKey(`${nightDate}|${bestAuroraLocation.location.name}`);
             }}
             aria-label="Dismiss best aurora location"
