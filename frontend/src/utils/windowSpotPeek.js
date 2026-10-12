@@ -170,8 +170,8 @@ export function resolveSpotPeek(spot, date, targetType, scoreIndex) {
   return {
     // The RATING is the card's own, never the score index's — a peek that disagreed with the card
     // it hangs off is the exact failure the shared-briefing contract exists to prevent
-    // (plan-panel-data-contracts.md), and `buildWindowSpots` has already discarded a rating outside 1–5 that the index
-    // would still hand back.
+    // (plan-panel-data-contracts.md), and `buildWindowSpots` has already discarded a rating
+    // outside 1–5 that the index would still hand back.
     rating: spot.rating ?? null,
     driveMinutes: spot.driveMinutes ?? null,
     // Computed AFTER the gate, deliberately: a leave-by time is on the card, so a peek carrying

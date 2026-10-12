@@ -159,8 +159,9 @@ client was already gone, so it had **zero callers** (`docs/engineering/v1-retire
 §8.3). **Resolved 2026-10-12: deleted** (`tide-facts-followups-plan.md` C3, owner decision D2),
 together with `BriefingService.getServedBriefing()`. "What's good near me tonight" for Web Push or
 the macOS widget would be a new design, not a port: probably over `GET /api/briefing/digest` with a
-per-user reach join. `UserSettingsService.getHomeLocation`, `localRadiusMiles` and the
-`photocast.close-to-home.radius-miles` property stay (Ask's `nearHome` reads them).
+per-user reach join. `localRadiusMiles` and the `photocast.close-to-home.radius-miles` property
+stay (Ask's `nearHome` reads them), as does `UserSettingsService.getHomeLocation` (read by
+`ReachService` and `TodaysLightService`).
 
 ## Section 5 — migration path, when it comes
 
