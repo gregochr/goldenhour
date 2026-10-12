@@ -107,11 +107,11 @@ class CoverageReasonsTest {
     }
 
     @Test
-    @DisplayName("rule 2 excludes EVALUATED, FORCE_EVALUATED, SUBMISSION_FAILED and SKIPPED_ERROR "
-            + "at T+4: UNKNOWN, never NOT_ATTEMPTED and never FAILED (rule 5 stops at T+3)")
-    void tPlusFourWithASubmissionOrError_isUnknown() {
-        for (DispositionCategory category : List.of(DispositionCategory.SKIPPED_ERROR,
-                DispositionCategory.SUBMISSION_FAILED, DispositionCategory.FORCE_EVALUATED)) {
+    @DisplayName("rule 2 excludes EVALUATED, FORCE_EVALUATED and SUBMISSION_FAILED at T+4: UNKNOWN, "
+            + "never NOT_ATTEMPTED and never FAILED (rule 3 stops at T+3)")
+    void tPlusFourWithASubmission_isUnknown() {
+        for (DispositionCategory category : List.of(DispositionCategory.SUBMISSION_FAILED,
+                DispositionCategory.FORCE_EVALUATED, DispositionCategory.EVALUATED)) {
             Map<String, LatestDisposition> map = latest(category,
                     DispositionCategory.SKIPPED_STABILITY, DispositionCategory.SKIPPED_STABILITY);
 
@@ -122,13 +122,86 @@ class CoverageReasonsTest {
     }
 
     @Test
-    @DisplayName("rule 2's horizon is 4: at T+3 the same record is not NOT_ATTEMPTED by horizon")
-    void tPlusThreeTriagedAndStabilityMix_isUnknown() {
+    @DisplayName("T+4: a minority of SKIPPED_ERROR (one among 20 skips) is still NOT_ATTEMPTED")
+    void tPlusFourMinorityErrors_isNotAttempted() {
+        Object[] record = concat(new Object[] {DispositionCategory.SKIPPED_ERROR},
+                repeat(DispositionCategory.SKIPPED_STABILITY, 19));
+
+        assertThat(fold(20, 4, latest(record))).isEqualTo(CoverageReason.NOT_ATTEMPTED);
+    }
+
+    @Test
+    @DisplayName("T+4: errors at half or more are UNKNOWN, not a horizon skip and not FAILED")
+    void tPlusFourHalfErrors_isUnknown() {
+        Map<String, LatestDisposition> map = latest(DispositionCategory.SKIPPED_ERROR,
+                DispositionCategory.SKIPPED_STABILITY);
+
+        assertThat(fold(2, 4, map)).isEqualTo(CoverageReason.UNKNOWN);
+    }
+
+    @Test
+    @DisplayName("T+3 mix, stability the majority: NOT_ATTEMPTED (triage runs before Gate 4, so "
+            + "a mix is the common case)")
+    void mixStabilityMajority_isNotAttempted() {
+        Map<String, LatestDisposition> map = latest(DispositionCategory.SKIPPED_STABILITY,
+                DispositionCategory.SKIPPED_STABILITY, DispositionCategory.SKIPPED_TRIAGED);
+
+        assertThat(fold(3, 3, map)).isEqualTo(CoverageReason.NOT_ATTEMPTED);
+        assertThat(fold(3, 2, map)).isEqualTo(CoverageReason.NOT_ATTEMPTED);
+    }
+
+    @Test
+    @DisplayName("T+3 mix, triage the majority: STOOD_DOWN")
+    void mixTriageMajority_isStoodDown() {
         Map<String, LatestDisposition> map = latest(DispositionCategory.SKIPPED_TRIAGED,
                 DispositionCategory.SKIPPED_STABILITY, DispositionCategory.SKIPPED_TRIAGED);
 
-        assertThat(fold(3, 3, map)).isEqualTo(CoverageReason.UNKNOWN);
-        assertThat(fold(3, 2, map)).isEqualTo(CoverageReason.UNKNOWN);
+        assertThat(fold(3, 3, map)).isEqualTo(CoverageReason.STOOD_DOWN);
+        assertThat(fold(3, 0, map)).isEqualTo(CoverageReason.STOOD_DOWN);
+    }
+
+    @Test
+    @DisplayName("T+3 mix, a tie goes to NOT_ATTEMPTED: claiming poor weather needs a majority")
+    void mixTie_isNotAttempted() {
+        Map<String, LatestDisposition> map = latest(DispositionCategory.SKIPPED_TRIAGED,
+                DispositionCategory.SKIPPED_STABILITY);
+
+        assertThat(fold(2, 3, map)).isEqualTo(CoverageReason.NOT_ATTEMPTED);
+    }
+
+    @Test
+    @DisplayName("a mix with one error among many still follows the majority rule")
+    void mixWithMinorityError_followsTheMajority() {
+        Object[] triageMajority = concat(new Object[] {DispositionCategory.SKIPPED_ERROR},
+                concat(repeat(DispositionCategory.SKIPPED_TRIAGED, 6),
+                        repeat(DispositionCategory.SKIPPED_STABILITY, 3)));
+        Object[] stabilityMajority = concat(new Object[] {DispositionCategory.SKIPPED_ERROR},
+                concat(repeat(DispositionCategory.SKIPPED_TRIAGED, 3),
+                        repeat(DispositionCategory.SKIPPED_STABILITY, 6)));
+
+        assertThat(fold(10, 3, latest(triageMajority))).isEqualTo(CoverageReason.STOOD_DOWN);
+        assertThat(fold(10, 3, latest(stabilityMajority)))
+                .isEqualTo(CoverageReason.NOT_ATTEMPTED);
+    }
+
+    @Test
+    @DisplayName("T+3 errors at half or more with no submission are FAILED (errors count as "
+            + "failed)")
+    void halfErrorsWithNoSubmission_isFailed() {
+        Map<String, LatestDisposition> map = latest(DispositionCategory.SKIPPED_ERROR,
+                DispositionCategory.SKIPPED_STABILITY);
+
+        assertThat(fold(2, 3, map)).isEqualTo(CoverageReason.FAILED);
+    }
+
+    @Test
+    @DisplayName("rule 2's horizon is 4: at T+3 an EVALUATED-free record is judged by the mix "
+            + "rule, not NOT_ATTEMPTED by horizon")
+    void tPlusThreeIsNotTheHorizonRule() {
+        Map<String, LatestDisposition> map = latest(DispositionCategory.SKIPPED_TRIAGED,
+                DispositionCategory.SKIPPED_TRIAGED, DispositionCategory.SKIPPED_STABILITY);
+
+        assertThat(fold(3, 3, map)).isEqualTo(CoverageReason.STOOD_DOWN);
     }
 
     @Test
@@ -159,12 +232,14 @@ class CoverageReasonsTest {
     }
 
     @Test
-    @DisplayName("below half failed is UNKNOWN: one SKIPPED_ERROR among 19 stability skips")
-    void belowHalfFailed_isUnknown() {
+    @DisplayName("one SKIPPED_ERROR among 19 stability skips at T+3 is NOT_ATTEMPTED: it was "
+            + "UNKNOWN before the majority rule, but an error minority no longer hides that "
+            + "stability skipped the rest")
+    void oneErrorAmongNineteenStability_isNotAttempted() {
         Object[] record = concat(new Object[] {DispositionCategory.SKIPPED_ERROR},
                 repeat(DispositionCategory.SKIPPED_STABILITY, 19));
 
-        assertThat(fold(20, 3, latest(record))).isEqualTo(CoverageReason.UNKNOWN);
+        assertThat(fold(20, 3, latest(record))).isEqualTo(CoverageReason.NOT_ATTEMPTED);
     }
 
     @Test

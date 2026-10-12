@@ -1,6 +1,6 @@
 # Window tide facts: the three follow-ups
 
-Status: **plan, not built.** Draft 3, 2026-10-12 (a Codex finding folded into §A); draft 2, 2026-10-11, after an adversarial review: three reviewers, one per item, each refuting
+Status: **plan, not built.** Draft 4, 2026-10-12 (the A1 review's fold revision in §A.2); draft 3, 2026-10-12 (a Codex finding folded into §A); draft 2, 2026-10-11, after an adversarial review: three reviewers, one per item, each refuting
 its own charges, all "ready with fixes". §F records what the review changed.
 
 The window tide facts series (`window-tide-facts-plan.md`, P0–P5, released in v2.25.0) left three items for separate PRs:
@@ -74,29 +74,30 @@ non-`SKIPPED_CACHED` disposition per slot, plus the horizon. `fullRewrite` uses 
   that apart from a result still in flight, the fold needs to know whether the slot's **cycle has ended** (A.3 step 1).
 
 **`CoverageReason`** is a new enum, `model/CoverageReason.java`. A fold over a region's **scoreable** slots (the slots
-`couldCarryRating` admits) produces it. `daysAhead` is the region's horizon from the UK civil date. The rules are tried in
-this order:
+`couldCarryRating` admits) produces it. `daysAhead` is the region's horizon from the UK civil date. Let `failed` be
+`SUBMISSION_FAILED` + `SKIPPED_ERROR` + `EVALUATED`/`FORCE_EVALUATED` whose cycle has ended. The rules are tried in this
+order (draft 4, after the A1 review: see §F):
 
 | # | Reason | When |
 |---|---|---|
 | 1 | `AWAY` | every scoreable slot's latest disposition is `SKIPPED_TRAVEL_DAY` |
-| 2 | `NOT_ATTEMPTED` | `daysAhead >= 4`, and no scoreable slot is `EVALUATED`, `FORCE_EVALUATED`, `SUBMISSION_FAILED` or `SKIPPED_ERROR`. This holds whatever the triage mix: from T+4 Gate 4 skips everything, so "not attempted" is true even where triage ran first. |
-| 3 | `NOT_ATTEMPTED` | `daysAhead <= 3`, and every scoreable slot is `SKIPPED_STABILITY` |
-| 4 | `STOOD_DOWN` | every scoreable slot is `SKIPPED_TRIAGED` |
-| 5 | `FAILED` | `daysAhead <= 3`, and at least half of the scoreable slots **failed**: `SUBMISSION_FAILED`, `SKIPPED_ERROR`, or `EVALUATED`/`FORCE_EVALUATED` whose cycle has ended |
-| 6 | `UNKNOWN` | anything else |
+| 2 | `NOT_ATTEMPTED` | `daysAhead >= 4`, no scoreable slot is `EVALUATED`, `FORCE_EVALUATED` or `SUBMISSION_FAILED`, and `SKIPPED_ERROR` slots are fewer than half (`errors*2 < total`). This holds whatever the triage mix: from T+4 Gate 4 skips everything, and a minority of collection errors does not change that. |
+| 3 | `FAILED` | `daysAhead <= 3` and `failed*2 >= total` (errors count as failed) |
+| 4 | `NOT_ATTEMPTED` or `STOOD_DOWN` | `daysAhead <= 3`, every scoreable slot is `SKIPPED_STABILITY`, `SKIPPED_TRIAGED` or `SKIPPED_ERROR`, and errors are fewer than half. Decided by majority: `stability >= triaged` gives `NOT_ATTEMPTED` (a tie goes there, because claiming poor weather needs a majority), otherwise `STOOD_DOWN`. All-stability and all-triaged are the special cases. The collector triages before Gate 4, so a mix is the common case. |
+| 5 | `UNKNOWN` | anything else |
 
 `UNKNOWN` covers, among other things:
-- a T+2 or T+3 mix of `SKIPPED_TRIAGED` and `SKIPPED_STABILITY`;
 - `EVALUATED` whose cycle has not ended (a batch still polling), or whose cycle cannot be found;
 - `SKIPPED_NO_REFRESH_NEEDED` from the intraday cycle;
 - a slot with no disposition at T+0 to T+3;
-- a disposition string that `DispositionCategory.fromString` cannot parse;
-- two different categories tied on `created_at`;
-- a location renamed since its disposition (a name-keyed miss);
-- a failed lookup.
+- a disposition string that `DispositionCategory.fromString` cannot parse (at T+0 to T+3);
+- two different categories tied on `created_at` (at T+0 to T+3);
+- a location renamed since its disposition, a name-keyed miss (at T+0 to T+3);
+- a failed lookup at T+0 to T+3 (at T+4 and later a failed lookup reads `NOT_ATTEMPTED`, which is true by horizon);
+- T+4 with a `SUBMISSION_FAILED`, `EVALUATED` or `FORCE_EVALUATED` slot, or errors at half or more.
 
-**`UNKNOWN` keeps today's behaviour exactly**, so the change can only make a region more honest, never less.
+**`UNKNOWN` is the safe default at T+0 to T+3 and keeps today's behaviour exactly**, so the change can only make a
+region more honest, never less.
 
 **"The cycle has ended"** means:
 - the slot's disposition `job_run_id` is some `pipeline_run.disposition_job_run_id` (V163);
@@ -118,7 +119,7 @@ before V163.
 | Reason | `displayVerdict` | `verdictLabel` | `summary` | `glossDetail` |
 |---|---|---|---|---|
 | `AWAY` | `AWAITING` | "Not forecast", the client's own `AWAY_STATE_LABEL` (`utils/windowFirstStrip.js:51`) | "Marked as a travel day — no forecast was made" | "This day is marked as a travel day, so no per-location forecast was made for it." |
-| `NOT_ATTEMPTED` | `AWAITING` | "Not scored at this range" | "Not scored this far ahead — forecasts firm up nearer the day" | "Forecasts this far ahead are only made when the weather pattern is settled, and not at all from four days out, so there is no per-location forecast for this window yet." |
+| `NOT_ATTEMPTED` | `AWAITING` | "Not scored at this range" | "Not scored this far ahead — forecasts firm up nearer the day" | "Forecasts this far ahead are only made when the weather pattern is stable enough, and not at all from four days out, so there is no per-location forecast for this window yet." |
 | `STOOD_DOWN` | `STAND_DOWN` | today's | today's | today's |
 | `FAILED` | `AWAITING` | "Forecast unavailable" | "No per-location forecast — the forecast run didn't complete" | "The forecast run for this window didn't complete, so there is no per-location forecast. It may be tried again at the next run." |
 | `UNKNOWN` | `STAND_DOWN` | today's | today's | today's |
@@ -198,16 +199,19 @@ guard and on legacy payloads.
 
 - **`CoverageReasonsTest`:**
   - every row of the table;
-  - the six `UNKNOWN` sources listed in A.2;
+  - the `UNKNOWN` sources listed in A.2;
   - a T+4 region that is triaged and stability-skipped gives `NOT_ATTEMPTED`;
-  - a T+4 region with one `SKIPPED_ERROR` among skips gives `UNKNOWN`, neither `NOT_ATTEMPTED` (rule 2 excludes it, so a
-    collection error is never passed off as a horizon skip) nor `FAILED` (rule 5 stops at T+3);
-  - a T+3 region with one `SKIPPED_ERROR` among 19 `SKIPPED_STABILITY` gives `UNKNOWN`, below the half;
-  - a T+3 region that is half failed gives `FAILED`;
-  - a T+2 region whose slots are all `EVALUATED` with `cycleEnded` true gives `FAILED`. The same region with
-    `cycleEnded` false gives `UNKNOWN`;
+  - T+4 with one `SKIPPED_ERROR` among 20 skips gives `NOT_ATTEMPTED`; with errors at half or more it gives `UNKNOWN`;
+    with any `SUBMISSION_FAILED` it gives `UNKNOWN` (never `FAILED`: rule 3 stops at T+3);
+  - a T+3 mix with stability the majority gives `NOT_ATTEMPTED`; with triage the majority gives `STOOD_DOWN`; a tie
+    gives `NOT_ATTEMPTED`; one error among many follows the majority;
+  - a T+3 region with one `SKIPPED_ERROR` among 19 stability skips gives `NOT_ATTEMPTED` (it was `UNKNOWN` before the
+    majority rule);
+  - errors at half or more with no submission at T+3 gives `FAILED`;
+  - a T+2 region whose slots are all `EVALUATED` with `cycleEnded` true gives `FAILED`; the same with `cycleEnded` false
+    gives `UNKNOWN`;
   - a region mixing `SUBMISSION_FAILED` and ended-`EVALUATED` slots to half or more gives `FAILED`;
-  - canopy slots are ignored;
+  - canopy slots are ignored, including at the filter (a region mixing canopy and sky slots);
   - a partial travel day (some slots away) gives `UNKNOWN`.
 - **`BriefingHonestyFilterTest`:**
   - the existing cases pass unchanged through the old overloads;
@@ -241,6 +245,8 @@ guard and on legacy payloads.
   reads "Not scored" with no tint.
 - **Mutants:**
   - the fold always returns `UNKNOWN`;
+  - the majority comparison flipped; a tie sent to `STOOD_DOWN`; the error-minority guard removed at T+4; the same guard
+    removed at T+3; the filter passing `r.slots()` instead of the scoreable slots;
   - `AWAY` checked after `NOT_ATTEMPTED`;
   - rule 2's horizon at `>= 3`;
   - `FAILED` on any single failure;
@@ -630,3 +636,13 @@ If D2 or D3 removes a phase, the rest of the order stands.
 - The radius property claim is corrected.
 - D3 is defined as three options.
 - The sequencing claims are corrected.
+
+**A, after the A1 review (draft 4):**
+- The collector triages BEFORE Gate 4 (`ForecastTaskCollector`), so an unscored T+2 or T+3 region is usually a mix of
+  `SKIPPED_TRIAGED` and `SKIPPED_STABILITY`, not one or the other. Draft 3's fold sent every mix to `UNKNOWN`, which still
+  read "Poor". Rule 4 now decides a mix by majority, with a tie going to `NOT_ATTEMPTED` because claiming poor weather
+  needs a majority.
+- A single `SKIPPED_ERROR` made a T+4 region `UNKNOWN`, and the `BY_RANK` step then let its `STAND_DOWN` win the whole
+  window. Errors under half the slots no longer change the T+4 or T+3 answer (the error-minority guard); errors at half or
+  more at T+3 count as `FAILED`, and at T+4 stay `UNKNOWN`.
+- The `NOT_ATTEMPTED` gloss says "stable enough", because at T+2 Gate 4 also scores TRANSITIONAL cells.

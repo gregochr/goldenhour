@@ -122,7 +122,7 @@ final class BriefingHonestyFilter {
 
     /** Gloss detail for a window the scoring policy never attempts. */
     static final String NOT_ATTEMPTED_GLOSS_DETAIL =
-            "Forecasts this far ahead are only made when the weather pattern is settled, and not at "
+            "Forecasts this far ahead are only made when the weather pattern is stable enough, and not at "
             + "all from four days out, so there is no per-location forecast for this window yet.";
 
     /** Label for a window whose forecast run did not complete. */

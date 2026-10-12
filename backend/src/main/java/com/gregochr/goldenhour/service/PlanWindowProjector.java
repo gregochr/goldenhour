@@ -253,7 +253,8 @@ public final class PlanWindowProjector {
                 // than mapped through the region's triage: the window calls that AWAITING, and a
                 // day peak mapping it to a band would put two answers for one region on one screen.
                 // Unreachable on the serve path (enrichment always derives a verdict, and the
-                // honesty filter writes STAND_DOWN or, for a region that was never attempted,
+                // honesty filter writes STAND_DOWN or, for a region with no forecast for a reason
+                // other than the weather (never attempted, a travel day, a run that failed),
                 // AWAITING, which is skipped below), which is why matching the window matters more
                 // than choosing between them.
                 DisplayVerdict dv = region.displayVerdict();

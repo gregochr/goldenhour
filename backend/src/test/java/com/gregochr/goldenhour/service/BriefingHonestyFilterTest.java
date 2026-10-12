@@ -711,10 +711,14 @@ class BriefingHonestyFilterTest {
                 .withMeanRatingDelta(0.5).withSampleSufficient(true).withForcedSample(true);
         DailyBriefingResponse in = responseWith(TargetType.SUNSET, rich, List.of());
 
-        for (DispositionCategory category : List.of(DispositionCategory.SKIPPED_TRAVEL_DAY,
-                DispositionCategory.SKIPPED_TRIAGED, DispositionCategory.SUBMISSION_FAILED)) {
+        Map<DispositionCategory, Clock> scenarios = new java.util.LinkedHashMap<>();
+        scenarios.put(DispositionCategory.SKIPPED_TRAVEL_DAY, T_PLUS_0);
+        scenarios.put(DispositionCategory.SKIPPED_TRIAGED, T_PLUS_0);
+        scenarios.put(DispositionCategory.SUBMISSION_FAILED, T_PLUS_0);
+        scenarios.put(DispositionCategory.SKIPPED_STABILITY, T_PLUS_4);
+        for (Map.Entry<DispositionCategory, Clock> scenario : scenarios.entrySet()) {
             BriefingRegion r = firstRegion(BriefingHonestyFilter.apply(
-                    in, 0.5, latestForAll(category, false), T_PLUS_0));
+                    in, 0.5, latestForAll(scenario.getKey(), false), scenario.getValue()));
 
             assertThat(r.regionName()).isEqualTo("Northumberland");
             assertThat(r.verdict()).isEqualTo(Verdict.GO);
@@ -734,6 +738,23 @@ class BriefingHonestyFilterTest {
             assertThat(r.forcedSample()).isNull();
             assertThat(r.verdictEligible()).isFalse();
         }
+    }
+
+    @Test
+    @DisplayName("The fold sees scoreable slots only: a canopy slot with no record cannot turn a "
+            + "stability-skipped sky region UNKNOWN")
+    void foldIgnoresCanopySlots() {
+        List<BriefingSlot> mixed = new java.util.ArrayList<>(threeSampleSlots());
+        mixed.add(canopySlot("Delamere Wood", Verdict.GO));
+        BriefingRegion region = regionWith("Northumberland", Verdict.GO, "Clear at 0 of 4",
+                DisplayVerdict.WORTH_IT, 0, mixed);
+        DailyBriefingResponse in = responseWith(TargetType.SUNSET, region, List.of());
+
+        BriefingRegion out = firstRegion(BriefingHonestyFilter.apply(in, 0.5,
+                latestForAll(DispositionCategory.SKIPPED_STABILITY, false), T_PLUS_0));
+
+        assertThat(out.displayVerdict()).isEqualTo(DisplayVerdict.AWAITING);
+        assertThat(out.verdictLabel()).isEqualTo("Not scored at this range");
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
