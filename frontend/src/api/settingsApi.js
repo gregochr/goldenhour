@@ -26,7 +26,7 @@ export async function lookupPostcode(postcode) {
  * @param {string} postcode
  * @param {number} latitude
  * @param {number} longitude
- * @param {number|null} [localRadiusMiles] Close to home radius in miles, or null to leave the
+ * @param {number|null} [localRadiusMiles] Local radius in miles (Ask's nearHome), or null to leave the
  *        stored value alone — omitting it is not a reset.
  * @returns {Promise<Object>} UserSettingsResponse
  */

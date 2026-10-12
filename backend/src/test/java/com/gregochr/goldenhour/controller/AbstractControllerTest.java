@@ -242,10 +242,6 @@ abstract class AbstractControllerTest {
     @MockitoBean
     protected com.gregochr.goldenhour.service.ask.AskService askService;
 
-    @MockitoBean
-    protected com.gregochr.goldenhour.service.CloseToHomeService closeToHomeService;
-
-
     // ── Aurora services ───────────────────────────────────────────────────────
 
     /**

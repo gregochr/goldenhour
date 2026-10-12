@@ -6,7 +6,7 @@ import apiClient from './axiosClient.js';
  * <p>Deliberately its own endpoint under `/api/user/settings`, not a field on the shared briefing
  * payload: the response names the caller's home postcode, and `/api/briefing` is ETag-revalidated,
  * which persists a body to a browser HTTP cache JavaScript cannot evict on logout. Same rule that
- * keeps "Close to home" and the reach lens off that payload.
+ * keeps the reach lens off that payload.
  *
  * <p>Resolves to `null` for a caller who has saved no home postcode — the normal first-run state,
  * answered by a `204` rather than an error, because the masthead has a designed empty state for it.

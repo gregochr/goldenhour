@@ -24,8 +24,8 @@ this document since it was written; see Section 1 for the current, verified stat
    by data ownership, not by being a panel.** It was per-user by construction (home postcode +
    per-user drive times). Both endpoints it depended on are already named in the ETag exclusion
    list *by path*, with "home-derived personal data" as the stated reason, pinned by a test. Its
-   client (`CloseToHome.jsx`) died in v1 retirement D2, leaving `GET /api/briefing/close-to-home`
-   live with zero callers (Section 1); the principle survives it, now protecting
+   client (`CloseToHome.jsx`) died in v1 retirement D2, and the endpoint, deleted 2026-10-12
+   (Section 4), went after it; the principle survives them, now protecting
    `/api/user/settings/reach` and `/api/user/settings/light`.
 
 **The precedent that settles it:** per-user drive times were already removed from the shared
@@ -58,7 +58,7 @@ Plan tab is the window-first matrix + popup/sheet + doors, served by `WindowFirs
 | # | Panel | Source | Where it is shaped | Presentation or business logic? |
 |---|---|---|---|---|
 | 1 | Best Bet / Also Good | `GET /api/briefing` (`bestBets`) | Backend `BriefingBestBetAdvisor` + serve-time fallback | **Dead panel.** Died with `BestBetBanner` in v1 retirement D2 — the fields still populate but have no frontend renderer (v1-retirement §8.1) |
-| 2 | **Close to home** | `/api/briefing` + `/api/user/settings*` | Was **frontend** `utils/closeToHome.js`, inside the now-deleted `CloseToHome.jsx` | **Dead panel, backend survives.** `GET /api/briefing/close-to-home` + `CloseToHomeService`/`CloseToHomeResponse` are live with zero callers since D2 (v1-retirement §8.3) — the migration this document recommends in Section 5 already happened on the backend, just with no client left to point at it |
+| 2 | **Close to home** | `/api/briefing` + `/api/user/settings*` | Was **frontend** `utils/closeToHome.js`, inside the now-deleted `CloseToHome.jsx` | **Dead panel, and the backend is gone too.** `GET /api/briefing/close-to-home` + `CloseToHomeService`/`CloseToHomeResponse` had zero callers from D2 (v1-retirement §8.3) and were deleted 2026-10-12 (Section 4) |
 | 3 | Hot topics | `GET /api/briefing` (`hotTopics`) | Backend strategies | Backend. Rendered by `HotTopicStrip.jsx`, a survivor |
 | 4 | Regional planner grid | `GET /api/briefing` | Backend `BriefingRegion.meanRating` + `displayVerdict` | Backend. `HeatmapGrid.jsx` reads `meanRating` unconditionally — the `serverCellRating` caller opt-in and the client-side slot-tree join it gated collapsed away entire in v1 retirement D3 |
 | 5 | Plan matrix (day × event) | `GET /api/briefing` | Backend `PlanWindowProjector` | Backend. `BriefingDay.peak` has been write-only since the day rail was retired at P2 — the matrix's own per-window aggregates (spread histogram, best-reachable line) are the licensed reach-scoped client class CLAUDE.md's Backend-heavy bullet names, not a peak read |
@@ -133,8 +133,9 @@ so that option is off the table — not on taste, on a rule already written down
 - **Panel 2 — Close to home.** Per-user by construction. This one earned its own endpoint, and
   it earned it because of who owns the data, not because it was a panel. `GET
   /api/briefing/close-to-home` shipped (Section 5) and then lost its only caller when
-  `CloseToHome.jsx` was deleted in v1 retirement D2 — the endpoint is unconsumed, not wrong; a v2
-  client is an owner decision (v1-retirement §8.3), not a re-litigation of this section.
+  `CloseToHome.jsx` was deleted in v1 retirement D2 and the endpoint was deleted 2026-10-12
+  (Section 4); a v2 feature would be a new design (v1-retirement §8.3), not a re-litigation of
+  this section.
 
 The general rule, stated so the next feature does not have to re-derive it:
 
@@ -153,11 +154,14 @@ argument matters any more: the client module and the panel that rendered it (`Cl
 JavaScript to violate the backend-heavy principle, and no frontend suite left to cover it either.
 
 The endpoint side of the recommendation *did* happen, independently — `GET
-/api/briefing/close-to-home` + `CloseToHomeService`/`CloseToHomeResponse` exist on `main` today —
-but arrived after the client was already gone, so it now has **zero callers**
-(`docs/engineering/v1-retirement-plan.md` §8.3). "What's good near me tonight" for Web Push or the
-macOS widget, and any v2 UI, both remain live reasons to keep and consume the endpoint; deleting it
-is not implied by this section's history, only left as an owner decision.
+/api/briefing/close-to-home` + `CloseToHomeService`/`CloseToHomeResponse` — but arrived after the
+client was already gone, so it had **zero callers** (`docs/engineering/v1-retirement-plan.md`
+§8.3). **Resolved 2026-10-12: deleted** (`tide-facts-followups-plan.md` C3, owner decision D2),
+together with `BriefingService.getServedBriefing()`. "What's good near me tonight" for Web Push or
+the macOS widget would be a new design, not a port: probably over `GET /api/briefing/digest` with a
+per-user reach join. `localRadiusMiles` and the `photocast.close-to-home.radius-miles` property
+stay (Ask's `nearHome` reads them), as does `UserSettingsService.getHomeLocation` (read by
+`ReachService` and `TodaysLightService`).
 
 ## Section 5 — migration path, when it comes
 
@@ -166,8 +170,8 @@ In priority order.
 1. ✅ **Done.** `GET /api/briefing/close-to-home` — authenticated, reads the caller's home from
    `UserSettings`, returns the ranked cards + breadcrumb. Not on `REVALIDATABLE_READ_PATHS`
    (Section 2 held). `closeToHome.js` was ported to `CloseToHomeService`. The client that
-   consumed it was then deleted in v1 retirement D2, so the endpoint currently has no caller
-   (Section 4) — the migration itself is complete, independent of that.
+   consumed it was then deleted in v1 retirement D2, and the endpoint followed it on 2026-10-12
+   (Section 4).
 2. **Join on `location_id`, not on the location name.** The client currently matches briefing
    slots to the locations roster by **name string**, so renaming a location silently empties the
    block. The FK already exists (V47).

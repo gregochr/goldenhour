@@ -1076,7 +1076,7 @@ public class AskTools {
 
     /**
      * The ids of the enabled locations within the asker's saved radius of home, in straight-line miles:
-     * {@code GeoUtils.distanceMiles}, the measure {@code CloseToHomeService} has always applied to that
+     * {@code GeoUtils.distanceMiles}, the measure the retired Close-to-home panel applied to that
      * radius (not the drive time the Map's reach lens uses). A location the lookup does not hold is
      * not near.
      */

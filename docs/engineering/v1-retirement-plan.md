@@ -957,6 +957,9 @@ Backend / product, out of this series' scope by the owner's instruction:
 3. **`GET /api/briefing/close-to-home`** + `CloseToHomeService`/`CloseToHomeResponse` + tests — a live
    endpoint with zero callers once `getCloseToHome` goes in D2. Delete, or wire to v2 (the location
    sheet's "windows here" answers a neighbouring question).
+   **Resolved 2026-10-12: deleted**, with `BriefingService.getServedBriefing()`
+   (`tide-facts-followups-plan.md` C3, owner decision D2). `ServedBriefingAssembler.assembleWithoutPlan`
+   stays as the package-private first stage of `assembleForPlan`.
 4. **`DailyBriefingResponse.stale` / `partialFailure` / `failedLocationCount`** — lose their only client
    reader in D2; v2 shows the forecast's age only. A v2 surface for "this briefing is partial" is a
    product call.
