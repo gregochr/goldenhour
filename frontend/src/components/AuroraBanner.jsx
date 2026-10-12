@@ -1,13 +1,19 @@
-import React, { useState } from 'react';
+import React, { Component, Suspense, lazy, useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
+import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
+import { useAuroraScores } from '../hooks/useAuroraScores.js';
 import { useAuroraStatus } from '../hooks/useAuroraStatus.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { auroraRampHex } from '../utils/auroraRamp.js';
+import { ALERT_WORTHY, areaField } from '../utils/auroraBannerScores.js';
 import { formatInstantUk, parseUtcInstant } from '../utils/conversions.js';
 import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
 
-// Alert levels that should show the banner (MODERATE or STRONG)
-const ALERT_WORTHY = new Set(['MODERATE', 'STRONG']);
+// ⚠️ Lazy on purpose: the field thumbnail imports the heat kernel (d3-geo and the land chunk), and
+// this banner is imported by App on every tab. A static import would put the kernel in the entry
+// chunk for readers who never see a field (aurora-banner-plan.md §4 D6). The build check is
+// `grep -l geoMercator dist/assets/index-*.js` finding nothing.
+const AuroraFieldThumb = lazy(() => import('./AuroraFieldThumb.jsx'));
 
 /**
  * Severity presentation, keyed by the API's alert level — NEVER by `status.hexColour`, which is the
@@ -148,9 +154,11 @@ function formatBz(bz) {
  * disagree about a word, a count or a colour.
  *
  * @param {object} status the aurora status payload (alert-worthy)
+ * @param {?{best: {name: string, stars: number}}} field the planning area's rated field once
+ *   per-location scores exist ({@link areaField}), else null — a simulated alert never has one
  * @returns {object} the presentation model
  */
-function deriveModel(status) {
+function deriveModel(status, field) {
   const simulated = status.simulated === true;
   const forecast = !simulated && status.triggerType === 'forecast';
   const live = !simulated && !forecast;
@@ -182,8 +190,28 @@ function deriveModel(status) {
     breathing: sev.breathes && live && bz != null && bz < -1,
     description: status.description,
     detected: live ? formatDetectedAt(status.detectedAt) : null,
+    // The best rated site in the reader's planning area; null while the slot is still pending.
+    best: !simulated && field ? { name: field.best.name, stars: field.best.stars } : null,
   };
 }
+
+/**
+ * A star rating: the digit, a visual ★ and a spoken word. NVDA at its default symbol level does not
+ * speak U+2605, so a bare "4★" is announced as "4" and loses its unit (`WindowSheetDialog.jsx` records
+ * the same finding); the glyph is hidden and " stars" is read instead, the pattern the rest of the
+ * app uses. The visible text is unchanged.
+ */
+function Stars({ n }) {
+  return (
+    <span className="wf-aurora-stars">
+      {n}
+      <span aria-hidden="true">★</span>
+      <span className="sr-only">{n === 1 ? ' star' : ' stars'}</span>
+    </span>
+  );
+}
+
+Stars.propTypes = { n: PropTypes.number.isRequired };
 
 /** Noun for a site count: "1 site", "12 sites". */
 function siteNoun(n) {
@@ -235,6 +263,70 @@ PendingSlot.propTypes = {
   simulated: PropTypes.bool,
 };
 
+/** The planning area's rated field, as `areaField` builds it (the part the thumbnail reads). */
+const FIELD_SHAPE = PropTypes.shape({
+  spots: PropTypes.array.isRequired,
+  fit: PropTypes.object.isRequired,
+});
+
+/**
+ * Catches a failure of the lazy field chunk and shows the pending slot instead.
+ *
+ * <p>`React.lazy` rejects when a hashed chunk 404s — a page kept open across a deploy keeps the JS it
+ * loaded — and since the provider lift the nearest boundary above the banner is `PlanErrorBoundary`,
+ * so an unguarded thumbnail would take the whole shell to its fallback for a decorative picture
+ * (aurora-banner-plan.md §5). A class, because React has no hook form of an error boundary.
+ */
+class FieldBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { failed: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  render() {
+    const { fallback, children } = this.props;
+    const { failed } = this.state;
+    return failed ? fallback : children;
+  }
+}
+
+FieldBoundary.propTypes = {
+  fallback: PropTypes.node.isRequired,
+  children: PropTypes.node.isRequired,
+};
+
+/**
+ * The thumbnail slot's content: tonight's field once per-location scores exist for the planning
+ * area, else the pending slot. The lazy chunk's `Suspense` fallback and its error fallback are BOTH
+ * the pending slot, so a slow or failed chunk looks like "scores not here yet" and shifts nothing.
+ *
+ * @param {object} props
+ * @param {number|null} props.kp the pending slot's Kp figure
+ * @param {boolean} props.simulated a simulated alert shows a test tube and never a field
+ * @param {?{spots: Array, fit: object}} props.field the area's rated sites and frame, or null
+ */
+function ThumbSlot({ kp, simulated, field }) {
+  const pending = <PendingSlot kp={kp} simulated={simulated} />;
+  if (simulated || !field) return pending;
+  return (
+    <FieldBoundary fallback={pending}>
+      <Suspense fallback={pending}>
+        <AuroraFieldThumb spots={field.spots} fit={field.fit} />
+      </Suspense>
+    </FieldBoundary>
+  );
+}
+
+ThumbSlot.propTypes = {
+  kp: PropTypes.number,
+  simulated: PropTypes.bool.isRequired,
+  field: FIELD_SHAPE,
+};
+
 /** The shape both layouts read; see {@link deriveModel}. */
 const MODEL_SHAPE = PropTypes.shape({
   simulated: PropTypes.bool.isRequired,
@@ -255,6 +347,10 @@ const MODEL_SHAPE = PropTypes.shape({
   breathing: PropTypes.bool.isRequired,
   description: PropTypes.string,
   detected: PropTypes.string,
+  best: PropTypes.shape({
+    name: PropTypes.string.isRequired,
+    stars: PropTypes.number.isRequired,
+  }),
 }).isRequired;
 
 /**
@@ -281,10 +377,27 @@ function activates(e) {
  * @param {object} props.m the presentation model from {@link deriveModel}
  * @param {function} props.onActivate opens the Map tab (or, simulated, the admin hash)
  * @param {function} props.onDismiss dismisses the banner at its current level
+ * @param {?object} props.field the planning area's rated field ({@link areaField}), or null while
+ *   the slot is pending
  */
-function AuroraCard({ m, onActivate, onDismiss }) {
+function AuroraCard({ m, field = null, onActivate, onDismiss }) {
   const parts = [];
-  if (m.siteCount != null) {
+  if (m.best) {
+    // Ready: the best rated site in the reader's area, then how many sites are clear. Without triage
+    // the count is the dark-sky total, and then it is NOT "clear" (missing triage is not a clear sky).
+    parts.push(
+      <span key="best">
+        Best: <b>{m.best.name}</b> <Stars n={m.best.stars} />
+      </span>,
+    );
+    if (m.siteCount != null) {
+      parts.push(
+        <span key="sites">
+          {m.siteCount} {m.sitesClear ? '' : 'dark-sky '}{siteNoun(m.siteCount)}{m.sitesClear ? ' clear' : ''}
+        </span>,
+      );
+    }
+  } else if (m.siteCount != null) {
     parts.push(
       <span key="sites">
         <b>{m.siteCount}</b> dark-sky {siteNoun(m.siteCount)}{m.sitesClear ? ' clear' : ''}
@@ -319,7 +432,7 @@ function AuroraCard({ m, onActivate, onDismiss }) {
       >
         {/* eslint-enable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */}
         <div className="wf-aurora-thumb" data-testid="aurora-banner-thumb">
-          <PendingSlot kp={m.kp} simulated={m.simulated} />
+          <ThumbSlot kp={m.kp} simulated={m.simulated} field={field} />
         </div>
         <div className="wf-aurora-body">
           <span className="wf-aurora-pill" data-testid="aurora-banner-pill">
@@ -370,6 +483,7 @@ function AuroraCard({ m, onActivate, onDismiss }) {
 
 AuroraCard.propTypes = {
   m: MODEL_SHAPE,
+  field: FIELD_SHAPE,
   onActivate: PropTypes.func.isRequired,
   onDismiss: PropTypes.func.isRequired,
 };
@@ -383,10 +497,13 @@ AuroraCard.propTypes = {
  * @param {function} props.onDismiss dismisses the banner at its current level
  */
 function AuroraStrip({ m, onActivate, onDismiss }) {
+  // The best site gets its own markup (a name that ellipsises and a rating that never does); every
+  // other form is one text run.
+  const showBest = !m.allOvercast && m.best;
   let detail = null;
   if (m.allOvercast) {
     detail = 'all sites overcast';
-  } else if (m.siteCount != null) {
+  } else if (!showBest && m.siteCount != null) {
     detail = `${m.siteCount} dark ${siteNoun(m.siteCount)}${m.sitesClear ? ' clear' : ''}`;
   }
   const headline = m.simulated ? 'Aurora simulated' : m.forecast ? 'Aurora tonight' : 'Aurora active now';
@@ -421,11 +538,25 @@ function AuroraStrip({ m, onActivate, onDismiss }) {
             <span className="wf-aurora-strip-lvl">{m.levelWord}</span>{' '}
             {headline}
           </p>
-          {(m.kp != null || detail) && (
-            <p className="wf-aurora-strip-l2" data-testid="aurora-banner-strip-detail">
+          {(m.kp != null || detail || showBest) && (
+            <p
+              className={showBest ? 'wf-aurora-strip-l2 wf-aurora-strip-l2-best' : 'wf-aurora-strip-l2'}
+              data-testid="aurora-banner-strip-detail"
+            >
               {m.kp != null && <b>Kp {m.kp}</b>}
-              {m.kp != null && detail && ' · '}
-              {detail}
+              {showBest ? (
+                <>
+                  <span className="wf-aurora-keep">{m.kp != null ? ' · best ' : 'best '}</span>
+                  <span className="wf-aurora-strip-name">{m.best.name}</span>
+                  <span className="wf-aurora-keep"> </span>
+                  <Stars n={m.best.stars} />
+                </>
+              ) : (
+                <>
+                  {m.kp != null && detail && ' · '}
+                  {detail}
+                </>
+              )}
             </p>
           )}
         </div>
@@ -458,8 +589,11 @@ AuroraStrip.propTypes = {
  * - Not rendered for QUIET or MINOR status, nor for a MODERATE alert under full overcast
  * - Severity rides the aurora ramp, chosen from `status.level` (never the API's `hexColour`)
  * - At 640px and up a card: a thumbnail slot (Kp on a nine-step meter while no per-location scores
- *   exist), the level pill, when-line, description, sites-clear line and a call to action
+ *   exist for the planning area, tonight's aurora field once they do), the level pill, when-line,
+ *   description, best/sites-clear line and a call to action
  * - Below 640px a 56px glow strip
+ * - Needs the briefing provider for the planning area and the HOME drive (App mounts it above the
+ *   banner block); without one the field falls back to every rated site
  * - A STRONG alert breathes gently while it is live and Bz is southward (< −1 nT)
  * - Dismissible per session; re-appears if the level escalates
  *
@@ -473,6 +607,20 @@ export default function AuroraBanner({ onViewOnMap = null }) {
   const isMobile = useIsMobile();
   const [dismissedLevel, setDismissedLevel] = useState(null);
 
+  // Tonight's per-location ratings, restricted to the reader's planning area (plan §4 D8). The hooks
+  // run before the early returns below: nothing is asked for a status that is null, not alert-worthy
+  // or simulated (the hook gates itself), and `useWindowFirstBriefing` answers empty outside the
+  // briefing provider — then every rated site counts and frames itself, the degrade path.
+  // A banner dismissed at this level draws nothing, so it asks for nothing either (null is "no alert"
+  // to the hook); an escalation changes the level and asks again.
+  const dismissed = Boolean(status) && dismissedLevel === status.level;
+  const scores = useAuroraScores(dismissed ? null : status);
+  const { heatSpots, reachById, origin } = useWindowFirstBriefing();
+  const field = useMemo(
+    () => (status?.simulated === true ? null : areaField(scores.spots, heatSpots, reachById, origin)),
+    [status?.simulated, scores.spots, heatSpots, reachById, origin],
+  );
+
   // Not eligible (free-tier, 403) or not yet loaded
   if (!status) return null;
 
@@ -482,7 +630,7 @@ export default function AuroraBanner({ onViewOnMap = null }) {
   // Dismissed at this exact level — re-show only on escalation
   if (dismissedLevel === status.level) return null;
 
-  const m = deriveModel(status);
+  const m = deriveModel(status, field);
 
   // Gate on clear skies. Telling a photographer "aurora tonight" when every dark-sky
   // location is overcast is noise in the most valuable slot on the screen — NLC already
@@ -514,8 +662,10 @@ export default function AuroraBanner({ onViewOnMap = null }) {
     }
   }
 
-  const Layout = isMobile ? AuroraStrip : AuroraCard;
-  return <Layout m={m} onActivate={handleActivate} onDismiss={handleDismiss} />;
+  // The strip has no thumbnail, so only the card is handed the field.
+  return isMobile
+    ? <AuroraStrip m={m} onActivate={handleActivate} onDismiss={handleDismiss} />
+    : <AuroraCard m={m} field={field} onActivate={handleActivate} onDismiss={handleDismiss} />;
 }
 
 AuroraBanner.propTypes = {

@@ -72,7 +72,13 @@ vi.mock('../api/settingsApi.js', () => ({
 }));
 vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn() }));
 vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ viewline: null }) }));
-vi.mock('../api/auroraApi.js', () => ({ getAuroraStatus: vi.fn() }));
+// The banner asks for per-location scores whenever a real alert is up (aurora-banner-plan.md B2);
+// empty answers keep it on its pending slot, which is all this suite needs of it.
+vi.mock('../api/auroraApi.js', () => ({
+  getAuroraStatus: vi.fn(),
+  getAuroraLocations: vi.fn(() => Promise.resolve([])),
+  getAuroraForecastResults: vi.fn(() => Promise.resolve([])),
+}));
 vi.mock('../api/nlcApi.js', () => ({ getNlcSighting: vi.fn() }));
 vi.mock('../api/astroApi.js', () => ({ getAstroConditions: vi.fn() }));
 vi.mock('../api/almanacApi.js', () => ({ getAlmanac: vi.fn(), ALMANAC_DAYS: 90 }));

@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { act, render, screen, fireEvent, within } from '@testing-library/react';
 import AuroraBanner, { SEVERITY, bzStatus, formatDetectedAt } from '../components/AuroraBanner.jsx';
 import { auroraRampHex } from '../utils/auroraRamp.js';
 
@@ -20,8 +20,47 @@ vi.mock('../hooks/useAuroraViewline.js', () => ({
 let mockIsMobile = false;
 vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => mockIsMobile }));
 
+// The per-location scores are the hook's own suite's business (useAuroraScores.test.jsx); here they are
+// a value the test hands the banner, so each rule about WHICH site it draws and names can be failed
+// without a request in sight.
+vi.mock('../hooks/useAuroraScores.js', () => ({
+  useAuroraScores: vi.fn(),
+}));
+
+// The planning area and the HOME reach come from the briefing provider (aurora-banner-plan.md §4 D1).
+// A mutable value rather than a rendered provider: the banner reads three fields of it. The mock also
+// carries `effectiveReachById` (the Plan origin's drive) with CONTRADICTING numbers, so a banner that
+// breaks a tie by it instead of the HOME `reachById` names the wrong site.
+let mockBriefing;
+vi.mock('../context/WindowFirstBriefingContext.jsx', () => ({
+  useWindowFirstBriefing: () => mockBriefing,
+}));
+
+// The lazy field thumbnail, replaced by a stub that shows what it was handed. Its throwing is switched
+// by `mockThumbThrows`, standing in for a chunk that fails to load (a lazy component rethrows the
+// rejection at render, the same path the boundary under test catches).
+let mockThumbThrows = false;
+let mockThumbThrown = 0;
+vi.mock('../components/AuroraFieldThumb.jsx', () => ({
+  default: ({ spots, fit }) => {
+    if (mockThumbThrows) {
+      mockThumbThrown += 1;
+      throw new Error('chunk failed to load');
+    }
+    return (
+      <div
+        data-testid="aurora-field-stub"
+        data-names={spots.map((s) => s.name).join('|')}
+        data-fit={JSON.stringify(fit)}
+      />
+    );
+  },
+}));
+
+import { useAuroraScores } from '../hooks/useAuroraScores.js';
 import { useAuroraStatus } from '../hooks/useAuroraStatus.js';
 import { useAuroraViewline } from '../hooks/useAuroraViewline.js';
+import { bbox } from '../utils/heatGeometry.js';
 
 // ── Fixtures ────────────────────────────────────────────────────────────────────────────────────
 // Every fixture's `hexColour` CONTRADICTS its level (the API's old amber/red, or worse): severity is
@@ -62,6 +101,10 @@ describe('AuroraBanner', () => {
     // The hook is never called today; answering the shape B3 will read keeps a regression that
     // re-adds the call failing on the `not.toHaveBeenCalled` below rather than on a destructure.
     useAuroraViewline.mockReturnValue({ viewline: null, source: null });
+    useAuroraScores.mockReturnValue({ ready: false, spots: [] });
+    mockBriefing = { heatSpots: [], reachById: new Map(), effectiveReachById: new Map(), origin: null };
+    mockThumbThrows = false;
+    mockThumbThrown = 0;
     mockIsMobile = false;
     // Pin the clock to a fixed noon instant so the relative "today / yesterday / N days ago"
     // detection formatting is deterministic — previously flaked near local midnight. Only Date is
@@ -774,6 +817,271 @@ describe('AuroraBanner', () => {
     it('has a dismiss button with an accessible name, that is a real button', () => {
       renderBanner({ ...MODERATE });
       expect(screen.getByRole('button', { name: 'Dismiss aurora banner' })).toHaveAttribute('type', 'button');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Once per-location scores exist (aurora-banner-plan.md B2): the field and the best line
+  // ---------------------------------------------------------------------------
+
+  describe('per-location scores', () => {
+    const rated = (id, name, stars) => ({ id, name, lat: 55 + id / 100, lng: -2, rid: name, stars });
+    const heat = (id, name, regionName) => ({ id, name, lat: 55 + id / 100, lng: -2, regionName, rid: regionName });
+    const driveMap = (entries) => new Map(entries.map(([id, driveMinutes]) => [id, { driveMinutes }]));
+    const scored = (...spots) => useAuroraScores.mockReturnValue({ ready: spots.length > 0, spots });
+    const FORECAST = { ...MODERATE, forecastKp: 6, triggerType: 'forecast', darkSkyLocationCount: 150, clearLocationCount: 147 };
+    const best = () => screen.getByTestId('aurora-banner-best');
+
+    it('asks the score hook about the status it is showing', () => {
+      renderBanner(FORECAST);
+      expect(useAuroraScores).toHaveBeenCalledWith(FORECAST);
+    });
+
+    it('draws the lazy field in the thumbnail slot, and shows the pending slot until it has loaded', async () => {
+      scored(rated(1, 'Kielder', 5));
+      renderBanner(FORECAST);
+      // The Suspense fallback IS the pending slot — the swap is invisible in layout.
+      const thumb = screen.getByTestId('aurora-banner-thumb');
+      expect(within(thumb).getByTestId('aurora-banner-slot')).toBeInTheDocument();
+
+      const field = await within(thumb).findByTestId('aurora-field-stub');
+      expect(field).toHaveAttribute('data-names', 'Kielder');
+      expect(within(thumb).queryByTestId('aurora-banner-slot')).not.toBeInTheDocument();
+    });
+
+    it('stays on the pending slot while no site is rated', () => {
+      renderBanner(FORECAST);
+      const thumb = screen.getByTestId('aurora-banner-thumb');
+      expect(within(thumb).getByTestId('aurora-banner-slot')).toBeInTheDocument();
+      expect(within(thumb).queryByTestId('aurora-field-stub')).not.toBeInTheDocument();
+      expect(best()).toHaveTextContent('147 dark-sky sites clear');
+      expect(best()).not.toHaveTextContent('Best:');
+    });
+
+    it('falls back to the pending slot, banner intact, when the field\'s chunk fails to load', async () => {
+      mockThumbThrows = true;
+      const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        scored(rated(1, 'Kielder', 5));
+        renderBanner(FORECAST);
+        // Wait for the failure to HAPPEN: the Suspense fallback is the same pending slot, so a check
+        // made before the lazy module has loaded and thrown would pass with the boundary deleted.
+        await vi.waitFor(() => expect(mockThumbThrown).toBeGreaterThan(0));
+        await act(async () => {});
+        // A boundary above the thumbnail, not the shell's: the banner is still here, in its pending slot.
+        expect(screen.getByTestId('aurora-banner')).toBeInTheDocument();
+        expect(within(screen.getByTestId('aurora-banner-thumb')).getByTestId('aurora-banner-slot')).toBeInTheDocument();
+        expect(screen.queryByTestId('aurora-field-stub')).not.toBeInTheDocument();
+        // The best line is words, not the picture: it still names the site.
+        expect(best()).toHaveTextContent('Best: Kielder 5★');
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('speaks a rating as a number of stars, with the glyph hidden from assistive technology', () => {
+      scored(rated(1, 'Kielder', 4));
+      const four = renderBanner(FORECAST);
+      const stars = best().querySelector('.wf-aurora-stars');
+      expect(stars.querySelector('[aria-hidden="true"]').textContent).toBe('★');
+      expect(stars.querySelector('.sr-only').textContent).toBe(' stars');
+      four.unmount();
+
+      scored(rated(1, 'Kielder', 1));
+      renderBanner(FORECAST);
+      expect(best().querySelector('.sr-only').textContent).toBe(' star');
+    });
+
+    it('stops asking for scores once the banner is dismissed, and asks again on escalation', () => {
+      const view = renderBanner(FORECAST);
+      expect(useAuroraScores).toHaveBeenLastCalledWith(FORECAST);
+      fireEvent.click(screen.getByTestId('aurora-banner-dismiss'));
+      expect(useAuroraScores).toHaveBeenLastCalledWith(null);
+
+      const escalated = { ...FORECAST, level: 'STRONG' };
+      useAuroraStatus.mockReturnValue({ status: escalated, loading: false });
+      view.rerender(<AuroraBanner />);
+      expect(useAuroraScores).toHaveBeenLastCalledWith(escalated);
+      expect(screen.getByTestId('aurora-banner')).toBeInTheDocument();
+    });
+
+    describe('the best line', () => {
+      it('names the best site, its stars and how many sites are clear', () => {
+        scored(rated(1, 'Kielder', 4), rated(2, 'Hackfall Wood', 5), rated(3, 'Bamburgh', 3));
+        renderBanner(FORECAST);
+        expect(best().textContent).toBe('Best: Hackfall Wood 5★ stars · 147 sites clear');
+        expect(best().querySelector('b').textContent).toBe('Hackfall Wood');
+        expect(best().querySelector('.wf-aurora-stars').textContent).toBe('5★ stars');
+      });
+
+      it('uses the singular for one clear site', () => {
+        scored(rated(1, 'Kielder', 4));
+        renderBanner({ ...FORECAST, darkSkyLocationCount: 4, clearLocationCount: 1 });
+        expect(best().textContent).toBe('Best: Kielder 4★ stars · 1 site clear');
+      });
+
+      it('says "dark-sky sites", not "clear", when triage has not run', () => {
+        scored(rated(1, 'Kielder', 4));
+        renderBanner({ ...FORECAST, darkSkyLocationCount: 20, clearLocationCount: null });
+        expect(best().textContent).toBe('Best: Kielder 4★ stars · 20 dark-sky sites');
+      });
+
+      it('names the site alone when the status counts no sites', () => {
+        scored(rated(1, 'Kielder', 4));
+        renderBanner({ ...FORECAST, darkSkyLocationCount: 0, clearLocationCount: null });
+        expect(best().textContent).toBe('Best: Kielder 4★ stars');
+      });
+
+      it('appends the live Bz reading, with a true minus sign', () => {
+        scored(rated(1, 'Kielder', 5));
+        renderBanner({ ...FORECAST, triggerType: 'realtime', bzNanoTesla: -9.2 });
+        expect(best().textContent).toBe('Best: Kielder 5★ stars · 147 sites clear · Bz −9.2 nT');
+      });
+
+      it('gives way to the overcast sentence when every site is overcast', () => {
+        scored(rated(1, 'Kielder', 5));
+        renderBanner({ ...STRONG, darkSkyLocationCount: 20, clearLocationCount: 0 });
+        expect(screen.getByTestId('aurora-banner-overcast')).toBeInTheDocument();
+        expect(screen.queryByTestId('aurora-banner-best')).not.toBeInTheDocument();
+      });
+
+      it('breaks a tie by the shorter HOME drive', () => {
+        scored(rated(1, 'Far Hide', 5), rated(2, 'Near Hide', 5));
+        mockBriefing.reachById = driveMap([[1, 120], [2, 30]]);
+        renderBanner(FORECAST);
+        expect(best()).toHaveTextContent('Best: Near Hide 5★');
+      });
+
+      it('lets a measured drive beat an unknown one', () => {
+        scored(rated(1, 'Aaa Unmeasured', 5), rated(2, 'Zzz Measured', 5));
+        mockBriefing.reachById = driveMap([[2, 170]]);
+        renderBanner(FORECAST);
+        expect(best()).toHaveTextContent('Best: Zzz Measured 5★');
+      });
+
+      it('reads the HOME drive, never the Plan origin\'s', () => {
+        scored(rated(1, 'Home Near', 5), rated(2, 'Origin Near', 5));
+        mockBriefing.reachById = driveMap([[1, 20], [2, 90]]);
+        mockBriefing.effectiveReachById = driveMap([[1, 200], [2, 10]]);
+        renderBanner(FORECAST);
+        expect(best()).toHaveTextContent('Best: Home Near 5★');
+      });
+
+      it('breaks a full tie by name', () => {
+        scored(rated(1, 'Whitby', 4), rated(2, 'Alnmouth', 4));
+        renderBanner(FORECAST);
+        expect(best()).toHaveTextContent('Best: Alnmouth 4★');
+      });
+    });
+
+    describe('the planning area', () => {
+      // Northumberland is an hour away; the Highlands are measured beyond the 180-minute glance limit.
+      const catalogue = [
+        heat(1, 'Kielder', 'Northumberland'),
+        heat(2, 'Bamburgh', 'Northumberland'),
+        heat(3, 'Skye', 'Highlands'),
+      ];
+      const reach = driveMap([[1, 60], [2, 70], [3, 400]]);
+
+      beforeEach(() => {
+        mockBriefing.heatSpots = catalogue;
+        mockBriefing.reachById = reach;
+      });
+
+      it('names the best site inside the area, although a better-rated one lies outside', () => {
+        scored(rated(3, 'Skye', 5), rated(1, 'Kielder', 4));
+        renderBanner(FORECAST);
+        expect(best()).toHaveTextContent('Best: Kielder 4★');
+        expect(best()).not.toHaveTextContent('Skye');
+      });
+
+      it('draws only the in-area sites, framed to the area', async () => {
+        scored(rated(3, 'Skye', 5), rated(1, 'Kielder', 4), rated(2, 'Bamburgh', 3));
+        renderBanner(FORECAST);
+        const field = await screen.findByTestId('aurora-field-stub');
+        expect(field).toHaveAttribute('data-names', 'Kielder|Bamburgh');
+        expect(JSON.parse(field.dataset.fit)).toEqual(bbox([catalogue[0], catalogue[1]], 0.25));
+      });
+
+      it('stays pending — no field, no Best line — when every rated site is outside the area', () => {
+        scored(rated(3, 'Skye', 5));
+        renderBanner(FORECAST);
+        expect(screen.queryByTestId('aurora-field-stub')).not.toBeInTheDocument();
+        expect(within(screen.getByTestId('aurora-banner-thumb')).getByTestId('aurora-banner-slot')).toBeInTheDocument();
+        expect(best().textContent).toBe('147 dark-sky sites clear');
+      });
+
+      it('counts every rated site, and frames them, when the area cannot be known', async () => {
+        mockBriefing.heatSpots = [];
+        scored(rated(3, 'Skye', 5), rated(1, 'Kielder', 4));
+        renderBanner(FORECAST);
+        expect(best()).toHaveTextContent('Best: Skye 5★');
+        const field = await screen.findByTestId('aurora-field-stub');
+        expect(field).toHaveAttribute('data-names', 'Skye|Kielder');
+        expect(JSON.parse(field.dataset.fit)).toEqual(bbox([rated(3, 'Skye', 5), rated(1, 'Kielder', 4)], 0.25));
+      });
+
+      it('follows an away Plan origin to that origin\'s own region', () => {
+        mockBriefing.origin = { name: 'Highlands' };
+        scored(rated(3, 'Skye', 3), rated(1, 'Kielder', 5));
+        renderBanner(FORECAST);
+        expect(best()).toHaveTextContent('Best: Skye 3★');
+      });
+    });
+
+    describe('a simulated alert', () => {
+      it('never shows the field or a best line, whatever scores the hook holds', () => {
+        scored(rated(1, 'Kielder', 5));
+        renderBanner({ ...MODERATE, simulated: true, darkSkyLocationCount: 20, clearLocationCount: 12 });
+        const thumb = screen.getByTestId('aurora-banner-thumb');
+        expect(thumb).toHaveTextContent('🧪');
+        expect(within(thumb).queryByTestId('aurora-field-stub')).not.toBeInTheDocument();
+        expect(best()).not.toHaveTextContent('Best:');
+      });
+    });
+
+    describe('the strip', () => {
+      beforeEach(() => {
+        mockIsMobile = true;
+      });
+
+      it('names the best site on line two once scores exist', () => {
+        scored(rated(1, 'Hackfall Wood', 5));
+        renderBanner({ ...STRONG, forecastKp: 8, darkSkyLocationCount: 20, clearLocationCount: 12 });
+        const detail = screen.getByTestId('aurora-banner-strip-detail');
+        expect(detail.textContent).toBe('Kp 8 · best Hackfall Wood 5★ stars');
+        // The name is its own shrinking, ellipsising span and the rating a separate one that never
+        // is: on a 320px phone the tail of the line is the answer (index.css, .wf-aurora-strip-l2-best).
+        expect(detail).toHaveClass('wf-aurora-strip-l2-best');
+        expect(detail.querySelector('.wf-aurora-strip-name').textContent).toBe('Hackfall Wood');
+        expect(detail.querySelector('.wf-aurora-stars')).not.toBeNull();
+      });
+
+      it('leaves line two as it was while no site is rated', () => {
+        renderBanner({ ...STRONG, forecastKp: 8, darkSkyLocationCount: 20, clearLocationCount: 12 });
+        expect(screen.getByTestId('aurora-banner-strip-detail').textContent).toBe('Kp 8 · 12 dark sites clear');
+      });
+
+      it('keeps "all sites overcast" ahead of the best site', () => {
+        scored(rated(1, 'Kielder', 5));
+        renderBanner({ ...STRONG, forecastKp: 8, darkSkyLocationCount: 20, clearLocationCount: 0 });
+        expect(screen.getByTestId('aurora-banner-strip-detail').textContent).toBe('Kp 8 · all sites overcast');
+      });
+
+      it('has no thumbnail to draw into, so it never mounts the field', () => {
+        scored(rated(1, 'Kielder', 5));
+        renderBanner({ ...STRONG, forecastKp: 8 });
+        expect(screen.queryByTestId('aurora-banner-thumb')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('aurora-field-stub')).not.toBeInTheDocument();
+      });
+
+      it('applies the area restriction to the strip\'s best site too', () => {
+        mockBriefing.heatSpots = [heat(1, 'Kielder', 'Northumberland'), heat(3, 'Skye', 'Highlands')];
+        mockBriefing.reachById = driveMap([[1, 60], [3, 400]]);
+        scored(rated(3, 'Skye', 5), rated(1, 'Kielder', 4));
+        renderBanner({ ...STRONG, forecastKp: 8 });
+        expect(screen.getByTestId('aurora-banner-strip-detail').textContent).toBe('Kp 8 · best Kielder 4★ stars');
+      });
     });
   });
 
