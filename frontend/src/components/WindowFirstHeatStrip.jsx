@@ -1619,7 +1619,8 @@ export default function WindowFirstHeatStrip({
             a hatched plate is actually on screen, and the phone is where the misreading was
             reported. It says nothing about WHY — "at this range" was drafted and dropped, because
             the horizon is the usual cause and not the only one (a failed batch leaves T+0
-            unscored), and the client cannot tell those apart. */}
+            unscored), and this note cannot tell those apart; the served verdict word and region
+            wording carry the reason (the backend folds the pipeline's own record into it). */}
         {unscored.size > 0 && (
           <span data-testid="wf-heat-unscored-note">unshaded — not scored</span>
         )}
