@@ -468,7 +468,7 @@ export default function LocationFourDaySheet({
             // The tide-fit block's own fact for THIS row (T5) — the same
             // `buildTideAlignmentIndex`/`lookupForWindow` join the map callout reads, keyed
             // id-first exactly like every other join on this sheet. Null on an away day (nothing
-            // was evaluated, so nothing was gated OR aligned) and on any row with no served tide
+            // was evaluated, so nothing was aligned) and on any row with no served tide
             // state at all (inland, or no stored extremes near this event).
             const tideFact = row.away
               ? null
@@ -562,15 +562,9 @@ export default function LocationFourDaySheet({
                         // pipeline at all, because that would be a claim about the forecast built
                         // out of our own fetch (`scoresLoaded`'s own rule).
                         <span data-testid="location-sheet-state" className="wf-loc-none font-mono">
-                          {/* A GATED window drops the "yet": the pipeline decided up front, and
-                              nothing is coming. Read before `scoresKnown` because the gate rides
-                              the briefing, not the ratings fetch, so it is known whether or not
-                              that request has answered. */}
                           {row.away
                             ? row.stateLabel
-                            : (row.gate
-                              ? 'Not scored'
-                              : (row.scoresKnown ? 'Not scored yet' : 'Loading ratings…'))}
+                            : (row.scoresKnown ? 'Not scored yet' : 'Loading ratings…')}
                         </span>
                       )}
                       {treatment.provisional && <ProvisionalMark title={treatment.label} />}
@@ -665,8 +659,8 @@ export default function LocationFourDaySheet({
                       ))}
                     </p>
                   )}
-                  {/* The tide-fit block (T5, design spec §4) — after the light times and before
-                      the gate row, the same relative position the map callout keeps it in.
+                  {/* The tide-fit block (T5, design spec §4) — after the light times, the same relative
+                      position the map callout keeps it in.
                       `TideFitBlock` itself is the unmeasured-facts guard: null renders nothing,
                       never a "no tide fact" line. The jump inside it FOCUSES a later row on THIS
                       sheet rather than moving the map underneath it (see `focusRow` above) — the
@@ -684,18 +678,6 @@ export default function LocationFourDaySheet({
                       the same "one look, two hosts" component the map callout mounts. Renders
                       nothing without a served sight for this row's own window. */}
                   <EclipseSpotLine sight={eclipseSight} />
-                  {/* The evaluation gate — the pipeline's own reason this window has no score, in
-                      the backend's words (`BriefingSlot.evaluationGate`). Above the prose because
-                      it is the answer to "why no score", and the prose that follows is the REGION's
-                      sky, labelled as such: "the sky could be good, shame about the tide" is the
-                      reading, and it only reads that way with the water stated first. Mono, not
-                      serif italic — this is a fact from the almanac side, not generated prose. */}
-                  {row.gate && (
-                    <p data-testid="location-sheet-gate" className="wf-loc-gate font-mono">
-                      <span className="wf-loc-gate-glyph" aria-hidden="true">≈ </span>
-                      {row.gate}
-                    </p>
-                  )}
                   {row.summary ? (
                     // Serif italic is this app's typographic mark for generated prose — the
                     // drill-down gloss, the map overlay's summary and the peek's clause all use it.
@@ -710,7 +692,7 @@ export default function LocationFourDaySheet({
                       )}
                       {row.summary}
                     </p>
-                  ) : row.gate ? null : (
+                  ) : (
                     <p data-testid="location-sheet-nowhy" className="wf-loc-why muted font-mono">
                       {/* ⚠️ No "you". A travel day is the OPERATOR'S, not the reader's — the arm is
                           scrupulously impersonal about it everywhere else (the away cell says

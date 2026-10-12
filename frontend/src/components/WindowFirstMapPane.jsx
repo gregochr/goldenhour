@@ -15,7 +15,7 @@ import { scopeSpots } from '../utils/planOrigin.js';
 import { beyondRegions } from '../utils/planningArea.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
 import {
-  buildEclipseIndex, buildEvaluationGateIndex, buildScoreIndex, buildTideAlignmentIndex,
+  buildEclipseIndex, buildScoreIndex, buildTideAlignmentIndex,
 } from '../utils/locationSheet.js';
 import { buildRegionGlossIndex } from '../utils/mapCallout.js';
 import { buildRegionBestIndex } from '../utils/regionsJump.js';
@@ -431,14 +431,6 @@ export default function WindowFirstMapPane({
   const eclipseIndex = useMemo(
     () => buildEclipseIndex(briefing?.days), [briefing?.days],
   );
-  /**
-   * The gated windows' served reasons ({@code BriefingSlot.evaluationGate}) — the same walk the
-   * location sheet's {@code buildSlotIndex} makes, over the same {@code briefing.days}, so the
-   * callout and the sheet it opens print one sentence about one window.
-   */
-  const evaluationGateIndex = useMemo(
-    () => buildEvaluationGateIndex(briefing?.days), [briefing?.days],
-  );
 
   // The briefing's served tide for every window it carries (rendered or not), with its event time.
   const tideByWindow = useMemo(
@@ -686,7 +678,6 @@ export default function WindowFirstMapPane({
         runId={briefing?.generatedAt ?? null}
         tideAlignmentIndex={tideAlignmentIndex}
         eclipseIndex={eclipseIndex}
-        evaluationGateIndex={evaluationGateIndex}
         reachById={reachById}
         onOpenLocationSheet={onOpenLocationSheet}
         // The breadcrumb's `clear` origin reset (D2) — the SAME `setOrigin` the masthead's ⌂ and
