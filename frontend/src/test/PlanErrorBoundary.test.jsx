@@ -54,6 +54,29 @@ describe('PlanErrorBoundary', () => {
     expect(spy.mock.calls.some(([first]) => first === 'Plan crashed:')).toBe(true);
   });
 
+  // The aurora banner's provider lift (aurora-banner-plan.md §4 D1) moved this boundary OUTSIDE
+  // App's <main>, so the fallback carries its own landmark and inset; a healthy boundary adds none.
+  it('puts its fallback in a <main> with the page inset, and adds no landmark when healthy', () => {
+    const spy = silenceReactErrorLog();
+    const healthy = render(
+      <PlanErrorBoundary onSignOut={vi.fn()}>
+        <Fine />
+      </PlanErrorBoundary>,
+    );
+    expect(screen.queryByRole('main')).toBeNull();
+    healthy.unmount();
+
+    render(
+      <PlanErrorBoundary onSignOut={vi.fn()}>
+        <Boom />
+      </PlanErrorBoundary>,
+    );
+    const main = screen.getByRole('main');
+    expect(main).toContainElement(screen.getByTestId('plan-error'));
+    expect(main.className.split(/\s+/)).toEqual(expect.arrayContaining(['px-4', 'py-6']));
+    spy.mockRestore();
+  });
+
   // The decision this pins: the boundary must not act on its own. Catching has already closed the
   // reload trap, and an automatic clear-and-reload or sign-out would make a real crash
   // indistinguishable from a mis-click.

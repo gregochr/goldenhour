@@ -25,8 +25,9 @@ import { purgeServiceWorkerState } from '../utils/serviceWorkerReset.js';
  * <h2>A class, because there is no alternative</h2>
  *
  * <p>React 19 has no hook form of an error boundary; {@code getDerivedStateFromError} on a class is
- * the only construct the reconciler will absorb an error into. This is the codebase's only class
- * component, and it is not a style regression — it is the API.
+ * the only construct the reconciler will absorb an error into. This is one of the codebase's two class
+ * components (the other is the aurora banner's lazy-thumbnail boundary), and neither is a style
+ * regression — it is the API.
  *
  * <h2>What it does not catch</h2>
  *
@@ -121,7 +122,14 @@ class PlanErrorBoundary extends React.Component {
     const { error } = this.state;
     if (!error) return children;
 
+    // ⚠️ The fallback carries its OWN <main>: since the aurora banner's provider lift
+    // (docs/engineering/aurora-banner-plan.md §4 D1) this boundary sits OUTSIDE App's <main>, so a
+    // crash would otherwise leave the page with no main landmark and the card flush to the viewport
+    // edges. `flex-1 min-h-0 overflow-y-auto` is inert on the block-flow tabs and, on the Map tab's
+    // fixed-height flex column, lets the card take the column and scroll. A healthy boundary returns
+    // `children`, so there is never a second <main>.
     return (
+      <main className="px-4 py-6 flex-1 min-h-0 overflow-y-auto">
       <div data-testid="plan-error" className="card border-red-900/50 text-center py-8" role="alert">
         {/* The subtree that died normally supplies the page's only <h1>. Without this the fallback
             is a page with no heading at all. */}
@@ -167,6 +175,7 @@ class PlanErrorBoundary extends React.Component {
           </button>
         </div>
       </div>
+      </main>
     );
   }
 }

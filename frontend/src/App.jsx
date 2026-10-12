@@ -643,6 +643,32 @@ function AppInner() {
     // `border-box`, so the padding comes OUT of the screen height and the `flex-1` map pane
     // shrinks to fit, rather than the page growing past one screen.
     <div className={`app-safe ${isMapTabActive ? 'h-[100dvh] flex flex-col overflow-hidden bg-plex-bg' : 'min-h-screen bg-plex-bg'}`}>
+      {/* The boundary and the provider wrap BOTH the banner block and <main>, in that order
+          (aurora-banner-plan.md §4 D1). The aurora banner frames its field to the reader's
+          planning area and breaks a tie by the HOME drive, and both live only in the briefing
+          provider. Neither wrapper renders a DOM node (`PlanErrorBoundary` returns `children` when
+          healthy, the provider is a bare context provider), so the banner block and <main> stay
+          DIRECT children of the root flex column — `App.test.jsx` pins it. The provider is
+          mounted INSIDE the boundary, not beside it, so a provider crash is caught the same way a
+          shell crash is (§4.1) — the reader always lands on the same fallback rather than a blank
+          page. The one behaviour change, stated: a crash now also removes the banner block
+          (session expiry, the rewind pill, the run-complete and backend-down notices) behind the
+          fallback, which carries its own Sign out and its own <main> (the boundary now sits outside
+          this file's <main>, so the fallback supplies the landmark and the inset itself). */}
+      <PlanErrorBoundary onSignOut={logout}>
+        {/* `locations` joins `homeSettingsVersion` here because the heat field's catalogue is
+            a join across two contracts and only ONE of them carries geography: the briefing
+            and scores payloads have no lat/lng and are not to be given any (plan §3). The
+            shell already received the same memoised array; the provider needs it to build the
+            join once for the strip, the row maps and the Map tab rather than three times. */}
+        <WindowFirstBriefingProvider
+          homeSettingsVersion={homeSettingsVersion}
+          driveTimesVersion={driveTimesVersion}
+          homePlace={homePlace}
+          comingUpLastSeenDate={comingUpLastSeenDate}
+          setComingUpLastSeenAt={setComingUpLastSeenDate}
+          locations={visibleLocations}
+        >
       {/* A natural-height, non-shrinking flex item on the Map tab — `flex-shrink-0` so a tight
           column never squeezes a banner instead of the map panel, which is the one element with
           `flex-1` and so the one meant to absorb the difference. Inert on every other tab (the
@@ -685,8 +711,8 @@ function AppInner() {
           in the chain between the flex root and `WindowFirstShell`'s own `.wf-shell`
           (`PlanErrorBoundary` returns `children` directly when healthy, and
           `WindowFirstBriefingProvider` is a bare context provider, so neither interposes a DOM
-          node here) — actually receives the space flexbox is distributing rather than sizing to
-          its content. `flex flex-col` so ITS single child (`.wf-shell`) can do the same one level
+          node between the root and this element) — actually receives the space flexbox is
+          distributing rather than sizing to its content. `flex flex-col` so ITS single child (`.wf-shell`) can do the same one level
           down. Every other tab keeps the usual `px-4 py-6` inset and ordinary block flow.
 
           TOP padding matches every other tab's `py-6` (`pt-6`, unconditional — not `sm:pt-6`: the
@@ -723,23 +749,6 @@ function AppInner() {
         {/* isDown is passed DOWN rather than applied here: the shell's masthead carries the cog
             and Sign out, and greying the whole subtree would strand a user with no route out of a
             broken app. */}
-        {/* The provider is mounted INSIDE the boundary below, not beside it, so a provider crash
-            is caught the same way a shell crash is (§4.1) — the reader always lands on the same
-            fallback rather than a blank page. */}
-        <PlanErrorBoundary onSignOut={logout}>
-          {/* `locations` joins `homeSettingsVersion` here because the heat field's catalogue is
-              a join across two contracts and only ONE of them carries geography: the briefing
-              and scores payloads have no lat/lng and are not to be given any (plan §3). The
-              shell already received the same memoised array; the provider needs it to build the
-              join once for the strip, the row maps and the Map tab rather than three times. */}
-          <WindowFirstBriefingProvider
-            homeSettingsVersion={homeSettingsVersion}
-            driveTimesVersion={driveTimesVersion}
-            homePlace={homePlace}
-            comingUpLastSeenDate={comingUpLastSeenDate}
-            setComingUpLastSeenAt={setComingUpLastSeenDate}
-            locations={visibleLocations}
-          >
             {/* Ask PhotoCast's conversation (plan §2.6). Inside the briefing provider (it reads the
                 briefing and the HOME reach map from it) and around the shell, so every Ask surface
                 the shell draws — and, from F3, the map pane it hands over — sees one conversation.
@@ -850,9 +859,9 @@ function AppInner() {
               ) : null}
             />
             </AskWhenLive>
-          </WindowFirstBriefingProvider>
-        </PlanErrorBoundary>
       </main>
+        </WindowFirstBriefingProvider>
+      </PlanErrorBoundary>
 
       {/* Suppressed on the Map tab (adversarial review, real finding #2, measured live: the
           footer alone overflowed the full-frame page by 99px at 1280×800, clipping the map's

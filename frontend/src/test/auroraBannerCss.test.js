@@ -121,6 +121,38 @@ describe('the aurora banner stylesheet', () => {
     });
   });
 
+  describe('the thumbnail slot (B2)', () => {
+    // jsdom applies no stylesheet, so "the slot is 96×118 in both states" is read off the CSS: the
+    // wrapper fixes the size for the pending state AND the field, and the canvas is exactly that size
+    // and block-level, so the swap shifts nothing.
+    it('fixes the slot at 96×118, clipped, whichever state is inside', () => {
+      const body = ruleBody('.wf-aurora-thumb');
+      expect(declares(body, 'width', '96px')).toBe(true);
+      expect(declares(body, 'height', '118px')).toBe(true);
+      expect(declares(body, 'overflow', 'hidden')).toBe(true);
+    });
+
+    it('sizes the field canvas to the slot and takes it out of the inline baseline', () => {
+      const body = ruleBody('.wf-aurora-field');
+      expect(declares(body, 'width', '96px')).toBe(true);
+      expect(declares(body, 'height', '118px')).toBe(true);
+      expect(declares(body, 'display', 'block')).toBe(true);
+    });
+
+    it('lets the strip\'s best name shrink and ellipsise while the rating never does', () => {
+      expect(declares(ruleBody('.wf-aurora-strip-l2-best'), 'display', 'flex')).toBe(true);
+      const name = ruleBody('.wf-aurora-strip-name');
+      expect(declares(name, 'min-width', '0')).toBe(true);
+      expect(declares(name, 'overflow', 'hidden')).toBe(true);
+      expect(declares(name, 'text-overflow', 'ellipsis')).toBe(true);
+      expect(ruleBody('.wf-aurora-strip-l2-best > .wf-aurora-stars')).toContain('flex: none');
+    });
+
+    it('sets the best site\'s stars in the severity ink', () => {
+      expect(ruleBody('.wf-aurora-stars')).toContain('color: var(--acc-ink)');
+    });
+  });
+
   describe('no stray ramp colour', () => {
     it('types each ramp stop once at most, in the strip\'s edge gradient, so every other colour is a property', () => {
       for (const hex of ['#384262', '#2C5470', '#1F7F78', '#3AC884', '#76FFA0']) {

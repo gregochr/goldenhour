@@ -70,6 +70,11 @@ vi.mock('../components/MapView.jsx', () => ({
   default: () => <div data-testid="overlay-map-stub" />,
 }));
 vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ viewline: null }) }));
+// The banner's lazy field thumbnail pulls the heat kernel and a canvas jsdom does not have; this file
+// asks which sites the banner NAMES and which provider it reads, never what is painted.
+vi.mock('../components/AuroraFieldThumb.jsx', () => ({
+  default: () => <div data-testid="aurora-field-stub" />,
+}));
 // This whole file assumes Plan-first — nearly every test below opens on Plan and clicks its own
 // way to Map. jsdom's `matchMedia` stub answers "no match" for everything (`test/setup.js`), so
 // the real `resolveInitialTab()` would resolve 'map' here, same as it does on an un-mocked
@@ -78,7 +83,13 @@ vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ vi
 // tests (default-tab-by-device-plan.md §5). `AppInitialTab.test.jsx` is the file that exercises
 // the real resolution.
 vi.mock('../utils/initialTab.js', () => ({ resolveInitialTab: () => 'plan' }));
-vi.mock('../api/auroraApi.js', () => ({ getAuroraStatus: vi.fn() }));
+// The banner asks for per-location scores whenever a real alert is up (aurora-banner-plan.md B2);
+// empty answers keep it on its pending slot, which is all this suite needs of it.
+vi.mock('../api/auroraApi.js', () => ({
+  getAuroraStatus: vi.fn(),
+  getAuroraLocations: vi.fn(() => Promise.resolve([])),
+  getAuroraForecastResults: vi.fn(() => Promise.resolve([])),
+}));
 vi.mock('../api/nlcApi.js', () => ({ getNlcSighting: vi.fn() }));
 vi.mock('../api/astroApi.js', () => ({ getAstroConditions: vi.fn() }));
 vi.mock('../api/almanacApi.js', () => ({ getAlmanac: vi.fn(), ALMANAC_DAYS: 90 }));
@@ -104,7 +115,7 @@ import {
   refreshDriveTimes, markComingUpSeen,
 } from '../api/settingsApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
-import { getAuroraStatus } from '../api/auroraApi.js';
+import { getAuroraForecastResults, getAuroraLocations, getAuroraStatus } from '../api/auroraApi.js';
 import { getNlcSighting } from '../api/nlcApi.js';
 import { getAstroConditions } from '../api/astroApi.js';
 import { getAlmanac } from '../api/almanacApi.js';
@@ -174,6 +185,8 @@ beforeEach(() => {
   fetchTravelDayRanges.mockReset().mockResolvedValue([]);
   mapPaneProps.last = null;
   getAuroraStatus.mockReset().mockResolvedValue(null);
+  getAuroraLocations.mockReset().mockResolvedValue([]);
+  getAuroraForecastResults.mockReset().mockResolvedValue([]);
   getNlcSighting.mockReset().mockResolvedValue(null);
   getAstroConditions.mockReset().mockResolvedValue(null);
   getAlmanac.mockReset().mockResolvedValue({ entries: [] });
@@ -215,6 +228,14 @@ describe('App — the Plan shell', () => {
     expect(await screen.findByRole('alert')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'The Plan stopped working' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
+
+    // The boundary now sits OUTSIDE App's <main> (aurora-banner-plan.md §4 D1), so the fallback brings
+    // its own landmark and inset, and the banner block is gone behind it.
+    const main = screen.getByRole('main');
+    expect(within(main).getByTestId('plan-error')).toBeInTheDocument();
+    expect(main.className.split(/\s+/)).toContain('px-4');
+    expect(screen.getAllByRole('main')).toHaveLength(1);
+    expect(screen.queryByTestId('window-first-shell')).not.toBeInTheDocument();
   });
 });
 
@@ -1242,6 +1263,31 @@ describe('App — recasts the page as a flex column on the Map tab (map-tab-v2-p
     expect(root.className).toContain('min-h-screen');
     expect(root.className).not.toContain('overflow-hidden');
   });
+
+  // aurora-banner-plan.md §4 D1: the error boundary and the briefing provider now wrap the banner
+  // block AND <main>. They render no DOM node, so the Map tab's flex column keeps the shape it was
+  // measured against — the `flex-shrink-0` banner block and the `flex-1` <main> as DIRECT children of
+  // the root, in that order. A wrapper element between them would silently end the column.
+  it('keeps the banner block and <main> as direct children of the root, in that order, although one boundary and provider now wrap both', async () => {
+    renderApp();
+    const main = screen.getByRole('main');
+    const root = main.parentElement;
+    // `app-safe` is the root's own class: a wrapper interposed above <main> would be its parent
+    // instead, and would not carry it.
+    expect(classTokens(root)).toContain('app-safe');
+
+    const mapTab = await screen.findByRole('tab', { name: 'Map' });
+    await act(async () => { mapTab.click(); });
+    await screen.findByTestId('window-first-panel-map');
+
+    const kids = Array.from(root.children);
+    const block = kids[0];
+    expect(classTokens(block)).toContain('flex-shrink-0');
+    expect(kids[1]).toBe(main);
+    // The banner block really is the one holding the banners (the session notice, the rewind pill and
+    // the NLC slot), not an empty sibling that happens to precede <main>.
+    expect(block.querySelector('.max-w-4xl')).not.toBeNull();
+  });
 });
 
 // Adversarial review, real finding #2, upgraded by a live measurement: the app-wide footer ALONE
@@ -1660,5 +1706,35 @@ describe('App — the settings dialog hands focus back to the tick line\'s origi
       .toBe(true);
     expect(document.activeElement, 'the cog\'s opening had no return address — nothing moves focus')
       .toBe(document.body);
+  });
+});
+
+// ── The aurora banner reads the planning area from the briefing provider ─────
+//
+// aurora-banner-plan.md §4 D1/D8: the banner sits inside the provider so its best line can be
+// restricted to the reader's planning area. With no postcode saved nothing is measured, so every
+// region of the roster is "in the area" (planningArea.areaRegions) — which makes a rated site OFF the
+// roster the observable difference between a banner that reads the provider and one that does not:
+// outside the provider the scoped set is empty and EVERY rated site counts.
+
+describe('App — the aurora banner is inside the briefing provider', () => {
+  it('names the best site inside the planning area, not a better-rated one outside it', async () => {
+    getAuroraStatus.mockResolvedValue({
+      level: 'MODERATE', description: 'Aurora likely', currentNightDate: TOMORROW, simulated: false,
+    });
+    getAuroraLocations.mockResolvedValue([
+      { location: { id: 7, name: 'Bamburgh', lat: 55.608, lon: -1.719 }, stars: 4 },
+      { location: { id: 999, name: 'Off The Roster', lat: 57.2, lon: -6.2 }, stars: 5 },
+    ]);
+    renderApp();
+
+    const banner = await screen.findByTestId('aurora-banner');
+    // The roster, scores and briefing settle in the provider; until then the banner degrades to every
+    // rated site, so the wait is for the NARROWING.
+    await waitFor(() => {
+      expect(within(banner).getByTestId('aurora-banner-best')).toHaveTextContent(/Best: Bamburgh 4★/);
+    });
+    expect(within(banner).queryByText('Off The Roster')).toBeNull();
+    expect(await within(banner).findByTestId('aurora-field-stub')).toBeInTheDocument();
   });
 });

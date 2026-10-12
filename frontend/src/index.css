@@ -11284,6 +11284,13 @@ button.wf-mchip:hover {
 .wf-aurora-bar[data-glow='true'] {
   box-shadow: 0 0 5px var(--c);
 }
+/* The field (aurora-banner-plan.md B2): a canvas the slot's own size, so the swap from the pending
+   state shifts nothing; `display: block` removes the inline baseline gap a canvas would add. */
+.wf-aurora-field {
+  display: block;
+  width: 96px;
+  height: 118px;
+}
 .wf-aurora-pend-label {
   font-family: var(--font-mono);
   font-size: 8.5px;
@@ -11350,6 +11357,12 @@ button.wf-mchip:hover {
 .wf-aurora-best b {
   font-weight: 600;
   color: var(--color-plex-text);
+}
+/* The best site's star rating: mono, in the severity ink (never a ramp colour — it is text). */
+.wf-aurora-stars {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--acc-ink);
 }
 .wf-aurora-cta {
   font-size: 12px;
@@ -11462,6 +11475,25 @@ button.wf-mchip:hover {
 .wf-aurora-strip-l2 b {
   font-weight: 600;
   color: var(--color-plex-text);
+}
+/* The ready form of line two: Kp and "best" stay whole, the site's NAME takes the shrinking and the
+   ellipsis, and the rating after it never does — on a 320px phone the tail is the answer. */
+.wf-aurora-strip-l2-best {
+  display: flex;
+  align-items: baseline;
+}
+.wf-aurora-strip-l2-best > b,
+.wf-aurora-strip-l2-best > .wf-aurora-stars,
+.wf-aurora-keep {
+  flex: none;
+  white-space: pre;
+}
+.wf-aurora-strip-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .wf-aurora-strip-cta {
   flex: none;
