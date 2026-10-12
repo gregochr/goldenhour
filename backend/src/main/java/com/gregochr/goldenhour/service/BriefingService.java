@@ -515,6 +515,8 @@ public class BriefingService {
 
         // Build slots for each location × date × event type (filtered by solar event preference)
         List<BriefingSlot> allSlots = new ArrayList<>();
+        long slotLoopStart = System.nanoTime();
+        TideExtremeSnapshot tideSnapshot = slotBuilder.snapshotFor(colourLocations, dates);
         for (BriefingSlotBuilder.LocationWeather lw : locationWeathers) {
             if (lw.forecast() == null) {
                 failed++;
@@ -539,13 +541,17 @@ public class BriefingService {
                     OpenMeteoForecastResponse horizonForecast =
                             horizonData.getForLocation(lw.location().getId(), eventType);
                     BriefingSlot slot = slotBuilder.buildSlot(lw, date, eventType,
-                            horizonForecast);
+                            horizonForecast, tideSnapshot);
                     if (slot != null) {
                         allSlots.add(slot);
                     }
                 }
             }
         }
+
+        LOG.debug("Briefing slot loop: slotLoopMs={} tideSnapshotRows={}",
+                (System.nanoTime() - slotLoopStart) / 1_000_000,
+                tideSnapshot.rowCount());
 
         // Group into days → event summaries → regions
         List<BriefingDay> days = hierarchyBuilder.buildDays(allSlots, colourLocations, dates);

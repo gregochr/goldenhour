@@ -169,12 +169,12 @@ function kindShort(event) {
  * @param {?number} [props.distanceMiles] straight-line miles — HOME origin only; the caller passes
  *        null under an away origin (§1.12's `reachMeasured` discipline, `utils/planOrigin.js`)
  * @param {?{onTheLight: boolean, phrase: ?string, aligned: ?boolean, state: ?string,
- *   level: ?number, direction: ?string, height: ?string, shortfall: ?string, fitPhrase: ?string,
- *   gated: ?boolean}} [props.tideOnLight] this window's tide facts for THIS location, from
+ *   level: ?number, direction: ?string, height: ?string, shortfall: ?string,
+ *   fitPhrase: ?string}} [props.tideOnLight] this window's tide facts for THIS location, from
  *        `utils/locationSheet.buildTideAlignmentIndex` via `lookupForWindow`. The object carries
  *        BOTH axes — `onTheLight`/`phrase` (bundle rev 2's original on-the-light question, which
  *        survives only as the offset clause inside `fitPhrase`) AND `aligned`/`state`/`level`/
- *        `direction`/`height`/`shortfall`/`fitPhrase`/`gated` (the preference question). Since T5
+ *        `direction`/`height`/`shortfall`/`fitPhrase` (the preference question). Since T5
  *        (`docs/engineering/tide-window-plan.md`) this component reads the LATTER, through
  *        `TideFitBlock`: the row is now keyed on `tideOnLight != null` (a served tide fact at all)
  *        rather than `onTheLight`, and is omitted entirely when `tideOnLight` is null or carries no
@@ -281,7 +281,7 @@ export default function MapCallout({
   location, rating = null, event = null, driveMinutes = null, distanceMiles = null,
   tideOnLight = null, tideAlignmentIndex = null, eclipseSight = null,
   scoreIndex = null, scoresKnown = false, ratingKnown = false, ratingRetrying = false,
-  regionGlossIndex = null, evaluationGateIndex = null, evRows = [],
+  regionGlossIndex = null, evRows = [],
   astroConditionsByDate = null, auroraResultsByDate = null, pendingNightRowIds = NO_PENDING_ROWS,
   tideStripHeight = null, bandKey = null, hourlyRows = null, now = null, dayMode = false,
   onSelectEv = null, onOpenSheet = null, onOpenInPlan = null, onClose = null,
@@ -425,13 +425,6 @@ export default function MapCallout({
   // the chrome below, until an unrelated pan/zoom re-measured. "Loading…" → "Not scored yet" could
   // already do the same (review, B1/C5).
   //
-  // ⚠️ And `evaluationGateIndex`, the briefing-derived index the gate paragraph reads: the
-  // briefing lands AFTER a cold-load marker tap, and a gated window's rating stays null across
-  // that landing, so nothing else in this list would re-measure the two mono lines the paragraph
-  // adds. The index, not the derived `gate` — that const is computed past the early return
-  // below, where a hook may not sit. The index is memoised on `briefing.days`, so it changes
-  // exactly when the paragraph can appear. Same shape as the tide-row P1 recorded above.
-  //
   // ⚠️ And `tideAlignmentIndex` (T5), for the identical reason one level down: the fit BLOCK's
   // jump-vs-denial line depends on it (via `nextFitRow`, below), and the index is memoised on the
   // SAME `briefing.days` — so a briefing landing after a cold-load marker tap can flip a denial
@@ -459,7 +452,7 @@ export default function MapCallout({
   // `[]`), but NOT across polls: `useForecasts` rebuilds `forecastsByDate` on every refresh, so a
   // poll hands a new array with the same contents and this fires once — one extra measure, no loop.
   useEffect(() => { repaintNow(); }, [
-    paint, stripOpen, event?.id, rating, ratingKnown, ratingRetrying, evaluationGateIndex,
+    paint, stripOpen, event?.id, rating, ratingKnown, ratingRetrying,
     tideAlignmentIndex, tideStripHeight, bandKey, hourlyRows, repaintNow,
   ]);
 
@@ -567,20 +560,6 @@ export default function MapCallout({
   // Whose prose the reason is. A region's gloss printed bare on a location's card reads as a read
   // of THIS place; the location sheet this button opens labels it the same way.
   const reasonRegion = regionReason != null ? (location.regionName ?? null) : null;
-  // The pipeline's own reason this window carries no score (`BriefingSlot.evaluationGate`), read
-  // off the same walk as the sheet's. Only while nothing rates the window: a rating is real
-  // evidence about the sky and outranks a gate decided by a later build (`locationSheet.js`'s
-  // own rule). The guarantee is WITHIN this card — it never prints a gate beside a star. Both
-  // rating sources are consulted because the header's `rating` prop can come from the map's
-  // `/api/forecast` rows (the synchronous engine) where `scoreEntry` reads only the batch scores,
-  // and a star in the header above "Not scored" below would be the contradiction the gate exists
-  // to remove. The sheet this opens reads the batch scores alone, so on a slot only the
-  // synchronous engine rated, the two surfaces CAN differ — that is the dual-engine gap CLAUDE.md
-  // records ("Where a rating lives"), not something this line can close.
-  const gateEntry = event?.kind === 'solar'
-    ? lookupForWindow(evaluationGateIndex, location.id, location.name, event.date, event.eventType)
-    : null;
-  const gate = rating == null && scoreEntry?.rating == null ? (gateEntry?.gate ?? null) : null;
 
   const eventTimeIso = eventInstantOf(scoreEntry, event?.eventType);
   const facts = calloutFacts({
@@ -792,12 +771,7 @@ export default function MapCallout({
             // answer outranks the failure, so a night still holding one keeps it through a failed
             // refresh.
             <span className="wf-callout-verdict-score unscored" data-testid="map-callout-score">
-              {/* A gated window drops the "yet" — the pipeline decided, nothing is coming — and
-                  is read before `ratingKnown` because the gate rides the briefing, not the
-                  ratings fetch. The location sheet says the same two words for the same reason. */}
-              {gate
-                ? 'Not scored'
-                : (ratingKnown ? 'Not scored yet' : ratingRetrying ? NIGHT_RETRY_LINE : 'Loading…')}
+              {ratingKnown ? 'Not scored yet' : ratingRetrying ? NIGHT_RETRY_LINE : 'Loading…'}
             </span>
           )}
         </div>
@@ -814,12 +788,6 @@ export default function MapCallout({
             the design — and (b) clamp the `Four days here ›` caption away along with the prose. The
             button stays `display: block` and unclamped; only `.wf-callout-reason-text` is a box.
             The `⋯` the clamp leaves is now a promise the caption keeps. */}
-        {gate && (
-          <p data-testid="map-callout-gate" className="wf-callout-gate">
-            <span className="wf-callout-gate-glyph" aria-hidden="true">≈ </span>
-            {gate}
-          </p>
-        )}
         {/* A wildlife hide's body on a SOLAR window: what it is, then its comfort forecast for this
             window's day, as the route into the four-day sheet (which holds the full hourly table) —
             the same press-to-peek shape the reason prose below has, and the same self-focus for the
@@ -951,10 +919,7 @@ export default function MapCallout({
         {/* The tide-fit block (T5, design spec §4) — keyed on a served tide fact EXISTING at all
             (`tideOnLight != null`), never on `onTheLight` (bundle rev 2's different, on-the-light
             question, which survives only inside `fitPhrase`'s offset clause — §1 #6). `TideFitBlock`
-            itself carries the omitted-when-nothing-to-say discipline this row used to state inline.
-            ⚠️ The gate row above (`.wf-callout-gate`) keeps the offset clause on its own — this
-            block's miss phrase deliberately does not repeat it (T1 task 4), so a gated miss states
-            each fact exactly once across the two rows (§5 #6). */}
+            itself carries the omitted-when-nothing-to-say discipline this row used to state inline. */}
         <TideFitBlock
           fact={tideOnLight}
           want={location.tideType}
@@ -1103,7 +1068,6 @@ MapCallout.propTypes = {
     state: PropTypes.string,
     fitPhrase: PropTypes.string,
     shortfall: PropTypes.string,
-    gated: PropTypes.bool,
   }),
   /** The full index `tideOnLight` is one entry of — see the JSDoc above. */
   tideAlignmentIndex: PropTypes.object,
@@ -1121,8 +1085,6 @@ MapCallout.propTypes = {
   ratingKnown: PropTypes.bool,
   ratingRetrying: PropTypes.bool,
   regionGlossIndex: PropTypes.object,
-  /** From `utils/locationSheet.buildEvaluationGateIndex` — the gated windows' served reasons. */
-  evaluationGateIndex: PropTypes.object,
   evRows: PropTypes.array,
   astroConditionsByDate: PropTypes.instanceOf(Map),
   auroraResultsByDate: PropTypes.instanceOf(Map),
