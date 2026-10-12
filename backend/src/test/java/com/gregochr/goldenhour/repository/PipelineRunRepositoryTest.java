@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.repository;
 
 import com.gregochr.goldenhour.entity.CycleType;
+import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.PipelineRunEntity;
 import com.gregochr.goldenhour.entity.PipelineRunStatus;
 import org.junit.jupiter.api.DisplayName;
@@ -190,5 +191,63 @@ class PipelineRunRepositoryTest {
         assertThat(found.getWaitingOn()).isEqualTo("something else");
         assertThat(found.getFailuresSettledAt()).isEqualTo(claimedAt);
         assertThat(found.getDispositionJobRunId()).isEqualTo(555L);
+    }
+
+    // ── endedDispositionJobRunIds: has a slot's cycle ended? ──────────────────
+
+    private PipelineRunEntity cycle(long jobRunId, PipelineRunStatus status, String instant) {
+        PipelineRunEntity saved = repository.save(run(CycleType.NIGHTLY, Instant.parse(instant)));
+        saved.setStatus(status);
+        repository.saveAndFlush(saved);
+        repository.recordDispositionJobRun(saved.getId(), jobRunId);
+        return saved;
+    }
+
+    private void batch(PipelineRunEntity run, String anthropicId,
+            ForecastBatchEntity.BatchType type, ForecastBatchEntity.BatchStatus status) {
+        ForecastBatchEntity b = new ForecastBatchEntity(anthropicId, type, 3,
+                Instant.parse("2026-10-03T00:00:00Z"));
+        b.setPipelineRunId(run.getId());
+        b.setStatus(status);
+        entityManager.persistAndFlush(b);
+    }
+
+    @Test
+    @DisplayName("a finished cycle with every FORECAST batch terminal is ended; a RUNNING cycle, "
+            + "one with a batch still SUBMITTED, and an id with no pipeline run are not")
+    void endedCycles_followTheLocationFailureRule() {
+        PipelineRunEntity finished = cycle(101L, PipelineRunStatus.COMPLETED,
+                "2026-10-02T01:00:00Z");
+        batch(finished, "b-completed", ForecastBatchEntity.BatchType.FORECAST,
+                ForecastBatchEntity.BatchStatus.COMPLETED);
+        batch(finished, "b-failed", ForecastBatchEntity.BatchType.FORECAST,
+                ForecastBatchEntity.BatchStatus.FAILED);
+        batch(finished, "b-expired", ForecastBatchEntity.BatchType.FORECAST,
+                ForecastBatchEntity.BatchStatus.EXPIRED);
+        cycle(102L, PipelineRunStatus.RUNNING, "2026-10-02T02:00:00Z");
+        PipelineRunEntity polling = cycle(103L, PipelineRunStatus.COMPLETED,
+                "2026-10-02T03:00:00Z");
+        batch(polling, "b-done", ForecastBatchEntity.BatchType.FORECAST,
+                ForecastBatchEntity.BatchStatus.COMPLETED);
+        batch(polling, "b-retry-polling", ForecastBatchEntity.BatchType.FORECAST,
+                ForecastBatchEntity.BatchStatus.SUBMITTED);
+        cycle(104L, PipelineRunStatus.FAILED, "2026-10-02T04:00:00Z");
+        entityManager.clear();
+
+        List<Long> ended = repository.endedDispositionJobRunIds(
+                List.of(101L, 102L, 103L, 104L, 999L));
+
+        assertThat(ended).containsExactlyInAnyOrder(101L, 104L);
+    }
+
+    @Test
+    @DisplayName("an AURORA batch still polling does not hold a cycle open")
+    void auroraBatchDoesNotBlock() {
+        PipelineRunEntity run = cycle(201L, PipelineRunStatus.COMPLETED, "2026-10-02T01:00:00Z");
+        batch(run, "b-aurora", ForecastBatchEntity.BatchType.AURORA,
+                ForecastBatchEntity.BatchStatus.SUBMITTED);
+        entityManager.clear();
+
+        assertThat(repository.endedDispositionJobRunIds(List.of(201L))).containsExactly(201L);
     }
 }

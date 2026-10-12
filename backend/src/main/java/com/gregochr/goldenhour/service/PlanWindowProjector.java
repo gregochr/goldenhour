@@ -33,7 +33,8 @@ import java.util.Set;
  * <p><b>This must run last, and that is the whole design.</b> It is applied as the outermost step
  * of {@code BriefingService.getCachedBriefingForApi}, after {@code BriefingHonestyFilter}. Anywhere
  * upstream and the projection describes regions the served payload no longer contains: the honesty
- * filter blanks a zero-coverage region to STAND_DOWN with an empty slot list and a null gloss
+ * filter blanks a zero-coverage region (STAND_DOWN, or AWAITING where nothing was attempted or the
+ * run failed) with an empty slot list and a null gloss
  * headline, so a window projected before it would name a Best Bet, a verdict and a rating for a
  * region the same response simultaneously reports as unevaluable. That failure renders perfectly
  * and is visible only by opening the drill-down, which is why the ordering is pinned by a test
@@ -99,6 +100,13 @@ public final class PlanWindowProjector {
                     // and a real one both compute to 0.0/0, and the tie fell through to the region's
                     // display string — so renaming a region flipped the window's verdict.
                     .thenComparing((RankedRegion r) -> r.region().slots().isEmpty())
+                    // Between two blanked regions the honesty filter can word one STAND_DOWN
+                    // (weather really stood it down, or the record cannot say) and another
+                    // AWAITING (not scored, a travel day, a run that did not finish). A region
+                    // with a real stand-down speaks for the window over one with no forecast at
+                    // all, so the verdict never depends on which name sorts first.
+                    .thenComparing((RankedRegion r) -> r.region().slots().isEmpty()
+                            && r.region().displayVerdict() == DisplayVerdict.AWAITING)
                     .thenComparing(r -> r.region().regionName(),
                             Comparator.nullsLast(Comparator.naturalOrder()));
 
@@ -246,7 +254,8 @@ public final class PlanWindowProjector {
                 // than mapped through the region's triage: the window calls that AWAITING, and a
                 // day peak mapping it to a band would put two answers for one region on one screen.
                 // Unreachable on the serve path (enrichment always derives a verdict, and the
-                // honesty filter writes STAND_DOWN), which is why matching the window matters more
+                // honesty filter writes STAND_DOWN or, for a region that was never attempted,
+                // AWAITING, which is skipped below), which is why matching the window matters more
                 // than choosing between them.
                 DisplayVerdict dv = region.displayVerdict();
                 if (dv != DisplayVerdict.WORTH_IT && dv != DisplayVerdict.MAYBE) {

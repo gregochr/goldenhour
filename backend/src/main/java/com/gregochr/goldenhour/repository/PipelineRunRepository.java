@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.repository;
 
 import com.gregochr.goldenhour.entity.CycleType;
+import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.PipelineRunEntity;
 import com.gregochr.goldenhour.entity.PipelineRunStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -10,6 +11,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -153,4 +155,39 @@ public interface PipelineRunRepository extends JpaRepository<PipelineRunEntity, 
             + "AND p.triggerTime >= :since AND p.status = :status ORDER BY p.triggerTime ASC")
     List<PipelineRunEntity> findUnsettledSinceWithStatus(@Param("since") Instant since,
             @Param("status") PipelineRunStatus status);
+
+    /**
+     * Of the given disposition job-run ids, those whose cycle has ended: a pipeline run whose
+     * {@code disposition_job_run_id} is the id, that is not {@code RUNNING}, and that has no
+     * {@code FORECAST} batch outside {@code terminal} (the rule {@code LocationFailureService} uses
+     * to defer a cycle whose batches are still polling; a retry batch shares the run id, so a
+     * cycle whose retry is still polling has not ended). An id with no pipeline run is absent.
+     *
+     * @param ids       disposition job-run ids to test
+     * @param running   the status that means still in flight
+     * @param batchType the batch type that counts ({@code FORECAST})
+     * @param terminal  the batch statuses a poller has finished with
+     * @return the ids whose cycle has ended
+     */
+    @Query("SELECT p.dispositionJobRunId FROM PipelineRunEntity p "
+            + "WHERE p.dispositionJobRunId IN :ids AND p.status <> :running "
+            + "AND NOT EXISTS (SELECT 1 FROM ForecastBatchEntity b WHERE b.pipelineRunId = p.id "
+            + "AND b.batchType = :batchType AND b.status NOT IN :terminal)")
+    List<Long> findEndedDispositionJobRunIds(@Param("ids") Collection<Long> ids,
+            @Param("running") PipelineRunStatus running,
+            @Param("batchType") ForecastBatchEntity.BatchType batchType,
+            @Param("terminal") Collection<ForecastBatchEntity.BatchStatus> terminal);
+
+    /**
+     * Of the given disposition job-run ids, those whose cycle has ended; see {@link
+     * #findEndedDispositionJobRunIds(Collection, PipelineRunStatus, ForecastBatchEntity.BatchType,
+     * Collection)} for the rule.
+     *
+     * @param ids disposition job-run ids to test
+     * @return the ids whose cycle has ended
+     */
+    default List<Long> endedDispositionJobRunIds(Collection<Long> ids) {
+        return findEndedDispositionJobRunIds(ids, PipelineRunStatus.RUNNING,
+                ForecastBatchEntity.BatchType.FORECAST, ForecastBatchEntity.BatchStatus.TERMINAL);
+    }
 }

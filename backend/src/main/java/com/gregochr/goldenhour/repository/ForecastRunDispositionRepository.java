@@ -167,11 +167,12 @@ public interface ForecastRunDispositionRepository
      * @param start first evaluation date to include (inclusive)
      * @param end   last evaluation date to include (inclusive)
      * @return rows of {@code [locationName (String), evaluationDate (LocalDate), eventType
-     *         (String), disposition (String), createdAt (Instant)]}, one per slot with at least one
-     *         non-{@code SKIPPED_CACHED} disposition — the disposition and instant of whichever
+     *         (String), disposition (String), createdAt (Instant), jobRunId (Long)]}, one per slot
+     *         with at least one non-{@code SKIPPED_CACHED} disposition — the disposition and instant of whichever
      *         such row is most recent for that slot
      */
-    @Query("SELECT d.locationName, d.evaluationDate, d.eventType, d.disposition, d.createdAt "
+    @Query("SELECT d.locationName, d.evaluationDate, d.eventType, d.disposition, d.createdAt, "
+            + "d.jobRunId "
             + "FROM ForecastRunDispositionEntity d "
             + "WHERE d.disposition <> 'SKIPPED_CACHED' "
             + "AND d.evaluationDate BETWEEN :start AND :end "

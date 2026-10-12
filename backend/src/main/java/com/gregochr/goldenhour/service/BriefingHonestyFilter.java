@@ -6,14 +6,19 @@ import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
+import com.gregochr.goldenhour.model.CoverageReason;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
+import com.gregochr.goldenhour.service.EvaluationViewService.LatestDisposition;
 import com.gregochr.goldenhour.service.evaluation.BestBetRanker;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -40,6 +45,14 @@ import java.util.Set;
  *       result writing back. Briefings refresh every ~8h; batches arrive
  *       within minutes-to-hours.</li>
  * </ul>
+ *
+ * <p><b>The wording follows the reason.</b> "Too unsettled to forecast" is true only when weather
+ * triage stood the region down. The API path therefore folds the pipeline's own latest disposition
+ * per slot and the horizon into a {@link CoverageReason} ({@link CoverageReasons}) and words the
+ * blank accordingly: a travel day, a window never attempted at this range and a run that did not
+ * finish read {@code AWAITING} ("Not forecast", "Not scored at this range", "Forecast unavailable");
+ * a real stand-down, and anything the record cannot settle, keep {@code STAND_DOWN} and the old
+ * wording.
  *
  * <p>A region in which no slot could carry a rating (an all-canopy region: woods are kept out of
  * the sky batch) is passed through unchanged, not rewritten.
@@ -90,6 +103,40 @@ final class BriefingHonestyFilter {
             + "confidently at this horizon. No per-location forecast was produced. "
             + "The picture may firm up closer to the date — or it may remain unsettled.";
 
+    /** Label for a window on a travel day; the client's own {@code AWAY_STATE_LABEL}. */
+    static final String AWAY_LABEL = "Not forecast";
+
+    /** Summary for a window on a travel day. */
+    static final String AWAY_SUMMARY = "Marked as a travel day — no forecast was made";
+
+    /** Gloss detail for a window on a travel day. */
+    static final String AWAY_GLOSS_DETAIL =
+            "This day is marked as a travel day, so no per-location forecast was made for it.";
+
+    /** Label for a window the scoring policy never attempts. */
+    static final String NOT_ATTEMPTED_LABEL = "Not scored at this range";
+
+    /** Summary for a window the scoring policy never attempts. */
+    static final String NOT_ATTEMPTED_SUMMARY =
+            "Not scored this far ahead — forecasts firm up nearer the day";
+
+    /** Gloss detail for a window the scoring policy never attempts. */
+    static final String NOT_ATTEMPTED_GLOSS_DETAIL =
+            "Forecasts this far ahead are only made when the weather pattern is settled, and not at "
+            + "all from four days out, so there is no per-location forecast for this window yet.";
+
+    /** Label for a window whose forecast run did not complete. */
+    static final String FAILED_LABEL = "Forecast unavailable";
+
+    /** Summary for a window whose forecast run did not complete. */
+    static final String FAILED_SUMMARY =
+            "No per-location forecast — the forecast run didn't complete";
+
+    /** Gloss detail for a window whose forecast run did not complete. */
+    static final String FAILED_GLOSS_DETAIL =
+            "The forecast run for this window didn't complete, so there is no per-location "
+            + "forecast. It may be tried again at the next run.";
+
     private BriefingHonestyFilter() {
     }
 
@@ -121,12 +168,35 @@ final class BriefingHonestyFilter {
      * @return transformed response, or {@code null} if input was {@code null}
      */
     static DailyBriefingResponse apply(DailyBriefingResponse response, double minCoverageRatio) {
+        return apply(response, minCoverageRatio, null, null);
+    }
+
+    /**
+     * As {@link #apply(DailyBriefingResponse, double)}, but a zero-coverage region is worded by
+     * <em>why</em> it has no forecast: {@link CoverageReasons#of} folds the pipeline's own latest
+     * disposition per slot and the horizon into a {@link CoverageReason}, and
+     * {@link #fullRewrite} picks the wording and verdict from it. Every reason still empties the
+     * slots, so the region stays in {@code blanked} and a Best Bet on it is still withdrawn. The
+     * overloads without a lookup bypass the fold: every region reads {@code UNKNOWN}, which is
+     * today's wording exactly.
+     *
+     * @param response         the API-bound briefing response (may be {@code null})
+     * @param minCoverageRatio coverage fraction below which a region is flagged lightly evaluated
+     * @param latestBySlot     latest non-cached disposition per {@code location|date|type}; null
+     *                         bypasses the fold
+     * @param clock            the clock {@code daysAhead} is measured on; null bypasses the fold
+     * @return transformed response, or {@code null} if input was {@code null}
+     */
+    static DailyBriefingResponse apply(DailyBriefingResponse response, double minCoverageRatio,
+            Map<String, LatestDisposition> latestBySlot, Clock clock) {
         if (response == null) {
             return response;
         }
+        Reasons reasons = latestBySlot == null || clock == null ? null
+                : new Reasons(latestBySlot, clock);
         Set<String> blanked = new HashSet<>();
         List<BriefingDay> rewrittenDays = response.days().stream()
-                .map(day -> rewriteDay(day, minCoverageRatio, blanked))
+                .map(day -> rewriteDay(day, minCoverageRatio, blanked, reasons))
                 .toList();
         List<BestBet> keptBets = withdrawUnsupportedBets(response.bestBets(), blanked);
         // Flagged rather than inferred: a one-pick list means "the advisor withheld a runner-up"
@@ -137,19 +207,24 @@ final class BriefingHonestyFilter {
         return response.withDays(rewrittenDays).withBestBets(keptBets, withdrawn);
     }
 
+    /** The pipeline's record of what it did with each slot, and the clock horizons are read on. */
+    private record Reasons(Map<String, LatestDisposition> latestBySlot, Clock clock) {
+    }
+
     private static BriefingDay rewriteDay(BriefingDay day, double minCoverageRatio,
-            Set<String> blanked) {
+            Set<String> blanked, Reasons reasons) {
         List<BriefingEventSummary> rewrittenEvents = day.eventSummaries().stream()
-                .map(es -> rewriteEvent(es, minCoverageRatio, day.date(), blanked))
+                .map(es -> rewriteEvent(es, minCoverageRatio, day.date(), blanked, reasons))
                 .toList();
         return new BriefingDay(day.date(), rewrittenEvents);
     }
 
     private static BriefingEventSummary rewriteEvent(BriefingEventSummary es,
-            double minCoverageRatio, LocalDate date, Set<String> blanked) {
+            double minCoverageRatio, LocalDate date, Set<String> blanked, Reasons reasons) {
         List<BriefingRegion> rewrittenRegions = es.regions().stream()
                 .map(region -> {
-                    BriefingRegion rewritten = rewriteRegionByCoverage(region, minCoverageRatio);
+                    BriefingRegion rewritten = rewriteRegionByCoverage(region, minCoverageRatio,
+                            date, es.targetType(), reasons);
                     if (rewritten != region && rewritten.slots().isEmpty()) {
                         blanked.add(betKey(region.regionName(), date, es.targetType()));
                     }
@@ -245,7 +320,7 @@ final class BriefingHonestyFilter {
      * </ul>
      */
     private static BriefingRegion rewriteRegionByCoverage(BriefingRegion r,
-            double minCoverageRatio) {
+            double minCoverageRatio, LocalDate date, TargetType targetType, Reasons reasons) {
         // Canopy slots can never carry a Claude rating — they are deliberately excluded from the
         // sky batch — so they must not count toward the coverage this filter measures. Without
         // this, a region of woods reads as zero-coverage and gets the failure message below, which
@@ -258,16 +333,20 @@ final class BriefingHonestyFilter {
         // a slot counts when it COULD carry a rating, not merely when it is not canopy. An
         // in-season canopy bluebell site is scored by the bluebell prompt, so excluding it would
         // put it in the numerator (scoredLocationCount) and not the denominator — a ratio above 1,
-        // silently disabling the lightly-evaluated warning in the class whose whole job is not
-        // overstating coverage.
-        long scoreable = r.slots().stream()
+        // silently disabling the lightly-evaluated warning in this filter.
+        List<BriefingSlot> scoreableSlots = r.slots().stream()
                 .filter(BriefingSlot::couldCarryRating)
-                .count();
+                .toList();
+        long scoreable = scoreableSlots.size();
         if (scoreable == 0) {
             return r;
         }
         if (r.scoredLocationCount() == 0) {
-            return fullRewrite(r);
+            CoverageReason reason = reasons == null ? CoverageReason.UNKNOWN
+                    : CoverageReasons.of(scoreableSlots, date, targetType,
+                            ForecastHorizon.daysAhead(date, reasons.clock()),
+                            reasons.latestBySlot());
+            return fullRewrite(r, reason);
         }
         if (r.scoredLocationCount() < minCoverageRatio * scoreable) {
             return r.withLightlyEvaluated();
@@ -275,11 +354,42 @@ final class BriefingHonestyFilter {
         return r;
     }
 
-    private static BriefingRegion fullRewrite(BriefingRegion r) {
+    /**
+     * Blanks a zero-coverage region, wording it by {@code reason}. Every reason empties the slots and
+     * nulls exactly the fields it always did; only the verdict, label, summary and gloss detail
+     * differ. {@code STOOD_DOWN} and {@code UNKNOWN} keep "too unsettled" and {@code STAND_DOWN},
+     * which is only true of weather triage; the others are neutral ({@code AWAITING}).
+     */
+    private static BriefingRegion fullRewrite(BriefingRegion r, CoverageReason reason) {
+        String label = VERDICT_LABEL;
+        String summary = REPLACEMENT_SUMMARY;
+        String detail = REPLACEMENT_GLOSS_DETAIL;
+        DisplayVerdict verdict = DisplayVerdict.STAND_DOWN;
+        switch (reason) {
+            case AWAY -> {
+                verdict = DisplayVerdict.AWAITING;
+                label = AWAY_LABEL;
+                summary = AWAY_SUMMARY;
+                detail = AWAY_GLOSS_DETAIL;
+            }
+            case NOT_ATTEMPTED -> {
+                verdict = DisplayVerdict.AWAITING;
+                label = NOT_ATTEMPTED_LABEL;
+                summary = NOT_ATTEMPTED_SUMMARY;
+                detail = NOT_ATTEMPTED_GLOSS_DETAIL;
+            }
+            case FAILED -> {
+                verdict = DisplayVerdict.AWAITING;
+                label = FAILED_LABEL;
+                summary = FAILED_SUMMARY;
+                detail = FAILED_GLOSS_DETAIL;
+            }
+            case STOOD_DOWN, UNKNOWN -> { }
+        }
         return new BriefingRegion(
                 r.regionName(),
                 r.verdict(),
-                REPLACEMENT_SUMMARY,
+                summary,
                 r.tideHighlights(),
                 List.of(),
                 r.regionTemperatureCelsius(),
@@ -287,10 +397,10 @@ final class BriefingHonestyFilter {
                 r.regionWindSpeedMs(),
                 r.regionWeatherCode(),
                 null,
-                REPLACEMENT_GLOSS_DETAIL,
-                DisplayVerdict.STAND_DOWN,
+                detail,
+                verdict,
                 0,
-                VERDICT_LABEL,
+                label,
                 false);
     }
 }

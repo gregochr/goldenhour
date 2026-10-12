@@ -95,9 +95,12 @@ class ServedBriefingAssembler {
      */
     DailyBriefingResponse assembleWithoutPlan(DailyBriefingResponse snapshot,
             double minCoverageRatio) {
+        Reenriched reenriched = reEnrichVerdicts(snapshot);
         return BriefingHonestyFilter.apply(
-                applyBestBetFallback(reEnrichVerdicts(snapshot)),
-                minCoverageRatio);
+                applyBestBetFallback(reenriched.response()),
+                minCoverageRatio,
+                reenriched.latestBySlot(),
+                clock);
     }
 
     /**
@@ -293,9 +296,9 @@ class ServedBriefingAssembler {
      * @param response the cached briefing (may be {@code null})
      * @return a copy whose regions carry freshly re-derived verdicts, or {@code null} if input was
      */
-    private DailyBriefingResponse reEnrichVerdicts(DailyBriefingResponse response) {
+    private Reenriched reEnrichVerdicts(DailyBriefingResponse response) {
         if (response == null || response.days().isEmpty()) {
-            return response;
+            return new Reenriched(response, Map.of());
         }
         LocalDate start = response.days().getFirst().date();
         LocalDate end = response.days().getLast().date();
@@ -305,7 +308,7 @@ class ServedBriefingAssembler {
                 .collect(java.util.stream.Collectors.toCollection(
                         () -> java.util.EnumSet.noneOf(TargetType.class)));
         if (types.isEmpty()) {
-            return response;
+            return new Reenriched(response, Map.of());
         }
         Map<String, Map<String, BriefingEvaluationResult>> index =
                 evaluationViewService.getScoresForEnrichmentBulk(start, end, types);
@@ -315,11 +318,21 @@ class ServedBriefingAssembler {
         // region/date/event key (a Codex review of #943, P1-A, round 2; see
         // TriagedByBatchResolver's own javadoc for why this cannot be derived from `resolver`'s
         // own return value).
-        Map<String, Set<String>> triagedIndex =
-                evaluationViewService.getTriagedByBatchLocationNamesBulk(start, end, types);
+        // The same single disposition read also yields each slot's latest category, which the
+        // honesty filter folds into the reason a blanked region has no forecast.
+        EvaluationViewService.ServeTriage serveTriage =
+                evaluationViewService.loadServeTriage(start, end, types);
+        Map<String, Set<String>> triagedIndex = serveTriage.triagedByKey();
         TriagedByBatchResolver triagedResolver = (regionName, date, targetType) ->
                 triagedIndex.getOrDefault(regionName + "|" + date + "|" + targetType, Set.of());
-        return response.withDays(scoreEnricher.enrich(response.days(), resolver, triagedResolver));
+        return new Reenriched(
+                response.withDays(scoreEnricher.enrich(response.days(), resolver, triagedResolver)),
+                serveTriage.latestBySlot());
+    }
+
+    /** A re-enriched response with the latest disposition per slot the filter words blanks by. */
+    private record Reenriched(DailyBriefingResponse response,
+            Map<String, EvaluationViewService.LatestDisposition> latestBySlot) {
     }
 
     /**

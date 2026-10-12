@@ -1527,6 +1527,50 @@ class PlanWindowProjectorTest {
         assertThat(rightOrder.pick()).isNull();
     }
 
+    @Test
+    @DisplayName("two blanked regions, one STAND_DOWN and one AWAITING: the window is STAND_DOWN "
+            + "whichever name sorts first")
+    void blankedStandDownOutranksBlankedAwaitingWhateverTheNames() {
+        // The honesty filter can now word one blanked region STAND_DOWN (weather stood it down)
+        // and another AWAITING (not scored at this range). Both compute to 0.0 / 0 and have no
+        // slots, so before the AWAITING step the only tie-break left was the region NAME, and
+        // renaming a region flipped the window's verdict.
+        for (String[] names : new String[][] {{"Alpha", "Zulu"}, {"Zulu", "Alpha"}}) {
+            DailyBriefingResponse in = response(
+                    List.of(new BriefingDay(TODAY, List.of(new BriefingEventSummary(
+                            TargetType.SUNSET,
+                            List.of(blankedRegion(names[0], DisplayVerdict.STAND_DOWN),
+                                    blankedRegion(names[1], DisplayVerdict.AWAITING)),
+                            List.of())))),
+                    List.of());
+
+            BriefingWindow window = PlanWindowProjector.apply(in, NOW, Map.of(), Map.of())
+                    .days().get(0).eventSummaries().get(0).window();
+
+            assertThat(window.verdict()).as("names %s/%s", names[0], names[1])
+                    .isEqualTo(DisplayVerdict.STAND_DOWN);
+        }
+        for (String[] names : new String[][] {{"Alpha", "Zulu"}, {"Zulu", "Alpha"}}) {
+            DailyBriefingResponse in = response(
+                    List.of(new BriefingDay(TODAY, List.of(new BriefingEventSummary(
+                            TargetType.SUNSET,
+                            List.of(blankedRegion(names[0], DisplayVerdict.AWAITING),
+                                    blankedRegion(names[1], DisplayVerdict.STAND_DOWN)),
+                            List.of())))),
+                    List.of());
+
+            assertThat(PlanWindowProjector.apply(in, NOW, Map.of(), Map.of())
+                    .days().get(0).eventSummaries().get(0).window().verdict())
+                    .as("names %s/%s, stand-down listed second", names[0], names[1])
+                    .isEqualTo(DisplayVerdict.STAND_DOWN);
+        }
+    }
+
+    private static BriefingRegion blankedRegion(String name, DisplayVerdict verdict) {
+        return new BriefingRegion(name, Verdict.GO, "summary", List.of(), List.of(),
+                14.0, 13.0, 4.5, 3, null, null, verdict, 0);
+    }
+
     // ── The tide rollup ──────────────────────────────────────────────────────
 
     @Nested
