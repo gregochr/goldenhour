@@ -1,6 +1,6 @@
 # Window tide facts: the three follow-ups
 
-Status: **plan, not built.** Draft 2, 2026-10-11, after an adversarial review: three reviewers, one per item, each refuting
+Status: **plan, not built.** Draft 3, 2026-10-12 (a Codex finding folded into §A); draft 2, 2026-10-11, after an adversarial review: three reviewers, one per item, each refuting
 its own charges, all "ready with fixes". §F records what the review changed.
 
 The window tide facts series (`window-tide-facts-plan.md`, P0–P5, released in v2.25.0) left three items for separate PRs:
@@ -67,7 +67,11 @@ non-`SKIPPED_CACHED` disposition per slot, plus the horizon. `fullRewrite` uses 
 - `EvaluationViewService.loadTriagedByBatch` (via `findLatestNonCachedDispositions`) already loads exactly this row per slot
   on every serve.
 - It then reduces each row to "was it `SKIPPED_TRIAGED`?" and discards the category.
-- Keeping the category costs **no new query**, provided the assembler reads both views from one load (A.3).
+- Keeping the category costs no new query, provided the assembler reads both views from one load (A.3).
+- **One small extra query is needed for one case** (a Codex review of #1112). `EVALUATED`/`FORCE_EVALUATED` record only
+  that a slot was submitted. When the batch later fails, expires or errors that request, `BatchResultProcessor` marks
+  the batch and rewrites no disposition, so the latest disposition stays `EVALUATED` with no rating behind it. To tell
+  that apart from a result still in flight, the fold needs to know whether the slot's **cycle has ended** (A.3 step 1).
 
 **`CoverageReason`** is a new enum, `model/CoverageReason.java`. A fold over a region's **scoreable** slots (the slots
 `couldCarryRating` admits) produces it. `daysAhead` is the region's horizon from the UK civil date. The rules are tried in
@@ -79,12 +83,12 @@ this order:
 | 2 | `NOT_ATTEMPTED` | `daysAhead >= 4`, and no scoreable slot is `EVALUATED`, `FORCE_EVALUATED`, `SUBMISSION_FAILED` or `SKIPPED_ERROR`. This holds whatever the triage mix: from T+4 Gate 4 skips everything, so "not attempted" is true even where triage ran first. |
 | 3 | `NOT_ATTEMPTED` | `daysAhead <= 3`, and every scoreable slot is `SKIPPED_STABILITY` |
 | 4 | `STOOD_DOWN` | every scoreable slot is `SKIPPED_TRIAGED` |
-| 5 | `FAILED` | `daysAhead <= 3`, and at least half of the scoreable slots are `SUBMISSION_FAILED` or `SKIPPED_ERROR` |
+| 5 | `FAILED` | `daysAhead <= 3`, and at least half of the scoreable slots **failed**: `SUBMISSION_FAILED`, `SKIPPED_ERROR`, or `EVALUATED`/`FORCE_EVALUATED` whose cycle has ended |
 | 6 | `UNKNOWN` | anything else |
 
 `UNKNOWN` covers, among other things:
 - a T+2 or T+3 mix of `SKIPPED_TRIAGED` and `SKIPPED_STABILITY`;
-- `EVALUATED` with no result yet (in flight, or expired);
+- `EVALUATED` whose cycle has not ended (a batch still polling), or whose cycle cannot be found;
 - `SKIPPED_NO_REFRESH_NEEDED` from the intraday cycle;
 - a slot with no disposition at T+0 to T+3;
 - a disposition string that `DispositionCategory.fromString` cannot parse;
@@ -93,6 +97,21 @@ this order:
 - a failed lookup.
 
 **`UNKNOWN` keeps today's behaviour exactly**, so the change can only make a region more honest, never less.
+
+**"The cycle has ended"** means:
+- the slot's disposition `job_run_id` is some `pipeline_run.disposition_job_run_id` (V163);
+- that pipeline run is not `RUNNING`;
+- and no `FORECAST` batch with that `pipeline_run_id` has a status outside `ForecastBatchEntity.BatchStatus.TERMINAL`.
+
+This is the same rule `LocationFailureService` uses to defer a cycle whose batches are still polling. A retry batch
+carries the same `pipeline_run_id`, so a cycle whose retry is still polling has not ended.
+
+A slot is only ever folded here because its region has zero coverage, so it has no rating. An `EVALUATED` slot in an
+ended cycle therefore produced no usable result. That covers a failed or expired batch, an errored request inside a
+completed batch, and an unparseable response alike.
+
+A job run that maps to no pipeline run counts as **not ended**. That includes an ad hoc admin submission and a cycle from
+before V163.
 
 **Wording.** This is owner decision **D1**; these defaults stand unless changed.
 
@@ -122,13 +141,25 @@ says "marked as a travel day", never "you're away".
 
 1. **`EvaluationViewService`** gains one public method that reads the disposition query **once**:
    `ServeTriage loadServeTriage(LocalDate start, LocalDate end, Set<TargetType> types)`, where
-   `record ServeTriage(Map<String, Set<String>> triagedByKey, Map<String, DispositionCategory> latestBySlot)`.
+   `record ServeTriage(Map<String, Set<String>> triagedByKey, Map<String, LatestDisposition> latestBySlot)` and
+   `record LatestDisposition(DispositionCategory category, boolean cycleEnded)`. `cycleEnded` is meaningful only for
+   `EVALUATED`/`FORCE_EVALUATED`, and is false for every other category.
    - `triagedByKey` is exactly what `getTriagedByBatchLocationNamesBulk` returns today: keyed `region|date|type`, built with
      the same one `findAllEnabled()`.
    - `latestBySlot` is keyed by the `stabilitySkipKey` shape (`location|date|type`), so it needs no roster join.
-   - Both views come from one `findLatestNonCachedDispositions` pass. Do not change that query's SQL; the CLAUDE.md ⚠️ about
-     its `NOT EXISTS` form stands.
-   - **Fail soft, like `loadTriagedByBatch`:** on a `RuntimeException`, return empty maps.
+   - Both views come from one `findLatestNonCachedDispositions` pass. Add `d.jobRunId` as a sixth selected column and
+     change nothing else in that query: the `NOT EXISTS` anti-join and its `WHERE` stay byte for byte, and the CLAUDE.md
+     ⚠️ about its form stands. The existing reader (`loadTriagedByBatch`) reads columns 0–4 by index and ignores the
+     sixth.
+   - **The cycle query.** When at least one latest row is `EVALUATED`/`FORCE_EVALUATED`, run ONE more query over their
+     distinct job-run ids, and over no others.
+     - It is a new `PipelineRunRepository` method returning the ended ids. Use the shape
+       `SELECT p.dispositionJobRunId FROM PipelineRunEntity p WHERE p.dispositionJobRunId IN :ids AND p.status <> RUNNING
+       AND NOT EXISTS (SELECT 1 FROM ForecastBatchEntity b WHERE b.pipelineRunId = p.id AND b.batchType = FORECAST AND
+       b.status NOT IN :terminal)`, with `:terminal` taken from `BatchStatus.TERMINAL`. Re-find the real field names.
+     - When there is no such row, make no query.
+     - If the query fails, set every `cycleEnded` to false (fail soft, so the rule reads `UNKNOWN`) and log one WARN.
+   - **Fail soft, like `loadTriagedByBatch`:** on a `RuntimeException` from the disposition query, return empty maps.
    - **Ties:** a tie of different categories at the same `created_at` maps to no entry, which the fold reads as `UNKNOWN`.
      This matches the existing tie fold.
    - **Unparseable categories:** a category `fromString` cannot parse also maps to no entry.
@@ -137,12 +168,12 @@ says "marked as a travel day", never "you're away".
 2. **`ServedBriefingAssembler.reEnrichVerdicts`** calls `loadServeTriage` once, in place of `getTriagedByBatchLocationNamesBulk`.
    - It uses `triagedByKey` exactly as now.
    - It passes `latestBySlot` and a `Clock` (the assembler already holds `clock`) to the filter.
-3. **`BriefingHonestyFilter.apply(response, minCoverageRatio, Map<String, DispositionCategory> latestBySlot, Clock clock)`**
+3. **`BriefingHonestyFilter.apply(response, minCoverageRatio, Map<String, LatestDisposition> latestBySlot, Clock clock)`**
    is a new overload.
    - The existing overloads stay and **bypass the fold** (every region reads `UNKNOWN`), so the 32 existing filter tests and
      `PlanWindowProjectorTest:1523` are unchanged.
    - `daysAhead` comes from `ForecastHorizon.daysAhead(date, clock)`.
-4. **`CoverageReasons.of(List<BriefingSlot> scoreableSlots, LocalDate date, TargetType type, int daysAhead, Map<String, DispositionCategory> latestBySlot)`**
+4. **`CoverageReasons.of(List<BriefingSlot> scoreableSlots, LocalDate date, TargetType type, int daysAhead, Map<String, LatestDisposition> latestBySlot)`**
    is a new package-private static, pure. The table in A.2 is its spec. It looks up each slot by `location|date|type`.
 5. **`fullRewrite(r, reason)`** picks the wording row. It keeps the 15-arg constructor and the same nulled fields.
 6. **`PlanWindowProjector.BY_RANK`** (:91–103) needs a new step. Blanked regions tie on rating and count, so today the final
@@ -172,6 +203,9 @@ guard and on legacy payloads.
   - a T+4 region with one `SKIPPED_ERROR` among skips gives `NOT_ATTEMPTED`, not `FAILED`;
   - a T+3 region with one `SKIPPED_ERROR` among 19 `SKIPPED_STABILITY` gives `UNKNOWN`, below the half;
   - a T+3 region that is half failed gives `FAILED`;
+  - a T+2 region whose slots are all `EVALUATED` with `cycleEnded` true gives `FAILED`. The same region with
+    `cycleEnded` false gives `UNKNOWN`;
+  - a region mixing `SUBMISSION_FAILED` and ended-`EVALUATED` slots to half or more gives `FAILED`;
   - canopy slots are ignored;
   - a partial travel day (some slots away) gives `UNKNOWN`.
 - **`BriefingHonestyFilterTest`:**
@@ -181,10 +215,20 @@ guard and on legacy payloads.
   - a per-reason case asserts exactly the fields `fullRewrite` carries from `r` (`regionName`, `verdict`, `tideHighlights`,
     and the four weather fields), and that the six nulled fields stay null.
 - **`EvaluationViewServiceTest`** runs a real service over a mocked repository:
-  - `loadServeTriage` calls `findLatestNonCachedDispositions` and `findAllEnabled` **once each**;
+  - `loadServeTriage` calls `findLatestNonCachedDispositions` and `findAllEnabled` once each;
+  - it calls the cycle query once, with exactly the `EVALUATED`/`FORCE_EVALUATED` rows' distinct job-run ids, and never
+    when there are none;
+  - a cycle-query exception leaves every `cycleEnded` false;
   - `triagedByKey` equals the old method's output on the same rows;
   - ties and unknown strings map to no entry;
   - a repository exception gives empty maps.
+- **The cycle query** is checked by a `@DataJpaTest` on H2, the shape `ForecastHistoryQueryCountTest` uses, needing no
+  Docker. It returns only the ended ids:
+  - a `RUNNING` pipeline run is not ended;
+  - one with a `SUBMITTED` FORECAST batch is not ended;
+  - one whose batches are all `FAILED`/`EXPIRED`/`COMPLETED` is ended;
+  - an AURORA batch still polling does not block;
+  - an id with no pipeline run is absent.
 - **`ServedBriefingAssemblerTest`:**
   - `loadServeTriage` is called once per serve and `getTriagedByBatchLocationNamesBulk` never;
   - production-shaped end-to-end cases cover T+4 with `SKIPPED_STABILITY` (gives `AWAITING` and the `NOT_ATTEMPTED` copy),
@@ -203,7 +247,10 @@ guard and on legacy payloads.
   - a not-weather reason keeps `STAND_DOWN`;
   - a non-`UNKNOWN` region drops out of `blanked`;
   - the `BY_RANK` step removed;
-  - `loadServeTriage` queries twice.
+  - `loadServeTriage` queries the dispositions twice;
+  - `cycleEnded` ignored (an ended `EVALUATED` region reads `UNKNOWN`);
+  - the cycle query ignoring batch status;
+  - the cycle query ignoring `RUNNING`.
 
 ### A.5 Not changed
 
@@ -557,7 +604,9 @@ If D2 or D3 removes a phase, the rest of the order stands.
 - The AWAY copy says "travel day", not "you're away", and its label is the client's real "Not forecast".
 - The "fields kept" test now asserts the six deliberately nulled fields stay null; draft 1 contradicted the code.
 - A `BY_RANK` tie-break stops the window verdict depending on region names.
-- One combined `loadServeTriage` makes "no new query" true, with fail-soft, tie and unparseable-value rules.
+- One combined `loadServeTriage` reads the dispositions once, with fail-soft, tie and unparseable-value rules.
+- After a Codex review of #1112, a post-submission failure counts as `FAILED`, not `UNKNOWN`: an `EVALUATED` slot whose
+  cycle has ended with no usable result. This costs one bounded cycle query per serve.
 - The query-count test moved to where the repository is visible.
 - The old filter overloads bypass the fold.
 - A2 was folded into A1 as comment work.
