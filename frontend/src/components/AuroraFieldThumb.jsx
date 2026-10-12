@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { drawGeo, load } from '../utils/heatField.js';
 import { AURORA_BLOOM, AURORA_RAMP } from '../utils/auroraRamp.js';
@@ -33,6 +33,84 @@ const DRAW_OPTS = {
 const WIN = 0;
 
 /**
+ * The southern viewline's mark (docs/design/aurora-banner/README.md, "Layout 1 — Banner"): dashed
+ * amber, 1.2px, dash 4/3. Amber because the aurora field is green and a green line would vanish into
+ * it (the Map's live line is bone for the same reason).
+ */
+const VIEWLINE_COLOUR = '#E0A542';
+const VIEWLINE_WIDTH = 1.2;
+const VIEWLINE_DASH = [4, 3];
+/**
+ * The longitude the line's latitude is read at. The FORECAST response's `southernmostLatitude` is
+ * evaluated by the backend at `UK_REFERENCE_LONGITUDE_DEG` (-2 degrees), so a horizontal line at that
+ * latitude is the honest reading of it. ⚠️ The LIVE response's figure is the OVATION contour's true
+ * minimum, which lies further west, so a horizontal line at it slightly overstates southward; that is
+ * accepted on a 96px thumbnail (the Map tab draws the real curve).
+ */
+const REFERENCE_LONGITUDE = -2;
+/** Where the line sits when its latitude is off the frame: the bottom edge (116) or near the top (2). */
+const LINE_Y_SOUTH = 116;
+const LINE_Y_NORTH = 2;
+
+/**
+ * Where the viewline falls against the frame, from its projected y.
+ * - `in`: inside the frame; drawn at its own y.
+ * - `south`: y is below the frame, so the limit is south of everything shown and the whole area lies
+ *   inside the oval; clamped to the bottom edge.
+ * - `north`: y is above the frame, so the limit is north of everything shown and the whole area lies
+ *   south of the line (the spec has no case for this; plan §4 D15); clamped to the top.
+ *
+ * @param {number} y0 the projected y of the limit
+ * @returns {{mode: 'in'|'south'|'north', y: number}}
+ */
+function placeLine(y0) {
+  if (y0 > LINE_Y_SOUTH) return { mode: 'south', y: LINE_Y_SOUTH };
+  if (y0 < 0) return { mode: 'north', y: LINE_Y_NORTH };
+  return { mode: 'in', y: y0 };
+}
+
+/** The label's wording for each placement; `kp` is a whole step or null when no Kp is known. */
+function lineLabel(mode, kp) {
+  const head = kp != null ? `Kp ${kp}` : 'Viewline';
+  if (mode === 'south') return `${head} · all ↓`;
+  if (mode === 'north') return `${head} · line ↑`;
+  return kp != null ? `${head} line` : head;
+}
+
+/**
+ * Strokes the viewline on the kernel's context and says where it fell.
+ *
+ * <p>Fenced by {@code save()/restore()} in a {@code finally}: the context is the kernel's, and the
+ * dash, width and colour set here must not leak into whatever draws on it next, even when a stroke
+ * call throws.
+ *
+ * @param {CanvasRenderingContext2D} ctx the context {@link drawGeo} just painted on
+ * @param {function} projection the d3 projection {@link drawGeo} drew with (lon/lat to CSS px)
+ * @param {number} lat the limit's latitude
+ * @returns {?('in'|'south'|'north')} the placement, or null when the projection cannot place the
+ *   latitude and nothing was drawn
+ */
+function drawViewline(ctx, projection, lat) {
+  const at = projection([REFERENCE_LONGITUDE, lat]);
+  const y0 = at ? at[1] : NaN;
+  if (!Number.isFinite(y0)) return null;
+  const placed = placeLine(y0);
+  ctx.save();
+  try {
+    ctx.strokeStyle = VIEWLINE_COLOUR;
+    ctx.lineWidth = VIEWLINE_WIDTH;
+    ctx.setLineDash(VIEWLINE_DASH);
+    ctx.beginPath();
+    ctx.moveTo(0, placed.y);
+    ctx.lineTo(THUMB_WIDTH, placed.y);
+    ctx.stroke();
+  } finally {
+    ctx.restore();
+  }
+  return placed.mode;
+}
+
+/**
  * Tonight's aurora field, 96×118, clipped to the coastline — the aurora banner's thumbnail once
  * per-location scores exist (docs/engineering/aurora-banner-plan.md B2).
  *
@@ -49,56 +127,78 @@ const WIN = 0;
  * @param {object} props
  * @param {Array<{lat: number, lng: number, rid: string, stars: number}>} props.spots the rated sites to draw
  * @param {object} props.fit a GeoJSON corner MultiPoint to frame the projection to
- * @param {function} [props.onProjection] called with the projection each successful draw used
- *        (the viewline, B3, needs it). ⚠️ A d3 projection IS a function: hand it to a state setter
- *        as {@code setP(() => projection)}, never {@code setP(projection)}, which React would call as
- *        an updater. It is not called with null when a draw declines.
+ * @param {?object} [props.viewline] the aurora viewline answer ({@code useAuroraViewline}); when
+ *        {@code active} with a finite {@code southernmostLatitude}, a dashed amber horizontal line is
+ *        drawn at that latitude and labelled (docs/engineering/aurora-banner-plan.md B3, §4 D4, D15)
+ * @param {?number} [props.kp] the alert's Kp, whole step, for the label when the viewline carries none
  */
-export default function AuroraFieldThumb({ spots, fit, onProjection = null }) {
+export default function AuroraFieldThumb({ spots, fit, viewline = null, kp = null }) {
   const canvasRef = useRef(null);
-  // The latest callback without making it an effect dependency: a parent that passes a fresh arrow
-  // each render must not repaint the field every time.
-  const onProjectionRef = useRef(onProjection);
-  useEffect(() => {
-    onProjectionRef.current = onProjection;
-  }, [onProjection]);
+  // What the last draw did with the line: the latitude it was drawn for and where it fell against the
+  // frame ('in' | 'south' | 'north'), or null for no line. Set by the draw effect, because only it
+  // holds the projection. The label reads it only while `lat` is still the current latitude, so a
+  // line that has just moved never wears the old placement's wording for the frame before the redraw.
+  const [drawn, setDrawn] = useState(null);
 
   const points = useMemo(
     () => spots.map((s) => ({ lat: s.lat, lng: s.lng, rid: s.rid, r: [s.stars] })),
     [spots],
   );
 
+  // The line's latitude, the ONLY viewline fact the redraw depends on. ⚠️ Never the `viewline` object:
+  // the hook polls every 5 minutes and hands back a fresh object each time, which would repaint the
+  // whole field for a line that has not moved. The Kp and source reach the label at render.
+  const lineLat = viewline?.active === true && Number.isFinite(viewline.southernmostLatitude)
+    ? viewline.southernmostLatitude
+    : null;
+
   useEffect(() => {
     let cancelled = false;
     load()
       .then(() => {
         const cv = canvasRef.current;
-        if (cancelled || !cv || !cv.getContext('2d')) return;
-        let projection;
+        const ctx = cv && cv.getContext('2d');
+        if (cancelled || !ctx) return;
+        let mode = null;
         try {
-          projection = drawGeo(cv, THUMB_WIDTH, THUMB_HEIGHT, points, WIN, { ...DRAW_OPTS, fit });
+          const projection = drawGeo(cv, THUMB_WIDTH, THUMB_HEIGHT, points, WIN, { ...DRAW_OPTS, fit });
+          if (projection && lineLat != null) mode = drawViewline(ctx, projection, lineLat);
         } catch {
-          // A decorative thumbnail never takes the banner down: leave the ground colour.
-          return;
+          // A decorative thumbnail never takes the banner down: leave what was painted. `mode` is
+          // assigned only from a completed line draw, so a throw leaves it null and the label off.
         }
-        if (projection && onProjectionRef.current) onProjectionRef.current(projection);
+        setDrawn(mode ? { lat: lineLat, mode } : null);
       })
       .catch(() => {
         // The land chunk failed to load (a deploy under an open page, or offline): the canvas stays
-        // blank over the slot's ground.
+        // blank over the slot's ground, with no line to label.
+        if (!cancelled) setDrawn(null);
       });
     return () => { cancelled = true; };
-  }, [points, fit]);
+  }, [points, fit, lineLat]);
+
+  // Whole step for the label: the response's own Kp (the live answer carries none), else the alert's.
+  const labelKp = Number.isFinite(viewline?.kp) ? Math.round(viewline.kp)
+    : Number.isFinite(kp) ? Math.round(kp) : null;
 
   return (
-    <canvas
-      ref={canvasRef}
-      className="wf-aurora-field"
-      width={THUMB_WIDTH}
-      height={THUMB_HEIGHT}
-      aria-hidden="true"
-      data-testid="aurora-banner-field"
-    />
+    <>
+      <canvas
+        ref={canvasRef}
+        className="wf-aurora-field"
+        width={THUMB_WIDTH}
+        height={THUMB_HEIGHT}
+        aria-hidden="true"
+        data-testid="aurora-banner-field"
+      />
+      {drawn && drawn.lat === lineLat && (
+        // Text, so DOM rather than canvas; decorative like the picture — the card's own words are the
+        // accessible answer.
+        <span className="wf-aurora-vk" aria-hidden="true" data-testid="aurora-banner-viewline-label">
+          {lineLabel(drawn.mode, labelKp)}
+        </span>
+      )}
+    </>
   );
 }
 
@@ -113,5 +213,10 @@ AuroraFieldThumb.propTypes = {
     type: PropTypes.string,
     coordinates: PropTypes.array,
   }).isRequired,
-  onProjection: PropTypes.func,
+  viewline: PropTypes.shape({
+    active: PropTypes.bool,
+    southernmostLatitude: PropTypes.number,
+    kp: PropTypes.number,
+  }),
+  kp: PropTypes.number,
 };

@@ -11184,9 +11184,12 @@ button.wf-mchip:hover {
     outline-color: Highlight;
   }
   /* Forced colours replaces backgrounds with the system palette, which would erase the dot and the
-     lit bars (and the Kp meter is the slot's picture): keep their own colour. */
+     lit bars (and the Kp meter is the slot's picture): keep their own colour. The viewline label is
+     amber text on the field canvas, whose pixels forced colours does not repaint: left to the system
+     palette it would be CanvasText with no shadow over a dark picture. */
   .wf-aurora-dot,
-  .wf-aurora-bar[data-lit='true'] {
+  .wf-aurora-bar[data-lit='true'],
+  .wf-aurora-vk {
     forced-color-adjust: none;
   }
 }
@@ -11224,7 +11227,7 @@ button.wf-mchip:hover {
 
 /* The thumbnail slot. 96×118 in every state, so the field that replaces the pending state later
    shifts nothing. The ground is the heat field's own sea colour. Positioned so a label can be laid
-   over the field (the viewline's, later) and clipped by the slot's own overflow. */
+   over the field (the viewline's) and clipped by the slot's own overflow. */
 .wf-aurora-thumb {
   position: relative;
   flex: none;
@@ -11290,6 +11293,22 @@ button.wf-mchip:hover {
   display: block;
   width: 96px;
   height: 118px;
+}
+/* The southern viewline's label (aurora-banner-plan.md B3), laid over the field in the slot's top-left
+   corner. DOM text, not canvas; the shadow keeps it legible over the green. Decorative: the line and
+   its label are aria-hidden, and the card's own words are the accessible answer. */
+.wf-aurora-vk {
+  position: absolute;
+  top: 4px;
+  left: 5px;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: #E0A542;
+  white-space: nowrap;
+  pointer-events: none;
+  text-shadow: 0 1px 3px #000;
 }
 .wf-aurora-pend-label {
   font-family: var(--font-mono);
