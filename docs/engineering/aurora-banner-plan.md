@@ -49,13 +49,14 @@ already-merged #1056 work (topic dating), not this feature.
 
 ## §0 Status
 
-**Status: B0 (this plan) open.** Phase log (every phase appends its own row in the same commit as
+**Status: B0 (this plan) open; B1 built, in review.**
+Phase log (every phase appends its own row in the same commit as
 its code; the `PR` column names the PR, not a SHA, because the repo squash-merges):
 
 | phase | what | PR | notes |
 |---|---|---|---|
 | B0 | vendoring, this plan | — | this document |
-| B1 | severity on the aurora ramp; banner ≥640 with the Kp slot; glow strip <640; `breathe`; CSS block | pending | |
+| B1 | severity on the aurora ramp; banner ≥640 with the Kp slot; glow strip <640; `breathe`; CSS block | `feature/aurora-banner-b1` (PR number pending) | built 2026-10-12, presentation only. Deviations, each deliberate: (1) breathing is STRONG-only, per the spec's table (§1 #10 corrected); (2) the when-line, the strip's second line and the pending label use `--color-plex-text-secondary` (6.7:1), not the spec's `.42` muted bone (3.5:1, under AA) — the same call as stop 3, reversible in three declarations; **owner to confirm**; (3) the CSS block sits BEFORE the Ask block with an end marker (two Ask CSS tests slice to end of file); (4) the strip's simulated door reads `Scores →`, not `Map →` (it goes to `#manage`); (5) keyboard activation ignores a key pressed on the dismiss button (Enter on ✕ used to open the map as well); (6) extra `data-testid`s (`-pill -when -best -thumb -slot -kp -meter -bar -strip-headline -strip-detail`) and a `position: relative` on the thumb slot for B3's label; (7) `AuroraStatusContext.test.jsx` lost its viewline-request observable (the banner no longer asks; B3 may count it again). Open for the owner, unchanged from the old banner: the root is `role="alert"` + `tabIndex` + key handler with a plain-text CTA (spec-mandated; a real button/link CTA is a separate call), and a layout swap at 640px remounts the alert node. In the strip, `clip-path` clips its own `box-shadow` (spec-faithful) — look at the glow in the browser check |
 | B2 | `useAuroraScores`; the lazy field thumbnail; the best line; App brings the banner inside the briefing provider | pending | |
 | B3 | viewline on the thumbnail behind `VIEWLINE_RELIABLE = false`; CLAUDE.md sweep; close-out | pending | |
 
@@ -105,9 +106,14 @@ session builds against.
 9. **A6 has landed, but the viewline flag stays false.** The spec's "open dependency" — the
    forecast line refreshing and the Kp table being corrected — is #1107 (merged, unreleased at plan
    time). The spec still says *ask the user before enabling*; §4 D4.
-10. **The existing pulse rule IS the spec's `breathe` rule.** `isFavourable = !simulated &&
-    triggerType !== 'forecast' && bz < -1` — "live and Bz < −1 nT, not simulated". Keep the
-    predicate, replace the keyframes.
+10. **The existing pulse rule IS the spec's `breathe` rule — plus the spec's level term.**
+    `isFavourable = !simulated && triggerType !== 'forecast' && bz < -1` — "live and Bz < −1 nT,
+    not simulated". Keep the predicate, replace the keyframes. ⚠️ *Corrected at B1:* this item
+    first said the predicate alone was the rule, but the old pulse had no level term because the
+    old banner had no ramp, while the spec's severity table gives MODERATE motion "none" and
+    STRONG "`breathe` only if live and Bz < −1 nT" (and §8 expects "the Strong card breathing").
+    The build gates on the severity row (`SEVERITY[level].breathes`), so a MODERATE alert never
+    breathes.
 11. **`bzStatus()` has an importer outside the banner** (`SkyRatingEvalView.jsx`,
     `test/instantsAbroad.test.jsx`). It stays exported even though the banner no longer renders the
     sentence it builds. `formatDetectedAt` stays and is used by the "Active now · detected HH:MM"
@@ -429,6 +435,12 @@ scores exist; B2 swaps the field in.
 - **`drawGeo` declines silently** (no land yet, null context). The thumb must stay on the ground
   colour, not throw, and the pending slot must not flash back in — `ready` is the hook's answer,
   not the draw's.
+- **A failed lazy chunk (B2).** `React.lazy` rejects when a hashed chunk 404s — a page kept open
+  across a deploy keeps the JS it loaded (CLAUDE.md, Ask) — and after B2's provider lift the
+  nearest error boundary is `PlanErrorBoundary`, so an unguarded `AuroraFieldThumb` would take the
+  whole shell to its fallback for a decorative thumbnail. B2 wraps the lazy thumb in its own
+  boundary whose fallback is the pending slot. B1 leaves the 96×118 wrapper
+  (`data-testid="aurora-banner-thumb"`) as the mount point.
 
 ---
 

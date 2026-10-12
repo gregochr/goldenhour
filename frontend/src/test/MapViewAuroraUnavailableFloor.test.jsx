@@ -32,7 +32,7 @@
  * (non-simulated) stored result, but a map asks for it once, when it mounts — and the Map tab's map
  * stays mounted once visited — so it is empty when no night held one as that map asked, when that
  * request failed, and until it answers. Three routes lead here: the overlay the aurora banner opens
- * ("Show on map →"); the 🌌 Aurora button in any overlay's Filters drawer, pressed while an alert is
+ * ("View on map →"); the 🌌 Aurora button in any overlay's Filters drawer, pressed while an alert is
  * live; and the Map tab, through that banner overlay's `Open the full Map tab →` hatch, which hands
  * it the banner's aurora handoff.
  *

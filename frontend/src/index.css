@@ -11140,6 +11140,339 @@ button.wf-mchip:hover {
   .wf-spots > .wf-spot { flex: 0 0 calc((100% - 16px) / 2.6); }
 }
 
+/* ── Aurora alert banner (docs/engineering/aurora-banner-plan.md B1) ──
+   One block for both layouts: the card at 640px and up, the glow strip below it (the component
+   picks with useIsMobile, so there is no media query on the layout itself). The severity colours
+   arrive as custom properties on the root — `--acc` the fill and glow, `--acc-ink` the text colour,
+   `--fill` the strip edge's lit fraction — and the Kp meter's nine bar colours as `--bar-0..8`, all
+   set from `AuroraBanner.jsx` (SEVERITY and utils/auroraRamp.js), never typed here. The ONE ramp
+   literal in this file is the strip's edge gradient below; `auroraBannerCss.test.js` pins it to
+   `auroraRampGradientCss()`, because the design bundle's own literal has the teal stop #22867E where
+   the app's ramp has #1F7F78 (an owner decision for AA contrast, aurora-heat-plan.md §5 Q3).
+
+   ⚠️ A second deliberate departure from the bundle, for the same AA reason: it sets the when-line, the
+   strip's second line and the pending label in `--color-plex-text-muted` (.42 bone, 3.53:1 on this
+   surface). That text says whether the alert is live and how many sites are clear, so it takes
+   `--color-plex-text-secondary` (.66, 6.7:1) instead — the remap the map panels already make for the
+   same token (see `--color-panel-ink`). aurora-banner-plan.md §0 B1 row records it for the owner. */
+.wf-aurora-card,
+.wf-aurora-strip {
+  position: relative;
+  box-sizing: border-box;
+  background-color: var(--color-plex-surface);
+  border: 1px solid var(--color-plex-border);
+  border-radius: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.wf-aurora-card {
+  display: flex;
+  align-items: stretch;
+  gap: 13px;
+  padding: 10px 14px 10px 10px;
+}
+.wf-aurora-card:focus-visible,
+.wf-aurora-strip:focus-visible,
+.wf-aurora-x:focus-visible {
+  outline: 2px solid var(--acc-ink);
+  outline-offset: 2px;
+}
+@media (forced-colors: active) {
+  .wf-aurora-card:focus-visible,
+  .wf-aurora-strip:focus-visible,
+  .wf-aurora-x:focus-visible {
+    outline-color: Highlight;
+  }
+  /* Forced colours replaces backgrounds with the system palette, which would erase the dot and the
+     lit bars (and the Kp meter is the slot's picture): keep their own colour. */
+  .wf-aurora-dot,
+  .wf-aurora-bar[data-lit='true'] {
+    forced-color-adjust: none;
+  }
+}
+/* A simulated alert (the admin preview tool): hatched, dashed, never mistakable for a real one. */
+.wf-aurora-card.wf-aurora-simulated,
+.wf-aurora-strip.wf-aurora-simulated {
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 6px,
+    rgba(255, 255, 255, 0.08) 6px,
+    rgba(255, 255, 255, 0.08) 12px
+  );
+  border-color: rgba(255, 255, 255, 0.35);
+  border-style: dashed;
+}
+/* The live, southward-Bz state: a slow glow in the severity colour. */
+.wf-aurora-breathe {
+  animation: breathe 3.2s ease-in-out infinite;
+}
+@keyframes breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+  50% {
+    box-shadow: 0 0 22px -4px color-mix(in srgb, var(--acc) 45%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wf-aurora-breathe {
+    animation: none;
+  }
+}
+
+/* The thumbnail slot. 96×118 in every state, so the field that replaces the pending state later
+   shifts nothing. The ground is the heat field's own sea colour. Positioned so a label can be laid
+   over the field (the viewline's, later) and clipped by the slot's own overflow. */
+.wf-aurora-thumb {
+  position: relative;
+  flex: none;
+  align-self: flex-start;
+  width: 96px;
+  height: 118px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--color-heat-sea);
+  box-shadow: inset 0 0 0 1px var(--color-plex-border);
+}
+.wf-aurora-thumb-pend {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 100%;
+  background: linear-gradient(180deg, #151b1a, var(--color-heat-sea));
+}
+.wf-aurora-flask {
+  font-size: 28px;
+  line-height: 1;
+}
+.wf-aurora-kp {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--acc-ink);
+  text-shadow: 0 0 12px color-mix(in srgb, var(--acc) 50%, transparent);
+}
+.wf-aurora-meter {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 2px;
+}
+.wf-aurora-bar {
+  display: block;
+  width: 34px;
+  height: 4px;
+  border-radius: 1.5px;
+  background: rgba(242, 231, 211, 0.08);
+}
+.wf-aurora-bar[data-k='0'] { --c: var(--bar-0); }
+.wf-aurora-bar[data-k='1'] { --c: var(--bar-1); }
+.wf-aurora-bar[data-k='2'] { --c: var(--bar-2); }
+.wf-aurora-bar[data-k='3'] { --c: var(--bar-3); }
+.wf-aurora-bar[data-k='4'] { --c: var(--bar-4); }
+.wf-aurora-bar[data-k='5'] { --c: var(--bar-5); }
+.wf-aurora-bar[data-k='6'] { --c: var(--bar-6); }
+.wf-aurora-bar[data-k='7'] { --c: var(--bar-7); }
+.wf-aurora-bar[data-k='8'] { --c: var(--bar-8); }
+.wf-aurora-bar[data-lit='true'] {
+  background: var(--c);
+}
+.wf-aurora-bar[data-glow='true'] {
+  box-shadow: 0 0 5px var(--c);
+}
+.wf-aurora-pend-label {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: 0.06em;
+  line-height: 1.3;
+  text-align: center;
+  text-transform: uppercase;
+  color: var(--color-plex-text-secondary);
+}
+
+/* The card's words. */
+.wf-aurora-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding-top: 3px;
+}
+.wf-aurora-pill {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--acc-ink);
+  background: color-mix(in srgb, var(--acc) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acc) 40%, transparent);
+}
+.wf-aurora-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--acc);
+  box-shadow: 0 0 8px var(--acc);
+}
+.wf-aurora-when {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-secondary);
+}
+.wf-aurora-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--color-plex-text);
+  text-wrap: pretty;
+}
+.wf-aurora-best {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-aurora-best b {
+  font-weight: 600;
+  color: var(--color-plex-text);
+}
+.wf-aurora-cta {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--acc-ink);
+}
+
+/* Dismiss: a 44px target on both layouts; the card tucks it into its corner. */
+.wf-aurora-x {
+  flex: none;
+  align-self: flex-start;
+  width: 44px;
+  height: 44px;
+  margin: -4px -8px 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--color-plex-text-secondary);
+}
+.wf-aurora-x:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-plex-text);
+}
+.wf-aurora-x.wf-aurora-x-strip {
+  align-self: center;
+  margin: 0;
+}
+
+/* The glow strip. */
+.wf-aurora-strip {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-height: 56px;
+  padding: 0 6px 0 12px;
+  overflow: hidden;
+}
+.wf-aurora-strip::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: linear-gradient(90deg,#384262,#2C5470 25%,#1F7F78 50%,#3AC884 75%,#76FFA0);
+  clip-path: inset(0 calc(100% - var(--fill)) 0 0);
+  box-shadow: 0 0 10px var(--acc);
+  pointer-events: none;
+}
+/* ⚠️ `clip-path` clips the box-shadow with the rest of the element, so on a 2px edge the glow above
+   barely shows: the bundle writes it this way and the plan pins it. Whether it reads is a browser
+   check (plan §8); if it does not, the fix is a wrapper that carries the shadow. */
+.wf-aurora-glyph {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  line-height: 1;
+  filter: drop-shadow(0 0 6px var(--acc));
+}
+.wf-aurora-glyph svg {
+  width: 22px;
+  height: 22px;
+}
+.wf-aurora-strip-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.wf-aurora-strip-l1 {
+  margin: 0;
+  overflow: hidden;
+  font-size: 13.5px;
+  font-weight: 700;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-plex-text);
+}
+.wf-aurora-strip-lvl {
+  margin-right: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--acc-ink);
+}
+.wf-aurora-strip-l2 {
+  margin: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-plex-text-secondary);
+}
+.wf-aurora-strip-l2 b {
+  font-weight: 600;
+  color: var(--color-plex-text);
+}
+.wf-aurora-strip-cta {
+  flex: none;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--acc-ink);
+}
+/* ── end Aurora alert banner ── */
+
 /* ══ Ask PhotoCast — the conversation (docs/engineering/ask-photocast-plan.md §2.6, F1a) ══════════
    Recreated from the design bundle's `Map Ask in Peek.html` (`.askp`, `.ctxr`, `.cx`, `.sug`, `.yq`,
    `.sum`, `.think`, `.apk`, `.cant`, `.usage`, `.foot2`) and `Ask Everywhere.html` (`.evc`) in the

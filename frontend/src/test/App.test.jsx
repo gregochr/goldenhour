@@ -23,8 +23,8 @@ import { ukDateStrOffset } from '../utils/mapDates.js';
  * PASSTHROUGH spy on the provider export (the real provider still runs; the spy stubs nothing).
  * When a P2 surface renders from `heatPointSets`, that assertion can move onto the DOM. Both maps
  * App mounts are stubbed — the Map tab's pane and the overlay's `MapView`, each for the reason
- * beside its mock — and `useAuroraViewline` is mocked to answer no line, so the aurora banner makes
- * no viewline read.
+ * beside its mock — and `useAuroraViewline` is mocked to answer no line, a harmless guard now that
+ * the aurora banner makes no viewline read (it returns in the banner's B3, behind a flag).
  */
 
 vi.mock('../api/forecastApi.js', () => ({
