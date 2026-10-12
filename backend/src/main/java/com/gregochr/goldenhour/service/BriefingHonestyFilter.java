@@ -360,32 +360,25 @@ final class BriefingHonestyFilter {
      * differ. {@code STOOD_DOWN} and {@code UNKNOWN} keep "too unsettled" and {@code STAND_DOWN},
      * which is only true of weather triage; the others are neutral ({@code AWAITING}).
      */
+    /** The verdict and three strings one coverage reason writes onto a blanked region. */
+    private record Wording(DisplayVerdict verdict, String label, String summary, String detail) {
+    }
+
     private static BriefingRegion fullRewrite(BriefingRegion r, CoverageReason reason) {
-        String label = VERDICT_LABEL;
-        String summary = REPLACEMENT_SUMMARY;
-        String detail = REPLACEMENT_GLOSS_DETAIL;
-        DisplayVerdict verdict = DisplayVerdict.STAND_DOWN;
-        switch (reason) {
-            case AWAY -> {
-                verdict = DisplayVerdict.AWAITING;
-                label = AWAY_LABEL;
-                summary = AWAY_SUMMARY;
-                detail = AWAY_GLOSS_DETAIL;
-            }
-            case NOT_ATTEMPTED -> {
-                verdict = DisplayVerdict.AWAITING;
-                label = NOT_ATTEMPTED_LABEL;
-                summary = NOT_ATTEMPTED_SUMMARY;
-                detail = NOT_ATTEMPTED_GLOSS_DETAIL;
-            }
-            case FAILED -> {
-                verdict = DisplayVerdict.AWAITING;
-                label = FAILED_LABEL;
-                summary = FAILED_SUMMARY;
-                detail = FAILED_GLOSS_DETAIL;
-            }
-            case STOOD_DOWN, UNKNOWN -> { }
-        }
+        Wording w = switch (reason) {
+            case AWAY -> new Wording(DisplayVerdict.AWAITING, AWAY_LABEL, AWAY_SUMMARY,
+                    AWAY_GLOSS_DETAIL);
+            case NOT_ATTEMPTED -> new Wording(DisplayVerdict.AWAITING, NOT_ATTEMPTED_LABEL,
+                    NOT_ATTEMPTED_SUMMARY, NOT_ATTEMPTED_GLOSS_DETAIL);
+            case FAILED -> new Wording(DisplayVerdict.AWAITING, FAILED_LABEL, FAILED_SUMMARY,
+                    FAILED_GLOSS_DETAIL);
+            case STOOD_DOWN, UNKNOWN -> new Wording(DisplayVerdict.STAND_DOWN, VERDICT_LABEL,
+                    REPLACEMENT_SUMMARY, REPLACEMENT_GLOSS_DETAIL);
+        };
+        DisplayVerdict verdict = w.verdict();
+        String label = w.label();
+        String summary = w.summary();
+        String detail = w.detail();
         return new BriefingRegion(
                 r.regionName(),
                 r.verdict(),
