@@ -200,7 +200,8 @@ guard and on legacy payloads.
   - every row of the table;
   - the six `UNKNOWN` sources listed in A.2;
   - a T+4 region that is triaged and stability-skipped gives `NOT_ATTEMPTED`;
-  - a T+4 region with one `SKIPPED_ERROR` among skips gives `NOT_ATTEMPTED`, not `FAILED`;
+  - a T+4 region with one `SKIPPED_ERROR` among skips gives `UNKNOWN`, neither `NOT_ATTEMPTED` (rule 2 excludes it, so a
+    collection error is never passed off as a horizon skip) nor `FAILED` (rule 5 stops at T+3);
   - a T+3 region with one `SKIPPED_ERROR` among 19 `SKIPPED_STABILITY` gives `UNKNOWN`, below the half;
   - a T+3 region that is half failed gives `FAILED`;
   - a T+2 region whose slots are all `EVALUATED` with `cycleEnded` true gives `FAILED`. The same region with
