@@ -229,20 +229,18 @@ class ServedBriefingAssemblerTest {
     }
 
     @Test
-    @DisplayName("P5: the cached snapshot is untouched, and assembleWithoutPlan (Close-to-home) "
-            + "still carries slot tide")
-    void cacheAndCloseToHomePathKeepSlotTide() {
+    @DisplayName("P5: serving strips slot tide from the response only; the cached snapshot keeps it")
+    void cachedSnapshotKeepsSlotTide() {
         DailyBriefingResponse cached = scoredSnapshot();
         DailyBriefingResponse before = scoredSnapshot();
 
-        assembler.assembleForPlan(cached, 0.5);
-        DailyBriefingResponse closeToHome = assembler.assembleWithoutPlan(cached, 0.5);
+        DailyBriefingResponse served = assembler.assembleForPlan(cached, 0.5);
 
         assertThat(cached).isEqualTo(before);
+        assertThat(allSlots(cached)).hasSize(6);
         assertThat(allSlots(cached)).extracting(BriefingSlot::tide).doesNotContainNull();
-        assertThat(allSlots(closeToHome)).hasSize(6);
-        assertThat(allSlots(closeToHome)).extracting(BriefingSlot::tide).doesNotContainNull();
-        assertThat(allSlots(closeToHome).get(0).tide().tideState()).isEqualTo("HIGH");
+        assertThat(allSlots(cached).get(0).tide().tideState()).isEqualTo("HIGH");
+        assertThat(allSlots(served)).extracting(BriefingSlot::tide).containsOnlyNulls();
     }
 
     // ── Coverage reasons, end to end through the real filter and projector ────────────────────

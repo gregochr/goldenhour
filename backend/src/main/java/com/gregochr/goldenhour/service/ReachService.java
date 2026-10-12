@@ -28,7 +28,7 @@ import java.util.Map;
  * <p><b>Not {@code /drive-times}</b>, which {@code DailyBriefing} still consumes as a flat
  * id&rarr;minutes map and which carries no distance at all.
  *
- * <p><b>Not {@code close-to-home}</b>, which is wrong three ways for a lens. Its gate is a
+ * <p><b>Not the retired {@code close-to-home}</b>, which is wrong three ways for a lens. Its gate is a
  * <em>distance</em> radius while the design's control is drive-time tiers; a four-way instant
  * control over it would need one uncacheable request per tier; and its {@code qualifies()} gate
  * drops exactly the below-floor spots a drill-down's rating filter has to be able to show.

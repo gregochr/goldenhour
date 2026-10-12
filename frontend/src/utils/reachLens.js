@@ -31,7 +31,7 @@ import { formatDriveDuration } from './briefingDisplay.js';
  * <h2>A lens with no data is not a gate</h2>
  *
  * <p>Plan §2.5, rule 1, and it is the <b>normal first-run state</b> rather than a failure
- * ({@code CloseToHomeService.java:156} says so in a comment). A spot with no drive time is
+ * (the retired Close-to-home service said so too). A spot with no drive time is
  * <em>unknown</em>, not out of reach: it passes every tier and is never far. {@link gateSpotsByReach}
  * and {@link isFarSpot} both key on {@code driveMinutes != null} for that reason, so a user with no
  * home postcode sees the control move and nothing else — a visible no-op, never a silently empty page.

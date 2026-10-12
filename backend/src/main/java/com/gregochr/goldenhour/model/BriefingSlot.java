@@ -22,8 +22,8 @@ import java.util.List;
  *                            when present, fall back to {@code locationName} when it is not.
  *
  *                            <p>It exists because matching slots to the locations roster by NAME
- *                            is the join Close to home currently makes, and renaming a location
- *                            silently empties that block for every user in radius. The FK has been
+ *                            was the join the retired Close-to-home block made, and renaming a
+ *                            location silently emptied that block for every user in radius. The FK has been
  *                            available since V47; the briefing DTO simply never carried it.
  * @param locationName        human-readable location name
  * @param solarEventTime      UTC time of the sunrise or sunset

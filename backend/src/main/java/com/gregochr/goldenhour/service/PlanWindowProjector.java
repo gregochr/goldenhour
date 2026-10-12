@@ -119,9 +119,8 @@ public final class PlanWindowProjector {
     /**
      * How long a window stays pickable after its solar event.
      *
-     * <p>Same value and same reason as {@code CloseToHomeService} — the colour does not stop at the
-     * instant of sunset, and a pick that vanishes while you are still standing in it is worse than
-     * one that lingers half an hour.
+     * <p>The colour does not stop at the instant of sunset, and a pick that vanishes while you are
+     * still standing in it is worse than one that lingers half an hour.
      */
     private static final long AFTERGLOW_MINUTES = 30;
 
@@ -357,9 +356,8 @@ public final class PlanWindowProjector {
      * slots, falling back to the summary's own {@code solarEventTime} when no slot carries one.
      *
      * <p>Earliest rather than first-in-list: list order traces to whichever grid cell Open-Meteo
-     * answered first, which is not a fact about the event. The same argument already decides
-     * "is this event past" in {@code CloseToHomeService} — an event belongs to all of its
-     * locations.
+     * answered first, which is not a fact about the event. The same argument decides
+     * "is this event past": an event belongs to all of its locations.
      *
      * <p><b>The fallback is load-bearing since this instant began deciding what is RENDERED.</b>
      * The honesty filter empties a zero-coverage region's slot list while leaving the summary's own
@@ -514,9 +512,9 @@ public final class PlanWindowProjector {
     /**
      * Whether this window's moment has gone.
      *
-     * <p>A window with no time at all counts as <b>current</b>, never as past — the same choice
-     * {@code CloseToHomeService} makes. Reading a missing time as elapsed would silently publish no
-     * picks at all for a briefing whose slots happen to carry no solar time.
+     * <p>A window with no time at all counts as <b>current</b>, never as past. Reading a missing
+     * time as elapsed would silently publish no picks at all for a briefing whose slots happen to
+     * carry no solar time.
      */
     private static boolean isPast(Draft draft, LocalDateTime now) {
         return hasPassed(draft.eventTime(), now);
@@ -533,9 +531,9 @@ public final class PlanWindowProjector {
      *
      * <p>Both halves are deliberate. The <b>afterglow</b> keeps a window current for
      * {@value #AFTERGLOW_MINUTES} minutes past its own time, because the colour outlasts the
-     * geometry. A <b>null time counts as current, never as past</b> — the same choice
-     * {@code CloseToHomeService} makes; reading a missing time as elapsed would silently empty
-     * both surfaces for a briefing whose slots happen to carry no solar time.
+     * geometry. A <b>null time counts as current, never as past</b>; reading a missing time as
+     * elapsed would silently empty both surfaces for a briefing whose slots happen to carry no
+     * solar time.
      *
      * @param eventTime the window's event time in UTC, or null when it has none
      * @param now       the current UTC time

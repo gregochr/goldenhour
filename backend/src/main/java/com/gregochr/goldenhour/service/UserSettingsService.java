@@ -202,9 +202,9 @@ public class UserSettingsService {
      *
      * <p>{@link #getSettings} geocodes the postcode through {@code PostcodesIoClient} purely to
      * produce a human-readable place name for the Settings screen, and that lookup is uncached.
-     * Close to home needs only the numbers, and its panel refetches whenever the briefing or the
-     * home settings change — so routing it through {@code getSettings} put an uncached
-     * third-party HTTP call on a Plan-tab render path and threw the result away.
+     * The reach and light readers need only the numbers, and refetch whenever the briefing or the
+     * home settings change — so routing them through {@code getSettings} would put an uncached
+     * third-party HTTP call on a Plan-tab render path and throw the result away.
      *
      * @param auth the authenticated user
      * @return the caller's home location and radius

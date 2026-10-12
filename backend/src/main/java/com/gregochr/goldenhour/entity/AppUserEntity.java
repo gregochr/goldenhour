@@ -131,7 +131,7 @@ public class AppUserEntity implements UserDetails {
      * The caller's "close to home" radius in miles, or {@code null} when never chosen.
      *
      * <p>Null rather than a defaulted 22 so the column distinguishes "left alone" from
-     * "deliberately set to 22" — {@code CloseToHomeService} applies the default when reading.
+     * "deliberately set to 22" — the reader ({@code AskService}) applies the default when reading.
      *
      * <p>Not updatable through the entity — see the class Javadoc. Written by
      * {@code AppUserRepository.updateHome}.

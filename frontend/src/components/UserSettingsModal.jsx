@@ -615,9 +615,9 @@ export default function UserSettingsModal({
 
               {/* Local radius — directly beneath the postcode it is measured from, and still Pro.
                   Nothing on the page reads it now: the map's ⌂ used to frame this radius, until
-                  map-tab-v2 P11 made the ⌂ a scope reset; the server's Close to home endpoint
-                  still does. It carries its own greying now that the section around it is open,
-                  per the role-gating pattern. */}
+                  map-tab-v2 P11 made the ⌂ a scope reset; Ask's nearHome still does. It carries
+                  its own greying now that the section around it is open, per the role-gating
+                  pattern. */}
               <div
                 className={`mt-4${!isPro ? ' opacity-45 pointer-events-none' : ''}`}
                 data-testid="settings-local-radius"

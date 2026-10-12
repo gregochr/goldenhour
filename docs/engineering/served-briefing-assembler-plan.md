@@ -62,6 +62,8 @@ ServedBriefingAssembler
 ```
 
 `getServedBriefing()` and `getCachedBriefingForApi()` become one-line delegations.
+*(2026-10-12: `getServedBriefing()` and its only other caller, Close-to-home, were deleted;
+`assembleWithoutPlan` is now the package-private first stage of `assembleForPlan`.)*
 
 **The enrichment socket.** `reEnrichVerdicts` calls `enrichWithCachedScores`, which the build
 path shares, so the assembler takes a narrow functional dependency rather than the logic:
@@ -139,9 +141,9 @@ Each compiles, passes the suite, and is independently revertible.
 
 1. **The ordering comments are load-bearing documentation**, encoding six hard-won rules.
    They move **with** the code. Losing them is the worst realistic outcome.
-2. **`CloseToHomeService` is the only other caller** of `getServedBriefing()` and its javadoc
-   leans on "they differ by the window projection alone" — the no-movement guarantee is
-   load-bearing there.
+2. **`CloseToHomeService` was the only other caller** of `getServedBriefing()` and its javadoc
+   leaned on "they differ by the window projection alone" — the no-movement guarantee was
+   load-bearing there. *(Both deleted 2026-10-12.)*
 3. **The 14-arg positional rebuild** in `applyBestBetFallback` is a live hazard. Moving it
    does not fix it. Do **not** opportunistically improve it mid-move.
 4. **Six test fixtures construct `BriefingService` directly** with the full argument list, so

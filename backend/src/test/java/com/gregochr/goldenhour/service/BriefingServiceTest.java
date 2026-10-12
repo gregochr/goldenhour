@@ -69,7 +69,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -3493,35 +3492,6 @@ class BriefingServiceTest {
         }
 
         @Test
-        @DisplayName("the panel path is the same payload without the window projection, and pays nothing for it")
-        void panelPathSkipsTheWindowProjectionEntirely() {
-            // CloseToHomeService shares this accessor so two panels cannot disagree about the same
-            // location — but it holds no BriefingWindow and reads only days() and bestBets(). The
-            // Plan tab fetches both endpoints on load, so while the projection rode the shared
-            // accessor the tide rollup — a roster query, a multi-day tide_extreme scan, the
-            // representative's whole height history and a marine_wave lookup per window — was built
-            // twice per page and one copy thrown away. What must NOT change is everything else:
-            // same enrichment, same fallback, same honesty filter, same order.
-            stubFullRefresh(bamburgh());
-            stubBuildScores(5);
-            briefingService.refreshBriefing();
-            stubServeScores(5);
-
-            var panel = briefingService.getServedBriefing();
-
-            assertThat(panel.days())
-                    .flatMap(com.gregochr.goldenhour.model.BriefingDay::eventSummaries)
-                    .isNotEmpty()
-                    .allSatisfy(es -> assertThat(es.window()).isNull());
-            verifyNoInteractions(windowTideRollupBuilder);
-            // The shared-snapshot guarantee: the projection attaches a window and rewrites nothing
-            // this panel reads, so the two accessors must agree slot for slot.
-            assertThat(findRegion(panel, "North East").displayVerdict())
-                    .isEqualTo(findRegion(briefingService.getCachedBriefingForApi(), "North East")
-                            .displayVerdict());
-        }
-
-        @Test
         @DisplayName("the internal path carries no window")
         void internalPathIsNotProjected() {
             // Internal callers read the untransformed triage data. A window there would be derived
@@ -3865,28 +3835,6 @@ class BriefingServiceTest {
             assertThat(firstNorthEast(briefingService.getCachedBriefing()).meanRatingDelta())
                     .as("and the untransformed cache never sees it")
                     .isNull();
-        }
-
-        @Test
-        @DisplayName("the panel accessor pays nothing for a field it does not read")
-        void panelAccessorIsNotEnrichedWithMovement() {
-            // CloseToHomeService shares getServedBriefing and reads slots and bestBets only. The
-            // movement step therefore lives on the API accessor, not the shared one — otherwise
-            // /api/user/settings/reach pays two queries and a full rebuild of the day hierarchy per
-            // request for a field it discards, which is the same "paid twice per page, one copy
-            // thrown away" pattern that moved the window projection out here in the first place.
-            stubFullRefresh();
-            stubScores(meanOf3point5());
-
-            briefingService.refreshBriefing();
-            DailyBriefingResponse panel = briefingService.getServedBriefing();
-
-            // No previous build is stubbed on purpose: the claim is that this accessor never ASKS,
-            // so stubbing an answer for it would be a stub the path must not reach. The verify is
-            // the assertion; the two nulls are what a reader of the payload sees.
-            verify(snapshotRepository, never()).findPreviousBuildStamp(any());
-            assertThat(firstNorthEast(panel).meanRatingDelta()).isNull();
-            assertThat(panel.previousGeneratedAt()).isNull();
         }
 
         @Test

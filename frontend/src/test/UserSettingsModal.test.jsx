@@ -319,7 +319,7 @@ describe('UserSettingsModal', () => {
     await waitFor(() => expect(saveHome).toHaveBeenCalledWith('NE66 1NG', 55.413, -1.706, null));
   });
 
-  it('keeps the local radius Pro-gated, since it frames Close to home', async () => {
+  it('greys out and disables the local radius for a LITE user', async () => {
     // The split moved one level down rather than away: light times free, drive times and the
     // radius they are ranked by still Pro.
     getSettings.mockResolvedValue(LITE_WITH_HOME);
