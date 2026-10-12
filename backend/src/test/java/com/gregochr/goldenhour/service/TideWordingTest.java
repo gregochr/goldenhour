@@ -80,8 +80,7 @@ class TideWordingTest {
     //
     // tideGatePhrase (the served reason a coastal slot was withheld from Claude) was removed with
     // the tide gate lift (2026-09-18, docs/engineering/tide-window-plan.md §6 Q1) — no producer
-    // calls it any more (BriefingGatingPolicy.HARD_CONSTRAINT_REASONS is empty, so
-    // BriefingSlotBuilder's evaluationGate switch never reaches a TIDE_MISMATCH case). The fixed
+    // calls it any more (the gating policy and the slot's evaluationGate field are gone). The fixed
     // HIGH/MID/LOW want-word ordering and the "never repeat the nearest-extreme offset" rule it
     // used to pin are still exercised below, through tideFitPhrase's miss form, which shares the
     // same orderedWantWords helper.

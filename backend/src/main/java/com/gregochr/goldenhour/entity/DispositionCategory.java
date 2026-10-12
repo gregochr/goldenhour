@@ -33,9 +33,9 @@ public enum DispositionCategory {
     FORCE_EVALUATED,
 
     /**
-     * STANDDOWN slot whose reason is a hard physical constraint (currently only
-     * tide mismatch on a coastal location whose tide preference does not match
-     * the event-time tide state). Cannot be revised by Claude, so never reaches it.
+     * No longer written; historical rows only. It recorded a STANDDOWN slot whose reason was a hard
+     * physical constraint (latterly only a tide mismatch, until the tide gate lift of 2026-09-18).
+     * The constant stays so those rows, kept up to 30 days, still deserialise.
      */
     SKIPPED_HARD_CONSTRAINT,
 

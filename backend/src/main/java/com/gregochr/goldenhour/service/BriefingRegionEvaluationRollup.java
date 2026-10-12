@@ -134,7 +134,7 @@ public class BriefingRegionEvaluationRollup implements BriefingScoreEnricher {
                                         + "briefingVerdict={} scoredCount=0 "
                                         + "(honesty filter will rewrite at API read time — "
                                         + "post-Gate-2 this should only fire on batch "
-                                        + "failures or all-hard-constrained regions)",
+                                        + "failures)",
                                 region.regionName(), day.date(), es.targetType(),
                                 region.verdict());
                     }

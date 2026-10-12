@@ -203,7 +203,7 @@ final class TideWording {
 
     /**
      * The location's wanted tide states, worded, HIGH/MID/LOW in a fixed order so two locations
-     * with the same preferences read alike — shared by {@link #tideGatePhrase} and
+     * with the same preferences read alike — used by
      * {@link #tideFitPhrase}.
      *
      * <p>{@code EnumSet.copyOf} rejects an empty plain {@code Set}, and an unconfigured location

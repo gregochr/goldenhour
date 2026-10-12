@@ -208,7 +208,7 @@ Separate PRs, not in this series (recorded so they are not lost): the duplicated
 the build path (`BriefingSlotBuilder.curveFacts` re-reads what `TideFactDeriver` just read, several times per
 coastal slot); a coverage-reason model for the honesty filter so "not attempted" and "failed" stop sharing
 one rewrite and its "Too unsettled to forecast" wording (**Q2**); removing the always-null `evaluationGate`
-chain (owner decision: it is a deliberately kept seam); deleting the callerless Close-to-home stack (owner
+chain (done 2026-10-11, `tide-facts-followups-plan.md` C2, after the owner chose to delete the seam); deleting the callerless Close-to-home stack (owner
 decision).
 
 Rejected, recorded so it is not re-proposed: **keeping slots in `fullRewrite` with the evaluation fields

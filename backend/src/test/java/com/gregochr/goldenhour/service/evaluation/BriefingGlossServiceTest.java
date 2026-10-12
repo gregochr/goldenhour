@@ -137,9 +137,9 @@ class BriefingGlossServiceTest {
         // Before the tide gate lift (2026-09-18, docs/engineering/tide-window-plan.md §6 Q1),
         // TIDE_MISMATCH was the one hard-constraint STANDDOWN reason left after the Gate 2
         // redesign, and a region whose every slot carried it had no eligible slot for
-        // BriefingGatingPolicy.hasAnyEligibleSlot to find — no Haiku call, gloss stayed null.
-        // BriefingGatingPolicy.HARD_CONSTRAINT_REASONS is now empty, so this region is eligible
-        // exactly like the weather-STANDDOWN case below, and is glossed the same way.
+        // the gloss service to find — no Haiku call, gloss stayed null. The gating policy is
+        // gone, so any region with slots is eligible exactly like the weather-STANDDOWN case
+        // below, and is glossed the same way.
         stubModelSelection();
         Message response = mockResponse(
                 "{\"headline\": \"Wrong water for the light\","
@@ -157,6 +157,19 @@ class BriefingGlossServiceTest {
         assertThat(r.glossHeadline()).isEqualTo("Wrong water for the light");
         assertThat(r.glossDetail()).isEqualTo("Tide sits at odds with every location's preference.");
         verify(anthropicApiClient, times(1)).createMessage(any());
+    }
+
+    @Test
+    @DisplayName("A region with no slots is not glossed — there is nothing for Claude to describe")
+    void regionWithNoSlots_isNotGlossed() {
+        stubModelSelection();
+
+        List<BriefingDay> enriched = glossService.generateGlosses(
+                List.of(dayWith(regionWithSlots("Empty Coast", Verdict.GO, 0))), 1L);
+
+        BriefingRegion r = enriched.getFirst().eventSummaries().getFirst().regions().getFirst();
+        assertThat(r.glossHeadline()).isNull();
+        verify(anthropicApiClient, never()).createMessage(any());
     }
 
     @Test
@@ -189,8 +202,8 @@ class BriefingGlossServiceTest {
     void mixedVerdicts_bothRegionsGlossed() {
         // Before the tide gate lift (2026-09-18, docs/engineering/tide-window-plan.md §6 Q1) the
         // tide-mismatched region here had no eligible slot and was excluded from the Claude
-        // call's own prompt payload entirely. BriefingGatingPolicy.HARD_CONSTRAINT_REASONS is now
-        // empty, so both regions are eligible and both are glossed, each with its own call.
+        // call's own prompt payload entirely. The gating policy is gone, so both
+        // regions are eligible and both are glossed, each with its own call.
         //
         // ⚠️ Regions gloss IN PARALLEL over virtual threads (ParallelGlossExecutor) — stubbed by
         // MATCHING each call's own region name, never by sequential `.thenReturn` order, which the
