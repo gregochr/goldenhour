@@ -1685,6 +1685,40 @@ class BriefingSlotBuilderTest {
             return slotBuilder.buildSlot(lw, SOLAR_TIME.toLocalDate(), TargetType.SUNSET);
         }
 
+        private static List<TideExtremeEntity> withLocation(List<TideExtremeEntity> rows,
+                Long locationId) {
+            rows.forEach(r -> r.setLocationId(locationId));
+            return rows;
+        }
+
+        @Test
+        @DisplayName("snapshot path: the curve fields come from the build's snapshot, equal to the "
+                + "per-slot-query path, with no per-location repository read")
+        void snapshotPath_curveReadsTheSnapshotAndMatchesTheQueryPath() {
+            LocationEntity loc = coastalLoc(Set.of(TideType.HIGH));
+            BriefingSlot viaQuery = build(loc, TideState.LOW, true);
+            org.mockito.Mockito.clearInvocations(tideExtremeRepository);
+
+            TideData td = new TideData(TideState.LOW, false, null, null, null, null, null,
+                    SOLAR_TIME);
+            when(tideService.deriveDualWindowTideData(eq(loc.getId()), eq(SOLAR_TIME), eq(30L),
+                    eq(90L), any(TideExtremeSnapshot.class))).thenReturn(Optional.of(dual(td)));
+            when(tideExtremeRepository.findByLocationIdInAndEventTimeBetweenOrderByEventTimeAsc(
+                    org.mockito.ArgumentMatchers.anyCollection(), any(), any()))
+                    .thenReturn(withLocation(symmetricDay(), loc.getId()));
+            TideExtremeSnapshot snapshot =
+                    slotBuilder.snapshotFor(List.of(loc), List.of(SOLAR_TIME.toLocalDate()));
+
+            BriefingSlot viaSnapshot = slotBuilder.buildSlot(
+                    new BriefingSlotBuilder.LocationWeather(loc, buildForecastResponse()),
+                    SOLAR_TIME.toLocalDate(), TargetType.SUNSET, null, snapshot);
+
+            assertThat(viaQuery.tide().tideLevel()).isNotNull();
+            assertThat(viaSnapshot.tide()).isEqualTo(viaQuery.tide());
+            verify(tideExtremeRepository, org.mockito.Mockito.never())
+                    .findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(any(), any(), any());
+        }
+
         @Test
         @DisplayName("no extremes stored: all five tide-fit fields fail-soft to null, not an "
                 + "exception")

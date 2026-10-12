@@ -56,7 +56,7 @@ public class TideService {
     private static final Logger LOG = LoggerFactory.getLogger(TideService.class);
 
     /** Days either side of the solar event time to query from the DB. */
-    private static final long QUERY_WINDOW_DAYS = 2;
+    private static final long QUERY_WINDOW_DAYS = TideExtremeSnapshot.READ_WINDOW_DAYS;
 
     /**
      * Minutes within which the solar event is classified as HIGH or LOW tide,
@@ -370,7 +370,32 @@ public class TideService {
      */
     public Optional<DualWindowTideData> deriveDualWindowTideData(Long locationId,
             LocalDateTime eventTime, long tightWindowMinutes, long widenedWindowMinutes) {
-        List<TideExtremeEntity> extremes = fetchExtremesAround(locationId, eventTime);
+        return dualWindowFrom(fetchExtremesAround(locationId, eventTime), locationId, eventTime,
+                tightWindowMinutes, widenedWindowMinutes);
+    }
+
+    /**
+     * As {@link #deriveDualWindowTideData(Long, LocalDateTime, long, long)}, reading the extremes
+     * from a build-scoped {@link TideExtremeSnapshot} instead of querying. Equivalent by
+     * construction: the snapshot answers the identical inclusive range.
+     *
+     * @param locationId           the location primary key
+     * @param eventTime            UTC time of sunrise or sunset
+     * @param tightWindowMinutes   the tight alignment window half-width in minutes
+     * @param widenedWindowMinutes the widened alignment window half-width in minutes
+     * @param snapshot             the build's snapshot
+     * @return both tide-data classifications, or empty if no extremes are available
+     */
+    public Optional<DualWindowTideData> deriveDualWindowTideData(Long locationId,
+            LocalDateTime eventTime, long tightWindowMinutes, long widenedWindowMinutes,
+            TideExtremeSnapshot snapshot) {
+        return dualWindowFrom(fetchExtremesAround(locationId, eventTime, snapshot), locationId,
+                eventTime, tightWindowMinutes, widenedWindowMinutes);
+    }
+
+    private Optional<DualWindowTideData> dualWindowFrom(List<TideExtremeEntity> extremes,
+            Long locationId, LocalDateTime eventTime, long tightWindowMinutes,
+            long widenedWindowMinutes) {
         if (extremes.isEmpty()) {
             LOG.warn("No tide extremes in DB for locationId={} around {}", locationId, eventTime);
             return Optional.empty();
@@ -395,6 +420,21 @@ public class TideService {
                         locationId,
                         eventTime.minusDays(QUERY_WINDOW_DAYS),
                         eventTime.plusDays(QUERY_WINDOW_DAYS));
+    }
+
+    /**
+     * As {@link #fetchExtremesAround(Long, LocalDateTime)}, reading the same ± day range from the
+     * build's snapshot (which falls back to the live query for anything it did not load).
+     *
+     * @param locationId the location primary key
+     * @param eventTime  UTC time of the solar event
+     * @param snapshot   the build's snapshot
+     * @return the extremes in the ± day range, ascending by event time (possibly empty)
+     */
+    private List<TideExtremeEntity> fetchExtremesAround(Long locationId, LocalDateTime eventTime,
+            TideExtremeSnapshot snapshot) {
+        return snapshot.between(tideExtremeRepository, locationId,
+                eventTime.minusDays(QUERY_WINDOW_DAYS), eventTime.plusDays(QUERY_WINDOW_DAYS));
     }
 
     /**
@@ -736,6 +776,25 @@ public class TideService {
      */
     public Optional<Long> nearestMidpointOffsetMinutes(Long locationId, LocalDateTime eventTime) {
         List<TideExtremeEntity> extremes = fetchExtremesAround(locationId, eventTime);
+        if (extremes.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(computeMidpointOffsetMinutes(extremes, eventTime));
+    }
+
+    /**
+     * As {@link #nearestMidpointOffsetMinutes(Long, LocalDateTime)}, reading the extremes from a
+     * build-scoped {@link TideExtremeSnapshot} instead of querying.
+     *
+     * @param locationId the location primary key
+     * @param eventTime  UTC time of the solar event
+     * @param snapshot   the build's snapshot
+     * @return the signed minutes to the nearest bracketing midpoint, or empty when fewer than two
+     *     extremes are stored around the event
+     */
+    public Optional<Long> nearestMidpointOffsetMinutes(Long locationId, LocalDateTime eventTime,
+            TideExtremeSnapshot snapshot) {
+        List<TideExtremeEntity> extremes = fetchExtremesAround(locationId, eventTime, snapshot);
         if (extremes.isEmpty()) {
             return Optional.empty();
         }
