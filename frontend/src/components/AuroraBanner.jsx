@@ -3,9 +3,10 @@ import PropTypes from 'prop-types';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 import { useAuroraScores } from '../hooks/useAuroraScores.js';
 import { useAuroraStatus } from '../hooks/useAuroraStatus.js';
+import { useAuroraViewline } from '../hooks/useAuroraViewline.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { auroraRampHex } from '../utils/auroraRamp.js';
-import { ALERT_WORTHY, areaField } from '../utils/auroraBannerScores.js';
+import { ALERT_WORTHY, areaField, isRealAlert } from '../utils/auroraBannerScores.js';
 import { formatInstantUk, parseUtcInstant } from '../utils/conversions.js';
 import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
 
@@ -150,6 +151,34 @@ function formatBz(bz) {
 }
 
 /**
+ * Whether triage found every dark-sky site overcast. An unknown clear count fails open: missing data
+ * is not overcast.
+ */
+function isAllOvercast(status) {
+  const dark = status.darkSkyLocationCount;
+  const clear = status.clearLocationCount;
+  return dark > 0 && clear != null && clear === 0;
+}
+
+/**
+ * Whether the overcast gate hides this banner: every dark-sky site is overcast, and the alert is not
+ * a major storm. Telling a photographer "aurora tonight" when every dark-sky location is overcast is
+ * noise in the most valuable slot on the screen — NLC gates the same way (active && clearTonight) —
+ * unless it is a STRONG storm, which is rare and worth surfacing under cloud (gaps open, people
+ * travel). Fails OPEN when the clear count is unknown (missing data is not overcast). A simulated
+ * alert is an admin preview tool that must always render: the gate is about real alerts nobody can
+ * act on, not synthetic ones. One definition for the render below and for the viewline request, so a
+ * banner nobody sees never asks for a line.
+ *
+ * @param {object} status the aurora status payload
+ * @returns {boolean} true when the banner renders nothing
+ */
+function hiddenByOvercast(status) {
+  const majorStorm = status.level === 'STRONG'; // extend if SEVERE/EXTREME join ALERT_WORTHY
+  return isAllOvercast(status) && !majorStorm && status.simulated !== true;
+}
+
+/**
  * Everything the two layouts need, derived once from the status so the card and the strip can never
  * disagree about a word, a count or a colour.
  *
@@ -177,8 +206,7 @@ function deriveModel(status, field) {
     levelWord,
     pillText: simulated ? `${sevLabel} · simulated` : sevLabel,
     kp: kp != null ? Math.round(kp) : null,
-    // Unknown clear count fails open: missing data is not overcast.
-    allOvercast: dark > 0 && clear != null && clear === 0,
+    allOvercast: isAllOvercast(status),
     // The site count both layouts word: the clear count once triage has run, else the dark-sky total
     // (and then it is NOT "clear" — missing triage is not a clear sky). Null when there are no
     // Bortle-enriched locations to count.
@@ -308,14 +336,15 @@ FieldBoundary.propTypes = {
  * @param {number|null} props.kp the pending slot's Kp figure
  * @param {boolean} props.simulated a simulated alert shows a test tube and never a field
  * @param {?{spots: Array, fit: object}} props.field the area's rated sites and frame, or null
+ * @param {?object} props.viewline the southern viewline to draw on the field, or null
  */
-function ThumbSlot({ kp, simulated, field }) {
+function ThumbSlot({ kp, simulated, field, viewline = null }) {
   const pending = <PendingSlot kp={kp} simulated={simulated} />;
   if (simulated || !field) return pending;
   return (
     <FieldBoundary fallback={pending}>
       <Suspense fallback={pending}>
-        <AuroraFieldThumb spots={field.spots} fit={field.fit} />
+        <AuroraFieldThumb spots={field.spots} fit={field.fit} viewline={viewline} kp={kp} />
       </Suspense>
     </FieldBoundary>
   );
@@ -325,6 +354,7 @@ ThumbSlot.propTypes = {
   kp: PropTypes.number,
   simulated: PropTypes.bool.isRequired,
   field: FIELD_SHAPE,
+  viewline: PropTypes.object,
 };
 
 /** The shape both layouts read; see {@link deriveModel}. */
@@ -379,8 +409,9 @@ function activates(e) {
  * @param {function} props.onDismiss dismisses the banner at its current level
  * @param {?object} props.field the planning area's rated field ({@link areaField}), or null while
  *   the slot is pending
+ * @param {?object} [props.viewline] the southern viewline drawn on the field, or null
  */
-function AuroraCard({ m, field = null, onActivate, onDismiss }) {
+function AuroraCard({ m, field = null, viewline = null, onActivate, onDismiss }) {
   const parts = [];
   if (m.best) {
     // Ready: the best rated site in the reader's area, then how many sites are clear. Without triage
@@ -432,7 +463,7 @@ function AuroraCard({ m, field = null, onActivate, onDismiss }) {
       >
         {/* eslint-enable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */}
         <div className="wf-aurora-thumb" data-testid="aurora-banner-thumb">
-          <ThumbSlot kp={m.kp} simulated={m.simulated} field={field} />
+          <ThumbSlot kp={m.kp} simulated={m.simulated} field={field} viewline={viewline} />
         </div>
         <div className="wf-aurora-body">
           <span className="wf-aurora-pill" data-testid="aurora-banner-pill">
@@ -484,6 +515,7 @@ function AuroraCard({ m, field = null, onActivate, onDismiss }) {
 AuroraCard.propTypes = {
   m: MODEL_SHAPE,
   field: FIELD_SHAPE,
+  viewline: PropTypes.object,
   onActivate: PropTypes.func.isRequired,
   onDismiss: PropTypes.func.isRequired,
 };
@@ -594,6 +626,7 @@ AuroraStrip.propTypes = {
  * - Below 640px a 56px glow strip
  * - Needs the briefing provider for the planning area and the HOME drive (App mounts it above the
  *   banner block); without one the field falls back to every rated site
+ * - The card's field carries the southern viewline (live first, forecast else) once it is drawn
  * - A STRONG alert breathes gently while it is live and Bz is southward (< −1 nT)
  * - Dismissible per session; re-appears if the level escalates
  *
@@ -621,6 +654,16 @@ export default function AuroraBanner({ onViewOnMap = null }) {
     [status?.simulated, scores.spots, heatSpots, reachById, origin],
   );
 
+  // The southern viewline is drawn on the field and nowhere else, so it is asked for only when that
+  // field is actually on screen: a real alert (not simulated), not dismissed, the wide layout (the
+  // strip has no thumbnail), the planning area's rated field present, and the banner not suppressed
+  // by the overcast gate below. No request while the slot shows the Kp meter or a test tube. Both
+  // sources, the hook's default: the live OVATION contour, else NOAA's forecast line — the Map tab's
+  // own precedence. Enabled by the owner, 2026-10-12 (plan §4 D4); there is no flag.
+  const viewlineEnabled = isRealAlert(status) && !dismissed && !isMobile && field !== null
+    && !hiddenByOvercast(status);
+  const { viewline } = useAuroraViewline(viewlineEnabled);
+
   // Not eligible (free-tier, 403) or not yet loaded
   if (!status) return null;
 
@@ -632,15 +675,8 @@ export default function AuroraBanner({ onViewOnMap = null }) {
 
   const m = deriveModel(status, field);
 
-  // Gate on clear skies. Telling a photographer "aurora tonight" when every dark-sky
-  // location is overcast is noise in the most valuable slot on the screen — NLC already
-  // gates the same way (active && clearTonight). Suppress the banner when all locations
-  // are overcast, unless it's a major storm (STRONG+, rare and worth surfacing under
-  // cloud — gaps open, people travel). Fail OPEN when the clear count is unknown
-  // (missing data ≠ overcast). A simulated alert is an admin preview tool that must always
-  // render — the gate is about real alerts nobody can act on, not synthetic ones.
-  const isMajorStorm = status.level === 'STRONG'; // extend if SEVERE/EXTREME join ALERT_WORTHY
-  if (m.allOvercast && !isMajorStorm && !m.simulated) return null;
+  // Gate on clear skies (see hiddenByOvercast).
+  if (hiddenByOvercast(status)) return null;
 
   function handleDismiss(e) {
     e.stopPropagation();
@@ -665,7 +701,7 @@ export default function AuroraBanner({ onViewOnMap = null }) {
   // The strip has no thumbnail, so only the card is handed the field.
   return isMobile
     ? <AuroraStrip m={m} onActivate={handleActivate} onDismiss={handleDismiss} />
-    : <AuroraCard m={m} field={field} onActivate={handleActivate} onDismiss={handleDismiss} />;
+    : <AuroraCard m={m} field={field} viewline={viewline} onActivate={handleActivate} onDismiss={handleDismiss} />;
 }
 
 AuroraBanner.propTypes = {

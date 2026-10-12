@@ -12,9 +12,9 @@
  * <ul>
  *   <li>An alert answer taken before the alert ended, landing after the all-clear, put the banner
  *       back up — and switched the viewline back on, whose endpoint does not check the alert
- *       state — until the next poll or focus. (The banner no longer asks for the viewline at all —
- *       aurora-banner-plan.md B1 — so the viewline half of that symptom is observed nowhere now;
- *       B3 brings the banner's request back behind a flag, and that is the place to count it again.)</li>
+ *       state — until the next poll or focus. (Between the aurora banner redesign's B1 and B3 the
+ *       banner asked for no viewline, so that half of the symptom was observed nowhere; B3 brought
+ *       the request back, drawn on the field, and the second test below counts it again.)</li>
  *   <li>An all-clear taken before an alert began, landing after the alert, took the banner down
  *       mid-alert, cleared the map's live scores and, with no stored run keeping aurora mode
  *       available, bounced the Map tab to Sunset.</li>
@@ -25,9 +25,8 @@
  * <p>`AuroraBanner` is the real consumer whose output follows the status most directly: up for
  * MODERATE or STRONG and nothing otherwise, given — as every fixture here gives it — a clear
  * location to point at and no dismissal. So whether it is up, and which alert it names, IS which
- * answer is on screen. (Until the aurora banner redesign's B1 its viewline hook was real too, and a
- * status that switched the viewline back on showed up as another `getAuroraViewline` request; B3
- * brings that call back behind a flag, and this file may count it again then.) The API module is
+ * answer is on screen — and, once per-location scores put a field in the thumbnail, a status that
+ * switches the viewline back on shows up as another `getAuroraViewline` request. The API module is
  * mocked at the boundary the frontend test standards prescribe.
  */
 import React, { StrictMode } from 'react';
@@ -40,13 +39,26 @@ vi.mock('../api/auroraApi.js', () => ({
   getAuroraStatus: vi.fn(),
   getAuroraLocations: vi.fn(() => Promise.resolve([])),
   getAuroraForecastResults: vi.fn(() => Promise.resolve([])),
+  getAuroraViewline: vi.fn(() => Promise.resolve({ active: false })),
+  getAuroraForecastViewline: vi.fn(() => Promise.resolve({ active: false })),
+}));
+
+// The field thumbnail pulls the heat kernel and wants a canvas jsdom does not have; this suite is
+// about WHICH status is on screen, not what is drawn, so the thumbnail is a placeholder.
+vi.mock('../components/AuroraFieldThumb.jsx', () => ({
+  default: () => <div data-testid="aurora-field-stub" />,
 }));
 
 import AuroraBanner from '../components/AuroraBanner.jsx';
 import { AuroraStatusProvider } from '../context/AuroraStatusContext.jsx';
 import { useAuroraStatus } from '../hooks/useAuroraStatus.js';
 import { resolveAuroraNight } from '../utils/mapDates.js';
-import { getAuroraStatus } from '../api/auroraApi.js';
+import {
+  getAuroraForecastViewline,
+  getAuroraLocations,
+  getAuroraStatus,
+  getAuroraViewline,
+} from '../api/auroraApi.js';
 
 /**
  * The provider's poll interval, which it does not export. Advancing by it fires one poll: it is how
@@ -160,6 +172,9 @@ beforeEach(() => {
   // and take the banner down, which is exactly what several negatives below assert.)
   getAuroraStatus.mockReset();
   getAuroraStatus.mockRejectedValue(new Error('unexpected getAuroraStatus call'));
+  getAuroraLocations.mockClear();
+  getAuroraViewline.mockClear();
+  getAuroraForecastViewline.mockClear();
 });
 
 afterEach(() => {
@@ -195,6 +210,46 @@ describe('AuroraStatusProvider — answers are applied in the order they were as
     // Still down. Broken, the ended alert's status was published again: the banner back up until
     // the next poll or focus.
     expect(banner()).not.toBeInTheDocument();
+  });
+
+  it('does not switch the viewline back on when an alert answer lands after a newer all-clear', async () => {
+    // The symptom the first test's banner check cannot see: the viewline endpoints do not check the
+    // alert state, so a stale alert answer that re-enabled the request would fetch a line for an
+    // ended alert. Per-location scores exist, so the thumbnail's field — the line's only home — is up.
+    getAuroraLocations.mockImplementation(() => Promise.resolve([
+      { location: { id: 1, name: 'Kielder', lat: 55.2, lon: -2.6 }, stars: 5 },
+    ]));
+    const pollAnswer = deferred();
+    const focusAnswer = deferred();
+    getAuroraStatus
+      .mockResolvedValueOnce({ ...ALERT })
+      .mockReturnValueOnce(pollAnswer.promise)
+      .mockReturnValueOnce(focusAnswer.promise);
+
+    try {
+      await mount();
+      // Control: with the alert up and a field to carry it, the line IS asked for, from both sources.
+      expect(screen.getByTestId('aurora-field-stub')).toBeInTheDocument();
+      expect(getAuroraViewline).toHaveBeenCalledTimes(1);
+      expect(getAuroraForecastViewline).toHaveBeenCalledTimes(1);
+
+      await poll();
+      await refocus();
+      await land(() => focusAnswer.resolve({ ...ALL_CLEAR }));
+      expect(banner()).not.toBeInTheDocument();
+      // Not "still one": the viewline hook polls on its own five-minute interval, so `poll()` above
+      // asked it again while the alert was genuinely up. What matters is that nothing more is asked
+      // from here, once the all-clear has switched the hook off.
+      const asked = getAuroraViewline.mock.calls.length;
+
+      await land(() => pollAnswer.resolve({ ...ALERT }));
+
+      // Still down, and no new request: broken, the ended alert's status re-enabled the hook.
+      expect(banner()).not.toBeInTheDocument();
+      expect(getAuroraViewline).toHaveBeenCalledTimes(asked);
+    } finally {
+      getAuroraLocations.mockImplementation(() => Promise.resolve([]));
+    }
   });
 
   it('drops an all-clear that lands after a newer alert answer — the banner stays up', async () => {

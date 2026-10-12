@@ -153,6 +153,26 @@ describe('the aurora banner stylesheet', () => {
     });
   });
 
+  describe('the viewline label (B3)', () => {
+    it('sits in the slot\'s top-left corner as 8.5px mono 600 amber, nowrap, with the spec\'s shadow', () => {
+      const body = ruleBody('.wf-aurora-vk');
+      expect(body).not.toBeNull();
+      expect(declares(body, 'position', 'absolute')).toBe(true);
+      expect(declares(body, 'top', '4px')).toBe(true);
+      expect(declares(body, 'left', '5px')).toBe(true);
+      expect(declares(body, 'font-family', 'var(--font-mono)')).toBe(true);
+      expect(declares(body, 'font-size', '8.5px')).toBe(true);
+      expect(declares(body, 'font-weight', '600')).toBe(true);
+      expect(declares(body, 'color', '#E0A542')).toBe(true);
+      expect(declares(body, 'white-space', 'nowrap')).toBe(true);
+      expect(declares(body, 'text-shadow', '0 1px 3px #000')).toBe(true);
+    });
+
+    it('is invisible to the pointer, so the card underneath keeps every press and hover', () => {
+      expect(declares(ruleBody('.wf-aurora-vk'), 'pointer-events', 'none')).toBe(true);
+    });
+  });
+
   describe('no stray ramp colour', () => {
     it('types each ramp stop once at most, in the strip\'s edge gradient, so every other colour is a property', () => {
       for (const hex of ['#384262', '#2C5470', '#1F7F78', '#3AC884', '#76FFA0']) {
@@ -210,11 +230,14 @@ describe('the aurora banner stylesheet', () => {
       }
     });
 
-    it('keeps the dot and the lit bars their own colour under forced colours', () => {
+    it('keeps the dot, the lit bars and the viewline label their own colour under forced colours', () => {
       const m = /@media \(forced-colors: active\)\s*\{[\s\S]*?forced-color-adjust:\s*none;/.exec(block);
       expect(m).not.toBeNull();
       expect(m[0]).toContain('.wf-aurora-dot');
       expect(m[0]).toContain(".wf-aurora-bar[data-lit='true']");
+      // The viewline label is amber text over a dark canvas that forced colours does not repaint: left
+      // to the system's CanvasText it could be black on near-black.
+      expect(m[0]).toContain('.wf-aurora-vk');
     });
   });
 

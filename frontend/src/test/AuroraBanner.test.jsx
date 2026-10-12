@@ -9,8 +9,8 @@ vi.mock('../hooks/useAuroraStatus.js', () => ({
   useAuroraStatus: vi.fn(),
 }));
 
-// The banner no longer asks for the viewline at all (B3 brings it back behind a flag); the mock
-// exists so a regression that re-adds the call fails a test instead of firing a real request.
+// The viewline hook is a value the test hands the banner; what the banner passes it as `enabled` is
+// what a real request would hinge on (aurora-banner-plan.md B3, §4 D4/D9).
 vi.mock('../hooks/useAuroraViewline.js', () => ({
   useAuroraViewline: vi.fn(),
 }));
@@ -41,17 +41,23 @@ vi.mock('../context/WindowFirstBriefingContext.jsx', () => ({
 // rejection at render, the same path the boundary under test catches).
 let mockThumbThrows = false;
 let mockThumbThrown = 0;
+// Every render of the stub, so a test can see whether the thumbnail was handed the SAME spots and
+// frame (the redraw keys) across a re-render that only changed the viewline.
+let mockThumbRenders = [];
 vi.mock('../components/AuroraFieldThumb.jsx', () => ({
-  default: ({ spots, fit }) => {
+  default: ({ spots, fit, viewline, kp }) => {
     if (mockThumbThrows) {
       mockThumbThrown += 1;
       throw new Error('chunk failed to load');
     }
+    mockThumbRenders.push({ spots, fit });
     return (
       <div
         data-testid="aurora-field-stub"
         data-names={spots.map((s) => s.name).join('|')}
         data-fit={JSON.stringify(fit)}
+        data-viewline={viewline ? JSON.stringify(viewline) : ''}
+        data-kp={kp ?? ''}
       />
     );
   },
@@ -98,13 +104,12 @@ function bars() {
 describe('AuroraBanner', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // The hook is never called today; answering the shape B3 will read keeps a regression that
-    // re-adds the call failing on the `not.toHaveBeenCalled` below rather than on a destructure.
     useAuroraViewline.mockReturnValue({ viewline: null, source: null });
     useAuroraScores.mockReturnValue({ ready: false, spots: [] });
     mockBriefing = { heatSpots: [], reachById: new Map(), effectiveReachById: new Map(), origin: null };
     mockThumbThrows = false;
     mockThumbThrown = 0;
+    mockThumbRenders = [];
     mockIsMobile = false;
     // Pin the clock to a fixed noon instant so the relative "today / yesterday / N days ago"
     // detection formatting is deterministic — previously flaked near local midnight. Only Date is
@@ -138,9 +143,8 @@ describe('AuroraBanner', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('never asks for the viewline: the banner draws no viewline sentence and makes no request for one', () => {
+  it('draws no viewline SENTENCE: the line lives on the thumbnail, as a label', () => {
     renderBanner({ ...MODERATE });
-    expect(useAuroraViewline).not.toHaveBeenCalled();
     expect(screen.queryByTestId('aurora-banner-viewline')).not.toBeInTheDocument();
   });
 
@@ -903,6 +907,113 @@ describe('AuroraBanner', () => {
       view.rerender(<AuroraBanner />);
       expect(useAuroraScores).toHaveBeenLastCalledWith(escalated);
       expect(screen.getByTestId('aurora-banner')).toBeInTheDocument();
+    });
+
+    describe('the southern viewline (B3)', () => {
+      const LINE = { active: true, southernmostLatitude: 54.5, kp: 6, points: [{ lat: 54.5, lon: -2 }] };
+      /** The `enabled` argument of the hook's most recent call. */
+      const asked = () => useAuroraViewline.mock.calls.at(-1)[0];
+      const everAsked = () => useAuroraViewline.mock.calls.some(([enabled]) => enabled === true);
+
+      it('does not ask while the slot shows the Kp meter, because no field is drawn to carry a line', () => {
+        renderBanner(FORECAST);
+        expect(asked()).toBe(false);
+        expect(everAsked()).toBe(false);
+      });
+
+      it('asks once the planning area has a rated field', () => {
+        scored(rated(1, 'Kielder', 5));
+        renderBanner(FORECAST);
+        expect(asked()).toBe(true);
+      });
+
+      it('does not ask while the only rated sites are outside the planning area', () => {
+        mockBriefing.heatSpots = [heat(1, 'Kielder', 'Northumberland'), heat(3, 'Skye', 'Highlands')];
+        mockBriefing.reachById = driveMap([[1, 60], [3, 400]]);
+        scored(rated(3, 'Skye', 5));
+        renderBanner(FORECAST);
+        expect(asked()).toBe(false);
+      });
+
+      it('never asks for a simulated alert, whatever scores the hook holds', () => {
+        scored(rated(1, 'Kielder', 5));
+        renderBanner({ ...FORECAST, simulated: true });
+        expect(everAsked()).toBe(false);
+      });
+
+      it('stops asking once the banner is dismissed, and asks again on escalation', () => {
+        scored(rated(1, 'Kielder', 5));
+        const view = renderBanner(FORECAST);
+        expect(asked()).toBe(true);
+        fireEvent.click(screen.getByTestId('aurora-banner-dismiss'));
+        expect(asked()).toBe(false);
+
+        useAuroraStatus.mockReturnValue({ status: { ...FORECAST, level: 'STRONG' }, loading: false });
+        view.rerender(<AuroraBanner />);
+        expect(asked()).toBe(true);
+      });
+
+      it('does not ask for a status that is not alert-worthy, whatever scores are held', () => {
+        scored(rated(1, 'Kielder', 5));
+        renderBanner({ ...MODERATE, level: 'QUIET', active: false });
+        expect(everAsked()).toBe(false);
+      });
+
+      it('hands the thumbnail the same sites and frame when only the viewline changes, so a poll repaints nothing', async () => {
+        useAuroraViewline.mockReturnValue({ viewline: LINE, source: 'live' });
+        scored(rated(1, 'Kielder', 5));
+        const view = renderBanner(FORECAST);
+        await screen.findByTestId('aurora-field-stub');
+        const first = mockThumbRenders.at(-1);
+
+        // The 5-minute poll: the hook hands back a fresh object for the same line.
+        useAuroraViewline.mockReturnValue({ viewline: { ...LINE, points: [...LINE.points] }, source: 'live' });
+        view.rerender(<AuroraBanner />);
+        const last = mockThumbRenders.at(-1);
+        expect(mockThumbRenders.length).toBeGreaterThan(1);
+        expect(last.spots).toBe(first.spots);
+        expect(last.fit).toBe(first.fit);
+      });
+
+      it('does not ask for a banner the overcast gate suppresses, but does for a STRONG one', () => {
+        scored(rated(1, 'Kielder', 5));
+        const moderate = renderBanner({ ...FORECAST, darkSkyLocationCount: 20, clearLocationCount: 0 });
+        expect(moderate.container.firstChild).toBeNull();
+        expect(everAsked()).toBe(false);
+        moderate.unmount();
+
+        renderBanner({ ...STRONG, darkSkyLocationCount: 20, clearLocationCount: 0 });
+        expect(asked()).toBe(true);
+      });
+
+      it('does not ask on the phone: the strip has no thumbnail to draw a line on', () => {
+        mockIsMobile = true;
+        scored(rated(1, 'Kielder', 5));
+        renderBanner(FORECAST);
+        expect(everAsked()).toBe(false);
+      });
+
+      it('does not ask when there is no status at all', () => {
+        scored(rated(1, 'Kielder', 5));
+        renderBanner(null);
+        expect(everAsked()).toBe(false);
+      });
+
+      it('hands the viewline and the alert\'s Kp to the thumbnail', async () => {
+        useAuroraViewline.mockReturnValue({ viewline: LINE, source: 'live' });
+        scored(rated(1, 'Kielder', 5));
+        renderBanner(FORECAST);
+        const field = await screen.findByTestId('aurora-field-stub');
+        expect(JSON.parse(field.dataset.viewline)).toEqual(LINE);
+        expect(field).toHaveAttribute('data-kp', '6');
+      });
+
+      it('hands the thumbnail no line when the hook has none', async () => {
+        scored(rated(1, 'Kielder', 5));
+        renderBanner(FORECAST);
+        const field = await screen.findByTestId('aurora-field-stub');
+        expect(field.dataset.viewline).toBe('');
+      });
     });
 
     describe('the best line', () => {
