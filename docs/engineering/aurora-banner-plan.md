@@ -276,14 +276,19 @@ scores exist; B2 swaps the field in.
   shared surface puts `d3-geo` on the network for readers who never see it. The `Suspense`
   fallback IS the pending slot, so the swap is invisible in layout.
 - `components/AuroraBanner.jsx`: `useWindowFirstBriefing()` for `heatSpots`, `reachById`,
-  `origin`; `fit = bbox(scopeSpots(heatSpots, reachById, origin), 0.25)` (`scopeSpots` from
-  `utils/planOrigin.js`) when that set is
-  non-empty, else `bbox(spots, 0.25)` over the rated spots (§4 D8). `ready` swaps the pending slot
-  for `<Suspense fallback={<PendingSlot/>}><AuroraFieldThumb …/></Suspense>`. **Best line, ready
-  form**: `Best: <b>{name}</b> <span class="s">{stars}★</span> · {N} sites clear` (+ Bz when live),
-  where best = max `stars`, ties → shorter HOME drive (`reachById.get(id)?.driveMinutes`, unknown
-  last), then name A→Z (§4 D3). Strip line 2 ready form: `<b>Kp 8</b> · best {name} {stars}★`.
-  Simulated never asks for scores and never shows the field (🧪).
+  `origin`; `scoped = scopeSpots(heatSpots, reachById, origin)` (`scopeSpots` from
+  `utils/planOrigin.js`). **The rated spots are then restricted to the scoped set** — the spec's
+  "`spots` = area locations with an aurora rating" and "best = max(stars) among area locations" —
+  by location id, name as the fallback join (§4 D8): `areaRated = scoped.length ? spots.filter(in
+  scoped) : spots`. `fit = bbox(scoped, 0.25)` when `scoped` is non-empty, else `bbox(spots, 0.25)`
+  over every rated spot. `ready` is `areaRated.length > 0` (an alert whose only rated sites are
+  outside the area stays on the pending slot — the Map tab is where that answer lives), and swaps
+  the pending slot for `<Suspense fallback={<PendingSlot/>}><AuroraFieldThumb spots={areaRated}
+  …/></Suspense>`. **Best line, ready form**: `Best: <b>{name}</b> <span class="s">{stars}★</span>
+  · {N} sites clear` (+ Bz when live), where best = max `stars` over `areaRated`, ties → shorter
+  HOME drive (`reachById.get(id)?.driveMinutes`, unknown last), then name A→Z (§4 D3). Strip line 2
+  ready form: `<b>Kp 8</b> · best {name} {stars}★`. Simulated never asks for scores and never shows
+  the field (🧪).
 - `App.jsx`: bring the banner block inside the provider — `PlanErrorBoundary` → 
   `WindowFirstBriefingProvider` now wrap BOTH the `flex-shrink-0` banner block and `<main>`, in
   that order, with `AskWhenLive` staying where it is around the shell. Neither adds a DOM node, so
@@ -299,8 +304,10 @@ scores exist; B2 swaps the field in.
   `drawGeo` receives 96, 118, the mapped points, `fit`, `AURORA_RAMP.rgb` and `AURORA_BLOOM.rgb`;
   `load` rejection → no throw, no draw; the canvas is `aria-hidden`. `AuroraBanner.test.jsx`:
   ready renders the lazy thumb (await it) and the `Best:` line with the tie rule (two 5★, the
-  nearer wins; unknown drive loses to a measured one); pending slot before scores; the slot's
-  CSS size identical in both states; LITE never reaches here (status null). `App.test.jsx` /
+  nearer wins; unknown drive loses to a measured one); **a rated site outside the planning area is
+  neither drawn nor named** (a 5★ out-of-area spot beside a 4★ in-area one → `Best:` names the 4★;
+  an alert whose only rated sites are out of area stays pending; with no scoped set every rated spot
+  counts); pending slot before scores; the slot's CSS size identical in both states; LITE never reaches here (status null). `App.test.jsx` /
   `AppSettingsRoutes.test.jsx` green; one new assertion that the banner block is a direct child of
   the root alongside `<main>`. Build check: after `npm run build`, `grep -l "geoMercator" dist/
   assets/index-*.js` finds nothing (the kernel is in a lazy chunk, not the entry).
@@ -372,10 +379,18 @@ scores exist; B2 swaps the field in.
 7. **D7 — copy follows the spec where they differ**: `147 dark-sky sites clear` (pending) and
    `147 sites clear` (ready) replace `147 dark-sky locations clear`. Singular forms: `1 dark-sky
    site clear` / `1 site clear`. The overcast sentence is unchanged (the spec keeps it).
-8. **D8 — frame fallback.** `scopeSpots(heatSpots, reachById, origin)` is empty before the scores
-   payload has loaded (the provider's `heatSpots` is a join with the scores) and whenever the
-   roster is unknown; then the frame is the rated spots' own padded box rather than no thumbnail.
-   The rated-spots frame is the degrade path, never the rule.
+8. **D8 — the field's points and the best candidate are the planning area's rated sites, and the
+   frame is the planning area.** The spec says so twice ("`spots` = area locations with an aurora
+   rating"; "best = max(stars) among area locations"); the first draft of this plan framed to the
+   area but drew and ranked the nationwide set, so the banner could name a site outside its own
+   picture and beyond any drive the reader would make — a Codex P1 on #1120, accepted. This is NOT
+   the planning-area filter `planningArea.js` forbids: that rule protects the Map and Plan FIELD
+   from the reach lens, where a reader pans and every spot is on the table; the banner's thumbnail
+   is a fixed 96×118 frame whose whole claim is "your area tonight", and a recommendation outside
+   it is a different statement from a field that extends past an edge. **Fallback**: `scopeSpots(…)`
+   is empty before the scores payload has loaded (the provider's `heatSpots` is a join with the
+   scores) and whenever the roster is unknown; then every rated spot counts and the frame is their
+   own padded box rather than no thumbnail. The degrade path, never the rule.
 9. **D9 — a simulated alert asks for nothing.** No score fetch, no viewline fetch, 🧪 in the
    slot, `Generate scores →` to `#manage` — the admin preview tool must cost nothing and show
    nothing real (CLAUDE.md, simulation isolation).
