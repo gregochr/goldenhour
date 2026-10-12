@@ -28,9 +28,10 @@ const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
  *
  * @param {boolean} enabled whether to poll
  * @param {object} [options]
- * @param {boolean} [options.includeForecast=true] ask the forecast endpoint too. The banner passes
- *   false: its sentence is about the live OVATION line, so the forecast is neither asked for (the
- *   endpoint reads NOAA's forecast per request) nor ever offered to it.
+ * @param {boolean} [options.includeForecast=true] ask the forecast endpoint too. A caller whose
+ *   copy is about the live OVATION line alone passes false, so the forecast is neither asked for
+ *   (the endpoint reads NOAA's forecast per request) nor ever offered to it. (The banner did, until
+ *   its redesign dropped the viewline sentence; no production caller passes it today.)
  * @returns {{ viewline: object|null, source: 'live'|'forecast'|null }}
  */
 export function useAuroraViewline(enabled, { includeForecast = true } = {}) {

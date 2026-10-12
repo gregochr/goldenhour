@@ -44,10 +44,10 @@ export function formatReportedAt(isoTimestamp, now = new Date()) {
 }
 
 /**
- * Direction A styling — the calm dark banner shared with the aurora alert, but
- * accented in the NLC violet. All colour derives from the single CSS variable
- * --nlc-accent (set from the API hexColour) via color-mix, so the treatment
- * stays consistent with AuroraBanner while reading as a distinct signal.
+ * Direction A styling — the calm dark banner the aurora alert wore before its redesign
+ * (docs/engineering/aurora-banner-plan.md; this one keeps the rail, glow and roundel), accented
+ * in the NLC violet. All colour derives from the single CSS variable --nlc-accent (set from the
+ * API hexColour) via color-mix, so it reads as a distinct signal.
  *
  * Deliberately has NO pulse animation: an NLC sighting is a reactive community
  * report, not an escalating geophysical storm, so it should feel calm.
