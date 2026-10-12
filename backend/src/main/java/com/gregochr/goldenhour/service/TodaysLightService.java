@@ -27,7 +27,7 @@ import java.util.function.Predicate;
  * place name through an uncached postcodes.io call, and this runs on the app's most render-heavy
  * path — the masthead, on every load of the window-first arm. So the label is built from the
  * <em>stored</em> postcode, which is a column read. That is the same reason
- * {@code getHomeLocation} exists for "Close to home".
+ * {@code getHomeLocation} exists.
  *
  * <p><b>No home, no light.</b> A null return is the empty state, and the masthead answers it with a
  * dim rule and a nudge to set a postcode. There is no fallback location: the alternative considered

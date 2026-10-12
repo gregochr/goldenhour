@@ -4,6 +4,12 @@ Status: **plan, not built.** Owner decision 2026-10-08 (option 3 of three, "buil
 adjacent technical debt paid down in the same series). Draft 3: adversarially reviewed (four lenses,
 three refutation passes, then a final check); §10 records what the review changed.
 
+> **Update 2026-10-12 (tide-facts follow-ups C3).** The Close-to-home stack named below
+> (`CloseToHomeService`, its endpoint, `BriefingService.getServedBriefing()`) was deleted, so the
+> "deliberate, documented asymmetry" about an unstripped second accessor no longer exists: every
+> API-path slot is stripped. `ServedBriefingAssembler.assembleWithoutPlan` remains only as the
+> package-private first stage of `assembleForPlan` and the test oracle for the strip.
+
 ## 1. The defect
 
 On 2026-10-08 the Map tab showed no tide strip for Sunday sunrise (2026-10-11), and the map held only

@@ -2,7 +2,7 @@
  * The opening clause of a generated sentence — what a hover-weight panel is allowed to show.
  *
  * <p>Claude's slot summaries are one or two long sentences built to be read in a popup. Dropping
- * the whole paragraph into a tooltip is what made the Close-to-home peek read as modal content
+ * the whole paragraph into a tooltip is what made the card hover peek read as modal content
  * summoned by an accident of the pointer; the peek shows a *glance*, and the click shows the read.
  *
  * <p>Truncation is at a clause boundary rather than a character count, so the fragment is always a

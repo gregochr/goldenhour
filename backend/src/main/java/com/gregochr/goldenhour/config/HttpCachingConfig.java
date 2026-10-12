@@ -87,7 +87,7 @@ public class HttpCachingConfig {
             "/api/nlc/sighting",
             // The almanac feed is ephemeris: identical for every user and stable for a whole day,
             // so it is the strongest revalidation candidate here. Safe to share because it carries
-            // no per-user data — the rule that keeps "Close to home" off this list.
+            // no per-user data — the rule that keeps the home-derived /api/user/settings paths off this list.
             "/api/almanac",
             // The region-base drive-time matrix: how far every location is from each region's base
             // town. Admin-managed geography, identical for every reader, and it changes only when

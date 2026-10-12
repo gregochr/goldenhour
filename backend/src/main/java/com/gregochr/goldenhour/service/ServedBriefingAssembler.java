@@ -83,9 +83,9 @@ class ServedBriefingAssembler {
 
     /**
      * Assembles the served briefing <b>without</b> the Plan-tab window projection: re-enrichment,
-     * the serve-time best-bet fallback, and the honesty filter, in that order. Backs {@link
-     * BriefingService#getServedBriefing()} — see that method's javadoc for the panel-sharing
-     * contract (shared by {@code CloseToHomeService}) this composition exists to support.
+     * the serve-time best-bet fallback, and the honesty filter, in that order. The first stage of
+     * {@link #assembleForPlan}; package-private so a test can use it as the unstripped oracle for
+     * the slot-tide strip. Nothing serves it on its own.
      *
      * @param snapshot         the cached briefing, or {@code null} if none has been built yet
      * @param minCoverageRatio the honesty filter's lightly-evaluated threshold; see {@link
@@ -126,13 +126,8 @@ class ServedBriefingAssembler {
         // The fallback still runs on the ENRICHED response, so its FAILED test and the filter's
         // coverage test both read current state. Nothing else about it is order-sensitive: it
         // reads only bestBetStatus and passes the day hierarchy through untouched.
-        // Movement is attached HERE and not inside assembleWithoutPlan (which backs
-        // BriefingService.getServedBriefing()), and the distinction is the same one that method's
-        // own javadoc was written to make: CloseToHomeService shares that accessor and reads slots
-        // and bestBets only, so a movement step inside it would cost /api/user/settings/reach two
-        // queries and a full rebuild of the day hierarchy for a field it discards — the exact "paid
-        // twice per page, one copy thrown away" pattern the projection was moved out here to stop.
-        // Nothing renders a delta except the Plan tab, and this is the Plan tab's payload.
+        // Movement is attached HERE and not inside assembleWithoutPlan: nothing renders a delta
+        // except the Plan tab, and this is the Plan tab's payload.
         //
         // Before the projector, deliberately: the projector is the outermost step and rebuilds the
         // response through withPlan, which carries previousGeneratedAt and every region untouched.
@@ -175,9 +170,8 @@ class ServedBriefingAssembler {
      * booleans would serialise {@code tideAligned:false} on every slot, and the unwrapped keys vanish
      * only for a null. Covers regioned and unregioned slots. Rebuilds through the withers so each
      * day's {@code peak}, every {@code window} (tideFacts included) and {@code renderedEvents} are
-     * carried. Runs at the tail of {@link #assembleForPlan} only: {@link #assembleWithoutPlan}
-     * (Close-to-home, which reads the size fields off slot tide) is deliberately not stripped, and
-     * the cached snapshot is never mutated (records are copied, not edited).
+     * carried. Runs at the tail of {@link #assembleForPlan} only; {@link #assembleWithoutPlan}
+     * is not stripped, and the cached snapshot is never mutated (records are copied, not edited).
      *
      * @param response the fully projected response (may be {@code null})
      * @return a copy whose slots carry no tide, or {@code null} if input was

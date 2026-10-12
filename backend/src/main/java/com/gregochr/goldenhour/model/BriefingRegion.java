@@ -97,8 +97,8 @@ import java.util.List;
  *                                     region's average, so {@code Poor · best 4★} is two true
  *                                     statements and the client must label it as one. There are
  *                                     now THREE {@code bestRating} fields on the wire — this one,
- *                                     {@link BriefingWindow#bestRating} and
- *                                     {@code CloseToHomeResponse}'s — over three populations at
+ *                                     {@link BriefingWindow#bestRating} and the retired
+ *                                     Close-to-home response's — over three populations at
  *                                     three nesting levels. They are not interchangeable.
  *
  *                                     <p><b>The canopy fallback is per REGION, and in one case

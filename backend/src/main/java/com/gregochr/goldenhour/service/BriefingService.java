@@ -375,37 +375,10 @@ public class BriefingService {
      */
     public DailyBriefingResponse getCachedBriefingForApi() {
         // The ordered composition itself — projector outermost, honesty wrapping the fallback,
-        // movement attached here rather than inside getServedBriefing, the tide rollup fed the
+        // movement attached after the honesty filter, the tide rollup fed the
         // FILTERED days, UTC not London — is ServedBriefingAssembler's job now; see
         // ServedBriefingAssembler.assembleForPlan for the rules and why each one holds.
         return assembler.assembleForPlan(getCachedBriefing(), minCoverageRatio);
-    }
-
-    /**
-     * The served briefing <b>without</b> the Plan-tab window projection — for panels that read
-     * slots and never read {@link BriefingEventSummary#window()}.
-     *
-     * <p>Identical to {@link #getCachedBriefingForApi()} in every other respect: the same
-     * re-enrichment, the same serve-time best-bet fallback, and the same honesty filter, in the
-     * same order. That matters, because the whole point of a panel sharing this accessor is that
-     * two panels cannot disagree about the same location — and the window projection only
-     * <em>attaches</em> a window, leaving slots, verdicts and {@code bestBets} untouched.
-     *
-     * <p>It exists because the projection is no longer free. Deriving the per-window tide rollup
-     * costs a coastal-roster query, a multi-day {@code tide_extreme} scan, the representative's
-     * historical statistics and a {@code marine_wave} lookup per window — and
-     * {@code CloseToHomeService}, the one other caller, discards every byte of it. The Plan tab
-     * fetches both endpoints on load, so leaving them joined paid that cost twice per page.
-     *
-     * <p>⚠️ This is <em>not</em> the API payload. Anything served to a client that renders windows
-     * must go through {@link #getCachedBriefingForApi()}, or the Plan tab silently loses its
-     * verdict badges, its picks and its tide rows.
-     *
-     * @return the enriched, filtered briefing with no windows attached, or {@code null} if none has
-     *         been built yet
-     */
-    public DailyBriefingResponse getServedBriefing() {
-        return assembler.assembleWithoutPlan(getCachedBriefing(), minCoverageRatio);
     }
 
     /**

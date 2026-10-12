@@ -139,7 +139,9 @@ public class AskService {
      * @param denials           counts denied requests, for the hourly INFO line
      * @param clock             the application clock (the UK civil day); a POST sees the real clock
      * @param defaultLocalRadiusMiles the radius {@code nearHome} uses for an asker who never chose one
-     *                          ({@code photocast.close-to-home.radius-miles}, the Close-to-home default)
+     *                          ({@code photocast.close-to-home.radius-miles}, default 22; the
+     *                          property keeps its old name because a hand-edited production
+     *                          config may set it)
      */
     public AskService(AskProperties properties, AskRateLimiter rateLimiter,
             AppUserRepository userRepository, RegionRepository regionRepository,

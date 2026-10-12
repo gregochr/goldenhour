@@ -169,8 +169,8 @@ export function resolveSpotPeek(spot, date, targetType, scoreIndex) {
   if (fierySky == null && goldenHour == null && clause == null) return null;
   return {
     // The RATING is the card's own, never the score index's — a peek that disagreed with the card
-    // it hangs off is the exact failure `CloseToHomeService`'s single-source contract exists to
-    // prevent, and `buildWindowSpots` has already discarded a rating outside 1–5 that the index
+    // it hangs off is the exact failure the shared-briefing contract exists to prevent
+    // (plan-panel-data-contracts.md), and `buildWindowSpots` has already discarded a rating outside 1–5 that the index
     // would still hand back.
     rating: spot.rating ?? null,
     driveMinutes: spot.driveMinutes ?? null,
