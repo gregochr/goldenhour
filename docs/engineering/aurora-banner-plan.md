@@ -37,7 +37,8 @@ untracked context, and must never write to the working tree.
 
 **Autonomy note (2026-10-12).** This series runs overnight on the owner's instruction, with no
 owner interaction unless genuinely blocked. Decisions a session would normally ask about are taken
-here in §4 and named as such; the one deliberately left to the owner is the viewline flag (§4 D4).
+here in §4 and named as such. The one the spec reserved for the owner — enabling the viewline —
+**the owner answered the same evening** (§4 D4: A6 is fixed and deployed, the line ships ON).
 Sessions never tag and never run `release.sh`.
 
 **Check open PRs first.** `gh pr list --state open` and grep the titles for *aurora*, *banner*,
@@ -49,16 +50,16 @@ already-merged #1056 work (topic dating), not this feature.
 
 ## §0 Status
 
-**Status: B0 (this plan) open; B1 merged (#1121); B2 built, in review.**
+**Status: B0 #1120, B1 #1121, B2 #1122 merged 2026-10-12; B3 pending.**
 Phase log (every phase appends its own row in the same commit as
 its code; the `PR` column names the PR, not a SHA, because the repo squash-merges):
 
 | phase | what | PR | notes |
 |---|---|---|---|
 | B0 | vendoring, this plan | — | this document |
-| B1 | severity on the aurora ramp; banner ≥640 with the Kp slot; glow strip <640; `breathe`; CSS block | `feature/aurora-banner-b1` (PR number pending) | built 2026-10-12, presentation only. Deviations, each deliberate: (1) breathing is STRONG-only, per the spec's table (§1 #10 corrected); (2) the when-line, the strip's second line and the pending label use `--color-plex-text-secondary` (6.7:1), not the spec's `.42` muted bone (3.5:1, under AA) — the same call as stop 3, reversible in three declarations; **owner to confirm**; (3) the CSS block sits BEFORE the Ask block with an end marker (two Ask CSS tests slice to end of file); (4) the strip's simulated door reads `Scores →`, not `Map →` (it goes to `#manage`); (5) keyboard activation ignores a key pressed on the dismiss button (Enter on ✕ used to open the map as well); (6) extra `data-testid`s (`-pill -when -best -thumb -slot -kp -meter -bar -strip-headline -strip-detail`) and a `position: relative` on the thumb slot for B3's label; (7) `AuroraStatusContext.test.jsx` lost its viewline-request observable (the banner no longer asks; B3 may count it again). Open for the owner, unchanged from the old banner: the root is `role="alert"` + `tabIndex` + key handler with a plain-text CTA (spec-mandated; a real button/link CTA is a separate call), and a layout swap at 640px remounts the alert node. In the strip, `clip-path` clips its own `box-shadow` (spec-faithful) — look at the glow in the browser check |
-| B2 | `useAuroraScores`; the lazy field thumbnail; the best line; App brings the banner inside the briefing provider | `feature/aurora-banner-b2` (PR number pending) | built 2026-10-12, frontend only. New: `hooks/useAuroraScores.js`, `components/AuroraFieldThumb.jsx` (lazy), `utils/auroraBannerScores.js` (pure: `ratedFromLive/Stored`, `areaField`, `bestOf`, `isRealAlert`). Deviations, each deliberate: (1) the score read treats a body that is not a list as a FAILED read (null), like a rejection, and a stored run with rated rows serves when the live read failed — an empty answer from one source never blanks a held field unless both answered; (2) the ready line says `N dark-sky sites` (not `N sites clear`) when triage has not run, and `Best: X 4★` alone when the status counts no sites; (3) a star rating is spoken as `N stars` (glyph `aria-hidden`, `sr-only` word — NVDA does not speak U+2605, the repo pattern in `WindowSheetDialog`); (4) the strip's ready line puts the site NAME in a shrinking ellipsis span and the rating in one that never shrinks (`.wf-aurora-strip-l2-best`), so a 320px phone keeps the answer; (5) the hook is handed `null` once the banner is dismissed at its level, so a dismissed banner asks for nothing; (6) the provider lift moves `PlanErrorBoundary` OUTSIDE App's `<main>`, so its fallback now carries its own `<main className="px-4 py-6 flex-1 min-h-0 overflow-y-auto">` (two review lenses caught the lost landmark and inset); (7) `ALERT_WORTHY` lives in the util and is mirrored by hand in `MapView` (not touched, §6); (8) the three test files that mount the real banner got `getAuroraLocations`/`getAuroraForecastResults` mock entries. **Bundle check**: the plan's `grep -l geoMercator dist/assets/index-*.js` is VACUOUS (d3 is minified: it finds nothing in the `heatField` chunk either); the real check is that the entry chunk's static imports and `index.html`'s modulepreloads exclude the `heatField`/`geo` chunks (they appear only in the lazy `__vite__mapDeps` list). Accepted, named: `field` is rebuilt (and the canvas redrawn) on every poll even for identical rows; the D8 area is the whole roster until the reach fetch lands, so `Best:` can name a far site and re-settle; a failed lazy chunk is not retried until reload; `role="alert"` re-announces once on the pending→ready swap (plan §5). **For B3**: do NOT put the whole `viewline` object in the thumb's `[points, fit]` effect deps (it is a fresh object each poll) — depend on `lineLat` and read the rest through a ref, capture the 2d context in the same callback as `drawGeo`, wrap the line in `ctx.save()/restore()`, and use `isRealAlert(status)` for the viewline gate; `onProjection` hands over a d3 projection (a function — `setP(() => p)`), and the B3 spec has no `y0 < 0` case |
-| B3 | viewline on the thumbnail behind `VIEWLINE_RELIABLE = false`; CLAUDE.md sweep; close-out | pending | |
+| B1 | severity on the aurora ramp; banner ≥640 with the Kp slot; glow strip <640; `breathe`; CSS block | #1121 (merged 2026-10-12) | built 2026-10-12, presentation only. Deviations, each deliberate: (1) breathing is STRONG-only, per the spec's table (§1 #10 corrected); (2) the when-line, the strip's second line and the pending label use `--color-plex-text-secondary` (6.7:1), not the spec's `.42` muted bone (3.5:1, under AA) — the same call as stop 3, reversible in three declarations; **owner to confirm**; (3) the CSS block sits BEFORE the Ask block with an end marker (two Ask CSS tests slice to end of file); (4) the strip's simulated door reads `Scores →`, not `Map →` (it goes to `#manage`); (5) keyboard activation ignores a key pressed on the dismiss button (Enter on ✕ used to open the map as well); (6) extra `data-testid`s (`-pill -when -best -thumb -slot -kp -meter -bar -strip-headline -strip-detail`) and a `position: relative` on the thumb slot for B3's label; (7) `AuroraStatusContext.test.jsx` lost its viewline-request observable (the banner no longer asks; B3 may count it again). Open for the owner, unchanged from the old banner: the root is `role="alert"` + `tabIndex` + key handler with a plain-text CTA (spec-mandated; a real button/link CTA is a separate call), and a layout swap at 640px remounts the alert node. In the strip, `clip-path` clips its own `box-shadow` (spec-faithful) — look at the glow in the browser check |
+| B2 | `useAuroraScores`; the lazy field thumbnail; the best line; App brings the banner inside the briefing provider | #1122 (merged 2026-10-12) | built 2026-10-12, frontend only. New: `hooks/useAuroraScores.js`, `components/AuroraFieldThumb.jsx` (lazy), `utils/auroraBannerScores.js` (pure: `ratedFromLive/Stored`, `areaField`, `bestOf`, `isRealAlert`). Deviations, each deliberate: (1) the score read treats a body that is not a list as a FAILED read (null), like a rejection, and a stored run with rated rows serves when the live read failed — an empty answer from one source never blanks a held field unless both answered; (2) the ready line says `N dark-sky sites` (not `N sites clear`) when triage has not run, and `Best: X 4★` alone when the status counts no sites; (3) a star rating is spoken as `N stars` (glyph `aria-hidden`, `sr-only` word — NVDA does not speak U+2605, the repo pattern in `WindowSheetDialog`); (4) the strip's ready line puts the site NAME in a shrinking ellipsis span and the rating in one that never shrinks (`.wf-aurora-strip-l2-best`), so a 320px phone keeps the answer; (5) the hook is handed `null` once the banner is dismissed at its level, so a dismissed banner asks for nothing; (6) the provider lift moves `PlanErrorBoundary` OUTSIDE App's `<main>`, so its fallback now carries its own `<main className="px-4 py-6 flex-1 min-h-0 overflow-y-auto">` (two review lenses caught the lost landmark and inset); (7) `ALERT_WORTHY` lives in the util and is mirrored by hand in `MapView` (not touched, §6); (8) the three test files that mount the real banner got `getAuroraLocations`/`getAuroraForecastResults` mock entries. **Bundle check**: the plan's `grep -l geoMercator dist/assets/index-*.js` is VACUOUS (d3 is minified: it finds nothing in the `heatField` chunk either); the real check is that the entry chunk's static imports and `index.html`'s modulepreloads exclude the `heatField`/`geo` chunks (they appear only in the lazy `__vite__mapDeps` list). Accepted, named: `field` is rebuilt (and the canvas redrawn) on every poll even for identical rows; the D8 area is the whole roster until the reach fetch lands, so `Best:` can name a far site and re-settle; a failed lazy chunk is not retried until reload; `role="alert"` re-announces once on the pending→ready swap (plan §5). **For B3**: do NOT put the whole `viewline` object in the thumb's `[points, fit]` effect deps (it is a fresh object each poll) — depend on `lineLat` and read the rest through a ref, capture the 2d context in the same callback as `drawGeo`, wrap the line in `ctx.save()/restore()`, and use `isRealAlert(status)` for the viewline gate; `onProjection` hands over a d3 projection (a function — `setP(() => p)`), and the B3 spec has no `y0 < 0` case |
+| B3 | viewline on the thumbnail, enabled (owner decision 2026-10-12); CLAUDE.md sweep; close-out | pending | |
 
 ---
 
@@ -103,9 +104,10 @@ session builds against.
    `heatSpots: EMPTY_ARRAY`, `reachById: EMPTY_REACH` — it just answers empty. §4 D1.
 8. **`status.hexColour` has no other frontend reader** (grep 2026-10-12: `AuroraBanner.jsx` only).
    It stays on the API; the banner stops reading it. Backend untouched.
-9. **A6 has landed, but the viewline flag stays false.** The spec's "open dependency" — the
-   forecast line refreshing and the Kp table being corrected — is #1107 (merged, unreleased at plan
-   time). The spec still says *ask the user before enabling*; §4 D4.
+9. **A6 has landed and is deployed, so the viewline ships enabled.** The spec's "open dependency"
+   — the forecast line refreshing and the Kp table being corrected — is #1107, merged and released
+   before this series started. The spec says *ask the user before enabling*; the owner was asked on
+   2026-10-12 and said enable it (§4 D4). There is no `viewlineReliable` flag in the build.
 10. **The existing pulse rule IS the spec's `breathe` rule — plus the spec's level term.**
     `isFavourable = !simulated && triggerType !== 'forecast' && bz < -1` — "live and Bz < −1 nT,
     not simulated". Keep the predicate, replace the keyframes. ⚠️ *Corrected at B1:* this item
@@ -320,12 +322,14 @@ scores exist; B2 swaps the field in.
 - Changelog: `### Added — the aurora banner shows tonight's aurora field and the best location
   once per-location scores exist (aurora banner, B2)`.
 
-### B3 — the viewline on the thumbnail, behind a flag; docs sweep
+### B3 — the viewline on the thumbnail, enabled; docs sweep
 
-- `components/AuroraBanner.jsx`: `export const VIEWLINE_RELIABLE = false;` with a comment naming
-  §4 D4 and the owner question. `useAuroraViewline(viewlineEnabled && VIEWLINE_RELIABLE)` (both
-  sources — live first, forecast else — the hook's default), so with the flag false **no viewline
-  request is made at all**. Pass `viewline` to the thumb.
+- `components/AuroraBanner.jsx`: `useAuroraViewline(viewlineEnabled)` where `viewlineEnabled` is
+  "alert-worthy, not simulated, and scores are ready" — the line is drawn on the field only, so no
+  request is made while the slot shows the Kp meter or a 🧪 (§4 D4, D9). Both sources, the hook's
+  default: live first, forecast else, matching the Map tab's own precedence. Pass `viewline` to the
+  thumb. **No `viewlineReliable` flag**: the owner enabled the line on 2026-10-12, so a constant
+  that only ever reads true would be dead weight and a false suggestion that the line is doubtful.
 - `components/AuroraFieldThumb.jsx`: takes `viewline`; after drawing, when `viewline?.active` and
   a projection exists: `y0 = projection([-2, viewline.southernmostLatitude])[1]`,
   `y = min(y0, 116)`; dashed `#E0A542`, 1.2px, `setLineDash([4,3])`, horizontal across the 96px.
@@ -337,18 +341,20 @@ scores exist; B2 swaps the field in.
   A6), so a horizontal line at that latitude is the honest reading; the LIVE response's figure is
   the contour's true minimum (west end), which this horizontal line slightly overstates
   southward — stated in the component's comment, accepted (the Map draws the real curve).
-- Tests: flag false → `getAuroraViewline` never called and no `.wf-aurora-vk` label; with the flag
-  true (test via a prop the banner threads, default `VIEWLINE_RELIABLE`, so the constant itself is
-  not mutated in tests) the label reads `Kp 6 line` for a latitude inside the frame and
-  `Kp 8 · all ↓` when the projected y exceeds 116; canvas draw calls asserted on the stubbed
-  context (`setLineDash([4,3])`, `moveTo(0,y)`, `lineTo(96,y)`).
+- Tests: no viewline request while scores are pending or the alert is simulated; one once the
+  field is ready; the label reads `Kp 6 line` for a latitude inside the frame and `Kp 8 · all ↓`
+  when the projected y exceeds 116; an inactive viewline (`active: false`, or neither source
+  drawable) draws no line and no label; canvas draw calls asserted on the stubbed context
+  (`setLineDash([4,3])`, `moveTo(0,y)`, `lineTo(96,y)`); the live source wins over the forecast
+  when both answer (the hook's own rule, asserted through the label's `kp` fallback).
 - Docs: CLAUDE.md's aurora bullet — replace `` `AuroraBanner` React component (shows Kp reading) ``
   with a sentence naming the field thumbnail, the Kp meter, the strip, the ramp-driven severity,
-  `hexColour` unread, and `VIEWLINE_RELIABLE` as the owner's flag; `AGENTS.md` if it names the
+  `hexColour` unread, and the viewline on the thumbnail (live first, forecast else, owner-enabled
+  2026-10-12); `AGENTS.md` if it names the
   banner (it does not at plan time — check). §0 final row; `aurora-heat-plan.md` §7 gains a
   pointer here if it lists the banner as a follow-up.
-- Changelog: `### Added — the aurora banner's thumbnail can carry the southern viewline, off until
-  the owner enables it (aurora banner, B3)`.
+- Changelog: `### Added — the aurora banner's thumbnail carries the southern viewline (aurora
+  banner, B3)`.
 
 ---
 
@@ -375,10 +381,12 @@ scores exist; B2 swaps the field in.
 3. **D3 — the tie rule's drive is HOME.** `reachById`, never `effectiveReachById`: an away origin
    would make "best" a statement about Keswick (the `AskContext` rule). Unknown drive sorts last;
    then name.
-4. **D4 — `VIEWLINE_RELIABLE = false` ships; flipping it is the owner's call.** A6 corrected the
-   line, but the spec says "ask the user before enabling" and the owner is not present for this
-   series. The code and tests for the line are built behind the flag so the flip is one constant.
-   ⚠️ Open owner question — the morning report names it.
+4. **D4 — the viewline ships ENABLED (owner decision, 2026-10-12 evening).** The spec says "ask
+   the user before enabling"; the first draft of this plan shipped a `VIEWLINE_RELIABLE = false`
+   constant and left the flip to the morning. The owner saw the plan land, confirmed A6 is fixed
+   and deployed, and asked for the line to be incorporated and enabled — so B3 builds it on, with
+   no flag. The request is gated on the field being drawn (no line over the Kp meter) and on the
+   alert not being simulated, which is the only cost control it needs.
 5. **D5 — CSS in `index.css`, not `<style>` strings.** §1 #12. The custom properties `--acc`,
    `--acc-ink`, `--fill` are set inline on the root element per render, the existing pattern.
 6. **D6 — the thumbnail is a lazy chunk**, with the pending slot as its `Suspense` fallback. §3 B2.
@@ -450,7 +458,6 @@ scores exist; B2 swaps the field in.
   cancellation and retry semantics (#803, #814) make that a refactor with its own review, so the
   banner's hook is banner-only.
 - `nextScoringAt` on `AuroraStatusResponse`, if the owner wants the "Location scores due" line.
-- Flipping `VIEWLINE_RELIABLE` (owner, D4).
 - The simulated CTA's `#manage` hash is a documented no-op (v1 retirement D1 §8.11) — unchanged.
 
 ---
