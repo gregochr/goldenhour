@@ -51,7 +51,7 @@ import java.util.Set;
  *       in its loop. Every other category is no evidence either way:
  *       {@code EVALUATED}/{@code FORCE_EVALUATED} only say a request was queued, and
  *       {@code SUBMISSION_FAILED}, {@code SKIPPED_CACHED}, {@code SKIPPED_PAST_DATE},
- *       {@code SKIPPED_TRAVEL_DAY}, {@code SKIPPED_HARD_CONSTRAINT}, {@code SKIPPED_STABILITY},
+ *       {@code SKIPPED_TRAVEL_DAY}, {@code SKIPPED_HARD_CONSTRAINT} (no longer written), {@code SKIPPED_STABILITY},
  *       {@code SKIPPED_NO_PROMPT}, {@code SKIPPED_UNKNOWN_LOCATION} and
  *       {@code SKIPPED_NO_REFRESH_NEEDED} mean nothing was sent for the slot.</li>
  *   <li><b>{@code api_call_log}</b>, one row per individual batch result, with the request's

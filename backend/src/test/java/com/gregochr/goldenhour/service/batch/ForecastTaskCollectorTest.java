@@ -162,7 +162,7 @@ class ForecastTaskCollectorTest {
         // Before the tide gate lift (2026-09-18, docs/engineering/tide-window-plan.md §6 Q1),
         // TIDE_MISMATCH was the one hard-constraint STANDDOWN reason still gating after the
         // Gate 2 redesign, and this test asserted an empty result. The owner lifted the gate —
-        // BriefingGatingPolicy.HARD_CONSTRAINT_REASONS is now empty — so a tide-mismatched slot
+        // the gating policy has since been removed entirely — so a tide-mismatched slot
         // follows the identical path the weather-STANDDOWN test below already exercises: it
         // reaches Claude and TideVisitor's R1 penalty is averaged into the star instead of the
         // slot being withheld.
@@ -1255,8 +1255,8 @@ class ForecastTaskCollectorTest {
     void dispositions_tideMismatch_recordedAsEvaluated() {
         // Before the tide gate lift (2026-09-18, docs/engineering/tide-window-plan.md §6 Q1) this
         // test asserted SKIPPED_HARD_CONSTRAINT with a null location_id (the hard-constraint path
-        // never performs a location lookup). BriefingGatingPolicy.HARD_CONSTRAINT_REASONS is now
-        // empty, so a tide-mismatched slot is eligible, reaches the same triage path a weather
+        // never performs a location lookup). The gating policy is gone
+        // entirely, so a tide-mismatched slot is eligible, reaches the same triage path a weather
         // STANDDOWN already does, and gets a real location lookup + an EVALUATED disposition.
         LocationEntity loc = buildInlandLocation("Durham UK", 54.7753, -1.5849);
         when(briefingService.getCachedBriefing())
@@ -1364,7 +1364,7 @@ class ForecastTaskCollectorTest {
         //   • 1 tide-mismatch STANDDOWN slot whose location is not in the enabled roster
         //     (⚠️ SKIPPED_UNKNOWN_LOCATION since the tide gate lift, 2026-09-18,
         //     docs/engineering/tide-window-plan.md §6 Q1 — no longer SKIPPED_HARD_CONSTRAINT,
-        //     because BriefingGatingPolicy.HARD_CONSTRAINT_REASONS is empty and the slot now
+        //     because nothing gates a slot before the lookup any more and the slot now
         //     reaches the location lookup that used to be short-circuited before it)
         //   • 1 unknown-location slot
         //   • 1 valid GO slot reaching triage → EVALUATED

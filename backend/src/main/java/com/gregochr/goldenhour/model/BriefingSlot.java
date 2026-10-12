@@ -69,37 +69,6 @@ import java.util.List;
  * @param claudeHeadline      4-9 word Claude-authored card header (Gate 2 redesign), or null
  *                            when no Claude evaluation has been performed or the result
  *                            pre-dates the headline field
- * @param evaluationGate      plain-English reason this slot was withheld from Claude by a hard
- *                            constraint ({@code BriefingGatingPolicy.isHardConstraintSkip}), worded
- *                            by the reason's own {@code StanddownReason.label()} unless a future
- *                            reason earns its own phrase producer the way tide once did. Null when
- *                            the slot was eligible — which is every slot today, since the tide gate
- *                            lift (2026-09-18, {@code docs/engineering/tide-window-plan.md} §6 Q1)
- *                            emptied {@code BriefingGatingPolicy.HARD_CONSTRAINT_REASONS}: a
- *                            mismatched tide no longer withholds a slot from Claude, it scores
- *                            through {@code service.evaluation.visitor.TideVisitor} instead. The
- *                            field and the mechanism that produces it stay wired for the next hard
- *                            physical constraint, not deleted.
- *
- *                            <p>Exists because a gated slot carries no score row, and the
- *                            drill-down fills an unscored window with its REGION's sky gloss —
- *                            so a coastal location ruled out on the water read as "here is a
- *                            Claude narrative, but no score", when in fact nothing had looked at
- *                            the sky there at all. The reason was known at build time (it is what
- *                            {@code forecast_run_disposition} records) and simply never served.
- *
- *                            <p><em>Not</em> {@code standdownReason}, which every STANDDOWN slot
- *                            carries — weather stand-downs still reach Claude and get rated down,
- *                            so that label cannot tell a client whether a score is coming. Which
- *                            reasons gate lives in one backend set; a client matching labels
- *                            would re-derive it and drift. Formatted here, not on the client, for
- *                            the same reason the tide-run chart is: the clock times are UK-local
- *                            and the tide vocabulary is {@code TideWording}'s.
- *
- *                            <p>Nullable and {@code NON_NULL}-serialised on purpose: this record
- *                            rides {@code daily_briefing_cache}, so every payload written before
- *                            the field existed deserialises with a null here and reads as
- *                            eligibility unknown, never as eligible.
  * @param eclipse             the moon's geometry and the dawn/dusk race data for a lunar eclipse
  *                            whose own window (date + {@code targetType}) this slot falls on, or
  *                            null every other night — see {@link EclipseSight}. Deliberately
@@ -109,7 +78,7 @@ import java.util.List;
  *                            (the plan's own reasoning against flattening eleven more keys onto an
  *                            already-large slot — {@code docs/engineering/lunar-eclipse-plan.md}
  *                            §2.5). Nullable and {@code NON_NULL}-serialised for the same
- *                            {@code daily_briefing_cache} reason as {@link #evaluationGate}: a
+ *                            {@code daily_briefing_cache} reason as {@link #claudeHeadline}: a
  *                            payload written before this field existed deserialises with a null
  *                            here, never a fabricated one
  */
@@ -130,7 +99,6 @@ public record BriefingSlot(
         DisplayVerdict displayVerdict,
         @JsonInclude(JsonInclude.Include.NON_NULL) String claudeHeadline,
         boolean canopy,
-        @JsonInclude(JsonInclude.Include.NON_NULL) String evaluationGate,
         @JsonInclude(JsonInclude.Include.NON_NULL) EclipseSight eclipse) {
 
     /**
@@ -143,18 +111,16 @@ public record BriefingSlot(
     }
 
     /**
-     * Legacy 17-argument constructor, retained so every existing production and test call site
-     * that predates {@link #eclipse} — the many convenience constructors and withers in this
-     * class, and every direct canonical-constructor call in the test tree — keeps compiling
-     * unchanged. Defaults {@link #eclipse} to null, the same "absent, not fabricated" convention
-     * {@link #evaluationGate} already established for a field added after this record's first
-     * release.
+     * Legacy 16-argument constructor, retained so every existing production and test call site
+     * that predates {@link #eclipse} — the many convenience constructors in this class, and every
+     * direct canonical-constructor call in the test tree — keeps compiling unchanged. Defaults
+     * {@link #eclipse} to null, the "absent, not fabricated" convention for a field added after
+     * this record's first release.
      *
-     * <p><b>Not used by {@link #withEvaluationGate} or the sky-component {@link #withClaudeScores}
-     * overload</b> — both must thread {@link #eclipse} through from {@code this}, or a slot that
-     * already carries an eclipse sight would silently lose it the next time either wither runs
-     * (the same "positional rebuild drops a field" defect {@link BriefingEventSummary#withWindow}'s
-     * own javadoc warns about). Those two call the 18-argument canonical form directly instead.
+     * <p><b>Not used by the withers</b> — they must thread {@link #eclipse} through from
+     * {@code this}, or a slot that already carries an eclipse sight would silently lose it (the
+     * same "positional rebuild drops a field" defect {@link BriefingEventSummary#withWindow}'s own
+     * javadoc warns about). They call the 17-argument canonical form directly instead.
      *
      * @param locationId          database id of the location, or null
      * @param locationName        human-readable location name
@@ -172,17 +138,15 @@ public record BriefingSlot(
      * @param displayVerdict      unified colour/label signal
      * @param claudeHeadline      4-9 word Claude-authored card header, or null
      * @param canopy              true when this slot came from the woodland evaluator
-     * @param evaluationGate      plain-English reason this slot was withheld from Claude, or null
      */
     public BriefingSlot(Long locationId, String locationName, LocalDateTime solarEventTime,
             Verdict verdict, WeatherConditions weather, TideInfo tide, List<String> flags,
             String standdownReason, Integer claudeRating, Integer skyRating,
             Integer fierySkyPotential, Integer goldenHourPotential, String claudeSummary,
-            DisplayVerdict displayVerdict, String claudeHeadline, boolean canopy,
-            String evaluationGate) {
+            DisplayVerdict displayVerdict, String claudeHeadline, boolean canopy) {
         this(locationId, locationName, solarEventTime, verdict, weather, tide, flags,
                 standdownReason, claudeRating, skyRating, fierySkyPotential, goldenHourPotential,
-                claudeSummary, displayVerdict, claudeHeadline, canopy, evaluationGate, null);
+                claudeSummary, displayVerdict, claudeHeadline, canopy, null);
     }
 
     /**
@@ -192,42 +156,12 @@ public record BriefingSlot(
      * {@code BriefingRegionEvaluationRollup.rosterOf}'s confidence roster), because each already
      * claimed to match the other by hand. A slot is out when it never expected a rating: an
      * unscored canopy slot (deliberately excluded from the sky batch — but an in-season bluebell
-     * wood IS scored, by its own prompt, so a rated one stays in) or one the pipeline withheld by
-     * hard constraint ({@link #evaluationGate}). A withheld slot that nonetheless carries a rating
-     * — a cache row from a cycle it was eligible for — stays in, for the same reason the wood does.
+     * wood IS scored, by its own prompt, so a rated one stays in).
      *
      * @return true when a rating is or could be present
      */
     public boolean couldCarryRating() {
-        if (claudeRating != null) {
-            return true;
-        }
-        return !canopy && evaluationGate == null;
-    }
-
-    /**
-     * Returns a copy of this slot marked as withheld from Claude, with the reason in words.
-     *
-     * <p>A wither rather than a constructor argument because the gate is decided AFTER the slot
-     * exists: {@code BriefingSlotBuilder} asks {@code BriefingGatingPolicy} about the finished
-     * slot, so the policy stays the one place that knows which reasons gate. Its one production
-     * caller is that seam, and it never fires today — the policy's {@code HARD_CONSTRAINT_REASONS}
-     * has been empty since the tide gate lift (2026-09-18), so no slot is withheld and
-     * {@link #evaluationGate} is null on every slot production builds. The method stays for the
-     * next hard physical constraint; tests also use it to fabricate a gated slot, since nothing
-     * can produce one through the policy now.
-     *
-     * <p>Every other component is carried over from {@code this}, {@link #eclipse} included, by
-     * the canonical constructor rather than the legacy 17-argument one.
-     *
-     * @param gate the plain-English reason, or null to clear it
-     * @return a new slot, every other field unchanged
-     */
-    public BriefingSlot withEvaluationGate(String gate) {
-        return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, tide,
-                flags, standdownReason, claudeRating, skyRating, fierySkyPotential,
-                goldenHourPotential, claudeSummary, displayVerdict, claudeHeadline, canopy, gate,
-                eclipse);
+        return claudeRating != null || !canopy;
     }
 
     /**
@@ -246,16 +180,16 @@ public record BriefingSlot(
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, newTide,
                 flags, standdownReason, claudeRating, skyRating, fierySkyPotential,
                 goldenHourPotential, claudeSummary, displayVerdict, claudeHeadline, canopy,
-                evaluationGate, eclipse);
+                eclipse);
     }
 
     /**
      * Returns a copy of this slot carrying the given lunar eclipse sight, every other field
      * unchanged.
      *
-     * <p>A wither rather than a constructor argument at every call site, for the same reason
-     * {@link #withEvaluationGate} is one: {@code EclipseSightAssembler} decides this AFTER the slot
-     * already exists, at {@code BriefingSlotBuilder}'s own build-time seam.
+     * <p>A wither rather than a constructor argument at every call site, because
+     * {@code EclipseSightAssembler} decides this AFTER the slot already exists,
+     * at {@code BriefingSlotBuilder}'s own build-time seam.
      *
      * @param eclipse the sight, or null to clear it (every night that is not this eclipse's own
      *                window)
@@ -265,7 +199,7 @@ public record BriefingSlot(
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, tide,
                 flags, standdownReason, claudeRating, skyRating, fierySkyPotential,
                 goldenHourPotential, claudeSummary, displayVerdict, claudeHeadline, canopy,
-                evaluationGate, eclipse);
+                eclipse);
     }
 
     /**
@@ -309,7 +243,7 @@ public record BriefingSlot(
             String standdownReason) {
         this(locationId, locationName, solarEventTime, verdict, weather, tide, flags,
                 standdownReason, null, null, null, null, null,
-                DisplayVerdict.resolve(null, verdict), null, false, null);
+                DisplayVerdict.resolve(null, verdict), null, false);
     }
 
     /**
@@ -440,7 +374,7 @@ public record BriefingSlot(
             Integer goldenHour, String summary, String headline) {
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, tide,
                 flags, standdownReason, rating, skyRating, fierySky, goldenHour, summary,
-                DisplayVerdict.resolve(rating, verdict), headline, canopy, evaluationGate,
+                DisplayVerdict.resolve(rating, verdict), headline, canopy,
                 eclipse);
     }
 

@@ -947,9 +947,11 @@ shipped** (T8 sweep):
   whoever next has production access, but is not reproduced in this document because it was not
   independently re-verified for this entry. Accepted: the cost buys a served rating for every
   formerly-gated slot rather than none. **What changed in code**: `BriefingGatingPolicy
-  .HARD_CONSTRAINT_REASONS` is now `EnumSet.noneOf(StanddownReason.class)` (empty) — the mechanism
-  (the set, the label round-trip, `BriefingSlotBuilder`'s `evaluationGate` wording switch) stays
-  wired for a genuinely new hard constraint, not deleted; `TideWording.tideGatePhrase` (its one
+  .HARD_CONSTRAINT_REASONS` became `EnumSet.noneOf(StanddownReason.class)` (empty). The mechanism
+  (the set, the label round-trip, `BriefingSlotBuilder`'s `evaluationGate` wording switch) was first
+  kept wired for a genuinely new hard constraint, then **deleted on 2026-10-11** together with
+  `BriefingSlot.evaluationGate` (`tide-facts-followups-plan.md` C2); a future constraint deserves a
+  fresh design. `DispositionCategory.SKIPPED_HARD_CONSTRAINT` stays for historical rows; `TideWording.tideGatePhrase` (its one
   producer) is deleted with its tests, since no gate fires to word any more.
   `BriefingSlotBuilder`'s STANDDOWN verdict override for a tide mismatch is **kept** — it is a
   triage LABEL now, not a Claude-eligibility gate, and behaves exactly like every other

@@ -7,7 +7,6 @@ import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.Verdict;
-import com.gregochr.goldenhour.service.BriefingGatingPolicy;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 
 import java.time.Clock;
@@ -149,8 +148,7 @@ public final class ForceEvalHeadlineSelector {
                     List<String> goNames = new ArrayList<>();
                     long tideAligned = 0;
                     for (BriefingSlot slot : region.slots()) {
-                        if (slot.verdict() == Verdict.GO
-                                && BriefingGatingPolicy.isEligibleForEvaluation(slot)) {
+                        if (slot.verdict() == Verdict.GO) {
                             goNames.add(slot.locationName());
                             if (slot.tide() != null && slot.tide().tideAligned()) {
                                 tideAligned++;

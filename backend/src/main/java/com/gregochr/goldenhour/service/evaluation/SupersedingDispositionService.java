@@ -61,10 +61,8 @@ import java.util.Set;
  *       would have left the slot unrated where the stale-but-real prior rating should have stood.</li>
  *   <li>{@code FORCE_EVALUATED} — <b>OUT.</b> The same reasoning as {@code EVALUATED} — a force-eval
  *       rescue's submission can fail exactly like an ordinary one.</li>
- *   <li>{@code SKIPPED_HARD_CONSTRAINT} — <b>OUT.</b> Not on the two-item allow-list this round
- *       builds; it IS a positive stand-down (an unrevisable physical constraint), which makes it an
- *       arguable future candidate, but adding it was not asked for and is left to an owner decision
- *       rather than taken silently here.</li>
+ *   <li>{@code SKIPPED_HARD_CONSTRAINT} — <b>OUT.</b> No longer written (nothing produces it since
+ *       the tide gate lift and the removal of the gating policy); historical rows only.</li>
  *   <li>{@code SKIPPED_NO_PROMPT} — <b>OUT.</b> Structural routing (no prompt exists for this
  *       location type yet), not a decision that an existing rating is now wrong.</li>
  *   <li>{@code SKIPPED_CACHED} — <b>OUT.</b> A region-level cache reuse, not a decision about any

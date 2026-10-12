@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.gregochr.goldenhour.config.AppConfig;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideState;
@@ -758,47 +759,34 @@ class DailyBriefingResponseJsonTest {
                 List.of(), List.of());
     }
 
-    // ── evaluationGate ────────────────────────────────────────────────────────
+    // ── a payload written while BriefingSlot still carried evaluationGate ─────
 
     @Test
-    @DisplayName("evaluationGate round-trips, and is OMITTED (not written null) on an eligible slot")
-    void evaluationGate_roundTripsAndIsOmittedWhenNull() throws Exception {
-        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
-        BriefingSlot eligible = new BriefingSlot("Seaham Chemical Beach",
+    @DisplayName("a persisted briefing whose slot still carries the removed evaluationGate key "
+            + "deserialises through the application's own ObjectMapper")
+    void deserialize_removedEvaluationGateKey_isIgnored() throws Exception {
+        // loadPersistedBriefing reads daily_briefing_cache with AppConfig.objectMapper(); rows written
+        // before the component was removed carry the key until they age out. BriefingSlot has
+        // @JsonUnwrapped components (weather, tide), so Jackson 2 buffers an unknown slot-level key
+        // rather than failing; no @JsonIgnoreProperties.
+        ObjectMapper mapper = new AppConfig().objectMapper();
+        BriefingSlot slot = new BriefingSlot("Seaham Chemical Beach",
                 LocalDateTime.of(2026, 9, 19, 5, 44), Verdict.STANDDOWN,
                 null, BriefingSlot.TideInfo.NONE, List.of(), "Tide mismatch");
-        BriefingSlot gated = eligible.withEvaluationGate(
-                "Tide not right at sunrise · needs low water, mid tide instead");
+        BriefingEventSummary summary = new BriefingEventSummary(
+                TargetType.SUNRISE, List.of(), List.of(slot), null, null);
+        DailyBriefingResponse response = new DailyBriefingResponse(GENERATED_AT, "Test",
+                List.of(new BriefingDay(LocalDate.of(2026, 9, 19), List.of(summary))),
+                List.of(), null, null, false, false, 0, null, List.of(), List.of());
+        JsonNode root = mapper.readTree(mapper.writeValueAsString(response));
+        ((com.fasterxml.jackson.databind.node.ObjectNode) root.get("days").get(0).get("eventSummaries")
+                .get(0).get("unregioned").get(0)).put("evaluationGate", "x");
 
-        JsonNode eligibleNode = mapper.readTree(mapper.writeValueAsString(eligible));
-        String gatedJson = mapper.writeValueAsString(gated);
+        DailyBriefingResponse restored = mapper.readValue(root.toString(), DailyBriefingResponse.class);
 
-        assertThat(eligibleNode.has("evaluationGate")).isFalse();
-        assertThat(mapper.readTree(gatedJson).get("evaluationGate").asText())
-                .isEqualTo("Tide not right at sunrise · needs low water, mid tide instead");
-        assertThat(mapper.readValue(gatedJson, BriefingSlot.class).evaluationGate())
-                .isEqualTo("Tide not right at sunrise · needs low water, mid tide instead");
-    }
-
-    // ── evaluationGate ────────────────────────────────────────────────────────
-
-    @Test
-    @DisplayName("a daily_briefing_cache payload written before the field existed reads as null, not eligible")
-    void evaluationGate_legacyPayloadReadsNull() throws Exception {
-        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
-        BriefingSlot gated = new BriefingSlot("Seaham Chemical Beach",
-                LocalDateTime.of(2026, 9, 19, 5, 44), Verdict.STANDDOWN,
-                null, BriefingSlot.TideInfo.NONE, List.of(), "Tide mismatch")
-                .withEvaluationGate("Tide not right at sunrise · mid tide");
-        // The shape a pre-field cache row has: the same slot with the key absent altogether.
-        var node = (com.fasterxml.jackson.databind.node.ObjectNode)
-                mapper.readTree(mapper.writeValueAsString(gated));
-        node.remove("evaluationGate");
-
-        BriefingSlot restored = mapper.readValue(node.toString(), BriefingSlot.class);
-
-        assertThat(restored.evaluationGate()).isNull();
-        assertThat(restored.standdownReason()).isEqualTo("Tide mismatch");
+        BriefingSlot restoredSlot = restored.days().get(0).eventSummaries().get(0).unregioned().get(0);
+        assertThat(restoredSlot.locationName()).isEqualTo("Seaham Chemical Beach");
+        assertThat(restoredSlot.standdownReason()).isEqualTo("Tide mismatch");
     }
 
     // ── eclipse (L2) ─────────────────────────────────────────────────────────
