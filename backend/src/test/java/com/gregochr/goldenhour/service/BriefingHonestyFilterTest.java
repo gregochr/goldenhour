@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.DispositionCategory;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BestBet;
 import com.gregochr.goldenhour.model.BriefingDay;
@@ -13,9 +14,14 @@ import com.gregochr.goldenhour.model.Verdict;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -575,6 +581,180 @@ class BriefingHonestyFilterTest {
 
         assertThat(out.bestBets()).isEmpty();
         assertThat(out.bestBetStatus()).isEqualTo(in.bestBetStatus());
+    }
+
+    // ── Wording by coverage reason ────────────────────────────────────────────
+
+    private static final Clock T_PLUS_0 = Clock.fixed(
+            Instant.parse("2026-05-23T12:00:00Z"), ZoneOffset.UTC);
+    private static final Clock T_PLUS_4 = Clock.fixed(
+            Instant.parse("2026-05-19T12:00:00Z"), ZoneOffset.UTC);
+
+    private static Map<String, EvaluationViewService.LatestDisposition> latestForAll(
+            DispositionCategory category, boolean cycleEnded) {
+        Map<String, EvaluationViewService.LatestDisposition> latest = new HashMap<>();
+        for (BriefingSlot s : threeSampleSlots()) {
+            latest.put(EvaluationViewService.stabilitySkipKey(
+                            s.locationName(), TODAY, TargetType.SUNSET),
+                    new EvaluationViewService.LatestDisposition(category, cycleEnded));
+        }
+        return latest;
+    }
+
+    private static DailyBriefingResponse blanked(DispositionCategory category, boolean cycleEnded,
+            Clock clock) {
+        return BriefingHonestyFilter.apply(
+                responseWith(TargetType.SUNSET, zeroCoverageRegion("Northumberland"),
+                        List.of(bet(1, "Northumberland", "2026-05-23_sunset"))),
+                0.5, latestForAll(category, cycleEnded), clock);
+    }
+
+    private static void assertOriginalWording(BriefingRegion r) {
+        assertThat(r.displayVerdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+        assertThat(r.verdictLabel()).isEqualTo("Too unsettled to forecast");
+        assertThat(r.summary()).isEqualTo(BriefingHonestyFilter.REPLACEMENT_SUMMARY);
+        assertThat(r.glossDetail()).isEqualTo(BriefingHonestyFilter.REPLACEMENT_GLOSS_DETAIL);
+    }
+
+    @Test
+    @DisplayName("A travel day reads AWAITING 'Not forecast', never 'too unsettled'")
+    void travelDay_isAwayWording() {
+        BriefingRegion r = firstRegion(blanked(DispositionCategory.SKIPPED_TRAVEL_DAY, false,
+                T_PLUS_0));
+
+        assertThat(r.displayVerdict()).isEqualTo(DisplayVerdict.AWAITING);
+        assertThat(r.verdictLabel()).isEqualTo("Not forecast");
+        assertThat(r.summary()).isEqualTo("Marked as a travel day — no forecast was made");
+        assertThat(r.glossDetail()).isEqualTo("This day is marked as a travel day, so no "
+                + "per-location forecast was made for it.");
+    }
+
+    @Test
+    @DisplayName("T+4 stability-skipped reads AWAITING 'Not scored at this range'")
+    void tPlusFourStabilitySkip_isNotAttemptedWording() {
+        BriefingRegion r = firstRegion(blanked(DispositionCategory.SKIPPED_STABILITY, false,
+                T_PLUS_4));
+
+        assertThat(r.displayVerdict()).isEqualTo(DisplayVerdict.AWAITING);
+        assertThat(r.verdictLabel()).isEqualTo("Not scored at this range");
+        assertThat(r.summary())
+                .isEqualTo("Not scored this far ahead — forecasts firm up nearer the day");
+        assertThat(r.glossDetail()).startsWith("Forecasts this far ahead are only made when");
+    }
+
+    @Test
+    @DisplayName("A region triage stood down keeps STAND_DOWN and today's wording")
+    void triageStandDown_keepsOriginalWording() {
+        assertOriginalWording(firstRegion(blanked(DispositionCategory.SKIPPED_TRIAGED, false,
+                T_PLUS_0)));
+    }
+
+    @Test
+    @DisplayName("A submission that failed reads AWAITING 'Forecast unavailable'")
+    void failedSubmission_isFailedWording() {
+        BriefingRegion r = firstRegion(blanked(DispositionCategory.SUBMISSION_FAILED, false,
+                T_PLUS_0));
+
+        assertThat(r.displayVerdict()).isEqualTo(DisplayVerdict.AWAITING);
+        assertThat(r.verdictLabel()).isEqualTo("Forecast unavailable");
+        assertThat(r.summary())
+                .isEqualTo("No per-location forecast — the forecast run didn't complete");
+        assertThat(r.glossDetail()).startsWith("The forecast run for this window didn't complete");
+    }
+
+    @Test
+    @DisplayName("EVALUATED in an ended cycle is FAILED; in a cycle still going it keeps today's "
+            + "wording")
+    void evaluatedReadsByWhetherTheCycleEnded() {
+        assertThat(firstRegion(blanked(DispositionCategory.EVALUATED, true, T_PLUS_0))
+                .verdictLabel()).isEqualTo("Forecast unavailable");
+        assertOriginalWording(firstRegion(blanked(DispositionCategory.EVALUATED, false,
+                T_PLUS_0)));
+    }
+
+    @Test
+    @DisplayName("No lookup, an empty lookup or an unsettled record keep today's wording")
+    void unknownKeepsOriginalWording() {
+        DailyBriefingResponse in = responseWith(TargetType.SUNSET,
+                zeroCoverageRegion("Northumberland"), List.of());
+
+        assertOriginalWording(firstRegion(BriefingHonestyFilter.apply(in, 0.5)));
+        assertOriginalWording(firstRegion(
+                BriefingHonestyFilter.apply(in, 0.5, Map.of(), T_PLUS_0)));
+        assertOriginalWording(firstRegion(blanked(
+                DispositionCategory.SKIPPED_NO_REFRESH_NEEDED, false, T_PLUS_0)));
+    }
+
+    @Test
+    @DisplayName("Whatever the reason the slots are emptied and a Best Bet on the region is "
+            + "withdrawn")
+    void everyReasonStaysBlanked() {
+        List<DailyBriefingResponse> outs = List.of(
+                blanked(DispositionCategory.SKIPPED_TRAVEL_DAY, false, T_PLUS_0),
+                blanked(DispositionCategory.SKIPPED_STABILITY, false, T_PLUS_4),
+                blanked(DispositionCategory.SKIPPED_TRIAGED, false, T_PLUS_0),
+                blanked(DispositionCategory.SUBMISSION_FAILED, false, T_PLUS_0),
+                blanked(DispositionCategory.EVALUATED, false, T_PLUS_0));
+
+        for (DailyBriefingResponse out : outs) {
+            assertThat(firstRegion(out).slots()).isEmpty();
+            assertThat(out.bestBets()).isEmpty();
+        }
+    }
+
+    @Test
+    @DisplayName("fullRewrite carries exactly the fields it always did and nulls the rest, for "
+            + "every reason")
+    void fullRewriteCarriesAndNullsTheSameFields() {
+        BriefingRegion rich = zeroCoverageRegion("Northumberland")
+                .withConfidence(Confidence.HIGH).withMeanRating(4.0).withBestRating(5)
+                .withMeanRatingDelta(0.5).withSampleSufficient(true).withForcedSample(true);
+        DailyBriefingResponse in = responseWith(TargetType.SUNSET, rich, List.of());
+
+        Map<DispositionCategory, Clock> scenarios = new java.util.LinkedHashMap<>();
+        scenarios.put(DispositionCategory.SKIPPED_TRAVEL_DAY, T_PLUS_0);
+        scenarios.put(DispositionCategory.SKIPPED_TRIAGED, T_PLUS_0);
+        scenarios.put(DispositionCategory.SUBMISSION_FAILED, T_PLUS_0);
+        scenarios.put(DispositionCategory.SKIPPED_STABILITY, T_PLUS_4);
+        for (Map.Entry<DispositionCategory, Clock> scenario : scenarios.entrySet()) {
+            BriefingRegion r = firstRegion(BriefingHonestyFilter.apply(
+                    in, 0.5, latestForAll(scenario.getKey(), false), scenario.getValue()));
+
+            assertThat(r.regionName()).isEqualTo("Northumberland");
+            assertThat(r.verdict()).isEqualTo(Verdict.GO);
+            assertThat(r.tideHighlights()).containsExactly("Spring tide at 2 coastal spots");
+            assertThat(r.regionTemperatureCelsius()).isEqualTo(14.0);
+            assertThat(r.regionApparentTemperatureCelsius()).isEqualTo(13.0);
+            assertThat(r.regionWindSpeedMs()).isEqualTo(4.5);
+            assertThat(r.regionWeatherCode()).isEqualTo(3);
+            assertThat(r.glossHeadline()).isNull();
+            assertThat(r.scoredLocationCount()).isZero();
+            assertThat(r.lightlyEvaluated()).isFalse();
+            assertThat(r.confidence()).isNull();
+            assertThat(r.meanRating()).isNull();
+            assertThat(r.bestRating()).isNull();
+            assertThat(r.meanRatingDelta()).isNull();
+            assertThat(r.sampleSufficient()).isNull();
+            assertThat(r.forcedSample()).isNull();
+            assertThat(r.verdictEligible()).isFalse();
+        }
+    }
+
+    @Test
+    @DisplayName("The fold sees scoreable slots only: a canopy slot with no record cannot turn a "
+            + "stability-skipped sky region UNKNOWN")
+    void foldIgnoresCanopySlots() {
+        List<BriefingSlot> mixed = new java.util.ArrayList<>(threeSampleSlots());
+        mixed.add(canopySlot("Delamere Wood", Verdict.GO));
+        BriefingRegion region = regionWith("Northumberland", Verdict.GO, "Clear at 0 of 4",
+                DisplayVerdict.WORTH_IT, 0, mixed);
+        DailyBriefingResponse in = responseWith(TargetType.SUNSET, region, List.of());
+
+        BriefingRegion out = firstRegion(BriefingHonestyFilter.apply(in, 0.5,
+                latestForAll(DispositionCategory.SKIPPED_STABILITY, false), T_PLUS_0));
+
+        assertThat(out.displayVerdict()).isEqualTo(DisplayVerdict.AWAITING);
+        assertThat(out.verdictLabel()).isEqualTo("Not scored at this range");
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

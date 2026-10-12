@@ -61,8 +61,9 @@ import java.util.List;
  * </ul>
  *
  * <p>{@code verdict} is never null. {@code AWAITING} is reachable and means the window has neither
- * a rating nor a triage signal — it is not a synonym for a poor forecast, and must not render as
- * one.
+ * a rating nor a triage signal, or that its top region was blanked by the honesty filter for a
+ * reason that is not the weather (never attempted at this range, a travel day, a run that did not
+ * finish) — it is not a synonym for a poor forecast, and must not render as one.
  *
  * @param eventTime     the window's single header time, or null
  * @param verdict       the window's verdict; never null

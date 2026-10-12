@@ -132,9 +132,11 @@ public class BriefingRegionEvaluationRollup implements BriefingScoreEnricher {
                     if (coverageStats.isEmpty() && anyScoreable) {
                         LOG.info("[ZERO COVERAGE] region={} date={} target={} "
                                         + "briefingVerdict={} scoredCount=0 "
-                                        + "(honesty filter will rewrite at API read time — "
-                                        + "post-Gate-2 this should only fire on batch "
-                                        + "failures)",
+                                        + "(honesty filter will blank it at API read time, "
+                                        + "worded by why: not scored at this range, travel "
+                                        + "day, run failed or weather stand-down; this "
+                                        + "fires for every unscored window, so it is not a "
+                                        + "failure signal on its own)",
                                 region.regionName(), day.date(), es.targetType(),
                                 region.verdict());
                     }

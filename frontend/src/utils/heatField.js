@@ -500,9 +500,11 @@ const HATCH_INK = 'rgba(242,231,211,.18)';
  * an unscored Saturday printed a confident "Poor" above an empty map beside a Thursday whose
  * identical "Poor" was 200 locations actually rated bad.
  *
- * <p>It is deliberately mute about WHY. The client cannot tell a stability skip from a triage
- * stand-down from a failed batch — all it sees is a window with no ratings — so the mark says
- * that and no more, and the strip's footer is where the convention is named in words.
+ * <p>It is deliberately mute about WHY. The reason lives in the served verdict word and region
+ * wording (the honesty filter words a blank by what the pipeline did: not scored at this range, a
+ * travel day, a run that did not finish, or a weather stand-down) — all this plate sees is a
+ * window with no ratings — so the mark says that and no more, and the strip's footer is where the
+ * convention is named in words.
  *
  * @param {CanvasRenderingContext2D} ctx target context
  * @param {number} w surface width in CSS px

@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.CachedEvaluationEntity;
+import com.gregochr.goldenhour.entity.DispositionCategory;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.TriageDetails;
@@ -21,6 +22,7 @@ import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.repository.CachedEvaluationRepository;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.repository.ForecastRunDispositionRepository;
+import com.gregochr.goldenhour.repository.PipelineRunRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -54,6 +56,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -73,6 +76,8 @@ class EvaluationViewServiceTest {
     private ForecastEvaluationRepository forecastEvaluationRepository;
     @Mock
     private ForecastRunDispositionRepository forecastRunDispositionRepository;
+    @Mock
+    private PipelineRunRepository pipelineRunRepository;
     @Mock
     private LocationService locationService;
 
@@ -98,8 +103,8 @@ class EvaluationViewServiceTest {
         // fixed times would make every one of those assertions a statement about the mock.
         service = new EvaluationViewService(
                 briefingEvaluationService, cachedEvaluationRepository,
-                forecastEvaluationRepository, forecastRunDispositionRepository, locationService,
-                new ObjectMapper(), new SolarService());
+                forecastEvaluationRepository, forecastRunDispositionRepository, pipelineRunRepository,
+                locationService, new ObjectMapper(), new SolarService());
 
         region = new RegionEntity();
         region.setId(REGION_ID);
@@ -2153,8 +2158,8 @@ class EvaluationViewServiceTest {
                             LocalDateTime.of(DATE, java.time.LocalTime.of(5, 35))));
             EvaluationViewService polar = new EvaluationViewService(
                     briefingEvaluationService, cachedEvaluationRepository,
-                    forecastEvaluationRepository, forecastRunDispositionRepository, locationService,
-                    new ObjectMapper(), sentinel);
+                    forecastEvaluationRepository, forecastRunDispositionRepository, pipelineRunRepository,
+                    locationService, new ObjectMapper(), sentinel);
             when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
             when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
                     .thenReturn(Map.of("Bamburgh",
@@ -2184,8 +2189,8 @@ class EvaluationViewServiceTest {
                     .thenThrow(new IllegalStateException("no sunrise at this latitude"));
             EvaluationViewService degraded = new EvaluationViewService(
                     briefingEvaluationService, cachedEvaluationRepository,
-                    forecastEvaluationRepository, forecastRunDispositionRepository, locationService,
-                    new ObjectMapper(), throwing);
+                    forecastEvaluationRepository, forecastRunDispositionRepository, pipelineRunRepository,
+                    locationService, new ObjectMapper(), throwing);
             when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
             when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
                     .thenReturn(Map.of("Bamburgh",
@@ -2957,6 +2962,154 @@ class EvaluationViewServiceTest {
             // lookup, is what prevents a rated slot from being double-counted.
             assertThat(triagedNames).containsExactly("Bamburgh");
             assertThat(scoreResult.rating()).isEqualTo(4);
+        }
+    }
+
+    @Nested
+    @DisplayName("loadServeTriage — one disposition read, two views")
+    class ServeTriageLoad {
+
+        private static final Instant AT = Instant.parse("2026-04-22T01:00:00Z");
+
+        private Object[] row(String location, String disposition, Long jobRunId) {
+            return new Object[] {location, DATE, SUNRISE.name(), disposition, AT, jobRunId};
+        }
+
+        private String key(String location) {
+            return location + "|" + DATE + "|SUNRISE";
+        }
+
+        @Test
+        @DisplayName("reads the disposition query and the roster exactly once each")
+        void readsEachOnce() {
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(forecastRunDispositionRepository.findLatestNonCachedDispositions(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(row("Bamburgh", "SKIPPED_TRIAGED", 7L)));
+
+            EvaluationViewService.ServeTriage triage =
+                    service.loadServeTriage(DATE, DATE, Set.of(SUNRISE));
+
+            assertThat(triage.triagedByKey().get(REGION_NAME + "|" + DATE + "|" + SUNRISE))
+                    .containsExactly("Bamburgh");
+            assertThat(triage.latestBySlot().get(key("Bamburgh")))
+                    .isEqualTo(new EvaluationViewService.LatestDisposition(
+                            DispositionCategory.SKIPPED_TRIAGED, false));
+            verify(forecastRunDispositionRepository, times(1))
+                    .findLatestNonCachedDispositions(DATE, DATE);
+            verify(locationService, times(1)).findAllEnabled();
+        }
+
+        @Test
+        @DisplayName("triagedByKey equals what getTriagedByBatchLocationNamesBulk returns on the "
+                + "same rows")
+        void triagedViewMatchesTheBulkMethod() {
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh, sandsend));
+            when(forecastRunDispositionRepository.findLatestNonCachedDispositions(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(
+                            row("Bamburgh", "SKIPPED_TRIAGED", 7L),
+                            row("Sandsend", "SKIPPED_STABILITY", 7L)));
+
+            assertThat(service.loadServeTriage(DATE, DATE, Set.of(SUNRISE)).triagedByKey())
+                    .isEqualTo(service.getTriagedByBatchLocationNamesBulk(
+                            DATE, DATE, Set.of(SUNRISE)));
+        }
+
+        @Test
+        @DisplayName("the cycle query runs once, over exactly the EVALUATED/FORCE_EVALUATED "
+                + "rows' distinct job-run ids")
+        void cycleQueryOverSubmittedJobRunsOnly() {
+            when(forecastRunDispositionRepository.findLatestNonCachedDispositions(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(
+                            row("A", "EVALUATED", 11L),
+                            row("B", "FORCE_EVALUATED", 12L),
+                            row("C", "EVALUATED", 11L),
+                            row("D", "SKIPPED_STABILITY", 13L),
+                            row("E", "SUBMISSION_FAILED", 14L)));
+            when(pipelineRunRepository.endedDispositionJobRunIds(anyCollection()))
+                    .thenReturn(List.of(11L));
+
+            EvaluationViewService.ServeTriage triage =
+                    service.loadServeTriage(DATE, DATE, Set.of(SUNRISE));
+
+            ArgumentCaptor<Collection<Long>> ids = ArgumentCaptor.forClass(Collection.class);
+            verify(pipelineRunRepository, times(1)).endedDispositionJobRunIds(ids.capture());
+            assertThat(ids.getValue()).containsExactlyInAnyOrder(11L, 12L);
+            assertThat(triage.latestBySlot().get(key("A")).cycleEnded()).isTrue();
+            assertThat(triage.latestBySlot().get(key("C")).cycleEnded()).isTrue();
+            assertThat(triage.latestBySlot().get(key("B")).cycleEnded()).isFalse();
+            // cycleEnded is meaningful for the two submitted categories only
+            assertThat(triage.latestBySlot().get(key("D")).cycleEnded()).isFalse();
+            assertThat(triage.latestBySlot().get(key("E")).cycleEnded()).isFalse();
+        }
+
+        @Test
+        @DisplayName("no EVALUATED or FORCE_EVALUATED row: the cycle query is never made")
+        void noSubmittedRow_noCycleQuery() {
+            when(forecastRunDispositionRepository.findLatestNonCachedDispositions(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(
+                            row("A", "SKIPPED_STABILITY", 11L),
+                            row("B", "SUBMISSION_FAILED", 12L)));
+
+            service.loadServeTriage(DATE, DATE, Set.of(SUNRISE));
+
+            verifyNoInteractions(pipelineRunRepository);
+        }
+
+        @Test
+        @DisplayName("a cycle query that throws leaves every cycleEnded false")
+        void cycleQueryFailure_failsSoft() {
+            when(forecastRunDispositionRepository.findLatestNonCachedDispositions(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(row("A", "EVALUATED", 11L)));
+            when(pipelineRunRepository.endedDispositionJobRunIds(anyCollection()))
+                    .thenThrow(new IllegalStateException("db down"));
+
+            EvaluationViewService.ServeTriage triage =
+                    service.loadServeTriage(DATE, DATE, Set.of(SUNRISE));
+
+            assertThat(triage.latestBySlot().get(key("A")))
+                    .isEqualTo(new EvaluationViewService.LatestDisposition(
+                            DispositionCategory.EVALUATED, false));
+        }
+
+        @Test
+        @DisplayName("a row with no job run id (legacy shape) is never an ended cycle")
+        void missingJobRunId_isNotEnded() {
+            when(forecastRunDispositionRepository.findLatestNonCachedDispositions(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(
+                            new Object[] {"A", DATE, SUNRISE.name(), "EVALUATED", AT}));
+
+            assertThat(service.loadServeTriage(DATE, DATE, Set.of(SUNRISE))
+                    .latestBySlot().get(key("A")).cycleEnded()).isFalse();
+            verifyNoInteractions(pipelineRunRepository);
+        }
+
+        @Test
+        @DisplayName("a tie of different categories and an unparseable category map to no entry")
+        void tiesAndUnknownStrings_mapToNoEntry() {
+            when(forecastRunDispositionRepository.findLatestNonCachedDispositions(DATE, DATE))
+                    .thenReturn(List.<Object[]>of(
+                            row("A", "SKIPPED_TRIAGED", 1L),
+                            row("A", "SKIPPED_STABILITY", 2L),
+                            row("B", "SOMETHING_NEW", 3L),
+                            row("C", "SKIPPED_STABILITY", 4L)));
+
+            Map<String, EvaluationViewService.LatestDisposition> latest =
+                    service.loadServeTriage(DATE, DATE, Set.of(SUNRISE)).latestBySlot();
+
+            assertThat(latest).containsOnlyKeys(key("C"));
+        }
+
+        @Test
+        @DisplayName("a repository failure gives empty maps")
+        void repositoryFailure_givesEmptyMaps() {
+            when(forecastRunDispositionRepository.findLatestNonCachedDispositions(DATE, DATE))
+                    .thenThrow(new IllegalStateException("db down"));
+
+            EvaluationViewService.ServeTriage triage =
+                    service.loadServeTriage(DATE, DATE, Set.of(SUNRISE));
+
+            assertThat(triage.triagedByKey()).isEmpty();
+            assertThat(triage.latestBySlot()).isEmpty();
         }
     }
 

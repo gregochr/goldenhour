@@ -3,10 +3,12 @@ package com.gregochr.goldenhour.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.CachedEvaluationEntity;
+import com.gregochr.goldenhour.entity.DispositionCategory;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
+import com.gregochr.goldenhour.model.CoverageReason;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.LocationEvaluationView;
 import com.gregochr.goldenhour.model.LocationEvaluationView.Source;
@@ -14,6 +16,7 @@ import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.repository.CachedEvaluationRepository;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.repository.ForecastRunDispositionRepository;
+import com.gregochr.goldenhour.repository.PipelineRunRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.PageRequest;
@@ -125,6 +128,7 @@ public class EvaluationViewService {
     private final CachedEvaluationRepository cachedEvaluationRepository;
     private final ForecastEvaluationRepository forecastEvaluationRepository;
     private final ForecastRunDispositionRepository forecastRunDispositionRepository;
+    private final PipelineRunRepository pipelineRunRepository;
     private final LocationService locationService;
     private final ObjectMapper objectMapper;
     private final SolarService solarService;
@@ -137,6 +141,7 @@ public class EvaluationViewService {
      * @param forecastEvaluationRepository repository for forecast evaluation rows
      * @param forecastRunDispositionRepository repository for per-candidate batch dispositions,
      *                                          read here for the stale-rating stability-skip rule
+     * @param pipelineRunRepository repository read for whether a disposition's cycle has ended
      * @param locationService service for retrieving location entities
      * @param objectMapper Jackson mapper for JSON deserialisation
      * @param solarService the sole calculator for the golden/blue hour boundaries
@@ -145,6 +150,7 @@ public class EvaluationViewService {
             CachedEvaluationRepository cachedEvaluationRepository,
             ForecastEvaluationRepository forecastEvaluationRepository,
             ForecastRunDispositionRepository forecastRunDispositionRepository,
+            PipelineRunRepository pipelineRunRepository,
             LocationService locationService,
             ObjectMapper objectMapper,
             SolarService solarService) {
@@ -152,6 +158,7 @@ public class EvaluationViewService {
         this.cachedEvaluationRepository = cachedEvaluationRepository;
         this.forecastEvaluationRepository = forecastEvaluationRepository;
         this.forecastRunDispositionRepository = forecastRunDispositionRepository;
+        this.pipelineRunRepository = pipelineRunRepository;
         this.locationService = locationService;
         this.objectMapper = objectMapper;
         this.solarService = solarService;
@@ -315,7 +322,104 @@ public class EvaluationViewService {
      */
     public Map<String, Set<String>> getTriagedByBatchLocationNamesBulk(
             LocalDate start, LocalDate end, Set<TargetType> types) {
-        Set<String> triagedKeys = loadTriagedByBatch(start, end);
+        return loadServeTriage(start, end, types, false).triagedByKey();
+    }
+
+    /**
+     * One read of the latest-disposition query for a serve, folded into the two views it feeds: the
+     * triaged-by-batch location names {@link #getTriagedByBatchLocationNamesBulk} returns, and
+     * the latest disposition category per slot, which the honesty filter folds into a {@link
+     * CoverageReason} (docs/engineering/tide-facts-followups-plan.md section A).
+     *
+     * <p>{@code EVALUATED}/{@code FORCE_EVALUATED} record only that a slot was submitted. When the
+     * batch later fails the request nothing rewrites the disposition, so for those rows (and no
+     * others) {@link LatestDisposition#cycleEnded} says whether the slot's cycle has finished: one
+     * extra query over just their distinct job-run ids, made only when such a row exists. If it
+     * fails, every {@code cycleEnded} is false and the fold reads {@code UNKNOWN}.
+     *
+     * <p>Fails soft like {@link #loadTriagedByBatch}: a repository failure returns empty maps. A
+     * slot whose rows disagree on category (a tie at the same instant) or whose category cannot be
+     * parsed has no {@code latestBySlot} entry.
+     *
+     * @param start first evaluation date to include (inclusive)
+     * @param end   last evaluation date to include (inclusive)
+     * @param types the target types to include in {@code triagedByKey}
+     * @return both views; never null
+     */
+    public ServeTriage loadServeTriage(LocalDate start, LocalDate end, Set<TargetType> types) {
+        return loadServeTriage(start, end, types, true);
+    }
+
+    private ServeTriage loadServeTriage(LocalDate start, LocalDate end, Set<TargetType> types,
+            boolean withCycles) {
+        Map<String, Set<String>> dispositionsByKey = new HashMap<>();
+        Map<String, Set<Long>> jobRunsByKey = new HashMap<>();
+        try {
+            for (Object[] row : forecastRunDispositionRepository
+                    .findLatestNonCachedDispositions(start, end)) {
+                String key = stabilitySkipKey((String) row[0], (LocalDate) row[1], (String) row[2]);
+                dispositionsByKey.computeIfAbsent(key, k -> new HashSet<>()).add((String) row[3]);
+                Long jobRunId = row.length > 5 ? (Long) row[5] : null;
+                jobRunsByKey.computeIfAbsent(key, k -> new HashSet<>()).add(jobRunId);
+            }
+        } catch (RuntimeException e) {
+            LOG.warn("[EXAMINED] Could not load batch dispositions for {}..{} - every slot in "
+                    + "range reads as not examined-by-triage and carries no coverage reason this "
+                    + "serve: {}", start, end, e.toString());
+            return ServeTriage.EMPTY;
+        }
+        Set<String> triagedKeys = new HashSet<>();
+        Map<String, DispositionCategory> categoryByKey = new HashMap<>();
+        Set<Long> submittedJobRuns = new HashSet<>();
+        dispositionsByKey.forEach((key, dispositions) -> {
+            if (dispositions.size() != 1) {
+                return;
+            }
+            String only = dispositions.iterator().next();
+            if ("SKIPPED_TRIAGED".equals(only)) {
+                triagedKeys.add(key);
+            }
+            DispositionCategory.fromString(only).ifPresent(category -> {
+                categoryByKey.put(key, category);
+                if (withCycles && submitted(category)) {
+                    submittedJobRuns.addAll(jobRunsByKey.get(key));
+                }
+            });
+        });
+        Set<Long> endedJobRuns = withCycles ? endedCycles(submittedJobRuns) : Set.of();
+        Map<String, LatestDisposition> latestBySlot = new HashMap<>();
+        categoryByKey.forEach((key, category) -> {
+            boolean ended = submitted(category)
+                    && !jobRunsByKey.get(key).contains(null)
+                    && endedJobRuns.containsAll(jobRunsByKey.get(key));
+            latestBySlot.put(key, new LatestDisposition(category, ended));
+        });
+        return new ServeTriage(triagedByKey(triagedKeys, start, end, types), latestBySlot);
+    }
+
+    private static boolean submitted(DispositionCategory category) {
+        return category == DispositionCategory.EVALUATED
+                || category == DispositionCategory.FORCE_EVALUATED;
+    }
+
+    /** The subset of {@code jobRunIds} whose cycle has ended; empty (and warned) on failure. */
+    private Set<Long> endedCycles(Set<Long> jobRunIds) {
+        jobRunIds.remove(null);
+        if (jobRunIds.isEmpty()) {
+            return Set.of();
+        }
+        try {
+            return new HashSet<>(pipelineRunRepository.endedDispositionJobRunIds(jobRunIds));
+        } catch (RuntimeException e) {
+            LOG.warn("[COVERAGE] Could not tell whether {} dispositions' cycles have ended - "
+                    + "submitted slots read as unresolved this serve: {}",
+                    jobRunIds.size(), e.toString());
+            return Set.of();
+        }
+    }
+
+    private Map<String, Set<String>> triagedByKey(Set<String> triagedKeys, LocalDate start,
+            LocalDate end, Set<TargetType> types) {
         if (triagedKeys.isEmpty()) {
             return Map.of();
         }
@@ -335,6 +439,31 @@ public class EvaluationViewService {
             }
         }
         return byKey;
+    }
+
+    /**
+     * The latest non-cached disposition of one slot.
+     *
+     * @param category   what the pipeline last did with the slot
+     * @param cycleEnded for {@code EVALUATED}/{@code FORCE_EVALUATED} only: whether the cycle that
+     *                   submitted it has finished, so a result still in flight can be told from one
+     *                   that will never come; false for every other category
+     */
+    public record LatestDisposition(DispositionCategory category, boolean cycleEnded) {
+    }
+
+    /**
+     * Both views of the serve's one disposition read.
+     *
+     * @param triagedByKey {@code region|date|type} to the location names last stood down by triage
+     * @param latestBySlot {@code location|date|type} to the slot's latest disposition; a slot the
+     *                     record cannot settle has no entry
+     */
+    public record ServeTriage(Map<String, Set<String>> triagedByKey,
+            Map<String, LatestDisposition> latestBySlot) {
+
+        /** The answer when the read failed or found nothing. */
+        static final ServeTriage EMPTY = new ServeTriage(Map.of(), Map.of());
     }
 
     /**

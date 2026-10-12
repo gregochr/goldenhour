@@ -156,6 +156,10 @@ class BriefingServiceTest {
 
     @BeforeEach
     void setUp() {
+        org.mockito.Mockito.lenient().when(evaluationViewService.loadServeTriage(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()))
+                .thenReturn(EvaluationViewService.ServeTriage.EMPTY);
         org.mockito.Mockito.lenient().when(bestBetAdvisor.advise(
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(),

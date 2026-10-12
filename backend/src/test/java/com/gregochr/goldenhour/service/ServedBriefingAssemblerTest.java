@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.DispositionCategory;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
@@ -34,6 +35,9 @@ import static com.gregochr.goldenhour.service.TideFactFixtures.region;
 import static com.gregochr.goldenhour.service.TideFactFixtures.summary;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -64,6 +68,8 @@ class ServedBriefingAssemblerTest {
     void setUp() {
         when(regionSnapshotService.previousBuild(any()))
                 .thenReturn(BriefingRegionSnapshotService.PreviousBuild.none());
+        when(evaluationViewService.loadServeTriage(any(), any(), any()))
+                .thenReturn(EvaluationViewService.ServeTriage.EMPTY);
         // The enricher is a stub that leaves the hierarchy as cached: the fixture region's
         // scoredLocationCount of zero is then exactly what the honesty filter reads.
         assembler = new ServedBriefingAssembler(bestBetFallbackService, regionSnapshotService,
@@ -235,5 +241,93 @@ class ServedBriefingAssemblerTest {
         assertThat(allSlots(cached)).extracting(BriefingSlot::tide).doesNotContainNull();
         assertThat(allSlots(cached).get(0).tide().tideState()).isEqualTo("HIGH");
         assertThat(allSlots(served)).extracting(BriefingSlot::tide).containsOnlyNulls();
+    }
+
+    // ── Coverage reasons, end to end through the real filter and projector ────────────────────
+
+    private static final LocalDate T_PLUS_4 = D.plusDays(1);
+    private static final LocalDate T_PLUS_2 = D.minusDays(1);
+
+    private void serveDispositions(LocalDate date, TargetType type, DispositionCategory category,
+            String... locations) {
+        Map<String, EvaluationViewService.LatestDisposition> latest = new java.util.HashMap<>();
+        for (String name : locations) {
+            latest.put(EvaluationViewService.stabilitySkipKey(name, date, type),
+                    new EvaluationViewService.LatestDisposition(category, false));
+        }
+        when(evaluationViewService.loadServeTriage(any(), any(), any()))
+                .thenReturn(new EvaluationViewService.ServeTriage(Map.of(), latest));
+    }
+
+    private DailyBriefingResponse serveOneRegion(LocalDate date) {
+        return assembler.assembleForPlan(new DailyBriefingResponse(
+                LocalDateTime.of(2026, 10, 8, 6, 0), "headline",
+                List.of(day(date, summary(TargetType.SUNRISE, List.of(region("North East", 0,
+                        inland(1L, "Durham"), inland(2L, "Hawes"))), List.of()))),
+                List.of(), null, null, false, false, 0, null, List.of(), List.of()), 0.5);
+    }
+
+    @Test
+    @DisplayName("T+4 with every slot stability-skipped serves AWAITING 'Not scored at this "
+            + "range', and the window follows")
+    void tPlusFourStabilitySkipIsNotScored() {
+        serveDispositions(T_PLUS_4, TargetType.SUNRISE, DispositionCategory.SKIPPED_STABILITY,
+                "Durham", "Hawes");
+
+        DailyBriefingResponse served = serveOneRegion(T_PLUS_4);
+
+        BriefingEventSummary es = served.days().get(0).eventSummaries().get(0);
+        assertThat(es.regions().get(0).displayVerdict()).isEqualTo(DisplayVerdict.AWAITING);
+        assertThat(es.regions().get(0).verdictLabel()).isEqualTo("Not scored at this range");
+        assertThat(es.regions().get(0).slots()).isEmpty();
+        assertThat(es.window().verdict()).isEqualTo(DisplayVerdict.AWAITING);
+    }
+
+    @Test
+    @DisplayName("a travel day serves AWAITING 'Not forecast'")
+    void travelDayIsNotForecast() {
+        serveDispositions(D, TargetType.SUNRISE, DispositionCategory.SKIPPED_TRAVEL_DAY,
+                "Durham", "Hawes");
+
+        DailyBriefingResponse served = serveOneRegion(D);
+
+        BriefingEventSummary es = served.days().get(0).eventSummaries().get(0);
+        assertThat(es.regions().get(0).verdictLabel()).isEqualTo("Not forecast");
+        assertThat(es.window().verdict()).isEqualTo(DisplayVerdict.AWAITING);
+    }
+
+    @Test
+    @DisplayName("a majority of failed submissions at T+2 serves AWAITING 'Forecast unavailable'")
+    void failedSubmissionsAtTPlusTwo() {
+        serveDispositions(T_PLUS_2, TargetType.SUNRISE, DispositionCategory.SUBMISSION_FAILED,
+                "Durham", "Hawes");
+
+        DailyBriefingResponse served = serveOneRegion(T_PLUS_2);
+
+        BriefingEventSummary es = served.days().get(0).eventSummaries().get(0);
+        assertThat(es.regions().get(0).verdictLabel()).isEqualTo("Forecast unavailable");
+        assertThat(es.window().verdict()).isEqualTo(DisplayVerdict.AWAITING);
+    }
+
+    @Test
+    @DisplayName("no record at T+2 keeps today's STAND_DOWN 'Too unsettled to forecast'")
+    void noRecordKeepsTodaysWording() {
+        DailyBriefingResponse served = serveOneRegion(T_PLUS_2);
+
+        BriefingEventSummary es = served.days().get(0).eventSummaries().get(0);
+        assertThat(es.regions().get(0).displayVerdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+        assertThat(es.regions().get(0).verdictLabel()).isEqualTo("Too unsettled to forecast");
+        assertThat(es.window().verdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+    }
+
+    @Test
+    @DisplayName("a serve reads the dispositions once, through loadServeTriage, never the "
+            + "separate triaged-names method")
+    void oneDispositionReadPerServe() {
+        serveOneRegion(T_PLUS_2);
+
+        verify(evaluationViewService, times(1)).loadServeTriage(any(), any(), any());
+        verify(evaluationViewService, never()).getTriagedByBatchLocationNamesBulk(
+                any(), any(), any());
     }
 }
