@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PhotoCast — aurora alert banner, final</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/d3@7.9.0/dist/d3.min.js" integrity="sha384-CjloA8y00+1SDAUkjs099PVfnY2KmDC2BZnws9kh8D/lX1s46w6EPhpXdqMfjK6i" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/topojson-client@3.1.0/dist/topojson-client.min.js" integrity="sha384-Ukv1p/xTma6P4/2bY5KzWBw+ydSpXmhCMtyciIQVDJ1RmOxtCYNMF1uXT9T63H67" crossorigin="anonymous"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#181210;--surface:#221A15;--panel:#1E1712;--border:#3A2C23;--border-light:#4A3A2E;--ink:#F2E7D3;--ink-2:rgba(242,231,211,.66);--ink-3:rgba(242,231,211,.42);--a1:#384262;--a2:#2C5470;--a3:#22867E;--a4:#3AC884;--a5:#76FFA0;--ramp:linear-gradient(90deg,#384262,#2C5470 25%,#22867E 50%,#3AC884 75%,#76FFA0);--sans:'IBM Plex Sans',system-ui,sans-serif;--mono:'IBM Plex Mono',monospace}
+html,body{background:#0e0b09;color:var(--ink)}
+body{font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased;padding:30px 22px 80px}
+a{color:#6FA8B0;text-decoration:none}a:hover{color:#8fc4cc}
+.wrap{max-width:1180px;margin:0 auto}
+.m{font-family:var(--mono);font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px}
+h1{font-size:21px;font-weight:700;letter-spacing:-.02em}
+.lede{font-size:13.5px;color:var(--ink-2);max-width:88ch;margin-top:7px;text-wrap:pretty}
+.lede b{color:var(--ink);font-weight:600}
+.scale{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin:22px 0 34px}
+.sc{background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:11px 12px;display:flex;flex-direction:column;gap:7px}
+.sc .sw{height:8px;border-radius:999px}
+.sc b{font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+.sc span{font-size:12px;color:var(--ink-2);text-wrap:pretty}
+.stage{margin-bottom:40px}
+.sh{display:flex;align-items:baseline;gap:10px;margin-bottom:6px;flex-wrap:wrap}
+.badge{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+.badge.rec{color:var(--a5)}
+.st{font-size:15px;font-weight:600}
+.note{font-size:13px;color:var(--ink-2);max-width:88ch;margin:0 0 14px;text-wrap:pretty}
+.note b{color:var(--ink);font-weight:600}
+.row{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start}
+.col{flex:1 1 360px;max-width:420px;display:flex;flex-direction:column;gap:7px}
+.cap{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+
+/* shared bits */
+.glyph{width:26px;height:26px}
+.pill{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;padding:3px 8px;border-radius:5px;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;background:color-mix(in srgb,var(--acc) 14%,transparent);color:var(--acc-ink);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--acc) 40%,transparent)}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--acc);box-shadow:0 0 8px var(--acc)}
+.when{font-family:var(--mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3)}
+.title{font-size:15px;font-weight:700;line-height:1.3;color:var(--ink);text-wrap:pretty}
+.meta{display:flex;align-items:center;gap:6px 12px;flex-wrap:wrap;font-size:12px;color:var(--ink-2)}
+.meta .k{font-family:var(--mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3)}
+.meta .v{font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.meta .seg{display:inline-flex;align-items:baseline;gap:5px}
+.div{width:1px;height:12px;background:var(--border-light)}
+.cta{font-weight:600;color:var(--acc-ink);font-size:12px}
+.x{color:var(--ink-2);font-size:16px;width:44px;height:44px;margin:-10px -10px 0 0;display:flex;align-items:center;justify-content:center;border-radius:8px;cursor:pointer;flex-shrink:0;background:none;border:0}
+.x:hover{background:rgba(255,255,255,.06);color:var(--ink)}
+.mod{--acc:#3AC884;--acc-ink:#8CE6B6}
+.str{--acc:#76FFA0;--acc-ink:#A8FFC4}
+
+/* current */
+.cur{position:relative;overflow:hidden;border:1px solid var(--border);background:var(--surface);border-radius:12px;padding:12px 16px 12px 18px;display:flex;gap:14px;align-items:flex-start}
+.cur::before{content:'';position:absolute;inset:0 auto 0 0;width:4px;background:var(--c)}
+.cur .rd{width:42px;height:42px;border-radius:11px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:var(--c)}
+.cur .pill{--acc:var(--c);--acc-ink:var(--ci)}
+.cur .body{flex:1;min-width:0;display:flex;flex-direction:column;gap:7px}
+
+/* A · ramp rail + Kp meter */
+.wa{position:relative;overflow:hidden;border:1px solid var(--border);background:var(--surface);border-radius:12px;padding:13px 16px 13px 20px;display:flex;gap:14px;align-items:flex-start;cursor:pointer}
+.wa .rail{position:absolute;left:0;top:0;bottom:0;width:5px;background:linear-gradient(0deg,#384262,#2C5470 25%,#22867E 50%,#3AC884 75%,#76FFA0)}
+.wa .rail i{position:absolute;left:0;right:0;top:0;background:var(--surface);opacity:.82}
+.wa .glow{position:absolute;inset:0;pointer-events:none;background:radial-gradient(110% 120% at 0% 0%,color-mix(in srgb,var(--acc) 20%,transparent) 0%,transparent 50%)}
+.wa .rd{position:relative;width:42px;height:42px;border-radius:11px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(160deg,color-mix(in srgb,var(--acc) 70%,#0d1a14),#0f1d1a);box-shadow:0 0 18px color-mix(in srgb,var(--acc) 30%,transparent),inset 0 0 0 1px color-mix(in srgb,var(--acc) 45%,transparent)}
+.wa .body{position:relative;flex:1;min-width:0;display:flex;flex-direction:column;gap:8px}
+.top{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.kp{display:flex;align-items:center;gap:9px}
+.kp .bars{display:grid;grid-template-columns:repeat(9,1fr);gap:3px;flex:1;max-width:180px}
+.kp .bars i{height:7px;border-radius:2px;background:rgba(242,231,211,.08)}
+.kp .lbl{font-family:var(--mono);font-size:11px;color:var(--ink-3);white-space:nowrap}
+.kp .lbl b{color:var(--ink);font-weight:600}
+
+/* B · tonight's field */
+.wb{position:relative;overflow:hidden;border:1px solid var(--border);background:var(--surface);border-radius:12px;padding:10px 14px 10px 10px;display:flex;gap:13px;align-items:stretch;cursor:pointer}
+.wb .thumb{position:relative;flex:none;width:96px;border-radius:8px;overflow:hidden;background:#13100e;box-shadow:inset 0 0 0 1px var(--border)}
+.wb canvas{display:block;width:96px;height:118px}
+.wb .thumb .vk{position:absolute;left:5px;top:4px;white-space:nowrap;font-family:var(--mono);font-size:8.5px;font-weight:600;color:#E0A542;text-shadow:0 1px 3px #000}
+.wb .body{flex:1;min-width:0;display:flex;flex-direction:column;gap:7px;padding-top:3px}
+.wb .best{font-size:12px;color:var(--ink-2)}
+.wb .best b{color:var(--ink);font-weight:600}
+.wb .best .s{color:var(--acc-ink);font-family:var(--mono);font-weight:600}
+.wb .x{margin:-4px -8px 0 0}
+
+/* C · glow strip */
+.wc{position:relative;border:1px solid var(--border);background:var(--surface);border-radius:12px;padding:0 6px 0 12px;min-height:56px;display:flex;align-items:center;gap:11px;cursor:pointer;overflow:hidden}
+.wc::after{content:'';position:absolute;left:0;right:0;bottom:0;height:2px;background:var(--ramp);clip-path:inset(0 calc(100% - var(--fill)) 0 0);box-shadow:0 0 10px var(--acc)}
+.wc .glyph{width:22px;height:22px;flex:none;filter:drop-shadow(0 0 6px var(--acc))}
+.wc .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.wc .t1{display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wc .t1 .lv{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--acc-ink)}
+.wc .t2{font-family:var(--mono);font-size:11px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wc .t2 b{color:var(--ink-2);font-weight:600}
+.wc .go{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--acc-ink);padding:0 4px;white-space:nowrap}
+.wc .x{margin:0}
+
+.breathe{animation:breathe 3.2s ease-in-out infinite}
+@keyframes breathe{0%,100%{box-shadow:0 0 0 0 transparent}50%{box-shadow:0 0 22px -4px color-mix(in srgb,var(--acc) 45%,transparent)}}
+@media(prefers-reduced-motion:reduce){.breathe{animation:none}}
+.foot{font-size:12.5px;color:var(--ink-2);max-width:88ch;border-top:1px solid var(--border);padding-top:16px;display:flex;flex-direction:column;gap:9px;text-wrap:pretty}
+.foot b{color:var(--ink);font-weight:600}
+</style>
+<style>
+.wb .thumb.pend{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;height:118px;background:linear-gradient(180deg,#151b1a,#13100e)}
+.pend .big{font-family:var(--mono);font-size:22px;font-weight:700;color:var(--acc-ink);line-height:1;text-shadow:0 0 12px color-mix(in srgb,var(--acc) 50%,transparent)}
+.pend .vbars{display:flex;flex-direction:column-reverse;gap:2px;width:34px}
+.pend .vbars i{height:4px;border-radius:1.5px;background:rgba(242,231,211,.08)}
+.pend .pl{font-family:var(--mono);font-size:8.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);text-align:center;line-height:1.3}
+.phone{width:390px;max-width:100%;background:var(--bg);border:1px solid var(--border);border-radius:22px;padding:14px 12px 18px;display:flex;flex-direction:column;gap:10px}
+.phone .tabs{display:flex;gap:6px}
+.phone .tabs span{font-size:12px;color:var(--ink-2);border:1px solid var(--border);border-radius:8px 8px 0 0;padding:6px 10px}
+.phone .tabs span.on{color:var(--ink);border-color:var(--border-light);border-top:2px solid #C9A24B}
+.phone .ph{height:120px;border-radius:10px;background:repeating-linear-gradient(45deg,#1c1612 0 8px,#1a1410 8px 16px);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.rule{font-family:var(--mono);font-size:11px;color:var(--ink-2);background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:10px 12px;margin-bottom:14px;display:flex;gap:8px 18px;flex-wrap:wrap}
+.rule b{color:var(--ink)}
+code{font-family:var(--mono);font-size:11.5px;color:#EBD9A8}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="m">PhotoCast · aurora alert banner · final</div>
+<h1>Aurora alert: map thumbnail on desktop, glow strip on phone</h1>
+<p class="lede">One banner component with two layouts. On desktop and iPad it shows <b>tonight's aurora field</b> next to the alert, so it answers where as well as how strong. Until per-location scores exist it shows <b>Kp in the same slot</b> instead of an empty map. On phones it collapses to the <b>56px glow strip</b>. Severity uses the aurora ramp throughout: Moderate is teal-green, Strong is full aurora green.</p>
+<div class="scale">
+<div class="sc"><div class="sw" style="background:linear-gradient(90deg,#22867E,#3AC884)"></div><b style="color:#8CE6B6">Moderate · G1–G2</b><span>Accent #3AC884, ink #8CE6B6. No motion.</span></div>
+<div class="sc"><div class="sw" style="background:linear-gradient(90deg,#3AC884,#76FFA0);box-shadow:0 0 10px rgba(118,255,160,.35)"></div><b style="color:#A8FFC4">Strong · G3+</b><span>Accent #76FFA0, ink #A8FFC4. Breathes only when live and Bz &lt; −1 nT.</span></div>
+<div class="sc"><div class="sw" style="background:repeating-linear-gradient(45deg,#2a2420 0 6px,#221c18 6px 12px);border:1px dashed var(--border-light)"></div><b style="color:var(--ink-2)">Simulated</b><span>Unchanged: hatched, dashed border, 🧪 in place of the thumbnail.</span></div>
+</div>
+<div class="rule"><span><b>≥ 640px</b> → banner (B)</span><span><b>&lt; 640px</b> → strip (C)</span><span><b>scores ready</b> → field thumbnail</span><span><b>scores pending</b> → Kp slot</span><span><b>viewline</b> drawn only when <code>viewlineReliable</code></span></div>
+<div class="stage"><div class="sh"><span class="badge rec">Desktop · iPad</span><span class="st">Scores ready: tonight's field</span></div>
+<p class="note">The thumbnail uses the same heat kernel and aurora ramp as the Map tab, clipped to the coastline and framed to your planning area. If the southern limit is south of the frame, the label reads <b>"Kp 8 · all ↓"</b>, meaning the whole area is inside it.</p>
+<div class="row" id="b"></div></div>
+<div class="stage"><div class="sh"><span class="badge">Desktop · iPad</span><span class="st">Scores pending: Kp in the thumbnail slot</span></div>
+<p class="note">The alert usually arrives before the per-location aurora run finishes. The slot shows Kp and a vertical nine-step meter on the ramp, and the best-location line becomes the pending state. Once scores arrive, the field replaces it without moving the layout.</p>
+<div class="row" id="p"></div></div>
+<div class="stage"><div class="sh"><span class="badge">Phone</span><span class="st">Glow strip above the tabs</span></div>
+<p class="note">One line, 56px. The ramp along the bottom edge fills to the level. While scores are pending, the second line drops the best location and shows dark-sky sites clear.</p>
+<div class="row" id="c"></div></div>
+</div>
+<script src="heat-field.js"></script>
+<script src="plan-data.js"></script>
+<script>
+const G='<svg class="glyph" viewBox="0 0 28 28" fill="none" aria-hidden="true"><g stroke="#fff" stroke-width="1.5" stroke-linecap="round" opacity="0.92"><path d="M6 23c0-9 2-15 4-15"/><path d="M12 23c0-11 2-17 4-17"/><path d="M18 23c0-9 2-14 4-14"/></g><circle cx="22" cy="5" r="1.6" fill="#fff"/></svg>';
+const AST=[[1,[56,66,98]],[2,[44,84,112]],[3,[34,134,126]],[4,[58,200,132]],[5,[118,255,160]]];
+const ar=s=>{s=Math.max(1,Math.min(5,s));for(let i=0;i<4;i++){const[a,ca]=AST[i],[b,cb]=AST[i+1];if(s<=b){const f=(s-a)/(b-a);return ca.map((v,k)=>Math.round(v+(cb[k]-v)*f))}}return AST[4][1]};
+const rgb=c=>`rgb(${c[0]},${c[1]},${c[2]})`;
+const STATES=[
+ {cls:'mod',lv:'Moderate · G2',when:'Forecast · tonight',title:'Aurora possible from northern England',kp:6,view:54.6,sites:147,best:['Kielder',4],cap:'Moderate · forecast',fill:.62,live:false,next:'19:40',
+  cloud:{ntw:.15,penn:.3,lakes:.75,nymc:.35,dales:.5,borders:.2,peak:.6,highlands:.4}},
+ {cls:'str',lv:'Strong · G4',when:'Active now · detected 21:34',title:'Aurora likely across the UK',kp:8,view:51.8,sites:210,best:['Hackfall Wood',5],bz:'−9.2 nT',cap:'Strong · live, Bz south',fill:.92,live:true,next:'21:50',
+  cloud:{ntw:.3,penn:.25,lakes:.4,nymc:.2,dales:.15,borders:.3,peak:.3,highlands:.5}}];
+const X='<button class="x" aria-label="Dismiss aurora banner">✕</button>';
+const col=(s,h,cap)=>`<div class="col"><div class="cap">${cap||s.cap}</div>${h}</div>`;
+const bz=s=>s.bz?` · Bz <b style="color:var(--ink)">${s.bz}</b>`:'';
+const banner=(s,i,thumb,best)=>`<div class="wb ${s.cls}${s.live?' breathe':''}" role="alert" tabindex="0">${thumb}<div class="body"><div class="top"><span class="pill"><span class="dot"></span>${s.lv}</span></div><div class="when">${s.when}</div><div class="title">${s.title}</div><div class="best">${best}</div><span class="cta">View on map →</span></div>${X}</div>`;
+document.getElementById('b').innerHTML=STATES.map((s,i)=>col(s,banner(s,i,`<div class="thumb"><canvas id="th${i}" width="96" height="118"></canvas><span class="vk">Kp ${s.kp} line</span></div>`,
+ `Best: <b>${s.best[0]}</b> <span class="s">${s.best[1]}★</span> · ${s.sites} sites clear${bz(s)}`))).join('');
+document.getElementById('p').innerHTML=STATES.map((s,i)=>col(s,banner(s,i,`<div class="thumb pend"><span class="big">Kp ${s.kp}</span><span class="vbars">${Array.from({length:9},(_,k)=>{const c=ar(1+4*(k/8));return`<i style="${k<s.kp?`background:${rgb(c)}${k>=6?`;box-shadow:0 0 5px ${rgb(c)}`:''}`:''}"></i>`}).join('')}</span><span class="pl">scoring<br>locations</span></div>`,
+ `<b>${s.sites}</b> dark-sky sites clear${bz(s)}<br><span style="color:var(--ink-3)">Location scores due ${s.next}</span>`),s.cap+' · scores pending')).join('');
+const strip=(s,ready)=>`<div class="wc ${s.cls}${s.live?' breathe':''}" style="--fill:${Math.round(s.fill*100)}%" role="alert" tabindex="0">${G}<div class="t"><div class="t1"><span class="lv">${s.lv.split(' · ')[0]}</span>${s.live?'Aurora active now':'Aurora tonight'}</div><div class="t2"><b>Kp ${s.kp}</b> · ${ready?`best ${s.best[0]} ${s.best[1]}★`:`${s.sites} dark sites clear`}</div></div><span class="go">Map →</span>${X}</div>`;
+document.getElementById('c').innerHTML=STATES.map((s,i)=>`<div class="col"><div class="cap">${s.cap}${i===0?' · scores pending':''}</div><div class="phone">${strip(s,i===1)}<div class="tabs"><span>◉ Plan</span><span>Coming up</span><span class="on">◍ Map</span></div><div class="ph">map</div></div></div>`).join('');
+function score(sp,s){const lat=Math.max(0,Math.min(1,(sp.lat-s.view+0.9)/1.6));const clear=1-(s.cloud[sp.rid]??.4),dark=Math.max(0,Math.min(1,(sp.bortle-1)/4));return Math.max(1,Math.min(5,1+4*lat*clear*(.45+.55*dark)+sp.j*.25))}
+HeatField.load().then(()=>{
+ const area=PLAN.spotsIn(PLAN.areaRids()),fit=HeatField.bbox(area,0.25);
+ STATES.forEach((s,i)=>{
+  const cv=document.getElementById('th'+i);
+  const spots=area.map(sp=>({lat:sp.lat,lng:sp.lng,rid:sp.rid,r:[score(sp,s)]}));
+  const proj=HeatField.drawGeo(cv,96,118,spots,0,{fit,ramp:ar,radius:7,grid:3,blur:2.2,bloom:true,bloomFrom:3.4,bloomRGB:[120,255,170],bloomA:140,bloomBlur:1.6});
+  if(!proj)return;
+  const ctx=cv.getContext('2d'),y0=proj([-2,s.view])[1],y=Math.min(y0,116);
+  if(y0>116)cv.parentNode.querySelector('.vk').textContent=`Kp ${s.kp} · all ↓`;
+  ctx.save();ctx.setLineDash([4,3]);ctx.strokeStyle='#E0A542';ctx.lineWidth=1.2;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(96,y);ctx.stroke();ctx.restore();
+ });
+});
+</script>
+</body>
+</html>
