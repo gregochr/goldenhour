@@ -5,6 +5,47 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.26.5] - 2026-10-12
+
+### Removed — the callerless Close-to-home endpoint and its second assembly path
+
+`GET /api/briefing/close-to-home`, `CloseToHomeService`, `CloseToHomeResponse` and
+`BriefingService.getServedBriefing()` are deleted, with their tests. Nothing has called them since
+the Close-to-home panel died in v1 retirement D2. The Plan payload is unchanged: slot tide is now
+stripped on every API-path accessor, and `ServedBriefingAssembler.assembleWithoutPlan` survives only
+as the package-private first stage of `assembleForPlan`. The `photocast.close-to-home.radius-miles`
+property keeps its name (Ask's `nearHome` still reads it), as do `getHomeLocation` and the local
+radius setting. Comments that pointed at the deleted code were reworded.
+
+### Removed — the client's readers of the inert `evaluationGate`
+
+Since the tide gate lift (2026-09-18) the pipeline has served no `evaluationGate`, yet the Map callout, the location
+sheet and the tide index still read it and carried a "Not scored" arm, a gate row and their CSS. All of that is gone:
+`buildEvaluationGateIndex`, the `evaluationGate` and `gated` index fields, the sheet row's `gate`, the callout and
+sheet gate lines and `.wf-loc-gate` / `.wf-callout-gate`. An unscored window reads exactly as it did in production
+("Not scored yet", "Loading…" or the retry line); no visible change.
+
+### Removed — the inert `evaluationGate` seam on the backend
+
+`BriefingSlot.evaluationGate` and `BriefingGatingPolicy` are deleted. Both have been inert since the
+tide gate lift (2026-09-18): the policy's hard-constraint set was empty, so every slot was eligible
+and the field was null on every slot production built. `couldCarryRating` is now simply "has a
+rating, or is not a canopy slot", the candidate collector no longer carries its dead stand-down
+branch, and the region gloss runs for any region that has slots. Briefings already stored in
+`daily_briefing_cache` that still carry an `evaluationGate` key deserialise as before (pinned by a
+test), and `DispositionCategory.SKIPPED_HARD_CONSTRAINT` stays for historical rows. No behaviour
+change.
+
+### Changed — the briefing build reads the tide table once, not about 1,300 times
+
+Each coastal slot used to read its location's `tide_extreme` rows two or three times (the tide derivation, the
+tide-fit curve and a MID want's midpoint lookup), roughly 1,220 to 1,400 queries per build. The build now loads every
+coastal location's rows for its date span in one query (`TideExtremeSnapshot`) and answers those reads from memory; a
+location or range the snapshot does not cover falls back to the old per-location query rather than reading as "no
+tide". The three reads of one slot also now see the same rows, which closes the narrow window in which a tide refresh
+landing between them could make a MID slot's alignment and its quality part company. No served value changes, and every
+other caller of the tide service is untouched.
+
 ## [v2.26.4] - 2026-10-11
 
 ### Fixed — the Ask "holds a Ready answer for 400 ms" test no longer races the wall clock
