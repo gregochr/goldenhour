@@ -1,5 +1,11 @@
 package com.gregochr.goldenhour.service;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import com.gregochr.goldenhour.util.ReplayJson;
+import org.slf4j.LoggerFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.gregochr.goldenhour.TestAtmosphericData;
@@ -666,10 +672,25 @@ class ModelTestServiceTest {
         when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
         when(testResultRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        ModelTestRunEntity result = service.rerunTestDeterministic(10L);
+        Logger replayLogger = (Logger) LoggerFactory.getLogger(ReplayJson.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        replayLogger.addAppender(appender);
+        try {
+            ModelTestRunEntity result = service.rerunTestDeterministic(10L);
 
-        assertThat(result.getSucceeded()).isEqualTo(3);
-        assertThat(result.getFailed()).isEqualTo(0);
+            assertThat(result.getSucceeded()).isEqualTo(3);
+            assertThat(result.getFailed()).isEqualTo(0);
+            assertThat(appender.list)
+                    .singleElement()
+                    .satisfies(e -> {
+                        assertThat(e.getLevel()).isEqualTo(Level.WARN);
+                        assertThat(e.getFormattedMessage()).contains("aFieldFromANewerBuild");
+                    });
+        } finally {
+            replayLogger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     @Test

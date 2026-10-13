@@ -10,7 +10,9 @@ import lombok.NoArgsConstructor;
 
 /**
  * Directional cloud sampling columns of a forecast evaluation — cloud cover at the solar and
- * antisolar horizon points (113 km) and the far-field strip-vs-blanket sample (226 km). All
+ * antisolar horizon points (113 km) and the far-field strip-vs-blanket sample (226 km). The far
+ * point also records mid and high cloud and a dark-side hour (low, mid and high); these are
+ * recorded, never prompted (far-cloud-lid-plan P2). All
  * fields are null when directional sampling was unavailable, in which case Hibernate
  * materialises the whole embeddable as {@code null} on read (use
  * {@link #orEmpty(DirectionalCloudDetails)}).

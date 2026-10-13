@@ -100,7 +100,9 @@ class CloudVerificationServiceTest {
     void backfill_recordsFarMidHighAndDarkSide() {
         when(repository.findUnverified(any(), any())).thenReturn(List.of(candidate()));
         // Sunset 21:37 -> event slot 21:00 (index 1); the dark side is 22:00 (index 2).
-        OpenMeteoForecastResponse far = archive(20);
+        // The far archive's mid/high/dark values differ from every other point's, so a read from the
+        // wrong archive cannot pass.
+        OpenMeteoForecastResponse far = farArchive(20);
         when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
                 .thenReturn(List.of(archive(60), archive(85), archive(95), archive(), far));
 
@@ -108,18 +110,18 @@ class CloudVerificationServiceTest {
 
         CloudVerificationEntity row = savedRow();
         assertThat(row.getFarLowCloud()).isEqualTo(20);
-        assertThat(row.getFarMidCloud()).isEqualTo(55);
-        assertThat(row.getFarHighCloud()).isEqualTo(35);
-        assertThat(row.getFarLowCloudDark()).isEqualTo(90);
-        assertThat(row.getFarMidCloudDark()).isEqualTo(60);
-        assertThat(row.getFarHighCloudDark()).isEqualTo(40);
+        assertThat(row.getFarMidCloud()).isEqualTo(72);
+        assertThat(row.getFarHighCloud()).isEqualTo(82);
+        assertThat(row.getFarLowCloudDark()).isEqualTo(93);
+        assertThat(row.getFarMidCloudDark()).isEqualTo(73);
+        assertThat(row.getFarHighCloudDark()).isEqualTo(83);
     }
 
     @Test
     @DisplayName("backfill leaves a far layer null when the archive omits it, and keeps the others")
     void backfill_missingFarLayers_recordNull() {
         when(repository.findUnverified(any(), any())).thenReturn(List.of(candidate()));
-        OpenMeteoForecastResponse far = archive(20);
+        OpenMeteoForecastResponse far = farArchive(20);
         far.getHourly().setCloudCoverMid(null);
         far.getHourly().setCloudCoverHigh(null);
         when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
@@ -129,7 +131,7 @@ class CloudVerificationServiceTest {
 
         CloudVerificationEntity row = savedRow();
         assertThat(row.getFarLowCloud()).isEqualTo(20);
-        assertThat(row.getFarLowCloudDark()).isEqualTo(90);
+        assertThat(row.getFarLowCloudDark()).isEqualTo(93);
         assertThat(row.getFarMidCloud()).isNull();
         assertThat(row.getFarHighCloud()).isNull();
         assertThat(row.getFarMidCloudDark()).isNull();
@@ -145,8 +147,8 @@ class CloudVerificationServiceTest {
         OpenMeteoForecastResponse.Hourly hourly = new OpenMeteoForecastResponse.Hourly();
         hourly.setTime(List.of("2026-05-10T20:00", "2026-05-10T21:00"));
         hourly.setCloudCoverLow(List.of(40, 20));
-        hourly.setCloudCoverMid(List.of(50, 55));
-        hourly.setCloudCoverHigh(List.of(30, 35));
+        hourly.setCloudCoverMid(List.of(71, 72));
+        hourly.setCloudCoverHigh(List.of(81, 82));
         far.setHourly(hourly);
         when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
                 .thenReturn(List.of(archive(60), archive(85), archive(95), archive(), far));
@@ -155,16 +157,16 @@ class CloudVerificationServiceTest {
 
         CloudVerificationEntity row = savedRow();
         assertThat(row.getFarLowCloud()).isEqualTo(20);
-        assertThat(row.getFarMidCloud()).isEqualTo(55);
-        assertThat(row.getFarHighCloud()).isEqualTo(35);
+        assertThat(row.getFarMidCloud()).isEqualTo(72);
+        assertThat(row.getFarHighCloud()).isEqualTo(82);
         assertThat(row.getFarLowCloudDark()).isNull();
         assertThat(row.getFarMidCloudDark()).isNull();
         assertThat(row.getFarHighCloudDark()).isNull();
     }
 
     @Test
-    @DisplayName("backfill records no far values when the far archive is null or empty")
-    void backfill_nullOrEmptyFarArchive_recordsNoFarValues() {
+    @DisplayName("backfill records no far values when the far archive is empty")
+    void backfill_emptyFarArchive_recordsNoFarValues() {
         when(repository.findUnverified(any(), any())).thenReturn(List.of(candidate()));
         OpenMeteoForecastResponse empty = new OpenMeteoForecastResponse();
         OpenMeteoForecastResponse.Hourly noTimes = new OpenMeteoForecastResponse.Hourly();
@@ -183,6 +185,48 @@ class CloudVerificationServiceTest {
         assertThat(emptyRow.getFarLowCloudDark()).isNull();
         assertThat(emptyRow.getFarMidCloudDark()).isNull();
         assertThat(emptyRow.getFarHighCloudDark()).isNull();
+    }
+
+    @Test
+    @DisplayName("backfill for a sunrise takes the dark-side values from the hour before the event slot")
+    void backfill_sunrise_darkSideIsThePreviousHour() {
+        when(repository.findUnverified(any(), any())).thenReturn(List.of(sunriseCandidate()));
+        // Sunrise 05:47 -> earliest slot at or after it is 06:00 (index 2); the dark side is 05:00.
+        OpenMeteoForecastResponse far = sunriseFarArchive(List.of("2026-05-10T04:00", "2026-05-10T05:00",
+                "2026-05-10T06:00", "2026-05-10T07:00"));
+        when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
+                .thenReturn(List.of(archive(60), archive(85), archive(95), archive(), far));
+
+        service.backfill(10);
+
+        CloudVerificationEntity row = savedRow();
+        assertThat(row.getFarLowCloud()).isEqualTo(13);
+        assertThat(row.getFarMidCloud()).isEqualTo(23);
+        assertThat(row.getFarHighCloud()).isEqualTo(33);
+        assertThat(row.getFarLowCloudDark()).isEqualTo(12);
+        assertThat(row.getFarMidCloudDark()).isEqualTo(22);
+        assertThat(row.getFarHighCloudDark()).isEqualTo(32);
+    }
+
+    @Test
+    @DisplayName("backfill for a sunrise whose event slot is the first hour records null dark-side values")
+    void backfill_sunriseAtFirstHour_darkSideIsNull() {
+        when(repository.findUnverified(any(), any())).thenReturn(List.of(sunriseCandidate()));
+        // Event slot 06:00 is index 0, so the dark side (index -1) does not exist.
+        OpenMeteoForecastResponse far = sunriseFarArchive(List.of("2026-05-10T06:00", "2026-05-10T07:00",
+                "2026-05-10T08:00", "2026-05-10T09:00"));
+        when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
+                .thenReturn(List.of(archive(60), archive(85), archive(95), archive(), far));
+
+        service.backfill(10);
+
+        CloudVerificationEntity row = savedRow();
+        assertThat(row.getFarLowCloud()).isEqualTo(11);
+        assertThat(row.getFarMidCloud()).isEqualTo(21);
+        assertThat(row.getFarHighCloud()).isEqualTo(31);
+        assertThat(row.getFarLowCloudDark()).isNull();
+        assertThat(row.getFarMidCloudDark()).isNull();
+        assertThat(row.getFarHighCloudDark()).isNull();
     }
 
     @Test
@@ -950,6 +994,35 @@ class CloudVerificationServiceTest {
     private VerificationCandidate candidate() {
         return new VerificationCandidate(42L, 54.7753, -1.5849, 250,
                 LocalDateTime.of(2026, 5, 10, 21, 37), TargetType.SUNSET);
+    }
+
+    private VerificationCandidate sunriseCandidate() {
+        return new VerificationCandidate(42L, 54.7753, -1.5849, 250,
+                LocalDateTime.of(2026, 5, 10, 5, 47), TargetType.SUNRISE);
+    }
+
+    /** A far-point archive whose values match no other point's, for the 20:00/21:00/22:00 sunset hours. */
+    private OpenMeteoForecastResponse farArchive(int lowAtEventHour) {
+        OpenMeteoForecastResponse.Hourly hourly = new OpenMeteoForecastResponse.Hourly();
+        hourly.setTime(List.of("2026-05-10T20:00", "2026-05-10T21:00", "2026-05-10T22:00"));
+        hourly.setCloudCoverLow(List.of(41, lowAtEventHour, 93));
+        hourly.setCloudCoverMid(List.of(71, 72, 73));
+        hourly.setCloudCoverHigh(List.of(81, 82, 83));
+        OpenMeteoForecastResponse response = new OpenMeteoForecastResponse();
+        response.setHourly(hourly);
+        return response;
+    }
+
+    /** A four-hour far-point archive with low 11..14, mid 21..24 and high 31..34, in slot order. */
+    private OpenMeteoForecastResponse sunriseFarArchive(List<String> times) {
+        OpenMeteoForecastResponse.Hourly hourly = new OpenMeteoForecastResponse.Hourly();
+        hourly.setTime(times);
+        hourly.setCloudCoverLow(List.of(11, 12, 13, 14));
+        hourly.setCloudCoverMid(List.of(21, 22, 23, 24));
+        hourly.setCloudCoverHigh(List.of(31, 32, 33, 34));
+        OpenMeteoForecastResponse response = new OpenMeteoForecastResponse();
+        response.setHourly(hourly);
+        return response;
     }
 
     private OpenMeteoForecastResponse archive() {

@@ -15,6 +15,10 @@ package com.gregochr.goldenhour.model;
  * <p>The five trailing far-point components are recorded for later analysis and are never
  * prompted: no prompt builder and no triage rule reads them.
  *
+ * <p>The dark-side slot is adjacent to the stored slot. When {@code TimeSlotUtils.findBestIndex}
+ * had to fall back (no slot on the event's preferred side, for example an event outside the hourly
+ * array), the stored slot and its dark-side neighbour are both away from the event.
+ *
  * @param solarLowCloudPercent      low cloud (0-3 km) at the solar horizon point (113 km)
  * @param solarMidCloudPercent      mid cloud (3-8 km) at the solar horizon point (113 km)
  * @param solarHighCloudPercent     high cloud (8+ km) at the solar horizon point (113 km)

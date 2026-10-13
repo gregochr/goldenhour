@@ -17,8 +17,8 @@ import java.time.LocalDateTime;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The replay mapper skips a property it does not know, logs it once at WARN, and still reads every
- * property it does know.
+ * The replay mapper skips a property it does not know, logs each skipped occurrence at WARN, and
+ * still reads every property it does know.
  */
 class ReplayJsonTest {
 
@@ -36,6 +36,7 @@ class ReplayJsonTest {
     @AfterEach
     void detach() {
         logger.detachAppender(appender);
+        appender.stop();
     }
 
     @Test
@@ -54,6 +55,12 @@ class ReplayJsonTest {
         assertThat(dc.farSolarLowCloudPercent()).isEqualTo(70);
         assertThat(dc.farSolarMidCloudPercent()).isEqualTo(80);
         assertThat(dc.farSolarHighCloudPercent()).isNull();
+        assertThat(appender.list)
+                .singleElement()
+                .satisfies(e -> {
+                    assertThat(e.getLevel()).isEqualTo(Level.WARN);
+                    assertThat(e.getFormattedMessage()).contains("aFieldFromANewerBuild");
+                });
     }
 
     @Test

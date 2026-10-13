@@ -548,8 +548,9 @@ public class OpenMeteoService {
      *
      * <p>Makes up to five additional Open-Meteo calls (cloud layers only): three for the
      * solar cone, one for the antisolar point, and one for the far solar point. Returns
-     * {@code null} if the core solar/antisolar fetches fail; the far fetch failing sets
-     * {@code farSolarLowCloudPercent} to {@code null} only, not the whole result.
+     * {@code null} if the core solar/antisolar fetches fail; the far fetch failing leaves
+     * every far field (low, mid, high and the dark-hour trio) {@code null} and nothing else, not the
+     * whole result.
      *
      * <p>From the same far-point response it also records, never prompted, the far mid and high
      * at the event's slot and the far low, mid and high at the dark-side hour (see

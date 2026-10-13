@@ -291,7 +291,7 @@ region-events), not the whole history, to stay inside Open-Meteo's fair use.
 The delegation plan, broken into task cards for subagents, is
 `docs/engineering/far-cloud-capture-plan.md`.
 
-**Built 2026-10-14 (S1 and the dark-side hour):** V175, on `feature/far-cloud-capture` (PR #A of the
+**Built 2026-10-13 (S1 and the dark-side hour), pending CI:** V175, on `feature/far-cloud-capture` (PR #A of the
 capture plan). S0 follows as that plan's T7 (PR #B).
 
 Can run alongside P1. It is the only build step that does not wait for P1, because S1 is free.

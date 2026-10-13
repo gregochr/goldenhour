@@ -22,9 +22,12 @@ import java.io.IOException;
  * is recorded as failed. This mapper skips an unknown property instead, so a later rollback can
  * still replay rows written after it.
  *
- * <p>It is not silent. Each skipped property is logged once at WARN, naming it. A field that was
+ * <p>It is not silent. Each skipped property is logged at WARN, naming it, every time it is met. A field that was
  * renamed, rather than added, then shows up in the log, instead of quietly replaying a different
  * prompt.
+ *
+ * <p>{@code FAIL_ON_UNKNOWN_PROPERTIES=false} is defence in depth: the handler answers first, so the
+ * flag only matters if the handler is removed.
  */
 public final class ReplayJson {
 

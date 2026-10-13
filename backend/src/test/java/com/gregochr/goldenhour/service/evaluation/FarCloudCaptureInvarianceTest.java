@@ -16,13 +16,15 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Proves that the far-point values recorded for far-cloud-lid-plan P2 (mid, high and the dark-side
  * hour) can never reach a prompt or triage. Each state is built twice: once with the recorded
  * components null, once with every component outside the originally prompted seven set to a
- * loud 95. Every prompt builder entry point and the triage evaluator must give identical output.
+ * loud value, tried at 0, 50 and 95. Every prompt builder entry point and the triage evaluator must
+ * give identical output.
  * Positive controls prove the test would notice a leak: the markers the prompt does produce are
  * present, and the one prompted far field still moves the message.
  */
@@ -33,7 +35,8 @@ class FarCloudCaptureInvarianceTest {
             "antisolarLowCloudPercent", "antisolarMidCloudPercent", "antisolarHighCloudPercent",
             "farSolarLowCloudPercent");
 
-    private static final int LOUD = 95;
+    /** Values for every recorded component on the loud variant: none, middling and extreme. */
+    private static final int[] LOUD_VALUES = {0, 50, 95};
 
     /** States as {solarLow, farLow}: plain, THIN STRIP, FAR CORRIDOR, and one that triage stands down. */
     private static final List<int[]> STATES = List.of(
@@ -60,12 +63,27 @@ class FarCloudCaptureInvarianceTest {
     }
 
     @Test
-    void loudVariantReallyDiffersInTheRecordedComponents() {
-        assertNotEquals(quiet(70, 20).directionalCloud(), loud(70, 20).directionalCloud());
-        long unprompted = Arrays.stream(DirectionalCloudData.class.getRecordComponents())
-                .filter(c -> !PROMPTED.contains(c.getName()))
-                .count();
+    void loudVariantReallyDiffersInTheRecordedComponents() throws ReflectiveOperationException {
+        assertNotEquals(quiet(70, 20).directionalCloud(), loud(70, 20, 95).directionalCloud());
+        int unprompted = 0;
+        for (RecordComponent c : DirectionalCloudData.class.getRecordComponents()) {
+            if (PROMPTED.contains(c.getName())) {
+                continue;
+            }
+            unprompted++;
+            assertNull(c.getAccessor().invoke(quiet(70, 20).directionalCloud()),
+                    c.getName() + " must be null on the quiet variant");
+            assertEquals(95, c.getAccessor().invoke(loud(70, 20, 95).directionalCloud()),
+                    c.getName() + " must carry the loud value on the loud variant");
+        }
         assertTrue(unprompted >= 5, "T1 added five recorded components");
+    }
+
+    @Test
+    void triagePositiveControl_quietStandDownStateIsAStandDownAndQuietClearStateIsNot() {
+        // WeatherTriageEvaluator stands down when solar low cloud exceeds 80%: 85 does, 10 does not.
+        assertTrue(triage.evaluate(quiet(85, 20)).isPresent());
+        assertTrue(triage.evaluate(quiet(10, 5)).isEmpty());
     }
 
     // ---- invariance ----
@@ -82,45 +100,57 @@ class FarCloudCaptureInvarianceTest {
 
     private void assertBuilderInvariant(PromptBuilder builder) {
         for (int[] s : STATES) {
-            AtmosphericData base = quiet(s[0], s[1]);
-            AtmosphericData lou = loud(s[0], s[1]);
-            String label = "state solarLow=" + s[0] + " farLow=" + s[1];
-            assertEquals(builder.buildUserMessage(base), builder.buildUserMessage(lou), label);
-            assertEquals(
-                    builder.buildUserMessage(base, base.surge(),
-                            base.adjustedRangeMetres(), base.astronomicalRangeMetres()),
-                    builder.buildUserMessage(lou, lou.surge(),
-                            lou.adjustedRangeMetres(), lou.astronomicalRangeMetres()),
-                    label + " (surge overload)");
+            for (int v : LOUD_VALUES) {
+                AtmosphericData base = quiet(s[0], s[1]);
+                AtmosphericData lou = loud(s[0], s[1], v);
+                String label = "state solarLow=" + s[0] + " farLow=" + s[1] + " loud=" + v;
+                assertEquals(builder.buildUserMessage(base), builder.buildUserMessage(lou), label);
+                assertEquals(
+                        builder.buildUserMessage(base, base.surge(),
+                                base.adjustedRangeMetres(), base.astronomicalRangeMetres()),
+                        builder.buildUserMessage(lou, lou.surge(),
+                                lou.adjustedRangeMetres(), lou.astronomicalRangeMetres()),
+                        label + " (surge overload)");
+            }
         }
     }
 
     @Test
     void woodlandPromptBuilderOutputIgnoresRecordedFarFields() {
+        // Guards against a future leak: this builder does not read directionalCloud today.
         WoodlandPromptBuilder builder = new WoodlandPromptBuilder(new WoodlandVerdictEvaluator());
         for (int[] s : STATES) {
-            assertEquals(builder.buildUserMessage(quiet(s[0], s[1])),
-                    builder.buildUserMessage(loud(s[0], s[1])));
+            for (int v : LOUD_VALUES) {
+                assertEquals(builder.buildUserMessage(quiet(s[0], s[1])),
+                        builder.buildUserMessage(loud(s[0], s[1], v)),
+                        "state " + s[0] + "/" + s[1] + " loud=" + v);
+            }
         }
     }
 
     @Test
     void bluebellPromptBuilderOutputIgnoresRecordedFarFields() {
+        // Guards against a future leak: this builder does not read directionalCloud today.
         BluebellPromptBuilder builder = new BluebellPromptBuilder();
         BluebellConditionScore score = new BluebellConditionScore(
                 8, true, true, true, false, true, true, BluebellExposure.WOODLAND,
                 "Misty and still");
         for (int[] s : STATES) {
-            assertEquals(builder.buildUserMessage(quiet(s[0], s[1]).withBluebellConditionScore(score)),
-                    builder.buildUserMessage(loud(s[0], s[1]).withBluebellConditionScore(score)));
+            for (int v : LOUD_VALUES) {
+                assertEquals(builder.buildUserMessage(quiet(s[0], s[1]).withBluebellConditionScore(score)),
+                        builder.buildUserMessage(loud(s[0], s[1], v).withBluebellConditionScore(score)),
+                        "state " + s[0] + "/" + s[1] + " loud=" + v);
+            }
         }
     }
 
     @Test
     void triageResultIgnoresRecordedFarFields() {
         for (int[] s : STATES) {
-            assertEquals(triage.evaluate(quiet(s[0], s[1])), triage.evaluate(loud(s[0], s[1])),
-                    "state solarLow=" + s[0] + " farLow=" + s[1]);
+            for (int v : LOUD_VALUES) {
+                assertEquals(triage.evaluate(quiet(s[0], s[1])), triage.evaluate(loud(s[0], s[1], v)),
+                        "state solarLow=" + s[0] + " farLow=" + s[1] + " loud=" + v);
+            }
         }
     }
 
@@ -130,14 +160,14 @@ class FarCloudCaptureInvarianceTest {
         return LowHauxleyFixture.atmosphericData().withDirectionalCloud(record(solarLow, farLow, null));
     }
 
-    private static AtmosphericData loud(int solarLow, int farLow) {
-        return LowHauxleyFixture.atmosphericData().withDirectionalCloud(record(solarLow, farLow, LOUD));
+    private static AtmosphericData loud(int solarLow, int farLow, int value) {
+        return LowHauxleyFixture.atmosphericData().withDirectionalCloud(record(solarLow, farLow, value));
     }
 
     /**
      * Builds a record through its canonical constructor found by reflection. The seven prompted
      * components come from the fixture except solar low and far low; every other component takes
-     * {@code unprompted} (null or loud), so a future component is covered with no edit.
+     * {@code unprompted} (null, or a loud value), so a future component is covered with no edit.
      */
     private static DirectionalCloudData record(int solarLow, int farLow, Integer unprompted) {
         DirectionalCloudData fixture = LowHauxleyFixture.atmosphericData().directionalCloud();
