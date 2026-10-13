@@ -6765,6 +6765,10 @@ button.wf-hc.also.on:hover {
    v2-plan.md §4.5): the bundle's is the stale red-amber-green ramp from before the temperature
    scale shipped, and would invert what the field's colours mean on this tab. */
 .wf-legend-ramp {
+  /* ⚠️ An empty flex item: its automatic minimum height is its content's, which is nothing, so when
+     `--wf-fit-room` caps the panel on a short map the column squeezed the 9px ramp to its 2px of
+     border. `flex: none` holds it; the panel scrolls instead. Pinned by `locationSheetRowsCss.test.js`. */
+  flex: none;
   height: 9px;
   border-radius: 999px;
   border: 1px solid rgba(0, 0, 0, 0.3);

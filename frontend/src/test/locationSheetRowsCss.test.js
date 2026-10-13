@@ -49,3 +49,23 @@ describe('location sheet rows', () => {
     expect(declared(rows, 'flex-direction')).toBe('column');
   });
 });
+
+/**
+ * The map legend has the same shape: a flex-column scroller (`.wf-legend-panel`, capped by
+ * `--wf-fit-room` on a short map) holding an EMPTY 9px ramp, whose automatic minimum height is its
+ * content's — nothing — so the cap squeezed it to its border. Measured in headless Chromium: 2px
+ * before, 9px after.
+ */
+describe('map legend ramp', () => {
+  it('the panel is a capped flex-column scroller', () => {
+    const panel = ruleBody('.wf-legend-panel');
+    expect(declared(panel, 'overflow-y')).toBe('auto');
+    expect(declared(panel, 'flex-direction')).toBe('column');
+  });
+
+  it('the empty ramp never shrinks', () => {
+    const ramp = ruleBody('.wf-legend-ramp');
+    expect(declared(ramp, 'height')).toBe('9px');
+    expect(declared(ramp, 'flex')).toBe('none');
+  });
+});
