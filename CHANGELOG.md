@@ -5,6 +5,231 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.27.0] - 2026-10-13
+
+### Changed — "Too few rated" replaces a weather-only "Worth it" on every Plan and Map surface
+
+The client now speaks the server's new `UNRATED` display verdict
+(`docs/engineering/unrated-verdict-plan.md`, U2). At window and region level the word is **"Too few
+rated"** — the Plan card, the popup badge and region rail, the Map's window pill, landing card,
+drilldown rows and peek sheet, the regional-planner grid cell and its pill; at slot level (an Ask
+pick) it is **"Not rated"**. It takes the neutral treatment: no verdict tint or bloom, grid tier 5, no
+◎ before the word, no confidence decay or provisional mark on the badge (the word already says it),
+and the Map's all-Poor fold counts `STAND_DOWN` only, so "neither is worth the drive" is never said
+over a window nothing has called. The field's haze, by contrast, follows the server's tier for an
+UNRATED window (an ineligible region is floored LOW there), so the picture is as hazy as the server
+says; only the badge channel stays off. The card prints the region's mean beside the new word —
+"Too few 3.6★" is the honest card, since the gate withheld a verdict from exactly those ratings — and
+stays silent beside a triage "Poor".
+
+**One short form, `Too few`, for the cells that cannot hold seven more characters.** "Too few rated" is
+85.8px at the card's 11px type and 91px in the window pill's tracked capitals. Measured in headless
+Chromium against the built stylesheet and the real faces, in the shell's own geometry: the Plan
+card's value column is 70.3 / 90.3 / 97.8px at a 320 / 360 / 375px viewport, 79.3 / 111.3px at 640 /
+768 and 85.3px at a docked 1024, and "Too few rated 3.6★" needs 113.8px — so no single breakpoint fits
+the full word on the card, and an earlier cut that wrapped the mean onto a second line made the row
+31.5px against 20.0px and pushed that card's Spread and Best rows 11.5px below its neighbours'. The
+card now prints "Too few 3.6★" (74.2px) on ONE line at every width (rows 20.0px; Spread and Best at the
+same offsets as a "Worth it" card's; only the 320px viewport's 70.3px column ellipsises the word, by
+3.7px, as "Worth it" already does there). The same short form is drawn in the Map drilldown's region
+row (a 62px grid track that the full word overprinted onto the region name at 320, 360 and 640–700px;
+now 48px with 23px to spare), in the peek sheet's flex-none "Other windows" cell (the day label had been
+crushed to 12px at 320px; now 48px, wider than a "Worth it" row's 42px) and in the window pill at 811px
+and below (the full word clipped the day label at 320–430px and itself at 640–700px — the pill's day
+label is now whole at 340px and up — at 320px it is 7px short, a residual the control already carried
+for a rated word — and the word fits at every width above 650px). Every one of them
+keeps "Too few rated" in its accessible name; the badge, the landing card, the drilldown header and the
+grid cell keep the full word. One home for the pair: `VERDICT_LABEL_SHORT` / `VerdictWord`.
+
+Smaller fixes from the same review: an all-UNRATED region is no longer filed under "+N regions · all
+poor" in the regional planner's grid (which sorts an UNRATED cell with a stood-down one, both tier 5,
+alphabetically between them; the popup's region rail does rank it above a stood-down one); the
+peek sheet's two UNRATED words take an explicit secondary ink instead of falling through to primary;
+the drilldown's note for a lone UNRATED region no longer opens "Verdict is the strongest region's
+average", and the card's Region line says "Too few rated in X to call it" rather than "The verdict is
+X's".
+
+The location sheet's window rows and the Map callout now name a slot with no rating by its own served
+verdict — "Not rated" for an `UNRATED` slot, "Poor" for a weather stand-down, "Not scored yet" only
+when nothing was served — where both used to print "Not scored yet" for all three (Codex review of
+#1140: the slot-level words reached Ask's pick cards alone). Where the scores endpoint has no row for a slot (a weather GO/MARGINAL slot with no Claude result, which it never emits), that word falls back to the briefing slot's own served verdict, so "Not rated" is reachable there; the score row wins when both speak.
+
+### Changed — a weather-triage pass is no longer served as "Worth it"
+
+`DisplayVerdict` gains `UNRATED` ("the weather screen did not rule it out, and no trustworthy rating
+has called it"). With no rating, a weather-triage `GO` or `MARGINAL` now resolves to `UNRATED` instead
+of `WORTH_IT` / `MAYBE`; a triage `STANDDOWN` still reads `STAND_DOWN` (a decision against the slot)
+and no triage at all still reads `AWAITING`. A rating still decides exactly as before. Since the
+verdict sample gate (2026-09-29) that fallback was the common case at T+2 and T+3: on 2026-10-13
+Northumberland & Tyneside's Friday sunrise read "Worth it" on weather alone over 38 ratings the gate
+had withheld (mean 3.6), and its sunset read "Maybe" over a withheld 2.1 mean, while a region with no
+ratings at all was blanked to "Not scored at this range" — more evidence buying a bigger claim. A
+gate-failing region, an unrated slot and a window whose only regions are unrated now all read
+`UNRATED`; none can be a BEST BET or ALSO GOOD pick (`verdictEligible()` is unchanged), the honesty
+filter still words a blanked region `AWAITING` or `STAND_DOWN` by reason, and stars, `meanRating`,
+`sampleSufficient` and `forcedSample` are untouched. No migration (no column holds a
+`DisplayVerdict`; `briefing_region_snapshot.display_verdict` is a free-text `VARCHAR(20)`), and the
+serve path re-derives every region's verdict, so the API is right from the first request after
+deploy. Ask's tools serialise the verdict by name, so the model can see `UNRATED` on `list_windows`;
+the system prompt lists no verdict words, so nothing was added to it. A stored Ready answer is
+unaffected: `AskReadyFreshness` compares each PICK's slot verdict, which cannot be `UNRATED` (a pick is
+rated at 3★ or better), so no stored answer is withheld by this change. The client wording and
+treatment are a separate change.
+
+### Changed — T+1 evaluation cache cap drops from 8 h to 3 h (solar refresh P3 prep)
+
+`photocast.freshness.horizon.t1-hours` now defaults to 3 (was 8). A cached entry's age runs from
+when its results arrived, not from when its cycle fired, so the cap must sit below the shortest gap
+between cycles minus the slowest batch the pipeline still waits for. With sun-relative cycles the
+shortest gap is midwinter morning to afternoon (~7 h 24 min at Durham), and a cycle waits up to its
+3 h 30 min safety budget, so a morning batch can land ~3 h 54 min before the afternoon trigger; 3 h
+stays under that. (A first cut at 6 h, caught in review, would have let any morning batch slower
+than ~1 h 24 min hold its T+1 regions through the afternoon as cached.) The cap is applied to both
+cycles by the shared CACHED gate in `BriefingCandidateCollector`, before eligibility.
+
+Behaviour-changing today as well, but only in principle: under the current 01:00 / 14:00 schedule
+the gaps between cycles are 13 h and 11 h, so a T+1 entry written by one cycle is always older than
+8 h (hence also 3 h) at the next, and the cap cannot bite between scheduled cycles. It can only bite
+for a manual or restart-recovery run within 3-8 h of the previous cycle, which now re-evaluates
+instead of reading the cache. A hand-edited `t1-hours` override on the production host is not
+changed by this; remove or lower it there before switching the afternoon job to SOLAR_OFFSET.
+
+Text-only: rationale in `IntradayEligibilityPolicy`, `AstroConditionsRefreshJob`,
+`PipelineOrchestrator` and `application-example.yml` no longer hard-codes 01:00 / 14:00; the
+stability-snapshot log line no longer labels a >12 h age as "recovered after restart" (log only).
+
+### Changed — the stability snapshot read back after a restart is good for 30 hours, not 24
+
+`StabilitySnapshotProvider` treated a persisted grid-cell stability snapshot older than exactly 24 hours as missing. Under a sun-relative morning cycle the gap between two morning snapshots drifts a few minutes a day, so a restart just before the next cycle would have read yesterday's snapshot as absent and treated every region as UNSETTLED (the 4-hour freshness threshold, so more Claude spend). The window is now 30 hours; the worst case it admits is a classification from a missed morning cycle, six hours older than before. No behaviour changes until the morning cycle is switched to a solar schedule.
+
+### Added — a `SOLAR_OFFSET` schedule type, its trigger, a switch endpoint and a preview (no job uses it yet)
+
+Solar-relative refresh plan, P2a. The scheduler can now time a job a fixed number of minutes before sunrise or
+sunset at a reference point (Durham by default, `photocast.scheduler.solar-reference.lat|lon`; a bad value logs
+ERROR and uses Durham, it never stops startup). **No production row is switched by this change**: migration V171
+adds the nullable `solar_event` and `solar_offset_minutes` columns (with CHECKs) and touches no row.
+
+`SolarOffsetTrigger` computes in instants (event minus offset, so DST cannot create a missing or doubled hour),
+never fires before 00:05 UK of the day it serves, never returns null (a throwing or NaN calculator, the
+midnight sentinel for an event that does not occur, or a fire outside 00:05-06:00 UK for sunrise or 10:00-20:00
+UK for sunset all fall back to the job's stored cron, and as a last resort to a time a day on), fires strictly
+after both now and the last scheduled execution, and logs one INFO line per fire. Only `near_term_batch_evaluation`
+and `intraday_forecast_refresh` may become solar.
+
+`PUT /api/admin/scheduler/jobs/{jobKey}/schedule-type` (ADMIN) switches a job between `CRON` and `SOLAR_OFFSET`
+(`{scheduleType, solarEvent?, solarOffsetMinutes?}`). It validates and builds the new trigger before anything is
+written or cancelled, writes the three columns in one column-scoped update, and installs the new schedule before
+cancelling the old one; the stored cron is kept unchanged so the switch is its own rollback. The job list DTO gains
+`solarEvent` and `solarOffsetMinutes`. `GET /api/admin/scheduler/solar-preview` (ADMIN) shows, for both cycles,
+today's and tomorrow's event and fire instants, the year's earliest and latest fire time of day, the reference
+point and the median cycle duration, all from the trigger's own arithmetic.
+
+On startup a solar job that missed today's fire runs once immediately if no run of its cycle has got past
+submission since the fire (a run the restart killed before submitting does not count) and useful lead remains
+(before 05:00 UK for the morning cycle, at least 90 minutes before sunset for the afternoon one). The pipeline's
+startup recovery scan is now ordered to finish before the scheduler starts, so it can never take a catch-up run
+that has just begun for one the previous process left behind. The existing admin screen still treats a solar row like a fixed-delay one (P2c).
+
+### Added — the Scheduler screen understands sun-relative forecast cycles
+
+The Operations tab's Scheduler screen now shows each schedule type in its own form: a fixed cron
+time, a fixed delay, and a sun-relative rule ("4 h 15 min before sunrise") with its next fire time in
+UK time. A schedule type the screen does not recognise is labelled as such and cannot be edited, and
+editing a sun-relative job no longer sends a zero fixed delay. The two forecast cycle jobs (nightly
+and intraday) get a switch between a fixed time and a sun-relative one, behind a confirmation that
+states the job's next fire time before and after, pre-fills the plan's rule from the server and
+checks the offset (0 to 720 minutes) before anything is sent. A new read-only panel, fed only by the
+solar preview endpoint, shows each cycle's rule (proposed or current), today's and tomorrow's event
+and trigger times, the expected finish, the year's earliest and latest trigger, the reference point,
+and notes on catch-up and the safety budget. No schedule is changed by this release; switching a
+job is a deliberate click by an admin.
+
+Review fixes: switching back to a fixed time is described as dropping the sun-relative rule (the
+backend clears it), a failed preview refresh keeps the older figures under a notice and blocks the
+switch to sun-relative until it recovers, a day that falls back to the stored cron is quoted as such,
+a partial save says the fallback cron was saved, a blank fallback cron is refused, slower earlier
+responses no longer overwrite newer ones, and the editor moves focus in and back to the Edit button.
+
+### Fixed — one job's schedule configuration can no longer stop the other jobs being scheduled
+
+`DynamicSchedulerService` is hardened ahead of any new schedule type (solar-relative-refresh plan, P1).
+`initSchedules` isolates each `scheduler_job_config` row: a row with a null or unparseable cron, a null or
+non-positive delay, a schedule type this build does not know, or a scheduler that throws for it is logged at
+ERROR with its job key and left unscheduled, and every other job is still scheduled. `scheduleJob` switches
+explicitly on the type instead of treating everything that is not CRON as FIXED_DELAY. `updateSchedule` builds
+and validates the replacement first, installs it, and only then cancels the old future, so a bad request is a 400
+that changes nothing and a failure to install never leaves the job unscheduled; it also refuses a job whose
+stored type is unrecognised. `resume` of such a job logs ERROR, leaves its status as it was and schedules nothing.
+
+`scheduler_job_config.schedule_type` is now read as a plain string (`updatable = false`, so no save of a loaded
+row can write over it) instead of an `@Enumerated`, so a value this version does not know no longer fails the
+load of the whole table or `GET /api/admin/scheduler/jobs`; the endpoint reports the raw string. This makes a
+later schedule type rollback-safe. No migration: the column is unchanged.
+
+Cron triggers are pinned to UTC (they used the JVM default zone). Production's JVM already runs in UTC, so
+nothing changes there; on a London-zoned machine the trigger and the displayed next fire time now agree.
+
+### Changed — one 3 h 30 min safety budget per forecast cycle, and a briefing rebuild when a batch lands late
+
+Solar-relative refresh plan, P2b (D3, B1). The pipeline's wait used to take a fresh `photocast.pipeline.safety-timeout`
+(4 h) for the batch wait and again for the retry wait, and a restart restarted the clock, so one cycle could stay
+RUNNING for 8 h or more, longer than the shortest gap between two cycles. The deadline is now the cycle's **first
+batch submit** (`min(forecast_batch.submitted_at)` for the run) plus the timeout, read from the database on every
+poll, so WAIT and RETRY_FAILED share one budget and a restart cannot extend it. The default is now **PT3H30M**
+(`application-example.yml` updated; the slowest of 49 observed cycles took 181 min). A run with no batch that has a
+submit instant keeps the old now-plus-timeout.
+
+A retry is no longer submitted when under ten minutes of the budget remain: the RETRY_FAILED phase is completed with
+the reason and the run carries on to the briefing with those locations left failed, rather than submitting a batch it
+cannot wait for and failing a cycle whose original batches all landed.
+
+When a FORECAST batch ends after its pipeline cycle has already finished with it (the run is COMPLETED, DEGRADED or
+FAILED, for instance on the safety budget) and no other FORECAST batch of that run is still outstanding,
+`LateBatchBriefingRebuild` asks for `BriefingService.refreshBriefingIfIdle()` on a background executor, so the gloss
+prose and best-bet picks follow the late ratings. It never persists the cycle's picks, never dispatches the Ask Ready
+or almanac refresh, never touches `pipeline_run`, and a rebuild refused because one is already running is logged and
+not retried. An ad-hoc batch (no `pipeline_run_id`) and an aurora batch trigger nothing.
+
+**Operator note:** the production host's config is hand-edited. `application-prod.yml` does not set
+`photocast.pipeline.safety-timeout`, so the new default applies unless the host's own file overrides it.
+
+### Fixed — the four-day location sheet and the map legend scroll instead of squeezing their contents
+
+A place's window rows in the location sheet (opened from the Plan popup, Plan search, the Map
+callout's "Four days here" and Ask's "Open in Plan") were shrunk to fit the sheet, so an open
+row's prose was cut off at its bottom edge and closed rows lost half their second line. Rows now
+keep their full height and the list scrolls. The map legend had the same fault on a short map:
+its colour ramp was squeezed to a 2px line; it now keeps its 9px and the legend scrolls. CSS only
+(`.wf-loc-row` gains `flex-shrink: 0`, `.wf-legend-ramp` gains `flex: none`), pinned by a
+stylesheet test and measured in headless Chromium.
+
+### Added — a forecast-cycle watchdog that mails the admins when a cycle does not start or has not finished
+
+Solar-relative refresh plan, P2b (B2). A new scheduled job, `forecast_cycle_watchdog` (migration V172 seeds one
+ACTIVE row, every 10 minutes, first check 10 minutes after startup; no existing schedule is touched), checks the two
+forecast cycle jobs and emails the admins once per occurrence:
+
+- **Did not start:** the job is ACTIVE, its most recent scheduled fire (a CRON job's last fire in UTC, or a
+  SOLAR_OFFSET job's own fire for today or yesterday) was more than 30 minutes and no more than 6 hours ago, and no
+  pipeline run of its cycle type has been triggered since.
+- **Did not finish:** a run of the cycle triggered today is still RUNNING, or has a forecast batch still outstanding,
+  from 20 minutes before until 60 minutes after the event it serves (nightly: today's sunrise; intraday: today's
+  sunset, at the scheduler's reference point).
+
+Each alert names the job, the fire or run, the event in UK local time and what is missing, and is latched in memory
+per (job, fire) or (job, run), so a still-true condition is not mailed again every ten minutes. The watchdog only
+reads: it never starts, stops or retries a run, and any failure inside it is logged and swallowed. It needs
+`notifications.admin-alerts.enabled` and working mail, like Ask's spend-cap alert. It works with today's CRON
+schedules unchanged.
+
+### Changed — the daily briefing model comparison moves from 05:00 to 06:30 UTC
+
+The comparison reads the briefing the morning forecast cycle built. A sun-relative morning cycle can start as late as 04:15 UTC in midwinter, which left about 45 minutes. V173 moves the `briefing_model_comparison` schedule to `0 30 6 * * *`, only if it still holds the seeded `0 0 5 * * *`; a hand-edited schedule is left alone, and no other job changes.
+
+### Fixed — the batch summary in admin views dates its horizon by the UK day
+
+`BatchSummaryDeriver` measured a batch run's horizon from the UTC date of `job_run.started_at`. A midsummer morning run starting at 23:13 UTC is already the next UK day, so it would have shown T+1 to T+4 instead of T to T+3. It now uses the UK civil date through `ForecastHorizon`; runs started at 01:00 UTC are unchanged.
+
 ## [v2.26.6] - 2026-10-13
 
 ### Changed — the Plan card shows the region mean behind its verdict word
