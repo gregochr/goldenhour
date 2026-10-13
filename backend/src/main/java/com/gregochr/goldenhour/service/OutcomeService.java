@@ -84,16 +84,29 @@ public class OutcomeService {
     }
 
     /**
+     * Validates that a star rating is in the 1–5 range if present.
+     *
+     * @param value the rating to validate, or {@code null}
+     * @throws IllegalArgumentException if {@code value} is outside 1–5
+     */
+    private void validateRating(Integer value) {
+        if (value != null && (value < 1 || value > 5)) {
+            throw new IllegalArgumentException("actualRating must be between 1 and 5");
+        }
+    }
+
+    /**
      * Persists an observed outcome and returns the saved entity.
      *
      * @param outcome the outcome data received from the client
      * @return the saved entity with its assigned database ID
-     * @throws IllegalArgumentException if either actual score is outside 0–100
+     * @throws IllegalArgumentException if either actual score is outside 0–100 or the rating is outside 1–5
      * @throws NoSuchElementException   if no location matches {@code outcome.locationName()}
      */
     public ActualOutcomeEntity record(ActualOutcome outcome) {
         validateScore(outcome.fierySkyActual(), "fierySkyActual");
         validateScore(outcome.goldenHourActual(), "goldenHourActual");
+        validateRating(outcome.actualRating());
         LocationEntity location = locationRepository.findByName(outcome.locationName())
                 .orElseThrow(() -> new NoSuchElementException(
                         "No location named '" + outcome.locationName() + "'"));
@@ -105,6 +118,7 @@ public class OutcomeService {
                 .targetType(outcome.targetType())
                 .wentOut(outcome.wentOut())
                 .fierySkyActual(outcome.fierySkyActual())
+                .actualRating(outcome.actualRating())
                 .goldenHourActual(outcome.goldenHourActual())
                 .notes(outcome.notes())
                 .recordedAt(LocalDateTime.now(ZoneOffset.UTC))

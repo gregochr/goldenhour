@@ -974,6 +974,8 @@ Two consequences worth stating plainly:
 ### Outcomes (Bearer)
 `GET|POST /api/outcome`
 
+> `POST /api/outcome` takes an optional `actualRating` (1–5, the photographer's observed star rating; out of range → 400). **It is the calibration gate's only input**: `findCalibrationPairs` requires `actual_outcome.actual_rating IS NOT NULL`, so an outcome recorded without it is stored but never reaches `GET /api/admin/calibration`. (Until 2026-10-13 the API had no way to set it, so nothing recorded through the API could be calibrated.)
+
 ### Admin tools (ADMIN)
 `GET /api/metrics/job-runs|api-calls` | `GET|PUT /api/models` | `PUT /api/models/active|optimisation` | `POST /api/model-test/run|run-location|rerun` | `GET /api/model-test/runs|results` | `POST /api/prompt-test/run|replay` | `GET /api/prompt-test/runs|runs/{id}|results|git-info` | `GET /api/admin/calibration?from=&to=`
 

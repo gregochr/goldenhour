@@ -4,9 +4,11 @@ import com.gregochr.goldenhour.entity.ActualOutcomeEntity;
 import com.gregochr.goldenhour.entity.BatchState;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
+import com.gregochr.goldenhour.model.ActualOutcome;
 import com.gregochr.goldenhour.model.CalibrationPair;
 import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.service.ConfidenceDeriver;
+import com.gregochr.goldenhour.service.OutcomeService;
 import com.gregochr.goldenhour.entity.TideDetails;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
@@ -636,6 +638,36 @@ class ForecastEvaluationRepositoryTest {
         assertThat(pair.actualRating()).isEqualTo(5);
         // Forecast said 3, sky delivered 5 — a two-star pessimistic miss.
         assertThat(pair.ratingError()).isEqualTo(-2);
+    }
+
+    @Test
+    @DisplayName("findCalibrationPairs sees an outcome recorded through OutcomeService with a rating")
+    void findCalibrationPairs_seesOutcomeRecordedThroughService() {
+        LocalDate date = LocalDate.of(2026, 5, 10);
+        repository.save(buildHaikuEvaluation(
+                durham, date, TargetType.SUNSET, LocalDateTime.of(2026, 5, 9, 1, 0), 1));
+        OutcomeService service = new OutcomeService(outcomeRepository, locationRepository);
+
+        service.record(new ActualOutcome(54.7753, -1.5849, "Durham UK", date,
+                TargetType.SUNSET, true, 72, 78, null, 2));
+
+        List<CalibrationPair> pairs = repository.findCalibrationPairs(date, date);
+        assertThat(pairs).hasSize(1);
+        assertThat(pairs.getFirst().actualRating()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("findCalibrationPairs ignores an outcome recorded through OutcomeService with no rating")
+    void findCalibrationPairs_ignoresServiceOutcomeWithoutRating() {
+        LocalDate date = LocalDate.of(2026, 5, 10);
+        repository.save(buildHaikuEvaluation(
+                durham, date, TargetType.SUNSET, LocalDateTime.of(2026, 5, 9, 1, 0), 1));
+        OutcomeService service = new OutcomeService(outcomeRepository, locationRepository);
+
+        service.record(new ActualOutcome(54.7753, -1.5849, "Durham UK", date,
+                TargetType.SUNSET, true, 72, 78, null, null));
+
+        assertThat(repository.findCalibrationPairs(date, date)).isEmpty();
     }
 
     @Test

@@ -199,6 +199,36 @@ class OutcomeControllerTest extends AbstractControllerTest {
         assertThat(captured.fierySkyActual()).isEqualTo(68);
         assertThat(captured.goldenHourActual()).isEqualTo(75);
         assertThat(captured.notes()).isEqualTo("Beautiful orange sky");
+        assertThat(captured.actualRating()).isNull();
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /api/outcome deserializes actualRating and returns it")
+    void recordOutcome_actualRating_deserializedAndReturned() throws Exception {
+        ActualOutcomeEntity saved = buildOutcomeEntity();
+        saved.setActualRating(2);
+        when(outcomeService.record(any())).thenReturn(saved);
+
+        mockMvc.perform(post("/api/outcome")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "locationLat": 54.7753,
+                                  "locationLon": -1.5849,
+                                  "locationName": "Durham UK",
+                                  "outcomeDate": "2026-02-20",
+                                  "targetType": "SUNSET",
+                                  "wentOut": true,
+                                  "actualRating": 2
+                                }
+                                """))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.actualRating").value(2));
+
+        ArgumentCaptor<ActualOutcome> captor = ArgumentCaptor.forClass(ActualOutcome.class);
+        verify(outcomeService).record(captor.capture());
+        assertThat(captor.getValue().actualRating()).isEqualTo(2);
     }
 
     private ActualOutcomeEntity buildOutcomeEntity() {

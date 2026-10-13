@@ -8,7 +8,8 @@ import java.time.LocalDate;
  * DTO for recording an actual observed sunrise or sunset outcome.
  *
  * <p>Received as the request body for {@code POST /api/outcome}.
- * All fields except {@code notes}, {@code fierySkyActual}, and {@code goldenHourActual} are required.
+ * All fields except {@code notes}, {@code fierySkyActual}, {@code goldenHourActual} and
+ * {@code actualRating} are required.
  *
  * @param locationLat      latitude of the location in decimal degrees
  * @param locationLon      longitude of the location in decimal degrees
@@ -19,6 +20,8 @@ import java.time.LocalDate;
  * @param fierySkyActual   photographer's observed fiery sky score (0–100), or null
  * @param goldenHourActual photographer's observed golden hour score (0–100), or null
  * @param notes            optional free-text observations
+ * @param actualRating     photographer's observed 1–5 star rating of the colour, or null; this is the
+ *                         figure the calibration gate compares the forecast's star rating against
  */
 public record ActualOutcome(
         double locationLat,
@@ -29,6 +32,7 @@ public record ActualOutcome(
         boolean wentOut,
         Integer fierySkyActual,
         Integer goldenHourActual,
-        String notes
+        String notes,
+        Integer actualRating
 ) {
 }

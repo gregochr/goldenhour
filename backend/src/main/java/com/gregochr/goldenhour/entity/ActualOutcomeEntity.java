@@ -67,7 +67,10 @@ public class ActualOutcomeEntity {
     @Column(name = "went_out")
     private Boolean wentOut;
 
-    /** The photographer's own 1-5 rating of the actual colour. Kept for backward compatibility. */
+    /**
+     * The photographer's own 1-5 rating of the actual colour. This is the calibration gate's input:
+     * {@code findCalibrationPairs} only pairs outcomes where it is non-null.
+     */
     @Column(name = "actual_rating")
     private Integer actualRating;
 
