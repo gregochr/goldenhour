@@ -2211,6 +2211,28 @@ button.wf-hc.on:hover {
   font-weight: 400;
   color: var(--color-plex-text-secondary);
 }
+/* "Northumberland & Tyneside · beyond 45 min" — the Best row's line when the window's verdict
+   belongs to a region every rated place of which the reach tier gated out
+   (plan-card-verdict-honesty-plan.md H2). A real fact about the window rather than an absence, so
+   it keeps the PRIMARY ink (`.none`'s muted ink is for "nothing to report") and the 400 weight that
+   marks it as a statement rather than a place name.
+
+   ⚠️ 10px, not 11px, and `overflow-wrap: anywhere`. The value column is ~88px at a 320px viewport
+   (A27's figure; the key column stays "Spread"-wide because the label is the six-character
+   "Region"). IBM Plex Mono is 0.6em a character: "Northumberland" — the longest single word in any
+   region name served or seeded ("Northumberland & Tyneside", 25 characters, is the longest name;
+   "North York Moors & Coast", 24, the next) — measures 92.4px at 11px, which overflows the column
+   and is clipped by `.wf-hc-pv2`'s `overflow: hidden`, and 84px at 10px, which fits. `anywhere` is
+   the backstop for a name with a longer word than that, so a clip can never eat the region. Worst
+   case at 320px is three lines ("Northumberland &" / "Tyneside · beyond" / "45 min"), ~39px
+   against the slot's 32px minimum: the card grows ~7px at the narrowest width and the grid rows
+   stretch to match, which is the wrap `.wf-hc-best` already budgets for ("Newcastle and Gateshead
+   Quayside"). Wider cards fit it in two. */
+.wf-hc-best.beyond {
+  font-size: 10px;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
 /* Every topic on the night, named in full and wrapping into whatever room the card has spare —
    nothing collapsed behind a `+2`, because a night carrying three of them is the most interesting
    night of the week. Reserved height even when empty, so a topic-free card's rows land on the same

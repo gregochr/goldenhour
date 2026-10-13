@@ -636,6 +636,11 @@ export function buildWindowCards(
        * reach"), this one only licenses naming a filter that did something.
        */
       reachMeasured: allSpots.some((spot) => spot?.driveMinutes != null),
+      // The active reach tier's threshold in minutes, null under "Any" (plan-card-verdict-honesty-plan.md
+      // H2). Carried so the Best row can say "beyond 45 min" in the tier's own words when every rated
+      // spot of the verdict's region was gated out: it is the lens's served-to-us input, not a
+      // derivation, and null is what keeps "beyond" unsayable when no tier acted.
+      reachLimitMinutes: limitMinutes,
       // The set the reach gate LEFT, before the rating floor — the matrix's spread histogram and
       // its best-reachable line are both measured over this (plan-matrix A10/A11).
       //

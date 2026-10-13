@@ -126,6 +126,16 @@ describe('buildHeatStripCards — one thumbnail per rendered window', () => {
     expect(build(events, [])[0].topMeanRating).toBeNull();
   });
 
+  it('carries the active tier\'s minutes through to the thumbnail, null when none (verdict-honesty H2)', () => {
+    // The strip never sees `buildWindowCards`' output directly, so a field the face reads must be
+    // folded here or the component tests (which hand cards straight in) would pass over a drop.
+    const events = [{ date: TODAY, targetType: 'SUNSET' }];
+
+    expect(build(events, [card({ reachLimitMinutes: 45 })])[0].reachLimitMinutes).toBe(45);
+    expect(build(events, [card()])[0].reachLimitMinutes).toBeNull();
+    expect(build(events, [])[0].reachLimitMinutes).toBeNull();
+  });
+
   it('carries no pick kind when the window has no pick at all', () => {
     expect(build([{ date: TODAY, targetType: 'SUNSET' }], [card()])[0].pickKind).toBeNull();
   });

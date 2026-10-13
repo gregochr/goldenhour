@@ -157,6 +157,9 @@ export function buildHeatStripCards(
       // whether this card's own empty-pool words may say "in reach" at all; see
       // `buildWindowCards` for the rule. False on an away day, which has no card and so no scope.
       reachMeasured: Boolean(card?.reachMeasured),
+      // The active tier's minutes (null under "Any" and on an away day) — folded like
+      // `reachMeasured`, for the H2 "region · beyond 45 min" line (plan-card-verdict-honesty-plan.md).
+      reachLimitMinutes: card?.reachLimitMinutes ?? null,
       bestReach: card?.bestReach ?? null,
       // The payload's own list, unfiltered, so the matrix names every topic on the night — the
       // design's "nothing is collapsed behind a +2". ⚠️ There WAS a post-promotion `card.badges`

@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { badgeChannel, buildWindowCards, formatRegionMean } from '../utils/windowFirstCards.js';
+import { bestReachLine } from '../components/WindowFirstHeatStrip.jsx';
+import { buildHeatStripCards } from '../utils/windowFirstStrip.js';
 import { buildRegionRows } from '../utils/windowFirstRegions.js';
 import { factsOf } from './tideFactsFixture.js';
 
@@ -1576,5 +1578,138 @@ describe('the scoped card reads its verdict through the shared resolver', () => 
     );
 
     expect(rows[0].verdict).toBe('WORTH_IT');
+  });
+});
+
+describe('buildWindowCards — the reach tier behind "beyond 45 min" (verdict-honesty H2)', () => {
+  // The production shape of 2026-10-13: the window's verdict belongs to ONE region, every rated
+  // spot of which is further than the active tier, while the places the tier DID keep are unrated.
+  const REGION = 'Northumberland & Tyneside';
+  const slots = [
+    { locationId: 1, locationName: 'Nearby Wood', claudeRating: null, canopy: false },
+    { locationId: 2, locationName: 'Far Beach', claudeRating: 4, canopy: false },
+    { locationId: 3, locationName: 'Far Castle', claudeRating: 4, canopy: false },
+  ];
+  const REACH = new Map([
+    [1, { driveMinutes: 20, distanceMiles: 8 }],
+    [2, { driveMinutes: 70, distanceMiles: 50 }],
+    [3, { driveMinutes: 80, distanceMiles: 55 }],
+  ]);
+  const days = [day(TODAY, [{
+    targetType: 'SUNSET',
+    regions: [{ regionName: REGION, meanRating: 3.5, sampleSufficient: true, slots }],
+    unregioned: [],
+    window: { verdict: 'WORTH_IT', badges: [] },
+  }])];
+  const buildWith = (reachById, lens, origin) => buildWindowCards(
+    events([TODAY, 'SUNSET']), days, TODAY, TOMORROW, new Set(), reachById,
+    origin ? { ...lens, origin } : lens,
+  )[0];
+  /** The line as the strip renders it: the card folded through the real descriptor builder. */
+  const lineOf = (card) => bestReachLine(
+    buildHeatStripCards(events([TODAY, 'SUNSET']), [card], new Set(), days, TODAY, TOMORROW)[0],
+  );
+
+  it('carries the active tier\'s minutes, and null under Any', () => {
+    expect(buildWith(REACH, { limitMinutes: 45, defaultLimitMinutes: 45 }).reachLimitMinutes).toBe(45);
+    expect(buildWith(REACH, { limitMinutes: null, defaultLimitMinutes: 45 }).reachLimitMinutes).toBeNull();
+    // No lens at all is "Any" too.
+    expect(buildWindowCards(events([TODAY, 'SUNSET']), days, TODAY, TOMORROW, new Set(), REACH)[0]
+      .reachLimitMinutes).toBeNull();
+  });
+
+  it('names the verdict\'s region and the tier when the tier gated out every rated spot', () => {
+    const card = buildWith(REACH, { limitMinutes: 45, defaultLimitMinutes: 45 });
+
+    // The state exactly: a non-empty pool, nothing rated in it, a rated verdict behind the word.
+    expect(card.pool.map((s) => s.locationName)).toEqual(['Nearby Wood']);
+    expect(card.pool.every((s) => s.rating == null)).toBe(true);
+    expect(card.topMeanRating).toBe(3.5);
+    expect(card.hotRegionName).toBe(REGION);
+    expect(card.reachMeasured).toBe(true);
+
+    expect(lineOf(card)).toMatchObject({
+      label: 'Region', value: `${REGION} · beyond 45 min`, muted: false, beyond: true,
+    });
+  });
+
+  it('says the tier in the lens bar\'s own words: 1h 30min and 2h 30min, not 90 or 1h 30', () => {
+    // The rated spots sit just past each tier, the unrated one well inside.
+    const reachPast = (rated) => new Map([
+      [1, { driveMinutes: 20, distanceMiles: 8 }],
+      [2, { driveMinutes: rated, distanceMiles: 50 }],
+      [3, { driveMinutes: rated + 10, distanceMiles: 55 }],
+    ]);
+    expect(lineOf(buildWith(reachPast(100), { limitMinutes: 90, defaultLimitMinutes: 90 })).value)
+      .toBe(`${REGION} · beyond 1h 30min`);
+    expect(lineOf(buildWith(reachPast(170), { limitMinutes: 150, defaultLimitMinutes: 150 })).value)
+      .toBe(`${REGION} · beyond 2h 30min`);
+  });
+
+  it('cannot arise with no measured drive: nothing is gated, so every rated spot is in the pool', () => {
+    // An unknown drive passes every tier (plan §2.5), so with no drive time anywhere the pool IS
+    // allSpots, a window with a rated verdict has rated spots in it, and the line must not render
+    // even though a tier is nominally active.
+    const card = buildWith(new Map(), { limitMinutes: 45, defaultLimitMinutes: 45 });
+
+    expect(card.reachMeasured).toBe(false);
+    expect(card.reachLimitMinutes).toBe(45);
+    expect(card.pool).toHaveLength(3);
+    expect(card.pool.filter((s) => s.rating != null)).toHaveLength(2);
+    expect(card.topMeanRating).toBe(3.5);
+    expect(lineOf(card)).toMatchObject({ rating: 4, value: 'Far Beach' });
+    expect(lineOf(card).beyond).toBeUndefined();
+  });
+
+  it('cannot arise under Any: the pool is allSpots, so the rated spots are in it', () => {
+    const card = buildWith(REACH, { limitMinutes: null, defaultLimitMinutes: 45 });
+
+    expect(card.reachMeasured).toBe(true);
+    expect(card.pool).toBe(card.allSpots);
+    expect(card.pool.filter((s) => s.rating != null)).toHaveLength(2);
+    expect(lineOf(card).beyond).toBeUndefined();
+    expect(lineOf(card).value).toBe('Far Beach');
+  });
+
+  it('keeps "not scored yet" for a pool with nothing rated when the WINDOW has no mean either', () => {
+    // The far-horizon state: nothing anywhere is rated, so "beyond" would claim a region's verdict
+    // that does not exist.
+    const unrated = [day(TODAY, [{
+      targetType: 'SUNSET',
+      regions: [{
+        regionName: REGION,
+        slots: slots.map((s) => ({ ...s, claudeRating: null })),
+      }],
+      unregioned: [],
+      window: { verdict: 'WORTH_IT', badges: [] },
+    }])];
+    const card = buildWindowCards(
+      events([TODAY, 'SUNSET']), unrated, TODAY, TOMORROW, new Set(), REACH,
+      { limitMinutes: 45, defaultLimitMinutes: 45 },
+    )[0];
+
+    expect(card.topMeanRating).toBeNull();
+    expect(lineOf(card)).toMatchObject({ label: 'Best', value: 'not scored yet', muted: true });
+  });
+
+  it('keeps "nothing in reach" when the tier emptied the pool (a different, already-true sentence)', () => {
+    const card = buildWith(REACH, { limitMinutes: 5, defaultLimitMinutes: 45 });
+
+    expect(card.pool).toHaveLength(0);
+    expect(lineOf(card)).toMatchObject({ label: 'Best', value: 'nothing in reach' });
+  });
+
+  it('holds away, from the origin: the origin region\'s own mean, and "beyond" measured from it', () => {
+    // Away, the page is about the ORIGIN's region; its mean is the word and the pool is that
+    // region's spots gated by reach from the region base — "beyond 45 min" is still true.
+    const card = buildWith(
+      REACH, { limitMinutes: 45, defaultLimitMinutes: 45 }, { id: 3, name: REGION },
+    );
+
+    expect(card.away).toBeUndefined();
+    expect(card.hotRegionName).toBe(REGION);
+    expect(card.topMeanRating).toBe(3.5);
+    expect(card.pool.every((s) => s.rating == null)).toBe(true);
+    expect(lineOf(card).value).toBe(`${REGION} · beyond 45 min`);
   });
 });
