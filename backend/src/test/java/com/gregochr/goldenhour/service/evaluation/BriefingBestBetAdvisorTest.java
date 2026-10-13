@@ -3850,6 +3850,16 @@ class BriefingBestBetAdvisorTest {
         }
 
         @Test
+        @DisplayName("live: Haiku 5.5 gets thinking disabled and effort LOW even with the thinking flag on, "
+                + "and the configured (not thinking-sized) ceiling")
+        void live_haiku55() {
+            MessageCreateParams params = captureLive(EvaluationModel.HAIKU_55, true);
+
+            ModelRequestAssertions.assertMessage(params, EvaluationModel.HAIKU_55, TEST_MAX_TOKENS,
+                    java.util.Optional.empty());
+        }
+
+        @Test
         @DisplayName("live: Haiku and Sonnet 4.6 (flag off) are unchanged: configured ceiling, no effort")
         void live_otherModelsUnchanged() {
             ModelRequestAssertions.assertMessage(captureLive(EvaluationModel.HAIKU, false),
@@ -3955,6 +3965,22 @@ class BriefingBestBetAdvisorTest {
             verify(anthropicApiClient).createMessage(captor.capture());
             ModelRequestAssertions.assertMessage(captor.getValue(), EvaluationModel.SONNET_55,
                     THINKING_SIZED, java.util.Optional.empty());
+            assertThat(result.status()).isEqualTo(BestBetStatus.SUCCESS_NO_PICKS);
+        }
+
+        @Test
+        @DisplayName("replay: Haiku 5.5 request has thinking disabled, effort LOW and the configured ceiling")
+        void replay_haiku55() throws Exception {
+            when(anthropicApiClient.createMessage(any())).thenReturn(ModelRequestAssertions.message(
+                    List.of(ModelRequestAssertions.text(NO_PICKS)), StopReason.END_TURN));
+
+            BestBetResult result = advisor.replayWithPrompt(
+                    ReplayHarnessTests.FIXTURE_ROLLUP, "PROMPT", EvaluationModel.HAIKU_55);
+
+            ArgumentCaptor<MessageCreateParams> captor = ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            ModelRequestAssertions.assertMessage(captor.getValue(), EvaluationModel.HAIKU_55,
+                    TEST_MAX_TOKENS, java.util.Optional.empty());
             assertThat(result.status()).isEqualTo(BestBetStatus.SUCCESS_NO_PICKS);
         }
 

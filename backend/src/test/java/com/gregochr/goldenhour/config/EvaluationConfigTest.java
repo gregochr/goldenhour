@@ -52,7 +52,7 @@ class EvaluationConfigTest {
 
         assertThat(strategies).containsOnlyKeys(
                 EvaluationModel.HAIKU, EvaluationModel.SONNET, EvaluationModel.SONNET_55,
-                EvaluationModel.OPUS, EvaluationModel.WILDLIFE);
+                EvaluationModel.HAIKU_55, EvaluationModel.OPUS, EvaluationModel.WILDLIFE);
     }
 
     @Test

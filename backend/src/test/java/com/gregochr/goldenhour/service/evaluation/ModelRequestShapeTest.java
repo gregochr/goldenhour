@@ -121,6 +121,50 @@ class ModelRequestShapeTest {
     }
 
     @Test
+    @DisplayName("sky batch request for Haiku 5.5: effort low, thinking disabled, format kept, 512 tokens")
+    void skyBatch_haiku55() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .bluebellConditionScore(woodlandConditions()).build();
+
+        BatchCreateParams.Request.Params params = factory.buildForecastRequest(
+                "fc-1-2026-04-16-SUNRISE", EvaluationModel.HAIKU_55, data,
+                EvaluationModel.HAIKU_55.getMaxTokens()).params();
+
+        assertThat(params.model().asString()).isEqualTo("claude-haiku-5-5");
+        assertThat(params.maxTokens()).isEqualTo(512L);
+        assertThat(params.thinking().orElseThrow().isDisabled()).isTrue();
+        assertThat(params.temperature()).isEmpty();
+        assertThat(params.toolChoice()).isEmpty();
+        OutputConfig config = params.outputConfig().orElseThrow();
+        assertThat(config.effort()).contains(OutputConfig.Effort.LOW);
+        assertThat(config.format()).isEqualTo(inlandBuilder.buildOutputConfig().format());
+    }
+
+    @Test
+    @DisplayName("bluebell, woodland and primer batch requests for Haiku 5.5 disable thinking, keep format")
+    void otherBatchLanes_haiku55() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .bluebellConditionScore(woodlandConditions()).build();
+
+        BatchCreateParams.Request.Params bluebell = factory.buildBluebellRequest(
+                "bb-1-2026-04-16-SUNRISE", EvaluationModel.HAIKU_55, data, 512).params();
+        BatchCreateParams.Request.Params woodland = factory.buildWoodlandRequest(
+                "wd-1-2026-11-16-SUNRISE", EvaluationModel.HAIKU_55, data, 512).params();
+        BatchCreateParams.Request.Params primer = factory.buildCachePrimerRequest(
+                "primer-0", EvaluationModel.HAIKU_55, data, 512).params();
+
+        assertThat(bluebell.thinking().orElseThrow().isDisabled()).isTrue();
+        assertThat(bluebell.outputConfig().orElseThrow().format())
+                .isEqualTo(bluebellBuilder.buildOutputConfig().format());
+        assertThat(woodland.thinking().orElseThrow().isDisabled()).isTrue();
+        assertThat(woodland.outputConfig().orElseThrow().format())
+                .isEqualTo(woodlandBuilder.buildOutputConfig().format());
+        assertThat(woodland.outputConfig().orElseThrow().effort()).contains(OutputConfig.Effort.LOW);
+        assertThat(primer.thinking().orElseThrow().isDisabled()).isTrue();
+        assertThat(primer.outputConfig().orElseThrow().effort()).contains(OutputConfig.Effort.LOW);
+    }
+
+    @Test
     @DisplayName("cache primer request for Sonnet 5.5 carries the same output config as the real request")
     void primerBatch_matchesRealRequestOutputConfig() {
         AtmosphericData data = TestAtmosphericData.builder()
@@ -157,6 +201,26 @@ class ModelRequestShapeTest {
     }
 
     // ── Synchronous strategy ──
+
+    @Test
+    @DisplayName("strategy request for Haiku 5.5: effort low, thinking disabled, 512 tokens, no temperature")
+    void strategy_haiku55_requestShape() {
+        ClaudeEvaluationStrategy strategy = strategy(EvaluationModel.HAIKU_55);
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(message(List.of(text(JSON)), StopReason.END_TURN));
+
+        strategy.evaluate(TestAtmosphericData.defaults());
+
+        MessageCreateParams params = captured();
+        assertThat(params.model().asString()).isEqualTo("claude-haiku-5-5");
+        assertThat(params.maxTokens()).isEqualTo(512L);
+        assertThat(params.thinking().orElseThrow().isDisabled()).isTrue();
+        assertThat(params.temperature()).isEmpty();
+        assertThat(params.toolChoice()).isEmpty();
+        OutputConfig config = params.outputConfig().orElseThrow();
+        assertThat(config.effort()).contains(OutputConfig.Effort.LOW);
+        assertThat(config.format()).isEqualTo(inlandBuilder.buildOutputConfig().format());
+    }
 
     @Test
     @DisplayName("strategy request for Sonnet 5.5: effort low, 4096 tokens, no thinking, temperature or tool choice")
@@ -245,11 +309,11 @@ class ModelRequestShapeTest {
     // ── ModelRequestSupport ──
 
     @Test
-    @DisplayName("withEffort returns the same instance for every model but Sonnet 5.5")
+    @DisplayName("withEffort returns the same instance for every model but the 5.5 pair")
     void support_withEffort_sameInstanceForOthers() {
         OutputConfig base = inlandBuilder.buildOutputConfig();
         for (EvaluationModel model : EvaluationModel.values()) {
-            if (model == EvaluationModel.SONNET_55) {
+            if (model == EvaluationModel.SONNET_55 || model == EvaluationModel.HAIKU_55) {
                 assertThat(ModelRequestSupport.withEffort(base, model)).isNotSameAs(base);
             } else {
                 assertThat(ModelRequestSupport.withEffort(base, model)).isSameAs(base);
@@ -263,6 +327,7 @@ class ModelRequestShapeTest {
         assertThat(ModelRequestSupport.maxTokens(EvaluationModel.SONNET_55, 256)).isEqualTo(4352);
         assertThat(ModelRequestSupport.maxTokens(EvaluationModel.SONNET_55, 9000)).isEqualTo(13096);
         assertThat(ModelRequestSupport.maxTokens(EvaluationModel.HAIKU, 256)).isEqualTo(256);
+        assertThat(ModelRequestSupport.maxTokens(EvaluationModel.HAIKU_55, 256)).isEqualTo(256);
         assertThat(ModelRequestSupport.maxTokens(EvaluationModel.OPUS_ET, 256)).isEqualTo(256);
     }
 
@@ -277,6 +342,36 @@ class ModelRequestShapeTest {
         assertThat(sonnet.outputConfig().orElseThrow().effort()).contains(OutputConfig.Effort.LOW);
         assertThat(sonnet.outputConfig().orElseThrow().format()).isEmpty();
         assertThat(haiku.outputConfig()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("tune sends thinking disabled with effort low for Haiku 5.5 only; Sonnet 5.5 sends no thinking")
+    void support_tune_haiku55() {
+        MessageCreateParams haiku55 = ModelRequestSupport.tune(base(EvaluationModel.HAIKU_55),
+                EvaluationModel.HAIKU_55).build();
+        MessageCreateParams sonnet55 = ModelRequestSupport.tune(base(EvaluationModel.SONNET_55),
+                EvaluationModel.SONNET_55).build();
+        MessageCreateParams haiku = ModelRequestSupport.tune(base(EvaluationModel.HAIKU),
+                EvaluationModel.HAIKU).build();
+
+        assertThat(haiku55.thinking().orElseThrow().isDisabled()).isTrue();
+        assertThat(haiku55.outputConfig().orElseThrow().effort()).contains(OutputConfig.Effort.LOW);
+        assertThat(sonnet55.thinking()).isEmpty();
+        assertThat(haiku.thinking()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a reply with no thinking block parses, and a refusal fails, for Haiku 5.5")
+    void haiku55_responseHandling() {
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(message(List.of(text(JSON)), StopReason.END_TURN))
+                .thenReturn(message(List.of(), StopReason.REFUSAL));
+
+        assertThat(strategy(EvaluationModel.HAIKU_55).evaluate(TestAtmosphericData.defaults())
+                .rating()).isEqualTo(4);
+        assertThatThrownBy(() -> strategy(EvaluationModel.HAIKU_55)
+                .evaluate(TestAtmosphericData.defaults()))
+                .isInstanceOf(ClaudeRefusalException.class);
     }
 
     @Test

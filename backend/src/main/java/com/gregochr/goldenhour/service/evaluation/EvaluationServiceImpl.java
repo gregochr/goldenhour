@@ -278,7 +278,7 @@ public class EvaluationServiceImpl implements EvaluationService {
                             task.data().astronomicalRangeMetres())
                     : builder.buildUserMessage(task.data());
             Message response = anthropicApiClient.createMessage(
-                    MessageCreateParams.builder()
+                    ModelRequestSupport.withThinkingSetting(MessageCreateParams.builder()
                             .model(task.model().getModelId())
                             .maxTokens(task.model().getMaxTokens())
                             .systemOfTextBlockParams(List.of(
@@ -288,7 +288,7 @@ public class EvaluationServiceImpl implements EvaluationService {
                                             .build()))
                             .outputConfig(ModelRequestSupport.withEffort(
                                     builder.buildOutputConfig(), task.model()))
-                            .addUserMessage(userMessage)
+                            .addUserMessage(userMessage), task.model())
                             .build());
             // Shared with the batch/strategy engine's identical check — a max_tokens
             // truncation must not sail through as a "successful" outcome just because this

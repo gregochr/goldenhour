@@ -4,6 +4,7 @@ import { modelLabel } from '../utils/modelLabels.js';
 describe('modelLabel', () => {
   it('maps every EvaluationModel name to its display label', () => {
     expect(modelLabel('HAIKU')).toBe('Haiku');
+    expect(modelLabel('HAIKU_55')).toBe('Haiku 5.5');
     expect(modelLabel('SONNET')).toBe('Sonnet 4.6');
     expect(modelLabel('SONNET_ET')).toBe('Sonnet 4.6 (ET)');
     expect(modelLabel('SONNET_55')).toBe('Sonnet 5.5');
@@ -12,7 +13,7 @@ describe('modelLabel', () => {
   });
 
   it('gives no two models the same label', () => {
-    const names = ['HAIKU', 'SONNET', 'SONNET_ET', 'SONNET_55', 'OPUS', 'OPUS_ET'];
+    const names = ['HAIKU', 'HAIKU_55', 'SONNET', 'SONNET_ET', 'SONNET_55', 'OPUS', 'OPUS_ET'];
     expect(new Set(names.map(modelLabel)).size).toBe(names.length);
   });
 

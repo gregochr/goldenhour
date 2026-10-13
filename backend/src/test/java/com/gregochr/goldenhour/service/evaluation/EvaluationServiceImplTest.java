@@ -855,7 +855,7 @@ class EvaluationServiceImplTest {
 
     private static long skyCeiling(EvaluationModel model) {
         return switch (model) {
-            case HAIKU -> 512;
+            case HAIKU, HAIKU_55 -> 512;
             case SONNET -> 1024;
             default -> 4096;
         };
@@ -870,7 +870,7 @@ class EvaluationServiceImplTest {
     @DisplayName("aurora batch request: literal model id, effort only for Sonnet 5.5, additive ceiling")
     void submit_auroraRequestShape_perModel() {
         for (EvaluationModel model : List.of(EvaluationModel.HAIKU, EvaluationModel.SONNET,
-                EvaluationModel.SONNET_55)) {
+                EvaluationModel.SONNET_55, EvaluationModel.HAIKU_55)) {
             org.mockito.Mockito.clearInvocations(batchSubmissionService);
             EvaluationTask.Aurora task = auroraTaskFor(model);
             when(claudeAuroraInterpreter.buildUserMessage(any(), any(), any(), any(), any(), any()))
@@ -893,7 +893,7 @@ class EvaluationServiceImplTest {
     @DisplayName("sync sky request: literal model id, JSON format kept, effort LOW only for Sonnet 5.5")
     void evaluateNow_skyRequestShape_perModel() {
         for (EvaluationModel model : List.of(EvaluationModel.HAIKU, EvaluationModel.SONNET,
-                EvaluationModel.SONNET_55)) {
+                EvaluationModel.SONNET_55, EvaluationModel.HAIKU_55)) {
             org.mockito.Mockito.clearInvocations(anthropicApiClient);
             EvaluationTask.Forecast task = forecastTaskFor(model);
             PromptBuilder builder = new PromptBuilder();
@@ -917,7 +917,7 @@ class EvaluationServiceImplTest {
     @DisplayName("sync aurora request: literal model id, effort-only config for Sonnet 5.5, additive ceiling")
     void evaluateNow_auroraRequestShape_perModel() {
         for (EvaluationModel model : List.of(EvaluationModel.HAIKU, EvaluationModel.SONNET,
-                EvaluationModel.SONNET_55)) {
+                EvaluationModel.SONNET_55, EvaluationModel.HAIKU_55)) {
             org.mockito.Mockito.clearInvocations(anthropicApiClient);
             EvaluationTask.Aurora task = auroraTaskFor(model);
             when(claudeAuroraInterpreter.buildUserMessage(any(), any(), any(), any(), any(), any()))

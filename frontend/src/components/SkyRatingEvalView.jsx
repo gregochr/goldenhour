@@ -13,13 +13,13 @@ import ConfirmDialog from './shared/ConfirmDialog.jsx';
 import { apiErrorMessage } from '../utils/apiError.js';
 import ErrorBanner from './shared/ErrorBanner.jsx';
 
-const MODELS = ['HAIKU', 'SONNET', 'SONNET_55', 'OPUS'];
-const COST_PER_CALL = { HAIKU: 0.002, SONNET: 0.005, SONNET_55: 0.005, OPUS: 0.008 };
+const MODELS = ['HAIKU', 'HAIKU_55', 'SONNET', 'SONNET_55', 'OPUS'];
+const COST_PER_CALL = { HAIKU: 0.002, HAIKU_55: 0.0003, SONNET: 0.005, SONNET_55: 0.005, OPUS: 0.008 };
 const DEFAULT_RUNS_PER_FIXTURE = 8;
 const DEFAULT_FIXTURE_COUNT = 6;
 const POLL_INTERVAL_MS = 4000;
 const FIXTURE_COLOURS = ['#a78bfa', '#f87171', '#fbbf24', '#34d399', '#60a5fa', '#f472b6', '#fb923c', '#22d3ee'];
-const MODEL_COLOURS = { HAIKU: '#60a5fa', SONNET: '#a78bfa', SONNET_55: '#c084fc', OPUS: '#fbbf24' };
+const MODEL_COLOURS = { HAIKU: '#60a5fa', HAIKU_55: '#38bdf8', SONNET: '#a78bfa', SONNET_55: '#c084fc', OPUS: '#fbbf24' };
 
 /**
  * The x-axis tick for a trend point — the run's date on the UK calendar.
@@ -207,7 +207,7 @@ const SkyRatingEvalView = () => {
                 className="accent-plex-gold"
                 data-testid={`sky-eval-model-${m}`}
               />
-              <span className={m === 'HAIKU' ? 'text-blue-300' : m === 'SONNET' || m === 'SONNET_55' ? 'text-purple-300' : 'text-amber-300'}>
+              <span className={m === 'HAIKU' || m === 'HAIKU_55' ? 'text-blue-300' : m === 'SONNET' || m === 'SONNET_55' ? 'text-purple-300' : 'text-amber-300'}>
                 {modelLabel(m)}
               </span>
             </label>
@@ -373,7 +373,7 @@ const SkyRatingEvalView = () => {
                         <td className="py-2 pr-4 text-plex-text-secondary text-xs">{formatRelative(run.runTimestamp)}</td>
                         <td className="py-2 pr-4">
                           <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
-                            run.model === 'HAIKU' ? 'bg-blue-900/30 text-blue-300'
+                            run.model === 'HAIKU' || run.model === 'HAIKU_55' ? 'bg-blue-900/30 text-blue-300'
                               : run.model === 'SONNET' || run.model === 'SONNET_55' ? 'bg-purple-900/30 text-purple-300'
                                 : 'bg-amber-900/30 text-amber-300'}`}
                           >
