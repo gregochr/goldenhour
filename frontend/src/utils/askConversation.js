@@ -148,6 +148,14 @@ export function exchangeOf(question, answer) {
 const REFUSED_IN_SUMMARY = /[\p{Extended_Pictographic}\p{Emoji_Presentation}\p{Regional_Indicator}\p{Cc}\p{Cf}\p{M}]/gu;
 
 /**
+ * The star a rating is written with, kept whatever the runtime's Unicode tables say. Engines disagree
+ * on whether U+2605 is Extended_Pictographic (Node 22.22 with ICU 77 says yes; CI's Node evidently does
+ * not), so the class above stripped the star from "4★" on one engine and kept it on another. The server refuses
+ * neither (`AskQuestionSanitiser.refusedInProse` tests Extended_Pictographic only from U+1F000).
+ */
+const KEPT_IN_SUMMARY = new Set(['\u2605']);
+
+/**
  * A summary as the wire takes it: NFC (as the server normalises, so a decomposed "é" is one letter and
  * not a letter plus a refused mark), whitespace collapsed, the refused characters removed, then held to
  * {@link THREAD_SUMMARY_MAX_CODE_POINTS} code points — counted AFTER the stripping, so the clip never
@@ -157,7 +165,7 @@ const REFUSED_IN_SUMMARY = /[\p{Extended_Pictographic}\p{Emoji_Presentation}\p{R
  * @returns {string}
  */
 function wireSummary(summary) {
-  const plain = summary.normalize('NFC').replace(/\s+/g, ' ').replace(REFUSED_IN_SUMMARY, '').replace(/ {2,}/g, ' ').trim();
+  const plain = summary.normalize('NFC').replace(/\s+/g, ' ').replace(REFUSED_IN_SUMMARY, (ch) => (KEPT_IN_SUMMARY.has(ch) ? ch : '')).replace(/ {2,}/g, ' ').trim();
   return Array.from(plain).slice(0, THREAD_SUMMARY_MAX_CODE_POINTS).join('');
 }
 
