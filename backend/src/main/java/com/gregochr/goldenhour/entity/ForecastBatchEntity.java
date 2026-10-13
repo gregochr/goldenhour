@@ -209,6 +209,16 @@ public class ForecastBatchEntity {
         return submittedAt;
     }
 
+    /**
+     * Sets when the batch was submitted. Production code relies on the constructor's default
+     * (the creation instant); this exists so tests and recovery paths can state it.
+     *
+     * @param submittedAt the submission instant
+     */
+    public void setSubmittedAt(Instant submittedAt) {
+        this.submittedAt = submittedAt;
+    }
+
     public Instant getEndedAt() {
         return endedAt;
     }

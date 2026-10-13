@@ -51,6 +51,8 @@ class BatchPollingServiceTest {
     private DynamicSchedulerService dynamicSchedulerService;
     @Mock
     private JobRunService jobRunService;
+    @Mock
+    private LateBatchBriefingRebuild lateBatchBriefingRebuild;
 
     private BatchPollingService pollingService;
 
@@ -58,7 +60,7 @@ class BatchPollingServiceTest {
     void setUp() {
         pollingService = new BatchPollingService(
                 anthropicClient, batchRepository, resultProcessor,
-                dynamicSchedulerService, jobRunService);
+                dynamicSchedulerService, jobRunService, lateBatchBriefingRebuild);
     }
 
     private void stubBatchService() {
@@ -125,6 +127,40 @@ class BatchPollingServiceTest {
         pollingService.pollPendingBatches();
 
         verify(resultProcessor).processResults(batch);
+    }
+
+    @Test
+    @DisplayName("an ENDED batch is offered to the late-batch rebuild only after its results are processed")
+    void pollPendingBatches_ended_offersBatchToLateRebuildAfterProcessing() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch("msgbatch_late");
+        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                .thenReturn(List.of(batch));
+        MessageBatch ended = mockBatchStatus(MessageBatch.ProcessingStatus.ENDED);
+        when(batchService.retrieve("msgbatch_late")).thenReturn(ended);
+
+        pollingService.pollPendingBatches();
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(resultProcessor, lateBatchBriefingRebuild);
+        order.verify(resultProcessor).processResults(batch);
+        order.verify(lateBatchBriefingRebuild).onBatchEnded(batch);
+    }
+
+    @Test
+    @DisplayName("an IN_PROGRESS batch is never offered to the late-batch rebuild")
+    void pollPendingBatches_inProgress_notOfferedToLateRebuild() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch("msgbatch_busy");
+        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                .thenReturn(List.of(batch));
+        MessageBatch status = mockBatchStatus(MessageBatch.ProcessingStatus.IN_PROGRESS);
+        MessageBatchRequestCounts counts = mock(MessageBatchRequestCounts.class);
+        when(status.requestCounts()).thenReturn(counts);
+        when(batchService.retrieve("msgbatch_busy")).thenReturn(status);
+
+        pollingService.pollPendingBatches();
+
+        verifyNoInteractions(lateBatchBriefingRebuild);
     }
 
     @Test

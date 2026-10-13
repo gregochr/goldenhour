@@ -38,6 +38,7 @@ public class BatchPollingService {
     private final BatchResultProcessor resultProcessor;
     private final DynamicSchedulerService dynamicSchedulerService;
     private final JobRunService jobRunService;
+    private final LateBatchBriefingRebuild lateBatchBriefingRebuild;
 
     /**
      * Constructs the batch polling service.
@@ -47,12 +48,15 @@ public class BatchPollingService {
      * @param resultProcessor         processes results for completed batches
      * @param dynamicSchedulerService scheduler to register the polling job target
      * @param jobRunService           service for updating job run progress records
+     * @param lateBatchBriefingRebuild rebuilds the briefing when a batch lands after its cycle
      */
     public BatchPollingService(AnthropicClient anthropicClient,
             ForecastBatchRepository batchRepository,
             BatchResultProcessor resultProcessor,
             DynamicSchedulerService dynamicSchedulerService,
-            JobRunService jobRunService) {
+            JobRunService jobRunService,
+            LateBatchBriefingRebuild lateBatchBriefingRebuild) {
+        this.lateBatchBriefingRebuild = lateBatchBriefingRebuild;
         this.anthropicClient = anthropicClient;
         this.batchRepository = batchRepository;
         this.resultProcessor = resultProcessor;
@@ -128,6 +132,10 @@ public class BatchPollingService {
                 // an SDK exception in BatchResultProcessor's resultsStreaming call, which
                 // classifies the batch as FAILED. No predictive guard needed.
                 resultProcessor.processResults(batch);
+                // The batch's terminal status is persisted by now. A batch that lands after its
+                // pipeline cycle has finished with it gets the briefing rebuilt (plan B1); the
+                // rebuild runs on its own executor and this call never throws.
+                lateBatchBriefingRebuild.onBatchEnded(batch);
             } else {
                 LOG.warn("Batch {}: unexpected processing status '{}', will retry next poll",
                         batchId, processingStatus);
