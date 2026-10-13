@@ -71,9 +71,12 @@ vi.mock('../components/map/PinsLayer.jsx', () => ({ default: () => null }));
 /** This file's own core assertion target: every `tideStripHeight` value `MapCallout` was ever
  * handed, in render order. */
 const calloutTideStripHeights = [];
+/** Every `slotIndex` `MapCallout` was handed (unrated-verdict-plan.md U2, Codex #1140 round 2). */
+const calloutSlotIndexes = [];
 vi.mock('../components/map/MapCallout.jsx', () => ({
   default: (props) => {
     calloutTideStripHeights.push(props.tideStripHeight);
+    calloutSlotIndexes.push(props.slotIndex);
     return <div data-testid="probe-callout">{JSON.stringify(props.tideStripHeight)}</div>;
   },
 }));
@@ -197,12 +200,25 @@ beforeEach(() => {
   localStorage.clear();
   mockIsMobile = false;
   calloutTideStripHeights.length = 0;
+  calloutSlotIndexes.length = 0;
   tideStripCalls.length = 0;
 });
 
 afterEach(() => {
   localStorage.clear();
   vi.clearAllMocks();
+});
+
+describe('MapView — slotIndex reaches MapCallout (unrated-verdict-plan.md U2, Codex #1140 round 2)', () => {
+  it('hands the callout the SAME briefing slot index it was given, by identity', async () => {
+    // The callout reads a slot's own served verdict from it where the scores endpoint has no row.
+    // `MapCallout.test.jsx` hands the prop in directly, so only this proves MapView forwards it.
+    const slotIndex = { byId: new Map(), byName: new Map() };
+    await renderMap({ slotIndex });
+    await selectTheSpot();
+    expect(screen.getByTestId('probe-callout')).toBeInTheDocument();
+    expect(calloutSlotIndexes.at(-1)).toBe(slotIndex);
+  });
 });
 
 describe('MapView — tideStripHeight reaches MapCallout (T7 follow-up, Codex P1)', () => {

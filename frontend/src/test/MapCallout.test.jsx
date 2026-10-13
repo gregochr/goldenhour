@@ -15,7 +15,7 @@ import {
 import {
   act, fireEvent, render, screen, within,
 } from '@testing-library/react';
-import { buildScoreIndex } from '../utils/locationSheet.js';
+import { buildScoreIndex, buildSlotIndex } from '../utils/locationSheet.js';
 import { buildRegionGlossIndex } from '../utils/mapCallout.js';
 
 let currentMap = null;
@@ -292,6 +292,65 @@ describe('MapCallout — header and verdict', () => {
         scoreIndex: indexOf('UNRATED'),
       });
       expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Not scored yet');
+    });
+
+    // Codex review of #1140, round 2 (P1): the scores endpoint has NO row for a weather GO/MARGINAL
+    // slot with no Claude result, so the word has to come from the briefing slot (`slotIndex`).
+    describe('where the scores endpoint has no row, from the briefing slot', () => {
+      const slotIndexOf = (displayVerdict, over = {}) => buildSlotIndex([{
+        date: TODAY,
+        eventSummaries: [{
+          targetType: 'SUNSET',
+          regions: [{ slots: [{
+            locationId: LOCATION.id,
+            locationName: LOCATION.name,
+            solarEventTime: `${TODAY}T20:10:00`,
+            ...(displayVerdict === undefined ? {} : { displayVerdict }),
+            ...over,
+          }] }],
+        }],
+      }]);
+      const known = { rating: null, ratingKnown: true, scoresKnown: true };
+
+      it('says "Not rated" for a briefing UNRATED slot and "Poor" for a briefing STAND_DOWN one', async () => {
+        const { unmount } = await mount({ ...known, scoreIndex: null, slotIndex: slotIndexOf('UNRATED') });
+        expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Not rated');
+        unmount();
+        await mount({ ...known, scoreIndex: buildScoreIndex([]), slotIndex: slotIndexOf('STAND_DOWN') });
+        expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Poor');
+      });
+
+      it('⚠️ the score row wins when both speak: STAND_DOWN beside a briefing UNRATED is "Poor"', async () => {
+        await mount({
+          ...known,
+          scoreIndex: buildScoreIndex([scoreRow({ rating: null, displayVerdict: 'STAND_DOWN' })]),
+          slotIndex: slotIndexOf('UNRATED'),
+        });
+        expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Poor');
+      });
+
+      it('keeps "Not scored yet" with no verdict on either side', async () => {
+        for (const slotIndex of [slotIndexOf(undefined), slotIndexOf(null), null]) {
+          const { unmount } = await mount({ ...known, scoreIndex: null, slotIndex });
+          expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Not scored yet');
+          unmount();
+        }
+      });
+
+      it('⚠️ still says "Loading…" until the rating\'s own source has answered, briefing verdict in hand', async () => {
+        await mount({
+          rating: null, ratingKnown: false, scoresKnown: false, scoreIndex: null,
+          slotIndex: slotIndexOf('UNRATED'),
+        });
+        expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Loading…');
+      });
+
+      it('speaks for a SOLAR window only — a night reads no briefing slot', async () => {
+        await mount({
+          event: ASTRO_EVENT, ...known, scoreIndex: null, slotIndex: slotIndexOf('UNRATED'),
+        });
+        expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Not scored yet');
+      });
     });
 
     it('leaves a rated slot on its star', async () => {

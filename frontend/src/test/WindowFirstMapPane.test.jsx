@@ -2,6 +2,7 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import WindowFirstMapPane from '../components/WindowFirstMapPane.jsx';
+import { lookupForWindow } from '../utils/locationSheet.js';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 
 /**
@@ -377,6 +378,32 @@ describe('WindowFirstMapPane', () => {
         />,
       );
       expect(MapStub.lastProps.onClearOrigin).toBe(first);
+    });
+
+    // unrated-verdict-plan.md U2, Codex review of #1140 round 2: the callout's fallback source for
+    // a slot the scores endpoint has no row for. Without this prop the callout silently degrades to
+    // "Not scored yet" and every callout test (which hands the index in directly) stays green.
+    it('⚠️ hands MapView the briefing slot index, so the callout can read a slot\'s own verdict', () => {
+      const days = [{
+        date: DATES[0],
+        eventSummaries: [{
+          targetType: 'SUNSET',
+          regions: [{ regionName: 'North East', slots: [{
+            locationId: 7,
+            locationName: 'Bamburgh',
+            solarEventTime: `${DATES[0]}T19:41:00`,
+            displayVerdict: 'UNRATED',
+          }] }],
+        }],
+      }];
+      vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue({
+        heatSpots: [], heatPointSets: new Map(), heatStripCards: [], reachById: new Map(),
+        homePlace: null, todayStr: DATES[0], origin: null, setOrigin: vi.fn(),
+        effectiveReachById: new Map(), scoreRows: [], scoresLoaded: true, briefing: { days },
+      });
+      renderPane();
+      expect(lookupForWindow(MapStub.lastProps.slotIndex, 7, 'Bamburgh', DATES[0], 'SUNSET')
+        ?.displayVerdict).toBe('UNRATED');
     });
   });
 

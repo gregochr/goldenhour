@@ -43,4 +43,4 @@ X's".
 The location sheet's window rows and the Map callout now name a slot with no rating by its own served
 verdict — "Not rated" for an `UNRATED` slot, "Poor" for a weather stand-down, "Not scored yet" only
 when nothing was served — where both used to print "Not scored yet" for all three (Codex review of
-#1140: the slot-level words reached Ask's pick cards alone).
+#1140: the slot-level words reached Ask's pick cards alone). Where the scores endpoint has no row for a slot (a weather GO/MARGINAL slot with no Claude result, which it never emits), that word falls back to the briefing slot's own served verdict, so "Not rated" is reachable there; the score row wins when both speak.
