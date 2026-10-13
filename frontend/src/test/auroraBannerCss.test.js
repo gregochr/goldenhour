@@ -93,10 +93,24 @@ describe('the aurora banner stylesheet', () => {
       expect(block.toUpperCase()).not.toContain('#22867E');
     });
 
-    it('lights only the fraction the severity names, with a glow in the accent', () => {
+    it('lights only the fraction the severity names, by its width, with a glow in the accent', () => {
       const body = ruleBody('.wf-aurora-strip::after');
-      expect(body).toContain('clip-path: inset(0 calc(100% - var(--fill)) 0 0)');
-      expect(body).toContain('box-shadow: 0 0 10px var(--acc)');
+      expect(declares(body, 'width', 'var(--fill)')).toBe(true);
+      expect(declares(body, 'left', '0')).toBe(true);
+      expect(declares(body, 'box-shadow', '0 0 10px var(--acc)')).toBe(true);
+    });
+
+    it('never clips the edge: a clip-path would clip its own glow, which was the B1 defect', () => {
+      expect(ruleBody('.wf-aurora-strip::after')).not.toMatch(/clip-path/);
+      expect(block).not.toMatch(/clip-path/);
+    });
+
+    it('stretches the ramp back across the whole strip, once, so a narrower edge is not a squeezed gradient', () => {
+      const body = ruleBody('.wf-aurora-strip::after');
+      expect(declares(body, 'background-size', 'calc(100% / var(--fill-ratio)) 100%')).toBe(true);
+      expect(declares(body, 'background-repeat', 'no-repeat')).toBe(true);
+      // `right: 0` would pin the right edge and make the width a no-op.
+      expect(body).not.toMatch(/(^|[;{\s])right:/);
     });
   });
 
