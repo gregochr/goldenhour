@@ -21,7 +21,7 @@ import org.springframework.scheduling.support.SimpleTriggerContext;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 import java.util.TimeZone;
@@ -275,8 +275,11 @@ class DynamicSchedulerHardeningTest {
 
         ArgumentCaptor<CronTrigger> trigger = ArgumentCaptor.forClass(CronTrigger.class);
         verify(taskScheduler).schedule(any(Runnable.class), trigger.capture());
-        // 1 July is BST: a London-zoned trigger would fire at 14:00Z, a UTC one at 15:00Z.
-        Clock clock = Clock.fixed(Instant.parse("2026-07-01T00:00:00Z"), ZoneOffset.UTC);
+        // 1 July is BST: a London-zoned trigger would fire at 14:00Z, a UTC one at 15:00Z. The
+        // context clock is London-zoned as the real scheduler's is under a London JVM: a
+        // CronTrigger built without a zone takes its zone from this clock, so a UTC clock here
+        // would let a zone-less trigger pass.
+        Clock clock = Clock.fixed(Instant.parse("2026-07-01T00:00:00Z"), ZoneId.of("Europe/London"));
         Instant next = trigger.getValue().nextExecution(new SimpleTriggerContext(clock));
         assertThat(next).isEqualTo(Instant.parse("2026-07-01T15:00:00Z"));
     }
