@@ -1,0 +1,17 @@
+Location: Angel of the North. SUNSET: 2026-10-13T17:14:17 UTC.
+Cloud: Low 0%, Mid 0%, High 0%
+Visibility: 53,920m, Wind: 7.40 m/s (272°), Precip: 0.00mm
+Humidity: 59%, Precip probability: 27%
+Dew point: 4.7°C (gap 7.8°C)
+Weather code: 0
+Boundary layer: 1325m, Shortwave: 43 W/m²
+PM2.5: 3.00µg/m³, Dust: 0.00µg/m³, AOD: 0.040
+DIRECTIONAL CLOUD (113km sample):
+Solar horizon (toward sun): Low 7%, Mid 24%, High 91%
+Antisolar horizon (away from sun): Low 0%, Mid 0%, High 0%
+Beyond horizon (226km, solar azimuth): Low 0%
+CLOUD APPROACH RISK:
+Solar horizon cloud trend (113km) — low blocker / mid+high canvas: T-3h=low46%/mid14%/high0% T-2h=low59%/mid2%/high0% T-1h=low76%/mid32%/high33% event=low7%/mid24%/high91% [BUILDING]
+Upwind sample (76km along 272° W): current=4%, at-event=0%
+MIST/VISIBILITY TREND (T-3h to T+2h): T-3h: vis=34,960m temp=14.8°C dew=6.9°C (gap=7.9°C) T-2h: vis=48,840m temp=14.5°C dew=6.1°C (gap=8.4°C) T-1h: vis=49,460m temp=14.1°C dew=5.9°C (gap=8.2°C) event: vis=53,920m temp=12.5°C dew=4.7°C (gap=7.8°C) T+1h: vis=52,200m temp=12.2°C dew=5.1°C (gap=7.1°C) T+2h: vis=45,540m temp=11.3°C dew=5.6°C (gap=5.7°C)
+Rate 1-5, estimate Fiery Sky Potential (0-100) and Golden Hour Potential (0-100), then summarise in exactly one sentence.
