@@ -216,7 +216,8 @@ The cost of S2–S4 is per unique 0.1° grid cell, not per candidate (§6 P3).
 
 1. Export `forecast_evaluation_prompt` for location 64's 13 Oct sunset rows (01:06 and 14:22), and
    Low Hauxley's if still held.
-2. Replay each prompt N = 20 times on the production model (`SONNET_55`) and on Haiku 4.5.
+2. Replay each prompt N = 20 times on the production model (`SONNET_55`), on Sonnet 4.6 (the model
+   V92 seeded for Batch Near-Term) and on Haiku 4.5 (Batch Far-Term).
 3. Then vary one input at a time: cone low 29 vs 7, cone high 0 vs 91.
 
 **What it decides:** whether the 3★ → 4★ raise is the IDEAL gate, the high-cloud canvas, sampling
@@ -329,7 +330,7 @@ forecast deck over a good sky. So no rating change ships on P1 alone.
   `SYSTEM_PROMPT`, which every call carries. Every regression case and eval fixture is therefore
   exposed, including ones whose fixtures lack the new fields.
   - Re-run the whole `PromptRegressionTest` suite and the sky-rating eval, before and after, on each
-    production model (`REGRESSION_MODEL`; Sonnet 5.5 if Q5 confirms it is live).
+    production model (`REGRESSION_MODEL`: Sonnet 5.5 for near-term, as Q5 confirmed; Haiku for far-term).
   - Regenerate the five `PromptGoldenMasterTest` goldens. Any movement in the exact-4 cases (St
     Mary's 10 Mar, Low Hauxley) is a regression.
 - **State precedence for every co-firing pair.** A mid deck over 80% at the cone (`[THICK MID CLOUD —
@@ -387,15 +388,18 @@ own geometry and are unaffected.
 
 ## 9. Owner decisions
 
-1. P0's spend: about 20 replays per prompt variant, on two models.
+1. P0's spend: about 20 replays per prompt variant, on three models.
 2. S1 capture (P2) regardless of P1's outcome? It is free and makes future sizing possible.
 3. Which of S3, S2, S4 to buy, after P1 and P3's cost check.
 4. May a far mid or high reading ever **confirm** (penalise), and on what measured bar? This extends
    `CLAUDE.md`'s far-reading rule beyond the low reading it was written for; amend `CLAUDE.md` only
    after P1 passes.
-5. The production model: the T+1/T+0 runs were `SONNET_55`, which `CLAUDE.md` says is "not the
-   default or active model anywhere" and which fails one regression case Sonnet 4.6 passes. Either
-   production was switched deliberately or the docs are stale; it also bears on P0.
+5. **Answered 2026-10-13:** production's Batch Near-Term run type is set to Sonnet 5.5 on the Run
+   Configuration screen, so the T+1/T+0 rows above are working as configured (`CLAUDE.md`, which
+   said Sonnet 5.5 was active nowhere, is corrected). `CLAUDE.md` also records that Sonnet 5.5 fails
+   one prompt-regression case Sonnet 4.6 passes (2026-10-04); which case is not recorded there, and
+   if it is a high-canvas case it bears directly on this plan. Still open: was the switch a trial
+   or a settled choice? P0's comparison with Sonnet 4.6 informs it either way.
 6. If P3's weighted Open-Meteo load approaches the free cap: a paid API plan, or drop S2–S4. The
    free API is for non-commercial use, and the product has a paid PRO tier.
 7. The low Hauxley variant's band, and tonight's regression case's expectation, when P4 comes.
