@@ -55,6 +55,18 @@ public interface PipelineRunRepository extends JpaRepository<PipelineRunEntity, 
                     CycleType cycleType, Instant start, Instant end);
 
     /**
+     * Returns every run of a cycle type triggered at or after an instant, oldest first. The
+     * forecast-cycle watchdog reads it to see whether a cycle started and whether it is still
+     * running; it changes nothing.
+     *
+     * @param cycleType the cycle type
+     * @param since     inclusive lower bound on the trigger time
+     * @return the matching runs, oldest first
+     */
+    List<PipelineRunEntity> findByCycleTypeAndTriggerTimeGreaterThanEqualOrderByTriggerTimeAsc(
+            CycleType cycleType, Instant since);
+
+    /**
      * Counts the runs of a cycle type, triggered at or after an instant, that count as "this cycle
      * already ran" for the solar catch-up: a run that got past submission.
      *
