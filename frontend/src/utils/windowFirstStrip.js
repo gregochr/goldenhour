@@ -113,6 +113,10 @@ export function buildHeatStripCards(
       // already selected the region in the projector's order and re-pointed it when away — never
       // re-picked here, so the word and the figure cannot name two regions. Null is silence.
       topMeanRating: card?.topMeanRating ?? null,
+      // The part of that mean the card may PRINT: null unless the top region is verdict-eligible
+      // (review F1) — a triage-fallback word has no mean behind it, and the face, the spoken
+      // sentence and the H2 "beyond the tier" line all read THIS, never `topMeanRating`.
+      verdictMean: card?.verdictMean ?? null,
       // The forecast's own pick, served on the window projection — never a client-side "which of
       // these six looks best" (plan §2.12). Exactly two picks exist across the whole forecast, and
       // the matrix rides BOTH on the card's border as legends, so the kind is carried rather than

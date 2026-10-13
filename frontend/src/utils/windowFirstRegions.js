@@ -1,6 +1,6 @@
 import { DISPLAY_ORDER, formatDriveDuration } from './briefingDisplay.js';
 import { resolveRegionDisplay } from './tierUtils.js';
-import { VERDICT_LABEL, eligibleRegions } from './windowFirstCards.js';
+import { VERDICT_LABEL, eligibleRegions, verdictEligible } from './windowFirstCards.js';
 import { gateSpotsByRating } from './ratingLens.js';
 import { gateSpotsByReach } from './reachLens.js';
 
@@ -165,6 +165,11 @@ export function buildRegionRows(es, spots, allSpots, lens) {
       // Served, both of them. See the module comment for why neither is re-derived.
       meanRating: finite(region.meanRating),
       bestRating: finite(region.bestRating),
+      // Whether the sample gate lets this region's own ratings set its word (the record's
+      // `verdictEligible()`), carried only so {@link byMeanThenName} can rank eligible regions first
+      // — the order `PlanWindowProjector.BY_RANK` crowns the window's top region in, and the card's
+      // `pickTopEligibleRegion` picks it by. Not rendered.
+      verdictEligible: verdictEligible(region),
       // Served too, and for the same reason twice over: the client has no previous build to
       // subtract from, and could not reconstruct one if it had — the comparand is a mean over the
       // backend's own voting-slot rule, taken from a payload that has since been overwritten.
@@ -210,7 +215,16 @@ export function buildRegionRows(es, spots, allSpots, lens) {
 }
 
 /**
- * Rank two region rows: on the served mean, best first, with the NAME as the tiebreak.
+ * Rank two region rows: verdict-eligible first, then the served mean best first, with the NAME as
+ * the tiebreak.
+ *
+ * <p><b>Eligible-first is the projector's order, not a preference.</b> {@code PlanWindowProjector}
+ * ranks {@code verdictEligible()} regions ahead of every ineligible one before it compares means,
+ * and the card's top region ({@code pickTopEligibleRegion}) follows it. A rail that ranked on the
+ * mean alone listed a thin 4.4 above the sound 3.5 the card in the same popup named (review F2).
+ * A row counts as eligible only when it also carries a finite mean, because the card's argmax skips
+ * a mean-less region outright whereas this ranks it last — an unrated "eligible" row must not jump
+ * the rated ones.
  *
  * <p>The tiebreak makes the order TOTAL — without it two regions on the same mean can swap places
  * between renders, which reads as the rail flickering for no reason. A region with no mean ranks
@@ -218,26 +232,22 @@ export function buildRegionRows(es, spots, allSpots, lens) {
  * it is the same rule {@code windowFirstCards.js} applies to windows.
  *
  * <p><b>Exported since map-landing L5</b> (plan §3 L5 step 6a), because the Map tab's window panel
- * ranks its own region rows the same way over a scope-narrowed set. Sharing the comparator rather
- * than writing a third one is the step L1 asked for, continuing the reconvergence it began by
- * extracting {@link pickTopEligibleRegion}.
+ * ranks its own region rows the same way over a scope-narrowed set. The two sorts share THIS
+ * comparator and its eligibility test ({@code verdictEligible}, one export of
+ * {@code windowFirstCards.js}); the card's argmax carries the same three-step rule in
+ * {@code outranks} and differs only in skipping a mean-less region rather than ranking it last, and
+ * in reading {@code regionName} where a row reads {@code name}.
  *
- * <p>⚠️ <b>It does NOT make the three agree "by construction", and an earlier revision of this note
- * claimed it did.</b> A review lens checked: {@code windowFirstCards.pickTopEligibleRegion} — the
- * map's argmax — still carries its own inlined rule and does not import this, and its own doc admits
- * as much ("Ties break on the NAME … it is `buildRegionRows`' rule, copied"). The two are also not
- * behaviourally identical: the argmax <em>skips</em> a region with no finite mean, where this ranks
- * it last at {@code -Infinity}, and it reads {@code regionName} where this reads {@code name}. Two
- * of three share one function; the third is a copy that agrees for the cases both reach. Converging
- * it is a further step, not something this export accomplished.
- *
- * @param {{meanRating: ?number, name: string}} a
- * @param {{meanRating: ?number, name: string}} b
+ * @param {{meanRating: ?number, name: string, verdictEligible: ?boolean}} a
+ * @param {{meanRating: ?number, name: string, verdictEligible: ?boolean}} b
  * @returns {number}
  */
 export function byMeanThenName(a, b) {
   const ma = a.meanRating ?? -Infinity;
   const mb = b.meanRating ?? -Infinity;
+  const ea = a.verdictEligible === true && a.meanRating != null;
+  const eb = b.verdictEligible === true && b.meanRating != null;
+  if (ea !== eb) return ea ? -1 : 1;
   return mb === ma ? a.name.localeCompare(b.name) : mb - ma;
 }
 

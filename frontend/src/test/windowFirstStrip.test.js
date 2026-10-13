@@ -126,6 +126,16 @@ describe('buildHeatStripCards — one thumbnail per rendered window', () => {
     expect(build(events, [])[0].topMeanRating).toBeNull();
   });
 
+  it('folds the printable mean (verdictMean) separately from the ranking mean, null when absent (review F1)', () => {
+    const events = [{ date: TODAY, targetType: 'SUNSET' }];
+
+    const [thumb] = build(events, [card({ topMeanRating: 2, verdictMean: null })]);
+    expect(thumb.topMeanRating).toBe(2);
+    expect(thumb.verdictMean).toBeNull();
+    expect(build(events, [card({ verdictMean: 3.5 })])[0].verdictMean).toBe(3.5);
+    expect(build(events, [])[0].verdictMean).toBeNull();
+  });
+
   it('carries the active tier\'s minutes through to the thumbnail, null when none (verdict-honesty H2)', () => {
     // The strip never sees `buildWindowCards`' output directly, so a field the face reads must be
     // folded here or the component tests (which hand cards straight in) would pass over a drop.

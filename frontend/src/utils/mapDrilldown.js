@@ -1,5 +1,5 @@
 import { byMeanThenName } from './windowFirstRegions.js';
-import { VERDICT_LABEL } from './windowFirstCards.js';
+import { VERDICT_LABEL, verdictEligible } from './windowFirstCards.js';
 import { resolveRegionDisplay } from './tierUtils.js';
 import { regionDriveMinutes } from './planningArea.js';
 import { formatDriveDuration } from './briefingDisplay.js';
@@ -184,6 +184,9 @@ export function buildPanelRegionRows({
       verdictLabel: VERDICT_LABEL[tier] || VERDICT_LABEL.AWAITING,
       meanRating: finite(region.meanRating),
       bestRating: finite(region.bestRating),
+      // Carried for {@code byMeanThenName}: eligible regions rank first, as the card's top region
+      // does, so the panel's first row is the region the pill names (review F2). Not rendered.
+      verdictEligible: verdictEligible(region),
       driveMinutes,
       driveLabel: driveMinutes == null ? null : formatDriveDuration(driveMinutes),
       placeCount: places.get(name) ?? 0,
@@ -221,7 +224,8 @@ export function windowPanelNote({ verdict, isSolar, scopeIsArea = true }) {
   if (verdict.allInScope && verdict.tier === 'STAND_DOWN') {
     const area = scopeIsArea ? ' in your area' : '';
     return `Poor in all ${verdict.scopedRegionCount} regions${area} — nothing here is worth the `
-      + 'drive on this window. Rows are ranked by average, best first.';
+      + 'drive on this window. Rows are ranked by average, best first; a region too thinly '
+      + 'rated for a verdict ranks last.';
   }
   const sharing = verdict.sharingCount + 1;
   if (sharing > 1) {
@@ -235,7 +239,7 @@ export function windowPanelNote({ verdict, isSolar, scopeIsArea = true }) {
     // choice to make between N write-offs", and the reason is the part to implement.
     if (verdict.tier === 'STAND_DOWN') {
       return `${sharing} regions are poor for this window — nothing there is worth the drive. `
-        + 'Rows are ranked by average, best first.';
+        + 'Rows are ranked by average, best first; a region too thinly rated for a verdict ranks last.';
     }
     const word = (VERDICT_LABEL[verdict.tier] || VERDICT_LABEL.AWAITING).toLowerCase();
     return `${sharing} regions are ${word} for this window, so the choice between them is drive `
@@ -246,7 +250,8 @@ export function windowPanelNote({ verdict, isSolar, scopeIsArea = true }) {
 
 /** Why the rows are in the order they are in — the answer the ranking itself provokes. */
 const RANKING_NOTE = 'Verdict is the strongest region’s average. Regions rank on that average, '
-  + 'not on their ceiling — the reach filter only decides what the map draws.';
+  + 'not on their ceiling, and a region too thinly rated for a verdict ranks last — the reach '
+  + 'filter only decides what the map draws.';
 
 /** A night window has no solar verdict of its own, and cannot be a pick. */
 const NIGHT_NOTE = 'A night event, scored from darkness, clarity and Kp rather than the solar '

@@ -2009,7 +2009,8 @@ button.wf-hc.on:hover {
 
    ⚠️ ONE LINE. The value column is ~88.3px at a 320px viewport (A27's measured figure) and wider
    at 375px and 640px. Measured in Chromium with the real IBM Plex Mono faces: "Worth it" — the
-   longest verdict word that can carry a mean ("Not scored" carries none) — is 52.8px at 11px/600,
+   longest verdict word that can carry a mean (a word with no verdict-eligible region behind it —
+   "Not scored", or any triage-fallback word — gets `verdictMean` null and prints none, by construction) — is 52.8px at 11px/600,
    and "3.5★" is 24.0px at 10px/400 (0.6em per character, the star included). The row's 6px flex
    gap is pulled to 4px by the margin below: 52.8 + 4 + 24.0 = 80.8px < 88.3px, 7.5px to spare at
    the narrowest card. The star may fall back to a system face on some platforms; even a full-em

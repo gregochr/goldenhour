@@ -71,6 +71,7 @@ vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
 vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null }));
 
 import MapView from '../components/MapView.jsx';
+import { getAstroConditions } from '../api/astroApi.js';
 
 const TODAY = '2026-01-15';
 const TOMORROW = '2026-01-16';
@@ -160,6 +161,7 @@ beforeEach(() => {
   vi.setSystemTime(new Date(`${TODAY}T09:40:00Z`));
 });
 afterEach(() => {
+  getAstroConditions.mockResolvedValue([]);
   vi.useRealTimers();
   localStorage.clear();
 });
@@ -200,6 +202,25 @@ describe('MapView — "not scored yet" answers whether the forecast rated anythi
     // The predicate is keyed on the row's own date, not "any rating anywhere" — a rated tomorrow
     // says nothing about the day after.
     await renderMap({ date: FILLER, briefingScores: scoresFor(TOMORROW) });
+    expect(await screen.findByTestId(LINE)).toHaveTextContent('This event is not scored yet');
+    expect(screen.queryByTestId(KEY)).toBeNull();
+  });
+
+  it('astro night: rated locations the field has no spot for leave the line UP — the filler rule must not follow', async () => {
+    // Why the `!isAstroMode && !isAuroraMode` guard on `fillerHasRatings` is load-bearing. Astro has
+    // no served window, so `heatWindow` is null there exactly as on a filler row — without the guard
+    // the filler rule would read `getRatingForLocation` (which for ASTRO answers from the night's
+    // own scores) and silence the line whenever ANY location is rated. But astro's `windowUnscored`
+    // is its own question: "does the FIELD hold a rated spot" (`astroHeatPoints`, joined against
+    // `heat.spots`). Here every location carries a real astro star yet the field's spot pool is
+    // empty (the dark-sky pool excluding every rated spot is the same shape), so the field paints
+    // nothing, the key is down and the line is the only thing saying so. Verified by removing the
+    // guard: the line vanishes and this test fails.
+    getAstroConditions.mockResolvedValue([
+      { locationName: SPOTS[0].name, stars: 4 },
+      { locationName: SPOTS[1].name, stars: 3 },
+    ]);
+    await renderMap({ heat: { ...heatProp(), spots: [] }, handoffEventType: 'ASTRO' });
     expect(await screen.findByTestId(LINE)).toHaveTextContent('This event is not scored yet');
     expect(screen.queryByTestId(KEY)).toBeNull();
   });

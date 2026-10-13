@@ -244,14 +244,13 @@ export function eligibleRegions(es) {
  * beside a rank derived from a different region's mean is two answers to "which region leads this
  * window" — and one scan is the only way that cannot drift.
  *
- * <p><b>Ties break on the NAME, and that is not a local preference — it is
- * {@code buildRegionRows}' rule, copied.</b> That function ranks the open row's region rail with
- * {@code mb === ma ? a.name.localeCompare(b.name) : mb - ma}, so a payload-order tiebreak here
- * would name one region on the thumbnail's chip and put a different one at rank 1 of the rail
- * eight pixels below, each carrying its own delta. Before P6 the divergence was invisible, because
- * this function published only a number and equal means are equal; publishing the region's NAME
- * and its movement is what made the two tiebreaks observable against each other. Keep them
- * identical, or reconverge both on one helper.
+ * <p><b>Ties break on the NAME, and the rail agrees.</b> {@code buildRegionRows} ranks the open
+ * row's region rail with {@link byMeanThenName} (eligible first, then the mean, then the name) and
+ * the Map drilldown ranks with the same comparator, which orders exactly as {@link
+ * pickTopEligibleRegion} does — so the thumbnail's chip, the rail's rank 1 eight pixels below and
+ * the map's first row name one region, each carrying its own delta. A payload-order tiebreak here
+ * would split them. {@code windowFirstRegions.test.js} and {@code mapDrilldown.test.js} pin the
+ * agreement on a thin-4.4-versus-sound-3.5 fixture.
  *
  * @param {?object} es the event summary
  * @returns {?object} the leading eligible region record, or null when none carries a finite mean
@@ -323,10 +322,14 @@ export function pickTopEligibleRegion(regions) {
  * {@code BriefingRegion.verdictEligible()} as the wire carries it — the sample gate passed, or a
  * force-evaluation exemption. Absent on a legacy payload, which reads as NOT eligible.
  *
- * @param {?object} region a served region record
+ * <p>Exported so the region rail and the Map drilldown rank with the SAME test the card's top
+ * region is chosen by, rather than a second copy that could drift (F2 of the H1–H3 review).
+ *
+ * @param {?object} region a served region record, or a rail row carrying {@code sampleSufficient}/
+ *        {@code forcedSample} through
  * @returns {boolean}
  */
-function verdictEligible(region) {
+export function verdictEligible(region) {
   return region?.sampleSufficient === true || region?.forcedSample === true;
 }
 
@@ -350,6 +353,21 @@ function outranks(a, b) {
  */
 function topMeanRating(es) {
   return topRegion(es)?.meanRating ?? null;
+}
+
+/**
+ * The mean a verdict word may be printed beside: the region's served mean when the region is
+ * verdict-eligible, else null (silence — a triage-fallback word has no mean standing behind it).
+ *
+ * @param {?object} scoped the origin's region record when away, else null
+ * @param {?object} top the window's top region when not away
+ * @returns {?number}
+ */
+function verdictMeanOf(scoped, top) {
+  const region = scoped ?? top;
+  if (!region || !verdictEligible(region)) return null;
+  const mean = region.meanRating;
+  return typeof mean === 'number' && Number.isFinite(mean) ? mean : null;
 }
 
 /**
@@ -584,6 +602,14 @@ export function buildWindowCards(
         ? (typeof scopedRegion.meanRating === 'number' && Number.isFinite(scopedRegion.meanRating)
           ? scopedRegion.meanRating : null)
         : topMeanRating(es),
+      // The mean the card may PRINT beside its verdict word (plan-card-verdict-honesty-plan.md H1,
+      // review F1) — `topMeanRating` only when the region it belongs to is verdict-eligible. An
+      // INELIGIBLE region (sample gate failed, no force-evaluation exemption) is still ranked and
+      // still carries a served mean, but its `displayVerdict` is the weather-triage fallback, not a
+      // reading of that mean — so "Worth it 2.0★" would print a figure the word does not come from.
+      // `topMeanRating` stays untouched for the Order control; this is the honesty channel. The
+      // away arm tests the SCOPED region, which is the one whose word `verdict` above wears.
+      verdictMean: verdictMeanOf(scopedRegion, scopedRegion ? null : topRegion(es)),
       // The same region `topMeanRating` names, carrying how far it has moved since the previous
       // forecast run. Null — never a zero — when there is nothing to compare against; see
       // `topRegionMovement` for why the two must stay distinguishable.

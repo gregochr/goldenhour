@@ -181,7 +181,7 @@ function starsSpoken(rating) {
 function verdictBeyondReach(card) {
   const region = card?.hotRegionName;
   const limit = card?.reachLimitMinutes;
-  if (card?.away || !region || card?.topMeanRating == null) return null;
+  if (card?.away || !region || card?.verdictMean == null) return null;
   if (!card.reachMeasured || limit == null) return null;
   const pool = card.pool ?? [];
   if (pool.length === 0 || buildSpread(pool).rated > 0) return null;
@@ -1138,7 +1138,7 @@ export default function WindowFirstHeatStrip({
     // The region mean behind the verdict word (plan-card-verdict-honesty-plan.md H1). Null — a
     // triage-fallback verdict, an unrated window, an away cell — is SILENCE in both the face and the
     // sentence: no mean standing behind a word is itself the disclosure that no rating does.
-    const regionMean = card.away ? null : formatRegionMean(card.topMeanRating);
+    const regionMean = card.away ? null : formatRegionMean(card.verdictMean);
     const accessibleName = [card.label, card.time, card.verdictLabel]
       .concat(regionMean ? [`${regionMean} star average`] : [])
       .filter(Boolean)
@@ -1881,8 +1881,14 @@ WindowFirstHeatStrip.propTypes = {
     badges: PropTypes.array,
     /** The window's leading region, for the thumbnail's brightened area name. Null when unrated. */
     hotRegionName: PropTypes.string,
-    /** The served region mean behind the verdict word — read by the H2 "beyond the tier" line. */
+    /** The served mean of the window's top region (the Order control's key). Not printed directly. */
     topMeanRating: PropTypes.number,
+    /**
+     * The mean the card may print beside its verdict word: `topMeanRating` only when the top region
+     * is verdict-eligible, else null. Read by the face, the spoken sentence and the H2 "beyond the
+     * tier" line, all of which claim a RATING stands behind the word.
+     */
+    verdictMean: PropTypes.number,
     /** The active reach tier's threshold in minutes; null under "Any" (H2). */
     reachLimitMinutes: PropTypes.number,
     /** Whether a drive time exists for the tier to have gated on (H2 requires it). */

@@ -1148,6 +1148,60 @@ describe('buildWindowCards — topMeanRating, the Order control\'s ranking key',
     });
   });
 
+  describe('verdictMean — the mean the card may PRINT beside its word (review F1)', () => {
+    // An INELIGIBLE region (sample gate failed, no force exemption) still ranks and still carries a
+    // served mean, but its displayVerdict is the weather-triage fallback — "Worth it 2.0★" would
+    // print a figure the word does not come from. `topMeanRating` (the Order key) is unchanged.
+    it('is the top region\'s mean when that region is verdict-eligible', () => {
+      const [card] = build(withRegions([
+        { regionName: 'Sound', meanRating: 3.5, sampleSufficient: true },
+      ]));
+      expect(card.verdictMean).toBe(3.5);
+    });
+
+    it('is the mean for a force-evaluation exemption', () => {
+      const [card] = build(withRegions([
+        { regionName: 'Forced', meanRating: 3.9, forcedSample: true },
+      ]));
+      expect(card.verdictMean).toBe(3.9);
+    });
+
+    it('is null for an ineligible top region, while topMeanRating still carries its mean', () => {
+      // One region, two rated slots at 2★ in a roster of 20, triage GO: the production-shaped input.
+      const [card] = build(withRegions([
+        { regionName: 'Thin', meanRating: 2, sampleSufficient: false, displayVerdict: 'WORTH_IT' },
+      ]));
+      expect(card.topMeanRating).toBe(2);
+      expect(card.verdictMean).toBeNull();
+    });
+
+    it('is null for a legacy region carrying neither flag', () => {
+      const [card] = build(withRegions([{ regionName: 'Legacy', meanRating: 4.2 }]));
+      expect(card.verdictMean).toBeNull();
+    });
+
+    it('is null when away and the scoped region is ineligible, and the mean when it is eligible', () => {
+      const away = (scopedFlags) => buildWindowCards(
+        events([TODAY, 'SUNSET']),
+        [day(TODAY, [{
+          targetType: 'SUNSET',
+          regions: [
+            { regionName: 'Home', meanRating: 4.6, sampleSufficient: true },
+            { regionName: 'Elsewhere', meanRating: 2.8, ...scopedFlags },
+          ],
+          unregioned: [],
+          window: { verdict: 'WORTH_IT', badges: [] },
+        }])],
+        TODAY, TOMORROW, new Set(), undefined,
+        { limitMinutes: null, defaultLimitMinutes: null, origin: { id: 3, name: 'Elsewhere' } },
+      )[0];
+
+      expect(away({ sampleSufficient: false }).verdictMean).toBeNull();
+      expect(away({ sampleSufficient: false }).topMeanRating).toBe(2.8);
+      expect(away({ sampleSufficient: true }).verdictMean).toBe(2.8);
+    });
+  });
+
   describe('formatRegionMean', () => {
     it('always keeps one decimal and returns null for anything that is not a finite number', () => {
       expect(formatRegionMean(3.53)).toBe('3.5');

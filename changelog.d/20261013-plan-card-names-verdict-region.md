@@ -6,6 +6,7 @@ window, true only of the places you could drive to. In exactly that state the th
 `Region` / `Northumberland & Tyneside · beyond 45 min` (the tier as the lens bar prints it), in
 primary ink, with a tooltip saying the verdict is that region's and its rated places are all further
 away, and the card's spoken sentence carries the same clause where it used to drop the Best clause.
-It only ever appears with a measured drive time and an active tier: with no postcode, or under
+It is silent when the verdict word is only the weather fallback of a thinly-sampled region (no
+rated places stand behind it to be "beyond" anything). It only ever appears with a measured drive time and an active tier: with no postcode, or under
 "Any", nothing was gated, so the wording is not claimed. Frontend only (plan-card-verdict-honesty
 plan, H2).
