@@ -534,6 +534,8 @@ public class ForecastCommandExecutor {
             List<double[]> directionalPoints =
                     openMeteoService.computeDirectionalCloudPoints(lat, lon, azimuth);
             allPoints.addAll(directionalPoints);
+            // The real geometry always returns five points (DirectionalSamplingGeometryTest pins it);
+            // the guard only tolerates mocked short lists.
             if (directionalPoints.size() > DirectionalSamplingGeometry.FAR_SOLAR_POINT_INDEX) {
                 farPoints.add(directionalPoints.get(DirectionalSamplingGeometry.FAR_SOLAR_POINT_INDEX));
             }

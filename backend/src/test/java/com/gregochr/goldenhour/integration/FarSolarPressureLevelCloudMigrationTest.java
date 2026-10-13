@@ -57,7 +57,6 @@ class FarSolarPressureLevelCloudMigrationTest {
     @DisplayName("V176 adds six nullable integer columns and a row planted at V175 read null in all of them")
     void addsNullableColumnsAndLeavesExistingRowsNull() throws SQLException {
         flyway("175").migrate();
-        long evaluationId;
         try (Connection c = connect(); Statement st = c.createStatement()) {
             st.executeUpdate("INSERT INTO locations (name, lat, lon) "
                     + "VALUES ('Migration Test Point', 54.775, -1.585)");
@@ -66,10 +65,6 @@ class FarSolarPressureLevelCloudMigrationTest {
                     + "SELECT 54.775, -1.585, id, DATE '2026-10-12', 'SUNSET', "
                     + "TIMESTAMP '2026-10-12 06:00:00', 0 FROM locations "
                     + "WHERE name = 'Migration Test Point'");
-            try (ResultSet rs = st.executeQuery("SELECT id FROM forecast_evaluation")) {
-                assertThat(rs.next()).isTrue();
-                evaluationId = rs.getLong(1);
-            }
         }
 
         flyway("176").migrate();

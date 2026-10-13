@@ -163,6 +163,10 @@ class ForecastEvaluationRepositoryTest {
                 repository.findById(id).orElseThrow().getDirectionalCloud();
         assertThat(reloaded.getFarSolarHighDark()).isEqualTo(83);
         assertThat(reloaded.getFarSolarCloud850()).isNull();
+        assertThat(reloaded.getFarSolarCloud700()).isNull();
+        assertThat(reloaded.getFarSolarCloud600()).isNull();
+        assertThat(reloaded.getFarSolarCloud500()).isNull();
+        assertThat(reloaded.getFarSolarCloud400()).isNull();
         assertThat(reloaded.getFarSolarCloud300()).isNull();
     }
 

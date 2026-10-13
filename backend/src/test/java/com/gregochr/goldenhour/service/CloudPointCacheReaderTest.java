@@ -176,6 +176,30 @@ class CloudPointCacheReaderTest {
         }
     }
 
+    @Test
+    @DisplayName("levels are still read when the far cloud cell is absent, far cloud fields null")
+    void pressureLevels_readWithoutFarCloudCell() {
+        DirectionalCloudData data = readWithLevels(null, levelResponse(TIMES), TargetType.SUNSET, SUNSET);
+
+        assertThat(data).isNotNull();
+        assertThat(data.farSolarCloud850hPa()).isEqualTo(81);
+        assertThat(data.farSolarCloud300hPa()).isEqualTo(31);
+        assertThat(data.farSolarLowCloudPercent()).isNull();
+        assertThat(data.farSolarMidCloudPercent()).isNull();
+        assertThat(data.farSolarHighCloudPercentDarkHour()).isNull();
+    }
+
+    @Test
+    @DisplayName("no levels and no far cloud cell leaves every far and level field null")
+    void pressureLevels_absentWithoutFarCloudCell_allNull() {
+        DirectionalCloudData data = readWithLevels(null, null, TargetType.SUNSET, SUNSET);
+
+        assertThat(data).isNotNull();
+        assertThat(data.farSolarLowCloudPercent()).isNull();
+        assertThat(data.farSolarCloud850hPa()).isNull();
+        assertThat(data.farSolarCloud300hPa()).isNull();
+    }
+
     private static OpenMeteoForecastResponse farResponse() {
         return response(List.of(1, 40, 41), List.of(2, 50, 51), List.of(3, 60, 61));
     }
@@ -204,7 +228,9 @@ class CloudPointCacheReaderTest {
                     response(List.of(10, 10, 10), List.of(20, 20, 20), List.of(30, 30, 30)));
         }
         double[] farPoint = points.get(DirectionalSamplingGeometry.FAR_SOLAR_POINT_INDEX);
-        cells.put(CloudPointCache.gridKey(farPoint[0], farPoint[1]), far);
+        if (far != null) {
+            cells.put(CloudPointCache.gridKey(farPoint[0], farPoint[1]), far);
+        }
         Map<String, OpenMeteoForecastResponse> levelCells = new HashMap<>();
         if (levels != null) {
             levelCells.put(CloudPointCache.gridKey(farPoint[0], farPoint[1]), levels);

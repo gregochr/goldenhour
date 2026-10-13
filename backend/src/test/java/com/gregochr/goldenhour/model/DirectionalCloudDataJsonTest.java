@@ -100,6 +100,10 @@ class DirectionalCloudDataJsonTest {
         DirectionalCloudData data = new DirectionalCloudData(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12);
 
         assertThat(data.farSolarCloud850hPa()).isNull();
+        assertThat(data.farSolarCloud700hPa()).isNull();
+        assertThat(data.farSolarCloud600hPa()).isNull();
+        assertThat(data.farSolarCloud500hPa()).isNull();
+        assertThat(data.farSolarCloud400hPa()).isNull();
         assertThat(data.farSolarCloud300hPa()).isNull();
     }
 }

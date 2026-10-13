@@ -468,27 +468,88 @@ class OpenMeteoClientTest {
         assertThat(hourly).isEqualTo(OpenMeteoClient.CLOUD_ONLY_PARAMS);
     }
 
-    @Test
-    @DisplayName("fetchPressureLevelCloudBatch returns null entries for a failed chunk, like the cloud batch")
-    void fetchPressureLevelCloudBatch_failedChunk_leavesNulls() {
+    private OpenMeteoClient pressureClient(MockRestServiceServer[] serverOut) {
         RestClient.Builder builder = RestClient.builder().baseUrl("http://open-meteo.test");
-        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        serverOut[0] = MockRestServiceServer.bindTo(builder).build();
         OpenMeteoClient client = new OpenMeteoClient(forecastApi, airQualityApi, new ObjectMapper(),
                 builder.build(), null);
         client.interChunkDelayMs = 0;
+        return client;
+    }
+
+    private void expectOk(MockRestServiceServer server, int n) {
         server.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.anything())
                 .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators
-                        .withSuccess(buildJsonArray(20, 50.0),
+                        .withSuccess(buildJsonArray(n, 50.0),
                                 org.springframework.http.MediaType.APPLICATION_JSON));
+    }
+
+    private static void expectError(MockRestServiceServer server) {
         server.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.anything())
                 .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators
                         .withServerError());
+    }
 
-        List<OpenMeteoForecastResponse> results = client.fetchPressureLevelCloudBatch(buildCoords(25));
+    @Test
+    @DisplayName("fetchPressureLevelCloudBatch: a failing first chunk gives all nulls and no further request")
+    void fetchPressureLevelCloudBatch_firstChunkFails_allNullNoMoreRequests() {
+        MockRestServiceServer[] server = new MockRestServiceServer[1];
+        OpenMeteoClient client = pressureClient(server);
+        expectError(server[0]);
 
-        assertThat(results).hasSize(25);
-        assertThat(results.stream().filter(r -> r != null).count()).isEqualTo(20);
-        assertThat(results.subList(20, 25)).containsOnlyNulls();
+        List<OpenMeteoForecastResponse> results = client.fetchPressureLevelCloudBatch(buildCoords(45));
+
+        assertThat(results).hasSize(45).containsOnlyNulls();
+        server[0].verify();
+    }
+
+    @Test
+    @DisplayName("fetchPressureLevelCloudBatch: a failing second chunk keeps the first, rest null, no third request")
+    void fetchPressureLevelCloudBatch_secondChunkFails_keepsFirstNoThirdRequest() {
+        MockRestServiceServer[] server = new MockRestServiceServer[1];
+        OpenMeteoClient client = pressureClient(server);
+        expectOk(server[0], 20);
+        expectError(server[0]);
+
+        List<OpenMeteoForecastResponse> results = client.fetchPressureLevelCloudBatch(buildCoords(45));
+
+        assertThat(results).hasSize(45);
+        assertThat(results.subList(0, 20)).allSatisfy(r -> assertThat(r).isNotNull());
+        assertThat(results.subList(20, 45)).containsOnlyNulls();
+        server[0].verify();
+    }
+
+    @Test
+    @DisplayName("fetchPressureLevelCloudBatch: stops at the time budget and leaves the remaining cells null")
+    void fetchPressureLevelCloudBatch_budgetExhausted_remainingNull() {
+        MockRestServiceServer[] server = new MockRestServiceServer[1];
+        OpenMeteoClient client = pressureClient(server);
+        // start at t=0; budget checks before chunks one and two at t=0, before chunk three past it
+        long[] readings = {0, 0, 0, OpenMeteoClient.PRESSURE_LEVEL_FETCH_BUDGET.toMillis()};
+        int[] idx = {0};
+        client.elapsedClockMs = () -> readings[Math.min(idx[0]++, readings.length - 1)];
+        expectOk(server[0], 20);
+        expectOk(server[0], 20);
+
+        List<OpenMeteoForecastResponse> results = client.fetchPressureLevelCloudBatch(buildCoords(45));
+
+        assertThat(results).hasSize(45);
+        assertThat(results.subList(0, 40)).allSatisfy(r -> assertThat(r).isNotNull());
+        assertThat(results.subList(40, 45)).containsOnlyNulls();
+        server[0].verify();
+    }
+
+    @Test
+    @DisplayName("fetchPressureLevelCloudBatch carries the rate limiter only: no retry, no circuit breaker")
+    void fetchPressureLevelCloudBatch_isolatedFromRetryAndBreaker() throws NoSuchMethodException {
+        java.lang.reflect.Method m =
+                OpenMeteoClient.class.getMethod("fetchPressureLevelCloudBatch", List.class);
+
+        assertThat(m.getAnnotation(io.github.resilience4j.ratelimiter.annotation.RateLimiter.class).name())
+                .isEqualTo("open-meteo");
+        assertThat(m.isAnnotationPresent(io.github.resilience4j.retry.annotation.Retry.class)).isFalse();
+        assertThat(m.isAnnotationPresent(
+                io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker.class)).isFalse();
     }
 
     private String hourlyParamSentBy(Function<OpenMeteoClient, List<OpenMeteoForecastResponse>> call) {

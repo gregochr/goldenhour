@@ -116,7 +116,7 @@ public record DirectionalCloudData(
 
     /**
      * Creates directional cloud data without the recorded far-point mid, high and dark-hour
-     * values, which are all left {@code null}.
+     * values or the six pressure-level values, which are all left {@code null}.
      *
      * @param solarLowCloudPercent      low cloud at the solar horizon point (113 km)
      * @param solarMidCloudPercent      mid cloud at the solar horizon point (113 km)

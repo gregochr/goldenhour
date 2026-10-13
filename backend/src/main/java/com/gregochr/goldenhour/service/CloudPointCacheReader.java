@@ -148,12 +148,9 @@ public final class CloudPointCacheReader {
             }
 
             // Pressure levels: own failure isolation, can never affect any other field.
-            Integer[] levels = farF != null
-                    ? readPressureLevels(cloudCache.getPressureLevels(
-                            points.get(DirectionalSamplingGeometry.FAR_SOLAR_POINT_INDEX)[0],
-                            points.get(DirectionalSamplingGeometry.FAR_SOLAR_POINT_INDEX)[1]),
-                            solarEventTime, targetType)
-                    : new Integer[PRESSURE_LEVEL_COUNT];
+            double[] farPoint = points.get(DirectionalSamplingGeometry.FAR_SOLAR_POINT_INDEX);
+            Integer[] levels = readPressureLevels(
+                    cloudCache.getPressureLevels(farPoint[0], farPoint[1]), solarEventTime, targetType);
 
             return new DirectionalCloudData(
                     solarLowSum / DirectionalSamplingGeometry.SOLAR_CONE_POINT_COUNT,

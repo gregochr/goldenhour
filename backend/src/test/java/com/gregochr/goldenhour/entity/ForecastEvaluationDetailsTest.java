@@ -112,6 +112,10 @@ class ForecastEvaluationDetailsTest {
                     new DirectionalCloudData(35, 45, 20, 40, 50, 15, 55, 61, 72, 18, 27, 83));
 
             assertThat(details.getFarSolarCloud850()).isNull();
+            assertThat(details.getFarSolarCloud700()).isNull();
+            assertThat(details.getFarSolarCloud600()).isNull();
+            assertThat(details.getFarSolarCloud500()).isNull();
+            assertThat(details.getFarSolarCloud400()).isNull();
             assertThat(details.getFarSolarCloud300()).isNull();
         }
 

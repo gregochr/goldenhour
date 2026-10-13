@@ -24,6 +24,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.function.LongSupplier;
 import java.util.stream.Collectors;
 
 /**
@@ -66,6 +67,9 @@ public class OpenMeteoClient {
     static final String PRESSURE_LEVEL_CLOUD_PARAMS =
             "cloud_cover_850hPa,cloud_cover_700hPa,cloud_cover_600hPa,"
             + "cloud_cover_500hPa,cloud_cover_400hPa,cloud_cover_300hPa";
+
+    /** Total time the pressure-level fetch may spend before leaving the remaining cells null. */
+    static final Duration PRESSURE_LEVEL_FETCH_BUDGET = Duration.ofSeconds(90);
 
     /** Comma-separated hourly air quality parameters requested from Open-Meteo. */
     static final String AIR_QUALITY_PARAMS = "pm2_5,dust,aerosol_optical_depth";
@@ -131,6 +135,12 @@ public class OpenMeteoClient {
      * Production code always reads {@link #CHUNK_RETRY_BASE_BACKOFF_MS}.
      */
     long chunkRetryBackoffMs = CHUNK_RETRY_BASE_BACKOFF_MS;
+
+    /**
+     * Time source for the pressure-level fetch budget, in milliseconds. Overridable in unit tests;
+     * production code always reads the wall clock.
+     */
+    LongSupplier elapsedClockMs = System::currentTimeMillis;
 
     @Autowired(required = false)
     private RateLimiterRegistry rateLimiterRegistry;
@@ -265,20 +275,49 @@ public class OpenMeteoClient {
     }
 
     /**
-     * Fetches pressure-level cloud cover (850 to 300 hPa) for multiple points.
+     * Fetches pressure-level cloud cover (850 to 300 hPa) for multiple points. Best effort, data
+     * only.
      *
-     * <p>Same batching, chunking and resilience as {@link #fetchCloudOnlyBatch(List)}, but
-     * requesting {@link #PRESSURE_LEVEL_CLOUD_PARAMS}. Failed chunks leave {@code null} entries at
-     * their positions in the returned list. Callers must guard against {@code null} entries.
+     * <p>Shares only the {@code open-meteo} rate limiter with the rating-affecting fetches (the
+     * quota is shared on purpose). It has no retry and no circuit breaker, so a failure here can
+     * never open the {@code open-meteo} breaker those fetches use. Coordinates are chunked at
+     * {@value #BATCH_COORD_LIMIT} with the usual inter-chunk pause. The first chunk that throws
+     * (a 429 included) stops the fetch with one WARN and no rate-limit backoff, and the fetch also
+     * stops once {@link #PRESSURE_LEVEL_FETCH_BUDGET} has elapsed (one INFO line counts the cells
+     * skipped). Positions not fetched are {@code null}; callers must guard against that.
      *
      * @param coords list of [lat, lon] pairs
-     * @return list of length {@code coords.size()} — {@code null} where a chunk failed
+     * @return list of length {@code coords.size()} with {@code null} where nothing was fetched
      */
-    @Retry(name = "open-meteo")
-    @CircuitBreaker(name = "open-meteo")
     @RateLimiter(name = "open-meteo")
     public List<OpenMeteoForecastResponse> fetchPressureLevelCloudBatch(List<double[]> coords) {
-        return fetchForecastBatchInternal(coords, PRESSURE_LEVEL_CLOUD_PARAMS, forecastRestClient);
+        List<OpenMeteoForecastResponse> results =
+                new ArrayList<>(Collections.nCopies(coords.size(), null));
+        long startMs = elapsedClockMs.getAsLong();
+        for (int i = 0; i < coords.size(); i += BATCH_COORD_LIMIT) {
+            if (elapsedClockMs.getAsLong() - startMs >= PRESSURE_LEVEL_FETCH_BUDGET.toMillis()) {
+                LOG.info("Pressure-level cloud fetch budget of {}s reached, {} of {} cells skipped",
+                        PRESSURE_LEVEL_FETCH_BUDGET.toSeconds(), coords.size() - i, coords.size());
+                break;
+            }
+            if (i > 0) {
+                sleepQuietly(interChunkDelayMs);
+            }
+            List<double[]> chunk = coords.subList(i, Math.min(i + BATCH_COORD_LIMIT, coords.size()));
+            try {
+                List<OpenMeteoForecastResponse> chunkResults =
+                        fetchForecastChunk(chunk, PRESSURE_LEVEL_CLOUD_PARAMS, forecastRestClient);
+                for (int j = 0; j < chunkResults.size() && i + j < results.size(); j++) {
+                    results.set(i + j, chunkResults.get(j));
+                }
+            } catch (Exception e) {
+                LOG.warn("Pressure-level cloud chunk {} failed, stopping with {} of {} cells unfetched: {}",
+                        i / BATCH_COORD_LIMIT + 1, coords.size() - i, coords.size(),
+                        e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+                break;
+            }
+        }
+        return results;
     }
 
     /**

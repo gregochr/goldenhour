@@ -354,9 +354,10 @@ public class OpenMeteoService {
      * Batch pre-fetches cloud-only data, then pressure-level cloud at the far points.
      *
      * <p>The cloud fetch is exactly that of the two-argument method, including its failure
-     * behaviour. The far points' pressure levels (850 to 300 hPa) are then requested in a
-     * separate best-effort call, deduplicated by grid cell: any exception or null response means
-     * no levels for that cell, and can never affect the cloud map.
+     * behaviour. When it succeeds, the far points' pressure levels (850 to 300 hPa) are then
+     * requested in a separate best-effort call, deduplicated by grid cell: any exception or null
+     * response means no levels for that cell, and can never affect the cloud map. When the cloud
+     * fetch fails, no pressure-level request is made and the empty cache is returned.
      *
      * @param allCoords raw [lat, lon] pairs (may contain duplicates)
      * @param farCoords the far-solar [lat, lon] points (may contain duplicates, may be empty)
@@ -419,7 +420,7 @@ public class OpenMeteoService {
                         "GET", "cloud-batch-prefetch(" + coords.size() + ")", null,
                         durationMs, getStatusCode(e), null, false, e.getMessage());
             }
-            return new CloudPointCache(Map.of(), prefetchPressureLevels(farCoords, jobRun));
+            return new CloudPointCache(Map.of());
         }
     }
 
@@ -435,15 +436,16 @@ public class OpenMeteoService {
         if (farCoords == null || farCoords.isEmpty()) {
             return Map.of();
         }
-        Map<String, double[]> uniqueByGrid = new LinkedHashMap<>();
-        for (double[] coord : farCoords) {
-            uniqueByGrid.putIfAbsent(CloudPointCache.gridKey(coord[0], coord[1]), coord);
-        }
-        List<String> gridKeys = new ArrayList<>(uniqueByGrid.keySet());
-        List<double[]> coords = new ArrayList<>(uniqueByGrid.values());
-        String endpoint = "pressure-level-cloud-batch(" + coords.size() + ")";
+        String endpoint = "pressure-level-cloud-batch(" + farCoords.size() + ")";
         long startMs = System.currentTimeMillis();
         try {
+            Map<String, double[]> uniqueByGrid = new LinkedHashMap<>();
+            for (double[] coord : farCoords) {
+                uniqueByGrid.putIfAbsent(CloudPointCache.gridKey(coord[0], coord[1]), coord);
+            }
+            List<String> gridKeys = new ArrayList<>(uniqueByGrid.keySet());
+            List<double[]> coords = new ArrayList<>(uniqueByGrid.values());
+            endpoint = "pressure-level-cloud-batch(" + coords.size() + ")";
             List<OpenMeteoForecastResponse> responses =
                     openMeteoClient.fetchPressureLevelCloudBatch(coords);
             Map<String, OpenMeteoForecastResponse> levels = new LinkedHashMap<>();
@@ -455,7 +457,16 @@ public class OpenMeteoService {
             long durationMs = System.currentTimeMillis() - startMs;
             LOG.info("Pressure-level cloud prefetch: {}/{} far cells populated in {}ms",
                     levels.size(), coords.size(), durationMs);
-            logPressureLevelCall(jobRun, endpoint, durationMs, 200, true, null);
+            try {
+                if (levels.isEmpty()) {
+                    logPressureLevelCall(jobRun, endpoint, durationMs, 200, false,
+                            "no pressure-level data");
+                } else {
+                    logPressureLevelCall(jobRun, endpoint, durationMs, 200, true, null);
+                }
+            } catch (Exception logFailure) {
+                LOG.warn("Pressure-level cloud call could not be logged: {}", logFailure.getMessage());
+            }
             return levels;
         } catch (Exception e) {
             long durationMs = System.currentTimeMillis() - startMs;
@@ -626,7 +637,8 @@ public class OpenMeteoService {
      * <p>Makes up to five additional Open-Meteo calls (cloud layers only): three for the
      * solar cone, one for the antisolar point, and one for the far solar point, plus one
      * separate best-effort call for the far point's six pressure-level cloud values (850 to
-     * 300 hPa, recorded, never prompted). That call's failure leaves only those six {@code null}. Returns
+     * 300 hPa, recorded, never prompted). That call's failure leaves only those six
+     * {@code null}. Returns
      * {@code null} if the core solar/antisolar fetches fail; the far fetch failing leaves
      * every far field (low, mid, high and the dark-hour trio) {@code null} and nothing else, not the
      * whole result.
@@ -728,7 +740,8 @@ public class OpenMeteoService {
 
             LOG.info("Directional cloud -> solar(avg3): L{}% M{}% H{}%, antisolar: L{}% M{}% H{}%, "
                     + "farSolar: L{}% M{}% H{}%, farSolar dark hour: L{}% M{}% H{}%, "
-                    + "farSolar levels 850/700/600/500/400/300 hPa: {}/{}/{}/{}/{}/{}% ({}ms, 1 batch call)",
+                    + "farSolar levels 850/700/600/500/400/300 hPa: {}/{}/{}/{}/{}/{}% "
+                    + "({}ms for the cloud calls, excluding the separate pressure-level call)",
                     result.solarLowCloudPercent(), result.solarMidCloudPercent(),
                     result.solarHighCloudPercent(),
                     result.antisolarLowCloudPercent(), result.antisolarMidCloudPercent(),
@@ -768,15 +781,26 @@ public class OpenMeteoService {
             List<OpenMeteoForecastResponse> responses =
                     openMeteoClient.fetchPressureLevelCloudBatch(List.of(farPoint));
             long durationMs = System.currentTimeMillis() - startMs;
-            if (responses == null || responses.isEmpty()) {
-                // An empty answer carries no levels: record it as a failed call.
-                logPressureLevelCall(jobRun, endpoint, durationMs, 200, false,
-                        "empty pressure-level response");
-                return new Integer[CloudPointCacheReader.PRESSURE_LEVEL_COUNT];
+            Integer[] levels = responses == null || responses.isEmpty()
+                    ? new Integer[CloudPointCacheReader.PRESSURE_LEVEL_COUNT]
+                    : CloudPointCacheReader.readPressureLevels(responses.get(0), solarEventTime,
+                            targetType);
+            boolean gotCell = responses != null && !responses.isEmpty() && responses.get(0) != null;
+            try {
+                if (responses == null || responses.isEmpty()) {
+                    // An empty answer carries no levels: record it as a failed call.
+                    logPressureLevelCall(jobRun, endpoint, durationMs, 200, false,
+                            "empty pressure-level response");
+                } else if (gotCell) {
+                    logPressureLevelCall(jobRun, endpoint, durationMs, 200, true, null);
+                } else {
+                    logPressureLevelCall(jobRun, endpoint, durationMs, 200, false,
+                            "no pressure-level data");
+                }
+            } catch (Exception logFailure) {
+                LOG.warn("Pressure-level cloud call could not be logged: {}", logFailure.getMessage());
             }
-            logPressureLevelCall(jobRun, endpoint, durationMs, 200, true, null);
-            return CloudPointCacheReader.readPressureLevels(responses.get(0), solarEventTime,
-                    targetType);
+            return levels;
         } catch (Exception e) {
             long durationMs = System.currentTimeMillis() - startMs;
             LOG.warn("Pressure-level cloud fetch failed ({}ms), no levels recorded: {}",
