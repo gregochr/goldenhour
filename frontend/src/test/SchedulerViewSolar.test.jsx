@@ -72,7 +72,7 @@ function previewJob(overrides) {
     ruleSource: 'PROPOSED',
     today: day({ fireInstant: inHours(-1) }),
     tomorrow: day({ date: '2026-10-14', fireInstant: inHours(3) }),
-    earliest: { date: '2026-06-18', fireLocal: '00:13', fireInstant: '2027-06-17T23:13:00Z' },
+    earliest: { date: '2027-06-18', fireLocal: '00:13', fireInstant: '2027-06-17T23:13:00Z' },
     latest: { date: '2026-12-29', fireLocal: '04:15', fireInstant: '2026-12-29T04:15:00Z' },
     medianDurationSeconds: 5400,
     ...overrides,
@@ -256,7 +256,7 @@ describe('SchedulerView - switching a forecast cycle between fixed and sun-relat
     expect(within(dialog).getByTestId('switch-after')).toHaveTextContent(
       '4 h 15 min before sunrise every day',
     );
-    expect(dialog).toHaveTextContent('same control');
+    expect(dialog).not.toHaveTextContent('same control');
   });
 
   it('pre-fills the rule from the preview and sends it on confirm (nightly: sunrise 255)', async () => {
@@ -418,14 +418,14 @@ describe('SolarSchedulePanel - fed by the preview', () => {
     expect(within(nightly).getByTestId(`solar-rule-source-${NIGHTLY}`)).toHaveTextContent(
       'Proposed rule',
     );
-    expect(within(nightly).getByTestId(`solar-rule-${NIGHTLY}`)).toHaveTextContent(
+    expect(within(nightly).getByTestId(`solar-panel-rule-${NIGHTLY}`)).toHaveTextContent(
       '4 h 15 min before sunrise',
     );
     const intraday = screen.getByTestId(`solar-panel-${INTRADAY}`);
     expect(within(intraday).getByTestId(`solar-rule-source-${INTRADAY}`)).toHaveTextContent(
       'Current rule',
     );
-    expect(within(intraday).getByTestId(`solar-rule-${INTRADAY}`)).toHaveTextContent(
+    expect(within(intraday).getByTestId(`solar-panel-rule-${INTRADAY}`)).toHaveTextContent(
       '4 h before sunset',
     );
   });
@@ -475,9 +475,11 @@ describe('SolarSchedulePanel - fed by the preview', () => {
       [job()],
       preview([
         previewJob({
-          today: day({ clamped: true }),
+          // 00:05 UK on 13 Oct (BST) is 23:05Z on the 12th
+          today: day({ clamped: true, fireInstant: '2026-10-12T23:05:00Z' }),
           tomorrow: day({
             date: '2026-10-14',
+            eventInstant: null,
             fireInstant: null,
             fallback: true,
             fallbackReason: 'sunrise did not occur',
@@ -492,6 +494,9 @@ describe('SolarSchedulePanel - fed by the preview', () => {
     expect(screen.getByTestId(`solar-tomorrow-${NIGHTLY}`)).toHaveTextContent(
       'Stored cron used: sunrise did not occur',
     );
+    // the day with no sunrise has no event time to show
+    expect(screen.getByTestId(`solar-tomorrow-${NIGHTLY}`)).toHaveTextContent('n/a');
+    expect(screen.getByTestId(`solar-today-${NIGHTLY}`)).toHaveTextContent('00:05 UK');
   });
 
   it('states the catch-up windows and the safety budget as notes', async () => {

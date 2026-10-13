@@ -21,9 +21,9 @@ function DayRow({ label, day, testId }) {
   if (!day) return null;
   return (
     <tr data-testid={testId}>
-      <th scope="row" className="text-left font-normal text-plex-text-muted pr-3 py-0.5">
+      <th scope="row" className="text-left font-normal text-plex-text-secondary pr-3 py-0.5">
         {label}
-        <span className="block text-plex-text-muted">{formatCivilDate(day.date)}</span>
+        <span className="block text-plex-text-secondary">{formatCivilDate(day.date)}</span>
       </th>
       <td className="pr-3 py-0.5">{day.eventInstant ? formatUkTime(day.eventInstant) : 'n/a'}</td>
       <td className="pr-3 py-0.5">
@@ -75,9 +75,9 @@ function CyclePreview({ job, displayName }) {
       data-testid={`solar-panel-${job.jobKey}`}
     >
       <h4 className="text-sm font-semibold text-plex-text">
-        {displayName} <span className="font-normal text-plex-text-muted">({job.cycleType})</span>
+        {displayName} <span className="font-normal text-plex-text-secondary">({job.cycleType})</span>
       </h4>
-      <p className="text-xs text-plex-text-secondary" data-testid={`solar-rule-${job.jobKey}`}>
+      <p className="text-xs text-plex-text-secondary" data-testid={`solar-panel-rule-${job.jobKey}`}>
         <span className="text-plex-text">{rule}</span>
         {', never before 00:05 UK. '}
         <span
@@ -92,7 +92,7 @@ function CyclePreview({ job, displayName }) {
 
       <table className="text-xs text-plex-text-secondary">
         <thead>
-          <tr className="text-plex-text-muted">
+          <tr className="text-plex-text-secondary">
             <th scope="col" className="text-left font-normal pr-3">
               Day
             </th>
@@ -167,8 +167,11 @@ CyclePreview.propTypes = {
  * The Scheduler screen's read-only panel on the two sun-relative forecast cycles
  * (solar-relative-refresh-plan §5).
  *
- * <p>Every figure is read from {@code GET /api/admin/scheduler/solar-preview}, which runs the
- * scheduler's own trigger arithmetic, so this panel cannot disagree with what will fire. The notes
+ * <p>Every time shown is read from {@code GET /api/admin/scheduler/solar-preview}, which runs the
+ * scheduler's own trigger arithmetic, so this panel cannot disagree with what will fire. The one
+ * figure it derives itself is the expected finish: the preview's trigger plus its median cycle
+ * duration, added here. When a refresh fails while an older preview is held, the held figures stay
+ * on screen under a notice naming their age. The notes
  * at the foot are fixed text from the plan (D1, D3, A4); the safety budget in particular is the
  * plan's figure, not a live read of {@code photocast.pipeline.safety-timeout}.
  *
@@ -185,13 +188,20 @@ export default function SolarSchedulePanel({ preview = null, failed = false, dis
     >
       <div>
         <h3 className="text-sm font-semibold text-plex-text">Sun-relative forecast cycles</h3>
-        <p className="text-xs text-plex-text-muted mt-0.5">
+        <p className="text-xs text-plex-text-secondary mt-0.5">
           Read-only. Figures come from the scheduler&apos;s own calculation; times are UK local.
         </p>
       </div>
 
+      {preview && failed && (
+        <p className="text-xs text-amber-400" role="status" data-testid="solar-panel-stale">
+          Couldn&apos;t refresh the preview &mdash; figures as of {formatUkDateTime(preview.generatedAt)}.
+          Switching to sun-relative is disabled until a refresh succeeds.
+        </p>
+      )}
+
       {!preview && (
-        <p className="text-xs text-plex-text-muted" data-testid="solar-panel-unavailable">
+        <p className="text-xs text-plex-text-secondary" data-testid="solar-panel-unavailable">
           {failed
             ? 'Solar preview unavailable: the request failed. The switch control is disabled until it loads.'
             : 'Loading solar preview...'}
@@ -231,7 +241,7 @@ export default function SolarSchedulePanel({ preview = null, failed = false, dis
           Safety budget: waiting for batches and retrying failures share 3 h 30 min from the
           cycle&apos;s first batch submit, so two forecast cycles can never be running at once. This
           is the plan&apos;s figure; the live setting is{' '}
-          <span className="font-mono">photocast.pipeline.safety-timeout</span> and is not read here.
+          <span className="font-mono break-all">photocast.pipeline.safety-timeout</span> and is not read here.
         </li>
         <li>
           Accepted: in midsummer the morning cycle fires shortly after midnight UK and the afternoon

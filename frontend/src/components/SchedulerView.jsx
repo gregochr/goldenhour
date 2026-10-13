@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import PropTypes from 'prop-types';
 import {
   fetchSchedulerJobs,
@@ -254,26 +254,48 @@ export default function SchedulerView() {
   const [previewFailed, setPreviewFailed] = useState(false);
   const [switchingJob, setSwitchingJob] = useState(null);
 
+  // Each loader numbers its requests and applies only the latest one issued: a slow earlier
+  // response (a poll still in flight when a switch reloads) must not overwrite a newer one.
+  const jobsRequest = useRef(0);
+  const previewRequest = useRef(0);
+  const editButtons = useRef({});
+  const focusBack = useRef(null);
+
   const loadPreview = useCallback(async () => {
+    const id = ++previewRequest.current;
     try {
-      setPreview(await fetchSolarPreview());
+      const data = await fetchSolarPreview();
+      if (id !== previewRequest.current) return;
+      setPreview(data);
       setPreviewFailed(false);
     } catch {
+      if (id !== previewRequest.current) return;
       setPreviewFailed(true);
     }
   }, []);
 
   const loadJobs = useCallback(async () => {
+    const id = ++jobsRequest.current;
     try {
       const data = await fetchSchedulerJobs();
+      if (id !== jobsRequest.current) return;
       setJobs(data);
       setError(null);
     } catch {
+      if (id !== jobsRequest.current) return;
       setError('Failed to load scheduler jobs');
     } finally {
-      setLoading(false);
+      if (id === jobsRequest.current) setLoading(false);
     }
   }, []);
+
+  // Leaving an editor unmounts it, and with it the Edit button the reader pressed (the button is
+  // part of the row the editor replaces): hand focus back to the new Edit button once it exists.
+  useEffect(() => {
+    if (editingJob !== null || focusBack.current === null) return;
+    editButtons.current[focusBack.current]?.focus();
+    focusBack.current = null;
+  }, [editingJob]);
 
   useEffect(() => {
     const refresh = async () => {
@@ -312,6 +334,7 @@ export default function SchedulerView() {
   };
 
   const handleSolarSaved = async () => {
+    focusBack.current = editingJob;
     setEditingJob(null);
     setEditValue('');
     await Promise.all([loadJobs(), loadPreview()]);
@@ -323,6 +346,7 @@ export default function SchedulerView() {
   };
 
   const handleEditCancel = () => {
+    focusBack.current = editingJob;
     setEditingJob(null);
     setEditValue('');
   };
@@ -340,6 +364,7 @@ export default function SchedulerView() {
         return;
       }
       await updateJobSchedule(job.jobKey, payload);
+      focusBack.current = job.jobKey;
       setEditingJob(null);
       setEditValue('');
       await loadJobs();
@@ -399,6 +424,7 @@ export default function SchedulerView() {
                   job={job}
                   onCancel={handleEditCancel}
                   onSaved={handleSolarSaved}
+                  onPartial={loadJobs}
                 />
               ) : (
                 <div className="flex flex-col gap-1" data-testid={`solar-line-${job.jobKey}`}>
@@ -409,6 +435,9 @@ export default function SchedulerView() {
                     </span>
                     <button
                       type="button"
+                      ref={(el) => {
+                        editButtons.current[job.jobKey] = el;
+                      }}
                       onClick={() => handleEditStart(job)}
                       className="text-xs text-plex-gold hover:text-plex-gold/80 ml-1"
                       disabled={isDisabled(job.status)}
@@ -417,12 +446,12 @@ export default function SchedulerView() {
                       Edit
                     </button>
                   </div>
-                  <span className="text-plex-text-muted">
+                  <span className="text-plex-text-secondary">
                     Fallback cron (UTC): <span className="font-mono">{job.cronExpression}</span>{' '}
                     {describeCron(job.cronExpression)}
                   </span>
                   {job.nextFireTime && (
-                    <span className="text-plex-text-muted">
+                    <span className="text-plex-text-secondary">
                       Next fire:{' '}
                       <span className="text-plex-text-secondary" data-testid={`solar-next-${job.jobKey}`}>
                         {formatUkDateTime(job.nextFireTime)}
@@ -477,6 +506,9 @@ export default function SchedulerView() {
                     </span>
                   )}
                   <button
+                    ref={(el) => {
+                      editButtons.current[job.jobKey] = el;
+                    }}
                     onClick={() => handleEditStart(job)}
                     className="text-xs text-plex-gold hover:text-plex-gold/80 ml-1"
                     disabled={isDisabled(job.status)}
@@ -502,7 +534,7 @@ export default function SchedulerView() {
                     onClick={() => setSwitchingJob(job.jobKey)}
                     disabled={
                       isDisabled(job.status) ||
-                      (job.scheduleType === SCHEDULE_CRON && !previewFor(job.jobKey))
+                      (job.scheduleType === SCHEDULE_CRON && (!previewFor(job.jobKey) || previewFailed))
                     }
                     className="text-xs text-plex-gold hover:text-plex-gold/80 border border-plex-gold/30 rounded px-2 py-0.5 disabled:opacity-50"
                     data-testid={`switch-btn-${job.jobKey}`}

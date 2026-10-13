@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import ConfirmDialog from './shared/ConfirmDialog.jsx';
 import { switchScheduleType, updateJobSchedule } from '../api/schedulerApi.js';
@@ -39,7 +39,7 @@ function errorMessage(err, fallback) {
 function RuleFields({ idPrefix, event, offset, onEvent, onOffset, offsetError }) {
   return (
     <div className="flex flex-wrap items-end gap-3">
-      <label className="flex flex-col gap-1 text-xs text-plex-text-muted" htmlFor={`${idPrefix}-offset`}>
+      <label className="flex flex-col gap-1 text-xs text-plex-text-secondary" htmlFor={`${idPrefix}-offset`}>
         Minutes before the event
         <input
           id={`${idPrefix}-offset`}
@@ -53,7 +53,7 @@ function RuleFields({ idPrefix, event, offset, onEvent, onOffset, offsetError })
           data-testid={`${idPrefix}-offset`}
         />
       </label>
-      <label className="flex flex-col gap-1 text-xs text-plex-text-muted" htmlFor={`${idPrefix}-event`}>
+      <label className="flex flex-col gap-1 text-xs text-plex-text-secondary" htmlFor={`${idPrefix}-event`}>
         Solar event
         <select
           id={`${idPrefix}-event`}
@@ -66,7 +66,7 @@ function RuleFields({ idPrefix, event, offset, onEvent, onOffset, offsetError })
           <option value="SUNSET">Sunset</option>
         </select>
       </label>
-      <span className="text-xs text-plex-text-muted basis-full">
+      <span className="text-xs text-plex-text-secondary basis-full">
         Whole minutes, {MIN_OFFSET_MINUTES} to {MAX_OFFSET_MINUTES}.
       </span>
       {offsetError && (
@@ -122,19 +122,27 @@ export function ScheduleSwitchDialog({ job, previewJob, cronWords, onCancel, onS
 
   let after;
   if (toCron) {
-    after = `${cronWords || 'the stored cron time'} (the stored cron expression, UTC)`;
-  } else if (
-    check.ok &&
-    previewJob &&
-    event === previewJob.solarEvent &&
-    check.value === previewJob.offsetMinutes
-  ) {
+    after = `${cronWords || 'the stored cron time'} (the stored cron, UK time)`;
+  } else if (!check.ok) {
+    after = `Enter a valid offset (${MIN_OFFSET_MINUTES}\u2013${MAX_OFFSET_MINUTES} minutes).`;
+  } else if (previewJob && event === previewJob.solarEvent && check.value === previewJob.offsetMinutes) {
+    const rule = describeSolarRule(event, check.value);
     const next = nextPreviewFire(previewJob, openedAt);
-    after = next
-      ? `${formatUkDateTime(next)}, then ${describeSolarRule(event, check.value)} every day`
-      : 'cannot be previewed (the calculation falls back to the stored cron)';
+    const today = previewJob.today;
+    if (today?.fallback) {
+      // The scheduler fires today on the stored cron, which may still be ahead: quoting
+      // tomorrow's solar fire here would skip a fire that is going to happen.
+      const reason = today.fallbackReason ? ` (${today.fallbackReason})` : '';
+      after =
+        `Today falls back to the stored cron${reason}: ${cronWords || 'the stored cron time'}` +
+        (next ? `; then ${formatUkDateTime(next)}, ${rule} every day` : '');
+    } else {
+      after = next
+        ? `${formatUkDateTime(next)}, then ${rule} every day`
+        : 'cannot be previewed (the calculation falls back to the stored cron)';
+    }
   } else {
-    after = `${describeSolarRule(event, check.ok ? check.value : 0) || 'a sun-relative rule'}: not previewed for an edited rule`;
+    after = `${describeSolarRule(event, check.value)}: not previewed for an edited rule`;
   }
 
   const handleConfirm = async () => {
@@ -177,22 +185,22 @@ export function ScheduleSwitchDialog({ job, previewJob, cronWords, onCancel, onS
       )}
       <dl className="text-xs text-plex-text-secondary flex flex-col gap-1" data-testid="switch-summary">
         <div>
-          <dt className="inline text-plex-text-muted">Next fire before: </dt>
+          <dt className="inline text-plex-text-secondary">Next fire before: </dt>
           <dd className="inline" data-testid="switch-before">
             {before}
           </dd>
         </div>
         <div>
-          <dt className="inline text-plex-text-muted">Next fire after: </dt>
+          <dt className="inline text-plex-text-secondary">Next fire after: </dt>
           <dd className="inline" data-testid="switch-after">
             {after}
           </dd>
         </div>
       </dl>
-      <p className="text-xs text-plex-text-muted">
+      <p className="text-xs text-plex-text-secondary">
         {toCron
-          ? 'The job keeps its sun-relative rule; switching to sun-relative again is the same control.'
-          : 'Switching back to a fixed time is the same control, on this job\'s card.'}
+          ? 'Switching back to a fixed time drops the sun-relative rule. Switching to sun-relative again starts from the plan\'s proposed rule, which you can edit before confirming.'
+          : 'Switching back to a fixed time later drops this rule; the stored cron then runs the job.'}
       </p>
       {error && (
         <p className="text-xs text-red-400" role="alert" data-testid="switch-error">
@@ -213,6 +221,10 @@ ScheduleSwitchDialog.propTypes = {
   previewJob: PropTypes.shape({
     solarEvent: PropTypes.string,
     offsetMinutes: PropTypes.number,
+    today: PropTypes.shape({
+      fallback: PropTypes.bool,
+      fallbackReason: PropTypes.string,
+    }),
   }),
   cronWords: PropTypes.string,
   onCancel: PropTypes.func.isRequired,
@@ -231,22 +243,32 @@ ScheduleSwitchDialog.propTypes = {
  * @param {object} props.job - the scheduler job row (a SOLAR_OFFSET one)
  * @param {Function} props.onCancel - closes the editor
  * @param {Function} props.onSaved - called after a successful save
+ * @param {Function} props.onPartial - called when the cron was saved but the rule was not
  */
-export function SolarEditForm({ job, onCancel, onSaved }) {
+export function SolarEditForm({ job, onCancel, onSaved, onPartial }) {
   const [event, setEvent] = useState(job.solarEvent === 'SUNSET' ? 'SUNSET' : 'SUNRISE');
   const [offset, setOffset] = useState(String(job.solarOffsetMinutes ?? 0));
   const [cron, setCron] = useState(job.cronExpression || '');
   const [error, setError] = useState(null);
   const sending = useRef(false);
+  const root = useRef(null);
   const check = validateOffset(offset);
+  const cronError = cron.trim() ? null : 'Enter the fallback cron; it cannot be blank.';
+
+  // Opening the editor replaces the row the reader pressed Edit on: put focus in its first field.
+  useEffect(() => {
+    root.current?.querySelector('input, select')?.focus();
+  }, []);
 
   const handleSave = async () => {
-    if (sending.current || !check.ok) return;
+    if (sending.current || !check.ok || cronError) return;
     sending.current = true;
     setError(null);
+    let cronSaved = false;
     try {
-      if (cron.trim() && cron !== job.cronExpression) {
+      if (cron.trim() !== job.cronExpression) {
         await updateJobSchedule(job.jobKey, { cronExpression: cron.trim() });
+        cronSaved = true;
       }
       if (event !== job.solarEvent || check.value !== job.solarOffsetMinutes) {
         await switchScheduleType(job.jobKey, {
@@ -257,13 +279,19 @@ export function SolarEditForm({ job, onCancel, onSaved }) {
       }
       onSaved();
     } catch (err) {
-      setError(errorMessage(err, `Failed to update ${job.jobKey}.`));
+      const message = errorMessage(err, `Failed to update ${job.jobKey}.`);
+      if (cronSaved) {
+        setError(`The fallback cron was saved, but the sun-relative rule was not: ${message}`);
+        onPartial();
+      } else {
+        setError(message);
+      }
       sending.current = false;
     }
   };
 
   return (
-    <div className="flex flex-col gap-2" data-testid={`solar-edit-${job.jobKey}`}>
+    <div ref={root} className="flex flex-col gap-2" data-testid={`solar-edit-${job.jobKey}`}>
       <RuleFields
         idPrefix={`solar-edit-${job.jobKey}`}
         event={event}
@@ -273,7 +301,7 @@ export function SolarEditForm({ job, onCancel, onSaved }) {
         offsetError={check.ok ? null : check.message}
       />
       <label
-        className="flex flex-col gap-1 text-xs text-plex-text-muted"
+        className="flex flex-col gap-1 text-xs text-plex-text-secondary"
         htmlFor={`solar-edit-${job.jobKey}-cron`}
       >
         Fallback cron (UTC), used on any day the solar time cannot be computed
@@ -286,6 +314,11 @@ export function SolarEditForm({ job, onCancel, onSaved }) {
           data-testid={`solar-edit-${job.jobKey}-cron`}
         />
       </label>
+      {cronError && (
+        <p className="text-xs text-red-400" role="alert" data-testid={`solar-edit-${job.jobKey}-cron-error`}>
+          {cronError}
+        </p>
+      )}
       {error && (
         <p className="text-xs text-red-400" role="alert" data-testid={`solar-edit-${job.jobKey}-error`}>
           {error}
@@ -295,7 +328,7 @@ export function SolarEditForm({ job, onCancel, onSaved }) {
         <button
           type="button"
           onClick={handleSave}
-          disabled={!check.ok}
+          disabled={!check.ok || Boolean(cronError)}
           className="text-xs text-green-400 hover:text-green-300 disabled:opacity-50"
           data-testid={`save-btn-${job.jobKey}`}
         >
@@ -304,7 +337,7 @@ export function SolarEditForm({ job, onCancel, onSaved }) {
         <button
           type="button"
           onClick={onCancel}
-          className="text-xs text-plex-text-muted hover:text-plex-text"
+          className="text-xs text-plex-text-secondary hover:text-plex-text"
           data-testid={`cancel-btn-${job.jobKey}`}
         >
           Cancel
@@ -323,4 +356,5 @@ SolarEditForm.propTypes = {
   }).isRequired,
   onCancel: PropTypes.func.isRequired,
   onSaved: PropTypes.func.isRequired,
+  onPartial: PropTypes.func.isRequired,
 };
