@@ -49,6 +49,24 @@ class PipelineRunRepositoryTest {
     }
 
     @Test
+    @DisplayName("runs of one cycle type at or after an instant come back oldest first, the instant "
+            + "included, the other cycle type and earlier runs left out")
+    void findsRunsOfACycleTypeAtOrAfter() {
+        Instant since = Instant.parse("2026-10-13T00:00:00Z");
+        repository.save(run(CycleType.NIGHTLY, since.minusSeconds(1)));
+        PipelineRunEntity atBoundary = repository.save(run(CycleType.NIGHTLY, since));
+        PipelineRunEntity later = repository.save(run(CycleType.NIGHTLY, since.plusSeconds(3600)));
+        repository.save(run(CycleType.INTRADAY, since.plusSeconds(60)));
+
+        List<PipelineRunEntity> result = repository
+                .findByCycleTypeAndTriggerTimeGreaterThanEqualOrderByTriggerTimeAsc(
+                        CycleType.NIGHTLY, since);
+
+        assertThat(result).extracting(PipelineRunEntity::getId)
+                .containsExactly(atBoundary.getId(), later.getId());
+    }
+
+    @Test
     @DisplayName("the threshold instant itself is excluded — strictly after, not at or after")
     void excludesTheThresholdItself() {
         Instant threshold = Instant.parse("2026-09-29T14:00:00Z");

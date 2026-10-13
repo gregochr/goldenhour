@@ -118,7 +118,8 @@ class PipelineOrchestratorTest {
                 fixedClock,
                 directExecutor,
                 Duration.ofMillis(1),
-                Duration.ofSeconds(10),
+                // 1h safety timeout: the retry phase needs at least ten minutes of budget left
+                Duration.ofHours(1),
                 null,
                 pipelineRunPickService,
                 batchRetryService,
@@ -164,6 +165,9 @@ class PipelineOrchestratorTest {
                 "msgbatch_test_" + status, BatchType.FORECAST, 10, T0.plusSeconds(86400));
         b.setStatus(status);
         b.setPipelineRunId(RUN_ID);
+        // The cycle's safety budget runs from its first submit, so every fixture states it against
+        // the test clock rather than leaving the entity's real-clock default.
+        b.setSubmittedAt(T0);
         return b;
     }
 
@@ -1493,6 +1497,263 @@ class PipelineOrchestratorTest {
             orchestrator.resumeRunningCyclesOnStartup();
 
             verify(locationFailureService, times(1)).sweepUnsettledRuns();
+        }
+    }
+
+    @Nested
+    @DisplayName("One safety budget per cycle (solar-relative-refresh-plan D3)")
+    class OneSafetyBudget {
+
+        private static final Duration BUDGET = Duration.ofMinutes(210);
+
+        /** A clock that moves forward by a fixed step every time it is read. */
+        private final class TickingClock extends Clock {
+            private Instant now;
+            private final Duration step;
+
+            TickingClock(Instant start, Duration step) {
+                this.now = start;
+                this.step = step;
+            }
+
+            void jumpTo(Instant instant) {
+                this.now = instant;
+            }
+
+            @Override
+            public ZoneOffset getZone() {
+                return ZoneOffset.UTC;
+            }
+
+            @Override
+            public Clock withZone(java.time.ZoneId zone) {
+                return this;
+            }
+
+            @Override
+            public Instant instant() {
+                Instant current = now;
+                now = now.plus(step);
+                return current;
+            }
+        }
+
+        private PipelineOrchestrator orchestratorOn(Clock clock, Duration budget) {
+            return new PipelineOrchestrator(
+                    pipelineRunService, scheduledBatchEvaluationService, briefingService,
+                    forecastBatchRepository, clock, directExecutor, Duration.ofMillis(1), budget,
+                    null, pipelineRunPickService, batchRetryService, adminAlertService,
+                    locationFailureService);
+        }
+
+        private ForecastBatchEntity submittedAt(BatchStatus status, Instant submittedAt) {
+            ForecastBatchEntity b = batch(status);
+            b.setSubmittedAt(submittedAt);
+            return b;
+        }
+
+        private RetrySelection oneFailure() {
+            return RetrySelection.retry(List.of(
+                    new RetrySelection.RetryFailure("fc-42-2026-05-26-SUNSET", 42L,
+                            java.time.LocalDate.of(2026, 5, 26),
+                            com.gregochr.goldenhour.entity.TargetType.SUNSET, null)), 5);
+        }
+
+        @Test
+        @DisplayName("the wait deadline is the cycle's FIRST submit plus the budget, so a wait that "
+                + "starts with the first batch already old times out at once, as it would after a "
+                + "restart (the old now+timeout would have waited another 210 minutes)")
+        void deadlineComesFromTheBatches_notFromWhenTheWaitStarted() {
+            TickingClock clock = new TickingClock(T0, Duration.ofMinutes(1));
+            PipelineOrchestrator orch = orchestratorOn(clock, BUDGET);
+            PipelineRunEntity midWait = runInPhase(PipelinePhase.FORECAST_BATCH_WAIT);
+            when(pipelineRunService.findRunning()).thenReturn(List.of(midWait));
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(midWait));
+            java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
+            Instant firstSubmit = T0.minus(Duration.ofMinutes(209));
+            // Submitted 209 minutes before the restart: one minute of the budget is left. After 500
+            // reads the batch completes, so a deadline that ignored the batches ends the test too.
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenAnswer(inv ->
+                    List.of(submittedAt(reads.incrementAndGet() > 500
+                            ? BatchStatus.COMPLETED : BatchStatus.SUBMITTED, firstSubmit)));
+
+            orch.resumeRunningCyclesOnStartup();
+
+            verify(pipelineRunService).failRun(eq(RUN_ID),
+                    org.mockito.ArgumentMatchers.startsWith("Safety timeout:"));
+            assertThat(reads.get()).as("polls before the original deadline").isLessThan(10);
+            verify(briefingService, never()).refreshBriefing();
+        }
+
+        @Test
+        @DisplayName("the retry wait inherits what is left of the budget instead of getting a fresh one")
+        void retryWaitInheritsRemainingBudget() {
+            TickingClock clock = new TickingClock(T0, Duration.ofSeconds(1));
+            PipelineOrchestrator orch = orchestratorOn(clock, BUDGET);
+            RetrySelection selection = oneFailure();
+            Instant firstSubmit = T0.minus(Duration.ofMinutes(30));
+            java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
+            java.util.concurrent.atomic.AtomicBoolean retrySubmitted =
+                    new java.util.concurrent.atomic.AtomicBoolean();
+            PipelineRunEntity run = newRun();
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(run);
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(run));
+            // failPhase is attributed to the run's current phase, so let the mock track it.
+            doAnswer(inv -> {
+                run.setCurrentPhase(inv.getArgument(1));
+                return null;
+            }).when(pipelineRunService).startPhase(eq(RUN_ID), any());
+            // WAIT sees the original batch done; the retry's wait sees a retry batch SUBMITTED after
+            // the budget (measured from the FIRST submit) is gone. A fresh deadline (now + 210 min)
+            // would not have expired; after 400 reads everything completes so a mutant ends too.
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenAnswer(inv -> {
+                int read = reads.incrementAndGet();
+                if (!retrySubmitted.get() || read > 400) {
+                    return List.of(submittedAt(BatchStatus.COMPLETED, firstSubmit));
+                }
+                return List.of(submittedAt(BatchStatus.COMPLETED, firstSubmit),
+                        submittedAt(BatchStatus.SUBMITTED, T0));
+            });
+            when(batchRetryService.selectFailures(RUN_ID)).thenReturn(selection);
+            when(batchRetryService.submitRetry(RUN_ID, selection)).thenAnswer(inv -> {
+                retrySubmitted.set(true);
+                clock.jumpTo(firstSubmit.plus(BUDGET).plusSeconds(5));
+                return RetrySubmitResult.none();
+            });
+
+            orch.runNightlyCycle();
+
+            verify(batchRetryService).submitRetry(RUN_ID, selection);
+            verify(pipelineRunService).failPhase(eq(RUN_ID), eq(PipelinePhase.RETRY_FAILED),
+                    org.mockito.ArgumentMatchers.contains("Batch set did not reach terminal status"));
+            verify(pipelineRunService).failRun(eq(RUN_ID),
+                    org.mockito.ArgumentMatchers.startsWith("Safety timeout:"));
+            verify(briefingService, never()).refreshBriefing();
+        }
+
+        @Test
+        @DisplayName("batches with no submit instant fall back to now + timeout, the old behaviour")
+        void noSubmitInstant_fallsBackToNowPlusTimeout() {
+            TickingClock clock = new TickingClock(T0, Duration.ofMinutes(1));
+            PipelineOrchestrator orch = orchestratorOn(clock, Duration.ofMinutes(10));
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
+            java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenAnswer(inv -> {
+                ForecastBatchEntity b = batch(reads.incrementAndGet() > 200
+                        ? BatchStatus.COMPLETED : BatchStatus.SUBMITTED);
+                b.setSubmittedAt(null);
+                return List.of(b);
+            });
+
+            orch.runNightlyCycle();
+
+            verify(pipelineRunService).failRun(eq(RUN_ID),
+                    org.mockito.ArgumentMatchers.startsWith("Safety timeout:"));
+            assertThat(reads.get()).as("waited about the timeout, not instantly").isBetween(8, 14);
+        }
+
+        @Test
+        @DisplayName("a retry is NOT submitted when under ten minutes of the budget are left: the "
+                + "phase is completed with the reason and the run goes on to brief")
+        void retrySkipped_whenBudgetNearlySpent() {
+            RetrySelection selection = oneFailure();
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
+            // 9 minutes of the 1 h budget left at the fixed clock T0.
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of(
+                    submittedAt(BatchStatus.COMPLETED, T0.minus(Duration.ofMinutes(51)))));
+            when(batchRetryService.selectFailures(RUN_ID)).thenReturn(selection);
+
+            orchestrator.runNightlyCycle();
+
+            verify(batchRetryService, never()).submitRetry(eq(RUN_ID), any());
+            verify(pipelineRunService).startPhase(RUN_ID, PipelinePhase.RETRY_FAILED);
+            verify(pipelineRunService).completePhase(eq(RUN_ID), eq(PipelinePhase.RETRY_FAILED),
+                    org.mockito.ArgumentMatchers.contains("NOT retried: only 9 min"));
+            verify(briefingService).refreshBriefing();
+            verify(pipelineRunService).completeRun(RUN_ID);
+        }
+
+        @Test
+        @DisplayName("a retry is NOT submitted when the budget is already overspent, and the "
+                + "message never reports negative minutes")
+        void retrySkipped_whenBudgetOverspent() {
+            RetrySelection selection = oneFailure();
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of(
+                    submittedAt(BatchStatus.COMPLETED, T0.minus(Duration.ofHours(2)))));
+            when(batchRetryService.selectFailures(RUN_ID)).thenReturn(selection);
+
+            orchestrator.runNightlyCycle();
+
+            verify(batchRetryService, never()).submitRetry(eq(RUN_ID), any());
+            verify(pipelineRunService).completePhase(eq(RUN_ID), eq(PipelinePhase.RETRY_FAILED),
+                    org.mockito.ArgumentMatchers.contains("only 0 min"));
+            verify(briefingService).refreshBriefing();
+        }
+
+        @Test
+        @DisplayName("a retry IS submitted with ten minutes or more of the budget left")
+        void retrySubmitted_whenEnoughBudgetLeft() {
+            RetrySelection selection = oneFailure();
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of(
+                    submittedAt(BatchStatus.COMPLETED, T0.minus(Duration.ofMinutes(50)))));
+            when(batchRetryService.selectFailures(RUN_ID)).thenReturn(selection);
+            when(batchRetryService.summariseRecovery(RUN_ID, 1)).thenReturn("recovered");
+
+            orchestrator.runNightlyCycle();
+
+            verify(batchRetryService).submitRetry(RUN_ID, selection);
+            verify(pipelineRunService).completePhase(RUN_ID, PipelinePhase.RETRY_FAILED, "recovered");
+        }
+
+        @Test
+        @DisplayName("a restart inside RETRY_FAILED BEFORE the retry batch was created still observes "
+                + "the cutoff: no paid retry batch is submitted with nine minutes left")
+        void resumeBeforeRetrySubmitted_observesTheCutoff() {
+            RetrySelection selection = oneFailure();
+            PipelineRunEntity midRetry = runInPhase(PipelinePhase.RETRY_FAILED);
+            when(pipelineRunService.findRunning()).thenReturn(List.of(midRetry));
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(midRetry));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of(
+                    submittedAt(BatchStatus.COMPLETED, T0.minus(Duration.ofMinutes(51)))));
+            when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID)).thenReturn(List.of());
+            when(batchRetryService.selectFailures(RUN_ID)).thenReturn(selection);
+
+            orchestrator.resumeRunningCyclesOnStartup();
+
+            verify(batchRetryService, never()).submitRetry(eq(RUN_ID), any());
+            verify(pipelineRunService).completePhase(eq(RUN_ID), eq(PipelinePhase.RETRY_FAILED),
+                    org.mockito.ArgumentMatchers.contains("NOT retried: only 9 min"));
+            verify(briefingService).refreshBriefing();
+        }
+
+        @Test
+        @DisplayName("a restart inside RETRY_FAILED AFTER the retry batch was created goes on to wait "
+                + "for it, whatever budget is left: that batch is already paid for")
+        void resumeAfterRetrySubmitted_waitsForTheExistingBatch() {
+            RetrySelection selection = oneFailure();
+            PipelineRunEntity midRetry = runInPhase(PipelinePhase.RETRY_FAILED);
+            ForecastBatchEntity retryBatch = submittedAt(BatchStatus.COMPLETED,
+                    T0.minus(Duration.ofMinutes(20)));
+            when(pipelineRunService.findRunning()).thenReturn(List.of(midRetry));
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(midRetry));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of(
+                    submittedAt(BatchStatus.COMPLETED, T0.minus(Duration.ofMinutes(51))), retryBatch));
+            when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID))
+                    .thenReturn(List.of(retryBatch));
+            when(batchRetryService.selectFailures(RUN_ID)).thenReturn(selection);
+            when(batchRetryService.submitRetry(RUN_ID, selection)).thenReturn(RetrySubmitResult.none());
+            when(batchRetryService.summariseRecovery(RUN_ID, 1)).thenReturn("recovered");
+
+            orchestrator.resumeRunningCyclesOnStartup();
+
+            verify(batchRetryService).submitRetry(RUN_ID, selection);
+            verify(pipelineRunService).completePhase(RUN_ID, PipelinePhase.RETRY_FAILED, "recovered");
         }
     }
 }

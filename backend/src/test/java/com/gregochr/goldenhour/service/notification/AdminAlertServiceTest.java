@@ -342,6 +342,42 @@ class AdminAlertServiceTest {
     }
 
     @Test
+    @DisplayName("the forecast-cycle watchdog alert emails every enabled ADMIN with an address, with the "
+            + "problem in the subject and the detail in the body")
+    void forecastCycleWatchdogAlert_sendsToEveryAdmin() throws Exception {
+        when(appUserRepository.findByRoleAndEnabledTrue(UserRole.ADMIN)).thenReturn(List.of(
+                admin("alice", "alice@example.com", true), admin("seed", "", true)));
+        MimeMessage message = newMimeMessage();
+        when(mailSender.createMimeMessage()).thenReturn(message);
+
+        enabledService().sendForecastCycleWatchdogAlert("near_term_batch_evaluation", "did not start",
+                "The NIGHTLY forecast cycle should have fired at 02:00 UK time.");
+
+        verify(mailSender, times(1)).send(message);
+        assertThat(message.getSubject())
+                .isEqualTo("PhotoCast: forecast cycle did not start (near_term_batch_evaluation)");
+        assertThat(message.getAllRecipients()[0].toString()).isEqualTo("alice@example.com");
+        assertThat((String) message.getContent())
+                .contains("should have fired at 02:00 UK time").contains("forecast_cycle_watchdog")
+                .contains("nothing has been started, stopped or retried");
+    }
+
+    @Test
+    @DisplayName("with admin alerts disabled, or no mail sender, or no admin address, the watchdog alert "
+            + "sends nothing and throws nothing")
+    void forecastCycleWatchdogAlert_silentWhenItCannotSend() {
+        new AdminAlertService(mailSender, appUserRepository, false)
+                .sendForecastCycleWatchdogAlert("k", "did not start", "d");
+        new AdminAlertService(null, appUserRepository, true)
+                .sendForecastCycleWatchdogAlert("k", "did not start", "d");
+        when(appUserRepository.findByRoleAndEnabledTrue(UserRole.ADMIN)).thenReturn(List.of());
+        enabledService().sendForecastCycleWatchdogAlert("k", "did not start", "d");
+
+        verify(mailSender, never()).createMimeMessage();
+        verify(mailSender, never()).send(any(MimeMessage.class));
+    }
+
+    @Test
     @DisplayName("a location alert whose recipient lookup throws never escapes the method")
     void locationAlert_repositoryThrows_neverEscapes() {
         when(appUserRepository.findByRoleAndEnabledTrue(UserRole.ADMIN))

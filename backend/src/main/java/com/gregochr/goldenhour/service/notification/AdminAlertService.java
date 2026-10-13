@@ -207,6 +207,32 @@ public class AdminAlertService {
                 "ask-spend-cap", day);
     }
 
+    /**
+     * Sends a forecast-cycle watchdog alert: a scheduled forecast cycle did not start, or had not
+     * finished close to the solar event it serves (solar-relative-refresh-plan B2). The caller
+     * latches so each fire or run alerts once.
+     *
+     * <p>Same channel, recipients and best-effort rules as {@link #sendAskSpendCapAlert}:
+     * asynchronous, never throws, silent when alerts are disabled or no mail sender or admin address
+     * exists.
+     *
+     * @param jobKey  the scheduler job the alert is about
+     * @param problem a short statement of the problem, used in the subject
+     * @param detail  the full message: the trigger and event times (UK local) and what is missing
+     */
+    @Async
+    public void sendForecastCycleWatchdogAlert(String jobKey, String problem, String detail) {
+        if (!enabled) {
+            LOG.debug("notifications.admin-alerts.enabled=false — skipping forecast-cycle watchdog "
+                    + "admin alert ({}: {})", jobKey, problem);
+            return;
+        }
+        Supplier<String> subject = () -> "PhotoCast: forecast cycle " + problem + " (" + jobKey + ")";
+        deliver(subject, () -> detail + "\n\nThis is the forecast-cycle watchdog "
+                + "(forecast_cycle_watchdog). It only reads; nothing has been started, stopped or "
+                + "retried.\n", "forecast-cycle-watchdog", jobKey);
+    }
+
     private static String buildAskSpendCapBody(LocalDate day, long spent, long cap) {
         return "Typed Ask PhotoCast questions have spent $" + dollars(spent) + " on " + day
                 + ", reaching the daily cap of $" + dollars(cap) + " (photocast.ask.daily-spend-cap-usd).\n\n"
