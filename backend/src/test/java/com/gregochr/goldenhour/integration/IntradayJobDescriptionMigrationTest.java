@@ -90,6 +90,8 @@ class IntradayJobDescriptionMigrationTest {
             String after = description(st);
             assertThat(after)
                     .doesNotContain("mid-afternoon")
+                    // A December sun-relative run is ~11:40 UK, so no time of day may be claimed.
+                    .doesNotContainIgnoringCase("afternoon")
                     .contains("ahead of tonight's sunset")
                     .contains("sun-relative schedule")
                     .contains("(SKIPPED_NO_REFRESH_NEEDED)")
