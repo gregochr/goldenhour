@@ -48,12 +48,42 @@ public class SchedulerJobConfigEntity {
     @Column(name = "description", length = 500)
     private String description;
 
-    /** Whether this job uses CRON or FIXED_DELAY scheduling. */
-    @Enumerated(EnumType.STRING)
-    @Column(name = "schedule_type", nullable = false, length = 20)
-    private ScheduleType scheduleType;
+    /**
+     * The stored {@code schedule_type} string, exactly as the database holds it.
+     *
+     * <p>Deliberately a plain string and {@code updatable = false}, not an {@code @Enumerated}
+     * {@link ScheduleType}. A column mapped as an enum makes Hibernate throw on a value this build
+     * does not know, which fails the load of the whole table (every job, and the admin list). A
+     * string loads whatever it holds; {@link #getScheduleType()} reads it as a {@link ScheduleType}
+     * or {@code null} when unrecognised, and the scheduler skips that one job. Because the column is
+     * never part of an {@code UPDATE}, no whole-entity save (a pause, a fire timestamp, a status
+     * sync) can overwrite an unrecognised value with a guess. It is written only on insert.
+     * A future type switch must be a column-scoped repository update.
+     */
+    @Column(name = "schedule_type", nullable = false, length = 20, updatable = false)
+    private String scheduleTypeRaw;
 
-    /** Cron expression — only applicable when scheduleType is CRON. */
+    /**
+     * The solar event a {@link ScheduleType#SOLAR_OFFSET} job fires before, as stored
+     * ({@code SUNRISE} or {@code SUNSET}); null for every other type.
+     *
+     * <p>A plain string and {@code updatable = false} for the same reasons as
+     * {@link #scheduleTypeRaw}: a value this build does not know loads rather than failing the
+     * table, and no whole-entity save can rewrite it. Written only by
+     * {@code SchedulerJobConfigRepository#updateScheduleType}, together with the type and the
+     * offset, so the three columns can never be saved out of step.
+     */
+    @Column(name = "solar_event", length = 10, updatable = false)
+    private String solarEventRaw;
+
+    /**
+     * Minutes before the solar event a {@link ScheduleType#SOLAR_OFFSET} job fires (0..720); null
+     * for every other type. {@code updatable = false}; see {@link #solarEventRaw}.
+     */
+    @Column(name = "solar_offset_minutes", updatable = false)
+    private Integer solarOffsetMinutes;
+
+    /** Cron expression — only applicable when scheduleType is CRON; the fallback for SOLAR_OFFSET. */
     @Column(name = "cron_expression", length = 100)
     private String cronExpression;
 
@@ -96,4 +126,86 @@ public class SchedulerJobConfigEntity {
     @Column(name = "updated_at", nullable = false)
     @Builder.Default
     private Instant updatedAt = Instant.now();
+
+    /**
+     * Reads the stored schedule type.
+     *
+     * @return the type, or {@code null} when the stored string is not one this build knows
+     *         (including a null string); see {@link #getScheduleTypeRaw()} for the original
+     */
+    public ScheduleType getScheduleType() {
+        if (scheduleTypeRaw == null) {
+            return null;
+        }
+        for (ScheduleType type : ScheduleType.values()) {
+            if (type.name().equals(scheduleTypeRaw)) {
+                return type;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Sets the schedule type on this in-memory entity. Because the column is {@code updatable =
+     * false}, this takes effect in the database only for a row not yet inserted.
+     *
+     * @param scheduleType the type
+     */
+    public void setScheduleType(ScheduleType scheduleType) {
+        this.scheduleTypeRaw = scheduleType == null ? null : scheduleType.name();
+    }
+
+    /**
+     * Reads the stored solar event.
+     *
+     * @return the event, or {@code null} when none is stored or the string is not one this build
+     *         knows
+     */
+    public SolarEvent getSolarEvent() {
+        if (solarEventRaw == null) {
+            return null;
+        }
+        for (SolarEvent event : SolarEvent.values()) {
+            if (event.name().equals(solarEventRaw)) {
+                return event;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Sets the solar event on this in-memory entity. Because the column is {@code updatable =
+     * false}, this takes effect in the database only for a row not yet inserted.
+     *
+     * @param solarEvent the event, or null
+     */
+    public void setSolarEvent(SolarEvent solarEvent) {
+        this.solarEventRaw = solarEvent == null ? null : solarEvent.name();
+    }
+
+    /** Builder additions: the builder keeps accepting a {@link ScheduleType}. */
+    public static class SchedulerJobConfigEntityBuilder {
+
+        /**
+         * Sets the schedule type.
+         *
+         * @param scheduleType the type
+         * @return this builder
+         */
+        public SchedulerJobConfigEntityBuilder scheduleType(ScheduleType scheduleType) {
+            this.scheduleTypeRaw = scheduleType == null ? null : scheduleType.name();
+            return this;
+        }
+
+        /**
+         * Sets the solar event.
+         *
+         * @param solarEvent the event, or null
+         * @return this builder
+         */
+        public SchedulerJobConfigEntityBuilder solarEvent(SolarEvent solarEvent) {
+            this.solarEventRaw = solarEvent == null ? null : solarEvent.name();
+            return this;
+        }
+    }
 }

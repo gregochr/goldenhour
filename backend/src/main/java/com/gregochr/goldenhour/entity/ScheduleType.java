@@ -9,5 +9,11 @@ public enum ScheduleType {
     CRON,
 
     /** Triggered on a fixed delay after the previous execution completes. */
-    FIXED_DELAY
+    FIXED_DELAY,
+
+    /**
+     * Triggered a fixed number of minutes before sunrise or sunset at the scheduler's reference
+     * point; see {@code SolarOffsetTrigger}. The row keeps its cron as the fallback.
+     */
+    SOLAR_OFFSET
 }

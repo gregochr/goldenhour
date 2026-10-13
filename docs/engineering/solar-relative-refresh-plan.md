@@ -141,7 +141,7 @@ today. Its contract, each line a test:
    candidates coincide.
 5. **Sanity bounds.** A computed morning fire must fall in [00:05, 06:00] UK and an afternoon fire in
    [10:00, 20:00] UK; outside that, fall back to cron (WARN). At Durham the real ranges are
-   00:13–04:17 and 11:39–17:50, so the bounds only ever catch a bug.
+   00:13–04:15 and 11:39–17:48, so the bounds only ever catch a bug.
 6. **Logs.** Each computed fire logs one INFO line: job, event, event instant, offset, fire instant,
    and whether it was clamped or fell back.
 
@@ -192,11 +192,11 @@ only); `max-cycles-per-day` for Ask Ready (3 scheduled sources a UK day against 
 
 | | Morning cycle | Afternoon cycle |
 |---|---|---|
-| Midsummer | ~00:13 (18 Jun, earliest) | ~17:50 (24 Jun, latest) |
+| Midsummer | ~00:13 (18 Jun, earliest) | ~17:48 (25 Jun, latest) |
 | Early October | ~03:00 | ~14:30 |
-| Midwinter | ~04:17 (29 Dec, latest) | ~11:39 (14 Dec, earliest) |
+| Midwinter | ~04:15 (29 Dec, latest) | ~11:39 (14 Dec, earliest) |
 
-In UTC the morning trigger crosses midnight (23:13 UTC on the previous UTC date in summer); the
+Computed by `SolarOffsetTrigger` at the reference point (P2a); §1's figures were taken at 54.9N 1.9W, which puts the two latest triggers about two minutes later (04:17, 17:50). In UTC the morning trigger crosses midnight (23:13 UTC on the previous UTC date in summer); the
 afternoon trigger runs 11:39–16:50 UTC. Over 2026 no computed trigger falls in a DST-ambiguous hour,
 but A2.1 makes that irrelevant anyway.
 
