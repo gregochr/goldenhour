@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { rampHex } from '../../utils/scoreRamp.js';
 import { auroraRampHex } from '../../utils/auroraRamp.js';
 import { VERDICT_LABEL } from '../../utils/windowFirstCards.js';
+import VerdictWord from '../shared/VerdictWord.jsx';
 import { isNightRow } from '../../utils/mapPeek.js';
 import { EVENT_KIND } from '../../utils/mapEvents.js';
 import { meridiemOf } from '../../utils/askModel.js';
@@ -282,8 +283,11 @@ export function OtherWindowValue({ row, verdict = null }) {
         ) : null
       ) : (
         verdict && (
+          // ⚠️ The SHORT form for UNRATED (unrated-verdict-plan.md U2, review F4): this cell is
+          // `flex: none` ("the verdict never cuts"), so the full word took the room the day label
+          // needs and crushed it to 12px at 320px. The full word is spoken (`VerdictWord`).
           <b className="wf-map-peek-v-verdict" data-tier={verdict.tier} data-testid="wf-map-peek-other-verdict">
-            {VERDICT_LABEL[verdict.tier] || VERDICT_LABEL.AWAITING}
+            <VerdictWord tier={verdict.tier} />
           </b>
         )
       )}

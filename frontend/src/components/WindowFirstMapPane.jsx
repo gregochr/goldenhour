@@ -15,7 +15,7 @@ import { scopeSpots } from '../utils/planOrigin.js';
 import { beyondRegions } from '../utils/planningArea.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
 import {
-  buildEclipseIndex, buildScoreIndex, buildTideAlignmentIndex,
+  buildEclipseIndex, buildScoreIndex, buildSlotIndex, buildTideAlignmentIndex,
 } from '../utils/locationSheet.js';
 import { buildRegionGlossIndex } from '../utils/mapCallout.js';
 import { buildRegionBestIndex } from '../utils/regionsJump.js';
@@ -390,6 +390,14 @@ export default function WindowFirstMapPane({
    * per-keystroke cost to guard against here the way there is behind a dialog's open state.
    */
   const scoreIndex = useMemo(() => buildScoreIndex(scoreRows), [scoreRows]);
+  /**
+   * The briefing slot index — the callout's fallback source for a slot's own served
+   * {@code displayVerdict} where the scores endpoint has no row (unrated-verdict-plan.md U2, Codex
+   * review of #1140, round 2). The SAME {@code buildSlotIndex} the location sheet is handed
+   * (`WindowFirstShell.jsx`), over the SAME {@code briefing.days}, so the callout and the sheet one
+   * step away name an unrated slot alike.
+   */
+  const slotIndex = useMemo(() => buildSlotIndex(briefing?.days), [briefing?.days]);
   /** The reason prose's region-gloss fallback (map-tab-v2-plan.md §3 P9). */
   const regionGlossIndex = useMemo(() => buildRegionGlossIndex(briefing?.days), [briefing?.days]);
   /**
@@ -668,6 +676,7 @@ export default function WindowFirstMapPane({
         paneVisible={paneVisible}
         heat={heat}
         scoreIndex={scoreIndex}
+        slotIndex={slotIndex}
         scoresKnown={scoresLoaded}
         regionGlossIndex={regionGlossIndex}
         regionBestIndex={regionBestIndex}

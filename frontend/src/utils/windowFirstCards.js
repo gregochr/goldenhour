@@ -99,7 +99,72 @@ export const VERDICT_LABEL = {
   WORTH_IT: 'Worth it',
   MAYBE: 'Maybe',
   STAND_DOWN: 'Poor',
+  // ⚠️ UNRATED (unrated-verdict-plan.md U2): the weather screen did not rule the window out and no
+  // trustworthy rating has called it — a region whose rated sample fails the verdict sample gate,
+  // or one with no rating at all, used to wear the triage pass as "Worth it"/"Maybe". It is NOT
+  // AWAITING ("nothing was said") and NOT Poor ("the weather said no"): ratings exist or the
+  // weather passed, and neither is enough to recommend. 'Too few rated' is the WINDOW/REGION word
+  // (card, pill, drilldown rows, rail, grid cell); a SLOT says 'Not rated' (SLOT_VERDICT_LABEL).
+  // 13 characters — wider than any other word here (85.8px at the card's 11px/600; the pill's
+  // 10px/700 uppercase tracked word is 83–91px), so every NARROW surface prints
+  // {@link VERDICT_LABEL_SHORT} and keeps this full word in its accessible name.
+  UNRATED: 'Too few rated',
   AWAITING: 'Not scored',
+};
+
+/**
+ * The per-surface SHORT FORM of each window/region verdict word — the ONE home of the pair
+ * (unrated-verdict-plan.md U2, adversarial-review fix F1–F4).
+ *
+ * <p>Only {@code UNRATED} differs: "Too few" is 7 characters, a truncation that still reads as a count
+ * qualifier ("Too few [rated]"). It is deliberately NOT "Unrated", which would be false of a region
+ * with 38 ratings. A surface that prints it MUST keep {@code VERDICT_LABEL.UNRATED} in its accessible
+ * name — visually-hidden text, or, on the Plan card, the card's own spoken sentence — so the short
+ * form shortens the picture and never the claim. Surfaces: the Plan card's value row (everywhere:
+ * its column is 83–89px at 320, 640 and a docked 1024, measured), the Map drilldown's row (a 62px
+ * grid track), the peek sheet's "Other windows" cell (a 78px flex-none cell) and the window pill
+ * at 811px and below (measured: the full word clips the day label at 320–430px and itself at
+ * 640–700px). Every other surface prints the full word.
+ */
+export const VERDICT_LABEL_SHORT = {
+  ...VERDICT_LABEL,
+  UNRATED: 'Too few',
+};
+
+/**
+ * The word to DRAW for a descriptor's {@code verdict} on a surface that prints short forms: the
+ * short form where one exists, else the descriptor's own {@code label} unchanged (an away window's
+ * "Not forecast", or any word this module does not own).
+ *
+ * @param {?string} verdict the served display verdict, null for an away window
+ * @param {string} label the descriptor's own full label
+ * @returns {string}
+ */
+export function shortVerdictLabel(verdict, label) {
+  const short = verdict ? VERDICT_LABEL_SHORT[verdict] : null;
+  return short && short !== VERDICT_LABEL[verdict] ? short : label;
+}
+
+/**
+ * The slot-level word for a display verdict — one LOCATION's row, not a region or a window.
+ *
+ * <p>Read by exactly three consumers: Ask's pick card ({@code askModel.js}), the location sheet's
+ * window rows and the Map callout's verdict slot — the last two through
+ * {@code locationSheet.unratedSlotWord}, which carries the three-way choice for a slot with no
+ * rating ("Not rated" / "Poor" / "Not scored yet"; the Codex review of #1140 caught that this
+ * comment once named them while they still hardcoded "Not scored yet"). The popup's spot chips are
+ * NOT readers: a chip draws a star badge for a rated spot and nothing at all for an unrated one
+ * (no verdict word is ever printed on it), so there is no word to localise there.
+ *
+ * <p>The two levels share every word but one: a region is "Too few rated" because the SAMPLE is
+ * small, which is a claim about a population; a slot is one place with no rating of its own, and
+ * "Not rated" is the true thing to say of it (unrated-verdict-plan.md U2). Deliberately a separate
+ * map rather than a branch inside {@link VERDICT_LABEL} so a slot-level reader can never pick up
+ * the population wording by accident.
+ */
+export const SLOT_VERDICT_LABEL = {
+  ...VERDICT_LABEL,
+  UNRATED: 'Not rated',
 };
 
 /**
@@ -113,6 +178,14 @@ export const VERDICT_LABEL = {
  * a half-decayed badge would look like a rendering bug.
  */
 export const CONFIDENCE_VERDICTS = new Set(['WORTH_IT', 'MAYBE']);
+
+/**
+ * Which verdicts carry the SERVED confidence tier on the card descriptor, for the field's haze
+ * ({@code confidenceScalar}) — {@link CONFIDENCE_VERDICTS} plus {@code UNRATED}. A superset on
+ * purpose and NOT a second badge gate: every badge decay / provisional mark tests
+ * {@code CONFIDENCE_VERDICTS} itself (see {@code buildWindowCards}).
+ */
+const HAZE_VERDICTS = new Set([...CONFIDENCE_VERDICTS, 'UNRATED']);
 
 /**
  * The gate's two thresholds (tide-plan-card-plan.md §3 C1 #2, the spec's §2 verbatim).
@@ -357,7 +430,8 @@ function topMeanRating(es) {
 
 /**
  * The mean a verdict word may be printed beside: the region's served mean when the region is
- * verdict-eligible, else null (silence — a triage-fallback word has no mean standing behind it).
+ * verdict-eligible or its word is {@code UNRATED}, else null (silence — a triage STAND_DOWN has no
+ * mean standing behind it).
  *
  * @param {?object} scoped the origin's region record when away, else null
  * @param {?object} top the window's top region when not away
@@ -365,7 +439,13 @@ function topMeanRating(es) {
  */
 function verdictMeanOf(scoped, top) {
   const region = scoped ?? top;
-  if (!region || !verdictEligible(region)) return null;
+  if (!region) return null;
+  // Two states may print a mean: a verdict-eligible region (the word IS a reading of the mean) and
+  // an UNRATED one (unrated-verdict-plan.md U2) — "Too few rated 3.6★" is the honest card: the
+  // figure is the evidence the gate withheld a verdict from, and the word says so in the same
+  // breath. What stays silent is an ineligible region whose word is a triage STAND_DOWN (or
+  // AWAITING): a figure beside "Poor" would contradict the weather call it rests on.
+  if (!verdictEligible(region) && resolveRegionDisplay(region) !== 'UNRATED') return null;
   const mean = region.meanRating;
   return typeof mean === 'number' && Number.isFinite(mean) ? mean : null;
 }
@@ -632,7 +712,15 @@ export function buildWindowCards(
       // Scoped too, and this one is not merely a label: the strip and the row map feed it to the
       // kernel's haze through `confidenceScalar`, so a roster-wide tier would paint a field drawn
       // for one region at another region's certainty — D3's "one number" broken by two.
-      confidence: CONFIDENCE_VERDICTS.has(verdict)
+      //
+      // ⚠️ The HAZE and the BADGE are different channels and gate differently (unrated-verdict-plan.md
+      // U2, review F5). Poor and Awaiting carry null (the haze then falls back to the horizon's
+      // inferred tier, as it always has). UNRATED keeps the server's tier — an ineligible region is
+      // floored LOW there, and a field drawn for a window nothing has called should be the hazy one,
+      // not the horizon's MEDIUM — while the BADGE decay and `ProvisionalMark` stay gated on
+      // `CONFIDENCE_VERDICTS` at their own mounts (the popup's badge, the grid cell, `VerdictPill`),
+      // so "Too few rated" is never also a faded or marked word: it already says the provisional thing.
+      confidence: HAZE_VERDICTS.has(verdict)
         ? ((scopedRegion ? scopedRegion.confidence : win?.confidence) ?? null)
         : null,
       spots,

@@ -190,6 +190,20 @@ describe('buildPickCards — the star and the verdict are the served ones', () =
     expect(buildPickCards([pick()], days, null)[0].rating).toBeNull();
   });
 
+  it('speaks a slot\'s UNRATED at SLOT level — "Not rated", never the region word, and keeps the value for the chip (U2)', () => {
+    // A pick is one PLACE. "Too few rated" describes a sample; this place simply has no rating of its
+    // own to speak of. The chip's tier colour has no rule for UNRATED, which is the neutral AWAITING
+    // ink on purpose — a place nothing has rated gets no verdict hue.
+    const days = briefing().days;
+    days[0].eventSummaries[0].regions[0].slots[0].displayVerdict = 'UNRATED';
+
+    const [card] = buildPickCards([pick()], days, null);
+
+    expect(card.verdict).toBe('UNRATED');
+    expect(card.verdictLabel).toBe('Not rated');
+    expect(card.verdictLabel).not.toBe('Too few rated');
+  });
+
   it('reads an unknown display verdict as not scored rather than as a verdict', () => {
     const days = briefing().days;
     days[0].eventSummaries[0].regions[0].slots[0].displayVerdict = 'SPLENDID';

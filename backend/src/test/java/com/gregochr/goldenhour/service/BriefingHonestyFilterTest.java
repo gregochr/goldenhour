@@ -703,6 +703,37 @@ class BriefingHonestyFilterTest {
     }
 
     @Test
+    @DisplayName("A blanked region never reads UNRATED, whatever the reason — an UNRATED input is "
+            + "re-worded AWAITING or STAND_DOWN with its reason wording (unrated-verdict-plan.md U1)")
+    void aBlankedRegionNeverReadsUnrated() {
+        // The shape a zero-coverage region now arrives in: weather GO, nothing rated -> UNRATED.
+        BriefingRegion unratedIn = regionWith("Northumberland", Verdict.GO, "Clear at 0 of 3",
+                DisplayVerdict.UNRATED, 0, threeSampleSlots());
+        DailyBriefingResponse in = responseWith(TargetType.SUNSET, unratedIn, List.of());
+
+        Map<DispositionCategory, Clock> awaiting = new java.util.LinkedHashMap<>();
+        awaiting.put(DispositionCategory.SKIPPED_TRAVEL_DAY, T_PLUS_0);
+        awaiting.put(DispositionCategory.SUBMISSION_FAILED, T_PLUS_0);
+        awaiting.put(DispositionCategory.SKIPPED_STABILITY, T_PLUS_4);
+        for (Map.Entry<DispositionCategory, Clock> scenario : awaiting.entrySet()) {
+            BriefingRegion out = firstRegion(BriefingHonestyFilter.apply(
+                    in, 0.5, latestForAll(scenario.getKey(), false), scenario.getValue()));
+
+            assertThat(out.displayVerdict()).isEqualTo(DisplayVerdict.AWAITING);
+        }
+        assertThat(firstRegion(blankedFrom(in, DispositionCategory.SKIPPED_TRIAGED))
+                .displayVerdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+        // No lookup at all: the old overload keeps today's STAND_DOWN wording, still not UNRATED.
+        assertThat(firstRegion(BriefingHonestyFilter.apply(in, 0.5)).displayVerdict())
+                .isEqualTo(DisplayVerdict.STAND_DOWN);
+    }
+
+    private static DailyBriefingResponse blankedFrom(DailyBriefingResponse in,
+            DispositionCategory category) {
+        return BriefingHonestyFilter.apply(in, 0.5, latestForAll(category, false), T_PLUS_0);
+    }
+
+    @Test
     @DisplayName("fullRewrite carries exactly the fields it always did and nulls the rest, for "
             + "every reason")
     void fullRewriteCarriesAndNullsTheSameFields() {

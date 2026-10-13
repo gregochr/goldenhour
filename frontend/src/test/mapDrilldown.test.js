@@ -253,6 +253,52 @@ describe('buildPanelRegionRows', () => {
   });
 });
 
+describe('UNRATED in the drilldown (unrated-verdict-plan.md U2)', () => {
+  const thin = region('Thin', 3.6, 5, 'UNRATED', { sampleSufficient: false });
+  const summary = {
+    targetType: 'SUNSET',
+    regions: [thin, region('Sound', 3.2, 4, 'MAYBE', { sampleSufficient: true })],
+  };
+
+  it('words the row "Too few rated" with its served mean, and ranks it below the verdict-eligible region', () => {
+    const rows = buildPanelRegionRows({
+      index: indexFor(summary), date: DATE, targetType: 'SUNSET', regionsInScope: ['Thin', 'Sound'],
+      points: [], driveMap: new Map(), spots: [],
+    });
+
+    expect(rows.map((r) => r.name)).toEqual(['Sound', 'Thin']);
+    expect(rows[1]).toMatchObject({
+      tier: 'UNRATED', verdictLabel: 'Too few rated', meanRating: 3.6, verdictEligible: false,
+    });
+  });
+
+  describe('windowPanelNote', () => {
+    const note = (verdict, scopeIsArea = true) => windowPanelNote({ isSolar: true, verdict, scopeIsArea });
+
+    it('never reads "N regions are too few rated … the choice between them is drive time"', () => {
+      const text = note({ tier: 'UNRATED', sharingCount: 2, allInScope: false, scopedRegionCount: 5 });
+      expect(text).toMatch(/^3 regions have too few ratings for a verdict on this window/);
+      expect(text).not.toMatch(/drive time|too few rated/i);
+      expect(text).toMatch(/ranked by average, best first/);
+    });
+
+    it('says no region in the area has enough ratings when they all share it, scoped to the area only with a home', () => {
+      const all = { tier: 'UNRATED', sharingCount: 3, allInScope: true, scopedRegionCount: 4 };
+      expect(note(all, true)).toMatch(/^No region in your area has enough ratings for a verdict/);
+      expect(note(all, false)).toMatch(/^No region has enough ratings for a verdict/);
+    });
+
+    it('gives a lone UNRATED region its own true sentence, never "Verdict is the strongest region’s average" (F8)', () => {
+      // RANKING_NOTE's opening claims the verdict IS an average; for "Too few rated" it is the very
+      // average the sample gate declined to turn into one.
+      const text = note({ tier: 'UNRATED', sharingCount: 0, allInScope: false, scopedRegionCount: 3 });
+      expect(text).toBe('Too few rated to call: the regions here passed the weather screen but too few '
+        + 'places are rated to say more. Rows are ranked by average, best first.');
+      expect(text).not.toMatch(/Verdict is the strongest region/);
+    });
+  });
+});
+
 describe('windowPanelNote — the four branches, and only their own states', () => {
   const solar = (over) => windowPanelNote({ isSolar: true, ...over });
 

@@ -556,15 +556,19 @@ export default function LocationFourDaySheet({
                           <span className="sr-only">{`${row.rating} stars`}</span>
                         </span>
                       ) : (
-                        // Three states, three sentences. An away day says nobody forecast it; an
-                        // unrated forecast window says nothing has looked YET; and while the
+                        // Three states, three sentences. An away day says nobody forecast it; a
+                        // forecast window with no rating says what the SLOT's own served verdict
+                        // says (`row.unratedWord`: "Not rated" when the weather passed it and no
+                        // rating called it, "Poor" for a weather stand-down, "Not scored yet" when
+                        // nothing was served — unrated-verdict-plan.md U2, Codex review of #1140:
+                        // it used to be this one hardcoded phrase for all three); and while the
                         // ratings request is in flight or failed the sheet says nothing about the
                         // pipeline at all, because that would be a claim about the forecast built
                         // out of our own fetch (`scoresLoaded`'s own rule).
                         <span data-testid="location-sheet-state" className="wf-loc-none font-mono">
                           {row.away
                             ? row.stateLabel
-                            : (row.scoresKnown ? 'Not scored yet' : 'Loading ratings…')}
+                            : (row.scoresKnown ? row.unratedWord : 'Loading ratings…')}
                         </span>
                       )}
                       {treatment.provisional && <ProvisionalMark title={treatment.label} />}

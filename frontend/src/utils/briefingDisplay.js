@@ -12,7 +12,18 @@ import { appNow } from './rewind.js';
 export const VERDICT_ORDER = { GO: 0, MARGINAL: 1, STANDDOWN: 2 };
 
 /** Sort order for the unified display signal, used for region rollups. */
-export const DISPLAY_ORDER = { WORTH_IT: 0, MAYBE: 1, STAND_DOWN: 2, AWAITING: 3 };
+export const DISPLAY_ORDER = {
+  WORTH_IT: 0,
+  MAYBE: 1,
+  // UNRATED ranks ABOVE STAND_DOWN (unrated-verdict-plan.md U2): the weather did not rule it out, so
+  // a region the sample gate withheld a verdict from is still a better bet than one the weather
+  // stood down — it ranked there when the triage pass wore "Worth it"/"Maybe", and demoting it
+  // below Poor would be a silent reordering of the regional panel's rows. An absent key would sort
+  // as `undefined`, which the callers' `?? 4` turns into last place.
+  UNRATED: 2,
+  STAND_DOWN: 3,
+  AWAITING: 4,
+};
 
 /**
  * Location type icon lookup.
@@ -37,6 +48,12 @@ export const AFTERGLOW_MS = 30 * 60 * 1000;
  */
 export function isPoorSlot(slot) {
   if (slot.displayVerdict) {
+    // ⚠️ UNRATED is deliberately NOT poor (unrated-verdict-plan.md U2): the weather screen passed it,
+    // it just has no trustworthy rating. The dimmed section is headed "poor · not evaluated" and
+    // each row in it says "Poor" — true of STAND_DOWN, false of a place the weather did not rule out
+    // (the same "an UNRATED window is not poor" rule `mapLanding`'s all-Poor fold applies). It stays
+    // in the main list, as the triage pass it replaced did, with a dash where a star would be.
+    if (slot.displayVerdict === 'UNRATED') return false;
     return slot.displayVerdict === 'STAND_DOWN' || slot.displayVerdict === 'AWAITING';
   }
   return slot.verdict === 'STANDDOWN';

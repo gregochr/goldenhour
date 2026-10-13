@@ -28,6 +28,12 @@ describe('briefingDisplay', () => {
       expect(isPoorSlot({ displayVerdict: 'MAYBE' })).toBe(false);
     });
 
+    it('UNRATED is NOT poor — the weather passed it; it stays in the main list, not under "poor · not evaluated" (U2)', () => {
+      expect(isPoorSlot({ displayVerdict: 'UNRATED' })).toBe(false);
+      // Even when the legacy triage field disagrees: the served displayVerdict decides.
+      expect(isPoorSlot({ displayVerdict: 'UNRATED', verdict: 'STANDDOWN' })).toBe(false);
+    });
+
     it('displayVerdict wins over the legacy verdict — a Claude-elevated STANDDOWN slot is not poor', () => {
       expect(isPoorSlot({ displayVerdict: 'WORTH_IT', verdict: 'STANDDOWN' })).toBe(false);
     });
@@ -272,6 +278,16 @@ describe('briefingDisplay', () => {
       expect(DISPLAY_ORDER.WORTH_IT).toBeLessThan(DISPLAY_ORDER.MAYBE);
       expect(DISPLAY_ORDER.MAYBE).toBeLessThan(DISPLAY_ORDER.STAND_DOWN);
       expect(DISPLAY_ORDER.STAND_DOWN).toBeLessThan(DISPLAY_ORDER.AWAITING);
+    });
+
+    it('ranks UNRATED above STAND_DOWN and below MAYBE — the weather did not rule it out (U2)', () => {
+      // It sorted in the Worth-it/Maybe band when the triage pass wore those words; demoting it
+      // below Poor would silently reorder the regional panel's rows.
+      expect(DISPLAY_ORDER.MAYBE).toBeLessThan(DISPLAY_ORDER.UNRATED);
+      expect(DISPLAY_ORDER.UNRATED).toBeLessThan(DISPLAY_ORDER.STAND_DOWN);
+      expect(Object.keys(DISPLAY_ORDER).sort()).toEqual(
+        ['AWAITING', 'MAYBE', 'STAND_DOWN', 'UNRATED', 'WORTH_IT'],
+      );
     });
   });
 });

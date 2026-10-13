@@ -4,6 +4,7 @@ import { foreignModalOverPaneOf } from '../../utils/mapForeignModal.js';
 import { rampHex } from '../../utils/scoreRamp.js';
 import { calDow } from '../../utils/windowFirstStrip.js';
 import { VERDICT_LABEL, badgeChannel } from '../../utils/windowFirstCards.js';
+import VerdictWord from '../shared/VerdictWord.jsx';
 import { verdictRegionLabel } from '../../utils/mapVerdict.js';
 import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js';
 import { useRowFocusRescue } from '../../hooks/useRowFocusRescue.js';
@@ -548,7 +549,11 @@ function VerdictCell({ verdict, scopeIsArea }) {
   const region = verdictRegionLabel(verdict, { scopeIsArea });
   return (
     <span className="wf-win-verdict" data-tier={verdict.tier} data-testid="wf-win-verdict">
-      <b className="wf-win-verdict-word" data-testid="wf-win-verdict-word">{VERDICT_LABEL[verdict.tier] || VERDICT_LABEL.AWAITING}</b>
+      {/* ⚠️ `mode="swap"`: "TOO FEW RATED" (91px) clipped the day label at 320–430px and itself at
+          640–700px (measured), so the pill swaps to the short form at 811px and below on one media
+          query (`.wf-vw-short` / `.wf-vw-full` in index.css) and the full word stays in the
+          accessible name (unrated-verdict-plan.md U2, review F3). From 812px the full word is drawn. */}
+      <b className="wf-win-verdict-word" data-testid="wf-win-verdict-word"><VerdictWord tier={verdict.tier} mode="swap" /></b>
       {/* Defensive, like the pill's own separators: `.wf-win-verdict` is `display: inline-flex`, so
           the word and the region are flex items and browsers space them themselves (measured
           2026-09-11 by Playwright's accessible-name algorithm over Chromium's, WebKit's and

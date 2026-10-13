@@ -1364,6 +1364,9 @@ const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
  *   `scoreRows` `LocationFourDaySheet` already reads (`WindowFirstBriefingContext`), so the
  *   callout's reason prose and its "every window" strip can never disagree with the sheet one step
  *   away in the Plan tab about what this location was rated.
+ * - `slotIndex` — from `utils/locationSheet.buildSlotIndex` over the briefing's `days`; the callout
+ *   reads only a slot's served `displayVerdict` from it, as the fallback behind `scoreIndex`'s for a
+ *   slot the scores endpoint has no row for (unrated-verdict-plan.md U2, Codex #1140 round 2).
  * - `regionGlossIndex` — from `utils/mapCallout.buildRegionGlossIndex`, the reason prose's fallback
  *   when this location's own window carries no served summary.
  * - `reachById` — the per-user HOME reach map (`{driveMinutes, distanceMiles}`). Originally read
@@ -1427,7 +1430,7 @@ const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
  *       this component's own state.</li>
  * </ul>
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, askPhase = 'empty', panelShown = true }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, askPhase = 'empty', panelShown = true }) {
   // `MapView` is `React.memo`'d, and its two long-lived mounts (the Map pane, the standalone
   // overlay) sit hidden rather than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -6253,6 +6256,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               tideAlignmentIndex={tideAlignmentIndex}
               eclipseSight={getEclipseForLocation(selectedLoc)}
               scoreIndex={scoreIndex}
+              slotIndex={slotIndex}
               scoresKnown={scoresKnown}
               ratingKnown={ratingKnown}
               ratingRetrying={ratingRetrying}
@@ -7242,6 +7246,14 @@ MapView.propTypes = {
    * only; the overlay never selects a location through the callout.
    */
   scoreIndex: PropTypes.object,
+  /**
+   * The BRIEFING slot index (`utils/locationSheet.buildSlotIndex`, over the SAME `briefing.days` the
+   * pane's other indexes read) — `MapCallout` reads only its served `displayVerdict`, as the fallback
+   * behind `scoreIndex`'s for a slot the scores endpoint has no row for (unrated-verdict-plan.md U2,
+   * Codex review of #1140, round 2). Unlike `scoreIndex` it needs no `scoresKnown` gate of its own:
+   * it arrives with the briefing, and the callout still waits on `ratingKnown` before printing.
+   */
+  slotIndex: PropTypes.object,
   /** Whether the ratings response `scoreIndex` is built from has actually landed — an unfetched
    * response is not evidence that nothing was rated (the same rule `scoresLoaded` states everywhere
    * else it is read). It speaks for the SOLAR windows alone; a night's equivalent is derived in the
