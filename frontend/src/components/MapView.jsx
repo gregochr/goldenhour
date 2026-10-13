@@ -45,6 +45,7 @@ import {
   EVENT_KIND,
 } from '../utils/mapEvents.js';
 import { buildEvVerdicts, regionNamesOf } from '../utils/mapVerdict.js';
+import { withScopedSolarTimes } from '../utils/mapScopedTime.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
 import { GLANCE_MINUTES } from '../utils/planningArea.js';
 import { latLngBounds } from '../utils/heatGeometry.js';
@@ -3594,9 +3595,43 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * down the render) has to exist before `labelSpots`'s own `useMemo` runs. Every input below
    * (`heat`, `forecastDates`, `mapTodayStr`, `auroraNight`, `eventType`/`nightDate`,
    * `astroAvailableDates`/`astroConditionsByDate`, `auroraAvailableDates`/`auroraResultsByDate`,
-   * `role`, `regionVerdictIndex`) is already in scope this early in the render — none of it is
-   * itself derived from `labelSpots` or from anything declared between the two positions.
+   * `role`, `regionVerdictIndex`, `heatArea`, `locations`) is already in scope this early in the
+   * render — none of it is itself derived from `labelSpots` or from anything declared between the
+   * two positions. The block opens with the scope pool, which the rows' solar times read.
    */
+  // ── The scope pool ──
+  /**
+   * The region names in scope — "My area" or "Everywhere", before every OTHER filter
+   * (map-landing-plan.md §3 L1, `docs/design/map-landing/README.md` §1).
+   *
+   * <p><b>Read off the scope pool, which is the point.</b> The design's first check is that
+   * minimum rating, reach, subject and dark-sky must never move the verdict while the scope segment
+   * must — so the tally's population is taken from the one pool that is already scope-only, the same
+   * pool the counts footer reports as "of K". A reader hiding 3★ locations cannot turn a Maybe into
+   * a Worth it, because no reader filter reaches this list at all.
+   *
+   * <p>⚠️ <b>Built from {@code heat?.enabled}, NOT from {@code heatOffered}</b>, and the difference
+   * is a real defect this phase's review caught. {@code heatOffered} used to fold in
+   * {@code !isAuroraMode} (until aurora heat A2 it gated whether the FIELD was drawable), and selecting any aurora night row sets
+   * {@code eventType} to `AURORA`, so routing the verdict through it emptied the scope and silently
+   * deleted the verdict from every SOLAR window in the list. Which regions are in the reader's scope
+   * is a fact about geography and has nothing to do with which layer is currently painted. L2's
+   * stepper ticks are exactly the case that would have exposed it: standing on an aurora row is when
+   * both neighbours are solar and both ticks must be coloured.
+   *
+   * <p>⚠️ A plain {@code const}, <b>not</b> a {@code useMemo}. Hoisted with {@code mapEvents}
+   * (§3 M5 task 1), and ahead of it since {@code withScopedSolarTimes} reads this pool, to sit
+   * BEFORE the {@code if (!date || locations.length === 0)} early return a few hundred lines
+   * down; a {@code useMemo} there would be a conditional hook — that is
+   * the trap {@code scopedRatedCount}'s own doc block records having already paid for once, in a
+   * lint error and a "rendered fewer hooks" failure — but a plain {@code const} pays no such cost
+   * on either side of that line. The work is a `Set` over ~50 spots.
+   */
+  const verdictScopePool = heat?.enabled
+    ? ((heatArea ? heat?.areaSpots : heat?.spots) || EMPTY_POINTS)
+    : EMPTY_POINTS;
+  const regionsInScope = regionNamesOf(verdictScopePool);
+
   /**
    * The Map tab's single chronological event list — map-tab-v2-plan.md §3 P6, replacing the
    * date strip, the event pills and the in-map window select on the TAB only (the overlay keeps
@@ -3611,7 +3646,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * mounts {@code WindowControl} below, so building one would be pure waste on a surface that
    * cannot show it (the same reasoning that scopes the multi-date astro/aurora fetches above).
    */
-  const mapEvents = overlayMode ? [] : buildMapEvents({
+  const servedMapEvents = overlayMode ? [] : buildMapEvents({
     solarWindows: heat?.windows || [],
     tideByWindow: heat?.tideByWindow,
     isEventTimePast,
@@ -3631,6 +3666,16 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     auroraResultsByDate,
     isLite: role === 'LITE_USER',
     formatTimeUk: formatEventTimeUk,
+  });
+  /**
+   * The same rows, each solar row's clock time taken over the places in SCOPE rather than the
+   * whole catalogue (`utils/mapScopedTime.js`): the served window time is the earliest sunset
+   * anywhere, which named a north-coast minute over a "My area" map. Display only — the elapsed
+   * test stays on the served instant. The same pool as the verdict, so the pill's word and its time
+   * describe one set of places.
+   */
+  const mapEvents = withScopedSolarTimes({
+    events: servedMapEvents, spots: verdictScopePool, locations, formatTimeUk: formatEventTimeUk,
   });
   /**
    * The night rows whose served rows the window control's preview has NOT answered — still in
@@ -3655,36 +3700,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       : row.kind === EVENT_KIND.AURORA
         && auroraPreviewDates.includes(row.date) && !auroraResultsByDate.has(row.date)))
     .map((row) => row.id));
-  /**
-   * The region names in scope — "My area" or "Everywhere", before every OTHER filter
-   * (map-landing-plan.md §3 L1, `docs/design/map-landing/README.md` §1).
-   *
-   * <p><b>Read off the scope pool, which is the point.</b> The design's first check is that
-   * minimum rating, reach, subject and dark-sky must never move the verdict while the scope segment
-   * must — so the tally's population is taken from the one pool that is already scope-only, the same
-   * pool the counts footer reports as "of K". A reader hiding 3★ locations cannot turn a Maybe into
-   * a Worth it, because no reader filter reaches this list at all.
-   *
-   * <p>⚠️ <b>Built from {@code heat?.enabled}, NOT from {@code heatOffered}</b>, and the difference
-   * is a real defect this phase's review caught. {@code heatOffered} used to fold in
-   * {@code !isAuroraMode} (until aurora heat A2 it gated whether the FIELD was drawable), and selecting any aurora night row sets
-   * {@code eventType} to `AURORA`, so routing the verdict through it emptied the scope and silently
-   * deleted the verdict from every SOLAR window in the list. Which regions are in the reader's scope
-   * is a fact about geography and has nothing to do with which layer is currently painted. L2's
-   * stepper ticks are exactly the case that would have exposed it: standing on an aurora row is when
-   * both neighbours are solar and both ticks must be coloured.
-   *
-   * <p>⚠️ A plain {@code const}, <b>not</b> a {@code useMemo}. Hoisted alongside {@code mapEvents}
-   * above (§3 M5 task 1) to sit BEFORE the {@code if (!date || locations.length === 0)} early
-   * return a few hundred lines down; a {@code useMemo} there would be a conditional hook — that is
-   * the trap {@code scopedRatedCount}'s own doc block records having already paid for once, in a
-   * lint error and a "rendered fewer hooks" failure — but a plain {@code const} pays no such cost
-   * on either side of that line. The work is a `Set` over ~50 spots.
-   */
-  const verdictScopePool = heat?.enabled
-    ? ((heatArea ? heat?.areaSpots : heat?.spots) || EMPTY_POINTS)
-    : EMPTY_POINTS;
-  const regionsInScope = regionNamesOf(verdictScopePool);
 
   /**
    * Each solar EV row's verdict, the region it names, and how many other in-scope regions share its

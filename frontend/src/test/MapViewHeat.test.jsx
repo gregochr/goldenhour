@@ -3893,3 +3893,36 @@ describe('MapView heat — the key slot while an astro night\'s own request fail
     expect(region).toHaveTextContent('Couldn’t load — trying again');
   });
 });
+
+describe('MapView heat — the pill’s time follows the scope, not the whole catalogue', () => {
+  /**
+   * The served window time is the earliest sunset ANYWHERE (`PlanWindowProjector.earliestEventTime`),
+   * which on 2026-10-13 put "18:09" — a north-coast minute — on a "My area" pill whose places all
+   * said 18:14. Kelso is the one spot outside the area here, and it sets first.
+   */
+  const timedLocations = () => makeLocations().map((loc) => {
+    const sunsetAt = { 1: '16:10', 4: '16:05' }[loc.id] ?? '16:12';
+    const day = loc.forecastsByDate.get(TODAY);
+    return {
+      ...loc,
+      forecastsByDate: new Map([[TODAY, {
+        ...day,
+        sunset: { ...day.sunset, solarEventTime: `${TODAY}T${sunsetAt}:00` },
+      }]]),
+    };
+  });
+  const pillTime = () => screen.getByTestId('wf-win-pill').querySelector('.wf-win-time');
+
+  it('shows the earliest sunset among the places in “My area”, not the served catalogue time', async () => {
+    await renderMap({ heat: heatProp(), locations: timedLocations() });
+    // Served: 16:12. Catalogue-earliest: Kelso, 16:05, out of area. In area: Bamburgh, 16:10.
+    expect(pillTime()).toHaveTextContent('16:10');
+  });
+
+  it('moves to the catalogue-earliest when the scope widens to “Everywhere”', async () => {
+    await renderMap({ heat: heatProp(), locations: timedLocations() });
+    openFilters();
+    fireEvent.click(screen.getByRole('button', { name: 'Everywhere' }));
+    expect(pillTime()).toHaveTextContent('16:05');
+  });
+});
