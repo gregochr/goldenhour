@@ -10070,6 +10070,11 @@ button.wf-cond-oc:focus-visible {
   border-radius: 9px;
   background: var(--color-plex-surface);
   overflow: hidden;
+  /* ⚠️ `overflow: hidden` makes this flex item's automatic minimum height 0 (it is content-sized
+     only while overflow is `visible`), so with the default `flex-shrink: 1` the column squeezed
+     every row to fit `.wf-loc-rows` instead of scrolling, clipping an open row's prose. Rows keep
+     their natural height; the list scrolls. Pinned by `locationSheetRowsCss.test.js`. */
+  flex-shrink: 0;
 }
 /* The one row the sheet leads with, marked on the container rather than on the badge — the badge is
    the quality signal and takes its colour from the ramp alone (D2). The wash is the design's, layered
