@@ -47,8 +47,9 @@ silent for a triage-fallback word, by design, so the card read "Worth it" with n
   will see `UNRATED`; `AskPromptBuilder` — if the system prompt lists verdict words, add one clause
   ("UNRATED: not ruled out by the weather, but too few ratings to call; never lead with it"). Pick
   eligibility (`AskSnapshot.isPickEligible`) already needs `verdictEligible()`, unchanged.
-  `AskReadyFreshness` compares stored `verdictAtAnswer` to live: after deploy a stored Ready answer
-  whose window moved WORTH_IT → UNRATED is withheld once, which is the designed behaviour.
+  `AskReadyFreshness` compares each PICK's stored `verdictAtAnswer` to its live SLOT verdict; a pick
+  is rated ≥ 3★, so a slot verdict that can matter is never `UNRATED`, and no stored Ready answer is
+  withheld by this change (corrected after review: an earlier draft said one would be, once).
 - **Digest** (`GET /api/briefing/digest`): passes the value through; no client yet.
 - **No database column holds a `DisplayVerdict`** (checked: no `@Enumerated` on it), so no migration
   and no `LocalH2EnumWidener` line. Persisted `daily_briefing_cache` payloads carry the OLD word

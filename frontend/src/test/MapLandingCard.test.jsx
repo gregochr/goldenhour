@@ -12,6 +12,7 @@ import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import MapLandingCard from '../components/map/MapLandingCard.jsx';
+import { unratedRulesFor, setsVerdictHue } from './unratedStylesheet.js';
 import { landingCardModel } from '../utils/mapLanding.js';
 import { EVENT_KIND } from '../utils/mapEvents.js';
 
@@ -90,6 +91,18 @@ describe('MapLandingCard — an UNRATED row (unrated-verdict-plan.md U2)', () =>
     expect(within(rows[0]).getByTestId('wf-land-verdict-region')).toHaveTextContent('Northumberland & Tyneside');
     // One Poor and one UNRATED is not "neither is worth the drive".
     expect(screen.queryByText(/worth the drive/)).toBeNull();
+  });
+
+  it('⚠️ gives an UNRATED landing word NO hue in the stylesheet — only an ellipsis backstop (F7)', () => {
+    // The assertions above prove `data-tier="UNRATED"` is on the DOM and nothing about what the
+    // browser draws for it. Read the rules that can match that attribute on the landing cell: they
+    // must exist (so this is not vacuous), set no verdict ink or fill, and touch no border or
+    // background — the only declarations are the overflow ones that keep a wide word inside its cell.
+    const rules = unratedRulesFor('.wf-land-verdict');
+    expect(rules).toHaveLength(1);
+    expect(rules[0].selector).toBe('.wf-land-verdict[data-tier="UNRATED"] .wf-land-verdict-word');
+    expect(setsVerdictHue(rules[0].body)).toBe(false);
+    expect(rules[0].body).not.toMatch(/(?:^|;|\s)(?:border|background|color)[a-z-]*:/);
   });
 });
 

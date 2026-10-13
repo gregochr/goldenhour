@@ -152,6 +152,22 @@ describe('computeCellTier', () => {
     expect(computeCellTier(region, (s) => s.tideAligned === true)).toBe(5);
   });
 
+  it.each([
+    ['a plain region', { tideHighlights: [], slots: [] }],
+    ['a king-tide region', { tideHighlights: ['King Tide at 3 coastal spots'], slots: [] }],
+    ['a tide-aligned region', { tideHighlights: [], slots: [{ tideAligned: true }] }],
+  ])('UNRATED takes exactly the AWAITING tier for %s — the explicit arm and the fall-through must move together (U2)', (_, shape) => {
+    // The explicit `dv === 'UNRATED'` clause in computeCellTier is a pinned equivalent of the final
+    // `return 5` (deleting it changes nothing), so a test of the value alone cannot see it. Equating
+    // the two verdicts' tiers does: it breaks if UNRATED is ever given its own tier, or if the
+    // fall-through stops returning what AWAITING gets.
+    const aligned = (s) => s.tideAligned === true;
+    const unrated = computeCellTier({ verdict: 'GO', displayVerdict: 'UNRATED', ...shape }, aligned);
+    const awaiting = computeCellTier({ verdict: 'GO', displayVerdict: 'AWAITING', ...shape }, aligned);
+    expect(unrated).toBe(awaiting);
+    expect(unrated).toBe(5);
+  });
+
   it('MAYBE displayVerdict with tide-aligned slot lands at tier 3', () => {
     const region = {
       verdict: 'GO',

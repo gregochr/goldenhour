@@ -2232,6 +2232,32 @@ describe('WindowFirstHeatStrip — the confidence channel', () => {
     expect(farOut).toBeLessThan(sameDay);
   });
 
+  it('hazes an UNRATED window by the SERVER\'s tier, not the horizon\'s MEDIUM (F5), and marks nothing', async () => {
+    // `buildWindowCards` now carries the served tier for UNRATED; the haze reads `card.confidence`
+    // through `resolveConfidence`. A null here fell back to the horizon's inferred (capped-medium)
+    // tier, drawing a window the server floored LOW at the same strength as a medium one.
+    await withMeasuredThumbs(160, async () => {
+      await renderStrip({
+        cards: [stripCard({ verdict: 'UNRATED', verdictLabel: 'Too few rated', confidence: 'low' })],
+        todayStr: TODAY,
+      });
+    });
+    const served = drawGeo.mock.calls[0][5].conf;
+    // The badge side, on the card that carried the served 'low': no mark, no tier word.
+    expect(screen.queryByTestId('provisional-mark')).toBeNull();
+    expect(screen.getByTestId('wf-heat-card').textContent).not.toMatch(/\b(low|medium|high|provisional)\b/i);
+    cleanup();
+    drawGeo.mockClear();
+    await withMeasuredThumbs(160, async () => {
+      await renderStrip({
+        cards: [stripCard({ verdict: 'UNRATED', verdictLabel: 'Too few rated', confidence: null })],
+        todayStr: TODAY,
+      });
+    });
+    const inferred = drawGeo.mock.calls[0][5].conf;
+    expect(served).toBeLessThan(inferred);
+  });
+
   it('renders no confidence MARK anywhere — the haze is the whole of it', async () => {
     // Plan §2.7's "one uniform channel": the window card's verdict badge is the only place
     // confidence becomes a visible mark, and the retired day rail carried a test saying it rendered
@@ -3312,21 +3338,23 @@ describe('the stylesheet half, which jsdom cannot evaluate (matrix-axis plan §5
     expect(rule).toContain('flex: none;');
   });
 
-  it('lets the mean wrap under "Too few rated" — and ONLY for UNRATED — so the 320px column never clips the figure (U2)', () => {
-    // unrated-verdict-plan.md U2: "Too few rated" is 85.8px, the mean 24px, the gap 4px = 113.8px
-    // against a ~88.3px column at 320px. The wrap is keyed on the row's `data-verdict`, in CSS.
-    const rule = flatRule('.wf-hc-pv[data-verdict="UNRATED"]');
-    expect(rule).toContain('flex-wrap: wrap;');
-    expect(rule).toContain('row-gap: 0;');
-    // The base row is H1's, untouched: one line, never wrapping. A second rule setting `wrap` on the
-    // bare class would put the wrap on a WORTH_IT card too.
-    expect(flatRule('.wf-hc-pv')).toContain('flex-wrap: nowrap;');
-    const wrappingPvRules = [...readCss().matchAll(/\n(\.wf-hc-pv[^{]*)\{([^}]*)\}/g)]
-      .filter(([, , body]) => body.includes('flex-wrap: wrap;'))
+  it('has NO rule that lets the verdict row wrap — for any verdict — so Spread and Best never move (U2, review F2)', () => {
+    // The first cut wrapped the mean under the full word and the review measured +11.5px on the row:
+    // that card's Spread and Best rows then sat lower than its neighbours'. The fix is the short
+    // form, and the guard is the ABSENCE of a wrap rule (jsdom measures nothing, so the geometry is
+    // pinned the only way it can be: the base row is `nowrap` and no selector on `.wf-hc-pv` says
+    // otherwise).
+    const css = readCss().replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(css).not.toMatch(/\.wf-hc-pv\[data-verdict/);
+    const wrappingPvRules = [...css.matchAll(/\n(\.wf-hc-pv[^{]*)\{([^}]*)\}/g)]
+      .filter(([, , body]) => /flex-wrap:\s*wrap/.test(body))
       .map(([, selector]) => selector.trim());
-    expect(wrappingPvRules).toEqual(['.wf-hc-pv[data-verdict="UNRATED"]']);
-    // The mean itself stays flex: none / nowrap, so when it wraps it moves as a whole.
+    expect(wrappingPvRules).toEqual([]);
+    expect(flatRule('.wf-hc-pv')).toContain('flex-wrap: nowrap;');
+    // The mean stays flex: none / nowrap, so it never wraps or shrinks; the WORD ellipsises instead.
     expect(flatRule('.wf-hc-mean')).toContain('white-space: nowrap;');
+    expect(flatRule('.wf-hc-mean')).toContain('flex: none;');
+    expect(flatRule('.wf-hc-vd')).toContain('text-overflow: ellipsis;');
   });
 
   it('gives the verdict word an explicit neutral UNRATED arm, never a verdict hue', () => {
@@ -3682,17 +3710,40 @@ describe('WindowFirstHeatStrip — "Too few rated" (unrated-verdict-plan.md U2)'
     hotRegionName: 'Northumberland & Tyneside', ...overrides,
   });
 
-  it('prints the word and the mean 3.6★ as siblings in one value row keyed on the verdict', async () => {
+  it('prints the SHORT word "Too few" and the mean 3.6★ as siblings in one value row, with no hook on the row (F2)', async () => {
     await renderStrip({ cards: [unratedCard()] });
 
     const word = screen.getByTestId('wf-heat-verdict');
-    expect(word).toHaveTextContent(/^Too few rated$/);
+    // The card prints the short form at every width (its value column is 70–89px at 320, 640 and a
+    // docked 1024, "Too few rated 3.6★" is 114px); the FULL word is in the spoken sentence below.
+    expect(word).toHaveTextContent(/^Too few$/);
     expect(word).toHaveAttribute('data-verdict', 'UNRATED');
     expect(screen.getByTestId('wf-heat-mean')).toHaveTextContent(/^3\.6★$/);
-    // The row carries the attribute the wrap rule selects on (a word-only attribute would not wrap
-    // the sibling mean); no script measures anything.
     expect(word.parentElement).toHaveClass('wf-hc-pv');
-    expect(word.parentElement).toHaveAttribute('data-verdict', 'UNRATED');
+    // No `data-verdict` on the row: the wrap rule it existed for is gone (see the stylesheet pin).
+    expect(word.parentElement).not.toHaveAttribute('data-verdict');
+  });
+
+  it('keeps an UNRATED card\'s value rows in the same shape as a WORTH_IT card\'s, so Spread and Best sit at the same offsets (F2)', async () => {
+    // jsdom has no layout, so the DOM SHAPE is what can be pinned: the same children in the same
+    // order, every row a single non-wrapping `.wf-hc-pv`, nothing on the UNRATED row that a wrap
+    // rule could select. (Chromium measured Spread at y=56 and Best at y=80 on both, 20px rows.)
+    const shape = async (card) => {
+      await renderStrip({ cards: [card] });
+      const grid = screen.getByTestId('wf-heat-value-grid');
+      const out = [...grid.children].map((el) => `${el.tagName}.${el.className}`);
+      const verdictRow = screen.getByTestId('wf-heat-verdict').parentElement;
+      const rowKids = [...verdictRow.children].map((el) => el.dataset.testid);
+      cleanup();
+      return { out, rowKids, rowClass: verdictRow.className, rowAttrs: verdictRow.getAttributeNames() };
+    };
+    const rated = await shape(stripCard({ verdictMean: 3.6 }));
+    const unrated = await shape(stripCard({
+      verdict: 'UNRATED', verdictLabel: 'Too few rated', verdictMean: 3.6, confidence: null,
+    }));
+    expect(unrated).toEqual(rated);
+    expect(unrated.rowKids).toEqual(['wf-heat-verdict', 'wf-heat-mean']);
+    expect(unrated.rowAttrs).toEqual(['class']);
   });
 
   it('voices word and average in the sentence', async () => {
@@ -3733,17 +3784,27 @@ describe('WindowFirstHeatStrip — "Too few rated" (unrated-verdict-plan.md U2)'
     expect(screen.getByTestId('wf-heat-best')).toHaveTextContent('not scored yet');
   });
 
-  it('leaves a WORTH_IT card exactly as H1 shipped it: the same row, its word, its mean, and no wrap hook', async () => {
+  it('leaves a WORTH_IT card exactly as H1 shipped it: the same row, its full word, its mean, and no row hook', async () => {
     await renderStrip({ cards: [stripCard({ verdictMean: 3.5 })] });
 
     const word = screen.getByTestId('wf-heat-verdict');
     expect(word).toHaveTextContent(/^Worth it$/);
-    expect(word.parentElement).toHaveAttribute('data-verdict', 'WORTH_IT');
-    expect(word.parentElement).not.toHaveAttribute('data-verdict', 'UNRATED');
+    expect(word.parentElement).not.toHaveAttribute('data-verdict');
     expect(screen.getByTestId('wf-heat-mean')).toHaveTextContent(/^3\.5★$/);
     // Same DOM order as before: word, then mean, in one `.wf-hc-pv`.
     expect([...word.parentElement.children].map((el) => el.dataset.testid))
       .toEqual(['wf-heat-verdict', 'wf-heat-mean']);
+  });
+
+  it('words the beyond-reach Region line\'s tooltip for UNRATED without asserting a verdict the gate declined (F8)', async () => {
+    await renderStrip({ cards: [unratedCard({
+      pool: [poolSpot({ rating: null, driveMinutes: 20 })],
+      bestReach: null, reachLimitMinutes: 45, reachMeasured: true,
+    })] });
+    expect(screen.getByTestId('wf-heat-best')).toHaveAttribute(
+      'title', 'Too few rated in Northumberland & Tyneside to call it, and its rated places are all further than 45 min away',
+    );
+    expect(screen.getByTestId('wf-heat-best').getAttribute('title')).not.toMatch(/The verdict is/);
   });
 
   describe('verdictTint — every verdict word has an explicit arm', () => {

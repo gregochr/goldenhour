@@ -15,6 +15,7 @@ filter still words a blanked region `AWAITING` or `STAND_DOWN` by reason, and st
 `DisplayVerdict`; `briefing_region_snapshot.display_verdict` is a free-text `VARCHAR(20)`), and the
 serve path re-derives every region's verdict, so the API is right from the first request after
 deploy. Ask's tools serialise the verdict by name, so the model can see `UNRATED` on `list_windows`;
-the system prompt lists no verdict words, so nothing was added to it, and a stored Ready answer whose
-window moved from `WORTH_IT` to `UNRATED` is withheld once by the existing freshness check. The
-client wording and treatment are a separate change.
+the system prompt lists no verdict words, so nothing was added to it. A stored Ready answer is
+unaffected: `AskReadyFreshness` compares each PICK's slot verdict, which cannot be `UNRATED` (a pick is
+rated at 3★ or better), so no stored answer is withheld by this change. The client wording and
+treatment are a separate change.

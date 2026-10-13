@@ -48,6 +48,12 @@ export function computeCellTier(region, alignedOf) {
   // UNRATED is named, not left to the fall-through below: a weather pass that no trustworthy rating
   // has called must never enter a recommending tier (0-4), and an explicit arm survives anyone who
   // later changes what the final `return 5` means (unrated-verdict-plan.md U2).
+  //
+  // ⚠️ This clause is a PINNED EQUIVALENT, not a behaviour: with it deleted the value still comes
+  // out 5 via the final `return 5`, so no mutation of this line alone can fail a test. What the test
+  // pins instead is the INTENT — `tierUtils.test.js` asserts UNRATED's tier equals AWAITING's for
+  // every region shape, so either one moving without the other (a new tier for "not ruled out", or
+  // the fall-through changing) fails there.
   if (dv === 'STAND_DOWN' || dv === 'UNRATED' || dv === 'AWAITING') return 5;
 
   const hasKingTide = (region.tideHighlights || [])

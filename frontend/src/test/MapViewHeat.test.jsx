@@ -2338,7 +2338,11 @@ describe('the window pill\'s verdict — filters must not move it, scope must (d
   /** What the pill is actually saying, as a reader would read it. */
   function pillVerdict() {
     return {
-      word: screen.getByTestId('wf-win-verdict').querySelector('b').textContent,
+      // The SPOKEN word: an UNRATED pill renders a short/full pair (aria-hidden "Too few" + the full
+      // word, swapped by the stylesheet at 811px and below), so the full-word span is read when there
+      // is one and the bare text otherwise.
+      word: (screen.getByTestId('wf-win-verdict').querySelector('[data-testid="wf-vw-full"]')
+        ?? screen.getByTestId('wf-win-verdict').querySelector('b')).textContent,
       region: screen.queryByTestId('wf-win-verdict-region')?.textContent ?? null,
       tier: screen.getByTestId('wf-win-pill').getAttribute('data-tier'),
     };

@@ -8,7 +8,7 @@ import {
 import { useHeatCanvas } from '../hooks/useHeatCanvas.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
-import { badgeChannel, formatRegionMean } from '../utils/windowFirstCards.js';
+import { badgeChannel, formatRegionMean, shortVerdictLabel } from '../utils/windowFirstCards.js';
 import { beyondRegions, GLANCE_MINUTES } from '../utils/planningArea.js';
 import { placeWithNudges } from '../utils/labelPlacement.js';
 import { scopeRegions, scopeSpots } from '../utils/planOrigin.js';
@@ -207,7 +207,12 @@ function verdictBeyondReach(card) {
     value: `${region} · beyond ${tier}`,
     muted: false,
     beyond: true,
-    title: `The verdict is ${region}'s, and its rated places are all further than ${tier} away`,
+    // ⚠️ An UNRATED word is not a verdict "of" a region (unrated-verdict-plan.md U2, review F8):
+    // "The verdict is X's" would assert one the sample gate declined to give. The rated verdict's
+    // title is unchanged.
+    title: card.verdict === 'UNRATED'
+      ? `Too few rated in ${region} to call it, and its rated places are all further than ${tier} away`
+      : `The verdict is ${region}'s, and its rated places are all further than ${tier} away`,
     tideAligned: false,
     tideState: null,
     // Starts with the visible label's own word (SC 2.5.3), then the same two facts in words.
@@ -1288,17 +1293,19 @@ export default function WindowFirstHeatStrip({
         )}
         <span data-testid="wf-heat-value-grid" className="wf-hc-pls" aria-hidden="true">
           <span data-testid="wf-heat-time" className="wf-hc-t">{card.time}</span>
-          {/* `data-verdict` on the ROW as well as the word: the UNRATED layout rule in index.css
-              (`.wf-hc-pv[data-verdict="UNRATED"]`, which lets the mean wrap under "Too few rated"
-              when the 320px column cannot hold both) keys on the parent, so no script measures
-              anything. Every other verdict leaves the row exactly as H1 shipped it. */}
-          <span className="wf-hc-pv" data-verdict={card.verdict || 'AWAY'}>
+          {/* ⚠️ ONE LINE, for every verdict, and no hook on the row for it to be otherwise. The value
+              column is 83–89px at 320, 640 and a docked 1024 (measured), "Too few rated 3.6★" is
+              113.8px, so the UNRATED word prints its SHORT form here ("Too few 3.6★" = 74.2px) and
+              the row never wraps — a wrapped row would push this card's Spread and Best rows down
+              against its neighbours'. The grid is `aria-hidden`; the full word is in the card's
+              spoken sentence (`accessibleName` above) (unrated-verdict-plan.md U2, review F2). */}
+          <span className="wf-hc-pv">
             <span
               data-testid="wf-heat-verdict"
               className="wf-hc-vd"
               data-verdict={card.verdict || 'AWAY'}
             >
-              {card.verdictLabel}
+              {shortVerdictLabel(card.verdict, card.verdictLabel)}
             </span>
             {/* H1: the served region mean, a SIBLING of the verdict word (not nested in it, so the
                 word's text content stays exactly the word). One decimal always, so "3.5★" cannot be

@@ -2014,17 +2014,17 @@ button.wf-hc.on:hover {
    use, which clears AA on all six card grounds (the muted ink does not: see `.wf-hc-best.none`).
    It takes no verdict hue, so the word stays the only coloured thing in the row.
 
-   ⚠️ ONE LINE. The value column is ~88.3px at a 320px viewport (A27's measured figure) and wider
-   at 375px and 640px. Measured in Chromium with the real IBM Plex Mono faces: "Worth it" — the
-   longest verdict word that can carry a mean once a verdict-eligible region stands behind it, and
-   the only one until U2 (a word with no mean behind it — "Not scored", or a triage "Poor" — gets
-   `verdictMean` null and prints none, by construction; "Too few rated" is the second word that
-   carries one, and it does NOT fit on this line at 320px: see the UNRATED rule below) — is 52.8px at 11px/600,
-   and "3.5★" is 24.0px at 10px/400 (0.6em per character, the star included). The row's 6px flex
-   gap is pulled to 4px by the margin below: 52.8 + 4 + 24.0 = 80.8px < 88.3px, 7.5px to spare at
-   the narrowest card. The star may fall back to a system face on some platforms; even a full-em
-   fallback glyph (+4px) still fits. If a future face narrows the column, the VERDICT WORD gives
-   way, not the figure: `.wf-hc-vd` already ellipsises (`overflow: hidden`, so it may shrink below
+   ⚠️ ONE LINE, for EVERY verdict. Measured in Chromium with the real IBM Plex Mono faces, in the
+   shell's real geometry (`<main>` px-4 + `.wf-body`'s gutter, 2 columns below 640px, up to 4 above,
+   the Ask dock's 360px taken off at 1024px): the value column is 70.3px at a 320px viewport, 90.3px
+   at 360, 97.8px at 375, 79.3px at 640, 111.3px at 768, 85.3px at a DOCKED 1024 and 175.3px at an
+   undocked one. (A27 recorded ~88.3px at 320 — that was the column with 12px of page inset and no
+   `<main>` padding, not today's shell; the narrowest real column is the 320px viewport's 70.3px.)
+   "Worth it" — the longest rated word, 52.8px at 11px/600 — plus "3.5★" at 10px/400 (24.0px, 0.6em per
+   character, the star included) is 52.8 + 4 (the 6px flex gap pulled to 4px by the margin below) +
+   24.0 = 80.8px: it fits from 80.8px up, i.e. everywhere in that list except 320 (70.3) and 640
+   (79.3), where the WORD ellipsises (the figure never does).
+   If a future face narrows the column, the VERDICT WORD gives way, not the figure: `.wf-hc-vd` already ellipsises (`overflow: hidden`, so it may shrink below
    its content) while this is `flex: none`. A clipped word is the lesser failure: a wrapped row would push every row below it
    out of alignment across the card grid (see `.wf-hc-hist-note`). Not a direct child of the grid,
    so the (0,1,1) `.wf-hc-pls > span` rule does not reach it. */
@@ -2038,39 +2038,27 @@ button.wf-hc.on:hover {
   font-variant-numeric: tabular-nums;
   color: var(--color-plex-text-secondary);
 }
-/* "Too few rated 3.6★" — the UNRATED card's verdict row (unrated-verdict-plan.md U2). The mean is
-   the honest half of the card here: the region has ratings, the sample gate withheld a verdict from
-   them, and the word and the figure say so together.
+/* "Too few 3.6★" — the UNRATED card's verdict row (unrated-verdict-plan.md U2, review F2). The mean
+   is the honest half of the card here: the region has ratings, the sample gate withheld a verdict
+   from them, and the word and the figure say so together.
 
-   ⚠️ THE MEAN WRAPS UNDER THE WORD WHEN THE COLUMN CANNOT HOLD BOTH — by CSS, keyed on the row's
-   `data-verdict`, never by measuring in script. Arithmetic, with the real IBM Plex Mono advances
-   (every glyph in the shipped latin and latin-ext 400/600 woffs has advanceWidth 600 of 1000 units
-   — read from the hmtx tables, not assumed — so 0.6em a character at any size):
-     word  "Too few rated"  13 characters × 0.6 × 11px (600 weight)  = 85.8px
-     mean  "3.6★"            4 characters × 0.6 × 10px (400 weight)   = 24.0px
-     gap   the row's 6px gap, pulled to 4px by `.wf-hc-mean`'s -2px margin
-     one line: 85.8 + 4 + 24.0 = 113.8px.  The value column at a 320px viewport is ~88.3px (A27's
-     measured figure), so one line is 25.5px over: the two cannot share it, and the word ALONE fits
-     with 2.5px to spare (85.8 < 88.3). A system fallback for the star (it is not in the latin
-     subset; H1 allowed +4px for a full-em glyph) moves the threshold to 117.8px.
-   `flex-wrap: wrap` is exactly "only when it cannot fit": the row stays on ONE line wherever the
-   column is ≥ 113.8px (wider cards and viewports, unchanged from H1) and drops the figure onto a
-   second, right-aligned line below that — word over mean, both flush to the same edge as every other
-   value in the column. `row-gap: 0` because a wrapped row already costs the card height: MEASURED
-   in Chromium against the built stylesheet and the real faces, the row is 31.5px wrapped against
-   20.0px on one line (+11.5px), and the neighbouring cards' rows stretch to match as
-   `.wf-hc-best.beyond` already budgets for. The same harness confirmed every figure above to the
-   decimal (word 85.8px, mean 24.0px, the star included), that the row wraps at a 113.7px column
-   and stays on one line from 114px, that both lines sit flush to the right edge, and that a
-   WORTH_IT row is 20.0px on one line at every column from 88.3px to 130px.
-   Selected as `.wf-hc-pv[data-verdict="UNRATED"]` (0,2,0): it beats the bare `.wf-hc-pv`
-   (`flex-wrap: nowrap`, 0,1,0) and the `.wf-hc-pls > span` rule (0,1,1) sets neither property.
-   Every other verdict leaves the row exactly as H1 shipped it — a test pins that a WORTH_IT card
-   carries no wrap, and this is the ONLY rule that does. */
-.wf-hc-pv[data-verdict="UNRATED"] {
-  flex-wrap: wrap;
-  row-gap: 0;
-}
+   ⚠️ THERE IS NO RULE HERE, ON PURPOSE — the row never wraps and nothing keys on the verdict. The
+   first cut wrapped the mean under the full word ("Too few rated" 85.8px + 4 + 24.0 = 113.8px) and
+   the review measured what that costs: a 31.5px row against 20.0px, pushing this card's Spread and
+   Best rows 11.5px below its neighbours' — rows that must align across the grid. So the card prints
+   the SHORT form (`VERDICT_LABEL_SHORT.UNRATED`, "Too few": 7 characters × 0.6 × 11px = 46.2px) and
+   the row is 46.2 + 4 + 24.0 = 74.2px, ONE line like every other verdict. The full word stays in the
+   card's spoken sentence (the value grid is `aria-hidden`).
+   Why short everywhere rather than full from some breakpoint: the full row needs 113.8px, and the
+   value column (see `.wf-hc-mean`) is 70.3 / 90.3 / 97.8 at 320 / 360 / 375, 79.3 / 111.3 at 640 /
+   768, 85.3 at a docked 1024, 124.3 at a docked 1180 and 175.3 at an undocked 1024 — the full row
+   fits at the last two but NOT at 640, 768 (by 2.5px) or a docked 1024, so no single breakpoint is
+   right and a non-monotonic one would be a rule nobody could predict. The short row fits every
+   column from 74.2px up (all of them but the 320px viewport, where the word ellipsises by 3.7px —
+   the same direction "Worth it" already takes at that width).
+   MEASURED (headless Chromium, the built stylesheet, the real faces): the row is 20.0px on one line
+   for WORTH_IT, MAYBE and UNRATED at every viewport above, and the Spread and Best rows sit at
+   y = 56 and y = 80 in an UNRATED card and in a WORTH_IT card alike, in the same row of cards. */
 /* The spread histogram: five bars, one per star band, heights proportional to the tallest band.
    A lone spike on the right reads "one good spot, drive to it"; a right-weighted block reads "the
    whole area is on" — which two averaged digits could never say. Bar colours are the ramp's, set
@@ -2861,7 +2849,8 @@ button.wf-hc.also.on:hover {
 .wf-rr[data-verdict="MAYBE"] { border-left-color: var(--color-verdict-marginal); }
 .wf-rr[data-verdict="STAND_DOWN"] { border-left-color: var(--color-verdict-standdown); }
 /* UNRATED (unrated-verdict-plan.md U2): deliberately NO arm here — the rail cell keeps its plain border stripe, the same neutral an AWAITING cell wears. Stated rather than left as an
-   accident of the cascade; a test asserts every verdict word is handled in the JS that sets this attribute. */
+   accident of the cascade; `test/unratedVerdictWords.test.jsx` pins that no rule matching UNRATED sets a
+   verdict hue and that every JS map keyed on verdicts carries an UNRATED entry. */
 /* Doubled specificity so it beats `.wf-rr:hover` and `.wf-rr.on`, both (0,2,0) and both later in
    the file. Without it the All cell — which is `on` by DEFAULT — is the one rail cell whose left
    stripe is a wash rather than its channel, and the only one that turns grey on hover. */
@@ -2885,7 +2874,8 @@ button.wf-hc.also.on:hover {
 .wf-rr[data-verdict="MAYBE"] .wf-rr-v { color: var(--color-badge-maybe); }
 .wf-rr[data-verdict="STAND_DOWN"] .wf-rr-v { color: var(--color-badge-poor); }
 /* UNRATED (unrated-verdict-plan.md U2): deliberately NO arm here — `.wf-rr-v`'s base ink is already the neutral secondary one. Stated rather than left as an
-   accident of the cascade; a test asserts every verdict word is handled in the JS that sets this attribute. */
+   accident of the cascade; `test/unratedVerdictWords.test.jsx` pins that no rule matching UNRATED sets a
+   verdict hue and that every JS map keyed on verdicts carries an UNRATED entry. */
 .wf-rr-all .wf-rr-v { color: var(--color-close-to-home); }
 .wf-rr-m {
   font-family: var(--font-mono);
@@ -4424,8 +4414,11 @@ button.wf-hc.also.on:hover {
 .wf-map-peek-v-verdict[data-tier="WORTH_IT"] { color: var(--color-badge-go); }
 .wf-map-peek-v-verdict[data-tier="MAYBE"] { color: var(--color-badge-maybe); }
 .wf-map-peek-v-verdict[data-tier="STAND_DOWN"] { color: var(--color-badge-poor); }
-/* UNRATED (unrated-verdict-plan.md U2): deliberately NO arm here — the peek's verdict word inherits the sheet's neutral ink. Stated rather than left as an
-   accident of the cascade; a test asserts every verdict word is handled in the JS that sets this attribute. */
+/* UNRATED (unrated-verdict-plan.md U2, review F4/F7): an EXPLICIT secondary-ink arm. The word has no
+   ink of its own, so with no arm it fell through to the sheet's PRIMARY ink (14.45:1) — brighter than
+   a verdict word, which is backwards for the state that says "nothing has called this". Secondary is
+   the neutral every other UNRATED surface wears (`.wf-win-panel-verdict`, `.wf-hc-vd`). */
+.wf-map-peek-v-verdict[data-tier="UNRATED"] { color: var(--color-plex-text-secondary); }
 .wf-map-peek-v-empty {
   color: var(--color-plex-text-secondary);
 }
@@ -4491,8 +4484,9 @@ button.wf-hc.also.on:hover {
 .wf-map-peek-wr-verdict[data-tier="WORTH_IT"] { color: var(--color-badge-go); }
 .wf-map-peek-wr-verdict[data-tier="MAYBE"] { color: var(--color-badge-maybe); }
 .wf-map-peek-wr-verdict[data-tier="STAND_DOWN"] { color: var(--color-badge-poor); }
-/* UNRATED (unrated-verdict-plan.md U2): deliberately NO arm here — the peek's window-row word inherits the neutral ink. Stated rather than left as an
-   accident of the cascade; a test asserts every verdict word is handled in the JS that sets this attribute. */
+/* UNRATED (unrated-verdict-plan.md U2, review F4/F7): the explicit secondary-ink arm, as for
+   `.wf-map-peek-v-verdict` above — the row word otherwise inherited primary ink. */
+.wf-map-peek-wr-verdict[data-tier="UNRATED"] { color: var(--color-plex-text-secondary); }
 .wf-map-peek-wr-unscored { color: var(--color-plex-text-muted); }
 .wf-map-peek-drilldown {
   color: var(--color-plex-text-secondary);
@@ -4884,23 +4878,33 @@ button.wf-hc.also.on:hover {
 .wf-land-verdict[data-tier="MAYBE"] .wf-land-verdict-word { color: var(--color-badge-maybe); }
 .wf-win-verdict[data-tier="STAND_DOWN"] .wf-win-verdict-word,
 .wf-land-verdict[data-tier="STAND_DOWN"] .wf-land-verdict-word { color: var(--color-badge-poor); }
-/* UNRATED has no hue here (unrated-verdict-plan.md U2) — the word keeps the cell's base ink, the
-   neutral an unscored window already wears. It is also the WIDEST word this cell has had: "TOO FEW
-   RATED" is 13 characters at 10px/700 with .1em tracking = 13 × (6 + 1) = 91px (83.2px at the phone's
-   .04em), against "WORTH IT"'s 56px. The cell is `min-width: 0` and yields to the day label, so
-   where the pill is short of room the word ellipses rather than being hard-clipped mid-letter by
-   the pill's `overflow: hidden`; `max-width: 100%` is what lets a block child of a shrunk flex column
-   know how much room it has. Scoped to UNRATED so no other word's clipping changes. MEASURED in
-   Chromium (this cell alone, built stylesheet, real face): 83.2px at the phone's .04em, 91.0px at
-   .1em, against 51.2px for "WORTH IT"; given less room the word ellipses (client 62 of scroll 83
-   in an 80px cell) and WORTH_IT does not. NOT measured: the whole `WindowControl` pill at 320px,
-   where the day label never shrinks and this cell yields — expect "TOO FEW…" there. */
+/* UNRATED has no hue here (unrated-verdict-plan.md U2) — the word keeps the cell's base ink, which
+   is the pill's own secondary ink: no rule recolours it, and a window with NOTHING scored draws no
+   verdict cell at all (so there is no "unscored" ink for it to match — `VerdictCell` renders null).
+   It is also the WIDEST word this cell has had: "TOO FEW RATED" is 13 characters at 10px/700 with
+   .1em tracking = 13 × (6 + 1) = 91px (83.2px at the phone's .04em), against "WORTH IT"'s 56px.
+
+   ⚠️ **The pill swaps to the SHORT form at 811px and below** (review F3, `.wf-vw-short` /
+   `.wf-vw-full`; the sweep behind the breakpoint is in the ≤811px block's comment): with the full
+   word the day label was clipped at 320–430px and the word itself ellipsised at 640–700px. "TOO FEW"
+   is 7 × (6 + .4) = 44.8px at the phone's tracking (49px at .1em), 38–42px less than the full word.
+   The full word stays in the pill's accessible name (the component renders it visually hidden
+   there). From 812px the full word is drawn.
+   The ellipsis rule below stays as the backstop for a pill that is short of room at a wider width:
+   `max-width: 100%` is what lets a block child of a shrunk flex column know how much room it has,
+   and the word ellipses rather than being hard-clipped mid-letter by the pill's `overflow: hidden`.
+   Scoped to UNRATED so no other word's clipping changes. */
 .wf-win-verdict[data-tier="UNRATED"] .wf-win-verdict-word,
 .wf-land-verdict[data-tier="UNRATED"] .wf-land-verdict-word {
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* The short/full pair `VerdictWord mode="swap"` renders (unrated-verdict-plan.md U2, review F3).
+   Default: the full word is drawn and the short form is not (`display: none` removes it from the
+   accessibility tree as well, which is right: the full word is the spoken one). The ≤811px block
+   below swaps them, hiding the full word VISUALLY ONLY so it stays in the accessible name. */
+.wf-vw-short { display: none; }
 /* The region line, capped so a long region NAME ellipses and the longest SENTENCE does not — a
    truncated sentence reads as a bug where a truncated proper name reads as a name.
 
@@ -5016,6 +5020,33 @@ button.wf-hc.also.on:hover {
     clip-path: inset(50%);
     white-space: nowrap;
     border-width: 0;
+  }
+  /* ⚠️ The verdict word's short/full swap (unrated-verdict-plan.md U2, review F3): "TOO FEW" in
+     place of "TOO FEW RATED" at 811px and below, the full word visually hidden and still spoken (the
+     same clip recipe as the medallion words above, and for the same reason: `display: none` would
+     delete it from the accessible name). The breakpoint is MEASURED, not borrowed: a sweep of the
+     pill from 320 to 1260px (Chromium, the built stylesheet, the real faces) shows the full word
+     failing in TWO separate ranges — at 320–430px it takes the room the day label needs (label
+     48/66px visible at 320, 61/66 at 360 and 390, 54/66 at 390 with the medallion), and at 640–700px
+     the fixed 260px pill leaves the cell 54–97px for a 91px word, which then ellipsises ("TOO FEW R…")
+     — and fitting in neither gap between them. The first cut swapped at 389px only and left 390
+     (an iPhone's width) clipping. 811px is the one existing breakpoint at or above both failing
+     ranges, and from 812px the cell is 122px against the word's 91px at every width, medallion words
+     included. Short form, measured at 360/375: day label 66/66 and 58/58 (nothing clipped), word
+     45/45 (it was 60/83 and 61/66 at 320 and 360 before). At exactly 320px the day label is still
+     7px short — the residual the 389px block below records, unchanged and now no worse than a rated
+     word's. */
+  .wf-map-tab .wf-win-verdict-word .wf-vw-short { display: inline; }
+  .wf-map-tab .wf-win-verdict-word .wf-vw-full {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
   }
 }
 
@@ -5843,7 +5874,8 @@ button.wf-hc.also.on:hover {
 .wf-win-tick[data-tier="MAYBE"] { background: var(--color-verdict-marginal); }
 .wf-win-tick[data-tier="STAND_DOWN"] { background: var(--color-verdict-standdown); }
 /* UNRATED (unrated-verdict-plan.md U2): deliberately NO arm here — no tick is drawn for a window no rating has called, exactly as for an unscored one. Stated rather than left as an
-   accident of the cascade; a test asserts every verdict word is handled in the JS that sets this attribute. */
+   accident of the cascade; `test/unratedVerdictWords.test.jsx` pins that no rule matching UNRATED sets a
+   verdict hue and that every JS map keyed on verdicts carries an UNRATED entry. */
 
 /* The menu row's medallion rides the label cell's second line, beside the time — see the component
    for why it is not a fifth grid child. Smaller than the pill's, because the row already carries a
@@ -6630,7 +6662,8 @@ button.wf-hc.also.on:hover {
 .wf-maplab-pick-r[data-tier='MAYBE'] { color: var(--color-badge-maybe); }
 .wf-maplab-pick-r[data-tier='STAND_DOWN'] { color: var(--color-badge-poor); }
 /* UNRATED (unrated-verdict-plan.md U2): deliberately NO arm here — the pick's rank word keeps its base ink. Stated rather than left as an
-   accident of the cascade; a test asserts every verdict word is handled in the JS that sets this attribute. */
+   accident of the cascade; `test/unratedVerdictWords.test.jsx` pins that no rule matching UNRATED sets a
+   verdict hue and that every JS map keyed on verdicts carries an UNRATED entry. */
 /* The bare rank circle a pick falls back to when the placer cannot fit its chip: the same button, its
    words not drawn (their accessible name is the button's own aria-label, so nothing is lost to a
    screen reader). */
@@ -10830,7 +10863,8 @@ button.wf-mchip:hover {
 .wf-prose[data-verdict="MAYBE"] { border-left-color: var(--color-verdict-marginal); }
 .wf-prose[data-verdict="STAND_DOWN"] { border-left-color: var(--color-verdict-standdown); }
 /* UNRATED (unrated-verdict-plan.md U2): deliberately NO arm here — the prose slot keeps its neutral border-left. Stated rather than left as an
-   accident of the cascade; a test asserts every verdict word is handled in the JS that sets this attribute. */
+   accident of the cascade; `test/unratedVerdictWords.test.jsx` pins that no rule matching UNRATED sets a
+   verdict hue and that every JS map keyed on verdicts carries an UNRATED entry. */
 .wf-prose-h {
   display: flex;
   align-items: baseline;
@@ -12014,7 +12048,8 @@ button.wf-mchip:hover {
 .wf-ask-sc[data-tier="MAYBE"] { color: var(--color-badge-maybe); }
 .wf-ask-sc[data-tier="STAND_DOWN"] { color: var(--color-badge-poor); }
 /* UNRATED (unrated-verdict-plan.md U2): deliberately NO arm here — a place nothing has rated gets no verdict hue on its Ask chip (askModel.js sets the attribute). Stated rather than left as an
-   accident of the cascade; a test asserts every verdict word is handled in the JS that sets this attribute. */
+   accident of the cascade; `test/unratedVerdictWords.test.jsx` pins that no rule matching UNRATED sets a
+   verdict hue and that every JS map keyed on verdicts carries an UNRATED entry. */
 /* A NIGHT pick's stars (ask-night-plan.md §2.6): the astro figure and, beside it, the aurora one, in the
    verdict word's place. Each is `.wf-ask-sc` (a night has no verdict tier, so none of the tier colours
    applies) tinted by KIND with the same tokens the evb badge below uses; the group takes the auto margin. */

@@ -288,9 +288,13 @@ describe('UNRATED in the drilldown (unrated-verdict-plan.md U2)', () => {
       expect(note(all, false)).toMatch(/^No region has enough ratings for a verdict/);
     });
 
-    it('falls back to the ranking rule for a lone UNRATED region (nothing shared to count)', () => {
-      expect(note({ tier: 'UNRATED', sharingCount: 0, allInScope: false, scopedRegionCount: 3 }))
-        .toMatch(/Regions rank on that average/);
+    it('gives a lone UNRATED region its own true sentence, never "Verdict is the strongest region’s average" (F8)', () => {
+      // RANKING_NOTE's opening claims the verdict IS an average; for "Too few rated" it is the very
+      // average the sample gate declined to turn into one.
+      const text = note({ tier: 'UNRATED', sharingCount: 0, allInScope: false, scopedRegionCount: 3 });
+      expect(text).toBe('Too few rated to call: the regions here passed the weather screen but too few '
+        + 'places are rated to say more. Rows are ranked by average, best first.');
+      expect(text).not.toMatch(/Verdict is the strongest region/);
     });
   });
 });

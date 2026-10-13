@@ -1,6 +1,7 @@
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
+import { unratedRulesFor, setsVerdictHue } from './unratedStylesheet.js';
 import { rampHex } from '../utils/scoreRamp.js';
 import { auroraRampHex } from '../utils/auroraRamp.js';
 import MapPeekSheet, { OtherWindowValue, MapPeekWindowsSection } from '../components/map/MapPeekSheet.jsx';
@@ -394,7 +395,9 @@ describe('OtherWindowValue', () => {
     expect(verdict).toHaveAttribute('data-tier', 'MAYBE');
   });
 
-  it('an UNRATED window says "Too few rated" in the "Other windows" value, on a tier the stylesheet leaves neutral (U2)', () => {
+  it('an UNRATED window draws "Too few" in the flex-none "Other windows" cell and SPEAKS "Too few rated" (U2, F4)', () => {
+    // The full word took the room the day label needs and crushed it to 12px at 320px; the cell is
+    // `flex: none` ("the verdict never cuts") so the word has to be the short one.
     render(
       <OtherWindowValue
         row={{
@@ -404,8 +407,34 @@ describe('OtherWindowValue', () => {
       />,
     );
     const word = screen.getByTestId('wf-map-peek-other-verdict');
-    expect(word).toHaveTextContent('Too few rated');
     expect(word).toHaveAttribute('data-tier', 'UNRATED');
+    expect(within(word).getByTestId('wf-vw-short')).toHaveTextContent(/^Too few$/);
+    expect(within(word).getByTestId('wf-vw-short')).toHaveAttribute('aria-hidden', 'true');
+    expect(within(word).getByTestId('wf-vw-full')).toHaveClass('sr-only');
+    expect(within(word).getByTestId('wf-vw-full')).toHaveTextContent(/^Too few rated$/);
+  });
+
+  it('leaves a rated "Other windows" word as bare text', () => {
+    render(
+      <OtherWindowValue
+        row={{ kind: 'solar', eventType: 'SUNSET', dayLabel: 'Friday', label: 'Friday sunset' }}
+        verdict={{ tier: 'WORTH_IT' }}
+      />,
+    );
+    expect(screen.getByTestId('wf-map-peek-other-verdict').children).toHaveLength(0);
+  });
+
+  it('⚠️ gives both peek verdict words an explicit SECONDARY ink for UNRATED, and no verdict hue (F4, F7)', () => {
+    // With no arm the word fell through to the sheet's primary ink (14.45:1) — brighter than any
+    // verdict word. The component tests above assert only `data-tier`; this reads the rules the
+    // browser will actually apply to an element carrying it.
+    ['.wf-map-peek-v-verdict', '.wf-map-peek-wr-verdict'].forEach((cls) => {
+      const rules = unratedRulesFor(cls);
+      expect(rules, cls).toHaveLength(1);
+      expect(rules[0].selector).toBe(`${cls}[data-tier="UNRATED"]`);
+      expect(rules[0].body).toBe('color: var(--color-plex-text-secondary);');
+      expect(setsVerdictHue(rules[0].body)).toBe(false);
+    });
   });
 
   it('a night row with no verdict renders the licensed `{bestRating}★ best` figure, never a verdict word', () => {

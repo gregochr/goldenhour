@@ -203,6 +203,31 @@ class BriefingSlotTest {
         }
 
         @Test
+        @DisplayName("canopySlot with a GO weather verdict and no rating reads UNRATED (U1, review F9c)")
+        void canopySlot_goWithNoRatingIsUnrated() {
+            BriefingSlot wood = BriefingSlot.canopySlot(
+                    "Houghall Woods", EVENT_TIME, Verdict.GO, WEATHER, List.of("Mist"), null);
+
+            assertThat(wood.canopy()).isTrue();
+            assertThat(wood.claudeRating()).isNull();
+            assertThat(wood.displayVerdict()).isEqualTo(DisplayVerdict.UNRATED);
+        }
+
+        @Test
+        @DisplayName("withClaudeScores with a null rating on a GO slot reads UNRATED, not the triage "
+                + "pass as a quality word (U1, review F9c)")
+        void withClaudeScores_nullRatingOnGoSlotIsUnrated() {
+            BriefingSlot base = new BriefingSlot(
+                    "Bamburgh", EVENT_TIME, Verdict.GO, WEATHER,
+                    BriefingSlot.TideInfo.NONE, List.of(), null);
+
+            BriefingSlot enriched = base.withClaudeScores(null, 40, 35, "Unrated summary.");
+
+            assertThat(enriched.claudeRating()).isNull();
+            assertThat(enriched.displayVerdict()).isEqualTo(DisplayVerdict.UNRATED);
+        }
+
+        @Test
         @DisplayName("withClaudeScores recomputes displayVerdict from new rating")
         void recomputesOnEnrichment() {
             BriefingSlot base = new BriefingSlot(

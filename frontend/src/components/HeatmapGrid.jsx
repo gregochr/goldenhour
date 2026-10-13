@@ -893,7 +893,12 @@ export default function HeatmapGrid({
 
   // ── A3a: pool poor-only region rows behind a reveal ──────────────────────────
   // A region is "all poor" when none of its evaluated cells is a GO/MARGINAL (Worth it / Maybe)
-  // — every cell is STAND_DOWN or AWAITING. We key on the display verdict directly rather than on
+  // — every cell is STAND_DOWN or AWAITING. UNRATED is NOT poor (unrated-verdict-plan.md U2, review
+  // F6): the weather passed it and no trustworthy rating has called it, so a region of nothing but
+  // "Too few rated" cells stays in the lead rows, exactly where the triage pass it replaced put it,
+  // rather than being filed behind "+N regions · all poor" under a label that is false of it. (Its
+  // cells still sort by tier, where UNRATED and STAND_DOWN are both 5 and tie alphabetically.)
+  // We key on the display verdict directly rather than on
   // tier. reorderedRegions is sorted best-first, so poor rows
   // already trail. Split them off and tuck them behind a full-width toggle so a rated-heavy grid
   // isn't mostly dead cells the eye must scan past.
@@ -902,7 +907,7 @@ export default function HeatmapGrid({
       const cd = getSubCellData(date, regionName, targetType, briefingDays);
       if (!cd || cd.past || !cd.region) continue;
       const dv = resolveRegionDisplay(cd.region);
-      if (dv === 'WORTH_IT' || dv === 'MAYBE') return false;
+      if (dv === 'WORTH_IT' || dv === 'MAYBE' || dv === 'UNRATED') return false;
     }
     return true;
   }

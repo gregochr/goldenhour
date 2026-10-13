@@ -2140,6 +2140,36 @@ describe('HeatmapGrid — poor-region pooling (A3a)', () => {
     expect(toggle.textContent).toContain('Hide poor regions');
   });
 
+  it('⚠️ never files an all-UNRATED region under "all poor" (U2, review F6)', () => {
+    // North East's only cell is "Too few rated": the weather passed it and no rating has called it.
+    // `isRegionAllPoor` used to test only WORTH_IT / MAYBE, so this region was pooled behind
+    // "+1 region · all poor" — a label false of it, and a hide of a window the weather did not rule out.
+    const LAKES_MAYBE = { name: 'Lakes', verdict: 'GO', displayVerdict: 'MAYBE' };
+    const NE_UNRATED = { name: 'North East', verdict: 'GO', displayVerdict: 'UNRATED' };
+    renderMixedGrid([LAKES_MAYBE, NE_UNRATED]);
+
+    expect(screen.getByText('North East')).toBeInTheDocument();
+    expect(screen.queryByTestId('heatmap-poor-toggle')).toBeNull();
+  });
+
+  it('pools only the genuinely poor region when an UNRATED one stands beside it', () => {
+    const NE_UNRATED = { name: 'North East', verdict: 'GO', displayVerdict: 'UNRATED' };
+    renderMixedGrid([RATED, NE_UNRATED, POOR_A]);
+
+    expect(screen.getByText('North East')).toBeInTheDocument();
+    expect(screen.queryByText('Poor Alpha')).toBeNull();
+    expect(screen.getByTestId('heatmap-poor-toggle').textContent).toContain('+1 region · all poor');
+  });
+
+  it('keeps an all-UNRATED week visible with no toggle (nothing is poor, so nothing is pooled)', () => {
+    const NE_UNRATED = { name: 'North East', verdict: 'GO', displayVerdict: 'UNRATED' };
+    renderMixedGrid([NE_UNRATED, { name: 'Lakes', verdict: 'GO', displayVerdict: 'UNRATED' }]);
+
+    expect(screen.getByText('North East')).toBeInTheDocument();
+    expect(screen.getByText('Lakes')).toBeInTheDocument();
+    expect(screen.queryByTestId('heatmap-poor-toggle')).toBeNull();
+  });
+
   it('uses the singular for a single pooled region', () => {
     renderMixedGrid([RATED, POOR_A]);
     expect(screen.getByTestId('heatmap-poor-toggle').textContent).toContain('+1 region · all poor');

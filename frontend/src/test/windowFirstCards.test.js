@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   badgeChannel, buildWindowCards, formatRegionMean, VERDICT_LABEL, SLOT_VERDICT_LABEL, CONFIDENCE_VERDICTS,
+  VERDICT_LABEL_SHORT, shortVerdictLabel,
 } from '../utils/windowFirstCards.js';
 import { bestReachLine } from '../components/WindowFirstHeatStrip.jsx';
 import { buildHeatStripCards } from '../utils/windowFirstStrip.js';
@@ -162,12 +163,28 @@ describe('buildWindowCards', () => {
       expect(without(SLOT_VERDICT_LABEL)).toEqual(without(VERDICT_LABEL));
     });
 
-    it('keeps UNRATED out of the confidence channel, so a "Too few rated" card carries none', () => {
-      // The word already says it; a decayed fill or a provisional mark on top is the double-qualifier
-      // the channel's gate exists to prevent (a recommendation is what confidence qualifies).
+    it('splits the confidence channel for UNRATED: the HAZE follows the server, the BADGE does not (F5)', () => {
+      // The word already says "provisional", so a decayed badge or a provisional mark on top is the
+      // double-qualifier the badge gate exists to prevent — `CONFIDENCE_VERDICTS` (what every badge
+      // consumer tests) still excludes it. But the FIELD haze reads `card.confidence`, and nulling it
+      // sent the haze to the horizon's inferred MEDIUM over the server's LOW (an ineligible region is
+      // floored LOW), drawing a window nothing has called more confidently than the server said.
       expect(CONFIDENCE_VERDICTS.has('UNRATED')).toBe(false);
-      const [card] = build(oneWindow({ verdict: 'UNRATED', confidence: 'high' }));
-      expect(card.confidence).toBeNull();
+      const [low] = build(oneWindow({ verdict: 'UNRATED', confidence: 'low' }));
+      expect(low.confidence).toBe('low');
+      const [high] = build(oneWindow({ verdict: 'UNRATED', confidence: 'high' }));
+      expect(high.confidence).toBe('high');
+      // …and still null rather than undefined when the payload carried none.
+      const [none] = build(oneWindow({ verdict: 'UNRATED' }));
+      expect(none.confidence).toBeNull();
+    });
+
+    it('prints the SHORT word only where a surface asks for it, and keeps the full word on the descriptor', () => {
+      const [card] = build(oneWindow({ verdict: 'UNRATED' }));
+      expect(card.verdictLabel).toBe('Too few rated');
+      expect(shortVerdictLabel(card.verdict, card.verdictLabel)).toBe('Too few');
+      expect(VERDICT_LABEL_SHORT.UNRATED).toBe('Too few');
+      expect(VERDICT_LABEL_SHORT.WORTH_IT).toBe(VERDICT_LABEL.WORTH_IT);
     });
 
     it('falls back to AWAITING when the window is missing entirely', () => {

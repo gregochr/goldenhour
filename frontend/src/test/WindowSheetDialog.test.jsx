@@ -378,11 +378,21 @@ describe('WindowSheetDialog — the verdict badge', () => {
   });
 
   it('leaves an UNRATED badge at full strength: the neutral fill does not decay, whatever the card says (U2)', () => {
-    // UNRATED is outside CONFIDENCE_VERDICTS, and `buildWindowCards` nulls its confidence. A decayed
-    // neutral wash would read as a rendering bug, and "Too few rated" already says provisional.
+    // UNRATED is outside CONFIDENCE_VERDICTS (the BADGE gate). Since review F5 the card DOES carry
+    // the server's tier for UNRATED — the field's haze reads it — so this dialog's own gate is what
+    // keeps the badge unmarked: a decayed neutral wash would read as a rendering bug, and "Too few
+    // rated" already says provisional. Neither the fill, the confidence line, the ProvisionalMark
+    // nor the badge's tier hook may follow the card's 'low'.
     renderDialog({ card: card({ verdict: 'UNRATED', verdictLabel: 'Too few rated', confidence: 'low' }) });
     expect(alphaOf(badge().style.background)).toBeCloseTo(0.04, 3);
     expect(screen.queryByTestId('window-sheet-confidence')).toBeNull();
+    expect(screen.queryByTestId('provisional-mark')).toBeNull();
+    expect(badge()).not.toHaveAttribute('data-confidence');
+  });
+
+  it('still advertises the tier on a recommending badge', () => {
+    renderDialog({ card: card({ verdict: 'WORTH_IT', verdictLabel: 'Worth it', confidence: 'low' }) });
+    expect(badge()).toHaveAttribute('data-confidence', 'low');
   });
 
   it.each(['STAND_DOWN', 'AWAITING'])('leaves a %s badge at full strength', (verdict) => {

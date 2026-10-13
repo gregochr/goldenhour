@@ -40,7 +40,7 @@ import { dayNumber } from '../utils/windowFirstMatrix.js';
  * returns a non-{@code rgba()} string untouched, so it IS the mechanism that keeps the word at full
  * strength while its fill decays with confidence.
  */
-const VERDICT_TREATMENT = {
+export const VERDICT_TREATMENT = {
   WORTH_IT: { fill: 'rgba(138,174,114,0.14)', border: 'rgba(138,174,114,0.5)', text: 'var(--color-badge-go)', weight: 600 },
   MAYBE: { fill: 'rgba(224,165,66,0.14)', border: 'rgba(224,165,66,0.5)', text: 'var(--color-badge-maybe)', weight: 600 },
   STAND_DOWN: { fill: 'rgba(200,69,47,0.12)', border: 'rgba(200,69,47,0.4)', text: 'var(--color-badge-poor)', weight: 400 },
@@ -442,7 +442,11 @@ export default function WindowSheetDialog({
               )}
               <span
                 data-testid="window-sheet-verdict"
-                data-confidence={card.confidence || undefined}
+                // The badge's tier hook follows the BADGE gate, not the card's field: an UNRATED card
+                // now carries the server's tier for the field's haze (unrated-verdict-plan.md U2,
+                // review F5), and a "Too few rated" badge must not advertise a confidence it does not
+                // wear.
+                data-confidence={(qualifies && card.confidence) || undefined}
                 className="wf-wsh-bdg font-mono"
                 style={{
                   border: `1px solid ${scaleRgbaAlpha(treatment.border, scale)}`,
