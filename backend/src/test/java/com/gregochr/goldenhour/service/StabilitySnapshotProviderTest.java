@@ -14,7 +14,9 @@ import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
@@ -42,11 +44,14 @@ class StabilitySnapshotProviderTest {
 
     private StabilitySnapshotProvider provider;
 
+    private static final Instant NOW = Instant.parse("2026-06-20T23:13:00Z");
+    private static final Clock FIXED_CLOCK = Clock.fixed(NOW, ZoneOffset.UTC);
+
     private static final String CELL_KEY = "54.7500,-1.6250";
 
     @BeforeEach
     void setUp() {
-        provider = new StabilitySnapshotProvider(repository);
+        provider = new StabilitySnapshotProvider(repository, FIXED_CLOCK);
     }
 
     private static StabilitySummaryResponse buildSummary(Instant generatedAt) {
@@ -127,13 +132,20 @@ class StabilitySnapshotProviderTest {
         }
 
         @Test
-        @DisplayName("Returns null when in-memory is null and DB snapshot is stale (>24h)")
-        void returnsNullWhenDbStale() {
-            // The 24h staleness guard is enforced server-side via findByClassifiedAtAfter,
-            // which returns no rows for stale data.
+        @DisplayName("A snapshot 24h05m old is within the staleness window; 30h01m is outside it")
+        void stalenessWindowIsThirtyHours() {
             when(repository.findByClassifiedAtAfter(any())).thenReturn(List.of());
 
-            assertThat(provider.getLatestStabilitySummary()).isNull();
+            provider.getLatestStabilitySummary();
+
+            ArgumentCaptor<Instant> threshold = ArgumentCaptor.forClass(Instant.class);
+            verify(repository).findByClassifiedAtAfter(threshold.capture());
+            Instant cutoff = threshold.getValue();
+            Instant justOverADay = NOW.minus(24, ChronoUnit.HOURS).minus(5, ChronoUnit.MINUTES);
+            Instant justOverThirty = NOW.minus(30, ChronoUnit.HOURS).minus(1, ChronoUnit.MINUTES);
+            // findByClassifiedAtAfter keeps rows classified strictly after the cutoff
+            assertThat(justOverADay).isAfter(cutoff);
+            assertThat(justOverThirty).isBefore(cutoff);
         }
 
         @Test

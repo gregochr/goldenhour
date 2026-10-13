@@ -1,0 +1,3 @@
+### Changed — the stability snapshot read back after a restart is good for 30 hours, not 24
+
+`StabilitySnapshotProvider` treated a persisted grid-cell stability snapshot older than exactly 24 hours as missing. Under a sun-relative morning cycle the gap between two morning snapshots drifts a few minutes a day, so a restart just before the next cycle would have read yesterday's snapshot as absent and treated every region as UNSETTLED (the 4-hour freshness threshold, so more Claude spend). The window is now 30 hours; the worst case it admits is a classification from a missed morning cycle, six hours older than before. No behaviour changes until the morning cycle is switched to a solar schedule.

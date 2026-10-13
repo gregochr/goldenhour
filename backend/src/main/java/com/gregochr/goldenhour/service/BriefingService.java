@@ -93,7 +93,7 @@ public class BriefingService {
      *
      * <p><b>Five, not four, because the briefing is read a day after it is written.</b> Since
      * V103 retired the standalone {@code daily_briefing} cron it is refreshed only at the
-     * <em>tail</em> of a pipeline cycle, so the 01:00 nightly cycle consumes the briefing the
+     * <em>tail</em> of a pipeline cycle, so the morning (nightly) cycle consumes the briefing the
      * previous afternoon's intraday cycle left behind. That briefing's first date is by then
      * yesterday, and {@code BriefingCandidateCollector} drops it as {@code PAST_DATE} — so a
      * four-date window arrives at the nightly cycle already one date short at the far end.

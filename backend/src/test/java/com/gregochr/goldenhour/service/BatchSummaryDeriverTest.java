@@ -97,6 +97,49 @@ class BatchSummaryDeriverTest {
     }
 
     @Test
+    @DisplayName("A midsummer morning run at 23:13 UTC dates its horizon from the UK date: T to T+3")
+    void bstMorningRun_horizonFromUkDate() {
+        // 23:13 UTC on 19 Jun is 00:13 BST on 20 Jun: the UK day is the 20th
+        JobRunEntity run = batchRun(RunType.SCHEDULED_BATCH);
+        run.setStartedAt(LocalDateTime.of(2026, 6, 19, 23, 13));
+        LocalDate ukToday = LocalDate.of(2026, 6, 20);
+        when(apiCallLogRepository.findByJobRunIdOrderByCalledAtAsc(1L)).thenReturn(List.of(
+                call("fc-10-2026-06-20-SUNRISE", ukToday,
+                        TargetType.SUNRISE, EvaluationModel.HAIKU),
+                call("fc-10-2026-06-21-SUNRISE", ukToday.plusDays(1),
+                        TargetType.SUNRISE, EvaluationModel.HAIKU),
+                call("fc-10-2026-06-22-SUNRISE", ukToday.plusDays(2),
+                        TargetType.SUNRISE, EvaluationModel.HAIKU),
+                call("fc-10-2026-06-23-SUNRISE", ukToday.plusDays(3),
+                        TargetType.SUNRISE, EvaluationModel.HAIKU)));
+        when(locationRepository.findAllById(any())).thenReturn(List.of(location(10L, region(1L))));
+
+        BatchSummary summary = deriver.derive(run).orElseThrow();
+
+        assertThat(summary.horizonRange()).isEqualTo("T to T+3");
+    }
+
+    @Test
+    @DisplayName("A 01:00 UTC winter run is unchanged: the UK and UTC dates agree")
+    void winterRun_horizonUnchanged() {
+        JobRunEntity run = batchRun(RunType.SCHEDULED_BATCH);
+        run.setStartedAt(LocalDateTime.of(2026, 1, 20, 1, 0));
+        LocalDate today = LocalDate.of(2026, 1, 20);
+        when(apiCallLogRepository.findByJobRunIdOrderByCalledAtAsc(1L)).thenReturn(List.of(
+                call("fc-10-2026-01-20-SUNRISE", today,
+                        TargetType.SUNRISE, EvaluationModel.HAIKU),
+                call("fc-10-2026-01-21-SUNRISE", today.plusDays(1),
+                        TargetType.SUNRISE, EvaluationModel.HAIKU),
+                call("fc-10-2026-01-22-SUNRISE", today.plusDays(2),
+                        TargetType.SUNRISE, EvaluationModel.HAIKU),
+                call("fc-10-2026-01-23-SUNRISE", today.plusDays(3),
+                        TargetType.SUNRISE, EvaluationModel.HAIKU)));
+        when(locationRepository.findAllById(any())).thenReturn(List.of(location(10L, region(1L))));
+
+        assertThat(deriver.derive(run).orElseThrow().horizonRange()).isEqualTo("T to T+3");
+    }
+
+    @Test
     @DisplayName("Multi-day contiguous batch yields 'T to T+2' range")
     void multiDayRange_rendersRange() {
         JobRunEntity run = batchRun(RunType.SCHEDULED_BATCH);

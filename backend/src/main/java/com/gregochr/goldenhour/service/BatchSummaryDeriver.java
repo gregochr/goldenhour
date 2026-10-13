@@ -13,13 +13,15 @@ import com.gregochr.goldenhour.repository.ApiCallLogRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.evaluation.CustomIdFactory;
 import com.gregochr.goldenhour.service.evaluation.ParsedCustomId;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import com.gregochr.goldenhour.util.HorizonRangeFormatter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -86,9 +88,11 @@ public class BatchSummaryDeriver {
             return Optional.empty();
         }
 
+        // started_at is a naive UTC column; the horizon is measured on the UK civil calendar, so a
+        // midsummer morning cycle at 23:13 UTC (UK 00:13, the next day) reads T+0, not T+1.
         LocalDate runStartDate = jobRun.getStartedAt() != null
-                ? jobRun.getStartedAt().toLocalDate()
-                : LocalDateTime.now().toLocalDate();
+                ? ForecastHorizon.civilDate(jobRun.getStartedAt().toInstant(ZoneOffset.UTC))
+                : ForecastHorizon.civilDate(Instant.now());
 
         TreeSet<Integer> daysAhead = calls.stream()
                 .map(c -> (int) ChronoUnit.DAYS.between(runStartDate, c.getTargetDate()))
