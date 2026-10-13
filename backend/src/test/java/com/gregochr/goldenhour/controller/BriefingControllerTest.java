@@ -68,6 +68,33 @@ class BriefingControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser
+    @DisplayName("GET /api/briefing serialises the UNRATED display verdict by name on region and slot "
+            + "through the real Jackson 3 response chain (unrated-verdict-plan.md U1)")
+    void getBriefing_serialisesUnratedByName() throws Exception {
+        BriefingSlot slot = new BriefingSlot("Bamburgh", LocalDateTime.of(2026, 10, 16, 6, 40),
+                Verdict.GO, new BriefingSlot.WeatherConditions(10, BigDecimal.ZERO, 20000, 60,
+                        12.0, 10.0, 1, BigDecimal.ONE, 0, 0),
+                BriefingSlot.TideInfo.NONE, List.of(), null);
+        BriefingRegion region = new BriefingRegion("Northumberland",
+                Verdict.GO, "Clear at 1 of 1 location",
+                List.of(), List.of(slot), 10.5, 8.0, 3.2, 1, null, null,
+                DisplayVerdict.UNRATED, 1);
+        BriefingDay day = new BriefingDay(LocalDate.of(2026, 10, 16), List.of(
+                new BriefingEventSummary(TargetType.SUNRISE, List.of(region), List.of())));
+        when(briefingService.getCachedBriefingForApi()).thenReturn(new DailyBriefingResponse(
+                LocalDateTime.of(2026, 10, 13, 14, 0), "Headline",
+                List.of(day), List.of(), null, null, false, false, 0, "Opus", List.of(), List.of()));
+
+        mockMvc.perform(get("/api/briefing"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.days[0].eventSummaries[0].regions[0].displayVerdict")
+                        .value("UNRATED"))
+                .andExpect(jsonPath("$.days[0].eventSummaries[0].regions[0].slots[0].displayVerdict")
+                        .value("UNRATED"));
+    }
+
+    @Test
+    @WithMockUser
     @DisplayName("GET /api/briefing returns 204 when cache is empty")
     void getBriefing_noContent() throws Exception {
         when(briefingService.getCachedBriefingForApi()).thenReturn(null);

@@ -3942,7 +3942,7 @@ class EvaluationViewServiceTest {
 
             // examined = 5 rated + 0 = 5 of 50 = 10% < 50%.
             assertThat(region.sampleSufficient()).isFalse();
-            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.MAYBE);
+            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.UNRATED);
         }
 
         @Test

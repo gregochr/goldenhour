@@ -11,7 +11,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  buildEvVerdicts, buildRegionVerdictIndex, regionNamesOf, windowVerdict,
+  buildEvVerdicts, buildRegionVerdictIndex, regionNamesOf, verdictRegionLabel, windowVerdict,
 } from '../utils/mapVerdict.js';
 import { EVENT_KIND, buildMapEvents } from '../utils/mapEvents.js';
 import { buildWindowCards } from '../utils/windowFirstCards.js';
@@ -183,6 +183,47 @@ describe('windowVerdict — the three region label cases', () => {
     expect(result.scopedRegionCount).toBe(1);
     expect(result.allInScope).toBe(false);
     expect(result.regionName).toBe('The Lake District');
+  });
+});
+
+describe('windowVerdict — an UNRATED tier is first-class (unrated-verdict-plan.md U2)', () => {
+  const call = (index, regionsInScope) => windowVerdict({
+    index, date: DATE, targetType: SUNSET, regionsInScope,
+  });
+
+  it('returns UNRATED as itself, naming the region and tallying the others that share it', () => {
+    const index = buildRegionVerdictIndex(days([
+      region('Northumberland & Tyneside', 3.6, 'UNRATED', { sampleSufficient: false }),
+      region('The Dales', 3.0, 'UNRATED', { sampleSufficient: false }),
+      region('The Peak', 1.8, 'STAND_DOWN', { sampleSufficient: false }),
+    ]));
+
+    const result = call(index, ['Northumberland & Tyneside', 'The Dales', 'The Peak']);
+
+    expect(result).toMatchObject({
+      tier: 'UNRATED', regionName: 'Northumberland & Tyneside', sharingCount: 1, allInScope: false,
+    });
+    expect(verdictRegionLabel(result)).toBe('Northumberland & Tyneside +1');
+  });
+
+  it('puts a verdict-eligible region ahead of a higher-mean UNRATED one, as the projector does', () => {
+    // The thin 3.6 must not name the window while a sound 3.2 exists: the word follows the region
+    // the gate lets decide. This is what keeps the pill, the card and the server agreeing.
+    const index = buildRegionVerdictIndex(days([
+      region('Thin', 3.6, 'UNRATED', { sampleSufficient: false }),
+      region('Sound', 3.2, 'MAYBE', { sampleSufficient: true }),
+    ]));
+    expect(call(index, ['Thin', 'Sound']).tier).toBe('MAYBE');
+  });
+
+  it('names no region when every region in scope is UNRATED', () => {
+    const index = buildRegionVerdictIndex(days([
+      region('A', 3.6, 'UNRATED', { sampleSufficient: false }),
+      region('B', 3.0, 'UNRATED', { sampleSufficient: false }),
+    ]));
+    const result = call(index, ['A', 'B']);
+    expect(result.allInScope).toBe(true);
+    expect(verdictRegionLabel(result, { scopeIsArea: true })).toBe('everywhere in your area');
   });
 });
 

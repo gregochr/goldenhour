@@ -227,6 +227,29 @@ export function windowPanelNote({ verdict, isSolar, scopeIsArea = true }) {
       + 'drive on this window. Rows are ranked by average, best first; a region too thinly '
       + 'rated for a verdict ranks last.';
   }
+  // ⚠️ UNRATED gets its own sentence (unrated-verdict-plan.md U2). It must not fall to the
+  // several-regions branch below, whose template is "N regions are <word> for this window, so the
+  // choice between them is drive time" — "Too few rated" in that slot reads as nonsense, and worse,
+  // "so the choice is drive time" advises picking between regions NO rating has called. Weather did
+  // not rule these out and the sample is too thin to recommend them: say exactly that, once, and
+  // keep the ranking rule. The all-in-scope wording follows the Poor branch's own scope phrase.
+  if (verdict.tier === 'UNRATED') {
+    const area = scopeIsArea ? ' in your area' : '';
+    const subject = verdict.allInScope
+      ? `No region${area} has enough ratings for a verdict on this window`
+      : verdict.sharingCount > 0
+        ? `${verdict.sharingCount + 1} regions have too few ratings for a verdict on this window`
+        : null;
+    if (subject) {
+      return `${subject} — the weather does not rule them out, but nothing has called them. Rows `
+        + 'are ranked by average, best first.';
+    }
+    // A LONE UNRATED region (the window's verdict is the top region's, and no other region shares
+    // it): RANKING_NOTE opens "Verdict is the strongest region’s average", which is false here —
+    // the word is "Too few rated", and the average it quotes is the very figure the sample gate
+    // declined to turn into a verdict (review F8).
+    return UNRATED_LONE_NOTE;
+  }
   const sharing = verdict.sharingCount + 1;
   if (sharing > 1) {
     // ⚠️ **The drive-time sentence is withheld under a Poor tier even when the branch above did not
@@ -252,6 +275,10 @@ export function windowPanelNote({ verdict, isSolar, scopeIsArea = true }) {
 const RANKING_NOTE = 'Verdict is the strongest region’s average. Regions rank on that average, '
   + 'not on their ceiling, and a region too thinly rated for a verdict ranks last — the reach '
   + 'filter only decides what the map draws.';
+
+/** The note under a lone "Too few rated" window verdict — true of the state, unlike RANKING_NOTE. */
+const UNRATED_LONE_NOTE = 'Too few rated to call: the regions here passed the weather screen but too '
+  + 'few places are rated to say more. Rows are ranked by average, best first.';
 
 /** A night window has no solar verdict of its own, and cannot be a pick. */
 const NIGHT_NOTE = 'A night event, scored from darkness, clarity and Kp rather than the solar '

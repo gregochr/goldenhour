@@ -230,16 +230,17 @@ class BriefingRatingStatsTest {
 
         @Test
         void emptyStatsFallsBackToTriageGo() {
+            // A weather pre-screen is not a verdict: UNRATED, never WORTH_IT (unrated-verdict-plan.md).
             assertThat(BriefingRatingStats.resolveRegionDisplayVerdict(
                     BriefingRatingStats.Stats.empty(), Verdict.GO))
-                    .isEqualTo(DisplayVerdict.WORTH_IT);
+                    .isEqualTo(DisplayVerdict.UNRATED);
         }
 
         @Test
         void emptyStatsFallsBackToTriageMarginal() {
             assertThat(BriefingRatingStats.resolveRegionDisplayVerdict(
                     BriefingRatingStats.Stats.empty(), Verdict.MARGINAL))
-                    .isEqualTo(DisplayVerdict.MAYBE);
+                    .isEqualTo(DisplayVerdict.UNRATED);
         }
 
         @Test

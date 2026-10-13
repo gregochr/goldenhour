@@ -8,7 +8,7 @@ import {
 import { useHeatCanvas } from '../hooks/useHeatCanvas.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
-import { badgeChannel, formatRegionMean } from '../utils/windowFirstCards.js';
+import { badgeChannel, formatRegionMean, shortVerdictLabel } from '../utils/windowFirstCards.js';
 import { beyondRegions, GLANCE_MINUTES } from '../utils/planningArea.js';
 import { placeWithNudges } from '../utils/labelPlacement.js';
 import { scopeRegions, scopeSpots } from '../utils/planOrigin.js';
@@ -114,9 +114,10 @@ export function thumbAspect(fitTo) {
  * threshold would be a second, quieter answer to a question the backend owns. This function must
  * stay a map — a comparison operator appearing in it is the defect.
  *
- * <p>AWAITING and an away window take no tint. Neither is a judgement about the sky: one means the
- * window has neither a rating nor a triage signal, the other that nothing was forecast at all, and
- * a coloured card would read as one of the three grades.
+ * <p>AWAITING, UNRATED and an away window take no tint. None is a judgement about the sky: AWAITING
+ * means the window has neither a rating nor a triage signal, UNRATED that the weather passed it but
+ * no trustworthy rating has called it (unrated-verdict-plan.md U2), and away that nothing was
+ * forecast at all; a coloured card would read as one of the three grades.
  *
  * @param {?string} verdict the served {@code DisplayVerdict}
  * @returns {?string} `vg`, `vm`, `vp`, or null
@@ -125,11 +126,25 @@ export function verdictTint(verdict) {
   return VERDICT_TINT[verdict] ?? null;
 }
 
-/** @see verdictTint */
-const VERDICT_TINT = {
+/**
+ * The tint table behind {@link verdictTint}. Exported so a test can assert that EVERY word in
+ * {@code VERDICT_LABEL} has an entry here — the explicit-arm rule (unrated-verdict-plan.md U2): a
+ * verdict with no entry reads as "no tint" by lookup miss, which is how a new value would silently
+ * become AWAITING.
+ *
+ * <p>{@code UNRATED} and {@code AWAITING} are both {@code null} — deliberately two entries, not one
+ * shared fall-through: "the weather did not rule it out, but no trustworthy rating has called it"
+ * must not wear green (that is the defect U2 removes) or amber (a Maybe is a rating's call), and a
+ * future divergence between the two neutral states is then one edit here.
+ *
+ * @see verdictTint
+ */
+export const VERDICT_TINT = {
   WORTH_IT: 'vg',
   MAYBE: 'vm',
   STAND_DOWN: 'vp',
+  UNRATED: null,
+  AWAITING: null,
 };
 
 /**
@@ -192,7 +207,12 @@ function verdictBeyondReach(card) {
     value: `${region} · beyond ${tier}`,
     muted: false,
     beyond: true,
-    title: `The verdict is ${region}'s, and its rated places are all further than ${tier} away`,
+    // ⚠️ An UNRATED word is not a verdict "of" a region (unrated-verdict-plan.md U2, review F8):
+    // "The verdict is X's" would assert one the sample gate declined to give. The rated verdict's
+    // title is unchanged.
+    title: card.verdict === 'UNRATED'
+      ? `Too few rated in ${region} to call it, and its rated places are all further than ${tier} away`
+      : `The verdict is ${region}'s, and its rated places are all further than ${tier} away`,
     tideAligned: false,
     tideState: null,
     // Starts with the visible label's own word (SC 2.5.3), then the same two facts in words.
@@ -1273,13 +1293,19 @@ export default function WindowFirstHeatStrip({
         )}
         <span data-testid="wf-heat-value-grid" className="wf-hc-pls" aria-hidden="true">
           <span data-testid="wf-heat-time" className="wf-hc-t">{card.time}</span>
+          {/* ⚠️ ONE LINE, for every verdict, and no hook on the row for it to be otherwise. The value
+              column is 83–89px at 320, 640 and a docked 1024 (measured), "Too few rated 3.6★" is
+              113.8px, so the UNRATED word prints its SHORT form here ("Too few 3.6★" = 74.2px) and
+              the row never wraps — a wrapped row would push this card's Spread and Best rows down
+              against its neighbours'. The grid is `aria-hidden`; the full word is in the card's
+              spoken sentence (`accessibleName` above) (unrated-verdict-plan.md U2, review F2). */}
           <span className="wf-hc-pv">
             <span
               data-testid="wf-heat-verdict"
               className="wf-hc-vd"
               data-verdict={card.verdict || 'AWAY'}
             >
-              {card.verdictLabel}
+              {shortVerdictLabel(card.verdict, card.verdictLabel)}
             </span>
             {/* H1: the served region mean, a SIBLING of the verdict word (not nested in it, so the
                 word's text content stays exactly the word). One decimal always, so "3.5★" cannot be

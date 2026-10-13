@@ -377,6 +377,24 @@ describe('WindowSheetDialog — the verdict badge', () => {
     expect(alphaOf(badge().style.background)).toBeCloseTo(0.14 * 0.5, 3);
   });
 
+  it('leaves an UNRATED badge at full strength: the neutral fill does not decay, whatever the card says (U2)', () => {
+    // UNRATED is outside CONFIDENCE_VERDICTS (the BADGE gate). Since review F5 the card DOES carry
+    // the server's tier for UNRATED — the field's haze reads it — so this dialog's own gate is what
+    // keeps the badge unmarked: a decayed neutral wash would read as a rendering bug, and "Too few
+    // rated" already says provisional. Neither the fill, the confidence line, the ProvisionalMark
+    // nor the badge's tier hook may follow the card's 'low'.
+    renderDialog({ card: card({ verdict: 'UNRATED', verdictLabel: 'Too few rated', confidence: 'low' }) });
+    expect(alphaOf(badge().style.background)).toBeCloseTo(0.04, 3);
+    expect(screen.queryByTestId('window-sheet-confidence')).toBeNull();
+    expect(screen.queryByTestId('provisional-mark')).toBeNull();
+    expect(badge()).not.toHaveAttribute('data-confidence');
+  });
+
+  it('still advertises the tier on a recommending badge', () => {
+    renderDialog({ card: card({ verdict: 'WORTH_IT', verdictLabel: 'Worth it', confidence: 'low' }) });
+    expect(badge()).toHaveAttribute('data-confidence', 'low');
+  });
+
   it.each(['STAND_DOWN', 'AWAITING'])('leaves a %s badge at full strength', (verdict) => {
     // Confidence qualifies a recommendation. These are not recommendations, and the derivation
     // nulls the field for them — so the badge must not decay even though `resolveConfidence` would
@@ -408,6 +426,7 @@ describe('WindowSheetDialog — the verdict badge', () => {
     ['WORTH_IT', 'Worth it', 'var(--color-badge-go)'],
     ['MAYBE', 'Maybe', 'var(--color-badge-maybe)'],
     ['STAND_DOWN', 'Poor', 'var(--color-badge-poor)'],
+    ['UNRATED', 'Too few rated', 'var(--color-plex-text-secondary)'],
     ['AWAITING', 'Awaiting', 'var(--color-plex-text-secondary)'],
   ])('inks a %s badge in its own colour', (verdict, verdictLabel, expected) => {
     // ⚠️ THE assertion this dialog shipped without. The alpha tests above pin the DECAY and not the
@@ -427,7 +446,7 @@ describe('WindowSheetDialog — the verdict badge', () => {
     const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8');
     const defined = new Set([...css.matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1]));
     const used = new Set();
-    for (const verdict of ['WORTH_IT', 'MAYBE', 'STAND_DOWN', 'AWAITING']) {
+    for (const verdict of ['WORTH_IT', 'MAYBE', 'STAND_DOWN', 'UNRATED', 'AWAITING']) {
       const { unmount } = renderDialog({ card: card({ verdict, verdictLabel: verdict }) });
       for (const node of screen.getByTestId('window-sheet').querySelectorAll('[style]')) {
         for (const m of node.getAttribute('style').matchAll(/var\((--[a-z0-9-]+)\)/g)) used.add(m[1]);
@@ -445,6 +464,14 @@ describe('WindowSheetDialog — the verdict badge', () => {
 
     renderDialog({ card: card({ verdict: 'AWAITING', verdictLabel: 'Awaiting', confidence: null }) });
     expect(badge().textContent).not.toContain('◎');
+  });
+
+  it('⚠️ withholds ◎ from UNRATED too — "Too few rated" recommends nothing (U2)', () => {
+    // The mark was gated by a NEGATIVE list ("not STAND_DOWN, not AWAITING"), which would have
+    // handed a new UNRATED verdict a recommendation glyph it has not earned.
+    renderDialog({ card: card({ verdict: 'UNRATED', verdictLabel: 'Too few rated', confidence: null }) });
+    expect(badge().textContent).not.toContain('◎');
+    expect(badge()).toHaveTextContent(/^Too few rated$/);
   });
 
   it('renders Awaiting on the neutral badge, never the red one', () => {

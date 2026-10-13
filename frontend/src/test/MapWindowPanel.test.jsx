@@ -103,6 +103,64 @@ describe('MapWindowPanel — the header', () => {
   });
 });
 
+describe('MapWindowPanel — an UNRATED window (unrated-verdict-plan.md U2)', () => {
+  it('words the header chip and the region row "Too few rated", on the neutral tier', () => {
+    renderPanel({
+      verdict: { tier: 'UNRATED' },
+      rows: [{
+        name: 'Northumberland & Tyneside', tier: 'UNRATED', verdictLabel: 'Too few rated',
+        meanRating: 3.6, bestRating: 5, driveMinutes: null, driveLabel: null, placeCount: 31, atFourPlus: 12,
+      }],
+    });
+
+    const chip = screen.getByTestId('wf-win-panel-verdict');
+    expect(chip).toHaveTextContent('Too few rated');
+    expect(chip).toHaveAttribute('data-tier', 'UNRATED');
+    const row = screen.getByTestId('wf-win-panel-row');
+    expect(within(row).getByTestId('wf-win-panel-word')).toHaveTextContent('Too few rated');
+    expect(row).toHaveAttribute('data-region', 'Northumberland & Tyneside');
+  });
+
+  it('⚠️ DRAWS the SHORT form in the row\'s 62px track and SPEAKS the full word (F1)', () => {
+    // "TOO FEW RATED" is ~90px and overprinted the region name in a 62px grid track at 320, 360 and
+    // 640–700px. The short form is aria-hidden, the full word is visually hidden but in the name.
+    renderPanel({
+      verdict: { tier: 'UNRATED' },
+      rows: [{
+        name: 'Northumberland & Tyneside', tier: 'UNRATED', verdictLabel: 'Too few rated',
+        meanRating: 3.6, bestRating: 5, driveMinutes: null, driveLabel: null, placeCount: 31, atFourPlus: 12,
+      }],
+    });
+    const word = screen.getByTestId('wf-win-panel-word');
+    const short = within(word).getByTestId('wf-vw-short');
+    expect(short).toHaveTextContent(/^Too few$/);
+    expect(short).toHaveAttribute('aria-hidden', 'true');
+    expect(within(word).getByTestId('wf-vw-full')).toHaveClass('sr-only');
+    expect(within(word).getByTestId('wf-vw-full')).toHaveTextContent(/^Too few rated$/);
+    // The row (a button) is named from its contents: the full word is in it, the short form is not.
+    const row = screen.getByTestId('wf-win-panel-row');
+    expect(row).toHaveAccessibleName(/Too few rated/);
+    expect(row.getAttribute('aria-label')).toBeNull();
+    // The header chip is a different cell, with room, and keeps the full word.
+    expect(screen.getByTestId('wf-win-panel-verdict')).toHaveTextContent(/^Too few rated$/);
+  });
+
+  it('leaves a rated row\'s word as bare text (no short/full pair)', () => {
+    renderPanel();
+    const word = screen.getAllByTestId('wf-win-panel-word')[0];
+    expect(word.children).toHaveLength(0);
+    expect(word).toHaveTextContent(/^Worth it$/);
+  });
+
+  it('prints "Low confidence" beside "Too few rated" when the served tier is low — correct, pinned (F5)', () => {
+    // An UNRATED window now carries the server's tier (the region is floored LOW), so the meta line
+    // says what the field behind it is already drawn at.
+    renderPanel({ row: { ...ROW, confidence: 'low' }, verdict: { tier: 'UNRATED' } });
+    expect(screen.getByTestId('wf-win-panel-meta')).toHaveTextContent('Low confidence');
+    expect(screen.getByTestId('wf-win-panel-verdict')).toHaveTextContent('Too few rated');
+  });
+});
+
 describe('MapWindowPanel — the region rows', () => {
   it('draws the name, the drive, the count, the word and the ceiling', () => {
     renderPanel();

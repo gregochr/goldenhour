@@ -7,6 +7,7 @@ import { confidenceTreatment } from '../../utils/confidenceUtils.js';
 import { PANEL_STAR_FLOOR } from '../../utils/mapDrilldown.js';
 import { rampHex } from '../../utils/scoreRamp.js';
 import { PICK_TEXT } from './WindowControl.jsx';
+import VerdictWord from '../shared/VerdictWord.jsx';
 
 /**
  * The Map tab's window panel — one window, region by region (map-landing-plan.md §3 L5,
@@ -208,8 +209,15 @@ export default function MapWindowPanel({
                   sets `verdictLabel` from `VERDICT_LABEL[tier] || VERDICT_LABEL.AWAITING`, which is
                   never nullish, AND a night window yields no rows at all (§4 #27, O-16). It is gone
                   for the same reason the sibling `isSolar` branch was — scenery is worse than a gap,
-                  because it implies a state somebody has thought about. */}
-              {region.verdictLabel}
+                  because it implies a state somebody has thought about.
+
+                  ⚠️ **The SHORT form for UNRATED** (unrated-verdict-plan.md U2, review F1): this cell
+                  is the grid's 62px third track, and "TOO FEW RATED" is ~90px at this word's size, so
+                  the full word overprinted the region name at 320, 360 and 640–700px. The track is
+                  the same at every width, so the short form is drawn at every width and the full word
+                  stays in the row's accessible name (`VerdictWord`, `sr-only`). Keyed on `tier` — the
+                  same value `verdictLabel` was built from — so the two cannot disagree. */}
+              <VerdictWord tier={region.tier} />
             </span>
             {' '}
             <span className="wf-win-panel-best" data-testid="wf-win-panel-best">

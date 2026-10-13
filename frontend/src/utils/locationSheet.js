@@ -22,6 +22,7 @@ function isCoastalTidal(location) {
   return Array.isArray(location?.tideType) && location.tideType.length > 0;
 }
 import { regionGlossFor } from './regionGloss.js';
+import { SLOT_VERDICT_LABEL } from './windowFirstCards.js';
 
 /**
  * The four-day location sheet — one place, its six windows, and what each of them costs to reach
@@ -282,7 +283,7 @@ export function indexByWindow(days, entriesOf) {
  *
  * @param {Array} days {@code briefing.days}
  * @returns {{byId: Map<string, object>, byName: Map<string, object>}} the two indexes, each valued
- *          {@code {eventTime, confidence}}
+ *          {@code {eventTime, confidence, displayVerdict}}
  */
 export function buildSlotIndex(days) {
   return indexByWindow(days, ({ summary }) => slotsOf(summary)
@@ -293,6 +294,17 @@ export function buildSlotIndex(days) {
       value: {
         eventTime: slot.solarEventTime,
         confidence: region?.confidence ?? null,
+        // The BRIEFING slot's own served verdict (unrated-verdict-plan.md U2, Codex review of
+        // #1140, round 2). It is carried here, beside the slot's event time, because it is the one
+        // place the verdict of a slot the SCORES endpoint has no row for can be read: that endpoint
+        // (`EvaluationViewService.buildViews`) drops a `Source.NONE` slot outright, and a weather
+        // GO/MARGINAL slot with no Claude result is exactly that — yet the briefing serves it as
+        // `UNRATED`. {@link buildLocationSheet} and `MapCallout` read it as the FALLBACK behind the
+        // score row's own verdict ({@link slotVerdictOf} states the precedence). Fail-soft: a slot
+        // with no field (a legacy payload) or a non-string is null.
+        displayVerdict: typeof slot.displayVerdict === 'string' && slot.displayVerdict !== ''
+          ? slot.displayVerdict
+          : null,
       },
     })));
 }
@@ -425,6 +437,68 @@ export function buildEclipseIndex(days) {
 }
 
 /**
+ * The word a SLOT with no rating of its own prints once its ratings source HAS answered — the one
+ * home of the three-way choice, read by the location sheet's window rows (via
+ * {@link buildLocationSheet}'s {@code unratedWord}) and by {@code MapCallout}'s verdict slot
+ * (unrated-verdict-plan.md U2; the Codex review of #1140, P1).
+ *
+ * <p>Why it exists: U2 gave the client a slot-level vocabulary ({@code SLOT_VERDICT_LABEL}) and
+ * wired only Ask's pick card to it, so the two surfaces that look at ONE place's windows — the sheet
+ * and the callout — still hardcoded "Not scored yet" for every unrated slot. For a slot the weather
+ * screen passed and no rating called, that is a false statement ("nothing has looked yet" — the
+ * pipeline did look, and the server now says UNRATED); for a weather stand-down it hid a decision
+ * that the Plan card and the map pill both state as "Poor". The server already serves the answer
+ * per slot ({@code LocationEvaluationView.displayVerdict}); this reads it, deriving nothing.
+ *
+ * <ul>
+ *   <li>{@code UNRATED} → "Not rated" (the weather passed it; no rating called it).</li>
+ *   <li>{@code STAND_DOWN} → "Poor" — a weather stand-down is a decision AGAINST that slot, the
+ *       product's long-standing reading (the two-question rule), and it is the word the region and
+ *       window levels already print for it.</li>
+ *   <li>Anything else — {@code AWAITING}, null, a legacy row with no field, a verdict this build
+ *       does not know, even a rated verdict on a row whose rating was out of bounds — keeps
+ *       "Not scored yet": unknown never claims more than it knew.</li>
+ * </ul>
+ *
+ * @param {?string} displayVerdict the score row's served {@code displayVerdict}, or null
+ * @returns {string} the word to print for an unrated slot
+ */
+export function unratedSlotWord(displayVerdict) {
+  return displayVerdict === 'UNRATED' || displayVerdict === 'STAND_DOWN'
+    ? SLOT_VERDICT_LABEL[displayVerdict]
+    : 'Not scored yet';
+}
+
+/**
+ * Which served verdict a slot's unrated word is chosen from — the one home of the PRECEDENCE
+ * (unrated-verdict-plan.md U2; the Codex review of #1140, round 2, P1).
+ *
+ * <p>A slot's verdict can come from two reads, and neither alone is complete:
+ * <ol>
+ *   <li><b>The score row's {@code displayVerdict}</b> ({@code GET /api/briefing/evaluate/scores}) —
+ *       wins whenever the scores source HAS a row for the slot. It is the retraction-aware, more
+ *       recent read: it can say {@code STAND_DOWN} for a triage row the briefing still shows
+ *       otherwise, and a nightly stability skip's retraction has already been applied to it.</li>
+ *   <li><b>The briefing slot's {@code displayVerdict}</b> ({@code GET /api/briefing}) — the
+ *       fallback for the one case the scores endpoint cannot express: a weather GO/MARGINAL slot
+ *       with no Claude result has NO score row at all ({@code EvaluationViewService.mergeToView}
+ *       emits only rated verdicts, a triage {@code STAND_DOWN}, or {@code Source.NONE}, and
+ *       {@code buildViews} drops NONE), so reading the score row alone could never print
+ *       "Not rated" — the state the first cut of this fix was written for.</li>
+ * </ol>
+ * Neither: null, which {@link unratedSlotWord} reads as "Not scored yet" (unknown never claims more
+ * than it knew). This only chooses WHICH verdict speaks once the ratings source has answered; the
+ * callers' loading gates (`scoresKnown` / `ratingKnown`) still decide WHETHER anything is printed.
+ *
+ * @param {?object} score the slot's score-index entry ({@link buildScoreIndex}), or null
+ * @param {?object} slot  the slot's briefing-index entry ({@link buildSlotIndex}), or null
+ * @returns {?string} the verdict to feed {@link unratedSlotWord}
+ */
+export function slotVerdictOf(score, slot) {
+  return score?.displayVerdict ?? slot?.displayVerdict ?? null;
+}
+
+/**
  * Each location's rating and "why" per window, from the RAW score rows.
  *
  * <p>Not the provider's {@code scoreIndex} — see the module comment for the defect that cost.
@@ -446,9 +520,15 @@ export function buildEclipseIndex(days) {
  * discard by a different mechanism.
  *
  * @param {Array} scoreRows raw {@code LocationEvaluationView} rows
+ * <p>And the slot's served {@code displayVerdict} (unrated-verdict-plan.md U2, Codex review of
+ * #1140), kept beside the rating as the raw string: it is what lets a row with NO rating say
+ * "Not rated" / "Poor" / "Not scored yet" by the slot's own served word ({@link unratedSlotWord})
+ * instead of one hardcoded phrase. Fail-soft: a legacy row with no field, or a non-string, is null,
+ * which reads "Not scored yet" as before.
+ *
  * @returns {{byId: Map<string, object>, byName: Map<string, object>}} valued
- *          {@code {rating, summary, fierySky, goldenHour, goldenHourStart, goldenHourEnd,
- *          blueHourStart, blueHourEnd}}
+ *          {@code {rating, displayVerdict, summary, fierySky, goldenHour, goldenHourStart,
+ *          goldenHourEnd, blueHourStart, blueHourEnd}}
  */
 export function buildScoreIndex(scoreRows) {
   const byId = new Map();
@@ -467,6 +547,9 @@ export function buildScoreIndex(scoreRows) {
     index(byId, byName, row.locationId, row.locationName,
       windowTail(row.date, row.targetType), {
         rating,
+        displayVerdict: typeof row.displayVerdict === 'string' && row.displayVerdict !== ''
+          ? row.displayVerdict
+          : null,
         summary,
         fierySky,
         goldenHour,
@@ -813,6 +896,13 @@ export function buildLocationSheet(spot, windows, {
       away: Boolean(card.away),
       stateLabel: card.verdictLabel,
       rating,
+      // The word for a row with no rating once the ratings response has arrived — chosen HERE, by
+      // the slot's own served verdict ({@link unratedSlotWord}), so the component prints a string
+      // and decides nothing. The score row's verdict wins; the briefing slot's is the fallback for
+      // a slot the scores endpoint has no row for ({@link slotVerdictOf}, Codex #1140 round 2). An
+      // away day has no score lookup at all (above), so its verdict is never asked for — but `slot`
+      // IS looked up on an away day, so the away guard must hold here too.
+      unratedWord: unratedSlotWord(card.away ? null : slotVerdictOf(score, slot)),
       /**
        * This window's prose — this location's own served summary first, its REGION's gloss second.
        *

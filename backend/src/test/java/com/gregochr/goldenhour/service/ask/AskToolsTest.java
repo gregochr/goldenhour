@@ -290,6 +290,23 @@ class AskToolsTest {
     }
 
     @Test
+    @DisplayName("list_windows serialises an UNRATED window by name, with no pick (unrated-verdict-plan.md U1)")
+    void listWindows_servesUnratedByName() {
+        BriefingRegion region = AskFixtures.region("Coast", true, AskFixtures.slot(7L, "Whitby", 4));
+        BriefingWindow unrated = AskFixtures.window(TODAY.atTime(18, 0), DisplayVerdict.UNRATED, 4, null);
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(
+                AskFixtures.day(TODAY, AskFixtures.summary(TargetType.SUNSET, unrated, region))),
+                List.of()));
+
+        ListWindowsResult result = (ListWindowsResult) tools(snapshot).listWindows().payload();
+
+        AskTools.WindowInfo only = result.windows().getFirst();
+        assertThat(only.verdict()).isEqualTo("UNRATED");
+        assertThat(only.bestBet()).isNull();
+        assertThat(only.alsoGood()).isNull();
+    }
+
+    @Test
     @DisplayName("list_windows names a weekday beyond tomorrow and omits a pick outside the question's scope")
     void listWindows_weekdayAndScope() {
         BriefingWindow.Pick best = AskFixtures.pick(BriefingWindow.PickKind.BEST, "Hills", "Cat Bells", 8L);

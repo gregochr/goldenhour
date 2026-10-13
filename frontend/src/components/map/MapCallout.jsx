@@ -10,7 +10,9 @@ import {
 } from '../../utils/mapCallout.js';
 import { verdictWord } from '../../utils/verdictWord.js';
 import { rampHex, rampRgb, rgb } from '../../utils/scoreRamp.js';
-import { eventInstantOf, lookupForWindow } from '../../utils/locationSheet.js';
+import {
+  eventInstantOf, lookupForWindow, slotVerdictOf, unratedSlotWord,
+} from '../../utils/locationSheet.js';
 import { subjectWordsOf, isWildlifeOnly } from '../../utils/locationTypes.js';
 import {
   comfortDayOf, comfortLines, comfortSummary, rowsFromNow,
@@ -194,6 +196,12 @@ function kindShort(event) {
  *        `tideOnLight` gets
  * @param {?object} [props.scoreIndex] from `utils/locationSheet.buildScoreIndex` — the per-location
  *        per-window rating/summary join, reused rather than re-derived (plan §3 P9)
+ * @param {?object} [props.slotIndex] from `utils/locationSheet.buildSlotIndex` — the BRIEFING
+ *        slot's per-window facts, read here only for its served `displayVerdict`: the fallback
+ *        behind `scoreIndex`'s own verdict for a slot the scores endpoint has no row for (a weather
+ *        GO/MARGINAL slot with no Claude result — `UNRATED` on the briefing, absent from the
+ *        scores; unrated-verdict-plan.md U2, Codex review of #1140, round 2). Null reads
+ *        "Not scored yet" as before
  * @param {boolean} [props.scoresKnown] whether the `scoreIndex` response has actually landed — a
  *        failed or in-flight fetch is not evidence that nothing was rated (the same rule
  *        `LocationFourDaySheet`'s `scoresKnown` states). The strip's SOLAR cells read it — all but
@@ -280,7 +288,7 @@ function kindShort(event) {
 export default function MapCallout({
   location, rating = null, event = null, driveMinutes = null, distanceMiles = null,
   tideOnLight = null, tideAlignmentIndex = null, eclipseSight = null,
-  scoreIndex = null, scoresKnown = false, ratingKnown = false, ratingRetrying = false,
+  scoreIndex = null, slotIndex = null, scoresKnown = false, ratingKnown = false, ratingRetrying = false,
   regionGlossIndex = null, evRows = [],
   astroConditionsByDate = null, auroraResultsByDate = null, pendingNightRowIds = NO_PENDING_ROWS,
   tideStripHeight = null, bandKey = null, hourlyRows = null, now = null, dayMode = false,
@@ -548,6 +556,12 @@ export default function MapCallout({
   const scoreEntry = event?.kind === 'solar'
     ? lookupForWindow(scoreIndex, location.id, location.name, event.date, event.eventType)
     : null;
+  // The BRIEFING slot for the same window, solar only (a night row has no briefing slot) — read for
+  // its served `displayVerdict` alone, the fallback behind `scoreEntry`'s own (see the verdict slot
+  // below and {@link slotVerdictOf} for the precedence).
+  const slotEntry = event?.kind === 'solar'
+    ? lookupForWindow(slotIndex, location.id, location.name, event.date, event.eventType)
+    : null;
   // Reason prose: this location's own served summary first, a region gloss second — plan §3 P9's
   // own wording ("fallback: region gloss"). Neither exists for a night row (no served summary, and
   // the gloss index is built from solar `eventSummaries` alone), which is the honest degrade: this
@@ -766,12 +780,29 @@ export default function MapCallout({
               Comfort only
             </span>
           ) : (
-            // "Not scored yet" only on the word of the rating's own source. Until it has answered,
-            // what it is doing: loading, or trying again after a failure (`ratingRetrying`) — the
-            // answer outranks the failure, so a night still holding one keeps it through a failed
-            // refresh.
+            // An unrated slot's word ("Not rated" / "Poor" / "Not scored yet") only on the word of
+            // the rating's own source. Until it has answered, what it is doing: loading, or trying
+            // again after a failure (`ratingRetrying`) — the answer outranks the failure, so a night
+            // still holding one keeps it through a failed refresh.
+            //
+            // ⚠️ Which word is the SLOT's own served `displayVerdict` (unrated-verdict-plan.md U2,
+            // Codex review of #1140), read off `scoreEntry` — the same `scoreIndex` row that already
+            // supplies this card's prose — and, where the scores endpoint has NO row for the slot,
+            // off the briefing slot (`slotEntry`): a weather GO/MARGINAL slot with no Claude result
+            // is dropped by `EvaluationViewService.buildViews` (`Source.NONE`) yet is served
+            // `UNRATED` by the briefing, so without that fallback "Not rated" was unreachable here
+            // (Codex round 2). The score row wins when both exist: it is the retraction-aware, more
+            // recent read ({@link slotVerdictOf}). Both are solar-only by construction (null for a
+            // night, whose rating comes from its own payload and carries no verdict word), so the
+            // fallback is the old "Not scored yet" in exactly the cases the old line was written for.
+            // The GATE
+            // stays `ratingKnown`, never `scoresKnown`: the verdict may only speak once the
+            // rating's own source has, or this slot could say "Not rated" over a rating still
+            // arriving.
             <span className="wf-callout-verdict-score unscored" data-testid="map-callout-score">
-              {ratingKnown ? 'Not scored yet' : ratingRetrying ? NIGHT_RETRY_LINE : 'Loading…'}
+              {ratingKnown
+                ? unratedSlotWord(slotVerdictOf(scoreEntry, slotEntry))
+                : ratingRetrying ? NIGHT_RETRY_LINE : 'Loading…'}
             </span>
           )}
         </div>
@@ -1081,6 +1112,7 @@ MapCallout.propTypes = {
     risesInShadow: PropTypes.bool,
   }),
   scoreIndex: PropTypes.object,
+  slotIndex: PropTypes.object,
   scoresKnown: PropTypes.bool,
   ratingKnown: PropTypes.bool,
   ratingRetrying: PropTypes.bool,

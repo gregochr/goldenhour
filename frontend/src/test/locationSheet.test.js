@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildEclipseIndex, buildLocationSheet, buildScoreIndex, buildSlotIndex,
-  buildTideAlignmentIndex, lookupForWindow,
+  buildTideAlignmentIndex, lookupForWindow, slotVerdictOf, unratedSlotWord,
   sheetSpotOf, indexByWindow, windowsOf,
 } from '../utils/locationSheet.js';
 import { buildRegionGlossIndex } from '../utils/regionGloss.js';
@@ -111,13 +111,52 @@ const build = (overrides = {}) => buildLocationSheet(SPOT, WINDOWS, {
 describe('buildSlotIndex', () => {
   it('carries each slot\'s own event time and its REGION\'s confidence', () => {
     expect(lookupForWindow(SLOTS, 7, 'Bamburgh', '2026-08-14', 'SUNSET'))
-      .toEqual({ eventTime: '2026-08-14T19:41:00', confidence: 'low' });
+      .toEqual({ eventTime: '2026-08-14T19:41:00', confidence: 'low', displayVerdict: null });
     // Unregioned: a region's confidence is a fact about a region, so there is none to carry.
     expect(lookupForWindow(SLOTS, 7, 'Bamburgh', '2026-08-15', 'SUNSET'))
-      .toEqual({ eventTime: '2026-08-15T19:39:00', confidence: null });
+      .toEqual({ eventTime: '2026-08-15T19:39:00', confidence: null, displayVerdict: null });
     // Name-keyed fallback for a payload with no ids on its slots.
     expect(lookupForWindow(SLOTS, null, 'Bamburgh', '2026-08-15', 'SUNRISE').eventTime)
       .toBe('2026-08-15T04:38:00');
+  });
+
+  /**
+   * unrated-verdict-plan.md U2, Codex review of #1140 round 2. The scores endpoint has no row for a
+   * weather GO/MARGINAL slot with no Claude result, so the BRIEFING slot's own `displayVerdict` —
+   * carried here — is the only place the sheet and the callout can read "UNRATED" from.
+   */
+  it('⚠️ carries the briefing slot\'s served displayVerdict, keyed by id and by name', () => {
+    const idx = buildSlotIndex([{
+      date: '2026-08-14',
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{ slots: [
+          { locationId: 7, locationName: 'Bamburgh', solarEventTime: '2026-08-14T19:41:00', displayVerdict: 'UNRATED' },
+        ] }],
+        unregioned: [
+          { locationId: null, locationName: 'Dunstanburgh', solarEventTime: '2026-08-14T19:40:00', displayVerdict: 'STAND_DOWN' },
+        ],
+      }],
+    }]);
+    expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET').displayVerdict).toBe('UNRATED');
+    // The name-keyed fallback answers for a slot with no id.
+    expect(lookupForWindow(idx, null, 'Dunstanburgh', '2026-08-14', 'SUNSET').displayVerdict)
+      .toBe('STAND_DOWN');
+  });
+
+  it('fails soft to null for a slot with no verdict, a blank one or a non-string', () => {
+    for (const bad of [undefined, null, '', 3, {}]) {
+      const idx = buildSlotIndex([{
+        date: '2026-08-14',
+        eventSummaries: [{
+          targetType: 'SUNSET',
+          regions: [{ slots: [
+            { locationId: 7, locationName: 'Bamburgh', solarEventTime: '2026-08-14T19:41:00', displayVerdict: bad },
+          ] }],
+        }],
+      }]);
+      expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET').displayVerdict).toBeNull();
+    }
   });
 
   it('lets an id hit END the lookup rather than falling through to the name', () => {
@@ -556,7 +595,7 @@ describe('buildScoreIndex', () => {
     ]);
     expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET'))
       .toEqual({
-        rating: 5, summary: 'Here.', fierySky: null, goldenHour: null,
+        rating: 5, displayVerdict: null, summary: 'Here.', fierySky: null, goldenHour: null,
         goldenHourStart: null, goldenHourEnd: null, blueHourStart: null, blueHourEnd: null,
       });
   });
@@ -656,10 +695,69 @@ describe('buildScoreIndex', () => {
     }
   });
 
+  /**
+   * unrated-verdict-plan.md U2, Codex review of #1140 (P1). The index used to DROP the slot's served
+   * `displayVerdict`, so the sheet and the callout could only ever say "Not scored yet".
+   */
+  it('⚠️ carries the slot\'s served displayVerdict beside its rating, on both indexes', () => {
+    const idx = buildScoreIndex(rows([
+      { date: '2026-08-14', targetType: 'SUNSET', rating: null, displayVerdict: 'UNRATED' },
+      { date: '2026-08-15', targetType: 'SUNRISE', rating: 4, displayVerdict: 'WORTH_IT' },
+    ]));
+    expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET').displayVerdict).toBe('UNRATED');
+    expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-08-15', 'SUNRISE').displayVerdict).toBe('WORTH_IT');
+    // The name map answers too — a location whose id has since changed still reads its verdict.
+    expect(lookupForWindow(idx, 999, 'Bamburgh', '2026-08-14', 'SUNSET').displayVerdict).toBe('UNRATED');
+  });
+
+  it('fails soft to null for a legacy row with no verdict, a blank one or a non-string', () => {
+    for (const bad of [undefined, null, '', 3, {}]) {
+      const idx = buildScoreIndex(rows([
+        { date: '2026-08-14', targetType: 'SUNSET', rating: null, displayVerdict: bad },
+      ]));
+      expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET').displayVerdict).toBeNull();
+    }
+  });
+
   it('skips a row that names no window, and survives a null payload', () => {
     expect(buildScoreIndex(null).byId.size).toBe(0);
     expect(buildScoreIndex([{ locationId: 7, rating: 4 }]).byId.size).toBe(0);
     expect(buildScoreIndex([{ locationId: 7, date: '2026-08-14', rating: 4 }]).byId.size).toBe(0);
+  });
+});
+
+describe('unratedSlotWord (unrated-verdict-plan.md U2)', () => {
+  it('says "Not rated" for UNRATED and "Poor" for a weather STAND_DOWN', () => {
+    expect(unratedSlotWord('UNRATED')).toBe('Not rated');
+    expect(unratedSlotWord('STAND_DOWN')).toBe('Poor');
+  });
+
+  it('keeps "Not scored yet" for AWAITING, null, a legacy row and any word it does not know', () => {
+    // Unknown never claims more than it knew — including a rated word on a row whose rating the
+    // index discarded as out of bounds.
+    for (const v of ['AWAITING', null, undefined, '', 'WORTH_IT', 'MAYBE', 'SOMETHING_NEW']) {
+      expect(unratedSlotWord(v)).toBe('Not scored yet');
+    }
+  });
+});
+
+describe('slotVerdictOf (unrated-verdict-plan.md U2, Codex review of #1140 round 2)', () => {
+  it('prefers the score row\'s verdict — the retraction-aware, more recent read', () => {
+    expect(slotVerdictOf({ displayVerdict: 'STAND_DOWN' }, { displayVerdict: 'UNRATED' }))
+      .toBe('STAND_DOWN');
+  });
+
+  it('falls back to the briefing slot\'s verdict when the scores source has no row, or no verdict', () => {
+    expect(slotVerdictOf(null, { displayVerdict: 'UNRATED' })).toBe('UNRATED');
+    expect(slotVerdictOf(undefined, { displayVerdict: 'STAND_DOWN' })).toBe('STAND_DOWN');
+    // A legacy score row that carries no verdict is not an answer either.
+    expect(slotVerdictOf({ displayVerdict: null }, { displayVerdict: 'UNRATED' })).toBe('UNRATED');
+  });
+
+  it('is null — "Not scored yet" — when neither read speaks', () => {
+    expect(slotVerdictOf(null, null)).toBeNull();
+    expect(slotVerdictOf({ displayVerdict: null }, { displayVerdict: null })).toBeNull();
+    expect(slotVerdictOf(undefined, {})).toBeNull();
   });
 });
 
@@ -680,6 +778,105 @@ describe('buildLocationSheet rows', () => {
     // borrowed prose or the reverse.
     expect(sheet.rows[4].rating).toBeNull();
     expect(sheet.rows[4].summary).toBeNull();
+  });
+
+  it('⚠️ names an unrated row by the slot\'s OWN served verdict (U2, Codex review of #1140)', () => {
+    // Four unrated shapes on one sheet: a weather-passed UNRATED slot, a triage STAND_DOWN slot,
+    // an AWAITING slot, and a window with no score row at all. Only the first two are decisions.
+    const scoreIndex = buildScoreIndex(rows([
+      { date: '2026-08-14', targetType: 'SUNSET', rating: 3, displayVerdict: 'MAYBE' },
+      { date: '2026-08-15', targetType: 'SUNRISE', rating: null, displayVerdict: 'UNRATED' },
+      { date: '2026-08-15', targetType: 'SUNSET', rating: null, displayVerdict: 'STAND_DOWN' },
+      { date: '2026-08-16', targetType: 'SUNRISE', rating: null, displayVerdict: 'AWAITING' },
+    ]));
+    const sheet = build({ scoreIndex });
+    expect(sheet.rows[1]).toMatchObject({ rating: null, unratedWord: 'Not rated' });
+    expect(sheet.rows[2]).toMatchObject({ rating: null, unratedWord: 'Poor' });
+    expect(sheet.rows[3]).toMatchObject({ rating: null, unratedWord: 'Not scored yet' });
+    // No row at all, and a legacy row with no field: the old phrase.
+    expect(sheet.rows[4].unratedWord).toBe('Not scored yet');
+    // A rated row keeps its rating; the word is only ever consulted when there is none.
+    expect(sheet.rows[0].rating).toBe(3);
+  });
+
+  /**
+   * Codex review of #1140, round 2 (P1): the scores endpoint has NO row for a weather GO/MARGINAL
+   * slot with no Claude result (`EvaluationViewService.buildViews` drops `Source.NONE`), so the
+   * first cut — which read the score row alone — could never print "Not rated". The briefing slot,
+   * which the sheet already holds, carries `UNRATED` for exactly that case.
+   */
+  describe('falls back to the briefing slot\'s verdict where the scores endpoint has no row', () => {
+    /** A slot index with one slot per window, each carrying the given served verdict (or none). */
+    const slotsWith = (verdicts) => buildSlotIndex(
+      [['2026-08-14', 'SUNSET'], ['2026-08-15', 'SUNRISE'], ['2026-08-15', 'SUNSET'],
+        ['2026-08-16', 'SUNRISE'], ['2026-08-16', 'SUNSET']].map(([date, targetType], i) => ({
+        date,
+        eventSummaries: [{
+          targetType,
+          regions: [{ slots: [{
+            locationId: 7,
+            locationName: 'Bamburgh',
+            solarEventTime: `${date}T12:00:00`,
+            ...(verdicts[i] === undefined ? {} : { displayVerdict: verdicts[i] }),
+          }] }],
+        }],
+      })),
+    );
+
+    it('no score row + briefing UNRATED reads "Not rated"; briefing STAND_DOWN reads "Poor"', () => {
+      const sheet = build({
+        scoreIndex: buildScoreIndex([]),
+        slotIndex: slotsWith(['UNRATED', 'UNRATED', 'STAND_DOWN']),
+      });
+      expect(sheet.rows[0]).toMatchObject({ rating: null, unratedWord: 'Not rated' });
+      expect(sheet.rows[1]).toMatchObject({ rating: null, unratedWord: 'Not rated' });
+      expect(sheet.rows[2]).toMatchObject({ rating: null, unratedWord: 'Poor' });
+    });
+
+    it('⚠️ the score row wins when both speak: a triage STAND_DOWN beside a briefing UNRATED is "Poor"', () => {
+      // The scores read is retraction-aware and more recent, so it can say STAND_DOWN for a triage
+      // row the briefing still shows otherwise. Reversing the order would print "Not rated" here.
+      const sheet = build({
+        scoreIndex: buildScoreIndex(rows([
+          { date: '2026-08-15', targetType: 'SUNRISE', rating: null, displayVerdict: 'STAND_DOWN' },
+        ])),
+        slotIndex: slotsWith([undefined, 'UNRATED']),
+      });
+      expect(sheet.rows[1].unratedWord).toBe('Poor');
+    });
+
+    it('no score row and no briefing verdict keeps "Not scored yet"', () => {
+      const sheet = build({
+        scoreIndex: buildScoreIndex([]),
+        // A slot that carries no verdict (legacy payload), a null one, and a window with no slot.
+        slotIndex: slotsWith([undefined, null]),
+      });
+      expect(sheet.rows[0].unratedWord).toBe('Not scored yet');
+      expect(sheet.rows[1].unratedWord).toBe('Not scored yet');
+      expect(sheet.rows[2].unratedWord).toBe('Not scored yet');
+      expect(build({ scoreIndex: buildScoreIndex([]), slotIndex: null }).rows[0].unratedWord)
+        .toBe('Not scored yet');
+    });
+
+    it('asks nothing of the briefing on an away day', () => {
+      const sheet = build({
+        scoreIndex: buildScoreIndex([]),
+        slotIndex: buildSlotIndex([{
+          date: '2026-08-17',
+          eventSummaries: [{ targetType: 'SUNRISE', regions: [{ slots: [{
+            locationId: 7, locationName: 'Bamburgh', solarEventTime: '2026-08-17T04:00:00', displayVerdict: 'UNRATED',
+          }] }] }],
+        }]),
+      });
+      expect(sheet.rows[5].unratedWord).toBe('Not scored yet');
+    });
+  });
+
+  it('asks no verdict of an away day, whatever a stale row for it says', () => {
+    const scoreIndex = buildScoreIndex(rows([
+      { date: '2026-08-17', targetType: 'SUNRISE', rating: null, displayVerdict: 'UNRATED' },
+    ]));
+    expect(build({ scoreIndex }).rows[5].unratedWord).toBe('Not scored yet');
   });
 
   /**

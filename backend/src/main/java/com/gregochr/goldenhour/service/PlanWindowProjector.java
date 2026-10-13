@@ -56,7 +56,12 @@ import java.util.Set;
  * <ul>
  *   <li><b>The window verdict is the top region's own {@code displayVerdict}</b> — the region-average
  *       rule ({@link BriefingRatingStats}: mean ≥ 3.5 WORTH_IT, ≥ 2.5 MAYBE, else STAND_DOWN),
- *       already carrying that region's triage fallback for the case where nothing is rated.
+ *       already carrying that region's triage fallback for the case where nothing is rated (or
+ *       the rated sample fails {@code VerdictSampleGate}): a weather GO/MARGINAL reads
+ *       {@code UNRATED}, a STANDDOWN {@code STAND_DOWN} (2026-10-13,
+ *       {@code docs/engineering/unrated-verdict-plan.md} U1). A window whose only regions are
+ *       UNRATED therefore reads UNRATED, and none of them can be a BEST BET / ALSO GOOD pick,
+ *       which need {@link BriefingRegion#verdictEligible()}.
  *       <b>Decided 2026-08-17</b>, replacing the best-rating rule this class shipped with: one 4★
  *       location anywhere in the roster promoted a whole window's badge while every cell beneath it
  *       read Poor, and nothing on screen said the row and the grid were answering different
@@ -232,6 +237,14 @@ public final class PlanWindowProjector {
      * window with no card. That scoping is why this is computed here rather than anywhere earlier:
      * the horizon is not known until the drafts are.
      *
+     * <p>An UNRATED or AWAITING region is counted toward no band: the test below is the POSITIVE one
+     * (only WORTH_IT and MAYBE count), so UNRATED, AWAITING, STAND_DOWN and any future value fall out
+     * of it with no arm of their own (unrated-verdict-plan.md U1). That makes the peak mean "no RATED
+     * band", not "poor": a day on which every region is UNRATED peaks {@code STAND_DOWN} with an empty
+     * region list, the same answer a day of stood-down regions gives. {@code BriefingDay.peak} has no
+     * client reader (the day rail it fed was retired at plan-matrix P2), so nothing renders that
+     * as "All poor"; it stays on the wire as the server's own roll-up.
+     *
      * <p>A region reaching WORTH_IT on one of the day's events and MAYBE on the other appears once,
      * at its better band — the tile names a region's best showing that day, not one per event. The
      * region order is the payload's own, which is what the peak-tier chips render in.
@@ -252,12 +265,15 @@ public final class PlanWindowProjector {
                 // that decides the window badge and the grid cell. A null one is skipped rather
                 // than mapped through the region's triage: the window calls that AWAITING, and a
                 // day peak mapping it to a band would put two answers for one region on one screen.
-                // Unreachable on the serve path (enrichment always derives a verdict, and the
-                // honesty filter writes STAND_DOWN or, for a region with no forecast for a reason
-                // other than the weather (never attempted, a travel day, a run that failed),
-                // AWAITING, which is skipped below), which is why matching the window matters more
-                // than choosing between them.
+                // A null verdict does not occur on the serve path (enrichment always derives one: a
+                // rated word, UNRATED where a gate failed or nothing rated a weather pass, STAND_DOWN
+                // where the weather stood it down, and the honesty filter's STAND_DOWN or AWAITING for a
+                // blanked region), which is why matching the window matters more than choosing
+                // between them. Every value that is not WORTH_IT or MAYBE is skipped below.
                 DisplayVerdict dv = region.displayVerdict();
+                // UNRATED is skipped exactly as AWAITING is (unrated-verdict-plan.md U1): a weather
+                // pre-screen that no rating has called counts toward neither band. Written as the
+                // positive test so a future enum value defaults to "not counted", never to a band.
                 if (dv != DisplayVerdict.WORTH_IT && dv != DisplayVerdict.MAYBE) {
                     continue;
                 }

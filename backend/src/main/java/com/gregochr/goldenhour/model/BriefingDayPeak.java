@@ -24,8 +24,12 @@ import java.util.List;
  *
  * @param verdict the day's best band across its rendered events: WORTH_IT if any region reaches it,
  *                else MAYBE if any does, else STAND_DOWN. Never AWAITING and never null — a day with
- *                no region at either band is STAND_DOWN, which is the "All poor" the tile has always
- *                shown for it
+ *                no region at either RATED band is STAND_DOWN. That now covers more than poor weather:
+ *                a day whose regions are all UNRATED ("Too few rated", no trustworthy rating called
+ *                them) or blanked peaks STAND_DOWN too, with an empty {@code regions} list, so read
+ *                this as "no rated band", not "all poor". {@code BriefingDay.peak} has no client
+ *                reader (the day rail that drew it was retired at plan-matrix P2) and the wire value
+ *                is unchanged
  * @param events  the rendered events on which a region reached {@code verdict}; empty when none did.
  *                One entry means the tile can name that event ("Worth it · sunset"), two means both.
  *

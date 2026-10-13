@@ -311,11 +311,14 @@ photocast:
                                   # is only the dead-batch backstop — set to the Batch API's 24 h
                                   # guaranteed-completion window rather than a short await timeout.
   pipeline:
-    safety-timeout: PT4H   # failure backstop for the batch wait phase (ISO-8601 duration).
-                           # Anthropic batch latency is load-dependent: nightly (01:00 UTC) batches
-                           # finish in minutes, but afternoon (~14:00 UTC, peak load) batches were
-                           # observed taking up to ~3h. 4h clears the worst observed with margin
-                           # while still bounding a genuinely dead cycle.
+    safety-timeout: PT3H30M  # failure backstop for the batch wait phase (ISO-8601 duration).
+                             # ONE budget per cycle: the wait phase and the retry phase share it,
+                             # measured from the cycle's first batch submit (earliest
+                             # forecast_batch.submitted_at), so a restart cannot extend it.
+                             # Anthropic batch latency is load-dependent: nightly batches finish
+                             # in minutes, but afternoon (peak load) batches were observed taking
+                             # up to ~3h (slowest of 49 cycles: 181 min). 3h30 clears that while
+                             # staying under the shortest gap between two cycles (6.4 h).
   freshness:
     settled-hours: 36              # blocking highs — once-daily refresh rhythm
     transitional-hours: 12         # half synoptic cycle — catches frontal transitions

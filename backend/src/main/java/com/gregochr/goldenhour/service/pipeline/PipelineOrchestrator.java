@@ -39,7 +39,10 @@ import org.springframework.stereotype.Service;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
@@ -80,9 +83,17 @@ import java.util.function.Consumer;
  * forever. The normal path is completion-gated by step 3's loop; the timeout
  * only fires when batches never transition out of SUBMITTED. Do not confuse it
  * with the retired 3-hour cron buffer. The value is configurable via
- * {@code photocast.pipeline.safety-timeout} (ISO-8601 duration, default PT4H)
+ * {@code photocast.pipeline.safety-timeout} (ISO-8601 duration, default PT3H30M)
  * because Anthropic batch latency is load-dependent — see
  * {@link #DEFAULT_SAFETY_TIMEOUT} for the empirical calibration.
+ *
+ * <p><b>One budget per cycle (solar-relative-refresh-plan D3).</b> WAIT and RETRY_FAILED share a
+ * single deadline: the earliest {@code forecast_batch.submitted_at} of the run plus the safety
+ * timeout, read from the database on every poll. A restart therefore cannot extend it, and the
+ * retry does not get a fresh allowance, so a cycle can never stay RUNNING for more than the
+ * timeout after its first submission (before this, WAIT then RETRY_FAILED could hold a run open
+ * for twice the timeout, longer than the shortest gap between two cycles). A run with no batch
+ * to measure from (none submitted, so the wait returns at once) falls back to "now + timeout".
  *
  * <p><b>Aurora is outside this cycle.</b> The orchestrator never invokes aurora
  * polling or aurora batch logic. The briefing's read of {@code AuroraStateCache}
@@ -101,14 +112,21 @@ public class PipelineOrchestrator {
      * Default safety-timeout backstop — the "something is broken" ceiling, NOT
      * the normal coordination mechanism (see class javadoc).
      *
-     * <p>Calibrated empirically: nightly (01:00 UTC) batches reach terminal in
-     * 2–5 min, but afternoon (~14:00 UTC, peak Anthropic load) batches were
-     * observed taking 98–173 min with every request succeeding. 4 hours clears
-     * the worst observed afternoon latency with margin while still bounding a
-     * genuinely dead cycle. Tunable without a deploy via the
-     * {@code photocast.pipeline.safety-timeout} property.
+     * <p>Calibrated empirically: nightly batches reach terminal in 2–5 min, but
+     * afternoon (~14:00 UTC, peak Anthropic load) batches were observed taking up
+     * to 181 min with every request succeeding. 3 h 30 min clears the slowest of
+     * 49 observed cycles with margin while staying under the shortest gap between
+     * two cycles (6.4 h) once WAIT and RETRY_FAILED share it (D3). Tunable without
+     * a deploy via the {@code photocast.pipeline.safety-timeout} property.
      */
-    public static final Duration DEFAULT_SAFETY_TIMEOUT = Duration.ofHours(4);
+    public static final Duration DEFAULT_SAFETY_TIMEOUT = Duration.ofMinutes(210);
+
+    /**
+     * The least budget a retry batch is worth submitting with. A retry of a nightly cycle
+     * typically lands within minutes; with less than this left it could not be awaited, and a
+     * batch submitted only to be abandoned would fail an otherwise good run on the timeout.
+     */
+    static final Duration MIN_RETRY_BUDGET = Duration.ofMinutes(10);
 
     private final PipelineRunService pipelineRunService;
     private final ScheduledBatchEvaluationService scheduledBatchEvaluationService;
@@ -157,7 +175,7 @@ public class PipelineOrchestrator {
             BriefingService briefingService,
             ForecastBatchRepository forecastBatchRepository,
             Clock clock,
-            @Value("${photocast.pipeline.safety-timeout:PT4H}") Duration safetyTimeout,
+            @Value("${photocast.pipeline.safety-timeout:PT3H30M}") Duration safetyTimeout,
             DynamicSchedulerService dynamicSchedulerService,
             PipelineRunPickService pipelineRunPickService,
             BatchRetryService batchRetryService,
@@ -901,6 +919,27 @@ public class PipelineOrchestrator {
                     selection.failureCount() + " failed — exceeds cap " + selection.cap()
                             + ", NOT retried (systematic failure — investigate)");
             case RETRY -> {
+                Duration remaining = remainingBudget(runId);
+                // Only a retry batch that already exists (a restart after submitRetry created it)
+                // is exempt from the cutoff: it is paid for, and waiting on it is all that is left.
+                // A resume that restarted BEFORE the batch was created submits a new one, so it
+                // must observe the cutoff exactly as a first entry does.
+                boolean retryAlreadySubmitted = resuming
+                        && !forecastBatchRepository.findByPipelineRunIdAndRetryTrue(runId).isEmpty();
+                if (!retryAlreadySubmitted && remaining.compareTo(MIN_RETRY_BUDGET) < 0) {
+                    // WAIT used (nearly) all of the cycle's one budget. A retry batch submitted now
+                    // could not be awaited and would fail the whole run on the timeout, discarding
+                    // a cycle whose original batches all landed. Skip it instead, as the
+                    // SYSTEMATIC case does: the run proceeds to BRIEFING with the locations that
+                    // failed left failed.
+                    String detail = selection.failureCount() + " failed — NOT retried: only "
+                            + Math.max(0, remaining.toMinutes()) + " min of the "
+                            + safetyTimeout.toMinutes() + " min cycle budget left (minimum "
+                            + MIN_RETRY_BUDGET.toMinutes() + ")";
+                    LOG.info("Pipeline run {}: RETRY_FAILED — {}", runId, detail);
+                    pipelineRunService.completePhase(runId, PipelinePhase.RETRY_FAILED, detail);
+                    return;
+                }
                 RetrySubmitResult retryResult;
                 try {
                     retryResult = batchRetryService.submitRetry(runId, selection);
@@ -1000,28 +1039,63 @@ public class PipelineOrchestrator {
 
     /**
      * Polls {@code forecast_batch} until every row tagged with this cycle id
-     * reaches a terminal status, or the safety timeout elapses.
+     * reaches a terminal status, or the cycle's safety budget is spent.
+     *
+     * <p>The budget is one per cycle: {@code min(submitted_at)} of the run's batches plus the
+     * safety timeout, re-read from the database on every poll (see the class javadoc). When no
+     * batch carries a submission instant the deadline is fixed at "now + timeout" on entry, which
+     * is the pre-D3 behaviour; with no batches at all the loop returns on its first read anyway.
      *
      * @return summary of the final state
-     * @throws BatchSafetyTimeoutException if the safety timeout fires
+     * @throws BatchSafetyTimeoutException if the safety budget is spent
      */
     private BatchCompletionResult waitForBatchSetComplete(Long runId) {
-        Instant deadline = clock.instant().plus(safetyTimeout);
+        Instant fallbackDeadline = clock.instant().plus(safetyTimeout);
 
         while (true) {
-            BatchCompletionResult state = currentCompletionState(runId);
+            List<ForecastBatchEntity> batches = forecastBatchRepository.findByPipelineRunId(runId);
+            BatchCompletionResult state = completionStateOf(batches);
             if (state.allTerminal()) {
                 LOG.info("Pipeline run {}: batch set complete — {}", runId, state.summary());
                 return state;
             }
+            Instant deadline = budgetDeadline(batches).orElse(fallbackDeadline);
             if (clock.instant().isAfter(deadline)) {
                 throw new BatchSafetyTimeoutException(
                         "Batch set did not reach terminal status within " + safetyTimeout
-                                + " — " + state.summary());
+                                + " of the cycle's first submission — " + state.summary());
             }
             pipelineRunService.updateWaitingOn(runId, state.waitingOnText());
             sleepUninterruptibly(pollInterval);
         }
+    }
+
+    /**
+     * The cycle's single deadline: its earliest batch submission plus the safety timeout.
+     *
+     * @param batches the run's batches
+     * @return the deadline, empty when no batch carries a submission instant
+     */
+    private Optional<Instant> budgetDeadline(List<ForecastBatchEntity> batches) {
+        return batches.stream()
+                .map(ForecastBatchEntity::getSubmittedAt)
+                .filter(Objects::nonNull)
+                .min(Comparator.naturalOrder())
+                .map(first -> first.plus(safetyTimeout));
+    }
+
+    /**
+     * How much of the cycle's safety budget is left.
+     *
+     * @param runId pipeline run id
+     * @return the remaining budget (negative once spent); the full timeout when no batch carries
+     *         a submission instant
+     */
+    private Duration remainingBudget(Long runId) {
+        Instant now = clock.instant();
+        return budgetDeadline(forecastBatchRepository.findByPipelineRunId(runId))
+                .map(deadline -> Duration.between(now, deadline))
+                .orElse(safetyTimeout);
     }
 
     /**
@@ -1031,7 +1105,10 @@ public class PipelineOrchestrator {
      * briefing rather than waiting forever for a set that doesn't exist.
      */
     BatchCompletionResult currentCompletionState(Long runId) {
-        List<ForecastBatchEntity> batches = forecastBatchRepository.findByPipelineRunId(runId);
+        return completionStateOf(forecastBatchRepository.findByPipelineRunId(runId));
+    }
+
+    private static BatchCompletionResult completionStateOf(List<ForecastBatchEntity> batches) {
         int total = batches.size();
         int terminal = (int) batches.stream()
                 .filter(b -> b.getStatus() != BatchStatus.SUBMITTED)

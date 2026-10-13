@@ -291,6 +291,103 @@ describe('LocationFourDaySheet', () => {
       .toHaveTextContent('Nothing written about this one yet.');
   });
 
+  /**
+   * unrated-verdict-plan.md U2, Codex review of #1140 (P1). `SLOT_VERDICT_LABEL` was only ever read
+   * by Ask's pick card, so this sheet printed "Not scored yet" for a slot the server had already
+   * called UNRATED (weather passed, no rating) or STAND_DOWN (weather said no). What breaks if these
+   * fail: the sheet says nothing has looked at a window the pipeline did look at, and the Plan card
+   * and the map pill contradict the sheet's row for the same place.
+   */
+  describe('names an unrated window by the slot\'s own served verdict', () => {
+    const VERDICTS = buildScoreIndex([
+      { locationId: 7, locationName: 'Bamburgh', date: '2026-08-14', targetType: 'SUNSET', rating: 3, displayVerdict: 'MAYBE', summary: 'x' },
+      { locationId: 7, locationName: 'Bamburgh', date: '2026-08-15', targetType: 'SUNRISE', rating: null, displayVerdict: 'UNRATED' },
+      { locationId: 7, locationName: 'Bamburgh', date: '2026-08-15', targetType: 'SUNSET', rating: null, displayVerdict: 'STAND_DOWN' },
+    ]);
+    const stateOf = (key) => within(row(key)).getByTestId('location-sheet-state');
+
+    it('says "Not rated" for an UNRATED slot and "Poor" for a triage stand-down', () => {
+      setup({ scoreIndex: VERDICTS });
+      expect(stateOf('2026-08-15:SUNRISE')).toHaveTextContent('Not rated');
+      expect(stateOf('2026-08-15:SUNRISE')).not.toHaveTextContent('Not scored yet');
+      expect(stateOf('2026-08-15:SUNSET')).toHaveTextContent('Poor');
+    });
+
+    it('keeps "Not scored yet" for an AWAITING slot, a missing row and a legacy row', () => {
+      const awaiting = buildScoreIndex([
+        { locationId: 7, locationName: 'Bamburgh', date: '2026-08-15', targetType: 'SUNRISE', rating: null, displayVerdict: 'AWAITING' },
+        // A legacy row: no `displayVerdict` field at all.
+        { locationId: 7, locationName: 'Bamburgh', date: '2026-08-15', targetType: 'SUNSET', rating: null },
+      ]);
+      setup({ scoreIndex: awaiting });
+      expect(stateOf('2026-08-15:SUNRISE')).toHaveTextContent('Not scored yet');
+      expect(stateOf('2026-08-15:SUNSET')).toHaveTextContent('Not scored yet');
+      expect(stateOf('2026-08-14:SUNSET')).toHaveTextContent('Not scored yet');
+    });
+
+    it('leaves a rated row on its star, with no verdict word beside it', () => {
+      setup({ scoreIndex: VERDICTS });
+      const rated = within(row('2026-08-14:SUNSET'));
+      expect(rated.getByTestId('location-sheet-rating')).toHaveTextContent('3 stars');
+      expect(rated.queryByTestId('location-sheet-state')).toBeNull();
+    });
+
+    // Codex review of #1140, round 2 (P1): the scores endpoint has no row for a weather GO/MARGINAL
+    // slot with no Claude result, so the word has to come from the BRIEFING slot the sheet already
+    // holds (`slotIndex`).
+    describe('where the scores endpoint has no row, from the briefing slot', () => {
+      const slotsWith = (byWindow) => buildSlotIndex(Object.entries(byWindow).map(([key, verdict]) => {
+        const [date, targetType] = key.split(':');
+        return {
+          date,
+          eventSummaries: [{
+            targetType,
+            regions: [{ slots: [{
+              locationId: 7, locationName: 'Bamburgh', solarEventTime: `${date}T12:00:00`, displayVerdict: verdict,
+            }] }],
+          }],
+        };
+      }));
+
+      it('reads "Not rated" for a briefing UNRATED slot and "Poor" for a briefing STAND_DOWN one', () => {
+        setup({
+          scoreIndex: buildScoreIndex([]),
+          slotIndex: slotsWith({ '2026-08-15:SUNRISE': 'UNRATED', '2026-08-15:SUNSET': 'STAND_DOWN' }),
+        });
+        expect(stateOf('2026-08-15:SUNRISE')).toHaveTextContent('Not rated');
+        expect(stateOf('2026-08-15:SUNSET')).toHaveTextContent('Poor');
+        // A window whose slot carries no verdict keeps the old phrase.
+        expect(stateOf('2026-08-14:SUNSET')).toHaveTextContent('Not scored yet');
+      });
+
+      it('⚠️ a score row\'s STAND_DOWN beats a briefing UNRATED for the same window', () => {
+        setup({
+          scoreIndex: VERDICTS,
+          slotIndex: slotsWith({ '2026-08-15:SUNSET': 'UNRATED' }),
+        });
+        expect(stateOf('2026-08-15:SUNSET')).toHaveTextContent('Poor');
+        expect(stateOf('2026-08-15:SUNSET')).not.toHaveTextContent('Not rated');
+      });
+
+      it('still says "Loading ratings…" while the ratings are in flight, briefing verdict in hand', () => {
+        setup({
+          scoreIndex: buildScoreIndex([]),
+          scoresKnown: false,
+          slotIndex: slotsWith({ '2026-08-15:SUNRISE': 'UNRATED' }),
+        });
+        expect(stateOf('2026-08-15:SUNRISE')).toHaveTextContent('Loading ratings…');
+      });
+    });
+
+    it('says nothing of a verdict while the ratings are still loading', () => {
+      // The "Loading ratings…" branch is untouched: a verdict served by an index that has not been
+      // confirmed complete is still no evidence about the pipeline.
+      setup({ scoreIndex: VERDICTS, scoresKnown: false });
+      expect(stateOf('2026-08-15:SUNRISE')).toHaveTextContent('Loading ratings…');
+      expect(stateOf('2026-08-15:SUNSET')).toHaveTextContent('Loading ratings…');
+    });
+  });
+
   it('⚠️ claims NOTHING about the pipeline while the ratings are unknown', () => {
     // An in-flight or failed request is not evidence that nothing was rated — `scoresLoaded`'s own
     // rule. Without this the sheet reports our own network failure as a confident, complete picture

@@ -38,6 +38,7 @@ public class BatchPollingService {
     private final BatchResultProcessor resultProcessor;
     private final DynamicSchedulerService dynamicSchedulerService;
     private final JobRunService jobRunService;
+    private final LateBatchBriefingRebuild lateBatchBriefingRebuild;
 
     /**
      * Constructs the batch polling service.
@@ -47,12 +48,15 @@ public class BatchPollingService {
      * @param resultProcessor         processes results for completed batches
      * @param dynamicSchedulerService scheduler to register the polling job target
      * @param jobRunService           service for updating job run progress records
+     * @param lateBatchBriefingRebuild rebuilds the briefing when a batch lands after its cycle
      */
     public BatchPollingService(AnthropicClient anthropicClient,
             ForecastBatchRepository batchRepository,
             BatchResultProcessor resultProcessor,
             DynamicSchedulerService dynamicSchedulerService,
-            JobRunService jobRunService) {
+            JobRunService jobRunService,
+            LateBatchBriefingRebuild lateBatchBriefingRebuild) {
+        this.lateBatchBriefingRebuild = lateBatchBriefingRebuild;
         this.anthropicClient = anthropicClient;
         this.batchRepository = batchRepository;
         this.resultProcessor = resultProcessor;
@@ -127,7 +131,20 @@ public class BatchPollingService {
                 // slow batches and polling-lag scenarios. Genuinely-purged results surface as
                 // an SDK exception in BatchResultProcessor's resultsStreaming call, which
                 // classifies the batch as FAILED. No predictive guard needed.
-                resultProcessor.processResults(batch);
+                try {
+                    resultProcessor.processResults(batch);
+                } finally {
+                    // A batch that lands after its pipeline cycle has finished with it gets the
+                    // briefing rebuilt (plan B1). This runs whenever processing left the batch
+                    // terminal, even if a step AFTER the terminal save threw (the job-run
+                    // completion, the PENDING close-out): such a batch is no longer SUBMITTED, so
+                    // no later poll would ever reach this hook again. The rebuild runs on its own
+                    // executor and this call never throws, so the original exception still
+                    // reaches the catch below unchanged.
+                    if (BatchStatus.TERMINAL.contains(batch.getStatus())) {
+                        lateBatchBriefingRebuild.onBatchEnded(batch);
+                    }
+                }
             } else {
                 LOG.warn("Batch {}: unexpected processing status '{}', will retry next poll",
                         batchId, processingStatus);

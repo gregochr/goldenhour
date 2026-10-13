@@ -40,7 +40,7 @@ import { dayNumber } from '../utils/windowFirstMatrix.js';
  * returns a non-{@code rgba()} string untouched, so it IS the mechanism that keeps the word at full
  * strength while its fill decays with confidence.
  */
-const VERDICT_TREATMENT = {
+export const VERDICT_TREATMENT = {
   WORTH_IT: { fill: 'rgba(138,174,114,0.14)', border: 'rgba(138,174,114,0.5)', text: 'var(--color-badge-go)', weight: 600 },
   MAYBE: { fill: 'rgba(224,165,66,0.14)', border: 'rgba(224,165,66,0.5)', text: 'var(--color-badge-maybe)', weight: 600 },
   STAND_DOWN: { fill: 'rgba(200,69,47,0.12)', border: 'rgba(200,69,47,0.4)', text: 'var(--color-badge-poor)', weight: 400 },
@@ -49,7 +49,19 @@ const VERDICT_TREATMENT = {
   // it never decays so no tier softens it. Secondary measures 6.46:1 and is what `VerdictPill` and
   // the neutral topic badge already use for exactly this state — do not reintroduce a token for it.
   AWAITING: { fill: 'rgba(255,255,255,0.04)', border: 'rgba(255,255,255,0.10)', text: 'var(--color-plex-text-secondary)', weight: 400 },
+  // UNRATED (unrated-verdict-plan.md U2) — "Too few rated": the weather passed it and no trustworthy
+  // rating has called it. The AWAITING neutral, as its OWN entry rather than a lookup miss that
+  // lands there: it is a different claim ("nothing was said" vs "something was said, too thinly"),
+  // so a later divergence is one edit, and the fall-through below must never be what picks it.
+  UNRATED: { fill: 'rgba(255,255,255,0.04)', border: 'rgba(255,255,255,0.10)', text: 'var(--color-plex-text-secondary)', weight: 400 },
 };
+
+/**
+ * Which verdicts earn the ◎ glyph before their word — the RECOMMENDING ones only. An explicit set
+ * rather than "not STAND_DOWN and not AWAITING": that negative list is how UNRATED would have
+ * inherited a recommendation mark it has not earned (unrated-verdict-plan.md U2).
+ */
+const RECOMMENDING_VERDICTS = new Set(['WORTH_IT', 'MAYBE']);
 
 /**
  * A field chip's tooltip — region, drive, leave-by (plan-matrix §5, deferred from M2 to M4).
@@ -430,7 +442,11 @@ export default function WindowSheetDialog({
               )}
               <span
                 data-testid="window-sheet-verdict"
-                data-confidence={card.confidence || undefined}
+                // The badge's tier hook follows the BADGE gate, not the card's field: an UNRATED card
+                // now carries the server's tier for the field's haze (unrated-verdict-plan.md U2,
+                // review F5), and a "Too few rated" badge must not advertise a confidence it does not
+                // wear.
+                data-confidence={(qualifies && card.confidence) || undefined}
                 className="wf-wsh-bdg font-mono"
                 style={{
                   border: `1px solid ${scaleRgbaAlpha(treatment.border, scale)}`,
@@ -439,7 +455,7 @@ export default function WindowSheetDialog({
                   fontWeight: treatment.weight,
                 }}
               >
-                {card.verdict !== 'STAND_DOWN' && card.verdict !== 'AWAITING' && (
+                {RECOMMENDING_VERDICTS.has(card.verdict) && (
                   <span aria-hidden="true">◎ </span>
                 )}
                 {card.verdictLabel}

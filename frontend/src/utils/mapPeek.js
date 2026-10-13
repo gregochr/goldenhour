@@ -31,6 +31,10 @@ const TIDE_STATE_LABEL = { HIGH: 'High', MID: 'Mid', LOW: 'Low' };
  * nearer non-Poor row after it. Scanning from the row after `activeIndex` is what makes the value
  * name what the `›` stepper actually reaches next.
  *
+ * <p>⚠️ An {@code UNRATED} row (unrated-verdict-plan.md U2) is NOT {@code STAND_DOWN}, so it passes
+ * the filter and can be named: the weather did not rule it out, and the cell prints its own
+ * "Too few rated" word, so the reader is told what they are being pointed at.
+ *
  * <p>Night rows are eligible — they carry no verdict at all (`verdicts` is built only for solar
  * rows, `utils/mapVerdict.js#buildEvVerdicts`), so a missing entry reads as "not `STAND_DOWN`" and
  * passes the filter exactly like an unscored solar row does. The caller renders a night row's cell
@@ -116,8 +120,9 @@ export function tideSummary(tide, dimmedCount = 0) {
  * @param {boolean} args.hasCoastalInView a named coastal spot sits inside the padded viewport RIGHT
  *   NOW (`mapTideFit.coastalInView(...).length > 0`) — Always ignores this, Auto requires it
  * @param {?string} args.tier the active window's own served verdict tier
- *   (`verdicts.get(activeRow.id)?.tier`) — `null`/`AWAITING` reads as "not Maybe or better" (D-6):
- *   unscored is not a positive test passing
+ *   (`verdicts.get(activeRow.id)?.tier`) — `null`/`AWAITING`/`UNRATED` reads as "not Maybe or better"
+ *   (D-6; UNRATED per unrated-verdict-plan.md U2): unscored, or too thinly rated to call, is not a
+ *   positive test passing — the test names WORTH_IT and MAYBE explicitly, so no other value can pass
  * @returns {boolean}
  */
 export function tideVisible({ mode, tideAvailable, hasCoastalInView, tier }) {
