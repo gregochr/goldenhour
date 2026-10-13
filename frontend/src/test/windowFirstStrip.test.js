@@ -116,6 +116,36 @@ describe('buildHeatStripCards — one thumbnail per rendered window', () => {
     expect(build(events, cards).map((c) => c.pickKind)).toEqual(['best', 'also']);
   });
 
+  it('carries the card\'s region mean through to the thumbnail, and null as null (verdict-honesty H1)', () => {
+    // Folded from the card, never re-picked: the face prints this beside the verdict word, so a
+    // second selection here is a second chance to name a different region than the word's.
+    const events = [{ date: TODAY, targetType: 'SUNSET' }];
+
+    expect(build(events, [card({ topMeanRating: 3.5 })])[0].topMeanRating).toBe(3.5);
+    expect(build(events, [card()])[0].topMeanRating).toBeNull();
+    expect(build(events, [])[0].topMeanRating).toBeNull();
+  });
+
+  it('folds the printable mean (verdictMean) separately from the ranking mean, null when absent (review F1)', () => {
+    const events = [{ date: TODAY, targetType: 'SUNSET' }];
+
+    const [thumb] = build(events, [card({ topMeanRating: 2, verdictMean: null })]);
+    expect(thumb.topMeanRating).toBe(2);
+    expect(thumb.verdictMean).toBeNull();
+    expect(build(events, [card({ verdictMean: 3.5 })])[0].verdictMean).toBe(3.5);
+    expect(build(events, [])[0].verdictMean).toBeNull();
+  });
+
+  it('carries the active tier\'s minutes through to the thumbnail, null when none (verdict-honesty H2)', () => {
+    // The strip never sees `buildWindowCards`' output directly, so a field the face reads must be
+    // folded here or the component tests (which hand cards straight in) would pass over a drop.
+    const events = [{ date: TODAY, targetType: 'SUNSET' }];
+
+    expect(build(events, [card({ reachLimitMinutes: 45 })])[0].reachLimitMinutes).toBe(45);
+    expect(build(events, [card()])[0].reachLimitMinutes).toBeNull();
+    expect(build(events, [])[0].reachLimitMinutes).toBeNull();
+  });
+
   it('carries no pick kind when the window has no pick at all', () => {
     expect(build([{ date: TODAY, targetType: 'SUNSET' }], [card()])[0].pickKind).toBeNull();
   });

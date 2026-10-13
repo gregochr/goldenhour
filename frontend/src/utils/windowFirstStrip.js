@@ -108,6 +108,15 @@ export function buildHeatStripCards(
       // records why at length. So the mark cannot move when the reader touches the reach tier or
       // the rating floor, which would be a quality control silently relabelling the forecast.
       bestRating: card?.bestRating ?? null,
+      // The served mean of the region whose verdict WORD this card wears, for the face's quiet
+      // `3.5★` beside it (plan-card-verdict-honesty-plan.md H1). Folded from the card — which
+      // already selected the region in the projector's order and re-pointed it when away — never
+      // re-picked here, so the word and the figure cannot name two regions. Null is silence.
+      topMeanRating: card?.topMeanRating ?? null,
+      // The part of that mean the card may PRINT: null unless the top region is verdict-eligible
+      // (review F1) — a triage-fallback word has no mean behind it, and the face, the spoken
+      // sentence and the H2 "beyond the tier" line all read THIS, never `topMeanRating`.
+      verdictMean: card?.verdictMean ?? null,
       // The forecast's own pick, served on the window projection — never a client-side "which of
       // these six looks best" (plan §2.12). Exactly two picks exist across the whole forecast, and
       // the matrix rides BOTH on the card's border as legends, so the kind is carried rather than
@@ -152,6 +161,9 @@ export function buildHeatStripCards(
       // whether this card's own empty-pool words may say "in reach" at all; see
       // `buildWindowCards` for the rule. False on an away day, which has no card and so no scope.
       reachMeasured: Boolean(card?.reachMeasured),
+      // The active tier's minutes (null under "Any" and on an away day) — folded like
+      // `reachMeasured`, for the H2 "region · beyond 45 min" line (plan-card-verdict-honesty-plan.md).
+      reachLimitMinutes: card?.reachLimitMinutes ?? null,
       bestReach: card?.bestReach ?? null,
       // The payload's own list, unfiltered, so the matrix names every topic on the night — the
       // design's "nothing is collapsed behind a +2". ⚠️ There WAS a post-promotion `card.badges`

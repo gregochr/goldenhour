@@ -244,14 +244,13 @@ export function eligibleRegions(es) {
  * beside a rank derived from a different region's mean is two answers to "which region leads this
  * window" — and one scan is the only way that cannot drift.
  *
- * <p><b>Ties break on the NAME, and that is not a local preference — it is
- * {@code buildRegionRows}' rule, copied.</b> That function ranks the open row's region rail with
- * {@code mb === ma ? a.name.localeCompare(b.name) : mb - ma}, so a payload-order tiebreak here
- * would name one region on the thumbnail's chip and put a different one at rank 1 of the rail
- * eight pixels below, each carrying its own delta. Before P6 the divergence was invisible, because
- * this function published only a number and equal means are equal; publishing the region's NAME
- * and its movement is what made the two tiebreaks observable against each other. Keep them
- * identical, or reconverge both on one helper.
+ * <p><b>Ties break on the NAME, and the rail agrees.</b> {@code buildRegionRows} ranks the open
+ * row's region rail with {@link byMeanThenName} (eligible first, then the mean, then the name) and
+ * the Map drilldown ranks with the same comparator, which orders exactly as {@link
+ * pickTopEligibleRegion} does — so the thumbnail's chip, the rail's rank 1 eight pixels below and
+ * the map's first row name one region, each carrying its own delta. A payload-order tiebreak here
+ * would split them. {@code windowFirstRegions.test.js} and {@code mapDrilldown.test.js} pin the
+ * agreement on a thin-4.4-versus-sound-3.5 fixture.
  *
  * @param {?object} es the event summary
  * @returns {?object} the leading eligible region record, or null when none carries a finite mean
@@ -288,6 +287,21 @@ function topRegion(es) {
  * `mb === ma ? a.name.localeCompare(b.name) : mb - ma` — see {@link topRegion}'s note for the
  * defect that rule exists to prevent.
  *
+ * <p><b>Verdict-eligible regions rank first (plan-card-verdict-honesty-plan.md H1).</b>
+ * {@code PlanWindowProjector.BY_RANK} orders {@code verdictEligible()} regions ahead of every
+ * ineligible one BEFORE it compares means, and the window's verdict WORD is its top region's
+ * {@code displayVerdict}. This argmax used to compare means alone, so a thinly-sampled region at 4.4
+ * (the verdict-minimum-sample rule withholds its own verdict) out-ranked a sufficiently-sampled
+ * region at 3.5 here while the projector crowned the 3.5 one — the card would have printed the 3.5
+ * region's word beside the 4.4 region's figure. The wire carries the two booleans the record's
+ * {@code verdictEligible()} reads ({@code sampleSufficient}, {@code forcedSample}; absent = not
+ * eligible, the same safe direction), so this is a selection among served records, never a
+ * threshold. It also tightens {@code mapVerdict}'s scope-limited argmax onto the same order, which
+ * is the agreement that file's own doc claims. The projector's further tiebreak — rated-voter
+ * count — is not on the wire ({@code scoredLocationCount} is canopy-inclusive, a different
+ * population), and needs none here: two regions tied on the served mean print the same figure
+ * whichever one the projector picked.
+ *
  * @param {Array<object>} regions eligible region records; anything without a finite `meanRating`
  *        is skipped rather than ranked, so an unscored region can never win
  * @returns {?object} the leading region record, or null when none carries a finite mean
@@ -297,14 +311,38 @@ export function pickTopEligibleRegion(regions) {
   for (const region of Array.isArray(regions) ? regions : []) {
     const mean = region?.meanRating;
     if (typeof mean !== 'number' || !Number.isFinite(mean)) continue;
-    if (best === null
-        || mean > best.meanRating
-        || (mean === best.meanRating
-            && String(region.regionName ?? '').localeCompare(String(best.regionName ?? '')) < 0)) {
+    if (best === null || outranks(region, best)) {
       best = region;
     }
   }
   return best;
+}
+
+/**
+ * {@code BriefingRegion.verdictEligible()} as the wire carries it — the sample gate passed, or a
+ * force-evaluation exemption. Absent on a legacy payload, which reads as NOT eligible.
+ *
+ * <p>Exported so the region rail and the Map drilldown rank with the SAME test the card's top
+ * region is chosen by, rather than a second copy that could drift (F2 of the H1–H3 review).
+ *
+ * @param {?object} region a served region record, or a rail row carrying {@code sampleSufficient}/
+ *        {@code forcedSample} through
+ * @returns {boolean}
+ */
+export function verdictEligible(region) {
+  return region?.sampleSufficient === true || region?.forcedSample === true;
+}
+
+/**
+ * Whether {@code a} ranks above {@code b} in the projector's order (H1): verdict-eligible first,
+ * then the better served mean, then the NAME. Both arguments carry a finite mean.
+ */
+function outranks(a, b) {
+  const ea = verdictEligible(a);
+  const eb = verdictEligible(b);
+  if (ea !== eb) return ea;
+  if (a.meanRating !== b.meanRating) return a.meanRating > b.meanRating;
+  return String(a.regionName ?? '').localeCompare(String(b.regionName ?? '')) < 0;
 }
 
 /**
@@ -315,6 +353,37 @@ export function pickTopEligibleRegion(regions) {
  */
 function topMeanRating(es) {
   return topRegion(es)?.meanRating ?? null;
+}
+
+/**
+ * The mean a verdict word may be printed beside: the region's served mean when the region is
+ * verdict-eligible, else null (silence — a triage-fallback word has no mean standing behind it).
+ *
+ * @param {?object} scoped the origin's region record when away, else null
+ * @param {?object} top the window's top region when not away
+ * @returns {?number}
+ */
+function verdictMeanOf(scoped, top) {
+  const region = scoped ?? top;
+  if (!region || !verdictEligible(region)) return null;
+  const mean = region.meanRating;
+  return typeof mean === 'number' && Number.isFinite(mean) ? mean : null;
+}
+
+/**
+ * The region mean as the card prints it: always ONE decimal (plan-card-verdict-honesty-plan.md H1).
+ *
+ * <p>{@code BriefingRegion.meanRating} is already rounded to one place server-side, so this adds no
+ * precision — it only keeps the place. Always-one-decimal is the point rather than a default: the
+ * same card carries {@code bestRating} as a whole star ("best spot 4★"), and "4★" beside "4★" would
+ * be two different quantities in one glyph, where "4.0★" is visibly the average. A finite number is
+ * required; anything else is silence (null), never a placeholder.
+ *
+ * @param {?number} mean the served region mean
+ * @returns {?string} e.g. {@code "3.5"} / {@code "4.0"}, or null when there is no mean to show
+ */
+export function formatRegionMean(mean) {
+  return typeof mean === 'number' && Number.isFinite(mean) ? mean.toFixed(1) : null;
 }
 
 /**
@@ -533,6 +602,14 @@ export function buildWindowCards(
         ? (typeof scopedRegion.meanRating === 'number' && Number.isFinite(scopedRegion.meanRating)
           ? scopedRegion.meanRating : null)
         : topMeanRating(es),
+      // The mean the card may PRINT beside its verdict word (plan-card-verdict-honesty-plan.md H1,
+      // review F1) — `topMeanRating` only when the region it belongs to is verdict-eligible. An
+      // INELIGIBLE region (sample gate failed, no force-evaluation exemption) is still ranked and
+      // still carries a served mean, but its `displayVerdict` is the weather-triage fallback, not a
+      // reading of that mean — so "Worth it 2.0★" would print a figure the word does not come from.
+      // `topMeanRating` stays untouched for the Order control; this is the honesty channel. The
+      // away arm tests the SCOPED region, which is the one whose word `verdict` above wears.
+      verdictMean: verdictMeanOf(scopedRegion, scopedRegion ? null : topRegion(es)),
       // The same region `topMeanRating` names, carrying how far it has moved since the previous
       // forecast run. Null — never a zero — when there is nothing to compare against; see
       // `topRegionMovement` for why the two must stay distinguishable.
@@ -585,6 +662,11 @@ export function buildWindowCards(
        * reach"), this one only licenses naming a filter that did something.
        */
       reachMeasured: allSpots.some((spot) => spot?.driveMinutes != null),
+      // The active reach tier's threshold in minutes, null under "Any" (plan-card-verdict-honesty-plan.md
+      // H2). Carried so the Best row can say "beyond 45 min" in the tier's own words when every rated
+      // spot of the verdict's region was gated out: it is the lens's served-to-us input, not a
+      // derivation, and null is what keeps "beyond" unsayable when no tier acted.
+      reachLimitMinutes: limitMinutes,
       // The set the reach gate LEFT, before the rating floor — the matrix's spread histogram and
       // its best-reachable line are both measured over this (plan-matrix A10/A11).
       //

@@ -3302,6 +3302,15 @@ describe('the stylesheet half, which jsdom cannot evaluate (matrix-axis plan §5
     expect(base).toContain('border-radius: 4px');
   });
 
+  it('keeps the region mean on ONE line and never lets it shrink: the verdict word gives way instead (H1)', () => {
+    // The value column is ~88px at 320px; "Worth it" + "3.5★" fit with 7px to spare. If the figure
+    // could wrap or shrink, a long future verdict word would break every row beneath it out of
+    // alignment across the card grid — so the word (`.wf-hc-vd`, which ellipsises) takes the loss.
+    const rule = flatRule('.wf-hc-mean');
+    expect(rule).toContain('white-space: nowrap;');
+    expect(rule).toContain('flex: none;');
+  });
+
   describe('the spread histogram\'s minimum-sample CSS (A27, amended after adversarial review)', () => {
     it('hatches the unrated bar at -45deg — matching the map\'s canvas hatch, NOT the mirrored 45deg', () => {
       // Confirmed 2026-09-29 by rendering both directly: the map's own hatch (heatField.js's
@@ -3427,5 +3436,210 @@ describe('the stylesheet half, which jsdom cannot evaluate (matrix-axis plan §5
       // SVG drops onto its own line above the name and `vertical-align` becomes a no-op.
       expect(flatRule('.wf-hc-best-tw')).toContain('display: inline-block;');
     });
+  });
+});
+
+describe('WindowFirstHeatStrip — the region mean behind the verdict word (verdict-honesty H1)', () => {
+  // A region at 3.53 and one at 4.6 both wear "Worth it", the same tint and the same bloom; the
+  // figure is what tells them apart. Everything here is the SERVED `BriefingRegion.meanRating`
+  // arriving as `card.verdictMean` (the top region's mean, folded only when that region is verdict-
+  // eligible) — nothing on the strip computes it.
+  const mean = () => screen.queryByTestId('wf-heat-mean');
+
+  it('shows the mean beside the verdict word, as a sibling inside the same value cell', async () => {
+    await renderStrip({ cards: [stripCard({ verdictMean: 3.5 })] });
+
+    expect(mean()).toHaveTextContent('3.5★');
+    const verdict = screen.getByTestId('wf-heat-verdict');
+    // A SIBLING, not nested: the word's own text content stays exactly the word (every other test
+    // in this file reads it), and the mean is in the same `.wf-hc-pv` cell so it shares the row.
+    expect(verdict).toHaveTextContent(/^Worth it$/);
+    expect(mean().parentElement).toBe(verdict.parentElement);
+    expect(mean()).toHaveClass('wf-hc-mean');
+    expect(screen.getByTestId('wf-heat-value-grid')).toContainElement(mean());
+  });
+
+  it('always prints ONE decimal: 3.53 → "3.5★" and a whole 4 → "4.0★", never "4★"', async () => {
+    // "4★" is the integer best-spot chip on the same card; the average must never be mistakable for
+    // it, so the decimal is kept even when it is zero.
+    await renderStrip({ cards: [stripCard({ verdictMean: 3.53 })] });
+    expect(mean()).toHaveTextContent(/^3\.5★$/);
+
+    cleanup();
+    await renderStrip({ cards: [stripCard({ verdictMean: 4 })] });
+    expect(mean()).toHaveTextContent(/^4\.0★$/);
+  });
+
+  it.each([null, undefined, Number.NaN])('renders NOTHING for a mean of %s — no dash, no placeholder', async (value) => {
+    await renderStrip({ cards: [stripCard({ verdictMean: value })] });
+
+    expect(mean()).toBeNull();
+    // The verdict word and its cell are untouched, and nothing stand-in text crept into the cell.
+    const cell = screen.getByTestId('wf-heat-verdict').parentElement;
+    expect(cell).toHaveTextContent(/^Worth it$/);
+    expect(screen.getByTestId('wf-heat-value-grid').textContent).not.toMatch(/★\s*$|—|–|n\/a/i);
+  });
+
+  it('renders no mean on an away cell, which has no region behind it', async () => {
+    await renderStrip({
+      cards: [stripCard({ away: true, verdict: null, verdictLabel: 'Not forecast', verdictMean: 3.5 })],
+    });
+    expect(mean()).toBeNull();
+  });
+
+  it('voices the mean in words straight after the verdict, and says nothing when there is none', async () => {
+    // The value grid is aria-hidden, so the sentence is the ONLY route to the figure. "3.5 star
+    // average" is words, not "3.5★" (a glyph some readers skip) and not a bare "3.5" (a time or a
+    // date to a screen reader).
+    await renderStrip({ cards: [stripCard({ verdictMean: 3.53 })] });
+    expect(screen.getByRole('button', {
+      name: 'Tonight Sunset, 21:11, Worth it, 3.5 star average, best, nothing in reach',
+    })).toBeInTheDocument();
+    expect(screen.getByTestId('wf-heat-value-grid')).toHaveAttribute('aria-hidden', 'true');
+
+    cleanup();
+    await renderStrip({ cards: [stripCard({ verdictMean: null })] });
+    expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Worth it, best, nothing in reach' }))
+      .toBeInTheDocument();
+    expect(screen.getByRole('button').getAttribute('aria-labelledby')).toBeTruthy();
+    const nameId = screen.getByRole('button').getAttribute('aria-labelledby');
+    expect(document.getElementById(nameId).textContent).not.toMatch(/star average/);
+  });
+});
+
+describe('WindowFirstHeatStrip — a word with no rating behind it prints no mean and claims no region (review F1)', () => {
+  // `topMeanRating` is the Order control's key and still non-null for a region the sample gate
+  // withheld the verdict from; the card only PRINTS `verdictMean`, which `buildWindowCards` nulls for
+  // that region. The strip must therefore read `verdictMean` everywhere it claims a rating exists.
+  const REGION = 'Northumberland & Tyneside';
+
+  it('prints no mean and voices no "star average" when only topMeanRating is set', async () => {
+    await renderStrip({ cards: [stripCard({ topMeanRating: 2.0, verdictMean: null })] });
+
+    expect(screen.queryByTestId('wf-heat-mean')).toBeNull();
+    const nameId = screen.getByRole('button').getAttribute('aria-labelledby');
+    expect(document.getElementById(nameId).textContent).not.toMatch(/star average/);
+  });
+
+  it('says no "beyond the tier" line either, even over an empty-rated pool under a measured tier', async () => {
+    await renderStrip({ cards: [stripCard({
+      pool: [poolSpot({ rating: null, driveMinutes: 20 })],
+      bestReach: null,
+      topMeanRating: 3.53,
+      verdictMean: null,
+      hotRegionName: REGION,
+      reachLimitMinutes: 45,
+      reachMeasured: true,
+    })] });
+
+    // The H2 line claims the WORD rests on rated places further away; a triage-fallback word
+    // rests on none, so the old "not scored yet" stands.
+    const best = screen.getByTestId('wf-heat-best');
+    expect(best).toHaveTextContent('not scored yet');
+    expect(best).not.toHaveTextContent('beyond');
+  });
+});
+
+describe('WindowFirstHeatStrip — whose verdict it is when nothing in reach is rated (verdict-honesty H2)', () => {
+  // The production state of 2026-10-13: "Worth it" (Northumberland & Tyneside, mean 3.53) over a
+  // Spread of "none rated yet" and a Best of "not scored yet", because from the 45-minute tier every
+  // rated spot of that region was beyond the ring. The pool holds one place the tier kept — unrated.
+  const REGION = 'Northumberland & Tyneside';
+  const beyondCard = (overrides = {}) => stripCard({
+    pool: [poolSpot({ rating: null, driveMinutes: 20 })],
+    bestReach: null,
+    verdictMean: 3.53,
+    hotRegionName: REGION,
+    reachLimitMinutes: 45,
+    reachMeasured: true,
+    ...overrides,
+  });
+  const best = () => screen.getByTestId('wf-heat-best');
+
+  it('names the verdict\'s region and the tier in place of "not scored yet", beside the Spread note', async () => {
+    await renderStrip({ cards: [beyondCard()] });
+
+    expect(best()).toHaveTextContent(`${REGION} · beyond 45 min`);
+    expect(best()).not.toHaveTextContent(/not scored yet|nothing in reach/);
+    // The Spread row still says what it said — the two together are the production state.
+    expect(screen.getByTestId('wf-heat-spread-note')).toHaveTextContent('none rated yet');
+    // The label is "Region", not "Best": the line no longer names a best place.
+    expect(screen.getByTestId('wf-heat-value-grid').textContent).toMatch(/Region/);
+    expect(screen.getByTestId('wf-heat-value-grid').textContent).not.toMatch(/Best/);
+    expect(screen.queryByTestId('wf-heat-best-rating')).toBeNull();
+  });
+
+  it('is a statement, not an absence: primary ink (no `none`), its own class, and a tooltip', async () => {
+    await renderStrip({ cards: [beyondCard()] });
+
+    expect(best()).toHaveClass('wf-hc-best', 'beyond');
+    expect(best()).not.toHaveClass('none');
+    expect(best()).toHaveAttribute(
+      'title', `The verdict is ${REGION}'s, and its rated places are all further than 45 min away`,
+    );
+  });
+
+  it('voices the same clause in the sentence, in place of the suppressed "best, not scored yet"', async () => {
+    await renderStrip({ cards: [beyondCard()] });
+
+    expect(screen.getByRole('button', {
+      name: `Tonight Sunset, 21:11, Worth it, 3.5 star average, 1 location within reach, none rated yet, region ${REGION}, beyond 45 min`,
+    })).toBeInTheDocument();
+    const nameId = screen.getByRole('button').getAttribute('aria-labelledby');
+    expect(document.getElementById(nameId).textContent).not.toMatch(/not scored yet/);
+  });
+
+  it('prints the tier as the lens bar does: 1h 30min, 2h 30min', async () => {
+    await renderStrip({ cards: [beyondCard({ reachLimitMinutes: 90 })] });
+    expect(best()).toHaveTextContent(`${REGION} · beyond 1h 30min`);
+
+    cleanup();
+    await renderStrip({ cards: [beyondCard({ reachLimitMinutes: 150 })] });
+    expect(best()).toHaveTextContent(`${REGION} · beyond 2h 30min`);
+  });
+
+  it('leaves an ordinary rated pool alone: the best place, its chip, no region line', async () => {
+    // Same card, but the tier kept a rated spot — the verdict is then reachable and Best is Best.
+    await renderStrip({ cards: [ratedCard({
+      verdictMean: 3.53, hotRegionName: REGION, reachLimitMinutes: 45, reachMeasured: true,
+    })] });
+
+    expect(best()).toHaveTextContent('Bamburgh Beach');
+    expect(best()).not.toHaveTextContent('beyond');
+    expect(best()).not.toHaveClass('beyond');
+    expect(screen.getByTestId('wf-heat-best-rating')).toHaveTextContent('4★');
+  });
+
+  it('keeps "not scored yet" exactly when the window carries no mean', async () => {
+    await renderStrip({ cards: [beyondCard({ verdictMean: null })] });
+
+    expect(best()).toHaveTextContent('not scored yet');
+    expect(best()).toHaveClass('none');
+    expect(best()).not.toHaveClass('beyond');
+  });
+
+  it('keeps "not scored yet" when no region is named, rather than print a clause with a hole', async () => {
+    await renderStrip({ cards: [beyondCard({ hotRegionName: null })] });
+    expect(best()).toHaveTextContent('not scored yet');
+  });
+
+  it.each([
+    ['no drive time is measured (an unknown drive passes every tier)', { reachMeasured: false }],
+    ['the tier is Any', { reachLimitMinutes: null }],
+  ])('never renders when %s — "beyond" would claim a gate that did not act', async (_, overrides) => {
+    await renderStrip({ cards: [beyondCard(overrides)] });
+
+    expect(best()).toHaveTextContent('not scored yet');
+    expect(best()).not.toHaveTextContent('beyond');
+  });
+
+  it('never renders on an empty pool, which keeps its own "nothing in reach"', async () => {
+    await renderStrip({ cards: [beyondCard({ pool: [] })] });
+    expect(best()).toHaveTextContent('nothing in reach');
+  });
+
+  it('draws no best line at all on an away cell, mean or not', async () => {
+    await renderStrip({ cards: [beyondCard({ away: true, verdict: null, verdictLabel: 'Not forecast' })] });
+    expect(screen.queryByTestId('wf-heat-best')).toBeNull();
   });
 });

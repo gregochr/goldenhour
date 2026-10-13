@@ -109,6 +109,22 @@ describe('buildPanelRegionRows', () => {
     ]);
   });
 
+  it('ranks a verdict-eligible region above an ineligible one with a higher mean', () => {
+    // The pill's top region is chosen eligible-first (`windowVerdict` → `pickTopEligibleRegion`);
+    // the panel's first row must be that region. Thin sorts first on both mean AND name.
+    const summary = {
+      targetType: 'SUNSET',
+      regions: [
+        region('Thin', 4.4, 5, 'MAYBE', { sampleSufficient: false }),
+        region('Sound', 3.5, 4, 'WORTH_IT', { sampleSufficient: true }),
+      ],
+    };
+
+    const rows = build({ summary, regionsInScope: ['Thin', 'Sound'], points: [], spots: [] });
+
+    expect(rows.map((r) => r.name)).toEqual(['Sound', 'Thin']);
+  });
+
   it('breaks a mean tie on the name, so the order is total', () => {
     const summary = {
       targetType: 'SUNSET',
@@ -260,7 +276,8 @@ describe('windowPanelNote — the four branches, and only their own states', () 
     const note = solar({ verdict: { tier: 'STAND_DOWN', sharingCount: 4, allInScope: true, scopedRegionCount: 5 } });
 
     expect(note).toBe('Poor in all 5 regions in your area — nothing here is worth the drive on '
-      + 'this window. Rows are ranked by average, best first.');
+      + 'this window. Rows are ranked by average, best first; a region too thinly rated for a '
+      + 'verdict ranks last.');
     expect(note).not.toMatch(/drive time/);
     expect(note).not.toMatch(/only decides what the map draws/);
   });
@@ -290,7 +307,7 @@ describe('windowPanelNote — the four branches, and only their own states', () 
     const note = solar({ verdict: { tier: 'STAND_DOWN', sharingCount: 3, allInScope: false, scopedRegionCount: 5 } });
 
     expect(note).toBe('4 regions are poor for this window — nothing there is worth the drive. '
-      + 'Rows are ranked by average, best first.');
+      + 'Rows are ranked by average, best first; a region too thinly rated for a verdict ranks last.');
     expect(note).not.toMatch(/drive time/);
   });
 

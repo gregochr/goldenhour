@@ -8,7 +8,7 @@ import {
 import { useHeatCanvas } from '../hooks/useHeatCanvas.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
-import { badgeChannel } from '../utils/windowFirstCards.js';
+import { badgeChannel, formatRegionMean } from '../utils/windowFirstCards.js';
 import { beyondRegions, GLANCE_MINUTES } from '../utils/planningArea.js';
 import { placeWithNudges } from '../utils/labelPlacement.js';
 import { scopeRegions, scopeSpots } from '../utils/planOrigin.js';
@@ -143,6 +143,64 @@ function starsSpoken(rating) {
 }
 
 /**
+ * The Best row's line for the one state where "not scored yet" would be false of the WINDOW
+ * (plan-card-verdict-honesty-plan.md H2): the window carries a rated verdict, and every rated place
+ * behind it is further than the active reach tier.
+ *
+ * <p>Production, 2026-10-13: Friday's sunrise read "Worth it" (Northumberland &amp; Tyneside, 38
+ * rated) over a Spread of "none rated yet" and a Best of "not scored yet", because from the
+ * 45-minute tier every rated spot of that region was beyond the ring. "Not scored yet" is true only
+ * of the reader's POOL; the card never said whose word the verdict was, or that it was out of reach.
+ * This names the region ({@code card.hotRegionName} — the SAME argmax the verdict word and the H1
+ * mean came from, never a fresh pick) and the tier, formatted by {@link formatDriveDuration}, the
+ * one formatter {@code REACH_TIERS} derives the lens bar's chip labels with, so "45 min" here and
+ * on the chip cannot differ.
+ *
+ * <p><b>"Beyond" is claimable only where the tier could act.</b> Every condition below is
+ * load-bearing: a measured drive ({@code reachMeasured} — an unknown drive passes every tier, so
+ * without one nothing was gated and a rated verdict always leaves a rated spot in the pool); an
+ * active tier ({@code reachLimitMinutes} non-null — under "Any" the pool is {@code allSpots}); a
+ * non-empty pool (an empty one is "nothing in reach", a different and already-true sentence); and
+ * a pool with nothing rated, measured by {@link buildSpread} so "rated" means what the Spread row
+ * means by it. Between {@code allSpots} and {@code pool} the reach gate is the ONLY filter, so a
+ * window that has a region mean and a pool with no rated spot has had its rated spots removed by
+ * that gate. Away (an origin set) the scope is the origin's region, whose own mean is the word:
+ * "beyond 45 min" is then measured from the origin, and is just as true.
+ *
+ * <p><b>Not muted, and labelled "Region".</b> The muted ink and 400 weight of "nothing in reach"
+ * mark a state with nothing to report; this is a fact about the window, so it keeps the primary
+ * ink. The label is "Region" rather than "Best" because the line no longer names a best place —
+ * it names whose verdict the word above is — and the word is six characters, as "Spread" is, so
+ * the card's auto-width key column does not grow (a seven-character "Verdict" would take ~6px from
+ * a value column that is only ~88px wide at 320px).
+ *
+ * @param {object} card the thumbnail descriptor
+ * @returns {?object} the line (same shape as {@link bestReachLine}'s, plus {@code beyond: true}),
+ *          or null when the card is not in this state
+ */
+function verdictBeyondReach(card) {
+  const region = card?.hotRegionName;
+  const limit = card?.reachLimitMinutes;
+  if (card?.away || !region || card?.verdictMean == null) return null;
+  if (!card.reachMeasured || limit == null) return null;
+  const pool = card.pool ?? [];
+  if (pool.length === 0 || buildSpread(pool).rated > 0) return null;
+  const tier = formatDriveDuration(limit);
+  return {
+    rating: null,
+    label: 'Region',
+    value: `${region} · beyond ${tier}`,
+    muted: false,
+    beyond: true,
+    title: `The verdict is ${region}'s, and its rated places are all further than ${tier} away`,
+    tideAligned: false,
+    tideState: null,
+    // Starts with the visible label's own word (SC 2.5.3), then the same two facts in words.
+    spoken: `region ${region}, beyond ${tier}`,
+  };
+}
+
+/**
  * What the card's third row says about the best place this reader could actually drive to.
  *
  * <p><b>One function, three states, and the visible text and the spoken text are built together</b>
@@ -208,6 +266,8 @@ export function bestReachLine(card) {
     };
   }
   const empty = (card?.pool?.length ?? 0) === 0;
+  const beyond = verdictBeyondReach(card);
+  if (beyond) return beyond;
   // ⚠️ "In reach" only where the reach axis could have acted — `card.reachMeasured`, computed once
   // in `buildWindowCards` and folded onto this descriptor. An unknown drive passes every tier (plan
   // §2.5), so for a reader with no home postcode the pool was never gated and an empty one means
@@ -1075,7 +1135,12 @@ export default function WindowFirstHeatStrip({
     // reading of the weather, and this says nothing rated it. When it fires, the best-reach clause
     // is suppressed: a window with no rating anywhere has no rated spot in its pool either, so the
     // two would be one fact said twice.
+    // The region mean behind the verdict word (plan-card-verdict-honesty-plan.md H1). Null — a
+    // triage-fallback verdict, an unrated window, an away cell — is SILENCE in both the face and the
+    // sentence: no mean standing behind a word is itself the disclosure that no rating does.
+    const regionMean = card.away ? null : formatRegionMean(card.verdictMean);
     const accessibleName = [card.label, card.time, card.verdictLabel]
+      .concat(regionMean ? [`${regionMean} star average`] : [])
       .filter(Boolean)
       .concat(notScored ? ['not scored'] : [])
       .concat(card.away || !spokenPool ? [] : [spokenPool])
@@ -1086,9 +1151,13 @@ export default function WindowFirstHeatStrip({
       // "nothing is reachable". ⚠️ Also suppressed whenever the POOL's own rated count is zero
       // (independent of `notScored`, which answers for the whole window rather than this reach-gated
       // pool): the spoken pool clause above says "none rated yet" for that state, and repeating "best,
-      // not scored yet" right after it is the same fact twice.
+      // not scored yet" right after it is the same fact twice. ⚠️ EXCEPT in the H2 state
+      // (`facts.best.beyond`, plan-card-verdict-honesty-plan.md): there the Best row no longer says
+      // "not scored yet" at all — it names the region whose verdict the word is and that it is
+      // beyond the tier — so its clause is NEW information, not a repeat, and replaces the
+      // suppressed one.
       .concat(
-        card.away || ((notScored || facts.spread.rated === 0) && poolTotal > 0)
+        card.away || ((notScored || facts.spread.rated === 0) && poolTotal > 0 && !facts.best.beyond)
           ? []
           : [facts.best.spoken],
       )
@@ -1212,6 +1281,13 @@ export default function WindowFirstHeatStrip({
             >
               {card.verdictLabel}
             </span>
+            {/* H1: the served region mean, a SIBLING of the verdict word (not nested in it, so the
+                word's text content stays exactly the word). One decimal always, so "3.5★" cannot be
+                mistaken for the integer best-spot "4★" chip. Absent when null — no dash. The grid is
+                `aria-hidden`; the same figure is voiced in the card's sentence above. */}
+            {regionMean && (
+              <span data-testid="wf-heat-mean" className="wf-hc-mean">{regionMean}★</span>
+            )}
           </span>
           {/* An away window draws none of the three derived rows: there is no card behind it, so
               there is no pool, and an empty histogram beside "Best — nothing in reach" would be
@@ -1290,7 +1366,7 @@ export default function WindowFirstHeatStrip({
               <span className="wf-hc-pv2">
                 <span
                   data-testid="wf-heat-best"
-                  className={`wf-hc-best${facts.best.muted ? ' none' : ''}`}
+                  className={`wf-hc-best${facts.best.muted ? ' none' : ''}${facts.best.beyond ? ' beyond' : ''}`}
                   title={facts.best.title ?? undefined}
                 >
                   {/* The preference-axis glyph (tide-plan-card-plan.md §3 C2 task 1) — the pick is
@@ -1805,6 +1881,18 @@ WindowFirstHeatStrip.propTypes = {
     badges: PropTypes.array,
     /** The window's leading region, for the thumbnail's brightened area name. Null when unrated. */
     hotRegionName: PropTypes.string,
+    /** The served mean of the window's top region (the Order control's key). Not printed directly. */
+    topMeanRating: PropTypes.number,
+    /**
+     * The mean the card may print beside its verdict word: `topMeanRating` only when the top region
+     * is verdict-eligible, else null. Read by the face, the spoken sentence and the H2 "beyond the
+     * tier" line, all of which claim a RATING stands behind the word.
+     */
+    verdictMean: PropTypes.number,
+    /** The active reach tier's threshold in minutes; null under "Any" (H2). */
+    reachLimitMinutes: PropTypes.number,
+    /** Whether a drive time exists for the tier to have gated on (H2 requires it). */
+    reachMeasured: PropTypes.bool,
   })).isRequired,
   pointSets: PropTypes.instanceOf(Map),
   spots: PropTypes.array.isRequired,

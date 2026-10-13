@@ -33,6 +33,9 @@ function region(regionName, meanRating, displayVerdict, overrides = {}) {
     bestRating: overrides.bestRating ?? null,
     confidence: overrides.confidence ?? null,
     slots: overrides.slots ?? [{ canopy: false }],
+    // The sample-gate booleans, only when a test sets them: absent is the legacy "not eligible".
+    ...(overrides.sampleSufficient === undefined ? {} : { sampleSufficient: overrides.sampleSufficient }),
+    ...(overrides.forcedSample === undefined ? {} : { forcedSample: overrides.forcedSample }),
   };
 }
 
@@ -316,6 +319,20 @@ describe('windowVerdict — ranking and absence', () => {
     ]));
 
     expect(call(index, ['The Peak', 'The Dales']).regionName).toBe('The Dales');
+  });
+
+  it('ranks a verdict-eligible region ahead of an ineligible one with a higher mean', () => {
+    // The projector crowns the window's top region eligible-first (BriefingRegion.verdictEligible);
+    // an ineligible region's displayVerdict is only the weather-triage fallback. The tier the pill
+    // wears must therefore be the ELIGIBLE region's, even though the thin one averages 4.4.
+    const index = buildRegionVerdictIndex(days([
+      region('The Peak', 4.4, 'STAND_DOWN', { sampleSufficient: false }),
+      region('The Dales', 3.5, 'WORTH_IT', { sampleSufficient: true }),
+    ]));
+
+    const verdict = call(index, ['The Peak', 'The Dales']);
+    expect(verdict.regionName).toBe('The Dales');
+    expect(verdict.tier).toBe('WORTH_IT');
   });
 
   it('returns null when nothing in scope carries a mean — an unrated window says nothing', () => {

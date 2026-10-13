@@ -2001,6 +2001,34 @@ button.wf-hc.on:hover {
 .wf-hc-vd[data-verdict="WORTH_IT"] { color: var(--color-badge-go); }
 .wf-hc-vd[data-verdict="MAYBE"] { color: var(--color-badge-maybe); }
 .wf-hc-vd[data-verdict="STAND_DOWN"] { color: var(--color-badge-poor); }
+/* The served region mean beside the verdict word — `3.5★` (plan-card-verdict-honesty-plan.md H1).
+   It QUALIFIES the word ("Worth it" at 3.5 is not "Worth it" at 4.6) and must not compete with it:
+   a size down (10px), regular weight, SECONDARY ink — the same token the time and the row labels
+   use, which clears AA on all six card grounds (the muted ink does not: see `.wf-hc-best.none`).
+   It takes no verdict hue, so the word stays the only coloured thing in the row.
+
+   ⚠️ ONE LINE. The value column is ~88.3px at a 320px viewport (A27's measured figure) and wider
+   at 375px and 640px. Measured in Chromium with the real IBM Plex Mono faces: "Worth it" — the
+   longest verdict word that can carry a mean (a word with no verdict-eligible region behind it —
+   "Not scored", or any triage-fallback word — gets `verdictMean` null and prints none, by construction) — is 52.8px at 11px/600,
+   and "3.5★" is 24.0px at 10px/400 (0.6em per character, the star included). The row's 6px flex
+   gap is pulled to 4px by the margin below: 52.8 + 4 + 24.0 = 80.8px < 88.3px, 7.5px to spare at
+   the narrowest card. The star may fall back to a system face on some platforms; even a full-em
+   fallback glyph (+4px) still fits. If a future face narrows the column, the VERDICT WORD gives
+   way, not the figure: `.wf-hc-vd` already ellipsises (`overflow: hidden`, so it may shrink below
+   its content) while this is `flex: none`. A clipped word is the lesser failure: a wrapped row would push every row below it
+   out of alignment across the card grid (see `.wf-hc-hist-note`). Not a direct child of the grid,
+   so the (0,1,1) `.wf-hc-pls > span` rule does not reach it. */
+.wf-hc-mean {
+  flex: none;
+  margin-left: -2px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 400;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-plex-text-secondary);
+}
 /* The spread histogram: five bars, one per star band, heights proportional to the tallest band.
    A lone spike on the right reads "one good spot, drive to it"; a right-weighted block reads "the
    whole area is on" — which two averaged digits could never say. Bar colours are the ramp's, set
@@ -2183,6 +2211,28 @@ button.wf-hc.on:hover {
 .wf-hc-best.none {
   font-weight: 400;
   color: var(--color-plex-text-secondary);
+}
+/* "Northumberland & Tyneside · beyond 45 min" — the Best row's line when the window's verdict
+   belongs to a region every rated place of which the reach tier gated out
+   (plan-card-verdict-honesty-plan.md H2). A real fact about the window rather than an absence, so
+   it keeps the PRIMARY ink (`.none`'s muted ink is for "nothing to report") and the 400 weight that
+   marks it as a statement rather than a place name.
+
+   ⚠️ 10px, not 11px, and `overflow-wrap: anywhere`. The value column is ~88px at a 320px viewport
+   (A27's figure; the key column stays "Spread"-wide because the label is the six-character
+   "Region"). IBM Plex Mono is 0.6em a character: "Northumberland" — the longest single word in any
+   region name served or seeded ("Northumberland & Tyneside", 25 characters, is the longest name;
+   "North York Moors & Coast", 24, the next) — measures 92.4px at 11px, which overflows the column
+   and is clipped by `.wf-hc-pv2`'s `overflow: hidden`, and 84px at 10px, which fits. `anywhere` is
+   the backstop for a name with a longer word than that, so a clip can never eat the region. Worst
+   case at 320px is three lines ("Northumberland &" / "Tyneside · beyond" / "45 min"), ~39px
+   against the slot's 32px minimum: the card grows ~7px at the narrowest width and the grid rows
+   stretch to match, which is the wrap `.wf-hc-best` already budgets for ("Newcastle and Gateshead
+   Quayside"). Wider cards fit it in two. */
+.wf-hc-best.beyond {
+  font-size: 10px;
+  font-weight: 400;
+  overflow-wrap: anywhere;
 }
 /* Every topic on the night, named in full and wrapping into whatever room the card has spare —
    nothing collapsed behind a `+2`, because a night carrying three of them is the most interesting
