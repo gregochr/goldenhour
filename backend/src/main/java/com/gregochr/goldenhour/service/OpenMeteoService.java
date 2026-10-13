@@ -548,8 +548,14 @@ public class OpenMeteoService {
      *
      * <p>Makes up to five additional Open-Meteo calls (cloud layers only): three for the
      * solar cone, one for the antisolar point, and one for the far solar point. Returns
-     * {@code null} if the core solar/antisolar fetches fail; the far fetch failing sets
-     * {@code farSolarLowCloudPercent} to {@code null} only, not the whole result.
+     * {@code null} if the core solar/antisolar fetches fail; the far fetch failing leaves
+     * every far field (low, mid, high and the dark-hour trio) {@code null} and nothing else, not the
+     * whole result.
+     *
+     * <p>From the same far-point response it also records, never prompted, the far mid and high
+     * at the event's slot and the far low, mid and high at the dark-side hour (see
+     * {@link TimeSlotUtils#darkSideIndex}), each read null-safely so a malformed series nulls
+     * only that value.
      *
      * @param lat              observer latitude in decimal degrees
      * @param lon              observer longitude in decimal degrees
@@ -590,18 +596,32 @@ public class OpenMeteoService {
             int solarHigh = solarHighSum / DirectionalSamplingGeometry.SOLAR_CONE_POINT_COUNT;
 
             // Antisolar (index 3)
-            OpenMeteoForecastResponse antisolarForecast = responses.get(3);
+            OpenMeteoForecastResponse antisolarForecast =
+                    responses.get(DirectionalSamplingGeometry.ANTISOLAR_POINT_INDEX);
             int antisolarIdx = TimeSlotUtils.findBestIndex(antisolarForecast.getHourly().getTime(),
                     solarEventTime, targetType);
             OpenMeteoForecastResponse.Hourly ah = antisolarForecast.getHourly();
 
             // Far solar (index 4) — treat parse failures gracefully
             Integer farSolarLow = null;
+            Integer farSolarMid = null;
+            Integer farSolarHigh = null;
+            Integer farLowDark = null;
+            Integer farMidDark = null;
+            Integer farHighDark = null;
             try {
-                OpenMeteoForecastResponse farForecast = responses.get(4);
-                int farIdx = TimeSlotUtils.findBestIndex(farForecast.getHourly().getTime(),
-                        solarEventTime, targetType);
-                farSolarLow = farForecast.getHourly().getCloudCoverLow().get(farIdx);
+                OpenMeteoForecastResponse farForecast =
+                        responses.get(DirectionalSamplingGeometry.FAR_SOLAR_POINT_INDEX);
+                OpenMeteoForecastResponse.Hourly fh = farForecast.getHourly();
+                int farIdx = TimeSlotUtils.findBestIndex(fh.getTime(), solarEventTime, targetType);
+                farSolarLow = fh.getCloudCoverLow().get(farIdx);
+                // Recorded, never prompted: null-safe reads that cannot throw.
+                int darkIdx = TimeSlotUtils.darkSideIndex(farIdx, targetType);
+                farSolarMid = OpenMeteoResponseParser.integerAt(fh.getCloudCoverMid(), farIdx);
+                farSolarHigh = OpenMeteoResponseParser.integerAt(fh.getCloudCoverHigh(), farIdx);
+                farLowDark = OpenMeteoResponseParser.integerAt(fh.getCloudCoverLow(), darkIdx);
+                farMidDark = OpenMeteoResponseParser.integerAt(fh.getCloudCoverMid(), darkIdx);
+                farHighDark = OpenMeteoResponseParser.integerAt(fh.getCloudCoverHigh(), darkIdx);
             } catch (Exception e) {
                 LOG.warn("Far solar extraction failed, strip detection unavailable: {}", e.getMessage());
             }
@@ -618,15 +638,19 @@ public class OpenMeteoService {
                     ah.getCloudCoverLow().get(antisolarIdx),
                     ah.getCloudCoverMid().get(antisolarIdx),
                     ah.getCloudCoverHigh().get(antisolarIdx),
-                    farSolarLow);
+                    farSolarLow, farSolarMid, farSolarHigh, farLowDark, farMidDark, farHighDark);
 
             LOG.info("Directional cloud -> solar(avg3): L{}% M{}% H{}%, antisolar: L{}% M{}% H{}%, "
-                    + "farSolar: L{}% ({}ms, 1 batch call)",
+                    + "farSolar: L{}% M{}% H{}%, farSolar dark hour: L{}% M{}% H{}% ({}ms, 1 batch call)",
                     result.solarLowCloudPercent(), result.solarMidCloudPercent(),
                     result.solarHighCloudPercent(),
                     result.antisolarLowCloudPercent(), result.antisolarMidCloudPercent(),
                     result.antisolarHighCloudPercent(),
-                    result.farSolarLowCloudPercent(), durationMs);
+                    result.farSolarLowCloudPercent(), result.farSolarMidCloudPercent(),
+                    result.farSolarHighCloudPercent(),
+                    result.farSolarLowCloudPercentDarkHour(),
+                    result.farSolarMidCloudPercentDarkHour(),
+                    result.farSolarHighCloudPercentDarkHour(), durationMs);
 
             return result;
         } catch (Exception e) {

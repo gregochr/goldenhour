@@ -66,6 +66,22 @@ public final class TimeSlotUtils {
     }
 
     /**
+     * Returns the index of the hourly slot on the dark side of a solar event, relative to the slot
+     * {@link #findBestIndex} chose: the one after it for a sunset, the one before it for a sunrise.
+     *
+     * <p>The result is not range-checked; the caller reads the series through a null-safe accessor
+     * such as {@code OpenMeteoResponseParser.integerAt}, which returns {@code null} when the index
+     * falls outside the array.
+     *
+     * @param bestIdx    the index returned by {@link #findBestIndex}
+     * @param targetType SUNRISE or SUNSET
+     * @return {@code bestIdx + 1} for a sunset, {@code bestIdx - 1} for a sunrise
+     */
+    public static int darkSideIndex(int bestIdx, TargetType targetType) {
+        return targetType == TargetType.SUNSET ? bestIdx + 1 : bestIdx - 1;
+    }
+
+    /**
      * Finds the index of the hourly slot nearest to the target time, with no directional bias.
      *
      * @param times      list of ISO-8601 time strings from the API response

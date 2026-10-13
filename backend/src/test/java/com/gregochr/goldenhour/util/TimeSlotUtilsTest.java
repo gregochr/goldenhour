@@ -96,4 +96,23 @@ class TimeSlotUtilsTest {
 
         assertThat(idx).isEqualTo(0);
     }
+
+    @Test
+    @DisplayName("darkSideIndex is the next slot for a sunset")
+    void darkSideIndex_sunset_isNextSlot() {
+        assertThat(TimeSlotUtils.darkSideIndex(5, TargetType.SUNSET)).isEqualTo(6);
+    }
+
+    @Test
+    @DisplayName("darkSideIndex is the previous slot for a sunrise")
+    void darkSideIndex_sunrise_isPreviousSlot() {
+        assertThat(TimeSlotUtils.darkSideIndex(5, TargetType.SUNRISE)).isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("darkSideIndex is not range-checked: the array edges give out-of-range indices")
+    void darkSideIndex_atEdges_isNotClamped() {
+        assertThat(TimeSlotUtils.darkSideIndex(0, TargetType.SUNRISE)).isEqualTo(-1);
+        assertThat(TimeSlotUtils.darkSideIndex(23, TargetType.SUNSET)).isEqualTo(24);
+    }
 }

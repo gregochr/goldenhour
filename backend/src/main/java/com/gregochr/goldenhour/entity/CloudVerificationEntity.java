@@ -91,6 +91,29 @@ public class CloudVerificationEntity {
     @Column(name = "far_low_cloud")
     private Integer farLowCloud;
 
+    /** Analysed mid cloud (%) at the 226 km far-solar point, at the event hour (V175). */
+    @Column(name = "far_mid_cloud")
+    private Integer farMidCloud;
+
+    /** Analysed high cloud (%) at the 226 km far-solar point, at the event hour (V175). */
+    @Column(name = "far_high_cloud")
+    private Integer farHighCloud;
+
+    /**
+     * Analysed low cloud (%) at the far-solar point, on the dark side of the event: the hour after
+     * a sunset, the hour before a sunrise (V175).
+     */
+    @Column(name = "far_low_cloud_dark")
+    private Integer farLowCloudDark;
+
+    /** Analysed mid cloud (%) at the far-solar point, on the dark side of the event (V175). */
+    @Column(name = "far_mid_cloud_dark")
+    private Integer farMidCloudDark;
+
+    /** Analysed high cloud (%) at the far-solar point, on the dark side of the event (V175). */
+    @Column(name = "far_high_cloud_dark")
+    private Integer farHighCloudDark;
+
     /** Analysed low cloud (%) overhead at the observer. */
     @Column(name = "observer_low_cloud")
     private Integer observerLowCloud;

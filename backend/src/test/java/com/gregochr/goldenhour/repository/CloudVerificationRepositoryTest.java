@@ -148,6 +148,26 @@ class CloudVerificationRepositoryTest {
     }
 
     @Test
+    @DisplayName("deleteIncompleteVerifications keeps a row with the far low but none of the V175 far fields")
+    void deleteIncompleteVerifications_keepsRowWithFarLowButNoNewFarFields() {
+        ForecastEvaluationEntity evaluation = evaluationRepository.save(evaluation(DATE, 30, true));
+        // Exactly the shape verification() builds: every column the current sampling requires, the
+        // far low included, and all five far mid/high/dark-side columns left null. Those columns
+        // are deliberately not part of "incomplete", or the whole history would be re-walked.
+        CloudVerificationEntity row = verification(evaluation.getId(), 80, 55, 40);
+        assertThat(row.getFarLowCloud()).isNotNull();
+        assertThat(row.getFarMidCloud()).isNull();
+        assertThat(row.getFarHighCloud()).isNull();
+        assertThat(row.getFarLowCloudDark()).isNull();
+        assertThat(row.getFarMidCloudDark()).isNull();
+        assertThat(row.getFarHighCloudDark()).isNull();
+        repository.save(row);
+
+        assertThat(repository.deleteIncompleteVerifications()).isZero();
+        assertThat(repository.findUnverified(DATE.plusDays(1), Limit.of(10))).isEmpty();
+    }
+
+    @Test
     @DisplayName("findVerifiedPairs projects both cloud claims and both veto triggers")
     void findVerifiedPairs_projectsClaimsAndTriggers() {
         ForecastEvaluationEntity evaluation = evaluationRepository.save(evaluation(DATE, 30, true));

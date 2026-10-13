@@ -1,5 +1,11 @@
 package com.gregochr.goldenhour.service;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import com.gregochr.goldenhour.util.ReplayJson;
+import org.slf4j.LoggerFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.gregochr.goldenhour.TestAtmosphericData;
@@ -629,6 +635,62 @@ class ModelTestServiceTest {
         // Verify 3 evaluations (one per model)
         verify(evaluationService, times(3)).evaluateWithDetails(any(), any(), any());
         verify(testResultRepository, times(3)).save(any(ModelTestResultEntity.class));
+    }
+
+    @Test
+    @DisplayName("rerunTestDeterministic replays stored JSON carrying a property this build does not know")
+    void rerunTestDeterministic_skipsUnknownStoredProperty() throws Exception {
+        AtmosphericData data = sampleAtmosphericData();
+        // A row written by a newer build: one extra top-level property.
+        String dataJson = objectMapper.writeValueAsString(data)
+                .replaceFirst("\\{", "{\"aFieldFromANewerBuild\":1,");
+
+        ModelTestRunEntity previousRun = ModelTestRunEntity.builder()
+                .id(10L).targetDate(LocalDate.of(2026, 3, 1))
+                .targetType(TargetType.SUNSET).build();
+        ModelTestResultEntity prevResult = ModelTestResultEntity.builder()
+                .testRunId(10L).locationId(1L).locationName("Durham")
+                .regionId(1L).regionName("North East")
+                .targetDate(LocalDate.of(2026, 3, 1)).targetType(TargetType.SUNSET)
+                .evaluationModel(EvaluationModel.HAIKU).succeeded(true)
+                .atmosphericDataJson(dataJson).build();
+
+        when(testRunRepository.findById(10L)).thenReturn(Optional.of(previousRun));
+        when(testResultRepository.findByTestRunIdOrderByRegionNameAscEvaluationModelAsc(10L))
+                .thenReturn(List.of(prevResult));
+        when(testRunRepository.save(any())).thenAnswer(inv -> {
+            ModelTestRunEntity e = inv.getArgument(0);
+            if (e.getId() == null) {
+                e.setId(20L);
+            }
+            return e;
+        });
+        when(evaluationService.evaluateWithDetails(any(), any(), any()))
+                .thenAnswer(inv -> sampleDetail(inv.getArgument(1)));
+        when(costCalculator.calculateCostMicroDollars(any(EvaluationModel.class), any(TokenUsage.class)))
+                .thenReturn(5400L);
+        when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+        when(testResultRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        Logger replayLogger = (Logger) LoggerFactory.getLogger(ReplayJson.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        replayLogger.addAppender(appender);
+        try {
+            ModelTestRunEntity result = service.rerunTestDeterministic(10L);
+
+            assertThat(result.getSucceeded()).isEqualTo(3);
+            assertThat(result.getFailed()).isEqualTo(0);
+            assertThat(appender.list)
+                    .singleElement()
+                    .satisfies(e -> {
+                        assertThat(e.getLevel()).isEqualTo(Level.WARN);
+                        assertThat(e.getFormattedMessage()).contains("aFieldFromANewerBuild");
+                    });
+        } finally {
+            replayLogger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     @Test
