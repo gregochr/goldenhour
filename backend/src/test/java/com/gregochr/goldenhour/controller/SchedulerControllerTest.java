@@ -55,6 +55,26 @@ class SchedulerControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("GET /api/admin/scheduler/jobs lists a row with an unrecognised schedule type")
+    void listJobs_serialisesUnrecognisedScheduleType() throws Exception {
+        SchedulerJobConfigEntity unknown = SchedulerJobConfigEntity.builder()
+                .id(7L).jobKey("future_job").displayName("Future").scheduleTypeRaw("SOLAR_OFFSET")
+                .status(SchedulerJobStatus.ACTIVE).build();
+        SchedulerJobConfigEntity known = buildConfig("tide_refresh", ScheduleType.CRON,
+                "0 0 2 * * MON", null, SchedulerJobStatus.ACTIVE);
+        when(schedulerService.getAll()).thenReturn(List.of(known, unknown));
+        when(schedulerService.calculateNextFireTime(any())).thenReturn(null);
+
+        mockMvc.perform(get("/api/admin/scheduler/jobs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].scheduleType").value("CRON"))
+                .andExpect(jsonPath("$[1].scheduleType").value("SOLAR_OFFSET"))
+                .andExpect(jsonPath("$[1].jobKey").value("future_job"));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
     @DisplayName("POST /api/admin/scheduler/jobs/{jobKey}/pause returns 200 for ADMIN")
     void pauseJob_returns200ForAdmin() throws Exception {
         SchedulerJobConfigEntity config = buildConfig("tide_refresh", ScheduleType.CRON,
