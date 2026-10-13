@@ -117,14 +117,19 @@ class FreshnessResolverTest {
         }
 
         @Test
-        @DisplayName("default T+1 SETTLED cap: an entry 7h old is stale, 5h old is fresh — the "
-                + "midwinter morning-to-afternoon gap is ~7h24")
-        void defaultTomorrowSettledCapSplitsSevenFromFiveHours() {
+        @DisplayName("default T+1 SETTLED cap: a morning batch that took the whole 3h30 safety "
+                + "budget lands ~3h54 before a midwinter afternoon trigger and must still read stale")
+        void defaultTomorrowSettledCapSurvivesTheSlowestAwaitedMorningBatch() {
             Duration cap = new FreshnessResolver(new FreshnessProperties())
                     .maxAgeFor(1, ForecastStability.SETTLED);
+            Duration midwinterGap = Duration.ofHours(7).plusMinutes(24);
+            Duration safetyBudget = Duration.ofHours(3).plusMinutes(30);
 
-            assertThat(Duration.ofHours(7)).isGreaterThan(cap);
-            assertThat(Duration.ofHours(5)).isLessThan(cap);
+            assertThat(midwinterGap.minus(safetyBudget)).isGreaterThan(cap);
+            // and with an ordinary few-minutes batch it is stale by a wide margin
+            assertThat(midwinterGap.minusMinutes(10)).isGreaterThan(cap);
+            // a slot re-checked within a couple of hours of its write is still cached
+            assertThat(Duration.ofHours(2)).isLessThan(cap);
         }
 
         @Test

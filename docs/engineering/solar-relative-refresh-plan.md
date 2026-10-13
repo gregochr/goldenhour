@@ -51,10 +51,14 @@ Taken 2026-10-13 (v3), each answering a review finding:
   is before **05:00 UK**, the afternoon cycle if it is at least **90 minutes before sunset**. Otherwise
   it waits for the next trigger. (v2 said "never fire late", which turns a restart just after the
   trigger into a day with no forecast.)
-- **D2 — The T+1 cache cap drops from 8 h to 6 h.** The shortest new gap (midwinter morning →
-  afternoon, ~7.4 h, less ~10 min of morning batch latency) is under 8 h, and the cache check runs
-  before eligibility, so from late November to late January the afternoon would skip every SETTLED
-  and TRANSITIONAL T+1 region as cached. 6 h leaves about an hour's margin all year.
+- **D2 — The T+1 cache cap drops from 8 h to 3 h.** The shortest new gap (midwinter morning →
+  afternoon, ~7.4 h) is under 8 h, and the cache check runs before eligibility, so from late
+  November to late January the afternoon would skip every SETTLED and TRANSITIONAL T+1 region as
+  cached. The owner chose 6 h (2026-10-13); review of P3 (#1143, Codex) found that too high,
+  because a cached entry's age runs from when its results *arrived*: a morning batch slower than
+  ~1 h 24 min would still be "fresh" at the afternoon trigger, and the record holds a 181-minute
+  one. The cap must sit below the shortest gap minus the longest batch still awaited (D3's 3 h 30 min
+  budget), ~3 h 54 min, so 3 h. Same intent, re-derived.
 - **D3 — WAIT and RETRY_FAILED share one budget of 3 h 30 min measured from the cycle's first batch
   submit.** Today each waits up to 4 h with a fresh deadline, so one cycle can stay RUNNING for 8 h+,
   longer than the new minimum gaps (6.4 h summer afternoon → morning, 7.4 h winter morning →
@@ -165,7 +169,7 @@ today. Its contract, each line a test:
 
 | Assumption | Where | What changes | Handled in |
 |---|---|---|---|
-| T+1 cache cap 8 h "survives every cycle boundary" | `FreshnessProperties.java:87-94`, `application-example.yml:334-341` | winter gap ~7.4 h, so T+1 skipped as cached | P3 (6 h, D2) |
+| T+1 cache cap 8 h "survives every cycle boundary" | `FreshnessProperties.java:87-94`, `application-example.yml:334-341` | winter gap ~7.4 h, so T+1 skipped as cached | P3 (3 h, D2) |
 | WAIT and RETRY each get a fresh 4 h | `PipelineOrchestrator.java:1010`, `:917` | cycles could overlap | P2b (D3) |
 | Afternoon offset (240 min) equals the 4 h timeout | `PipelineOrchestrator.java:111` | a timed-out afternoon run fails at sunset | P2b (3 h 30 min budget, from first submit) |
 | `IntradayEligibilityPolicy` rationale ("01:00, nobody awake", "tomorrow's 14:00") | `:24, 43, 84-85` | text only | P3 |
@@ -347,7 +351,7 @@ the panel's figures come from the preview endpoint. UI review cadence; browser c
 
 ### P3 — Move the afternoon cycle
 
-*Change (code, before the switch):* `FreshnessProperties.t1Hours` 8 → 6 with its rationale rewritten
+*Change (code, before the switch):* `FreshnessProperties.t1Hours` 8 → 3 with its rationale rewritten
 (D2); the `IntradayEligibilityPolicy`, `AstroConditionsRefreshJob`, `BriefingCandidateCollector`
 label and `PipelineOrchestrator` timing text (A4); their tests' fixtures and display names.
 

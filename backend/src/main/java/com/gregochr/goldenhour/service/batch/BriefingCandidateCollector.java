@@ -194,7 +194,7 @@ public final class BriefingCandidateCollector {
                             region, stabilityByLocation);
                     // Horizon-aware: an evaluation for tonight and one for four days out are not
                     // equally allowed to be stale. Passing daysAhead caps T+0 at the safety floor
-                    // and T+1 at 6h, so a SETTLED region evaluated at T+1 can no longer hold its
+                    // and T+1 at 3h, so a SETTLED region evaluated at T+1 can no longer hold its
                     // 36h window across the event it was evaluated for.
                     Duration freshness = freshnessResolver.maxAgeFor(daysAhead, regionStability);
                     int regionSlots = region.slots() != null ? region.slots().size() : 0;
