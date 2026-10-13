@@ -920,7 +920,13 @@ public class PipelineOrchestrator {
                             + ", NOT retried (systematic failure — investigate)");
             case RETRY -> {
                 Duration remaining = remainingBudget(runId);
-                if (!resuming && remaining.compareTo(MIN_RETRY_BUDGET) < 0) {
+                // Only a retry batch that already exists (a restart after submitRetry created it)
+                // is exempt from the cutoff: it is paid for, and waiting on it is all that is left.
+                // A resume that restarted BEFORE the batch was created submits a new one, so it
+                // must observe the cutoff exactly as a first entry does.
+                boolean retryAlreadySubmitted = resuming
+                        && !forecastBatchRepository.findByPipelineRunIdAndRetryTrue(runId).isEmpty();
+                if (!retryAlreadySubmitted && remaining.compareTo(MIN_RETRY_BUDGET) < 0) {
                     // WAIT used (nearly) all of the cycle's one budget. A retry batch submitted now
                     // could not be awaited and would fail the whole run on the timeout, discarding
                     // a cycle whose original batches all landed. Skip it instead, as the

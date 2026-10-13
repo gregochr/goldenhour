@@ -1710,5 +1710,50 @@ class PipelineOrchestratorTest {
             verify(batchRetryService).submitRetry(RUN_ID, selection);
             verify(pipelineRunService).completePhase(RUN_ID, PipelinePhase.RETRY_FAILED, "recovered");
         }
+
+        @Test
+        @DisplayName("a restart inside RETRY_FAILED BEFORE the retry batch was created still observes "
+                + "the cutoff: no paid retry batch is submitted with nine minutes left")
+        void resumeBeforeRetrySubmitted_observesTheCutoff() {
+            RetrySelection selection = oneFailure();
+            PipelineRunEntity midRetry = runInPhase(PipelinePhase.RETRY_FAILED);
+            when(pipelineRunService.findRunning()).thenReturn(List.of(midRetry));
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(midRetry));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of(
+                    submittedAt(BatchStatus.COMPLETED, T0.minus(Duration.ofMinutes(51)))));
+            when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID)).thenReturn(List.of());
+            when(batchRetryService.selectFailures(RUN_ID)).thenReturn(selection);
+
+            orchestrator.resumeRunningCyclesOnStartup();
+
+            verify(batchRetryService, never()).submitRetry(eq(RUN_ID), any());
+            verify(pipelineRunService).completePhase(eq(RUN_ID), eq(PipelinePhase.RETRY_FAILED),
+                    org.mockito.ArgumentMatchers.contains("NOT retried: only 9 min"));
+            verify(briefingService).refreshBriefing();
+        }
+
+        @Test
+        @DisplayName("a restart inside RETRY_FAILED AFTER the retry batch was created goes on to wait "
+                + "for it, whatever budget is left: that batch is already paid for")
+        void resumeAfterRetrySubmitted_waitsForTheExistingBatch() {
+            RetrySelection selection = oneFailure();
+            PipelineRunEntity midRetry = runInPhase(PipelinePhase.RETRY_FAILED);
+            ForecastBatchEntity retryBatch = submittedAt(BatchStatus.COMPLETED,
+                    T0.minus(Duration.ofMinutes(20)));
+            when(pipelineRunService.findRunning()).thenReturn(List.of(midRetry));
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(midRetry));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID)).thenReturn(List.of(
+                    submittedAt(BatchStatus.COMPLETED, T0.minus(Duration.ofMinutes(51))), retryBatch));
+            when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID))
+                    .thenReturn(List.of(retryBatch));
+            when(batchRetryService.selectFailures(RUN_ID)).thenReturn(selection);
+            when(batchRetryService.submitRetry(RUN_ID, selection)).thenReturn(RetrySubmitResult.none());
+            when(batchRetryService.summariseRecovery(RUN_ID, 1)).thenReturn("recovered");
+
+            orchestrator.resumeRunningCyclesOnStartup();
+
+            verify(batchRetryService).submitRetry(RUN_ID, selection);
+            verify(pipelineRunService).completePhase(RUN_ID, PipelinePhase.RETRY_FAILED, "recovered");
+        }
     }
 }

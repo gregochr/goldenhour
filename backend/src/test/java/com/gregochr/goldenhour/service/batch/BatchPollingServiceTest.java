@@ -138,12 +138,55 @@ class BatchPollingServiceTest {
                 .thenReturn(List.of(batch));
         MessageBatch ended = mockBatchStatus(MessageBatch.ProcessingStatus.ENDED);
         when(batchService.retrieve("msgbatch_late")).thenReturn(ended);
+        // The real processor leaves the batch terminal; the hook runs only for a terminal batch.
+        org.mockito.Mockito.doAnswer(inv -> {
+            batch.setStatus(BatchStatus.COMPLETED);
+            return null;
+        }).when(resultProcessor).processResults(batch);
 
         pollingService.pollPendingBatches();
 
         org.mockito.InOrder order = org.mockito.Mockito.inOrder(resultProcessor, lateBatchBriefingRebuild);
         order.verify(resultProcessor).processResults(batch);
         order.verify(lateBatchBriefingRebuild).onBatchEnded(batch);
+    }
+
+    @Test
+    @DisplayName("a batch saved terminal is still offered to the late-batch rebuild when a step after "
+            + "the terminal save throws: no later poll would ever reach it again")
+    void pollPendingBatches_terminalThenThrows_stillOfferedToLateRebuild() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch("msgbatch_post_save_failure");
+        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                .thenReturn(List.of(batch));
+        MessageBatch ended = mockBatchStatus(MessageBatch.ProcessingStatus.ENDED);
+        when(batchService.retrieve("msgbatch_post_save_failure")).thenReturn(ended);
+        org.mockito.Mockito.doAnswer(inv -> {
+            batch.setStatus(BatchStatus.FAILED);
+            throw new IllegalStateException("job run completion failed after the terminal save");
+        }).when(resultProcessor).processResults(batch);
+
+        pollingService.pollPendingBatches();
+
+        verify(lateBatchBriefingRebuild).onBatchEnded(batch);
+    }
+
+    @Test
+    @DisplayName("a batch that is still not terminal when processing throws is not offered to the "
+            + "late-batch rebuild (the next poll processes it again)")
+    void pollPendingBatches_throwsBeforeTerminal_notOfferedToLateRebuild() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch("msgbatch_early_failure");
+        when(batchRepository.findByStatusOrderBySubmittedAtDesc(BatchStatus.SUBMITTED))
+                .thenReturn(List.of(batch));
+        MessageBatch ended = mockBatchStatus(MessageBatch.ProcessingStatus.ENDED);
+        when(batchService.retrieve("msgbatch_early_failure")).thenReturn(ended);
+        org.mockito.Mockito.doThrow(new IllegalStateException("results stream failed"))
+                .when(resultProcessor).processResults(batch);
+
+        pollingService.pollPendingBatches();
+
+        verifyNoInteractions(lateBatchBriefingRebuild);
     }
 
     @Test
