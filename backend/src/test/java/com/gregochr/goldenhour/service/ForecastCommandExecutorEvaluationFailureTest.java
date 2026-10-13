@@ -199,7 +199,7 @@ class ForecastCommandExecutorEvaluationFailureTest {
         when(locationService.shouldEvaluateSunrise(any())).thenReturn(false);
         when(locationService.shouldEvaluateSunset(any())).thenReturn(true);
         when(openMeteoService.prefetchWeatherBatch(anyList(), any())).thenReturn(new java.util.LinkedHashMap<>());
-        when(openMeteoService.prefetchCloudBatch(anyList(), any()))
+        when(openMeteoService.prefetchCloudBatch(anyList(), anyList(), any()))
                 .thenReturn(new CloudPointCache(java.util.Map.of()));
         when(solarService.sunsetUtc(anyDouble(), anyDouble(), any()))
                 .thenReturn(LocalDateTime.parse("2026-10-03T17:30:00"));

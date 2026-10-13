@@ -15,9 +15,15 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
+import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import java.io.IOException;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -438,6 +444,70 @@ class OpenMeteoClientTest {
 
         assertThat(results).hasSize(15);
         assertThat(results).allSatisfy(r -> assertThat(r).isNotNull());
+    }
+
+    // ── Requested hourly variables ────────────────────────────────────────────
+
+    @Test
+    @DisplayName("fetchPressureLevelCloudBatch requests exactly the six pressure-level cloud variables")
+    void fetchPressureLevelCloudBatch_requestsExactlySixLevels() {
+        String hourly = hourlyParamSentBy(c -> c.fetchPressureLevelCloudBatch(buildCoords(2)));
+
+        assertThat(hourly).isEqualTo("cloud_cover_850hPa,cloud_cover_700hPa,cloud_cover_600hPa,"
+                + "cloud_cover_500hPa,cloud_cover_400hPa,cloud_cover_300hPa");
+        assertThat(hourly).isEqualTo(OpenMeteoClient.PRESSURE_LEVEL_CLOUD_PARAMS);
+        assertThat(hourly.split(",")).hasSize(6);
+    }
+
+    @Test
+    @DisplayName("fetchCloudOnlyBatch still requests exactly low, mid and high cloud")
+    void fetchCloudOnlyBatch_stillRequestsOnlyCloudOnlyParams() {
+        String hourly = hourlyParamSentBy(c -> c.fetchCloudOnlyBatch(buildCoords(2)));
+
+        assertThat(hourly).isEqualTo("cloud_cover_low,cloud_cover_mid,cloud_cover_high");
+        assertThat(hourly).isEqualTo(OpenMeteoClient.CLOUD_ONLY_PARAMS);
+    }
+
+    @Test
+    @DisplayName("fetchPressureLevelCloudBatch returns null entries for a failed chunk, like the cloud batch")
+    void fetchPressureLevelCloudBatch_failedChunk_leavesNulls() {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://open-meteo.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        OpenMeteoClient client = new OpenMeteoClient(forecastApi, airQualityApi, new ObjectMapper(),
+                builder.build(), null);
+        client.interChunkDelayMs = 0;
+        server.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.anything())
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators
+                        .withSuccess(buildJsonArray(20, 50.0),
+                                org.springframework.http.MediaType.APPLICATION_JSON));
+        server.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.anything())
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators
+                        .withServerError());
+
+        List<OpenMeteoForecastResponse> results = client.fetchPressureLevelCloudBatch(buildCoords(25));
+
+        assertThat(results).hasSize(25);
+        assertThat(results.stream().filter(r -> r != null).count()).isEqualTo(20);
+        assertThat(results.subList(20, 25)).containsOnlyNulls();
+    }
+
+    private String hourlyParamSentBy(Function<OpenMeteoClient, List<OpenMeteoForecastResponse>> call) {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://open-meteo.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        OpenMeteoClient client = new OpenMeteoClient(forecastApi, airQualityApi, new ObjectMapper(),
+                builder.build(), null);
+        AtomicReference<String> hourly = new AtomicReference<>();
+        server.expect(request -> hourly.set(URLDecoder.decode(
+                        UriComponentsBuilder.fromUri(request.getURI()).build()
+                                .getQueryParams().getFirst("hourly"), StandardCharsets.UTF_8)))
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators
+                        .withSuccess(buildJsonArray(2, 50.0),
+                                org.springframework.http.MediaType.APPLICATION_JSON));
+
+        call.apply(client);
+
+        server.verify();
+        return hourly.get();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

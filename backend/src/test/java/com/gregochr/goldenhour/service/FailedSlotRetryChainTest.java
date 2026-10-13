@@ -106,7 +106,8 @@ class FailedSlotRetryChainTest {
         when(optimisationStrategyService.getEnabledStrategies(RunType.SHORT_TERM)).thenReturn(List.of());
         when(optimisationStrategyService.serialiseEnabledStrategies(RunType.SHORT_TERM)).thenReturn("");
         when(openMeteoService.prefetchWeatherBatch(anyList(), any())).thenReturn(Map.of());
-        when(openMeteoService.prefetchCloudBatch(anyList(), any())).thenReturn(new CloudPointCache(Map.of()));
+        when(openMeteoService.prefetchCloudBatch(anyList(), anyList(), any()))
+                .thenReturn(new CloudPointCache(Map.of()));
         // Every slot is stood down at triage, so the run ends after the triage phase; what is observed is
         // which slots the executor registered.
         when(forecastService.fetchWeatherAndTriage(

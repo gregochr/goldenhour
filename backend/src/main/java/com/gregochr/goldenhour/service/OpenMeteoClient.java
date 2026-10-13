@@ -59,6 +59,14 @@ public class OpenMeteoClient {
     /** Comma-separated cloud-only parameters for directional horizon sampling. */
     static final String CLOUD_ONLY_PARAMS = "cloud_cover_low,cloud_cover_mid,cloud_cover_high";
 
+    /**
+     * Comma-separated pressure-level cloud parameters, 850 hPa to 300 hPa. Requested on their own,
+     * never alongside {@link #CLOUD_ONLY_PARAMS}, so a refusal cannot touch directional cloud.
+     */
+    static final String PRESSURE_LEVEL_CLOUD_PARAMS =
+            "cloud_cover_850hPa,cloud_cover_700hPa,cloud_cover_600hPa,"
+            + "cloud_cover_500hPa,cloud_cover_400hPa,cloud_cover_300hPa";
+
     /** Comma-separated hourly air quality parameters requested from Open-Meteo. */
     static final String AIR_QUALITY_PARAMS = "pm2_5,dust,aerosol_optical_depth";
 
@@ -254,6 +262,23 @@ public class OpenMeteoClient {
     @RateLimiter(name = "open-meteo")
     public List<OpenMeteoForecastResponse> fetchCloudOnlyBatch(List<double[]> coords) {
         return fetchForecastBatchInternal(coords, CLOUD_ONLY_PARAMS, forecastRestClient);
+    }
+
+    /**
+     * Fetches pressure-level cloud cover (850 to 300 hPa) for multiple points.
+     *
+     * <p>Same batching, chunking and resilience as {@link #fetchCloudOnlyBatch(List)}, but
+     * requesting {@link #PRESSURE_LEVEL_CLOUD_PARAMS}. Failed chunks leave {@code null} entries at
+     * their positions in the returned list. Callers must guard against {@code null} entries.
+     *
+     * @param coords list of [lat, lon] pairs
+     * @return list of length {@code coords.size()} — {@code null} where a chunk failed
+     */
+    @Retry(name = "open-meteo")
+    @CircuitBreaker(name = "open-meteo")
+    @RateLimiter(name = "open-meteo")
+    public List<OpenMeteoForecastResponse> fetchPressureLevelCloudBatch(List<double[]> coords) {
+        return fetchForecastBatchInternal(coords, PRESSURE_LEVEL_CLOUD_PARAMS, forecastRestClient);
     }
 
     /**

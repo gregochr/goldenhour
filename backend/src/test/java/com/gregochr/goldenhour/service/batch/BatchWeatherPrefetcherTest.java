@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.OpenMeteoAirQualityResponse;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
+import com.gregochr.goldenhour.service.DirectionalSamplingGeometry;
 import com.gregochr.goldenhour.service.OpenMeteoService;
 import com.gregochr.goldenhour.service.SolarService;
 import org.junit.jupiter.api.BeforeEach;
@@ -29,6 +30,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
@@ -91,7 +93,7 @@ class BatchWeatherPrefetcherTest {
                 any(LocalDateTime.class), eq(eventTime))).thenReturn(upwindPoint);
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<double[]>> pointsCaptor = ArgumentCaptor.forClass(List.class);
-        when(openMeteoService.prefetchCloudBatch(pointsCaptor.capture(), isNull()))
+        when(openMeteoService.prefetchCloudBatch(pointsCaptor.capture(), anyList(), isNull()))
                 .thenReturn(new CloudPointCache(Map.of()));
 
         prefetcher.prefetchBatchCloudPoints(List.of(candidate), prefetchedWeather);
@@ -121,7 +123,7 @@ class BatchWeatherPrefetcherTest {
                 .thenReturn(new ArrayList<>(List.of(directionalPoint)));
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<double[]>> pointsCaptor = ArgumentCaptor.forClass(List.class);
-        when(openMeteoService.prefetchCloudBatch(pointsCaptor.capture(), isNull()))
+        when(openMeteoService.prefetchCloudBatch(pointsCaptor.capture(), anyList(), isNull()))
                 .thenReturn(new CloudPointCache(Map.of()));
 
         prefetcher.prefetchBatchCloudPoints(List.of(candidate), null);
@@ -130,5 +132,49 @@ class BatchWeatherPrefetcherTest {
         verify(openMeteoService, org.mockito.Mockito.never())
                 .computeUpwindPoint(anyDouble(), anyDouble(), anyInt(), anyDouble(),
                         any(LocalDateTime.class), any(LocalDateTime.class));
+    }
+
+    @Test
+    @DisplayName("prefetchBatchCloudPoints passes one far-solar point per candidate as the far list")
+    void prefetchBatchCloudPoints_passesFarSolarPointPerCandidate() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocationEntity a = new LocationEntity();
+        a.setId(1L);
+        a.setName("Bamburgh");
+        a.setLat(55.0);
+        a.setLon(-1.5);
+        LocationEntity b = new LocationEntity();
+        b.setId(2L);
+        b.setName("Durham");
+        b.setLat(54.8);
+        b.setLon(-1.6);
+        List<double[]> pointsA = fivePoints(55.0);
+        List<double[]> pointsB = fivePoints(54.0);
+        when(solarService.sunsetAzimuthDeg(55.0, -1.5, date)).thenReturn(250);
+        when(solarService.sunsetAzimuthDeg(54.8, -1.6, date)).thenReturn(251);
+        when(openMeteoService.computeDirectionalCloudPoints(55.0, -1.5, 250)).thenReturn(pointsA);
+        when(openMeteoService.computeDirectionalCloudPoints(54.8, -1.6, 251)).thenReturn(pointsB);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<double[]>> farCaptor = ArgumentCaptor.forClass(List.class);
+        when(openMeteoService.prefetchCloudBatch(anyList(), farCaptor.capture(), isNull()))
+                .thenReturn(new CloudPointCache(Map.of()));
+
+        prefetcher.prefetchBatchCloudPoints(List.of(
+                new ForecastCandidate(a, date, TargetType.SUNSET),
+                new ForecastCandidate(b, date, TargetType.SUNSET)), null);
+
+        assertThat(farCaptor.getValue()).hasSize(2);
+        assertThat(farCaptor.getValue().get(0))
+                .isSameAs(pointsA.get(DirectionalSamplingGeometry.FAR_SOLAR_POINT_INDEX));
+        assertThat(farCaptor.getValue().get(1))
+                .isSameAs(pointsB.get(DirectionalSamplingGeometry.FAR_SOLAR_POINT_INDEX));
+    }
+
+    private static List<double[]> fivePoints(double latBase) {
+        List<double[]> points = new ArrayList<>();
+        for (int i = 0; i < 5; i++) {
+            points.add(new double[]{latBase + i * 0.5, -1.5});
+        }
+        return points;
     }
 }

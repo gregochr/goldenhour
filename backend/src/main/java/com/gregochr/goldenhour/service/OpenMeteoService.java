@@ -339,11 +339,32 @@ public class OpenMeteoService {
      * <p>Deduplicates by Open-Meteo's ~0.1° grid resolution and makes a single batch
      * API call. Returns a {@link CloudPointCache} for lookup during augmentation.
      *
+     * <p>Makes no pressure-level call; see
+     * {@link #prefetchCloudBatch(List, List, JobRunEntity)}.
+     *
      * @param allCoords raw [lat, lon] pairs (may contain duplicates)
      * @param jobRun    the parent job run for metrics tracking, or {@code null}
      * @return a cache of cloud-only responses keyed by grid cell
      */
     public CloudPointCache prefetchCloudBatch(List<double[]> allCoords, JobRunEntity jobRun) {
+        return prefetchCloudBatch(allCoords, List.of(), jobRun);
+    }
+
+    /**
+     * Batch pre-fetches cloud-only data, then pressure-level cloud at the far points.
+     *
+     * <p>The cloud fetch is exactly that of the two-argument method, including its failure
+     * behaviour. The far points' pressure levels (850 to 300 hPa) are then requested in a
+     * separate best-effort call, deduplicated by grid cell: any exception or null response means
+     * no levels for that cell, and can never affect the cloud map.
+     *
+     * @param allCoords raw [lat, lon] pairs (may contain duplicates)
+     * @param farCoords the far-solar [lat, lon] points (may contain duplicates, may be empty)
+     * @param jobRun    the parent job run for metrics tracking, or {@code null}
+     * @return a cache of cloud-only responses keyed by grid cell, with pressure levels attached
+     */
+    public CloudPointCache prefetchCloudBatch(List<double[]> allCoords, List<double[]> farCoords,
+            JobRunEntity jobRun) {
         // Deduplicate by grid key
         Map<String, double[]> uniqueByGrid = new LinkedHashMap<>();
         for (double[] coord : allCoords) {
@@ -388,7 +409,7 @@ public class OpenMeteoService {
                         "GET", "cloud-batch-prefetch(" + coords.size() + ")", null,
                         durationMs, 200, null, true, null);
             }
-            return new CloudPointCache(cacheMap);
+            return new CloudPointCache(cacheMap, prefetchPressureLevels(farCoords, jobRun));
         } catch (Exception e) {
             long durationMs = System.currentTimeMillis() - startMs;
             LOG.warn("Cloud batch prefetch failed ({}ms), directional cloud will be unavailable: {}",
@@ -398,7 +419,63 @@ public class OpenMeteoService {
                         "GET", "cloud-batch-prefetch(" + coords.size() + ")", null,
                         durationMs, getStatusCode(e), null, false, e.getMessage());
             }
-            return new CloudPointCache(Map.of());
+            return new CloudPointCache(Map.of(), prefetchPressureLevels(farCoords, jobRun));
+        }
+    }
+
+    /**
+     * Best-effort pressure-level cloud fetch for the far points. Never throws.
+     *
+     * @param farCoords far-solar [lat, lon] points (may be null or empty)
+     * @param jobRun    the parent job run, or {@code null}
+     * @return grid key to pressure-level response; empty on any failure
+     */
+    private Map<String, OpenMeteoForecastResponse> prefetchPressureLevels(List<double[]> farCoords,
+            JobRunEntity jobRun) {
+        if (farCoords == null || farCoords.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, double[]> uniqueByGrid = new LinkedHashMap<>();
+        for (double[] coord : farCoords) {
+            uniqueByGrid.putIfAbsent(CloudPointCache.gridKey(coord[0], coord[1]), coord);
+        }
+        List<String> gridKeys = new ArrayList<>(uniqueByGrid.keySet());
+        List<double[]> coords = new ArrayList<>(uniqueByGrid.values());
+        String endpoint = "pressure-level-cloud-batch(" + coords.size() + ")";
+        long startMs = System.currentTimeMillis();
+        try {
+            List<OpenMeteoForecastResponse> responses =
+                    openMeteoClient.fetchPressureLevelCloudBatch(coords);
+            Map<String, OpenMeteoForecastResponse> levels = new LinkedHashMap<>();
+            for (int i = 0; i < gridKeys.size(); i++) {
+                if (responses.get(i) != null) {
+                    levels.put(gridKeys.get(i), responses.get(i));
+                }
+            }
+            long durationMs = System.currentTimeMillis() - startMs;
+            LOG.info("Pressure-level cloud prefetch: {}/{} far cells populated in {}ms",
+                    levels.size(), coords.size(), durationMs);
+            logPressureLevelCall(jobRun, endpoint, durationMs, 200, true, null);
+            return levels;
+        } catch (Exception e) {
+            long durationMs = System.currentTimeMillis() - startMs;
+            LOG.warn("Pressure-level cloud prefetch failed ({}ms), no levels recorded: {}",
+                    durationMs, e.getMessage());
+            try {
+                logPressureLevelCall(jobRun, endpoint, durationMs, getStatusCode(e), false,
+                        e.getMessage());
+            } catch (Exception logFailure) {
+                LOG.warn("Pressure-level cloud call could not be logged: {}", logFailure.getMessage());
+            }
+            return Map.of();
+        }
+    }
+
+    private void logPressureLevelCall(JobRunEntity jobRun, String endpoint, long durationMs,
+            Integer status, boolean succeeded, String error) {
+        if (jobRun != null) {
+            jobRunService.logApiCall(jobRun.getId(), ServiceName.OPEN_METEO_FORECAST,
+                    "GET", endpoint, null, durationMs, status, null, succeeded, error);
         }
     }
 

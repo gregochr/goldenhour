@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
+import com.gregochr.goldenhour.service.DirectionalSamplingGeometry;
 import com.gregochr.goldenhour.service.OpenMeteoResponseParser;
 import com.gregochr.goldenhour.service.OpenMeteoService;
 import com.gregochr.goldenhour.service.SolarService;
@@ -103,6 +104,7 @@ public final class BatchWeatherPrefetcher {
             Map<String, WeatherExtractionResult> prefetchedWeather) {
         LocalDateTime now = LocalDateTime.now(clock);
         List<double[]> allPoints = new ArrayList<>();
+        List<double[]> farPoints = new ArrayList<>();
 
         for (ForecastCandidate c : candidates) {
             double lat = c.location().getLat();
@@ -114,7 +116,12 @@ public final class BatchWeatherPrefetcher {
                     ? solarService.sunriseAzimuthDeg(lat, lon, date)
                     : solarService.sunsetAzimuthDeg(lat, lon, date);
 
-            allPoints.addAll(openMeteoService.computeDirectionalCloudPoints(lat, lon, azimuth));
+            List<double[]> directionalPoints =
+                    openMeteoService.computeDirectionalCloudPoints(lat, lon, azimuth);
+            allPoints.addAll(directionalPoints);
+            if (directionalPoints.size() > DirectionalSamplingGeometry.FAR_SOLAR_POINT_INDEX) {
+                farPoints.add(directionalPoints.get(DirectionalSamplingGeometry.FAR_SOLAR_POINT_INDEX));
+            }
 
             if (prefetchedWeather != null) {
                 String coordKey = OpenMeteoService.coordKey(lat, lon);
@@ -144,6 +151,6 @@ public final class BatchWeatherPrefetcher {
 
         LOG.info("Forecast batch: cloud point pre-fetch — {} raw points from {} tasks",
                 allPoints.size(), candidates.size());
-        return openMeteoService.prefetchCloudBatch(allPoints, null);
+        return openMeteoService.prefetchCloudBatch(allPoints, farPoints, null);
     }
 }

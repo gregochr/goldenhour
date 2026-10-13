@@ -1666,6 +1666,93 @@ class OpenMeteoServiceTest {
         assertThat(cache.get(55.90, -2.10)).isNull();
     }
 
+    @Test
+    @DisplayName("prefetchCloudBatch() fetches pressure levels only for the deduplicated far cells and attaches them")
+    void prefetchCloudBatch_farCoords_dedupedLevelsAttached() {
+        OpenMeteoForecastResponse cloudA = buildCloudOnlyResponse(
+                List.of("2026-06-21T06:00"), List.of(10), List.of(20), List.of(30));
+        OpenMeteoForecastResponse cloudB = buildCloudOnlyResponse(
+                List.of("2026-06-21T06:00"), List.of(50), List.of(60), List.of(70));
+        OpenMeteoForecastResponse levels = new OpenMeteoForecastResponse();
+        List<double[]> all = List.of(new double[]{54.77, -1.58}, new double[]{54.90, -1.58});
+        // two far points in one grid cell: one level request for that cell
+        List<double[]> far = List.of(new double[]{54.9001, -1.5801}, new double[]{54.9003, -1.5799});
+        when(openMeteoClient.fetchCloudOnlyBatch(anyList())).thenReturn(List.of(cloudA, cloudB));
+        when(openMeteoClient.fetchPressureLevelCloudBatch(
+                org.mockito.ArgumentMatchers.argThat((List<double[]> c) -> c.size() == 1)))
+                .thenReturn(List.of(levels));
+
+        com.gregochr.goldenhour.model.CloudPointCache cache =
+                openMeteoService.prefetchCloudBatch(all, far, null);
+
+        assertThat(cache.size()).isEqualTo(2);
+        assertThat(cache.getPressureLevels(54.90, -1.58)).isSameAs(levels);
+        assertThat(cache.getPressureLevels(54.77, -1.58)).isNull();
+        verify(openMeteoClient, times(1)).fetchPressureLevelCloudBatch(anyList());
+    }
+
+    @Test
+    @DisplayName("prefetchCloudBatch() leaves the cloud map untouched when the pressure-level call throws")
+    void prefetchCloudBatch_levelCallThrows_cloudCacheUnchanged() {
+        OpenMeteoForecastResponse cloud = buildCloudOnlyResponse(
+                List.of("2026-06-21T06:00"), List.of(10), List.of(20), List.of(30));
+        List<double[]> all = List.of(new double[]{54.77, -1.58});
+        when(openMeteoClient.fetchCloudOnlyBatch(anyList())).thenReturn(List.of(cloud));
+        when(openMeteoClient.fetchPressureLevelCloudBatch(anyList()))
+                .thenThrow(new RuntimeException("levels refused"));
+
+        com.gregochr.goldenhour.model.CloudPointCache twoArg =
+                openMeteoService.prefetchCloudBatch(all, null);
+        com.gregochr.goldenhour.model.CloudPointCache withFar =
+                openMeteoService.prefetchCloudBatch(all, List.of(new double[]{54.77, -1.58}), null);
+
+        assertThat(withFar.size()).isEqualTo(twoArg.size()).isEqualTo(1);
+        assertThat(withFar.get(54.77, -1.58)).isSameAs(twoArg.get(54.77, -1.58)).isSameAs(cloud);
+        assertThat(withFar.getPressureLevels(54.77, -1.58)).isNull();
+    }
+
+    @Test
+    @DisplayName("prefetchCloudBatch() treats a null level response as no levels for the cell")
+    void prefetchCloudBatch_nullLevelEntry_noLevelsForCell() {
+        OpenMeteoForecastResponse cloud = buildCloudOnlyResponse(
+                List.of("2026-06-21T06:00"), List.of(10), List.of(20), List.of(30));
+        when(openMeteoClient.fetchCloudOnlyBatch(anyList())).thenReturn(List.of(cloud));
+        when(openMeteoClient.fetchPressureLevelCloudBatch(anyList()))
+                .thenReturn(java.util.Collections.singletonList(null));
+
+        com.gregochr.goldenhour.model.CloudPointCache cache = openMeteoService.prefetchCloudBatch(
+                List.of(new double[]{54.77, -1.58}), List.of(new double[]{54.77, -1.58}), null);
+
+        assertThat(cache.get(54.77, -1.58)).isSameAs(cloud);
+        assertThat(cache.getPressureLevels(54.77, -1.58)).isNull();
+    }
+
+    @Test
+    @DisplayName("prefetchCloudBatch() two-argument overload makes no pressure-level call")
+    void prefetchCloudBatch_twoArg_noLevelCall() {
+        OpenMeteoForecastResponse cloud = buildCloudOnlyResponse(
+                List.of("2026-06-21T06:00"), List.of(10), List.of(20), List.of(30));
+        when(openMeteoClient.fetchCloudOnlyBatch(anyList())).thenReturn(List.of(cloud));
+
+        openMeteoService.prefetchCloudBatch(List.of(new double[]{54.77, -1.58}), null);
+
+        verify(openMeteoClient, never()).fetchPressureLevelCloudBatch(anyList());
+    }
+
+    @Test
+    @DisplayName("prefetchCloudBatch() still attaches levels when the cloud call fails")
+    void prefetchCloudBatch_cloudFails_levelsStillIndependent() {
+        OpenMeteoForecastResponse levels = new OpenMeteoForecastResponse();
+        when(openMeteoClient.fetchCloudOnlyBatch(anyList())).thenThrow(new RuntimeException("down"));
+        when(openMeteoClient.fetchPressureLevelCloudBatch(anyList())).thenReturn(List.of(levels));
+
+        com.gregochr.goldenhour.model.CloudPointCache cache = openMeteoService.prefetchCloudBatch(
+                List.of(new double[]{54.77, -1.58}), List.of(new double[]{54.77, -1.58}), null);
+
+        assertThat(cache.size()).isZero();
+        assertThat(cache.getPressureLevels(54.77, -1.58)).isSameAs(levels);
+    }
+
     // --- fetchDirectionalCloudDataFromCache tests ---
 
     @Test
@@ -1989,6 +2076,38 @@ class OpenMeteoServiceTest {
 
             verify(jobRunService).logApiCall(eq(1L), eq(ServiceName.OPEN_METEO_FORECAST),
                     any(), any(), any(), anyLong(), any(), any(), eq(false), any());
+        }
+
+        @Test
+        @DisplayName("prefetchCloudBatch logs the pressure-level call under its own endpoint label")
+        void prefetchCloudBatch_levels_logsDistinctEndpoint() {
+            when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
+                    .thenReturn(List.of(singleSlotCloud()));
+            when(openMeteoClient.fetchPressureLevelCloudBatch(anyList()))
+                    .thenReturn(List.of(new OpenMeteoForecastResponse()));
+
+            openMeteoService.prefetchCloudBatch(List.of(new double[]{55.0, -1.5}),
+                    List.of(new double[]{55.0, -1.5}), jobRun);
+
+            verify(jobRunService).logApiCall(eq(1L), eq(ServiceName.OPEN_METEO_FORECAST),
+                    eq("GET"), eq("pressure-level-cloud-batch(1)"), any(), anyLong(), any(), any(),
+                    eq(true), any());
+        }
+
+        @Test
+        @DisplayName("prefetchCloudBatch logs a failed pressure-level call with success=false")
+        void prefetchCloudBatch_levelsFail_logsFailure() {
+            when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
+                    .thenReturn(List.of(singleSlotCloud()));
+            when(openMeteoClient.fetchPressureLevelCloudBatch(anyList()))
+                    .thenThrow(new RuntimeException("levels refused"));
+
+            openMeteoService.prefetchCloudBatch(List.of(new double[]{55.0, -1.5}),
+                    List.of(new double[]{55.0, -1.5}), jobRun);
+
+            verify(jobRunService).logApiCall(eq(1L), eq(ServiceName.OPEN_METEO_FORECAST),
+                    eq("GET"), eq("pressure-level-cloud-batch(1)"), any(), anyLong(), any(), any(),
+                    eq(false), eq("levels refused"));
         }
     }
 
