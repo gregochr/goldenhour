@@ -21,8 +21,8 @@ any later rule need to stand on, whichever model is configured.
 - **S1, mid and high cloud at the existing 226 km far-solar point.** The forecast reading goes into
   `forecast_evaluation`, and the ERA5 reading (already fetched by `ARCHIVE_HOURLY`) into
   `cloud_verification`.
-- **S0, pressure-level cloud**, but only if task T0 shows Open-Meteo serves it for our default model
-  and the archive. Otherwise it is dropped from this phase and recorded as unavailable.
+- **S0, pressure-level cloud** at the far point. T0 found the forecast serves it and the archive does
+  not, so it is captured as forecast-only (task T7, its own PR).
 
 **Out, and must not change** (parent plan §7):
 - the prompt text, for every model;
@@ -85,18 +85,36 @@ production prompt byte for byte.
   change cannot replay them.
 - Setting ignore-unknown in this change protects only future rollbacks, not one to an older build.
 
-**S0 is unverified.** This session's sandbox blocks Open-Meteo, so availability was not checked
-(task T0 below).
+**S0: the forecast serves it, the archive does not** (T0, run by the owner 2026-10-13, at 54.9 N
+3.5 W).
+- **Forecast API, default `best_match`:** `cloud_cover_850hPa`, `_700hPa`, `_600hPa`, `_500hPa`,
+  `_400hPa` and `_300hPa` all return numbers. They differ from the low/mid/high aggregates; for
+  example at 12:00 the response had mid 100 with 700 hPa 81 and 600 hPa 54.
+- **ERA5 archive, default model:** the same variables come back with units `"undefined"` and every
+  value `null`.
+
+So S0 can be captured but **cannot be verified against ERA5** from this archive request. P1 can
+compare it only with ERA5's low/mid/high aggregates.
+
+**`CLOUD_ONLY_PARAMS` is shared well beyond the directional points.** `fetchCloudOnlyBatch` is
+called by:
+- the directional fetch;
+- `OpenMeteoService` ~l.367 and ~l.690;
+- `NorthwardTransectSampler` (aurora);
+- `OverheadCloudSampler`;
+- `BriefingWeatherLoader`.
+
+T7 must not widen all of them.
 
 ## 4. Orchestration
 
 One orchestrating session (Opus) runs the tasks in this order:
 
 ```
-T0 (owner, 2 min) ──────────────────────────────┐
+T0 (owner, done)  ──────────────────────────────┐
 T1 record + readers ──┬─> T2 persistence + V175 ─┼─> T3 ERA5 store ─> T6 integrate, review, PR
                       └─> T4 prompt invariance ──┘         (T5 rollback note rides T6)
-                                                  └─> T7 S0 (only if T0 says yes; its own PR)
+                                                  └─> T7 S0 (forecast only, T0 answered; its own PR)
 ```
 
 - **One branch**, `feature/far-cloud-capture`, from `main`. Each task commits on it; there is no
@@ -133,7 +151,7 @@ choices. A subagent that hits a design choice stops and reports it rather than c
 
 ## 5. Task cards
 
-### T0 — check S0 availability (the owner, from a machine with normal network)
+### T0 — check S0 availability (the owner; done 2026-10-13, answer in §3)
 
 Two requests, no key needed:
 
@@ -319,17 +337,55 @@ This is small enough to do in T6 rather than hand off.
 
    Then watch CI and fix what fails.
 
-### T7 — S0 pressure-level cloud (Sonnet; only if T0 says yes; its own PR after T6 merges)
+### T7 — S0 pressure-level cloud at the far point (Sonnet; its own PR after T6 merges)
 
-Not designed here beyond its shape, because its variables depend on T0's answer.
+T0 answered (§3): the forecast serves pressure-level cloud and the ERA5 archive does not. So this is
+**capture-only, with no verification**.
 
-- Add the levels T0 confirmed to the far point's request, and to the 113 km points only if the
-  parent plan's §4 S0 row still asks for them. **Stay at or under 10 hourly variables per location**,
-  so the call stays at one unit of Open-Meteo's weighted cost.
-- Store them nullable, as T1–T3 store S1, and verify against ERA5 only if the archive serves them.
-- Same must-nots, same invariance test extended.
+**Goal:** record pressure-level cloud at the 226 km far point. The prompt stays byte-identical, and
+no other cloud call changes.
 
-The orchestrator writes T7's card from T0's output when the time comes.
+**Do:**
+1. Add six fields to `OpenMeteoForecastResponse.Hourly`: `cloudCover850hPa`, `…700hPa`, `…600hPa`,
+   `…500hPa`, `…400hPa` and `…300hPa`. Each is a `List<Integer>` with
+   `@JsonProperty("cloud_cover_850hPa")` and so on, in the class's existing style. The class already
+   ignores unknown properties.
+2. Add a new constant, `OpenMeteoClient.DIRECTIONAL_CLOUD_PARAMS` =
+   `CLOUD_ONLY_PARAMS` + `,cloud_cover_850hPa,cloud_cover_700hPa,cloud_cover_600hPa,cloud_cover_500hPa,cloud_cover_400hPa,cloud_cover_300hPa`.
+   That is nine variables, within the 10 per location that keep the call at one unit of
+   Open-Meteo's weighted cost. Add a new `fetchDirectionalCloudBatch(coords)` that uses it.
+   **`CLOUD_ONLY_PARAMS` and `fetchCloudOnlyBatch` stay exactly as they are.**
+3. Switch to the new fetch only on the paths that build directional points:
+   - `OpenMeteoService.fetchDirectionalCloudData`;
+   - the two prefetchers `CloudPointCacheReader` reads from (`BatchWeatherPrefetcher` and
+     `ForecastCommandExecutor.prefetchCloudPoints`; enumerate their fetch calls first).
+
+   **Stop and report** if a prefetcher fetches directional and non-directional points in one call.
+   Splitting that call is a design choice the orchestrator makes.
+4. `DirectionalCloudData` gains six nullable trailing components (`farSolarCloud850hPa` …
+   `farSolarCloud300hPa`), read from the far response by the same null-safe helper T1 added, and
+   the 7-argument and T1's 9-argument constructors keep working.
+5. Write one migration, the next free number, adding six nullable `INTEGER` columns to
+   `forecast_evaluation`: `far_solar_cloud_850hpa` … `far_solar_cloud_300hpa`. Map them in
+   `DirectionalCloudDetails`, and add a Testcontainers migration test as in T2.
+6. No ERA5 change: the archive returns null for these variables. Record that in the class Javadoc,
+   so nobody later adds them to `ARCHIVE_HOURLY` expecting values.
+
+**Tests:**
+- the new fetch requests exactly the nine variables;
+- `fetchCloudOnlyBatch` still requests three, and each non-directional caller still uses it;
+- both readers fill the six levels and tolerate missing lists;
+- T4's invariance test, extended with the six fields set loud.
+
+**Must not:**
+- touch the 113 km cone or antisolar points' stored values. Their responses will now carry the
+  levels too, but nothing reads them in this task; whether to store them is P1's question;
+- change the prompt;
+- add a DTO field;
+- change any other sampler.
+
+**Done:** as T1–T4. Also check an Open-Meteo response fixture with the nine variables
+(`src/test/resources`) parses.
 
 ## 6. After this phase
 
