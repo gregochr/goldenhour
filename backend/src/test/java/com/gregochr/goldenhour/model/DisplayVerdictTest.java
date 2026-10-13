@@ -61,15 +61,15 @@ class DisplayVerdictTest {
     class WhenClaudeRatingAbsent {
 
         @Test
-        void nullRatingWithGoTriageReturnsWorthIt() {
+        void nullRatingWithGoTriageReturnsUnrated() {
             assertThat(DisplayVerdict.resolve(null, Verdict.GO))
-                    .isEqualTo(DisplayVerdict.WORTH_IT);
+                    .isEqualTo(DisplayVerdict.UNRATED);
         }
 
         @Test
-        void nullRatingWithMarginalTriageReturnsMaybe() {
+        void nullRatingWithMarginalTriageReturnsUnrated() {
             assertThat(DisplayVerdict.resolve(null, Verdict.MARGINAL))
-                    .isEqualTo(DisplayVerdict.MAYBE);
+                    .isEqualTo(DisplayVerdict.UNRATED);
         }
 
         @Test
@@ -82,6 +82,29 @@ class DisplayVerdictTest {
         void nullRatingAndNullTriageReturnsAwaiting() {
             assertThat(DisplayVerdict.resolve(null, null))
                     .isEqualTo(DisplayVerdict.AWAITING);
+        }
+    }
+
+    @Nested
+    class Vocabulary {
+
+        @Test
+        void unratedSitsBetweenStandDownAndAwaiting() {
+            // Declared order is the order the enum is documented in; clients switch on the NAME
+            // (the wire form), so this pins the name set and keeps UNRATED out of the rating bands.
+            assertThat(DisplayVerdict.values()).containsExactly(
+                    DisplayVerdict.WORTH_IT, DisplayVerdict.MAYBE, DisplayVerdict.STAND_DOWN,
+                    DisplayVerdict.UNRATED, DisplayVerdict.AWAITING);
+            assertThat(DisplayVerdict.valueOf("UNRATED")).isEqualTo(DisplayVerdict.UNRATED);
+        }
+
+        @Test
+        void aRatingAlwaysBeatsTheTriageFallbackIncludingUnrated() {
+            for (Verdict triage : Verdict.values()) {
+                assertThat(DisplayVerdict.resolve(4, triage)).isEqualTo(DisplayVerdict.WORTH_IT);
+                assertThat(DisplayVerdict.resolve(3, triage)).isEqualTo(DisplayVerdict.MAYBE);
+                assertThat(DisplayVerdict.resolve(2, triage)).isEqualTo(DisplayVerdict.STAND_DOWN);
+            }
         }
     }
 }

@@ -188,13 +188,18 @@ class BriefingSlotTest {
     class DisplayVerdictTests {
 
         @Test
-        @DisplayName("7-arg constructor derives displayVerdict from verdict when no rating")
+        @DisplayName("7-arg constructor reads an unrated GO/MARGINAL slot as UNRATED, not as a quality "
+                + "verdict (unrated-verdict-plan.md U1)")
         void fallsBackToTriageVerdict() {
-            BriefingSlot slot = new BriefingSlot(
+            BriefingSlot marginal = new BriefingSlot(
                     "Durham", EVENT_TIME, Verdict.MARGINAL, WEATHER,
                     BriefingSlot.TideInfo.NONE, List.of(), null);
+            BriefingSlot go = new BriefingSlot(
+                    "Durham", EVENT_TIME, Verdict.GO, WEATHER,
+                    BriefingSlot.TideInfo.NONE, List.of(), null);
 
-            assertThat(slot.displayVerdict()).isEqualTo(DisplayVerdict.MAYBE);
+            assertThat(marginal.displayVerdict()).isEqualTo(DisplayVerdict.UNRATED);
+            assertThat(go.displayVerdict()).isEqualTo(DisplayVerdict.UNRATED);
         }
 
         @Test

@@ -219,6 +219,11 @@ public class BriefingRegionEvaluationRollup implements BriefingScoreEnricher {
                                 return eval != null && eval.forced();
                             });
                     boolean sufficientForVerdict = rawSufficient || forcedSample;
+                    // Below the gate (and with no forced exemption) the region speaks only through the
+                    // triage fallback: GO/MARGINAL resolve to UNRATED, STANDDOWN to STAND_DOWN. The
+                    // old WORTH_IT / MAYBE reading let 38 ratings that failed the gate claim "Worth
+                    // it" on weather alone (unrated-verdict-plan.md U1). verdictEligible() is
+                    // unchanged, so an UNRATED region is never a BEST BET / ALSO GOOD candidate.
                     DisplayVerdict freshVerdict = sufficientForVerdict
                             ? BriefingRatingStats.resolveRegionDisplayVerdict(
                                     votingStats, region.verdict())

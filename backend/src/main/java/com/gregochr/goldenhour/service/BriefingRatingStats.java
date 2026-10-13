@@ -143,7 +143,10 @@ public final class BriefingRatingStats {
      * <p>When at least one scored location contributed, the average rating drives
      * the verdict: {@code >= 3.5} → WORTH_IT, {@code >= 2.5} → MAYBE, else
      * STAND_DOWN. When no location is scored, the triage {@code verdict} is
-     * mapped through {@link DisplayVerdict#resolve(Integer, Verdict)}.
+     * mapped through {@link DisplayVerdict#resolve(Integer, Verdict)}: a weather STANDDOWN stays
+     * STAND_DOWN, but a GO or MARGINAL is {@link DisplayVerdict#UNRATED} — a weather pre-screen is not
+     * a rating's verdict (2026-10-13, {@code docs/engineering/unrated-verdict-plan.md} U1; it used to
+     * read WORTH_IT / MAYBE).
      *
      * <p>⚠️ <b>This method knows nothing about sample size, and that is deliberate — the gate is
      * the caller's job.</b> {@link com.gregochr.goldenhour.service.BriefingRegionEvaluationRollup}

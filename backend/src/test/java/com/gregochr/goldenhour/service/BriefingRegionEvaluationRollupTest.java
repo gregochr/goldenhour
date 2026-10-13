@@ -178,7 +178,7 @@ class BriefingRegionEvaluationRollupTest {
         // only, never substitutes a stand-down reason of its own.
         assertThat(result.verdict()).isEqualTo(Verdict.GO);
         assertThat(result.standdownReason()).isNull();
-        assertThat(result.displayVerdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+        assertThat(result.displayVerdict()).isEqualTo(DisplayVerdict.UNRATED);
     }
 
     @Test
@@ -334,7 +334,7 @@ class BriefingRegionEvaluationRollupTest {
 
             assertThat(region.sampleSufficient()).isFalse();
             assertThat(region.forcedSample()).isFalse();
-            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.MAYBE);
+            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.UNRATED);
             assertThat(region.confidence()).isEqualTo(Confidence.LOW);
             // Stars are never touched by the sample gate.
             assertThat(region.meanRating()).isEqualTo(5.0);
@@ -440,7 +440,7 @@ class BriefingRegionEvaluationRollupTest {
 
             // examined = 5 rated + 0 (none of the 25 or 20 count) = 5 of 50 = 10% < 50%.
             assertThat(region.sampleSufficient()).isFalse();
-            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.MAYBE);
+            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.UNRATED);
         }
 
         @Test
@@ -507,7 +507,7 @@ class BriefingRegionEvaluationRollupTest {
 
             assertThat(region.sampleSufficient()).isFalse();
             assertThat(region.forcedSample()).isFalse();
-            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.MAYBE);
+            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.UNRATED);
             // The star is unaffected: the one rated location still reports its own 4.
             assertThat(region.meanRating()).isEqualTo(4.0);
             assertThat(region.bestRating()).isEqualTo(4);
@@ -552,7 +552,7 @@ class BriefingRegionEvaluationRollupTest {
 
             assertThat(region.sampleSufficient()).isFalse();
             assertThat(region.forcedSample()).isFalse();
-            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.MAYBE);
+            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.UNRATED);
         }
 
         @Test
@@ -590,7 +590,7 @@ class BriefingRegionEvaluationRollupTest {
 
             assertThat(region.forcedSample()).isFalse();
             assertThat(region.sampleSufficient()).isFalse();
-            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.MAYBE);
+            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.UNRATED);
         }
 
         @Test
@@ -622,10 +622,43 @@ class BriefingRegionEvaluationRollupTest {
 
             assertThat(region.sampleSufficient()).isFalse();
             assertThat(region.forcedSample()).isFalse();
-            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.UNRATED);
             assertThat(region.confidence()).isNull();
             assertThat(region.meanRating()).isNull();
             assertThat(region.bestRating()).isNull();
+        }
+
+        @Test
+        @DisplayName("a gate-failing region with a rated mean of 3.6 reads UNRATED on a weather GO, "
+                + "never WORTH_IT — the 2026-10-13 Northumberland shape (unrated-verdict-plan.md)")
+        void gateFailingRatedRegion_withWeatherGo_readsUnrated() {
+            List<BriefingSlot> slots = new ArrayList<>();
+            for (int i = 0; i < 4; i++) {
+                slots.add(rated("R" + i, i < 2 ? 4 : 3));
+            }
+            slots.addAll(untouchedSlots("Untouched", 46));
+
+            BriefingRegion region = enrichedRegion(slots, Verdict.GO, noOpResolver());
+
+            assertThat(region.sampleSufficient()).isFalse();
+            assertThat(region.verdictEligible()).isFalse();
+            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.UNRATED);
+            // The star channel keeps serving the rated mean beside the withheld word.
+            assertThat(region.meanRating()).isEqualTo(3.5);
+        }
+
+        @Test
+        @DisplayName("a gate-failing region whose weather triage is STANDDOWN stays STAND_DOWN — a "
+                + "weather stand-down is a decision against the slot, not a missing rating")
+        void gateFailingRegion_withWeatherStandDown_staysStandDown() {
+            List<BriefingSlot> slots = new ArrayList<>();
+            slots.add(rated("Solo", 4));
+            slots.addAll(untouchedSlots("Untouched", 49));
+
+            BriefingRegion region = enrichedRegion(slots, Verdict.STANDDOWN, noOpResolver());
+
+            assertThat(region.sampleSufficient()).isFalse();
+            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
         }
 
         @Test
@@ -723,7 +756,7 @@ class BriefingRegionEvaluationRollupTest {
                     triagedResolver(List.of("Flippy")));
 
             assertThat(region.sampleSufficient()).isFalse();
-            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.MAYBE);
+            assertThat(region.displayVerdict()).isEqualTo(DisplayVerdict.UNRATED);
             // The star is unaffected either way.
             assertThat(region.meanRating()).isEqualTo(4.0);
         }

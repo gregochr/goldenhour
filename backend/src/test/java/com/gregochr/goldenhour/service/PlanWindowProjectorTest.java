@@ -1793,6 +1793,69 @@ class PlanWindowProjectorTest {
             assertThat(w.pick()).isNull();
             assertThat(w.verdict()).isEqualTo(DisplayVerdict.WORTH_IT);
         }
+
+        @Test
+        @DisplayName("a window whose only region is UNRATED reads UNRATED, and that region is never "
+                + "a pick — the triage pass is not a verdict (unrated-verdict-plan.md U1)")
+        void aWindowOfOnlyUnratedRegionsReadsUnratedAndHasNoPick() {
+            // 3.6 mean, sample failed the gate: the shape of Northumberland on 2026-10-13.
+            BriefingRegion unrated = regionWithSlots("Gated", ratedSlots(4, 4, 3, 4),
+                    DisplayVerdict.UNRATED, Confidence.LOW, HEADLINE)
+                    .withSampleSufficient(false);
+
+            BriefingWindow w = projectOne(unrated);
+
+            assertThat(w.verdict()).isEqualTo(DisplayVerdict.UNRATED);
+            assertThat(w.pick()).isNull();
+            // The star channel is untouched by the verdict: the best spot is still published.
+            assertThat(w.bestRating()).isEqualTo(4);
+        }
+
+        @Test
+        @DisplayName("an UNRATED region ranks below an eligible one however its average compares, "
+                + "so the window speaks with the eligible region's word")
+        void unratedRegionNeverSpeaksForTheWindowOverAnEligibleOne() {
+            BriefingRegion unratedHigher = regionWithSlots("Unrated", ratedSlots(5, 5, 5),
+                    DisplayVerdict.UNRATED, Confidence.LOW, HEADLINE).withSampleSufficient(false);
+            BriefingRegion eligibleLower = regionWithSlots("Eligible", ratedSlots(3, 3, 3),
+                    DisplayVerdict.MAYBE, Confidence.HIGH, HEADLINE).withSampleSufficient(true);
+
+            BriefingWindow w = projectOne(unratedHigher, eligibleLower);
+
+            assertThat(w.verdict()).isEqualTo(DisplayVerdict.MAYBE);
+            assertThat(w.pick().regionName()).isEqualTo("Eligible");
+        }
+
+        @Test
+        @DisplayName("among ineligible regions the mean still leads, whichever word they wear")
+        void amongIneligibleRegionsTheMeanDecides() {
+            BriefingRegion low = regionWithSlots("Aaa", ratedSlots(2, 2),
+                    DisplayVerdict.UNRATED, Confidence.LOW, HEADLINE).withSampleSufficient(false);
+            BriefingRegion high = regionWithSlots("Zzz", ratedSlots(4, 4),
+                    DisplayVerdict.STAND_DOWN, Confidence.LOW, HEADLINE).withSampleSufficient(false);
+
+            // Both ineligible: the higher mean leads, so the window wears Zzz's own word.
+            assertThat(projectOne(low, high).verdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+        }
+
+        @Test
+        @DisplayName("the day peak counts an UNRATED region toward neither band, exactly as AWAITING")
+        void dayPeakIgnoresUnratedRegions() {
+            BriefingRegion unrated = regionWithSlots("Gated", ratedSlots(4, 4, 4),
+                    DisplayVerdict.UNRATED, Confidence.LOW, HEADLINE).withSampleSufficient(false);
+            BriefingRegion maybe = regionWithSlots("Middling", ratedSlots(3, 3, 3),
+                    DisplayVerdict.MAYBE, Confidence.HIGH, HEADLINE).withSampleSufficient(true);
+
+            BriefingDayPeak both = projectDays(dayOf(TODAY, unrated, maybe)).days().get(0).peak();
+            BriefingDayPeak alone = projectDays(dayOf(TODAY, unrated)).days().get(0).peak();
+
+            assertThat(both.verdict()).isEqualTo(DisplayVerdict.MAYBE);
+            assertThat(both.regions()).extracting(BriefingDayPeak.PeakRegion::regionName)
+                    .containsExactly("Middling");
+            // Nothing in a band: the legacy branch's answer, never an UNRATED peak and never a band.
+            assertThat(alone.verdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+            assertThat(alone.regions()).isEmpty();
+        }
     }
 
     @Test
