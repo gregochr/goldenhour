@@ -44,8 +44,16 @@ let mockThumbThrown = 0;
 // Every render of the stub, so a test can see whether the thumbnail was handed the SAME spots and
 // frame (the redraw keys) across a re-render that only changed the viewline.
 let mockThumbRenders = [];
+// What the stub tells the banner about the line: the REAL thumbnail reports it from its draw (its own
+// suite and AuroraBannerField.test.jsx pin that), so here it is a switch.
+let mockLineDrawn = true;
 vi.mock('../components/AuroraFieldThumb.jsx', () => ({
-  default: ({ spots, fit, viewline, kp }) => {
+  default: function ThumbStub({ spots, fit, viewline, kp, onViewlineDrawn }) {
+    React.useEffect(() => {
+      if (!onViewlineDrawn) return undefined;
+      onViewlineDrawn(mockLineDrawn && Boolean(viewline));
+      return () => onViewlineDrawn(false);
+    }, [onViewlineDrawn, viewline]);
     if (mockThumbThrows) {
       mockThumbThrown += 1;
       throw new Error('chunk failed to load');
@@ -110,6 +118,7 @@ describe('AuroraBanner', () => {
     mockThumbThrows = false;
     mockThumbThrown = 0;
     mockThumbRenders = [];
+    mockLineDrawn = true;
     mockIsMobile = false;
     // Pin the clock to a fixed noon instant so the relative "today / yesterday / N days ago"
     // detection formatting is deterministic — previously flaked near local midnight. Only Date is
@@ -159,6 +168,7 @@ describe('AuroraBanner', () => {
       expect(banner.style.getPropertyValue('--acc')).toBe('#3AC884');
       expect(banner.style.getPropertyValue('--acc-ink')).toBe('#8CE6B6');
       expect(banner.style.getPropertyValue('--fill')).toBe('62%');
+      expect(banner.style.getPropertyValue('--fill-ratio')).toBe('0.62');
     });
 
     it('STRONG sets the Strong accent, ink and 92% fill although the API said amber', () => {
@@ -167,6 +177,7 @@ describe('AuroraBanner', () => {
       expect(banner.style.getPropertyValue('--acc')).toBe('#76FFA0');
       expect(banner.style.getPropertyValue('--acc-ink')).toBe('#A8FFC4');
       expect(banner.style.getPropertyValue('--fill')).toBe('92%');
+      expect(banner.style.getPropertyValue('--fill-ratio')).toBe('0.92');
     });
 
     it('does not depend on hexColour being present at all', () => {
@@ -182,6 +193,7 @@ describe('AuroraBanner', () => {
       const strip = screen.getByTestId('aurora-banner');
       expect(strip.style.getPropertyValue('--acc')).toBe('#76FFA0');
       expect(strip.style.getPropertyValue('--fill')).toBe('92%');
+      expect(strip.style.getPropertyValue('--fill-ratio')).toBe('0.92');
       expect(strip.style.backgroundColor).toBe('');
       expect(strip.style.animation).toBe('');
     });
@@ -1006,6 +1018,151 @@ describe('AuroraBanner', () => {
         const field = await screen.findByTestId('aurora-field-stub');
         expect(JSON.parse(field.dataset.viewline)).toEqual(LINE);
         expect(field).toHaveAttribute('data-kp', '6');
+      });
+
+      describe('the spoken sentence', () => {
+        const SPOKEN = { ...LINE, summary: 'Visible as far south as the Midlands' };
+        const sentence = () => screen.queryByTestId('aurora-banner-viewline-sr');
+
+        it('puts the response\'s summary inside the alert\'s own text once the line is drawn', () => {
+          useAuroraViewline.mockReturnValue({ viewline: SPOKEN, source: 'live' });
+          scored(rated(1, 'Kielder', 5));
+          renderBanner(FORECAST);
+          const alert = screen.getByRole('alert');
+          expect(within(alert).getByTestId('aurora-banner-viewline-sr')).toHaveTextContent(
+            'Visible as far south as the Midlands.',
+          );
+          expect(alert).toHaveTextContent('Visible as far south as the Midlands.');
+        });
+
+        it('is visually hidden but not hidden from assistive technology, and sits outside the aria-hidden thumbnail', () => {
+          useAuroraViewline.mockReturnValue({ viewline: SPOKEN, source: 'live' });
+          scored(rated(1, 'Kielder', 5));
+          renderBanner(FORECAST);
+          expect(sentence()).toHaveClass('sr-only');
+          expect(sentence().closest('[aria-hidden="true"]')).toBeNull();
+          expect(within(screen.getByTestId('aurora-banner-thumb')).queryByTestId('aurora-banner-viewline-sr')).toBeNull();
+        });
+
+        it('reads between the best line and the call to action', () => {
+          useAuroraViewline.mockReturnValue({ viewline: SPOKEN, source: 'live' });
+          scored(rated(1, 'Kielder', 5));
+          renderBanner(FORECAST);
+          const best = screen.getByTestId('aurora-banner-best');
+          const cta = screen.getByText('View on map →');
+          expect(best.compareDocumentPosition(sentence()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+          expect(sentence().compareDocumentPosition(cta) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        });
+
+        it('speaks the forecast line\'s summary as well, and never doubles a full stop the server wrote', () => {
+          useAuroraViewline.mockReturnValue({
+            viewline: { ...SPOKEN, summary: 'Visible as far south as northern England.' },
+            source: 'forecast',
+          });
+          scored(rated(1, 'Kielder', 5));
+          renderBanner(FORECAST);
+          expect(sentence().textContent).toBe('Visible as far south as northern England.');
+        });
+
+        it('says nothing while the thumbnail reports that it did not draw the line, whatever data is in hand', async () => {
+          mockLineDrawn = false;
+          useAuroraViewline.mockReturnValue({ viewline: SPOKEN, source: 'live' });
+          scored(rated(1, 'Kielder', 5));
+          renderBanner(FORECAST);
+          expect(await screen.findByTestId('aurora-field-stub')).toBeInTheDocument();
+          expect(sentence()).toBeNull();
+        });
+
+        it('stops speaking when the thumbnail unmounts, as it does on the swap to the phone strip and back', async () => {
+          useAuroraViewline.mockReturnValue({ viewline: SPOKEN, source: 'live' });
+          scored(rated(1, 'Kielder', 5));
+          const view = renderBanner(FORECAST);
+          await screen.findByTestId('aurora-field-stub');
+          expect(sentence()).not.toBeNull();
+          mockIsMobile = true;
+          view.rerender(<AuroraBanner />);
+          expect(sentence()).toBeNull();
+          mockIsMobile = false;
+          view.rerender(<AuroraBanner />);
+          await screen.findByTestId('aurora-field-stub');
+          expect(sentence()).not.toBeNull();
+        });
+
+        it.each([
+          ['a question mark', 'Is it visible as far south as Leeds?', 'Is it visible as far south as Leeds?'],
+          ['an exclamation mark', 'Visible as far south as Leeds!', 'Visible as far south as Leeds!'],
+          ['a stop inside a closing bracket', 'Visible as far south as Leeds (maybe.)', 'Visible as far south as Leeds (maybe.)'],
+          ['a stop inside a closing quote', 'Visible as "far south."', 'Visible as "far south."'],
+          ['surrounding whitespace', '  Visible as far south as Leeds.  ', 'Visible as far south as Leeds.'],
+          ['an interior stop only', 'Visible as far south as St. Bees', 'Visible as far south as St. Bees.'],
+        ])('keeps %s as the terminal punctuation and adds a stop only when there is none', async (_name, summary, spoken) => {
+          useAuroraViewline.mockReturnValue({ viewline: { ...SPOKEN, summary }, source: 'live' });
+          scored(rated(1, 'Kielder', 5));
+          renderBanner(FORECAST);
+          await screen.findByTestId('aurora-field-stub');
+          expect(sentence().textContent).toBe(spoken);
+        });
+
+        it('says nothing while the slot shows the Kp meter, however good the line the hook holds', () => {
+          useAuroraViewline.mockReturnValue({ viewline: SPOKEN, source: 'live' });
+          renderBanner(FORECAST);
+          expect(screen.getByTestId('aurora-banner-meter')).toBeInTheDocument();
+          expect(sentence()).toBeNull();
+        });
+
+        it('says nothing for a simulated alert', () => {
+          useAuroraViewline.mockReturnValue({ viewline: SPOKEN, source: 'live' });
+          scored(rated(1, 'Kielder', 5));
+          renderBanner({ ...FORECAST, simulated: true });
+          expect(sentence()).toBeNull();
+        });
+
+        it('says nothing on the phone strip, which has no thumbnail', () => {
+          mockIsMobile = true;
+          useAuroraViewline.mockReturnValue({ viewline: SPOKEN, source: 'live' });
+          scored(rated(1, 'Kielder', 5));
+          renderBanner(FORECAST);
+          expect(screen.getByTestId('aurora-banner')).toHaveAttribute('data-layout', 'strip');
+          expect(sentence()).toBeNull();
+          expect(screen.getByTestId('aurora-banner')).not.toHaveTextContent('Midlands');
+        });
+
+        it('says nothing when the viewline is inactive, whatever summary it still carries', () => {
+          useAuroraViewline.mockReturnValue({ viewline: { ...SPOKEN, active: false }, source: 'live' });
+          scored(rated(1, 'Kielder', 5));
+          renderBanner(FORECAST);
+          expect(sentence()).toBeNull();
+        });
+
+        it('says nothing when there is no line at all', () => {
+          scored(rated(1, 'Kielder', 5));
+          renderBanner(FORECAST);
+          expect(sentence()).toBeNull();
+        });
+
+        it.each([
+          ['absent', undefined],
+          ['null', null],
+          ['empty', ''],
+          ['blank', '   '],
+        ])('says nothing when the summary is %s', (_name, summary) => {
+          useAuroraViewline.mockReturnValue({ viewline: { ...LINE, summary }, source: 'live' });
+          scored(rated(1, 'Kielder', 5));
+          renderBanner(FORECAST);
+          expect(sentence()).toBeNull();
+        });
+
+        it('says nothing once the banner is dismissed, and again after an escalation', () => {
+          useAuroraViewline.mockReturnValue({ viewline: SPOKEN, source: 'live' });
+          scored(rated(1, 'Kielder', 5));
+          const view = renderBanner(FORECAST);
+          expect(sentence()).not.toBeNull();
+          fireEvent.click(screen.getByTestId('aurora-banner-dismiss'));
+          expect(sentence()).toBeNull();
+          useAuroraStatus.mockReturnValue({ status: { ...FORECAST, level: 'STRONG' }, loading: false });
+          view.rerender(<AuroraBanner />);
+          expect(sentence()).not.toBeNull();
+        });
       });
 
       it('hands the thumbnail no line when the hook has none', async () => {

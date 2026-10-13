@@ -131,8 +131,14 @@ function drawViewline(ctx, projection, lat) {
  *        {@code active} with a finite {@code southernmostLatitude}, a dashed amber horizontal line is
  *        drawn at that latitude and labelled (docs/engineering/aurora-banner-plan.md B3, §4 D4, D15)
  * @param {?number} [props.kp] the alert's Kp, whole step, for the label when the viewline carries none
+ * @param {function(boolean): void} [props.onViewlineDrawn] told whether a viewline is on the canvas
+ *        RIGHT NOW (its label is showing, which is exactly when a draw placed it): true after a draw
+ *        that stroked the line, false on every other path - no line asked for, the land chunk failed,
+ *        no 2d context, the kernel declining or throwing, a latitude the projection cannot place, a
+ *        line that moved and awaits its redraw - and false again when the thumbnail unmounts. The
+ *        banner speaks the line's summary only while this says true (plan section 6, closed at B4)
  */
-export default function AuroraFieldThumb({ spots, fit, viewline = null, kp = null }) {
+export default function AuroraFieldThumb({ spots, fit, viewline = null, kp = null, onViewlineDrawn = null }) {
   const canvasRef = useRef(null);
   // What the last draw did with the line: the latitude it was drawn for and where it fell against the
   // frame ('in' | 'south' | 'north'), or null for no line. Set by the draw effect, because only it
@@ -177,6 +183,16 @@ export default function AuroraFieldThumb({ spots, fit, viewline = null, kp = nul
     return () => { cancelled = true; };
   }, [points, fit, lineLat]);
 
+  // Report the line the canvas actually carries, so the card can speak it and nothing else. The same
+  // test as the label's: the draw recorded a placement for the CURRENT latitude. The cleanup reports
+  // false, which covers unmount (a layout swap, a dismissal, a failed boundary) as well as a change.
+  const lineShown = Boolean(drawn && drawn.lat === lineLat);
+  useEffect(() => {
+    if (!onViewlineDrawn) return undefined;
+    onViewlineDrawn(lineShown);
+    return () => onViewlineDrawn(false);
+  }, [lineShown, onViewlineDrawn]);
+
   // Whole step for the label: the response's own Kp (the live answer carries none), else the alert's.
   const labelKp = Number.isFinite(viewline?.kp) ? Math.round(viewline.kp)
     : Number.isFinite(kp) ? Math.round(kp) : null;
@@ -191,7 +207,7 @@ export default function AuroraFieldThumb({ spots, fit, viewline = null, kp = nul
         aria-hidden="true"
         data-testid="aurora-banner-field"
       />
-      {drawn && drawn.lat === lineLat && (
+      {lineShown && (
         // Text, so DOM rather than canvas; decorative like the picture — the card's own words are the
         // accessible answer.
         <span className="wf-aurora-vk" aria-hidden="true" data-testid="aurora-banner-viewline-label">
@@ -219,4 +235,5 @@ AuroraFieldThumb.propTypes = {
     kp: PropTypes.number,
   }),
   kp: PropTypes.number,
+  onViewlineDrawn: PropTypes.func,
 };
