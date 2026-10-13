@@ -26,6 +26,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -52,7 +53,7 @@ class OutcomeServiceTest {
         LocalDate date = LocalDate.of(2026, 2, 20);
         ActualOutcome outcome = new ActualOutcome(
                 54.7753, -1.5849, "Durham UK", date, TargetType.SUNSET,
-                true, 68, 75, "Beautiful warm light.");
+                true, 68, 75, "Beautiful warm light.", null);
 
         when(locationRepository.findByName(eq("Durham UK"))).thenReturn(Optional.of(DURHAM));
         ActualOutcomeEntity savedEntity = ActualOutcomeEntity.builder()
@@ -79,11 +80,54 @@ class OutcomeServiceTest {
     }
 
     @Test
+    @DisplayName("record() maps actualRating to the entity")
+    void record_validRating_mappedToEntity() {
+        ActualOutcome outcome = new ActualOutcome(
+                54.7753, -1.5849, "Durham UK", LocalDate.of(2026, 2, 20),
+                TargetType.SUNSET, true, 72, 78, null, 2);
+        when(locationRepository.findByName(eq("Durham UK"))).thenReturn(Optional.of(DURHAM));
+        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        ActualOutcomeEntity result = outcomeService.record(outcome);
+
+        assertThat(result.getActualRating()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("record() accepts boundary ratings 1 and 5 and a null rating")
+    void record_boundaryAndNullRatings_accepted() {
+        when(locationRepository.findByName(eq("Durham UK"))).thenReturn(Optional.of(DURHAM));
+        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        for (Integer rating : new Integer[] {1, 5, null}) {
+            ActualOutcomeEntity result = outcomeService.record(new ActualOutcome(
+                    54.7753, -1.5849, "Durham UK", LocalDate.of(2026, 2, 20),
+                    TargetType.SUNSET, true, null, null, null, rating));
+            assertThat(result.getActualRating()).isEqualTo(rating);
+        }
+    }
+
+    @Test
+    @DisplayName("record() rejects an actualRating outside 1-5 and saves nothing")
+    void record_outOfRangeRating_throwsIllegalArgumentException() {
+        for (int rating : new int[] {0, 6, -1}) {
+            ActualOutcome outcome = new ActualOutcome(
+                    54.7753, -1.5849, "Durham UK", LocalDate.of(2026, 2, 20),
+                    TargetType.SUNSET, true, null, null, null, rating);
+
+            assertThatThrownBy(() -> outcomeService.record(outcome))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("actualRating");
+        }
+        verifyNoInteractions(repository);
+    }
+
+    @Test
     @DisplayName("record() throws NoSuchElementException when location name is not found")
     void record_unknownLocation_throwsNoSuchElementException() {
         ActualOutcome outcome = new ActualOutcome(
                 54.7753, -1.5849, "Unknown Place", LocalDate.of(2026, 2, 20),
-                TargetType.SUNSET, true, 68, 75, null);
+                TargetType.SUNSET, true, 68, 75, null, null);
 
         when(locationRepository.findByName(eq("Unknown Place"))).thenReturn(Optional.empty());
 
@@ -96,7 +140,7 @@ class OutcomeServiceTest {
     void record_invalidFierySkyScore_throwsIllegalArgumentException() {
         ActualOutcome outcome = new ActualOutcome(
                 54.7753, -1.5849, "Durham UK", LocalDate.of(2026, 2, 20),
-                TargetType.SUNSET, true, 150, null, null);
+                TargetType.SUNSET, true, 150, null, null, null);
 
         assertThatThrownBy(() -> outcomeService.record(outcome))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -108,7 +152,7 @@ class OutcomeServiceTest {
     void record_invalidGoldenHourScore_throwsIllegalArgumentException() {
         ActualOutcome outcome = new ActualOutcome(
                 54.7753, -1.5849, "Durham UK", LocalDate.of(2026, 2, 20),
-                TargetType.SUNSET, true, null, -1, null);
+                TargetType.SUNSET, true, null, -1, null, null);
 
         assertThatThrownBy(() -> outcomeService.record(outcome))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -120,7 +164,7 @@ class OutcomeServiceTest {
     void record_nullScores_accepted() {
         ActualOutcome outcome = new ActualOutcome(
                 54.7753, -1.5849, "Durham UK", LocalDate.of(2026, 2, 20),
-                TargetType.SUNSET, true, null, null, null);
+                TargetType.SUNSET, true, null, null, null, null);
 
         when(locationRepository.findByName(eq("Durham UK"))).thenReturn(Optional.of(DURHAM));
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -138,7 +182,7 @@ class OutcomeServiceTest {
     void record_boundaryZero_accepted() {
         ActualOutcome outcome = new ActualOutcome(
                 54.7753, -1.5849, "Durham UK", LocalDate.of(2026, 2, 20),
-                TargetType.SUNSET, true, 0, 0, null);
+                TargetType.SUNSET, true, 0, 0, null, null);
 
         when(locationRepository.findByName(eq("Durham UK"))).thenReturn(Optional.of(DURHAM));
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -156,7 +200,7 @@ class OutcomeServiceTest {
     void record_boundaryHundred_accepted() {
         ActualOutcome outcome = new ActualOutcome(
                 54.7753, -1.5849, "Durham UK", LocalDate.of(2026, 2, 20),
-                TargetType.SUNSET, true, 100, 100, null);
+                TargetType.SUNSET, true, 100, 100, null, null);
 
         when(locationRepository.findByName(eq("Durham UK"))).thenReturn(Optional.of(DURHAM));
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
@@ -174,7 +218,7 @@ class OutcomeServiceTest {
     void record_fierySky101_throws() {
         ActualOutcome outcome = new ActualOutcome(
                 54.7753, -1.5849, "Durham UK", LocalDate.of(2026, 2, 20),
-                TargetType.SUNSET, true, 101, null, null);
+                TargetType.SUNSET, true, 101, null, null, null);
 
         assertThatThrownBy(() -> outcomeService.record(outcome))
                 .isInstanceOf(IllegalArgumentException.class)
