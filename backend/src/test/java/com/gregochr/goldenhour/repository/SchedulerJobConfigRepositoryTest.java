@@ -5,6 +5,8 @@ import com.gregochr.goldenhour.entity.ScheduleType;
 import com.gregochr.goldenhour.entity.SchedulerJobConfigEntity;
 import com.gregochr.goldenhour.entity.SchedulerJobStatus;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
+import com.gregochr.goldenhour.service.SolarCatchUpPolicy;
+import com.gregochr.goldenhour.service.SolarTriggerFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -39,7 +41,7 @@ import static org.mockito.Mockito.when;
 @SuppressWarnings({"unchecked", "rawtypes"})
 class SchedulerJobConfigRepositoryTest {
 
-    private static final String UNKNOWN = "SOLAR_OFFSET";
+    private static final String UNKNOWN = "LUNAR_PHASE";
 
     @Autowired
     private SchedulerJobConfigRepository repository;
@@ -115,7 +117,8 @@ class SchedulerJobConfigRepositoryTest {
                 .thenReturn((ScheduledFuture) mock(ScheduledFuture.class));
         AuroraProperties aurora = mock(AuroraProperties.class);
         DynamicSchedulerService service = new DynamicSchedulerService(repository, taskScheduler,
-                aurora);
+                aurora, mock(SolarTriggerFactory.class), mock(SolarCatchUpPolicy.class),
+                java.time.Clock.systemUTC());
         service.registerJobTarget("unknown_b", () -> { });
         service.registerJobTarget("known_a", () -> { });
         service.registerJobTarget("known_c", () -> { });
@@ -151,5 +154,90 @@ class SchedulerJobConfigRepositoryTest {
         assertThat(storedType("fresh")).isEqualTo("FIXED_DELAY");
         assertThat(repository.findByJobKey("fresh").orElseThrow().getScheduleType())
                 .isEqualTo(ScheduleType.FIXED_DELAY);
+    }
+
+    private Map<String, Object> solarColumns(String key) {
+        return jdbc.queryForMap("SELECT schedule_type, solar_event, solar_offset_minutes, "
+                + "cron_expression, status FROM scheduler_job_config WHERE job_key = ?", key);
+    }
+
+    @Test
+    @DisplayName("updateScheduleType writes type, event and offset together and touches nothing else")
+    void updateScheduleType_writesThreeColumnsOnly() {
+        Long id = repository.findByJobKey("known_a").orElseThrow().getId();
+        entityManager.clear();
+
+        int updated = repository.updateScheduleType(id, "SOLAR_OFFSET", "SUNRISE", 255,
+                Instant.parse("2026-10-13T10:00:00Z"));
+        entityManager.clear();
+
+        assertThat(updated).isEqualTo(1);
+        Map<String, Object> row = solarColumns("known_a");
+        assertThat(row.get("schedule_type")).isEqualTo("SOLAR_OFFSET");
+        assertThat(row.get("solar_event")).isEqualTo("SUNRISE");
+        assertThat(row.get("solar_offset_minutes")).isEqualTo(255);
+        assertThat(row.get("cron_expression")).as("the fallback cron is kept").isEqualTo("0 0 1 * * *");
+        assertThat(row.get("status")).isEqualTo("ACTIVE");
+        SchedulerJobConfigEntity reloaded = repository.findByJobKey("known_a").orElseThrow();
+        assertThat(reloaded.getScheduleType()).isEqualTo(ScheduleType.SOLAR_OFFSET);
+        assertThat(reloaded.getSolarEvent()).isEqualTo(com.gregochr.goldenhour.entity.SolarEvent.SUNRISE);
+        assertThat(reloaded.getSolarOffsetMinutes()).isEqualTo(255);
+        assertThat(reloaded.getUpdatedAt()).isEqualTo(Instant.parse("2026-10-13T10:00:00Z"));
+    }
+
+    @Test
+    @DisplayName("updateScheduleType back to CRON with nulls clears the solar columns")
+    void updateScheduleType_toCronClearsSolarColumns() {
+        Long id = repository.findByJobKey("known_a").orElseThrow().getId();
+        repository.updateScheduleType(id, "SOLAR_OFFSET", "SUNSET", 240, Instant.now());
+
+        repository.updateScheduleType(id, "CRON", null, null, Instant.now());
+        entityManager.clear();
+
+        Map<String, Object> row = solarColumns("known_a");
+        assertThat(row.get("schedule_type")).isEqualTo("CRON");
+        assertThat(row.get("solar_event")).isNull();
+        assertThat(row.get("solar_offset_minutes")).isNull();
+    }
+
+    @Test
+    @DisplayName("a whole-entity save from a copy loaded BEFORE a type switch cannot undo it")
+    void staleEntitySave_cannotRewriteTheSwitch() {
+        SchedulerJobConfigEntity stale = repository.findByJobKey("known_a").orElseThrow();
+        entityManager.detach(stale);
+        repository.updateScheduleType(stale.getId(), "SOLAR_OFFSET", "SUNRISE", 255, Instant.now());
+        entityManager.clear();
+
+        stale.setStatus(SchedulerJobStatus.PAUSED);
+        stale.setLastFireTime(Instant.now());
+        stale.setSolarEvent(null);
+        stale.setScheduleType(ScheduleType.CRON);
+        repository.saveAndFlush(stale);
+        entityManager.clear();
+
+        Map<String, Object> row = solarColumns("known_a");
+        assertThat(row.get("status")).as("positive control: the save did write").isEqualTo("PAUSED");
+        assertThat(row.get("schedule_type")).isEqualTo("SOLAR_OFFSET");
+        assertThat(row.get("solar_event")).isEqualTo("SUNRISE");
+        assertThat(row.get("solar_offset_minutes")).isEqualTo(255);
+    }
+
+    @Test
+    @DisplayName("an inserted row carries its solar fields; a stored event this build does not know "
+            + "reads as null instead of failing the load")
+    void insertAndUnknownEvent() {
+        repository.saveAndFlush(SchedulerJobConfigEntity.builder().jobKey("fresh_solar")
+                .displayName("fresh").scheduleType(ScheduleType.SOLAR_OFFSET)
+                .solarEvent(com.gregochr.goldenhour.entity.SolarEvent.SUNSET).solarOffsetMinutes(240)
+                .cronExpression("0 0 14 * * *").build());
+        entityManager.clear();
+        assertThat(solarColumns("fresh_solar").get("solar_event")).isEqualTo("SUNSET");
+
+        jdbc.update("UPDATE scheduler_job_config SET solar_event = 'MOONRISE' WHERE job_key = 'fresh_solar'");
+        entityManager.clear();
+
+        SchedulerJobConfigEntity loaded = repository.findByJobKey("fresh_solar").orElseThrow();
+        assertThat(loaded.getSolarEvent()).isNull();
+        assertThat(loaded.getSolarEventRaw()).isEqualTo("MOONRISE");
     }
 }

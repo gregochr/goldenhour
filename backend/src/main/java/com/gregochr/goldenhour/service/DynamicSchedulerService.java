@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.entity.ScheduleType;
 import com.gregochr.goldenhour.entity.SchedulerJobConfigEntity;
 import com.gregochr.goldenhour.entity.SchedulerJobStatus;
+import com.gregochr.goldenhour.entity.SolarEvent;
 import com.gregochr.goldenhour.repository.SchedulerJobConfigRepository;
 import com.gregochr.goldenhour.util.LogSanitizer;
 import org.slf4j.Logger;
@@ -13,11 +14,13 @@ import org.springframework.scheduling.support.CronExpression;
 import org.springframework.scheduling.support.CronTrigger;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.locks.ReentrantLock;
@@ -43,12 +46,18 @@ public class DynamicSchedulerService {
     /** The zone every cron is evaluated in, pinned so behaviour never depends on the JVM default. */
     private static final ZoneOffset SCHEDULE_ZONE = ZoneOffset.UTC;
 
+    /** Longest offset a solar job may use, in minutes before the event. */
+    private static final int MAX_SOLAR_OFFSET_MINUTES = 720;
+
     /** Config source value that indicates dependency on aurora.enabled. */
     private static final String AURORA_CONFIG_SOURCE = "aurora.enabled";
 
     private final SchedulerJobConfigRepository repository;
     private final TaskScheduler taskScheduler;
     private final AuroraProperties auroraProperties;
+    private final SolarTriggerFactory solarTriggers;
+    private final SolarCatchUpPolicy solarCatchUp;
+    private final Clock clock;
 
     private final ConcurrentHashMap<String, Consumer<Boolean>> jobTargets = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, ScheduledFuture<?>> scheduledFutures =
@@ -61,13 +70,22 @@ public class DynamicSchedulerService {
      * @param repository       the job config repository
      * @param taskScheduler    the dedicated task scheduler bean
      * @param auroraProperties aurora configuration for checking enabled state
+     * @param solarTriggers    builds the trigger for a {@code SOLAR_OFFSET} job
+     * @param solarCatchUp     decides whether a solar job that missed today's fire runs at startup
+     * @param clock            the application clock, used for the displayed next fire of a solar job
      */
     public DynamicSchedulerService(SchedulerJobConfigRepository repository,
             TaskScheduler taskScheduler,
-            AuroraProperties auroraProperties) {
+            AuroraProperties auroraProperties,
+            SolarTriggerFactory solarTriggers,
+            SolarCatchUpPolicy solarCatchUp,
+            Clock clock) {
         this.repository = repository;
         this.taskScheduler = taskScheduler;
         this.auroraProperties = auroraProperties;
+        this.solarTriggers = solarTriggers;
+        this.solarCatchUp = solarCatchUp;
+        this.clock = clock;
     }
 
     /**
@@ -136,6 +154,7 @@ public class DynamicSchedulerService {
                 syncConfigGatedStatus(config);
                 if (config.getStatus() == SchedulerJobStatus.ACTIVE) {
                     scheduleJob(config);
+                    catchUpIfMissed(config);
                 } else {
                     LOG.info("Skipping job '{}' — status: {}",
                             LogSanitizer.sanitize(config.getJobKey()), config.getStatus());
@@ -191,12 +210,17 @@ public class DynamicSchedulerService {
         if (type == ScheduleType.CRON && cronExpression != null) {
             validateCron(cronExpression);
             newCron = cronExpression;
+        } else if (type == ScheduleType.SOLAR_OFFSET && cronExpression != null) {
+            // A solar job's cron is its fallback and revert target; it may be corrected here.
+            validateCron(cronExpression);
+            newCron = cronExpression;
         } else if (type == ScheduleType.FIXED_DELAY && fixedDelayMs != null) {
             validateFixedDelay(fixedDelayMs);
             newDelay = fixedDelayMs;
         }
         // Build the replacement now, before touching the entity or the live schedule.
-        Installer replacement = prepare(type, newCron, newDelay);
+        Installer replacement = prepare(jobKey, type, newCron, newDelay, config.getSolarEvent(),
+                config.getSolarOffsetMinutes());
 
         config.setCronExpression(newCron);
         config.setFixedDelayMs(newDelay);
@@ -213,6 +237,118 @@ public class DynamicSchedulerService {
                 LogSanitizer.sanitize(jobKey), type,
                 LogSanitizer.sanitize(config.getCronExpression()), config.getFixedDelayMs());
         return config;
+    }
+
+    /**
+     * Switches a job between {@code CRON} and {@code SOLAR_OFFSET}
+     * (solar-relative-refresh-plan A3). This is also how a solar phase is rolled back.
+     *
+     * <p>The order is the safety property: the request is validated and the new trigger is built
+     * <em>first</em>, with nothing written or cancelled; then one column-scoped database update
+     * writes the type and its solar fields together; then, for an ACTIVE job, the new future is
+     * installed before the old one is cancelled. A request that fails validation, or a database
+     * update that fails, leaves both the stored row and the live schedule exactly as they were. If
+     * installing fails after the update (not expected: it has been built already) the stored row is
+     * put back so a restart cannot disagree with the live schedule, and the call fails.
+     *
+     * <p>The stored cron is never changed by a switch: it is the solar trigger's fallback and the
+     * revert target. Only the two forecast cycle jobs may become {@code SOLAR_OFFSET}.
+     * {@code FIXED_DELAY} is not a supported target.
+     *
+     * @param jobKey        the job key
+     * @param newType       {@code CRON} or {@code SOLAR_OFFSET}
+     * @param event         the solar event (required for {@code SOLAR_OFFSET}, ignored otherwise)
+     * @param offsetMinutes minutes before the event, 0..720 (required for {@code SOLAR_OFFSET},
+     *                      ignored otherwise)
+     * @return the updated config entity
+     * @throws IllegalArgumentException if the target type is unsupported, the job is not allowed to
+     *         be solar, the solar fields are missing or out of range, or the stored cron is not
+     *         valid (nothing changes)
+     * @throws java.util.NoSuchElementException if the job key is not found
+     */
+    public SchedulerJobConfigEntity switchScheduleType(String jobKey, ScheduleType newType,
+            SolarEvent event, Integer offsetMinutes) {
+        SchedulerJobConfigEntity config = repository.findByJobKey(jobKey).orElseThrow();
+        if (newType != ScheduleType.CRON && newType != ScheduleType.SOLAR_OFFSET) {
+            throw new IllegalArgumentException("A job can only be switched to CRON or SOLAR_OFFSET, "
+                    + "not " + newType);
+        }
+        SolarEvent newEvent = null;
+        Integer newOffset = null;
+        if (newType == ScheduleType.SOLAR_OFFSET) {
+            if (!SolarForecastJobs.allowed(jobKey)) {
+                throw new IllegalArgumentException("Job '" + jobKey + "' may not be switched to "
+                        + "SOLAR_OFFSET; only the two forecast cycle jobs may");
+            }
+            newEvent = event;
+            newOffset = offsetMinutes;
+        }
+        // Validates everything (solar fields, the stored cron) and builds the trigger; no side
+        // effect on the row or the live schedule has happened yet.
+        Installer replacement = prepare(jobKey, newType, config.getCronExpression(),
+                config.getFixedDelayMs(), newEvent, newOffset);
+
+        String previousType = config.getScheduleTypeRaw();
+        String previousEvent = config.getSolarEventRaw();
+        Integer previousOffset = config.getSolarOffsetMinutes();
+
+        int updated = repository.updateScheduleType(config.getId(), newType.name(),
+                newEvent == null ? null : newEvent.name(), newOffset, Instant.now());
+        if (updated != 1) {
+            throw new IllegalStateException("Job '" + jobKey + "' schedule type was not updated");
+        }
+        SchedulerJobConfigEntity reloaded = repository.findByJobKey(jobKey).orElseThrow();
+
+        if (reloaded.getStatus() == SchedulerJobStatus.ACTIVE) {
+            try {
+                install(reloaded, replacement);
+            } catch (RuntimeException e) {
+                LOG.error("Installing the new schedule for '{}' failed after the type was stored; "
+                        + "restoring the stored type so a restart agrees with the live schedule",
+                        LogSanitizer.sanitize(jobKey), e);
+                try {
+                    repository.updateScheduleType(config.getId(), previousType, previousEvent,
+                            previousOffset, Instant.now());
+                } catch (RuntimeException restoreFailure) {
+                    LOG.error("Restoring the stored schedule type for '{}' ALSO failed; the stored "
+                            + "type is now {} but the live schedule is the previous one",
+                            LogSanitizer.sanitize(jobKey), newType, restoreFailure);
+                    e.addSuppressed(restoreFailure);
+                }
+                throw e;
+            }
+        }
+        LOG.info("Switched schedule type for '{}' to {} (event={}, offset={}min); cron kept as {}",
+                LogSanitizer.sanitize(jobKey), newType, newEvent, newOffset,
+                LogSanitizer.sanitize(reloaded.getCronExpression()));
+        return reloaded;
+    }
+
+    /**
+     * Runs a solar job once now if it missed today's fire while the application was down
+     * (solar-relative-refresh-plan D1). Called once per ACTIVE job at startup, after the normal
+     * schedule has been installed; nothing here can prevent that, because every failure is caught
+     * and logged.
+     */
+    private void catchUpIfMissed(SchedulerJobConfigEntity config) {
+        // Only a job whose normal schedule actually installed is considered: a solar row that was
+        // refused (incomplete, bad cron) must not get an unscheduled catch-up run either.
+        if (config.getScheduleType() != ScheduleType.SOLAR_OFFSET
+                || !scheduledFutures.containsKey(config.getJobKey())) {
+            return;
+        }
+        try {
+            Optional<String> reason = solarCatchUp.reasonToRun(config);
+            Consumer<Boolean> target = jobTargets.get(config.getJobKey());
+            if (reason.isPresent() && target != null) {
+                taskScheduler.schedule(wrapTarget(config.getJobKey(), target, false), Instant.now());
+                LOG.info("Catch-up run scheduled for solar job '{}': {}",
+                        LogSanitizer.sanitize(config.getJobKey()), reason.get());
+            }
+        } catch (RuntimeException e) {
+            LOG.error("Catch-up check for solar job '{}' failed; its normal schedule is unaffected",
+                    LogSanitizer.sanitize(config.getJobKey()), e);
+        }
     }
 
     /**
@@ -253,8 +389,7 @@ public class DynamicSchedulerService {
         rejectIfDisabledByConfig(config);
 
         try {
-            prepare(config.getScheduleType(), config.getCronExpression(),
-                    config.getFixedDelayMs());
+            prepare(config);
         } catch (IllegalArgumentException e) {
             LOG.error("Cannot resume job '{}' — {}; status left as {}",
                     LogSanitizer.sanitize(jobKey), LogSanitizer.sanitize(e.getMessage()),
@@ -328,6 +463,19 @@ public class DynamicSchedulerService {
             return Instant.now().plusMillis(initialDelay);
         }
 
+        if (type == ScheduleType.SOLAR_OFFSET && config.getSolarEvent() != null
+                && config.getSolarOffsetMinutes() != null) {
+            try {
+                // The trigger's own arithmetic, so the displayed time can never disagree with the
+                // time the scheduler will use.
+                return solarTriggers.create(config.getJobKey(), config.getSolarEvent(),
+                        config.getSolarOffsetMinutes(), config.getCronExpression())
+                        .nextAfter(clock.instant(), null).instant();
+            } catch (IllegalArgumentException e) {
+                return null;
+            }
+        }
+
         return null;
     }
 
@@ -350,8 +498,7 @@ public class DynamicSchedulerService {
 
         Installer installer;
         try {
-            installer = prepare(config.getScheduleType(), config.getCronExpression(),
-                    config.getFixedDelayMs());
+            installer = prepare(config);
         } catch (IllegalArgumentException e) {
             LOG.error("Job '{}' left unscheduled — {} (stored schedule_type='{}', cron='{}', "
                     + "delay={})", LogSanitizer.sanitize(config.getJobKey()),
@@ -376,16 +523,25 @@ public class DynamicSchedulerService {
         ScheduledFuture<?> install(Runnable wrapped);
     }
 
+    private Installer prepare(SchedulerJobConfigEntity config) {
+        return prepare(config.getJobKey(), config.getScheduleType(), config.getCronExpression(),
+                config.getFixedDelayMs(), config.getSolarEvent(), config.getSolarOffsetMinutes());
+    }
+
     /**
      * Builds and validates a schedule without scheduling anything.
      *
-     * @param type  the schedule type, {@code null} when unrecognised
-     * @param cron  the cron expression (CRON)
-     * @param delay the fixed delay in ms (FIXED_DELAY)
+     * @param jobKey the job key, for the solar trigger's logs
+     * @param type   the schedule type, {@code null} when unrecognised
+     * @param cron   the cron expression (CRON; the fallback for SOLAR_OFFSET)
+     * @param delay  the fixed delay in ms (FIXED_DELAY)
+     * @param event  the solar event (SOLAR_OFFSET)
+     * @param offset the minutes before the event (SOLAR_OFFSET)
      * @return the installer for the schedule
      * @throws IllegalArgumentException if the schedule cannot be built
      */
-    private Installer prepare(ScheduleType type, String cron, Long delay) {
+    private Installer prepare(String jobKey, ScheduleType type, String cron, Long delay,
+            SolarEvent event, Integer offset) {
         if (type == null) {
             throw new IllegalArgumentException("unrecognised schedule type");
         }
@@ -408,6 +564,30 @@ public class DynamicSchedulerService {
                 }
                 Duration fixedDelay = Duration.ofMillis(delay);
                 yield wrapped -> taskScheduler.scheduleWithFixedDelay(wrapped, fixedDelay);
+            }
+            case SOLAR_OFFSET -> {
+                if (event == null || offset == null) {
+                    throw new IllegalArgumentException(
+                            "SOLAR_OFFSET job needs a solar event and an offset");
+                }
+                if (offset < 0 || offset > MAX_SOLAR_OFFSET_MINUTES) {
+                    throw new IllegalArgumentException("solar offset must be 0.."
+                            + MAX_SOLAR_OFFSET_MINUTES + " minutes, got " + offset);
+                }
+                // The stored cron is the trigger's fallback and the revert target: a solar job
+                // without a valid one could, in the worst case, be left with no fire time at all.
+                if (cron == null || cron.isBlank()) {
+                    throw new IllegalArgumentException(
+                            "SOLAR_OFFSET job needs a stored cron expression as its fallback");
+                }
+                try {
+                    CronExpression.parse(cron);
+                } catch (IllegalArgumentException e) {
+                    throw new IllegalArgumentException(
+                            "SOLAR_OFFSET job's fallback cron expression is unparseable", e);
+                }
+                SolarOffsetTrigger trigger = solarTriggers.create(jobKey, event, offset, cron);
+                yield wrapped -> taskScheduler.schedule(wrapped, trigger);
             }
         };
     }

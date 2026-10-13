@@ -51,11 +51,18 @@ class DynamicSchedulerServiceTest {
     @Mock
     private AuroraProperties auroraProperties;
 
+    @Mock
+    private SolarTriggerFactory solarTriggers;
+
+    @Mock
+    private SolarCatchUpPolicy solarCatchUp;
+
     private DynamicSchedulerService service;
 
     @BeforeEach
     void setUp() {
-        service = new DynamicSchedulerService(repository, taskScheduler, auroraProperties);
+        service = new DynamicSchedulerService(repository, taskScheduler, auroraProperties,
+                solarTriggers, solarCatchUp, java.time.Clock.systemUTC());
         lenient().when(auroraProperties.isEnabled()).thenReturn(true);
     }
 

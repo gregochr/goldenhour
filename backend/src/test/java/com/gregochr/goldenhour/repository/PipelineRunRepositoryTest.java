@@ -250,4 +250,100 @@ class PipelineRunRepositoryTest {
 
         assertThat(repository.endedDispositionJobRunIds(List.of(201L))).containsExactly(201L);
     }
+
+    // ---- countRunsPastSubmission: the solar catch-up's "this cycle already ran" ----
+
+    private static final Instant FIRE = Instant.parse("2026-10-13T02:05:00Z");
+
+    private long pastSubmission(CycleType type) {
+        return repository.countRunsPastSubmission(type, FIRE,
+                com.gregochr.goldenhour.entity.PipelinePhase.PRE_SUBMISSION);
+    }
+
+    private void savedRun(CycleType type, Instant trigger, PipelineRunStatus status,
+            com.gregochr.goldenhour.entity.PipelinePhase phase) {
+        PipelineRunEntity r = run(type, trigger);
+        r.setStatus(status);
+        r.setCurrentPhase(phase);
+        repository.save(r);
+    }
+
+    @Test
+    @DisplayName("a restart-killed run (FAILED in FORECAST_BATCH_SUBMIT) does not count as having run")
+    void failedInSubmission_doesNotCount() {
+        savedRun(CycleType.NIGHTLY, FIRE, PipelineRunStatus.FAILED,
+                com.gregochr.goldenhour.entity.PipelinePhase.FORECAST_BATCH_SUBMIT);
+
+        assertThat(pastSubmission(CycleType.NIGHTLY)).isZero();
+    }
+
+    @Test
+    @DisplayName("the same run still RUNNING in a pre-submission phase (either cycle's) does not "
+            + "count, nor does one with no phase")
+    void runningPreSubmission_doesNotCount() {
+        savedRun(CycleType.NIGHTLY, FIRE, PipelineRunStatus.RUNNING,
+                com.gregochr.goldenhour.entity.PipelinePhase.FORECAST_BATCH_SUBMIT);
+        savedRun(CycleType.INTRADAY, FIRE, PipelineRunStatus.RUNNING,
+                com.gregochr.goldenhour.entity.PipelinePhase.STABILITY_RECLASSIFY);
+        savedRun(CycleType.INTRADAY, FIRE, PipelineRunStatus.RUNNING, null);
+        savedRun(CycleType.NIGHTLY, FIRE, PipelineRunStatus.FAILED, null);
+
+        assertThat(pastSubmission(CycleType.NIGHTLY)).isZero();
+        assertThat(pastSubmission(CycleType.INTRADAY)).isZero();
+    }
+
+    @Test
+    @DisplayName("a run RUNNING in WAIT, RETRY_FAILED or BRIEFING counts")
+    void runningPastSubmission_counts() {
+        for (com.gregochr.goldenhour.entity.PipelinePhase phase : List.of(
+                com.gregochr.goldenhour.entity.PipelinePhase.FORECAST_BATCH_WAIT,
+                com.gregochr.goldenhour.entity.PipelinePhase.RETRY_FAILED,
+                com.gregochr.goldenhour.entity.PipelinePhase.BRIEFING)) {
+            repository.deleteAll();
+            savedRun(CycleType.NIGHTLY, FIRE, PipelineRunStatus.RUNNING, phase);
+
+            assertThat(pastSubmission(CycleType.NIGHTLY)).as(phase.name()).isEqualTo(1);
+        }
+    }
+
+    @Test
+    @DisplayName("a run FAILED from WAIT (the safety timeout) still counts: its batches exist")
+    void failedFromWait_counts() {
+        savedRun(CycleType.NIGHTLY, FIRE, PipelineRunStatus.FAILED,
+                com.gregochr.goldenhour.entity.PipelinePhase.FORECAST_BATCH_WAIT);
+
+        assertThat(pastSubmission(CycleType.NIGHTLY)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("a COMPLETED or DEGRADED run counts (completion clears the phase)")
+    void completedAndDegraded_count() {
+        savedRun(CycleType.NIGHTLY, FIRE, PipelineRunStatus.COMPLETED, null);
+        assertThat(pastSubmission(CycleType.NIGHTLY)).isEqualTo(1);
+
+        repository.deleteAll();
+        savedRun(CycleType.NIGHTLY, FIRE, PipelineRunStatus.DEGRADED, null);
+        assertThat(pastSubmission(CycleType.NIGHTLY)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("only runs of the cycle type at or after the fire are considered")
+    void filtersByCycleAndTime() {
+        savedRun(CycleType.INTRADAY, FIRE, PipelineRunStatus.COMPLETED, null);
+        savedRun(CycleType.NIGHTLY, FIRE.minusSeconds(1), PipelineRunStatus.COMPLETED, null);
+
+        assertThat(pastSubmission(CycleType.NIGHTLY)).isZero();
+        assertThat(pastSubmission(CycleType.INTRADAY)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("PipelinePhase.isPreSubmission is the one definition: null and the two submit phases")
+    void preSubmissionDefinition() {
+        assertThat(com.gregochr.goldenhour.entity.PipelinePhase.isPreSubmission(null)).isTrue();
+        assertThat(com.gregochr.goldenhour.entity.PipelinePhase.PRE_SUBMISSION).containsExactlyInAnyOrder(
+                com.gregochr.goldenhour.entity.PipelinePhase.STABILITY_RECLASSIFY,
+                com.gregochr.goldenhour.entity.PipelinePhase.FORECAST_BATCH_SUBMIT);
+        assertThat(com.gregochr.goldenhour.entity.PipelinePhase.isPreSubmission(
+                com.gregochr.goldenhour.entity.PipelinePhase.FORECAST_BATCH_WAIT)).isFalse();
+    }
 }

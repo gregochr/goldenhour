@@ -59,6 +59,12 @@ class DynamicSchedulerHardeningTest {
     @Mock
     private AuroraProperties auroraProperties;
 
+    @Mock
+    private SolarTriggerFactory solarTriggers;
+
+    @Mock
+    private SolarCatchUpPolicy solarCatchUp;
+
     private DynamicSchedulerService service;
 
     private TimeZone originalZone;
@@ -66,7 +72,8 @@ class DynamicSchedulerHardeningTest {
     @BeforeEach
     void setUp() {
         originalZone = TimeZone.getDefault();
-        service = new DynamicSchedulerService(repository, taskScheduler, auroraProperties);
+        service = new DynamicSchedulerService(repository, taskScheduler, auroraProperties,
+                solarTriggers, solarCatchUp, java.time.Clock.systemUTC());
         lenient().when(auroraProperties.isEnabled()).thenReturn(true);
         for (String key : List.of("job_a", "job_b", "job_c")) {
             service.registerJobTarget(key, () -> { });
@@ -126,7 +133,7 @@ class DynamicSchedulerHardeningTest {
     @DisplayName("a schedule type this build does not know is skipped; the rest are scheduled")
     void initSchedules_unrecognisedType_skippedOthersScheduled() {
         SchedulerJobConfigEntity unknown = cron("job_b", "0 0 2 * * *");
-        unknown.setScheduleTypeRaw("SOLAR_OFFSET");
+        unknown.setScheduleTypeRaw("LUNAR_PHASE");
         when(repository.findAllByOrderByIdAsc()).thenReturn(List.of(
                 cron("job_a", "0 0 1 * * *"), unknown, cron("job_c", "0 0 3 * * *")));
         when(taskScheduler.schedule(any(Runnable.class), any(CronTrigger.class)))
@@ -213,12 +220,12 @@ class DynamicSchedulerHardeningTest {
     @DisplayName("updateSchedule refuses a job whose stored type is unrecognised, changing nothing")
     void updateSchedule_unrecognisedType_refused() {
         SchedulerJobConfigEntity config = cron("job_a", "0 0 1 * * *");
-        config.setScheduleTypeRaw("SOLAR_OFFSET");
+        config.setScheduleTypeRaw("LUNAR_PHASE");
         when(repository.findByJobKey("job_a")).thenReturn(Optional.of(config));
 
         assertThatThrownBy(() -> service.updateSchedule("job_a", "0 0 5 * * *", null))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("SOLAR_OFFSET");
+                .hasMessageContaining("LUNAR_PHASE");
 
         assertThat(config.getCronExpression()).isEqualTo("0 0 1 * * *");
         verify(repository, never()).save(any());
@@ -229,7 +236,7 @@ class DynamicSchedulerHardeningTest {
     @DisplayName("resume of an unrecognised-type job neither throws nor flips status nor schedules")
     void resume_unrecognisedType_leftAlone() {
         SchedulerJobConfigEntity config = cron("job_a", "0 0 1 * * *");
-        config.setScheduleTypeRaw("SOLAR_OFFSET");
+        config.setScheduleTypeRaw("LUNAR_PHASE");
         config.setStatus(SchedulerJobStatus.PAUSED);
         when(repository.findByJobKey("job_a")).thenReturn(Optional.of(config));
 
@@ -244,7 +251,7 @@ class DynamicSchedulerHardeningTest {
     @DisplayName("an unrecognised-type job can still be paused")
     void pause_unrecognisedType_works() {
         SchedulerJobConfigEntity config = cron("job_a", "0 0 1 * * *");
-        config.setScheduleTypeRaw("SOLAR_OFFSET");
+        config.setScheduleTypeRaw("LUNAR_PHASE");
         when(repository.findByJobKey("job_a")).thenReturn(Optional.of(config));
 
         service.pause("job_a");
@@ -257,7 +264,7 @@ class DynamicSchedulerHardeningTest {
     @DisplayName("next fire time is null, not a throw, for an unrecognised type or a bad cron")
     void calculateNextFireTime_unschedulableRows_null() {
         SchedulerJobConfigEntity unknown = cron("job_a", "0 0 1 * * *");
-        unknown.setScheduleTypeRaw("SOLAR_OFFSET");
+        unknown.setScheduleTypeRaw("LUNAR_PHASE");
 
         assertThat(service.calculateNextFireTime(unknown)).isNull();
         assertThat(service.calculateNextFireTime(cron("job_b", "not a cron"))).isNull();
