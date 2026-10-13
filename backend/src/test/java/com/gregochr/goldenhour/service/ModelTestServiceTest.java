@@ -632,6 +632,47 @@ class ModelTestServiceTest {
     }
 
     @Test
+    @DisplayName("rerunTestDeterministic replays stored JSON carrying a property this build does not know")
+    void rerunTestDeterministic_skipsUnknownStoredProperty() throws Exception {
+        AtmosphericData data = sampleAtmosphericData();
+        // A row written by a newer build: one extra top-level property.
+        String dataJson = objectMapper.writeValueAsString(data)
+                .replaceFirst("\\{", "{\"aFieldFromANewerBuild\":1,");
+
+        ModelTestRunEntity previousRun = ModelTestRunEntity.builder()
+                .id(10L).targetDate(LocalDate.of(2026, 3, 1))
+                .targetType(TargetType.SUNSET).build();
+        ModelTestResultEntity prevResult = ModelTestResultEntity.builder()
+                .testRunId(10L).locationId(1L).locationName("Durham")
+                .regionId(1L).regionName("North East")
+                .targetDate(LocalDate.of(2026, 3, 1)).targetType(TargetType.SUNSET)
+                .evaluationModel(EvaluationModel.HAIKU).succeeded(true)
+                .atmosphericDataJson(dataJson).build();
+
+        when(testRunRepository.findById(10L)).thenReturn(Optional.of(previousRun));
+        when(testResultRepository.findByTestRunIdOrderByRegionNameAscEvaluationModelAsc(10L))
+                .thenReturn(List.of(prevResult));
+        when(testRunRepository.save(any())).thenAnswer(inv -> {
+            ModelTestRunEntity e = inv.getArgument(0);
+            if (e.getId() == null) {
+                e.setId(20L);
+            }
+            return e;
+        });
+        when(evaluationService.evaluateWithDetails(any(), any(), any()))
+                .thenAnswer(inv -> sampleDetail(inv.getArgument(1)));
+        when(costCalculator.calculateCostMicroDollars(any(EvaluationModel.class), any(TokenUsage.class)))
+                .thenReturn(5400L);
+        when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+        when(testResultRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        ModelTestRunEntity result = service.rerunTestDeterministic(10L);
+
+        assertThat(result.getSucceeded()).isEqualTo(3);
+        assertThat(result.getFailed()).isEqualTo(0);
+    }
+
+    @Test
     @DisplayName("rerunTestDeterministic sets parentRunId and SAME_DATA rerunType")
     void rerunTestDeterministic_setsParentAndRerunType() throws Exception {
         AtmosphericData data = sampleAtmosphericData();
