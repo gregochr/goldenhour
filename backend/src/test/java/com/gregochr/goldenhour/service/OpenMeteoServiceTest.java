@@ -844,6 +844,81 @@ class OpenMeteoServiceTest {
     }
 
     @Test
+    @DisplayName("fetchDirectionalCloudData() fills the six pressure levels from the second call")
+    void fetchDirectionalCloudData_fillsPressureLevelsFromSecondCall() {
+        LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 47, 0);
+        List<String> times = List.of("2026-06-21T20:00", "2026-06-21T21:00");
+        OpenMeteoForecastResponse cone = buildCloudOnlyResponse(
+                times, List.of(10, 10), List.of(20, 20), List.of(30, 30));
+        OpenMeteoForecastResponse far = buildCloudOnlyResponse(
+                times, List.of(40, 41), List.of(50, 51), List.of(60, 61));
+        when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
+                .thenReturn(List.of(cone, cone, cone, cone, far));
+        when(openMeteoClient.fetchPressureLevelCloudBatch(anyList()))
+                .thenReturn(List.of(pressureLevelResponse(times)));
+
+        DirectionalCloudData result = openMeteoService.fetchDirectionalCloudData(
+                54.7753, -1.5849, 245, eventTime, TargetType.SUNSET, null);
+
+        assertThat(result).isNotNull();
+        assertThat(result.farSolarCloud850hPa()).isEqualTo(80);
+        assertThat(result.farSolarCloud700hPa()).isEqualTo(70);
+        assertThat(result.farSolarCloud600hPa()).isEqualTo(60);
+        assertThat(result.farSolarCloud500hPa()).isEqualTo(50);
+        assertThat(result.farSolarCloud400hPa()).isEqualTo(40);
+        assertThat(result.farSolarCloud300hPa()).isEqualTo(30);
+    }
+
+    @Test
+    @DisplayName("fetchDirectionalCloudData() with a failing second call leaves levels null and all else identical")
+    void fetchDirectionalCloudData_pressureLevelCallThrows_levelsNullRestIdentical() {
+        LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 47, 0);
+        List<String> times = List.of("2026-06-21T20:00", "2026-06-21T21:00");
+        OpenMeteoForecastResponse cone = buildCloudOnlyResponse(
+                times, List.of(10, 10), List.of(20, 20), List.of(30, 30));
+        OpenMeteoForecastResponse far = buildCloudOnlyResponse(
+                times, List.of(40, 41), List.of(50, 51), List.of(60, 61));
+        when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
+                .thenReturn(List.of(cone, cone, cone, cone, far));
+        when(openMeteoClient.fetchPressureLevelCloudBatch(anyList()))
+                .thenReturn(List.of(pressureLevelResponse(times)));
+        DirectionalCloudData withLevels = openMeteoService.fetchDirectionalCloudData(
+                54.7753, -1.5849, 245, eventTime, TargetType.SUNSET, null);
+
+        when(openMeteoClient.fetchPressureLevelCloudBatch(anyList()))
+                .thenThrow(new RuntimeException("level API down"));
+        DirectionalCloudData withoutLevels = openMeteoService.fetchDirectionalCloudData(
+                54.7753, -1.5849, 245, eventTime, TargetType.SUNSET, null);
+
+        assertThat(withoutLevels).isNotNull();
+        assertThat(withoutLevels).isEqualTo(new DirectionalCloudData(
+                withLevels.solarLowCloudPercent(), withLevels.solarMidCloudPercent(),
+                withLevels.solarHighCloudPercent(), withLevels.antisolarLowCloudPercent(),
+                withLevels.antisolarMidCloudPercent(), withLevels.antisolarHighCloudPercent(),
+                withLevels.farSolarLowCloudPercent(), withLevels.farSolarMidCloudPercent(),
+                withLevels.farSolarHighCloudPercent(),
+                withLevels.farSolarLowCloudPercentDarkHour(),
+                withLevels.farSolarMidCloudPercentDarkHour(),
+                withLevels.farSolarHighCloudPercentDarkHour()));
+        assertThat(withoutLevels.farSolarCloud850hPa()).isNull();
+        assertThat(withoutLevels.farSolarCloud300hPa()).isNull();
+    }
+
+    private static OpenMeteoForecastResponse pressureLevelResponse(List<String> times) {
+        OpenMeteoForecastResponse response = new OpenMeteoForecastResponse();
+        OpenMeteoForecastResponse.Hourly hourly = new OpenMeteoForecastResponse.Hourly();
+        hourly.setTime(times);
+        hourly.setCloudCover850hPa(List.of(80, 81));
+        hourly.setCloudCover700hPa(List.of(70, 71));
+        hourly.setCloudCover600hPa(List.of(60, 61));
+        hourly.setCloudCover500hPa(List.of(50, 51));
+        hourly.setCloudCover400hPa(List.of(40, 41));
+        hourly.setCloudCover300hPa(List.of(30, 31));
+        response.setHourly(hourly);
+        return response;
+    }
+
+    @Test
     @DisplayName("fetchDirectionalCloudData() returns null when API call fails")
     void fetchDirectionalCloudData_apiFailure_returnsNull() {
         LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 47, 0);
@@ -2004,6 +2079,40 @@ class OpenMeteoServiceTest {
 
             verify(jobRunService).logApiCall(eq(1L), eq(ServiceName.OPEN_METEO_FORECAST),
                     any(), any(), any(), anyLong(), any(), any(), eq(true), any());
+        }
+
+        @Test
+        @DisplayName("fetchDirectionalCloudData logs the pressure-level call as pressure-level-cloud(1)")
+        void fetchDirectionalCloudData_logsPressureLevelCall() {
+            OpenMeteoForecastResponse cloud = singleSlotCloud();
+            when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
+                    .thenReturn(List.of(cloud, cloud, cloud, cloud, cloud));
+            when(openMeteoClient.fetchPressureLevelCloudBatch(anyList()))
+                    .thenThrow(new RuntimeException("level API down"));
+
+            openMeteoService.fetchDirectionalCloudData(
+                    55.0, -1.5, 270, eventTime, TargetType.SUNSET, jobRun);
+
+            verify(jobRunService).logApiCall(eq(1L), eq(ServiceName.OPEN_METEO_FORECAST),
+                    any(), eq("pressure-level-cloud(1)"), any(), anyLong(), any(), any(),
+                    eq(false), any());
+        }
+
+        @Test
+        @DisplayName("fetchDirectionalCloudData logs a successful pressure-level call with success=true")
+        void fetchDirectionalCloudData_logsPressureLevelCallSuccess() {
+            OpenMeteoForecastResponse cloud = singleSlotCloud();
+            when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
+                    .thenReturn(List.of(cloud, cloud, cloud, cloud, cloud));
+            when(openMeteoClient.fetchPressureLevelCloudBatch(anyList()))
+                    .thenReturn(List.of(cloud));
+
+            openMeteoService.fetchDirectionalCloudData(
+                    55.0, -1.5, 270, eventTime, TargetType.SUNSET, jobRun);
+
+            verify(jobRunService).logApiCall(eq(1L), eq(ServiceName.OPEN_METEO_FORECAST),
+                    any(), eq("pressure-level-cloud(1)"), any(), anyLong(), any(), any(),
+                    eq(true), any());
         }
 
         @Test

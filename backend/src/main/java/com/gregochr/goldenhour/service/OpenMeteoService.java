@@ -624,7 +624,9 @@ public class OpenMeteoService {
      * plus a far-field solar sample at 226 km for horizon cloud structure detection.
      *
      * <p>Makes up to five additional Open-Meteo calls (cloud layers only): three for the
-     * solar cone, one for the antisolar point, and one for the far solar point. Returns
+     * solar cone, one for the antisolar point, and one for the far solar point, plus one
+     * separate best-effort call for the far point's six pressure-level cloud values (850 to
+     * 300 hPa, recorded, never prompted). That call's failure leaves only those six {@code null}. Returns
      * {@code null} if the core solar/antisolar fetches fail; the far fetch failing leaves
      * every far field (low, mid, high and the dark-hour trio) {@code null} and nothing else, not the
      * whole result.
@@ -710,15 +712,23 @@ public class OpenMeteoService {
                         null, true, null);
             }
 
+            // Pressure-level cloud at the far point: one separate best-effort call, never fatal.
+            Integer[] levels = fetchFarPressureLevels(
+                    DirectionalSamplingGeometry.computeDirectionalCloudPoints(lat, lon, solarAzimuthDeg)
+                            .get(DirectionalSamplingGeometry.FAR_SOLAR_POINT_INDEX),
+                    solarEventTime, targetType, jobRun);
+
             DirectionalCloudData result = new DirectionalCloudData(
                     solarLow, solarMid, solarHigh,
                     ah.getCloudCoverLow().get(antisolarIdx),
                     ah.getCloudCoverMid().get(antisolarIdx),
                     ah.getCloudCoverHigh().get(antisolarIdx),
-                    farSolarLow, farSolarMid, farSolarHigh, farLowDark, farMidDark, farHighDark);
+                    farSolarLow, farSolarMid, farSolarHigh, farLowDark, farMidDark, farHighDark,
+                    levels[0], levels[1], levels[2], levels[3], levels[4], levels[5]);
 
             LOG.info("Directional cloud -> solar(avg3): L{}% M{}% H{}%, antisolar: L{}% M{}% H{}%, "
-                    + "farSolar: L{}% M{}% H{}%, farSolar dark hour: L{}% M{}% H{}% ({}ms, 1 batch call)",
+                    + "farSolar: L{}% M{}% H{}%, farSolar dark hour: L{}% M{}% H{}%, "
+                    + "farSolar levels 850/700/600/500/400/300 hPa: {}/{}/{}/{}/{}/{}% ({}ms, 1 batch call)",
                     result.solarLowCloudPercent(), result.solarMidCloudPercent(),
                     result.solarHighCloudPercent(),
                     result.antisolarLowCloudPercent(), result.antisolarMidCloudPercent(),
@@ -727,7 +737,10 @@ public class OpenMeteoService {
                     result.farSolarHighCloudPercent(),
                     result.farSolarLowCloudPercentDarkHour(),
                     result.farSolarMidCloudPercentDarkHour(),
-                    result.farSolarHighCloudPercentDarkHour(), durationMs);
+                    result.farSolarHighCloudPercentDarkHour(),
+                    result.farSolarCloud850hPa(), result.farSolarCloud700hPa(),
+                    result.farSolarCloud600hPa(), result.farSolarCloud500hPa(),
+                    result.farSolarCloud400hPa(), result.farSolarCloud300hPa(), durationMs);
 
             return result;
         } catch (Exception e) {
@@ -740,6 +753,41 @@ public class OpenMeteoService {
                         getStatusCode(e), null, false, e.getMessage());
             }
             return null;
+        }
+    }
+
+    /**
+     * Best-effort pressure-level cloud fetch for the single far point. Never throws: any exception
+     * or null response yields six nulls.
+     */
+    private Integer[] fetchFarPressureLevels(double[] farPoint, LocalDateTime solarEventTime,
+            TargetType targetType, JobRunEntity jobRun) {
+        String endpoint = "pressure-level-cloud(1)";
+        long startMs = System.currentTimeMillis();
+        try {
+            List<OpenMeteoForecastResponse> responses =
+                    openMeteoClient.fetchPressureLevelCloudBatch(List.of(farPoint));
+            long durationMs = System.currentTimeMillis() - startMs;
+            if (responses == null || responses.isEmpty()) {
+                // An empty answer carries no levels: record it as a failed call.
+                logPressureLevelCall(jobRun, endpoint, durationMs, 200, false,
+                        "empty pressure-level response");
+                return new Integer[CloudPointCacheReader.PRESSURE_LEVEL_COUNT];
+            }
+            logPressureLevelCall(jobRun, endpoint, durationMs, 200, true, null);
+            return CloudPointCacheReader.readPressureLevels(responses.get(0), solarEventTime,
+                    targetType);
+        } catch (Exception e) {
+            long durationMs = System.currentTimeMillis() - startMs;
+            LOG.warn("Pressure-level cloud fetch failed ({}ms), no levels recorded: {}",
+                    durationMs, e.getMessage());
+            try {
+                logPressureLevelCall(jobRun, endpoint, durationMs, getStatusCode(e), false,
+                        e.getMessage());
+            } catch (Exception logFailure) {
+                LOG.warn("Pressure-level cloud call could not be logged: {}", logFailure.getMessage());
+            }
+            return new Integer[CloudPointCacheReader.PRESSURE_LEVEL_COUNT];
         }
     }
 

@@ -90,6 +90,32 @@ class ForecastEvaluationDetailsTest {
         }
 
         @Test
+        @DisplayName("from() maps the six pressure-level readings, each to its own field")
+        void from_mapsPressureLevelFields() {
+            DirectionalCloudData dc = new DirectionalCloudData(
+                    35, 45, 20, 40, 50, 15, 55, 61, 72, 18, 27, 83, 11, 22, 33, 44, 55, 66);
+
+            DirectionalCloudDetails details = DirectionalCloudDetails.from(dc);
+
+            assertThat(details.getFarSolarCloud850()).isEqualTo(11);
+            assertThat(details.getFarSolarCloud700()).isEqualTo(22);
+            assertThat(details.getFarSolarCloud600()).isEqualTo(33);
+            assertThat(details.getFarSolarCloud500()).isEqualTo(44);
+            assertThat(details.getFarSolarCloud400()).isEqualTo(55);
+            assertThat(details.getFarSolarCloud300()).isEqualTo(66);
+        }
+
+        @Test
+        @DisplayName("from() leaves the six pressure levels null for a 12-argument record")
+        void from_twelveArgumentRecord_leavesPressureLevelsNull() {
+            DirectionalCloudDetails details = DirectionalCloudDetails.from(
+                    new DirectionalCloudData(35, 45, 20, 40, 50, 15, 55, 61, 72, 18, 27, 83));
+
+            assertThat(details.getFarSolarCloud850()).isNull();
+            assertThat(details.getFarSolarCloud300()).isNull();
+        }
+
+        @Test
         @DisplayName("from() leaves the five new readings null for a 7-argument record")
         void from_sevenArgumentRecord_leavesNewFieldsNull() {
             DirectionalCloudDetails details =

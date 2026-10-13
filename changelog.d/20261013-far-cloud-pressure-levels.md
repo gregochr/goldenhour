@@ -1,0 +1,3 @@
+### Added — pressure-level cloud at the far point is recorded (data only)
+
+V176 adds six nullable columns to `forecast_evaluation` holding cloud cover at 850, 700, 600, 500, 400 and 300 hPa at the 226 km far-solar point, at the event's hour. They come from one extra best-effort Open-Meteo request per prefetch (the far cells, deduplicated) and one per live evaluation that has no cache. A failure of that request leaves the six values null and changes nothing else: the existing cloud request, the prompt, triage and ratings are untouched. Existing rows stay null and nothing is backfilled. Nothing user-visible changes.

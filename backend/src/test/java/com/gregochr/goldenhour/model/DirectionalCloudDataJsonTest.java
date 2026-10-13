@@ -55,4 +55,51 @@ class DirectionalCloudDataJsonTest {
         assertThat(data.farSolarMidCloudPercent()).isNull();
         assertThat(data.farSolarHighCloudPercentDarkHour()).isNull();
     }
+
+    @Test
+    @DisplayName("an 18-component record survives serialise then deserialise")
+    void eighteenComponents_roundTrip() throws Exception {
+        DirectionalCloudData original = new DirectionalCloudData(
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18);
+
+        DirectionalCloudData read = mapper.readValue(mapper.writeValueAsString(original),
+                DirectionalCloudData.class);
+
+        assertThat(read).isEqualTo(original);
+        assertThat(read.farSolarCloud850hPa()).isEqualTo(13);
+        assertThat(read.farSolarCloud300hPa()).isEqualTo(18);
+    }
+
+    @Test
+    @DisplayName("old 7-key and 12-key JSON deserialise with the six pressure-level values null")
+    void oldJson_deserialisesWithPressureLevelsNull() throws Exception {
+        String sevenKeys = "{\"solarLowCloudPercent\":1,\"solarMidCloudPercent\":2,"
+                + "\"solarHighCloudPercent\":3,\"antisolarLowCloudPercent\":4,"
+                + "\"antisolarMidCloudPercent\":5,\"antisolarHighCloudPercent\":6,"
+                + "\"farSolarLowCloudPercent\":7}";
+        String twelveKeys = mapper.writeValueAsString(new DirectionalCloudData(
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12))
+                .replaceAll(",\"farSolarCloud\\d+hPa\":null", "");
+        assertThat(twelveKeys).doesNotContain("hPa");
+
+        for (String json : new String[] {sevenKeys, twelveKeys}) {
+            DirectionalCloudData read = mapper.readValue(json, DirectionalCloudData.class);
+            assertThat(read.farSolarLowCloudPercent()).isEqualTo(7);
+            assertThat(read.farSolarCloud850hPa()).isNull();
+            assertThat(read.farSolarCloud700hPa()).isNull();
+            assertThat(read.farSolarCloud600hPa()).isNull();
+            assertThat(read.farSolarCloud500hPa()).isNull();
+            assertThat(read.farSolarCloud400hPa()).isNull();
+            assertThat(read.farSolarCloud300hPa()).isNull();
+        }
+    }
+
+    @Test
+    @DisplayName("the 12-argument constructor leaves the six pressure-level values null")
+    void twelveArgConstructor_leavesPressureLevelsNull() {
+        DirectionalCloudData data = new DirectionalCloudData(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12);
+
+        assertThat(data.farSolarCloud850hPa()).isNull();
+        assertThat(data.farSolarCloud300hPa()).isNull();
+    }
 }
