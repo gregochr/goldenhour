@@ -22,6 +22,7 @@ function isCoastalTidal(location) {
   return Array.isArray(location?.tideType) && location.tideType.length > 0;
 }
 import { regionGlossFor } from './regionGloss.js';
+import { SLOT_VERDICT_LABEL } from './windowFirstCards.js';
 
 /**
  * The four-day location sheet — one place, its six windows, and what each of them costs to reach
@@ -425,6 +426,39 @@ export function buildEclipseIndex(days) {
 }
 
 /**
+ * The word a SLOT with no rating of its own prints once its ratings source HAS answered — the one
+ * home of the three-way choice, read by the location sheet's window rows (via
+ * {@link buildLocationSheet}'s {@code unratedWord}) and by {@code MapCallout}'s verdict slot
+ * (unrated-verdict-plan.md U2; the Codex review of #1140, P1).
+ *
+ * <p>Why it exists: U2 gave the client a slot-level vocabulary ({@code SLOT_VERDICT_LABEL}) and
+ * wired only Ask's pick card to it, so the two surfaces that look at ONE place's windows — the sheet
+ * and the callout — still hardcoded "Not scored yet" for every unrated slot. For a slot the weather
+ * screen passed and no rating called, that is a false statement ("nothing has looked yet" — the
+ * pipeline did look, and the server now says UNRATED); for a weather stand-down it hid a decision
+ * that the Plan card and the map pill both state as "Poor". The server already serves the answer
+ * per slot ({@code LocationEvaluationView.displayVerdict}); this reads it, deriving nothing.
+ *
+ * <ul>
+ *   <li>{@code UNRATED} → "Not rated" (the weather passed it; no rating called it).</li>
+ *   <li>{@code STAND_DOWN} → "Poor" — a weather stand-down is a decision AGAINST that slot, the
+ *       product's long-standing reading (the two-question rule), and it is the word the region and
+ *       window levels already print for it.</li>
+ *   <li>Anything else — {@code AWAITING}, null, a legacy row with no field, a verdict this build
+ *       does not know, even a rated verdict on a row whose rating was out of bounds — keeps
+ *       "Not scored yet": unknown never claims more than it knew.</li>
+ * </ul>
+ *
+ * @param {?string} displayVerdict the score row's served {@code displayVerdict}, or null
+ * @returns {string} the word to print for an unrated slot
+ */
+export function unratedSlotWord(displayVerdict) {
+  return displayVerdict === 'UNRATED' || displayVerdict === 'STAND_DOWN'
+    ? SLOT_VERDICT_LABEL[displayVerdict]
+    : 'Not scored yet';
+}
+
+/**
  * Each location's rating and "why" per window, from the RAW score rows.
  *
  * <p>Not the provider's {@code scoreIndex} — see the module comment for the defect that cost.
@@ -446,9 +480,15 @@ export function buildEclipseIndex(days) {
  * discard by a different mechanism.
  *
  * @param {Array} scoreRows raw {@code LocationEvaluationView} rows
+ * <p>And the slot's served {@code displayVerdict} (unrated-verdict-plan.md U2, Codex review of
+ * #1140), kept beside the rating as the raw string: it is what lets a row with NO rating say
+ * "Not rated" / "Poor" / "Not scored yet" by the slot's own served word ({@link unratedSlotWord})
+ * instead of one hardcoded phrase. Fail-soft: a legacy row with no field, or a non-string, is null,
+ * which reads "Not scored yet" as before.
+ *
  * @returns {{byId: Map<string, object>, byName: Map<string, object>}} valued
- *          {@code {rating, summary, fierySky, goldenHour, goldenHourStart, goldenHourEnd,
- *          blueHourStart, blueHourEnd}}
+ *          {@code {rating, displayVerdict, summary, fierySky, goldenHour, goldenHourStart,
+ *          goldenHourEnd, blueHourStart, blueHourEnd}}
  */
 export function buildScoreIndex(scoreRows) {
   const byId = new Map();
@@ -467,6 +507,9 @@ export function buildScoreIndex(scoreRows) {
     index(byId, byName, row.locationId, row.locationName,
       windowTail(row.date, row.targetType), {
         rating,
+        displayVerdict: typeof row.displayVerdict === 'string' && row.displayVerdict !== ''
+          ? row.displayVerdict
+          : null,
         summary,
         fierySky,
         goldenHour,
@@ -813,6 +856,10 @@ export function buildLocationSheet(spot, windows, {
       away: Boolean(card.away),
       stateLabel: card.verdictLabel,
       rating,
+      // The word for a row with no rating once the ratings response has arrived — chosen HERE, by
+      // the slot's own served verdict ({@link unratedSlotWord}), so the component prints a string
+      // and decides nothing. An away day has no score lookup at all (above), so it is never asked.
+      unratedWord: unratedSlotWord(score?.displayVerdict ?? null),
       /**
        * This window's prose — this location's own served summary first, its REGION's gloss second.
        *

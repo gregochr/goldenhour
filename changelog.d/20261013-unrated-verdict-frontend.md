@@ -39,3 +39,8 @@ peek sheet's two UNRATED words take an explicit secondary ink instead of falling
 the drilldown's note for a lone UNRATED region no longer opens "Verdict is the strongest region's
 average", and the card's Region line says "Too few rated in X to call it" rather than "The verdict is
 X's".
+
+The location sheet's window rows and the Map callout now name a slot with no rating by its own served
+verdict — "Not rated" for an `UNRATED` slot, "Poor" for a weather stand-down, "Not scored yet" only
+when nothing was served — where both used to print "Not scored yet" for all three (Codex review of
+#1140: the slot-level words reached Ask's pick cards alone).

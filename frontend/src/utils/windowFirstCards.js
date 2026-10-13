@@ -146,8 +146,15 @@ export function shortVerdictLabel(verdict, label) {
 }
 
 /**
- * The slot-level word for a display verdict — one LOCATION's row (the location sheet's window
- * rows, the popup's chips, the callout), not a region or a window.
+ * The slot-level word for a display verdict — one LOCATION's row, not a region or a window.
+ *
+ * <p>Read by exactly three consumers: Ask's pick card ({@code askModel.js}), the location sheet's
+ * window rows and the Map callout's verdict slot — the last two through
+ * {@code locationSheet.unratedSlotWord}, which carries the three-way choice for a slot with no
+ * rating ("Not rated" / "Poor" / "Not scored yet"; the Codex review of #1140 caught that this
+ * comment once named them while they still hardcoded "Not scored yet"). The popup's spot chips are
+ * NOT readers: a chip draws a star badge for a rated spot and nothing at all for an unrated one
+ * (no verdict word is ever printed on it), so there is no word to localise there.
  *
  * <p>The two levels share every word but one: a region is "Too few rated" because the SAMPLE is
  * small, which is a claim about a population; a slot is one place with no rating of its own, and

@@ -10,7 +10,7 @@ import {
 } from '../../utils/mapCallout.js';
 import { verdictWord } from '../../utils/verdictWord.js';
 import { rampHex, rampRgb, rgb } from '../../utils/scoreRamp.js';
-import { eventInstantOf, lookupForWindow } from '../../utils/locationSheet.js';
+import { eventInstantOf, lookupForWindow, unratedSlotWord } from '../../utils/locationSheet.js';
 import { subjectWordsOf, isWildlifeOnly } from '../../utils/locationTypes.js';
 import {
   comfortDayOf, comfortLines, comfortSummary, rowsFromNow,
@@ -766,12 +766,24 @@ export default function MapCallout({
               Comfort only
             </span>
           ) : (
-            // "Not scored yet" only on the word of the rating's own source. Until it has answered,
-            // what it is doing: loading, or trying again after a failure (`ratingRetrying`) — the
-            // answer outranks the failure, so a night still holding one keeps it through a failed
-            // refresh.
+            // An unrated slot's word ("Not rated" / "Poor" / "Not scored yet") only on the word of
+            // the rating's own source. Until it has answered, what it is doing: loading, or trying
+            // again after a failure (`ratingRetrying`) — the answer outranks the failure, so a night
+            // still holding one keeps it through a failed refresh.
+            //
+            // ⚠️ Which word is the SLOT's own served `displayVerdict` (unrated-verdict-plan.md U2,
+            // Codex review of #1140), read off `scoreEntry` — the same `scoreIndex` row that already
+            // supplies this card's prose, so there is no second lookup. It is solar-only by
+            // construction (`scoreEntry` is null for a night, whose rating comes from its own
+            // payload and carries no verdict word) and null before `scoresKnown`, so the fallback is
+            // the old "Not scored yet" in exactly the cases the old line was written for. The GATE
+            // stays `ratingKnown`, never `scoresKnown`: the verdict may only speak once the
+            // rating's own source has, or this slot could say "Not rated" over a rating still
+            // arriving.
             <span className="wf-callout-verdict-score unscored" data-testid="map-callout-score">
-              {ratingKnown ? 'Not scored yet' : ratingRetrying ? NIGHT_RETRY_LINE : 'Loading…'}
+              {ratingKnown
+                ? unratedSlotWord(scoreEntry?.displayVerdict ?? null)
+                : ratingRetrying ? NIGHT_RETRY_LINE : 'Loading…'}
             </span>
           )}
         </div>
