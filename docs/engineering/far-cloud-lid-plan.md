@@ -299,9 +299,27 @@ Can run alongside P1. It is the only build step that does not wait for P1, becau
 
 - **Behind a flag** (e.g. `photocast.cloud.sun-line-points.enabled`, off by default). Absent
   readings stay null, which the nullable design tolerates.
-- **Code:** `DirectionalSamplingGeometry` gains named offsets.
+- **Each point belongs to an instant, and its azimuth is computed for that instant.** The event-time
+  bearing callers pass today is right only for a probe of the moment of sunset. A probe that stands
+  for golden hour (before) or the after-glow (after) is placed on the sun's azimuth at its own
+  instant (`SolarCalculator`, the same library the bearings come from), because the bearing moves
+  about 5° across the minutes that matter (§8): about 20 km cross-track at 226 km and 50 km at 600 km.
+  Each named offset is therefore a (distance, minutes from the event) pair, and P1 uses the same
+  pairs, so the experiment and the capture sample the same columns.
+- **Code:** `DirectionalSamplingGeometry` gains named (distance, instant) probes.
   - Update every sampler in the §3 table, including the ERA5 sampler's own layout and stride.
   - Update the live reader's hard-coded "5 points" log strings.
+- **Persistence and read paths for every new point**, specified before any extra cell is fetched:
+  - `DirectionalCloudData` gains a nullable low/mid/high triple per new probe (behind the same
+    compatibility constructor as P2), read by named index in both readers;
+  - matching nullable columns on `forecast_evaluation` via `DirectionalCloudDetails`, in the
+    migration that ships the probe, with its Testcontainers test;
+  - the ERA5 sampler stores the same triples on `cloud_verification`, and
+    `CloudVerificationRepository`'s projection carries them, so P1's cut can be re-run on live data;
+  - `deleteIncompleteVerifications` again leaves the new columns out (new rows only);
+  - the prompt still prints none of them until P4.
+
+  A probe without all four is not shipped: a fetched reading nobody keeps is cost with no evidence.
 - **Cost in unique grid cells, not limiter permits.**
   - The `open-meteo` rate limiter wraps the public batch method once and chunk requests bypass it,
     so it cannot see added coordinates. Open-Meteo's free terms count per location (about 10,000 a
@@ -319,8 +337,12 @@ P1 measures whether the forecast sees a deck, not whether ratings fail: Low Haux
 forecast deck over a good sky. So no rating change ships on P1 alone.
 
 **Gate:**
-- an outcome arm of at least 20 owner-recorded events under the hypothesis' condition, with
-  disappointments clearly outnumbering successes;
+- an outcome arm of at least 20 events under the hypothesis' condition, **recorded prospectively**,
+  with disappointments clearly outnumbering successes. Outcomes recorded when they surprise (row 1
+  was one) over-represent disappointments, so they cannot gate a rating rule. Before the arm opens,
+  the owner fixes a protocol: a named set of locations and events, and every firing of the
+  condition at them is recorded whatever the sky does (a GO, a disappointment, or "didn't go,
+  watched from home"). Events recorded outside the protocol are reported, not counted;
 - star ratings recordable through the API first (the suggested task), or by SQL as row 1 was;
 - the P1 positive control (Low Hauxley) must not trigger at the chosen thresholds. This is a hard
   stop.
