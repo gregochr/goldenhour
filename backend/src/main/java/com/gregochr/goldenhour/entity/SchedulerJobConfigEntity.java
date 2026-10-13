@@ -48,10 +48,20 @@ public class SchedulerJobConfigEntity {
     @Column(name = "description", length = 500)
     private String description;
 
-    /** Whether this job uses CRON or FIXED_DELAY scheduling. */
-    @Enumerated(EnumType.STRING)
-    @Column(name = "schedule_type", nullable = false, length = 20)
-    private ScheduleType scheduleType;
+    /**
+     * The stored {@code schedule_type} string, exactly as the database holds it.
+     *
+     * <p>Deliberately a plain string and {@code updatable = false}, not an {@code @Enumerated}
+     * {@link ScheduleType}. A column mapped as an enum makes Hibernate throw on a value this build
+     * does not know, which fails the load of the whole table (every job, and the admin list). A
+     * string loads whatever it holds; {@link #getScheduleType()} reads it as a {@link ScheduleType}
+     * or {@code null} when unrecognised, and the scheduler skips that one job. Because the column is
+     * never part of an {@code UPDATE}, no whole-entity save (a pause, a fire timestamp, a status
+     * sync) can overwrite an unrecognised value with a guess. It is written only on insert.
+     * A future type switch must be a column-scoped repository update.
+     */
+    @Column(name = "schedule_type", nullable = false, length = 20, updatable = false)
+    private String scheduleTypeRaw;
 
     /** Cron expression — only applicable when scheduleType is CRON. */
     @Column(name = "cron_expression", length = 100)
@@ -96,4 +106,47 @@ public class SchedulerJobConfigEntity {
     @Column(name = "updated_at", nullable = false)
     @Builder.Default
     private Instant updatedAt = Instant.now();
+
+    /**
+     * Reads the stored schedule type.
+     *
+     * @return the type, or {@code null} when the stored string is not one this build knows
+     *         (including a null string); see {@link #getScheduleTypeRaw()} for the original
+     */
+    public ScheduleType getScheduleType() {
+        if (scheduleTypeRaw == null) {
+            return null;
+        }
+        for (ScheduleType type : ScheduleType.values()) {
+            if (type.name().equals(scheduleTypeRaw)) {
+                return type;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Sets the schedule type on this in-memory entity. Because the column is {@code updatable =
+     * false}, this takes effect in the database only for a row not yet inserted.
+     *
+     * @param scheduleType the type
+     */
+    public void setScheduleType(ScheduleType scheduleType) {
+        this.scheduleTypeRaw = scheduleType == null ? null : scheduleType.name();
+    }
+
+    /** Builder additions: the builder keeps accepting a {@link ScheduleType}. */
+    public static class SchedulerJobConfigEntityBuilder {
+
+        /**
+         * Sets the schedule type.
+         *
+         * @param scheduleType the type
+         * @return this builder
+         */
+        public SchedulerJobConfigEntityBuilder scheduleType(ScheduleType scheduleType) {
+            this.scheduleTypeRaw = scheduleType == null ? null : scheduleType.name();
+            return this;
+        }
+    }
 }

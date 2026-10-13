@@ -40,6 +40,9 @@ public class DynamicSchedulerService {
     /** Minimum allowed fixed delay to prevent accidental tight loops. */
     private static final long MIN_FIXED_DELAY_MS = 10_000;
 
+    /** The zone every cron is evaluated in, pinned so behaviour never depends on the JVM default. */
+    private static final ZoneOffset SCHEDULE_ZONE = ZoneOffset.UTC;
+
     /** Config source value that indicates dependency on aurora.enabled. */
     private static final String AURORA_CONFIG_SOURCE = "aurora.enabled";
 
@@ -114,6 +117,10 @@ public class DynamicSchedulerService {
      *
      * <p>Checks aurora config and adjusts status for aurora-dependent jobs accordingly.
      *
+     * <p>Each row is isolated: a row that is misconfigured, carries a schedule type this build
+     * does not know, or whose scheduling throws is logged at ERROR and left unscheduled, and the
+     * remaining rows are still scheduled. Nothing a single row does escapes this method.
+     *
      * <p>Invoked at startup by {@link DynamicSchedulerBootstrap} (which is profile-gated
      * with {@code @Profile("!integration-test")}). Made a plain public method so that
      * unit tests can call it directly and integration tests using the
@@ -121,15 +128,26 @@ public class DynamicSchedulerService {
      */
     public void initSchedules() {
         List<SchedulerJobConfigEntity> configs = repository.findAllByOrderByIdAsc();
+        int failed = 0;
         for (SchedulerJobConfigEntity config : configs) {
-            syncConfigGatedStatus(config);
-            if (config.getStatus() == SchedulerJobStatus.ACTIVE) {
-                scheduleJob(config);
-            } else {
-                LOG.info("Skipping job '{}' — status: {}", config.getJobKey(), config.getStatus());
+            // One job's bad configuration (or a failing status write) must never stop the jobs
+            // after it from being scheduled: each row stands or falls alone.
+            try {
+                syncConfigGatedStatus(config);
+                if (config.getStatus() == SchedulerJobStatus.ACTIVE) {
+                    scheduleJob(config);
+                } else {
+                    LOG.info("Skipping job '{}' — status: {}",
+                            LogSanitizer.sanitize(config.getJobKey()), config.getStatus());
+                }
+            } catch (RuntimeException e) {
+                failed++;
+                LOG.error("Could not schedule job '{}' — it stays unscheduled; other jobs are "
+                        + "unaffected", LogSanitizer.sanitize(config.getJobKey()), e);
             }
         }
-        LOG.info("Dynamic scheduler initialised — {} job(s) configured", configs.size());
+        LOG.info("Dynamic scheduler initialised — {} job(s) configured, {} failed to schedule",
+                configs.size(), failed);
     }
 
     /**
@@ -144,37 +162,55 @@ public class DynamicSchedulerService {
     /**
      * Updates the schedule for a job and reschedules it if ACTIVE.
      *
+     * <p>The replacement schedule is built and validated <em>before</em> anything is changed, and
+     * the new future is installed before the old one is cancelled, so a bad request leaves the
+     * previous schedule running exactly as it was and no failure leaves the job unscheduled.
+     *
      * @param jobKey         the job key
      * @param cronExpression new cron expression (for CRON jobs), or null to keep current
      * @param fixedDelayMs   new fixed delay in ms (for FIXED_DELAY jobs), or null to keep current
      * @return the updated config entity
-     * @throws IllegalArgumentException if the cron expression is invalid or delay is too short
+     * @throws IllegalArgumentException if the cron expression is invalid, the delay is too short,
+     *         the resulting schedule would be incomplete, or the job's stored schedule type is not
+     *         one this build recognises (the call changes nothing)
      * @throws java.util.NoSuchElementException if the job key is not found
      */
     public SchedulerJobConfigEntity updateSchedule(String jobKey, String cronExpression,
             Long fixedDelayMs) {
         SchedulerJobConfigEntity config = repository.findByJobKey(jobKey).orElseThrow();
 
-        if (config.getScheduleType() == ScheduleType.CRON && cronExpression != null) {
-            validateCron(cronExpression);
-            config.setCronExpression(cronExpression);
-        } else if (config.getScheduleType() == ScheduleType.FIXED_DELAY && fixedDelayMs != null) {
-            validateFixedDelay(fixedDelayMs);
-            config.setFixedDelayMs(fixedDelayMs);
+        ScheduleType type = config.getScheduleType();
+        if (type == null) {
+            throw new IllegalArgumentException("Job '" + jobKey + "' has a schedule type this "
+                    + "version does not recognise ('" + config.getScheduleTypeRaw()
+                    + "'); its schedule cannot be changed here");
         }
 
+        String newCron = config.getCronExpression();
+        Long newDelay = config.getFixedDelayMs();
+        if (type == ScheduleType.CRON && cronExpression != null) {
+            validateCron(cronExpression);
+            newCron = cronExpression;
+        } else if (type == ScheduleType.FIXED_DELAY && fixedDelayMs != null) {
+            validateFixedDelay(fixedDelayMs);
+            newDelay = fixedDelayMs;
+        }
+        // Build the replacement now, before touching the entity or the live schedule.
+        Installer replacement = prepare(type, newCron, newDelay);
+
+        config.setCronExpression(newCron);
+        config.setFixedDelayMs(newDelay);
         config.setUpdatedAt(Instant.now());
         repository.save(config);
 
         if (config.getStatus() == SchedulerJobStatus.ACTIVE) {
-            cancelJob(jobKey);
-            scheduleJob(config);
+            install(config, replacement);
         }
 
         // jobKey is an admin request path variable and the cron arrives in the request body —
         // both reach the log verbatim, so neither may carry line breaks into the audit trail.
         LOG.info("Updated schedule for '{}': type={}, cron={}, delay={}ms",
-                LogSanitizer.sanitize(jobKey), config.getScheduleType(),
+                LogSanitizer.sanitize(jobKey), type,
                 LogSanitizer.sanitize(config.getCronExpression()), config.getFixedDelayMs());
         return config;
     }
@@ -203,6 +239,10 @@ public class DynamicSchedulerService {
     /**
      * Resumes a paused job — sets status to ACTIVE and reschedules.
      *
+     * <p>A job whose schedule cannot be built (an unrecognised stored type, or an incomplete
+     * cron/delay) is not resumed: ERROR is logged, its status is left as it was, nothing is
+     * scheduled and nothing is thrown, so the call cannot crash or half-apply.
+     *
      * @param jobKey the job key
      * @return the updated config entity
      * @throws IllegalStateException if the job is DISABLED_BY_CONFIG
@@ -211,6 +251,16 @@ public class DynamicSchedulerService {
     public SchedulerJobConfigEntity resume(String jobKey) {
         SchedulerJobConfigEntity config = repository.findByJobKey(jobKey).orElseThrow();
         rejectIfDisabledByConfig(config);
+
+        try {
+            prepare(config.getScheduleType(), config.getCronExpression(),
+                    config.getFixedDelayMs());
+        } catch (IllegalArgumentException e) {
+            LOG.error("Cannot resume job '{}' — {}; status left as {}",
+                    LogSanitizer.sanitize(jobKey), LogSanitizer.sanitize(e.getMessage()),
+                    config.getStatus());
+            return config;
+        }
 
         config.setStatus(SchedulerJobStatus.ACTIVE);
         config.setUpdatedAt(Instant.now());
@@ -256,14 +306,18 @@ public class DynamicSchedulerService {
             return null;
         }
 
-        if (config.getScheduleType() == ScheduleType.CRON && config.getCronExpression() != null) {
-            CronExpression cron = CronExpression.parse(config.getCronExpression());
-            LocalDateTime next = cron.next(LocalDateTime.now(ZoneOffset.UTC));
-            return next != null ? next.toInstant(ZoneOffset.UTC) : null;
+        ScheduleType type = config.getScheduleType();
+        if (type == ScheduleType.CRON && config.getCronExpression() != null) {
+            try {
+                CronExpression cron = CronExpression.parse(config.getCronExpression());
+                LocalDateTime next = cron.next(LocalDateTime.now(SCHEDULE_ZONE));
+                return next != null ? next.toInstant(SCHEDULE_ZONE) : null;
+            } catch (IllegalArgumentException e) {
+                return null;
+            }
         }
 
-        if (config.getScheduleType() == ScheduleType.FIXED_DELAY
-                && config.getFixedDelayMs() != null) {
+        if (type == ScheduleType.FIXED_DELAY && config.getFixedDelayMs() != null) {
             if (config.getLastCompletionTime() != null) {
                 return config.getLastCompletionTime()
                         .plusMillis(config.getFixedDelayMs());
@@ -280,6 +334,10 @@ public class DynamicSchedulerService {
     /**
      * Schedules a job based on its config.
      *
+     * <p>An unrecognised schedule type, or an incomplete or unparseable cron/delay, is logged at
+     * ERROR and leaves this one job unscheduled; nothing is thrown for it. Whatever schedule the
+     * job already had is left in place.
+     *
      * @param config the job config with schedule details
      */
     void scheduleJob(SchedulerJobConfigEntity config) {
@@ -290,20 +348,89 @@ public class DynamicSchedulerService {
             return;
         }
 
+        Installer installer;
+        try {
+            installer = prepare(config.getScheduleType(), config.getCronExpression(),
+                    config.getFixedDelayMs());
+        } catch (IllegalArgumentException e) {
+            LOG.error("Job '{}' left unscheduled — {} (stored schedule_type='{}', cron='{}', "
+                    + "delay={})", LogSanitizer.sanitize(config.getJobKey()),
+                    LogSanitizer.sanitize(e.getMessage()),
+                    LogSanitizer.sanitize(config.getScheduleTypeRaw()),
+                    LogSanitizer.sanitize(config.getCronExpression()), config.getFixedDelayMs());
+            return;
+        }
+        install(config, installer);
+    }
+
+    /** Installs a prepared schedule for a job. */
+    @FunctionalInterface
+    private interface Installer {
+
+        /**
+         * Hands the wrapped job to the task scheduler.
+         *
+         * @param wrapped the job body
+         * @return the future that controls it
+         */
+        ScheduledFuture<?> install(Runnable wrapped);
+    }
+
+    /**
+     * Builds and validates a schedule without scheduling anything.
+     *
+     * @param type  the schedule type, {@code null} when unrecognised
+     * @param cron  the cron expression (CRON)
+     * @param delay the fixed delay in ms (FIXED_DELAY)
+     * @return the installer for the schedule
+     * @throws IllegalArgumentException if the schedule cannot be built
+     */
+    private Installer prepare(ScheduleType type, String cron, Long delay) {
+        if (type == null) {
+            throw new IllegalArgumentException("unrecognised schedule type");
+        }
+        return switch (type) {
+            case CRON -> {
+                if (cron == null || cron.isBlank()) {
+                    throw new IllegalArgumentException("CRON job has no cron expression");
+                }
+                CronTrigger trigger;
+                try {
+                    trigger = new CronTrigger(cron, SCHEDULE_ZONE);
+                } catch (IllegalArgumentException e) {
+                    throw new IllegalArgumentException("unparseable cron expression", e);
+                }
+                yield wrapped -> taskScheduler.schedule(wrapped, trigger);
+            }
+            case FIXED_DELAY -> {
+                if (delay == null || delay <= 0) {
+                    throw new IllegalArgumentException("FIXED_DELAY job has no positive delay");
+                }
+                Duration fixedDelay = Duration.ofMillis(delay);
+                yield wrapped -> taskScheduler.scheduleWithFixedDelay(wrapped, fixedDelay);
+            }
+        };
+    }
+
+    /**
+     * Installs the new future and only then cancels the one it replaces, so a failure to install
+     * leaves the previous schedule running.
+     */
+    private void install(SchedulerJobConfigEntity config, Installer installer) {
+        Consumer<Boolean> target = jobTargets.get(config.getJobKey());
+        if (target == null) {
+            LOG.warn("No registered target for job '{}' — skipping schedule",
+                    LogSanitizer.sanitize(config.getJobKey()));
+            return;
+        }
         Runnable wrapped = wrapTarget(config.getJobKey(), target, false);
         scheduleLock.lock();
         try {
-            cancelJob(config.getJobKey());
-
-            ScheduledFuture<?> future;
-            if (config.getScheduleType() == ScheduleType.CRON) {
-                future = taskScheduler.schedule(wrapped,
-                        new CronTrigger(config.getCronExpression()));
-            } else {
-                Duration delay = Duration.ofMillis(config.getFixedDelayMs());
-                future = taskScheduler.scheduleWithFixedDelay(wrapped, delay);
+            ScheduledFuture<?> future = installer.install(wrapped);
+            ScheduledFuture<?> previous = scheduledFutures.put(config.getJobKey(), future);
+            if (previous != null) {
+                previous.cancel(false);
             }
-            scheduledFutures.put(config.getJobKey(), future);
             LOG.info("Scheduled job '{}': type={}, cron={}, delay={}ms",
                     LogSanitizer.sanitize(config.getJobKey()), config.getScheduleType(),
                     LogSanitizer.sanitize(config.getCronExpression()), config.getFixedDelayMs());
