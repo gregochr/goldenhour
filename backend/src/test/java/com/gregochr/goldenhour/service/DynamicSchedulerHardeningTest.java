@@ -73,7 +73,7 @@ class DynamicSchedulerHardeningTest {
     void setUp() {
         originalZone = TimeZone.getDefault();
         service = new DynamicSchedulerService(repository, taskScheduler, auroraProperties,
-                solarTriggers, solarCatchUp);
+                solarTriggers, solarCatchUp, java.time.Clock.systemUTC());
         lenient().when(auroraProperties.isEnabled()).thenReturn(true);
         for (String key : List.of("job_a", "job_b", "job_c")) {
             service.registerJobTarget(key, () -> { });

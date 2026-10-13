@@ -483,8 +483,7 @@ public class PipelineOrchestrator {
                 running.size());
         for (PipelineRunEntity run : running) {
             PipelinePhase phase = run.getCurrentPhase();
-            if (phase == PipelinePhase.STABILITY_RECLASSIFY
-                    || phase == PipelinePhase.FORECAST_BATCH_SUBMIT || phase == null) {
+            if (PipelinePhase.isPreSubmission(phase)) {
                 pipelineRunService.failRun(run.getId(),
                         "Process restarted during pre-submission phase — cannot safely resume");
             } else {

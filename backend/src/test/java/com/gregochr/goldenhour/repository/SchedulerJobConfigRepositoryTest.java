@@ -117,7 +117,8 @@ class SchedulerJobConfigRepositoryTest {
                 .thenReturn((ScheduledFuture) mock(ScheduledFuture.class));
         AuroraProperties aurora = mock(AuroraProperties.class);
         DynamicSchedulerService service = new DynamicSchedulerService(repository, taskScheduler,
-                aurora, mock(SolarTriggerFactory.class), mock(SolarCatchUpPolicy.class));
+                aurora, mock(SolarTriggerFactory.class), mock(SolarCatchUpPolicy.class),
+                java.time.Clock.systemUTC());
         service.registerJobTarget("unknown_b", () -> { });
         service.registerJobTarget("known_a", () -> { });
         service.registerJobTarget("known_c", () -> { });

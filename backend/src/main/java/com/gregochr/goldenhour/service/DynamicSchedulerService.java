@@ -14,6 +14,7 @@ import org.springframework.scheduling.support.CronExpression;
 import org.springframework.scheduling.support.CronTrigger;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -56,6 +57,7 @@ public class DynamicSchedulerService {
     private final AuroraProperties auroraProperties;
     private final SolarTriggerFactory solarTriggers;
     private final SolarCatchUpPolicy solarCatchUp;
+    private final Clock clock;
 
     private final ConcurrentHashMap<String, Consumer<Boolean>> jobTargets = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, ScheduledFuture<?>> scheduledFutures =
@@ -70,17 +72,20 @@ public class DynamicSchedulerService {
      * @param auroraProperties aurora configuration for checking enabled state
      * @param solarTriggers    builds the trigger for a {@code SOLAR_OFFSET} job
      * @param solarCatchUp     decides whether a solar job that missed today's fire runs at startup
+     * @param clock            the application clock, used for the displayed next fire of a solar job
      */
     public DynamicSchedulerService(SchedulerJobConfigRepository repository,
             TaskScheduler taskScheduler,
             AuroraProperties auroraProperties,
             SolarTriggerFactory solarTriggers,
-            SolarCatchUpPolicy solarCatchUp) {
+            SolarCatchUpPolicy solarCatchUp,
+            Clock clock) {
         this.repository = repository;
         this.taskScheduler = taskScheduler;
         this.auroraProperties = auroraProperties;
         this.solarTriggers = solarTriggers;
         this.solarCatchUp = solarCatchUp;
+        this.clock = clock;
     }
 
     /**
@@ -301,8 +306,15 @@ public class DynamicSchedulerService {
                 LOG.error("Installing the new schedule for '{}' failed after the type was stored; "
                         + "restoring the stored type so a restart agrees with the live schedule",
                         LogSanitizer.sanitize(jobKey), e);
-                repository.updateScheduleType(config.getId(), previousType, previousEvent,
-                        previousOffset, Instant.now());
+                try {
+                    repository.updateScheduleType(config.getId(), previousType, previousEvent,
+                            previousOffset, Instant.now());
+                } catch (RuntimeException restoreFailure) {
+                    LOG.error("Restoring the stored schedule type for '{}' ALSO failed; the stored "
+                            + "type is now {} but the live schedule is the previous one",
+                            LogSanitizer.sanitize(jobKey), newType, restoreFailure);
+                    e.addSuppressed(restoreFailure);
+                }
                 throw e;
             }
         }
@@ -458,7 +470,7 @@ public class DynamicSchedulerService {
                 // time the scheduler will use.
                 return solarTriggers.create(config.getJobKey(), config.getSolarEvent(),
                         config.getSolarOffsetMinutes(), config.getCronExpression())
-                        .nextAfter(Instant.now(), null).instant();
+                        .nextAfter(clock.instant(), null).instant();
             } catch (IllegalArgumentException e) {
                 return null;
             }

@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.repository;
 
 import com.gregochr.goldenhour.entity.CycleType;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
+import com.gregochr.goldenhour.entity.PipelinePhase;
 import com.gregochr.goldenhour.entity.PipelineRunEntity;
 import com.gregochr.goldenhour.entity.PipelineRunStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -54,14 +55,30 @@ public interface PipelineRunRepository extends JpaRepository<PipelineRunEntity, 
                     CycleType cycleType, Instant start, Instant end);
 
     /**
-     * Whether any run of the given cycle type has a trigger time at or after an instant — the
-     * solar catch-up policy's "has this cycle already run since its fire time" question.
+     * Counts the runs of a cycle type, triggered at or after an instant, that count as "this cycle
+     * already ran" for the solar catch-up: a run that got past submission.
      *
-     * @param cycleType the cycle type
-     * @param threshold the inclusive lower bound on {@code trigger_time}
-     * @return true if such a run exists, whatever its status
+     * <p>A COMPLETED or DEGRADED run always counts (it ran every phase; completion clears the
+     * phase). Otherwise a run counts only if it has a recorded phase outside {@code preSubmission}
+     * — a run that reached WAIT, RETRY_FAILED or BRIEFING has batches that exist and are polled,
+     * whether it is still RUNNING or later FAILED (e.g. the safety timeout). A RUNNING or FAILED
+     * run in a pre-submission phase, or with no phase, does not count whatever its status: the
+     * catch-up runs only at startup, where any such RUNNING run belongs to the dead JVM and is
+     * about to be failed by the resume, so this is correct whichever startup listener runs first.
+     *
+     * @param cycleType     the cycle type
+     * @param threshold     the inclusive lower bound on {@code trigger_time}
+     * @param preSubmission the phases that mean nothing was submitted
+     * @return how many such runs exist
      */
-    boolean existsByCycleTypeAndTriggerTimeGreaterThanEqual(CycleType cycleType, Instant threshold);
+    @Query("SELECT COUNT(p) FROM PipelineRunEntity p WHERE p.cycleType = :cycleType "
+            + "AND p.triggerTime >= :threshold AND (p.status IN "
+            + "(com.gregochr.goldenhour.entity.PipelineRunStatus.COMPLETED, "
+            + "com.gregochr.goldenhour.entity.PipelineRunStatus.DEGRADED) "
+            + "OR (p.currentPhase IS NOT NULL AND p.currentPhase NOT IN :preSubmission))")
+    long countRunsPastSubmission(@Param("cycleType") CycleType cycleType,
+            @Param("threshold") Instant threshold,
+            @Param("preSubmission") java.util.Collection<PipelinePhase> preSubmission);
 
     /**
      * The 14 most recent runs of a cycle type in the given status, newest first — the sample the

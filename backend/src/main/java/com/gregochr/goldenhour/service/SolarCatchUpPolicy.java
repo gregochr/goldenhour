@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.CycleType;
+import com.gregochr.goldenhour.entity.PipelinePhase;
 import com.gregochr.goldenhour.entity.ScheduleType;
 import com.gregochr.goldenhour.entity.SchedulerJobConfigEntity;
 import com.gregochr.goldenhour.entity.SolarEvent;
@@ -23,10 +24,19 @@ import java.util.Optional;
  * otherwise cost a whole day with no forecast. The rule, all of which must hold:
  * <ul>
  *   <li>the job is {@code SOLAR_OFFSET} and today's (UK date) solar fire has already passed;</li>
- *   <li>no {@code pipeline_run} of the job's cycle type has a {@code trigger_time} at or after
- *       that fire, so it never double-fires and survives restarts (a RUNNING run resumed by
- *       {@code PipelineOrchestratorStartup} already has its {@code trigger_time}, so the check
- *       holds whichever of the two {@code ApplicationReadyEvent} listeners runs first);</li>
+ *   <li>no {@code pipeline_run} of the job's cycle type, triggered at or after that fire, got
+ *       <em>past submission</em> (see {@link PipelineRunRepository#countRunsPastSubmission}), so it
+ *       never double-fires and survives restarts. A run killed by the restart itself, in a
+ *       pre-submission phase ({@link PipelinePhase#PRE_SUBMISSION}), submitted nothing and must NOT
+ *       count: that is exactly the restart-just-after-the-fire case this policy exists for. This
+ *       is correct whichever of the two unordered {@code ApplicationReadyEvent} listeners runs
+ *       first, because catch-up runs only at startup, where a RUNNING run in a pre-submission
+ *       phase belongs to the dead JVM and is about to be failed by
+ *       {@code PipelineOrchestrator.resumeRunning} (and a FAILED one already was). A run that
+ *       reached WAIT, RETRY_FAILED or BRIEFING, or COMPLETED or DEGRADED, still counts: its batches
+ *       exist and are polled. Accepted consequence: a run that genuinely failed during submission
+ *       (say an Anthropic 500 on every bucket) is retried by a restart inside the window, which is
+ *       desirable;</li>
  *   <li>useful lead remains: a sunrise job only before {@value #MORNING_WINDOW_CLOSES} UK, a
  *       sunset job only while now is at least {@value #SUNSET_LEAD_MINUTES} minutes before
  *       sunset.</li>
@@ -89,7 +99,8 @@ public class SolarCatchUpPolicy {
         if (!fire.usable() || !fire.fire().isBefore(now)) {
             return Optional.empty();
         }
-        if (pipelineRuns.existsByCycleTypeAndTriggerTimeGreaterThanEqual(cycle, fire.fire())) {
+        if (pipelineRuns.countRunsPastSubmission(cycle, fire.fire(),
+                PipelinePhase.PRE_SUBMISSION) > 0) {
             return Optional.empty();
         }
         if (config.getSolarEvent() == SolarEvent.SUNRISE) {

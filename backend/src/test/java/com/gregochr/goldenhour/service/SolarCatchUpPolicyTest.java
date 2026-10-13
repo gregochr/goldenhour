@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.CycleType;
+import com.gregochr.goldenhour.entity.PipelinePhase;
 import com.gregochr.goldenhour.entity.ScheduleType;
 import com.gregochr.goldenhour.entity.SchedulerJobConfigEntity;
 import com.gregochr.goldenhour.entity.SchedulerJobStatus;
@@ -63,8 +64,8 @@ class SolarCatchUpPolicyTest {
         Instant fire = fireOf(job).fire();
         Instant now = fire.plus(Duration.ofMinutes(30));
         assertThat(now.atZone(SolarOffsetTrigger.LONDON).getHour()).as("test premise").isLessThan(5);
-        when(runs.existsByCycleTypeAndTriggerTimeGreaterThanEqual(CycleType.NIGHTLY, fire))
-                .thenReturn(false);
+        when(runs.countRunsPastSubmission(CycleType.NIGHTLY, fire, PipelinePhase.PRE_SUBMISSION))
+                .thenReturn(0L);
 
         Optional<String> reason = policyAt(now).reasonToRun(job);
 
@@ -100,12 +101,12 @@ class SolarCatchUpPolicyTest {
     void alreadyRun_doesNothing() {
         SchedulerJobConfigEntity job = solarJob(SolarForecastJobs.NIGHTLY_JOB, SolarEvent.SUNRISE, 255);
         Instant fire = fireOf(job).fire();
-        when(runs.existsByCycleTypeAndTriggerTimeGreaterThanEqual(CycleType.NIGHTLY, fire))
-                .thenReturn(true);
+        when(runs.countRunsPastSubmission(CycleType.NIGHTLY, fire, PipelinePhase.PRE_SUBMISSION))
+                .thenReturn(1L);
 
         assertThat(policyAt(fire.plus(Duration.ofMinutes(30))).reasonToRun(job)).isEmpty();
 
-        verify(runs).existsByCycleTypeAndTriggerTimeGreaterThanEqual(CycleType.NIGHTLY, fire);
+        verify(runs).countRunsPastSubmission(CycleType.NIGHTLY, fire, PipelinePhase.PRE_SUBMISSION);
     }
 
     @Test
@@ -115,8 +116,8 @@ class SolarCatchUpPolicyTest {
         SolarOffsetTrigger.Fire fire = fireOf(job);
         Instant exactlyNinety = fire.eventInstant().minus(Duration.ofMinutes(90));
         Instant eightyNine = fire.eventInstant().minus(Duration.ofMinutes(89));
-        when(runs.existsByCycleTypeAndTriggerTimeGreaterThanEqual(CycleType.INTRADAY, fire.fire()))
-                .thenReturn(false);
+        when(runs.countRunsPastSubmission(CycleType.INTRADAY, fire.fire(), PipelinePhase.PRE_SUBMISSION))
+                .thenReturn(0L);
 
         assertThat(policyAt(exactlyNinety).reasonToRun(job)).isPresent();
         assertThat(policyAt(eightyNine).reasonToRun(job)).isEmpty();

@@ -51,6 +51,8 @@ class DynamicSchedulerSolarTest {
     private static final String NIGHTLY = SolarForecastJobs.NIGHTLY_JOB;
     private static final String INTRADAY = SolarForecastJobs.INTRADAY_JOB;
     private static final String CRON = "0 0 1 * * *";
+    private static final Instant NOW = Instant.parse("2026-10-13T10:00:00Z");
+    private static final java.time.Clock CLOCK = java.time.Clock.fixed(NOW, java.time.ZoneOffset.UTC);
 
     @Mock
     private SchedulerJobConfigRepository repository;
@@ -74,7 +76,7 @@ class DynamicSchedulerSolarTest {
         SolarTriggerFactory factory = new SolarTriggerFactory(new SolarService(),
                 new SolarReferencePoint("54.776", "-1.575"));
         service = new DynamicSchedulerService(repository, taskScheduler, auroraProperties, factory,
-                catchUp);
+                catchUp, CLOCK);
         service.registerJobTarget(NIGHTLY, () -> { });
         service.registerJobTarget(INTRADAY, () -> { });
         service.registerJobTarget("tide_refresh", () -> { });
@@ -153,11 +155,15 @@ class DynamicSchedulerSolarTest {
     @DisplayName("calculateNextFireTime for a solar row is the trigger's own next fire, strictly "
             + "in the future; an incomplete row has none")
     void calculateNextFireTime_solarRow() {
-        Instant before = Instant.now();
+        SolarOffsetTrigger expected = new SolarTriggerFactory(new SolarService(),
+                new SolarReferencePoint("54.776", "-1.575"))
+                .create(NIGHTLY, SolarEvent.SUNRISE, 255, CRON);
 
         Instant next = service.calculateNextFireTime(solarRow(1, NIGHTLY, SolarEvent.SUNRISE, 255));
 
-        assertThat(next).isAfter(before).isBefore(before.plusSeconds(3 * 24 * 3600L));
+        // The injected clock (13 Oct 10:00Z, after that morning's fire) decides: the next fire is
+        // the 14th's, exactly as the trigger itself computes it.
+        assertThat(next).isEqualTo(expected.fireFor(java.time.LocalDate.of(2026, 10, 14)).fire());
         assertThat(service.calculateNextFireTime(solarRow(2, NIGHTLY, null, 255))).isNull();
         assertThat(service.calculateNextFireTime(solarRow(3, NIGHTLY, SolarEvent.SUNRISE, null))).isNull();
     }
@@ -464,5 +470,26 @@ class DynamicSchedulerSolarTest {
         service.initSchedules();
 
         verify(taskScheduler).schedule(any(Runnable.class), any(Trigger.class));
+    }
+
+    @Test
+    @DisplayName("if restoring the stored type also fails, the original install exception is "
+            + "thrown with the restore failure attached as suppressed")
+    void switch_restoreAlsoFails_keepsOriginalWithSuppressed() {
+        SchedulerJobConfigEntity before = cronRow(7, NIGHTLY);
+        SchedulerJobConfigEntity after = solarRow(7, NIGHTLY, SolarEvent.SUNRISE, 255);
+        when(repository.findByJobKey(NIGHTLY)).thenReturn(Optional.of(before), Optional.of(after));
+        when(repository.updateScheduleType(eq(7L), eq("SOLAR_OFFSET"), eq("SUNRISE"), eq(255),
+                any(Instant.class))).thenReturn(1);
+        IllegalStateException restoreFailure = new IllegalStateException("db gone");
+        when(repository.updateScheduleType(eq(7L), eq("CRON"), eq(null), eq(null), any(Instant.class)))
+                .thenThrow(restoreFailure);
+        when(taskScheduler.schedule(any(Runnable.class), any(SolarOffsetTrigger.class)))
+                .thenThrow(new IllegalStateException("scheduler rejected"));
+
+        assertThatThrownBy(() -> service.switchScheduleType(NIGHTLY, ScheduleType.SOLAR_OFFSET,
+                SolarEvent.SUNRISE, 255))
+                .hasMessage("scheduler rejected")
+                .hasSuppressedException(restoreFailure);
     }
 }
