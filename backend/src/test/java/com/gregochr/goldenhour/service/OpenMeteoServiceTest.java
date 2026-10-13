@@ -769,6 +769,55 @@ class OpenMeteoServiceTest {
     }
 
     @Test
+    @DisplayName("fetchDirectionalCloudData() records far mid/high and the dark-side hour")
+    void fetchDirectionalCloudData_recordsFarMidHighAndDarkHour() {
+        LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 47, 0);
+        List<String> times = List.of("2026-06-21T20:00", "2026-06-21T21:00");
+        OpenMeteoForecastResponse cone = buildCloudOnlyResponse(
+                times, List.of(10, 10), List.of(20, 20), List.of(30, 30));
+        OpenMeteoForecastResponse far = buildCloudOnlyResponse(
+                times, List.of(40, 41), List.of(50, 51), List.of(60, 61));
+
+        when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
+                .thenReturn(List.of(cone, cone, cone, cone, far));
+
+        DirectionalCloudData result = openMeteoService.fetchDirectionalCloudData(
+                54.7753, -1.5849, 245, eventTime, TargetType.SUNSET, null);
+
+        assertThat(result).isNotNull();
+        assertThat(result.farSolarLowCloudPercent()).isEqualTo(40);
+        assertThat(result.farSolarMidCloudPercent()).isEqualTo(50);
+        assertThat(result.farSolarHighCloudPercent()).isEqualTo(60);
+        assertThat(result.farSolarLowCloudPercentDarkHour()).isEqualTo(41);
+        assertThat(result.farSolarMidCloudPercentDarkHour()).isEqualTo(51);
+        assertThat(result.farSolarHighCloudPercentDarkHour()).isEqualTo(61);
+    }
+
+    @Test
+    @DisplayName("fetchDirectionalCloudData() with a broken far mid list keeps the far low")
+    void fetchDirectionalCloudData_brokenFarMidList_keepsFarLow() {
+        LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 47, 0);
+        List<String> times = List.of("2026-06-21T20:00", "2026-06-21T21:00");
+        OpenMeteoForecastResponse cone = buildCloudOnlyResponse(
+                times, List.of(10, 10), List.of(20, 20), List.of(30, 30));
+        OpenMeteoForecastResponse far = buildCloudOnlyResponse(
+                times, List.of(40, 41), null, List.of(60, 61));
+
+        when(openMeteoClient.fetchCloudOnlyBatch(anyList()))
+                .thenReturn(List.of(cone, cone, cone, cone, far));
+
+        DirectionalCloudData result = openMeteoService.fetchDirectionalCloudData(
+                54.7753, -1.5849, 245, eventTime, TargetType.SUNSET, null);
+
+        assertThat(result).isNotNull();
+        assertThat(result.farSolarLowCloudPercent()).isEqualTo(40);
+        assertThat(result.farSolarMidCloudPercent()).isNull();
+        assertThat(result.farSolarMidCloudPercentDarkHour()).isNull();
+        assertThat(result.farSolarHighCloudPercent()).isEqualTo(60);
+        assertThat(result.farSolarLowCloudPercentDarkHour()).isEqualTo(41);
+    }
+
+    @Test
     @DisplayName("fetchDirectionalCloudData() returns null when API call fails")
     void fetchDirectionalCloudData_apiFailure_returnsNull() {
         LocalDateTime eventTime = LocalDateTime.of(2026, 6, 21, 20, 47, 0);

@@ -387,7 +387,19 @@ public final class OpenMeteoResponseParser {
     }
 
     private static Integer getIntegerValue(List<Integer> values, int idx) {
-        if (values == null || idx >= values.size()) {
+        return integerAt(values, idx);
+    }
+
+    /**
+     * Null-safe read of one element of an hourly integer series.
+     *
+     * @param values the hourly series, possibly {@code null}
+     * @param idx    the index to read
+     * @return the element, or {@code null} for a null series, a negative index, an index at or
+     *         past the series size, or a null element
+     */
+    public static Integer integerAt(List<Integer> values, int idx) {
+        if (values == null || idx < 0 || idx >= values.size()) {
             return null;
         }
         return values.get(idx);

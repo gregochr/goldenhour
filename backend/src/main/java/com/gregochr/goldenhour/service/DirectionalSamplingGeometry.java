@@ -57,6 +57,18 @@ public final class DirectionalSamplingGeometry {
     /** Number of solar-cone sample points averaged for the solar horizon. */
     public static final int SOLAR_CONE_POINT_COUNT = 3;
 
+    /**
+     * Index of the antisolar point in the list {@link #computeDirectionalCloudPoints} returns
+     * (after the three solar-cone points).
+     */
+    public static final int ANTISOLAR_POINT_INDEX = 3;
+
+    /**
+     * Index of the 226 km far-solar point in the list {@link #computeDirectionalCloudPoints}
+     * returns (the last of its five points).
+     */
+    public static final int FAR_SOLAR_POINT_INDEX = 4;
+
     private DirectionalSamplingGeometry() {
     }
 

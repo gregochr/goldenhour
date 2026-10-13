@@ -36,6 +36,12 @@ public final class CloudPointCacheReader {
      * Extracts directional cloud data from a pre-fetched {@link CloudPointCache}.
      * Falls back to {@code null} if any required point is missing from the cache.
      *
+     * <p>A missing far cell leaves every far field {@code null} and returns the rest. A malformed
+     * far point (a null hourly block, a null or short low-cloud series) still nulls the whole
+     * result, deliberately unchanged: that outcome removes the prompt's directional block and
+     * switches triage's cloud source, so it is a rating input. The far mid, high and dark-hour
+     * values are read null-safely and can never throw.
+     *
      * @param lat              observer latitude
      * @param lon              observer longitude
      * @param solarAzimuthDeg  compass bearing of the sun
@@ -68,7 +74,9 @@ public final class CloudPointCacheReader {
             }
 
             // Antisolar (index 3)
-            OpenMeteoForecastResponse antisolarF = cloudCache.get(points.get(3)[0], points.get(3)[1]);
+            OpenMeteoForecastResponse antisolarF = cloudCache.get(
+                    points.get(DirectionalSamplingGeometry.ANTISOLAR_POINT_INDEX)[0],
+                    points.get(DirectionalSamplingGeometry.ANTISOLAR_POINT_INDEX)[1]);
             if (antisolarF == null) {
                 return null;
             }
@@ -78,11 +86,25 @@ public final class CloudPointCacheReader {
 
             // Far solar (index 4)
             Integer farSolarLow = null;
-            OpenMeteoForecastResponse farF = cloudCache.get(points.get(4)[0], points.get(4)[1]);
+            Integer farSolarMid = null;
+            Integer farSolarHigh = null;
+            Integer farLowDark = null;
+            Integer farMidDark = null;
+            Integer farHighDark = null;
+            OpenMeteoForecastResponse farF = cloudCache.get(
+                    points.get(DirectionalSamplingGeometry.FAR_SOLAR_POINT_INDEX)[0],
+                    points.get(DirectionalSamplingGeometry.FAR_SOLAR_POINT_INDEX)[1]);
             if (farF != null) {
-                int farIdx = TimeSlotUtils.findBestIndex(farF.getHourly().getTime(),
-                        solarEventTime, targetType);
-                farSolarLow = farF.getHourly().getCloudCoverLow().get(farIdx);
+                OpenMeteoForecastResponse.Hourly fh = farF.getHourly();
+                int farIdx = TimeSlotUtils.findBestIndex(fh.getTime(), solarEventTime, targetType);
+                farSolarLow = fh.getCloudCoverLow().get(farIdx);
+                // Recorded, never prompted: null-safe reads that cannot throw.
+                int darkIdx = TimeSlotUtils.darkSideIndex(farIdx, targetType);
+                farSolarMid = OpenMeteoResponseParser.integerAt(fh.getCloudCoverMid(), farIdx);
+                farSolarHigh = OpenMeteoResponseParser.integerAt(fh.getCloudCoverHigh(), farIdx);
+                farLowDark = OpenMeteoResponseParser.integerAt(fh.getCloudCoverLow(), darkIdx);
+                farMidDark = OpenMeteoResponseParser.integerAt(fh.getCloudCoverMid(), darkIdx);
+                farHighDark = OpenMeteoResponseParser.integerAt(fh.getCloudCoverHigh(), darkIdx);
             }
 
             return new DirectionalCloudData(
@@ -92,7 +114,7 @@ public final class CloudPointCacheReader {
                     ah.getCloudCoverLow().get(antisolarIdx),
                     ah.getCloudCoverMid().get(antisolarIdx),
                     ah.getCloudCoverHigh().get(antisolarIdx),
-                    farSolarLow);
+                    farSolarLow, farSolarMid, farSolarHigh, farLowDark, farMidDark, farHighDark);
         } catch (Exception e) {
             LOG.warn("Directional cloud extraction from cache failed: {}", e.getMessage());
             return null;
