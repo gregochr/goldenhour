@@ -194,7 +194,7 @@ public final class BriefingCandidateCollector {
                             region, stabilityByLocation);
                     // Horizon-aware: an evaluation for tonight and one for four days out are not
                     // equally allowed to be stale. Passing daysAhead caps T+0 at the safety floor
-                    // and T+1 at 8h, so a SETTLED region evaluated at T+1 can no longer hold its
+                    // and T+1 at 6h, so a SETTLED region evaluated at T+1 can no longer hold its
                     // 36h window across the event it was evaluated for.
                     Duration freshness = freshnessResolver.maxAgeFor(daysAhead, regionStability);
                     int regionSlots = region.slots() != null ? region.slots().size() : 0;
@@ -290,9 +290,10 @@ public final class BriefingCandidateCollector {
         }
         long ageHours = java.time.temporal.ChronoUnit.HOURS.between(
                 snapshot.generatedAt(), java.time.Instant.now());
-        String source = ageHours > 12 ? "DB (recovered after restart)" : "in-memory";
-        LOG.info("[BATCH DIAG] Stability snapshot loaded from {}: age={}h, {} grid cells",
-                source, ageHours, snapshot.cells().size());
+        // Log-only: this gates nothing. The age is printed as-is; a sun-relative summer afternoon
+        // cycle is routinely ~17h after the morning snapshot, so age alone does not imply a restart.
+        LOG.info("[BATCH DIAG] Stability snapshot loaded: age={}h, {} grid cells",
+                ageHours, snapshot.cells().size());
         Map<String, ForecastStability> lookup = new HashMap<>();
         for (StabilitySummaryResponse.GridCellDetail cell : snapshot.cells()) {
             for (String locName : cell.locationNames()) {

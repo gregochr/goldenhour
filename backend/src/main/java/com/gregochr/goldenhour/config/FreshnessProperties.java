@@ -87,10 +87,16 @@ public class FreshnessProperties {
         /**
          * Max cache age (hours) at T+1.
          *
-         * <p>8h is chosen to survive no cycle boundary: with the nightly cycle landing results
-         * near 01:00 UTC and the intraday cycle firing at 14:00, a 12h+ gap always exceeds it,
-         * so a T+1 slot is refreshed by both rather than being held by whichever ran first.
+         * <p>6h is chosen to survive no cycle boundary. The cap applies to both cycles through the
+         * shared CACHED gate in {@code BriefingCandidateCollector} (the {@code maxAgeFor(daysAhead,
+         * stability)} / {@code hasFreshEvaluation} check), which runs <em>before</em> eligibility,
+         * so a T+1 slot is refreshed by both cycles rather than held by whichever ran first.
+         * With sun-relative cycles the shortest gap between two cycles is the midwinter morning
+         * to afternoon gap, about 7 h 24 min at Durham (morning ~04:15 UK, afternoon ~11:39 UK),
+         * less the morning cycle's batch latency (normally minutes), so the cap must sit below
+         * about 7h; 6h leaves roughly an hour's margin all year. It also still clears today's
+         * fixed 01:00 / 14:00 schedule, whose smallest gap is 11 h.
          */
-        private int t1Hours = 8;
+        private int t1Hours = 6;
     }
 }

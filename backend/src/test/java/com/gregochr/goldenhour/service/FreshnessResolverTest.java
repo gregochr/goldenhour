@@ -16,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class FreshnessResolverTest {
 
     private FreshnessResolver resolver(int settled, int transitional, int unsettled, int floor) {
-        return resolver(settled, transitional, unsettled, floor, 2, 8);
+        return resolver(settled, transitional, unsettled, floor, 2, 6);
     }
 
     private FreshnessResolver resolver(int settled, int transitional, int unsettled, int floor,
@@ -110,14 +110,25 @@ class FreshnessResolverTest {
         }
 
         @Test
-        @DisplayName("T+1 SETTLED takes the 8h cap, not the 36h stability threshold")
+        @DisplayName("T+1 SETTLED takes the 6h cap, not the 36h stability threshold")
         void tomorrowSettledTakesCap() {
             assertThat(resolver.maxAgeFor(1, ForecastStability.SETTLED))
-                    .isEqualTo(Duration.ofHours(8));
+                    .isEqualTo(Duration.ofHours(6));
         }
 
         @Test
-        @DisplayName("T+1 UNSETTLED keeps stability's 4h — tighter than the 8h cap")
+        @DisplayName("default T+1 SETTLED cap: an entry 7h old is stale, 5h old is fresh — the "
+                + "midwinter morning-to-afternoon gap is ~7h24")
+        void defaultTomorrowSettledCapSplitsSevenFromFiveHours() {
+            Duration cap = new FreshnessResolver(new FreshnessProperties())
+                    .maxAgeFor(1, ForecastStability.SETTLED);
+
+            assertThat(Duration.ofHours(7)).isGreaterThan(cap);
+            assertThat(Duration.ofHours(5)).isLessThan(cap);
+        }
+
+        @Test
+        @DisplayName("T+1 UNSETTLED keeps stability's 4h — tighter than the 6h cap")
         void tomorrowUnsettledKeepsTighterStability() {
             assertThat(resolver.maxAgeFor(1, ForecastStability.UNSETTLED))
                     .isEqualTo(Duration.ofHours(4));

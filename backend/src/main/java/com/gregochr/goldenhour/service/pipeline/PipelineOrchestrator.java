@@ -371,7 +371,7 @@ public class PipelineOrchestrator {
      *   <li>{@link IntradayEligibilityPolicy} — the skip-settled cost-gate.</li>
      * </ul>
      *
-     * <p>Bound to the {@code intraday_forecast_refresh} cron (14:00 UTC) via
+     * <p>Bound to the {@code intraday_forecast_refresh} schedule (14:00 UTC by default) via
      * {@link #registerJobTarget()}. Because it goes through {@code runCycle} with
      * {@link CycleType#INTRADAY}, the submit phase runs ephemerally (the morning
      * snapshot is preserved) and records a {@code STABILITY_RECLASSIFY} phase
