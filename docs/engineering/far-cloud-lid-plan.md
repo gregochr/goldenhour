@@ -235,6 +235,22 @@ the training set, excluded from the evaluation.
 | H2 | mid ≥ 60 at 226 km |
 | H3 | low ≥ 50 or mid ≥ 60 at ~165 km (S3's position) |
 | H4 | high ≥ 60 at ~320 km |
+| H5 | at 226 km, cloud ≥ 60 at any of 600, 500 or 400 hPa (the levels the sun line crosses there at α ≈ 0–1°, §2) |
+
+**H5, added 2026-10-13 before any level data was pulled.** It asks whether a deck's height,
+not its layer band, picks out the decks that cross the sun line. Open-Meteo's mid band (3–8 km)
+mixes a 3 km deck below the line with a 6 km one across it.
+
+- **Observed side.** ERA5's archive serves no pressure-level cloud (it returns `null`), so H5 is
+  judged against ERA5's mid or high ≥ 60 at 226 km. That is coarser than the forecast gate, and it
+  is stated as a limit.
+- **Forecast side.** The Previous Runs API rejects pressure-level variables, and the Historical
+  Forecast API rebuilds only about T+0. So H5 uses production's own stored levels
+  (`docs/engineering/far-cloud-capture-plan.md` T7), from T7's deploy on. Stitched T+0 levels may
+  be used only as a labelled sensitivity check, never for the decision.
+- **Extra decision rule.** Beyond the common rules below, H5 proceeds only if its lift's interval
+  lies above that of H1 ∪ H2 (the aggregate gate) on the same firings. Height must earn its keep
+  over the bands.
 
 **Unit.** One firing is a region × date × event, judged on the latest run before the event (the one
 readers saw), stratified by lead (T+0, T+1, T+2). Sunsets and sunrises are reported separately.

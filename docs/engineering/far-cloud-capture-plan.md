@@ -46,8 +46,9 @@ does not wait for them to accrue.
     never inside it.
   - The other hour is already in the same response, so it costs no extra call. Without it, a later
     rule cannot interpolate to the event minute from stored rows (parent §8, timing).
-- **S0, pressure-level cloud at the far point:** deferred (§7). The Historical Forecast API can
-  rebuild it for past dates, and the ERA5 archive cannot verify it (§3).
+- **S0, pressure-level cloud at the far point**, as its own PR straight after PR #A (T7, §7). It is
+  forecast-only: the ERA5 archive returns null for these variables (§3). It feeds the parent plan's
+  H5.
 
 **Out, and must not change** (parent plan §7):
 - the prompt text, for every builder and every model, including the woodland and bluebell builders;
@@ -200,7 +201,7 @@ T0 (owner, done)
 T1 record + readers ──┬─> T2 persistence + V175 ──> T3 ERA5 store ──┐
                       └─> T4 invariance ───────────────────────────┴─> T5 + T6 integrate, review, PR #A
                                                                         (merge, then DEPLOY)
-deferred (§7) ──────> T7a fetch ──> T7b record, store, invariance ──> T7c integrate, PR #B
+after PR #A merges ──> T7a fetch ──> T7b record, store, invariance ──> T7c integrate, PR #B
 ```
 
 **Branch.** One branch per PR. PR #A uses `feature/far-cloud-capture`, from `main`. Commit after
@@ -542,18 +543,18 @@ leaks and where.
 - **Any rule,** P4 in the parent plan, is decided from P1's numbers. It is then proven by the P0
   harness (`PromptReplayHarnessTest`), replaying stored prompts before and after.
 
-## 7. T7 — S0 pressure-level cloud (PR #B; waits for an owner decision)
+## 7. T7 — S0 pressure-level cloud (PR #B, straight after PR #A)
 
-**Deferred by the owner, 2026-10-13. Deferral loses no history.** The owner checked the Historical
-Forecast API: `historical-forecast-api.open-meteo.com` at 54.9 N 3.5 W for 2026-09-01 returns numbers
-for `cloud_cover_700hPa`, `_500hPa` and `_300hPa`.
+**Decided by the owner, 2026-10-13: T7 runs straight after PR #A.** An earlier deferral (the same
+evening) was withdrawn after two checks:
 
-So P1, or a later rule, can rebuild the far point's levels for any past date. It does not depend on
-stored rows.
+- **The Historical Forecast API** serves pressure-level cloud for past dates, but it stitches each
+  run's first hours, so it rebuilds roughly T+0.
+- **The Previous Runs API** rejects pressure-level variables
+  (`cloud_cover_700hPa_previous_day1`: "invalid String value").
 
-One caveat: that API stitches each model run's first hours together, so it rebuilds roughly a T+0
-forecast, not the T+1 forecast production made. If a lead-specific level is ever needed, check the
-Previous Runs API first. T7 stays as designed below, for when a hypothesis needs stored levels.
+So no source recovers the T+1 levels production saw. Stored levels are the only fair way to
+validate a height rule, and the parent plan's H5 (added the same day) depends on them.
 
 **The decision.** What the review established:
 - Both prefetchers and the live reader share one cloud request with the upwind and cone points.
@@ -563,11 +564,9 @@ Previous Runs API first. T7 stays as designed below, for when a hypothesis needs
 
 So T7 makes a **separate, best-effort request for the far points only**, which cannot touch the
 existing one. The cost is one extra Open-Meteo request per prefetch (the far cells, deduplicated),
-plus one per live evaluation that has no cache. The owner decides whether that is worth it, given
-that no pre-registered P1 hypothesis reads the levels yet. Without the levels, P1 tests mid/high
-aggregates only.
+plus one per live evaluation that has no cache. The owner accepted that cost on 2026-10-13.
 
-**If the owner says yes:**
+**The cards:**
 - **T7a (Sonnet), the fetch.** No reader changes.
   - Add `OpenMeteoClient.PRESSURE_LEVEL_CLOUD_PARAMS`, the six levels 850–300 hPa (T0's list), and
     `fetchPressureLevelCloudBatch(coords)`.
