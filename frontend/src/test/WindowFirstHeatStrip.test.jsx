@@ -3429,3 +3429,70 @@ describe('the stylesheet half, which jsdom cannot evaluate (matrix-axis plan §5
     });
   });
 });
+
+describe('WindowFirstHeatStrip — the region mean behind the verdict word (verdict-honesty H1)', () => {
+  // A region at 3.53 and one at 4.6 both wear "Worth it", the same tint and the same bloom; the
+  // figure is what tells them apart. Everything here is the SERVED `BriefingRegion.meanRating`
+  // arriving as `card.topMeanRating` — nothing on the strip computes it.
+  const mean = () => screen.queryByTestId('wf-heat-mean');
+
+  it('shows the mean beside the verdict word, as a sibling inside the same value cell', async () => {
+    await renderStrip({ cards: [stripCard({ topMeanRating: 3.5 })] });
+
+    expect(mean()).toHaveTextContent('3.5★');
+    const verdict = screen.getByTestId('wf-heat-verdict');
+    // A SIBLING, not nested: the word's own text content stays exactly the word (every other test
+    // in this file reads it), and the mean is in the same `.wf-hc-pv` cell so it shares the row.
+    expect(verdict).toHaveTextContent(/^Worth it$/);
+    expect(mean().parentElement).toBe(verdict.parentElement);
+    expect(mean()).toHaveClass('wf-hc-mean');
+    expect(screen.getByTestId('wf-heat-value-grid')).toContainElement(mean());
+  });
+
+  it('always prints ONE decimal: 3.53 → "3.5★" and a whole 4 → "4.0★", never "4★"', async () => {
+    // "4★" is the integer best-spot chip on the same card; the average must never be mistakable for
+    // it, so the decimal is kept even when it is zero.
+    await renderStrip({ cards: [stripCard({ topMeanRating: 3.53 })] });
+    expect(mean()).toHaveTextContent(/^3\.5★$/);
+
+    cleanup();
+    await renderStrip({ cards: [stripCard({ topMeanRating: 4 })] });
+    expect(mean()).toHaveTextContent(/^4\.0★$/);
+  });
+
+  it.each([null, undefined, Number.NaN])('renders NOTHING for a mean of %s — no dash, no placeholder', async (value) => {
+    await renderStrip({ cards: [stripCard({ topMeanRating: value })] });
+
+    expect(mean()).toBeNull();
+    // The verdict word and its cell are untouched, and nothing stand-in text crept into the cell.
+    const cell = screen.getByTestId('wf-heat-verdict').parentElement;
+    expect(cell).toHaveTextContent(/^Worth it$/);
+    expect(screen.getByTestId('wf-heat-value-grid').textContent).not.toMatch(/★\s*$|—|–|n\/a/i);
+  });
+
+  it('renders no mean on an away cell, which has no region behind it', async () => {
+    await renderStrip({
+      cards: [stripCard({ away: true, verdict: null, verdictLabel: 'Not forecast', topMeanRating: 3.5 })],
+    });
+    expect(mean()).toBeNull();
+  });
+
+  it('voices the mean in words straight after the verdict, and says nothing when there is none', async () => {
+    // The value grid is aria-hidden, so the sentence is the ONLY route to the figure. "3.5 star
+    // average" is words, not "3.5★" (a glyph some readers skip) and not a bare "3.5" (a time or a
+    // date to a screen reader).
+    await renderStrip({ cards: [stripCard({ topMeanRating: 3.53 })] });
+    expect(screen.getByRole('button', {
+      name: 'Tonight Sunset, 21:11, Worth it, 3.5 star average, best, nothing in reach',
+    })).toBeInTheDocument();
+    expect(screen.getByTestId('wf-heat-value-grid')).toHaveAttribute('aria-hidden', 'true');
+
+    cleanup();
+    await renderStrip({ cards: [stripCard({ topMeanRating: null })] });
+    expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Worth it, best, nothing in reach' }))
+      .toBeInTheDocument();
+    expect(screen.getByRole('button').getAttribute('aria-labelledby')).toBeTruthy();
+    const nameId = screen.getByRole('button').getAttribute('aria-labelledby');
+    expect(document.getElementById(nameId).textContent).not.toMatch(/star average/);
+  });
+});

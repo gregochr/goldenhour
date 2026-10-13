@@ -116,6 +116,16 @@ describe('buildHeatStripCards — one thumbnail per rendered window', () => {
     expect(build(events, cards).map((c) => c.pickKind)).toEqual(['best', 'also']);
   });
 
+  it('carries the card\'s region mean through to the thumbnail, and null as null (verdict-honesty H1)', () => {
+    // Folded from the card, never re-picked: the face prints this beside the verdict word, so a
+    // second selection here is a second chance to name a different region than the word's.
+    const events = [{ date: TODAY, targetType: 'SUNSET' }];
+
+    expect(build(events, [card({ topMeanRating: 3.5 })])[0].topMeanRating).toBe(3.5);
+    expect(build(events, [card()])[0].topMeanRating).toBeNull();
+    expect(build(events, [])[0].topMeanRating).toBeNull();
+  });
+
   it('carries no pick kind when the window has no pick at all', () => {
     expect(build([{ date: TODAY, targetType: 'SUNSET' }], [card()])[0].pickKind).toBeNull();
   });

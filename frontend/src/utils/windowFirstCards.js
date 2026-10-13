@@ -288,6 +288,21 @@ function topRegion(es) {
  * `mb === ma ? a.name.localeCompare(b.name) : mb - ma` — see {@link topRegion}'s note for the
  * defect that rule exists to prevent.
  *
+ * <p><b>Verdict-eligible regions rank first (plan-card-verdict-honesty-plan.md H1).</b>
+ * {@code PlanWindowProjector.BY_RANK} orders {@code verdictEligible()} regions ahead of every
+ * ineligible one BEFORE it compares means, and the window's verdict WORD is its top region's
+ * {@code displayVerdict}. This argmax used to compare means alone, so a thinly-sampled region at 4.4
+ * (the verdict-minimum-sample rule withholds its own verdict) out-ranked a sufficiently-sampled
+ * region at 3.5 here while the projector crowned the 3.5 one — the card would have printed the 3.5
+ * region's word beside the 4.4 region's figure. The wire carries the two booleans the record's
+ * {@code verdictEligible()} reads ({@code sampleSufficient}, {@code forcedSample}; absent = not
+ * eligible, the same safe direction), so this is a selection among served records, never a
+ * threshold. It also tightens {@code mapVerdict}'s scope-limited argmax onto the same order, which
+ * is the agreement that file's own doc claims. The projector's further tiebreak — rated-voter
+ * count — is not on the wire ({@code scoredLocationCount} is canopy-inclusive, a different
+ * population), and needs none here: two regions tied on the served mean print the same figure
+ * whichever one the projector picked.
+ *
  * @param {Array<object>} regions eligible region records; anything without a finite `meanRating`
  *        is skipped rather than ranked, so an unscored region can never win
  * @returns {?object} the leading region record, or null when none carries a finite mean
@@ -297,14 +312,34 @@ export function pickTopEligibleRegion(regions) {
   for (const region of Array.isArray(regions) ? regions : []) {
     const mean = region?.meanRating;
     if (typeof mean !== 'number' || !Number.isFinite(mean)) continue;
-    if (best === null
-        || mean > best.meanRating
-        || (mean === best.meanRating
-            && String(region.regionName ?? '').localeCompare(String(best.regionName ?? '')) < 0)) {
+    if (best === null || outranks(region, best)) {
       best = region;
     }
   }
   return best;
+}
+
+/**
+ * {@code BriefingRegion.verdictEligible()} as the wire carries it — the sample gate passed, or a
+ * force-evaluation exemption. Absent on a legacy payload, which reads as NOT eligible.
+ *
+ * @param {?object} region a served region record
+ * @returns {boolean}
+ */
+function verdictEligible(region) {
+  return region?.sampleSufficient === true || region?.forcedSample === true;
+}
+
+/**
+ * Whether {@code a} ranks above {@code b} in the projector's order (H1): verdict-eligible first,
+ * then the better served mean, then the NAME. Both arguments carry a finite mean.
+ */
+function outranks(a, b) {
+  const ea = verdictEligible(a);
+  const eb = verdictEligible(b);
+  if (ea !== eb) return ea;
+  if (a.meanRating !== b.meanRating) return a.meanRating > b.meanRating;
+  return String(a.regionName ?? '').localeCompare(String(b.regionName ?? '')) < 0;
 }
 
 /**
@@ -315,6 +350,22 @@ export function pickTopEligibleRegion(regions) {
  */
 function topMeanRating(es) {
   return topRegion(es)?.meanRating ?? null;
+}
+
+/**
+ * The region mean as the card prints it: always ONE decimal (plan-card-verdict-honesty-plan.md H1).
+ *
+ * <p>{@code BriefingRegion.meanRating} is already rounded to one place server-side, so this adds no
+ * precision — it only keeps the place. Always-one-decimal is the point rather than a default: the
+ * same card carries {@code bestRating} as a whole star ("best spot 4★"), and "4★" beside "4★" would
+ * be two different quantities in one glyph, where "4.0★" is visibly the average. A finite number is
+ * required; anything else is silence (null), never a placeholder.
+ *
+ * @param {?number} mean the served region mean
+ * @returns {?string} e.g. {@code "3.5"} / {@code "4.0"}, or null when there is no mean to show
+ */
+export function formatRegionMean(mean) {
+  return typeof mean === 'number' && Number.isFinite(mean) ? mean.toFixed(1) : null;
 }
 
 /**

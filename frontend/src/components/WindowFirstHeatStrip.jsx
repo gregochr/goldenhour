@@ -8,7 +8,7 @@ import {
 import { useHeatCanvas } from '../hooks/useHeatCanvas.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
-import { badgeChannel } from '../utils/windowFirstCards.js';
+import { badgeChannel, formatRegionMean } from '../utils/windowFirstCards.js';
 import { beyondRegions, GLANCE_MINUTES } from '../utils/planningArea.js';
 import { placeWithNudges } from '../utils/labelPlacement.js';
 import { scopeRegions, scopeSpots } from '../utils/planOrigin.js';
@@ -1075,7 +1075,12 @@ export default function WindowFirstHeatStrip({
     // reading of the weather, and this says nothing rated it. When it fires, the best-reach clause
     // is suppressed: a window with no rating anywhere has no rated spot in its pool either, so the
     // two would be one fact said twice.
+    // The region mean behind the verdict word (plan-card-verdict-honesty-plan.md H1). Null — a
+    // triage-fallback verdict, an unrated window, an away cell — is SILENCE in both the face and the
+    // sentence: no mean standing behind a word is itself the disclosure that no rating does.
+    const regionMean = card.away ? null : formatRegionMean(card.topMeanRating);
     const accessibleName = [card.label, card.time, card.verdictLabel]
+      .concat(regionMean ? [`${regionMean} star average`] : [])
       .filter(Boolean)
       .concat(notScored ? ['not scored'] : [])
       .concat(card.away || !spokenPool ? [] : [spokenPool])
@@ -1212,6 +1217,13 @@ export default function WindowFirstHeatStrip({
             >
               {card.verdictLabel}
             </span>
+            {/* H1: the served region mean, a SIBLING of the verdict word (not nested in it, so the
+                word's text content stays exactly the word). One decimal always, so "3.5★" cannot be
+                mistaken for the integer best-spot "4★" chip. Absent when null — no dash. The grid is
+                `aria-hidden`; the same figure is voiced in the card's sentence above. */}
+            {regionMean && (
+              <span data-testid="wf-heat-mean" className="wf-hc-mean">{regionMean}★</span>
+            )}
           </span>
           {/* An away window draws none of the three derived rows: there is no card behind it, so
               there is no pool, and an empty histogram beside "Best — nothing in reach" would be

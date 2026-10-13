@@ -108,6 +108,11 @@ export function buildHeatStripCards(
       // records why at length. So the mark cannot move when the reader touches the reach tier or
       // the rating floor, which would be a quality control silently relabelling the forecast.
       bestRating: card?.bestRating ?? null,
+      // The served mean of the region whose verdict WORD this card wears, for the face's quiet
+      // `3.5★` beside it (plan-card-verdict-honesty-plan.md H1). Folded from the card — which
+      // already selected the region in the projector's order and re-pointed it when away — never
+      // re-picked here, so the word and the figure cannot name two regions. Null is silence.
+      topMeanRating: card?.topMeanRating ?? null,
       // The forecast's own pick, served on the window projection — never a client-side "which of
       // these six looks best" (plan §2.12). Exactly two picks exist across the whole forecast, and
       // the matrix rides BOTH on the card's border as legends, so the kind is carried rather than

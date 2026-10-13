@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { badgeChannel, buildWindowCards } from '../utils/windowFirstCards.js';
+import { badgeChannel, buildWindowCards, formatRegionMean } from '../utils/windowFirstCards.js';
 import { buildRegionRows } from '../utils/windowFirstRegions.js';
 import { factsOf } from './tideFactsFixture.js';
 
@@ -1070,6 +1070,91 @@ describe('buildWindowCards — topMeanRating, the Order control\'s ranking key',
     ]));
 
     expect(card.topMeanRating).toBe(4.6);
+  });
+
+  describe('the region behind the verdict word (verdict-honesty H1)', () => {
+    // `PlanWindowProjector.BY_RANK` puts verdict-ELIGIBLE regions first, then the better mean, then
+    // the name — and the window's verdict word is that top region's displayVerdict. The card prints
+    // `topMeanRating` beside the word, so the two must come from one region.
+    it('prefers a verdict-eligible region over a higher-mean INELIGIBLE one, as the projector does', () => {
+      const [card] = build(withRegions([
+        // Thinly sampled: the sample gate withholds its own verdict, so it cannot speak for the window.
+        { regionName: 'Thin', meanRating: 4.4, sampleSufficient: false },
+        { regionName: 'Sound', meanRating: 3.5, sampleSufficient: true },
+      ]));
+
+      expect(card.topMeanRating).toBe(3.5);
+      expect(card.hotRegionName).toBe('Sound');
+      expect(card.movement).toBeNull();
+    });
+
+    it('counts a force-evaluation exemption as eligible', () => {
+      const [card] = build(withRegions([
+        { regionName: 'Thin', meanRating: 4.4, sampleSufficient: false },
+        { regionName: 'Forced', meanRating: 3.9, sampleSufficient: false, forcedSample: true },
+      ]));
+
+      expect(card.topMeanRating).toBe(3.9);
+    });
+
+    it('reads an ABSENT flag as ineligible, the record\'s own safe direction', () => {
+      // A legacy payload has neither field; `verdictEligible()` is false for it, so an explicit
+      // sufficient region wins over a higher-mean legacy one.
+      const [card] = build(withRegions([
+        { regionName: 'Legacy', meanRating: 4.6 },
+        { regionName: 'Sound', meanRating: 3.2, sampleSufficient: true },
+      ]));
+
+      expect(card.topMeanRating).toBe(3.2);
+    });
+
+    it('still ranks by mean, then name, WITHIN the eligible set (and within the ineligible one)', () => {
+      expect(build(withRegions([
+        { regionName: 'A', meanRating: 3.6, sampleSufficient: true },
+        { regionName: 'B', meanRating: 4.1, sampleSufficient: true },
+        { regionName: 'C', meanRating: 4.9, sampleSufficient: false },
+      ]))[0].topMeanRating).toBe(4.1);
+      expect(build(withRegions([
+        { regionName: 'Zed', meanRating: 4.1, sampleSufficient: true },
+        { regionName: 'Alpha', meanRating: 4.1, sampleSufficient: true },
+      ]))[0].hotRegionName).toBe('Alpha');
+      // Nothing eligible anywhere: the projector falls through to the mean, and so does this.
+      expect(build(withRegions([
+        { regionName: 'A', meanRating: 2.1 },
+        { regionName: 'B', meanRating: 3.3, sampleSufficient: false },
+      ]))[0].topMeanRating).toBe(3.3);
+    });
+
+    it('keeps the origin-scoped mean when away: the scoped region speaks, whatever its eligibility', () => {
+      // Away, the card is the ORIGIN region's own record (verdict, mean and all), so eligibility
+      // never reaches it.
+      const cards = buildWindowCards(
+        events([TODAY, 'SUNSET']),
+        [day(TODAY, [{
+          targetType: 'SUNSET',
+          regions: [
+            { regionName: 'Home', meanRating: 4.6, sampleSufficient: true },
+            { regionName: 'Elsewhere', meanRating: 2.8, sampleSufficient: false },
+          ],
+          unregioned: [],
+          window: { verdict: 'WORTH_IT', badges: [] },
+        }])],
+        TODAY, TOMORROW, new Set(), undefined,
+        { limitMinutes: null, defaultLimitMinutes: null, origin: { id: 3, name: 'Elsewhere' } },
+      );
+      expect(cards[0].topMeanRating).toBe(2.8);
+    });
+  });
+
+  describe('formatRegionMean', () => {
+    it('always keeps one decimal and returns null for anything that is not a finite number', () => {
+      expect(formatRegionMean(3.53)).toBe('3.5');
+      expect(formatRegionMean(4)).toBe('4.0');
+      expect(formatRegionMean(null)).toBeNull();
+      expect(formatRegionMean(undefined)).toBeNull();
+      expect(formatRegionMean(Number.NaN)).toBeNull();
+      expect(formatRegionMean('3.5')).toBeNull();
+    });
   });
 
   it('is null when no region carries a mean, so an unrated window can rank last', () => {
