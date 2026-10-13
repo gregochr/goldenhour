@@ -5,6 +5,110 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.26.6] - 2026-10-13
+
+### Changed — the Plan card shows the region mean behind its verdict word
+
+A window card wore the same word, tint and bloom for a region averaging 3.5 as for one averaging 4.6,
+so "Worth it" said nothing about how worth it. The value grid now prints the served region mean, one
+decimal, in quiet ink beside the word (`Worth it  3.5★`; always one decimal, so it cannot be read as
+the whole-star best-spot chip on the same card), and the card's spoken sentence carries it as
+"3.5 star average" straight after the verdict. A window with no mean behind its word — a weather
+stand-down, an unrated window, an away night — prints nothing at all rather than a dash, and so
+does a region the verdict-minimum-sample rule withheld its own verdict from (its word is then the
+weather fallback, not a reading of its mean, so the card prints no figure beside it and voices no
+average). The figure comes from the same region as the word: the client's top-region selection now ranks
+verdict-eligible regions ahead of ineligible ones before comparing means, as
+`PlanWindowProjector` does, so a thinly-sampled region at a higher mean can no longer lend its
+figure to a sufficiently-sampled region's verdict (the Map tab's window verdict shares that
+selection and follows). The popup's region rail and the Map tab's window panel now rank the same
+way, verdict-eligible regions first, so rank 1 there is the region the card and the map pill name
+(the panel's note says so). Plan card
+verdict honesty plan, H1; frontend only.
+
+### Changed — the Plan card names whose verdict it is when nothing in reach is rated
+
+When the reach tier gated out every rated place of the region a window's verdict belongs to, the
+card read "Worth it" over a Spread of "none rated yet" and a Best of "not scored yet" — false of the
+window, true only of the places you could drive to. In exactly that state the third row now reads
+`Region` / `Northumberland & Tyneside · beyond 45 min` (the tier as the lens bar prints it), in
+primary ink, with a tooltip saying the verdict is that region's and its rated places are all further
+away, and the card's spoken sentence carries the same clause where it used to drop the Best clause.
+It is silent when the verdict word is only the weather fallback of a thinly-sampled region (no
+rated places stand behind it to be "beyond" anything). It only ever appears with a measured drive time and an active tier: with no postcode, or under
+"Any", nothing was gated, so the wording is not claimed. Frontend only (plan-card-verdict-honesty
+plan, H2).
+
+### Fixed — the map no longer says "not scored yet" over a window that has ratings
+
+On the Map tab, stepping to a date past the six windows the Plan tab renders (a Friday sunset seen
+from Tuesday, say) drew "This event is not scored yet" in the top-right while the chips showed real
+stars and the counts footer read "14 rated". The line took its answer from the Plan tab's served
+window, which those later dates do not have, so it read the missing window as "nothing rated". On
+such a date it now asks the same scores the chips and the footer read, and stays silent when any
+place is rated for that date and event. A window the Plan tab does serve keeps its own rule, and
+the colour key still stays down on the later dates, because no heat field is painted there (the
+field is built per rendered window; painting it for the later dates is a follow-up). Frontend only.
+
+### Fixed — windows that were never scored no longer read "Too unsettled to forecast"
+
+The Plan tab's honesty filter blanked every region with no per-location forecast and called it "Too unsettled to forecast", which is only true when weather triage stood the region down. It was also stamped on every window the scoring policy never attempts (all of T+4, and T+3 unless the pattern is settled), on travel days, and on cycles whose forecast run did not finish, so an unscored T+3 card read "Poor". The filter now words a blank by why, from the pipeline's own record of what it did with each slot plus the horizon: a travel day reads "Not forecast", a window never attempted at this range reads "Not scored at this range", a run that did not finish reads "Forecast unavailable", each as the neutral "Not scored" card with no red tint. A window skipped by a mix of weather triage and the stability policy (the usual case at T+2 and T+3, since triage runs first) reads by whichever is the majority, a tie going to "not scored". A real weather stand-down, and any case the record cannot settle, keep the old wording. The serve reads the dispositions once (one extra small query, only when some slot's latest record is a submission, to tell a batch still in flight from one that never produced a result), and a window whose regions are blanked for different reasons now takes the real stand-down over the unscored one, so its verdict no longer depends on region names.
+
+### Docs — plan for the aurora alert banner redesign (aurora banner, B0)
+
+`docs/engineering/aurora-banner-plan.md` is the port plan for the owner's aurora alert banner
+design bundle (vendored at `docs/design/aurora-banner/`): severity moves from amber/red onto the
+aurora ramp, the banner gains a 96×118 thumbnail of tonight's aurora field (Kp and a nine-step
+meter in the same slot until per-location scores exist), and on a phone it collapses to a 56px
+glow strip. The plan records where the spec's picture of the code is out of date, the decisions
+taken for an unattended build, and three phases for Sonnet sessions. Frontend only; nothing moves
+in the backend.
+
+### Added — the aurora banner's thumbnail carries the southern viewline (aurora banner, B3)
+
+When tonight's aurora field is on the banner's thumbnail, a dashed amber line now marks how far south
+the aurora is expected to be visible, with a small label (`Kp 6 line`). It uses the live line when the
+live data has one and NOAA's forecast line otherwise, the same order as the Map tab. If the limit is
+south of the picture the line sits on the bottom edge and reads `Kp 8 · all ↓` (your whole area is
+inside it); if it is north of the picture the line sits at the top and reads `Kp 3 · line ↑` (your
+whole area is south of it). The line is only asked for while the field is drawn, so a banner showing the
+Kp meter, a simulated alert, a dismissed banner or the phone strip makes no viewline request. Frontend
+only; the line is on for everyone who sees the field (owner decision, 2026-10-12).
+
+### Added — the aurora banner shows tonight's aurora field and the best location once per-location scores exist (aurora banner, B2)
+
+While an aurora alert is up, the banner now asks for tonight's per-location ratings (the live scoring
+when it has any, else the stored run for the night in progress; a simulated alert asks for nothing).
+Once your planning area has a rated site, the 96×118 slot at the card's left swaps the Kp meter for
+the aurora field itself, clipped to the coastline and framed to the area, and the body line reads
+`Best: Kielder 4★ · 147 sites clear` (plus the live Bz); on a phone the strip's second line reads
+`Kp 8 · best Hackfall Wood 5★`. The best site is the most stars among the rated sites inside your
+planning area, ties going to the shorter drive from home and then the name, so the banner never names
+a site beyond the area it draws; an alert whose only rated sites are outside it stays on the Kp meter.
+A failed score request leaves the banner as it was, and the field loads as its own chunk with a
+fallback to the Kp meter if that chunk cannot be fetched, so a decorative picture can never take the
+page down. To reach the planning area the banner now sits inside the briefing provider: the error
+boundary and the provider wrap the banner block as well as the page, without adding any element, so
+the Map tab's layout is unchanged; a crash in the Plan now also takes the notices above it away
+behind the fallback, which has its own Sign out. Frontend only.
+
+### Changed — the aurora alert banner escalates on the aurora ramp, shows Kp on a nine-step meter, and collapses to a glow strip on a phone (aurora banner, B1)
+
+The aurora alert banner used to escalate from amber to red, colours that mean "marginal" and "stand
+down" everywhere else in PhotoCast, for an event a photographer wants. Severity now follows the
+alert's `level` onto the aurora ramp (Moderate in `#3AC884`, Strong in `#76FFA0`); the API's own
+`hexColour` is no longer read. From 640px up the banner is a card with a 96×118 slot at its left
+holding tonight's Kp and a nine-step meter (the meter's bars come from the aurora ramp module, so
+they carry its AA-checked teal) until per-location scores can fill the slot with the field itself;
+below 640px it is a single 56px glow strip with the ramp lit along its bottom edge to 62% (Moderate)
+or 92% (Strong). The card keeps the overcast gate and its copy, per-level dismissal with re-show on
+escalation, `role="alert"` and the simulated hatch. A Strong alert now breathes (a slow glow, off
+under reduced motion) instead of pulsing while it is live and Bz is southward; a Moderate one stays
+still. The Bz sentence, the Kp meta line and the live-viewline sentence are gone from the banner,
+and with them its viewline request. The small grey lines on the card and strip are set in the
+stronger secondary ink so they clear WCAG AA. A key pressed on the dismiss button no longer also
+opens the Map tab. Frontend only.
+
 ## [v2.26.5] - 2026-10-12
 
 ### Removed — the callerless Close-to-home endpoint and its second assembly path
