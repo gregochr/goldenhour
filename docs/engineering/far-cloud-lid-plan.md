@@ -272,6 +272,9 @@ region-events), not the whole history, to stay inside Open-Meteo's fair use.
 
 ### P2 — capture S1 (and S0 if available), data only, the prompt byte-identical
 
+The delegation plan, broken into task cards for subagents, is
+`docs/engineering/far-cloud-capture-plan.md`.
+
 Can run alongside P1. It is the only build step that does not wait for P1, because S1 is free.
 
 1. `DirectionalCloudData` gains nullable `farSolarMidCloudPercent` and `farSolarHighCloudPercent`.
