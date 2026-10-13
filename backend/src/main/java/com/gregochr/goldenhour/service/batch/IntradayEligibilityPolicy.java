@@ -21,7 +21,7 @@ import com.gregochr.goldenhour.entity.TargetType;
  *   <tr><td>T+0 sunset</td><td>include</td>
  *       <td>this afternoon is the last look before tonight</td></tr>
  *   <tr><td>T+1 sunrise</td><td>include</td>
- *       <td>its only later run is 01:00, which nobody is awake to read</td></tr>
+ *       <td>its only later run is the next morning's cycle, which lands while the reader sleeps</td></tr>
  *   <tr><td>T+1 sunset</td><td>skip</td>
  *       <td>two further looks are guaranteed before it</td></tr>
  * </table>
@@ -39,8 +39,8 @@ import com.gregochr.goldenhour.entity.TargetType;
  * <p><b>Why T+1 sunset still skips, on a different justification.</b> Not
  * because its rating will hold — it will move as much as any other — but because
  * it is the one slot in the window with later looks structurally guaranteed: the
- * 01:00 nightly includes every stability at T+0/T+1
- * ({@link NightlyEligibilityPolicy}), and tomorrow's 14:00 cycle meets it again
+ * next morning's cycle includes every stability at T+0/T+1
+ * ({@link NightlyEligibilityPolicy}), and the next afternoon's cycle meets it again
  * as T+0 sunset, which this policy now includes. Spending a call here buys
  * nothing. The argument is one-directional and concerns SETTLED alone: it does
  * not license withdrawing the TRANSITIONAL/UNSETTLED include, which is a
@@ -81,8 +81,8 @@ public final class IntradayEligibilityPolicy implements EligibilityPolicy {
      * reason a SETTLED candidate is worth skipping.
      *
      * <p>True for exactly one slot in the intraday window: tomorrow's sunset. Tonight's sunset has
-     * no later run at all, and tomorrow's sunrise has only the 01:00 one, whose output lands while
-     * the reader is asleep — freshness with no chance to act on it.
+     * no later run at all, and tomorrow's sunrise has only the next morning's one, whose output lands
+     * while the reader is asleep — freshness with no chance to act on it.
      *
      * <p>{@link TargetType#HOURLY} cannot reach here — {@code BriefingHierarchyBuilder} emits only
      * SUNRISE and SUNSET, and the candidate strategy rejects anything else — but it falls to

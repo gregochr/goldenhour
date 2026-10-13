@@ -341,9 +341,15 @@ photocast:
                                    # sits at the safety floor. Independent of safety-floor-hours
                                    # despite sharing its default: raise the floor and the floor
                                    # governs; set this to 36 to roll back to stability-only at T+0.
-      t1-hours: 8                  # survives no cycle boundary — the nightly cycle lands results
-                                   # near 01:00 UTC and intraday fires at 14:00, so a 12h+ gap
-                                   # always exceeds it and a T+1 slot clears this gate at both
+      t1-hours: 3                  # survives no cycle boundary — an entry's age runs from when
+                                   # its results ARRIVED, so the cap must be under the shortest
+                                   # gap between cycles (midwinter morning -> afternoon, ~7h24 at
+                                   # Durham) minus the slowest batch still awaited (the 3h30
+                                   # safety budget): ~3h54, so 3h. It also clears the fixed
+                                   # 01:00/14:00 schedule. Re-derive it if the safety budget
+                                   # rises or the cycles move closer. It is
+                                   # applied at both cycles by the shared CACHED gate, which runs
+                                   # before eligibility, so a T+1 slot clears this gate at both
                                    # cycles. Clearing the FRESHNESS gate is not the same as being
                                    # re-evaluated: a SETTLED T+1 *sunset* is then skipped by
                                    # IntradayEligibilityPolicy, because two further looks are

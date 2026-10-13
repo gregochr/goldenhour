@@ -67,8 +67,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p><b>It dispatches a night-only Ask PhotoCast Ready precompute after a successful run</b> (ask-night plan
  * §2.0 (3)). The Ready {@code NIGHT_SKY} answer is versioned on the night's astro generation
  * ({@code max(run_timestamp)}), which this job's run changes; the pipeline dispatches the precompute
- * only after its own cycles (14:00, 18:00), so without this the 14:00 answer would be withheld from
- * 15:30 until the 18:00 cycle rewrote it. "Successful" is at least one location-date scored: a run
+ * only after its own cycles (14:00, 18:00 today; a sun-relative summer afternoon cycle runs after
+ * this job's 15:30, making its own NIGHT_SKY precompute redundant but harmless), so without this
+ * the 14:00 answer would be withheld from 15:30 until the 18:00 cycle rewrote it. "Successful" is
+ * at least one location-date scored: a run
  * that scored nothing, or threw, wrote no new generation, so there is nothing to refresh. The
  * dispatch is the pipeline orchestrator's own shape: after the job run is complete, on a background
  * executor and never on the job's thread, the precompute carrying its own 5-minute deadline, and a
