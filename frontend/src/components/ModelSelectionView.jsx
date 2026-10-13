@@ -350,7 +350,7 @@ export default function ModelSelectionView() {
             >
               {tab.label}
               <span className="ml-2 text-xs opacity-60">
-                ({modelLabel(configs[tab.key]) || 'Haiku'})
+                ({modelLabel(configs[tab.key]) || modelLabel('HAIKU')})
               </span>
             </button>
             <InfoTip text={tab.tip} />
@@ -446,7 +446,7 @@ export default function ModelSelectionView() {
                 (budgets up to 10 000 thinking tokens per call).
                 {extendedThinkingConfig['BRIEFING_BEST_BET'] && activeModelForTab === 'HAIKU' && (
                   <span className="text-yellow-400 ml-1">
-                    ⚠ Haiku does not support extended thinking — switch to Sonnet or Opus.
+                    ⚠ Haiku 4.5 does not support extended thinking — switch to Sonnet or Opus.
                   </span>
                 )}
               </p>

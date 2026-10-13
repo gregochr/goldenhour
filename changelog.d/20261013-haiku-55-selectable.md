@@ -14,3 +14,5 @@ migration: the model columns hold the 8-character name `HAIKU_55`.
 
 Not yet run against the prompt-regression suite or the sky-rating eval; do that before switching any
 run type to it.
+
+The existing Haiku model is now labelled "Haiku 4.5" everywhere a model name is shown, so the two Haikus are told apart.

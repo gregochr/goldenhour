@@ -3,7 +3,7 @@ import { modelLabel } from '../utils/modelLabels.js';
 
 describe('modelLabel', () => {
   it('maps every EvaluationModel name to its display label', () => {
-    expect(modelLabel('HAIKU')).toBe('Haiku');
+    expect(modelLabel('HAIKU')).toBe('Haiku 4.5');
     expect(modelLabel('HAIKU_55')).toBe('Haiku 5.5');
     expect(modelLabel('SONNET')).toBe('Sonnet 4.6');
     expect(modelLabel('SONNET_ET')).toBe('Sonnet 4.6 (ET)');

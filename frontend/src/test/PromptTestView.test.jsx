@@ -330,7 +330,7 @@ describe('PromptTestView', () => {
     });
 
     const label = (m) => screen.getByTestId(`model-radio-${m}`).closest('label').textContent.trim();
-    expect(label('HAIKU')).toBe('Haiku');
+    expect(label('HAIKU')).toBe('Haiku 4.5');
     expect(label('HAIKU_55')).toBe('Haiku 5.5');
     expect(label('SONNET')).toBe('Sonnet 4.6');
     expect(label('SONNET_55')).toBe('Sonnet 5.5');
