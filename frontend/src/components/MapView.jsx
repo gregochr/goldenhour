@@ -3066,6 +3066,15 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * a subtler reason the strip's class comment records: an empty point set is a fact about the
    * join behind the picture, and in production three windows the payload was rating had one.
    *
+   * <p>⚠️ <b>This flag answers the KEY's question — "is there a painted field with a rating behind
+   * it" — and is NOT the "not scored yet" line's gate on a filler row</b> (plan-card-verdict-honesty
+   * H3, 2026-10-13). On a D-13 filler row it is true whatever the chips show, because no field is
+   * painted there ({@code heat.pointsByKey} is keyed by the rendered windows), so the key stays
+   * withheld; the LINE asks the different question "did the forecast rate nothing here" and
+   * consults the score index for a filler row — see {@code fillerHasRatings} and
+   * {@code unscoredLineShown}. Reading this one flag for both is what drew "not scored yet" over
+   * 26 rated chips and "14 rated" in the footer (Friday sunset, production, 2026-10-13).
+   *
    * <p>⚠️ <b>A null {@code heatWindow} counts as unscored too, and used to not.</b> This read
    * {@code heatWindow && heatWindow.bestRating == null}, excused by "the selector already says
    * 'No forecast window' for that, and it is a statement about the CAMERA rather than about the
@@ -3554,6 +3563,25 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const scopedRatedCount = useMemo(
     () => scopedVisibleLocations.filter((loc) => getRatingForLocation(loc) != null).length,
     [scopedVisibleLocations, getRatingForLocation],
+  );
+  /**
+   * Whether ANY place holds a rating for the solar window on screen when that window has no served
+   * {@code heatWindow} — a D-13 filler row (plan-card-verdict-honesty H3). The "not scored yet" line
+   * answers "the forecast rated nothing here"; on a filler row the Plan tab's served window cannot
+   * say (there is none), so the question goes to the same score index and forecast rows the chips
+   * and the counts footer read, through the same {@link getRatingForLocation}.
+   *
+   * <p>⚠️ <b>Over {@code locations}, never {@code scopedVisibleLocations}</b>: the scope segment and
+   * the filters hide places, they do not unrate them, so a reader whose area holds no rated place
+   * is still looking at a window the forecast rated. A served window keeps its own rule
+   * ({@code bestRating}), which is why this is consulted only when {@code heatWindow} is null.
+   * False for astro and aurora (their own point-set rule) and for a window the EV list has no row
+   * for ({@code getRatingForLocation} answers null there).
+   */
+  const fillerHasRatings = useMemo(
+    () => !isAstroMode && !isAuroraMode && heatWindow == null
+      && locations.some((loc) => getRatingForLocation(loc) != null),
+    [isAstroMode, isAuroraMode, heatWindow, locations, getRatingForLocation],
   );
   /**
    * ⚠️ Hoisted ABOVE `labelSpots` below (map-mobile-sheet-plan.md §3 M5 task 1): the phone tide
@@ -4465,8 +4493,14 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * which IS a statement about the forecast rather than the camera. Gating it would have silenced
    * the one mode whose message is always earned — once the night has answered, that is; see
    * {@code windowUnscored} for the loading case in which it is not.
+   *
+   * <p>⚠️ <b>Also withheld on a filler row that holds ratings</b> ({@code fillerHasRatings}, plan-card-
+   * verdict-honesty H3): the line says the forecast rated nothing, which is false beside chips
+   * drawing real stars. The colour key does NOT follow — it stays down on that row because it
+   * describes the painted field, and none is painted ({@code windowUnscored} is still true).
    */
-  const unscoredLineShown = windowUnscored && (isAstroMode || activeMapEvent != null);
+  const unscoredLineShown = windowUnscored && !fillerHasRatings
+    && (isAstroMode || activeMapEvent != null);
 
   /**
    * What that line says: {@code NIGHT_RETRY_LINE} while the night on screen's own request has failed
