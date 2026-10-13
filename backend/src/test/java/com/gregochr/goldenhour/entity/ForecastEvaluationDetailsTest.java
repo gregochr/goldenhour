@@ -74,6 +74,35 @@ class ForecastEvaluationDetailsTest {
         }
 
         @Test
+        @DisplayName("from() maps the five far-point mid/high and dark-hour readings, each to its own field")
+        void from_mapsFarPointCaptureFields() {
+            DirectionalCloudData dc =
+                    new DirectionalCloudData(35, 45, 20, 40, 50, 15, 55, 61, 72, 18, 27, 83);
+
+            DirectionalCloudDetails details = DirectionalCloudDetails.from(dc);
+
+            assertThat(details.getFarSolarLow()).isEqualTo(55);
+            assertThat(details.getFarSolarMid()).isEqualTo(61);
+            assertThat(details.getFarSolarHigh()).isEqualTo(72);
+            assertThat(details.getFarSolarLowDark()).isEqualTo(18);
+            assertThat(details.getFarSolarMidDark()).isEqualTo(27);
+            assertThat(details.getFarSolarHighDark()).isEqualTo(83);
+        }
+
+        @Test
+        @DisplayName("from() leaves the five new readings null for a 7-argument record")
+        void from_sevenArgumentRecord_leavesNewFieldsNull() {
+            DirectionalCloudDetails details =
+                    DirectionalCloudDetails.from(new DirectionalCloudData(35, 45, 20, 40, 50, 15, 55));
+
+            assertThat(details.getFarSolarMid()).isNull();
+            assertThat(details.getFarSolarHigh()).isNull();
+            assertThat(details.getFarSolarLowDark()).isNull();
+            assertThat(details.getFarSolarMidDark()).isNull();
+            assertThat(details.getFarSolarHighDark()).isNull();
+        }
+
+        @Test
         @DisplayName("from() maps all seven samples")
         void from_mapsAllFields() {
             DirectionalCloudData dc = new DirectionalCloudData(35, 45, 20, 40, 50, 15, 55);

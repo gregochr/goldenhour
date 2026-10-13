@@ -53,6 +53,26 @@ public class DirectionalCloudDetails {
     @Column(name = "far_solar_low_cloud")
     private Integer farSolarLow;
 
+    /** Mid cloud at 226 km along the solar azimuth, at the event's hour (recorded as data only). */
+    @Column(name = "far_solar_mid_cloud")
+    private Integer farSolarMid;
+
+    /** High cloud at 226 km along the solar azimuth, at the event's hour (recorded as data only). */
+    @Column(name = "far_solar_high_cloud")
+    private Integer farSolarHigh;
+
+    /** Low cloud at the far point on the dark side of the event (after a sunset, before a sunrise). */
+    @Column(name = "far_solar_low_cloud_dark")
+    private Integer farSolarLowDark;
+
+    /** Mid cloud at the far point on the dark side of the event. */
+    @Column(name = "far_solar_mid_cloud_dark")
+    private Integer farSolarMidDark;
+
+    /** High cloud at the far point on the dark side of the event. */
+    @Column(name = "far_solar_high_cloud_dark")
+    private Integer farSolarHighDark;
+
     /**
      * Builds the embeddable from the pipeline's directional cloud data.
      *
@@ -71,6 +91,11 @@ public class DirectionalCloudDetails {
                 .antisolarMid(dc.antisolarMidCloudPercent())
                 .antisolarHigh(dc.antisolarHighCloudPercent())
                 .farSolarLow(dc.farSolarLowCloudPercent())
+                .farSolarMid(dc.farSolarMidCloudPercent())
+                .farSolarHigh(dc.farSolarHighCloudPercent())
+                .farSolarLowDark(dc.farSolarLowCloudPercentDarkHour())
+                .farSolarMidDark(dc.farSolarMidCloudPercentDarkHour())
+                .farSolarHighDark(dc.farSolarHighCloudPercentDarkHour())
                 .build();
     }
 

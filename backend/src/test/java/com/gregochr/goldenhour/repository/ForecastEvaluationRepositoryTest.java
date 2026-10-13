@@ -2,10 +2,12 @@ package com.gregochr.goldenhour.repository;
 
 import com.gregochr.goldenhour.entity.ActualOutcomeEntity;
 import com.gregochr.goldenhour.entity.BatchState;
+import com.gregochr.goldenhour.entity.DirectionalCloudDetails;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.model.ActualOutcome;
 import com.gregochr.goldenhour.model.CalibrationPair;
+import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.service.ConfidenceDeriver;
 import com.gregochr.goldenhour.service.OutcomeService;
@@ -17,6 +19,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
+import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
 import org.springframework.data.domain.PageRequest;
 
 import java.math.BigDecimal;
@@ -44,6 +47,9 @@ class ForecastEvaluationRepositoryTest {
 
     @Autowired
     private ActualOutcomeRepository outcomeRepository;
+
+    @Autowired
+    private TestEntityManager entityManager;
 
     private LocationEntity durham;
     private LocationEntity edinburgh;
@@ -94,6 +100,50 @@ class ForecastEvaluationRepositoryTest {
         ForecastEvaluationEntity found = repository.findById(saved.getId()).orElseThrow();
         assertThat(found.getConfidence()).isEqualTo("MEDIUM");
         assertThat(Confidence.fromString(found.getConfidence())).isEqualTo(Confidence.MEDIUM);
+    }
+
+    @Test
+    @DisplayName("The five far-point mid/high and dark-hour readings persist and reload from the database")
+    void farPointCloudCapture_persistsAndReloads() {
+        ForecastEvaluationEntity entity = buildSonnetEvaluation(
+                durham, LocalDate.of(2026, 2, 20), TargetType.SUNSET,
+                LocalDateTime.of(2026, 2, 18, 6, 0), 2);
+        entity.setDirectionalCloud(DirectionalCloudDetails.from(
+                new DirectionalCloudData(35, 45, 20, 40, 50, 15, 55, 61, 72, 18, 27, 83)));
+
+        Long id = entityManager.persistAndFlush(entity).getId();
+        entityManager.clear();
+
+        DirectionalCloudDetails reloaded =
+                repository.findById(id).orElseThrow().getDirectionalCloud();
+        assertThat(reloaded.getFarSolarLow()).isEqualTo(55);
+        assertThat(reloaded.getFarSolarMid()).isEqualTo(61);
+        assertThat(reloaded.getFarSolarHigh()).isEqualTo(72);
+        assertThat(reloaded.getFarSolarLowDark()).isEqualTo(18);
+        assertThat(reloaded.getFarSolarMidDark()).isEqualTo(27);
+        assertThat(reloaded.getFarSolarHighDark()).isEqualTo(83);
+    }
+
+    @Test
+    @DisplayName("A row built from a 7-argument record reloads with the five new readings null")
+    void farPointCloudCapture_sevenArgumentRecord_reloadsNulls() {
+        ForecastEvaluationEntity entity = buildSonnetEvaluation(
+                durham, LocalDate.of(2026, 2, 20), TargetType.SUNSET,
+                LocalDateTime.of(2026, 2, 18, 6, 0), 2);
+        entity.setDirectionalCloud(DirectionalCloudDetails.from(
+                new DirectionalCloudData(35, 45, 20, 40, 50, 15, 55)));
+
+        Long id = entityManager.persistAndFlush(entity).getId();
+        entityManager.clear();
+
+        DirectionalCloudDetails reloaded =
+                repository.findById(id).orElseThrow().getDirectionalCloud();
+        assertThat(reloaded.getFarSolarLow()).isEqualTo(55);
+        assertThat(reloaded.getFarSolarMid()).isNull();
+        assertThat(reloaded.getFarSolarHigh()).isNull();
+        assertThat(reloaded.getFarSolarLowDark()).isNull();
+        assertThat(reloaded.getFarSolarMidDark()).isNull();
+        assertThat(reloaded.getFarSolarHighDark()).isNull();
     }
 
     @Test
