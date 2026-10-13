@@ -130,6 +130,18 @@ class CostCalculatorOneHourCacheTest {
     }
 
     @Test
+    @DisplayName("Haiku 5.5: 5-minute 0.125, 1-hour 0.20 (2x input)")
+    void haiku55_oneHourPricing() {
+        // 1000 tokens: all 5m = 125; 600 at 1h + 400 at 5m = 120 + 50 = 170; all 1h = 200
+        assertThat(calculator.calculateCostMicroDollars(EvaluationModel.HAIKU_55, writes(1000, 0)))
+                .isEqualTo(125);
+        assertThat(calculator.calculateCostMicroDollars(EvaluationModel.HAIKU_55, writes(1000, 600)))
+                .isEqualTo(170);
+        assertThat(calculator.calculateCostMicroDollars(EvaluationModel.HAIKU_55, writes(1000, 1000)))
+                .isEqualTo(200);
+    }
+
+    @Test
     @DisplayName("a 1-hour portion larger than the total is clamped and never prices extra tokens")
     void oneHourPortion_cannotExceedTotal() {
         TokenUsage oversized = writes(1000, 5000);

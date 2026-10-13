@@ -817,6 +817,21 @@ describe('ModelSelectionView', () => {
     expect(screen.queryByText(/Active — adds ~10 000 thinking tokens/)).not.toBeInTheDocument();
   });
 
+  it('Extended Thinking: Haiku 5.5 shows the no-effect note and suppresses the thinking-cost line', async () => {
+    getAvailableModels.mockResolvedValue({
+      ...MOCK_DATA,
+      configs: { ...MOCK_DATA.configs, BRIEFING_BEST_BET: 'HAIKU_55' },
+      extendedThinkingConfigs: { BRIEFING_BEST_BET: true },
+    });
+    render(<ModelSelectionView />);
+    fireEvent.click(await screen.findByTestId('config-tab-BRIEFING_BEST_BET'));
+
+    expect(await screen.findByTestId('extended-thinking-haiku-55-note')).toHaveTextContent(
+      'thinking disabled',
+    );
+    expect(screen.queryByText(/Active — adds ~10 000 thinking tokens/)).not.toBeInTheDocument();
+  });
+
   it('Extended Thinking: Sonnet 4.6 still shows the thinking-cost line and names which Sonnet', async () => {
     getAvailableModels.mockResolvedValue({
       ...MOCK_DATA,

@@ -245,7 +245,7 @@ describe('MarkerPopupContent', () => {
       };
       renderPopup({ role: 'ADMIN', forecast: triaged });
       expect(screen.getByText(/not evaluated by Claude due to heavy low cloud/)).toBeInTheDocument();
-      expect(screen.getByText(/Haiku run/)).toBeInTheDocument();
+      expect(screen.getByText(/Haiku 4\.5 run/)).toBeInTheDocument();
     });
 
     it('shows sentinel skip note in footer when forecast was sentinel-skipped', () => {

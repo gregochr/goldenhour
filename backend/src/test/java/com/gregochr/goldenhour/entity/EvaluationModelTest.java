@@ -134,6 +134,23 @@ class EvaluationModelTest {
     }
 
     @Test
+    @DisplayName("HAIKU_55 keeps the Haiku answer budget of 512 (thinking is disabled, so none is reserved)")
+    void getMaxTokens_haiku55_returns512() {
+        assertThat(EvaluationModel.HAIKU_55.getMaxTokens()).isEqualTo(512);
+    }
+
+    @Test
+    @DisplayName("HAIKU_55 is claude-haiku-5-5 v5.5, not extended thinking, own pricing tier")
+    void haiku55_identity() {
+        assertThat(EvaluationModel.HAIKU_55.getModelId()).isEqualTo("claude-haiku-5-5");
+        assertThat(EvaluationModel.HAIKU_55.getVersion()).isEqualTo("5.5");
+        assertThat(EvaluationModel.HAIKU_55.isExtendedThinking()).isFalse();
+        assertThat(EvaluationModel.HAIKU_55.pricingTier())
+                .isEqualTo(EvaluationModel.PricingTier.HAIKU_55);
+        assertThat(EvaluationModel.HAIKU_55.name()).hasSizeLessThanOrEqualTo(10);
+    }
+
+    @Test
     @DisplayName("every enum name fits the VARCHAR(10) model columns and round-trips valueOf")
     void names_fitVarchar10_andRoundTrip() {
         for (EvaluationModel model : EvaluationModel.values()) {
@@ -141,6 +158,7 @@ class EvaluationModelTest {
             assertThat(EvaluationModel.valueOf(model.name())).isEqualTo(model);
         }
         assertThat(EvaluationModel.valueOf("SONNET_55")).isEqualTo(EvaluationModel.SONNET_55);
+        assertThat(EvaluationModel.valueOf("HAIKU_55")).isEqualTo(EvaluationModel.HAIKU_55);
     }
 
     @Test
@@ -177,6 +195,7 @@ class EvaluationModelTest {
         WIRE_IDS.put(EvaluationModel.SONNET, "claude-sonnet-4-6");
         WIRE_IDS.put(EvaluationModel.SONNET_ET, "claude-sonnet-4-6");
         WIRE_IDS.put(EvaluationModel.SONNET_55, "claude-sonnet-5-5");
+        WIRE_IDS.put(EvaluationModel.HAIKU_55, "claude-haiku-5-5");
         WIRE_IDS.put(EvaluationModel.OPUS, "claude-opus-4-6");
         WIRE_IDS.put(EvaluationModel.OPUS_ET, "claude-opus-4-6");
         WIRE_IDS.put(EvaluationModel.WILDLIFE, null);

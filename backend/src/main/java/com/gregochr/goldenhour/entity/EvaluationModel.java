@@ -35,6 +35,19 @@ public enum EvaluationModel {
      */
     SONNET_55("5.5", Model.CLAUDE_SONNET_5_5),
 
+    /**
+     * Claude Haiku 5.5 — selectable only, never a default. Unlike Sonnet 5.5 it accepts
+     * {@code thinking: disabled} (at effort low, medium or high), so requests send thinking
+     * disabled plus effort low and it behaves like Haiku 4.5: no thinking tokens against the
+     * ceiling, so it keeps the Haiku answer budget. Its tokeniser counts about 30% more tokens
+     * than Haiku 4.5's for the same text. The enum name is 8 characters, inside the VARCHAR(10)
+     * model columns described on {@link #SONNET_55}.
+     *
+     * <p>A refusal from this model counts as a failed result for {@code LocationFailureService}
+     * exactly like any other failed result.
+     */
+    HAIKU_55("5.5", Model.CLAUDE_HAIKU_5_5),
+
     /** Claude Opus — highest accuracy, dual 0–100 score output. */
     OPUS("4.6", Model.CLAUDE_OPUS_4_6),
 
@@ -79,6 +92,8 @@ public enum EvaluationModel {
         SONNET,
         /** Sonnet 5.5 rates. */
         SONNET_55,
+        /** Haiku 5.5 rates. */
+        HAIKU_55,
         /** Opus rates — also used by OPUS_ET. */
         OPUS,
         /** No API call, so no cost. */
@@ -96,6 +111,7 @@ public enum EvaluationModel {
             case HAIKU -> PricingTier.HAIKU;
             case SONNET, SONNET_ET -> PricingTier.SONNET;
             case SONNET_55 -> PricingTier.SONNET_55;
+            case HAIKU_55 -> PricingTier.HAIKU_55;
             case OPUS, OPUS_ET -> PricingTier.OPUS;
             case WILDLIFE -> PricingTier.FREE;
         };

@@ -330,10 +330,32 @@ describe('PromptTestView', () => {
     });
 
     const label = (m) => screen.getByTestId(`model-radio-${m}`).closest('label').textContent.trim();
-    expect(label('HAIKU')).toBe('Haiku');
+    expect(label('HAIKU')).toBe('Haiku 4.5');
+    expect(label('HAIKU_55')).toBe('Haiku 5.5');
     expect(label('SONNET')).toBe('Sonnet 4.6');
     expect(label('SONNET_55')).toBe('Sonnet 5.5');
     expect(label('OPUS')).toBe('Opus');
+  });
+
+  it('selecting Haiku 5.5 and confirming runs HAIKU_55; the dialog names it "Haiku 5.5"', async () => {
+    runPromptTest.mockResolvedValue({ data: { id: 8, status: 'RUNNING', evaluationModel: 'HAIKU_55' } });
+    getPromptTestResults.mockResolvedValue({ data: [] });
+    render(<PromptTestView />);
+    await waitFor(() => {
+      expect(screen.getByTestId('model-radio-HAIKU_55')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('model-radio-HAIKU_55'));
+    fireEvent.click(screen.getByTestId('run-prompt-test-btn'));
+
+    const dialog = screen.getByTestId('confirm-dialog');
+    expect(dialog).toHaveTextContent('using Haiku 5.5.');
+    expect(dialog).not.toHaveTextContent('HAIKU_55');
+
+    fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
+    await waitFor(() => {
+      expect(runPromptTest).toHaveBeenCalledWith('HAIKU_55', 'VERY_SHORT_TERM');
+    });
   });
 
   it('selecting Sonnet 5.5 and confirming runs SONNET_55; the dialog names it "Sonnet 5.5"', async () => {

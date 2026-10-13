@@ -173,7 +173,7 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
      */
     private Message invokeClaude(String userMessage, PromptBuilder builder) {
         return anthropicApiClient.createMessage(
-                MessageCreateParams.builder()
+                ModelRequestSupport.withThinkingSetting(MessageCreateParams.builder()
                         .model(evaluationModel.getModelId())
                         .maxTokens(evaluationModel.getMaxTokens())
                         .systemOfTextBlockParams(List.of(
@@ -183,7 +183,7 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
                                         .build()))
                         .outputConfig(ModelRequestSupport.withEffort(
                                 builder.buildOutputConfig(), evaluationModel))
-                        .addUserMessage(userMessage)
+                        .addUserMessage(userMessage), evaluationModel)
                         .build());
     }
 

@@ -64,6 +64,7 @@ describe('SkyRatingEvalView', () => {
     expect(screen.getByTestId('sky-eval-chart-flat-grey-overcast')).toBeInTheDocument();
     expect(screen.getByTestId('sky-eval-run-btn')).toBeInTheDocument();
     expect(screen.getByTestId('sky-eval-model-SONNET')).toBeInTheDocument();
+    expect(screen.getByTestId('sky-eval-model-HAIKU_55').closest('label')).toHaveTextContent('Haiku 5.5');
     expect(screen.getByTestId('sky-eval-model-SONNET_55')).toBeInTheDocument();
     expect(screen.getByTestId('sky-eval-model-SONNET_55').closest('label')).toHaveTextContent('Sonnet 5.5');
   });

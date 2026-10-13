@@ -73,6 +73,18 @@ class CostCalculatorTest {
     }
 
     @Test
+    @DisplayName("calculateCostMicroDollars() for Haiku 5.5: mixed tokens at its own rates")
+    void calculateCostMicroDollars_haiku55_mixedTokens() {
+        TokenUsage usage = new TokenUsage(1000, 100, 500, 200);
+        long cost = calculator().calculateCostMicroDollars(EvaluationModel.HAIKU_55, usage);
+        // Input 1000 * 0.10 = 100, output 100 * 0.50 = 50, 5m cache write 500 * 0.125 = 62.5,
+        // cache read 200 * 0.01 = 2: total 214.5, rounded
+        assertThat(cost).isBetween(214L, 215L);
+        assertThat(calculator().calculateCostMicroDollars(EvaluationModel.HAIKU_55, usage, true))
+                .isBetween(107L, 108L);
+    }
+
+    @Test
     @DisplayName("calculateCostMicroDollars() for Sonnet 4.6 is unchanged by the 5.5 tier")
     void calculateCostMicroDollars_sonnet46_unchanged() {
         TokenUsage usage = new TokenUsage(1000, 100, 500, 200);

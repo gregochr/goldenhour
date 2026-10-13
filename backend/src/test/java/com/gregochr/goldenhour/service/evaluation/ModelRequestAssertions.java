@@ -34,7 +34,8 @@ final class ModelRequestAssertions {
     static final Map<EvaluationModel, String> MODEL_IDS = Map.of(
             EvaluationModel.HAIKU, "claude-haiku-4-5-20251001",
             EvaluationModel.SONNET, "claude-sonnet-4-6",
-            EvaluationModel.SONNET_55, "claude-sonnet-5-5");
+            EvaluationModel.SONNET_55, "claude-sonnet-5-5",
+            EvaluationModel.HAIKU_55, "claude-haiku-5-5");
 
     /** The thinking allowance added to an answer budget for Sonnet 5.5. */
     static final int THINKING_ALLOWANCE = 4096;
@@ -44,7 +45,7 @@ final class ModelRequestAssertions {
 
     /**
      * Asserts a message request: model id, token ceiling, effort and the absence of every
-     * parameter Sonnet 5.5 rejects. For Sonnet 5.5 the output config carries effort LOW (and the
+     * parameter the 5.5 models reject. For the 5.5 models the output config carries effort LOW (and the
      * given format when there is one); for any other model there is no effort, and the output
      * config is exactly the format (or absent when there is none).
      */
@@ -52,7 +53,7 @@ final class ModelRequestAssertions {
             Optional<JsonOutputFormat> expectedFormat) {
         assertThat(params.model().asString()).isEqualTo(MODEL_IDS.get(model));
         assertThat(params.maxTokens()).isEqualTo(maxTokens);
-        assertThat(params.thinking()).isEmpty();
+        assertThinking(params.thinking().isPresent(), params.thinking().map(t -> t.isDisabled()), model);
         assertThat(params.temperature()).isEmpty();
         assertThat(params.toolChoice()).isEmpty();
         assertOutputConfig(params.outputConfig(), model, expectedFormat);
@@ -63,15 +64,25 @@ final class ModelRequestAssertions {
             long maxTokens, Optional<JsonOutputFormat> expectedFormat) {
         assertThat(params.model().asString()).isEqualTo(MODEL_IDS.get(model));
         assertThat(params.maxTokens()).isEqualTo(maxTokens);
-        assertThat(params.thinking()).isEmpty();
+        assertThinking(params.thinking().isPresent(), params.thinking().map(t -> t.isDisabled()), model);
         assertThat(params.temperature()).isEmpty();
         assertThat(params.toolChoice()).isEmpty();
         assertOutputConfig(params.outputConfig(), model, expectedFormat);
     }
 
+    /** Haiku 5.5 sends {@code thinking: disabled}; every other model sends no thinking at all. */
+    private static void assertThinking(boolean present, Optional<Boolean> disabled, EvaluationModel model) {
+        if (model == EvaluationModel.HAIKU_55) {
+            assertThat(present).as("thinking present for HAIKU_55").isTrue();
+            assertThat(disabled).contains(true);
+        } else {
+            assertThat(present).as("thinking present for " + model).isFalse();
+        }
+    }
+
     private static void assertOutputConfig(Optional<OutputConfig> actual, EvaluationModel model,
             Optional<JsonOutputFormat> expectedFormat) {
-        if (model == EvaluationModel.SONNET_55) {
+        if (model == EvaluationModel.SONNET_55 || model == EvaluationModel.HAIKU_55) {
             assertThat(actual).isPresent();
             assertThat(actual.get().effort()).contains(OutputConfig.Effort.LOW);
             assertThat(actual.get().format()).isEqualTo(expectedFormat);

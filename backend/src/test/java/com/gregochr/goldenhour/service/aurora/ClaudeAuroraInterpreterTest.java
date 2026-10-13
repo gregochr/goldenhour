@@ -186,6 +186,29 @@ class ClaudeAuroraInterpreterTest {
     }
 
     @Test
+    @DisplayName("interpret with Haiku 5.5 sends effort low and thinking disabled, with the unchanged ceiling")
+    void interpret_haiku55_sendsLowEffortAndThinkingDisabled() {
+        when(modelSelectionService.getActiveModel(RunType.AURORA_EVALUATION))
+                .thenReturn(EvaluationModel.HAIKU_55);
+        LocationEntity loc = buildLocation(1L, "Galloway", 55.0, -4.0, 2);
+        mockClaudeResponse("[{\"name\":\"Galloway\",\"stars\":4,"
+                + "\"summary\":\"Strong aurora\",\"detail\":\"ok\"}]");
+
+        interpreter.interpret(AlertLevel.MODERATE, List.of(loc), Map.of(loc, 30),
+                minimalSpaceWeather(6.0), TriggerType.REALTIME, null);
+
+        ArgumentCaptor<MessageCreateParams> captor =
+                ArgumentCaptor.forClass(MessageCreateParams.class);
+        verify(anthropicApiClient).createMessage(captor.capture());
+        MessageCreateParams params = captor.getValue();
+        assertThat(params.model().toString()).isEqualTo("claude-haiku-5-5");
+        assertThat(params.maxTokens()).isEqualTo(476L);
+        assertThat(params.outputConfig().orElseThrow().effort())
+                .contains(com.anthropic.models.messages.OutputConfig.Effort.LOW);
+        assertThat(params.thinking().orElseThrow().isDisabled()).isTrue();
+    }
+
+    @Test
     @DisplayName("interpret with Haiku sends no output config, effort or thinking (unchanged)")
     void interpret_haiku_requestUnchanged() {
         stubModelSelection();

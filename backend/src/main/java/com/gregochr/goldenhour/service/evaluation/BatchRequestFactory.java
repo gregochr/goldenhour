@@ -272,7 +272,8 @@ public class BatchRequestFactory {
         PromptBuilder builder = selectBuilder(data);
         String userMessage = buildUserMessage(builder, data);
 
-        BatchCreateParams.Request.Params.Builder params = BatchCreateParams.Request.Params.builder()
+        BatchCreateParams.Request.Params.Builder params = ModelRequestSupport.withThinkingSetting(
+                BatchCreateParams.Request.Params.builder()
                 .model(model.getModelId())
                 .maxTokens(maxTokens)
                 .systemOfTextBlockParams(List.of(
@@ -282,7 +283,7 @@ public class BatchRequestFactory {
                                 .build()))
                 .outputConfig(ModelRequestSupport.withEffort(
                         builder.buildOutputConfig(), model))
-                .addUserMessage(userMessage);
+                .addUserMessage(userMessage), model);
         if (diagnostics != null) {
             params.diagnostics(diagnostics);
         }
@@ -318,7 +319,8 @@ public class BatchRequestFactory {
 
         return BatchCreateParams.Request.builder()
                 .customId(customId)
-                .params(BatchCreateParams.Request.Params.builder()
+                .params(ModelRequestSupport.withThinkingSetting(
+                        BatchCreateParams.Request.Params.builder()
                         .model(model.getModelId())
                         .maxTokens(maxTokens)
                         .systemOfTextBlockParams(List.of(
@@ -328,7 +330,7 @@ public class BatchRequestFactory {
                                         .build()))
                         .outputConfig(ModelRequestSupport.withEffort(
                                 bluebellBuilder.buildOutputConfig(), model))
-                        .addUserMessage(bluebellBuilder.buildUserMessage(data))
+                        .addUserMessage(bluebellBuilder.buildUserMessage(data)), model)
                         .build())
                 .build();
     }
@@ -362,7 +364,8 @@ public class BatchRequestFactory {
 
         return BatchCreateParams.Request.builder()
                 .customId(customId)
-                .params(BatchCreateParams.Request.Params.builder()
+                .params(ModelRequestSupport.withThinkingSetting(
+                        BatchCreateParams.Request.Params.builder()
                         .model(model.getModelId())
                         .maxTokens(maxTokens)
                         .systemOfTextBlockParams(List.of(
@@ -372,7 +375,7 @@ public class BatchRequestFactory {
                                         .build()))
                         .outputConfig(ModelRequestSupport.withEffort(
                                 woodlandBuilder.buildOutputConfig(), model))
-                        .addUserMessage(woodlandBuilder.buildUserMessage(data))
+                        .addUserMessage(woodlandBuilder.buildUserMessage(data)), model)
                         .build())
                 .build();
     }

@@ -37,6 +37,14 @@ const MODEL_INFO = {
     speed: 'Fast',
     recommended: true,
   },
+  HAIKU_55: {
+    name: modelLabel('HAIKU_55'),
+    description: 'Newer Haiku. Run here with thinking off at low effort. Returns 1-5 star rating.',
+    typicalCostUsd: 0.0003,
+    tokenRates: '£0.08/MTok in, £0.40/MTok out',
+    speed: 'Fast',
+    recommended: false,
+  },
   SONNET: {
     name: modelLabel('SONNET'),
     description: 'Advanced model. Returns detailed 0-100 scores for fiery sky and golden hour potential.',
@@ -71,7 +79,7 @@ function toGbp(usd) {
 }
 
 /** Typical cost per call in USD, used for run cost estimates. */
-const COST_PER_CALL = { HAIKU: 0.002, SONNET: 0.005, SONNET_55: 0.005, OPUS: 0.008 };
+const COST_PER_CALL = { HAIKU: 0.002, HAIKU_55: 0.0003, SONNET: 0.005, SONNET_55: 0.005, OPUS: 0.008 };
 
 /** Number of forecast days per run type. Each day has 2 slots (sunrise + sunset). */
 const DAYS_PER_RUN = {
@@ -90,6 +98,7 @@ const TAB_DESCRIPTIONS = {
 const BATCH_MODEL_DESCRIPTIONS = {
   HAIKU: 'Fast, cost-efficient model for overnight batch runs. Lower quality reasoning on marginal conditions.',
   SONNET: 'Recommended for scheduled batch runs. Strong reasoning at low cost with batch pricing and prompt caching applied.',
+  HAIKU_55: 'Selectable newer Haiku for scheduled batch runs, about a tenth of Haiku 4.5\'s price per token (its tokeniser counts about 30% more tokens). Untested against the prompt-regression suite; not the recommended default.',
   SONNET_55: 'Selectable newer Sonnet for scheduled batch runs. Costs about the same as Sonnet 4.6 because its tokeniser counts more input tokens; not the recommended default.',
   OPUS: 'Highest accuracy for batch runs. Best reserved for key seasonal events only.',
 };
@@ -97,6 +106,7 @@ const BATCH_MODEL_DESCRIPTIONS = {
 /** Static cost rows for the Scheduled Batch cost table (batch API 50% discount + caching). */
 const BATCH_COST_ROWS = [
   { model: 'HAIKU',  perRequest: '~£0.0001', typicalRun: '~£0.01 – £0.04' },
+  { model: 'HAIKU_55', perRequest: '~£0.00002', typicalRun: '~£0.001 – £0.005' },
   { model: 'SONNET', perRequest: '~£0.0002', typicalRun: '~£0.02 – £0.08' },
   { model: 'SONNET_55', perRequest: '~£0.0002', typicalRun: '~£0.02 – £0.08' },
   { model: 'OPUS',   perRequest: '~£0.0004', typicalRun: '~£0.04 – £0.16' },
@@ -340,7 +350,7 @@ export default function ModelSelectionView() {
             >
               {tab.label}
               <span className="ml-2 text-xs opacity-60">
-                ({modelLabel(configs[tab.key]) || 'Haiku'})
+                ({modelLabel(configs[tab.key]) || modelLabel('HAIKU')})
               </span>
             </button>
             <InfoTip text={tab.tip} />
@@ -436,17 +446,22 @@ export default function ModelSelectionView() {
                 (budgets up to 10 000 thinking tokens per call).
                 {extendedThinkingConfig['BRIEFING_BEST_BET'] && activeModelForTab === 'HAIKU' && (
                   <span className="text-yellow-400 ml-1">
-                    ⚠ Haiku does not support extended thinking — switch to Sonnet or Opus.
+                    ⚠ Haiku 4.5 does not support extended thinking — switch to Sonnet or Opus.
                   </span>
                 )}
               </p>
+              {extendedThinkingConfig['BRIEFING_BEST_BET'] && activeModelForTab === 'HAIKU_55' && (
+                <p className="text-xs text-yellow-400 mt-1" data-testid="extended-thinking-haiku-55-note">
+                  Haiku 5.5 runs with thinking disabled, so this switch has no effect on it.
+                </p>
+              )}
               {extendedThinkingConfig['BRIEFING_BEST_BET'] && activeModelForTab === 'SONNET_55' && (
                 <p className="text-xs text-yellow-400 mt-1" data-testid="extended-thinking-sonnet-55-note">
                   Sonnet 5.5 always thinks adaptively at low effort, so this switch has no effect on it.
                 </p>
               )}
               {extendedThinkingConfig['BRIEFING_BEST_BET'] && activeModelForTab !== 'HAIKU'
-                && activeModelForTab !== 'SONNET_55' && (
+                && activeModelForTab !== 'SONNET_55' && activeModelForTab !== 'HAIKU_55' && (
                 <p className="text-xs text-violet-400 mt-1">
                   Active — adds ~10 000 thinking tokens per call (Sonnet 4.6: +~£0.12, Opus: +~£0.40).
                 </p>
@@ -608,7 +623,7 @@ export default function ModelSelectionView() {
                   </tr>
                 </thead>
                 <tbody>
-                  {['HAIKU', 'SONNET', 'SONNET_55', 'OPUS'].map((model) => {
+                  {['HAIKU', 'HAIKU_55', 'SONNET', 'SONNET_55', 'OPUS'].map((model) => {
                     const total = (COST_PER_CALL[model] * calls).toFixed(2);
                     const isActive = model === activeModelForTab;
                     return (

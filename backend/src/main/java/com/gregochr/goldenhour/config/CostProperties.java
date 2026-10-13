@@ -65,6 +65,24 @@ public class CostProperties {
     /** Sonnet 5.5 cache read rate (USD per million tokens). */
     private double sonnet55CacheReadUsdPerMtok = 0.20;
 
+    /**
+     * Haiku 5.5 input rate (USD per million tokens), for prompts up to 100K tokens; above that the
+     * rates are five times these. Every prompt this application sends is far below 100K.
+     */
+    private double haiku55InputUsdPerMtok = 0.10;
+
+    /** Haiku 5.5 output rate (USD per million tokens), prompts up to 100K tokens (2.50 above). */
+    private double haiku55OutputUsdPerMtok = 0.50;
+
+    /** Haiku 5.5 cache write rate, 5-minute (USD per million tokens). */
+    private double haiku55CacheWriteUsdPerMtok = 0.125;
+
+    /** Haiku 5.5 cache write rate, 1-hour (USD per million tokens). */
+    private double haiku55CacheWrite1hUsdPerMtok = 0.20;
+
+    /** Haiku 5.5 cache read rate (USD per million tokens). */
+    private double haiku55CacheReadUsdPerMtok = 0.01;
+
     /** Opus 4.6 input rate (USD per million tokens). */
     private double opusInputUsdPerMtok = 5.00;
 

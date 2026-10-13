@@ -603,6 +603,24 @@ class AuroraGlossServiceTest {
     }
 
     @Test
+    @DisplayName("request shape for HAIKU_55: literal model id, effort, thinking disabled, 256 max tokens")
+    void requestShape_haiku_55() {
+        when(modelSelectionService.getActiveModel(RunType.AURORA_GLOSS)).thenReturn(EvaluationModel.HAIKU_55);
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(ModelRequestAssertions.message(
+                        List.of(ModelRequestAssertions.text(OK_JSON)), StopReason.END_TURN));
+
+        List<AuroraRegionSummary> result = glossService.enrichGlosses(
+                List.of(goRegion("Northumberland")), null, AlertLevel.MODERATE, 5.0);
+
+        ArgumentCaptor<MessageCreateParams> captor =
+                ArgumentCaptor.forClass(MessageCreateParams.class);
+        verify(anthropicApiClient).createMessage(captor.capture());
+        ModelRequestAssertions.assertMessage(captor.getValue(), EvaluationModel.HAIKU_55, 256,
+                Optional.empty());
+    }
+
+    @Test
     @DisplayName("a thinking block ahead of the text block does not break the gloss")
     void thinkingBlockFirst_glossStillParsed() {
         when(modelSelectionService.getActiveModel(RunType.AURORA_GLOSS)).thenReturn(EvaluationModel.SONNET_55);

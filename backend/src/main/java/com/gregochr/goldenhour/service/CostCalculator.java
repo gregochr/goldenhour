@@ -112,6 +112,7 @@ public class CostCalculator {
             case HAIKU -> costProperties.getHaikuInputUsdPerMtok();
             case SONNET -> costProperties.getSonnetInputUsdPerMtok();
             case SONNET_55 -> costProperties.getSonnet55InputUsdPerMtok();
+            case HAIKU_55 -> costProperties.getHaiku55InputUsdPerMtok();
             case OPUS -> costProperties.getOpusInputUsdPerMtok();
             case FREE -> 0.0;
         };
@@ -122,6 +123,7 @@ public class CostCalculator {
             case HAIKU -> costProperties.getHaikuOutputUsdPerMtok();
             case SONNET -> costProperties.getSonnetOutputUsdPerMtok();
             case SONNET_55 -> costProperties.getSonnet55OutputUsdPerMtok();
+            case HAIKU_55 -> costProperties.getHaiku55OutputUsdPerMtok();
             case OPUS -> costProperties.getOpusOutputUsdPerMtok();
             case FREE -> 0.0;
         };
@@ -132,6 +134,7 @@ public class CostCalculator {
             case HAIKU -> costProperties.getHaikuCacheWriteUsdPerMtok();
             case SONNET -> costProperties.getSonnetCacheWriteUsdPerMtok();
             case SONNET_55 -> costProperties.getSonnet55CacheWriteUsdPerMtok();
+            case HAIKU_55 -> costProperties.getHaiku55CacheWriteUsdPerMtok();
             case OPUS -> costProperties.getOpusCacheWriteUsdPerMtok();
             case FREE -> 0.0;
         };
@@ -142,6 +145,7 @@ public class CostCalculator {
             case HAIKU -> costProperties.getHaikuCacheWrite1hUsdPerMtok();
             case SONNET -> costProperties.getSonnetCacheWrite1hUsdPerMtok();
             case SONNET_55 -> costProperties.getSonnet55CacheWrite1hUsdPerMtok();
+            case HAIKU_55 -> costProperties.getHaiku55CacheWrite1hUsdPerMtok();
             case OPUS -> costProperties.getOpusCacheWrite1hUsdPerMtok();
             case FREE -> 0.0;
         };
@@ -152,6 +156,7 @@ public class CostCalculator {
             case HAIKU -> costProperties.getHaikuCacheReadUsdPerMtok();
             case SONNET -> costProperties.getSonnetCacheReadUsdPerMtok();
             case SONNET_55 -> costProperties.getSonnet55CacheReadUsdPerMtok();
+            case HAIKU_55 -> costProperties.getHaiku55CacheReadUsdPerMtok();
             case OPUS -> costProperties.getOpusCacheReadUsdPerMtok();
             case FREE -> 0.0;
         };

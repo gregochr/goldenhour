@@ -62,6 +62,13 @@ cost:
   sonnet55-cache-write-usd-per-mtok: 2.50
   sonnet55-cache-write-1h-usd-per-mtok: 4.00   # 2x input; the 1-hour cache lifetime
   sonnet55-cache-read-usd-per-mtok: 0.20
+  # Haiku 5.5: these are the rates for prompts up to 100K tokens (all of ours); above 100K the
+  # rates are 0.50 input / 2.50 output (cache rates scale with input)
+  haiku55-input-usd-per-mtok: 0.10
+  haiku55-output-usd-per-mtok: 0.50
+  haiku55-cache-write-usd-per-mtok: 0.125
+  haiku55-cache-write-1h-usd-per-mtok: 0.20   # 2x input; the 1-hour cache lifetime
+  haiku55-cache-read-usd-per-mtok: 0.01
   opus-input-usd-per-mtok: 5.00
   opus-output-usd-per-mtok: 25.00
   opus-cache-write-usd-per-mtok: 6.25

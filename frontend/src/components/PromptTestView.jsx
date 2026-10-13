@@ -13,8 +13,8 @@ import { isSkyPromptCandidate, isWildlifeOnly } from '../utils/locationTypes.js'
 import { apiErrorMessage } from '../utils/apiError.js';
 
 const USD_TO_GBP = 0.79;
-const COST_PER_CALL = { HAIKU: 0.002, SONNET: 0.005, SONNET_55: 0.005, OPUS: 0.008 };
-const MODELS = ['HAIKU', 'SONNET', 'SONNET_55', 'OPUS'];
+const COST_PER_CALL = { HAIKU: 0.002, HAIKU_55: 0.0003, SONNET: 0.005, SONNET_55: 0.005, OPUS: 0.008 };
+const MODELS = ['HAIKU', 'HAIKU_55', 'SONNET', 'SONNET_55', 'OPUS'];
 
 const RUN_TYPES = [
   { value: 'VERY_SHORT_TERM', label: 'Very Short Term' },
@@ -553,7 +553,7 @@ const PromptTestView = () => {
                   data-testid={`model-radio-${model}`}
                 />
                 <span className={`${
-                  model === 'HAIKU' ? 'text-blue-300' :
+                  model === 'HAIKU' || model === 'HAIKU_55' ? 'text-blue-300' :
                   model === 'SONNET' || model === 'SONNET_55' ? 'text-purple-300' :
                   'text-amber-300'
                 }`}>
@@ -675,7 +675,7 @@ const PromptTestView = () => {
                       </td>
                       <td className="py-2 pr-4">
                         <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
-                          run.evaluationModel === 'HAIKU' ? 'bg-blue-900/30 text-blue-300' :
+                          ['HAIKU', 'HAIKU_55'].includes(run.evaluationModel) ? 'bg-blue-900/30 text-blue-300' :
                           ['SONNET', 'SONNET_55'].includes(run.evaluationModel) ? 'bg-purple-900/30 text-purple-300' :
                           'bg-amber-900/30 text-amber-300'
                         }`}>

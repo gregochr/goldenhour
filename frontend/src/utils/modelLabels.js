@@ -7,7 +7,8 @@
  * the briefing model test view already used.
  */
 const MODEL_LABELS = {
-  HAIKU: 'Haiku',
+  HAIKU: 'Haiku 4.5',
+  HAIKU_55: 'Haiku 5.5',
   SONNET: 'Sonnet 4.6',
   SONNET_ET: 'Sonnet 4.6 (ET)',
   SONNET_55: 'Sonnet 5.5',

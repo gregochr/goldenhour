@@ -223,7 +223,7 @@ public class BriefingBestBetAdvisor {
 
             MessageCreateParams.Builder paramsBuilder = MessageCreateParams.builder()
                     .model(model.getModelId())
-                    .maxTokens(useExtendedThinking || ModelRequestSupport.usesLowEffort(model)
+                    .maxTokens(useExtendedThinking || ModelRequestSupport.thinksAdaptively(model)
                             ? MAX_TOKENS_THINKING : maxTokens)
                     .systemOfTextBlockParams(List.of(
                             TextBlockParam.builder().text(BestBetPromptText.systemPrompt()).build()))
@@ -607,7 +607,7 @@ public class BriefingBestBetAdvisor {
 
             MessageCreateParams.Builder builder = MessageCreateParams.builder()
                     .model(model.getModelId())
-                    .maxTokens(extendedThinking || ModelRequestSupport.usesLowEffort(model)
+                    .maxTokens(extendedThinking || ModelRequestSupport.thinksAdaptively(model)
                         ? MAX_TOKENS_THINKING : maxTokens)
                     .systemOfTextBlockParams(List.of(
                             TextBlockParam.builder().text(BestBetPromptText.systemPrompt()).build()))
@@ -711,7 +711,7 @@ public class BriefingBestBetAdvisor {
         boolean extendedThinking = model.isExtendedThinking();
         MessageCreateParams.Builder builder = MessageCreateParams.builder()
                 .model(model.getModelId())
-                .maxTokens(extendedThinking || ModelRequestSupport.usesLowEffort(model)
+                .maxTokens(extendedThinking || ModelRequestSupport.thinksAdaptively(model)
                         ? MAX_TOKENS_THINKING : maxTokens)
                 .systemOfTextBlockParams(List.of(
                         TextBlockParam.builder().text(systemPrompt).build()))
