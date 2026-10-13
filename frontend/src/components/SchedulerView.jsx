@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import PropTypes from 'prop-types';
 import {
   fetchSchedulerJobs,
@@ -6,10 +6,23 @@ import {
   pauseJob,
   resumeJob,
   triggerJob,
+  fetchSolarPreview,
 } from '../api/schedulerApi.js';
+import SolarSchedulePanel from './SolarSchedulePanel.jsx';
+import { ScheduleSwitchDialog, SolarEditForm } from './SolarScheduleControls.jsx';
+import {
+  describeSolarRule,
+  formatUkDateTime,
+  isForecastCycleJob,
+} from '../utils/schedulerSolar.js';
 
 /** Polling interval for refreshing job statuses. */
 const POLL_INTERVAL_MS = 30_000;
+
+/** The schedule types this screen knows how to show and edit; anything else is "unrecognised". */
+const SCHEDULE_CRON = 'CRON';
+const SCHEDULE_FIXED_DELAY = 'FIXED_DELAY';
+const SCHEDULE_SOLAR = 'SOLAR_OFFSET';
 
 /** Duration to show the "Triggered" confirmation. */
 const TRIGGER_CONFIRM_MS = 2000;
@@ -237,26 +250,63 @@ export default function SchedulerView() {
   const [error, setError] = useState(null);
   const [editingJob, setEditingJob] = useState(null);
   const [editValue, setEditValue] = useState('');
+  const [preview, setPreview] = useState(null);
+  const [previewFailed, setPreviewFailed] = useState(false);
+  const [switchingJob, setSwitchingJob] = useState(null);
 
-  const loadJobs = useCallback(async () => {
+  // Each loader numbers its requests and applies only the latest one issued: a slow earlier
+  // response (a poll still in flight when a switch reloads) must not overwrite a newer one.
+  const jobsRequest = useRef(0);
+  const previewRequest = useRef(0);
+  const editButtons = useRef({});
+  const focusBack = useRef(null);
+
+  const loadPreview = useCallback(async () => {
+    const id = ++previewRequest.current;
     try {
-      const data = await fetchSchedulerJobs();
-      setJobs(data);
-      setError(null);
+      const data = await fetchSolarPreview();
+      if (id !== previewRequest.current) return;
+      setPreview(data);
+      setPreviewFailed(false);
     } catch {
-      setError('Failed to load scheduler jobs');
-    } finally {
-      setLoading(false);
+      if (id !== previewRequest.current) return;
+      setPreviewFailed(true);
     }
   }, []);
 
+  const loadJobs = useCallback(async () => {
+    const id = ++jobsRequest.current;
+    try {
+      const data = await fetchSchedulerJobs();
+      if (id !== jobsRequest.current) return;
+      setJobs(data);
+      setError(null);
+    } catch {
+      if (id !== jobsRequest.current) return;
+      setError('Failed to load scheduler jobs');
+    } finally {
+      if (id === jobsRequest.current) setLoading(false);
+    }
+  }, []);
+
+  // Leaving an editor unmounts it, and with it the Edit button the reader pressed (the button is
+  // part of the row the editor replaces): hand focus back to the new Edit button once it exists.
   useEffect(() => {
+    if (editingJob !== null || focusBack.current === null) return;
+    editButtons.current[focusBack.current]?.focus();
+    focusBack.current = null;
+  }, [editingJob]);
+
+  useEffect(() => {
+    const refresh = async () => {
+      await Promise.all([loadJobs(), loadPreview()]);
+    };
     (async () => {
-      await loadJobs();
+      await refresh();
     })();
-    const interval = setInterval(loadJobs, POLL_INTERVAL_MS);
+    const interval = setInterval(refresh, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [loadJobs]);
+  }, [loadJobs, loadPreview]);
 
   const handlePause = async (jobKey) => {
     try {
@@ -279,22 +329,42 @@ export default function SchedulerView() {
   const handleEditStart = (job) => {
     setEditingJob(job.jobKey);
     setEditValue(
-      job.scheduleType === 'CRON' ? job.cronExpression : String(job.fixedDelayMs),
+      job.scheduleType === SCHEDULE_CRON ? job.cronExpression : String(job.fixedDelayMs),
     );
   };
 
+  const handleSolarSaved = async () => {
+    focusBack.current = editingJob;
+    setEditingJob(null);
+    setEditValue('');
+    await Promise.all([loadJobs(), loadPreview()]);
+  };
+
+  const handleSwitched = async () => {
+    setSwitchingJob(null);
+    await Promise.all([loadJobs(), loadPreview()]);
+  };
+
   const handleEditCancel = () => {
+    focusBack.current = editingJob;
     setEditingJob(null);
     setEditValue('');
   };
 
   const handleEditSave = async (job) => {
     try {
-      const payload =
-        job.scheduleType === 'CRON'
-          ? { cronExpression: editValue }
-          : { fixedDelayMs: Number(editValue) };
+      // Only the two types that have an inline text edit may reach here; a solar or unrecognised
+      // row never sends a fixed delay (a solar row has none, and 0 would be rejected or worse).
+      let payload;
+      if (job.scheduleType === SCHEDULE_CRON) {
+        payload = { cronExpression: editValue };
+      } else if (job.scheduleType === SCHEDULE_FIXED_DELAY) {
+        payload = { fixedDelayMs: Number(editValue) };
+      } else {
+        return;
+      }
       await updateJobSchedule(job.jobKey, payload);
+      focusBack.current = job.jobKey;
       setEditingJob(null);
       setEditValue('');
       await loadJobs();
@@ -308,6 +378,9 @@ export default function SchedulerView() {
   }
 
   const isDisabled = (status) => status === 'DISABLED_BY_CONFIG';
+  const displayNames = Object.fromEntries(jobs.map((j) => [j.jobKey, j.displayName]));
+  const previewFor = (jobKey) => preview?.jobs?.find((p) => p.jobKey === jobKey) ?? null;
+  const switchTarget = switchingJob ? jobs.find((j) => j.jobKey === switchingJob) : null;
 
   return (
     <div className="flex flex-col gap-4" data-testid="scheduler-view">
@@ -316,6 +389,8 @@ export default function SchedulerView() {
           {error}
         </div>
       )}
+
+      <SolarSchedulePanel preview={preview} failed={previewFailed} displayNames={displayNames} />
 
       {jobs.map((job) => (
         <div
@@ -341,61 +416,135 @@ export default function SchedulerView() {
             </span>
           </div>
 
-          {/* Schedule line */}
+          {/* Schedule line: an explicit branch per schedule type */}
           <div className="text-xs text-plex-text-secondary">
-            {editingJob === job.jobKey ? (
-              <div className="flex flex-col gap-1">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={editValue}
-                    onChange={(e) => setEditValue(e.target.value)}
-                    className="bg-plex-bg border border-plex-border rounded px-2 py-1 text-xs text-plex-text font-mono w-48"
-                    data-testid={`edit-input-${job.jobKey}`}
-                  />
-                  <button
-                    onClick={() => handleEditSave(job)}
-                    className="text-xs text-green-400 hover:text-green-300"
-                    data-testid={`save-btn-${job.jobKey}`}
-                  >
-                    Save
-                  </button>
-                  <button
-                    onClick={handleEditCancel}
-                    className="text-xs text-plex-text-muted hover:text-plex-text"
-                    data-testid={`cancel-btn-${job.jobKey}`}
-                  >
-                    Cancel
-                  </button>
-                </div>
-                {job.scheduleType === 'CRON' && editValue && (
-                  <span className="text-plex-text-muted text-xs">
-                    {describeCron(editValue)}
-                  </span>
-                )}
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <span className="font-mono">
-                  {job.scheduleType === 'CRON'
-                    ? job.cronExpression
-                    : describeFixedDelay(job.fixedDelayMs)}
-                </span>
-                {job.scheduleType === 'CRON' && (
-                  <span className="text-plex-text-muted">
+            {job.scheduleType === SCHEDULE_SOLAR ? (
+              editingJob === job.jobKey ? (
+                <SolarEditForm
+                  job={job}
+                  onCancel={handleEditCancel}
+                  onSaved={handleSolarSaved}
+                  onPartial={loadJobs}
+                />
+              ) : (
+                <div className="flex flex-col gap-1" data-testid={`solar-line-${job.jobKey}`}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-plex-text" data-testid={`solar-rule-${job.jobKey}`}>
+                      {describeSolarRule(job.solarEvent, job.solarOffsetMinutes) ||
+                        'Sun-relative rule incomplete'}
+                    </span>
+                    <button
+                      type="button"
+                      ref={(el) => {
+                        editButtons.current[job.jobKey] = el;
+                      }}
+                      onClick={() => handleEditStart(job)}
+                      className="text-xs text-plex-gold hover:text-plex-gold/80 ml-1"
+                      disabled={isDisabled(job.status)}
+                      data-testid={`edit-btn-${job.jobKey}`}
+                    >
+                      Edit
+                    </button>
+                  </div>
+                  <span className="text-plex-text-secondary">
+                    Fallback cron (UTC): <span className="font-mono">{job.cronExpression}</span>{' '}
                     {describeCron(job.cronExpression)}
                   </span>
-                )}
-                <button
-                  onClick={() => handleEditStart(job)}
-                  className="text-xs text-plex-gold hover:text-plex-gold/80 ml-1"
-                  disabled={isDisabled(job.status)}
-                  data-testid={`edit-btn-${job.jobKey}`}
-                >
-                  Edit
-                </button>
-              </div>
+                  {job.nextFireTime && (
+                    <span className="text-plex-text-secondary">
+                      Next fire:{' '}
+                      <span className="text-plex-text-secondary" data-testid={`solar-next-${job.jobKey}`}>
+                        {formatUkDateTime(job.nextFireTime)}
+                      </span>
+                    </span>
+                  )}
+                </div>
+              )
+            ) : job.scheduleType === SCHEDULE_CRON || job.scheduleType === SCHEDULE_FIXED_DELAY ? (
+              editingJob === job.jobKey ? (
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={editValue}
+                      onChange={(e) => setEditValue(e.target.value)}
+                      aria-label={`${job.displayName} schedule`}
+                      className="bg-plex-bg border border-plex-border rounded px-2 py-1 text-xs text-plex-text font-mono w-48 max-w-full"
+                      data-testid={`edit-input-${job.jobKey}`}
+                    />
+                    <button
+                      onClick={() => handleEditSave(job)}
+                      className="text-xs text-green-400 hover:text-green-300"
+                      data-testid={`save-btn-${job.jobKey}`}
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={handleEditCancel}
+                      className="text-xs text-plex-text-muted hover:text-plex-text"
+                      data-testid={`cancel-btn-${job.jobKey}`}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  {job.scheduleType === SCHEDULE_CRON && editValue && (
+                    <span className="text-plex-text-muted text-xs">
+                      {describeCron(editValue)}
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono">
+                    {job.scheduleType === SCHEDULE_CRON
+                      ? job.cronExpression
+                      : describeFixedDelay(job.fixedDelayMs)}
+                  </span>
+                  {job.scheduleType === SCHEDULE_CRON && (
+                    <span className="text-plex-text-muted">
+                      {describeCron(job.cronExpression)}
+                    </span>
+                  )}
+                  <button
+                    ref={(el) => {
+                      editButtons.current[job.jobKey] = el;
+                    }}
+                    onClick={() => handleEditStart(job)}
+                    className="text-xs text-plex-gold hover:text-plex-gold/80 ml-1"
+                    disabled={isDisabled(job.status)}
+                    data-testid={`edit-btn-${job.jobKey}`}
+                  >
+                    Edit
+                  </button>
+                </div>
+              )
+            ) : (
+              <span className="text-amber-400" data-testid={`unrecognised-${job.jobKey}`}>
+                Unrecognised schedule type: {job.scheduleType || '(none)'}. This job cannot be
+                edited here.
+              </span>
             )}
+
+            {isForecastCycleJob(job.jobKey) &&
+              (job.scheduleType === SCHEDULE_CRON || job.scheduleType === SCHEDULE_SOLAR) &&
+              editingJob !== job.jobKey && (
+                <div className="mt-2">
+                  <button
+                    type="button"
+                    onClick={() => setSwitchingJob(job.jobKey)}
+                    disabled={
+                      isDisabled(job.status) ||
+                      (job.scheduleType === SCHEDULE_CRON && (!previewFor(job.jobKey) || previewFailed))
+                    }
+                    className="text-xs text-plex-gold hover:text-plex-gold/80 border border-plex-gold/30 rounded px-2 py-0.5 disabled:opacity-50"
+                    data-testid={`switch-btn-${job.jobKey}`}
+                  >
+                    {job.scheduleType === SCHEDULE_CRON
+                      ? 'Switch to sun-relative...'
+                      : 'Switch back to fixed time...'}
+                  </button>
+                </div>
+              )}
           </div>
 
           {/* Config source for disabled jobs */}
@@ -453,6 +602,16 @@ export default function SchedulerView() {
           </div>
         </div>
       ))}
+
+      {switchTarget && (
+        <ScheduleSwitchDialog
+          job={switchTarget}
+          previewJob={previewFor(switchTarget.jobKey)}
+          cronWords={describeCron(switchTarget.cronExpression)}
+          onCancel={() => setSwitchingJob(null)}
+          onSwitched={handleSwitched}
+        />
+      )}
     </div>
   );
 }
