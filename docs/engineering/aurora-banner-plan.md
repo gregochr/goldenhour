@@ -50,16 +50,17 @@ already-merged #1056 work (topic dating), not this feature.
 
 ## §0 Status
 
-**Status: ✅ SERIES COMPLETE — B0 #1120, B1 #1121, B2 #1122 merged 2026-10-12, B3 #1124 merged 2026-10-13 (the viewline-enabled amendment was #1123). Unreleased at close-out; the owner cuts the release. Nothing seen in a browser by anyone — §8 is the owner's checklist.**
+**Status: ✅ SERIES COMPLETE — B0 #1120, B1 #1121, B2 #1122 merged 2026-10-12, B3 #1124 merged 2026-10-13 (the viewline-enabled amendment was #1123), B4 follow-ups on branch `fix/aurora-banner-followups` (2026-10-13). Unreleased at close-out; the owner cuts the release. Nothing seen in a browser by anyone — §8 is the owner's checklist.**
 Phase log (every phase appends its own row in the same commit as
 its code; the `PR` column names the PR, not a SHA, because the repo squash-merges):
 
 | phase | what | PR | notes |
 |---|---|---|---|
 | B0 | vendoring, this plan | — | this document |
-| B1 | severity on the aurora ramp; banner ≥640 with the Kp slot; glow strip <640; `breathe`; CSS block | #1121 (merged 2026-10-12) | built 2026-10-12, presentation only. Deviations, each deliberate: (1) breathing is STRONG-only, per the spec's table (§1 #10 corrected); (2) the when-line, the strip's second line and the pending label use `--color-plex-text-secondary` (6.7:1), not the spec's `.42` muted bone (3.5:1, under AA) — the same call as stop 3, reversible in three declarations; **owner to confirm**; (3) the CSS block sits BEFORE the Ask block with an end marker (two Ask CSS tests slice to end of file); (4) the strip's simulated door reads `Scores →`, not `Map →` (it goes to `#manage`); (5) keyboard activation ignores a key pressed on the dismiss button (Enter on ✕ used to open the map as well); (6) extra `data-testid`s (`-pill -when -best -thumb -slot -kp -meter -bar -strip-headline -strip-detail`) and a `position: relative` on the thumb slot for B3's label; (7) `AuroraStatusContext.test.jsx` lost its viewline-request observable (the banner no longer asks; B3 may count it again). Open for the owner, unchanged from the old banner: the root is `role="alert"` + `tabIndex` + key handler with a plain-text CTA (spec-mandated; a real button/link CTA is a separate call), and a layout swap at 640px remounts the alert node. In the strip, `clip-path` clips its own `box-shadow` (spec-faithful) — look at the glow in the browser check |
+| B1 | severity on the aurora ramp; banner ≥640 with the Kp slot; glow strip <640; `breathe`; CSS block | #1121 (merged 2026-10-12) | built 2026-10-12, presentation only. Deviations, each deliberate: (1) breathing is STRONG-only, per the spec's table (§1 #10 corrected); (2) the when-line, the strip's second line and the pending label use `--color-plex-text-secondary` (6.7:1), not the spec's `.42` muted bone (3.5:1, under AA) — the same call as stop 3, reversible in three declarations; **owner decision, 2026-10-13 (§4 D16)**; (3) the CSS block sits BEFORE the Ask block with an end marker (two Ask CSS tests slice to end of file); (4) the strip's simulated door reads `Scores →`, not `Map →` (it goes to `#manage`); (5) keyboard activation ignores a key pressed on the dismiss button (Enter on ✕ used to open the map as well); (6) extra `data-testid`s (`-pill -when -best -thumb -slot -kp -meter -bar -strip-headline -strip-detail`) and a `position: relative` on the thumb slot for B3's label; (7) `AuroraStatusContext.test.jsx` lost its viewline-request observable (the banner no longer asks; B3 may count it again). Open for the owner, unchanged from the old banner: the root is `role="alert"` + `tabIndex` + key handler with a plain-text CTA (spec-mandated; a real button/link CTA is a separate call), and a layout swap at 640px remounts the alert node. In the strip, `clip-path` clips its own `box-shadow` (spec-faithful) — look at the glow in the browser check (it clipped, by the CSS rules; **fixed at B4**, unseen) |
 | B2 | `useAuroraScores`; the lazy field thumbnail; the best line; App brings the banner inside the briefing provider | #1122 (merged 2026-10-12) | built 2026-10-12, frontend only. New: `hooks/useAuroraScores.js`, `components/AuroraFieldThumb.jsx` (lazy), `utils/auroraBannerScores.js` (pure: `ratedFromLive/Stored`, `areaField`, `bestOf`, `isRealAlert`). Deviations, each deliberate: (1) the score read treats a body that is not a list as a FAILED read (null), like a rejection, and a stored run with rated rows serves when the live read failed — an empty answer from one source never blanks a held field unless both answered; (2) the ready line says `N dark-sky sites` (not `N sites clear`) when triage has not run, and `Best: X 4★` alone when the status counts no sites; (3) a star rating is spoken as `N stars` (glyph `aria-hidden`, `sr-only` word — NVDA does not speak U+2605, the repo pattern in `WindowSheetDialog`); (4) the strip's ready line puts the site NAME in a shrinking ellipsis span and the rating in one that never shrinks (`.wf-aurora-strip-l2-best`), so a 320px phone keeps the answer; (5) the hook is handed `null` once the banner is dismissed at its level, so a dismissed banner asks for nothing; (6) the provider lift moves `PlanErrorBoundary` OUTSIDE App's `<main>`, so its fallback now carries its own `<main className="px-4 py-6 flex-1 min-h-0 overflow-y-auto">` (two review lenses caught the lost landmark and inset); (7) `ALERT_WORTHY` lives in the util and is mirrored by hand in `MapView` (not touched, §6); (8) the three test files that mount the real banner got `getAuroraLocations`/`getAuroraForecastResults` mock entries. **Bundle check**: the plan's `grep -l geoMercator dist/assets/index-*.js` is VACUOUS (d3 is minified: it finds nothing in the `heatField` chunk either); the real check is that the entry chunk's static imports and `index.html`'s modulepreloads exclude the `heatField`/`geo` chunks (they appear only in the lazy `__vite__mapDeps` list). Accepted, named: `field` is rebuilt (and the canvas redrawn) on every poll even for identical rows; the D8 area is the whole roster until the reach fetch lands, so `Best:` can name a far site and re-settle; a failed lazy chunk is not retried until reload; `role="alert"` re-announces once on the pending→ready swap (plan §5). **For B3**: do NOT put the whole `viewline` object in the thumb's `[points, fit]` effect deps (it is a fresh object each poll) — depend on `lineLat` and read the rest through a ref, capture the 2d context in the same callback as `drawGeo`, wrap the line in `ctx.save()/restore()`, and use `isRealAlert(status)` for the viewline gate; `onProjection` hands over a d3 projection (a function — `setP(() => p)`), and the B3 spec has no `y0 < 0` case |
 | B3 | viewline on the thumbnail, enabled (owner decision 2026-10-12); CLAUDE.md sweep; close-out | #1124 (merged 2026-10-13) | built 2026-10-12, frontend only. `AuroraBanner` calls `useAuroraViewline(viewlineEnabled)`; `AuroraFieldThumb` takes `viewline` and `kp` and draws the line itself after the field. Deviations, each deliberate: (1) the request is ALSO withheld below 640px (the strip has no thumbnail) and while the overcast gate hides the banner, beyond the brief's real-alert/undismissed/field-ready gate; (2) the third placement, `y0 < 0`, is §4 D15; (3) the effect is keyed on the scalar `lineLat`, not the `viewline` object, and the label's placement is recorded by the draw callback (the only place the projection exists) together with the latitude it was drawn for, so a poll that returns the same line neither redraws the field nor flickers the label, and a line that has moved is never worded with its old placement; (4) the line is drawn in the same callback as `drawGeo` on the context captured there, inside `save()` and a `finally { restore() }`; (5) `AuroraStatusContext.test.jsx` counts the viewline request again (an ended alert's stale answer must not re-enable it); (6) CLAUDE.md's aurora bullet names the banner as built; (7) B2's `onProjection` prop was REMOVED — B3 draws inside the draw callback and nothing else read it; (8) the overcast gate is one function (`hiddenByOvercast`) shared by the render and the viewline request. Mutation-checked by hand: both clamps and their thresholds, each of the five enable-gate terms, the scalar deps, the `restore()` and the label's Kp precedence each fail a test (with the score hook mocked, as the banner suite does; against the real hook `isRealAlert` and `!dismissed` are redundant with `field !== null` — a dismissed banner hands the hook `null`, a simulated one gets no field — and stay as defence in depth, not dead code). Accepted, named: the LIVE line's `southernmostLatitude` is the contour's true minimum (west of −2°E), so the horizontal line slightly overstates southward; the label sits at the top-left, so an in-frame line whose y falls in roughly 4–14 strikes through it (the clamped `y = 2` line passes above it); contrast and the aria-hidden label are §5 and §6. Not seen in a browser: a session cannot sign in (§8) |
+| B4 | the owner's follow-ups to B0–B3: the strip's glow paints; the viewline gets one spoken sentence; two written decisions recorded | `fix/aurora-banner-followups` (PR number on open) | built 2026-10-13, frontend only. (1) **Bug**: `.wf-aurora-strip::after` no longer uses `clip-path` (it clipped the element's own `box-shadow`, so the glow never showed); the lit fraction is the element's `width: var(--fill)` with `left: 0` only, and the ramp still spans the whole strip through `background-size: calc(100% / var(--fill-ratio)) 100%; background-repeat: no-repeat`, `--fill-ratio` (0.62 Moderate, 0.92 Strong) being set inline beside `--fill` (62% / 92%, unchanged). (2) **Viewline spoken** (reverses §6's open item in part, owner decision 2026-10-13): the line and its label stay `aria-hidden`; ONE `sr-only` sentence, `data-testid="aurora-banner-viewline-sr"`, sits in the card's body between the best line and the call to action, so it is part of the `role="alert"` card's text. It carries the response's `summary` with one small DELIBERATE departure from "verbatim": a full stop is appended when the sentence has no terminal punctuation (the API's summaries never do; a stop followed by a closing quote or bracket counts as present), so a screen reader pauses before "View on map". Rendered only when the thumbnail reports the line drawn (`AuroraFieldThumb`'s new `onViewlineDrawn(boolean)`, false on every decline path - chunk loading or failed, no context, declined or throwing draw, unplaceable latitude - and on unmount; a review found the data predicate alone could speak a line the slot never drew) AND `viewlineEnabled` (the request's own gate: real alert, not dismissed, wide layout, field ready, not overcast-hidden) AND `viewline.active === true` AND a non-blank string summary - so never over the Kp meter, a 🧪, the strip, a dismissed card or an inactive line. Accepted: the sentence sits inside `role="alert"`, so its arrival and a changed summary can re-announce the card (§6). (3) §4 D16 (brighter secondary ink) and D17 (breathe on Strong only) record two B1 deviations as owner decisions; the existing tests already pin all four of breathe's conditions (live, Bz < −1, not simulated, STRONG) and its reduced-motion override, so none was added. Mutation-checked by hand: each term of the sentence's gate, the blank-summary guard, `--fill-ratio` (dropped and wrong), the strip rule's `width`, `background-size` and a restored `clip-path` each fail a test. Tested, not seen: a session cannot sign in (§8) |
 
 ---
 
@@ -218,8 +219,9 @@ scores exist; B2 swaps the field in.
     align-items:center; gap:11px; overflow:hidden; position:relative`, `--fill: 62%|92%`; `::after`
     2px bottom edge `background: auroraRampGradientCss()` (so it carries the `#1F7F78` stop — put
     the gradient in the CSS block as a literal copied from that function's return, and pin equality
-    in the CSS test), `clip-path: inset(0 calc(100% - var(--fill)) 0 0)`, `box-shadow: 0 0 10px
-    var(--acc)`. Glyph 22px with `filter: drop-shadow(0 0 6px var(--acc))` (🧪 when simulated).
+    in the CSS test), `clip-path: inset(0 calc(100% - var(--fill)) 0 0)` (⚠️ built that way at B1 and
+    replaced at B4 by `width: var(--fill)` + `background-size: calc(100% / var(--fill-ratio))`, because
+    a clip-path clips the element's own glow), `box-shadow: 0 0 10px var(--acc)`. Glyph 22px with `filter: drop-shadow(0 0 6px var(--acc))` (🧪 when simulated).
     Line 1: level word (mono 10px 600 uppercase ink) + `Aurora tonight` / `Aurora active now` /
     `Aurora simulated`, 13.5px 700, single line, ellipsis. Line 2 (mono 11px muted, ellipsis):
     `<b>Kp N</b> · {N} dark sites clear`; with `clearLocationCount === 0` on a STRONG alert it reads
@@ -392,7 +394,8 @@ scores exist; B2 swaps the field in.
    alert not being simulated, dismissed, hidden by the overcast gate or shown as the phone strip —
    the full gate is §3 B3's, and it is the only cost control the line needs.
 5. **D5 — CSS in `index.css`, not `<style>` strings.** §1 #12. The custom properties `--acc`,
-   `--acc-ink`, `--fill` are set inline on the root element per render, the existing pattern.
+   `--acc-ink`, `--fill` (and, from B4, `--fill-ratio`) are set inline on the root element per render,
+   the existing pattern.
 6. **D6 — the thumbnail is a lazy chunk**, with the pending slot as its `Suspense` fallback. §3 B2.
 7. **D7 — copy follows the spec where they differ**: `147 dark-sky sites clear` (pending) and
    `147 sites clear` (ready) replace `147 dark-sky locations clear`. Singular forms: `1 dark-sky
@@ -432,6 +435,20 @@ scores exist; B2 swaps the field in.
     is clamped to `y = 2` and the label reads `Kp {N} · line ↑`. When no Kp is known anywhere the
     three labels lose their figure: `Viewline`, `Viewline · all ↓`, `Viewline · line ↑`. Decided
     at B3.
+
+16. **D16 — the small labels use the brighter secondary ink (owner decision, 2026-10-13).** The spec's
+    `.42` muted bone is 3.5:1 on the surface, under AA for 11–12px text; the when-line, the strip's
+    second line and the pending label take `--color-plex-text-secondary` (6.7:1) instead — the same
+    call as stop 3 (`#1F7F78`). Built at B1 as a deviation "for the owner to confirm"; the owner
+    confirmed and keeps it. `auroraBannerCss.test.js` pins that no `--color-plex-text-muted` text
+    appears in the banner's block.
+17. **D17 — the card breathes on STRONG only (owner decision, 2026-10-13).** Breathing is the one
+    motion the banner has, so it is reserved for the state that earns it: the alert is live (not a
+    forecast, not simulated), the level is STRONG and Bz is southward (< −1 nT), and never under
+    `prefers-reduced-motion`. MODERATE never moves, as the spec's severity table has it (plan §1 #10).
+    Pinned by `AuroraBanner.test.jsx` ("breathe": live, forecast, simulated, MODERATE, Bz at −1 / north
+    / unknown, −1.1) and by `auroraBannerCss.test.js` (the keyframes and the reduced-motion override
+    after them).
 
 ---
 
@@ -478,12 +495,27 @@ scores exist; B2 swaps the field in.
   cancellation and retry semantics (#803, #814) make that a refactor with its own review, so the
   banner's hook is banner-only.
 - `nextScoringAt` on `AuroraStatusResponse`, if the owner wants the "Location scores due" line.
-- **Owner question (B3):** the viewline's facts — which Kp the line is drawn for, and whether the
+- ~~**Owner question (B3):** the viewline's facts — which Kp the line is drawn for, and whether the
   reader's whole area is inside (`all ↓`) or outside (`line ↑`) the oval — are `aria-hidden` on the
   thumbnail, and B1 deliberately deleted the old `aurora-banner-viewline` sentence, so a screen-reader
   reader of the alert does not get them. Adding a visually-hidden sentence to the card is cheap
   (the placement is known only inside the thumbnail's draw callback, so it would need lifting) but
-  would reverse two written decisions; left for the owner.
+  would reverse two written decisions; left for the owner.~~ **Resolved at B4 (owner decision,
+  2026-10-13), in part:** the line and its label stay `aria-hidden` decoration, and the card gains ONE
+  `sr-only` sentence (`data-testid="aurora-banner-viewline-sr"`) carrying the viewline response's
+  `summary` ("Visible as far south as the Midlands."), spoken only while the line is ON THE CANVAS: the
+  thumbnail reports it (`AuroraFieldThumb`'s `onViewlineDrawn(boolean)`, true exactly when its label
+  shows, false on every decline path and on unmount) and the banner also requires the request's own
+  gate, `viewline.active === true` and a non-blank summary. A line merely requested and in hand, with
+  the lazy chunk still loading or failed, a declined draw or an unplaceable latitude, is not spoken. The
+  server's summaries end without a full stop, so one is added (a small deliberate departure from
+  "verbatim"; a stop followed by a closing quote or bracket counts as present). What the sentence does
+  NOT carry is the thumbnail's placement (`all ↓` / `line ↑`) or the Kp the line is drawn for; the
+  server's sentence states the reach in words. The old `aurora-banner-viewline` testid is not
+  restored. **Accepted cost, owner's call:** because the sentence lives inside the `role="alert"` card,
+  its arrival (after the async viewline answer) and any later change of its text on the 5-minute poll
+  can make a screen reader announce the whole card again; the text changes only when the line crosses
+  into another of the server's latitude bands, so a steady line is silent.
 - The simulated CTA's `#manage` hash is a documented no-op (v1 retirement D1 §8.11) — unchanged.
 
 ---
@@ -510,3 +542,11 @@ per-location run lands, then the green field framed to your planning area and `B
 sites clear`; the strip at 390px with the ramp edge filled to 62% (Moderate) or 92% (Strong); the
 Strong card breathing only while live with Bz south; Escape does nothing (not a dialog), ✕
 dismisses, the whole card opens the Map tab on the aurora night.
+
+B4 adds one check: on a Kp 4–5 night, look at the label in the 96px thumbnail at your home area (the
+owner asked for the `line ↑` wording) — is it legible, and does it keep clear of the field? Note which
+of the three labels you actually get: the forecast rule puts the line near 50–52°N at Kp 4–5, so
+`line ↑` (the line north of the frame, D15) needs a planning area in the far south, and most areas
+will show `Kp N line` or `Kp N · all ↓`. Also: the strip's lit edge should now have a glow above it
+(B4 removed the `clip-path` that hid it), and with a screen reader on the card, the alert should read
+"Visible as far south as …" between the best line and the call to action, only once the line is drawn.

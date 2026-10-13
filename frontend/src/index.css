@@ -11319,7 +11319,7 @@ button.wf-mchip:hover {
    One block for both layouts: the card at 640px and up, the glow strip below it (the component
    picks with useIsMobile, so there is no media query on the layout itself). The severity colours
    arrive as custom properties on the root — `--acc` the fill and glow, `--acc-ink` the text colour,
-   `--fill` the strip edge's lit fraction — and the Kp meter's nine bar colours as `--bar-0..8`, all
+   `--fill` the strip edge's lit fraction (`--fill-ratio` the same fraction as a bare number, B4) — and the Kp meter's nine bar colours as `--bar-0..8`, all
    set from `AuroraBanner.jsx` (SEVERITY and utils/auroraRamp.js), never typed here. The ONE ramp
    literal in this file is the strip's edge gradient below; `auroraBannerCss.test.js` pins it to
    `auroraRampGradientCss()`, because the design bundle's own literal has the teal stop #22867E where
@@ -11329,7 +11329,7 @@ button.wf-mchip:hover {
    strip's second line and the pending label in `--color-plex-text-muted` (.42 bone, 3.53:1 on this
    surface). That text says whether the alert is live and how many sites are clear, so it takes
    `--color-plex-text-secondary` (.66, 6.7:1) instead — the remap the map panels already make for the
-   same token (see `--color-panel-ink`). aurora-banner-plan.md §0 B1 row records it for the owner. */
+   same token (see `--color-panel-ink`). aurora-banner-plan.md §4 D16 records it (an owner decision). */
 .wf-aurora-card,
 .wf-aurora-strip {
   position: relative;
@@ -11604,17 +11604,28 @@ button.wf-mchip:hover {
   content: '';
   position: absolute;
   left: 0;
-  right: 0;
   bottom: 0;
+  width: var(--fill);
   height: 2px;
   background: linear-gradient(90deg,#384262,#2C5470 25%,#1F7F78 50%,#3AC884 75%,#76FFA0);
-  clip-path: inset(0 calc(100% - var(--fill)) 0 0);
+  background-size: calc(100% / var(--fill-ratio)) 100%;
+  background-repeat: no-repeat;
   box-shadow: 0 0 10px var(--acc);
   pointer-events: none;
 }
-/* ⚠️ `clip-path` clips the box-shadow with the rest of the element, so on a 2px edge the glow above
-   barely shows: the bundle writes it this way and the plan pins it. Whether it reads is a browser
-   check (plan §8); if it does not, the fix is a wrapper that carries the shadow. */
+/* ⚠️ The lit fraction is the element's own WIDTH, not a `clip-path`: a clip-path clips the element's
+   box-shadow with the rest of it, so the bundle's cut-off version never showed its glow above the
+   2px edge (plan §0 B1, fixed at B4). `--fill` is the percentage (62% / 92%) and `--fill-ratio` the
+   same fraction as a bare number (0.62 / 0.92), because the background must still span the WHOLE
+   strip — the ramp's far end is the brightest colour, and squeezing the gradient into the narrower
+   box would run it to full green at 62% — and `calc(100% / var(--fill-ratio))` is the box's width
+   divided back up to the strip's. `no-repeat` is belt and braces: the image is never narrower than
+   the box, so a repeat could not show. The strip has `overflow: hidden`, so the shadow is clipped at
+   the strip's left and bottom edges and paints upward into the strip; what is new and visible is the
+   10px of glow bleeding past the lit end (at 62% / 92% it never reaches the right edge). `rootVars`
+   always sets `--fill` and `--fill-ratio` together; with `--fill` undefined the bar would now
+   collapse to 0px (it used to be full width), which is unreachable and recorded only so nobody
+   reads it as a regression. */
 .wf-aurora-glyph {
   flex: none;
   width: 22px;

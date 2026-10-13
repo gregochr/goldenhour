@@ -337,14 +337,23 @@ FieldBoundary.propTypes = {
  * @param {boolean} props.simulated a simulated alert shows a test tube and never a field
  * @param {?{spots: Array, fit: object}} props.field the area's rated sites and frame, or null
  * @param {?object} props.viewline the southern viewline to draw on the field, or null
+ * @param {function(boolean): void} [props.onViewlineDrawn] told by the thumbnail whether the line is
+ *   actually on its canvas; a slot that never mounts the thumbnail (pending, simulated, a failed
+ *   chunk) never tells, which leaves the answer "no"
  */
-function ThumbSlot({ kp, simulated, field, viewline = null }) {
+function ThumbSlot({ kp, simulated, field, viewline = null, onViewlineDrawn = null }) {
   const pending = <PendingSlot kp={kp} simulated={simulated} />;
   if (simulated || !field) return pending;
   return (
     <FieldBoundary fallback={pending}>
       <Suspense fallback={pending}>
-        <AuroraFieldThumb spots={field.spots} fit={field.fit} viewline={viewline} kp={kp} />
+        <AuroraFieldThumb
+          spots={field.spots}
+          fit={field.fit}
+          viewline={viewline}
+          kp={kp}
+          onViewlineDrawn={onViewlineDrawn}
+        />
       </Suspense>
     </FieldBoundary>
   );
@@ -355,6 +364,7 @@ ThumbSlot.propTypes = {
   simulated: PropTypes.bool.isRequired,
   field: FIELD_SHAPE,
   viewline: PropTypes.object,
+  onViewlineDrawn: PropTypes.func,
 };
 
 /** The shape both layouts read; see {@link deriveModel}. */
@@ -385,10 +395,31 @@ const MODEL_SHAPE = PropTypes.shape({
 
 /**
  * The root's custom properties: the severity colours (and the strip's lit fraction) reach the
- * stylesheet here and nowhere else.
+ * stylesheet here and nowhere else. The fraction travels twice: `--fill` as a percentage for the
+ * lit edge's WIDTH, `--fill-ratio` as a bare number so the edge's background can be stretched back
+ * to the whole strip (`background-size: calc(100% / var(--fill-ratio))` — a division by a number is
+ * the one thing calc() allows, and a percentage cannot be one).
  */
 function rootVars(m, extra) {
-  return { '--acc': m.sev.acc, '--acc-ink': m.sev.ink, '--fill': `${m.sev.fill}%`, ...extra };
+  return {
+    '--acc': m.sev.acc,
+    '--acc-ink': m.sev.ink,
+    '--fill': `${m.sev.fill}%`,
+    '--fill-ratio': String(m.sev.fill / 100),
+    ...extra,
+  };
+}
+
+/**
+ * The viewline's one spoken sentence: the response's `summary` with one small, deliberate departure
+ * from verbatim - a full stop is added when the server's sentence ends without terminal punctuation
+ * (all of its summaries do), so a screen reader pauses before the call to action. Punctuation
+ * followed by a closing quote or bracket still counts as terminal.
+ */
+function spokenViewline(summary) {
+  const text = summary.trim();
+  // \x22 and \x27 are the straight quotes, escaped so no quote character sits in this source line.
+  return /[.!?][)\]\x22\x27”’]*$/.test(text) ? text : `${text}.`;
 }
 
 /**
@@ -410,8 +441,14 @@ function activates(e) {
  * @param {?object} props.field the planning area's rated field ({@link areaField}), or null while
  *   the slot is pending
  * @param {?object} [props.viewline] the southern viewline drawn on the field, or null
+ * @param {?string} [props.viewlineSummary] the viewline response's sentence, spoken to assistive
+ *   technology and drawn nowhere; null whenever the line is not on screen
+ * @param {function(boolean): void} [props.onViewlineDrawn] handed to the thumbnail, which reports
+ *   whether the line is on its canvas
  */
-function AuroraCard({ m, field = null, viewline = null, onActivate, onDismiss }) {
+function AuroraCard({
+  m, field = null, viewline = null, viewlineSummary = null, onViewlineDrawn = null, onActivate, onDismiss,
+}) {
   const parts = [];
   if (m.best) {
     // Ready: the best rated site in the reader's area, then how many sites are clear. Without triage
@@ -463,7 +500,13 @@ function AuroraCard({ m, field = null, viewline = null, onActivate, onDismiss })
       >
         {/* eslint-enable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */}
         <div className="wf-aurora-thumb" data-testid="aurora-banner-thumb">
-          <ThumbSlot kp={m.kp} simulated={m.simulated} field={field} viewline={viewline} />
+          <ThumbSlot
+            kp={m.kp}
+            simulated={m.simulated}
+            field={field}
+            viewline={viewline}
+            onViewlineDrawn={onViewlineDrawn}
+          />
         </div>
         <div className="wf-aurora-body">
           <span className="wf-aurora-pill" data-testid="aurora-banner-pill">
@@ -496,6 +539,13 @@ function AuroraCard({ m, field = null, viewline = null, onActivate, onDismiss })
               </p>
             )
           )}
+          {viewlineSummary && (
+            // The line and its label on the thumbnail are aria-hidden decoration; this is the one
+            // sentence of them a screen reader gets, inside the alert's own text (plan §6, closed B4).
+            <span className="sr-only" data-testid="aurora-banner-viewline-sr">
+              {spokenViewline(viewlineSummary)}
+            </span>
+          )}
           <span className="wf-aurora-cta">{m.simulated ? 'Generate scores →' : 'View on map →'}</span>
         </div>
         <button
@@ -516,6 +566,8 @@ AuroraCard.propTypes = {
   m: MODEL_SHAPE,
   field: FIELD_SHAPE,
   viewline: PropTypes.object,
+  viewlineSummary: PropTypes.string,
+  onViewlineDrawn: PropTypes.func,
   onActivate: PropTypes.func.isRequired,
   onDismiss: PropTypes.func.isRequired,
 };
@@ -639,6 +691,10 @@ export default function AuroraBanner({ onViewOnMap = null }) {
   const { status } = useAuroraStatus();
   const isMobile = useIsMobile();
   const [dismissedLevel, setDismissedLevel] = useState(null);
+  // Whether the thumbnail has the viewline on its canvas, as the thumbnail itself reports it. The
+  // request's own gate cannot know: a chunk still loading, a failed chunk, a declined draw or a
+  // line the projection cannot place all leave the slot without a line while the data is in hand.
+  const [lineDrawn, setLineDrawn] = useState(false);
 
   // Tonight's per-location ratings, restricted to the reader's planning area (plan §4 D8). The hooks
   // run before the early returns below: nothing is asked for a status that is null, not alert-worthy
@@ -698,10 +754,28 @@ export default function AuroraBanner({ onViewOnMap = null }) {
     }
   }
 
+  // The line is spoken exactly when it is drawn: the thumbnail says a line is on its canvas
+  // (`lineDrawn`), the request's own gate still holds (never a test tube, the strip or a dismissed
+  // card), the line is active, and there is a sentence to speak. Never the data predicate alone.
+  const viewlineSummary = lineDrawn && viewlineEnabled && viewline?.active === true
+    && typeof viewline.summary === 'string' && viewline.summary.trim() !== ''
+    ? viewline.summary
+    : null;
+
   // The strip has no thumbnail, so only the card is handed the field.
   return isMobile
     ? <AuroraStrip m={m} onActivate={handleActivate} onDismiss={handleDismiss} />
-    : <AuroraCard m={m} field={field} viewline={viewline} onActivate={handleActivate} onDismiss={handleDismiss} />;
+    : (
+      <AuroraCard
+        m={m}
+        field={field}
+        viewline={viewline}
+        viewlineSummary={viewlineSummary}
+        onViewlineDrawn={setLineDrawn}
+        onActivate={handleActivate}
+        onDismiss={handleDismiss}
+      />
+    );
 }
 
 AuroraBanner.propTypes = {
