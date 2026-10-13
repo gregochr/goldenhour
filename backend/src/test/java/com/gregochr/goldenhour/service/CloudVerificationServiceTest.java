@@ -96,6 +96,114 @@ class CloudVerificationServiceTest {
     }
 
     @Test
+    @DisplayName("backfill records the far point's mid and high, and all three layers on the dark side")
+    void backfill_recordsFarMidHighAndDarkSide() {
+        when(repository.findUnverified(any(), any())).thenReturn(List.of(candidate()));
+        // Sunset 21:37 -> event slot 21:00 (index 1); the dark side is 22:00 (index 2).
+        OpenMeteoForecastResponse far = archive(20);
+        when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
+                .thenReturn(List.of(archive(60), archive(85), archive(95), archive(), far));
+
+        service.backfill(10);
+
+        CloudVerificationEntity row = savedRow();
+        assertThat(row.getFarLowCloud()).isEqualTo(20);
+        assertThat(row.getFarMidCloud()).isEqualTo(55);
+        assertThat(row.getFarHighCloud()).isEqualTo(35);
+        assertThat(row.getFarLowCloudDark()).isEqualTo(90);
+        assertThat(row.getFarMidCloudDark()).isEqualTo(60);
+        assertThat(row.getFarHighCloudDark()).isEqualTo(40);
+    }
+
+    @Test
+    @DisplayName("backfill leaves a far layer null when the archive omits it, and keeps the others")
+    void backfill_missingFarLayers_recordNull() {
+        when(repository.findUnverified(any(), any())).thenReturn(List.of(candidate()));
+        OpenMeteoForecastResponse far = archive(20);
+        far.getHourly().setCloudCoverMid(null);
+        far.getHourly().setCloudCoverHigh(null);
+        when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
+                .thenReturn(List.of(archive(60), archive(85), archive(95), archive(), far));
+
+        service.backfill(10);
+
+        CloudVerificationEntity row = savedRow();
+        assertThat(row.getFarLowCloud()).isEqualTo(20);
+        assertThat(row.getFarLowCloudDark()).isEqualTo(90);
+        assertThat(row.getFarMidCloud()).isNull();
+        assertThat(row.getFarHighCloud()).isNull();
+        assertThat(row.getFarMidCloudDark()).isNull();
+        assertThat(row.getFarHighCloudDark()).isNull();
+    }
+
+    @Test
+    @DisplayName("backfill records null dark-side values when the dark-side slot is past the array's edge")
+    void backfill_darkSideAtArrayEdge_recordsNull() {
+        when(repository.findUnverified(any(), any())).thenReturn(List.of(candidate()));
+        // The sunset slot (21:00) is the last hour served, so index 2 does not exist.
+        OpenMeteoForecastResponse far = new OpenMeteoForecastResponse();
+        OpenMeteoForecastResponse.Hourly hourly = new OpenMeteoForecastResponse.Hourly();
+        hourly.setTime(List.of("2026-05-10T20:00", "2026-05-10T21:00"));
+        hourly.setCloudCoverLow(List.of(40, 20));
+        hourly.setCloudCoverMid(List.of(50, 55));
+        hourly.setCloudCoverHigh(List.of(30, 35));
+        far.setHourly(hourly);
+        when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
+                .thenReturn(List.of(archive(60), archive(85), archive(95), archive(), far));
+
+        service.backfill(10);
+
+        CloudVerificationEntity row = savedRow();
+        assertThat(row.getFarLowCloud()).isEqualTo(20);
+        assertThat(row.getFarMidCloud()).isEqualTo(55);
+        assertThat(row.getFarHighCloud()).isEqualTo(35);
+        assertThat(row.getFarLowCloudDark()).isNull();
+        assertThat(row.getFarMidCloudDark()).isNull();
+        assertThat(row.getFarHighCloudDark()).isNull();
+    }
+
+    @Test
+    @DisplayName("backfill records no far values when the far archive is null or empty")
+    void backfill_nullOrEmptyFarArchive_recordsNoFarValues() {
+        when(repository.findUnverified(any(), any())).thenReturn(List.of(candidate()));
+        OpenMeteoForecastResponse empty = new OpenMeteoForecastResponse();
+        OpenMeteoForecastResponse.Hourly noTimes = new OpenMeteoForecastResponse.Hourly();
+        noTimes.setTime(List.of());
+        empty.setHourly(noTimes);
+        when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
+                .thenReturn(List.of(archive(60), archive(85), archive(95), archive(), empty));
+
+        service.backfill(10);
+
+        CloudVerificationEntity emptyRow = savedRow();
+        assertThat(emptyRow.getHorizonLowCloud()).isEqualTo(80);
+        assertThat(emptyRow.getFarLowCloud()).isNull();
+        assertThat(emptyRow.getFarMidCloud()).isNull();
+        assertThat(emptyRow.getFarHighCloud()).isNull();
+        assertThat(emptyRow.getFarLowCloudDark()).isNull();
+        assertThat(emptyRow.getFarMidCloudDark()).isNull();
+        assertThat(emptyRow.getFarHighCloudDark()).isNull();
+    }
+
+    @Test
+    @DisplayName("backfill records no far values when the far archive fetch failed (null)")
+    void backfill_nullFarArchive_recordsNoFarValues() {
+        when(repository.findUnverified(any(), any())).thenReturn(List.of(candidate()));
+        when(archiveClient.fetchArchiveBatch(any(), any(), anyString()))
+                .thenReturn(Arrays.asList(archive(60), archive(85), archive(95), archive(), null));
+
+        service.backfill(10);
+
+        CloudVerificationEntity row = savedRow();
+        assertThat(row.getFarLowCloud()).isNull();
+        assertThat(row.getFarMidCloud()).isNull();
+        assertThat(row.getFarHighCloud()).isNull();
+        assertThat(row.getFarLowCloudDark()).isNull();
+        assertThat(row.getFarMidCloudDark()).isNull();
+        assertThat(row.getFarHighCloudDark()).isNull();
+    }
+
+    @Test
     @DisplayName("backfill records a row even when the archive has no data, so it is not retried")
     void backfill_archiveFailure_stillRecordsRow() {
         when(repository.findUnverified(any(), any())).thenReturn(List.of(candidate()));
@@ -829,6 +937,14 @@ class CloudVerificationServiceTest {
         assertThatThrownBy(() -> service.report(TO, FROM))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("must not be before");
+    }
+
+    private CloudVerificationEntity savedRow() {
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<CloudVerificationEntity>> saved =
+                ArgumentCaptor.forClass(List.class);
+        verify(repository).saveAll(saved.capture());
+        return saved.getValue().getFirst();
     }
 
     private VerificationCandidate candidate() {
