@@ -54,6 +54,27 @@ public interface PipelineRunRepository extends JpaRepository<PipelineRunEntity, 
                     CycleType cycleType, Instant start, Instant end);
 
     /**
+     * Whether any run of the given cycle type has a trigger time at or after an instant — the
+     * solar catch-up policy's "has this cycle already run since its fire time" question.
+     *
+     * @param cycleType the cycle type
+     * @param threshold the inclusive lower bound on {@code trigger_time}
+     * @return true if such a run exists, whatever its status
+     */
+    boolean existsByCycleTypeAndTriggerTimeGreaterThanEqual(CycleType cycleType, Instant threshold);
+
+    /**
+     * The 14 most recent runs of a cycle type in the given status, newest first — the sample the
+     * solar preview's median cycle duration is taken over.
+     *
+     * @param cycleType the cycle type
+     * @param status    the status (COMPLETED)
+     * @return up to 14 runs, newest trigger first
+     */
+    List<PipelineRunEntity> findTop14ByCycleTypeAndStatusOrderByTriggerTimeDesc(
+            CycleType cycleType, PipelineRunStatus status);
+
+    /**
      * Every pipeline run's {@code trigger_time} strictly after the given instant, ascending.
      *
      * <p>Round 14 replaces round 13's disposition-owning-cycle join entirely: a disposition
