@@ -46,8 +46,8 @@ does not wait for them to accrue.
     never inside it.
   - The other hour is already in the same response, so it costs no extra call. Without it, a later
     rule cannot interpolate to the event minute from stored rows (parent §8, timing).
-- **S0, pressure-level cloud at the far point**, as its own later PR (T7). It is forecast-only:
-  T0 found the archive returns null for these variables (§3). T7 waits on an owner decision (§7).
+- **S0, pressure-level cloud at the far point:** deferred (§7). The Historical Forecast API can
+  rebuild it for past dates, and the ERA5 archive cannot verify it (§3).
 
 **Out, and must not change** (parent plan §7):
 - the prompt text, for every builder and every model, including the woodland and bluebell builders;
@@ -200,7 +200,7 @@ T0 (owner, done)
 T1 record + readers ──┬─> T2 persistence + V175 ──> T3 ERA5 store ──┐
                       └─> T4 invariance ───────────────────────────┴─> T5 + T6 integrate, review, PR #A
                                                                         (merge, then DEPLOY)
-owner decision (§7) ──> T7a fetch ──> T7b record, store, invariance ──> T7c integrate, PR #B
+deferred (§7) ──────> T7a fetch ──> T7b record, store, invariance ──> T7c integrate, PR #B
 ```
 
 **Branch.** One branch per PR. PR #A uses `feature/far-cloud-capture`, from `main`. Commit after
@@ -544,6 +544,17 @@ leaks and where.
 
 ## 7. T7 — S0 pressure-level cloud (PR #B; waits for an owner decision)
 
+**Deferred by the owner, 2026-10-13. Deferral loses no history.** The owner checked the Historical
+Forecast API: `historical-forecast-api.open-meteo.com` at 54.9 N 3.5 W for 2026-09-01 returns numbers
+for `cloud_cover_700hPa`, `_500hPa` and `_300hPa`.
+
+So P1, or a later rule, can rebuild the far point's levels for any past date. It does not depend on
+stored rows.
+
+One caveat: that API stitches each model run's first hours together, so it rebuilds roughly a T+0
+forecast, not the T+1 forecast production made. If a lead-specific level is ever needed, check the
+Previous Runs API first. T7 stays as designed below, for when a hypothesis needs stored levels.
+
 **The decision.** What the review established:
 - Both prefetchers and the live reader share one cloud request with the upwind and cone points.
 - Widening that request to nine variables would put **every** forecast's directional cloud on a
@@ -616,7 +627,7 @@ delegability, fitness for P1), then the orchestrator's checks against the code.
   behind an owner decision.
 - **A widened shared request could fail fleet-wide.** This is why T7 uses a separate request.
 - **The single stored hour misses the after-glow.** Added the dark-side hour (five columns per
-  table, no extra request).
+  table, no extra request). The owner kept it on 2026-10-13.
 - **§6 misdescribed how P1 uses the data:** P1 reconstructs history, and the stored data is a
   validity check. Fixed, along with the T+2 coverage bias.
 - **T4 could pass vacuously.** Added positive controls, both `buildUserMessage` overloads, the
