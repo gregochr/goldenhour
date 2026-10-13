@@ -8,6 +8,8 @@ vi.mock('../api/schedulerApi', () => ({
   pauseJob: vi.fn(),
   resumeJob: vi.fn(),
   triggerJob: vi.fn(),
+  fetchSolarPreview: vi.fn(),
+  switchScheduleType: vi.fn(),
 }));
 
 import {
@@ -16,6 +18,7 @@ import {
   pauseJob,
   resumeJob,
   triggerJob,
+  fetchSolarPreview,
 } from '../api/schedulerApi';
 
 const MOCK_JOBS = [
@@ -57,6 +60,7 @@ describe('SchedulerView', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     fetchSchedulerJobs.mockResolvedValue(MOCK_JOBS);
+    fetchSolarPreview.mockRejectedValue(new Error('preview not under test here'));
   });
 
   it('renders job cards after loading', async () => {
