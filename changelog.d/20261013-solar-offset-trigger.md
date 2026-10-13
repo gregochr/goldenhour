@@ -20,6 +20,8 @@ cancelling the old one; the stored cron is kept unchanged so the switch is its o
 today's and tomorrow's event and fire instants, the year's earliest and latest fire time of day, the reference
 point and the median cycle duration, all from the trigger's own arithmetic.
 
-On startup a solar job that missed today's fire runs once immediately if no run of its cycle has started since the
-fire and useful lead remains (before 05:00 UK for the morning cycle, at least 90 minutes before sunset for the
-afternoon one). The existing admin screen still treats a solar row like a fixed-delay one (P2c).
+On startup a solar job that missed today's fire runs once immediately if no run of its cycle has got past
+submission since the fire (a run the restart killed before submitting does not count) and useful lead remains
+(before 05:00 UK for the morning cycle, at least 90 minutes before sunset for the afternoon one). The pipeline's
+startup recovery scan is now ordered to finish before the scheduler starts, so it can never take a catch-up run
+that has just begun for one the previous process left behind. The existing admin screen still treats a solar row like a fixed-delay one (P2c).
