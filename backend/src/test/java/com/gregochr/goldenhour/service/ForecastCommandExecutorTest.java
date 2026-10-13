@@ -183,7 +183,7 @@ class ForecastCommandExecutorTest {
                 .thenReturn(stubJobRun);
         when(openMeteoService.prefetchWeatherBatch(anyList(), any()))
                 .thenReturn(stubPrefetchedWeather);
-        when(openMeteoService.prefetchCloudBatch(anyList(), any()))
+        when(openMeteoService.prefetchCloudBatch(anyList(), anyList(), any()))
                 .thenReturn(stubCloudCache);
     }
 
@@ -269,6 +269,35 @@ class ForecastCommandExecutorTest {
                             eq(EvaluationModel.HAIKU), eq(false), eq(stubJobRun),
                             eq(stubPrefetchedWeather), eq(stubCloudCache));
         }
+    }
+
+    @Test
+    @DisplayName("execute() passes each task's far-solar point to prefetchCloudBatch as the far list")
+    void execute_colourLocations_passesFarSolarPointPerTaskToCloudPrefetch() {
+        stubExecuteDefaults();
+        stubSolarNotPast();
+        stubDefaultFetch();
+        stubDefaultEval();
+        List<double[]> directional = List.of(new double[]{1, 1}, new double[]{2, 2}, new double[]{3, 3},
+                new double[]{4, 4}, new double[]{5, 5});
+        when(openMeteoService.computeDirectionalCloudPoints(
+                org.mockito.ArgumentMatchers.anyDouble(), org.mockito.ArgumentMatchers.anyDouble(),
+                org.mockito.ArgumentMatchers.anyInt())).thenReturn(directional);
+        ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today()),
+                List.of(durham()), haikuStrategy, true);
+
+        executor.execute(cmd);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<double[]>> allCaptor = ArgumentCaptor.forClass(List.class);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<double[]>> farCaptor = ArgumentCaptor.forClass(List.class);
+        verify(openMeteoService).prefetchCloudBatch(allCaptor.capture(), farCaptor.capture(), any());
+        // one location, sunrise and sunset: two tasks, one far point each
+        assertThat(allCaptor.getValue()).hasSize(10);
+        assertThat(farCaptor.getValue()).hasSize(2)
+                .allSatisfy(p -> assertThat(p).isSameAs(directional.get(
+                        DirectionalSamplingGeometry.FAR_SOLAR_POINT_INDEX)));
     }
 
     @Test
@@ -1391,7 +1420,7 @@ class ForecastCommandExecutorTest {
             when(optimisationStrategyService.serialiseEnabledStrategies(any())).thenReturn("");
             when(openMeteoService.prefetchWeatherBatch(anyList(), any()))
                     .thenReturn(stubPrefetchedWeather);
-            when(openMeteoService.prefetchCloudBatch(anyList(), any()))
+            when(openMeteoService.prefetchCloudBatch(anyList(), anyList(), any()))
                     .thenReturn(stubCloudCache);
             stubSolarNotPast();
             stubDefaultFetch();

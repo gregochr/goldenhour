@@ -125,6 +125,52 @@ class ForecastEvaluationRepositoryTest {
     }
 
     @Test
+    @DisplayName("The six far-point pressure-level readings persist and reload from the database")
+    void farPointPressureLevels_persistAndReload() {
+        ForecastEvaluationEntity entity = buildSonnetEvaluation(
+                durham, LocalDate.of(2026, 2, 20), TargetType.SUNSET,
+                LocalDateTime.of(2026, 2, 18, 6, 0), 2);
+        entity.setDirectionalCloud(DirectionalCloudDetails.from(new DirectionalCloudData(
+                35, 45, 20, 40, 50, 15, 55, 61, 72, 18, 27, 83, 11, 22, 33, 44, 55, 66)));
+
+        Long id = entityManager.persistAndFlush(entity).getId();
+        entityManager.clear();
+
+        DirectionalCloudDetails reloaded =
+                repository.findById(id).orElseThrow().getDirectionalCloud();
+        assertThat(reloaded.getFarSolarCloud850()).isEqualTo(11);
+        assertThat(reloaded.getFarSolarCloud700()).isEqualTo(22);
+        assertThat(reloaded.getFarSolarCloud600()).isEqualTo(33);
+        assertThat(reloaded.getFarSolarCloud500()).isEqualTo(44);
+        assertThat(reloaded.getFarSolarCloud400()).isEqualTo(55);
+        assertThat(reloaded.getFarSolarCloud300()).isEqualTo(66);
+        assertThat(reloaded.getFarSolarHighDark()).isEqualTo(83);
+    }
+
+    @Test
+    @DisplayName("A row built from a 12-argument record reloads with the six pressure levels null")
+    void farPointPressureLevels_twelveArgumentRecord_reloadsNulls() {
+        ForecastEvaluationEntity entity = buildSonnetEvaluation(
+                durham, LocalDate.of(2026, 2, 20), TargetType.SUNSET,
+                LocalDateTime.of(2026, 2, 18, 6, 0), 2);
+        entity.setDirectionalCloud(DirectionalCloudDetails.from(
+                new DirectionalCloudData(35, 45, 20, 40, 50, 15, 55, 61, 72, 18, 27, 83)));
+
+        Long id = entityManager.persistAndFlush(entity).getId();
+        entityManager.clear();
+
+        DirectionalCloudDetails reloaded =
+                repository.findById(id).orElseThrow().getDirectionalCloud();
+        assertThat(reloaded.getFarSolarHighDark()).isEqualTo(83);
+        assertThat(reloaded.getFarSolarCloud850()).isNull();
+        assertThat(reloaded.getFarSolarCloud700()).isNull();
+        assertThat(reloaded.getFarSolarCloud600()).isNull();
+        assertThat(reloaded.getFarSolarCloud500()).isNull();
+        assertThat(reloaded.getFarSolarCloud400()).isNull();
+        assertThat(reloaded.getFarSolarCloud300()).isNull();
+    }
+
+    @Test
     @DisplayName("A row built from a 7-argument record reloads with the five new readings null")
     void farPointCloudCapture_sevenArgumentRecord_reloadsNulls() {
         ForecastEvaluationEntity entity = buildSonnetEvaluation(

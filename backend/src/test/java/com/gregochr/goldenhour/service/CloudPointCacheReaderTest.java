@@ -128,6 +128,117 @@ class CloudPointCacheReaderTest {
         assertThat(data).isNull();
     }
 
+    @Test
+    @DisplayName("fills the six pressure levels from the level response at the event slot")
+    void pressureLevels_filledFromLevelResponse() {
+        DirectionalCloudData data = readWithLevels(farResponse(), levelResponse(TIMES),
+                TargetType.SUNSET, SUNSET);
+
+        assertThat(data).isNotNull();
+        assertThat(data.farSolarCloud850hPa()).isEqualTo(81);
+        assertThat(data.farSolarCloud700hPa()).isEqualTo(71);
+        assertThat(data.farSolarCloud600hPa()).isEqualTo(61);
+        assertThat(data.farSolarCloud500hPa()).isEqualTo(51);
+        assertThat(data.farSolarCloud400hPa()).isEqualTo(41);
+        assertThat(data.farSolarCloud300hPa()).isEqualTo(31);
+    }
+
+    @Test
+    @DisplayName("pressure levels are null when no level response exists, other fields unchanged")
+    void pressureLevels_nullWhenNoLevelResponse() {
+        DirectionalCloudData data = readWithLevels(farResponse(), null, TargetType.SUNSET, SUNSET);
+
+        assertThat(data).isNotNull();
+        assertThat(data.farSolarCloud850hPa()).isNull();
+        assertThat(data.farSolarCloud300hPa()).isNull();
+        assertThat(data.farSolarLowCloudPercent()).isEqualTo(40);
+    }
+
+    @Test
+    @DisplayName("a malformed level response nulls only the six levels, never another field or the result")
+    void pressureLevels_malformedResponse_leavesEverythingElseIdentical() {
+        DirectionalCloudData baseline = readWithLevels(farResponse(), null, TargetType.SUNSET, SUNSET);
+
+        OpenMeteoForecastResponse nullTimes = levelResponse(TIMES);
+        nullTimes.getHourly().setTime(null);
+        OpenMeteoForecastResponse badTime = levelResponse(TIMES);
+        badTime.getHourly().setTime(List.of("not-a-time", "also-not", "nope"));
+        OpenMeteoForecastResponse noHourly = new OpenMeteoForecastResponse();
+
+        for (OpenMeteoForecastResponse malformed : List.of(nullTimes, badTime, noHourly)) {
+            DirectionalCloudData data = readWithLevels(farResponse(), malformed,
+                    TargetType.SUNSET, SUNSET);
+
+            assertThat(data).isNotNull();
+            assertThat(data).isEqualTo(baseline);
+            assertThat(data.farSolarCloud850hPa()).isNull();
+            assertThat(data.farSolarCloud300hPa()).isNull();
+        }
+    }
+
+    @Test
+    @DisplayName("levels are still read when the far cloud cell is absent, far cloud fields null")
+    void pressureLevels_readWithoutFarCloudCell() {
+        DirectionalCloudData data = readWithLevels(null, levelResponse(TIMES), TargetType.SUNSET, SUNSET);
+
+        assertThat(data).isNotNull();
+        assertThat(data.farSolarCloud850hPa()).isEqualTo(81);
+        assertThat(data.farSolarCloud300hPa()).isEqualTo(31);
+        assertThat(data.farSolarLowCloudPercent()).isNull();
+        assertThat(data.farSolarMidCloudPercent()).isNull();
+        assertThat(data.farSolarHighCloudPercentDarkHour()).isNull();
+    }
+
+    @Test
+    @DisplayName("no levels and no far cloud cell leaves every far and level field null")
+    void pressureLevels_absentWithoutFarCloudCell_allNull() {
+        DirectionalCloudData data = readWithLevels(null, null, TargetType.SUNSET, SUNSET);
+
+        assertThat(data).isNotNull();
+        assertThat(data.farSolarLowCloudPercent()).isNull();
+        assertThat(data.farSolarCloud850hPa()).isNull();
+        assertThat(data.farSolarCloud300hPa()).isNull();
+    }
+
+    private static OpenMeteoForecastResponse farResponse() {
+        return response(List.of(1, 40, 41), List.of(2, 50, 51), List.of(3, 60, 61));
+    }
+
+    private static OpenMeteoForecastResponse levelResponse(List<String> times) {
+        OpenMeteoForecastResponse response = new OpenMeteoForecastResponse();
+        OpenMeteoForecastResponse.Hourly hourly = new OpenMeteoForecastResponse.Hourly();
+        hourly.setTime(times);
+        hourly.setCloudCover850hPa(List.of(80, 81, 82));
+        hourly.setCloudCover700hPa(List.of(70, 71, 72));
+        hourly.setCloudCover600hPa(List.of(60, 61, 62));
+        hourly.setCloudCover500hPa(List.of(50, 51, 52));
+        hourly.setCloudCover400hPa(List.of(40, 41, 42));
+        hourly.setCloudCover300hPa(List.of(30, 31, 32));
+        response.setHourly(hourly);
+        return response;
+    }
+
+    private static DirectionalCloudData readWithLevels(OpenMeteoForecastResponse far,
+            OpenMeteoForecastResponse levels, TargetType type, LocalDateTime eventTime) {
+        List<double[]> points = DirectionalSamplingGeometry.computeDirectionalCloudPoints(
+                LAT, LON, AZIMUTH);
+        Map<String, OpenMeteoForecastResponse> cells = new HashMap<>();
+        for (int i = 0; i < DirectionalSamplingGeometry.FAR_SOLAR_POINT_INDEX; i++) {
+            cells.put(CloudPointCache.gridKey(points.get(i)[0], points.get(i)[1]),
+                    response(List.of(10, 10, 10), List.of(20, 20, 20), List.of(30, 30, 30)));
+        }
+        double[] farPoint = points.get(DirectionalSamplingGeometry.FAR_SOLAR_POINT_INDEX);
+        if (far != null) {
+            cells.put(CloudPointCache.gridKey(farPoint[0], farPoint[1]), far);
+        }
+        Map<String, OpenMeteoForecastResponse> levelCells = new HashMap<>();
+        if (levels != null) {
+            levelCells.put(CloudPointCache.gridKey(farPoint[0], farPoint[1]), levels);
+        }
+        return CloudPointCacheReader.fetchDirectionalCloudDataFromCache(
+                LAT, LON, AZIMUTH, eventTime, type, new CloudPointCache(cells, levelCells));
+    }
+
     private static DirectionalCloudData read(OpenMeteoForecastResponse far, TargetType type,
             LocalDateTime eventTime) {
         List<double[]> points = DirectionalSamplingGeometry.computeDirectionalCloudPoints(

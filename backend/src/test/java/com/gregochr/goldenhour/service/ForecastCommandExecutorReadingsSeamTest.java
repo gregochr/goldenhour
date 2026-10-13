@@ -141,7 +141,7 @@ class ForecastCommandExecutorReadingsSeamTest {
                 .thenReturn(stubJobRun);
         when(openMeteoService.prefetchWeatherBatch(anyList(), any()))
                 .thenReturn(new java.util.LinkedHashMap<>());
-        when(openMeteoService.prefetchCloudBatch(anyList(), any()))
+        when(openMeteoService.prefetchCloudBatch(anyList(), anyList(), any()))
                 .thenReturn(new CloudPointCache(java.util.Map.of()));
         // Neither solar time is past "now", so shouldSkipEvent never drops the slot.
         when(solarService.sunriseUtc(anyDouble(), anyDouble(), any()))

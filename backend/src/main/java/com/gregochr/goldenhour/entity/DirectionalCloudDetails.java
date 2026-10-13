@@ -12,7 +12,8 @@ import lombok.NoArgsConstructor;
  * Directional cloud sampling columns of a forecast evaluation — cloud cover at the solar and
  * antisolar horizon points (113 km) and the far-field strip-vs-blanket sample (226 km). The far
  * point also records mid and high cloud and a dark-side hour (low, mid and high); these are
- * recorded, never prompted (far-cloud-lid-plan P2). All
+ * recorded, never prompted (far-cloud-lid-plan P2). It also records pressure-level cloud
+ * (850 to 300 hPa) at the far point's event hour (V176). All
  * fields are null when directional sampling was unavailable, in which case Hibernate
  * materialises the whole embeddable as {@code null} on read (use
  * {@link #orEmpty(DirectionalCloudDetails)}).
@@ -75,6 +76,30 @@ public class DirectionalCloudDetails {
     @Column(name = "far_solar_high_cloud_dark")
     private Integer farSolarHighDark;
 
+    /** Pressure-level cloud at the far point at the event's hour, 850 hPa (recorded as data only). */
+    @Column(name = "far_solar_cloud_850hpa")
+    private Integer farSolarCloud850;
+
+    /** Pressure-level cloud at the far point at the event's hour, 700 hPa (recorded as data only). */
+    @Column(name = "far_solar_cloud_700hpa")
+    private Integer farSolarCloud700;
+
+    /** Pressure-level cloud at the far point at the event's hour, 600 hPa (recorded as data only). */
+    @Column(name = "far_solar_cloud_600hpa")
+    private Integer farSolarCloud600;
+
+    /** Pressure-level cloud at the far point at the event's hour, 500 hPa (recorded as data only). */
+    @Column(name = "far_solar_cloud_500hpa")
+    private Integer farSolarCloud500;
+
+    /** Pressure-level cloud at the far point at the event's hour, 400 hPa (recorded as data only). */
+    @Column(name = "far_solar_cloud_400hpa")
+    private Integer farSolarCloud400;
+
+    /** Pressure-level cloud at the far point at the event's hour, 300 hPa (recorded as data only). */
+    @Column(name = "far_solar_cloud_300hpa")
+    private Integer farSolarCloud300;
+
     /**
      * Builds the embeddable from the pipeline's directional cloud data.
      *
@@ -98,6 +123,12 @@ public class DirectionalCloudDetails {
                 .farSolarLowDark(dc.farSolarLowCloudPercentDarkHour())
                 .farSolarMidDark(dc.farSolarMidCloudPercentDarkHour())
                 .farSolarHighDark(dc.farSolarHighCloudPercentDarkHour())
+                .farSolarCloud850(dc.farSolarCloud850hPa())
+                .farSolarCloud700(dc.farSolarCloud700hPa())
+                .farSolarCloud600(dc.farSolarCloud600hPa())
+                .farSolarCloud500(dc.farSolarCloud500hPa())
+                .farSolarCloud400(dc.farSolarCloud400hPa())
+                .farSolarCloud300(dc.farSolarCloud300hPa())
                 .build();
     }
 

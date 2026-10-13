@@ -129,7 +129,8 @@ class ForecastCommandExecutorSlotsTest {
         when(optimisationStrategyService.serialiseEnabledStrategies(any())).thenReturn("");
         Map<String, WeatherExtractionResult> prefetchedWeather = new LinkedHashMap<>();
         when(openMeteoService.prefetchWeatherBatch(anyList(), any())).thenReturn(prefetchedWeather);
-        when(openMeteoService.prefetchCloudBatch(anyList(), any())).thenReturn(new CloudPointCache(Map.of()));
+        when(openMeteoService.prefetchCloudBatch(anyList(), anyList(), any()))
+                .thenReturn(new CloudPointCache(Map.of()));
     }
 
     /** Every slot survives triage, so a run that reaches the evaluation phase evaluates all of its tasks. */

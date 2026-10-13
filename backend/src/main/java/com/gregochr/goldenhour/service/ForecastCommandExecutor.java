@@ -518,6 +518,7 @@ public class ForecastCommandExecutor {
         // eventTime to work out how far cloud advects.
         LocalDateTime now = LocalDateTime.now(clock.withZone(ZoneOffset.UTC));
         List<double[]> allPoints = new ArrayList<>();
+        List<double[]> farPoints = new ArrayList<>();
 
         for (TaskDescriptor task : tasks) {
             double lat = task.location().getLat();
@@ -530,7 +531,14 @@ public class ForecastCommandExecutor {
                     : solarService.sunsetAzimuthDeg(lat, lon, date);
 
             // 5 directional cloud points (cone + antisolar + far-solar)
-            allPoints.addAll(openMeteoService.computeDirectionalCloudPoints(lat, lon, azimuth));
+            List<double[]> directionalPoints =
+                    openMeteoService.computeDirectionalCloudPoints(lat, lon, azimuth);
+            allPoints.addAll(directionalPoints);
+            // The real geometry always returns five points (DirectionalSamplingGeometryTest pins it);
+            // the guard only tolerates mocked short lists.
+            if (directionalPoints.size() > DirectionalSamplingGeometry.FAR_SOLAR_POINT_INDEX) {
+                farPoints.add(directionalPoints.get(DirectionalSamplingGeometry.FAR_SOLAR_POINT_INDEX));
+            }
 
             // Solar horizon point for cloud approach trend (same as cone centre — already included)
             // Upwind point (needs wind from prefetched weather)
@@ -559,7 +567,7 @@ public class ForecastCommandExecutor {
 
         LOG.info("Pre-fetching cloud points: {} raw points from {} tasks",
                 allPoints.size(), tasks.size());
-        return openMeteoService.prefetchCloudBatch(allPoints, jobRun);
+        return openMeteoService.prefetchCloudBatch(allPoints, farPoints, jobRun);
     }
 
     /**

@@ -15,9 +15,15 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
+import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import java.io.IOException;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -438,6 +444,131 @@ class OpenMeteoClientTest {
 
         assertThat(results).hasSize(15);
         assertThat(results).allSatisfy(r -> assertThat(r).isNotNull());
+    }
+
+    // ── Requested hourly variables ────────────────────────────────────────────
+
+    @Test
+    @DisplayName("fetchPressureLevelCloudBatch requests exactly the six pressure-level cloud variables")
+    void fetchPressureLevelCloudBatch_requestsExactlySixLevels() {
+        String hourly = hourlyParamSentBy(c -> c.fetchPressureLevelCloudBatch(buildCoords(2)));
+
+        assertThat(hourly).isEqualTo("cloud_cover_850hPa,cloud_cover_700hPa,cloud_cover_600hPa,"
+                + "cloud_cover_500hPa,cloud_cover_400hPa,cloud_cover_300hPa");
+        assertThat(hourly).isEqualTo(OpenMeteoClient.PRESSURE_LEVEL_CLOUD_PARAMS);
+        assertThat(hourly.split(",")).hasSize(6);
+    }
+
+    @Test
+    @DisplayName("fetchCloudOnlyBatch still requests exactly low, mid and high cloud")
+    void fetchCloudOnlyBatch_stillRequestsOnlyCloudOnlyParams() {
+        String hourly = hourlyParamSentBy(c -> c.fetchCloudOnlyBatch(buildCoords(2)));
+
+        assertThat(hourly).isEqualTo("cloud_cover_low,cloud_cover_mid,cloud_cover_high");
+        assertThat(hourly).isEqualTo(OpenMeteoClient.CLOUD_ONLY_PARAMS);
+    }
+
+    private OpenMeteoClient pressureClient(MockRestServiceServer[] serverOut) {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://open-meteo.test");
+        serverOut[0] = MockRestServiceServer.bindTo(builder).build();
+        OpenMeteoClient client = new OpenMeteoClient(forecastApi, airQualityApi, new ObjectMapper(),
+                builder.build(), null);
+        client.interChunkDelayMs = 0;
+        return client;
+    }
+
+    private void expectOk(MockRestServiceServer server, int n) {
+        server.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.anything())
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators
+                        .withSuccess(buildJsonArray(n, 50.0),
+                                org.springframework.http.MediaType.APPLICATION_JSON));
+    }
+
+    private static void expectError(MockRestServiceServer server) {
+        server.expect(org.springframework.test.web.client.match.MockRestRequestMatchers.anything())
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators
+                        .withServerError());
+    }
+
+    @Test
+    @DisplayName("fetchPressureLevelCloudBatch: a failing first chunk gives all nulls and no further request")
+    void fetchPressureLevelCloudBatch_firstChunkFails_allNullNoMoreRequests() {
+        MockRestServiceServer[] server = new MockRestServiceServer[1];
+        OpenMeteoClient client = pressureClient(server);
+        expectError(server[0]);
+
+        List<OpenMeteoForecastResponse> results = client.fetchPressureLevelCloudBatch(buildCoords(45));
+
+        assertThat(results).hasSize(45).containsOnlyNulls();
+        server[0].verify();
+    }
+
+    @Test
+    @DisplayName("fetchPressureLevelCloudBatch: a failing second chunk keeps the first, rest null, no third request")
+    void fetchPressureLevelCloudBatch_secondChunkFails_keepsFirstNoThirdRequest() {
+        MockRestServiceServer[] server = new MockRestServiceServer[1];
+        OpenMeteoClient client = pressureClient(server);
+        expectOk(server[0], 20);
+        expectError(server[0]);
+
+        List<OpenMeteoForecastResponse> results = client.fetchPressureLevelCloudBatch(buildCoords(45));
+
+        assertThat(results).hasSize(45);
+        assertThat(results.subList(0, 20)).allSatisfy(r -> assertThat(r).isNotNull());
+        assertThat(results.subList(20, 45)).containsOnlyNulls();
+        server[0].verify();
+    }
+
+    @Test
+    @DisplayName("fetchPressureLevelCloudBatch: stops at the time budget and leaves the remaining cells null")
+    void fetchPressureLevelCloudBatch_budgetExhausted_remainingNull() {
+        MockRestServiceServer[] server = new MockRestServiceServer[1];
+        OpenMeteoClient client = pressureClient(server);
+        // start at t=0; budget checks before chunks one and two at t=0, before chunk three past it
+        long[] readings = {0, 0, 0, OpenMeteoClient.PRESSURE_LEVEL_FETCH_BUDGET.toMillis()};
+        int[] idx = {0};
+        client.elapsedClockMs = () -> readings[Math.min(idx[0]++, readings.length - 1)];
+        expectOk(server[0], 20);
+        expectOk(server[0], 20);
+
+        List<OpenMeteoForecastResponse> results = client.fetchPressureLevelCloudBatch(buildCoords(45));
+
+        assertThat(results).hasSize(45);
+        assertThat(results.subList(0, 40)).allSatisfy(r -> assertThat(r).isNotNull());
+        assertThat(results.subList(40, 45)).containsOnlyNulls();
+        server[0].verify();
+    }
+
+    @Test
+    @DisplayName("fetchPressureLevelCloudBatch carries the rate limiter only: no retry, no circuit breaker")
+    void fetchPressureLevelCloudBatch_isolatedFromRetryAndBreaker() throws NoSuchMethodException {
+        java.lang.reflect.Method m =
+                OpenMeteoClient.class.getMethod("fetchPressureLevelCloudBatch", List.class);
+
+        assertThat(m.getAnnotation(io.github.resilience4j.ratelimiter.annotation.RateLimiter.class).name())
+                .isEqualTo("open-meteo");
+        assertThat(m.isAnnotationPresent(io.github.resilience4j.retry.annotation.Retry.class)).isFalse();
+        assertThat(m.isAnnotationPresent(
+                io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker.class)).isFalse();
+    }
+
+    private String hourlyParamSentBy(Function<OpenMeteoClient, List<OpenMeteoForecastResponse>> call) {
+        RestClient.Builder builder = RestClient.builder().baseUrl("http://open-meteo.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        OpenMeteoClient client = new OpenMeteoClient(forecastApi, airQualityApi, new ObjectMapper(),
+                builder.build(), null);
+        AtomicReference<String> hourly = new AtomicReference<>();
+        server.expect(request -> hourly.set(URLDecoder.decode(
+                        UriComponentsBuilder.fromUri(request.getURI()).build()
+                                .getQueryParams().getFirst("hourly"), StandardCharsets.UTF_8)))
+                .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators
+                        .withSuccess(buildJsonArray(2, 50.0),
+                                org.springframework.http.MediaType.APPLICATION_JSON));
+
+        call.apply(client);
+
+        server.verify();
+        return hourly.get();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 # Far cloud capture (far-cloud-lid-plan P2): a delegation plan
 
-Status: plan, 2026-10-13, revised after an adversarial review the same day (§8). Parent:
+Status: plan, 2026-10-13, revised after an adversarial review the same day (§8). T7 built 2026-10-13 (V176) with the resilience isolation recorded in §7. Parent:
 `docs/engineering/far-cloud-lid-plan.md` §6 P2 (and §4 S0, S1). Written to be handed card by card to
 Sonnet subagents, with one orchestrating session that briefs, checks and merges.
 
@@ -612,6 +612,8 @@ Open, recorded rather than decided:
 - whether 900 hPa beats 850 hPa.
 
 Both are P1 questions.
+
+**As built (T7c).** The pressure-level request is isolated from the rating-affecting fetches: it shares only the `open-meteo` rate limiter (the quota is shared on purpose), and carries no retry and no circuit breaker, so it can never open the breaker the rating-affecting fetches use. It stops at its first failed chunk (one WARN, no 61 s rate-limit backoff, remaining cells null) and at a 90 s budget (`PRESSURE_LEVEL_FETCH_BUDGET`, remaining cells null, one INFO line). When the cloud prefetch itself fails, no level request is made and the old empty cache is returned. `CloudPointCacheReader` reads the levels even when the far cloud cell is missing, matching the live reader. A logging failure never discards fetched levels, and a call that yields no cell is logged as failed.
 
 ## 8. Review record (2026-10-13)
 

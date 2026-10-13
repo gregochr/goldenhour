@@ -125,7 +125,7 @@ class ForecastCommandExecutorSkyFilterTest {
         when(optimisationStrategyService.serialiseEnabledStrategies(any())).thenReturn("");
         when(jobRunService.startRun(any(), any(boolean.class), any(), any())).thenReturn(jobRun);
         when(openMeteoService.prefetchWeatherBatch(anyList(), any())).thenReturn(prefetchedWeather);
-        when(openMeteoService.prefetchCloudBatch(anyList(), any())).thenReturn(cloudCache);
+        when(openMeteoService.prefetchCloudBatch(anyList(), anyList(), any())).thenReturn(cloudCache);
         when(solarService.sunriseUtc(anyDouble(), anyDouble(), any())).thenReturn(LocalDateTime.MAX);
         when(solarService.sunsetUtc(anyDouble(), anyDouble(), any())).thenReturn(LocalDateTime.MAX);
         when(forecastService.fetchWeatherAndTriage(

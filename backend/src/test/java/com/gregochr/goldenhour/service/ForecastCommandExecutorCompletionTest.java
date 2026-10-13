@@ -308,7 +308,7 @@ class ForecastCommandExecutorCompletionTest {
         assertThat(complete.get("completed").asInt()).isZero();
         // The job_run is closed with the failed-task count, not 0/0 as an "all triaged" early stop.
         verify(jobRunService).completeRun(jobRun, 0, 2, DATES);
-        verify(openMeteoService, never()).prefetchCloudBatch(anyList(), any());
+        verify(openMeteoService, never()).prefetchCloudBatch(anyList(), anyList(), any());
     }
 
     @Test
@@ -409,7 +409,8 @@ class ForecastCommandExecutorCompletionTest {
         stubModelAndStrategies(List.of(sentinelStrategy()));
         stubEvaluable();
         when(openMeteoService.prefetchWeatherBatch(anyList(), eq(jobRun))).thenReturn(Map.of());
-        when(openMeteoService.prefetchCloudBatch(anyList(), eq(jobRun))).thenReturn(new CloudPointCache(Map.of()));
+        when(openMeteoService.prefetchCloudBatch(anyList(), anyList(), eq(jobRun)))
+                .thenReturn(new CloudPointCache(Map.of()));
         when(forecastService.fetchWeatherAndTriage(any(LocationEntity.class), any(LocalDate.class),
                 any(TargetType.class), any(), any(EvaluationModel.class), anyBoolean(), eq(jobRun),
                 any(), any(CloudPointCache.class)))
@@ -448,7 +449,8 @@ class ForecastCommandExecutorCompletionTest {
         stubModelAndStrategies(List.of());
         stubEvaluable();
         when(openMeteoService.prefetchWeatherBatch(anyList(), eq(jobRun))).thenReturn(Map.of());
-        when(openMeteoService.prefetchCloudBatch(anyList(), eq(jobRun))).thenReturn(new CloudPointCache(Map.of()));
+        when(openMeteoService.prefetchCloudBatch(anyList(), anyList(), eq(jobRun)))
+                .thenReturn(new CloudPointCache(Map.of()));
         Executor rejecting = command -> {
             throw new RejectedExecutionException("pool shut down");
         };
@@ -485,7 +487,8 @@ class ForecastCommandExecutorCompletionTest {
         stubModelAndStrategies(List.of());
         stubEvaluable();
         when(openMeteoService.prefetchWeatherBatch(anyList(), eq(jobRun))).thenReturn(Map.of());
-        when(openMeteoService.prefetchCloudBatch(anyList(), eq(jobRun))).thenReturn(new CloudPointCache(Map.of()));
+        when(openMeteoService.prefetchCloudBatch(anyList(), anyList(), eq(jobRun)))
+                .thenReturn(new CloudPointCache(Map.of()));
         stubTriageSurvives();
         when(forecastService.evaluateAndPersist(any(ForecastPreEvalResult.class), eq(jobRun)))
                 .thenAnswer(inv -> {
@@ -559,7 +562,8 @@ class ForecastCommandExecutorCompletionTest {
         stubModelAndStrategies(List.of());
         stubEvaluable();
         when(openMeteoService.prefetchWeatherBatch(anyList(), eq(jobRun))).thenReturn(Map.of());
-        when(openMeteoService.prefetchCloudBatch(anyList(), eq(jobRun))).thenReturn(new CloudPointCache(Map.of()));
+        when(openMeteoService.prefetchCloudBatch(anyList(), anyList(), eq(jobRun)))
+                .thenReturn(new CloudPointCache(Map.of()));
         stubTriageSurvives();
         when(forecastService.evaluateAndPersist(any(ForecastPreEvalResult.class), eq(jobRun)))
                 .thenAnswer(inv -> {
@@ -606,7 +610,8 @@ class ForecastCommandExecutorCompletionTest {
         stubModelAndStrategies(List.of());
         stubEvaluable();
         when(openMeteoService.prefetchWeatherBatch(anyList(), eq(jobRun))).thenReturn(Map.of());
-        when(openMeteoService.prefetchCloudBatch(anyList(), eq(jobRun))).thenReturn(new CloudPointCache(Map.of()));
+        when(openMeteoService.prefetchCloudBatch(anyList(), anyList(), eq(jobRun)))
+                .thenReturn(new CloudPointCache(Map.of()));
         stubTriageSurvives();
         when(forecastService.evaluateAndPersist(any(ForecastPreEvalResult.class), eq(jobRun)))
                 .thenAnswer(inv -> {
@@ -661,7 +666,8 @@ class ForecastCommandExecutorCompletionTest {
         stubModelAndStrategies(List.of());
         stubEvaluable();
         when(openMeteoService.prefetchWeatherBatch(anyList(), eq(jobRun))).thenReturn(Map.of());
-        when(openMeteoService.prefetchCloudBatch(anyList(), eq(jobRun))).thenReturn(new CloudPointCache(Map.of()));
+        when(openMeteoService.prefetchCloudBatch(anyList(), anyList(), eq(jobRun)))
+                .thenReturn(new CloudPointCache(Map.of()));
         stubTriageSurvives();
         when(forecastService.evaluateAndPersist(any(ForecastPreEvalResult.class), eq(jobRun)))
                 .thenAnswer(inv -> {
@@ -751,7 +757,8 @@ class ForecastCommandExecutorCompletionTest {
         stubModelAndStrategies(List.of());
         stubEvaluable();
         when(openMeteoService.prefetchWeatherBatch(anyList(), eq(jobRun))).thenReturn(Map.of());
-        when(openMeteoService.prefetchCloudBatch(anyList(), eq(jobRun))).thenReturn(new CloudPointCache(Map.of()));
+        when(openMeteoService.prefetchCloudBatch(anyList(), anyList(), eq(jobRun)))
+                .thenReturn(new CloudPointCache(Map.of()));
         stubTriageSurvives(Map.of("Durham UK", 4)); // T+4 is never evaluated by Gate 4
         when(forecastService.evaluateAndPersist(any(ForecastPreEvalResult.class), eq(jobRun)))
                 .thenAnswer(inv -> {
@@ -782,7 +789,8 @@ class ForecastCommandExecutorCompletionTest {
         stubModelAndStrategies(List.of());
         stubEvaluable();
         when(openMeteoService.prefetchWeatherBatch(anyList(), eq(jobRun))).thenReturn(Map.of());
-        when(openMeteoService.prefetchCloudBatch(anyList(), eq(jobRun))).thenReturn(new CloudPointCache(Map.of()));
+        when(openMeteoService.prefetchCloudBatch(anyList(), anyList(), eq(jobRun)))
+                .thenReturn(new CloudPointCache(Map.of()));
         stubTriageSurvives(Map.of("Durham UK", 4, "Whitby", 4));
 
         executor().execute(nonManualTwoLiveSunsets(), jobRun);
@@ -807,7 +815,8 @@ class ForecastCommandExecutorCompletionTest {
         stubModelAndStrategies(List.of());
         stubEvaluable();
         when(openMeteoService.prefetchWeatherBatch(anyList(), eq(jobRun))).thenReturn(Map.of());
-        when(openMeteoService.prefetchCloudBatch(anyList(), eq(jobRun))).thenReturn(new CloudPointCache(Map.of()));
+        when(openMeteoService.prefetchCloudBatch(anyList(), anyList(), eq(jobRun)))
+                .thenReturn(new CloudPointCache(Map.of()));
         when(forecastService.fetchWeatherAndTriage(any(LocationEntity.class), any(LocalDate.class),
                 any(TargetType.class), any(), any(EvaluationModel.class), anyBoolean(), eq(jobRun),
                 any(), any(CloudPointCache.class)))
@@ -839,7 +848,8 @@ class ForecastCommandExecutorCompletionTest {
         stubModelAndStrategies(List.of());
         stubEvaluable();
         when(openMeteoService.prefetchWeatherBatch(anyList(), eq(jobRun))).thenReturn(Map.of());
-        when(openMeteoService.prefetchCloudBatch(anyList(), eq(jobRun))).thenReturn(new CloudPointCache(Map.of()));
+        when(openMeteoService.prefetchCloudBatch(anyList(), anyList(), eq(jobRun)))
+                .thenReturn(new CloudPointCache(Map.of()));
         when(forecastService.fetchWeatherAndTriage(any(LocationEntity.class), any(LocalDate.class),
                 any(TargetType.class), any(), any(EvaluationModel.class), anyBoolean(), eq(jobRun),
                 any(), any(CloudPointCache.class)))
@@ -866,7 +876,8 @@ class ForecastCommandExecutorCompletionTest {
         stubModelAndStrategies(List.of(sentinelStrategy()));
         stubEvaluable();
         when(openMeteoService.prefetchWeatherBatch(anyList(), eq(jobRun))).thenReturn(Map.of());
-        when(openMeteoService.prefetchCloudBatch(anyList(), eq(jobRun))).thenReturn(new CloudPointCache(Map.of()));
+        when(openMeteoService.prefetchCloudBatch(anyList(), anyList(), eq(jobRun)))
+                .thenReturn(new CloudPointCache(Map.of()));
         stubTriageSurvives();
         when(sentinelSelector.selectSentinels(any())).thenReturn(List.of(durham));
         when(forecastService.evaluateAndPersist(any(ForecastPreEvalResult.class), eq(jobRun)))
