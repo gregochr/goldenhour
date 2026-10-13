@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  activeFilterClauses, buildRegionRows, buildRegionSeries, gateSpotsByRegion,
+  activeFilterClauses, buildRegionRows, buildRegionSeries, gateSpotsByRegion, sortRegionsByBestVerdict,
 } from '../utils/windowFirstRegions.js';
 import { pickTopEligibleRegion } from '../utils/windowFirstCards.js';
 
@@ -244,6 +244,21 @@ describe('buildRegionRows — the served figures', () => {
     expect(rows[0].verdictLabel).toBe('Poor');
     expect(rows[1].verdictLabel).toBe('Not scored');
     expect(rows[1].verdict).toBe('AWAITING');
+  });
+
+  it('words an UNRATED region "Too few rated" on the rail and keeps its served mean (U2)', () => {
+    // The rail cell is a REGION, so the population word; neither the green of Worth it nor the
+    // "Not scored" of a window nothing was said about.
+    const es = {
+      regions: [region({
+        regionName: 'Thin', displayVerdict: 'UNRATED', meanRating: 3.6, sampleSufficient: false,
+      })],
+    };
+    const [row] = buildRegionRows(es, [], [], {});
+    expect(row.verdict).toBe('UNRATED');
+    expect(row.verdictLabel).toBe('Too few rated');
+    expect(row.meanRating).toBe(3.6);
+    expect(row.verdictEligible).toBe(false);
   });
 
   it('⚠️ MAPS a legacy payload\'s triage verdict rather than reading it as Awaiting', () => {
@@ -524,5 +539,27 @@ describe('buildRegionSeries', () => {
 
   it('is empty for a payload with no days', () => {
     expect(buildRegionSeries(EVENTS, null).size).toBe(0);
+  });
+});
+
+describe('sortRegionsByBestVerdict — UNRATED has a rank of its own (unrated-verdict-plan.md U2)', () => {
+  const days = [{
+    date: '2026-08-04',
+    eventSummaries: [{
+      targetType: 'SUNSET',
+      regions: [
+        { regionName: 'Poor', displayVerdict: 'STAND_DOWN' },
+        { regionName: 'Unscored', displayVerdict: 'AWAITING' },
+        { regionName: 'Thin', displayVerdict: 'UNRATED' },
+        { regionName: 'Maybe', displayVerdict: 'MAYBE' },
+        { regionName: 'Good', displayVerdict: 'WORTH_IT' },
+      ],
+    }],
+  }];
+
+  it('orders Worth it, Maybe, Too few rated, Poor, Not scored — an UNRATED region is a better bet than a stood-down one', () => {
+    const events = [{ date: '2026-08-04', targetType: 'SUNSET' }];
+    expect(sortRegionsByBestVerdict(events, days))
+      .toEqual(['Good', 'Maybe', 'Thin', 'Poor', 'Unscored']);
   });
 });

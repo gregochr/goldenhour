@@ -227,6 +227,25 @@ export function windowPanelNote({ verdict, isSolar, scopeIsArea = true }) {
       + 'drive on this window. Rows are ranked by average, best first; a region too thinly '
       + 'rated for a verdict ranks last.';
   }
+  // ⚠️ UNRATED gets its own sentence (unrated-verdict-plan.md U2). It must not fall to the
+  // several-regions branch below, whose template is "N regions are <word> for this window, so the
+  // choice between them is drive time" — "Too few rated" in that slot reads as nonsense, and worse,
+  // "so the choice is drive time" advises picking between regions NO rating has called. Weather did
+  // not rule these out and the sample is too thin to recommend them: say exactly that, once, and
+  // keep the ranking rule. The all-in-scope wording follows the Poor branch's own scope phrase.
+  if (verdict.tier === 'UNRATED') {
+    const area = scopeIsArea ? ' in your area' : '';
+    const subject = verdict.allInScope
+      ? `No region${area} has enough ratings for a verdict on this window`
+      : verdict.sharingCount > 0
+        ? `${verdict.sharingCount + 1} regions have too few ratings for a verdict on this window`
+        : null;
+    if (subject) {
+      return `${subject} — the weather does not rule them out, but nothing has called them. Rows `
+        + 'are ranked by average, best first.';
+    }
+    return RANKING_NOTE;
+  }
   const sharing = verdict.sharingCount + 1;
   if (sharing > 1) {
     // ⚠️ **The drive-time sentence is withheld under a Poor tier even when the branch above did not

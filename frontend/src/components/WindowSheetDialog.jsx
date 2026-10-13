@@ -49,7 +49,19 @@ const VERDICT_TREATMENT = {
   // it never decays so no tier softens it. Secondary measures 6.46:1 and is what `VerdictPill` and
   // the neutral topic badge already use for exactly this state — do not reintroduce a token for it.
   AWAITING: { fill: 'rgba(255,255,255,0.04)', border: 'rgba(255,255,255,0.10)', text: 'var(--color-plex-text-secondary)', weight: 400 },
+  // UNRATED (unrated-verdict-plan.md U2) — "Too few rated": the weather passed it and no trustworthy
+  // rating has called it. The AWAITING neutral, as its OWN entry rather than a lookup miss that
+  // lands there: it is a different claim ("nothing was said" vs "something was said, too thinly"),
+  // so a later divergence is one edit, and the fall-through below must never be what picks it.
+  UNRATED: { fill: 'rgba(255,255,255,0.04)', border: 'rgba(255,255,255,0.10)', text: 'var(--color-plex-text-secondary)', weight: 400 },
 };
+
+/**
+ * Which verdicts earn the ◎ glyph before their word — the RECOMMENDING ones only. An explicit set
+ * rather than "not STAND_DOWN and not AWAITING": that negative list is how UNRATED would have
+ * inherited a recommendation mark it has not earned (unrated-verdict-plan.md U2).
+ */
+const RECOMMENDING_VERDICTS = new Set(['WORTH_IT', 'MAYBE']);
 
 /**
  * A field chip's tooltip — region, drive, leave-by (plan-matrix §5, deferred from M2 to M4).
@@ -439,7 +451,7 @@ export default function WindowSheetDialog({
                   fontWeight: treatment.weight,
                 }}
               >
-                {card.verdict !== 'STAND_DOWN' && card.verdict !== 'AWAITING' && (
+                {RECOMMENDING_VERDICTS.has(card.verdict) && (
                   <span aria-hidden="true">◎ </span>
                 )}
                 {card.verdictLabel}

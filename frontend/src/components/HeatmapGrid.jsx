@@ -12,6 +12,7 @@ import SlotLocationName from './shared/SlotLocationName.jsx';
 import VerdictPill from './shared/VerdictPill.jsx';
 import ProvisionalMark from './shared/ProvisionalMark.jsx';
 import { daysOut, resolveConfidence, confidenceTreatment, scaleRgbaAlpha } from '../utils/confidenceUtils.js';
+import { VERDICT_LABEL } from '../utils/windowFirstCards.js';
 import { useIsCoarsePointer } from '../hooks/useIsCoarsePointer.js';
 
 // ── Pure helpers ──────────────────────────────────────────────────────────
@@ -357,6 +358,8 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, alignedO
       <div className="space-y-0.5">
         {events.map(({ es, region, past }) => {
           const regionDisplay = resolveRegionDisplay(region);
+          // UNRATED is not poor (unrated-verdict-plan.md U2) — the weather passed it; it stays
+          // tappable without the "Include poor locations" toggle, like the triage pass it replaced.
           const regionIsPoor = regionDisplay === 'STAND_DOWN' || regionDisplay === 'AWAITING';
           const tappable = !past && (!regionIsPoor || showAllLocations);
           const eventKey = es.targetType;
@@ -507,10 +510,15 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, alignedOf, is
   const alignedCount = (region.slots || []).filter((s) => alignedOf(s, date, targetType)).length;
 
   const eventLabel = targetType === 'SUNRISE' ? 'sunrise' : 'sunset';
+  // Explicit UNRATED arm (unrated-verdict-plan.md U2): without it the chain's last branch would
+  // print "Maybe sunrise" for a region no rating has called — the very claim the verdict exists to
+  // stop making. The region-level word, kept contiguous with the event word like the others.
+  const isUnrated = displaySignal === 'UNRATED';
   const verdictLabel = displaySignal === 'STAND_DOWN' ? 'Poor'
     : displaySignal === 'AWAITING' ? 'Not scored'
-      : displaySignal === 'WORTH_IT' ? `Worth it ${eventLabel}`
-        : `Maybe ${eventLabel}`;
+      : isUnrated ? `${VERDICT_LABEL.UNRATED} ${eventLabel}`
+        : displaySignal === 'WORTH_IT' ? `Worth it ${eventLabel}`
+          : `Maybe ${eventLabel}`;
 
   // The cell's accessible NAME. Without it a `role="button"` div is named by its own contents, so
   // the ~30 Poor cells in a typical grid all announced as literally "Poor, button" — and no cell,
@@ -573,19 +581,28 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, alignedOf, is
 
   // ── Good / Maybe cell — quiet by default; the gloss sentence moves to hover ──
   const isGo = displaySignal === 'WORTH_IT';
-  const baseCellBg = isGo
-    ? { background: 'rgba(138,174,114,0.18)', borderColor: 'rgba(138,174,114,0.35)' }
-    : { background: 'rgba(224,165,66,0.14)', borderColor: 'rgba(224,165,66,0.28)' };
+  // UNRATED wears the neutral bone wash the AWAITING chips use, never the green/amber pair, and no
+  // confidence decay (below): the word already says "provisional", and a half-decayed neutral
+  // wash would read as a rendering bug (the CONFIDENCE_VERDICTS rationale).
+  const baseCellBg = isUnrated
+    ? { background: 'rgba(242,231,211,0.06)', borderColor: 'rgba(242,231,211,0.16)' }
+    : isGo
+      ? { background: 'rgba(138,174,114,0.18)', borderColor: 'rgba(138,174,114,0.35)' }
+      : { background: 'rgba(224,165,66,0.14)', borderColor: 'rgba(224,165,66,0.28)' };
   // Confidence channel: a far-horizon / wide-spread verdict reads visibly more provisional —
   // dimmed fill + a small marker — WITHOUT touching the star (quality) signal. Fail-soft: a
   // missing backend confidence falls back to a horizon-only tier via resolveConfidence.
   const confidenceTier = resolveConfidence(region, daysOut(date, todayStr));
-  const treatment = confidenceTreatment(confidenceTier);
+  const treatment = isUnrated
+    ? { fillScale: 1, provisional: false }
+    : confidenceTreatment(confidenceTier);
   const cellBg = {
     background: scaleRgbaAlpha(baseCellBg.background, treatment.fillScale),
     borderColor: scaleRgbaAlpha(baseCellBg.borderColor, treatment.fillScale),
   };
-  const verdictColour = isGo ? 'var(--color-verdict-go)' : 'var(--color-verdict-marginal)';
+  const verdictColour = isUnrated
+    ? 'var(--color-plex-text-secondary)'
+    : isGo ? 'var(--color-verdict-go)' : 'var(--color-verdict-marginal)';
 
   const weatherLine = region.regionTemperatureCelsius != null
     ? `${weatherCodeToIcon(region.regionWeatherCode)}${Math.round(region.regionTemperatureCelsius)}°C${region.regionWindSpeedMs != null ? ` ${msToMph(region.regionWindSpeedMs)}mph` : ''}`

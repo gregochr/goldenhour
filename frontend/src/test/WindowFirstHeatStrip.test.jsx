@@ -4,8 +4,9 @@ import { resolve } from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act, cleanup, render, screen, fireEvent, within } from '@testing-library/react';
 import WindowFirstHeatStrip, {
-  THUMB_ASPECT_MAX, THUMB_ASPECT_MIN, thumbAspect,
+  THUMB_ASPECT_MAX, THUMB_ASPECT_MIN, thumbAspect, VERDICT_TINT, verdictTint,
 } from '../components/WindowFirstHeatStrip.jsx';
+import { VERDICT_LABEL } from '../utils/windowFirstCards.js';
 import { aspect, BBOX, bbox, drawGeo, land, load } from '../utils/heatField.js';
 import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
 import { GLANCE_MINUTES } from '../utils/planningArea.js';
@@ -3311,6 +3312,35 @@ describe('the stylesheet half, which jsdom cannot evaluate (matrix-axis plan §5
     expect(rule).toContain('flex: none;');
   });
 
+  it('lets the mean wrap under "Too few rated" — and ONLY for UNRATED — so the 320px column never clips the figure (U2)', () => {
+    // unrated-verdict-plan.md U2: "Too few rated" is 85.8px, the mean 24px, the gap 4px = 113.8px
+    // against a ~88.3px column at 320px. The wrap is keyed on the row's `data-verdict`, in CSS.
+    const rule = flatRule('.wf-hc-pv[data-verdict="UNRATED"]');
+    expect(rule).toContain('flex-wrap: wrap;');
+    expect(rule).toContain('row-gap: 0;');
+    // The base row is H1's, untouched: one line, never wrapping. A second rule setting `wrap` on the
+    // bare class would put the wrap on a WORTH_IT card too.
+    expect(flatRule('.wf-hc-pv')).toContain('flex-wrap: nowrap;');
+    const wrappingPvRules = [...readCss().matchAll(/\n(\.wf-hc-pv[^{]*)\{([^}]*)\}/g)]
+      .filter(([, , body]) => body.includes('flex-wrap: wrap;'))
+      .map(([, selector]) => selector.trim());
+    expect(wrappingPvRules).toEqual(['.wf-hc-pv[data-verdict="UNRATED"]']);
+    // The mean itself stays flex: none / nowrap, so when it wraps it moves as a whole.
+    expect(flatRule('.wf-hc-mean')).toContain('white-space: nowrap;');
+  });
+
+  it('gives the verdict word an explicit neutral UNRATED arm, never a verdict hue', () => {
+    const css = readCss();
+    expect(css).toMatch(/\.wf-hc-vd\[data-verdict="UNRATED"\] \{ color: var\(--color-plex-text-secondary\); \}/);
+    // Its own selector, not a shared list with AWAITING or the base.
+    expect(css).not.toMatch(/\.wf-hc-vd\[data-verdict="UNRATED"\],/);
+    expect(css).not.toMatch(/,\s*\.wf-hc-vd\[data-verdict="UNRATED"\]/);
+    expect(css).toMatch(/\.wf-win-panel-verdict\[data-tier="UNRATED"\] \{ color: rgba\(242, 231, 211, 0\.52\); \}/);
+    expect(css).toMatch(/\.wf-win-panel-word\[data-tier="UNRATED"\] \{ color: rgba\(242, 231, 211, 0\.52\); \}/);
+    // And it never took go/maybe/poor ink.
+    expect(css).not.toMatch(/\[data-(?:verdict|tier)="UNRATED"\][^{]*\{[^}]*(?:badge-go|badge-maybe|badge-poor)/);
+  });
+
   describe('the spread histogram\'s minimum-sample CSS (A27, amended after adversarial review)', () => {
     it('hatches the unrated bar at -45deg — matching the map\'s canvas hatch, NOT the mirrored 45deg', () => {
       // Confirmed 2026-09-29 by rendering both directly: the map's own hatch (heatField.js's
@@ -3641,5 +3671,93 @@ describe('WindowFirstHeatStrip — whose verdict it is when nothing in reach is 
   it('draws no best line at all on an away cell, mean or not', async () => {
     await renderStrip({ cards: [beyondCard({ away: true, verdict: null, verdictLabel: 'Not forecast' })] });
     expect(screen.queryByTestId('wf-heat-best')).toBeNull();
+  });
+});
+
+describe('WindowFirstHeatStrip — "Too few rated" (unrated-verdict-plan.md U2)', () => {
+  // The production state of 2026-10-13: Northumberland & Tyneside, 38 rated, mean 3.6, the sample
+  // gate failed. The server now says UNRATED instead of borrowing the weather's "Worth it".
+  const unratedCard = (overrides = {}) => stripCard({
+    verdict: 'UNRATED', verdictLabel: 'Too few rated', verdictMean: 3.6, confidence: null,
+    hotRegionName: 'Northumberland & Tyneside', ...overrides,
+  });
+
+  it('prints the word and the mean 3.6★ as siblings in one value row keyed on the verdict', async () => {
+    await renderStrip({ cards: [unratedCard()] });
+
+    const word = screen.getByTestId('wf-heat-verdict');
+    expect(word).toHaveTextContent(/^Too few rated$/);
+    expect(word).toHaveAttribute('data-verdict', 'UNRATED');
+    expect(screen.getByTestId('wf-heat-mean')).toHaveTextContent(/^3\.6★$/);
+    // The row carries the attribute the wrap rule selects on (a word-only attribute would not wrap
+    // the sibling mean); no script measures anything.
+    expect(word.parentElement).toHaveClass('wf-hc-pv');
+    expect(word.parentElement).toHaveAttribute('data-verdict', 'UNRATED');
+  });
+
+  it('voices word and average in the sentence', async () => {
+    await renderStrip({ cards: [unratedCard()] });
+    expect(screen.getByRole('button', {
+      name: 'Tonight Sunset, 21:11, Too few rated, 3.6 star average, best, nothing in reach',
+    })).toBeInTheDocument();
+  });
+
+  it('wears no verdict tint at all — neither the green of Worth it nor the amber of Maybe', async () => {
+    await renderStrip({ cards: [unratedCard()] });
+    const card = screen.getByRole('button');
+    expect(card.className).not.toMatch(/\bv[gmp]\b/);
+    expect(card.querySelector('[class~="vg"], [class~="vm"], [class~="vp"]')).toBeNull();
+  });
+
+  it('keeps H2\'s Region line working under the new word: the mean stands behind it, so "beyond 45 min" fires', async () => {
+    // verdictBeyondReach keys on verdictMean, which is now non-null for UNRATED — the word describes
+    // a region whose rated places are all beyond the tier, exactly as "Worth it" did.
+    await renderStrip({ cards: [unratedCard({
+      pool: [poolSpot({ rating: null, driveMinutes: 20 })],
+      bestReach: null, reachLimitMinutes: 45, reachMeasured: true,
+    })] });
+
+    expect(screen.getByTestId('wf-heat-best'))
+      .toHaveTextContent('Northumberland & Tyneside · beyond 45 min');
+    expect(screen.getByRole('button').getAttribute('aria-labelledby')).toBeTruthy();
+    const nameId = screen.getByRole('button').getAttribute('aria-labelledby');
+    expect(document.getElementById(nameId).textContent)
+      .toMatch(/Too few rated, 3\.6 star average.*region Northumberland & Tyneside, beyond 45 min/);
+  });
+
+  it('draws no Region line for an UNRATED card whose mean is null (a "Too few rated" with no ratings at all)', async () => {
+    await renderStrip({ cards: [unratedCard({
+      verdictMean: null, pool: [poolSpot({ rating: null, driveMinutes: 20 })],
+      bestReach: null, reachLimitMinutes: 45, reachMeasured: true,
+    })] });
+    expect(screen.getByTestId('wf-heat-best')).toHaveTextContent('not scored yet');
+  });
+
+  it('leaves a WORTH_IT card exactly as H1 shipped it: the same row, its word, its mean, and no wrap hook', async () => {
+    await renderStrip({ cards: [stripCard({ verdictMean: 3.5 })] });
+
+    const word = screen.getByTestId('wf-heat-verdict');
+    expect(word).toHaveTextContent(/^Worth it$/);
+    expect(word.parentElement).toHaveAttribute('data-verdict', 'WORTH_IT');
+    expect(word.parentElement).not.toHaveAttribute('data-verdict', 'UNRATED');
+    expect(screen.getByTestId('wf-heat-mean')).toHaveTextContent(/^3\.5★$/);
+    // Same DOM order as before: word, then mean, in one `.wf-hc-pv`.
+    expect([...word.parentElement.children].map((el) => el.dataset.testid))
+      .toEqual(['wf-heat-verdict', 'wf-heat-mean']);
+  });
+
+  describe('verdictTint — every verdict word has an explicit arm', () => {
+    it('has one entry per VERDICT_LABEL word, so a new verdict cannot become "no tint" by lookup miss', () => {
+      expect(Object.keys(VERDICT_TINT).sort()).toEqual(Object.keys(VERDICT_LABEL).sort());
+    });
+
+    it('tints the three judgements and leaves UNRATED, AWAITING and an unknown word untinted', () => {
+      expect(verdictTint('WORTH_IT')).toBe('vg');
+      expect(verdictTint('MAYBE')).toBe('vm');
+      expect(verdictTint('STAND_DOWN')).toBe('vp');
+      expect(verdictTint('UNRATED')).toBeNull();
+      expect(verdictTint('AWAITING')).toBeNull();
+      expect(verdictTint('SPLENDID')).toBeNull();
+    });
   });
 });

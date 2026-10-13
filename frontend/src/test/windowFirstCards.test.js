@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { badgeChannel, buildWindowCards, formatRegionMean } from '../utils/windowFirstCards.js';
+import {
+  badgeChannel, buildWindowCards, formatRegionMean, VERDICT_LABEL, SLOT_VERDICT_LABEL, CONFIDENCE_VERDICTS,
+} from '../utils/windowFirstCards.js';
 import { bestReachLine } from '../components/WindowFirstHeatStrip.jsx';
 import { buildHeatStripCards } from '../utils/windowFirstStrip.js';
 import { buildRegionRows } from '../utils/windowFirstRegions.js';
@@ -143,10 +145,29 @@ describe('buildWindowCards', () => {
       ['WORTH_IT', 'Worth it'],
       ['MAYBE', 'Maybe'],
       ['STAND_DOWN', 'Poor'],
+      ['UNRATED', 'Too few rated'],
       ['AWAITING', 'Not scored'],
     ])('labels %s as "%s"', (verdict, label) => {
       const [card] = build(oneWindow({ verdict }));
       expect(card.verdictLabel).toBe(label);
+    });
+
+    it('speaks UNRATED at window level as "Too few rated" and at slot level as "Not rated" — one differing word', () => {
+      // unrated-verdict-plan.md U2: a REGION is "too few rated" because the SAMPLE is small; a SLOT
+      // is one place nothing has rated. Two maps so a slot reader can never pick up the population
+      // wording; they must agree on every other word.
+      expect(VERDICT_LABEL.UNRATED).toBe('Too few rated');
+      expect(SLOT_VERDICT_LABEL.UNRATED).toBe('Not rated');
+      const without = (map) => Object.fromEntries(Object.entries(map).filter(([key]) => key !== 'UNRATED'));
+      expect(without(SLOT_VERDICT_LABEL)).toEqual(without(VERDICT_LABEL));
+    });
+
+    it('keeps UNRATED out of the confidence channel, so a "Too few rated" card carries none', () => {
+      // The word already says it; a decayed fill or a provisional mark on top is the double-qualifier
+      // the channel's gate exists to prevent (a recommendation is what confidence qualifies).
+      expect(CONFIDENCE_VERDICTS.has('UNRATED')).toBe(false);
+      const [card] = build(oneWindow({ verdict: 'UNRATED', confidence: 'high' }));
+      expect(card.confidence).toBeNull();
     });
 
     it('falls back to AWAITING when the window is missing entirely', () => {
@@ -1199,6 +1220,82 @@ describe('buildWindowCards — topMeanRating, the Order control\'s ranking key',
       expect(away({ sampleSufficient: false }).verdictMean).toBeNull();
       expect(away({ sampleSufficient: false }).topMeanRating).toBe(2.8);
       expect(away({ sampleSufficient: true }).verdictMean).toBe(2.8);
+    });
+  });
+
+  describe('verdictMean for an UNRATED region (unrated-verdict-plan.md U2)', () => {
+    // The production state of 2026-10-13: Northumberland & Tyneside, 38 rated, mean 3.6, sample gate
+    // failed, triage GO. The word was "Worth it" on weather alone; it is now "Too few rated", and the
+    // mean IS printed beside it — it is the evidence the gate withheld a verdict from.
+    const unrated = (extra = {}) => ({
+      regionName: 'Northumberland & Tyneside',
+      meanRating: 3.6,
+      sampleSufficient: false,
+      displayVerdict: 'UNRATED',
+      ...extra,
+    });
+    const unratedWindow = (regions) => ({
+      events: events([TODAY, 'SUNSET']),
+      days: [day(TODAY, [{
+        targetType: 'SUNSET', regions, unregioned: [], window: { verdict: 'UNRATED', badges: [] },
+      }])],
+    });
+
+    it('prints "Too few rated" with the mean 3.6, no confidence and no pick', () => {
+      const [card] = build(unratedWindow([unrated()]));
+
+      expect(card.verdict).toBe('UNRATED');
+      expect(card.verdictLabel).toBe('Too few rated');
+      expect(card.verdictMean).toBe(3.6);
+      expect(card.confidence).toBeNull();
+      expect(card.pick).toBeNull();
+    });
+
+    it('is null for an ineligible region whose word is a triage STAND_DOWN, so "Poor" carries no figure', () => {
+      // A mean beside "Poor" would contradict it: the word is the WEATHER's call, the mean a rating.
+      const [card] = build(unratedWindow([unrated({ displayVerdict: 'STAND_DOWN' })]));
+
+      expect(card.topMeanRating).toBe(3.6);
+      expect(card.verdictMean).toBeNull();
+    });
+
+    it('is null for an ineligible AWAITING region, and for an UNRATED one with no finite mean', () => {
+      expect(build(unratedWindow([unrated({ displayVerdict: 'AWAITING' })]))[0].verdictMean).toBeNull();
+      expect(build(unratedWindow([unrated({ meanRating: null })]))[0].verdictMean).toBeNull();
+      expect(build(unratedWindow([unrated({ meanRating: Number.NaN })]))[0].verdictMean).toBeNull();
+    });
+
+    it('is the SCOPED region\'s mean when away and that region is UNRATED, and null when it is a STAND_DOWN', () => {
+      const away = (scoped) => buildWindowCards(
+        events([TODAY, 'SUNSET']),
+        [day(TODAY, [{
+          targetType: 'SUNSET',
+          regions: [
+            { regionName: 'Home', meanRating: 4.6, sampleSufficient: true, displayVerdict: 'WORTH_IT' },
+            { regionName: 'Elsewhere', meanRating: 2.8, sampleSufficient: false, ...scoped },
+          ],
+          unregioned: [],
+          window: { verdict: 'WORTH_IT', badges: [] },
+        }])],
+        TODAY, TOMORROW, new Set(), undefined,
+        { limitMinutes: null, defaultLimitMinutes: null, origin: { id: 3, name: 'Elsewhere' } },
+      )[0];
+
+      // The word is the SCOPED region's, never the roster's "Worth it".
+      expect(away({ displayVerdict: 'UNRATED' })).toMatchObject({
+        verdict: 'UNRATED', verdictLabel: 'Too few rated', verdictMean: 2.8,
+      });
+      expect(away({ displayVerdict: 'STAND_DOWN' })).toMatchObject({ verdict: 'STAND_DOWN', verdictMean: null });
+    });
+
+    it('does not let an UNRATED region outrank a verdict-eligible one for the card\'s word and figure', () => {
+      // Eligible first, then mean: a sound 3.2 beats a thin 4.4 (the projector's order), so the mean
+      // printed beside the word is the SOUND region\'s even though the unrated one averages higher.
+      const [card] = build(unratedWindow([
+        unrated({ meanRating: 4.4 }),
+        { regionName: 'Sound', meanRating: 3.2, sampleSufficient: true, displayVerdict: 'MAYBE' },
+      ]));
+      expect(card.verdictMean).toBe(3.2);
     });
   });
 

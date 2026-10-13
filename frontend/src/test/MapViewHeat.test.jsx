@@ -2352,6 +2352,25 @@ describe('the window pill\'s verdict — filters must not move it, scope must (d
     expect(pillVerdict()).toEqual({ word: 'Maybe', region: 'The Lakes', tier: 'MAYBE' });
   });
 
+  it('says "Too few rated" and names the region when the top region in scope is UNRATED (unrated-verdict-plan.md U2)', async () => {
+    // The Lakes is rated (mean 2.9) but its sample failed the gate and the weather passed it — the
+    // server says UNRATED. The pill must carry the word and the region, on a tier with no hue.
+    const unratedDays = [{
+      date: TODAY,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [
+          { regionName: 'The Borders', meanRating: 4.4, displayVerdict: 'WORTH_IT', sampleSufficient: true, slots: [{ canopy: false }] },
+          { regionName: 'The Lakes', meanRating: 2.9, displayVerdict: 'UNRATED', sampleSufficient: false, slots: [{ canopy: false }] },
+          { regionName: 'North East', meanRating: 2.0, displayVerdict: 'STAND_DOWN', sampleSufficient: false, slots: [{ canopy: false }] },
+        ],
+      }],
+    }];
+    await renderMap({ heat: heatProp(), regionVerdictIndex: buildRegionVerdictIndex(unratedDays) });
+
+    expect(pillVerdict()).toEqual({ word: 'Too few rated', region: 'The Lakes', tier: 'UNRATED' });
+  });
+
   it('would MOVE if the verdict were computed from a filtered pool — the mutation these guard', async () => {
     // ⚠️ Two of the four filter tests below cannot fail on their own, and that was a review finding:
     // with every fixture location rated 4 a 4★ floor removes nothing, and the dark-sky filter still

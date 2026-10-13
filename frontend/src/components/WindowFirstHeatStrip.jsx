@@ -114,9 +114,10 @@ export function thumbAspect(fitTo) {
  * threshold would be a second, quieter answer to a question the backend owns. This function must
  * stay a map — a comparison operator appearing in it is the defect.
  *
- * <p>AWAITING and an away window take no tint. Neither is a judgement about the sky: one means the
- * window has neither a rating nor a triage signal, the other that nothing was forecast at all, and
- * a coloured card would read as one of the three grades.
+ * <p>AWAITING, UNRATED and an away window take no tint. None is a judgement about the sky: AWAITING
+ * means the window has neither a rating nor a triage signal, UNRATED that the weather passed it but
+ * no trustworthy rating has called it (unrated-verdict-plan.md U2), and away that nothing was
+ * forecast at all; a coloured card would read as one of the three grades.
  *
  * @param {?string} verdict the served {@code DisplayVerdict}
  * @returns {?string} `vg`, `vm`, `vp`, or null
@@ -125,11 +126,25 @@ export function verdictTint(verdict) {
   return VERDICT_TINT[verdict] ?? null;
 }
 
-/** @see verdictTint */
-const VERDICT_TINT = {
+/**
+ * The tint table behind {@link verdictTint}. Exported so a test can assert that EVERY word in
+ * {@code VERDICT_LABEL} has an entry here — the explicit-arm rule (unrated-verdict-plan.md U2): a
+ * verdict with no entry reads as "no tint" by lookup miss, which is how a new value would silently
+ * become AWAITING.
+ *
+ * <p>{@code UNRATED} and {@code AWAITING} are both {@code null} — deliberately two entries, not one
+ * shared fall-through: "the weather did not rule it out, but no trustworthy rating has called it"
+ * must not wear green (that is the defect U2 removes) or amber (a Maybe is a rating's call), and a
+ * future divergence between the two neutral states is then one edit here.
+ *
+ * @see verdictTint
+ */
+export const VERDICT_TINT = {
   WORTH_IT: 'vg',
   MAYBE: 'vm',
   STAND_DOWN: 'vp',
+  UNRATED: null,
+  AWAITING: null,
 };
 
 /**
@@ -1273,7 +1288,11 @@ export default function WindowFirstHeatStrip({
         )}
         <span data-testid="wf-heat-value-grid" className="wf-hc-pls" aria-hidden="true">
           <span data-testid="wf-heat-time" className="wf-hc-t">{card.time}</span>
-          <span className="wf-hc-pv">
+          {/* `data-verdict` on the ROW as well as the word: the UNRATED layout rule in index.css
+              (`.wf-hc-pv[data-verdict="UNRATED"]`, which lets the mean wrap under "Too few rated"
+              when the 320px column cannot hold both) keys on the parent, so no script measures
+              anything. Every other verdict leaves the row exactly as H1 shipped it. */}
+          <span className="wf-hc-pv" data-verdict={card.verdict || 'AWAY'}>
             <span
               data-testid="wf-heat-verdict"
               className="wf-hc-vd"

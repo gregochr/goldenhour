@@ -3,10 +3,11 @@ import PropTypes from 'prop-types';
 import { resolveRegionDisplay } from '../../utils/tierUtils.js';
 import { confidenceTreatment } from '../../utils/confidenceUtils.js';
 import ProvisionalMark from './ProvisionalMark.jsx';
+import { VERDICT_LABEL } from '../../utils/windowFirstCards.js';
 
 /**
  * Colour pill for a display signal. Accepts either a {@code displayVerdict}
- * ({@code WORTH_IT} / {@code MAYBE} / {@code STAND_DOWN} / {@code AWAITING})
+ * ({@code WORTH_IT} / {@code MAYBE} / {@code STAND_DOWN} / {@code UNRATED} / {@code AWAITING})
  * — preferred, it already reflects Claude ratings when available — or falls
  * back to the legacy triage {@code verdict} ({@code GO} / {@code MARGINAL} /
  * {@code STANDDOWN}). Signal resolution delegates to
@@ -20,8 +21,8 @@ import ProvisionalMark from './ProvisionalMark.jsx';
  * derived confidence) opts the pill into the shared confidence channel: a low
  * (provisional) confidence appends a small quiet marker, so drill-down and mobile
  * region pills read on the same channel as the grid cells and Best Bet. Only rated
- * verdicts (WORTH_IT / MAYBE) are decayed — a poor/awaiting pill is already its own
- * signal. When {@code confidence} is null (legacy payloads) the marker is absent.
+ * verdicts (WORTH_IT / MAYBE) are decayed — a poor/unrated/awaiting pill is already its own
+ * signal ("Too few rated" says the provisional thing in words). When {@code confidence} is null (legacy payloads) the marker is absent.
  */
 export default function VerdictPill({ displayVerdict = null, verdict = null, label = null, confidence = null }) {
   const signal = resolveRegionDisplay({ displayVerdict, verdict });
@@ -29,12 +30,18 @@ export default function VerdictPill({ displayVerdict = null, verdict = null, lab
     WORTH_IT: 'bg-green-600 text-white',
     MAYBE: 'bg-amber-600 text-white',
     STAND_DOWN: 'bg-red-900/60 text-red-200/70',
+    // UNRATED (unrated-verdict-plan.md U2) — the neutral chip, its own key rather than a shared
+    // branch: it is not a recommendation and not a stand-down, so it takes neither colour, and a
+    // future divergence from AWAITING is one edit here.
+    UNRATED: 'bg-plex-surface text-plex-text-secondary border border-plex-border',
     AWAITING: 'bg-plex-surface text-plex-text-secondary border border-plex-border',
   };
   const labels = {
     WORTH_IT: 'Worth it',
     MAYBE: 'Maybe',
     STAND_DOWN: 'Poor',
+    // The region-level word — this pill is a REGION's verdict in the grid's drill-down.
+    UNRATED: VERDICT_LABEL.UNRATED,
     AWAITING: 'Not scored',
   };
   const pill = (

@@ -57,6 +57,18 @@ describe('otherWindow', () => {
     expect(otherWindow(events, 0, verdicts)).toEqual(row('night-1', 'astro'));
   });
 
+  it('UNRATED is not STAND_DOWN, so it can be named — "Too few rated" is the cell\'s own word for it (U2)', () => {
+    // The weather did not rule it out; only a STAND_DOWN row is skipped. Pinned so a later "skip
+    // anything that is not a recommendation" cannot silently start passing over UNRATED windows.
+    const events = [row('a'), row('b'), row('c')];
+    const verdicts = new Map([
+      ['a', { tier: 'WORTH_IT' }],
+      ['b', { tier: 'UNRATED' }],
+      ['c', { tier: 'WORTH_IT' }],
+    ]);
+    expect(otherWindow(events, 0, verdicts)).toEqual(row('b'));
+  });
+
   it('returns null with fewer than two rows — there is no "other" window to name', () => {
     expect(otherWindow([], 0, new Map())).toBeNull();
     expect(otherWindow([row('a')], 0, new Map())).toBeNull();
@@ -122,8 +134,20 @@ describe('tideSummary (map-mobile-sheet-plan.md §3 M3 task 4)', () => {
   });
 });
 
+describe('tideVisible — UNRATED is not "Maybe or better" (unrated-verdict-plan.md U2)', () => {
+  it('Auto does not show the tide strip over a window no rating has called', () => {
+    // The strip's Auto rule is "only when the light is worth a trip"; "Too few rated" has not said so.
+    expect(tideVisible({
+      mode: 'auto', tideAvailable: true, hasCoastalInView: true, tier: 'UNRATED',
+    })).toBe(false);
+    expect(tideVisible({
+      mode: 'auto', tideAvailable: true, hasCoastalInView: true, tier: 'MAYBE',
+    })).toBe(true);
+  });
+});
+
 describe('tideVisible (map-mobile-sheet-plan.md §3 M5 task 1)', () => {
-  const TIERS = ['WORTH_IT', 'MAYBE', 'STAND_DOWN', 'AWAITING', null];
+  const TIERS = ['WORTH_IT', 'MAYBE', 'STAND_DOWN', 'UNRATED', 'AWAITING', null];
 
   describe('mode: off', () => {
     it('is always false, whatever the other three inputs say', () => {

@@ -2,6 +2,7 @@ import React from 'react';
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import VerdictPill from '../../components/shared/VerdictPill.jsx';
+import { VERDICT_LABEL } from '../../utils/windowFirstCards.js';
 
 describe('VerdictPill', () => {
   it.each([
@@ -17,6 +18,21 @@ describe('VerdictPill', () => {
     render(<VerdictPill displayVerdict="WORTH_IT" verdict="STANDDOWN" />);
     expect(screen.getByTestId('verdict-pill')).toHaveTextContent('Worth it');
     expect(screen.getByTestId('verdict-pill').className).toContain('bg-green-600');
+  });
+
+  it('words UNRATED "Too few rated" on the neutral chip — the region-level word, not the signal name (U2)', () => {
+    // Without its own arm the label lookup would print the raw enum ("UNRATED") and the colour map
+    // would fall to its generic default.
+    render(<VerdictPill displayVerdict="UNRATED" verdict="GO" />);
+    const pill = screen.getByTestId('verdict-pill');
+    expect(pill).toHaveTextContent(/^Too few rated$/);
+    expect(pill.className).toContain('bg-plex-surface');
+    expect(pill.className).not.toMatch(/bg-green-600|bg-amber-600|bg-red-900/);
+  });
+
+  it.each(Object.entries(VERDICT_LABEL))('has the shared word for %s — the pill never prints a raw enum name', (signal, word) => {
+    render(<VerdictPill displayVerdict={signal} />);
+    expect(screen.getByTestId('verdict-pill')).toHaveTextContent(new RegExp(`^${word}$`));
   });
 
   it('falls back to Not scored when neither signal is recognisable', () => {
@@ -49,6 +65,11 @@ describe('VerdictPill', () => {
         expect(screen.queryByTestId('provisional-mark')).toBeNull();
       },
     );
+
+    it('never marks an UNRATED verdict either — "Too few rated" already says provisional (U2)', () => {
+      render(<VerdictPill displayVerdict="UNRATED" confidence="low" />);
+      expect(screen.queryByTestId('provisional-mark')).toBeNull();
+    });
 
     it('never marks a poor verdict, even at low confidence (poor is its own signal)', () => {
       render(<VerdictPill displayVerdict="STAND_DOWN" confidence="low" />);

@@ -703,6 +703,24 @@ describe('WindowControl — the verdict cell, medallion and ticks (map-landing-p
       expect(screen.getByTestId('wf-win-verdict')).toHaveAttribute('data-tier', 'MAYBE');
     });
 
+    it('words an UNRATED window "Too few rated", naming the region, on a tier with no verdict hue (U2)', () => {
+      renderControl({ verdicts: new Map([[SUNRISE, verdict('UNRATED', 'Northumberland & Tyneside', 1)]]) });
+
+      expect(screen.getByTestId('wf-win-verdict-word')).toHaveTextContent('Too few rated');
+      expect(screen.getByTestId('wf-win-verdict-region')).toHaveTextContent('Northumberland & Tyneside +1');
+      expect(screen.getByTestId('wf-win-verdict')).toHaveAttribute('data-tier', 'UNRATED');
+      expect(screen.getByTestId('wf-win-pill')).toHaveAttribute('data-tier', 'UNRATED');
+    });
+
+    it('names a neighbouring UNRATED window by its word for a screen reader', () => {
+      renderControl({
+        activeIndex: 0,
+        verdicts: new Map([[EVENTS[1].id, verdict('UNRATED', 'The Dales')]]),
+      });
+
+      expect(screen.getByRole('button', { name: 'Next event, Too few rated' })).toBeInTheDocument();
+    });
+
     it('leaves an unscored window untinted rather than tinting it as poor', () => {
       renderControl({ verdicts: new Map() });
 

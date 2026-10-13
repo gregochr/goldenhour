@@ -103,6 +103,25 @@ describe('MapWindowPanel — the header', () => {
   });
 });
 
+describe('MapWindowPanel — an UNRATED window (unrated-verdict-plan.md U2)', () => {
+  it('words the header chip and the region row "Too few rated", on the neutral tier', () => {
+    renderPanel({
+      verdict: { tier: 'UNRATED' },
+      rows: [{
+        name: 'Northumberland & Tyneside', tier: 'UNRATED', verdictLabel: 'Too few rated',
+        meanRating: 3.6, bestRating: 5, driveMinutes: null, driveLabel: null, placeCount: 31, atFourPlus: 12,
+      }],
+    });
+
+    const chip = screen.getByTestId('wf-win-panel-verdict');
+    expect(chip).toHaveTextContent('Too few rated');
+    expect(chip).toHaveAttribute('data-tier', 'UNRATED');
+    const row = screen.getByTestId('wf-win-panel-row');
+    expect(within(row).getByTestId('wf-win-panel-word')).toHaveTextContent('Too few rated');
+    expect(row).toHaveAttribute('data-region', 'Northumberland & Tyneside');
+  });
+});
+
 describe('MapWindowPanel — the region rows', () => {
   it('draws the name, the drive, the count, the word and the ceiling', () => {
     renderPanel();

@@ -74,6 +74,25 @@ function renderCard({ events = EVENTS, verdicts = VERDICTS, ...props } = {}) {
   return { ...result, onSelect, onDismiss };
 }
 
+describe('MapLandingCard — an UNRATED row (unrated-verdict-plan.md U2)', () => {
+  it('prints "Too few rated" with its region, and does NOT take the all-Poor branch', () => {
+    renderCard({
+      verdicts: new Map([
+        [`solar:${TODAY}:SUNSET`, verdict('UNRATED', { regionName: 'Northumberland & Tyneside' })],
+        [`solar:${TOMORROW}:SUNRISE`, verdict('STAND_DOWN')],
+        [`solar:${THURSDAY}:SUNSET`, verdict('WORTH_IT', { regionName: 'The Peak' })],
+      ]),
+    });
+
+    const rows = screen.getAllByTestId('wf-land-row');
+    expect(within(rows[0]).getByTestId('wf-land-verdict-word')).toHaveTextContent('Too few rated');
+    expect(within(rows[0]).getByTestId('wf-land-verdict')).toHaveAttribute('data-tier', 'UNRATED');
+    expect(within(rows[0]).getByTestId('wf-land-verdict-region')).toHaveTextContent('Northumberland & Tyneside');
+    // One Poor and one UNRATED is not "neither is worth the drive".
+    expect(screen.queryByText(/worth the drive/)).toBeNull();
+  });
+});
+
 describe('MapLandingCard — the two rows', () => {
   it('draws the two windows with kind, day, time, verdict and region', () => {
     renderCard();

@@ -160,7 +160,11 @@ export function buildRegionVerdictIndex(days) {
  * <p><b>Returns null when no in-scope region carries a finite mean</b> — an unrated window, where
  * the honest answer is to render nothing rather than a word. This is also why the returned
  * {@code tier} is almost never {@code AWAITING}: a finite {@code meanRating} means the region was
- * scored, and a scored region's {@code displayVerdict} is one of the three real bands. The
+ * scored, and a scored region's {@code displayVerdict} is one of the three real bands — or
+ * {@code UNRATED} (unrated-verdict-plan.md U2): a region with a finite mean whose sample the verdict
+ * gate withheld a verdict from. {@code UNRATED} is a first-class tier here, not a degenerate one: it
+ * is returned as itself, tallied like any other (so "Too few rated · Northumberland +2" counts the
+ * regions sharing it), and renders through {@code VERDICT_LABEL.UNRATED} on the pill. The other
  * exception is a legacy cached payload carrying the triage {@code verdict} and no
  * {@code displayVerdict}, which {@link resolveRegionDisplay} maps rather than dropping.
  *

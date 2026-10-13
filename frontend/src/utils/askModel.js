@@ -1,4 +1,4 @@
-import { dayLabelFor, eventWord, VERDICT_LABEL } from './windowFirstCards.js';
+import { dayLabelFor, eventWord, SLOT_VERDICT_LABEL } from './windowFirstCards.js';
 import {
   buildSlotIndex, buildTideAlignmentIndex, lookupForWindow, shortDow, slotsOf,
 } from './locationSheet.js';
@@ -320,7 +320,12 @@ export function buildPickCards(picks, briefingDays, homeReachById, nights = null
     const name = slot.locationName || pick.locationName;
     if (!name) continue;
     const rating = boundedRating(slot.claudeRating);
-    const verdict = VERDICT_LABEL[slot.displayVerdict] ? slot.displayVerdict : 'AWAITING';
+    // A SLOT's verdict, so the slot-level words (SLOT_VERDICT_LABEL: UNRATED reads "Not rated", never
+    // the region's "Too few rated"). UNRATED passes through as itself — it is a known value, and the
+    // chip's tier colour (`.wf-ask-sc[data-tier]`) has no rule for it, which is the neutral AWAITING
+    // ink by design (unrated-verdict-plan.md U2): a place nothing has rated gets no verdict hue. A
+    // value this map does not know still collapses to AWAITING, never to a recommending word.
+    const verdict = SLOT_VERDICT_LABEL[slot.displayVerdict] ? slot.displayVerdict : 'AWAITING';
     const timed = lookupForWindow(slotIdx, pick.locationId, name, pick.date, pick.targetType);
     const fact = lookupForWindow(tideIdx, pick.locationId, name, pick.date, pick.targetType);
     const tier = tierOf(fact);
@@ -337,7 +342,7 @@ export function buildPickCards(picks, briefingDays, homeReachById, nights = null
       why: typeof pick.why === 'string' ? pick.why : '',
       rating,
       verdict,
-      verdictLabel: VERDICT_LABEL[verdict],
+      verdictLabel: SLOT_VERDICT_LABEL[verdict],
       eventTime: formatEventTimeUk(timed?.eventTime) ?? null,
       eventInstant: timed?.eventTime ?? null,
       summary: typeof slot.claudeSummary === 'string' && slot.claudeSummary.trim() !== ''

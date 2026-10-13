@@ -1151,6 +1151,92 @@ describe('HeatmapGrid — cell click opens drill-down', () => {
   });
 });
 
+// ── UNRATED (unrated-verdict-plan.md U2) ─────────────────────────────────────
+
+describe('HeatmapGrid — an UNRATED region ("Too few rated", unrated-verdict-plan.md U2)', () => {
+  // Northumberland & Tyneside on 2026-10-13: weather GO, 38 rated at a mean of 3.6, sample gate
+  // failed. Before U2 the cell read "Worth it sunset" in green; after, it must say the sample is thin.
+  function unratedDays() {
+    return [{
+      date: DATE_1,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'North East',
+          verdict: 'GO',
+          displayVerdict: 'UNRATED',
+          summary: 'Clear skies',
+          confidence: 'low',
+          meanRating: 3.6,
+          slots: [
+            {
+              locationName: 'Bamburgh', verdict: 'GO', displayVerdict: 'UNRATED',
+              solarEventTime: `${DATE_1}T19:30:00`,
+            },
+            {
+              locationName: 'Kielder', verdict: 'STANDDOWN', displayVerdict: 'STAND_DOWN',
+              solarEventTime: `${DATE_1}T19:30:00`,
+            },
+          ],
+        }],
+      }],
+    }];
+  }
+  const renderUnrated = (props = {}) => renderGrid({
+    events: [{ date: DATE_1, targetType: 'SUNSET' }], briefingDays: unratedDays(), ...props,
+  });
+
+  it('words the cell "Too few rated sunset" — not Worth it, not Maybe, not Poor', () => {
+    renderUnrated();
+
+    const cell = screen.getByTestId('heatmap-cell');
+    expect(cell).toHaveTextContent('Too few rated sunset');
+    expect(cell.textContent).not.toMatch(/Worth it|Maybe|Poor/);
+  });
+
+  it('keeps its mean, names itself contiguously (WCAG 2.5.3) and is NOT disabled like a Poor cell', () => {
+    renderUnrated();
+
+    const cell = screen.getByTestId('heatmap-cell');
+    expect(cell).toHaveAccessibleName(`North East, ${shortDate(DATE_1)} — Too few rated sunset, 3.6 stars`);
+    expect(cell).not.toHaveAttribute('aria-disabled');
+    expect(screen.getByTestId('mean-score-badge')).toHaveTextContent('3.6★');
+  });
+
+  it('wears the neutral wash and ink, never the green or amber pair', () => {
+    renderUnrated();
+
+    const cell = screen.getByTestId('heatmap-cell');
+    expect(cell.style.background).toMatch(/242,\s*231,\s*211/);
+    expect(cell.style.background).not.toMatch(/138,\s*174,\s*114|224,\s*165,\s*66/);
+    expect(cell.firstElementChild.style.color).toBe('var(--color-plex-text-secondary)');
+  });
+
+  it('draws no confidence decay and no provisional mark, though the region says low', () => {
+    // "Too few rated" already says provisional; a half-decayed neutral wash would read as a bug.
+    renderUnrated();
+
+    const cell = screen.getByTestId('heatmap-cell');
+    expect(within(cell).queryByTestId('provisional-mark')).toBeNull();
+    expect(cell.style.background).toContain('0.06');
+    expect(cell).toHaveAccessibleName(expect.not.stringContaining('provisional'));
+  });
+
+  it('opens its drill-down without the "Include poor locations" toggle, listing the UNRATED place but not the Poor one', () => {
+    renderUnrated();
+
+    fireEvent.click(screen.getByTestId('heatmap-cell'));
+
+    const panel = screen.getByTestId('drill-down-panel');
+    expect(within(panel).getByTestId('verdict-pill')).toHaveTextContent('Too few rated');
+    const rows = within(panel).getAllByTestId('briefing-slot');
+    expect(rows.map((r) => r.textContent)).toEqual([expect.stringContaining('Bamburgh')]);
+    // The stood-down place stays behind the toggle; the UNRATED one is NOT filed under "poor".
+    expect(within(panel).queryByTestId('standdown-slot')).toBeNull();
+    expect(panel.textContent).not.toMatch(/poor · not evaluated/);
+  });
+});
+
 // ── Day header solar times ───────────────────────────────────────────────────
 
 describe('HeatmapGrid — day header solar times', () => {

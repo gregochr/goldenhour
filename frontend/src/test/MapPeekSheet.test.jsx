@@ -394,6 +394,20 @@ describe('OtherWindowValue', () => {
     expect(verdict).toHaveAttribute('data-tier', 'MAYBE');
   });
 
+  it('an UNRATED window says "Too few rated" in the "Other windows" value, on a tier the stylesheet leaves neutral (U2)', () => {
+    render(
+      <OtherWindowValue
+        row={{
+          kind: 'solar', eventType: 'SUNSET', dayLabel: 'Friday', label: 'Friday sunset',
+        }}
+        verdict={{ tier: 'UNRATED' }}
+      />,
+    );
+    const word = screen.getByTestId('wf-map-peek-other-verdict');
+    expect(word).toHaveTextContent('Too few rated');
+    expect(word).toHaveAttribute('data-tier', 'UNRATED');
+  });
+
   it('a night row with no verdict renders the licensed `{bestRating}★ best` figure, never a verdict word', () => {
     render(
       <OtherWindowValue
@@ -440,6 +454,17 @@ describe('MapPeekWindowsSection', () => {
     const rows = screen.getAllByTestId('wf-map-peek-win-row');
     expect(rows[0]).toHaveTextContent('Worth it');
     expect(screen.getByTestId('wf-map-peek-wr-best-of-night')).toHaveTextContent('3★ best');
+  });
+
+  it('a solar row whose verdict is UNRATED reads "Too few rated", not the weather call it replaced (U2)', () => {
+    render(
+      <MapPeekWindowsSection
+        heading="H" rows={[ROWS[0]]} verdicts={new Map([['a', { tier: 'UNRATED' }]])} onSelect={() => {}}
+      />,
+    );
+    const row = screen.getByTestId('wf-map-peek-win-row');
+    expect(row).toHaveTextContent('Too few rated');
+    expect(row.textContent).not.toMatch(/Worth it|Maybe|Poor/);
   });
 
   it('swatches an aurora row on the aurora ramp, an astro row on the shared ramp (aurora heat A3)', () => {

@@ -5,7 +5,8 @@
  *   2  go-plain   WORTH_IT, no tide alignment
  *   3  ma-tide    MAYBE + any tide-aligned location
  *   4  ma-plain   MAYBE, no tide alignment
- *   5  standdown  STAND_DOWN / AWAITING
+ *   5  standdown  STAND_DOWN / UNRATED / AWAITING (UNRATED: not ruled out, but not called either —
+ *                 unrated-verdict-plan.md U2; it takes the quiet tier, never a recommending one)
  */
 
 /**
@@ -14,7 +15,7 @@
  * scored) and falls back to mapping the triage {@code verdict} otherwise.
  *
  * @param {{ displayVerdict?: string, verdict?: string }} region
- * @returns {'WORTH_IT' | 'MAYBE' | 'STAND_DOWN' | 'AWAITING'}
+ * @returns {'WORTH_IT' | 'MAYBE' | 'STAND_DOWN' | 'UNRATED' | 'AWAITING'}
  */
 export function resolveRegionDisplay(region) {
   if (!region) return 'AWAITING';
@@ -44,7 +45,10 @@ export function computeCellTier(region, alignedOf) {
 
   const dv = resolveRegionDisplay(region);
 
-  if (dv === 'STAND_DOWN' || dv === 'AWAITING') return 5;
+  // UNRATED is named, not left to the fall-through below: a weather pass that no trustworthy rating
+  // has called must never enter a recommending tier (0-4), and an explicit arm survives anyone who
+  // later changes what the final `return 5` means (unrated-verdict-plan.md U2).
+  if (dv === 'STAND_DOWN' || dv === 'UNRATED' || dv === 'AWAITING') return 5;
 
   const hasKingTide = (region.tideHighlights || [])
     .some((h) => h.toLowerCase().includes('king'));

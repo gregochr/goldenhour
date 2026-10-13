@@ -99,7 +99,31 @@ export const VERDICT_LABEL = {
   WORTH_IT: 'Worth it',
   MAYBE: 'Maybe',
   STAND_DOWN: 'Poor',
+  // ⚠️ UNRATED (unrated-verdict-plan.md U2): the weather screen did not rule the window out and no
+  // trustworthy rating has called it — a region whose rated sample fails the verdict sample gate,
+  // or one with no rating at all, used to wear the triage pass as "Worth it"/"Maybe". It is NOT
+  // AWAITING ("nothing was said") and NOT Poor ("the weather said no"): ratings exist or the
+  // weather passed, and neither is enough to recommend. 'Too few rated' is the WINDOW/REGION word
+  // (card, pill, drilldown rows, rail, grid cell); a SLOT says 'Not rated' (SLOT_VERDICT_LABEL).
+  // 13 characters — wider than any other word here, which is why `.wf-hc-mean` drops under it at
+  // 320px (see the `data-verdict="UNRATED"` rule in index.css for the arithmetic).
+  UNRATED: 'Too few rated',
   AWAITING: 'Not scored',
+};
+
+/**
+ * The slot-level word for a display verdict — one LOCATION's row (the location sheet's window
+ * rows, the popup's chips, the callout), not a region or a window.
+ *
+ * <p>The two levels share every word but one: a region is "Too few rated" because the SAMPLE is
+ * small, which is a claim about a population; a slot is one place with no rating of its own, and
+ * "Not rated" is the true thing to say of it (unrated-verdict-plan.md U2). Deliberately a separate
+ * map rather than a branch inside {@link VERDICT_LABEL} so a slot-level reader can never pick up
+ * the population wording by accident.
+ */
+export const SLOT_VERDICT_LABEL = {
+  ...VERDICT_LABEL,
+  UNRATED: 'Not rated',
 };
 
 /**
@@ -357,7 +381,8 @@ function topMeanRating(es) {
 
 /**
  * The mean a verdict word may be printed beside: the region's served mean when the region is
- * verdict-eligible, else null (silence — a triage-fallback word has no mean standing behind it).
+ * verdict-eligible or its word is {@code UNRATED}, else null (silence — a triage STAND_DOWN has no
+ * mean standing behind it).
  *
  * @param {?object} scoped the origin's region record when away, else null
  * @param {?object} top the window's top region when not away
@@ -365,7 +390,13 @@ function topMeanRating(es) {
  */
 function verdictMeanOf(scoped, top) {
   const region = scoped ?? top;
-  if (!region || !verdictEligible(region)) return null;
+  if (!region) return null;
+  // Two states may print a mean: a verdict-eligible region (the word IS a reading of the mean) and
+  // an UNRATED one (unrated-verdict-plan.md U2) — "Too few rated 3.6★" is the honest card: the
+  // figure is the evidence the gate withheld a verdict from, and the word says so in the same
+  // breath. What stays silent is an ineligible region whose word is a triage STAND_DOWN (or
+  // AWAITING): a figure beside "Poor" would contradict the weather call it rests on.
+  if (!verdictEligible(region) && resolveRegionDisplay(region) !== 'UNRATED') return null;
   const mean = region.meanRating;
   return typeof mean === 'number' && Number.isFinite(mean) ? mean : null;
 }

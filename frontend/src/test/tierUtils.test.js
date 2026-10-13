@@ -141,6 +141,17 @@ describe('computeCellTier', () => {
     expect(computeCellTier(region, alignedOf)).toBe(5);
   });
 
+  it.each([
+    ['a plain region', { tideHighlights: [], slots: [] }],
+    ['a king-tide region', { tideHighlights: ['King Tide at 3 coastal spots'], slots: [] }],
+    ['a tide-aligned region', { tideHighlights: [], slots: [{ tideAligned: true }] }],
+  ])('UNRATED displayVerdict is tier 5 for %s — a weather pass no rating has called never enters a recommending tier (U2)', (_, shape) => {
+    // The tide and king signals lift a WORTH_IT/MAYBE region through tiers 0-4; they must not lift
+    // "Too few rated", whatever the triage said (`verdict: 'GO'` is what the old fallback read).
+    const region = { verdict: 'GO', displayVerdict: 'UNRATED', ...shape };
+    expect(computeCellTier(region, (s) => s.tideAligned === true)).toBe(5);
+  });
+
   it('MAYBE displayVerdict with tide-aligned slot lands at tier 3', () => {
     const region = {
       verdict: 'GO',
@@ -168,6 +179,10 @@ describe('resolveRegionDisplay', () => {
 
   it('maps legacy verdict STANDDOWN → STAND_DOWN', () => {
     expect(resolveRegionDisplay({ verdict: 'STANDDOWN' })).toBe('STAND_DOWN');
+  });
+
+  it('passes UNRATED through as itself, and prefers it over a GO triage verdict (U2)', () => {
+    expect(resolveRegionDisplay({ displayVerdict: 'UNRATED', verdict: 'GO' })).toBe('UNRATED');
   });
 
   it('returns AWAITING for null region', () => {
