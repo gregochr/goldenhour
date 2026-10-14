@@ -836,6 +836,12 @@ purpose, so a later reader stops hunting for the "missing" piece.)
    cursor/hover promises (excepted for a short run's chip row, §11.25).
 6. **The ghost wave's "3.3 m average tide"** — replaced by the representative port's own
    `avgRangeMetres` (the delta is the existing `rangeAnomaly`, promoted from meta).
+   **Amended 2026-10-14 (tide-range-rank-plan.md R1):** when the entry serves `rangeAverageMetres` (the
+   mean daily range over the past 12 months, §28 below) the delta is the displayed range minus THAT figure, so
+   the sparkline and the day bars' dashed line agree on one average per card; with no year sample it is still
+   `TideStats.avgRangeMetres`. They are different statistics (the mean daily highest-high minus lowest-low is
+   larger than avgHigh minus avgLow at a semidiurnal port), so a served average shrinks deltas and flattens the
+   sparkline; accepted for consistency.
 7. **Forecast-peak chronology rows** — mostly unreachable at first ship (aerosol horizon T+0..T+3
    sits inside Plan's window, D9); the strip carries those peaks as `insidePlan`. Horizon
    extension is separate, unplanned work.
@@ -1088,6 +1094,22 @@ purpose, so a later reader stops hunting for the "missing" piece.)
     from the run whichever topic hosts. `peak` compares against `event.meta().get("peakDate")` itself, never
     `peakDateOf`, whose `figuresFrom` fallback would crown a partial-coverage run's first measured day.
 
+28. **Tide-run days are ranked against the year, and one average serves the card (2026-10-14,
+    `docs/engineering/tide-range-rank-plan.md`, phase R1 backend).** `ComingUpDayRange` gains
+    `rangePercentile` (1-100, "top N%"; absent unless the year sample was sufficient) and `ComingUpEntry` gains
+    `rangeAverageMetres` (served only with `dayRanges` and a sufficient sample). Both come from
+    `DailyRangeHistory`: the 365 civil days ending the day before the build date at the run's representative,
+    each day's range exactly `dayRanges`' definition (`TideRunBuilder.dailyRangesAt`); n < 300 serves neither.
+    A day ranks in DISPLAY space (`metresToOneDp(sample) >= dayRange`, no epsilon), `p = max(1, ceil(100 x count
+    / n))`, so a 4.85 sample that displays 4.9 counts for a 4.9 day. The memo's day is the real UTC date and
+    its key (representative, build date); a failed read is never cached and the feed is served without the
+    rank. The merged tide coincidence line reads `top N% of the year` in place of the metres, only on the
+    true-peak branch and only when the peak day has a percentile; the partial-coverage branch keeps its
+    metres. Scope: the rest of the "High Tide Coming Up Height Changes" zip was already built (#194); see the
+    plan's section 0. The owner confirmed (2026-10-14) that production's tide history is back-dated by the
+    admin 12-month backfill, so the n >= 300 gate is a safety net, not the expected state. R2 (frontend)
+    draws the label, the dashed average and the key.
+
 ---
 
 ## 12 · Standing gotchas for every implementing session
@@ -1202,7 +1224,7 @@ commit.** Phase annotations mark when each field first ships; everything is user
                                          // entries from clearing a band regardless of how high bits
                                          // reads, rather than distorting the printed
                                          // "rarity + magnitude = bits" sum to enforce it
-      "tide": { "range": 5.1, "delta": 1.9, "phase": "HW" },   // P2, tide entries only; delta = rangeAnomaly; phase inverts the wave
+      "tide": { "range": 5.1, "delta": 1.9, "phase": "HW" },   // P2, tide entries only; delta = range - rangeAverageMetres when served, else - TideStats avg (§11.6); phase inverts the wave
       "coincidence": [ { "family": "coastal", "name": "King tide run", "type": "king-tide",
                          "factsLabel": "Sun 22 – Fri 27 Nov · biggest Thu 26 · 5.2 m · HW 16:13" },
                        { "family": "sun-moon", "name": "Supermoon", "type": "supermoon",
@@ -1223,6 +1245,9 @@ commit.** Phase annotations mark when each field first ships; everything is user
                                          // MEASURED day (a run straddling the stored window marks its largest
                                          // measured day; a run known for one day gets no bars); a day with no
                                          // stored extremes is absent; ranges round as the metric does (%.1f)
+      ,"rangeAverageMetres": 3.4       // R1 (tide-range-rank-plan.md), tide-run entries with dayRanges AND >= 300
+                                         // derivable days in the past year only; mean daily range, 1 dp. Each
+                                         // dayRanges element then also carries rangePercentile (1-100, "top N%")
     }
   ]
 }

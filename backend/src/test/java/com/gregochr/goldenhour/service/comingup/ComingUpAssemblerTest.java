@@ -13,6 +13,7 @@ import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.AlmanacService;
 import com.gregochr.goldenhour.service.TideRunBuilder;
 import com.gregochr.goldenhour.service.TideService;
+import com.gregochr.goldenhour.service.TideSizeIndex;
 import com.gregochr.solarutils.MoonriseMoonset;
 import com.gregochr.solarutils.MoonriseMoonsetCalculator;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,6 +35,8 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -59,6 +62,8 @@ class ComingUpAssemblerTest {
     @Mock
     private TideRunPeakHistory tideRunPeakHistory;
 
+    private DailyRangeHistory dailyRangeHistory;
+
     @Mock
     private TideService tideService;
 
@@ -66,8 +71,9 @@ class ComingUpAssemblerTest {
 
     @BeforeEach
     void setUp() {
+        dailyRangeHistory = new DailyRangeHistory(tideRunBuilder, mock(TideSizeIndex.class));
         assembler = new ComingUpAssembler(locationRepository, tideRunBuilder, tideRunPeakHistory,
-                tideService, new ComingUpScoringProperties(), new MoonriseMoonsetCalculator());
+                dailyRangeHistory, tideService, new ComingUpScoringProperties(), new MoonriseMoonsetCalculator());
         // Empty by default; individual tide-run tests override.
         when(locationRepository.findCoastalLocations()).thenReturn(COASTAL_ROSTER);
     }
@@ -750,7 +756,7 @@ class ComingUpAssemblerTest {
 
     private ComingUpAssembler assemblerWith(MoonriseMoonsetCalculator calculator) {
         return new ComingUpAssembler(locationRepository, tideRunBuilder, tideRunPeakHistory,
-                tideService, new ComingUpScoringProperties(), calculator);
+                dailyRangeHistory, tideService, new ComingUpScoringProperties(), calculator);
     }
 
     private static List<String> factTexts(ComingUpEntry entry) {
@@ -1043,7 +1049,7 @@ class ComingUpAssemblerTest {
         ComingUpScoringProperties tied = new ComingUpScoringProperties();
         tied.getRarity().setSpringTideMeanGapDays(tied.getRarity().getSupermoonMeanGapDays());
         ComingUpAssembler tiedAssembler = new ComingUpAssembler(locationRepository, tideRunBuilder,
-                tideRunPeakHistory, tideService, tied, new MoonriseMoonsetCalculator());
+                tideRunPeakHistory, dailyRangeHistory, tideService, tied, new MoonriseMoonsetCalculator());
         assertThat(tiedAssembler.assemble(BUILT, List.of(moon, run)).entries().getFirst().type())
                 .isEqualTo("spring-tide");
     }
@@ -1084,9 +1090,9 @@ class ComingUpAssemblerTest {
         ComingUpEntry entry = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
 
         assertThat(entry.dayRanges()).containsExactly(
-                new ComingUpDayRange(oct(25), 4.3, false), new ComingUpDayRange(oct(26), 4.7, false),
-                new ComingUpDayRange(oct(27), 4.9, true), new ComingUpDayRange(oct(28), 4.5, false),
-                new ComingUpDayRange(oct(29), 4.0, false), new ComingUpDayRange(oct(30), 3.5, false));
+                new ComingUpDayRange(oct(25), 4.3, false, null), new ComingUpDayRange(oct(26), 4.7, false, null),
+                new ComingUpDayRange(oct(27), 4.9, true, null), new ComingUpDayRange(oct(28), 4.5, false, null),
+                new ComingUpDayRange(oct(29), 4.0, false, null), new ComingUpDayRange(oct(30), 3.5, false, null));
         assertThat(entry.dayMarks()).isEmpty();
     }
 
@@ -1198,7 +1204,7 @@ class ComingUpAssemblerTest {
         assertThat(merged.type()).isEqualTo("supermoon");
         assertThat(merged.startDate()).isEqualTo(oct(24));
         assertThat(merged.dayRanges()).containsExactly(
-                new ComingUpDayRange(oct(26), 4.2, false), new ComingUpDayRange(oct(27), 4.9, true));
+                new ComingUpDayRange(oct(26), 4.2, false, null), new ComingUpDayRange(oct(27), 4.9, true, null));
     }
 
     @Test
@@ -1333,7 +1339,7 @@ class ComingUpAssemblerTest {
         ComingUpScoringProperties properties = mock(ComingUpScoringProperties.class);
         when(properties.getBands()).thenReturn(new ComingUpScoringProperties().getBands());
         ComingUpAssembler guarded = new ComingUpAssembler(locationRepository, tideRunBuilder,
-                tideRunPeakHistory, tideService, properties, new MoonriseMoonsetCalculator());
+                tideRunPeakHistory, dailyRangeHistory, tideService, properties, new MoonriseMoonsetCalculator());
 
         ComingUpResponse response = guarded.assemble(BUILT, List.of(), List.of(
                 event(oct(21), oct(21), "meteor", "Perseids", Map.of()),
@@ -1399,5 +1405,190 @@ class ComingUpAssemblerTest {
 
     private static String fmt(LocalDate date) {
         return java.time.format.DateTimeFormatter.ofPattern("d MMM", java.util.Locale.UK).format(date);
+    }
+
+    // ── R1: rank against the year, one average per card ─────────────────────────
+
+    private static List<LocalDate> yearBefore(LocalDate built) {
+        List<LocalDate> dates = new java.util.ArrayList<>();
+        for (int back = 365; back >= 1; back--) {
+            dates.add(built.minusDays(back));
+        }
+        return dates;
+    }
+
+    private void stubYearOf(java.util.Map<LocalDate, Double> year) {
+        doReturn(year).when(tideRunBuilder).dailyRangesAt(eq(SEAHAM), eq(yearBefore(BUILT)));
+    }
+
+    /** Stubs the year read: {@code bigDays} days at 5.0, {@code nearDays} at 4.9, the rest at 3.4. */
+    private void stubYear(int days, int bigDays, int nearDays) {
+        java.util.Map<LocalDate, Double> year = new java.util.LinkedHashMap<>();
+        List<LocalDate> dates = yearBefore(BUILT);
+        for (int i = 0; i < days; i++) {
+            double v = i < bigDays ? 5.0 : i < bigDays + nearDays ? 4.9 : 3.4;
+            year.put(dates.get(i), v);
+        }
+        stubYearOf(year);
+    }
+
+    @Test
+    @DisplayName("R1: every day carries its top-N% and the run the year's average; the run's delta is "
+            + "measured against that average, not TideStats")
+    void daysRankedAgainstTheYearAndDeltaUsesTheYearAverage() {
+        stubRunAtSeaham();
+        when(tideService.getTideStats(SEAHAM.getId())).thenReturn(Optional.of(stats("2.0")));
+        stubRanges(oct(25), oct(27), oct(25), 4.3, oct(26), 4.9, oct(27), 5.2);
+        stubYear(365, 5, 15);
+        AlmanacEvent run = event(oct(25), oct(27), "spring-tide", "Spring tide run", runMeta(oct(27), null));
+
+        ComingUpEntry entry = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
+
+        // 5.2 is above every sample day -> top 1%; 4.9 and 4.3 are matched by 20 of 365 -> ceil(5.48) = 6
+        assertThat(entry.dayRanges()).extracting(ComingUpDayRange::rangePercentile).containsExactly(6, 6, 1);
+        // mean = (5 * 5.0 + 15 * 4.9 + 345 * 3.4) / 365 = 3.48 -> 3.5
+        assertThat(entry.rangeAverageMetres()).isEqualTo(3.5);
+        // delta = displayed headline range 4.9 - 3.5, not 4.9 - 2.0 from TideStats
+        assertThat(entry.tide().delta()).isEqualTo(1.4);
+    }
+
+    @Test
+    @DisplayName("R1: ranking is in display space - 40 samples of 6.05 - 1.20 (4.85, displays 4.9) count as "
+            + "at least a 4.9 day")
+    void rankingUsesDisplayedValues() {
+        stubRunAtSeaham();
+        stubRanges(oct(25), oct(26), oct(25), 3.5, oct(26), 4.9);
+        java.util.Map<LocalDate, Double> year = new java.util.LinkedHashMap<>();
+        List<LocalDate> dates = yearBefore(BUILT);
+        for (int i = 0; i < dates.size(); i++) {
+            year.put(dates.get(i), i < 40 ? 6.05 - 1.20 : 3.0);
+        }
+        stubYearOf(year);
+        AlmanacEvent run = event(oct(25), oct(26), "spring-tide", "Spring tide run", runMeta(oct(26), null));
+
+        ComingUpEntry entry = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
+
+        // 40 of 365 -> ceil(10.96) = 11; a raw comparison (4.85 < 4.9) would have found none -> 1
+        assertThat(entry.dayRanges().get(1).rangePercentile()).isEqualTo(11);
+        assertThat(entry.dayRanges().get(0).rangePercentile()).isEqualTo(11);
+    }
+
+    @Test
+    @DisplayName("R1: a year sample of 299 days serves neither a percentile nor an average; 300 serves both")
+    void thinYearSampleServesNothing() {
+        stubRunAtSeaham();
+        when(tideService.getTideStats(SEAHAM.getId())).thenReturn(Optional.of(stats("3.3")));
+        stubRanges(oct(25), oct(26), oct(25), 4.0, oct(26), 4.9);
+        stubYear(299, 0, 0);
+        AlmanacEvent run = event(oct(25), oct(26), "spring-tide", "Spring tide run", runMeta(oct(26), null));
+
+        ComingUpEntry thin = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
+
+        assertThat(thin.rangeAverageMetres()).isNull();
+        assertThat(thin.dayRanges()).extracting(ComingUpDayRange::rangePercentile).containsOnlyNulls();
+        // the TideStats figure still drives the delta
+        assertThat(thin.tide().delta()).isEqualTo(1.6);
+
+        dailyRangeHistory.evict();
+        stubYear(300, 0, 0);
+        ComingUpEntry enough = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
+
+        assertThat(enough.rangeAverageMetres()).isEqualTo(3.4);
+        assertThat(enough.dayRanges()).extracting(ComingUpDayRange::rangePercentile).containsExactly(1, 1);
+    }
+
+    @Test
+    @DisplayName("R1: a run with no day ranges reads no year at all")
+    void noDayRangesSkipsTheYearRead() {
+        stubRunAtSeaham();
+        AlmanacEvent run = event(oct(25), oct(27), "spring-tide", "Spring tide run", runMeta(oct(26), null));
+
+        ComingUpEntry entry = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
+
+        assertThat(entry.rangeAverageMetres()).isNull();
+        verify(tideRunBuilder, never()).dailyRangesAt(any(), eq(yearBefore(BUILT)));
+    }
+
+    @Test
+    @DisplayName("R1: a failing year read degrades to no percentile and no average, and is not cached")
+    void failingYearReadDegradesAndIsNotCached() {
+        stubRunAtSeaham();
+        stubRanges(oct(25), oct(26), oct(25), 4.0, oct(26), 4.9);
+        doThrow(new IllegalStateException("db down")).when(tideRunBuilder)
+                .dailyRangesAt(eq(SEAHAM), eq(yearBefore(BUILT)));
+        AlmanacEvent run = event(oct(25), oct(26), "spring-tide", "Spring tide run", runMeta(oct(26), null));
+
+        ComingUpEntry failed = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
+
+        assertThat(failed.rangeAverageMetres()).isNull();
+        assertThat(failed.dayRanges()).hasSize(2);
+        assertThat(failed.dayRanges()).extracting(ComingUpDayRange::rangePercentile).containsOnlyNulls();
+
+        stubYear(365, 0, 0);
+        ComingUpEntry recovered = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
+
+        assertThat(recovered.rangeAverageMetres()).isEqualTo(3.4);
+    }
+
+    @Test
+    @DisplayName("R1: a merged entry carries the ranked days and the average whichever topic hosts, and the "
+            + "tide coincidence line reads 'top N% of the year' in place of the metres")
+    void mergedEntryCarriesRankAndCoincidenceLineReadsIt() {
+        stubRunAtSeaham();
+        stubRanges(oct(25), oct(30), oct(25), 4.3, oct(26), 4.6, oct(27), 4.9);
+        stubYear(365, 5, 15);
+        AlmanacEvent run = event(oct(25), oct(30), "spring-tide", "Spring tide run", runMeta(oct(27), oct(27)));
+
+        ComingUpEntry runHosts = assembler.assemble(BUILT, List.of(run, supermoon(oct(26), oct(26), oct(26))))
+                .entries().getFirst();
+
+        assertThat(runHosts.type()).isEqualTo("spring-tide");
+        assertThat(runHosts.rangeAverageMetres()).isEqualTo(3.5);
+        assertThat(runHosts.dayRanges()).extracting(ComingUpDayRange::rangePercentile).containsExactly(6, 6, 6);
+        assertThat(runHosts.coincidence().get(0).factsLabel())
+                .isEqualTo(nb("Sun 25 – Fri 30 Oct · biggest Tue 27 · top 6% of the year · HW 15:48"));
+
+        ComingUpEntry moonHosts = assembler.assemble(BUILT, List.of(run, supermoon(oct(24), oct(30), oct(26))))
+                .entries().getFirst();
+
+        assertThat(moonHosts.type()).isEqualTo("supermoon");
+        assertThat(moonHosts.rangeAverageMetres()).isEqualTo(3.5);
+        assertThat(moonHosts.dayRanges()).extracting(ComingUpDayRange::rangePercentile)
+                .containsExactly(6, 6, 6);
+        assertThat(moonHosts.coincidence()).extracting(c -> c.factsLabel())
+                .anyMatch(l -> l.contains(nb("top 6% of the year")));
+    }
+
+    @Test
+    @DisplayName("R1: the partial-coverage branch keeps its metres even when percentiles are served")
+    void partialCoverageBranchKeepsItsMetres() {
+        stubRunAtSeaham();
+        stubRanges(oct(25), oct(30), oct(27), 4.9, oct(28), 4.5, oct(29), 4.0);
+        stubYear(365, 5, 15);
+        AlmanacEvent partial = event(oct(25), oct(30), "spring-tide", "Spring tide run",
+                AlmanacEvent.metaOf("range", "4.9 m", "figuresFrom", oct(27).toString(),
+                        "partialCoverage", "true", "location", "Seaham"));
+
+        ComingUpEntry merged = assembler.assemble(BUILT, List.of(partial, supermoon(oct(26), oct(26), oct(26))))
+                .entries().getFirst();
+
+        assertThat(merged.dayRanges()).extracting(ComingUpDayRange::rangePercentile).isNotEmpty()
+                .doesNotContainNull();
+        assertThat(merged.coincidence().get(0).factsLabel()).contains(nb("4.9 m on Tue 27"))
+                .doesNotContain("of the year");
+    }
+
+    @Test
+    @DisplayName("R1: with no percentile the coincidence line keeps the metres")
+    void coincidenceLineKeepsMetresWithoutAPercentile() {
+        stubRunAtSeaham();
+        stubRanges(oct(25), oct(30), oct(27), 4.9, oct(28), 4.5, oct(29), 4.0);
+        AlmanacEvent run = event(oct(25), oct(30), "spring-tide", "Spring tide run", runMeta(oct(27), null));
+
+        ComingUpEntry merged = assembler.assemble(BUILT, List.of(run, supermoon(oct(26), oct(26), oct(26))))
+                .entries().getFirst();
+
+        assertThat(merged.coincidence().get(0).factsLabel()).contains(nb("biggest Tue 27 · 4.9 m"))
+                .doesNotContain("of the year");
     }
 }

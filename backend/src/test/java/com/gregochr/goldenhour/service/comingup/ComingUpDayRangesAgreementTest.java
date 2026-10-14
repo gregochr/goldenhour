@@ -116,7 +116,8 @@ class ComingUpDayRangesAgreementTest {
         TideAlmanacSource source =
                 new TideAlmanacSource(lunarPhaseService, builder, locationRepository, tideSizeIndex);
         ComingUpAssembler assembler = new ComingUpAssembler(locationRepository, builder,
-                tideRunPeakHistory, tideService, new ComingUpScoringProperties(),
+                tideRunPeakHistory, new DailyRangeHistory(builder, tideSizeIndex), tideService,
+                new ComingUpScoringProperties(),
                 new MoonriseMoonsetCalculator());
 
         List<AlmanacEvent> events = source.events(D1, D3);
