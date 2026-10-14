@@ -98,7 +98,12 @@ COPY (
         cv.observer_mid_cloud                   AS cv_observer_mid_cloud,
         cv.observer_high_cloud                  AS cv_observer_high_cloud,
         to_char(cv.observed_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS cv_observed_at,
-        to_char(cv.verified_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS cv_verified_at
+        to_char(cv.verified_at, 'YYYY-MM-DD"T"HH24:MI:SS') AS cv_verified_at,
+        -- LAST column on purpose: the closest stored proxy to production's `data.tide() != null`
+        -- (coastal prompt builder). Non-empty = coastal. replay_set.py reads it.
+        (SELECT string_agg(ltt.tide_type, ',' ORDER BY ltt.tide_type)
+           FROM location_tide_type ltt
+          WHERE ltt.location_id = l.id)         AS loc_tide_types
     FROM forecast_evaluation fe
     JOIN locations l ON l.id = fe.location_id
     LEFT JOIN regions r ON r.id = l.region_id

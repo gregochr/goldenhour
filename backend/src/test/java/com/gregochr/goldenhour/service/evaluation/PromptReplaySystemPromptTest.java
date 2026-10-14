@@ -38,16 +38,42 @@ class PromptReplaySystemPromptTest {
     }
 
     @Test
-    void coastalOverrideGetsSuffixOnceOnly(@TempDir Path dir) throws Exception {
+    void coastalOverrideGetsSuffixAppended(@TempDir Path dir) throws Exception {
         Path inlandBased = dir.resolve("a.txt");
         Files.writeString(inlandBased, "base", StandardCharsets.UTF_8);
-        Path coastalBased = dir.resolve("b.txt");
-        Files.writeString(coastalBased, "base" + SUFFIX, StandardCharsets.UTF_8);
 
         assertThat(PromptReplayHarnessTest.resolveSystemPrompt("prod", SUFFIX, inlandBased))
                 .isEqualTo("base" + SUFFIX);
-        assertThat(PromptReplayHarnessTest.resolveSystemPrompt("prod", SUFFIX, coastalBased))
-                .isEqualTo("base" + SUFFIX);
+    }
+
+    @Test
+    void overrideAlreadyEndingWithCoastalSuffixIsRejected(@TempDir Path dir) throws Exception {
+        Path coastalBased = dir.resolve("b.txt");
+        Files.writeString(coastalBased, "base" + SUFFIX, StandardCharsets.UTF_8);
+
+        assertThatThrownBy(() -> PromptReplayHarnessTest.resolveSystemPrompt("prod", SUFFIX, coastalBased))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("INLAND");
+        assertThatThrownBy(() -> PromptReplayHarnessTest.resolveSystemPrompt("prod", null, coastalBased))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("INLAND");
+    }
+
+    @Test
+    void perRequestChoiceFollowsTheStoredPromptSuffix(@TempDir Path dir) throws Exception {
+        PromptReplayHarnessTest.StoredPrompt inlandPrompt =
+                new PromptReplayHarnessTest.StoredPrompt("1", false, "m");
+        PromptReplayHarnessTest.StoredPrompt coastalPrompt =
+                new PromptReplayHarnessTest.StoredPrompt("2", true, "m");
+        Path override = dir.resolve("r1.txt");
+        Files.writeString(override, "r1-base", StandardCharsets.UTF_8);
+
+        // no override: each gets its own production prompt, untouched
+        assertThat(PromptReplayHarnessTest.systemPromptFor(inlandPrompt, "INL", "COA", null)).isEqualTo("INL");
+        assertThat(PromptReplayHarnessTest.systemPromptFor(coastalPrompt, "INL", "COA", null)).isEqualTo("COA");
+        // override: inland gets the file; coastal gets the file plus the coastal suffix
+        assertThat(PromptReplayHarnessTest.systemPromptFor(inlandPrompt, "INL", "COA", override))
+                .isEqualTo("r1-base");
+        assertThat(PromptReplayHarnessTest.systemPromptFor(coastalPrompt, "INL", "COA", override))
+                .isEqualTo("r1-base" + SUFFIX);
     }
 
     @Test

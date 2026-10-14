@@ -15,8 +15,11 @@ R1 requires **near canvas** before a distant solar-side lid can carry a 4:
 - observer-point (overhead) mid or high cloud >= 20%, **or**
 - antisolar horizon mid or high cloud >= 20%.
 
-With no near canvas, the lid alone caps rating at 3 and fiery_sky at 55. (55 is my choice: the top of
-the band the prompt gives a "maybe". Tune it if you prefer.)
+With no near canvas, the lid alone caps rating at 3 and fiery_sky at 55.
+
+**Owner choice, recorded:** the fiery_sky cap of 55 is not derived from data. It is the top of the band
+the prompt gives a "maybe". Change the number in replacements 1 and 2 if you want a different cap; the
+rating cap of 3 is the rule itself.
 
 Unchanged, on purpose: the BLOCKED ceiling (solar low > 60%), the 40-60% partial-block rule, THIN STRIP
 and FAR CORRIDOR, the rating-5 conditions, the combined-signal cap and everything else. Note the THIN
@@ -28,10 +31,17 @@ same idea could apply.
 (cone 0/10/100, overhead mid/high 100, antisolar 100/100/100) has near canvas on both counts, so it must
 stay 4; that is a hard stop in the plan (section 2, Part D).
 
+Replacements 4 to 6 exist because the first three alone left the prompt contradicting itself: the
+sentence "When solar low cloud <20%, diffuse/soft/muted warm tones across this canvas are STILL rate 4
+... do NOT drop it to 3" survived after "With NO near canvas ... cap rating at 3", the general criterion
+"mid/high cloud above clear horizon = ideal canvas" still called any lid a canvas, and the
+DIRECTIONAL CLOUD DATA line still said the solar-horizon readings are the more reliable guide to
+"canvas availability". Each now says near canvas is required or how it is judged.
+
 Both clauses are written against the labels the user message actually uses: the `Cloud: Low x%, Mid y%,
 High z%` line (observer point) and `Antisolar horizon (away from sun): ...`.
 
-## The three replacements (verbatim; each OLD must occur exactly once in the production prompt)
+## The six replacements (verbatim; each OLD must occur exactly once in the production prompt)
 
 The text below is the runtime string (Java `—` is an em dash, `≥` is not used in the old text).
 `replay_set.py build-r1` reads these fenced blocks, so keep the fence labels.
@@ -64,6 +74,36 @@ This rate-4 floor applies ONLY with clear light penetration (solar low <20%);
 
 ```new 3
 This rate-4 floor applies ONLY with clear light penetration (solar low <20%) AND near canvas;
+```
+
+### 4. Diffuse-tones sentence, scoped to near canvas
+
+```old 4
+When solar low cloud <20%, diffuse/soft/muted warm tones across this canvas are STILL rate 4 (worth the trip) — uniformity and the absence of vivid reds reduce fiery_sky and cap the rating at 4, but do NOT drop it to 3.
+```
+
+```new 4
+When solar low cloud <20% AND near canvas is present, diffuse/soft/muted warm tones across this canvas are STILL rate 4 (worth the trip) — uniformity and the absence of vivid reds reduce fiery_sky and cap the rating at 4, but do NOT drop it to 3. This applies only when near canvas is present; with no near canvas the cap at 3 above governs.
+```
+
+### 5. Key criteria line
+
+```old 5
+mid/high cloud above clear horizon = ideal canvas for fiery sky;
+```
+
+```new 5
+mid/high cloud above a clear horizon, overhead or behind you (near canvas), = ideal canvas for fiery sky, while mid/high cloud only on the distant solar horizon is not;
+```
+
+### 6. Directional-data reliability note
+
+```old 6
+These are MORE RELIABLE than the observer-point cloud layers for assessing light penetration and canvas availability. Key rules:
+```
+
+```new 6
+These are MORE RELIABLE than the observer-point cloud layers for assessing light penetration and canvas availability, except that NEAR canvas (see the IDEAL scenario) is judged from the observer-point mid/high cloud and the antisolar mid/high cloud only. Key rules:
 ```
 
 ## How the owner builds the override file

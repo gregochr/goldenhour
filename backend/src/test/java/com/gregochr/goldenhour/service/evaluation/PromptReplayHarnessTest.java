@@ -60,11 +60,11 @@ import java.util.stream.Stream;
  *   <li>{@code REPLAY_THREADS}: concurrent calls, default 4</li>
  *   <li>{@code REPLAY_SYSTEM_PROMPT_FILE} (optional): a text file whose contents REPLACE the system
  *       prompt of every request (Part D's R1 variant, {@code docs/engineering/far-cloud-p1-plan.md}).
- *       Unset, the production prompt is sent byte-for-byte as before. The file is the inland
- *       prompt; a coastal request gets {@link CoastalPromptBuilder}'s suffix appended unless the
- *       file already ends with it, so coastal and inland differ exactly as in production
- *       ({@link #resolveSystemPrompt}). The prompt used is recorded in the {@code system_prompt}
- *       column of {@code runs.csv} and in {@code summary.md}.</li>
+ *       Unset, the production prompt is sent byte-for-byte as before. The file must be the inland
+ *       prompt (one already ending with the coastal suffix is rejected); a coastal request gets
+ *       {@link CoastalPromptBuilder}'s suffix appended, so coastal and inland differ exactly as in
+ *       production ({@link #resolveSystemPrompt}, {@link #systemPromptFor}). The prompt used is recorded in
+ *       the {@code system_prompt} column of {@code runs.csv} and in {@code summary.md}.</li>
  *   <li>{@code REPLAY_DUMP_SYSTEM_PROMPTS_DIR} (optional, used by {@link #dumpSystemPrompts}, no API
  *       key needed): writes the production {@code system-inland.txt} and {@code system-coastal.txt}
  *       so a variant file can be built from them</li>
@@ -125,7 +125,8 @@ class PromptReplayHarnessTest {
                     for (int i = 1; i <= n; i++) {
                         int attempt = i;
                         futures.add(pool.submit(() -> call(client, builder, model, prompt,
-                                attempt, parser, mapper, overrideFile, systemPromptId)));
+                                attempt, parser, mapper, inland.getSystemPrompt(),
+                                coastal.getSystemPrompt(), overrideFile, systemPromptId)));
                     }
                 }
             }
@@ -169,11 +170,9 @@ class PromptReplayHarnessTest {
     /** Sends one request, built exactly as {@code ClaudeEvaluationStrategy#invokeClaude} builds it. */
     private static Run call(AnthropicClient client, PromptBuilder builder, EvaluationModel model,
             StoredPrompt prompt, int attempt, SunsetEvaluationParser parser, ObjectMapper mapper,
-            Path overrideFile, String systemPromptId) {
+            String inlandPrompt, String coastalPrompt, Path overrideFile, String systemPromptId) {
         try {
-            String systemPrompt = resolveSystemPrompt(builder.getSystemPrompt(),
-                    prompt.coastal() ? CoastalPromptBuilder.COASTAL_SYSTEM_PROMPT_SUFFIX : null,
-                    overrideFile);
+            String systemPrompt = systemPromptFor(prompt, inlandPrompt, coastalPrompt, overrideFile);
             Message response = client.messages().create(
                     ModelRequestSupport.withThinkingSetting(MessageCreateParams.builder()
                             .model(model.getModelId())
@@ -204,11 +203,30 @@ class PromptReplayHarnessTest {
     }
 
     /**
+     * The system prompt one stored prompt's request is sent with: the production inland or coastal
+     * prompt by the stored prompt's suffix, or the override file's contents (plus the coastal suffix
+     * for a coastal prompt) when an override is set.
+     *
+     * @param prompt        the stored prompt (its suffix says coastal or inland)
+     * @param inlandPrompt  {@code PromptBuilder#getSystemPrompt()}
+     * @param coastalPrompt {@code CoastalPromptBuilder#getSystemPrompt()}
+     * @param overrideFile  the override file (the INLAND prompt), or null
+     * @return the system prompt text
+     */
+    static String systemPromptFor(StoredPrompt prompt, String inlandPrompt, String coastalPrompt,
+            Path overrideFile) {
+        return prompt.coastal()
+                ? resolveSystemPrompt(coastalPrompt, CoastalPromptBuilder.COASTAL_SYSTEM_PROMPT_SUFFIX,
+                        overrideFile)
+                : resolveSystemPrompt(inlandPrompt, null, overrideFile);
+    }
+
+    /**
      * The system prompt a request is sent with: {@code productionPrompt} untouched when
      * {@code overrideFile} is null, otherwise the file's contents (UTF-8, verbatim). For a coastal
-     * request ({@code coastalSuffix} non-null) the suffix is appended to the file's contents unless
-     * they already end with it, so an override built from the inland prompt still gets the coastal
-     * guidance production adds.
+     * request ({@code coastalSuffix} non-null) the suffix is appended to the file's contents. The file
+     * must be the INLAND prompt: one that already ends with the coastal suffix is rejected, because
+     * it would silently send the coastal guidance to inland prompts too.
      *
      * @param productionPrompt what the prompt builder returns
      * @param coastalSuffix    the coastal suffix, or null for an inland request
@@ -224,8 +242,12 @@ class PromptReplayHarnessTest {
             if (content.isEmpty()) {
                 throw new IllegalStateException("REPLAY_SYSTEM_PROMPT_FILE is empty: " + overrideFile);
             }
-            return coastalSuffix == null || content.endsWith(coastalSuffix)
-                    ? content : content + coastalSuffix;
+            if (content.endsWith(CoastalPromptBuilder.COASTAL_SYSTEM_PROMPT_SUFFIX)) {
+                throw new IllegalStateException("REPLAY_SYSTEM_PROMPT_FILE " + overrideFile
+                        + " already ends with the coastal suffix; it must be the INLAND prompt"
+                        + " (system-inland.txt, patched)");
+            }
+            return coastalSuffix == null ? content : content + coastalSuffix;
         } catch (IOException e) {
             throw new IllegalStateException("Cannot read REPLAY_SYSTEM_PROMPT_FILE " + overrideFile, e);
         }
@@ -256,6 +278,7 @@ class PromptReplayHarnessTest {
     void dumpSystemPrompts() throws IOException {
         String dir = setting("REPLAY_DUMP_SYSTEM_PROMPTS_DIR", null);
         if (dir == null || dir.isBlank()) {
+            System.out.println("dumpSystemPrompts: REPLAY_DUMP_SYSTEM_PROMPTS_DIR is not set; WROTE NOTHING");
             return;
         }
         Files.createDirectories(Path.of(dir));
@@ -263,6 +286,7 @@ class PromptReplayHarnessTest {
                 StandardCharsets.UTF_8);
         Files.writeString(Path.of(dir, "system-coastal.txt"),
                 new CoastalPromptBuilder().getSystemPrompt(), StandardCharsets.UTF_8);
+        System.out.println("dumpSystemPrompts: wrote system-inland.txt and system-coastal.txt to " + dir);
     }
 
     private static void write(List<Run> runs, List<StoredPrompt> prompts,

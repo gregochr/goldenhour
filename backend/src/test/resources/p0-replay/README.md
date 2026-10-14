@@ -33,7 +33,7 @@ Optional inputs (environment variable or `-D` system property):
 | Input | Effect |
 |---|---|
 | `REPLAY_MODELS`, `REPLAY_N`, `REPLAY_THREADS` | models, runs per prompt and model, concurrency |
-| `REPLAY_SYSTEM_PROMPT_FILE` | the file's contents REPLACE the system prompt of every request (Part D's R1 arm). Unset, the production prompt is sent unchanged. The file is the *inland* prompt; a coastal request gets the coastal suffix appended unless the file already ends with it. The prompt used is recorded in `runs.csv` (`system_prompt` column: `production`, or `<file>@sha256:<12 hex>`) and in `summary.md` |
+| `REPLAY_SYSTEM_PROMPT_FILE` | the file's contents REPLACE the system prompt of every request (Part D's R1 arm). Unset, the production prompt is sent unchanged. The file must be the *inland* prompt (one already ending with the coastal suffix is rejected with an error); a coastal request gets the coastal suffix appended. The prompt used is recorded in `runs.csv` (`system_prompt` column: `production`, or `<file>@sha256:<12 hex>`) and in `summary.md` |
 | `REPLAY_DUMP_SYSTEM_PROMPTS_DIR` | with `-Dtest=PromptReplayHarnessTest#dumpSystemPrompts`, writes `system-inland.txt` and `system-coastal.txt` (no API key needed) |
 
 Prompt files may be named with an evaluation id, `101110.inland.txt` / `101110.coastal.txt`; the label in the
@@ -56,8 +56,9 @@ needs two workarounds, both local to the container:
 Stored prompts are pruned after 30 days: export them first (`scripts/far-cloud-p1/export_prompts.sql`).
 
 ```bash
-# 1. Build the set: latest prompted go per slot + an equal seeded sample of 3-star rows;
-#    training cases go to <out>/training. Prints the count and a cost estimate (read it, approve it).
+# 1. Build the set: latest run per slot (from the forecast export's full history), gos = sky_rating >= 4
+#    (rating where no sky_rating) + an equal seeded sample of 3-star rows; training cases go to
+#    <out>/training; <out>/manifest.csv records every prompt. Prints the count and a cost range.
 python3 scripts/far-cloud-p1/replay_set.py select --prompts p1_prompts.csv --forecasts p1_forecasts.csv \
   --out /tmp/p1-replay --runs 3
 
@@ -77,7 +78,11 @@ ANTHROPIC_API_KEY=... REPLAY_PROMPTS_DIR=/tmp/p1-replay REPLAY_N=3 REPLAY_MODELS
   ./mvnw test -Pprompt-regression -Dtest=PromptReplayHarnessTest#replayStoredPrompts
 ```
 
+Read the results with `replay_set.py compare --manifest /tmp/p1-replay/manifest.csv --runs <arm>/runs.csv,<label> ...`
+(`scripts/far-cloud-p1/README.md` has the full run order).
+
 Hard stops: Low Hauxley (`low-hauxley-1004.coastal.txt`, replayed from this folder) must stay 4 on arms 1, 2
 and 4; the prompt-regression suite and `PromptGoldenMasterTest` must not regress on any arm proposed for
 production. Which builder a stored prompt used is approximated from location metadata
-(`replay_set.py`'s `is_coastal_prompt`; production keys it on `AtmosphericData.tide() != null`).
+(`replay_set.py`'s `is_coastal_prompt`: a non-empty `loc_tide_types`; production keys it on
+`AtmosphericData.tide() != null`, so a coastal location with no stored tide extremes is misclassified).
