@@ -17,6 +17,7 @@ import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.AlmanacService;
 import com.gregochr.goldenhour.service.TideRunBuilder;
 import com.gregochr.goldenhour.service.TideService;
+import com.gregochr.goldenhour.util.LogSanitizer;
 import com.gregochr.solarutils.MoonriseMoonset;
 import com.gregochr.solarutils.MoonriseMoonsetCalculator;
 import org.slf4j.Logger;
@@ -161,9 +162,22 @@ public class ComingUpAssembler {
             if (!isTideRun(event.type()) && !TYPE_SUPERMOON.equals(event.type())) {
                 continue;
             }
-            Staged partner = stage(builtFor, event, coastalRoster);
-            partner.partnerOnly = true;
-            staged.add(partner);
+            // ...and only one that OVERLAPS an eligible event of the complementary type, the same
+            // test the pairing uses: an unpaired partner is discarded anyway, so its enrichment
+            // (repository reads for a tide run) is never paid for.
+            if (eligibleEvents.stream().noneMatch(e -> complementary(event, e) && overlaps(event, e))) {
+                continue;
+            }
+            try {
+                Staged partner = stage(builtFor, event, coastalRoster);
+                partner.partnerOnly = true;
+                staged.add(partner);
+            } catch (RuntimeException e) {
+                // A partner can never fail the feed: drop it, and the eligible event stays unmerged.
+                LOG.warn("Coming up partner {} {}..{} could not be staged and was dropped: {}",
+                        LogSanitizer.sanitize(event.type()), event.startDate(), event.endDate(),
+                        LogSanitizer.sanitize(e.toString()));
+            }
         }
 
         // Superlatives/thresholds MUST run before the merge: they compare a tide run's own range
@@ -687,6 +701,12 @@ public class ComingUpAssembler {
 
     private static boolean isTideRun(String type) {
         return TYPE_SPRING_TIDE.equals(type) || TYPE_KING_TIDE.equals(type);
+    }
+
+    /** Whether {@code b} is the other half of a pairable coincidence with {@code a} (run ↔ supermoon). */
+    private static boolean complementary(AlmanacEvent a, AlmanacEvent b) {
+        return (isTideRun(a.type()) && TYPE_SUPERMOON.equals(b.type()))
+                || (TYPE_SUPERMOON.equals(a.type()) && isTideRun(b.type()));
     }
 
     private static boolean overlaps(AlmanacEvent a, AlmanacEvent b) {

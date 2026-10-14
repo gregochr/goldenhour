@@ -1133,8 +1133,6 @@ class ComingUpAssemblerTest {
     void partnersOnlyAreNeverEntriesOfTheirOwn() {
         when(tideRunBuilder.peakRange(eq(datesOf(oct(25), oct(30))), eq(COASTAL_ROSTER)))
                 .thenReturn(Optional.of(new TideRunBuilder.RunPeak(SEAHAM, 4.0)));
-        when(tideRunBuilder.peakRange(eq(datesOf(oct(1), oct(4))), eq(COASTAL_ROSTER)))
-                .thenReturn(Optional.of(new TideRunBuilder.RunPeak(SEAHAM, 9.0)));
         when(tideService.getTideStats(SEAHAM.getId())).thenReturn(Optional.empty());
         AlmanacEvent eligible = event(oct(25), oct(30), "spring-tide", "Spring tide run", Map.of());
         AlmanacEvent planRun = event(oct(1), oct(4), "spring-tide", "Spring tide run", Map.of());
@@ -1148,9 +1146,27 @@ class ComingUpAssemblerTest {
         assertThat(response.entries()).hasSize(1);
         ComingUpEntry only = response.entries().getFirst();
         assertThat(only.id()).isEqualTo("spring-tide:2026-10-25:2026-10-30");
-        // The 9.0 m Plan-window run is not in the comparison set: no threshold, no superlative.
+        // The Plan-window run is not in the comparison set: no threshold, no superlative.
         assertThat(only.threshold()).isNull();
         assertThat(only.superlative()).isNull();
+        // And, unpaired, it was never enriched: no repository read for its dates.
+        verify(tideRunBuilder, never()).peakRange(eq(datesOf(oct(1), oct(4))), eq(COASTAL_ROSTER));
+    }
+
+    @Test
+    @DisplayName("§4.7: a paired partner whose enrichment throws is dropped with a warning — the "
+            + "eligible event is still served, unmerged, and the build succeeds")
+    void aPartnerWhoseEnrichmentThrowsNeverFailsTheFeed() {
+        when(tideRunBuilder.peakRange(eq(datesOf(oct(23), oct(26))), eq(COASTAL_ROSTER)))
+                .thenThrow(new IllegalStateException("db down"));
+        AlmanacEvent planRun = event(oct(23), oct(26), "spring-tide", "Spring tide run", runMeta(oct(24), oct(24)));
+
+        ComingUpResponse response = assembler.assemble(BUILT,
+                List.of(supermoon(oct(26), oct(27), oct(26))), List.of(planRun));
+
+        assertThat(response.entries()).hasSize(1);
+        assertThat(response.entries().getFirst().type()).isEqualTo("supermoon");
+        assertThat(response.entries().getFirst().coincidence()).isEmpty();
     }
 
     @Test
