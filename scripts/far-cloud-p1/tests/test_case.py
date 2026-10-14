@@ -139,5 +139,92 @@ class BuildCaseTest(unittest.TestCase):
         self.assertGreater(c.projected_weight, 0)
 
 
+class RateLimitStopsRunTest(unittest.TestCase):
+    def fetch_failing(self, status, body, on="models=ukmo_seamless"):
+        ok = FakeOM()
+
+        def fetch(url):
+            if on in url:
+                return status, body
+            return ok(url)
+        return fetch
+
+    def test_http_429_stops_the_run_instead_of_skipping_the_model(self):
+        for body in ('{"reason": "Too Many Requests"}', "<html>429</html>"):
+            c = om.Client(tempfile.mkdtemp(), fetch=self.fetch_failing(429, body), pause_s=0)
+            with self.assertRaises(om.RateLimited):
+                case.build_case(c, *ANGEL[:2], ANGEL[2], "SUNSET", ["best_match", "ukmo_seamless", "ecmwf_ifs025"])
+
+    def test_limit_body_stops_the_run(self):
+        for reason in ("Hourly API request limit exceeded", "Minutely API request limit exceeded",
+                       "Too many concurrent requests"):
+            body = '{"error": true, "reason": "%s"}' % reason
+            c = om.Client(tempfile.mkdtemp(), fetch=self.fetch_failing(200, body), pause_s=0)
+            with self.assertRaises(om.RateLimited):
+                case.build_case(c, *ANGEL[:2], ANGEL[2], "SUNSET", ["best_match", "ukmo_seamless"])
+
+    def test_network_failure_stops_the_run(self):
+        def fetch(url):
+            if "models=ukmo_seamless" in url:
+                raise om.NetworkError("network error talking to Open-Meteo")
+            return FakeOM()(url)
+        c = om.Client(tempfile.mkdtemp(), fetch=fetch, pause_s=0)
+        with self.assertRaises(om.NetworkError):
+            case.build_case(c, *ANGEL[:2], ANGEL[2], "SUNSET", ["best_match", "ukmo_seamless"])
+
+    def test_cli_exit_code_and_no_output_files_on_429(self):
+        import contextlib
+        import io
+        out = tempfile.mkdtemp()
+        c = om.Client(tempfile.mkdtemp(), fetch=self.fetch_failing(429, "{}"), pause_s=0)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = case.main(["--out", out, "--models", "best_match,ukmo_seamless"], client=c)
+        self.assertEqual(rc, 2)
+        self.assertIn("RATE LIMITED", buf.getvalue())
+        self.assertEqual(os.listdir(out), [])
+        self.assertEqual(c.weight_spent > 0, True)          # earlier successful requests were charged
+        self.assertEqual(c.used_today(), c.weight_spent)    # the 429 itself was not
+
+    def test_corrupt_budget_refuses_the_cli(self):
+        import contextlib
+        import io
+        cache = tempfile.mkdtemp()
+        with open(os.path.join(cache, "budget.json"), "w") as f:
+            f.write("{oops")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = case.main(["--out", tempfile.mkdtemp(), "--cache", cache])
+        self.assertEqual(rc, 2)
+        self.assertIn("REFUSING", buf.getvalue())
+
+
+class CoordinateEncodingTest(unittest.TestCase):
+    def test_every_csv_value_comes_from_its_own_cell(self):
+        from om_fake import default_provider
+        fake = FakeOM()
+        c = om.Client(tempfile.mkdtemp(), fetch=fake, pause_s=0)
+        cs = case.build_case(c, *ANGEL[:2], ANGEL[2], "SUNSET", ["best_match"])
+        rep = {}                      # the coordinate each grid cell was fetched at (first one seen)
+        for h in cs["hours"]:
+            for _, coord, key in cs["per_hour"][h]["rows"]:
+                rep.setdefault(key, coord)
+        rows = case.csv_rows(cs)
+        checked = 0
+        for r in rows:
+            if r["source"] == "era5":
+                la, lo = rep[r["cell"]]
+                self.assertEqual(float(r["low"]), default_provider("cloud_cover_low", la, lo, r["hour_utc"], ""))
+                self.assertEqual(float(r["high"]), default_provider("cloud_cover_high", la, lo, r["hour_utc"], ""))
+                checked += 1
+        self.assertEqual(checked, 3 * 17)
+        by_cell = {}
+        for r in rows:
+            if r["source"] == "era5" and r["hour_utc"].endswith("17:00"):
+                by_cell.setdefault(r["cell"], set()).add(r["low"])
+        self.assertTrue(all(len(v) == 1 for v in by_cell.values()))          # same cell, same value
+        self.assertGreater(len({next(iter(v)) for v in by_cell.values()}), 5)  # cells differ
+
+
 if __name__ == "__main__":
     unittest.main()

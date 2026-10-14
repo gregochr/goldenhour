@@ -116,6 +116,8 @@ def build_case(client: om.Client, lat: float, lon: float, day: str, ttype: str,
         vs = om.CLOUD_VARS + [om.prev_var(v, 1) for v in om.CLOUD_VARS]
         try:
             pts = client.get("previous_runs", coords, vs, day, day, models=m)
+        except (om.RateLimited, om.BudgetExhausted, om.NetworkError):
+            raise       # a limit (HTTP 429 / limit body) stops the whole run; never "model skipped"
         except om.OpenMeteoError as e:   # a model the API rejects is skipped, not fatal
             notes.append(f"model {m} skipped: {e}")
             continue
@@ -286,19 +288,28 @@ def main(argv: Optional[Sequence[str]] = None, client: Optional[om.Client] = Non
     ap.add_argument("--budget", type=int, default=om.DEFAULT_BUDGET)
     ap.add_argument("--pause", type=float, default=om.DEFAULT_PAUSE_S)
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--no-wait", action="store_true",
+                    help="stop cleanly at the hourly cap instead of sleeping to the next hour")
     a = ap.parse_args(argv)
     lat, lon, day, ttype, ev = a.lat, a.lon, a.date, a.type, None
     if a.row_csv:
         lat, lon, day, ttype, ev = load_row(a.row_csv, a.row_id)
-    client = client or om.Client(a.cache, a.budget, pause_s=a.pause, dry_run=a.dry_run)
     models = [m for m in a.models.split(",") if m]
     try:
+        client = client or om.Client(a.cache, a.budget, pause_s=a.pause, dry_run=a.dry_run,
+                                     wait_for_hour=not a.no_wait)
         case = build_case(client, lat, lon, day, ttype, models, ev)
+    except om.BudgetFileCorrupt as e:
+        print(f"REFUSING TO RUN: {e}")
+        return 2
     except om.RateLimited as e:
         print(f"RATE LIMITED, stopping (re-run resumes from cache): {e}")
         return 2
     except om.BudgetExhausted as e:
-        print(f"BUDGET EXHAUSTED (re-run tomorrow, resumes from cache): {e}")
+        print(f"BUDGET EXHAUSTED (re-run later, resumes from cache): {e}")
+        return 2
+    except om.OpenMeteoError as e:
+        print(f"OPEN-METEO ERROR, stopping (re-run resumes from cache): {e}")
         return 2
     print(client.summary())
     if a.dry_run:
