@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.model.AlmanacEvent;
 import com.gregochr.goldenhour.model.AlmanacKind;
 import com.gregochr.goldenhour.model.TideStats;
 import com.gregochr.goldenhour.model.comingup.ComingUpDayMark;
+import com.gregochr.goldenhour.model.comingup.ComingUpDayRange;
 import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
 import com.gregochr.goldenhour.model.comingup.ComingUpFact;
 import com.gregochr.goldenhour.model.comingup.ComingUpResponse;
@@ -1061,6 +1062,143 @@ class ComingUpAssemblerTest {
                 .containsEntry("night-sky", 1);
         assertThat(counts.fixed()).isEqualTo(2);
         assertThat(counts.forecast()).isZero();
+    }
+
+    private void stubRanges(LocalDate start, LocalDate end, Object... dateAndRange) {
+        java.util.Map<LocalDate, Double> ranges = new java.util.LinkedHashMap<>();
+        for (int i = 0; i < dateAndRange.length; i += 2) {
+            ranges.put((LocalDate) dateAndRange[i], (Double) dateAndRange[i + 1]);
+        }
+        when(tideRunBuilder.dailyRangesAt(eq(SEAHAM), eq(datesOf(start, end)))).thenReturn(ranges);
+    }
+
+    @Test
+    @DisplayName("S2: an unmerged run serves one 1-dp range per derivable day, ascending, peak true on "
+            + "the true peak day only")
+    void unmergedRunServesDayRanges() {
+        stubRunAtSeaham();
+        stubRanges(oct(25), oct(30), oct(25), 4.34, oct(26), 4.66, oct(27), 4.9, oct(28), 4.51,
+                oct(29), 4.0, oct(30), 3.54);
+        AlmanacEvent run = event(oct(25), oct(30), "spring-tide", "Spring tide run", runMeta(oct(27), null));
+
+        ComingUpEntry entry = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
+
+        assertThat(entry.dayRanges()).containsExactly(
+                new ComingUpDayRange(oct(25), 4.3, false), new ComingUpDayRange(oct(26), 4.7, false),
+                new ComingUpDayRange(oct(27), 4.9, true), new ComingUpDayRange(oct(28), 4.5, false),
+                new ComingUpDayRange(oct(29), 4.0, false), new ComingUpDayRange(oct(30), 3.5, false));
+        assertThat(entry.dayMarks()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("S2: a missing middle day is absent from the served ranges, never synthesised")
+    void missingMiddleDayIsAbsentFromDayRanges() {
+        stubRunAtSeaham();
+        stubRanges(oct(25), oct(27), oct(25), 4.3, oct(27), 4.9);
+        AlmanacEvent run = event(oct(25), oct(27), "spring-tide", "Spring tide run", runMeta(oct(27), null));
+
+        ComingUpEntry entry = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
+
+        assertThat(entry.dayRanges()).extracting(ComingUpDayRange::date).containsExactly(oct(25), oct(27));
+    }
+
+    @Test
+    @DisplayName("S2: fewer than two derivable days serves no ranges")
+    void fewerThanTwoDerivableDaysServesNoRanges() {
+        stubRunAtSeaham();
+        stubRanges(oct(25), oct(27), oct(26), 4.9);
+        AlmanacEvent run = event(oct(25), oct(27), "spring-tide", "Spring tide run", runMeta(oct(26), null));
+
+        assertThat(assembler.assemble(BUILT, List.of(run)).entries().getFirst().dayRanges()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("S2: with no representative (no derivable peak) there are no ranges and none are fetched")
+    void noRepresentativeServesNoRanges() {
+        when(tideRunBuilder.peakRange(anyList(), eq(COASTAL_ROSTER))).thenReturn(Optional.empty());
+        AlmanacEvent run = event(oct(25), oct(27), "spring-tide", "Spring tide run", runMeta(oct(26), null));
+
+        assertThat(assembler.assemble(BUILT, List.of(run)).entries().getFirst().dayRanges()).isEmpty();
+        verify(tideRunBuilder, never()).dailyRangesAt(any(), anyList());
+    }
+
+    @Test
+    @DisplayName("S2: a failing range read degrades — the entry is still served with its metric and "
+            + "tide, just without dayRanges")
+    void failingRangeReadDegradesToNoDayRanges() {
+        stubRunAtSeaham();
+        when(tideRunBuilder.dailyRangesAt(any(), anyList())).thenThrow(new IllegalStateException("db down"));
+        AlmanacEvent run = event(oct(25), oct(27), "spring-tide", "Spring tide run", runMeta(oct(26), null));
+
+        ComingUpEntry entry = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
+
+        assertThat(entry.dayRanges()).isEmpty();
+        assertThat(entry.metric()).isEqualTo("4.9 m");
+        assertThat(entry.type()).isEqualTo("spring-tide");
+    }
+
+    @Test
+    @DisplayName("S2: ranges round exactly as the headline metric is spelt (%.1f), e.g. 8.966 - 1.516")
+    void dayRangesRoundLikeTheMetric() {
+        stubRunAtSeaham();
+        double nearlyHalf = 8.966 - 1.516;
+        stubRanges(oct(25), oct(27), oct(25), 4.35, oct(26), nearlyHalf);
+        AlmanacEvent run = event(oct(25), oct(27), "spring-tide", "Spring tide run", runMeta(oct(26), null));
+
+        ComingUpEntry entry = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
+
+        assertThat(entry.dayRanges()).extracting(ComingUpDayRange::rangeMetres)
+                .containsExactly(Double.parseDouble(String.format(java.util.Locale.UK, "%.1f", 4.35)),
+                        Double.parseDouble(String.format(java.util.Locale.UK, "%.1f", nearlyHalf)));
+        assertThat(entry.dayRanges().get(1).rangeMetres()).isEqualTo(7.4);
+    }
+
+    @Test
+    @DisplayName("S2 (defensive guard — production emits partialCoverage only for a one-day run, which "
+            + "has no ranges): a fixture with no peakDate crowns no day, peak is false everywhere")
+    void partialCoverageRunHasNoPeakDay() {
+        stubRunAtSeaham();
+        stubRanges(oct(25), oct(30), oct(27), 4.9, oct(28), 4.5, oct(29), 4.0);
+        AlmanacEvent run = event(oct(25), oct(30), "spring-tide", "Spring tide run",
+                AlmanacEvent.metaOf("range", "4.9 m", "figuresFrom", oct(27).toString(),
+                        "partialCoverage", "true", "location", "Seaham"));
+
+        ComingUpEntry entry = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
+
+        assertThat(entry.dayRanges()).hasSize(3).noneMatch(ComingUpDayRange::peak);
+    }
+
+    @Test
+    @DisplayName("S2: a merged entry carries the run's ranges when the run hosts")
+    void mergedEntryCarriesRunRangesWhenRunHosts() {
+        stubRunAtSeaham();
+        stubRanges(oct(25), oct(30), oct(25), 4.3, oct(26), 4.6, oct(27), 4.9);
+        AlmanacEvent run = event(oct(25), oct(30), "spring-tide", "Spring tide run", runMeta(oct(27), null));
+
+        ComingUpEntry merged = assembler.assemble(BUILT, List.of(run, supermoon(oct(26), oct(26), oct(26))))
+                .entries().getFirst();
+
+        assertThat(merged.type()).isEqualTo("spring-tide");
+        assertThat(merged.dayMarks()).isNotEmpty();
+        assertThat(merged.dayRanges()).extracting(ComingUpDayRange::date)
+                .containsExactly(oct(25), oct(26), oct(27));
+        assertThat(merged.dayRanges()).extracting(ComingUpDayRange::peak).containsExactly(false, false, true);
+    }
+
+    @Test
+    @DisplayName("S2: a merged entry carries the run's ranges when the supermoon hosts, restricted to the run")
+    void mergedEntryCarriesRunRangesWhenSupermoonHosts() {
+        stubRunAtSeaham();
+        stubRanges(oct(26), oct(27), oct(26), 4.2, oct(27), 4.9);
+        AlmanacEvent run = event(oct(26), oct(27), "spring-tide", "Spring tide run", runMeta(oct(27), null));
+        AlmanacEvent moon = supermoon(oct(24), oct(30), oct(26));
+
+        ComingUpEntry merged = assembler.assemble(BUILT, List.of(run, moon)).entries().getFirst();
+
+        assertThat(merged.type()).isEqualTo("supermoon");
+        assertThat(merged.startDate()).isEqualTo(oct(24));
+        assertThat(merged.dayRanges()).containsExactly(
+                new ComingUpDayRange(oct(26), 4.2, false), new ComingUpDayRange(oct(27), 4.9, true));
     }
 
     @Test

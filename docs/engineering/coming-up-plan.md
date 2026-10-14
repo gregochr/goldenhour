@@ -1082,6 +1082,12 @@ purpose, so a later reader stops hunting for the "missing" piece.)
     longer coincidence line inside the card at 390/320px. Phases S2 (`dayRanges`) to S4 (range bars)
     follow in the same plan.
 
+    **S2 (`dayRanges`)**: `ComingUpDayRange(date, rangeMetres, peak)` is served on every tide-run entry whose run has at
+    least two derivable days, from `TideRunBuilder.dailyRangesAt(representative, datesOf(event))` (a second read of the
+    representative's extremes beside `peakRange`'s, decided against widening `RunPeak`), and carried onto a merged entry
+    from the run whichever topic hosts. `peak` compares against `event.meta().get("peakDate")` itself, never
+    `peakDateOf`, whose `figuresFrom` fallback would crown a partial-coverage run's first measured day.
+
 ---
 
 ## 12 · Standing gotchas for every implementing session
@@ -1205,9 +1211,18 @@ commit.** Phase annotations mark when each field first ships; everything is user
                                          // TOPIC, HOST FIRST, each with its own dates (§11.27)
       "joinNote": "…",                   // P2, nullable — server-authored joining sentence naming each topic's own date(s)
       "dayMarks": [ { "date": "2026-11-24", "label": "full moon", "family": "sun-moon" },
-                    { "date": "2026-11-26", "label": "peak", "family": "coastal" } ]
+                    { "date": "2026-11-26", "label": "peak", "family": "coastal" } ],
                                          // S1, merged entries only (absent otherwise) — the days each merged
                                          // topic marks, by date then host first
+      "dayRanges": [ { "date": "2026-11-24", "rangeMetres": 4.3, "peak": false },
+                     { "date": "2026-11-26", "rangeMetres": 4.9, "peak": true } ]
+                                         // S2, every tide-run entry with >= 2 derivable days (absent otherwise);
+                                         // merged or not, always the RUN's, whichever topic hosts — one element
+                                         // per derivable day of the run's span, ascending, 1 dp; `peak` only on
+                                         // the day the event's own peakDate names, i.e. the biggest
+                                         // MEASURED day (a run straddling the stored window marks its largest
+                                         // measured day; a run known for one day gets no bars); a day with no
+                                         // stored extremes is absent; ranges round as the metric does (%.1f)
     }
   ]
 }

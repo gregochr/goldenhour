@@ -212,7 +212,7 @@ class AskReadModelTest {
                 List.of(new ComingUpCoincidenceLine("coastal", "Spring tide run", "dates", "spring-tide"),
                         new ComingUpCoincidenceLine("sun-moon", "Supermoon", "date", "supermoon"),
                         new ComingUpCoincidenceLine("sun-moon", "Untyped", "date", null)),
-                "joined", List.of());
+                "joined", List.of(), List.of());
         AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(
                 AskFixtures.topic("SUPERMOON", "Supermoon", "d", TODAY.plusDays(4), List.of()),
                 AskFixtures.topic("AURORA", "Aurora", "d", TODAY.plusDays(4), List.of()))), List.of(merged));

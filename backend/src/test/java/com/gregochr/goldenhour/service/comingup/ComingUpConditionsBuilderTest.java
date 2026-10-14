@@ -101,7 +101,7 @@ class ComingUpConditionsBuilderTest {
                 event.title(), event.detail(), Map.of(), List.of(), event.startDate().minusDays(89),
                 id, "coastal", "Almanac", null, null, null, List.of(), null, null, null,
                 new ComingUpAction("See the plan for " + event.startDate() + " →", "plan", event.startDate()),
-                bits, false, null, coincidence, coincidence.isEmpty() ? null : "joined", List.of());
+                bits, false, null, coincidence, coincidence.isEmpty() ? null : "joined", List.of(), List.of());
     }
 
     // ── Always three conditions ─────────────────────────────────────────

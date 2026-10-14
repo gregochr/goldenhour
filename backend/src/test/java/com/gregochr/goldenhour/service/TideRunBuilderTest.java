@@ -1132,6 +1132,62 @@ class TideRunBuilderTest {
         assertThat(builder.peakRangeAt(whitby(), List.of(DAY_1))).isEmpty();
     }
 
+    @Test
+    @DisplayName("dailyRangesAt returns one range per derivable day, ascending, at the given location only")
+    void dailyRangesAt_oneRangePerDerivableDay() {
+        LocalDate day3 = DAY_2.plusDays(1);
+        List<TideExtremeEntity> extremes = new ArrayList<>(day(ID_SEAHAM, DAY_2,
+                low("05:40", 0.2), high("11:50", 5.0), low("18:00", 0.2)));
+        extremes.addAll(day(ID_SEAHAM, DAY_1, low("05:00", 0.4), high("11:10", 3.0), low("17:20", 0.4)));
+        extremes.addAll(day(ID_SEAHAM, day3, low("06:00", 0.5), high("12:10", 4.5), low("18:30", 0.5)));
+        stubExtremes(extremes);
+
+        java.util.Map<LocalDate, Double> ranges =
+                builder.dailyRangesAt(seaham(), List.of(day3, DAY_1, DAY_2, DAY_1));
+
+        assertThat(ranges.keySet()).containsExactly(DAY_1, DAY_2, day3);
+        assertThat(ranges.get(DAY_1)).isEqualTo(2.6, org.assertj.core.data.Offset.offset(0.001));
+        assertThat(ranges.get(DAY_2)).isEqualTo(4.8, org.assertj.core.data.Offset.offset(0.001));
+        assertThat(ranges.get(day3)).isEqualTo(4.0, org.assertj.core.data.Offset.offset(0.001));
+    }
+
+    @Test
+    @DisplayName("dailyRangesAt leaves a day with no stored extremes out — never zero, never synthesised")
+    void dailyRangesAt_missingMiddleDayIsAbsent() {
+        LocalDate day3 = DAY_2.plusDays(1);
+        List<TideExtremeEntity> extremes = new ArrayList<>(day(ID_SEAHAM, DAY_1,
+                low("05:00", 0.4), high("11:10", 3.0), low("17:20", 0.4)));
+        extremes.addAll(day(ID_SEAHAM, day3, low("06:00", 0.5), high("12:10", 4.5), low("18:30", 0.5)));
+        stubExtremes(extremes);
+
+        java.util.Map<LocalDate, Double> ranges =
+                builder.dailyRangesAt(seaham(), List.of(DAY_1, DAY_2, day3));
+
+        assertThat(ranges.keySet()).containsExactly(DAY_1, day3);
+    }
+
+    @Test
+    @DisplayName("dailyRangesAt measures the given location, never the biggest one available")
+    void dailyRangesAt_usesTheGivenLocation() {
+        List<TideExtremeEntity> both = new ArrayList<>(day(ID_WHITBY, DAY_1,
+                low("04:30", 1.0), high("10:40", 3.0), low("16:50", 1.0)));
+        both.addAll(day(ID_SEAHAM, DAY_1, low("05:00", 0.4), high("11:10", 5.0), low("17:20", 0.4)));
+        stubExtremes(both);
+
+        assertThat(builder.dailyRangesAt(whitby(), List.of(DAY_1))).containsEntry(DAY_1, 2.0);
+    }
+
+    @Test
+    @DisplayName("dailyRangesAt is empty for a null representative, null or empty dates, or no extremes")
+    void dailyRangesAt_emptyInputsYieldEmpty() {
+        assertThat(builder.dailyRangesAt(null, List.of(DAY_1))).isEmpty();
+        assertThat(builder.dailyRangesAt(whitby(), null)).isEmpty();
+        assertThat(builder.dailyRangesAt(whitby(), List.of())).isEmpty();
+
+        stubExtremes(List.of());
+        assertThat(builder.dailyRangesAt(whitby(), List.of(DAY_1))).isEmpty();
+    }
+
     // ── fixtures ──────────────────────────────────────────────────────────────
 
     private void stubSolar() {

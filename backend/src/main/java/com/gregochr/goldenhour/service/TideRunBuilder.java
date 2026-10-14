@@ -339,6 +339,36 @@ public class TideRunBuilder {
         return peakOf(ordered, byLocation.get(representative.getId()));
     }
 
+    /**
+     * Each derivable day's tidal range in metres at a <b>fixed</b> representative location — the
+     * per-day figures the "Coming up" day-chip bars draw (supermoon-tide-run-plan.md S2).
+     *
+     * <p>A day with no stored extremes (or too few to form a range) is absent, never zero and never
+     * synthesised. The representative is the one the run's peak was already measured at; it is never
+     * re-selected here.
+     *
+     * @param representative the fixed location to measure
+     * @param dates          the run's dates, in any order
+     * @return date to range in metres, in ascending date order; empty on null or empty input
+     */
+    public Map<LocalDate, Double> dailyRangesAt(LocationEntity representative, List<LocalDate> dates) {
+        Map<LocalDate, Double> ranges = new LinkedHashMap<>();
+        if (representative == null || dates == null || dates.isEmpty()) {
+            return ranges;
+        }
+        List<LocalDate> ordered = dates.stream().sorted().distinct().toList();
+        Map<Long, List<TideExtremeEntity>> byLocation =
+                fetchExtremes(List.of(representative), ordered);
+        List<TideExtremeEntity> extremes = byLocation.get(representative.getId());
+        for (LocalDate date : ordered) {
+            DayTides day = dayTides(extremes, date);
+            if (day != null) {
+                ranges.put(date, day.range());
+            }
+        }
+        return ranges;
+    }
+
     private static OptionalDouble peakOf(List<LocalDate> dates, List<TideExtremeEntity> extremes) {
         return dates.stream()
                 .map(date -> dayTides(extremes, date))
