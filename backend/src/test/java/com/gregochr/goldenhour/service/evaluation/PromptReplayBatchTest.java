@@ -403,6 +403,38 @@ class PromptReplayBatchTest {
     }
 
     @Test
+    @DisplayName("an interrupt while waiting for a primer stops the run before the paid batch is created")
+    void interrupt_duringPrimerWait_createsNoRealBatch() throws Exception {
+        List<Request> requests = PromptReplayBatch.plan(prompts.subList(0, 1), List.of(MODEL), 1);
+        stubCreates("msgbatch_primer", "msgbatch_real");
+        stubBatch("msgbatch_primer", "in_progress", 0, 0);
+        Settings settings = settings(true, false, "2");
+        Runner interrupted = new Runner(client, systemPrompts(), settings, outDir, JSON,
+                new SunsetEvaluationParser(), "production", Clock.systemUTC(),
+                d -> {
+                    throw new InterruptedException("cancelled");
+                }, out);
+        Plan plan = preflight(settings, requests);
+
+        assertThatThrownBy(() -> interrupted.run(plan)).isInstanceOf(InterruptedException.class);
+
+        WIRE_MOCK.verify(1, postRequestedFor(urlPathEqualTo(BATCHES)));
+        assertThat(PromptReplayBatch.readState(outDir, JSON).models().get(0).batchId()).isNull();
+    }
+
+    @Test
+    @DisplayName("moving a prompt between inland and coastal changes the plan's fingerprint")
+    void fingerprint_includesThePromptKind() {
+        List<Request> inlandPlan = PromptReplayBatch.plan(
+                List.of(new StoredPrompt("101110", false, "same")), List.of(MODEL), 1);
+        List<Request> coastalPlan = PromptReplayBatch.plan(
+                List.of(new StoredPrompt("101110", true, "same")), List.of(MODEL), 1);
+
+        assertThat(PromptReplayBatch.fingerprint(inlandPlan, "production", systemPrompts()))
+                .isNotEqualTo(PromptReplayBatch.fingerprint(coastalPlan, "production", systemPrompts()));
+    }
+
+    @Test
     @DisplayName("resume refuses a plan that differs from the stored one, and a missing state file")
     void resume_refusesAChangedPlan() throws Exception {
         List<Request> requests = PromptReplayBatch.plan(prompts.subList(0, 1), List.of(MODEL), 1);

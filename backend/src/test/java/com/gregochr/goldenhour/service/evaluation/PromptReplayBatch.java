@@ -340,7 +340,7 @@ final class PromptReplayBatch {
         // -- priming -------------------------------------------------------------------------
 
         private ModelState prime(EvaluationModel model, List<Request> own, ModelState start, Plan plan,
-                Map<String, ModelState> states) {
+                Map<String, ModelState> states) throws InterruptedException {
             if (!settings.primerEnabled() || settings.primerWait().isZero()) {
                 return start.withWarmed(List.of());
             }
@@ -379,7 +379,8 @@ final class PromptReplayBatch {
             }
         }
 
-        private List<String> awaitPrimers(EvaluationModel model, ModelState ms) {
+        private List<String> awaitPrimers(EvaluationModel model, ModelState ms)
+                throws InterruptedException {
             Map<String, String> pending = new LinkedHashMap<>(ms.primers() == null ? Map.of() : ms.primers());
             List<String> warmed = new ArrayList<>();
             Instant deadline = clock.instant().plus(settings.primerWait());
@@ -412,13 +413,9 @@ final class PromptReplayBatch {
                             + "s - continuing without them");
                     break;
                 }
-                try {
-                    sleeper.sleep(remaining.compareTo(settings.pollInterval()) < 0
-                            ? remaining : settings.pollInterval());
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    break;
-                }
+                // an interrupt propagates: a cancelled run must not go on to create the paid batch
+                sleeper.sleep(remaining.compareTo(settings.pollInterval()) < 0
+                        ? remaining : settings.pollInterval());
             }
             out.println("[primer] " + model.name() + " warmed prefixes: " + warmed);
             return warmed;
@@ -623,6 +620,7 @@ final class PromptReplayBatch {
             for (Request r : requests) {
                 digest.update(r.customId().getBytes(StandardCharsets.UTF_8));
                 digest.update((byte) 0);
+                digest.update((byte) (r.coastal() ? 1 : 0));
                 digest.update((r.model().getModelId() + "/" + r.model().getMaxTokens())
                         .getBytes(StandardCharsets.UTF_8));
                 digest.update((byte) 0);

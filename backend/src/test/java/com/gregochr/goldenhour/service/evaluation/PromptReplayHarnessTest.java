@@ -240,9 +240,10 @@ class PromptReplayHarnessTest {
     private static Run call(AnthropicClient client, PromptBuilder builder, EvaluationModel model,
             StoredPrompt prompt, int attempt, SunsetEvaluationParser parser, ObjectMapper mapper,
             String inlandPrompt, String coastalPrompt, Path overrideFile, String systemPromptId) {
+        Message response;
         try {
             String systemPrompt = systemPromptFor(prompt, inlandPrompt, coastalPrompt, overrideFile);
-            Message response = client.messages().create(
+            response = client.messages().create(
                     ModelRequestSupport.withThinkingSetting(MessageCreateParams.builder()
                             .model(model.getModelId())
                             .maxTokens(model.getMaxTokens())
@@ -255,13 +256,24 @@ class PromptReplayHarnessTest {
                                     builder.buildOutputConfig(), model))
                             .addUserMessage(prompt.userMessage()), model)
                             .build());
-            return parseReply(response, prompt.label(), model, attempt, parser, mapper, systemPromptId,
-                    "direct", null, TokenUsage.from(response.usage()));
         } catch (RuntimeException ex) {
-            return new Run(prompt.label(), model, attempt, null, null, null,
-                    ex.getClass().getSimpleName() + ": " + ex.getMessage(), null, systemPromptId,
-                    "direct", null, TokenUsage.EMPTY);
+            return failure(prompt, model, attempt, systemPromptId, ex, TokenUsage.EMPTY);
         }
+        // a billed reply that is then refused, truncated or unparseable still has its usage recorded
+        TokenUsage usage = TokenUsage.from(response.usage());
+        try {
+            return parseReply(response, prompt.label(), model, attempt, parser, mapper, systemPromptId,
+                    "direct", null, usage);
+        } catch (RuntimeException ex) {
+            return failure(prompt, model, attempt, systemPromptId, ex, usage);
+        }
+    }
+
+    private static Run failure(StoredPrompt prompt, EvaluationModel model, int attempt,
+            String systemPromptId, RuntimeException ex, TokenUsage usage) {
+        return new Run(prompt.label(), model, attempt, null, null, null,
+                ex.getClass().getSimpleName() + ": " + ex.getMessage(), null, systemPromptId, "direct",
+                null, usage);
     }
 
     /**
