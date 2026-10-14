@@ -9,7 +9,9 @@ import java.time.LocalDate;
  *
  * @param date        the day, within the entry's span
  * @param rangeMetres that day's tidal range in metres at the run's representative location, to 1 dp
- * @param peak        true only on the run's peak day (the date the entry's {@code peakDate} names)
+ * @param peak        true only on the run's peak day (the date the entry's {@code peakDate} names). After
+ *                    rounding to one decimal place another day may show the same height, so the flag,
+ *                    not the height, says which day is the peak
  */
 public record ComingUpDayRange(LocalDate date, double rangeMetres, boolean peak) {
 }

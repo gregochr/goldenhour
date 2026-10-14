@@ -433,16 +433,34 @@ public class ComingUpAssembler {
      * derivable.
      */
     private List<ComingUpDayRange> dayRangesOf(LocationEntity representative, AlmanacEvent event) {
-        Map<LocalDate, Double> ranges = tideRunBuilder.dailyRangesAt(representative, datesOf(event));
+        Map<LocalDate, Double> ranges;
+        try {
+            ranges = tideRunBuilder.dailyRangesAt(representative, datesOf(event));
+        } catch (RuntimeException e) {
+            // Bars are decoration on a card that is complete without them: degrade, never fail the feed.
+            LOG.warn("Coming up: per-day tide ranges unavailable for {} {}: {}", event.type(),
+                    event.startDate(), e.toString());
+            return List.of();
+        }
         if (ranges.size() < 2) {
             return List.of();
         }
         LocalDate trueDate = parseDate(event.meta().get("peakDate"));
         List<ComingUpDayRange> out = new ArrayList<>();
         for (Map.Entry<LocalDate, Double> e : ranges.entrySet()) {
-            out.add(new ComingUpDayRange(e.getKey(), round1(e.getValue()), e.getKey().equals(trueDate)));
+            out.add(new ComingUpDayRange(e.getKey(), metresToOneDp(e.getValue()),
+                    e.getKey().equals(trueDate)));
         }
         return out;
+    }
+
+    /**
+     * A range in metres to one decimal place by the same rule the headline figure is spelt with
+     * ({@code TideWording.metres}'s {@code "%.1f"}), so the tallest bar can never read 0.1 m away from
+     * the metric printed beside it. ({@code ComingUpTide.range} still uses {@link #round1}.)
+     */
+    private static double metresToOneDp(double metres) {
+        return Double.parseDouble(String.format(Locale.UK, "%.1f", metres));
     }
 
     private void enrichMeteor(AlmanacEvent event, Staged s) {

@@ -1219,8 +1219,10 @@ commit.** Phase annotations mark when each field first ships; everything is user
                                          // S2, every tide-run entry with >= 2 derivable days (absent otherwise);
                                          // merged or not, always the RUN's, whichever topic hosts — one element
                                          // per derivable day of the run's span, ascending, 1 dp; `peak` only on
-                                         // the day the event's own peakDate names (false everywhere on a
-                                         // partial-coverage run); a day with no stored extremes is absent
+                                         // the day the event's own peakDate names, i.e. the biggest
+                                         // MEASURED day (a run straddling the stored window marks its largest
+                                         // measured day; a run known for one day gets no bars); a day with no
+                                         // stored extremes is absent; ranges round as the metric does (%.1f)
     }
   ]
 }

@@ -1123,8 +1123,39 @@ class ComingUpAssemblerTest {
     }
 
     @Test
-    @DisplayName("S2: a partial-coverage run (no peakDate, only figuresFrom) crowns no day: peak is false "
-            + "everywhere")
+    @DisplayName("S2: a failing range read degrades — the entry is still served with its metric and "
+            + "tide, just without dayRanges")
+    void failingRangeReadDegradesToNoDayRanges() {
+        stubRunAtSeaham();
+        when(tideRunBuilder.dailyRangesAt(any(), anyList())).thenThrow(new IllegalStateException("db down"));
+        AlmanacEvent run = event(oct(25), oct(27), "spring-tide", "Spring tide run", runMeta(oct(26), null));
+
+        ComingUpEntry entry = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
+
+        assertThat(entry.dayRanges()).isEmpty();
+        assertThat(entry.metric()).isEqualTo("4.9 m");
+        assertThat(entry.type()).isEqualTo("spring-tide");
+    }
+
+    @Test
+    @DisplayName("S2: ranges round exactly as the headline metric is spelt (%.1f), e.g. 8.966 - 1.516")
+    void dayRangesRoundLikeTheMetric() {
+        stubRunAtSeaham();
+        double nearlyHalf = 8.966 - 1.516;
+        stubRanges(oct(25), oct(27), oct(25), 4.35, oct(26), nearlyHalf);
+        AlmanacEvent run = event(oct(25), oct(27), "spring-tide", "Spring tide run", runMeta(oct(26), null));
+
+        ComingUpEntry entry = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
+
+        assertThat(entry.dayRanges()).extracting(ComingUpDayRange::rangeMetres)
+                .containsExactly(Double.parseDouble(String.format(java.util.Locale.UK, "%.1f", 4.35)),
+                        Double.parseDouble(String.format(java.util.Locale.UK, "%.1f", nearlyHalf)));
+        assertThat(entry.dayRanges().get(1).rangeMetres()).isEqualTo(7.4);
+    }
+
+    @Test
+    @DisplayName("S2 (defensive guard — production emits partialCoverage only for a one-day run, which "
+            + "has no ranges): a fixture with no peakDate crowns no day, peak is false everywhere")
     void partialCoverageRunHasNoPeakDay() {
         stubRunAtSeaham();
         stubRanges(oct(25), oct(30), oct(27), 4.9, oct(28), 4.5, oct(29), 4.0);
