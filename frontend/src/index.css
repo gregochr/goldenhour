@@ -9618,18 +9618,11 @@ button.wf-hc.also.on:hover {
   color: var(--color-plex-text-secondary);
 }
 .wf-cu-range-key strong { font-weight: 700; }
-/* With columns the row's items are columns, so the lead and the dimmed note would centre against
-   the whole column. From 640px they stretch to the row's height and centre in the chip row: top
-   padding is the label row (when present) + track + gaps, bottom padding is the metres row. Below
-   640px the row stacks and nothing ranged changes. */
+/* A ranged row's lead is a full-width heading above the columns at every width from 640px (phones
+   already stack it). Beside the columns it would have to centre on the chip row, which depends on
+   whether the row wraps, and CSS cannot detect that. */
 @media (min-width: 640px) {
-  .wf-cu-days[data-ranged="true"] { align-items: stretch; }
-  .wf-cu-days[data-ranged="true"] > .wf-cu-days-lead {
-    display: flex;
-    align-items: center;
-    padding-top: calc(var(--wf-cu-label-block) + var(--wf-cu-track-h) + var(--wf-cu-range-gap));
-    padding-bottom: calc(var(--wf-cu-range-gap) + var(--wf-cu-metres-h));
-  }
+  .wf-cu-days[data-ranged="true"] > .wf-cu-days-lead { flex-basis: 100%; padding: 0; display: block; }
   .wf-cu-days-axis {
     display: block;
     position: relative;
@@ -9652,10 +9645,6 @@ button.wf-hc.also.on:hover {
     height: var(--wf-cu-metres-h);
     line-height: var(--wf-cu-metres-h);
   }
-}
-/* Where the lead wraps above the group (640-899px) the centring padding would leave a blank band. */
-@media (min-width: 640px) and (max-width: 899px) {
-  .wf-cu-days[data-ranged="true"] > .wf-cu-days-lead { padding: 0; align-self: flex-start; }
 }
 /* A ranged row's dimmed note sits under the row. */
 .wf-cu-days + .wf-cu-days-note { display: block; margin-top: 4px; }

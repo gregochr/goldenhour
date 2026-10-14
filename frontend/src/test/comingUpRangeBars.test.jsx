@@ -321,10 +321,8 @@ describe('Coming up range bars — what the rules resolve to', () => {
     expect(cs(container.querySelector('.wf-cu-day-col > .wf-cu-day')).flex).toBe('1 0 auto');
   });
 
-  it('centres the lead and note on the chip row from 640px, with the row-level paddings', () => {
-    expect(css).toMatch(
-      /@media \(min-width: 640px\) \{\s*\.wf-cu-days\[data-ranged="true"\] \{ align-items: stretch; \}[\s\S]*?padding-top: calc\(var\(--wf-cu-label-block\) \+ var\(--wf-cu-track-h\) \+ var\(--wf-cu-range-gap\)\);\s*padding-bottom: calc\(var\(--wf-cu-range-gap\) \+ var\(--wf-cu-metres-h\)\);/,
-    );
+  it('keeps the label-block variable for the axis and leaves the ranged row unaligned', () => {
+    expect(css).not.toMatch(/\.wf-cu-days\[data-ranged="true"\] \{ align-items: stretch; \}/);
     expect(css).toMatch(
       /\[data-labelled="true"\] \{\s*--wf-cu-label-block: calc\(var\(--wf-cu-label-h\) \+ var\(--wf-cu-range-gap\)\);/,
     );
@@ -410,10 +408,11 @@ describe('Coming up range bars — what the rules resolve to', () => {
     expect(cs(peak.querySelector('.wf-cu-day-range-bar')).boxShadow).toMatch(/0 0 10px/);
   });
 
-  it('un-wraps the lead at 640-899px and keeps the note out of the centring rule', () => {
+  it('makes a ranged lead a full-width heading above the row from 640px; no centring rules remain', () => {
     expect(css).toMatch(
-      /@media \(min-width: 640px\) and \(max-width: 899px\) \{\s*\.wf-cu-days\[data-ranged="true"\] > \.wf-cu-days-lead \{ padding: 0; align-self: flex-start; \}/,
+      /@media \(min-width: 640px\) \{\s*\.wf-cu-days\[data-ranged="true"\] > \.wf-cu-days-lead \{ flex-basis: 100%; padding: 0; display: block; \}/,
     );
+    expect(css).not.toMatch(/max-width: 899px\) \{\s*\.wf-cu-days/);
     expect(css).not.toMatch(/\[data-ranged="true"\] > \.wf-cu-days-note/);
   });
 
