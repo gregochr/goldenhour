@@ -193,7 +193,25 @@ Both are recorded as deliberate divergences in coming-up-plan §11 (S1).
    uses a cap of 14; unmerged entries keep 10.
 6. **`WindowComingUpEntry` class doc** (coincidence section ~:218) and the CSS comment at `index.css`
    ~9201–9207 ("names the OTHER topic, never the card's own family") — update in S3.
-7. Unchanged and still correct: `markScoreNotes` (skips an entry with a `joinNote`),
+7. **Pairing must see Plan-owned partners** (Codex, plan PR #1159 round 2). `AlmanacService.assemble`
+   (~:300–307) filters raw events by `endDate > PlanHorizon.lastPlanDate(builtFor)` BEFORE the
+   assembler runs, so a supermoon inside Plan's four days is dropped while its overlapping run (which
+   ends beyond the horizon) survives — no merge, no marks, and Ask lists the run and the live
+   supermoon separately. S1: `ComingUpAssembler.assemble(builtFor, eligible, partnersOnly)` — the
+   service passes the eligible list as today PLUS the not-eligible events (`partnersOnly`). The
+   assembler stages `partnersOnly` events but uses them ONLY as D10 merge partners: one that pairs with
+   an eligible event is merged (R1–R10 apply unchanged — e.g. a Plan-window supermoon on an eligible
+   run is marked on its day, the run hosts); one that pairs with nothing is dropped; two
+   `partnersOnly` events never pair with each other (the union would end inside Plan's window).
+   `markTideSuperlativesAndThresholds` still runs over the ELIGIBLE runs only (unchanged comparison
+   set). A merged entry is always eligible (its union ends no earlier than its eligible member).
+   Knock-on, accepted: `ComingUpConditionsBuilder` (which still receives the unfiltered `all`) may now
+   match a run wholly inside Plan's window to a merged card through the overlap fallback and report
+   it `promoted` rather than `insidePlan` — true, since the card now shows it. Tests: Plan-window
+   supermoon + eligible run → one merged card with the `full moon` mark; Plan-window run + eligible
+   supermoon → one merged card, run hosts (longer span); an unpaired Plan-window event is absent;
+   superlatives unchanged by a Plan-window run; `AlmanacServiceTest` covers the service wiring.
+8. Unchanged and still correct: `markScoreNotes` (skips an entry with a `joinNote`),
    `markTideSuperlativesAndThresholds` (runs before the merge; a hosting run keeps its own; a
    supermoon host does not carry the run's), the `assemble` sort (union start).
 
@@ -228,6 +246,8 @@ and that it was not seen in a browser.
   ~:238 — for "rises" and `Optional.empty()` for "no rise"; never hard-code a real ephemeris time),
   `AlmanacServiceTest:39` and `ComingUpAnnualBadgeCensusTest:129` (pass `new MoonriseMoonsetCalculator()`,
   pure, as `AppConfig:216` does — a bare mock returns null and would NPE on a merge).
+- Pair against Plan-owned partners per §4.7 (`assemble(builtFor, eligible, partnersOnly)` and its
+  caller in `AlmanacService`).
 - `ComingUpConditionsBuilder` per §4.1. Ask timeline dedupe per §4.2 (`coincidentTypes`). The All
   chip count per §3 (frontend `chipCounts`, + test).
 - Frontend CSS, one rule: `.wf-cu-coin-facts` is `white-space: nowrap` in 10.5px mono
@@ -385,5 +405,6 @@ not `action.date`; host takes the winner's `bits`/`interim` explicitly; the reas
 `matchingEntry` invariant 2; multi-night join-note wording; mark order fixed host-first; S1 not adding
 `dayRanges`; named tests to rewrite; serialisation test home; moonrise test mocks; "metre range";
 coming-up-plan §11/§13 updates; Ask/SinceLine consumers recorded. Codex on #1159 added: the All
-chip's double count, and Ask's timeline listing a live supermoon twice beside a run-hosted card. Decisions taken as defaults (no
+chip's double count, Ask's timeline listing a live supermoon twice beside a run-hosted card, and
+(round 2) pairing before the Plan-horizon eligibility filter drops a Plan-window partner. Decisions taken as defaults (no
 owner question needed): every item above, plus R2's cold-DB tie consequence.
