@@ -60,6 +60,9 @@ function DayChips({ entry, onShowOnMap }) {
       {' '}
       <div role="group" aria-labelledby={leadId} className="wf-cu-days-group">
         {dayChips.map((chip) => {
+          // Unmerged: the served action date. Merged: only a served `peak` mark, in that mark's family.
+          const peakMark = chip.marks ? chip.marks.find((m) => m.label === 'peak') : null;
+          const isPeak = chip.marks ? Boolean(peakMark) : chip.peak;
           const third = !chip.marks
             ? [chip.monthWord, chip.peak ? 'peak' : null].filter(Boolean).join(' · ') : null;
           return (
@@ -72,7 +75,8 @@ function DayChips({ entry, onShowOnMap }) {
               onClick={chip.live ? () => open(chip) : undefined}
               data-testid="coming-up-day-chip"
               data-date={chip.date}
-              data-peak={chip.peak ? 'true' : 'false'}
+              data-peak={isPeak ? 'true' : 'false'}
+              data-peak-family={peakMark ? peakMark.family : undefined}
               data-live={chip.live ? 'true' : 'false'}
             >
               <span className="wf-cu-day-dow">{chip.today ? 'Today' : chip.dow}</span>
@@ -258,7 +262,8 @@ DayChips.propTypes = {
  * line as its own block span coloured by its FAMILY token, and the chip's name lists the marks in
  * served order. On a merged entry "peak" and ", peak day" come only from a served {@code peak} mark,
  * never from {@code chip.peak} (a partial-coverage run's action date is its figures day); the group
- * carries {@code data-marked} and its {@code data-peak} chip takes the host accent instead of gold.
+ * carries {@code data-marked}, and the chip holding the {@code peak} mark is {@code data-peak} and
+ * coloured by that mark's family ({@code data-peak-family}), never by the host and never gold.
  *
  * <p>The first draft also treated {@code coincidence} and {@code prose} as mutually exclusive,
  * reasoning from the design bundle's own {@code EV} fixtures (which never carry both {@code why}

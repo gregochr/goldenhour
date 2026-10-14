@@ -49,9 +49,11 @@ function extractDayRules() {
 
 let styleEl;
 let sliceText = '';
+let rawCss = '';
 beforeAll(() => {
   const slice = extractDayRules();
   sliceText = slice;
+  rawCss = readFileSync(CSS_PATH, 'utf8');
   expect(slice).toContain('.wf-cu-day-mark[data-family="coastal"]');
   expect(slice).toContain('.wf-cu-days[data-marked="true"] .wf-cu-day[data-peak="true"]');
   expect(slice).toContain('.wf-cu-day[data-peak="true"] .wf-cu-day-dn');
@@ -120,17 +122,40 @@ describe('Coming up day marks — what the rules resolve to', () => {
     expect(cs(mark).color).toBe('var(--color-topic-sun-moon)');
   });
 
-  it('draws the peak number of a merged entry in the host accent, not gold', () => {
+  it('colours the merged peak chip by the peak MARK’s family, not the host accent or gold', () => {
     const { container } = draw([
       chip('2026-10-26', 'Mon', '26', { marks: [{ label: 'full moon', family: 'sun-moon' }] }),
       chip('2026-10-27', 'Tue', '27', { peak: true, marks: [{ label: 'peak', family: 'coastal' }] }),
     ]);
     expect(container.querySelector('.wf-cu-days')).toHaveAttribute('data-marked', 'true');
-    const dn = container.querySelector('[data-peak="true"] .wf-cu-day-dn');
-    expect(cs(dn).color).toBe('var(--wf-cu-accent, var(--color-home))');
-    // cssstyle cannot reify a border longhand carrying var(), so the border is pinned in the text.
-    expect(sliceText).toMatch(
-      /\.wf-cu-days\[data-marked="true"\] \.wf-cu-day\[data-peak="true"\]\s*\{\s*border-color: var\(--wf-cu-accent, var\(--color-home\)\);/,
+    const peak = container.querySelector('[data-peak="true"]');
+    expect(peak).toHaveAttribute('data-peak-family', 'coastal');
+    expect(cs(peak).getPropertyValue('--wf-cu-peak')).toBe('var(--color-topic-coastal)');
+    expect(cs(peak.querySelector('.wf-cu-day-dn')).color).toBe('var(--wf-cu-peak, var(--color-home))');
+    // cssstyle cannot reify a border or background carrying var()/color-mix(), so those are pinned
+    // in the extracted rule text.
+    expect(sliceText).toMatch(/\[data-peak="true"\]\s*\{\s*border-color: var\(--wf-cu-peak, var\(--color-home\)\);/);
+    expect(sliceText).toContain(':not(:disabled) {\n  background: color-mix(in oklch, var(--wf-cu-peak, var(--color-home)) 14%, transparent);');
+    expect(sliceText).toContain(':hover:not(:disabled) {\n  background: color-mix(in oklch, var(--wf-cu-peak, var(--color-home)) 16%, transparent);');
+  });
+
+  it('draws marks and month words as blocks', () => {
+    const { container } = draw([
+      chip('2026-10-26', 'Mon', '26', { monthWord: 'Oct', marks: [{ label: 'full moon', family: 'sun-moon' }] }),
+    ]);
+    expect(cs(container.querySelector('.wf-cu-day-mark')).display).toBe('block');
+    expect(cs(container.querySelector('.wf-cu-day-month')).display).toBe('block');
+  });
+
+  it('swaps the focus ring for the system colour in forced colours', () => {
+    expect(rawCss).toMatch(
+      /@media \(forced-colors: active\) \{\s*\.wf-cu-day:focus-visible \{ outline-color: Highlight; \}/,
+    );
+  });
+
+  it('lets a coincidence line’s facts sit under its name on a phone', () => {
+    expect(rawCss).toMatch(
+      /@media \(max-width: 639px\) \{\s*\.wf-cu-coin-facts \{ margin-left: 0; flex-basis: 100%; \}/,
     );
   });
 

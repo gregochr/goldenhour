@@ -382,7 +382,8 @@ export function buildEntryView(entry, todayStr, lastSeenDate, forecastDates) {
   const action = entry.action ?? { label: '', kind: null, date: entry.startDate };
   const dayChips = buildDayChips(entry, action, todayStr, forecastDates);
   // With chips each day carries its own state, so the single-door gate does not apply. It now
-  // serves only a map entry over the cap (the months-long NLC season) or one with no served date.
+  // serves only a map entry over the cap (the months-long NLC season, or a run longer than its cap)
+  // or one with no served date.
   const actionWithheld = dayChips === null
     && MAP_ACTION_KINDS.includes(action.kind)
     && Array.isArray(forecastDates)

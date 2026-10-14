@@ -157,4 +157,28 @@ describe('WindowComingUpEntry — day marks', () => {
     expect(within(chipOn('2026-11-01')).getByTestId('coming-up-day-chip-sub').textContent)
       .toBe('Novfull moon');
   });
+
+  it('styles no chip as the peak on a merged partial-coverage run, though the action date sits on one', () => {
+    draw(merged({ dayMarks: [{ date: '2026-10-26', label: 'full moon', family: 'sun-moon' }] }));
+    screen.getAllByTestId('coming-up-day-chip').forEach((c) => {
+      expect(c).toHaveAttribute('data-peak', 'false');
+      expect(c).not.toHaveAttribute('data-peak-family');
+    });
+  });
+
+  it('puts the peak styling on the tide’s day, not the moon night, when a supermoon hosts', () => {
+    draw(merged({
+      type: 'supermoon',
+      family: 'sun-moon',
+      title: 'Supermoon, on a spring tide run',
+      action: { label: 'Show dark-sky spots →', kind: 'coastal-spots', date: '2026-10-26' },
+      dayMarks: [
+        { date: '2026-10-26', label: 'full moon', family: 'sun-moon' },
+        { date: '2026-10-27', label: 'peak', family: 'coastal' },
+      ],
+    }));
+    expect(chipOn('2026-10-26')).toHaveAttribute('data-peak', 'false');
+    expect(chipOn('2026-10-27')).toHaveAttribute('data-peak', 'true');
+    expect(chipOn('2026-10-27')).toHaveAttribute('data-peak-family', 'coastal');
+  });
 });

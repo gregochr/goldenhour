@@ -9231,6 +9231,11 @@ button.wf-hc.also.on:hover {
      only around " · " and the en dash. */
   white-space: normal;
 }
+/* Phone: a wrapped tide line read left-aligned beside a right-aligned moon line. Both lines' facts
+   take the full row under their name instead of being pushed right. */
+@media (max-width: 639px) {
+  .wf-cu-coin-facts { margin-left: 0; flex-basis: 100%; }
+}
 /* The joining sentence — Newsreader, matching `.wf-cu-prose`'s own serif treatment, since it plays
    the same "explain it in words" role the prose slot plays on a non-merged feature card. */
 .wf-cu-join {
@@ -9437,27 +9442,35 @@ button.wf-hc.also.on:hover {
 .wf-cu-day-mark[data-family="sun-moon"] { color: var(--color-topic-sun-moon); }
 .wf-cu-day-mark[data-family="dust"] { color: var(--color-topic-dust); }
 .wf-cu-day-mark[data-family="eclipse"] { color: var(--color-topic-eclipse); }
-/* The peak chip of a MERGED entry takes the HOST accent (border, number, 14% fill) instead of gold, so
-   the tide's peak is not drawn in the moon's gold beside a gold `full moon` mark. Unmerged rows keep
-   the gold rules above untouched. Hover is 16% (the plain chips' own hover): 20% dropped the coastal
-   number to 4.34. Measured AA, number on fill / mark on fill, for the hosts a merge can produce
-   (D10 pairs a tide run with a supermoon, so the host family is coastal or sun-moon): coastal host
-   chip 6.74, 14% fill 4.86 (coastal mark 4.86, sun-moon mark 5.38), hover 16% 4.68 (4.68 / 5.19),
-   disabled 6.12 (secondary number; marks 6.12 / 6.78); sun-moon host chip 7.43, 14% fill 5.22 (marks
-   4.71 / 5.22), hover 16% 5.01 (4.53 / 5.01), disabled 6.72. Another host family would need
-   re-measuring: dust, eclipse and night-sky fall below 4.5 on the 14% fill (4.25, 4.07, 4.54 for the
-   number). A dimmed peak keeps its accent border; its number is muted by colour like any dimmed day. */
+/* The peak chip of a MERGED entry is coloured by the family of its served `peak` MARK (the tide's
+   own family, coastal teal), not by the card's host and never gold: under a supermoon host the card
+   accent is the moon's gold, and a gold peak chip would sit beside a gold `full moon` mark.
+   `data-peak-family` carries that family; unmerged rows keep the gold rules above untouched. Border,
+   number and a 14% fill; hover is 16% (20% dropped the number to 4.34 on a coastal ground). Measured
+   AA (sRGB, WCAG 2.x), coastal peak colour / moon mark on each ground, for the two hosts a merge can
+   produce (D10 pairs a tide run with a supermoon, and only the tide run serves a `peak` mark):
+   coastal host chip 6.74 / 7.46, 14% fill 4.86 / 5.38, hover 4.68 / 5.19, disabled 6.12 / 6.78;
+   sun-moon host chip 6.71 / 7.43, 14% fill 4.83 / 5.35, hover 4.66 / 5.16, disabled 6.07 / 6.72.
+   A `peak` mark of another family would need re-measuring (dust, eclipse and night-sky fall below
+   4.5 on the 14% fill). A dimmed peak keeps its border; its number is muted by colour. */
+.wf-cu-day[data-peak-family="coastal"] { --wf-cu-peak: var(--color-topic-coastal); }
+.wf-cu-day[data-peak-family="aurora"] { --wf-cu-peak: var(--color-topic-aurora); }
+.wf-cu-day[data-peak-family="air"] { --wf-cu-peak: var(--color-topic-air); }
+.wf-cu-day[data-peak-family="night-sky"] { --wf-cu-peak: var(--color-topic-night-sky); }
+.wf-cu-day[data-peak-family="sun-moon"] { --wf-cu-peak: var(--color-topic-sun-moon); }
+.wf-cu-day[data-peak-family="dust"] { --wf-cu-peak: var(--color-topic-dust); }
+.wf-cu-day[data-peak-family="eclipse"] { --wf-cu-peak: var(--color-topic-eclipse); }
 .wf-cu-days[data-marked="true"] .wf-cu-day[data-peak="true"] {
-  border-color: var(--wf-cu-accent, var(--color-home));
+  border-color: var(--wf-cu-peak, var(--color-home));
 }
 .wf-cu-days[data-marked="true"] .wf-cu-day[data-peak="true"] .wf-cu-day-dn {
-  color: var(--wf-cu-accent, var(--color-home));
+  color: var(--wf-cu-peak, var(--color-home));
 }
 .wf-cu-days[data-marked="true"] .wf-cu-day[data-peak="true"]:not(:disabled) {
-  background: color-mix(in oklch, var(--wf-cu-accent, var(--color-home)) 14%, transparent);
+  background: color-mix(in oklch, var(--wf-cu-peak, var(--color-home)) 14%, transparent);
 }
 .wf-cu-days[data-marked="true"] .wf-cu-day[data-peak="true"]:hover:not(:disabled) {
-  background: color-mix(in oklch, var(--wf-cu-accent, var(--color-home)) 16%, transparent);
+  background: color-mix(in oklch, var(--wf-cu-peak, var(--color-home)) 16%, transparent);
 }
 .wf-cu-days[data-marked="true"] .wf-cu-day[data-peak="true"]:disabled .wf-cu-day-dn {
   color: var(--color-plex-text-secondary);
@@ -9478,6 +9491,10 @@ button.wf-hc.also.on:hover {
 @media (max-width: 639px) {
   .wf-cu-days { flex-direction: column; align-items: flex-start; gap: 7px; }
   .wf-cu-day { width: 38px; }
+}
+/* Forced colours replaces the gold focus ring with the system colour (as the map chips' outline does). */
+@media (forced-colors: active) {
+  .wf-cu-day:focus-visible { outline-color: Highlight; }
 }
 
 /* Loading, error and empty all share one line, because they are one slot: exactly one of them is
