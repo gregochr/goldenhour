@@ -151,7 +151,13 @@ Both are recorded as deliberate divergences in coming-up-plan §11 (S1).
   host first, each with its own dates".
 - **Counts**: `countsOf` counts a merged entry under EVERY distinct family among its host family and its
   coincidence lines' families (S1), so the client's family filter (S3) and its served chip counts agree.
-  The `total`/`fixed`/`forecast` counts still count the entry once.
+  `fixed`/`forecast` still count the entry once (`ComingUpCounts` has no `total`). ⚠️ The client's All
+  chip today SUMS `byFamily` (`comingUpFeed.js` `chipCounts`), which would count a merged card twice:
+  S1 changes All to `counts.fixed + counts.forecast` (a one-line frontend change, with a
+  multi-family regression test) in the same PR as the backend count change. (Codex, plan PR #1159.)
+- **Coincidence line `type`** (S1): `ComingUpCoincidenceLine` gains a `type` (the merged topic's own
+  wire type, `spring-tide`/`king-tide`/`supermoon`), so a consumer can tell which topics a card holds
+  without parsing names. Additive, `@JsonInclude(NON_NULL)`; the frontend ignores it.
 
 ## 4. Consumers that must move with the shape
 
@@ -168,8 +174,16 @@ Both are recorded as deliberate divergences in coming-up-plan §11 (S1).
 2. **Ask** — `AskSnapshotBuilder.comingUp()` and `AskSnapshot.timeline` serve a merged entry as the
    host type with the union span and composite title; `AskReadyFreshness.liveEvent` matches an almanac
    event by type + `startDate`, so a stored Ready answer or thread event naming `supermoon` on 26 Oct is
-   withheld whole after deploy until the next precompute. Accepted (freshness doing its job; the run's
-   win already hid the moon the same way). No code change; state it in S1's changelog.
+   withheld whole after deploy until the next precompute — accepted (freshness doing its job). ⚠️ But
+   `AskSnapshot.timeline` appends each live hot topic unless `listedBy` finds an almanac entry of the
+   SAME type over that date, and `AskSnapshotBuilder.comingUp()` discards the coincidence lines: with
+   the run hosting, a live `SUPERMOON` topic inside the Plan horizon would be listed a second time
+   beside the merged `spring-tide` entry (Codex, plan PR #1159). S1 fixes it: `AskSnapshot.ComingUp`
+   gains `List<String> coincidentTypes` (the coincidence lines' `type`s, empty when unmerged; every
+   construction site updated), `comingUp()` fills it, and `listedBy` matches the entry's own type OR
+   any coincident type (through `AskEventType.same`). Test: a merged run + supermoon entry and a live
+   `SUPERMOON` topic on a date inside its span yield ONE timeline row. The timeline row itself still
+   shows the host type/title — accepted; state it in S1's changelog.
 3. **`WindowComingUpSinceLine`** prints `the ${entry.title} entered the window` + the join note → "the
    Spring tide run, on a supermoon entered the window…". Accepted; the comma reads as an appositive.
    The overlay label `${entry.title} · ${chip.dateLabel}` gets longer — accepted.
@@ -214,7 +228,8 @@ and that it was not seen in a browser.
   ~:238 — for "rises" and `Optional.empty()` for "no rise"; never hard-code a real ephemeris time),
   `AlmanacServiceTest:39` and `ComingUpAnnualBadgeCensusTest:129` (pass `new MoonriseMoonsetCalculator()`,
   pure, as `AppConfig:216` does — a bare mock returns null and would NPE on a merge).
-- `ComingUpConditionsBuilder` per §4.1.
+- `ComingUpConditionsBuilder` per §4.1. Ask timeline dedupe per §4.2 (`coincidentTypes`). The All
+  chip count per §3 (frontend `chipCounts`, + test).
 - Frontend CSS, one rule: `.wf-cu-coin-facts` is `white-space: nowrap` in 10.5px mono
   (`index.css` ~9220–9226); the new tide line (~55 chars ≈ 345px) overflows the card at 390/320px.
   Make it `white-space: normal` (keep nowrap only from 640px if it is needed there), so main is never
@@ -369,5 +384,6 @@ family filter + counts; the 14-day cap; the solid bar keyed to a served `peak` f
 not `action.date`; host takes the winner's `bits`/`interim` explicitly; the reason rule and
 `matchingEntry` invariant 2; multi-night join-note wording; mark order fixed host-first; S1 not adding
 `dayRanges`; named tests to rewrite; serialisation test home; moonrise test mocks; "metre range";
-coming-up-plan §11/§13 updates; Ask/SinceLine consumers recorded. Decisions taken as defaults (no
+coming-up-plan §11/§13 updates; Ask/SinceLine consumers recorded. Codex on #1159 added: the All
+chip's double count, and Ask's timeline listing a live supermoon twice beside a run-hosted card. Decisions taken as defaults (no
 owner question needed): every item above, plus R2's cold-DB tie consequence.
