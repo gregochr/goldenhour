@@ -1,0 +1,5 @@
+evaluation_id,loc_name,loc_is_coastal_tidal,loc_types
+3,Bravo,t,LANDSCAPE
+4,Charlie,f,"SEASCAPE,LANDSCAPE"
+5,Delta,f,LANDSCAPE
+1,Alpha,f,LANDSCAPE
