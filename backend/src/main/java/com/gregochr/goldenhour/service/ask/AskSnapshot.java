@@ -275,9 +275,34 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
      * @param detail    the entry detail, or null
      * @param safetyNote the warning Ask attaches to this entry (the solar eclipse's lens-filter
      *                   note), or null; the feed's own entries carry none
+     * @param coincidentTypes the types of the topics a merged entry also holds (its coincidence
+     *                   lines' types), empty when unmerged — so a live hot topic of a merged-in
+     *                   type is not listed a second time beside the host
      */
     public record ComingUp(String type, String title, LocalDate startDate, LocalDate endDate,
-            String detail, String safetyNote) {
+            String detail, String safetyNote, List<String> coincidentTypes) {
+
+        /**
+         * Normalises {@code coincidentTypes} so a consumer never has to null-check it.
+         */
+        public ComingUp {
+            coincidentTypes = coincidentTypes == null ? List.of() : List.copyOf(coincidentTypes);
+        }
+
+        /**
+         * An unmerged entry — one that holds no other topic.
+         *
+         * @param type       the entry type
+         * @param title      the entry title
+         * @param startDate  the first date
+         * @param endDate    the last date
+         * @param detail     the entry detail, or null
+         * @param safetyNote the attached warning, or null
+         */
+        public ComingUp(String type, String title, LocalDate startDate, LocalDate endDate,
+                String detail, String safetyNote) {
+            this(type, title, startDate, endDate, detail, safetyNote, List.of());
+        }
     }
 
     /**
@@ -675,12 +700,14 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
     }
 
     /**
-     * Whether an almanac entry already lists a live topic: the same type ({@link AskEventType#same},
-     * which reads the almanac's {@code lunar-eclipse} and a hot topic's {@code LUNAR_ECLIPSE} as one)
-     * on a date inside its span.
+     * Whether an almanac entry already lists a live topic: the same type, or the type of a topic the
+     * entry merged in ({@link AskEventType#same}, which reads the almanac's {@code lunar-eclipse} and
+     * a hot topic's {@code LUNAR_ECLIPSE} as one), on a date inside its span.
      */
     private static boolean listedBy(ComingUp entry, Topic topic) {
-        return AskEventType.same(entry.type(), topic.type())
+        boolean sameType = AskEventType.same(entry.type(), topic.type())
+                || entry.coincidentTypes().stream().anyMatch(t -> AskEventType.same(t, topic.type()));
+        return sameType
                 && !topic.date().isBefore(entry.startDate()) && !topic.date().isAfter(entry.endDate());
     }
 

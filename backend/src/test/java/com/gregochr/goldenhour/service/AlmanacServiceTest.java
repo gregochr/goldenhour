@@ -41,7 +41,8 @@ class AlmanacServiceTest {
                 mock(TideRunBuilder.class),
                 mock(TideRunPeakHistory.class),
                 mock(TideService.class),
-                new ComingUpScoringProperties());
+                new ComingUpScoringProperties(),
+                new com.gregochr.solarutils.MoonriseMoonsetCalculator());
     }
 
     /**
@@ -588,6 +589,38 @@ class AlmanacServiceTest {
                 assembler(), conditionsBuilder()).getFeed(90).entries();
 
         assertThat(entries).extracting(ComingUpEntry::type).containsExactly("straddler");
+    }
+
+    @Test
+    @DisplayName("a supermoon inside Plan's window is still a merge partner for the eligible run that "
+            + "overlaps it: one merged card, the moon marked on its day (supermoon-tide-run-plan.md §4.7)")
+    void planWindowSupermoon_isMarkedOnTheOverlappingEligibleRun() {
+        LocalDate moonNight = LAST_PLAN_DATE.minusDays(1);
+        AlmanacSource source = (f, t) -> List.of(
+                event(LAST_PLAN_DATE.minusDays(2), LAST_PLAN_DATE.plusDays(3), "spring-tide"),
+                event(moonNight, moonNight, "supermoon"));
+
+        var entries = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK,
+                assembler(), conditionsBuilder()).getFeed(90).entries();
+
+        assertThat(entries).hasSize(1);
+        assertThat(entries.getFirst().type()).isEqualTo("spring-tide");
+        assertThat(entries.getFirst().coincidence()).extracting(c -> c.type())
+                .containsExactly("spring-tide", "supermoon");
+        assertThat(entries.getFirst().dayMarks()).extracting(m -> m.date()).containsExactly(moonNight);
+    }
+
+    @Test
+    @DisplayName("a Plan-window event that pairs with nothing is still not a chronology entry")
+    void unpairedPlanWindowEvent_isNotAnEntry() {
+        AlmanacSource source = (f, t) -> List.of(
+                event(LAST_PLAN_DATE.minusDays(1), LAST_PLAN_DATE.minusDays(1), "supermoon"),
+                event(LAST_PLAN_DATE.plusDays(5), LAST_PLAN_DATE.plusDays(6), "spring-tide"));
+
+        var entries = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK,
+                assembler(), conditionsBuilder()).getFeed(90).entries();
+
+        assertThat(entries).extracting(ComingUpEntry::type).containsExactly("spring-tide");
     }
 
     // ── enteredWindow (plan D3) — startDate − (DEFAULT_DAYS − 1), fixed at 90 ──

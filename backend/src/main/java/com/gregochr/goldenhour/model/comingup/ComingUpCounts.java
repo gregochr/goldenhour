@@ -10,7 +10,9 @@ import java.util.Map;
  *
  * @param fixed    entries whose date cannot move
  * @param forecast entries driven by a forecast peak
- * @param byFamily entry count per topic family
+ * @param byFamily entry count per topic family — a merged entry counts under every distinct family it
+ *                 holds (host and coincidence lines), so the family filter and its chip count agree;
+ *                 {@code fixed}/{@code forecast} still count it once
  */
 public record ComingUpCounts(int fixed, int forecast, Map<String, Integer> byFamily) {
 

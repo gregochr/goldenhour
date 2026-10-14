@@ -159,8 +159,8 @@ export const FILTER_CHIPS = [
 ];
 
 /**
- * Each chip's served count, from {@code counts.byFamily} — never from the (possibly filtered)
- * rendered list, so a chip's own number cannot change when a DIFFERENT chip is selected (design
+ * Each chip's served count, from {@code counts.byFamily} (All: {@code fixed + forecast}) — never
+ * from the (possibly filtered) rendered list, so a chip's own number cannot change when a DIFFERENT chip is selected (design
  * §7: "counts stay static; they describe the unfiltered set").
  *
  * @param {?object} counts the wire's {@code ComingUpCounts}, or null/undefined before it arrives
@@ -168,24 +168,32 @@ export const FILTER_CHIPS = [
  */
 export function chipCounts(counts) {
   const byFamily = counts?.byFamily ?? {};
+  // All is fixed + forecast, never the sum of byFamily: a merged card counts under EVERY family it
+  // holds there (so the family filter and its chip agree), and summing would count it twice.
+  const total = (counts?.fixed ?? 0) + (counts?.forecast ?? 0);
   return FILTER_CHIPS.map((chip) => ({
     id: chip.id,
     label: chip.label,
     count: chip.families
       ? chip.families.reduce((sum, family) => sum + (byFamily[family] ?? 0), 0)
-      : Object.values(byFamily).reduce((sum, n) => sum + n, 0),
+      : total,
   }));
 }
 
 /**
  * Whether `entry` belongs to the selected chip — `all` always matches, and every other chip
- * matches on {@code entry.family} against its own family list (D6's "Sun & moon covers eclipse,
- * Air & dust covers air+dust" mapping).
+ * matches on {@code entry.family} OR any {@code entry.coincidence[].family} against its own family
+ * list (D6's "Sun & moon covers eclipse, Air & dust covers air+dust" mapping) — a merged card is
+ * found under every family it holds, exactly as the server counts it.
  */
 function matchesFilter(entry, filterId) {
   if (filterId === 'all') return true;
   const chip = FILTER_CHIPS.find((c) => c.id === filterId);
-  return Boolean(chip?.families?.includes(entry.family));
+  if (!chip?.families) return false;
+  // A merged card is found under EVERY family it holds (its host's and each coincidence line's),
+  // which is how the server counts it in byFamily — so a chip's count and its list agree.
+  return chip.families.includes(entry.family)
+    || (entry.coincidence ?? []).some((line) => chip.families.includes(line.family));
 }
 
 /** Every served `action.kind` with a real destination as of P3b (D8) — see {@link buildEntryView}. */

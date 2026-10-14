@@ -101,7 +101,7 @@ class ComingUpConditionsBuilderTest {
                 event.title(), event.detail(), Map.of(), List.of(), event.startDate().minusDays(89),
                 id, "coastal", "Almanac", null, null, null, List.of(), null, null, null,
                 new ComingUpAction("See the plan for " + event.startDate() + " →", "plan", event.startDate()),
-                bits, false, null, coincidence, coincidence.isEmpty() ? null : "joined");
+                bits, false, null, coincidence, coincidence.isEmpty() ? null : "joined", List.of());
     }
 
     // ── Always three conditions ─────────────────────────────────────────
@@ -194,18 +194,18 @@ class ComingUpConditionsBuilderTest {
     // ── Reason tag: mandatory wherever the max rule was taken (D10), both directions ──
 
     /**
-     * Builds the entry the way {@code ComingUpAssembler.mergeEntries} actually produces one when
-     * the OTHER topic's score wins a D10 merge: the surviving entry is keyed by the WINNER's own id
-     * (never the losing tide run's), and its one coincidence line names the LOSER — the tide run
-     * itself, per {@link ComingUpCoincidenceLine}'s own contract. A fixture built any other way
-     * (e.g. keyed by the tide's own id) cannot occur in production and was the exact defect an
-     * external review caught in an earlier draft of this test.
+     * Builds the entry the way {@code ComingUpAssembler.mergeEntries} produces one when the
+     * SUPERMOON hosts a merge (supermoon-tide-run-plan.md R2/R5): keyed by the supermoon's own id,
+     * with one coincidence line per merged topic, HOST FIRST — the supermoon, then the tide run
+     * under its own title. A fixture built any other way (e.g. keyed by the tide's own id) cannot
+     * occur in production and was the exact defect an external review caught in an earlier draft.
      */
     private static ComingUpEntry winningSupermoonEntry(AlmanacEvent tideRun, double bits) {
         AlmanacEvent supermoonEvent = new AlmanacEvent(tideRun.startDate(), tideRun.endDate(),
                 AlmanacKind.ALMANAC, "supermoon", "Supermoon", "detail", Map.of(), List.of());
-        return entryFor(supermoonEvent, bits,
-                List.of(new ComingUpCoincidenceLine("coastal", tideRun.title(), "26 Nov")));
+        return entryFor(supermoonEvent, bits, List.of(
+                new ComingUpCoincidenceLine("sun-moon", "Supermoon", "Fri 27 Nov", "supermoon"),
+                new ComingUpCoincidenceLine("coastal", tideRun.title(), "Fri 27 Nov", tideRun.type())));
     }
 
     @Test
@@ -242,17 +242,36 @@ class ComingUpConditionsBuilderTest {
     }
 
     @Test
-    @DisplayName("reason still fires when THIS run's own score carried the merge (D10: mandatory "
-            + "wherever the max was taken, both directions) — named from this run's own "
-            + "coincidence line, which describes the loser (the other topic)")
-    void reasonFiresEvenWhenThisRunsOwnScoreWon() {
+    @DisplayName("reason still fires when THIS run hosts the merge (D10: mandatory wherever the max "
+            + "was taken, both directions) — the first coincidence line is now the run itself, so the "
+            + "reason is the first line that is NOT this run's own title")
+    void reasonFiresWhenThisRunHostsTheMerge() {
         AlmanacEvent run = tideEvent(LAST_PLAN_DATE.plusDays(1), LAST_PLAN_DATE.plusDays(1), "king-tide");
         double ownBits = SurpriseScore.rarity(14.8) + SurpriseScore.DEFAULT_MAGNITUDE_BITS;
-        ComingUpEntry mergedAndTideWon = entryFor(run, Math.round(ownBits * 10.0) / 10.0,
-                List.of(new ComingUpCoincidenceLine("sun-moon", "Supermoon", "24-25 Nov")));
+        ComingUpEntry runHosted = entryFor(run, Math.round(ownBits * 10.0) / 10.0, List.of(
+                new ComingUpCoincidenceLine("coastal", run.title(), "Fri 27 Nov", "king-tide"),
+                new ComingUpCoincidenceLine("sun-moon", "Supermoon", "Fri 27 Nov", "supermoon")));
 
-        ComingUpCondition tides = builder.build(TODAY, List.of(run), List.of(mergedAndTideWon)).getFirst();
+        ComingUpCondition tides = builder.build(TODAY, List.of(run), List.of(runHosted)).getFirst();
 
+        // Exact-id hit (the union equals the run's span), and the reason is not the run's own name.
+        assertThat(tides.occurrences().getFirst().entryId()).isEqualTo(runHosted.id());
+        assertThat(tides.occurrences().getFirst().reason()).isEqualTo("supermoon");
+    }
+
+    @Test
+    @DisplayName("a run-hosted card whose union is wider than the run misses the exact id, is found by "
+            + "overlap, and still names the other topic")
+    void reasonFiresWhenTheUnionIsWiderThanTheRun() {
+        AlmanacEvent run = tideEvent(LAST_PLAN_DATE.plusDays(1), LAST_PLAN_DATE.plusDays(2), "king-tide");
+        AlmanacEvent widened = tideEvent(run.startDate().minusDays(1), run.endDate(), "king-tide");
+        ComingUpEntry runHosted = entryFor(widened, 6.0, List.of(
+                new ComingUpCoincidenceLine("coastal", run.title(), "run dates", "king-tide"),
+                new ComingUpCoincidenceLine("sun-moon", "Supermoon", "moon date", "supermoon")));
+
+        ComingUpCondition tides = builder.build(TODAY, List.of(run), List.of(runHosted)).getFirst();
+
+        assertThat(tides.occurrences().getFirst().entryId()).isEqualTo(runHosted.id());
         assertThat(tides.occurrences().getFirst().reason()).isEqualTo("supermoon");
     }
 

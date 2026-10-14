@@ -2,6 +2,8 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.model.AlmanacEvent;
 import com.gregochr.goldenhour.model.AlmanacKind;
+import com.gregochr.goldenhour.model.comingup.ComingUpCoincidenceLine;
+import com.gregochr.goldenhour.model.comingup.ComingUpDayMark;
 import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
 import com.gregochr.goldenhour.model.comingup.ComingUpResponse;
 import com.gregochr.goldenhour.service.AlmanacService;
@@ -87,6 +89,36 @@ class AlmanacControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.entries[0].meta").doesNotExist())
                 .andExpect(jsonPath("$.entries[0].regions").doesNotExist())
                 .andExpect(jsonPath("$.entries[0].startDate").value("2026-10-30"));
+    }
+
+    @Test
+    @DisplayName("a merged entry serves its day marks and typed coincidence lines through the real web "
+            + "mapper; an unmerged entry serves neither key at all")
+    @WithMockUser(roles = {"PRO_USER"})
+    void mergedEntryServesDayMarks() throws Exception {
+        ComingUpEntry base = springRun();
+        ComingUpEntry merged = new ComingUpEntry(base.startDate(), base.endDate(), base.kind(),
+                base.type(), "Spring tide run, on a supermoon", base.detail(), base.meta(),
+                base.regions(), base.enteredWindow(), base.id(), "coastal", base.kindTag(), null, null,
+                null, List.of(), null, null, null, base.action(), 8.0, false, null,
+                List.of(new ComingUpCoincidenceLine("coastal", "Spring tide run", "Sun 16 – Tue 18 Aug",
+                                "spring-tide"),
+                        new ComingUpCoincidenceLine("sun-moon", "Supermoon", "Mon 17 Aug", "supermoon"),
+                        new ComingUpCoincidenceLine("sun-moon", "Untyped", "Tue 18 Aug", null)),
+                "Same cause, two effects.",
+                List.of(new ComingUpDayMark(LocalDate.of(2026, 8, 17), "full moon", "sun-moon")));
+        when(almanacService.getFeed(90)).thenReturn(response(merged, springRun()));
+
+        mockMvc.perform(get("/api/almanac"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.entries[0].dayMarks[0].date").value("2026-08-17"))
+                .andExpect(jsonPath("$.entries[0].dayMarks[0].label").value("full moon"))
+                .andExpect(jsonPath("$.entries[0].dayMarks[0].family").value("sun-moon"))
+                .andExpect(jsonPath("$.entries[0].coincidence[1].type").value("supermoon"))
+                .andExpect(jsonPath("$.entries[0].coincidence[2].name").value("Untyped"))
+                .andExpect(jsonPath("$.entries[0].coincidence[2].type").doesNotExist())
+                .andExpect(jsonPath("$.entries[1].dayMarks").doesNotExist())
+                .andExpect(jsonPath("$.entries[1].coincidence").doesNotExist());
     }
 
     @Test

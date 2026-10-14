@@ -9199,7 +9199,8 @@ button.wf-hc.also.on:hover {
   background: var(--wf-cu-accent, var(--color-plex-border-light));
 }
 /* Swatch colour keyed on the LINE's own family (data-family on the line, not the card) — a
-   coincidence line names the OTHER topic, which is never the card's own family. `--wf-cu-accent`
+   coincidence line carries ITS topic's family — one line per merged topic, host first, so the
+   host's line shares the card's own family and the other line does not. `--wf-cu-accent`
    is redeclared per line for exactly that reason; `.wf-cu-card[data-family]`'s own declaration
    (index.css above) covers only the card's own family and would paint every swatch the same
    colour without this. The fallback above only bites a family this list has not yet named — never
@@ -9216,13 +9217,19 @@ button.wf-hc.also.on:hover {
   font-size: 13px;
   font-weight: 600;
   color: var(--color-plex-text);
+  white-space: nowrap;
 }
 .wf-cu-coin-facts {
   margin-left: auto;
   font-family: var(--font-mono);
   font-size: 10.5px;
   color: var(--color-plex-text-secondary);
-  white-space: nowrap;
+  /* Wraps: a merged card's tide line ("Sun 25 – Fri 30 Oct · biggest Tue 27 · 4.9 m · HW 15:48")
+     is ~55 characters, ~345px of this mono, and overflowed the card at 390/320px as nowrap
+     (supermoon-tide-run-plan.md S1). The name beside it stays on one line (`.wf-cu-coin-name`),
+     and the served text keeps its figures together with non-breaking spaces, so a break falls
+     only around " · " and the en dash. */
+  white-space: normal;
 }
 /* The joining sentence — Newsreader, matching `.wf-cu-prose`'s own serif treatment, since it plays
    the same "explain it in words" role the prose slot plays on a non-merged feature card. */

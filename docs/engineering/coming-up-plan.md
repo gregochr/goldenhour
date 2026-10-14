@@ -1048,6 +1048,40 @@ purpose, so a later reader stops hunting for the "missing" piece.)
     over-cap plan entry, if one ever exists). **Open question:** what a day chip on a plan entry
     should open if it is ever to return to Plan, which has no per-date view beyond its four days.
 
+27. **D10's winner-shape and winner-naming join note are superseded (2026-10-14,
+    `docs/engineering/supermoon-tide-run-plan.md`, phase S1).** The owner's brief for a supermoon on a
+    spring/king run replaced "the bits winner IS the entry, the loser is a facts label" with: **bits decide
+    ranking, span decides shape.** A merged entry's span is the UNION of both topics' dates, it is
+    HOSTED by the topic with the longest span (tie: the bits winner, then the run), the host supplies
+    type, family, door, facts, metric and sparkline, the title reads `<host>, on a <other>`, every topic
+    keeps its OWN dated coincidence line (host first), each marks its own day(s) in the new served
+    `dayMarks`, and the join note names each topic's own date(s) ("The moon is full on the 26th and the
+    tide peaks a day later, on the 27th"). Score provenance stays with the winner (`bits = max`,
+    `interim` and `enteredWindow` copied from it, never the union start). D10's pairing (tide run x
+    supermoon only) is unchanged, but pairing now also sees Plan-owned events as partners
+    (`ComingUpAssembler.assemble(builtFor, eligible, partnersOnly)`): a supermoon inside Plan's window
+    is marked on the eligible run that overlaps it; an unpaired Plan-owned event is still not an entry.
+    `counts.byFamily` counts a merged entry under every family it holds, and the client's family
+    filter (`matchesFilter`, pulled forward from the plan's §4.4 into S1) finds it under each, so a chip's
+    count and its list agree; the All chip is now `fixed + forecast` rather than the sum of the families.
+    The coincidence line's glyph prefers its served wire `type` (the supermoon line is 🌙), and the
+    served facts labels use non-breaking spaces inside each segment so a phone wraps only around
+    ` · ` and the en dash. Deliberate divergences from the design
+    bundle: the alignment fact keeps its `tide ` prefix (the mock says `alignment`) and gains
+    ` on the <ordinal>` on a run-hosted merged entry only; the `range … at <location>` fact is kept
+    (it is the only place the card names the port the range and moonrise are measured at); the
+    coincidence lines' `factsLabel` and the join note stay plain strings on the wire (the mock's bold
+    dates are not carried). Accepted behaviour changes: a merged card's title, door and family follow
+    the host (a run on a supermoon opens the coastal map, not the dark-sky one); the family filter and
+    chip counts find it under both families; Ask lists it once, as the host's event only (a merged-in
+    topic is no longer offered to Ask as an event of its own — permanent, as it already was when the
+    run won; `AskSnapshot.ComingUp.coincidentTypes` stops a live hot topic of a merged-in type being
+    listed a second time), and a stored Ready answer or thread event naming either topic whose dates
+    moved is withheld whole by its freshness check until the next precompute. `dayMarks` is served from S1 but no chip
+    draws it until S3, so **S1 must not be released on its own** beyond the CSS fix that keeps the
+    longer coincidence line inside the card at 390/320px. Phases S2 (`dayRanges`) to S4 (range bars)
+    follow in the same plan.
+
 ---
 
 ## 12 · Standing gotchas for every implementing session
@@ -1163,9 +1197,17 @@ commit.** Phase annotations mark when each field first ships; everything is user
                                          // reads, rather than distorting the printed
                                          // "rarity + magnitude = bits" sum to enforce it
       "tide": { "range": 5.1, "delta": 1.9, "phase": "HW" },   // P2, tide entries only; delta = rangeAnomaly; phase inverts the wave
-      "coincidence": [ { "family": "coastal", "name": "King tide run", "factsLabel": "biggest Thu 26 Nov · 5.2 m · HW 16:13" } ],
-                                         // P2, nullable — one card, ≥2 lines
-      "joinNote": "…"                    // P2, nullable — server-authored joining sentence, max arithmetic stated
+      "coincidence": [ { "family": "coastal", "name": "King tide run", "type": "king-tide",
+                         "factsLabel": "Sun 22 – Fri 27 Nov · biggest Thu 26 · 5.2 m · HW 16:13" },
+                       { "family": "sun-moon", "name": "Supermoon", "type": "supermoon",
+                         "factsLabel": "Tue 24 – Wed 25 Nov · moonrise 16:02 on the 24th" } ],
+                                         // P2, nullable — one card, ≥2 lines; S1: ONE LINE PER MERGED
+                                         // TOPIC, HOST FIRST, each with its own dates (§11.27)
+      "joinNote": "…",                   // P2, nullable — server-authored joining sentence naming each topic's own date(s)
+      "dayMarks": [ { "date": "2026-11-24", "label": "full moon", "family": "sun-moon" },
+                    { "date": "2026-11-26", "label": "peak", "family": "coastal" } ]
+                                         // S1, merged entries only (absent otherwise) — the days each merged
+                                         // topic marks, by date then host first
     }
   ]
 }

@@ -187,8 +187,8 @@ Both are recorded as deliberate divergences in coming-up-plan §11 (S1).
 3. **`WindowComingUpSinceLine`** prints `the ${entry.title} entered the window` + the join note → "the
    Spring tide run, on a supermoon entered the window…". Accepted; the comma reads as an appositive.
    The overlay label `${entry.title} · ${chip.dateLabel}` gets longer — accepted.
-4. **Family filter** — `comingUpFeed.js` `matchesFilter` matches `entry.family` only; S3 makes it also
-   match any `coincidence[].family`, so a merged card is found under Sun & moon AND Coastal (counts: §3).
+4. **Family filter** — `comingUpFeed.js` `matchesFilter` matched `entry.family` only; **done in S1** (moved from S3
+   so the served counts and the list agree from the first release): it also matches any `coincidence[].family`, so a merged card is found under Sun & moon AND Coastal (counts: §3).
 5. **`MAX_CHIP_DAYS` (10)** — the union can push a long run past 10 days. S3: an entry with `dayMarks`
    uses a cap of 14; unmerged entries keep 10.
 6. **`WindowComingUpEntry` class doc** (coincidence section ~:218) and the CSS comment at `index.css`
@@ -305,7 +305,7 @@ and that it was not seen in a browser.
   family}))` (possibly `[]`). On a merged entry the word "peak" and ", peak day" come ONLY from a served
   `peak` mark, never from `chip.peak` (a partial-coverage run's `action.date` is its `figuresFrom` day).
   `chip.peak` still drives the door and the peak styling. Cap: 14 when `dayMarks` is non-empty, else
-  `MAX_CHIP_DAYS` (10). `matchesFilter`: `entry.family` OR any `coincidence[].family`.
+  `MAX_CHIP_DAYS` (10). `matchesFilter` (**done in S1**, §4.4): `entry.family` OR any `coincidence[].family`.
 - `WindowComingUpEntry.jsx` `DayChips`:
   - third line: `monthWord` (first chip of a new month, §11.25 — the mock omits `Oct` under SUN 25 and
     is wrong there) then each mark as its own block line `<span className="wf-cu-day-mark"
@@ -326,7 +326,7 @@ and that it was not seen in a browser.
     moon`, `Show coastal spots for Mon 26 Oct, peak day, full moon`; the gone / no-forecast forms keep
     the marks before ` — gone` / ` — no forecast yet`.
   - PropTypes: `marks: arrayOf(shape({label, family}))` (nullable) on the chip shape.
-- `.wf-cu-coin-name { white-space: nowrap; }`.
+- `.wf-cu-coin-name { white-space: nowrap; }` — **done in S1**. Also done in S1: `coincidenceLineGlyph` prefers the line's wire `type`, and the facts labels use non-breaking spaces.
 - Update the class doc's coincidence section, the CSS comment (§4.6), and the `comingUpFeed.js` comment
   at ~390.
 - Tests: marks threaded per date incl. two on one date in served order; `marks === null` for an

@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service.ask;
 
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.model.BriefingRegion;
+import com.gregochr.goldenhour.model.comingup.ComingUpCoincidenceLine;
 import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -195,6 +196,30 @@ class AskReadModelTest {
         assertThat(timelineTypes(snapshot, TestScopes.of(), 8)).containsExactly("E0", "E6", "E7");
         assertThat(timelineTypes(snapshot, TestScopes.of(), 1)).as("one day is today only")
                 .containsExactly("E0");
+    }
+
+    @Test
+    @DisplayName("timeline: a live hot topic of a type the almanac entry merged in is not listed a second "
+            + "time beside the host — one row for a run hosting a supermoon (supermoon-tide-run-plan.md "
+            + "§4.2) — while a live topic of an unrelated type still is")
+    void timeline_mergedEntryAbsorbsItsCoincidentTopic() {
+        ComingUpEntry base = AskSnapshotBuilderTest.almanacEntry("spring-tide", "Spring tide run, on a supermoon",
+                TODAY.plusDays(2), TODAY.plusDays(7), "d");
+        ComingUpEntry merged = new ComingUpEntry(base.startDate(), base.endDate(), base.kind(), base.type(),
+                base.title(), base.detail(), base.meta(), base.regions(), base.enteredWindow(), base.id(),
+                "coastal", base.kindTag(), null, null, null, List.of(), null, null, null, base.action(),
+                8.0, false, null,
+                List.of(new ComingUpCoincidenceLine("coastal", "Spring tide run", "dates", "spring-tide"),
+                        new ComingUpCoincidenceLine("sun-moon", "Supermoon", "date", "supermoon"),
+                        new ComingUpCoincidenceLine("sun-moon", "Untyped", "date", null)),
+                "joined", List.of());
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(
+                AskFixtures.topic("SUPERMOON", "Supermoon", "d", TODAY.plusDays(4), List.of()),
+                AskFixtures.topic("AURORA", "Aurora", "d", TODAY.plusDays(4), List.of()))), List.of(merged));
+
+        assertThat(snapshot.comingUp().getFirst().coincidentTypes())
+                .containsExactly("spring-tide", "supermoon");
+        assertThat(timelineTypes(snapshot, TestScopes.of(), 30)).containsExactly("spring-tide", "AURORA");
     }
 
     @Test
