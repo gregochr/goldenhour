@@ -71,6 +71,9 @@ import java.util.Objects;
  *                      ascending, with {@code peak} true on the run's biggest day; carried onto a
  *                      merged entry whichever topic hosts; empty, and absent from the wire, unless
  *                      the run has at least two derivable days
+ * @param rangeAverageMetres the mean daily tidal range over the past year at the run's representative
+ *                      (1 dp): the average the day bars' dashed line and {@code tide.delta} share;
+ *                      served only with {@code dayRanges} and a sufficient year sample
  */
 public record ComingUpEntry(
         LocalDate startDate,
@@ -105,7 +108,9 @@ public record ComingUpEntry(
         @JsonInclude(JsonInclude.Include.NON_EMPTY)
         List<ComingUpDayMark> dayMarks,
         @JsonInclude(JsonInclude.Include.NON_EMPTY)
-        List<ComingUpDayRange> dayRanges) {
+        List<ComingUpDayRange> dayRanges,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        Double rangeAverageMetres) {
 
     /**
      * Normalises the collections so a consumer never has to null-check them, and requires the
@@ -144,6 +149,6 @@ public record ComingUpEntry(
                 id, "night-sky", "Almanac", null, null, null, List.of(), null, null, null,
                 new ComingUpAction("See the plan for " + event.startDate() + " →", "plan",
                         event.startDate()),
-                null, true, null, List.of(), null, List.of(), List.of());
+                null, true, null, List.of(), null, List.of(), List.of(), null);
     }
 }

@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.comingup.ComingUpAssembler;
 import com.gregochr.goldenhour.service.comingup.ComingUpConditionsBuilder;
 import com.gregochr.goldenhour.service.comingup.ComingUpScoringProperties;
+import com.gregochr.goldenhour.service.comingup.DailyRangeHistory;
 import com.gregochr.goldenhour.service.comingup.TideRunPeakHistory;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.junit.jupiter.api.DisplayName;
@@ -40,6 +41,7 @@ class AlmanacServiceTest {
                 mock(LocationRepository.class),
                 mock(TideRunBuilder.class),
                 mock(TideRunPeakHistory.class),
+                mock(DailyRangeHistory.class),
                 mock(TideService.class),
                 new ComingUpScoringProperties(),
                 new com.gregochr.solarutils.MoonriseMoonsetCalculator());

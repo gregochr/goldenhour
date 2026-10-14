@@ -94,6 +94,7 @@ public class ComingUpAssembler {
     private final LocationRepository locationRepository;
     private final TideRunBuilder tideRunBuilder;
     private final TideRunPeakHistory tideRunPeakHistory;
+    private final DailyRangeHistory dailyRangeHistory;
     private final TideService tideService;
     private final ComingUpScoringProperties scoringProperties;
     private final MoonriseMoonsetCalculator moonriseMoonsetCalculator;
@@ -104,18 +105,21 @@ public class ComingUpAssembler {
      * @param locationRepository supplies the coastal roster tide-run scoring is measured against
      * @param tideRunBuilder     supplies a run's numeric peak range and representative
      * @param tideRunPeakHistory supplies the representative's own historical run-peak distribution
+     * @param dailyRangeHistory  supplies the past year's daily ranges each day of a run is ranked against
      * @param tideService        supplies each representative's stored range statistics
      * @param scoringProperties  every knob the surprise model uses
      * @param moonriseMoonsetCalculator supplies a merged supermoon night's moonrise at the merged
      *                           run's representative location
      */
     public ComingUpAssembler(LocationRepository locationRepository, TideRunBuilder tideRunBuilder,
-            TideRunPeakHistory tideRunPeakHistory, TideService tideService,
+            TideRunPeakHistory tideRunPeakHistory, DailyRangeHistory dailyRangeHistory,
+            TideService tideService,
             ComingUpScoringProperties scoringProperties,
             MoonriseMoonsetCalculator moonriseMoonsetCalculator) {
         this.locationRepository = locationRepository;
         this.tideRunBuilder = tideRunBuilder;
         this.tideRunPeakHistory = tideRunPeakHistory;
+        this.dailyRangeHistory = dailyRangeHistory;
         this.tideService = tideService;
         this.scoringProperties = scoringProperties;
         this.moonriseMoonsetCalculator = moonriseMoonsetCalculator;
@@ -267,6 +271,9 @@ public class ComingUpAssembler {
         List<ComingUpDayMark> dayMarks = List.of();
         /** A tide run's per-day ranges; the run's own on a merged entry, whichever topic hosts. */
         List<ComingUpDayRange> dayRanges = List.of();
+        /** The past year's mean daily range (1 dp) the bars' dashed line and {@code tide.delta} share; null
+         * unless the run has {@code dayRanges} and the year sample was sufficient. */
+        Double rangeAverageMetres;
         /** The location a tide run's range, bars and a merged supermoon's moonrise are measured at;
          * null for any other type, or when no peak range could be derived. */
         LocationEntity representative;
@@ -283,7 +290,8 @@ public class ComingUpAssembler {
             return new ComingUpEntry(startDate, endDate, event.kind(), event.type(),
                     title, event.detail(), meta, event.regions(), enteredWindow,
                     id, family, kindTag, superlative, metric, prose, facts, aside, threshold, scoreNote,
-                    action, round1(bits), interim, tide, coincidence, joinNote, dayMarks, dayRanges);
+                    action, round1(bits), interim, tide, coincidence, joinNote, dayMarks, dayRanges,
+                    rangeAverageMetres);
         }
     }
 
@@ -365,6 +373,7 @@ public class ComingUpAssembler {
             // location and must not depend on whether range statistics resolved.
             s.representative = peak.representative();
             s.dayRanges = dayRangesOf(peak.representative(), event);
+            DailyRangeHistory.YearSample year = rankDays(builtFor, peak.representative(), s);
             s.metric = event.meta().get("range");
 
             Optional<TideStats> stats = tideService.getTideStats(peak.representative().getId());
@@ -392,7 +401,11 @@ public class ComingUpAssembler {
                     }
                 }
 
-                java.math.BigDecimal avgRange = stats.get().avgRangeMetres();
+                // One average per card: the 12-month mean the bars' dashed line shows when it is
+                // served, else the all-history TideStats figure (a different statistic, see
+                // ComingUpTide).
+                java.math.BigDecimal avgRange = year != null
+                        ? java.math.BigDecimal.valueOf(year.average()) : stats.get().avgRangeMetres();
                 if (avgRange != null) {
                     // Range as the metric is spelt; delta is the DISPLAYED range minus the average, so
                     // "range - avg" stays honest on the card (not the raw difference, rounded apart).
@@ -452,7 +465,7 @@ public class ComingUpAssembler {
         List<ComingUpDayRange> out = new ArrayList<>();
         for (Map.Entry<LocalDate, Double> e : ranges.entrySet()) {
             out.add(new ComingUpDayRange(e.getKey(), metresToOneDp(e.getValue()),
-                    e.getKey().equals(trueDate)));
+                    e.getKey().equals(trueDate), null));
         }
         return out;
     }
@@ -463,7 +476,38 @@ public class ComingUpAssembler {
      * the metric printed beside it. Used for the day ranges and for {@code ComingUpTide.range}/{@code delta}.
      */
     private static double metresToOneDp(double metres) {
-        return Double.parseDouble(String.format(Locale.UK, "%.1f", metres));
+        return DailyRangeHistory.metresToOneDp(metres);
+    }
+
+    /**
+     * Ranks each of the run's days against the past year at the same port and records the year's
+     * average on the staged entry. Does nothing, and reads nothing, when the run has no day ranges; a
+     * failed read or a thin sample leaves the run exactly as it was (no percentile, no average).
+     *
+     * @return the sufficient year sample that was applied, or null when none was
+     */
+    private DailyRangeHistory.YearSample rankDays(LocalDate builtFor, LocationEntity representative,
+            Staged s) {
+        if (s.dayRanges.isEmpty()) {
+            return null;
+        }
+        DailyRangeHistory.YearSample year;
+        try {
+            year = dailyRangeHistory.sampleFor(representative, builtFor);
+        } catch (RuntimeException e) {
+            LOG.warn("Coming up: year of daily tide ranges unavailable for {} {}: {}", s.event.type(),
+                    s.event.startDate(), e.toString());
+            return null;
+        }
+        if (year == null || !year.sufficient()) {
+            return null;
+        }
+        s.dayRanges = s.dayRanges.stream()
+                .map(d -> new ComingUpDayRange(d.date(), d.rangeMetres(), d.peak(),
+                        year.percentileOf(d.rangeMetres())))
+                .toList();
+        s.rangeAverageMetres = year.average();
+        return year;
     }
 
     private void enrichMeteor(AlmanacEvent event, Staged s) {
@@ -859,6 +903,7 @@ public class ComingUpAssembler {
         marks.sort(Comparator.comparing(ComingUpDayMark::date));
         host.dayMarks = marks;
         host.dayRanges = tide.dayRanges;
+        host.rangeAverageMetres = tide.rangeAverageMetres;
 
         // Facts by construction, never by text surgery: the run's alignment gains its day, and a
         // hosting supermoon drops the "peaks" fact (the join note and its mark say it better).
@@ -923,7 +968,10 @@ public class ComingUpAssembler {
         if (truePeak != null) {
             StringBuilder label = new StringBuilder(span).append(SEPARATOR)
                     .append(nb("biggest " + DAY_LABEL.format(truePeak)));
-            if (topic.metric != null) {
+            String rank = peakRankLabel(topic);
+            if (rank != null) {
+                label.append(SEPARATOR).append(nb(rank));
+            } else if (topic.metric != null) {
                 label.append(SEPARATOR).append(nb(topic.metric));
             }
             String clock = alignmentClock(meta);
@@ -937,6 +985,17 @@ public class ComingUpAssembler {
             return span + SEPARATOR + nb(topic.metric + " on " + DAY_LABEL.format(figuresFrom));
         }
         return span;
+    }
+
+    /**
+     * {@code top 2% of the year} for a run's true-peak day, from the run's own served day ranges; null
+     * when the peak day carries no percentile (thin year sample, no bars).
+     */
+    private static String peakRankLabel(Staged tide) {
+        return tide.dayRanges.stream()
+                .filter(d -> d.peak() && d.rangePercentile() != null)
+                .map(d -> "top " + d.rangePercentile() + "% of the year")
+                .findFirst().orElse(null);
     }
 
     /**
