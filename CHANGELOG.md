@@ -5,6 +5,58 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.27.2] - 2026-10-14
+
+### Added — P1 analysis tools for wasted trips, the canvas rule and far cloud decks
+
+`scripts/far-cloud-p1/` holds the owner-run tools for `docs/engineering/far-cloud-p1-plan.md`: read-only
+production exports, a premise check of recent go ratings against ERA5 (Part B), a stored-prompt replay set
+and comparison across models and a canvas-rule prompt variant (Part D), a reconstruction of the Angel of the
+North 13 Oct sun line (Part A) and the H1–H5 far-deck sizing (Part C), with an Open-Meteo probe, cache and
+budget. `PromptReplayHarnessTest` gains a test-only `REPLAY_SYSTEM_PROMPT_FILE` override; with it unset the
+replay sends the production system prompt unchanged. No production code changes.
+
+### Added — Coming up range bars on tide-run day chips
+A tide run on Coming up now draws each day's tidal range as a small bar above its day chip, the biggest day solid, from the ranges the server already serves. The chip's accessible name gains the range ("4.9 metre range"). Entries with fewer than two served ranges look as before.
+
+Tested in jsdom; a reviewer measured the layout in a headless Chromium harness at 320, 390, 768 and 1280px. Not seen in the live app.
+
+### Changed — a supermoon on a tide run is one card over the whole run, not a single day
+
+When a spring or king tide run overlapped a supermoon, the "Coming up" feed merged them but let
+whichever topic scored higher take the whole shape: with the supermoon winning (26 Oct 2026) the
+card read `MON 26 OCT` over a six-day run, offered one day chip, opened the dark-sky map for a
+coastal event, and printed a bare `peaks 26 Oct` beside a tide line dated the 27th. The merge now
+follows one rule: bits decide ranking, span decides shape. The card spans the union of both topics'
+dates and is hosted by the topic with the longest span (so a run on a supermoon opens the coastal
+spots for the run's peak day); its title reads `Spring tide run, on a supermoon`; it carries one
+line per topic with that topic's own dates (`Sun 25 – Fri 30 Oct · biggest Tue 27 · 4.9 m · HW 15:48`
+and `Mon 26 Oct · moonrise 17:22`), and its join note names each topic's own date ("The moon is full
+on the 26th and the tide peaks a day later, on the 27th"). The score is unchanged: the higher of the
+two, with the winner's provisional flag and arrival date. The feed also gains `dayMarks` (the days a
+merged card marks for each topic) and a `type` on each coincidence line; no chip draws the marks yet,
+so this should not be released on its own before the chip work that follows.
+
+Accepted behaviour changes. A merged card's title, door and family follow its host, and the family
+filter and the filter chips' counts now find it under both of its families (the All chip is the
+feed's fixed plus forecast count, so a merged card is not counted twice). A supermoon inside Plan's
+four days is now still paired with the longer run that overlaps it. Ask offers a merged
+card once, as its host's event over the union span (a merged-in topic is no longer offered as an event
+of its own, as was already so when the run won), and a live supermoon of the same dates is no longer
+listed a second time beside it; a stored Ready answer or follow-up thread event that names either topic
+whose dates moved is withheld whole until the next precompute. The coincidence line's facts now wrap
+rather than overflow the card on a phone, breaking only around the separators, and the supermoon line
+wears the moon glyph. A merged card sorts and takes the "say the definition once" prose by its union
+start, and a "biggest until" superlative names the date the later card actually shows.
+
+### Added — "Coming up" tide-run entries serve a tidal range per day
+
+Every spring or king tide run in the "Coming up" feed whose stored tide data covers at least two of its days now carries `dayRanges`: one entry per derivable day (date, range in metres to one decimal, and a `peak` flag true only on the run's own peak day), measured at the same representative port as the run's headline range. A merged supermoon-on-a-tide-run card carries the run's ranges whichever topic hosts it. A day with no stored tide data is left out rather than guessed, a run straddling the stored tide window marks its largest measured day as the peak, and a run known for only one day gets no bars at all. Range figures are rounded exactly as the headline figure is, so the tallest bar never disagrees with it by 0.1 m. Backend only: the day chips and bars that draw them follow.
+
+### Added — "Coming up" day chips mark the supermoon night and the tide peak on a merged card
+
+When a supermoon falls on a spring or king tide run the merged card's day chips now carry the served marks: a `full moon` line on each moon night and a `peak` line on the run's true peak day, each coloured by its own topic family, and named in the chip's accessible name (`Show coastal spots for Tue 27 Oct, peak day, full moon`). On a merged card the word "peak" appears only where the server marked a true peak, so a run with partial tide coverage no longer shows a peak it does not have. The peak chip is drawn only where the server marked a true peak, in the tide's own teal rather than gold (whichever topic hosts the card), so it is never drawn in the moon's gold beside a gold `full moon`, and a merged run of up to 14 days gets its chip row (other cards keep 10). Unmerged cards are unchanged. Phone widths also line a wrapped tide line's facts up under its name, like the moon line's, and keyboard focus rings follow the system colour in forced-colours mode. Tested, not seen in a browser.
+
 ## [v2.27.1] - 2026-10-14
 
 ### Changed — prompt-test and model-test replays skip fields a different build wrote
