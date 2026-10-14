@@ -16,6 +16,8 @@ function DayChips({ entry, onShowOnMap }) {
   const coastal = action.kind === 'coastal-spots';
   const darkSky = action.kind === 'dark-sky-spots';
   const noun = doorNoun.toLowerCase();
+  // marks is null on every chip of an unmerged entry and an array on every chip of a merged one.
+  const marked = dayChips.some((chip) => Boolean(chip.marks));
   const future = dayChips.filter((chip) => !chip.gone);
   const anyDimmed = future.some((chip) => !chip.live);
   const allDimmed = future.every((chip) => !chip.live);
@@ -42,19 +44,27 @@ function DayChips({ entry, onShowOnMap }) {
   // visible text is then contiguous in the name (label in name).
   const nameOf = (chip) => {
     const label = chip.today ? chip.dateLabel.replace(/^\S+/, 'Today') : chip.dateLabel;
-    const peak = chip.peak ? ', peak day' : '';
+    // A merged entry names each served mark in order ("peak" as ", peak day"); an unmerged one
+    // (marks null) keeps the served-action-date peak.
+    const peak = !chip.marks
+      ? (chip.peak ? ', peak day' : '')
+      : chip.marks.map((m) => (m.label === 'peak' ? ', peak day' : `, ${m.label}`)).join('');
     if (chip.gone) return `${label}${peak} — gone`;
     if (!chip.live) return `${label}${peak} — no forecast yet`;
     return `Show ${noun} for ${label}${peak}`;
   };
 
   return (
-    <div className="wf-cu-days" data-testid="coming-up-day-chips">
+    <div className="wf-cu-days" data-testid="coming-up-day-chips" data-marked={marked ? 'true' : undefined}>
       <span className="wf-cu-days-lead" id={leadId}>{leadText}</span>
       {' '}
       <div role="group" aria-labelledby={leadId} className="wf-cu-days-group">
         {dayChips.map((chip) => {
-          const third = [chip.monthWord, chip.peak ? 'peak' : null].filter(Boolean).join(' · ');
+          // Unmerged: the served action date. Merged: only a served `peak` mark, in that mark's family.
+          const peakMark = chip.marks ? chip.marks.find((m) => m.label === 'peak') : null;
+          const isPeak = chip.marks ? Boolean(peakMark) : chip.peak;
+          const third = !chip.marks
+            ? [chip.monthWord, chip.peak ? 'peak' : null].filter(Boolean).join(' · ') : null;
           return (
             <button
               key={chip.date}
@@ -65,13 +75,29 @@ function DayChips({ entry, onShowOnMap }) {
               onClick={chip.live ? () => open(chip) : undefined}
               data-testid="coming-up-day-chip"
               data-date={chip.date}
-              data-peak={chip.peak ? 'true' : 'false'}
+              data-peak={isPeak ? 'true' : 'false'}
+              data-peak-family={peakMark ? peakMark.family : undefined}
               data-live={chip.live ? 'true' : 'false'}
             >
               <span className="wf-cu-day-dow">{chip.today ? 'Today' : chip.dow}</span>
               <span className="wf-cu-day-dn">{chip.day}</span>
-              {third && (
-                <span className="wf-cu-day-sub" data-testid="coming-up-day-chip-sub">{third}</span>
+              {(!chip.marks ? Boolean(third) : Boolean(chip.monthWord) || chip.marks.length > 0) && (
+                <span className="wf-cu-day-sub" data-testid="coming-up-day-chip-sub">
+                  {!chip.marks ? third : (
+                    <>
+                      {chip.monthWord && <span className="wf-cu-day-month">{chip.monthWord}</span>}
+                      {chip.marks.map((m, i) => (
+                        <span
+                          key={`${m.label}-${i}`}
+                          className="wf-cu-day-mark"
+                          data-family={m.family}
+                        >
+                          {m.label}
+                        </span>
+                      ))}
+                    </>
+                  )}
+                </span>
               )}
             </button>
           );
@@ -104,6 +130,10 @@ DayChips.propTypes = {
       today: PropTypes.bool.isRequired,
       gone: PropTypes.bool.isRequired,
       peak: PropTypes.bool.isRequired,
+      marks: PropTypes.arrayOf(PropTypes.shape({
+        label: PropTypes.string.isRequired,
+        family: PropTypes.string.isRequired,
+      })),
       live: PropTypes.bool.isRequired,
     })).isRequired,
   }).isRequired,
@@ -224,6 +254,16 @@ DayChips.propTypes = {
  * name ("Spring tide run, on a supermoon"), and a self line built from {@code entry.title} would
  * read it back verbatim, so the lines come from the server alone. (History: an earlier draft built
  * a synthesized "self" line ahead of the served one.)
+ *
+ * <h2>Day marks (supermoon-tide-run-plan S3)</h2>
+ *
+ * <p>A merged entry also serves {@code dayMarks}, which {@code buildDayChips} threads onto each chip
+ * as {@code marks} (null on every chip of an unmerged entry). A mark is drawn on the chip's third
+ * line as its own block span coloured by its FAMILY token, and the chip's name lists the marks in
+ * served order. On a merged entry "peak" and ", peak day" come only from a served {@code peak} mark,
+ * never from {@code chip.peak} (a partial-coverage run's action date is its figures day); the group
+ * carries {@code data-marked}, and the chip holding the {@code peak} mark is {@code data-peak} and
+ * coloured by that mark's family ({@code data-peak-family}), never by the host and never gold.
  *
  * <p>The first draft also treated {@code coincidence} and {@code prose} as mutually exclusive,
  * reasoning from the design bundle's own {@code EV} fixtures (which never carry both {@code why}
@@ -527,6 +567,10 @@ WindowComingUpEntry.propTypes = {
       today: PropTypes.bool.isRequired,
       gone: PropTypes.bool.isRequired,
       peak: PropTypes.bool.isRequired,
+      marks: PropTypes.arrayOf(PropTypes.shape({
+        label: PropTypes.string.isRequired,
+        family: PropTypes.string.isRequired,
+      })),
       live: PropTypes.bool.isRequired,
     })),
     doorNoun: PropTypes.string,

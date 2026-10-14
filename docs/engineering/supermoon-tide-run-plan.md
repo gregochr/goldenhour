@@ -304,7 +304,7 @@ and that it was not seen in a browser.
   else each chip's `entry.dayMarks.filter(m => m.date === date).map(({label, family}) => ({label,
   family}))` (possibly `[]`). On a merged entry the word "peak" and ", peak day" come ONLY from a served
   `peak` mark, never from `chip.peak` (a partial-coverage run's `action.date` is its `figuresFrom` day).
-  `chip.peak` still drives the door and the peak styling. Cap: 14 when `dayMarks` is non-empty, else
+  `chip.peak` still drives the door; on a merged entry the peak STYLING (`data-peak`) follows the served `peak` mark and is coloured by that mark's family (`data-peak-family`). Cap: 14 when `dayMarks` is non-empty, else
   `MAX_CHIP_DAYS` (10). `matchesFilter` (**done in S1**, §4.4): `entry.family` OR any `coincidence[].family`.
 - `WindowComingUpEntry.jsx` `DayChips`:
   - third line: `monthWord` (first chip of a new month, §11.25 — the mock omits `Oct` under SUN 25 and
@@ -318,9 +318,10 @@ and that it was not seen in a browser.
     span to wrap inside the chip only by word; measure "FULL MOON" and a two-mark chip in a browser.
   - **Peak chip styling**: today's peak chip is GOLD (`--color-home` border/number, `rgba(201,162,75,.12)`
     fill, ~9407–9415). Unmerged rows keep it unchanged. On an entry with `dayMarks`, the group carries
-    `data-marked="true"` and the `data-peak` chip takes the host accent (`var(--wf-cu-accent)` border,
-    number and a ~14% `color-mix` fill) — the brief's "host-accent border" — so the tide's peak is not
-    drawn in the moon's gold beside a gold `full moon` mark. Re-measure AA for normal, hover and disabled.
+    `data-marked="true"` and the chip holding the served `peak` mark is `data-peak` and takes that
+    MARK's family colour (`data-peak-family`; coastal teal border, number and a ~14% `color-mix` fill) —
+    not the host accent, which is gold under a supermoon host — so the tide's peak is never drawn in the
+    moon's gold beside a gold `full moon` mark. Re-measure AA for normal, hover and disabled.
   - aria-label: with `marks === null`, unchanged (`, peak day` from `chip.peak`). Otherwise for each
     mark in order, `peak` → `, peak day`, other → `, <label>`: `Show coastal spots for Mon 26 Oct, full
     moon`, `Show coastal spots for Mon 26 Oct, peak day, full moon`; the gone / no-forecast forms keep
