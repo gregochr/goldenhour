@@ -1,0 +1,583 @@
+"""Part C: size H1-H5 (far decks, parent plan far-cloud-lid-plan.md section 6 P1).
+
+Input: p1_forecasts.csv (header from export_forecasts.sql). Output: out/part_c.md (+ out/pilot.json).
+
+Population: prompted region-events (T+0/T+1, sky locations, latest run before the event with
+batch_state NULL/SCORED and no triage reason) whose forecast passes the cone gate: solar_low_cloud
+< 20 at at least half of the region-event's prompted locations. Three fixed locations per
+region-event are chosen (seeded, among the firing locations). Fetch only what the CSV lacks.
+
+Region-event decision rule: a region-event is "flagged" (forecast side) or "observed" (ERA5 side)
+for a hypothesis when at least half of its sampled, valid locations are. Failure population for a
+hypothesis = observed region-events as a share of ALL prompted region-events (not of the sample).
+
+H1: forecast far(226 km) high >= 60.   observed: ERA5 far high >= 60.
+H2: forecast far mid >= 60.            observed: ERA5 far mid >= 60.
+H3: forecast ~165 km low >= 50 or mid >= 60.   observed: same on ERA5.
+H4: forecast ~320 km high >= 60.       observed: ERA5 high >= 60 at 320 km.
+H5: forecast any of 600/500/400 hPa >= 60 at 226 km.   observed: ERA5 far mid or high >= 60.
+All H are conditional on the cone gate (the population).
+"""
+from __future__ import annotations
+
+import argparse
+import csv
+import json
+import math
+import os
+import random
+import statistics
+import sys
+from collections import defaultdict
+from datetime import datetime
+from typing import Dict, List, Optional, Sequence, Tuple
+
+import geometry
+import openmeteo as om
+import slots
+
+try:  # another agent's module; the bootstrap here is local so the two cannot drift apart
+    import stats as _stats  # noqa: F401
+    STATS_PRESENT = True
+except Exception:  # noqa: BLE001
+    STATS_PRESENT = False
+
+SKY_TYPES = {"LANDSCAPE", "SEASCAPE", "WATERFALL"}
+NON_SKY = {"WILDLIFE", "WOODLAND", "BLUEBELL"}
+CONE_GATE = 20.0
+LOC_PER_EVENT = 3
+DEFAULT_CAP = 2000
+DEFAULT_SEED = 20261014
+DISTANCES = (165, 226, 320)
+HNAMES = ["H1", "H2", "H3", "H4", "H5", "H1|H2"]
+PRESS_COLS = {"600": "far_solar_cloud_600hpa", "500": "far_solar_cloud_500hpa",
+              "400": "far_solar_cloud_400hpa"}
+PRESS_VAR = {"600": "cloud_cover_600hPa", "500": "cloud_cover_500hPa", "400": "cloud_cover_400hPa"}
+MODEL = "best_match"
+MIN_EVENTS, MIN_DATES = 80, 25
+PRECISION_BAR, FAILURE_BAR, RELIABLE_MAD = 0.7, 0.02, 15.0
+BLOCK_DAYS, DRAWS, BOOT_SEED = 5, 2000, 20261014
+
+
+# ---------------------------------------------------------------------------------- loading
+def num(s) -> Optional[float]:
+    """CSV cell to float; empty/None to None."""
+    if s is None or str(s).strip() == "":
+        return None
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def is_sky(types: Optional[str]) -> bool:
+    """Sky subject per heatSpots: no types counts; otherwise at least one non-WILDLIFE/WOODLAND/BLUEBELL."""
+    parts = {t.strip() for t in (types or "").split(",") if t.strip()}
+    return True if not parts else bool(parts - NON_SKY)
+
+
+def load_rows(path: str) -> List[dict]:
+    """Read the export."""
+    with open(path, newline="") as f:
+        return list(csv.DictReader(f))
+
+
+def latest_prompted(rows: Sequence[dict]) -> List[dict]:
+    """Plan section 4: per (location, date, type) the latest run strictly before the event with
+    batch_state NULL/SCORED; then keep it if prompted (no triage reason), T+0/T+1, sky location,
+    with coordinates, an azimuth and an event time."""
+    best: Dict[tuple, dict] = {}
+    for r in rows:
+        if r.get("batch_state") not in (None, "", "SCORED"):
+            continue
+        ev, run = r.get("solar_event_time") or "", r.get("forecast_run_at") or ""
+        if not ev or not run or not run < ev:
+            continue
+        k = (r["location_id"], r["target_date"], r["target_type"])
+        cur = best.get(k)
+        if cur is None or (run, int(r["evaluation_id"])) > (cur["forecast_run_at"], int(cur["evaluation_id"])):
+            best[k] = r
+    out = []
+    for r in best.values():
+        if (r.get("triage_reason") or "").strip():
+            continue
+        if r["target_type"] not in ("SUNRISE", "SUNSET") or num(r.get("days_ahead")) not in (0.0, 1.0):
+            continue
+        if not is_sky(r.get("loc_types")):
+            continue
+        if num(r.get("loc_lat")) is None or num(r.get("loc_lon")) is None or num(r.get("azimuth_deg")) is None:
+            continue
+        out.append(r)
+    return sorted(out, key=lambda r: int(r["evaluation_id"]))
+
+
+def region_events(prompted: Sequence[dict]) -> List[dict]:
+    """Group prompted rows into region-events and apply the cone gate."""
+    groups: Dict[tuple, List[dict]] = defaultdict(list)
+    for r in prompted:
+        groups[(r["loc_region_id"], r["target_date"], r["target_type"])].append(r)
+    events = []
+    for key in sorted(groups):
+        locs = groups[key]
+        firing = [r for r in locs if (num(r.get("solar_low_cloud")) is not None
+                                      and num(r["solar_low_cloud"]) < CONE_GATE)]
+        events.append({"key": key, "region": key[0], "date": key[1], "type": key[2],
+                       "month": key[1][:7], "lead": int(min(num(r["days_ahead"]) for r in locs)),
+                       "locs": locs, "firing": firing,
+                       "gated": len(firing) * 2 >= len(locs) and len(firing) > 0, "weight": 1.0})
+    return events
+
+
+def pick_locations(ev: dict, seed: int, k: int = LOC_PER_EVENT) -> List[dict]:
+    """Seeded choice of up to k firing locations (same inputs -> same picks)."""
+    pool = sorted(ev["firing"], key=lambda r: int(r["location_id"]))
+    rng = random.Random(f"{seed}|{ev['region']}|{ev['date']}|{ev['type']}")
+    return sorted(rng.sample(pool, min(k, len(pool))), key=lambda r: int(r["location_id"]))
+
+
+def stratify(events: Sequence[dict], cap: int, seed: int) -> List[dict]:
+    """Weighted stratified sample by (month, event, lead) when over cap; else all, weight 1."""
+    events = sorted(events, key=lambda e: e["key"])
+    if len(events) <= cap:
+        return [dict(e, weight=1.0) for e in events]
+    strata: Dict[tuple, List[dict]] = defaultdict(list)
+    for e in events:
+        strata[(e["month"], e["type"], e["lead"])].append(e)
+    out = []
+    for sk in sorted(strata):
+        members = strata[sk]
+        k = min(len(members), max(1, round(cap * len(members) / len(events))))
+        rng = random.Random(f"{seed}|{sk}")
+        for e in sorted(rng.sample(members, k), key=lambda e: e["key"]):
+            out.append(dict(e, weight=len(members) / k))
+    return out
+
+
+# ---------------------------------------------------------------------------------- requests
+class Ctx:
+    """Everything needed to fetch and read one sampled location-row."""
+
+    def __init__(self, row: dict):
+        self.row = row
+        self.lat, self.lon = float(row["loc_lat"]), float(row["loc_lon"])
+        self.az = float(row["azimuth_deg"])
+        ev = datetime.strptime(row["solar_event_time"], "%Y-%m-%dT%H:%M:%S")
+        self.day = ev.date().isoformat()
+        times = [f"{self.day}T{h:02d}:00" for h in range(24)]
+        self.hour = times[slots.find_best_index(times, ev, row["target_type"])]
+        self.lead = int(float(row["days_ahead"]))
+        p = geometry.probe_points(self.lat, self.lon, self.az, DISTANCES)
+        self.pts = dict(zip(DISTANCES, p))
+        self.cone = geometry.cone_points(self.lat, self.lon, int(round(self.az)))
+
+
+def src_spec(src: tuple):
+    """(kind, hourly vars, models) for a source key."""
+    if src[0] == "era5":
+        return "archive", om.CLOUD_VARS, "era5"
+    if src[0] == "prev":
+        return "previous_runs", [om.prev_var(v, src[1]) for v in om.CLOUD_VARS], MODEL
+    return "historical_forecast", om.PRESSURE_VARS, None
+
+
+def collect_needs(ctxs: Sequence[Ctx], pilot: bool) -> Dict[tuple, Dict[str, om.Coord]]:
+    """(source, day) -> {grid cell: coord}: only what the CSV does not already hold."""
+    needs: Dict[tuple, Dict[str, om.Coord]] = defaultdict(dict)
+
+    def need(src: tuple, ctx: Ctx, coord: om.Coord) -> None:
+        needs[(src, ctx.day)].setdefault(geometry.grid_key(*coord), om.round_coord(*coord))
+
+    for c in ctxs:
+        r = c.row
+        need(("era5",), c, c.pts[165])
+        need(("era5",), c, c.pts[320])
+        if num(r.get("cv_far_mid_cloud")) is None or num(r.get("cv_far_high_cloud")) is None:
+            need(("era5",), c, c.pts[226])
+        need(("prev", c.lead), c, c.pts[165])
+        need(("prev", c.lead), c, c.pts[320])
+        if pilot or num(r.get("far_solar_mid_cloud")) is None or num(r.get("far_solar_high_cloud")) is None:
+            need(("prev", c.lead), c, c.pts[226])
+        if pilot or num(r.get("far_solar_cloud_500hpa")) is None:
+            need(("hist",), c, c.pts[226])
+        if pilot:
+            for cp in c.cone:
+                need(("prev", c.lead), c, cp)
+    return needs
+
+
+def fetch_needs(needs: Dict[tuple, Dict[str, om.Coord]], client: om.Client) -> Dict[tuple, om.Point]:
+    """Execute every need (chunked by the client) -> {(source, day, cell): Point}."""
+    values: Dict[tuple, om.Point] = {}
+    for (src, day), cells in sorted(needs.items(), key=lambda kv: (str(kv[0][0]), kv[0][1])):
+        keys = sorted(cells)
+        kind, vs, models = src_spec(src)
+        pts = client.get(kind, [cells[k] for k in keys], vs, day, day, models=models)
+        for k, p in zip(keys, pts):
+            values[(src, day, k)] = p
+    return values
+
+
+def rd(values: dict, src: tuple, ctx: Ctx, coord: om.Coord, var: str) -> Optional[float]:
+    """Fetched reading at the production hour for the coord's grid cell."""
+    p = values.get((src, ctx.day, geometry.grid_key(*coord)))
+    return None if p is None else p.value(ctx.hour, var)
+
+
+def readings(ctx: Ctx, values: dict, use_fetched_fc: bool) -> dict:
+    """Forecast-side and ERA5-side readings for one location (None where unavailable)."""
+    r, lead = ctx.row, ctx.lead
+
+    def fc(stored_col: Optional[str], var: str, dist: int) -> Optional[float]:
+        v = num(r.get(stored_col)) if stored_col else None
+        if v is not None:
+            return v
+        if not use_fetched_fc:
+            return None
+        return rd(values, ("prev", lead), ctx, ctx.pts[dist], om.prev_var(var, lead))
+
+    def obs(stored_col: Optional[str], var: str, dist: int) -> Optional[float]:
+        v = num(r.get(stored_col)) if stored_col else None
+        return v if v is not None else rd(values, ("era5",), ctx, ctx.pts[dist], var)
+
+    press = {}
+    for lvl, col in PRESS_COLS.items():
+        v = num(r.get(col))
+        if v is None and use_fetched_fc:
+            v = rd(values, ("hist",), ctx, ctx.pts[226], PRESS_VAR[lvl])
+        press[lvl] = v
+    return {
+        "fc226_mid": fc("far_solar_mid_cloud", "cloud_cover_mid", 226),
+        "fc226_high": fc("far_solar_high_cloud", "cloud_cover_high", 226),
+        "fc165_low": fc(None, "cloud_cover_low", 165), "fc165_mid": fc(None, "cloud_cover_mid", 165),
+        "fc320_high": fc(None, "cloud_cover_high", 320), "press": press,
+        "ob226_mid": obs("cv_far_mid_cloud", "cloud_cover_mid", 226),
+        "ob226_high": obs("cv_far_high_cloud", "cloud_cover_high", 226),
+        "ob165_low": obs(None, "cloud_cover_low", 165), "ob165_mid": obs(None, "cloud_cover_mid", 165),
+        "ob320_high": obs(None, "cloud_cover_high", 320),
+    }
+
+
+# ---------------------------------------------------------------------------------- hypotheses
+def any_ge(tests: Sequence[Tuple[Optional[float], float]]) -> Optional[bool]:
+    """True if any (value >= threshold); None if no True and any value missing; else False."""
+    if any(v is not None and v >= t for v, t in tests):
+        return True
+    return None if any(v is None for v, _ in tests) else False
+
+
+def _or(a: Optional[bool], b: Optional[bool]) -> Optional[bool]:
+    if a is True or b is True:
+        return True
+    return None if (a is None or b is None) else False
+
+
+def loc_flags(rd_: dict) -> Dict[str, Tuple[Optional[bool], Optional[bool]]]:
+    """Per location: hypothesis -> (forecast flag, observed flag); None = not evaluable."""
+    p = rd_["press"]
+    h = {
+        "H1": (any_ge([(rd_["fc226_high"], 60)]), any_ge([(rd_["ob226_high"], 60)])),
+        "H2": (any_ge([(rd_["fc226_mid"], 60)]), any_ge([(rd_["ob226_mid"], 60)])),
+        "H3": (any_ge([(rd_["fc165_low"], 50), (rd_["fc165_mid"], 60)]),
+               any_ge([(rd_["ob165_low"], 50), (rd_["ob165_mid"], 60)])),
+        "H4": (any_ge([(rd_["fc320_high"], 60)]), any_ge([(rd_["ob320_high"], 60)])),
+        "H5": (any_ge([(p["600"], 60), (p["500"], 60), (p["400"], 60)]),
+               any_ge([(rd_["ob226_mid"], 60), (rd_["ob226_high"], 60)])),
+    }
+    h["H1|H2"] = (_or(h["H1"][0], h["H2"][0]), _or(h["H1"][1], h["H2"][1]))
+    return h
+
+
+def event_outcomes(ev: dict, loc_readings: Sequence[dict]) -> Dict[str, Optional[Tuple[bool, bool]]]:
+    """Region-event level (flagged, observed) per hypothesis from its sampled locations; None if
+    no location is evaluable on both sides."""
+    out = {}
+    flags = [loc_flags(r) for r in loc_readings]
+    for h in HNAMES:
+        valid = [(f[h][0], f[h][1]) for f in flags if f[h][0] is not None and f[h][1] is not None]
+        if not valid:
+            out[h] = None
+            continue
+        n = len(valid)
+        out[h] = (2 * sum(1 for a, _ in valid if a) >= n, 2 * sum(1 for _, b in valid if b) >= n)
+    return out
+
+
+# ---------------------------------------------------------------------------------- statistics
+def wilson(k: float, n: float, z: float = 1.96) -> Tuple[float, float]:
+    """Wilson score interval for k successes of n (n may be an effective, fractional size)."""
+    if n <= 0:
+        return (float("nan"), float("nan"))
+    p = k / n
+    d = 1 + z * z / n
+    c = (p + z * z / (2 * n)) / d
+    h = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d
+    return (max(0.0, c - h), min(1.0, c + h))
+
+
+def block_bootstrap_lift(per_date: Dict[str, Tuple[float, float, float, float]],
+                         block: int = BLOCK_DAYS, draws: int = DRAWS,
+                         seed: int = BOOT_SEED) -> Tuple[float, float, int]:
+    """Moving-block bootstrap over dates of lift = precision / base rate.
+
+    ``per_date``: date -> (flagged, true_pos, observed, n) weighted sums. Returns (lo, hi, valid
+    draws) as the 2.5/97.5 percentiles; NaN when fewer than 20 draws are valid."""
+    dates = sorted(per_date)
+    if not dates:
+        return (float("nan"), float("nan"), 0)
+    D = len(dates)
+    b = min(block, D)
+    nb = math.ceil(D / b)
+    rng = random.Random(seed)
+    lifts = []
+    for _ in range(draws):
+        f = t = o = n = 0.0
+        for _ in range(nb):
+            s = rng.randrange(0, D - b + 1)
+            for d in dates[s:s + b]:
+                a = per_date[d]
+                f += a[0]; t += a[1]; o += a[2]; n += a[3]
+        if f > 0 and o > 0 and n > 0:
+            lifts.append((t / f) / (o / n))
+    if len(lifts) < 20:
+        return (float("nan"), float("nan"), len(lifts))
+    lifts.sort()
+    return (lifts[int(0.025 * (len(lifts) - 1))], lifts[int(round(0.975 * (len(lifts) - 1)))], len(lifts))
+
+
+def hypothesis_stats(events: Sequence[dict], h: str, total_prompted: int) -> dict:
+    """Precision/recall/lift with Wilson and bootstrap intervals for one hypothesis.
+
+    ``events``: dicts with ``date``, ``weight`` and ``out`` (event_outcomes). Weighted sums drive
+    the point estimates; Wilson intervals use Kish effective sizes."""
+    per_date: Dict[str, List[float]] = defaultdict(lambda: [0.0, 0.0, 0.0, 0.0])
+    used = [e for e in events if e["out"].get(h) is not None]
+    F = T = O = N = 0.0
+    w2 = 0.0
+    for e in used:
+        fl, ob = e["out"][h]
+        w = e["weight"]
+        a = per_date[e["date"]]
+        a[3] += w; N += w; w2 += w * w
+        if fl: a[0] += w; F += w
+        if ob: a[2] += w; O += w
+        if fl and ob: a[1] += w; T += w
+    neff = (N * N / w2) if w2 else 0.0
+    prec = T / F if F else float("nan")
+    rec = T / O if O else float("nan")
+    base = O / N if N else float("nan")
+    lift = prec / base if F and O and N else float("nan")
+    scale = neff / N if N else 0.0
+    plo, phi = wilson(T * scale, F * scale) if F else (float("nan"), float("nan"))
+    blo, bhi = wilson(O * scale, neff) if N else (float("nan"), float("nan"))
+    llo, lhi, valid = block_bootstrap_lift({d: tuple(v) for d, v in per_date.items()})
+    unweighted_o = sum(1 for e in used if e["out"][h][1])
+    est_failure = (O / N) * (sum(e["weight"] for e in used)) / total_prompted if N and total_prompted else float("nan")
+    return {"h": h, "n_events": len(used), "n_dates": len(per_date), "flagged": F, "observed": O,
+            "obs_events": unweighted_o, "precision": prec, "prec_ci": (plo, phi), "recall": rec,
+            "base": base, "base_ci": (blo, bhi), "lift": lift, "lift_ci": (llo, lhi),
+            "boot_valid": valid, "failure_pop": est_failure}
+
+
+def checklist(st: dict, union: Optional[dict] = None) -> List[Tuple[str, bool]]:
+    """Parent-plan decision rules for one hypothesis (pooled population)."""
+    items = [
+        (f"at least {MIN_EVENTS} region-events over at least {MIN_DATES} dates "
+         f"({st['n_events']} over {st['n_dates']})", st["n_events"] >= MIN_EVENTS and st["n_dates"] >= MIN_DATES),
+        (f"precision >= {PRECISION_BAR} with lift CI excluding 1 "
+         f"(precision {st['precision']:.2f}, lift CI {st['lift_ci'][0]:.2f}-{st['lift_ci'][1]:.2f})",
+         st["precision"] >= PRECISION_BAR and st["lift_ci"][0] > 1.0),
+        (f"failure population >= {FAILURE_BAR:.0%} of ALL prompted region-events ({st['failure_pop']:.1%})",
+         st["failure_pop"] >= FAILURE_BAR),
+    ]
+    if st["h"] == "H5" and union is not None:
+        items.append((f"H5 lift CI lower bound above H1|H2 lift ({st['lift_ci'][0]:.2f} vs {union['lift']:.2f})",
+                      st["lift_ci"][0] > union["lift"]))
+    return [(t, bool(ok) and not (isinstance(ok, float) and math.isnan(ok))) for t, ok in items]
+
+
+# ---------------------------------------------------------------------------------- pilot
+def pilot_report(ctxs: Sequence[Ctx], values: dict) -> dict:
+    """Fetched forecast-side values vs the stored ones (needs rows with stored fields)."""
+    pairs: Dict[str, List[Tuple[float, float]]] = defaultdict(list)
+    for c in ctxs:
+        r, lead = c.row, c.lead
+        ps = [rd(values, ("prev", lead), c, p, om.prev_var("cloud_cover_low", lead)) for p in c.cone]
+        ps = [x for x in ps if x is not None]
+        st = num(r.get("solar_low_cloud"))
+        if ps and st is not None:
+            pairs["cone low (mean of 3)"].append((sum(ps) / len(ps), st))
+        for name, col, var in (("far low 226", "far_solar_low_cloud", "cloud_cover_low"),
+                               ("far mid 226", "far_solar_mid_cloud", "cloud_cover_mid"),
+                               ("far high 226", "far_solar_high_cloud", "cloud_cover_high")):
+            st, fv = num(r.get(col)), rd(values, ("prev", lead), c, c.pts[226], om.prev_var(var, lead))
+            if st is not None and fv is not None:
+                pairs[name].append((fv, st))
+        st, fv = num(r.get("far_solar_cloud_500hpa")), rd(values, ("hist",), c, c.pts[226], "cloud_cover_500hPa")
+        if st is not None and fv is not None:
+            pairs["500 hPa 226"].append((fv, st))
+    rep = {}
+    for name, ps in pairs.items():
+        diffs = [abs(a - b) for a, b in ps]
+        rep[name] = {"n": len(diffs), "median_abs_diff": statistics.median(diffs),
+                     "within10": sum(d <= 10 for d in diffs) / len(diffs),
+                     "within20": sum(d <= 20 for d in diffs) / len(diffs)}
+    cone = rep.get("cone low (mean of 3)")
+    rep["_verdict"] = ("unknown (no comparable cone-low pairs)" if cone is None else
+                       "UNRELIABLE" if cone["median_abs_diff"] > RELIABLE_MAD else "reliable")
+    return rep
+
+
+# ---------------------------------------------------------------------------------- report
+def pct(x: float) -> str:
+    """Percent text, NaN-safe."""
+    return "n/a" if x != x else f"{100 * x:.0f}%"
+
+
+def f2(x: float) -> str:
+    """2-dp text, NaN-safe."""
+    return "n/a" if x != x else f"{x:.2f}"
+
+
+def render(info: dict) -> str:
+    """Markdown report."""
+    L = ["# Part C: H1-H5 sizing", ""]
+    L.append(f"Commit: {info['commit']}. Seed {info['seed']}. Mode: {'PILOT (%d rows)' % info['pilot'] if info['pilot'] else 'full'}. "
+             f"stats.py {'present (unused: local bootstrap)' if STATS_PRESENT else 'absent (local bootstrap)'}.")
+    L += ["", "## Population", "",
+          f"- prompted region-events (T+0/T+1, sky, all): {info['n_prompted']}",
+          f"- passing the cone gate (solar_low_cloud < {CONE_GATE:g} at >= half the locations): {info['n_gated']}",
+          f"- sampled region-events: {info['n_sampled']} (weights applied: {info['weighted']}); "
+          f"locations fetched: {info['n_locs']}",
+          f"- forecast side: {'stored values + fetched Previous Runs / Historical Forecast' if info['fc_fetched'] else 'STORED values only (fetched forecast unreliable or unavailable)'}",
+          f"- API: {info['summary']}", ""]
+    if info.get("pilot_rep"):
+        L += ["## Calibration pilot (fetched forecast vs stored)", "",
+              "| field | n | median abs diff (pp) | within 10 pp | within 20 pp |", "|---|---|---|---|---|"]
+        for k, v in info["pilot_rep"].items():
+            if k.startswith("_"):
+                continue
+            L.append(f"| {k} | {v['n']} | {v['median_abs_diff']:.1f} | {pct(v['within10'])} | {pct(v['within20'])} |")
+        L += ["", f"15 pp reliability verdict (cone low median abs diff > {RELIABLE_MAD:g}): **{info['pilot_rep']['_verdict']}**", ""]
+    L += ["## H1-H5 (pooled, then sunrise first)", ""]
+    L += ["| H | slice | events | dates | flagged | observed | precision (Wilson) | recall | base rate | lift (block-bootstrap CI) | failure pop / all prompted |",
+          "|---|---|---|---|---|---|---|---|---|---|---|"]
+    for h in HNAMES:
+        for sl in ("pooled", "SUNRISE", "SUNSET"):
+            s = info["stats"][(h, sl)]
+            L.append(f"| {h} | {sl} | {s['n_events']} | {s['n_dates']} | {s['flagged']:.0f} | {s['observed']:.0f} | "
+                     f"{pct(s['precision'])} ({pct(s['prec_ci'][0])}-{pct(s['prec_ci'][1])}) | {pct(s['recall'])} | "
+                     f"{pct(s['base'])} | {f2(s['lift'])} ({f2(s['lift_ci'][0])}-{f2(s['lift_ci'][1])}) | "
+                     f"{s['failure_pop']:.1%} |")
+    L += ["", "Only the pooled rows feed the checklist; slices are descriptive.", "", "## Decision checklist (parent plan)", ""]
+    for h in ("H1", "H2", "H3", "H4", "H5"):
+        L.append(f"### {h}")
+        items = checklist(info["stats"][(h, "pooled")], info["stats"][("H1|H2", "pooled")])
+        for t, ok in items:
+            L.append(f"- [{'x' if ok else ' '}] {t}")
+        L.append(f"- verdict: {'MEETS the bar' if all(ok for _, ok in items) else 'does NOT meet the bar'}")
+        L.append("")
+    L.append("Retrospective figures are exploratory; the decisive H1, H2 and H5 run is prospective "
+             "(V175/V176 capture, re-run on the DB alone).")
+    return "\n".join(L) + "\n"
+
+
+# ---------------------------------------------------------------------------------- driver
+def run(rows: Sequence[dict], client: om.Client, *, seed: int = DEFAULT_SEED, cap: int = DEFAULT_CAP,
+        pilot: int = 0, fc_reliable: bool = True, commit: str = "unrecorded", plan_only: bool = False) -> dict:
+    """Whole pipeline on in-memory rows; returns the info dict for ``render``."""
+    prompted = latest_prompted(rows)
+    events = region_events(prompted)
+    gated = [e for e in events if e["gated"]]
+    sampled = stratify(gated, cap, seed)
+    for e in sampled:
+        e["sample"] = pick_locations(e, seed)
+    ctx_by_ev = {e["key"]: [Ctx(r) for r in e["sample"]] for e in sampled}
+    all_ctx = [c for e in sampled for c in ctx_by_ev[e["key"]]]
+    if pilot:
+        shuffled = sorted(all_ctx, key=lambda c: int(c.row["evaluation_id"]))
+        random.Random(f"{seed}|pilot").shuffle(shuffled)
+        keep = {id(c) for c in shuffled[:pilot]}
+        all_ctx = [c for c in all_ctx if id(c) in keep]
+        for e in sampled:
+            ctx_by_ev[e["key"]] = [c for c in ctx_by_ev[e["key"]] if id(c) in keep]
+        sampled = [e for e in sampled if ctx_by_ev[e["key"]]]
+    needs = collect_needs(all_ctx, bool(pilot))
+    values = fetch_needs(needs, client)
+    info = {"n_prompted": len(events), "n_gated": len(gated), "n_sampled": len(sampled),
+            "n_locs": len(all_ctx), "weighted": any(e["weight"] != 1.0 for e in sampled),
+            "seed": seed, "pilot": pilot, "commit": commit, "fc_fetched": fc_reliable,
+            "summary": client.summary(), "needs": sum(len(v) for v in needs.values())}
+    if plan_only:
+        return info
+    if pilot:
+        info["pilot_rep"] = pilot_report(all_ctx, values)
+        if info["pilot_rep"]["_verdict"] == "UNRELIABLE":
+            info["fc_fetched"] = fc_reliable = False
+    evs = []
+    for e in sampled:
+        rds = [readings(c, values, fc_reliable) for c in ctx_by_ev[e["key"]]]
+        evs.append({"date": e["date"], "type": e["type"], "weight": e["weight"], "out": event_outcomes(e, rds)})
+    info["stats"] = {}
+    for h in HNAMES:
+        for sl in ("pooled", "SUNRISE", "SUNSET"):
+            sub = evs if sl == "pooled" else [x for x in evs if x["type"] == sl]
+            info["stats"][(h, sl)] = hypothesis_stats(sub, h, len(events))
+    return info
+
+
+def main(argv: Optional[Sequence[str]] = None, client: Optional[om.Client] = None) -> int:
+    """CLI entry point."""
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("csv")
+    ap.add_argument("--out", default="out")
+    ap.add_argument("--cache", default="cache")
+    ap.add_argument("--budget", type=int, default=om.DEFAULT_BUDGET)
+    ap.add_argument("--pause", type=float, default=om.DEFAULT_PAUSE_S)
+    ap.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    ap.add_argument("--cap", type=int, default=DEFAULT_CAP)
+    ap.add_argument("--pilot", type=int, default=0, metavar="N")
+    ap.add_argument("--plan", action="store_true", help="print projected calls and days, then stop")
+    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--commit", default="unrecorded")
+    ap.add_argument("--forecast", choices=["auto", "fetched", "stored"], default="auto",
+                    help="forecast side: auto reads out/pilot.json")
+    a = ap.parse_args(argv)
+    rows = load_rows(a.csv)
+    fc_reliable = True
+    pj = os.path.join(a.out, "pilot.json")
+    if a.forecast == "stored":
+        fc_reliable = False
+    elif a.forecast == "auto" and not a.pilot and os.path.exists(pj):
+        with open(pj) as f:
+            fc_reliable = json.load(f).get("_verdict") != "UNRELIABLE"
+    client = client or om.Client(a.cache, a.budget, pause_s=a.pause, dry_run=a.plan or a.dry_run)
+    try:
+        info = run(rows, client, seed=a.seed, cap=a.cap, pilot=a.pilot, fc_reliable=fc_reliable,
+                   commit=a.commit, plan_only=a.plan or a.dry_run)
+    except om.RateLimited as e:
+        print(f"RATE LIMITED, stopping (re-run resumes from cache): {e}")
+        return 2
+    except om.BudgetExhausted as e:
+        print(f"BUDGET EXHAUSTED (re-run tomorrow, resumes from cache): {e}")
+        return 2
+    if a.plan or a.dry_run:
+        days = math.ceil(client.projected_weight / a.budget) if a.budget else 0
+        print(f"prompted region-events {info['n_prompted']}, gated {info['n_gated']}, sampled "
+              f"{info['n_sampled']}, locations {info['n_locs']}")
+        print(f"projected {client.projected_weight} weighted calls in {client.projected_requests} requests "
+              f"= about {days} day(s) at {a.budget}/day ({client.cache_hits} requests already cached)")
+        return 0
+    os.makedirs(a.out, exist_ok=True)
+    if a.pilot:
+        with open(pj, "w") as f:
+            json.dump({k: v for k, v in info["pilot_rep"].items()}, f, indent=1)
+    path = os.path.join(a.out, "part_c.md")
+    with open(path, "w") as f:
+        f.write(render(info))
+    print(client.summary())
+    print(f"wrote {path}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

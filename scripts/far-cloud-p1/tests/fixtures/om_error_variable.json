@@ -1,0 +1,4 @@
+{
+ "error": true,
+ "reason": "Data corrupted at path ''. Cannot initialize ForecastVariable from invalid String value cloud_cover_700hPa_previous_day1."
+}
