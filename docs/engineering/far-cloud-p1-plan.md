@@ -1,6 +1,6 @@
 # P1: wasted trips, the canvas rule and far decks, measured on the history we already have
 
-**Status:** revised after adversarial review, 2026-10-14. Tools built (`scripts/far-cloud-p1/`, code-reviewed); nothing run on production data yet. The review record is §10, and
+**Status:** revised after adversarial review, 2026-10-14. Tools built (`scripts/far-cloud-p1/`, code-reviewed); nothing run on production data yet. Exports done, Part B and the Part D set built, probe FAIL (4) on Parts A/C assumptions (2026-10-14); D-1/D-2 thresholds decided (§6). The review record is §10, and
 the owner's decisions are §9.
 
 **Parent:** `far-cloud-lid-plan.md` §6 P1, which pre-registered hypotheses H1–H5. This plan builds P1
@@ -304,17 +304,28 @@ committed. **Stored prompts are pruned after 30 days**, so the prompt export is 
 - **R2 (no raise):** a go that rose from ≤ 3 on the previous rated run of the same model is held back.
 - **R3 (R1 ∪ R2).**
 
-**Thresholds, proposed for the owner (§9 Q3):**
-- **D-1. A rule is ready for the owner to consider for production** when all of these hold:
-  1. Part D shows it demotes Angel-shape gos and leaves Low Hauxley and the prompt-regression suite
-     intact.
-  2. Part B's primary test shows its demoted gos fail P-low more often than kept gos, with a risk
-     difference interval above 0.
-  3. Its cost side (demoted gos with an ERA5 canvas) is at most 25% of its demotions.
-  Without outcomes, a rule that passes changes **wording or confidence**: the star shows a stated
-  ceiling ("could be 3–4★"), shown on the same surface as the star. A star change waits for Part E.
-- **D-2. A model switch** is an owner call on Part D and Part B evidence, with hypothesis M as its
-  record. It is reversible on the Models screen, and needs no outcomes.
+**Thresholds (owner decision, 2026-10-14; §9 Q3):**
+- **D-1. A rule is ready for the owner to consider for production** when all four hold:
+  1. Replay (Part D): the rule gives the Angel prompt 3★ or below in at least 15 of 20 runs, and Low
+     Hauxley stays 4★ in at least 18 of 20. No prompt-regression failure beyond the one Sonnet 5.5
+     already fails.
+  2. Replay cost: of the go prompts in the set (658 on 2026-10-14), the rule demotes at most 15%. More
+     is a blanket downgrade, not a rule.
+  3. Premise (Part B): demoted gos fail P-low more often than kept gos, with the 95% block-bootstrap
+     interval entirely above 0 and the count gate met. Until Part B can meet this (it cannot while
+     every Sonnet 5.5 go is premise-unknown), conditions 1 and 2 together license a change to
+     **wording or confidence only**, never a star.
+  4. Cost side: demoted gos with an ERA5 canvas are at most 25% of demotions. On 2026-10-14 every
+     drafted rule read 84–86% on Part B, so this is expected to fail and to select the "Part B cannot
+     see the class" branch below; that is a result, not a reason to loosen it.
+  A rule that passes changes **wording or confidence**: the star shows a stated ceiling ("could be
+  3–4★"), on the same surface as the star. A star change waits for Part E.
+- **D-2. Batch Near-Term goes back to Sonnet 4.6** if either holds on the replay:
+  1. Sonnet 5.5 gives 4★ to at least 8 percentage points more of the three-star sample (prompts whose
+     stored rating was 3★; 658 on 2026-10-14) than Sonnet 4.6 does.
+  2. Sonnet 5.5's Angel result is 4★ in more than half of its 20 runs while Sonnet 4.6's is not.
+  Reversal: switch back to Sonnet 5.5 when a replay on a fresh month shows the gap under 4 points.
+  Hypothesis M is the record; the switch is reversible on the Models screen and needs no outcomes.
 
 **What a confidence mark must do (D-1 above):**
 - It must be shown **on the star itself**, on every surface that shows the star.
@@ -376,8 +387,8 @@ Everything lives under `scripts/far-cloud-p1/`, plus one test-only Java change. 
    - Sonnet 4.6 will be deprecated eventually, so this buys time and is not the fix.
    - Before the switch, run the prompt-regression suite on 4.6. `CLAUDE.md` records that 5.5 fails one
      case 4.6 passes, which is the safe direction.
-2. Part D's spend (§2, printed exactly before the run).
-3. The thresholds in §6 (D-1, D-2 and the branches).
+2. Part D's spend (§2, printed exactly before the run) — **not yet approved** as of 2026-10-14; the printed range was $174–261 for 1,316 prompts × 3 runs × 4 arms, excluding Sonnet 5.5 thinking tokens.
+3. The thresholds in §6 (D-1, D-2 and the branches) — **decided 2026-10-14**, values in §6.
 4. Part E's protocol: which locations, and who records.
 5. Whether Part A should also run for the other training cases.
 
