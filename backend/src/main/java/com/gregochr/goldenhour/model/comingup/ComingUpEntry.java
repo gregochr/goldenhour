@@ -60,10 +60,13 @@ import java.util.Objects;
  *                      entries from clearing a band, however high {@code bits} reads, rather than
  *                      distorting the printed "rarity + magnitude = bits" sum to enforce it
  * @param tide          nullable — tide-run entries only; sparkline data (P3b)
- * @param coincidence   nullable/empty — set when this entry absorbed another topic under D10's max
- *                      rule; each line is the topic that did <b>not</b> carry {@code bits}
+ * @param coincidence   nullable/empty — set when this entry merged two topics under D10; one line
+ *                      per merged topic, host first, each with its own dates
  * @param joinNote      nullable — server-authored joining sentence, present iff {@code coincidence}
  *                      is non-empty
+ * @param dayMarks      the days a merged entry marks for its topics (a supermoon's full-moon nights,
+ *                      a tide run's peak), host's marks before the other's on one date; empty, and
+ *                      absent from the wire, on an unmerged entry
  */
 public record ComingUpEntry(
         LocalDate startDate,
@@ -94,7 +97,9 @@ public record ComingUpEntry(
         ComingUpTide tide,
         @JsonInclude(JsonInclude.Include.NON_EMPTY)
         List<ComingUpCoincidenceLine> coincidence,
-        String joinNote) {
+        String joinNote,
+        @JsonInclude(JsonInclude.Include.NON_EMPTY)
+        List<ComingUpDayMark> dayMarks) {
 
     /**
      * Normalises the collections so a consumer never has to null-check them, and requires the
@@ -111,6 +116,7 @@ public record ComingUpEntry(
         regions = regions == null ? List.of() : List.copyOf(regions);
         facts = facts == null ? List.of() : List.copyOf(facts);
         coincidence = coincidence == null ? List.of() : List.copyOf(coincidence);
+        dayMarks = dayMarks == null ? List.of() : List.copyOf(dayMarks);
     }
 
     /**
@@ -131,6 +137,6 @@ public record ComingUpEntry(
                 id, "night-sky", "Almanac", null, null, null, List.of(), null, null, null,
                 new ComingUpAction("See the plan for " + event.startDate() + " →", "plan",
                         event.startDate()),
-                null, true, null, List.of(), null);
+                null, true, null, List.of(), null, List.of());
     }
 }

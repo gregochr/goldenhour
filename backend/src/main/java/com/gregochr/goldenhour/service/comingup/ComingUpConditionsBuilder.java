@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AlmanacEvent;
 import com.gregochr.goldenhour.model.SlotSignals;
 import com.gregochr.goldenhour.model.TideStats;
+import com.gregochr.goldenhour.model.comingup.ComingUpCoincidenceLine;
 import com.gregochr.goldenhour.model.comingup.ComingUpCondition;
 import com.gregochr.goldenhour.model.comingup.ComingUpConditionOccurrence;
 import com.gregochr.goldenhour.model.comingup.ComingUpConditionPeak;
@@ -88,13 +89,13 @@ import java.util.Optional;
  *
  * <p>{@code promoted} is derived from membership of the already-built {@code entries[]} list — an
  * exact id match ({@code type:startDate:endDate}) for the common case, plus a fallback for the one
- * case an exact match cannot cover: a run absorbed into a supermoon's coincidence line under D10's
- * max rule keeps its own id at staging time, but the surviving chronology entry's id is the
- * WINNER's — the supermoon's, whenever the supermoon's own score was higher. {@link
- * #matchingEntry} closes that gap by date overlap plus a coincidence line carrying this run's own
- * family ({@code "coastal"}), which is also what makes D10's {@code reason} tag reachable at all:
- * without it, a run that lost a merge could never be found, so the occurrence naming which topic
- * carried the score could never fire on the one branch it exists for.
+ * case an exact match cannot cover: a run merged with a supermoon under D10 keeps its own id at
+ * staging time, but the surviving chronology entry's id is the HOST's (the topic with the longest
+ * span, supermoon-tide-run-plan.md R2/R9) over the UNION of both spans — the run's own id only when
+ * the run hosts and the union adds nothing. {@link #matchingEntry} closes that gap by date overlap
+ * plus a coincidence line carrying this run's own family ({@code "coastal"}), which is also what
+ * makes D10's {@code reason} tag reachable on a supermoon-hosted card: without it the run could
+ * never be found there, so the occurrence naming the other topic could never fire.
  */
 @Component
 public class ComingUpConditionsBuilder {
@@ -291,16 +292,16 @@ public class ComingUpConditionsBuilder {
             displayBits = matchedEntry.bits();
             if (!matchedEntry.coincidence().isEmpty()) {
                 // D10: "the reason label is mandatory wherever the max was taken" — both
-                // directions, not only when the OTHER topic overrode this run's own score. Which
-                // field names the other topic depends on which one actually won the merge:
-                //   - exact id match  → this run's own entry survived (it won), so its own
-                //     coincidence line names the LOSER — the other topic.
-                //   - fallback match  → the OTHER entry survived (it won), so ITS OWN title names
-                //     the other topic, and its coincidence line would name this run instead.
-                String otherTopic = matchedEntry.id().equals(ownId)
-                        ? matchedEntry.coincidence().getFirst().name()
-                        : matchedEntry.title();
-                reason = otherTopic.toLowerCase(Locale.UK);
+                // directions. A merged entry carries one line per merged topic, host first, so
+                // whichever topic hosts, the OTHER topic is the first line whose name is not this
+                // run's own title (supermoon-tide-run-plan.md §4.1).
+                String ownTitle = event.title();
+                reason = matchedEntry.coincidence().stream()
+                        .map(ComingUpCoincidenceLine::name)
+                        .filter(name -> !name.equals(ownTitle))
+                        .findFirst()
+                        .map(name -> name.toLowerCase(Locale.UK))
+                        .orElse(null);
             }
         }
 
@@ -331,17 +332,14 @@ public class ComingUpConditionsBuilder {
     }
 
     /**
-     * Finds the chronology entry this run belongs to — either as itself, or as the loser of a D10
-     * coincidence merge.
+     * Finds the chronology entry this run belongs to — either as itself, or as one of the two
+     * topics of a D10 coincidence merge.
      *
-     * <p>An exact id match covers every case except one: a run absorbed into a supermoon's
-     * coincidence line under {@code ComingUpAssembler.mergeEntries}'s max rule keeps its OWN id at
-     * staging time, but the surviving entry's id is the WINNER's — the supermoon's, when the
-     * supermoon's score was higher, which is precisely the case D10's {@code reason} tag exists to
-     * name. Without this fallback, {@code reason} could never fire in production: if the tide run
-     * itself won the merge, {@code matchedEntry.bits()} already equals this run's own score (no
-     * override to name); if the supermoon won, the exact-id lookup misses entirely and the run
-     * silently drops to {@code insidePlan}/{@code heldBack} despite having a real home in the
+     * <p>An exact id match covers every case except one: a run merged with a supermoon keeps its
+     * OWN id at staging time, but the surviving entry's id is the HOST's over the UNION of both
+     * spans — the run's own id only when the run hosts and the union adds nothing. When the
+     * supermoon hosts (or the union is wider), the exact-id lookup misses and the run would
+     * silently drop to {@code insidePlan}/{@code heldBack} despite having a real home in the
      * chronology. The fallback finds that entry by date overlap plus a coincidence line carrying
      * this run's own family ({@code "coastal"}).
      *
@@ -351,17 +349,18 @@ public class ComingUpConditionsBuilder {
      * <ol>
      *   <li>Tide runs in one window are maximal and disjoint — {@code TideAlmanacSource} never
      *       emits two overlapping runs, so date overlap alone identifies at most one candidate.</li>
-     *   <li>A merge's surviving entry keeps the WINNER's own {@code startDate}/{@code endDate} —
-     *       {@code ComingUpAssembler.mergeEntries} never touches the winner's dates, so "this
-     *       run's dates overlap the entry's dates" is a reliable link back to the merge.</li>
+     *   <li>A merged entry's span is a SUPERSET of each merged run's span (the union), so "this
+     *       run's dates overlap the entry's dates" is a reliable link back to the merge; the
+     *       union grows by a day or two past the run, which cannot reach a neighbouring run,
+     *       because neaps separate runs.</li>
      *   <li>The coincidence merge only ever pairs a tide run with a supermoon — matching on the
      *       family {@code "coastal"} alone (rather than also checking the OTHER side is
      *       {@code sun-moon}) is safe only because no other pairing exists to confuse it with.</li>
-     *   <li>A merge only ever involves eligible events — {@code ComingUpAssembler} merges before
-     *       the eligibility filter is even applied to the pre-P4 pipeline's own entries, but by
-     *       the time this class runs, every merge candidate it can observe already cleared it, so
-     *       {@code entries} never contains a merge whose overlap could match an unrelated,
-     *       still-in-Plan tide run by coincidence.</li>
+     *   <li>A merge always contains at least one ELIGIBLE event (a Plan-owned event is only ever a
+     *       merge partner, §4.7, never an entry of its own), so {@code entries} never contains a
+     *       merge standing wholly inside Plan's window. A run wholly inside Plan's window can
+     *       therefore match a merged card through the overlap fallback and report {@code promoted}
+     *       rather than {@code insidePlan} — true, since the card now shows it.</li>
      * </ol>
      * A future phase that widens the merge to another topic pair, or lets two tide runs overlap,
      * must revisit this method rather than assume it still holds.

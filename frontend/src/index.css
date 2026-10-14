@@ -9222,7 +9222,10 @@ button.wf-hc.also.on:hover {
   font-family: var(--font-mono);
   font-size: 10.5px;
   color: var(--color-plex-text-secondary);
-  white-space: nowrap;
+  /* Wraps: a merged card's tide line ("Sun 25 – Fri 30 Oct · biggest Tue 27 · 4.9 m · HW 15:48")
+     is ~55 characters, ~345px of this mono, and overflowed the card at 390/320px as nowrap
+     (supermoon-tide-run-plan.md S1). The name beside it stays on one line. */
+  white-space: normal;
 }
 /* The joining sentence — Newsreader, matching `.wf-cu-prose`'s own serif treatment, since it plays
    the same "explain it in words" role the prose slot plays on a non-merged feature card. */

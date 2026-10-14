@@ -96,13 +96,23 @@ describe('buildDateRail — the countdown', () => {
 
 describe('chipCounts', () => {
   const COUNTS = {
-    fixed: 8, forecast: 1,
+    fixed: 11, forecast: 1,
     byFamily: { coastal: 4, 'night-sky': 3, 'sun-moon': 1, eclipse: 1, air: 1, dust: 2 },
   };
 
-  it('sums every family into the All chip', () => {
+  it('reads the All chip off fixed + forecast', () => {
     const chips = chipCounts(COUNTS);
     expect(chips.find((c) => c.id === 'all').count).toBe(12);
+  });
+
+  it('does not double-count a merged card: it sits under two family chips but is ONE entry in All', () => {
+    // One spring-run-on-a-supermoon card (counted under coastal AND sun-moon by the server) plus a
+    // meteor shower: two entries, three family tallies.
+    const merged = { fixed: 2, forecast: 0, byFamily: { coastal: 1, 'sun-moon': 1, 'night-sky': 1 } };
+    const chips = chipCounts(merged);
+    expect(chips.find((c) => c.id === 'all').count).toBe(2);
+    expect(chips.find((c) => c.id === 'coastal').count).toBe(1);
+    expect(chips.find((c) => c.id === 'sun-moon').count).toBe(1);
   });
 
   it('reads a plain family straight off byFamily', () => {
@@ -135,7 +145,9 @@ describe('chipCounts', () => {
     // `aurora` is a legal wire family with no chip of its own (unreachable in v1, plan §1.4). If
     // one ever appears, "All" must still mean all entries — undercounting a real entry would be
     // the worse failure — while no individual family chip may claim it, since D6 gave it none.
-    const chips = chipCounts({ ...COUNTS, byFamily: { ...COUNTS.byFamily, aurora: 1 } });
+    const chips = chipCounts({
+      ...COUNTS, fixed: 12, byFamily: { ...COUNTS.byFamily, aurora: 1 },
+    });
     expect(chips.find((c) => c.id === 'all').count).toBe(13);
     const sumOfFamilies = chips.filter((c) => c.id !== 'all').reduce((s, c) => s + c.count, 0);
     expect(sumOfFamilies).toBe(12);

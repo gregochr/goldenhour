@@ -14,6 +14,7 @@ import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.LocationTideFact;
 import com.gregochr.goldenhour.model.PlanRenderedEvent;
+import com.gregochr.goldenhour.model.comingup.ComingUpCoincidenceLine;
 import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
 import com.gregochr.goldenhour.repository.AstroConditionsRepository;
 import com.gregochr.goldenhour.repository.AuroraForecastResultRepository;
@@ -45,6 +46,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -479,7 +481,9 @@ public class AskSnapshotBuilder {
                     .entries();
             return entries.stream()
                     .map(e -> new AskSnapshot.ComingUp(e.type(), e.title(), e.startDate(),
-                            e.endDate(), e.detail(), safetyNoteFor(e.type())))
+                            e.endDate(), e.detail(), safetyNoteFor(e.type()),
+                            e.coincidence().stream().map(ComingUpCoincidenceLine::type)
+                                    .filter(Objects::nonNull).toList()))
                     .toList();
         } catch (RuntimeException e) {
             // The almanac is an extra surface; Ask still answers about windows without it.

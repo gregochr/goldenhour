@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.model.comingup.ComingUpAction;
 import com.gregochr.goldenhour.model.comingup.ComingUpBands;
 import com.gregochr.goldenhour.model.comingup.ComingUpCoincidenceLine;
 import com.gregochr.goldenhour.model.comingup.ComingUpCounts;
+import com.gregochr.goldenhour.model.comingup.ComingUpDayMark;
 import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
 import com.gregochr.goldenhour.model.comingup.ComingUpFact;
 import com.gregochr.goldenhour.model.comingup.ComingUpResponse;
@@ -16,16 +17,20 @@ import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.AlmanacService;
 import com.gregochr.goldenhour.service.TideRunBuilder;
 import com.gregochr.goldenhour.service.TideService;
+import com.gregochr.solarutils.MoonriseMoonset;
+import com.gregochr.solarutils.MoonriseMoonsetCalculator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -72,12 +77,24 @@ public class ComingUpAssembler {
             "No filter needed — bracket, the shadow is ~10 stops under the lit edge";
 
     private static final DateTimeFormatter DATE_LABEL = DateTimeFormatter.ofPattern("d MMM", Locale.UK);
+    private static final DateTimeFormatter DAY_LABEL = DateTimeFormatter.ofPattern("EEE d", Locale.UK);
+    private static final DateTimeFormatter DAY_MONTH_LABEL = DateTimeFormatter.ofPattern("EEE d MMM", Locale.UK);
+    private static final DateTimeFormatter HH_MM = DateTimeFormatter.ofPattern("HH:mm");
+    private static final ZoneId LONDON = ZoneId.of("Europe/London");
+
+    private static final String MARK_PEAK = "peak";
+    private static final String MARK_FULL_MOON = "full moon";
+    private static final String SEPARATOR = " · ";
+    private static final String COUNTED_AS_ONE = " Counted as one event, not two.";
+    private static final String JOIN_STEM = "Same cause, two effects. The moon is closest to Earth, which both "
+            + "enlarges it and stretches the tide.";
 
     private final LocationRepository locationRepository;
     private final TideRunBuilder tideRunBuilder;
     private final TideRunPeakHistory tideRunPeakHistory;
     private final TideService tideService;
     private final ComingUpScoringProperties scoringProperties;
+    private final MoonriseMoonsetCalculator moonriseMoonsetCalculator;
 
     /**
      * Constructs a {@code ComingUpAssembler}.
@@ -87,40 +104,72 @@ public class ComingUpAssembler {
      * @param tideRunPeakHistory supplies the representative's own historical run-peak distribution
      * @param tideService        supplies each representative's stored range statistics
      * @param scoringProperties  every knob the surprise model uses
+     * @param moonriseMoonsetCalculator supplies a merged supermoon night's moonrise at the merged
+     *                           run's representative location
      */
     public ComingUpAssembler(LocationRepository locationRepository, TideRunBuilder tideRunBuilder,
             TideRunPeakHistory tideRunPeakHistory, TideService tideService,
-            ComingUpScoringProperties scoringProperties) {
+            ComingUpScoringProperties scoringProperties,
+            MoonriseMoonsetCalculator moonriseMoonsetCalculator) {
         this.locationRepository = locationRepository;
         this.tideRunBuilder = tideRunBuilder;
         this.tideRunPeakHistory = tideRunPeakHistory;
         this.tideService = tideService;
         this.scoringProperties = scoringProperties;
+        this.moonriseMoonsetCalculator = moonriseMoonsetCalculator;
     }
 
     /**
-     * Builds the full response from the events that already cleared eligibility.
+     * Builds the full response from the events that already cleared eligibility, with no
+     * Plan-owned merge partners.
      *
      * @param builtFor       the UK civil date the feed is built for
      * @param eligibleEvents events past Plan's boundary (plan D1), any order
      * @return the wrapped response, entries sorted by start date then span length then type
      */
     public ComingUpResponse assemble(LocalDate builtFor, List<AlmanacEvent> eligibleEvents) {
+        return assemble(builtFor, eligibleEvents, List.of());
+    }
+
+    /**
+     * Builds the full response from the events that already cleared eligibility, pairing them
+     * against the events Plan owns too (supermoon-tide-run-plan.md §4.7).
+     *
+     * <p>{@code partnersOnly} events (those ending inside Plan's window) are staged but used ONLY as
+     * D10 merge partners: one that pairs with an eligible event is merged into it, one that pairs
+     * with nothing is dropped, and two of them never pair with each other (their union would end
+     * inside Plan's window). Superlatives and thresholds are still computed over the eligible runs
+     * alone.
+     *
+     * @param builtFor       the UK civil date the feed is built for
+     * @param eligibleEvents events past Plan's boundary (plan D1), any order
+     * @param partnersOnly   events inside Plan's window, considered only as merge partners
+     * @return the wrapped response, entries sorted by start date then span length then type
+     */
+    public ComingUpResponse assemble(LocalDate builtFor, List<AlmanacEvent> eligibleEvents,
+            List<AlmanacEvent> partnersOnly) {
         List<LocationEntity> coastalRoster = coastalRoster();
 
         List<Staged> staged = new ArrayList<>();
         for (AlmanacEvent event : eligibleEvents) {
             staged.add(stage(builtFor, event, coastalRoster));
         }
+        List<Staged> eligibleStaged = List.copyOf(staged);
+        for (AlmanacEvent event : partnersOnly) {
+            Staged partner = stage(builtFor, event, coastalRoster);
+            partner.partnerOnly = true;
+            staged.add(partner);
+        }
 
         // Superlatives/thresholds MUST run before the merge: they compare a tide run's own range
-        // against every other tide run in the window, and mergeCoincidences can absorb a whole tide
-        // run into a supermoon's coincidence line — dropping its Staged object, and its range, from
-        // the list entirely. Computed here, every run's range is still in the comparison set even
-        // if it is about to be merged away; computed after, a later smaller run could falsely claim
+        // against every other tide run in the window, and mergeCoincidences can fold a whole tide
+        // run into a merged entry — dropping its Staged object, and its range, from the list
+        // entirely. Computed here, every run's range is still in the comparison set even if it is
+        // about to be merged away; computed after, a later smaller run could falsely claim
         // "biggest until X" past a bigger run the reader can still see in that entry's own
-        // coincidence factsLabel.
-        markTideSuperlativesAndThresholds(staged);
+        // coincidence factsLabel. Over the ELIGIBLE runs only: a Plan-owned partner is not a run
+        // this feed lists.
+        markTideSuperlativesAndThresholds(eligibleStaged);
         staged = mergeCoincidences(staged);
         markFirstOfType(staged);
         markScoreNotes(staged);
@@ -181,12 +230,26 @@ public class ComingUpAssembler {
          * true. Defaults false so every other {@code enrich*} method's entries are eligible for a
          * badge, per D4's "never badge from a bucketed magnitude" — narrowly, not universally. */
         boolean interim;
+        /** First day of the entry's span — the event's own until a merge widens it to the union. */
+        LocalDate startDate;
+        /** Last day of the entry's span — the event's own until a merge widens it to the union. */
+        LocalDate endDate;
+        /** The entry's title — the event's own until a merge composes the host's with the other's. */
+        String title;
+        /** Days a merged entry marks per topic; empty until a merge, and served only then. */
+        List<ComingUpDayMark> dayMarks = List.of();
+        /** The location a tide run's range, bars and a merged supermoon's moonrise are measured at;
+         * null for any other type, or when no peak range could be derived. */
+        LocationEntity representative;
+        /** True for a Plan-owned event staged only as a merge partner (supermoon-tide-run-plan.md
+         * §4.7); dropped unless a merge consumes it. */
+        boolean partnerOnly;
 
         ComingUpEntry toEntry() {
-            return new ComingUpEntry(event.startDate(), event.endDate(), event.kind(), event.type(),
-                    event.title(), event.detail(), meta, event.regions(), enteredWindow,
+            return new ComingUpEntry(startDate, endDate, event.kind(), event.type(),
+                    title, event.detail(), meta, event.regions(), enteredWindow,
                     id, family, kindTag, superlative, metric, prose, facts, aside, threshold, scoreNote,
-                    action, round1(bits), interim, tide, coincidence, joinNote);
+                    action, round1(bits), interim, tide, coincidence, joinNote, dayMarks);
         }
     }
 
@@ -194,6 +257,9 @@ public class ComingUpAssembler {
         Staged s = new Staged();
         s.event = event;
         s.meta = event.meta();
+        s.startDate = event.startDate();
+        s.endDate = event.endDate();
+        s.title = event.title();
         s.enteredWindow = event.startDate().minusDays(AlmanacService.DEFAULT_DAYS - 1L);
         s.id = event.type() + ":" + event.startDate() + ":" + event.endDate();
         s.kindTag = "Almanac";
@@ -261,6 +327,9 @@ public class ComingUpAssembler {
         if (peakOpt.isPresent()) {
             TideRunBuilder.RunPeak peak = peakOpt.get();
             s.tideRangeMetres = peak.rangeMetres();
+            // Before the TideStats branch below: a merged supermoon's moonrise is read at this
+            // location and must not depend on whether range statistics resolved.
+            s.representative = peak.representative();
             s.metric = event.meta().get("range");
 
             Optional<TideStats> stats = tideService.getTideStats(peak.representative().getId());
@@ -296,7 +365,7 @@ public class ComingUpAssembler {
             }
         }
         s.bits = s.rarityBits + s.magnitudeBits;
-        s.facts = tideFacts(event);
+        s.facts = tideFacts(event, false);
 
         LocalDate actionDate = peakDateOf(event);
         s.action = new ComingUpAction(
@@ -462,7 +531,12 @@ public class ComingUpAssembler {
 
     // ── Fact-row builders ───────────────────────────────────────────────────
 
-    private static List<ComingUpFact> tideFacts(AlmanacEvent event) {
+    /**
+     * A tide run's fact rows, built from the event's own meta. When {@code merged} (the run hosts a
+     * merged entry) the alignment value gains {@code on the <ordinal>} from {@code alignmentDate},
+     * because on a merged card two topics' days share the row and a bare clock is ambiguous.
+     */
+    private static List<ComingUpFact> tideFacts(AlmanacEvent event, boolean merged) {
         Map<String, String> meta = event.meta();
         List<ComingUpFact> facts = new ArrayList<>();
 
@@ -476,9 +550,13 @@ public class ComingUpAssembler {
             facts.add(new ComingUpFact(segs));
         }
         if (meta.get("alignment") != null) {
+            LocalDate alignedOn = merged ? parseDate(meta.get("alignmentDate")) : null;
+            String alignment = alignedOn == null
+                    ? meta.get("alignment")
+                    : meta.get("alignment") + " on the " + ordinal(alignedOn.getDayOfMonth());
             facts.add(new ComingUpFact(List.of(
                     new ComingUpFact.Segment("tide ", "base"),
-                    new ComingUpFact.Segment(meta.get("alignment"), "accent"))));
+                    new ComingUpFact.Segment(alignment, "accent"))));
         } else if ("true".equals(meta.get("noAlignment"))) {
             facts.add(new ComingUpFact(List.of(new ComingUpFact.Segment(
                     "no water lands in the light on this run", "base"))));
@@ -635,9 +713,12 @@ public class ComingUpAssembler {
                 continue;
             }
             Integer partnerIndex = tideToSupermoon.get(i);
-            result.add(partnerIndex == null
-                    ? staged.get(i)
-                    : mergeEntries(staged.get(i), staged.get(partnerIndex)));
+            if (partnerIndex != null) {
+                result.add(mergeEntries(staged.get(i), staged.get(partnerIndex)));
+            } else if (!staged.get(i).partnerOnly) {
+                // A Plan-owned event that paired with nothing is not this feed's to list.
+                result.add(staged.get(i));
+            }
         }
         return result;
     }
@@ -648,6 +729,10 @@ public class ComingUpAssembler {
                 continue;
             }
             Staged candidate = staged.get(j);
+            // Two Plan-owned events never pair: their union would end inside Plan's window.
+            if (staged.get(i).partnerOnly && candidate.partnerOnly) {
+                continue;
+            }
             if (TYPE_SUPERMOON.equals(candidate.event.type()) && overlaps(staged.get(i).event,
                     candidate.event)) {
                 return j;
@@ -657,28 +742,207 @@ public class ComingUpAssembler {
     }
 
     /**
-     * Merges a tide run and a supermoon sharing dates into one entry, per D10's max rule: the
-     * pair's causal link is one perigee, so the winner's own score stands and the loser folds into
-     * {@code coincidence} rather than adding.
+     * Merges a tide run and a supermoon sharing dates into one entry (supermoon-tide-run-plan.md
+     * R1–R10): the bits winner still decides the SCORE ({@code bits = max}, {@code interim} and
+     * {@code enteredWindow} from the winner), but the SHAPE follows the span — the union of both
+     * topics' dates, hosted by the topic with the longest span (a tie goes to the winner). The host
+     * supplies type, family, facts, action and the rest; each topic keeps its own dated coincidence
+     * line and its own marked days.
      */
     private Staged mergeEntries(Staged tide, Staged supermoon) {
         Staged winner = tide.bits >= supermoon.bits ? tide : supermoon;
-        Staged loser = winner == tide ? supermoon : tide;
+        Staged host = hostOf(tide, supermoon, winner);
+        Staged other = host == tide ? supermoon : tide;
 
-        winner.coincidence = new ArrayList<>(winner.coincidence);
-        winner.coincidence.add(new ComingUpCoincidenceLine(
-                loser.family, loser.event.title(), loserFactsLabel(loser)));
-        winner.bits = Math.max(tide.bits, supermoon.bits);
-        winner.joinNote = "One perigee causes both. Counted as one event, not two — the "
-                + winner.event.title() + " carries it.";
-        return winner;
+        double bits = Math.max(tide.bits, supermoon.bits);
+        boolean interim = winner.interim;
+        LocalDate enteredWindow = winner.enteredWindow;
+
+        host.startDate = tide.startDate.isBefore(supermoon.startDate) ? tide.startDate : supermoon.startDate;
+        host.endDate = tide.endDate.isAfter(supermoon.endDate) ? tide.endDate : supermoon.endDate;
+        host.id = host.event.type() + ":" + host.startDate + ":" + host.endDate;
+        host.title = host.event.title() + ", on a " + lowerFirst(other.event.title());
+        host.bits = bits;
+        host.interim = interim;
+        host.enteredWindow = enteredWindow;
+        host.partnerOnly = false;
+
+        host.coincidence = new ArrayList<>(List.of(
+                coincidenceLine(host, tide.representative),
+                coincidenceLine(other, tide.representative)));
+        host.joinNote = perigeeJoinNote(supermoon, tide);
+
+        List<ComingUpDayMark> marks = new ArrayList<>(dayMarksOf(host));
+        marks.addAll(dayMarksOf(other));
+        marks.sort(Comparator.comparing(ComingUpDayMark::date));
+        host.dayMarks = marks;
+
+        // Facts by construction, never by text surgery: the run's alignment gains its day, and a
+        // hosting supermoon drops the "peaks" fact (the join note and its mark say it better).
+        if (host == tide) {
+            host.facts = tideFacts(host.event, true);
+        } else {
+            host.facts = new ArrayList<>();
+            regionScopeFact(host.event).ifPresent(host.facts::add);
+        }
+        return host;
     }
 
-    private static String loserFactsLabel(Staged loser) {
-        LocalDate date = peakDateOf(loser.event);
-        return loser.metric == null
-                ? DATE_LABEL.format(date)
-                : loser.metric + " · " + DATE_LABEL.format(date);
+    /** R2: the longest span hosts; a tie goes to the bits winner (which, on a bits tie, is the run). */
+    private static Staged hostOf(Staged tide, Staged supermoon, Staged winner) {
+        long tideDays = java.time.temporal.ChronoUnit.DAYS.between(tide.startDate, tide.endDate);
+        long moonDays = java.time.temporal.ChronoUnit.DAYS.between(supermoon.startDate, supermoon.endDate);
+        if (tideDays == moonDays) {
+            return winner;
+        }
+        return tideDays > moonDays ? tide : supermoon;
+    }
+
+    private static String lowerFirst(String title) {
+        return title.isEmpty() ? title : Character.toLowerCase(title.charAt(0)) + title.substring(1);
+    }
+
+    private ComingUpCoincidenceLine coincidenceLine(Staged topic, LocationEntity runRepresentative) {
+        return new ComingUpCoincidenceLine(topic.family, topic.event.title(),
+                coincidenceFacts(topic, runRepresentative), topic.event.type());
+    }
+
+    // ── Per-type vocabulary: day marks, coincidence facts, join note (plan §2.2) ───────────
+
+    /** The days a topic marks on a merged card: a run's true peak, a supermoon's every night. */
+    private static List<ComingUpDayMark> dayMarksOf(Staged topic) {
+        List<ComingUpDayMark> marks = new ArrayList<>();
+        if (TYPE_SUPERMOON.equals(topic.event.type())) {
+            for (LocalDate night : datesOf(topic.event)) {
+                marks.add(new ComingUpDayMark(night, MARK_FULL_MOON, topic.family));
+            }
+        } else {
+            LocalDate peak = parseDate(topic.event.meta().get("peakDate"));
+            if (peak != null) {
+                marks.add(new ComingUpDayMark(peak, MARK_PEAK, topic.family));
+            }
+        }
+        return marks;
+    }
+
+    /**
+     * One topic's coincidence-line facts, as a plain string. A tide run reads its own span, true peak
+     * day, range and (only when the alignment is on the peak day) the alignment clock; a supermoon
+     * reads its span and the moonrise at the merged run's representative.
+     */
+    private String coincidenceFacts(Staged topic, LocationEntity runRepresentative) {
+        String span = spanLabel(topic.event.startDate(), topic.event.endDate());
+        if (TYPE_SUPERMOON.equals(topic.event.type())) {
+            return span + moonriseClause(topic, runRepresentative);
+        }
+        Map<String, String> meta = topic.event.meta();
+        LocalDate truePeak = parseDate(meta.get("peakDate"));
+        if (truePeak != null) {
+            StringBuilder label = new StringBuilder(span).append(SEPARATOR).append("biggest ")
+                    .append(DAY_LABEL.format(truePeak));
+            if (topic.metric != null) {
+                label.append(SEPARATOR).append(topic.metric);
+            }
+            String clock = alignmentClock(meta);
+            if (clock != null && truePeak.equals(parseDate(meta.get("alignmentDate")))) {
+                label.append(SEPARATOR).append(clock);
+            }
+            return label.toString();
+        }
+        LocalDate figuresFrom = parseDate(meta.get("figuresFrom"));
+        if (figuresFrom != null && topic.metric != null) {
+            return span + SEPARATOR + topic.metric + " on " + DAY_LABEL.format(figuresFrom);
+        }
+        return span;
+    }
+
+    /** {@code HW 15:48} — the leading two tokens of the run's alignment phrase, or null. */
+    private static String alignmentClock(Map<String, String> meta) {
+        String alignment = meta.get("alignment");
+        if (alignment == null) {
+            return null;
+        }
+        String[] tokens = alignment.split("\\s+");
+        return tokens.length >= 2 ? tokens[0] + " " + tokens[1] : null;
+    }
+
+    private String moonriseClause(Staged supermoon, LocationEntity representative) {
+        if (representative == null) {
+            return "";
+        }
+        LocalDate night = peakDateOf(supermoon.event);
+        MoonriseMoonset moonriseMoonset = moonriseMoonsetCalculator.calculate(
+                night, representative.getLat(), representative.getLon(), LONDON);
+        // Formatted from the instant, never from the returned zone: the same rule the hot topic's
+        // own moonrise fact follows.
+        return moonriseMoonset.moonrise()
+                .map(rise -> rise.withZoneSameInstant(LONDON).toLocalTime().format(HH_MM))
+                .map(time -> SEPARATOR + "moonrise " + time + (supermoon.event.startDate()
+                        .equals(supermoon.event.endDate()) ? "" : " on the " + ordinal(night.getDayOfMonth())))
+                .orElse("");
+    }
+
+    /** {@code Mon 26 Oct} / {@code Sun 25 – Fri 30 Oct} / {@code Fri 30 Oct – Tue 3 Nov}. */
+    static String spanLabel(LocalDate start, LocalDate end) {
+        if (start.equals(end)) {
+            return DAY_MONTH_LABEL.format(start);
+        }
+        if (start.getMonth() == end.getMonth() && start.getYear() == end.getYear()) {
+            return DAY_LABEL.format(start) + " – " + DAY_MONTH_LABEL.format(end);
+        }
+        return DAY_MONTH_LABEL.format(start) + " – " + DAY_MONTH_LABEL.format(end);
+    }
+
+    /** {@code 1st 2nd 3rd 4th … 11th 12th 13th … 21st 22nd 23rd … 31st}. */
+    static String ordinal(int day) {
+        int lastTwo = day % 100;
+        if (lastTwo >= 11 && lastTwo <= 13) {
+            return day + "th";
+        }
+        return day + switch (day % 10) {
+            case 1 -> "st";
+            case 2 -> "nd";
+            case 3 -> "rd";
+            default -> "th";
+        };
+    }
+
+    /**
+     * The merged card's join note (R7): the shared cause, then each topic's own date(s) — same-day
+     * wording when the peak lands on a full-moon night, a relative offset from the nearest night
+     * otherwise, nothing about the peak when the run has no true peak. No month name, no bits.
+     */
+    private static String perigeeJoinNote(Staged supermoon, Staged tide) {
+        LocalDate peak = parseDate(tide.event.meta().get("peakDate"));
+        if (peak == null) {
+            return JOIN_STEM + COUNTED_AS_ONE;
+        }
+        List<LocalDate> nights = datesOf(supermoon.event);
+        if (nights.contains(peak)) {
+            return JOIN_STEM + " The moon is full and the tide peaks on the same day, the "
+                    + ordinal(peak.getDayOfMonth()) + "." + COUNTED_AS_ONE;
+        }
+        LocalDate nearest = nights.getFirst();
+        for (LocalDate night : nights) {
+            if (Math.abs(java.time.temporal.ChronoUnit.DAYS.between(night, peak))
+                    < Math.abs(java.time.temporal.ChronoUnit.DAYS.between(nearest, peak))) {
+                nearest = night;
+            }
+        }
+        long gap = java.time.temporal.ChronoUnit.DAYS.between(nearest, peak);
+        long days = Math.abs(gap);
+        String relative = (days == 1 ? "a day" : days + " days") + (gap > 0 ? " later" : " earlier");
+        return JOIN_STEM + " The moon is full on the " + nightsList(nights) + " and the tide peaks "
+                + relative + ", on the " + ordinal(peak.getDayOfMonth()) + "." + COUNTED_AS_ONE;
+    }
+
+    /** {@code 26th} / {@code 24th and 25th} / {@code 23rd, 24th and 25th}. */
+    private static String nightsList(List<LocalDate> nights) {
+        List<String> words = nights.stream().map(d -> ordinal(d.getDayOfMonth())).toList();
+        if (words.size() == 1) {
+            return words.getFirst();
+        }
+        return String.join(", ", words.subList(0, words.size() - 1)) + " and " + words.getLast();
     }
 
     // ── First-of-type prose, superlatives, thresholds, score notes ─────────
@@ -786,7 +1050,13 @@ public class ComingUpAssembler {
             } else {
                 forecast++;
             }
-            byFamily.merge(entry.family(), 1, Integer::sum);
+            // A merged entry counts under every distinct family it holds, so the client's family
+            // filter (which finds it under each) and these chip counts agree; fixed/forecast above
+            // still count it once.
+            Set<String> families = new LinkedHashSet<>();
+            families.add(entry.family());
+            entry.coincidence().forEach(line -> families.add(line.family()));
+            families.forEach(family -> byFamily.merge(family, 1, Integer::sum));
         }
         return new ComingUpCounts(fixed, forecast, byFamily);
     }
@@ -808,6 +1078,18 @@ public class ComingUpAssembler {
     private static String phaseOf(AlmanacEvent event) {
         String alignment = event.meta().get("alignment");
         return alignment != null && alignment.startsWith("LW") ? "LW" : "HW";
+    }
+
+    /** The date a meta value names, or null when absent or unparseable — never a fallback date. */
+    private static LocalDate parseDate(String value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return LocalDate.parse(value);
+        } catch (java.time.format.DateTimeParseException e) {
+            return null;
+        }
     }
 
     private static LocalDate peakDateOf(AlmanacEvent event) {

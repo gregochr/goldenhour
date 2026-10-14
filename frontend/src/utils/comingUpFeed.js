@@ -159,8 +159,8 @@ export const FILTER_CHIPS = [
 ];
 
 /**
- * Each chip's served count, from {@code counts.byFamily} — never from the (possibly filtered)
- * rendered list, so a chip's own number cannot change when a DIFFERENT chip is selected (design
+ * Each chip's served count, from {@code counts.byFamily} (All: {@code fixed + forecast}) — never
+ * from the (possibly filtered) rendered list, so a chip's own number cannot change when a DIFFERENT chip is selected (design
  * §7: "counts stay static; they describe the unfiltered set").
  *
  * @param {?object} counts the wire's {@code ComingUpCounts}, or null/undefined before it arrives
@@ -168,12 +168,15 @@ export const FILTER_CHIPS = [
  */
 export function chipCounts(counts) {
   const byFamily = counts?.byFamily ?? {};
+  // All is fixed + forecast, never the sum of byFamily: a merged card counts under EVERY family it
+  // holds there (so the family filter and its chip agree), and summing would count it twice.
+  const total = (counts?.fixed ?? 0) + (counts?.forecast ?? 0);
   return FILTER_CHIPS.map((chip) => ({
     id: chip.id,
     label: chip.label,
     count: chip.families
       ? chip.families.reduce((sum, family) => sum + (byFamily[family] ?? 0), 0)
-      : Object.values(byFamily).reduce((sum, n) => sum + n, 0),
+      : total,
   }));
 }
 

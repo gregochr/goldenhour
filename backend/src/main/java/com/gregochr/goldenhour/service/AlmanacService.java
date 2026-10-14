@@ -304,7 +304,13 @@ public class AlmanacService {
         List<AlmanacEvent> eligible = all.stream()
                 .filter(event -> event.endDate().isAfter(cutoff))
                 .toList();
-        ComingUpResponse core = assembler.assemble(builtFor, eligible);
+        // The events Plan owns still take part in the coincidence merge as partners only
+        // (supermoon-tide-run-plan.md §4.7): a supermoon inside Plan's four days must still be
+        // marked on the run that overlaps it, or the card and Ask would disagree with the sky.
+        List<AlmanacEvent> planOwned = all.stream()
+                .filter(event -> !event.endDate().isAfter(cutoff))
+                .toList();
+        ComingUpResponse core = assembler.assemble(builtFor, eligible, planOwned);
         List<ComingUpCondition> conditions = conditionsBuilder.build(builtFor, all, core.entries());
         return new Assembled(
                 new ComingUpResponse(core.builtFor(), core.bands(), core.counts(), conditions, core.entries()),
