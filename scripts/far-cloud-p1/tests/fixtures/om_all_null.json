@@ -1,0 +1,21 @@
+{
+ "latitude": 54.9,
+ "longitude": -1.6,
+ "hourly": {
+  "time": [
+   "2026-10-13T00:00",
+   "2026-10-13T01:00",
+   "2026-10-13T02:00"
+  ],
+  "cloud_cover_low": [
+   0,
+   0,
+   0
+  ],
+  "cloud_cover_700hPa_previous_day1": [
+   null,
+   null,
+   null
+  ]
+ }
+}

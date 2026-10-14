@@ -18,7 +18,10 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -55,7 +58,20 @@ import java.util.stream.Stream;
  *       {@code SONNET_55,SONNET,HAIKU}</li>
  *   <li>{@code REPLAY_N}: runs per prompt and model, default 20</li>
  *   <li>{@code REPLAY_THREADS}: concurrent calls, default 4</li>
+ *   <li>{@code REPLAY_SYSTEM_PROMPT_FILE} (optional): a text file whose contents REPLACE the system
+ *       prompt of every request (Part D's R1 variant, {@code docs/engineering/far-cloud-p1-plan.md}).
+ *       Unset, the production prompt is sent byte-for-byte as before. The file must be the inland
+ *       prompt (one already ending with the coastal suffix is rejected); a coastal request gets
+ *       {@link CoastalPromptBuilder}'s suffix appended, so coastal and inland differ exactly as in
+ *       production ({@link #resolveSystemPrompt}, {@link #systemPromptFor}). The prompt used is recorded in
+ *       the {@code system_prompt} column of {@code runs.csv} and in {@code summary.md}.</li>
+ *   <li>{@code REPLAY_DUMP_SYSTEM_PROMPTS_DIR} (optional, used by {@link #dumpSystemPrompts}, no API
+ *       key needed): writes the production {@code system-inland.txt} and {@code system-coastal.txt}
+ *       so a variant file can be built from them</li>
  * </ul>
+ *
+ * <p>Prompt files may be named with an evaluation id ({@code 101110.inland.txt}): the label is
+ * everything before the {@code .inland.txt} / {@code .coastal.txt} suffix, so it is just a string.
  *
  * <p><b>Output</b>: {@code target/p0-replay/runs.csv} (one row per call) and
  * {@code target/p0-replay/summary.md} (rating distribution, mean scores and failures per prompt and
@@ -84,6 +100,10 @@ class PromptReplayHarnessTest {
                 .toList();
         int n = Integer.parseInt(setting("REPLAY_N", "20"));
         int threads = Integer.parseInt(setting("REPLAY_THREADS", "4"));
+        String overrideSetting = setting("REPLAY_SYSTEM_PROMPT_FILE", null);
+        Path overrideFile = overrideSetting == null || overrideSetting.isBlank()
+                ? null : Path.of(overrideSetting);
+        String systemPromptId = describeSystemPrompt(overrideFile);
 
         List<StoredPrompt> prompts = loadPrompts(Path.of(dir));
         if (prompts.isEmpty()) {
@@ -105,7 +125,8 @@ class PromptReplayHarnessTest {
                     for (int i = 1; i <= n; i++) {
                         int attempt = i;
                         futures.add(pool.submit(() -> call(client, builder, model, prompt,
-                                attempt, parser, mapper)));
+                                attempt, parser, mapper, inland.getSystemPrompt(),
+                                coastal.getSystemPrompt(), overrideFile, systemPromptId)));
                     }
                 }
             }
@@ -113,7 +134,7 @@ class PromptReplayHarnessTest {
             for (Future<Run> f : futures) {
                 runs.add(f.get());
             }
-            write(runs, prompts, models, n);
+            write(runs, prompts, models, n, systemPromptId);
         } finally {
             pool.shutdownNow();
         }
@@ -125,7 +146,7 @@ class PromptReplayHarnessTest {
 
     /** One call's outcome: a parsed evaluation, or the reason there is none. */
     record Run(String label, EvaluationModel model, int attempt, Integer rating, Integer fiery,
-            Integer golden, String failure, String summary) {
+            Integer golden, String failure, String summary, String systemPrompt) {
     }
 
     private static List<StoredPrompt> loadPrompts(Path dir) throws IOException {
@@ -148,15 +169,17 @@ class PromptReplayHarnessTest {
 
     /** Sends one request, built exactly as {@code ClaudeEvaluationStrategy#invokeClaude} builds it. */
     private static Run call(AnthropicClient client, PromptBuilder builder, EvaluationModel model,
-            StoredPrompt prompt, int attempt, SunsetEvaluationParser parser, ObjectMapper mapper) {
+            StoredPrompt prompt, int attempt, SunsetEvaluationParser parser, ObjectMapper mapper,
+            String inlandPrompt, String coastalPrompt, Path overrideFile, String systemPromptId) {
         try {
+            String systemPrompt = systemPromptFor(prompt, inlandPrompt, coastalPrompt, overrideFile);
             Message response = client.messages().create(
                     ModelRequestSupport.withThinkingSetting(MessageCreateParams.builder()
                             .model(model.getModelId())
                             .maxTokens(model.getMaxTokens())
                             .systemOfTextBlockParams(List.of(
                                     TextBlockParam.builder()
-                                            .text(builder.getSystemPrompt())
+                                            .text(systemPrompt)
                                             .cacheControl(CacheControlEphemeral.builder().build())
                                             .build()))
                             .outputConfig(ModelRequestSupport.withEffort(
@@ -172,26 +195,115 @@ class PromptReplayHarnessTest {
                     .orElseThrow(() -> new IllegalStateException("no text content"));
             SunsetEvaluation e = parser.parseEvaluation(text, mapper);
             return new Run(prompt.label(), model, attempt, e.rating(), e.fierySkyPotential(),
-                    e.goldenHourPotential(), null, e.summary());
+                    e.goldenHourPotential(), null, e.summary(), systemPromptId);
         } catch (RuntimeException ex) {
             return new Run(prompt.label(), model, attempt, null, null, null,
-                    ex.getClass().getSimpleName() + ": " + ex.getMessage(), null);
+                    ex.getClass().getSimpleName() + ": " + ex.getMessage(), null, systemPromptId);
         }
     }
 
+    /**
+     * The system prompt one stored prompt's request is sent with: the production inland or coastal
+     * prompt by the stored prompt's suffix, or the override file's contents (plus the coastal suffix
+     * for a coastal prompt) when an override is set.
+     *
+     * @param prompt        the stored prompt (its suffix says coastal or inland)
+     * @param inlandPrompt  {@code PromptBuilder#getSystemPrompt()}
+     * @param coastalPrompt {@code CoastalPromptBuilder#getSystemPrompt()}
+     * @param overrideFile  the override file (the INLAND prompt), or null
+     * @return the system prompt text
+     */
+    static String systemPromptFor(StoredPrompt prompt, String inlandPrompt, String coastalPrompt,
+            Path overrideFile) {
+        return prompt.coastal()
+                ? resolveSystemPrompt(coastalPrompt, CoastalPromptBuilder.COASTAL_SYSTEM_PROMPT_SUFFIX,
+                        overrideFile)
+                : resolveSystemPrompt(inlandPrompt, null, overrideFile);
+    }
+
+    /**
+     * The system prompt a request is sent with: {@code productionPrompt} untouched when
+     * {@code overrideFile} is null, otherwise the file's contents (UTF-8, verbatim). For a coastal
+     * request ({@code coastalSuffix} non-null) the suffix is appended to the file's contents. The file
+     * must be the INLAND prompt: one that already ends with the coastal suffix is rejected, because
+     * it would silently send the coastal guidance to inland prompts too.
+     *
+     * @param productionPrompt what the prompt builder returns
+     * @param coastalSuffix    the coastal suffix, or null for an inland request
+     * @param overrideFile     the override file, or null for none
+     * @return the system prompt text
+     */
+    static String resolveSystemPrompt(String productionPrompt, String coastalSuffix, Path overrideFile) {
+        if (overrideFile == null) {
+            return productionPrompt;
+        }
+        try {
+            String content = Files.readString(overrideFile, StandardCharsets.UTF_8);
+            if (content.isEmpty()) {
+                throw new IllegalStateException("REPLAY_SYSTEM_PROMPT_FILE is empty: " + overrideFile);
+            }
+            if (content.endsWith(CoastalPromptBuilder.COASTAL_SYSTEM_PROMPT_SUFFIX)) {
+                throw new IllegalStateException("REPLAY_SYSTEM_PROMPT_FILE " + overrideFile
+                        + " already ends with the coastal suffix; it must be the INLAND prompt"
+                        + " (system-inland.txt, patched)");
+            }
+            return coastalSuffix == null ? content : content + coastalSuffix;
+        } catch (IOException e) {
+            throw new IllegalStateException("Cannot read REPLAY_SYSTEM_PROMPT_FILE " + overrideFile, e);
+        }
+    }
+
+    /**
+     * Names the system prompt for the outputs: {@code production}, or the file name plus the first
+     * 12 hex characters of the SHA-256 of its contents.
+     *
+     * @param overrideFile the override file, or null
+     * @return the label recorded in {@code runs.csv} and {@code summary.md}
+     */
+    static String describeSystemPrompt(Path overrideFile) {
+        if (overrideFile == null) {
+            return "production";
+        }
+        try {
+            byte[] bytes = Files.readAllBytes(overrideFile);
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(bytes);
+            return overrideFile.getFileName() + "@sha256:" + HexFormat.of().formatHex(digest, 0, 6);
+        } catch (IOException | NoSuchAlgorithmException e) {
+            throw new IllegalStateException("Cannot read REPLAY_SYSTEM_PROMPT_FILE " + overrideFile, e);
+        }
+    }
+
+    /** Writes the production inland and coastal system prompts, to build an override from. */
+    @Test
+    void dumpSystemPrompts() throws IOException {
+        String dir = setting("REPLAY_DUMP_SYSTEM_PROMPTS_DIR", null);
+        if (dir == null || dir.isBlank()) {
+            System.out.println("dumpSystemPrompts: REPLAY_DUMP_SYSTEM_PROMPTS_DIR is not set; WROTE NOTHING");
+            return;
+        }
+        Files.createDirectories(Path.of(dir));
+        Files.writeString(Path.of(dir, "system-inland.txt"), new PromptBuilder().getSystemPrompt(),
+                StandardCharsets.UTF_8);
+        Files.writeString(Path.of(dir, "system-coastal.txt"),
+                new CoastalPromptBuilder().getSystemPrompt(), StandardCharsets.UTF_8);
+        System.out.println("dumpSystemPrompts: wrote system-inland.txt and system-coastal.txt to " + dir);
+    }
+
     private static void write(List<Run> runs, List<StoredPrompt> prompts,
-            List<EvaluationModel> models, int n) throws IOException {
+            List<EvaluationModel> models, int n, String systemPromptId) throws IOException {
         Files.createDirectories(OUT_DIR);
-        StringBuilder csv = new StringBuilder("label,model,attempt,rating,fiery,golden,failure,summary\n");
+        StringBuilder csv = new StringBuilder(
+                "label,model,attempt,rating,fiery,golden,failure,summary,system_prompt\n");
         for (Run r : runs) {
             csv.append(String.join(",", r.label(), r.model().name(), String.valueOf(r.attempt()),
                     str(r.rating()), str(r.fiery()), str(r.golden()), quote(r.failure()),
-                    quote(r.summary()))).append('\n');
+                    quote(r.summary()), quote(r.systemPrompt()))).append('\n');
         }
         Files.writeString(OUT_DIR.resolve("runs.csv"), csv, StandardCharsets.UTF_8);
 
         StringBuilder md = new StringBuilder("# P0 prompt replay\n\n");
         md.append("N = ").append(n).append(" per prompt and model.\n\n");
+        md.append("System prompt: ").append(systemPromptId).append("\n\n");
         md.append("| Prompt | Model | 1★ | 2★ | 3★ | 4★ | 5★ | Failed | Mean ★ | Mean fiery | Mean golden |\n");
         md.append("|---|---|---|---|---|---|---|---|---|---|---|\n");
         for (StoredPrompt p : prompts) {
