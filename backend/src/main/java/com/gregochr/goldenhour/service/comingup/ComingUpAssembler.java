@@ -9,6 +9,7 @@ import com.gregochr.goldenhour.model.comingup.ComingUpBands;
 import com.gregochr.goldenhour.model.comingup.ComingUpCoincidenceLine;
 import com.gregochr.goldenhour.model.comingup.ComingUpCounts;
 import com.gregochr.goldenhour.model.comingup.ComingUpDayMark;
+import com.gregochr.goldenhour.model.comingup.ComingUpDayRange;
 import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
 import com.gregochr.goldenhour.model.comingup.ComingUpFact;
 import com.gregochr.goldenhour.model.comingup.ComingUpResponse;
@@ -264,6 +265,8 @@ public class ComingUpAssembler {
         String title;
         /** Days a merged entry marks per topic; empty until a merge, and served only then. */
         List<ComingUpDayMark> dayMarks = List.of();
+        /** A tide run's per-day ranges; the run's own on a merged entry, whichever topic hosts. */
+        List<ComingUpDayRange> dayRanges = List.of();
         /** The location a tide run's range, bars and a merged supermoon's moonrise are measured at;
          * null for any other type, or when no peak range could be derived. */
         LocationEntity representative;
@@ -280,7 +283,7 @@ public class ComingUpAssembler {
             return new ComingUpEntry(startDate, endDate, event.kind(), event.type(),
                     title, event.detail(), meta, event.regions(), enteredWindow,
                     id, family, kindTag, superlative, metric, prose, facts, aside, threshold, scoreNote,
-                    action, round1(bits), interim, tide, coincidence, joinNote, dayMarks);
+                    action, round1(bits), interim, tide, coincidence, joinNote, dayMarks, dayRanges);
         }
     }
 
@@ -361,6 +364,7 @@ public class ComingUpAssembler {
             // Before the TideStats branch below: a merged supermoon's moonrise is read at this
             // location and must not depend on whether range statistics resolved.
             s.representative = peak.representative();
+            s.dayRanges = dayRangesOf(peak.representative(), event);
             s.metric = event.meta().get("range");
 
             Optional<TideStats> stats = tideService.getTideStats(peak.representative().getId());
@@ -420,6 +424,25 @@ public class ComingUpAssembler {
             droppedKeys.add("rangeAnomaly");
         }
         s.meta = withoutKeys(event.meta(), droppedKeys.toArray(new String[0]));
+    }
+
+    /**
+     * The run's per-day ranges at its representative, 1 dp, with {@code peak} on the day the event's
+     * own {@code peakDate} names (never {@link #peakDateOf}, whose fallback to {@code figuresFrom}
+     * would crown a partial-coverage run's first measured day). Empty unless at least two days are
+     * derivable.
+     */
+    private List<ComingUpDayRange> dayRangesOf(LocationEntity representative, AlmanacEvent event) {
+        Map<LocalDate, Double> ranges = tideRunBuilder.dailyRangesAt(representative, datesOf(event));
+        if (ranges.size() < 2) {
+            return List.of();
+        }
+        LocalDate trueDate = parseDate(event.meta().get("peakDate"));
+        List<ComingUpDayRange> out = new ArrayList<>();
+        for (Map.Entry<LocalDate, Double> e : ranges.entrySet()) {
+            out.add(new ComingUpDayRange(e.getKey(), round1(e.getValue()), e.getKey().equals(trueDate)));
+        }
+        return out;
     }
 
     private void enrichMeteor(AlmanacEvent event, Staged s) {
@@ -814,6 +837,7 @@ public class ComingUpAssembler {
         marks.addAll(dayMarksOf(other));
         marks.sort(Comparator.comparing(ComingUpDayMark::date));
         host.dayMarks = marks;
+        host.dayRanges = tide.dayRanges;
 
         // Facts by construction, never by text surgery: the run's alignment gains its day, and a
         // hosting supermoon drops the "peaks" fact (the join note and its mark say it better).

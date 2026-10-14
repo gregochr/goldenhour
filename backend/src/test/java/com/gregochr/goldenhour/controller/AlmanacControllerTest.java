@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.model.AlmanacEvent;
 import com.gregochr.goldenhour.model.AlmanacKind;
 import com.gregochr.goldenhour.model.comingup.ComingUpCoincidenceLine;
 import com.gregochr.goldenhour.model.comingup.ComingUpDayMark;
+import com.gregochr.goldenhour.model.comingup.ComingUpDayRange;
 import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
 import com.gregochr.goldenhour.model.comingup.ComingUpResponse;
 import com.gregochr.goldenhour.service.AlmanacService;
@@ -106,7 +107,9 @@ class AlmanacControllerTest extends AbstractControllerTest {
                         new ComingUpCoincidenceLine("sun-moon", "Supermoon", "Mon 17 Aug", "supermoon"),
                         new ComingUpCoincidenceLine("sun-moon", "Untyped", "Tue 18 Aug", null)),
                 "Same cause, two effects.",
-                List.of(new ComingUpDayMark(LocalDate.of(2026, 8, 17), "full moon", "sun-moon")));
+                List.of(new ComingUpDayMark(LocalDate.of(2026, 8, 17), "full moon", "sun-moon")),
+                List.of(new ComingUpDayRange(LocalDate.of(2026, 8, 16), 4.3, false),
+                        new ComingUpDayRange(LocalDate.of(2026, 8, 17), 4.9, true)));
         when(almanacService.getFeed(90)).thenReturn(response(merged, springRun()));
 
         mockMvc.perform(get("/api/almanac"))
@@ -117,7 +120,12 @@ class AlmanacControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.entries[0].coincidence[1].type").value("supermoon"))
                 .andExpect(jsonPath("$.entries[0].coincidence[2].name").value("Untyped"))
                 .andExpect(jsonPath("$.entries[0].coincidence[2].type").doesNotExist())
+                .andExpect(jsonPath("$.entries[0].dayRanges[1].date").value("2026-08-17"))
+                .andExpect(jsonPath("$.entries[0].dayRanges[1].rangeMetres").value(4.9))
+                .andExpect(jsonPath("$.entries[0].dayRanges[1].peak").value(true))
+                .andExpect(jsonPath("$.entries[0].dayRanges[0].peak").value(false))
                 .andExpect(jsonPath("$.entries[1].dayMarks").doesNotExist())
+                .andExpect(jsonPath("$.entries[1].dayRanges").doesNotExist())
                 .andExpect(jsonPath("$.entries[1].coincidence").doesNotExist());
     }
 

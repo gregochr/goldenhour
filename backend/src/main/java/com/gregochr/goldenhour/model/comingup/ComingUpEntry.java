@@ -67,6 +67,10 @@ import java.util.Objects;
  * @param dayMarks      the days a merged entry marks for its topics (a supermoon's full-moon nights,
  *                      a tide run's peak), host's marks before the other's on one date; empty, and
  *                      absent from the wire, on an unmerged entry
+ * @param dayRanges     a tide run's tidal range per derivable day of its span (metres to 1 dp),
+ *                      ascending, with {@code peak} true on the run's biggest day; carried onto a
+ *                      merged entry whichever topic hosts; empty, and absent from the wire, unless
+ *                      the run has at least two derivable days
  */
 public record ComingUpEntry(
         LocalDate startDate,
@@ -99,7 +103,9 @@ public record ComingUpEntry(
         List<ComingUpCoincidenceLine> coincidence,
         String joinNote,
         @JsonInclude(JsonInclude.Include.NON_EMPTY)
-        List<ComingUpDayMark> dayMarks) {
+        List<ComingUpDayMark> dayMarks,
+        @JsonInclude(JsonInclude.Include.NON_EMPTY)
+        List<ComingUpDayRange> dayRanges) {
 
     /**
      * Normalises the collections so a consumer never has to null-check them, and requires the
@@ -117,6 +123,7 @@ public record ComingUpEntry(
         facts = facts == null ? List.of() : List.copyOf(facts);
         coincidence = coincidence == null ? List.of() : List.copyOf(coincidence);
         dayMarks = dayMarks == null ? List.of() : List.copyOf(dayMarks);
+        dayRanges = dayRanges == null ? List.of() : List.copyOf(dayRanges);
     }
 
     /**
@@ -137,6 +144,6 @@ public record ComingUpEntry(
                 id, "night-sky", "Almanac", null, null, null, List.of(), null, null, null,
                 new ComingUpAction("See the plan for " + event.startDate() + " →", "plan",
                         event.startDate()),
-                null, true, null, List.of(), null, List.of());
+                null, true, null, List.of(), null, List.of(), List.of());
     }
 }

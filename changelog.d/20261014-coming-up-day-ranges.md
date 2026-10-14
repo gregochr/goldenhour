@@ -1,0 +1,3 @@
+### Added — "Coming up" tide-run entries serve a tidal range per day
+
+Every spring or king tide run in the "Coming up" feed whose stored tide data covers at least two of its days now carries `dayRanges`: one entry per derivable day (date, range in metres to one decimal, and a `peak` flag true only on the run's own peak day), measured at the same representative port as the run's headline range. A merged supermoon-on-a-tide-run card carries the run's ranges whichever topic hosts it. A day with no stored tide data is left out rather than guessed, and a run known only from part of its span flags no day as the peak. Backend only: the day chips and bars that draw them follow.
