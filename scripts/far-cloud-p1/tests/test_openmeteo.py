@@ -238,7 +238,7 @@ class CachePolicyTest(unittest.TestCase):
 
     def test_partly_served_body_is_cached(self):
         c = client(lambda u: (200, body_with({"cloud_cover_low": 5, "cloud_cover_mid": None})))
-        c.get_one("archive", (1, 2), ["cloud_cover_low", "cloud_cover_mid"], "2026-09-01", "2026-09-01")
+        c.get_one("archive", (54.9, -1.6), ["cloud_cover_low", "cloud_cover_mid"], "2026-09-01", "2026-09-01")
         self.assertEqual(len(cache_files(c)), 1)
 
     def test_recent_archive_cached_with_24h_ttl_stored_in_entry(self):
@@ -267,8 +267,8 @@ class CachePolicyTest(unittest.TestCase):
         d = tempfile.mkdtemp()
         c = om.Client(d, fetch=lambda u: (200, body_with({"cloud_cover_low": 5})), pause_s=0,
                       now=lambda: now[0])
-        c.get_one("archive", (1, 2), ["cloud_cover_low"], "2026-09-01", "2026-09-01")      # 43 days old
-        c.get_one("previous_runs", (1, 2), ["cloud_cover_low"], "2026-10-13", "2026-10-13")  # recent, not archive
+        c.get_one("archive", (54.9, -1.6), ["cloud_cover_low"], "2026-09-01", "2026-09-01")      # 43 days old
+        c.get_one("previous_runs", (54.9, -1.6), ["cloud_cover_low"], "2026-10-13", "2026-10-13")  # recent, not archive
         for f in cache_files(c):
             self.assertIsNone(json.load(open(os.path.join(d, f)))["expires"])
 
@@ -279,7 +279,7 @@ class CachePolicyTest(unittest.TestCase):
             calls.append(url)
             return 200, body_with({"cloud_cover_low": 5})
         c = client(fetch)
-        args = ("archive", (1, 2), ["cloud_cover_low"], "2026-09-01", "2026-09-01")
+        args = ("archive", (54.9, -1.6), ["cloud_cover_low"], "2026-09-01", "2026-09-01")
         c.get_one(*args)
         path = os.path.join(c.cache_dir, cache_files(c)[0])
         for junk in ("{not json", "", json.dumps(body_with({"cloud_cover_low": 5})),   # legacy raw body
@@ -442,13 +442,16 @@ class ProbeShapesTest(unittest.TestCase):
         fake = self.Coop(lambda v, la, lo, h, u: 10)
         c = client(fake)
         res = probe.run(c, date(2027, 3, 1))
-        for pre in ("(i)", "(ii)", "(iii)"):
+        for pre in ("(i)", "(iii)", "(iv)"):
             self.assertEqual([r[0] for r in self.names(res, pre)], ["PASS"], pre)
-        prev = [u for u in fake.urls if "previous-runs" in u and "start_date=2027-01-30" in u and "models=best_match" in u
-                and "latitude=54.9140&" in u]
-        self.assertTrue(any("cloud_cover_low_previous_day1,cloud_cover_mid_previous_day1,cloud_cover_high_previous_day1" in u
-                            for u in prev))
-        self.assertTrue(any("hourly=cloud_cover_low,cloud_cover_mid,cloud_cover_high&" in u for u in prev))
+        hist = [u for u in fake.urls if "historical-forecast" in u and "start_date=2027-01-30" in u
+                and "models=best_match" in u and "latitude=54.9140&" in u]
+        self.assertTrue(any("hourly=cloud_cover_low,cloud_cover_mid,cloud_cover_high&" in u for u in hist))
+        # the day-before arm is probed once, as a documented absence, never relied on
+        prev1 = [u for u in fake.urls if "previous-runs" in u and "_previous_day1" in u]
+        self.assertEqual(len(prev1), 1)
+        # three coordinates sharing a cell go out in ONE request
+        self.assertEqual(len([u for u in fake.urls if "archive-api" in u and "latitude=54.9500,54.9000,54.9300" in u]), 1)
         arch20 = [u for u in fake.urls if "archive-api" in u and "start_date=2027-02-09" in u
                   and len(u.split("latitude=")[1].split("&")[0].split(",")) == 20]
         self.assertEqual(len(arch20), 1)
@@ -471,15 +474,14 @@ class ProbeShapesTest(unittest.TestCase):
         class NullMid(self.Coop):
             def __call__(self, url):
                 st, body = super().__call__(url)
-                if "previous-runs" in url and st == 200:
+                if "historical-forecast" in url and st == 200:
                     obj = json.loads(body)
-                    if "cloud_cover_mid_previous_day1" in obj.get("hourly", {}):
-                        obj["hourly"]["cloud_cover_mid_previous_day1"] = [None] * 24
+                    if "cloud_cover_mid" in obj.get("hourly", {}):
+                        obj["hourly"]["cloud_cover_mid"] = [None] * 24
                     body = json.dumps(obj)
                 return st, body
         res = probe.run(client(NullMid(lambda v, la, lo, h, u: 10)), date(2027, 3, 1))
         self.assertEqual([r[0] for r in self.names(res, "(i)")], ["FAIL"])
-        self.assertEqual([r[0] for r in self.names(res, "(ii)")], ["PASS"])
 
         class Reversed(self.Coop):
             def __call__(self, url):
@@ -489,6 +491,94 @@ class ProbeShapesTest(unittest.TestCase):
                 return st, body
         res = probe.run(client(Reversed(lambda v, la, lo, h, u: 10)), date(2027, 3, 1))
         self.assertEqual([r[0] for r in self.names(res, "(iii)")], ["FAIL"])
+
+    def test_a_land_snapped_point_is_not_a_broken_order(self):
+        """2026-10-14 recorded response: 52.0, 4.0 answered from 51.75, 4.0 (cell_selection=land)."""
+        from datetime import date
+
+        class Snap(self.Coop):
+            def __call__(self, url):
+                st, body = super().__call__(url)
+                if "archive-api" in url and len(url.split("latitude=")[1].split("&")[0].split(",")) == 20:
+                    nodes = json.loads(body)
+                    for n in nodes:
+                        if n["latitude"] == 52.0 and n["longitude"] == 4.0:
+                            n["latitude"] = 51.75
+                    body = json.dumps(nodes)
+                return st, body
+        res = probe.run(client(Snap(lambda v, la, lo, h, u: 10)), date(2027, 3, 1))
+        (r,) = self.names(res, "(iii)")
+        self.assertEqual(r[0], "PASS")
+        self.assertIn("land-snapped", r[2])
+
+
+class OrderViolationsTest(unittest.TestCase):
+    REQ = [(50.0, -4.0), (50.5, 0.5), (52.0, 4.0)]
+
+    def test_identity_and_one_cell_snap_are_fine(self):
+        self.assertEqual(om.order_violations(self.REQ, self.REQ, 0.3), [])
+        ans = [(50.0, -4.0), (50.5, 0.5), (51.75, 4.0)]
+        self.assertEqual(om.order_violations(self.REQ, ans, 0.3), [])
+
+    def test_swapped_missing_and_far_points_are_violations(self):
+        self.assertEqual(om.order_violations(self.REQ, [self.REQ[1], self.REQ[0], self.REQ[2]], 0.3), [0, 1])
+        self.assertEqual(om.order_violations(self.REQ, [(None, None)] + self.REQ[1:], 0.3), [0])
+        self.assertEqual(om.order_violations(self.REQ, self.REQ[:2] + [(53.5, 4.0)], 0.3), [2])
+
+    def test_client_refuses_and_never_caches_a_batch_answered_far_away(self):
+        class Far(FakeOM):
+            def __call__(self, url):
+                st, body = super().__call__(url)
+                nodes = json.loads(body)
+                nodes = nodes if isinstance(nodes, list) else [nodes]
+                nodes[0]["latitude"] += 3.0
+                return st, json.dumps(nodes if len(nodes) > 1 else nodes[0])
+        c = client(Far())
+        with self.assertRaises(om.OpenMeteoError):
+            c.get("archive", [(50.0, 0.0), (51.0, 0.0)], ["cloud_cover_low"], "2026-09-01", "2026-09-01")
+        self.assertEqual(cache_files(c), [])
+
+    def test_client_accepts_one_cell_snap_and_same_cell_points(self):
+        class Snap(FakeOM):
+            def __call__(self, url):
+                st, body = super().__call__(url)
+                nodes = json.loads(body)
+                nodes = nodes if isinstance(nodes, list) else [nodes]
+                for n in nodes:
+                    n["latitude"], n["longitude"] = 55.0, -1.5     # all three share one cell
+                return st, json.dumps(nodes)
+        c = client(Snap())
+        pts = c.get("archive", [(54.95, -1.55), (54.90, -1.60), (54.93, -1.58)], ["cloud_cover_low"],
+                    "2026-09-01", "2026-09-01")
+        self.assertEqual(len(pts), 3)
+        self.assertEqual({(p.latitude, p.longitude) for p in pts}, {(55.0, -1.5)})
+        self.assertEqual(len(cache_files(c)), 3)    # cached per coordinate, none merged
+
+
+class RecordedResponsesTest(unittest.TestCase):
+    """Two responses recorded from the live API on 2026-10-14 (trimmed to four hours). They are the
+    evidence for plan section 11; no test here touches the network."""
+
+    def test_previous_runs_layer_previous_day1_is_answered_but_all_null(self):
+        p = om.parse_body(fixture("om_prev_layer_day1_unserved.json"))[0]
+        self.assertTrue(p.served("cloud_cover_low"))
+        self.assertEqual(p.not_served, {"cloud_cover_low_previous_day1"})
+        self.assertFalse(p.served(om.prev_var("cloud_cover_low", 1)))
+
+    def test_all_null_layer_day1_is_not_cached_so_it_is_asked_again(self):
+        # the plain variable is served, so the node IS cached; the day-1 column rides along as null
+        c = client(lambda u: (200, fixture("om_prev_layer_day1_unserved.json")))
+        p = c.get_one("previous_runs", (54.914, -1.589), ["cloud_cover_low_previous_day1"],
+                      "2026-01-27", "2026-01-27", models="best_match")
+        self.assertEqual(p.not_served, {"cloud_cover_low_previous_day1"})
+        self.assertEqual(cache_files(c), [])      # nothing requested was served: not cached
+
+    def test_land_snapped_archive_point_is_accepted_and_reports_its_cell(self):
+        c = client(lambda u: (200, fixture("om_archive_land_snapped.json")))
+        pts = c.get("archive", [(52.0, 4.0)], om.CLOUD_VARS, "2026-09-24", "2026-09-24", models="era5")
+        self.assertEqual((pts[0].latitude, pts[0].longitude), (51.75, 4.0))
+        self.assertTrue(all(pts[0].served(v) for v in om.CLOUD_VARS))
+        self.assertEqual(om.order_violations([(52.0, 4.0)], [(pts[0].latitude, pts[0].longitude)], 0.3), [])
 
 
 if __name__ == "__main__":

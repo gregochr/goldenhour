@@ -122,6 +122,12 @@ python3 probe.py
 Exits non-zero on any FAIL. If it stops at the hourly cap it sleeps to the next hour; add `--no-wait` to stop
 instead (a re-run resumes from `cache/`).
 
+What it established on 2026-10-14 (plan section 11): Previous Runs has no low/mid/high `_previous_dayN`, so
+`case.py` and `size.py` read each model's **day-0** layers from the Historical Forecast API and report no
+"as issued the day before" column; a 20-coordinate archive request keeps its order, and a sea point may be
+answered from the neighbouring land cell (the probe reports those as "land-snapped", not as failures).
+An `INFO` line in check (b) that says `_previous_day1 IS NOW SERVED` means the day-before arm can be restored.
+
 ## 5. Part A: the Angel's sun line
 
 ```
@@ -141,7 +147,8 @@ python3 size.py p1_forecasts.csv --yes               # full run: writes out/part
 ```
 
 Without `--yes` a live run refuses and prints the exact command. The budget is per day: when it stops
-(exit 2), re-run the same command later and it resumes from `cache/`. Read `out/pilot.md` before the full run.
+(exit 2), re-run the same command later and it resumes from `cache/`. Read `out/pilot.md` before the full run. The pilot's reliability verdict is **per lead** (T+0 and T+1 each need 20 comparable pairs within 15 pp):
+`size.py` then fetches forecast values only for the leads marked reliable and uses stored values for the rest.
 
 ## 7. Send back to Claude
 

@@ -48,19 +48,21 @@ def provider(offset=0):
         if var.startswith("cloud_cover_high"):
             return 80 if day_of(url) % 2 == 0 else 10
         if var.startswith("cloud_cover_low"):
-            return 5 + offset if "previous-runs" in url else 0
+            return 5 + offset if "historical-forecast" in url else 0
         return 0
     return p
 
 
-def dataset(n_days=30, regions=2, locs=4):
+def dataset(n_days=30, regions=2, locs=4, lead_of=None, low_of=None):
+    """``lead_of(l)`` and ``low_of(l)`` (by location index) default to T+0 and stored cone low 5."""
     rows = []
     for d in range(1, n_days + 1):
         day = f"2026-09-{d:02d}"
         fh = 80 if d % 2 == 0 else 10
         for rg in range(1, regions + 1):
             for l in range(locs):
-                rows.append(row(rg * 100 + l, rg, day, far_high=fh))
+                rows.append(row(rg * 100 + l, rg, day, far_high=fh,
+                                lead=lead_of(l) if lead_of else 0, low=low_of(l) if low_of else 5))
     return rows
 
 
@@ -193,8 +195,12 @@ class EndToEndTest(unittest.TestCase):
     def test_fetches_only_what_is_missing_and_dedupes(self):
         fake = FakeOM(provider())
         info, c = self.run_size(dataset(2, 1, 4), fake)
-        # stored far mid/high + 500hPa present -> no historical forecast, no prev-run 226
-        self.assertFalse([u for u in fake.urls if "historical-forecast" in u])
+        # stored far mid/high + 500hPa present -> no pressure-level request; the layer arm (day 0,
+        # Historical Forecast) is fetched only for the 165 and 320 km points H3 and H4 need
+        hist = [x for x in fake.urls if "historical-forecast" in x]
+        self.assertTrue(hist)
+        self.assertFalse([x for x in hist if "hPa" in x])
+        self.assertFalse([x for x in fake.urls if "previous-runs" in x or "_previous_day" in x])
         # cv far mid/high absent -> ERA5 at 226 IS fetched
         self.assertTrue([u for u in fake.urls if "archive-api" in u])
         # nothing refetched: all identical URLs are served from cache
@@ -222,19 +228,52 @@ class EndToEndTest(unittest.TestCase):
         size.run(dataset(5, 2, 4), c3)
         self.assertEqual(sorted(f2.urls), sorted(c3.fetch.urls))
 
+    def test_a_pilot_with_no_t1_rows_cannot_vouch_for_t1(self):
+        info, _ = self.run_size(dataset(10, 2, 4), FakeOM(provider(0)), pilot=30)    # all T+0
+        self.assertEqual(info["pilot_rep"]["_by_lead"], {"0": "reliable", "1": "unknown"})
+        self.assertEqual(info["pilot_rep"]["_verdict"], "PARTIAL")
+        self.assertEqual(info["fc_leads"], [0])
+
     def test_pilot_reliable_and_unreliable(self):
-        rows = dataset(10, 2, 4)
-        info, _ = self.run_size(rows, FakeOM(provider(0)), pilot=30)
+        rows = dataset(10, 2, 4, lead_of=lambda l: l % 2)
+        info, _ = self.run_size(rows, FakeOM(provider(0)), pilot=60)
         rep = info["pilot_rep"]
         self.assertEqual(rep["_verdict"], "reliable")
         self.assertEqual(rep["cone low (mean of 3)"]["median_abs_diff"], 0)
         self.assertEqual(rep["cone low (mean of 3)"]["within10"], 1.0)
         self.assertTrue(info["fc_fetched"])
         self.assertIn("Calibration pilot", size.render(info))
-        info2, _ = self.run_size(rows, FakeOM(provider(40)), pilot=30)
+        info2, _ = self.run_size(rows, FakeOM(provider(40)), pilot=60)
         self.assertEqual(info2["pilot_rep"]["_verdict"], "UNRELIABLE")
         self.assertFalse(info2["fc_fetched"])
-        self.assertLessEqual(info2["n_locs"], 30)
+        self.assertLessEqual(info2["n_locs"], 60)
+
+    def test_pilot_verdict_is_per_lead_and_a_good_t0_never_vouches_for_t1(self):
+        """Codex review of #1166: T+0 pairs well aligned, T+1 pairs 16 pp out. The pooled median would
+        be inside the bar; the T+1 verdict must still fail and T+1 rows must keep stored values."""
+        rows = dataset(10, 2, 4, lead_of=lambda l: l % 2, low_of=lambda l: 16 if l % 2 == 0 else 0)
+        info, _ = self.run_size(rows, FakeOM(provider(11)), pilot=60)
+        rep = info["pilot_rep"]
+        self.assertEqual(rep["_by_lead"], {"0": "reliable", "1": "UNRELIABLE"})
+        self.assertEqual(rep["_verdict"], "PARTIAL")
+        self.assertEqual(info["fc_leads"], [0])
+        self.assertTrue(info["fc_fetched"])
+        self.assertLessEqual(rep["cone low (mean of 3)"]["median_abs_diff"], size.RELIABLE_MAD)  # pooled looks fine
+        self.assertEqual(rep["cone low (mean of 3), T+0 rows"]["median_abs_diff"], 0)
+        self.assertEqual(rep["cone low (mean of 3), T+1 rows"]["median_abs_diff"], 16)
+        md = size.render(info)
+        self.assertIn("T+0 only", md)
+
+    def test_collect_needs_never_fetches_a_lead_that_is_not_allowed(self):
+        r0 = row(1, 1, "2026-09-01", lead=0, far_high=None)
+        r1 = row(2, 1, "2026-09-02", lead=1, far_high=None)
+        ctxs = [size.Ctx(r0), size.Ctx(r1)]
+        both = size.collect_needs(ctxs, False, fc=True)
+        only0 = size.collect_needs(ctxs, False, fc=True, leads={0})
+        fc_days = lambda n: sorted(d for (src, d) in n if src == ("fc",))
+        self.assertEqual(fc_days(both), ["2026-09-01", "2026-09-02"])
+        self.assertEqual(fc_days(only0), ["2026-09-01"])
+        self.assertIn((("era5",), "2026-09-02"), only0)       # ERA5 is lead-independent
 
     def test_cli_plan_mode(self):
         d = tempfile.mkdtemp()
@@ -422,8 +461,8 @@ class ForecastSideTest(unittest.TestCase):
         for fc in (True, False):
             for pilot in (False, True):
                 srcs = {k[0][0] for k in size.collect_needs(ctxs, pilot, fc=fc)}
-                self.assertEqual(srcs, {"era5", "prev", "hist"} if (fc and pilot) else
-                                 ({"era5", "prev"} if fc else {"era5"}))
+                self.assertEqual(srcs, {"era5", "fc", "hist"} if (fc and pilot) else
+                                 ({"era5", "fc"} if fc else {"era5"}))
 
     def test_run_with_unreliable_forecast_never_touches_forecast_hosts(self):
         fake = FakeOM(provider())
@@ -434,13 +473,16 @@ class ForecastSideTest(unittest.TestCase):
         c = om.Client(tempfile.mkdtemp(), fetch=fake, pause_s=0)
         info = size.run(rows, c, fc_reliable=False)
         self.assertTrue(fake.urls)
-        self.assertFalse([u for u in fake.urls if "previous-runs" in u or "historical-forecast" in u])
+        self.assertFalse([u for u in fake.urls if "historical-forecast" in u])
         self.assertFalse(info["fc_fetched"])
 
-    def test_fail_closed_only_an_explicit_reliable_allows_fetched_values(self):
-        self.assertTrue(size.forecast_side_reliable("reliable"))
-        for v in ("unknown", "UNRELIABLE", None, "", "Reliable", "reliable-ish"):
-            self.assertFalse(size.forecast_side_reliable(v))
+    def test_fail_closed_only_an_explicit_per_lead_reliable_allows_fetched_values(self):
+        self.assertEqual(size.reliable_leads({"_by_lead": {"0": "reliable", "1": "reliable"}}), {0, 1})
+        self.assertEqual(size.reliable_leads({"_by_lead": {"0": "reliable", "1": "UNRELIABLE"}}), {0})
+        for bad in ({"_verdict": "reliable"},                 # an older, pooled pilot.json
+                    {"_by_lead": {"0": "Reliable", "1": "unknown"}}, {"_by_lead": {"x": "reliable"}},
+                    {"_by_lead": "reliable"}, {}, None, [], "reliable"):
+            self.assertEqual(size.reliable_leads(bad), set(), bad)
 
     def test_pilot_with_too_few_pairs_is_unknown_and_stored_only(self):
         info, _ = EndToEndTest().run_size(dataset(10, 2, 4), FakeOM(provider(0)), pilot=10)
@@ -453,7 +495,7 @@ class ForecastSideTest(unittest.TestCase):
         os.makedirs(out)
         if verdict is not None:
             with open(os.path.join(out, "pilot.json"), "w") as f:
-                json.dump({"_verdict": verdict}, f)
+                json.dump({"_verdict": verdict, "_by_lead": {"0": verdict, "1": verdict}}, f)
         fake = FakeOM(provider())
         c = om.Client(tempfile.mkdtemp(), fetch=fake, pause_s=0)
         import contextlib, io
@@ -465,13 +507,13 @@ class ForecastSideTest(unittest.TestCase):
         for verdict in (None, "unknown", "UNRELIABLE", "garbage"):
             rc, fake, out = self._main(verdict)
             self.assertEqual(rc, 0)
-            self.assertFalse([u for u in fake.urls if "previous-runs" in u or "historical-forecast" in u], verdict)
+            self.assertFalse([u for u in fake.urls if "historical-forecast" in u], verdict)
             with open(os.path.join(out, "part_c.md")) as f:
                 self.assertIn("STORED values only", f.read())
         rc, fake, out = self._main("reliable")
-        self.assertTrue([u for u in fake.urls if "previous-runs" in u])
+        self.assertTrue([u for u in fake.urls if "historical-forecast" in u])
         rc, fake, out = self._main(None, ["--forecast", "stored"])
-        self.assertFalse([u for u in fake.urls if "previous-runs" in u])
+        self.assertFalse([u for u in fake.urls if "historical-forecast" in u])
 
 
 class ProjectionGateTest(unittest.TestCase):
