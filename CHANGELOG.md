@@ -5,6 +5,88 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.27.1] - 2026-10-14
+
+### Changed — prompt-test and model-test replays skip fields a different build wrote
+
+The Prompt Test and Model Test replays read stored atmospheric data JSON with a mapper that now skips a property it does not know, and logs each skipped property at WARN each time it is met, instead of failing the whole replay. Rows written by a newer build (for example with the far-point cloud fields) can then still be replayed after a rollback. A renamed field shows up in the log rather than quietly replaying a different prompt.
+
+### Fix — `POST /api/outcome` can record the 1–5 star rating the calibration gate needs
+
+`ActualOutcome` gained an optional `actualRating` (1–5, validated; out of range answers 400) which `OutcomeService.record` now writes to `actual_outcome.actual_rating`. The calibration report pairs forecasts only with outcomes that have this rating, and the API previously had no way to supply it, so no outcome recorded through the API could ever be calibrated. No migration: the column already existed.
+
+### Fixed — the Map tab's window time follows the scope
+
+The Map tab's window pill showed the earliest sunset or sunrise anywhere in the catalogue, so on a
+"My area" map it could name a north-coast minute (18:09) while every place in view, and the
+masthead's own light rule, said 18:14. Every place the Map tab prints a window's time (the pill and
+its menu, the phone peek sheet, the landing card, the drilldown, the callout, the tooltips and the
+tide strip's labels) now shows the earliest time among the places in the current scope — "My area" or
+"Everywhere", the same places the pill's verdict is taken over. When to retire a passed window is
+unchanged: it still reads the served window time, so the Map and Plan tabs agree on it.
+
+### Changed — the afternoon forecast job's description no longer says "mid-afternoon"
+
+V174 rewords the `intraday_forecast_refresh` row on Operations › Scheduler: it now runs "ahead of
+tonight's sunset (a set time before it on the sun-relative schedule, else at its cron time)", naming
+no time of day. On the sun-relative schedule the cycle runs as early as about 11:40 UK in December,
+so "mid-afternoon" (or any "afternoon") read wrong. The update applies only while the row still holds the wording V141 wrote,
+so a description edited by hand is left alone, and it changes nothing but the description.
+
+### Added — Claude Haiku 5.5 as a selectable evaluation model
+
+`EvaluationModel.HAIKU_55` (`claude-haiku-5-5`) can now be chosen on the Models screen for any run
+type, and on the Prompt Test, Sky-Rating Eval and best-bet advisor replay harnesses. It is not the
+default or active model anywhere, and it is left out of the scheduled sky-rating eval, the Model
+Test and Briefing Model Test comparison lists and Ask PhotoCast's model setting.
+
+Haiku 5.5 thinks by default, but unlike Sonnet 5.5 it accepts `thinking: disabled`, so every
+request path (synchronous, batch, cache primer, aurora, glosses, best-bet advisor) sends thinking
+disabled with effort low and keeps the Haiku answer budgets. Costs are configured as `cost.haiku55-*`
+($0.10 in / $0.50 out per million tokens for prompts up to 100K tokens; every prompt here is far
+smaller), roughly a tenth of Haiku 4.5 even though its tokeniser counts about 30% more tokens. No
+migration: the model columns hold the 8-character name `HAIKU_55`.
+
+Not yet run against the prompt-regression suite or the sky-rating eval; do that before switching any
+run type to it.
+
+The existing Haiku model is now labelled "Haiku 4.5" everywhere a model name is shown, so the two Haikus are told apart.
+
+### Added — pressure-level cloud at the far point is recorded (data only)
+
+V176 adds six nullable columns to `forecast_evaluation` holding cloud cover at 850, 700, 600, 500, 400 and 300 hPa at the 226 km far-solar point, at the event's hour. They come from one extra best-effort Open-Meteo request per prefetch (the far cells, deduplicated) and one per live evaluation that has no cache. The request is separate and best-effort: it shares only the open-meteo rate limiter (so it uses quota and permits), has no retry and no circuit breaker (so it cannot open the breaker the rating-affecting fetches use), stops at its first failed chunk, and the prefetch's level fetch is capped at 90 s. When the cloud prefetch itself fails no level request is made. A failure leaves the six values null; the prompt, triage and ratings do not read them. Cost is one extra request per prefetch (deduplicated far cells) and one per live evaluation without a cache (sync fallback, JFDI, force-submit, batch retry reconstruction). Existing rows stay null and nothing is backfilled. Nothing user-visible changes.
+
+### Added — far-point mid/high and dark-hour cloud are recorded (data only)
+
+V175 adds five nullable columns to `forecast_evaluation` (mid and high cloud at the 226 km far-solar point at the event's hour, and low, mid and high at the far point's dark-side hour) and the five matching ERA5 columns to `cloud_verification`. The forecast side is persisted through `DirectionalCloudDetails`; the verification backfill now fills the ERA5 columns for newly verified rows. Existing rows stay null and nothing is backfilled. Nothing user-visible changes: the prompt, triage, ratings, API responses and the frontend are untouched.
+
+### Docs — a delegation plan for recording far mid and high cloud
+
+`docs/engineering/far-cloud-capture-plan.md` breaks the far-cloud-lid plan's P2 (record mid and high
+cloud at the 226 km far point, and pressure-level cloud if Open-Meteo serves it, without changing the
+prompt) into task cards for subagents, with the facts each task relies on and the order to run them.
+No code changes.
+
+### Fixed — the aurora strip's glow paints, and the card tells a screen reader how far south the aurora reaches (aurora banner, B4)
+
+On a phone the aurora strip's lit bottom edge is no longer clipped: it was cut with `clip-path`, which
+also clipped its own `box-shadow`, so the glow could not show. The lit fraction is now the edge's width
+(62% Moderate, 92% Strong, unchanged), with the colour ramp still stretched across the whole strip.
+
+On the desktop card, the southern viewline stays decorative on the thumbnail, but once the line is drawn
+the alert carries one visually hidden sentence built from the server's own wording ("Visible as far
+south as the Midlands.", with a full stop added), so a screen reader hears how far south the aurora
+reaches. Nothing is spoken while the thumbnail has not drawn the line.
+
+The plan records two earlier choices as owner decisions: the brighter secondary ink on the small labels
+(the spec's muted ink fails AA) and breathing on a Strong, live, south-Bz alert only.
+
+### Fixed — an Ask follow-up keeps the ★ in an earlier answer's summary
+
+When a follow-up question sent the earlier answers back, the client stripped emoji from each summary
+using the browser's Unicode tables. Some engines count ★ (U+2605) as a pictograph, so "4★" went back
+to the server as "4". The star is now kept on every engine; the server never refused it.
+
 ## [v2.27.0] - 2026-10-13
 
 ### Changed — "Too few rated" replaces a weather-only "Worth it" on every Plan and Map surface
