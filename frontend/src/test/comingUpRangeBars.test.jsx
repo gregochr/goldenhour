@@ -189,7 +189,16 @@ describe('Coming up range bars — what the rules resolve to', () => {
   it('aligns the lead and note with the chip row only when columns exist', () => {
     const { container } = draw(entry());
     expect(container.querySelector('.wf-cu-days')).toHaveAttribute('data-ranged', 'true');
-    expect(cs(container.querySelector('.wf-cu-days')).alignItems).toBe('flex-end');
+    // Only from 640px: no rule outside a min-width media block touches the ranged row's alignment,
+    // so the phone stack (flex-start) is unchanged.
+    expect(css).toMatch(
+      /@media \(min-width: 640px\) \{\s*\.wf-cu-days\[data-ranged="true"\] \{ align-items: stretch; \}[\s\S]*?padding-top: var\(--wf-cu-range-h\);/,
+    );
+    expect(css.replace(/@media \(min-width: 640px\) \{[\s\S]*?\n\}\n/, '')).not.toMatch(
+      /\.wf-cu-days\[data-ranged="true"\][^{]*\{[^}]*align-items/,
+    );
+    expect(cs(container.querySelector('.wf-cu-days')).alignItems).not.toBe('flex-end');
+    expect(css).toMatch(/--wf-cu-range-h: calc\(var\(--wf-cu-range-val-h\) \+ var\(--wf-cu-range-track-h\) \+ var\(--wf-cu-range-gap\)\);/);
     cleanup();
     const plain = draw(entry({ dayRanges: undefined })).container;
     expect(plain.querySelector('.wf-cu-days')).not.toHaveAttribute('data-ranged');
