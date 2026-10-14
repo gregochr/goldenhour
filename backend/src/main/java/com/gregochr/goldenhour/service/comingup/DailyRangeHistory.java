@@ -6,11 +6,12 @@ import com.gregochr.goldenhour.service.TideSizeIndex;
 import com.gregochr.goldenhour.util.DayScopedMemo;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -99,7 +100,7 @@ public class DailyRangeHistory {
      * @return the range rounded to one decimal place
      */
     static double metresToOneDp(double metres) {
-        return Double.parseDouble(String.format(Locale.UK, "%.1f", metres));
+        return BigDecimal.valueOf(metres).setScale(1, RoundingMode.HALF_UP).doubleValue();
     }
 
     /**

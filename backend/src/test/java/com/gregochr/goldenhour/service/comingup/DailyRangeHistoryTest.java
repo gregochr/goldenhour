@@ -65,10 +65,11 @@ class DailyRangeHistoryTest {
 
         history.sampleFor(SEAHAM, BUILT);
 
-        List<LocalDate> asked = yearBefore(BUILT);
-        assertThat(asked.getFirst()).isEqualTo(BUILT.minusDays(365));
-        assertThat(asked.getLast()).isEqualTo(BUILT.minusDays(1));
-        verify(tideRunBuilder).dailyRangesAt(eq(SEAHAM), eq(asked));
+        org.mockito.ArgumentCaptor<List<LocalDate>> asked = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(tideRunBuilder).dailyRangesAt(eq(SEAHAM), asked.capture());
+        assertThat(asked.getValue()).hasSize(365);
+        assertThat(asked.getValue().getFirst()).isEqualTo(LocalDate.of(2025, 10, 20));
+        assertThat(asked.getValue().getLast()).isEqualTo(LocalDate.of(2026, 10, 19));
     }
 
     @Test
@@ -194,5 +195,27 @@ class DailyRangeHistoryTest {
 
         assertThat(history.sampleFor(SEAHAM, BUILT).sufficient()).isTrue();
         assertThat(calls).hasValue(2);
+    }
+
+    @Test
+    @DisplayName("one-decimal rounding matches the headline %.1f over a sweep of height differences and x.x5 edges")
+    void oneDecimalRoundingMatchesTheHeadlineFormat() {
+        for (int high = 0; high <= 1200; high += 7) {
+            for (int low = -300; low <= 400; low += 3) {
+                double v = high / 100.0 + 0.001 * (high % 11) - low / 100.0 - 0.001 * (low % 7);
+                assertThat(DailyRangeHistory.metresToOneDp(v)).as("%s", v).isEqualTo(expected(v));
+            }
+        }
+        for (int i = 0; i < 2000; i++) {
+            double edge = i / 100.0 + 0.05;
+            assertThat(DailyRangeHistory.metresToOneDp(edge)).as("%s", edge).isEqualTo(expected(edge));
+            assertThat(DailyRangeHistory.metresToOneDp(i / 20.0)).isEqualTo(expected(i / 20.0));
+        }
+        assertThat(DailyRangeHistory.metresToOneDp(8.966 - 1.516)).isEqualTo(7.4);
+        assertThat(DailyRangeHistory.metresToOneDp(6.05 - 1.20)).isEqualTo(4.9);
+    }
+
+    private static double expected(double v) {
+        return Double.parseDouble(String.format(java.util.Locale.UK, "%.1f", v));
     }
 }

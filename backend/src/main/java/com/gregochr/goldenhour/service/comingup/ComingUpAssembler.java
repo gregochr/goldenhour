@@ -499,7 +499,7 @@ public class ComingUpAssembler {
                     s.event.startDate(), e.toString());
             return null;
         }
-        if (!year.sufficient()) {
+        if (year == null || !year.sufficient()) {
             return null;
         }
         s.dayRanges = s.dayRanges.stream()

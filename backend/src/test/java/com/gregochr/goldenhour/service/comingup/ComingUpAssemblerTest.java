@@ -1535,7 +1535,7 @@ class ComingUpAssemblerTest {
             + "tide coincidence line reads 'top N% of the year' in place of the metres")
     void mergedEntryCarriesRankAndCoincidenceLineReadsIt() {
         stubRunAtSeaham();
-        stubRanges(oct(25), oct(30), oct(25), 4.3, oct(26), 4.6, oct(27), 4.9);
+        stubRanges(oct(25), oct(30), oct(25), 4.3, oct(26), 4.6, oct(27), 5.2);
         stubYear(365, 5, 15);
         AlmanacEvent run = event(oct(25), oct(30), "spring-tide", "Spring tide run", runMeta(oct(27), oct(27)));
 
@@ -1544,9 +1544,9 @@ class ComingUpAssemblerTest {
 
         assertThat(runHosts.type()).isEqualTo("spring-tide");
         assertThat(runHosts.rangeAverageMetres()).isEqualTo(3.5);
-        assertThat(runHosts.dayRanges()).extracting(ComingUpDayRange::rangePercentile).containsExactly(6, 6, 6);
+        assertThat(runHosts.dayRanges()).extracting(ComingUpDayRange::rangePercentile).containsExactly(6, 6, 1);
         assertThat(runHosts.coincidence().get(0).factsLabel())
-                .isEqualTo(nb("Sun 25 – Fri 30 Oct · biggest Tue 27 · top 6% of the year · HW 15:48"));
+                .isEqualTo(nb("Sun 25 – Fri 30 Oct · biggest Tue 27 · top 1% of the year · HW 15:48"));
 
         ComingUpEntry moonHosts = assembler.assemble(BUILT, List.of(run, supermoon(oct(24), oct(30), oct(26))))
                 .entries().getFirst();
@@ -1554,9 +1554,9 @@ class ComingUpAssemblerTest {
         assertThat(moonHosts.type()).isEqualTo("supermoon");
         assertThat(moonHosts.rangeAverageMetres()).isEqualTo(3.5);
         assertThat(moonHosts.dayRanges()).extracting(ComingUpDayRange::rangePercentile)
-                .containsExactly(6, 6, 6);
+                .containsExactly(6, 6, 1);
         assertThat(moonHosts.coincidence()).extracting(c -> c.factsLabel())
-                .anyMatch(l -> l.contains(nb("top 6% of the year")));
+                .anyMatch(l -> l.contains(nb("top 1% of the year")));
     }
 
     @Test
