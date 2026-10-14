@@ -10,7 +10,7 @@ import { entryGlyph, coincidenceLineGlyph } from '../utils/comingUpGlyphs.js';
  * so differently when every future day is.
  */
 function DayChips({ entry, onShowOnMap }) {
-  const { dayChips, doorNoun, action } = entry;
+  const { dayChips, doorNoun, action, rangeScale } = entry;
   // The kind decides only the subject filter: coastal sends the SEASCAPE type, dark-sky the Bortle
   // toggle, and plan (every spot) neither.
   const coastal = action.kind === 'coastal-spots';
@@ -49,13 +49,17 @@ function DayChips({ entry, onShowOnMap }) {
     const peak = !chip.marks
       ? (chip.peak ? ', peak day' : '')
       : chip.marks.map((m) => (m.label === 'peak' ? ', peak day' : `, ${m.label}`)).join('');
-    if (chip.gone) return `${label}${peak} — gone`;
-    if (!chip.live) return `${label}${peak} — no forecast yet`;
-    return `Show ${noun} for ${label}${peak}`;
+    const range = rangeScale && chip.rangeMetres !== null && chip.rangeMetres !== undefined
+      ? `, ${chip.rangeMetres.toFixed(1)} metre range` : '';
+    if (chip.gone) return `${label}${peak}${range} — gone`;
+    if (!chip.live) return `${label}${peak}${range} — no forecast yet`;
+    return `Show ${noun} for ${label}${peak}${range}`;
   };
 
   return (
-    <div className="wf-cu-days" data-testid="coming-up-day-chips" data-marked={marked ? 'true' : undefined}>
+    <div className="wf-cu-days" data-testid="coming-up-day-chips" data-marked={marked ? 'true' : undefined}
+      data-ranged={rangeScale ? 'true' : undefined}
+    >
       <span className="wf-cu-days-lead" id={leadId}>{leadText}</span>
       {' '}
       <div role="group" aria-labelledby={leadId} className="wf-cu-days-group">
@@ -65,7 +69,8 @@ function DayChips({ entry, onShowOnMap }) {
           const isPeak = chip.marks ? Boolean(peakMark) : chip.peak;
           const third = !chip.marks
             ? [chip.monthWord, chip.peak ? 'peak' : null].filter(Boolean).join(' · ') : null;
-          return (
+          const hasRange = chip.rangeMetres !== null && chip.rangeMetres !== undefined;
+          const button = (
             <button
               key={chip.date}
               type="button"
@@ -101,6 +106,34 @@ function DayChips({ entry, onShowOnMap }) {
               )}
             </button>
           );
+          if (!rangeScale) return button;
+          // Bar height 4..26px across the served min..max (15px when every value is equal). The
+          // aria-hidden span is the bar only: the column holds the button and must stay exposed.
+          const spread = rangeScale.max - rangeScale.min;
+          const barH = hasRange
+            ? 4 + (spread > 0 ? ((chip.rangeMetres - rangeScale.min) / spread) * 22 : 11) : 0;
+          return (
+            <div key={chip.date} className="wf-cu-day-col" data-testid="coming-up-day-col">
+              <span
+                className="wf-cu-day-range"
+                aria-hidden="true"
+                data-peak={chip.rangePeak ? 'true' : 'false'}
+                data-live={chip.live ? 'true' : 'false'}
+              >
+                <span className="wf-cu-day-range-val">{hasRange ? chip.rangeMetres.toFixed(1) : ''}</span>
+                <span className="wf-cu-day-range-track">
+                  {hasRange && (
+                    <span
+                      className="wf-cu-day-range-bar"
+                      data-testid="coming-up-range-bar"
+                      style={{ '--wf-cu-bar-h': `${barH}px` }}
+                    />
+                  )}
+                </span>
+              </span>
+              {button}
+            </div>
+          );
         })}
       </div>
       {anyDimmed && (
@@ -134,8 +167,11 @@ DayChips.propTypes = {
         label: PropTypes.string.isRequired,
         family: PropTypes.string.isRequired,
       })),
+      rangeMetres: PropTypes.number,
+      rangePeak: PropTypes.bool,
       live: PropTypes.bool.isRequired,
     })).isRequired,
+    rangeScale: PropTypes.shape({ min: PropTypes.number.isRequired, max: PropTypes.number.isRequired }),
   }).isRequired,
   onShowOnMap: PropTypes.func.isRequired,
 };

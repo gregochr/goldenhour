@@ -9488,13 +9488,84 @@ button.wf-hc.also.on:hover {
 .wf-cu-day:disabled .wf-cu-day-dow,
 .wf-cu-day:disabled .wf-cu-day-dn,
 .wf-cu-day:disabled[data-peak] .wf-cu-day-dn { color: var(--color-plex-text-secondary); }
+/* Range bars (supermoon-tide-run-plan S4): when an entry serves two or more per-day tidal ranges each
+   chip sits in a column EXACTLY the chip's width (40px, 38px on a phone) with a value label and a
+   bar above the button; the bar spans 4..26px in a 26px track. The aria-hidden span is the bar only,
+   never the column, which holds the button. The solid bar (the served `peak` day) and a value in the
+   primary ink mark the biggest day; the others draw the bar at 45% coastal (colour-mix, never
+   opacity) with the value in the secondary ink. The 45% bar is ~2:1 against the card: acceptable only
+   because the value is visible text beside it and is in the button's accessible name. */
+/* The range block above each chip: value label + track + the column gap. Defined on the row (the
+   column and the lead/note both read it) so the sizes and the lead/note offset cannot drift apart. */
+.wf-cu-days[data-ranged="true"] {
+  --wf-cu-range-val-h: 11.4px; /* 9.5px label x 1.2 line-height */
+  --wf-cu-range-track-h: 26px;
+  --wf-cu-range-gap: 3px;
+  --wf-cu-range-h: calc(var(--wf-cu-range-val-h) + var(--wf-cu-range-track-h) + var(--wf-cu-range-gap));
+}
+.wf-cu-day-col {
+  width: 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--wf-cu-range-gap);
+}
+.wf-cu-day-range {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-family: var(--font-mono);
+}
+.wf-cu-day-range-val {
+  font-size: 9.5px;
+  line-height: 1.2;
+  height: var(--wf-cu-range-val-h);
+  color: var(--color-plex-text-secondary);
+}
+.wf-cu-day-range[data-peak="true"] .wf-cu-day-range-val { color: var(--color-plex-text); }
+/* A gone or no-forecast day's value is muted by colour, as the disabled chip's number is (never
+   opacity); the bar is unchanged. Higher specificity than the peak rule above. */
+.wf-cu-day-range[data-live="false"][data-peak] .wf-cu-day-range-val { color: var(--color-plex-text-secondary); }
+/* The column stretches to the tallest chip in the row; the button inside must follow, or chips
+   in one row go ragged (measured: 48.4 / 57.4 / 75.4 on main). */
+.wf-cu-day-col > .wf-cu-day { flex: 1 0 auto; }
+/* With columns the row's items are bars+chip columns, so the lead and the dimmed note would centre
+   against bar+chip. From 640px they stretch to the row's height and centre in a box that starts
+   below the range block (`--wf-cu-range-h`), i.e. against the chip row at any chip height. Below
+   640px the row stacks and nothing ranged changes. */
+@media (min-width: 640px) {
+  .wf-cu-days[data-ranged="true"] { align-items: stretch; }
+  .wf-cu-days[data-ranged="true"] > .wf-cu-days-lead,
+  .wf-cu-days[data-ranged="true"] > .wf-cu-days-note {
+    display: flex;
+    align-items: center;
+    padding-top: var(--wf-cu-range-h);
+  }
+}
+.wf-cu-day-range-track {
+  height: var(--wf-cu-range-track-h);
+  width: 10px;
+  display: flex;
+  align-items: flex-end;
+}
+.wf-cu-day-range-bar {
+  display: block;
+  width: 10px;
+  height: var(--wf-cu-bar-h, 4px);
+  border-radius: 2px 2px 0 0;
+  background: color-mix(in oklch, var(--color-topic-coastal) 45%, transparent);
+}
+.wf-cu-day-range[data-peak="true"] .wf-cu-day-range-bar { background: var(--color-topic-coastal); }
 @media (max-width: 639px) {
   .wf-cu-days { flex-direction: column; align-items: flex-start; gap: 7px; }
   .wf-cu-day { width: 38px; }
+  .wf-cu-day-col { width: 38px; }
 }
 /* Forced colours replaces the gold focus ring with the system colour (as the map chips' outline does). */
 @media (forced-colors: active) {
   .wf-cu-day:focus-visible { outline-color: Highlight; }
+  /* Keep the bar's own colour (as .wf-aurora-bar[data-lit='true'] does): the value beside it is text. */
+  .wf-cu-day-range-bar { forced-color-adjust: none; }
 }
 
 /* Loading, error and empty all share one line, because they are one slot: exactly one of them is

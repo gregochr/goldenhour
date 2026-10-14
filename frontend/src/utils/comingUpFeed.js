@@ -292,6 +292,7 @@ function buildDayChips(entry, action, todayStr, forecastDates) {
   if (span === 1 && !action.date) return null;
 
   const known = Array.isArray(forecastDates);
+  const ranges = Array.isArray(entry.dayRanges) ? entry.dayRanges : [];
   const chips = [];
   let previousMonth = null;
   for (let i = 0; i < span; i += 1) {
@@ -300,6 +301,7 @@ function buildDayChips(entry, action, todayStr, forecastDates) {
     const crossed = previousMonth !== null && month !== previousMonth;
     const gone = date < todayStr;
     previousMonth = month;
+    const served = ranges.find((r) => r.date === date);
     chips.push({
       date,
       dow: weekday(date),
@@ -312,10 +314,24 @@ function buildDayChips(entry, action, todayStr, forecastDates) {
       marks: dayMarks
         ? dayMarks.filter((m) => m.date === date).map(({ label, family }) => ({ label, family }))
         : null,
+      // Served per-day tidal range (supermoon-tide-run-plan S4); `rangePeak` is the server's.
+      rangeMetres: typeof served?.rangeMetres === 'number' ? served.rangeMetres : null,
+      rangePeak: Boolean(served?.peak),
       live: !gone && (known ? forecastDates.includes(date) : true),
     });
   }
   return chips;
+}
+
+/**
+ * The min and max of the served per-day ranges across a chip row, or null unless at least two chips
+ * carry one (a single value has no scale). Geometry over served values: the licensed filter/map class.
+ */
+function buildRangeScale(dayChips) {
+  if (dayChips === null) return null;
+  const values = dayChips.map((c) => c.rangeMetres).filter((v) => v !== null);
+  if (values.length < 2) return null;
+  return { min: Math.min(...values), max: Math.max(...values) };
 }
 
 /**
@@ -409,6 +425,7 @@ export function buildEntryView(entry, todayStr, lastSeenDate, forecastDates) {
     action,
     interactive: dayChips === null && INTERACTIVE_ACTION_KINDS.includes(action.kind) && !actionWithheld,
     dayChips,
+    rangeScale: buildRangeScale(dayChips),
     doorNoun: dayChips === null ? null : DOOR_NAMES[action.kind],
     actionWithheld,
     actionNote: actionWithheld ? withheldNote(action.kind, action.date) : null,
