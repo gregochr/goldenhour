@@ -10,6 +10,7 @@ import com.anthropic.models.messages.TextBlockParam;
 import com.gregochr.goldenhour.config.AppConfig;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
+import com.gregochr.goldenhour.model.TokenUsage;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
@@ -20,6 +21,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Clock;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
@@ -39,7 +42,8 @@ import java.util.stream.Stream;
  * <p><b>An experiment, not a test.</b> It asserts nothing about Claude's answers (the
  * prompt-regression assertions are the owner's to write) and is tagged {@code prompt-regression},
  * so CI never runs it. It needs a real {@code ANTHROPIC_API_KEY} and spends real money: roughly
- * prompts × models × N calls, at standard (not batch) prices with the system prompt cached.
+ * prompts × models × N calls, at standard prices with the system prompt cached, or at half that in
+ * Batch API mode ({@code REPLAY_BATCH}, below).
  *
  * <p><b>What it sends is what production sends</b>, minus the batch wrapper: the same system prompt
  * (inland {@link PromptBuilder} or {@link CoastalPromptBuilder}), the same output schema, the same
@@ -65,6 +69,20 @@ import java.util.stream.Stream;
  *       {@link CoastalPromptBuilder}'s suffix appended, so coastal and inland differ exactly as in
  *       production ({@link #resolveSystemPrompt}, {@link #systemPromptFor}). The prompt used is recorded in
  *       the {@code system_prompt} column of {@code runs.csv} and in {@code summary.md}.</li>
+ *   <li>{@code REPLAY_BATCH} (default {@code false}): submit the same request bodies as Message
+ *       Batches, one batch per model, at 50% of standard prices ({@link PromptReplayBatch} has the
+ *       mechanics). Needs {@code REPLAY_CONFIRM_COST}: the harness prints the request count per batch
+ *       and an estimate, then refuses to submit unless {@code REPLAY_CONFIRM_COST} is set to the
+ *       printed total request count</li>
+ *   <li>{@code REPLAY_PRIMER_WAIT_SECONDS} (batch mode, default 180, 0 = skip): before each model's
+ *       batch, a one-request primer batch per system prefix is submitted and waited for so the real
+ *       requests can read a 1-hour cache; a failed or late primer is skipped, never fatal</li>
+ *   <li>{@code REPLAY_BATCH_POLL_SECONDS} (default 30) and {@code REPLAY_BATCH_DEADLINE_MINUTES}
+ *       (default 1440): how often to poll, and how long to wait for the batches to end</li>
+ *   <li>{@code REPLAY_BATCH_RESUME} (default {@code false}): batch ids are written to
+ *       {@code target/p0-replay/batches.json} as they are created; with this set the run re-polls
+ *       them instead of resubmitting, so a killed JVM does not spend twice. A run that would
+ *       overwrite a {@code batches.json} holding uncollected batches is refused</li>
  *   <li>{@code REPLAY_DUMP_SYSTEM_PROMPTS_DIR} (optional, used by {@link #dumpSystemPrompts}, no API
  *       key needed): writes the production {@code system-inland.txt} and {@code system-coastal.txt}
  *       so a variant file can be built from them</li>
@@ -75,7 +93,9 @@ import java.util.stream.Stream;
  *
  * <p><b>Output</b>: {@code target/p0-replay/runs.csv} (one row per call) and
  * {@code target/p0-replay/summary.md} (rating distribution, mean scores and failures per prompt and
- * model). Run it with
+ * model). {@code runs.csv} ends with the columns {@code mode} ({@code direct} or {@code batch}),
+ * {@code batch_id} and the call's token counts; the leading columns are the same in both modes, so
+ * {@code scripts/far-cloud-p1/replay_set.py} (which reads by column name) takes either. Run it with
  * {@code ./mvnw test -Pprompt-regression -Dtest=PromptReplayHarnessTest}.
  */
 @Tag("prompt-regression")
@@ -85,8 +105,9 @@ class PromptReplayHarnessTest {
 
     @Test
     void replayStoredPrompts() throws Exception {
+        boolean batch = Boolean.parseBoolean(setting("REPLAY_BATCH", "false"));
         String apiKey = setting("ANTHROPIC_API_KEY", null);
-        if (apiKey == null || apiKey.isBlank()) {
+        if (!batch && (apiKey == null || apiKey.isBlank())) {
             throw new IllegalStateException("ANTHROPIC_API_KEY must be set");
         }
         String dir = setting("REPLAY_PROMPTS_DIR", null);
@@ -110,11 +131,17 @@ class PromptReplayHarnessTest {
             throw new IllegalStateException("No *.inland.txt or *.coastal.txt files in " + dir);
         }
 
-        AnthropicClient client = AppConfig.anthropicClientBuilder(apiKey).build();
         ObjectMapper mapper = new ObjectMapper();
         SunsetEvaluationParser parser = new SunsetEvaluationParser();
         PromptBuilder inland = new PromptBuilder();
         PromptBuilder coastal = new CoastalPromptBuilder();
+
+        if (batch) {
+            replayAsBatches(apiKey, prompts, models, n, overrideFile, systemPromptId, inland, coastal,
+                    parser, mapper);
+            return;
+        }
+        AnthropicClient client = AppConfig.anthropicClientBuilder(apiKey).build();
 
         List<Future<Run>> futures = new ArrayList<>();
         ExecutorService pool = Executors.newFixedThreadPool(threads);
@@ -140,13 +167,55 @@ class PromptReplayHarnessTest {
         }
     }
 
+    /**
+     * Batch mode: plans, prints the cost and checks the confirmation (no key or network needed for
+     * that), then submits, waits and writes the same outputs as the direct path.
+     */
+    private static void replayAsBatches(String apiKey, List<StoredPrompt> prompts,
+            List<EvaluationModel> models, int n, Path overrideFile, String systemPromptId,
+            PromptBuilder inland, PromptBuilder coastal, SunsetEvaluationParser parser,
+            ObjectMapper mapper) throws Exception {
+        PromptReplayBatch.Settings settings = new PromptReplayBatch.Settings(
+                Integer.parseInt(setting("REPLAY_PRIMER_WAIT_SECONDS", "180")) > 0,
+                Duration.ofSeconds(Integer.parseInt(setting("REPLAY_PRIMER_WAIT_SECONDS", "180"))),
+                Duration.ofSeconds(Integer.parseInt(setting("REPLAY_BATCH_POLL_SECONDS", "30"))),
+                Duration.ofMinutes(Integer.parseInt(setting("REPLAY_BATCH_DEADLINE_MINUTES", "1440"))),
+                Boolean.parseBoolean(setting("REPLAY_BATCH_RESUME", "false")),
+                setting("REPLAY_CONFIRM_COST", null));
+        PromptReplayBatch.SystemPrompts systemPrompts = new PromptReplayBatch.SystemPrompts(
+                resolveSystemPrompt(inland.getSystemPrompt(), null, overrideFile),
+                resolveSystemPrompt(coastal.getSystemPrompt(),
+                        CoastalPromptBuilder.COASTAL_SYSTEM_PROMPT_SUFFIX, overrideFile),
+                inland, coastal);
+        PromptReplayBatch.Plan plan = PromptReplayBatch.preflight(settings, OUT_DIR,
+                PromptReplayBatch.plan(prompts, models, n), models, systemPrompts, systemPromptId, mapper,
+                System.out);
+        if (apiKey == null || apiKey.isBlank()) {
+            throw new IllegalStateException("ANTHROPIC_API_KEY must be set");
+        }
+        PromptReplayBatch.Runner runner = new PromptReplayBatch.Runner(
+                AppConfig.anthropicClientBuilder(apiKey).build(), systemPrompts, settings, OUT_DIR, mapper,
+                parser, systemPromptId, Clock.systemUTC(),
+                duration -> Thread.sleep(duration.toMillis()), System.out);
+        List<Run> runs = runner.run(plan);
+        write(runs, prompts, models, n, systemPromptId);
+        long unfinished = runs.stream()
+                .filter(r -> r.failure() != null && r.failure().startsWith("BatchNotCollected")).count();
+        if (unfinished > 0) {
+            throw new IllegalStateException(unfinished + " of " + runs.size() + " request(s) are in batches"
+                    + " that were not collected (deadline or unreadable results). runs.csv holds failure"
+                    + " rows for them and is NOT a finished run: rerun with REPLAY_BATCH_RESUME=true.");
+        }
+    }
+
     /** One stored user message and which system prompt it was sent with. */
     record StoredPrompt(String label, boolean coastal, String userMessage) {
     }
 
     /** One call's outcome: a parsed evaluation, or the reason there is none. */
     record Run(String label, EvaluationModel model, int attempt, Integer rating, Integer fiery,
-            Integer golden, String failure, String summary, String systemPrompt) {
+            Integer golden, String failure, String summary, String systemPrompt, String mode,
+            String batchId, TokenUsage usage) {
     }
 
     private static List<StoredPrompt> loadPrompts(Path dir) throws IOException {
@@ -186,20 +255,46 @@ class PromptReplayHarnessTest {
                                     builder.buildOutputConfig(), model))
                             .addUserMessage(prompt.userMessage()), model)
                             .build());
-            ClaudeEvaluationStrategy.checkStopReason(response);
-            String text = response.content().stream()
-                    .filter(ContentBlock::isText)
-                    .map(ContentBlock::asText)
-                    .map(TextBlock::text)
-                    .findFirst()
-                    .orElseThrow(() -> new IllegalStateException("no text content"));
-            SunsetEvaluation e = parser.parseEvaluation(text, mapper);
-            return new Run(prompt.label(), model, attempt, e.rating(), e.fierySkyPotential(),
-                    e.goldenHourPotential(), null, e.summary(), systemPromptId);
+            return parseReply(response, prompt.label(), model, attempt, parser, mapper, systemPromptId,
+                    "direct", null, TokenUsage.from(response.usage()));
         } catch (RuntimeException ex) {
             return new Run(prompt.label(), model, attempt, null, null, null,
-                    ex.getClass().getSimpleName() + ": " + ex.getMessage(), null, systemPromptId);
+                    ex.getClass().getSimpleName() + ": " + ex.getMessage(), null, systemPromptId,
+                    "direct", null, TokenUsage.EMPTY);
         }
+    }
+
+    /**
+     * Turns one response into a row, identically for a direct call and a batch result: the stop
+     * reason is checked first ({@code ClaudeEvaluationStrategy.checkStopReason}, so a refusal or
+     * truncation throws and is never parsed), then the first text block goes through the production
+     * parser. Throws on any failure; the caller records it as a failure row.
+     *
+     * @param response the response message
+     * @param label    the stored prompt's label
+     * @param model    the model
+     * @param attempt  the run index
+     * @param parser   the production parser
+     * @param mapper   JSON mapper
+     * @param systemId the system prompt's label
+     * @param mode     {@code direct} or {@code batch}
+     * @param batchId  the batch id, or null for a direct call
+     * @param usage    the usage the API reported
+     * @return the row
+     */
+    static Run parseReply(Message response, String label, EvaluationModel model, int attempt,
+            SunsetEvaluationParser parser, ObjectMapper mapper, String systemId, String mode,
+            String batchId, TokenUsage usage) {
+        ClaudeEvaluationStrategy.checkStopReason(response);
+        String text = response.content().stream()
+                .filter(ContentBlock::isText)
+                .map(ContentBlock::asText)
+                .map(TextBlock::text)
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("no text content"));
+        SunsetEvaluation e = parser.parseEvaluation(text, mapper);
+        return new Run(label, model, attempt, e.rating(), e.fierySkyPotential(), e.goldenHourPotential(),
+                null, e.summary(), systemId, mode, batchId, usage);
     }
 
     /**
@@ -291,19 +386,32 @@ class PromptReplayHarnessTest {
 
     private static void write(List<Run> runs, List<StoredPrompt> prompts,
             List<EvaluationModel> models, int n, String systemPromptId) throws IOException {
-        Files.createDirectories(OUT_DIR);
+        write(OUT_DIR, runs, prompts, models, n, systemPromptId);
+    }
+
+    /** Writes {@code runs.csv} and {@code summary.md} into {@code outDir}. */
+    static void write(Path outDir, List<Run> runs, List<StoredPrompt> prompts,
+            List<EvaluationModel> models, int n, String systemPromptId) throws IOException {
+        Files.createDirectories(outDir);
         StringBuilder csv = new StringBuilder(
-                "label,model,attempt,rating,fiery,golden,failure,summary,system_prompt\n");
+                "label,model,attempt,rating,fiery,golden,failure,summary,system_prompt,mode,batch_id,"
+                        + "input_tokens,output_tokens,cache_read_tokens,cache_write_tokens,"
+                        + "cache_write_1h_tokens\n");
         for (Run r : runs) {
             csv.append(String.join(",", r.label(), r.model().name(), String.valueOf(r.attempt()),
                     str(r.rating()), str(r.fiery()), str(r.golden()), quote(r.failure()),
-                    quote(r.summary()), quote(r.systemPrompt()))).append('\n');
+                    quote(r.summary()), quote(r.systemPrompt()), r.mode(), r.batchId() == null ? "" : r.batchId(),
+                    String.valueOf(r.usage().inputTokens()), String.valueOf(r.usage().outputTokens()),
+                    String.valueOf(r.usage().cacheReadInputTokens()),
+                    String.valueOf(r.usage().cacheCreationInputTokens()),
+                    String.valueOf(r.usage().cacheCreationOneHourTokens()))).append('\n');
         }
-        Files.writeString(OUT_DIR.resolve("runs.csv"), csv, StandardCharsets.UTF_8);
+        Files.writeString(outDir.resolve("runs.csv"), csv, StandardCharsets.UTF_8);
 
         StringBuilder md = new StringBuilder("# P0 prompt replay\n\n");
         md.append("N = ").append(n).append(" per prompt and model.\n\n");
         md.append("System prompt: ").append(systemPromptId).append("\n\n");
+        appendMode(md, runs);
         md.append("| Prompt | Model | 1★ | 2★ | 3★ | 4★ | 5★ | Failed | Mean ★ | Mean fiery | Mean golden |\n");
         md.append("|---|---|---|---|---|---|---|---|---|---|---|\n");
         for (StoredPrompt p : prompts) {
@@ -337,8 +445,34 @@ class PromptReplayHarnessTest {
                         .append(" | ").append(mean(sumGolden, ok)).append(" |\n");
             }
         }
-        Files.writeString(OUT_DIR.resolve("summary.md"), md, StandardCharsets.UTF_8);
+        Files.writeString(outDir.resolve("summary.md"), md, StandardCharsets.UTF_8);
         System.out.println(md);
+    }
+
+    /** The mode, batch ids, token totals and the actual cost of the rows, above the table. */
+    private static void appendMode(StringBuilder md, List<Run> runs) {
+        boolean batch = runs.stream().anyMatch(r -> "batch".equals(r.mode()));
+        long input = 0;
+        long output = 0;
+        long read = 0;
+        long write = 0;
+        double dollars = 0;
+        for (Run r : runs) {
+            input += r.usage().inputTokens();
+            output += r.usage().outputTokens();
+            read += r.usage().cacheReadInputTokens();
+            write += r.usage().cacheCreationInputTokens();
+            dollars += PromptReplayBatch.cost(r.model(), r.usage(), "batch".equals(r.mode()));
+        }
+        md.append("Mode: ").append(batch ? "batch" : "direct");
+        if (batch) {
+            md.append(" (ids: ").append(runs.stream().map(Run::batchId).filter(b -> b != null)
+                    .distinct().toList()).append(')');
+        }
+        md.append("\n\n");
+        md.append(String.format(Locale.ROOT, "Tokens: %,d input, %,d output, %,d cache read, %,d cache write;"
+                + " about $%.2f at %s prices (rows only: primer batches are not in this file).%n%n",
+                input, output, read, write, dollars, batch ? "batch" : "standard"));
     }
 
     private static String setting(String key, String fallback) {
