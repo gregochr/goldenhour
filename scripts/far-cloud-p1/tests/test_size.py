@@ -24,8 +24,8 @@ def row(loc, region, day, ttype="SUNSET", run="12:00:00", lead=0, low=5, far_hig
         types="LANDSCAPE", triage="", state="", **kw):
     _ID[0] += 1
     ev = "17:10:00" if ttype == "SUNSET" else "07:10:00"
-    r = {k: "" for k in ("cv_id cv_far_mid_cloud cv_far_high_cloud far_solar_low_cloud "
-                         "far_solar_cloud_600hpa far_solar_cloud_400hpa").split()}
+    r = {k: "" for k in "cv_id cv_far_mid_cloud cv_far_high_cloud far_solar_low_cloud".split()}
+    r.update({"far_solar_cloud_600hpa": "0", "far_solar_cloud_400hpa": "0"})
     r.update({"evaluation_id": str(_ID[0]), "location_id": str(loc), "target_date": day,
               "target_type": ttype, "forecast_run_at": f"{day}T{run}", "solar_event_time": f"{day}T{ev}",
               "azimuth_deg": "255" if ttype == "SUNSET" else "100", "days_ahead": str(lead),
@@ -334,10 +334,14 @@ class GateAndEstimateTest(unittest.TestCase):
     def test_h5_and_union_are_computed_on_the_same_events(self):
         rows = dataset(10, 2, 4)
         for r in rows:
-            if r["loc_region_id"] == "1":     # H5 evaluable (600/500/400 all stored) only in region 1
-                r["far_solar_cloud_600hpa"] = "0"
-                r["far_solar_cloud_400hpa"] = "0"
-        info, _ = EndToEndTest().run_size(rows, FakeOM(provider()))
+            if r["loc_region_id"] != "1":     # H5 evaluable (600/500/400 all stored) only in region 1
+                r["far_solar_cloud_600hpa"] = ""
+                r["far_solar_cloud_400hpa"] = ""
+        base = provider()
+
+        def no_levels(var, la, lo, hour, url):  # the fetched pressure levels are not served
+            return None if "hPa" in var else base(var, la, lo, hour, url)
+        info, _ = EndToEndTest().run_size(rows, FakeOM(no_levels))
         h5, un = info["h5_pair"]
         self.assertGreater(h5["n_events"], 0)
         self.assertEqual(h5["n_events"], un["n_events"])
@@ -411,7 +415,10 @@ class GeometryRoundingTest(unittest.TestCase):
 
 class ForecastSideTest(unittest.TestCase):
     def test_collect_needs_without_forecast_requests_only_era5(self):
-        ctxs = [size.Ctx(r) for r in dataset(2, 1, 4)[:4]]
+        rows = dataset(2, 1, 4)[:4]
+        for r in rows:  # every pressure level stored, so only a pilot needs Historical Forecast
+            r["far_solar_cloud_600hpa"] = r["far_solar_cloud_400hpa"] = "0"
+        ctxs = [size.Ctx(r) for r in rows]
         for fc in (True, False):
             for pilot in (False, True):
                 srcs = {k[0][0] for k in size.collect_needs(ctxs, pilot, fc=fc)}
@@ -551,3 +558,24 @@ class ProjectionGateTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CodexFindingsTest(unittest.TestCase):
+    def test_missing_600_or_400_hpa_fetches_pressure_levels_even_with_500_stored(self):
+        for gap in ("far_solar_cloud_600hpa", "far_solar_cloud_400hpa"):
+            r = dataset(1, 1, 4)[0]
+            r["far_solar_cloud_500hpa"] = "0"
+            r["far_solar_cloud_600hpa"] = r["far_solar_cloud_400hpa"] = "0"
+            r[gap] = ""
+            srcs = {k[0][0] for k in size.collect_needs([size.Ctx(r)], False, fc=True)}
+            self.assertIn("hist", srcs, gap)
+
+    def test_training_cases_never_enter_the_population(self):
+        rows = dataset(4, 1, 4)
+        for r in rows:
+            r["loc_name"] = "Angel of the North"
+            r["target_date"] = "2026-10-13"
+            r["target_type"] = "SUNSET"
+        self.assertTrue(all(size.is_training(r) for r in rows))
+        prompted = [r for r in size.latest_prompted(rows) if not size.is_training(r)]
+        self.assertEqual(prompted, [])

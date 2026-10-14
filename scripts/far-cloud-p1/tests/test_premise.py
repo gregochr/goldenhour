@@ -416,3 +416,13 @@ class FixtureCliTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class CostVerdictTest(unittest.TestCase):
+    def test_unknown_canvases_count_against_the_rule(self):
+        self.assertEqual(premise.cost_verdict(1, 10, 90), 'inconclusive (90 unknown)')
+        self.assertEqual(premise.cost_verdict(1, 10, 0), 'ok')
+        self.assertEqual(premise.cost_verdict(1, 10, 1), 'ok')        # worst case 2/11 = 18%
+        self.assertEqual(premise.cost_verdict(5, 10, 3), 'EXCEEDS')   # known share alone 50%
+        self.assertEqual(premise.cost_verdict(0, 0, 0), 'n/a')
+        self.assertEqual(premise.cost_verdict(0, 0, 4), 'inconclusive (4 unknown)')

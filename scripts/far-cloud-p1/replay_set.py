@@ -424,9 +424,9 @@ def compare(manifest, arms, premises=None):
             rows = []
             for m in tr:
                 rows.append((m["label"], f"{m['location']} {m['date']} {m['event']}", m["basis_rating"],
-                             med[m["label"]], got[m["label"]], _hard_stop(m["location"], med[m["label"]])))
+                             med[m["label"]], got[m["label"]], _hard_stop(m["location"], got[m["label"]])))
             for l in extra:
-                rows.append((l, "(not in manifest)", "", med[l], got[l], _hard_stop(l, med[l])))
+                rows.append((l, "(not in manifest)", "", med[l], got[l], _hard_stop(l, got[l])))
             L += md_table(["label", "case", "stored", "median", "attempts", "Low Hauxley hard stop"], rows)
             L.append("")
     return "\n".join(L) + "\n"
@@ -436,10 +436,14 @@ def _num(x):
     return int(x) if x == int(x) else x
 
 
-def _hard_stop(name, median):
+def _hard_stop(name, attempts):
+    """Plan section 2 Part D: Low Hauxley must stay 4 in EVERY replay, not on the median."""
     if "hauxley" not in name.lower():
         return ""
-    return "ok (median >= 4)" if median is not None and median >= 4 else "FAILS (must stay 4)"
+    vals = [a for a in (attempts or []) if a is not None]
+    if not vals:
+        return "FAILS (no rated attempt)"
+    return "ok (every attempt >= 4)" if min(vals) >= 4 else "FAILS (an attempt fell below 4; must stay 4)"
 
 
 def cmd_compare(args):

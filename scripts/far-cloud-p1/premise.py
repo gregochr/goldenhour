@@ -357,6 +357,18 @@ def cost_side(flagged: Sequence[dict]) -> Tuple[int, int, int, Optional[float]]:
     return t, kn, unk, (t / kn if kn else None)
 
 
+def cost_verdict(t: int, kn: int, unk: int) -> str:
+    """D-1 step 3. Unknown canvases count against the rule: 'ok' only if the share stays within the cap
+    even when every unknown is a canvas; 'EXCEEDS' if the known share alone breaks it; else inconclusive."""
+    if kn + unk == 0:
+        return 'n/a'
+    if (t + unk) / (kn + unk) <= COST_SHARE_MAX:
+        return 'ok'
+    if kn and t / kn > COST_SHARE_MAX:
+        return 'EXCEEDS'
+    return 'inconclusive (%d unknown)' % unk
+
+
 def region_event_units(pop: Sequence[dict], flag: Callable[[dict], bool]) -> List[dict]:
     groups: Dict[tuple, List[dict]] = defaultdict(list)
     for s in pop:
@@ -486,7 +498,7 @@ def render(a: Dict[str, object]) -> str:
     for name, fn in flag_fns().items():
         fl = [s for s in dec if fn(s)]
         t, kn, unk, share = cost_side(fl)
-        ok = 'n/a' if share is None else ('ok' if share <= COST_SHARE_MAX else 'EXCEEDS')
+        ok = cost_verdict(t, kn, unk)
         rows_.append([name, len(fl), '%d/%d' % (t, kn), unk, pct(share), ok])
     L += md_table(['rule', 'flagged gos', 'ERA5 canvas k/known', 'unknown', 'cost share', 'vs 25%'], rows_)
     L.append('D-1 step 1 (Part D replay) is not computed here.')

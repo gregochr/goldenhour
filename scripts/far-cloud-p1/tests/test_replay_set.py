@@ -237,7 +237,7 @@ class CompareTest(unittest.TestCase):
         self.assertIn("| Bravo | 1 | 1 |", text)
         self.assertIn("canvas=?, far=0, low=1", text)
         self.assertIn("| 101110 |", text)
-        self.assertIn("FAILS (must stay 4)", text)
+        self.assertIn("FAILS (an attempt fell below 4; must stay 4)", text)
 
     def test_arms_split_by_model_and_system_prompt(self):
         a = self.write_runs("a.csv", [("3", "SONNET_55", [4, 4, 4]), ("3", "HAIKU", [3, 3, 3])])
@@ -261,3 +261,11 @@ class CompareTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HardStopTest(unittest.TestCase):
+    def test_every_attempt_must_stay_at_four(self):
+        self.assertIn("FAILS", replay_set._hard_stop("low-hauxley-1004", [4, 4, 3]))
+        self.assertTrue(replay_set._hard_stop("Low Hauxley", [4, 5, 4]).startswith("ok"))
+        self.assertIn("FAILS", replay_set._hard_stop("low-hauxley-1004", []))
+        self.assertEqual(replay_set._hard_stop("Bravo", [1]), "")

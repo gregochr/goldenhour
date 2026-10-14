@@ -35,6 +35,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import geometry
 import openmeteo as om
+import premise
 import slots
 
 try:  # another agent's module; the bootstrap here is local so the two cannot drift apart
@@ -84,6 +85,12 @@ def load_rows(path: str) -> List[dict]:
     """Read the export."""
     with open(path, newline="") as f:
         return list(csv.DictReader(f))
+
+
+def is_training(row: dict) -> bool:
+    """A plan section 4 training case (Angel, Low Hauxley, Copt Hill), reported never pooled."""
+    return premise.training_label(row.get("loc_name"), row.get("target_date"),
+                                  row.get("target_type")) is not None
 
 
 def latest_prompted(rows: Sequence[dict]) -> List[dict]:
@@ -206,8 +213,8 @@ def collect_needs(ctxs: Sequence[Ctx], pilot: bool, fc: bool = True) -> Dict[tup
         need(("prev", c.lead), c, c.pts[320])
         if pilot or num(r.get("far_solar_mid_cloud")) is None or num(r.get("far_solar_high_cloud")) is None:
             need(("prev", c.lead), c, c.pts[226])
-        if pilot or num(r.get("far_solar_cloud_500hpa")) is None:
-            need(("hist",), c, c.pts[226])
+        if pilot or any(num(r.get(f"far_solar_cloud_{lv}hpa")) is None for lv in (600, 500, 400)):
+            need(("hist",), c, c.pts[226])  # H5 reads 600, 500 and 400 hPa; any gap is fetched
         if pilot:
             for cp in c.cone:
                 need(("prev", c.lead), c, cp)
@@ -549,6 +556,7 @@ def render(info: dict) -> str:
              f"stats.py {'present (unused: local bootstrap)' if STATS_PRESENT else 'absent (local bootstrap)'}.")
     L += ["", "## Population", "",
           f"- prompted region-events (T+0/T+1, sky, all): {info['n_prompted']}",
+          f"- training-case rows excluded (plan section 4, never pooled): {info.get('n_training_excluded', 0)}",
           f"- passing the cone gate (solar_low_cloud < {CONE_GATE:g} at >= half the locations): {info['n_gated']}",
           f"- sampled region-events: {info['n_sampled']} (weights applied: {info['weighted']}); "
           f"locations fetched: {info['n_locs']}",
@@ -605,6 +613,8 @@ def run(rows: Sequence[dict], client: om.Client, *, seed: int = DEFAULT_SEED, ca
         pilot: int = 0, fc_reliable: bool = True, commit: str = "unrecorded", plan_only: bool = False) -> dict:
     """Whole pipeline on in-memory rows; returns the info dict for ``render``."""
     prompted = latest_prompted(rows)
+    training = [r for r in prompted if is_training(r)]
+    prompted = [r for r in prompted if not is_training(r)]  # plan section 4: never pooled
     events = region_events(prompted)
     gated = [e for e in events if e["gated"]]
     sampled = stratify(gated, cap, seed)
@@ -622,7 +632,7 @@ def run(rows: Sequence[dict], client: om.Client, *, seed: int = DEFAULT_SEED, ca
         sampled = [e for e in sampled if ctx_by_ev[e["key"]]]
     needs = collect_needs(all_ctx, bool(pilot), fc=fc_reliable or bool(pilot))
     values = fetch_needs(needs, client)
-    info = {"n_prompted": len(events), "n_gated": len(gated), "n_sampled": len(sampled),
+    info = {"n_training_excluded": len(training), "n_prompted": len(events), "n_gated": len(gated), "n_sampled": len(sampled),
             "n_locs": len(all_ctx), "weighted": any(e["weight"] != 1.0 for e in sampled),
             "seed": seed, "pilot": pilot, "commit": commit, "fc_fetched": fc_reliable,
             "summary": client.summary(), "needs": sum(len(v) for v in needs.values())}
