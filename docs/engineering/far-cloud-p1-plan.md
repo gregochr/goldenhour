@@ -1,7 +1,7 @@
 # P1: wasted trips, the canvas rule and far decks, measured on the history we already have
 
-**Status:** revised after adversarial review, 2026-10-14. Tools built (`scripts/far-cloud-p1/`, code-reviewed); nothing run on production data yet. The review record is §10, and
-the owner's decisions are §9.
+**Status:** revised after adversarial review, 2026-10-14. Tools built (`scripts/far-cloud-p1/`, code-reviewed); Parts B and D selection have run on the owner's export. The live probe's first
+run failed four checks; §11 records what the API actually serves and what changed in Parts A and C because of it. The review record is §10, and the owner's decisions are §9.
 
 **Parent:** `far-cloud-lid-plan.md` §6 P1, which pre-registered hypotheses H1–H5. This plan builds P1
 and adds the analyses the reviews showed P1 cannot do without. Where it departs from a P1 rule, it
@@ -161,8 +161,9 @@ hour's own solar azimuth.
 
 **Sources:**
 - ERA5 with `models=era5` stated: low, mid and high;
-- the Previous Runs API, as issued the day before and on the day;
-- the plain variable for day 0, and `_previous_day1` for the day before;
+- the Historical Forecast API's day-0 low, mid and high per model (§11: Previous Runs serves the
+  same day-0 values, and has **no** low/mid/high `_previous_dayN`, so there is no "as issued the
+  day before" arm and none is reconstructed);
 - `best_match` and each named UK-relevant model the probe finds answering;
 - the Historical Forecast API: the six pressure levels.
 
@@ -180,8 +181,8 @@ size, but it decides nothing.
 the cone mean, far 226 km low and, after V175/V176, far mid/high and pressure levels. The run fetches
 only what is missing:
 - ERA5 far mid/high at 226 km for rows verified before V175;
-- ERA5 and the Previous Runs forecast at 165 and 320 km (H3, H4);
-- the Previous Runs forecast of far mid/high at 226 km before V175 (H1, H2);
+- ERA5 and the Historical Forecast day-0 values at 165 and 320 km (H3, H4);
+- the Historical Forecast day-0 far mid/high at 226 km before V175 (H1, H2);
 - Historical Forecast pressure levels at 226 km before V176. These are for H5's sensitivity only.
 
 **There is no reconstruction exclusion.**
@@ -344,11 +345,21 @@ Whatever the outcome, the figures and reasons are written into the parent plan.
 - ERA5 shares much of the forecast's physics, so agreement flatters both. Its layer bands (σ about 2 and
   6.5 km) differ from Open-Meteo's (3 and 8 km).
 - ERA5 is 0.25°, about 28 by 16 km here, so 165, 226 and 320 km points can share a cell. Adjacent
-  transect points can repeat.
+  transect points can repeat. A multi-coordinate request answers each coordinate separately and
+  in order even when they share a cell (§11), so batching does not merge them; the scripts still
+  de-duplicate by cell before fetching, to save calls, never for correctness.
+- Open-Meteo's default `cell_selection=land` answers a point over the sea from a neighbouring land
+  cell where it finds one (52.0°N 4.0°E came back as 51.75°N 4.0°E). Production's calls send no
+  `cell_selection`, so the scripts do not either, and like is compared with like. A far point over
+  open water can therefore read a coastal cell; the answered cell is on `Point.latitude/longitude`.
 - An hourly slot can sit 0–59 minutes before a sunset, which is why §2 reports sun-altitude bands. At a
   sunrise it can sit 0–59 minutes after the event.
-- Previous Runs matches by day, not by hour. A T+0 intraday run is about 2–3 hours from its sunset,
-  while the API's day 0 is the model's latest value.
+- The fetched forecast side is the model's **day-0** value (Historical Forecast, §11), not the value
+  issued the day before. For a T+0 row that is close to what production saw (an intraday run is about
+  2–3 hours from its sunset). For a T+1 row it is a **later and better** forecast than the one
+  production used, so H1–H4 on fetched T+1 values understate how wrong the forecast was. The pilot
+  reports the cone-low disagreement per lead (`[T+0 rows]`, `[T+1 rows]`) so the size of that gap is
+  visible; the prospective V175/V176 capture removes it.
 - About 40 dates of rated history, so most Part B comparisons will be wide, or inconclusive.
 
 ## 8. Build (task cards for subagents)
@@ -362,7 +373,7 @@ Everything lives under `scripts/far-cloud-p1/`, plus one test-only Java change. 
 | T2 | `geometry.py` (port of `GeoUtils.offsetPoint`, the cone, far and transect points, deduplication by `CloudPointCache.gridKey`), `slots.py` (`findBestIndex`, the dark-side index) and `sun.py` (solar altitude and azimuth, NOAA algorithm). Parity tests against the Java tests' expected values, and a check against `azimuth_deg` on fixture rows. |
 | T3 | `premise.py` (Part B: latest and previous selection, premise classes, Angel shape, raised gos, hypothesis M, altitude bands) and `stats.py` (Wilson, Newcombe, block bootstrap, Holm, minimum-count gates). Fixture tests, including every NULL case. |
 | T4 | `PromptReplayHarnessTest`'s system-prompt override (test-only), the R1 variant's wording file, and `replay_set.py`, which builds Part D's prompt directory from the prompt export and prints the cost estimate. |
-| T5 | `openmeteo.py` (cached and budgeted; refuses to cache error bodies; uses `start_date`/`end_date`, never `past_days`; rounds coordinates; passes `models=era5` on the archive), `probe.py` (checks every API assumption in §7 and exits non-zero on any failure), `case.py` (Part A) and `size.py` (Part C, with the pilot). |
+| T5 | `openmeteo.py` (cached and budgeted; refuses to cache error bodies; uses `start_date`/`end_date`, never `past_days`; rounds coordinates; passes `models=era5` on the archive; refuses a batch whose points are answered more than 0.55° from the request), `probe.py` (checks every API assumption in §7 and exits non-zero on any failure), `case.py` (Part A) and `size.py` (Part C, with the pilot). |
 | T6 | Integration, an adversarial code review and a PR. |
 
 **Order:** T1, T2 and T4 in parallel, then T3 and T5, then T6.
@@ -426,3 +437,39 @@ refutation agents (code facts, external facts).
 - live Open-Meteo behaviour (the probe settles it);
 - production row counts;
 - whether stability skips at T+0/T+1 are as rare as the policy implies.
+
+## 11. What the live API serves (probe, 2026-10-14)
+
+`scripts/far-cloud-p1/probe.py` first ran on 2026-10-14 and failed four checks, all of which gated
+Parts A and C. Neither Part B nor Part D's selection touches these hosts. Each is now explained.
+
+| Probe check | Finding | Cause | Change |
+|---|---|---|---|
+| (b), (i): Previous Runs `cloud_cover_{low,mid,high}_previous_day1`, `best_match`, ~30 days and ~9 months ago | The request is accepted and the variable comes back **all null**; the plain day-0 variable is served. | The Previous Runs documentation lists `_previous_dayN` (N = 1–7) for **total** `cloud_cover` only, never for low, mid or high. `cloud_cover_previous_day1` (total) is served, so this is not a date-range issue. | **The "as issued the day before" arm for the layers is dropped.** |
+| (g): any model, any of four dates | Same: day-1 low cloud is null for `best_match`, `ukmo_seamless`, `ecmwf_ifs025`, `icon_seamless` and `gfs_seamless`. | Same cause. It was never a model or depth limit. | (g) now asks the question that can be answered: does each model's day-0 low cloud exist at the export start (2026-02-01)? All five do. |
+| (iii): 20-coordinate ERA5 request, point [4] "answered for the wrong cell" | Point [4] was requested at 52.0°N 4.0°E and answered for 51.75°N 4.0°E. All 20 points came back, in order, each equal to the single-coordinate answer. | Not an order fault. The default `cell_selection=land` moved a sea point to the nearest land cell, one 0.25° cell away; the probe's 0.2° tolerance was tighter than a cell. `cell_selection=nearest` answers 52.0°N 4.0°E. | The order check now allows a cell and tests for a point nearer to a different request. `Client.get` refuses a batch with any point more than 0.55° from its request. |
+| §7 suspect: adjacent coordinates in one 0.25° cell merged or reordered | Three coordinates inside one cell, sent unsorted, returned three points, one per coordinate. | Not a fault: no merge. | New probe check (iv). |
+
+**Previous Runs plain day 0 equals the Historical Forecast API** for the same model (72 of 72 values
+identical at the Angel, `best_match`, 2026-10-04). Low, mid and high and the six pressure levels are
+documented on the Historical Forecast host, which is where the scripts now read the day-0 layer
+values. All five probed models serve it from the export start.
+
+**What this does to the hypotheses.**
+- **Part A:** the sources are ERA5, each model's day-0 layers and the pressure levels. The day-before
+  column is gone. The Angel's 14:22 run was a T+0 intraday run, so day 0 is the relevant lead for the
+  training case anyway.
+- **Part C, H1–H5:** the fetched forecast side is day-0 for every row, a **T+0-quality forecast**. For
+  a T+1 row the stored value (V175 onward) is still preferred and is the day-before run production
+  used. Fetched T+1 values are the limit named in §7. They bias H1–H4 towards the forecast agreeing
+  with ERA5 for T+1 rows pre-V175, which can only make a far deck look **less** wrong than it was
+  at T+1. The decisive H1, H2 and H5 run stays the prospective one (§2 Part C), which reads stored
+  values only and is unaffected.
+- **No hypothesis is dropped.** The affected evidence is T+1 rows before V175 on the fetched side of
+  H1–H4, reported separately per lead by the pilot.
+
+**Known limits left open.**
+- ERA5 mid/high at the far point before V175 and the pressure levels before V176 are as before.
+- The day-before layers cannot be reconstructed from any host found. If Open-Meteo adds layer
+  `_previous_dayN`, probe check (b) reports "NOW SERVED" as an INFO and the arm can be restored.
+

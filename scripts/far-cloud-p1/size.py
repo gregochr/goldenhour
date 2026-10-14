@@ -186,16 +186,17 @@ def src_spec(src: tuple):
     """(kind, hourly vars, models) for a source key."""
     if src[0] == "era5":
         return "archive", om.CLOUD_VARS, "era5"
-    if src[0] == "prev":
-        return "previous_runs", [om.prev_var(v, src[1]) for v in om.CLOUD_VARS], MODEL
+    if src[0] == "fc":
+        # the forecast arm is the model's day-0 value: Previous Runs has no layer _previous_dayN
+        return "historical_forecast", om.CLOUD_VARS, MODEL
     return "historical_forecast", om.PRESSURE_VARS, None
 
 
 def collect_needs(ctxs: Sequence[Ctx], pilot: bool, fc: bool = True) -> Dict[tuple, Dict[str, om.Coord]]:
     """(source, day) -> {grid cell: coord}: only what the CSV does not already hold.
 
-    ``fc`` False means the forecast side is stored-only: Previous Runs and Historical Forecast are
-    not requested at all (ERA5 still is)."""
+    ``fc`` False means the forecast side is stored-only: the Historical Forecast API is not
+    requested at all (ERA5 still is)."""
     needs: Dict[tuple, Dict[str, om.Coord]] = defaultdict(dict)
 
     def need(src: tuple, ctx: Ctx, coord: om.Coord) -> None:
@@ -209,15 +210,15 @@ def collect_needs(ctxs: Sequence[Ctx], pilot: bool, fc: bool = True) -> Dict[tup
             need(("era5",), c, c.pts[226])
         if not fc:
             continue
-        need(("prev", c.lead), c, c.pts[165])
-        need(("prev", c.lead), c, c.pts[320])
+        need(("fc",), c, c.pts[165])
+        need(("fc",), c, c.pts[320])
         if pilot or num(r.get("far_solar_mid_cloud")) is None or num(r.get("far_solar_high_cloud")) is None:
-            need(("prev", c.lead), c, c.pts[226])
+            need(("fc",), c, c.pts[226])
         if pilot or any(num(r.get(f"far_solar_cloud_{lv}hpa")) is None for lv in (600, 500, 400)):
             need(("hist",), c, c.pts[226])  # H5 reads 600, 500 and 400 hPa; any gap is fetched
         if pilot:
             for cp in c.cone:
-                need(("prev", c.lead), c, cp)
+                need(("fc",), c, cp)
     return needs
 
 
@@ -241,7 +242,7 @@ def rd(values: dict, src: tuple, ctx: Ctx, coord: om.Coord, var: str) -> Optiona
 
 def readings(ctx: Ctx, values: dict, use_fetched_fc: bool) -> dict:
     """Forecast-side and ERA5-side readings for one location (None where unavailable)."""
-    r, lead = ctx.row, ctx.lead
+    r = ctx.row
 
     def fc(stored_col: Optional[str], var: str, dist: int) -> Optional[float]:
         v = num(r.get(stored_col)) if stored_col else None
@@ -249,7 +250,7 @@ def readings(ctx: Ctx, values: dict, use_fetched_fc: bool) -> dict:
             return v
         if not use_fetched_fc:
             return None
-        return rd(values, ("prev", lead), ctx, ctx.pts[dist], om.prev_var(var, lead))
+        return rd(values, ("fc",), ctx, ctx.pts[dist], var)
 
     def obs(stored_col: Optional[str], var: str, dist: int) -> Optional[float]:
         v = num(r.get(stored_col)) if stored_col else None
@@ -499,17 +500,19 @@ def pilot_report(ctxs: Sequence[Ctx], values: dict) -> dict:
     pairs: Dict[str, List[Tuple[float, float]]] = defaultdict(list)
     for c in ctxs:
         r, lead = c.row, c.lead
-        ps = [rd(values, ("prev", lead), c, p, om.prev_var("cloud_cover_low", lead)) for p in c.cone]
+        ps = [rd(values, ("fc",), c, p, "cloud_cover_low") for p in c.cone]
         ps = [x for x in ps if x is not None]
         st = num(r.get("solar_low_cloud"))
         if ps and st is not None:
             pairs["cone low (mean of 3)"].append((sum(ps) / len(ps), st))
+            pairs[f"cone low (mean of 3), T+{lead} rows"].append((sum(ps) / len(ps), st))
         for name, col, var in (("far low 226", "far_solar_low_cloud", "cloud_cover_low"),
                                ("far mid 226", "far_solar_mid_cloud", "cloud_cover_mid"),
                                ("far high 226", "far_solar_high_cloud", "cloud_cover_high")):
-            st, fv = num(r.get(col)), rd(values, ("prev", lead), c, c.pts[226], om.prev_var(var, lead))
+            st, fv = num(r.get(col)), rd(values, ("fc",), c, c.pts[226], var)
             if st is not None and fv is not None:
                 pairs[name].append((fv, st))
+                pairs[f"{name}, T+{lead} rows"].append((fv, st))
         st, fv = num(r.get("far_solar_cloud_500hpa")), rd(values, ("hist",), c, c.pts[226], "cloud_cover_500hPa")
         if st is not None and fv is not None:
             pairs["500 hPa 226"].append((fv, st))
@@ -560,7 +563,7 @@ def render(info: dict) -> str:
           f"- passing the cone gate (solar_low_cloud < {CONE_GATE:g} at >= half the locations): {info['n_gated']}",
           f"- sampled region-events: {info['n_sampled']} (weights applied: {info['weighted']}); "
           f"locations fetched: {info['n_locs']}",
-          f"- forecast side: {'stored values + fetched Previous Runs / Historical Forecast' if info['fc_fetched'] else 'STORED values only (fetched forecast not verified reliable, or unavailable)'}",
+          f"- forecast side: {'stored values + fetched Historical Forecast day-0 values (a T+1 row compares against the later run, not the one production saw)' if info['fc_fetched'] else 'STORED values only (fetched forecast not verified reliable, or unavailable)'}",
           f"- API: {info['summary']}", ""]
     if info.get("pilot_rep"):
         L += ["## Calibration pilot (fetched forecast vs stored)", "",

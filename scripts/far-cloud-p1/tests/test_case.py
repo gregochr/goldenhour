@@ -88,21 +88,23 @@ class BuildCaseTest(unittest.TestCase):
             self.assertNotIn("_previous_day0", u)
         archive = [u for u in fake.urls if "archive-api" in u]
         self.assertTrue(archive and all("models=era5" in u for u in archive))
-        prev = [u for u in fake.urls if "previous-runs" in u]
-        self.assertGreaterEqual(len(prev), 2)  # 20 coords per request, per model
-        self.assertTrue(all("cloud_cover_low_previous_day1" in u for u in prev))
+        # no Previous Runs at all: it serves _previous_dayN for total cloud cover only
+        self.assertFalse([u for u in fake.urls if "previous-runs" in u])
+        self.assertFalse([u for u in fake.urls if "_previous_day" in u])
         hist = [u for u in fake.urls if "historical-forecast" in u]
-        self.assertTrue(hist and "cloud_cover_850hPa" in hist[0])
+        layers = [u for u in hist if "cloud_cover_low" in u and "cloud_cover_850hPa" not in u]
+        self.assertGreaterEqual(len(layers), 2)  # 20 coords per request, per model
+        self.assertTrue(all("models=" in u for u in layers))
+        self.assertTrue([u for u in hist if "cloud_cover_850hPa" in u])
         out = tempfile.mkdtemp()
         cp, mp = case.write_outputs(cs, out)
         self.assertTrue(cp.endswith("case_2026-10-13.csv"))
         with open(cp, newline="") as f:
             rows = list(csv.DictReader(f))
         sources = {r["source"] for r in rows}
-        self.assertEqual(sources, {"era5", "prev:best_match:day0", "prev:best_match:day1",
-                                   "prev:ukmo_seamless:day0", "prev:ukmo_seamless:day1", "hist:pressure"})
-        # 3 hours x 17 distances x 6 sources
-        self.assertEqual(len(rows), 3 * 17 * 6)
+        self.assertEqual(sources, {"era5", "fc:best_match", "fc:ukmo_seamless", "hist:pressure"})
+        # 3 hours x 17 distances x 4 sources
+        self.assertEqual(len(rows), 3 * 17 * 4)
         era = [r for r in rows if r["source"] == "era5"]
         self.assertTrue(all(r["high"] == "91" and r["p850"] == "" for r in era))
         md = open(mp).read()
@@ -127,8 +129,8 @@ class BuildCaseTest(unittest.TestCase):
                 return super().__call__(url)
         c = om.Client(tempfile.mkdtemp(), fetch=F(), pause_s=0)
         cs = case.build_case(c, *ANGEL[:2], ANGEL[2], "SUNSET", ["bad_model", "best_match"])
-        self.assertIn("prev:best_match:day1", cs["sources"])
-        self.assertNotIn("prev:bad_model:day0", cs["sources"])
+        self.assertIn("fc:best_match", cs["sources"])
+        self.assertNotIn("fc:bad_model", cs["sources"])
         self.assertTrue(cs["notes"])
 
     def test_cli_dry_run_writes_nothing(self):

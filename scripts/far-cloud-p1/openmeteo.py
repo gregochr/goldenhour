@@ -29,7 +29,16 @@ Open-Meteo's dashboard / response headers after the first run and correct ``weig
     weight = n_locations * max(1, ceil(n_vars / 10)) * max(1, ceil(n_days / 14))
 
 Previous Runs naming: day 0 is the plain variable, day N (N >= 1) is ``<var>_previous_dayN``.
-``_previous_day0`` is never emitted.
+``_previous_day0`` is never emitted. ⚠️ Open-Meteo documents ``_previous_dayN`` for TOTAL cloud cover
+only: ``cloud_cover_{low,mid,high}_previous_dayN`` answer all-null (probe, 2026-10-14, five models, four
+dates), so the P1 forecast arm is the plain day-0 value, served identically by the Historical
+Forecast API (the documented host for low/mid/high and pressure levels). See plan section 11.
+
+Batching: a multi-coordinate request returns one point per coordinate in request order and does not
+merge coordinates that share a 0.25 degree cell (probe, 2026-10-14). The default
+``cell_selection=land`` can answer a sea point from the neighbouring land cell, so ``Point.latitude``
+and ``Point.longitude`` are the cell actually used and may differ from the request by one cell. Do not
+send ``cell_selection``: production's calls do not, so the default keeps like with like.
 """
 from __future__ import annotations
 
@@ -58,6 +67,7 @@ HOURLY_CAP = 4500          # free tier is understood to be 5,000/hour; keep head
 MINUTE_CAP = 500           # free tier is understood to be 600/minute
 FRESH_ARCHIVE_DAYS = 7     # archive responses ending within this many days of today may be incomplete
 FRESH_TTL = timedelta(hours=24)
+SNAP_TOL = 0.55            # degrees: a point answered further than ~2 grid cells away is a broken batch
 PRESSURE_VARS = ["cloud_cover_850hPa", "cloud_cover_700hPa", "cloud_cover_600hPa",
                  "cloud_cover_500hPa", "cloud_cover_400hPa", "cloud_cover_300hPa"]
 CLOUD_VARS = ["cloud_cover_low", "cloud_cover_mid", "cloud_cover_high"]
@@ -100,6 +110,32 @@ def prev_var(var: str, day: int) -> str:
     if day < 0:
         raise ValueError("day must be >= 0")
     return var if day == 0 else f"{var}_previous_day{day}"
+
+
+def order_violations(requested: Sequence[Coord], answered: Sequence[Tuple[Optional[float], Optional[float]]],
+                     tol: float) -> List[int]:
+    """Indices where the answered cell is missing, more than ``tol`` degrees from the request, or
+    nearer to a DIFFERENT requested coordinate than to its own (a shuffled or merged batch).
+
+    Open-Meteo's default ``cell_selection=land`` may answer a sea point from the neighbouring land
+    cell, one grid cell away (2026-10-14: 52.0, 4.0 answered as 51.75, 4.0), which is not a
+    violation, so ``tol`` is a cell plus a little. The nearer-to-another test only means something
+    when the requested coordinates are further apart than a cell (the probe's 0.5 degree grid);
+    ``Client.get`` checks position against ``SNAP_TOL`` alone, because a transect's points are closer."""
+    bad = []
+    for i, (c, a) in enumerate(zip(requested, answered)):
+        if a[0] is None or a[1] is None:
+            bad.append(i)
+            continue
+        own = max(abs(a[0] - c[0]), abs(a[1] - c[1]))
+        if own > tol:
+            bad.append(i)
+            continue
+        for j, o in enumerate(requested):
+            if j != i and max(abs(a[0] - o[0]), abs(a[1] - o[1])) < own - 1e-9:
+                bad.append(i)
+                break
+    return bad
 
 
 def round_coord(lat: float, lon: float) -> Coord:
@@ -464,6 +500,12 @@ class Client:
             nodes = self._live(build_url(kind, chunk, hourly, start, end, models), w)
             if len(nodes) != len(chunk):
                 raise OpenMeteoError(f"expected {len(chunk)} points, got {len(nodes)}")
+            far = [c for c, n in zip(chunk, nodes)
+                   if isinstance(n.get("latitude"), (int, float)) and isinstance(n.get("longitude"), (int, float))
+                   and max(abs(n["latitude"] - c[0]), abs(n["longitude"] - c[1])) > SNAP_TOL]
+            if far:   # never cache or use a batch whose points are not the ones asked for
+                raise OpenMeteoError(f"{len(far)} point(s) answered for a cell more than {SNAP_TOL} "
+                                     f"degrees from the request, e.g. {far[0]}: batch order is not trusted")
             for c, node in zip(chunk, nodes):
                 by_coord[c] = parse_point(node)
                 if node_cacheable(node, hourly):

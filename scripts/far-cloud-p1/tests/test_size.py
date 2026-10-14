@@ -48,7 +48,7 @@ def provider(offset=0):
         if var.startswith("cloud_cover_high"):
             return 80 if day_of(url) % 2 == 0 else 10
         if var.startswith("cloud_cover_low"):
-            return 5 + offset if "previous-runs" in url else 0
+            return 5 + offset if "historical-forecast" in url else 0
         return 0
     return p
 
@@ -193,8 +193,12 @@ class EndToEndTest(unittest.TestCase):
     def test_fetches_only_what_is_missing_and_dedupes(self):
         fake = FakeOM(provider())
         info, c = self.run_size(dataset(2, 1, 4), fake)
-        # stored far mid/high + 500hPa present -> no historical forecast, no prev-run 226
-        self.assertFalse([u for u in fake.urls if "historical-forecast" in u])
+        # stored far mid/high + 500hPa present -> no pressure-level request; the layer arm (day 0,
+        # Historical Forecast) is fetched only for the 165 and 320 km points H3 and H4 need
+        hist = [x for x in fake.urls if "historical-forecast" in x]
+        self.assertTrue(hist)
+        self.assertFalse([x for x in hist if "hPa" in x])
+        self.assertFalse([x for x in fake.urls if "previous-runs" in x or "_previous_day" in x])
         # cv far mid/high absent -> ERA5 at 226 IS fetched
         self.assertTrue([u for u in fake.urls if "archive-api" in u])
         # nothing refetched: all identical URLs are served from cache
@@ -422,8 +426,8 @@ class ForecastSideTest(unittest.TestCase):
         for fc in (True, False):
             for pilot in (False, True):
                 srcs = {k[0][0] for k in size.collect_needs(ctxs, pilot, fc=fc)}
-                self.assertEqual(srcs, {"era5", "prev", "hist"} if (fc and pilot) else
-                                 ({"era5", "prev"} if fc else {"era5"}))
+                self.assertEqual(srcs, {"era5", "fc", "hist"} if (fc and pilot) else
+                                 ({"era5", "fc"} if fc else {"era5"}))
 
     def test_run_with_unreliable_forecast_never_touches_forecast_hosts(self):
         fake = FakeOM(provider())
@@ -434,7 +438,7 @@ class ForecastSideTest(unittest.TestCase):
         c = om.Client(tempfile.mkdtemp(), fetch=fake, pause_s=0)
         info = size.run(rows, c, fc_reliable=False)
         self.assertTrue(fake.urls)
-        self.assertFalse([u for u in fake.urls if "previous-runs" in u or "historical-forecast" in u])
+        self.assertFalse([u for u in fake.urls if "historical-forecast" in u])
         self.assertFalse(info["fc_fetched"])
 
     def test_fail_closed_only_an_explicit_reliable_allows_fetched_values(self):
@@ -465,13 +469,13 @@ class ForecastSideTest(unittest.TestCase):
         for verdict in (None, "unknown", "UNRELIABLE", "garbage"):
             rc, fake, out = self._main(verdict)
             self.assertEqual(rc, 0)
-            self.assertFalse([u for u in fake.urls if "previous-runs" in u or "historical-forecast" in u], verdict)
+            self.assertFalse([u for u in fake.urls if "historical-forecast" in u], verdict)
             with open(os.path.join(out, "part_c.md")) as f:
                 self.assertIn("STORED values only", f.read())
         rc, fake, out = self._main("reliable")
-        self.assertTrue([u for u in fake.urls if "previous-runs" in u])
+        self.assertTrue([u for u in fake.urls if "historical-forecast" in u])
         rc, fake, out = self._main(None, ["--forecast", "stored"])
-        self.assertFalse([u for u in fake.urls if "previous-runs" in u])
+        self.assertFalse([u for u in fake.urls if "historical-forecast" in u])
 
 
 class ProjectionGateTest(unittest.TestCase):
