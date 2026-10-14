@@ -103,7 +103,8 @@ class AlmanacControllerTest extends AbstractControllerTest {
                 null, List.of(), null, null, null, base.action(), 8.0, false, null,
                 List.of(new ComingUpCoincidenceLine("coastal", "Spring tide run", "Sun 16 – Tue 18 Aug",
                                 "spring-tide"),
-                        new ComingUpCoincidenceLine("sun-moon", "Supermoon", "Mon 17 Aug", "supermoon")),
+                        new ComingUpCoincidenceLine("sun-moon", "Supermoon", "Mon 17 Aug", "supermoon"),
+                        new ComingUpCoincidenceLine("sun-moon", "Untyped", "Tue 18 Aug", null)),
                 "Same cause, two effects.",
                 List.of(new ComingUpDayMark(LocalDate.of(2026, 8, 17), "full moon", "sun-moon")));
         when(almanacService.getFeed(90)).thenReturn(response(merged, springRun()));
@@ -114,6 +115,8 @@ class AlmanacControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.entries[0].dayMarks[0].label").value("full moon"))
                 .andExpect(jsonPath("$.entries[0].dayMarks[0].family").value("sun-moon"))
                 .andExpect(jsonPath("$.entries[0].coincidence[1].type").value("supermoon"))
+                .andExpect(jsonPath("$.entries[0].coincidence[2].name").value("Untyped"))
+                .andExpect(jsonPath("$.entries[0].coincidence[2].type").doesNotExist())
                 .andExpect(jsonPath("$.entries[1].dayMarks").doesNotExist())
                 .andExpect(jsonPath("$.entries[1].coincidence").doesNotExist());
     }

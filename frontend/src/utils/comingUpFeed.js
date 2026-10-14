@@ -182,13 +182,18 @@ export function chipCounts(counts) {
 
 /**
  * Whether `entry` belongs to the selected chip — `all` always matches, and every other chip
- * matches on {@code entry.family} against its own family list (D6's "Sun & moon covers eclipse,
- * Air & dust covers air+dust" mapping).
+ * matches on {@code entry.family} OR any {@code entry.coincidence[].family} against its own family
+ * list (D6's "Sun & moon covers eclipse, Air & dust covers air+dust" mapping) — a merged card is
+ * found under every family it holds, exactly as the server counts it.
  */
 function matchesFilter(entry, filterId) {
   if (filterId === 'all') return true;
   const chip = FILTER_CHIPS.find((c) => c.id === filterId);
-  return Boolean(chip?.families?.includes(entry.family));
+  if (!chip?.families) return false;
+  // A merged card is found under EVERY family it holds (its host's and each coincidence line's),
+  // which is how the server counts it in byFamily — so a chip's count and its list agree.
+  return chip.families.includes(entry.family)
+    || (entry.coincidence ?? []).some((line) => chip.families.includes(line.family));
 }
 
 /** Every served `action.kind` with a real destination as of P3b (D8) — see {@link buildEntryView}. */

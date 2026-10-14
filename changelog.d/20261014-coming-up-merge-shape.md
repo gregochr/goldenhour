@@ -17,8 +17,11 @@ so this should not be released on its own before the chip work that follows.
 Accepted behaviour changes. A merged card's title, door and family follow its host, and the family
 filter and the filter chips' counts now find it under both of its families (the All chip is the
 feed's fixed plus forecast count, so a merged card is not counted twice). A supermoon inside Plan's
-four days is now still paired with the longer run that overlaps it. Ask's timeline lists a merged
-card once, as the host type over the union span, and a live supermoon of the same dates is no longer
-listed a second time beside it; a stored Ready answer or follow-up thread event that names the
-supermoon is withheld whole until the next precompute. The coincidence line's facts now wrap rather
-than overflow the card on a phone.
+four days is now still paired with the longer run that overlaps it. Ask offers a merged
+card once, as its host's event over the union span (a merged-in topic is no longer offered as an event
+of its own, as was already so when the run won), and a live supermoon of the same dates is no longer
+listed a second time beside it; a stored Ready answer or follow-up thread event that names either topic
+whose dates moved is withheld whole until the next precompute. The coincidence line's facts now wrap
+rather than overflow the card on a phone, breaking only around the separators, and the supermoon line
+wears the moon glyph. A merged card sorts and takes the "say the definition once" prose by its union
+start, and a "biggest until" superlative names the date the later card actually shows.

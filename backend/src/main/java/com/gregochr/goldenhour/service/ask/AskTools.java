@@ -899,7 +899,8 @@ public class AskTools {
      * forecast is flagging this week (a solar eclipse that is a live hot topic can be absent from
      * it), so a conversation that consulted only this tool used to be told "nothing" while the
      * forecast was flagging an eclipse. A hot topic that the almanac already lists (the same type,
-     * on a date inside the entry's span) is not repeated.
+     * or the type of a topic the entry merged in, on a date inside the entry's span) is not
+     * repeated. A merged entry is offered as its host's event only.
      *
      * @param args the optional window and limit
      * @return the entries, soonest first

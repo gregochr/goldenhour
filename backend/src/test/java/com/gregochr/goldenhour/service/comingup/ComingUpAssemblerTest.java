@@ -34,6 +34,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -731,6 +733,20 @@ class ComingUpAssemblerTest {
         when(tideService.getTideStats(SEAHAM.getId())).thenReturn(Optional.empty());
     }
 
+    private static final java.time.ZoneId LONDON = java.time.ZoneId.of("Europe/London");
+
+    /** A moonrise at the given UTC clock (these dates are GMT, so the London clock reads the same). */
+    private static MoonriseMoonset risesAt(int year, int month, int day, int hour, int minute) {
+        return new MoonriseMoonset(Optional.of(ZonedDateTime.of(year, month, day, hour, minute, 0, 0,
+                java.time.ZoneOffset.UTC)), Optional.empty());
+    }
+
+    /** The served non-breaking-space form of a facts label: breaks only around " · " and " – ". */
+    private static String nb(String label) {
+        return label.replace(" – ", "\u0001").replace(" · ", "\u0002").replace(' ', ' ')
+                .replace("\u0001", " – ").replace("\u0002", " · ");
+    }
+
     private ComingUpAssembler assemblerWith(MoonriseMoonsetCalculator calculator) {
         return new ComingUpAssembler(locationRepository, tideRunBuilder, tideRunPeakHistory,
                 tideService, new ComingUpScoringProperties(), calculator);
@@ -751,7 +767,10 @@ class ComingUpAssemblerTest {
         AlmanacEvent run = event(oct(25), oct(30), "spring-tide", "Spring tide run",
                 runMeta(oct(27), oct(27)));
 
-        ComingUpResponse response = assembler.assemble(BUILT,
+        MoonriseMoonsetCalculator calculator = mock(MoonriseMoonsetCalculator.class);
+        when(calculator.calculate(oct(26), 54.84, -1.33, LONDON)).thenReturn(risesAt(2026, 10, 26, 17, 22));
+
+        ComingUpResponse response = assemblerWith(calculator).assemble(BUILT,
                 List.of(run, supermoon(oct(26), oct(26), oct(26))));
 
         assertThat(response.entries()).hasSize(1);
@@ -772,13 +791,11 @@ class ComingUpAssemblerTest {
         assertThat(merged.coincidence().get(0).name()).isEqualTo("Spring tide run");
         assertThat(merged.coincidence().get(0).type()).isEqualTo("spring-tide");
         assertThat(merged.coincidence().get(0).factsLabel())
-                .isEqualTo("Sun 25 – Fri 30 Oct · biggest Tue 27 · 4.9 m · HW 15:48");
+                .isEqualTo(nb("Sun 25 – Fri 30 Oct · biggest Tue 27 · 4.9 m · HW 15:48"));
         assertThat(merged.coincidence().get(1).family()).isEqualTo("sun-moon");
         assertThat(merged.coincidence().get(1).name()).isEqualTo("Supermoon");
         assertThat(merged.coincidence().get(1).type()).isEqualTo("supermoon");
-        // The real calculator supplies the clock: assert its shape, never a hard-coded ephemeris time.
-        assertThat(merged.coincidence().get(1).factsLabel())
-                .matches("Mon 26 Oct( · moonrise \\d{2}:\\d{2})?");
+        assertThat(merged.coincidence().get(1).factsLabel()).isEqualTo(nb("Mon 26 Oct · moonrise 17:22"));
 
         assertThat(merged.joinNote()).isEqualTo("Same cause, two effects. The moon is closest to Earth, "
                 + "which both enlarges it and stretches the tide. The moon is full on the 26th and the "
@@ -816,9 +833,12 @@ class ComingUpAssemblerTest {
     void kingRunWithTwoNightSupermoon() {
         stubRunAtSeaham();
         AlmanacEvent run = event(nov(23), nov(28), "king-tide", "King tide run", runMeta(nov(26), nov(26)));
+        MoonriseMoonsetCalculator calculator = mock(MoonriseMoonsetCalculator.class);
+        // The supermoon's peak night is the 25th (nearest perigee), not its first night.
+        when(calculator.calculate(nov(25), 54.84, -1.33, LONDON)).thenReturn(risesAt(2026, 11, 25, 15, 30));
 
-        ComingUpEntry merged = assembler.assemble(BUILT,
-                List.of(run, supermoon(nov(24), nov(25), nov(24)))).entries().getFirst();
+        ComingUpEntry merged = assemblerWith(calculator).assemble(BUILT,
+                List.of(run, supermoon(nov(24), nov(25), nov(25)))).entries().getFirst();
 
         assertThat(merged.type()).isEqualTo("king-tide");
         assertThat(merged.title()).isEqualTo("King tide run, on a supermoon");
@@ -831,7 +851,7 @@ class ComingUpAssemblerTest {
                 + "a day later, on the 26th.");
         // The multi-night line names the night the moonrise is for.
         assertThat(merged.coincidence().get(1).factsLabel())
-                .matches("Tue 24 – Wed 25 Nov( · moonrise \\d{2}:\\d{2} on the 24th)?");
+                .isEqualTo(nb("Tue 24 – Wed 25 Nov · moonrise 15:30 on the 25th"));
     }
 
     @Test
@@ -874,7 +894,7 @@ class ComingUpAssemblerTest {
         // The supermoon's own "peaks" fact is not served on a merged entry.
         assertThat(factTexts(merged)).isEmpty();
         // Host first: the supermoon's line leads, the run's line follows with its own figures.
-        assertThat(merged.coincidence().get(1).factsLabel()).isEqualTo("Mon 26 Oct · 4.9 m on Mon 26");
+        assertThat(merged.coincidence().get(1).factsLabel()).isEqualTo(nb("Mon 26 Oct · 4.9 m on Mon 26"));
     }
 
     @Test
@@ -926,7 +946,7 @@ class ComingUpAssemblerTest {
                 .containsExactly("full moon", "full moon");
         assertThat(merged.joinNote()).doesNotContain("peaks");
         assertThat(merged.coincidence().getFirst().factsLabel())
-                .isEqualTo("Sun 25 – Thu 29 Oct · 4.9 m on Mon 26");
+                .isEqualTo(nb("Sun 25 – Thu 29 Oct · 4.9 m on Mon 26"));
         assertThat(factTexts(merged)).contains("figures cover only part of this run");
     }
 
@@ -941,7 +961,7 @@ class ComingUpAssemblerTest {
                 List.of(run, supermoon(oct(26), oct(26), oct(26)))).entries().getFirst();
 
         assertThat(merged.coincidence().getFirst().factsLabel())
-                .isEqualTo("Sun 25 – Fri 30 Oct · biggest Tue 27 · 4.9 m");
+                .isEqualTo(nb("Sun 25 – Fri 30 Oct · biggest Tue 27 · 4.9 m"));
         assertThat(factTexts(merged)).contains("tide HW 15:48 · 52m before sunset on the 28th");
     }
 
@@ -985,13 +1005,13 @@ class ComingUpAssemblerTest {
 
         ComingUpEntry merged = assemblerWith(calculator).assemble(BUILT,
                 List.of(run, supermoon(oct(26), oct(26), oct(26)))).entries().getFirst();
-        assertThat(merged.coincidence().get(1).factsLabel()).isEqualTo("Mon 26 Oct · moonrise 17:22");
+        assertThat(merged.coincidence().get(1).factsLabel()).isEqualTo(nb("Mon 26 Oct · moonrise 17:22"));
 
         when(calculator.calculate(oct(26), 54.84, -1.33, java.time.ZoneId.of("Europe/London")))
                 .thenReturn(new MoonriseMoonset(Optional.empty(), Optional.empty()));
         ComingUpEntry noRise = assemblerWith(calculator).assemble(BUILT,
                 List.of(run, supermoon(oct(26), oct(26), oct(26)))).entries().getFirst();
-        assertThat(noRise.coincidence().get(1).factsLabel()).isEqualTo("Mon 26 Oct");
+        assertThat(noRise.coincidence().get(1).factsLabel()).isEqualTo(nb("Mon 26 Oct"));
     }
 
     @Test
@@ -1004,8 +1024,8 @@ class ComingUpAssemblerTest {
         ComingUpEntry merged = assemblerWith(calculator).assemble(BUILT,
                 List.of(run, supermoon(oct(26), oct(26), oct(26)))).entries().getFirst();
 
-        assertThat(merged.coincidence().get(1).factsLabel()).isEqualTo("Mon 26 Oct");
-        assertThat(merged.coincidence().getFirst().factsLabel()).isEqualTo("Sun 25 – Fri 30 Oct");
+        assertThat(merged.coincidence().get(1).factsLabel()).isEqualTo(nb("Mon 26 Oct"));
+        assertThat(merged.coincidence().getFirst().factsLabel()).isEqualTo(nb("Sun 25 – Fri 30 Oct"));
         verifyNoInteractions(calculator);
     }
 
@@ -1131,6 +1151,61 @@ class ComingUpAssemblerTest {
         // The 9.0 m Plan-window run is not in the comparison set: no threshold, no superlative.
         assertThat(only.threshold()).isNull();
         assertThat(only.superlative()).isNull();
+    }
+
+    @Test
+    @DisplayName("first-of-type prose goes to the EARLIEST card of its type even when that card is hosted "
+            + "by a Plan-owned partner, which is staged after every eligible event")
+    void proseGoesToTheEarliestCardEvenWhenAPartnerHostsIt() {
+        stubRunAtSeaham();
+        AlmanacEvent planRun = event(oct(23), oct(26), "spring-tide", "Spring tide run", runMeta(oct(24), oct(24)));
+        AlmanacEvent laterRun = event(nov(5), nov(8), "spring-tide", "Spring tide run", runMeta(nov(6), nov(6)));
+
+        ComingUpResponse response = assembler.assemble(BUILT,
+                List.of(supermoon(oct(26), oct(27), oct(26)), laterRun), List.of(planRun));
+
+        assertThat(response.entries()).hasSize(2);
+        ComingUpEntry merged = response.entries().get(0);
+        ComingUpEntry later = response.entries().get(1);
+        assertThat(merged.startDate()).isEqualTo(oct(23));
+        assertThat(merged.prose()).isEqualTo("detail");
+        assertThat(later.prose()).isNull();
+    }
+
+    @Test
+    @DisplayName("a partner-only event that can never pair is not even staged: its enrichment (which "
+            + "reads the scoring knobs) never runs, so a failure there cannot fail the feed")
+    void nonPairablePartnerIsNeverStaged() {
+        ComingUpScoringProperties properties = mock(ComingUpScoringProperties.class);
+        when(properties.getBands()).thenReturn(new ComingUpScoringProperties().getBands());
+        ComingUpAssembler guarded = new ComingUpAssembler(locationRepository, tideRunBuilder,
+                tideRunPeakHistory, tideService, properties, new MoonriseMoonsetCalculator());
+
+        ComingUpResponse response = guarded.assemble(BUILT, List.of(), List.of(
+                event(oct(21), oct(21), "meteor", "Perseids", Map.of()),
+                event(oct(22), oct(22), "lunar-eclipse", "Eclipse", Map.of())));
+
+        assertThat(response.entries()).isEmpty();
+        verify(properties, never()).getRarity();
+    }
+
+    @Test
+    @DisplayName("'biggest until X' names the date the later run's CARD shows — the union start when "
+            + "that run is merged with a supermoon that begins a day earlier")
+    void superlativeNamesTheMergedCardsDate() {
+        when(tideRunBuilder.peakRange(eq(datesOf(nov(1), nov(4))), eq(COASTAL_ROSTER)))
+                .thenReturn(Optional.of(new TideRunBuilder.RunPeak(SEAHAM, 4.0)));
+        when(tideRunBuilder.peakRange(eq(datesOf(nov(20), nov(23))), eq(COASTAL_ROSTER)))
+                .thenReturn(Optional.of(new TideRunBuilder.RunPeak(SEAHAM, 6.0)));
+        when(tideService.getTideStats(SEAHAM.getId())).thenReturn(Optional.empty());
+        AlmanacEvent a = event(nov(1), nov(4), "spring-tide", "Spring tide run", Map.of());
+        AlmanacEvent b = event(nov(20), nov(23), "spring-tide", "Spring tide run", Map.of());
+
+        ComingUpResponse response = assembler.assemble(BUILT, List.of(a, b, supermoon(nov(19), nov(20), nov(19))));
+
+        assertThat(response.entries()).hasSize(2);
+        assertThat(response.entries().get(1).startDate()).isEqualTo(nov(19));
+        assertThat(response.entries().get(0).superlative()).isEqualTo("biggest until 19 Nov");
     }
 
     @Test

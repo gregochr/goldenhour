@@ -42,6 +42,12 @@ describe('comingUpGlyphs — coincidenceLineGlyph (plan §4.5)', () => {
     expect(coincidenceLineGlyph({ family: 'coastal', name: 'Spring tide run' })).toBe('🌊');
   });
 
+  it('prefers the line\'s served wire type, so the supermoon line is 🌙 like its card', () => {
+    expect(coincidenceLineGlyph({ family: 'sun-moon', name: 'Supermoon', type: 'supermoon' })).toBe('🌙');
+    // A type with no override falls through to the family lookup.
+    expect(coincidenceLineGlyph({ family: 'coastal', name: 'King tide run', type: 'king-tide' })).toBe('🌊');
+  });
+
   it('falls back to the name regex only when the line carries no family at all', () => {
     expect(coincidenceLineGlyph({ name: 'A supermoon rises' })).toBe('🌙');
     expect(coincidenceLineGlyph({ name: 'A spring tide run' })).toBe('🌊');

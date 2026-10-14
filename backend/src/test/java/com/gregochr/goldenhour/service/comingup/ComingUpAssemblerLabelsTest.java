@@ -11,6 +11,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 /** Pure wording helpers of {@link ComingUpAssembler} (supermoon-tide-run-plan.md §2.2). */
 class ComingUpAssemblerLabelsTest {
 
+    private static final String NB = " ";
+
     @Test
     @DisplayName("ordinals follow English: 1st 2nd 3rd 4th, the teens are all th, 21st 22nd 23rd, 31st")
     void ordinals() {
@@ -21,13 +23,14 @@ class ComingUpAssemblerLabelsTest {
     }
 
     @Test
-    @DisplayName("span labels: one day, same month, crossing a month")
+    @DisplayName("span labels: one day, same month, crossing a month — non-breaking inside each date, "
+            + "a normal space only around the en dash")
     void spanLabels() {
         assertThat(ComingUpAssembler.spanLabel(LocalDate.of(2026, 10, 26), LocalDate.of(2026, 10, 26)))
-                .isEqualTo("Mon 26 Oct");
+                .isEqualTo("Mon" + NB + "26" + NB + "Oct");
         assertThat(ComingUpAssembler.spanLabel(LocalDate.of(2026, 10, 25), LocalDate.of(2026, 10, 30)))
-                .isEqualTo("Sun 25 – Fri 30 Oct");
+                .isEqualTo("Sun" + NB + "25 – Fri" + NB + "30" + NB + "Oct");
         assertThat(ComingUpAssembler.spanLabel(LocalDate.of(2026, 10, 30), LocalDate.of(2026, 11, 3)))
-                .isEqualTo("Fri 30 Oct – Tue 3 Nov");
+                .isEqualTo("Fri" + NB + "30" + NB + "Oct – Tue" + NB + "3" + NB + "Nov");
     }
 }

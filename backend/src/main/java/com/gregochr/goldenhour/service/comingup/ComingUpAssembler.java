@@ -156,6 +156,11 @@ public class ComingUpAssembler {
         }
         List<Staged> eligibleStaged = List.copyOf(staged);
         for (AlmanacEvent event : partnersOnly) {
+            // Only a type that can pair is ever staged: enriching anything else would be wasted
+            // work, and a failure enriching some unrelated Plan-window event must not fail the feed.
+            if (!isTideRun(event.type()) && !TYPE_SUPERMOON.equals(event.type())) {
+                continue;
+            }
             Staged partner = stage(builtFor, event, coastalRoster);
             partner.partnerOnly = true;
             staged.add(partner);
@@ -171,6 +176,13 @@ public class ComingUpAssembler {
         // this feed lists.
         markTideSuperlativesAndThresholds(eligibleStaged);
         staged = mergeCoincidences(staged);
+        resolveSuperlativeDates(staged);
+        // Chronological BEFORE first-of-type: partners are appended after the eligible events, so a
+        // card hosted by a Plan-owned partner would otherwise be visited last and a LATER card of
+        // its type would take the "say the definition once" prose.
+        staged.sort(Comparator.comparing((Staged s) -> s.startDate)
+                .thenComparing(s -> s.endDate)
+                .thenComparing(s -> s.event.type()));
         markFirstOfType(staged);
         markScoreNotes(staged);
 
@@ -244,6 +256,11 @@ public class ComingUpAssembler {
         /** True for a Plan-owned event staged only as a merge partner (supermoon-tide-run-plan.md
          * §4.7); dropped unless a merge consumes it. */
         boolean partnerOnly;
+        /** The later, bigger run a "biggest until" superlative names — resolved to a date only after
+         * the merge, from that run's final card (see {@link #resolveSuperlativeDates}). */
+        Staged superlativeUntil;
+        /** The Staged that now carries this one's card after a merge; null when it was not merged. */
+        Staged mergedInto;
 
         ComingUpEntry toEntry() {
             return new ComingUpEntry(startDate, endDate, event.kind(), event.type(),
@@ -766,6 +783,7 @@ public class ComingUpAssembler {
         host.interim = interim;
         host.enteredWindow = enteredWindow;
         host.partnerOnly = false;
+        other.mergedInto = host;
 
         host.coincidence = new ArrayList<>(List.of(
                 coincidenceLine(host, tide.representative),
@@ -838,22 +856,30 @@ public class ComingUpAssembler {
         Map<String, String> meta = topic.event.meta();
         LocalDate truePeak = parseDate(meta.get("peakDate"));
         if (truePeak != null) {
-            StringBuilder label = new StringBuilder(span).append(SEPARATOR).append("biggest ")
-                    .append(DAY_LABEL.format(truePeak));
+            StringBuilder label = new StringBuilder(span).append(SEPARATOR)
+                    .append(nb("biggest " + DAY_LABEL.format(truePeak)));
             if (topic.metric != null) {
-                label.append(SEPARATOR).append(topic.metric);
+                label.append(SEPARATOR).append(nb(topic.metric));
             }
             String clock = alignmentClock(meta);
             if (clock != null && truePeak.equals(parseDate(meta.get("alignmentDate")))) {
-                label.append(SEPARATOR).append(clock);
+                label.append(SEPARATOR).append(nb(clock));
             }
             return label.toString();
         }
         LocalDate figuresFrom = parseDate(meta.get("figuresFrom"));
         if (figuresFrom != null && topic.metric != null) {
-            return span + SEPARATOR + topic.metric + " on " + DAY_LABEL.format(figuresFrom);
+            return span + SEPARATOR + nb(topic.metric + " on " + DAY_LABEL.format(figuresFrom));
         }
         return span;
+    }
+
+    /**
+     * Non-breaking spaces inside one segment of a facts label, so a phone wraps the line only
+     * around the {@code " · "} separators and the en dash, never inside a figure or a date.
+     */
+    private static String nb(String segment) {
+        return segment.replace(' ', ' ');
     }
 
     /** {@code HW 15:48} — the leading two tokens of the run's alignment phrase, or null. */
@@ -877,20 +903,20 @@ public class ComingUpAssembler {
         // own moonrise fact follows.
         return moonriseMoonset.moonrise()
                 .map(rise -> rise.withZoneSameInstant(LONDON).toLocalTime().format(HH_MM))
-                .map(time -> SEPARATOR + "moonrise " + time + (supermoon.event.startDate()
-                        .equals(supermoon.event.endDate()) ? "" : " on the " + ordinal(night.getDayOfMonth())))
+                .map(time -> SEPARATOR + nb("moonrise " + time + (supermoon.event.startDate()
+                        .equals(supermoon.event.endDate()) ? "" : " on the " + ordinal(night.getDayOfMonth()))))
                 .orElse("");
     }
 
-    /** {@code Mon 26 Oct} / {@code Sun 25 – Fri 30 Oct} / {@code Fri 30 Oct – Tue 3 Nov}. */
+    /** {@code Mon 26 Oct}, {@code Sun 25 – Fri 30 Oct}, {@code Fri 30 Oct – Tue 3 Nov}; non-breaking per part. */
     static String spanLabel(LocalDate start, LocalDate end) {
         if (start.equals(end)) {
-            return DAY_MONTH_LABEL.format(start);
+            return nb(DAY_MONTH_LABEL.format(start));
         }
         if (start.getMonth() == end.getMonth() && start.getYear() == end.getYear()) {
-            return DAY_LABEL.format(start) + " – " + DAY_MONTH_LABEL.format(end);
+            return nb(DAY_LABEL.format(start)) + " – " + nb(DAY_MONTH_LABEL.format(end));
         }
-        return DAY_MONTH_LABEL.format(start) + " – " + DAY_MONTH_LABEL.format(end);
+        return nb(DAY_MONTH_LABEL.format(start)) + " – " + nb(DAY_MONTH_LABEL.format(end));
     }
 
     /** {@code 1st 2nd 3rd 4th … 11th 12th 13th … 21st 22nd 23rd … 31st}. */
@@ -982,13 +1008,30 @@ public class ComingUpAssembler {
             if (isBiggestSoFar) {
                 for (int j = i + 1; j < tideRuns.size(); j++) {
                     if (tideRuns.get(j).tideRangeMetres > current.tideRangeMetres) {
-                        current.superlative = "biggest until "
-                                + DATE_LABEL.format(tideRuns.get(j).event.startDate());
+                        // The date is resolved after the merge, from the card the reader will see.
+                        current.superlativeUntil = tideRuns.get(j);
                         break;
                     }
                 }
             }
             current.threshold = thresholdLine(current, tideRuns);
+        }
+    }
+
+    /**
+     * Turns each "biggest until" reference into its date, after the merge: the later run may now be
+     * a merged card whose start is the union's (or may have been absorbed into another host), and
+     * the superlative must name the date THAT card shows. The comparison set itself was fixed
+     * before the merge.
+     */
+    private static void resolveSuperlativeDates(List<Staged> staged) {
+        for (Staged s : staged) {
+            if (s.superlativeUntil == null) {
+                continue;
+            }
+            Staged shown = s.superlativeUntil.mergedInto != null
+                    ? s.superlativeUntil.mergedInto : s.superlativeUntil;
+            s.superlative = "biggest until " + DATE_LABEL.format(shown.startDate);
         }
     }
 
@@ -1006,7 +1049,8 @@ public class ComingUpAssembler {
     /**
      * One server-authored, plain-language sentence for entries at or above the announce band
      * (plan D4), naming whichever component — rarity or magnitude — carried the score. Skipped
-     * for a merged entry, whose {@code joinNote} already explains it, and for any entry whose own
+     * for a merged entry (its {@code joinNote} explains the coincidence; the merged card carries no
+     * separate score sentence), and for any entry whose own
      * {@code enrich*} method already wrote a more specific {@code scoreNote} — the lunar eclipse's
      * "first visible from here since …" sentence, derived from the catalogue rather than from
      * bits, must win over this method's generic rarity/magnitude phrasing (lunar-eclipse-plan.md

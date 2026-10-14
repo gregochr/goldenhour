@@ -1061,18 +1061,23 @@ purpose, so a later reader stops hunting for the "missing" piece.)
     supermoon only) is unchanged, but pairing now also sees Plan-owned events as partners
     (`ComingUpAssembler.assemble(builtFor, eligible, partnersOnly)`): a supermoon inside Plan's window
     is marked on the eligible run that overlaps it; an unpaired Plan-owned event is still not an entry.
-    `counts.byFamily` counts a merged entry under every family it holds, so the client's All chip is
-    now `fixed + forecast` rather than the sum of the families. Deliberate divergences from the design
+    `counts.byFamily` counts a merged entry under every family it holds, and the client's family
+    filter (`matchesFilter`, pulled forward from the plan's §4.4 into S1) finds it under each, so a chip's
+    count and its list agree; the All chip is now `fixed + forecast` rather than the sum of the families.
+    The coincidence line's glyph prefers its served wire `type` (the supermoon line is 🌙), and the
+    served facts labels use non-breaking spaces inside each segment so a phone wraps only around
+    ` · ` and the en dash. Deliberate divergences from the design
     bundle: the alignment fact keeps its `tide ` prefix (the mock says `alignment`) and gains
     ` on the <ordinal>` on a run-hosted merged entry only; the `range … at <location>` fact is kept
     (it is the only place the card names the port the range and moonrise are measured at); the
     coincidence lines' `factsLabel` and the join note stay plain strings on the wire (the mock's bold
     dates are not carried). Accepted behaviour changes: a merged card's title, door and family follow
     the host (a run on a supermoon opens the coastal map, not the dark-sky one); the family filter and
-    chip counts find it under both families; Ask lists it once, as the host type with the union span
-    (`AskSnapshot.ComingUp.coincidentTypes` stops a live hot topic of a merged-in type being listed a
-    second time), and a stored Ready answer or thread event naming a merged-in supermoon is withheld
-    whole by its freshness check until the next precompute. `dayMarks` is served from S1 but no chip
+    chip counts find it under both families; Ask lists it once, as the host's event only (a merged-in
+    topic is no longer offered to Ask as an event of its own — permanent, as it already was when the
+    run won; `AskSnapshot.ComingUp.coincidentTypes` stops a live hot topic of a merged-in type being
+    listed a second time), and a stored Ready answer or thread event naming either topic whose dates
+    moved is withheld whole by its freshness check until the next precompute. `dayMarks` is served from S1 but no chip
     draws it until S3, so **S1 must not be released on its own** beyond the CSS fix that keeps the
     longer coincidence line inside the card at 390/320px. Phases S2 (`dayRanges`) to S4 (range bars)
     follow in the same plan.

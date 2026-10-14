@@ -10,9 +10,9 @@ import { formatArrivalDate } from '../utils/comingUpFeed.js';
  * <h2>What this renders, and what it never composes</h2>
  *
  * <p>Every word describing WHY the entry scored what it did is server text — {@code scoreNote} for
- * a plain entry, or {@code joinNote} for one that won a coincidence merge (D10) and so has no
- * {@code scoreNote} of its own ({@code ComingUpAssembler.markScoreNotes} skips a merged winner
- * deliberately, because {@code joinNote} already explains the score). This component only places
+ * a plain entry, or {@code joinNote} for a merged one (D10), which has no {@code scoreNote} of
+ * its own ({@code ComingUpAssembler.markScoreNotes} skips a merged entry deliberately: its
+ * {@code joinNote} explains the coincidence, and the card carries no separate score sentence). This component only places
  * {@code {bits, title, dates, scoreNote}} — plan §13's own annotation for this field — never
  * composing a sentence out of them.
  *

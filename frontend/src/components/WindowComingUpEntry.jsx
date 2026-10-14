@@ -218,15 +218,12 @@ DayChips.propTypes = {
  * <h2>The coincidence card renders alongside prose, not instead of it — a corrected first attempt
  * (D10, plan §6b)</h2>
  *
- * <p>{@code entry.coincidence} carries only the LOSING topic's own line — {@code ComingUpAssembler}
- * javadoc, and the P4 phase-log row — because the winning entry's own identity is already the
- * card's title/family/facts. The first draft of this component therefore rendered a synthesized
- * "self" line (swatch + {@code entry.title} again) ahead of the served line, matching the design's
- * literal two-line picture — but the design's {@code nm} for a merged entry is a COMBINED name
- * ("Spring tide run, on a supermoon"), where the served {@code entry.title} is not, so that self
- * line read the card's own title back verbatim immediately under the title row that had just shown
- * it — a literal duplicate, not a design choice. Fixed by rendering only the served line(s); the
- * card's own identity is the title row, already there.
+ * <p>{@code entry.coincidence} carries ONE LINE PER MERGED TOPIC, host first, each with that
+ * topic's own dates (supermoon-tide-run-plan.md R5; it used to carry only the losing topic). The
+ * component draws exactly the served lines and synthesizes none: the title row is the combined
+ * name ("Spring tide run, on a supermoon"), and a self line built from {@code entry.title} would
+ * read it back verbatim, so the lines come from the server alone. (History: an earlier draft built
+ * a synthesized "self" line ahead of the served one.)
  *
  * <p>The first draft also treated {@code coincidence} and {@code prose} as mutually exclusive,
  * reasoning from the design bundle's own {@code EV} fixtures (which never carry both {@code why}
@@ -335,8 +332,8 @@ export default function WindowComingUpEntry({ entry, onGoToPlan, onShowOnMap }) 
       {' '}
 
       {/* Additive with `prose`, NOT exclusive-or (a corrected first attempt — see the class doc's
-          coincidence section for why). Only the MERGED topic's own line is rendered; the winner's
-          own identity is not repeated here — see the class doc. */}
+          coincidence section for why). Every served line is rendered, host first — one per merged
+          topic, each with its own dates; nothing is synthesized — see the class doc. */}
       {entry.prose && (
         <>
           <span className="wf-cu-prose" data-testid="coming-up-prose">{entry.prose}</span>

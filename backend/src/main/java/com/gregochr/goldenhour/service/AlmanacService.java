@@ -52,8 +52,11 @@ import java.util.concurrent.atomic.AtomicReference;
  * <p><strong>Eligibility (plan §2 D1).</strong> An almanac event becomes a {@link ComingUpEntry}
  * only once it ends beyond Plan's four-day window ({@link PlanHorizon#lastPlanDate}) — an entry
  * wholly inside that window is strip material, not chronology material, and a straddling run stays
- * eligible because its dates say so. {@code build} itself stays raw and unfiltered: it is the
- * per-source merge every existing test asserts on directly.
+ * eligible because its dates say so. One exception: an event wholly inside the window is still
+ * handed to the assembler as a merge PARTNER, so a Plan-window supermoon (or run) is merged into
+ * the eligible run (or supermoon) it overlaps — it never becomes an entry of its own.
+ * {@code build} itself stays raw and unfiltered: it is the per-source merge every existing test
+ * asserts on directly.
  */
 @Service
 public class AlmanacService {
@@ -291,7 +294,9 @@ public class AlmanacService {
      * Builds the response for an explicit range: the raw merge, filtered to eligible entries and
      * grown to the full chronology shape by {@link ComingUpAssembler}, plus the standing-conditions
      * strip (plan §7 P4) — which needs the <b>unfiltered</b> merge too, since a run wholly inside
-     * Plan's window is strip material even though it never becomes a chronology entry (D11).
+     * Plan's window is strip material even though it never becomes a chronology entry (D11). The
+     * events inside Plan's window also go to the assembler as merge partners only (a Plan-window
+     * run or supermoon can be merged into an overlapping eligible one).
      *
      * @param builtFor the date the feed starts at — also the response's {@code builtFor}
      * @param to       last day, inclusive

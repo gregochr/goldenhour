@@ -770,6 +770,36 @@ describe('buildChronology', () => {
     expect(groups[0].entries[0].title).toBe('Spring tide run');
   });
 
+  it('finds a merged card under every family it holds, so each chip\'s list matches its count', () => {
+    const coastalHosted = entry({
+      id: 'run', family: 'coastal', title: 'Spring tide run, on a supermoon',
+      coincidence: [
+        { family: 'coastal', name: 'Spring tide run', factsLabel: 'x', type: 'spring-tide' },
+        { family: 'sun-moon', name: 'Supermoon', factsLabel: 'y', type: 'supermoon' },
+      ],
+    });
+    const moonHosted = entry({
+      id: 'moon', family: 'sun-moon', title: 'Supermoon, on a spring tide run',
+      coincidence: [
+        { family: 'sun-moon', name: 'Supermoon', factsLabel: 'y', type: 'supermoon' },
+        { family: 'coastal', name: 'Spring tide run', factsLabel: 'x', type: 'spring-tide' },
+      ],
+    });
+    const idsUnder = (list, filter) =>
+      buildChronology(list, TODAY, filter).flatMap((g) => g.entries).map((v) => v.id);
+
+    expect(idsUnder([coastalHosted], 'sun-moon')).toEqual(['run']);
+    expect(idsUnder([moonHosted], 'coastal')).toEqual(['moon']);
+    expect(idsUnder([coastalHosted], 'night-sky')).toEqual([]);
+    // Counts and lists agree: the server counts each merged card once per family it holds.
+    const counts = { fixed: 2, forecast: 0, byFamily: { coastal: 2, 'sun-moon': 2 } };
+    const chips = chipCounts(counts);
+    expect(chips.find((c) => c.id === 'coastal').count)
+      .toBe(idsUnder([coastalHosted, moonHosted], 'coastal').length);
+    expect(chips.find((c) => c.id === 'sun-moon').count)
+      .toBe(idsUnder([coastalHosted, moonHosted], 'sun-moon').length);
+  });
+
   it('folds eclipse entries into the sun-moon filter', () => {
     const groups = buildChronology([entry({ family: 'eclipse', title: 'Deep partial eclipse' })], TODAY, 'sun-moon');
     expect(groups[0].entries).toHaveLength(1);
