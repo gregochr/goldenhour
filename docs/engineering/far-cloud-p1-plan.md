@@ -1,266 +1,428 @@
 # P1: wasted trips, the canvas rule and far decks, measured on the history we already have
 
-**Status:** draft, 2026-10-14, before adversarial review. Nothing built.
-**Parent:** `far-cloud-lid-plan.md` §6 P1 (pre-registered hypotheses H1–H5). This plan builds P1 and
-adds two read-side analyses the parent plan does not have. Where it changes a P1 rule it says so.
-**Owner's requirement (2026-10-14):** "If I'd have woken up at 4am and had that result I'd not use
-the app again." A confident go that fails (a wasted trip) is the error that loses a user. A missed
-good sky costs much less. Every decision rule below weighs the two accordingly.
+**Status:** revised after adversarial review, 2026-10-14. Nothing built. The review record is §10, and
+the owner's decisions are §9.
+
+**Parent:** `far-cloud-lid-plan.md` §6 P1, which pre-registered hypotheses H1–H5. This plan builds P1
+and adds the analyses the reviews showed P1 cannot do without. Where it departs from a P1 rule, it
+says so.
+
+**The owner's requirement (2026-10-14):** "If I'd have woken up at 4am and had that result I'd not use
+the app again."
+- A confident go that fails, a **wasted trip**, is the error that loses a user. A missed good sky costs
+  much less.
+- Every decision rule below weighs the two accordingly, and every part reports sunrise first.
 
 ---
+
+## 0. What this plan can and cannot deliver, and when
+
+| When | What | Truth it rests on |
+|---|---|---|
+| **Now (owner decision, §9 Q1)** | An interim protective switch, if the owner takes one | Replay of one case (P0) |
+| **About 2 days after the export** | Part D, replay: what each model and a canvas-rule variant do to the last 30 days of real go prompts | Model behaviour, not truth |
+| **About 2 days after the export** | Part B, premise check: how often recent gos stood on premises ERA5 contradicts, by model | ERA5, a reanalysis |
+| **About a week** | Part A: what lay on the Angel's sun line, by model, plus one satellite look | Reanalysis, forecasts, and one observation |
+| **Weeks** | Part C: whether far decks are common and forecastable (H1–H5) | ERA5, from the retrospective fetch and then from V175/V176 capture |
+| **Weeks to months** | A validated **star** change | Recorded outcomes only (Part E) |
+
+Nothing in this plan proves any sky was beautiful, or that it was not. Only recorded outcomes do that.
+Until about 20 have been recorded under a protocol (Part E), protection can come only from:
+- a model choice;
+- a rule taken on replay evidence plus a change to wording or confidence (§6).
 
 ## 1. What the Angel case already tells us
 
 - **The 4★ is the prompt's own rule, followed exactly.**
   - `PromptBuilder.java:120-121`: "IDEAL scenario: solar horizon low cloud <20% AND mid cloud <50%,
-    with high cloud present on either horizon as canvas. Score fiery_sky 70-90, rating 4-5."
-  - The 14:22 run had cone low 7, mid 24, high 91. Overhead read 0% at every layer, and the
-    antisolar side carried no canvas either.
-- **P0 replay (N = 20 per variant).**
-  - On the 14:22 prompt, Sonnet 5.5 gave 4★ 20 times out of 20, Sonnet 4.6 gave 3★ 20/20, and Haiku 4.5
-    gave 3★ 17/20 and 4★ 3/20.
-  - Setting the cone high to 0% drops every model to 3★. Raising cone low from 7% to 29% changes
-    nothing. No variant reaches 2★.
+    with high cloud present on either horizon as canvas … rating 4-5".
+  - Lines 122-126 add: "the solar-side mid/high IS the canvas", even when the antisolar side is bare.
+  - On the 14:22 run, cone low was 7, mid 24 and high 91. Overhead read 0% at every layer.
+- **P0 replay, 20 runs per variant.** On the 14:22 prompt:
+  - Sonnet 5.5 gave 4★ 20/20.
+  - Sonnet 4.6 gave 3★ 20/20.
+  - Haiku 4.5 gave 3★ 17/20 and 4★ 3/20.
+  - Setting cone high to 0% gives 3★ on every model. No variant reaches 2★.
+- **Timing.**
+  - Sunset was about 17:10 UTC, at an azimuth of about 257°.
+  - Production read the 17:00 slot, when the sun was about 0.9° up and the sun line at 113 km was
+    about 2.8 km high. So that night's readings were close to the golden-hour sun line. They were not
+    an hour early.
 - **The 91% deck at 113 km was not the bank that hid the sun** (parent §2(A), consequence 3).
-  - A deck at 8–12 km at that range stands 3.5–5° above the horizon, and the sun shone underneath it.
-  - Such a deck glows after sunset only through a clear slot further sunward (parent §2(C)). That slot
-    is exactly the region nothing samples.
+  - A deck at that range stands well above the sun at 0.9°, so the sun shone under it.
+  - Such a deck glows after sunset only through a clear slot further sunward (parent §2(C)). Nothing
+    samples that slot.
 
-So there are two faults, and they are linked:
-- **(F1) The canvas rule** credits a distant lid as a sure canvas, with nothing overhead to catch the
-  light. That is what made the star 4 rather than 3.
-- **(F2) The unmeasured sunward corridor** decides whether that lid can be lit at all, and whether the
-  sun reaches the horizon. That is plausibly what made the sky a 2.
+**Two faults, linked:**
+- **(F1) The canvas rule.** It credits a distant lid as a sure canvas with nothing overhead to catch
+  the light. That fault moved the star.
+- **(F2) The sunward corridor.** It decides whether the lid is ever lit and whether the sun reaches the
+  horizon. That fault plausibly made the sky a 2.
 
-F1 is the cheaper fix and moves the star. F2 decides whether F1's credit is ever deserved. P1 measures
-both from history, and does both before any prompt change.
+## 2. Parts, in the order they deliver
 
-## 2. What P1 will and will not establish
+### Part D — replay the stored go prompts (days; spends money, owner approves, §9 Q2)
 
-**It will:**
-- size how often today's go ratings (4★+) rest on premises that ERA5 contradicts, especially for the
-  Angel shape (part B);
-- size how often the far deck occurs, and whether the forecast sees it (H1–H5, part C);
-- reconstruct what lay along the Angel's sun line, by model (part A).
+`forecast_evaluation_prompt` holds the exact batch sky user message for every prompted row. It keeps
+them for 30 days, so the oldest stored prompt is about 14 September now. The Angel prompts are pruned
+about 12 November. **The export (§3) saves them all now.**
 
-**It will not:**
-- **prove that any sky looked good or bad.**
-  - ERA5 is a reanalysis, a model, not an observation.
-  - Its cloud physics overlaps with the forecast's, so agreement flatters both.
-  - Only recorded outcomes measure beauty. A rule still needs the parent plan's prospective outcome
-    arm (P4) before it changes a star.
-- **settle P4's evidence bar for a star change.** Part B can, however, justify a confidence or wording
-  change sooner, because neither is a star (§6, D-B).
+**Set.**
+- Every stored prompt whose row was a go (rating ≥ 4) on its latest run before the event.
+- Plus an equal-sized random sample of 3★ rows, so that raises can be seen as well as demotions.
+- The training cases are reported, not counted (§4).
 
-## 3. The data we already hold, and its limits
+**Arms, each prompt replayed N = 3 times:**
+1. The production system prompt on Sonnet 5.5. This is the noise baseline against the stored rating.
+2. The production prompt on Sonnet 4.6.
+3. The production prompt on Haiku 4.5.
+4. **An R1 system-prompt variant** on Sonnet 5.5.
+   - The IDEAL and rate-4 canvas clauses require **near** canvas (overhead or antisolar mid/high
+     ≥ 20) before a distant solar-side lid can carry a 4.
+   - The exact wording is drafted in T4, and the owner reads it before any spend.
 
-- `forecast_evaluation`: every run's cloud inputs, one row per run, never pruned.
-  - Its columns include the cone mean, antisolar, observer, far 226 km low (and, since V175/V176, far
-    mid/high, dark hour and pressure levels), the model, the rating and the sky rating.
-  - Batch-scored rows carry a rating only from about the end of August 2026 (V149,
-    `prompted-row-persistence-plan.md`). The first job of the export is to measure that date (§5.1).
-- `cloud_verification`: ERA5 per evaluation, at the same hour production read
-  (`TimeSlotUtils.findBestIndex`).
-  - It holds the cone mean, min and max of the low layer, the observer layers, and far 226 km low.
-  - Far mid/high exist only for rows verified after V175 (13 Oct 2026).
-  - It lags by 6 days.
-- **Not held:** ERA5 mid/high at 226 km before V175, anything at 165 km or 320 km, the forecast's far
-  mid/high before V175, and any pressure level before V176. Part C fetches these.
+**Measures:**
+- for each arm, how many gos fall below 4, which ones, and with what premise class from Part B;
+- how many 3★ rows rise.
 
-## 4. Unit, population and independence (pre-registered here)
+**Hard stops** (an arm that fails one is not taken forward):
+- Low Hauxley's pinned prompt must stay at 4 in every replay of arms 1, 2 and 4.
+- The prompt-regression suite and `PromptGoldenMasterTest` must not regress on any arm proposed for
+  production.
 
-- **A forecast**, for every part, is the **latest run before the event**:
-  - the row with the greatest `forecast_run_at` that is less than `solar_event_time`;
-  - excluding `batch_state = 'PENDING'` and `'ABANDONED'`;
-  - over enabled-or-not, regioned, sky locations (the `hasColourTypes` SQL in §5.1).
-  This is the forecast a reader saw at its last update.
-- **A go** is a forecast with `rating >= 4`. When `sky_rating` is present, it is also reported with
-  `sky_rating >= 4`, which removes the tide average (§7).
-- **A prompted forecast** is one with `triage_reason IS NULL`, which is what the parent plan's 2% bar
-  divides by.
-- **The firing unit is region × date × event,** as the parent plan states.
-  - Locations in a region share weather, so they are not independent.
-  - A region-event fires a condition when **at least half** of its sky locations' forecasts meet it.
-  - Its ERA5 truth is the **median** of those same locations' ERA5 values.
-  - Every count is reported both per location and per region-event, so the reduction is visible.
-- **Independence across regions on one evening is not assumed.**
-  - Every interval is a 95% **date-clustered bootstrap** (resample dates, 2,000 draws, fixed seed).
-  - The parent plan's "at least 80 independent firings" is read as at least 80 region-events spread
-    over at least 25 distinct dates.
-- **Excluded training cases:**
-  - Angel of the North, 13 Oct 2026 sunset (location 64);
-  - Low Hauxley, 4 Oct 2026 sunrise;
-  - Copt Hill on 5 and 11 Mar 2026, sunset.
-  They are reported separately in part A, and never counted.
-- **Leads** are reported as T+0 and T+1 separately. T+2 and later are reported, but not used for any
-  decision.
-- **Sunrise and sunset** are reported separately, and sunrise first: it is the 4am alarm.
+**Harness change (T4).** `PromptReplayHarnessTest` always sends `builder.getSystemPrompt()`
+(`:157-160`). It gains a test-only system-prompt override read from a file. No production code
+changes.
 
-## 5. The three parts
+**Cost.** Assume about 100–300 prompts × 3 runs × 4 arms, at standard (not batch) prices. That is of
+the order of tens of dollars. T4 prints the exact count and cost estimate before the run.
 
-### 5.1 The export (owner runs it once, read-only)
+### Part B — premise check of recent gos (days; no network)
 
-- One `SELECT` produces one CSV row per forecast (the §4 definition). The row carries:
-  - every cloud column listed in §3;
-  - `cloud_verification`'s columns;
-  - the location's name, coordinates, region and types;
-  - the **previous run's** rating for the same slot, from the latest earlier non-PENDING row, which
-    gives the rating's movement.
-- It also emits a summary: `min(forecast_run_at) WHERE batch_state = 'SCORED'`, and the row counts by
-  month, lead and event.
-- Run on the Docker host using the repo's own pattern:
-  `docker exec goldenhour-db psql -U goldenhour -d goldenhour -X -v ON_ERROR_STOP=1 -c "\copy (...) TO STDOUT WITH CSV HEADER" > p1.csv`
-- No write, no lock beyond a read.
-- The CSV holds location names and coordinates, no user data. It is not committed.
+This was called "wasted-trip backtest" in the first draft. Renamed, because it measures disagreement
+with ERA5, not failed trips.
 
-### 5.2 Part B: wasted-trip backtest (no network; runs on the CSV in seconds)
+**Unit.**
+- The primary unit is the **location-go**: a location's latest run before the event, with
+  `rating >= 4`. A reader drives to one location.
+- Intervals are clustered (§5). Region-event figures are a robustness check only.
 
-ERA5 can say whether a go's **premises** held: the light got through, and there was something to
-light. It cannot say the sky was beautiful. So part B classifies each go by its premises.
+**Population.**
+- T+0 and T+1, sunrise and sunset, SUNRISE/SUNSET rows only, sky locations only.
+- Synchronous-engine rows (`batch_state` NULL with `triage_reason` NULL) are reported separately and
+  never pooled.
 
-**Premise checks against ERA5** (pre-registered; thresholds are the prompt's own where it has one):
+**Premise classes**, each reported **separately**, never merged into one "contradicted" figure.
+Thresholds are the prompt's own where it has one. The ERA5 hour is production's hour (`findBestIndex`).
 
-| Verdict | Definition |
-|---|---|
-| **Contradicted** | Any of: ERA5 cone low ≥ 60 (the prompt's BLOCKED line); ERA5 far 226 km low ≥ 60 (a low bank on the line); ERA5 has no canvas anywhere (observer mid and high < 20 and cone mid and high < 20). |
-| **Supported** | ERA5 cone low < 40, far low < 60, and some canvas (observer or cone mid or high ≥ 20). |
-| **Ambiguous** | Everything else. |
+| Premise | ERA5 test | What it means |
+|---|---|---|
+| P-low | cone mean low ≥ 60 (`horizon_low_cloud`), with `horizon_low_min` reported beside it | The forecast's own BLOCKED line was crossed in reality. This is partly a model-compliance figure, and is labelled so. |
+| P-far | far 226 km low ≥ 60 (`far_low_cloud`) | Diagnostic only. The far reading may never confirm (`CLAUDE.md`), so this premise feeds no decision rule. |
+| P-canvas | Observer **and** cone mid and high all < 20 | No canvas where ERA5 has points. ERA5 has **no antisolar point**, and a null cone bearing counts as 0 in the stored mean, so this is an **upper bound** on "no canvas". |
+| P-unknown | The row has no `cloud_verification` row, or a needed value is NULL | Reported as its own bucket, never dropped. |
 
-**Reported, each with a 95% clustered interval:**
-1. The share of gos that are contradicted, by event, lead and model.
-2. **The Angel shape.**
-   - Definition: a go where forecast cone low is < 20, cone high is ≥ 60, and overhead plus antisolar
-     mid and high are all < 20 (no near canvas).
-   - Report how often it occurs, its contradicted share, and the same for gos **with** near canvas,
-     as the comparison.
-   - This sizes the canvas rule (F1).
-3. **Raised gos.**
-   - Definition: the final run rose to ≥ 4 from ≤ 3 on the previous run.
-   - Report their contradicted share against gos that were already ≥ 4 on the previous run.
-   - This tests the "don't raise on one run" idea.
-4. For each of the candidate rules in §6 (D-B), the demotion table:
-   - how many gos it would demote;
-   - how many of those are contradicted, supported or ambiguous;
-   - how many contradicted gos it leaves untouched.
+**Angel sanity check.** Where the Angel row lands on each premise, once ERA5 is verified, about
+19 October.
+- If P-low, P-far and P-canvas all pass for the Angel, Part B **cannot see the Angel class**, and the
+  report says so in its first line.
+- Its absolute rates are then not evidence that the class is rare.
 
-### 5.3 Part C: H1–H5 sizing (network; owner runs it, resumable over days)
+**Reported, with intervals:**
+1. **Base rates.** Each premise's failure share among all gos, by event, lead and model.
+2. **Model comparison (named hypothesis M).** Go rate, and P-low and P-canvas shares, by
+   `evaluation_model`, within matched bins of forecast cone low (< 20, 20–40) and cone high (< 60,
+   ≥ 60). Sonnet 5.5's switch date (the first SONNET_55 row) is printed so before and after are clean.
+3. **The Angel shape.** A go with forecast cone low < 20, cone high ≥ 60, and observer plus antisolar
+   mid and high all < 20 (no near canvas).
+   - Its count, and its P-low share against other gos.
+   - Its P-canvas share is printed but **not used** to judge R1, because R1 and P-canvas share inputs.
+     That would be circular.
+   - The count of Angel-shape gos whose ERA5 cone or observer mid/high is ≥ 20 is the R1 **cost side**:
+     an ERA5 canvas that R1 would have refused.
+4. **Raised gos.**
+   - Definition: the final run is ≥ 4, and the latest earlier row with a rating was ≤ 3.
+   - Split same-model against changed-model.
+   - Rows with no earlier rated run are their own bucket.
+5. **Already capped.** Gos carrying the cloud-approach combined signal (V51 columns) are flagged,
+   because they were already capped at 3.
+6. **Sun altitude at the production slot**, per row, in bands of 0–2°, 2–5° and 5–9°. Every premise
+   rate is also shown by band, because the slot can sit up to 59 minutes before a sunset.
 
-This is the parent plan's P1, unchanged in hypotheses and decision rules, except for the unit and the
-intervals (§4).
+### Part A — the Angel case, reconstructed (about a week; a few hundred calls)
+
+**Transect.** Every 25 km from 0 to 400 km, deduplicated by grid cell. Each hour's points lie on that
+hour's own solar azimuth.
+
+**Hours.**
+- 16:00 and 17:00 UTC, the golden hour and the event slot.
+- 18:00 UTC, the dark-side hour, for the afterglow (sunset was about 17:10 UTC).
+- The instants come from the stored `solar_event_time`, not hard-coded.
+
+**Sources:**
+- ERA5 with `models=era5` stated: low, mid and high;
+- the Previous Runs API, as issued the day before and on the day;
+- the plain variable for day 0, and `_previous_day1` for the day before;
+- `best_match` and each named UK-relevant model the probe finds answering;
+- the Historical Forecast API: the six pressure levels.
+
+**Owner's manual step, about 10 minutes.**
+- Look at Meteosat imagery for 13 October 15:30–17:20 UTC along the 257° bearing (EUMETSAT's public
+  viewer or any archive viewer).
+- This is the plan's only observation, rather than a model.
+
+**Status.** Part A is exploratory, because it is the training case. It may say which mechanism to
+size, but it decides nothing.
+
+### Part C — H1–H5 sizing (weeks; background; may be abandoned)
+
+**What is fetched.** The forecast side uses the **stored** values wherever production stored them:
+the cone mean, far 226 km low and, after V175/V176, far mid/high and pressure levels. The run fetches
+only what is missing:
+- ERA5 far mid/high at 226 km for rows verified before V175;
+- ERA5 and the Previous Runs forecast at 165 and 320 km (H3, H4);
+- the Previous Runs forecast of far mid/high at 226 km before V175 (H1, H2);
+- Historical Forecast pressure levels at 226 km before V176. These are for H5's sensitivity only.
+
+**There is no reconstruction exclusion.**
+- It would select against the heterogeneous skies that are the target case.
+- Instead, a **calibration pilot of 100 rows** fetches the stored fields too and reports how fetched
+  values differ from stored ones: the median absolute difference, and the share within 10 and 20 pp.
+- If the median absolute difference exceeds 15 pp on cone low, the fetched forecast side is labelled
+  unreliable, and H1–H4 are reported on ERA5 alone until V175 capture fills the forecast side.
 
 **Sample.**
-- Every prompted region-event whose forecast passes the cone gate (cone low < 20).
-- Then a stratified random sample of at most 2,000 region-events (seed fixed and recorded), by month,
-  event and lead.
+- **Three fixed locations per region-event**: a seeded random choice among the region's firing
+  locations. Points are deduplicated by grid cell and date before fetching.
+- The population is every prompted region-event that passes the cone gate. If that exceeds 2,000, a
+  stratified sample is taken by month, event and lead, with weights applied in every estimate.
+- The 2% failure-population bar divides by **all** prompted region-events, never by the sample.
 
-**Points per sampled location.**
-- On the date's `azimuth_deg`, 165 km, 226 km and 320 km.
-- The production geometry, ported exactly from `GeoUtils.offsetPoint`: a spherical Earth of radius
-  6,371 km, longitude not normalised.
+**Budget.** The design is about 10 weighted calls per location. 2,000 region-events × 3 locations ×
+10 calls, less about 30% from deduplication, is roughly 40,000 weighted calls, about 5 days at the
+default 8,000 a day. Before the first live call the run prints its projected total and days. It
+caches every successful response, and never caches an error body. It resumes from the cache.
 
-**Reads.**
-- **ERA5 archive:** low, mid and high at the three far points, at the production hour.
-- **Previous Runs API, lead-matched:**
-  - T+0 uses `previous_day0`, the latest; T+1 uses `previous_day1`.
-  - It reads low, mid and high at the three far points and at the three cone points.
-- **Historical Forecast API:** the six pressure levels at 226 km, for H5's sensitivity check only.
+**Power, stated now.**
+- About 40 dates of rated history exist.
+- The parent bar is 80 region-events over 25 dates. **No Angel-shape subset can meet it from this
+  history**: the estimate is about 2–12 events.
+- H1–H5 are therefore judged on **all** prompted cone-gated region-events, which is the parent's
+  definition. Any Angel-shape figure is exploratory.
+- **The decisive H1, H2 and H5 run is the prospective one.** From V175/V176 onward, both the forecast
+  side and ERA5 far mid/high are stored, so the same script re-runs on the DB alone at no API cost.
+  The retrospective fetch only buys time, and H3 and H4.
 
-**Reconstruction check, per row.** The reconstructed cone low and 226 km low are compared with the
-stored values. A row whose reconstruction differs by more than 10 pp on either is excluded, and
-counted. If more than 30% of rows fail, part C's forecast side is void, as the parent plan requires.
-The reasons for a gap are known:
-- the 0.1° grid reuse;
-- the run's issue hour, which the Previous Runs API resolves only to the day.
+### Part E — outcomes (owner; starts now; the only path to a star change)
 
-**Budget.**
-- Requests carry up to 20 coordinates, with a 3 s pause between requests.
-- Every response is cached on disk, keyed by URL, so a re-run spends nothing.
-- A daily weighted-call budget (default 8,000, under Open-Meteo's free 10,000) stops the run cleanly.
-  The next day it resumes from the cache.
-- The run prints the calls made, the calls cached and its projection to completion.
+- **Protocol (owner fixes it, §9 Q4).** Choose a named set of 5–8 locations, including at least two
+  with a westward high-ground horizon like the Angel. Record **every** go (4★ or above) at them, at
+  sunrise and at sunset, whatever the sky did. "Didn't go" also counts if the sky was watched or
+  photographed.
+  - `POST /api/outcome` takes `actualRating` (from 2026-10-13), so each one is a single API call.
+  - The one-tap feedback UI is planned, not built. Building it is a separate decision.
+- **Target.** 20 outcomes under the Angel-shape or R1 condition.
+- **Rate.** At the expected rate of a few a week, that takes months. The report says so, with a date
+  computed from the rate actually achieved.
 
-**Statistics.** The parent plan's precision, recall, lift and observed-conditioned failure population
-for H1–H5, per event and lead, with clustered intervals. Additionally, the share of **gos** that each
-hypothesis's condition would catch, alongside its catch of contradicted gos from part B, so H1–H5
-are judged on wasted trips and not only on cloud agreement.
+## 3. The export (owner runs it once; read-only)
 
-### 5.4 Part A: the Angel case, reconstructed (network; a few hundred calls)
+Use server-side `COPY (SELECT …) TO STDOUT WITH CSV HEADER`, piped from files:
 
-- **The sun line, every 20 km from 0 to 400 km**, on the 13 Oct azimuth, at 15:00, 16:00 and
-  17:00 UTC.
-  - Each point gets ERA5 low, mid and high.
-  - Each point gets the forecast as issued the day before and on the day, from `best_match` and from
-    each named model the Previous Runs API serves for the UK (at least `ukmo_seamless`,
-    `ecmwf_ifs025`, `icon_seamless`; the probe lists what answers).
-  - Pressure levels come from the Historical Forecast API.
-- **Output:** a table and a plain-text "what was on the line" summary.
-- **Owner's manual step, about 10 minutes:** look at Meteosat imagery for 13 Oct 15:30–16:45 UTC
-  along the 256° bearing (EUMETSAT's public viewer, or any archive viewer). This is the only
-  observation, rather than a model, in the whole plan.
-- Part A is exploratory. It may suggest a mechanism, but it is a training case and decides nothing.
+```
+docker exec -i goldenhour-db psql -X -U goldenhour -d goldenhour -v ON_ERROR_STOP=1 -f - < export_forecasts.sql > p1_forecasts.csv
+```
+
+This needs no superuser. Do not use `\copy` inside `-c`, which breaks on a multi-line query.
+
+**Files:**
+
+| File | Contents |
+|---|---|
+| `export_forecasts.sql` | One row per SUNRISE/SUNSET `forecast_evaluation` row from 2026-02-01, every run (not only the latest), so the script picks "latest" and "previous" itself under §4's rules. It carries all the fields in the list below. |
+| `export_prompts.sql` | `forecast_evaluation_prompt.user_message` for every stored prompt, keyed by `evaluation_id`, with `days_ahead`, model, rating and location. |
+| `export_summary.sql` | First `batch_state='SCORED'` run, first `sky_rating` row, first SONNET_55 row, counts by month, lead and event, and the training-case ids by name. |
+
+**Fields in `export_forecasts.sql`:**
+- ids, date, type, run and event instants, `azimuth_deg`, `days_ahead`;
+- model, `batch_state`, `triage_reason`, `rating`, `sky_rating`;
+- every forecast cloud column (observer, cone, antisolar, far, dark hour, pressure levels);
+- the V51 cloud-approach columns;
+- the location's lat/lon, name, region id and name, `enabled`, `is_coastal_tidal`, and its types
+  aggregated with `string_agg` (never a plain join, which duplicates rows);
+- `cloud_verification` by LEFT JOIN, with every column.
+
+The CSVs contain place names, coordinates and the model's text, but no user data. They are not
+committed. **Stored prompts are pruned after 30 days**, so the prompt export is the most urgent step.
+
+## 4. Definitions (pre-registered)
+
+- **Latest run before the event:**
+  - the row with the greatest `forecast_run_at` that is less than `solar_event_time`;
+  - with `batch_state` NULL or `SCORED`;
+  - `rating` not NULL, for gos; `triage_reason IS NULL` for prompted forecasts.
+  This is stricter than the serve query, which does not cut at the event and lets ABANDONED rows win.
+  The difference is deliberate: a post-event admin row is not what a reader saw.
+- **What a reader saw** can still differ from that row.
+  - A stability skip writes no row and retracts the old rating when the briefing is served. This is
+    rare at T+0/T+1, which every stability may score.
+  - Gos at T+0/T+1 are used as they are, and the report states this limit.
+- **Previous rated run:** the latest earlier row with `rating` not NULL and `batch_state` NULL or
+  `SCORED`.
+- **Lead:** `days_ahead`, and the hours from run to event, both reported. T+2 and later are
+  descriptive only.
+- **Training cases, reported individually and never pooled:** Angel of the North, 13 Oct 2026 sunset;
+  Low Hauxley, 4 Oct 2026 sunrise; Copt Hill, 5 and 11 Mar 2026 sunset. Each is found by name in the
+  summary export.
+- **Rating:** `rating` is primary, because it is the star readers see. `sky_rating` is reported where
+  present, as a sensitivity.
+
+## 5. Statistics (pre-registered)
+
+- **Estimands.**
+  - Proportions get Wilson 95% intervals.
+  - Comparisons are **risk differences** with Newcombe intervals.
+  - Ratios are reported as secondary figures, never used for a decision.
+- **Clustering.** A moving-block bootstrap over dates, with blocks of 5 days and 2,000 draws on a fixed
+  seed, and sensitivity at 3 and 7. Because weather regimes persist, an interval is only as wide as the
+  regimes allow.
+- **Minimum counts.**
+  - No verdict is given for any comparison with fewer than 30 units in either arm, or fewer than 10
+    events in the flagged arm. It is reported "inconclusive", which is not the same as "no effect".
+- **One primary test per rule:**
+  - pooled T+0/T+1, both events, `rating`, location-go unit, premise P-low;
+  - everything else is descriptive;
+  - Holm correction across R1–R3.
+- **Freeze.** The scripts and thresholds are committed, and the commit hash is printed in every report,
+  before the owner runs the export.
 
 ## 6. Decision rules
 
-**Part C (far decks):** the parent plan's rules, unchanged:
-- at least 80 region-events over at least 25 dates;
-- precision at least 0.7, with a lift interval that excludes 1;
-- an observed-conditioned failure population of at least 2% of prompted region-events;
-- for H5 only, a lift interval above that of H1 ∪ H2.
-
-Passing them earns P3 and P4. Failing them stops the far-point programme, and the reasons are
-written into the parent plan.
-
-**Part B (wasted trips):** new, and proposed for the owner (D-B):
-- **D-B1. A candidate rule earns a P0 replay and a prompt-regression run** when its demotions are at
-  least 60% contradicted, and it removes at least 25% of all contradicted gos at T+0 and T+1.
-- **D-B2. A confidence or wording change** may ship on part B alone. It changes no star, so it needs
-  no outcome arm.
-  - It qualifies when the condition's contradicted share is at least twice that of other gos, with a
-    lower interval bound above 1.5×.
-  - Examples: a "provisional" mark, or "could be 2–4★".
-- **D-B3. A star change** still needs P4's prospective outcome arm, with the arm's 20 events taken
-  from the condition part B identified.
-
-**The candidate rules part B scores**, each written as a filter on forecast columns so it needs no
-model run:
-- **R1 (canvas):** an IDEAL or rate-4 go with no near canvas (overhead and antisolar mid and high all
-  < 20) is capped at 3.
-- **R2 (no raise):** a go that rose from ≤ 3 on the previous run is held at the previous rating.
+**Part B and Part D together (rules R1–R3):**
+- **R1 (canvas):** a go with forecast cone low < 20, cone high ≥ 60 and no near canvas would not have
+  been a 4. It is tested by Part D's replay arm 4, and sized by Part B's Angel-shape row.
+- **R2 (no raise):** a go that rose from ≤ 3 on the previous rated run of the same model is held back.
 - **R3 (R1 ∪ R2).**
-- **R4 (far low):** a go with forecast far 226 km low ≥ 60. This is only a counterfactual: `CLAUDE.md`
-  forbids the far reading confirming, and the figure is reported so that the rule is seen measured.
 
-## 7. Known weaknesses, stated before review
+**Thresholds, proposed for the owner (§9 Q3):**
+- **D-1. A rule is ready for the owner to consider for production** when all of these hold:
+  1. Part D shows it demotes Angel-shape gos and leaves Low Hauxley and the prompt-regression suite
+     intact.
+  2. Part B's primary test shows its demoted gos fail P-low more often than kept gos, with a risk
+     difference interval above 0.
+  3. Its cost side (demoted gos with an ERA5 canvas) is at most 25% of its demotions.
+  Without outcomes, a rule that passes changes **wording or confidence**: the star shows a stated
+  ceiling ("could be 3–4★"), shown on the same surface as the star. A star change waits for Part E.
+- **D-2. A model switch** is an owner call on Part D and Part B evidence, with hypothesis M as its
+  record. It is reversible on the Models screen, and needs no outcomes.
 
-- ERA5 shares the forecast's cloud physics, so "contradicted" undercounts real failures and
-  "supported" overcounts real successes.
-- The premise checks ignore beauty factors the data cannot see: thin cirrus that stays pale, and
-  terrain hiding the sun early.
-- `rating` averages in tide at coastal sites. Results are also reported on `sky_rating` where present
-  (since V164).
-- The rated-history window may be only about six weeks (§3). Part B's intervals will be wide, and
-  that will be said.
-- A run's issue hour is coarser in the Previous Runs API than in production, so lead-matching is
-  approximate.
+**What a confidence mark must do (D-1 above):**
+- It must be shown **on the star itself**, on every surface that shows the star.
+- It must be a per-location fact.
+- Today's `ConfidenceDeriver` is per region and horizon-dominant, so T+0/T+1 always read HIGH, and
+  `ProvisionalMark` only shows on LOW. That channel cannot carry the mark. A new per-slot field would
+  be its own design and review.
+
+**Part C:** the parent's rules, on the population defined in Part C:
+- at least 80 region-events over at least 25 dates;
+- precision at least 0.7 with a lift interval excluding 1;
+- a failure population of at least 2%;
+- for H5, a lift interval above H1 ∪ H2.
+
+Whatever the outcome, the figures and reasons are written into the parent plan.
+
+**Branches, written now:**
+- **If gos rarely fail any premise, and the Angel row fails none,** Part B cannot see the class.
+  - Rely on Part D and Part E.
+  - Keep the capture.
+  - Run Part C prospectively only.
+- **If gos often fail P-low or P-canvas (say over 15%)** or model M shows Sonnet 5.5 worse than 4.6 on
+  matched bins, the interim switch (§9 Q1) becomes the recommendation, and Part E is accelerated.
+
+## 7. Known weaknesses
+
+- ERA5 shares much of the forecast's physics, so agreement flatters both. Its layer bands (σ about 2 and
+  6.5 km) differ from Open-Meteo's (3 and 8 km).
+- ERA5 is 0.25°, about 28 by 16 km here, so 165, 226 and 320 km points can share a cell. Adjacent
+  transect points can repeat.
+- An hourly slot can sit 0–59 minutes before a sunset, which is why §2 reports sun-altitude bands. At a
+  sunrise it can sit 0–59 minutes after the event.
+- Previous Runs matches by day, not by hour. A T+0 intraday run is about 2–3 hours from its sunset,
+  while the API's day 0 is the model's latest value.
+- About 40 dates of rated history, so most Part B comparisons will be wide, or inconclusive.
 
 ## 8. Build (task cards for subagents)
 
-Everything lives under `scripts/far-cloud-p1/`. It is Python 3 using the standard library only, with
-no installs, and `unittest` tests that run offline against fixture JSON. No backend code changes.
+Everything lives under `scripts/far-cloud-p1/`, plus one test-only Java change. The Python is version
+3, standard library only, with offline `unittest` tests against fixture CSV and JSON.
 
 | Card | Contents |
 |---|---|
-| T1 | `export.sql` and `README.md`: the §5.1 query, run commands, and how to copy the CSV. |
-| T2 | `geometry.py` and `slots.py`: the ports of `offsetPoint`, the cone/far layout and `findBestIndex`, with parity tests against the Java tests' expected values. |
-| T3 | `backtest.py` (part B) over the CSV, with the bootstrap, and fixture CSV tests. |
-| T4 | `openmeteo.py` (cached, budgeted client for the archive, Previous Runs and Historical Forecast APIs), and `size.py` (part C) and `case.py` (part A), with fixture tests and a `probe` command that makes one live request of each kind. |
-| T5 | Integration, an adversarial code review, PR. |
+| T1 | The three export SQL files and `README.md` (commands, the copy step, prompt-pruning urgency). |
+| T2 | `geometry.py` (port of `GeoUtils.offsetPoint`, the cone, far and transect points, deduplication by `CloudPointCache.gridKey`), `slots.py` (`findBestIndex`, the dark-side index) and `sun.py` (solar altitude and azimuth, NOAA algorithm). Parity tests against the Java tests' expected values, and a check against `azimuth_deg` on fixture rows. |
+| T3 | `premise.py` (Part B: latest and previous selection, premise classes, Angel shape, raised gos, hypothesis M, altitude bands) and `stats.py` (Wilson, Newcombe, block bootstrap, Holm, minimum-count gates). Fixture tests, including every NULL case. |
+| T4 | `PromptReplayHarnessTest`'s system-prompt override (test-only), the R1 variant's wording file, and `replay_set.py`, which builds Part D's prompt directory from the prompt export and prints the cost estimate. |
+| T5 | `openmeteo.py` (cached and budgeted; refuses to cache error bodies; uses `start_date`/`end_date`, never `past_days`; rounds coordinates; passes `models=era5` on the archive), `probe.py` (checks every API assumption in §7 and exits non-zero on any failure), `case.py` (Part A) and `size.py` (Part C, with the pilot). |
+| T6 | Integration, an adversarial code review and a PR. |
 
-**Order:** T1 and T2 together, then T3 and T4, then T5. Part B is the first result the owner can
-have, since it needs only the export.
+**Order:** T1, T2 and T4 in parallel, then T3 and T5, then T6.
 
 ## 9. Owner decisions
 
-1. D-B1 to D-B3, the part B thresholds.
-2. Whether part A's reconstruction should also run for the other two training cases.
-3. After part B: which of R1, R2 or R3 to take to replay, if any qualifies.
+1. **Interim protection, now.**
+   - Should Batch Near-Term go back to Sonnet 4.6 until Parts D and B report?
+   - It is reversible on the Models screen.
+   - The P0 evidence is one case: 4.6 gave 3★ 20/20 where 5.5 gave 4★ 20/20.
+   - Sonnet 4.6 will be deprecated eventually, so this buys time and is not the fix.
+   - Before the switch, run the prompt-regression suite on 4.6. `CLAUDE.md` records that 5.5 fails one
+     case 4.6 passes, which is the safe direction.
+2. Part D's spend (§2, printed exactly before the run).
+3. The thresholds in §6 (D-1, D-2 and the branches).
+4. Part E's protocol: which locations, and who records.
+5. Whether Part A should also run for the other training cases.
+
+## 10. Review record (2026-10-14)
+
+There were five read-only reviewers (statistics, data and SQL, physics, Open-Meteo, product), then two
+refutation agents (code facts, external facts).
+
+**Sustained and applied:**
+- part B's premise checks cannot see the Angel class (far mid/high absent before V175, nothing at
+  155–345 km), so the Angel row must be its sanity check;
+- judging R1 on "no canvas" is circular;
+- the ratio rule fails on small or zero cells;
+- the denominators were undefined and the cost side was missing;
+- power: about 40 dates, an Angel subset of about 2–12;
+- regimes persist, so a block bootstrap is needed;
+- multiple comparisons need one primary test per rule;
+- location-go is the right unit for part B;
+- the reconstruction exclusion biases the sample;
+- the Previous Runs `previous_day0` suffix is wrong;
+- the budget was about 300,000 calls as drafted, so it is now three locations per region-event;
+- `models=era5` must be stated, at 0.25° resolution;
+- error bodies must never be cached, and `past_days` must not be used;
+- `\copy` inside `-c` fails, so the export uses `COPY … TO STDOUT` from a file;
+- the type join duplicates rows;
+- ABANDONED rows win the serve query;
+- the previous run was undefined, and a model change confounds raises;
+- R1 cannot be read from columns;
+- ERA5 mid/high count a null as 0, and ERA5 has no antisolar point;
+- there was no interim protection track;
+- the cheapest experiment (replay) was missing, and the harness cannot vary the system prompt;
+- part B was not a wasted-trip measure;
+- there were no branches;
+- `ConfidenceDeriver` cannot carry a per-location mark;
+- the outcome protocol was unscheduled;
+- the per-instant azimuth;
+- the dark-side hour for the afterglow.
+
+**Refuted:**
+- "the Angel slot was 16:00 with the sun at 7°". Sunset was about 17:10 UTC, the slot was 17:00, and
+  the sun was at 0.9°. The general risk (the slot can be up to 59 minutes early) is kept as §2's
+  altitude bands;
+- "16:18 UTC" was never in the plan.
+
+**Not checked by anyone:**
+- live Open-Meteo behaviour (the probe settles it);
+- production row counts;
+- whether stability skips at T+0/T+1 are as rare as the policy implies.
