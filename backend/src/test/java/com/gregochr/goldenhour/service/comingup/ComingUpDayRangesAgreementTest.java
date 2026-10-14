@@ -132,10 +132,10 @@ class ComingUpDayRangesAgreementTest {
                 .getAsDouble();
         assertThat(tallest).isEqualTo(Double.parseDouble(entry.metric().replace(" m", "")));
         assertThat(entry.tide()).isNotNull();
-        // Known, pre-existing: ComingUpTide.range rounds with Math.round (round1), the metric with
-        // %.1f, so on a range like 7.449999... they differ by 0.1 (7.5 vs 7.4). Follow-up; the bars
-        // follow the metric, which is the figure printed beside them.
-        assertThat(entry.tide().range()).isCloseTo(tallest, org.assertj.core.data.Offset.offset(0.1001));
+        // One rounding rule for the metric, the bars and the sparkline's range (7.449999... -> 7.4),
+        // and delta is the displayed range minus the 3.5 m average.
+        assertThat(entry.tide().range()).isEqualTo(tallest);
+        assertThat(entry.tide().delta()).isEqualTo(3.9);
     }
 
     private static void addDay(List<TideExtremeEntity> out, long locationId, LocalDate date, double low,

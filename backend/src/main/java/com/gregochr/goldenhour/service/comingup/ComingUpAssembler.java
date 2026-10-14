@@ -394,8 +394,11 @@ public class ComingUpAssembler {
 
                 java.math.BigDecimal avgRange = stats.get().avgRangeMetres();
                 if (avgRange != null) {
-                    s.tide = new ComingUpTide(round1(peak.rangeMetres()),
-                            round1(peak.rangeMetres() - avgRange.doubleValue()), phaseOf(event));
+                    // Range as the metric is spelt; delta is the DISPLAYED range minus the average, so
+                    // "range - avg" stays honest on the card (not the raw difference, rounded apart).
+                    double shownRange = metresToOneDp(peak.rangeMetres());
+                    s.tide = new ComingUpTide(shownRange,
+                            metresToOneDp(shownRange - avgRange.doubleValue()), phaseOf(event));
                 }
             }
         }
@@ -457,7 +460,7 @@ public class ComingUpAssembler {
     /**
      * A range in metres to one decimal place by the same rule the headline figure is spelt with
      * ({@code TideWording.metres}'s {@code "%.1f"}), so the tallest bar can never read 0.1 m away from
-     * the metric printed beside it. ({@code ComingUpTide.range} still uses {@link #round1}.)
+     * the metric printed beside it. Used for the day ranges and for {@code ComingUpTide.range}/{@code delta}.
      */
     private static double metresToOneDp(double metres) {
         return Double.parseDouble(String.format(Locale.UK, "%.1f", metres));
