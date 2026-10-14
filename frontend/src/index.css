@@ -9509,12 +9509,27 @@ button.wf-hc.also.on:hover {
   font-family: var(--font-mono);
 }
 .wf-cu-day-range-val {
-  font-size: 9px;
+  font-size: 9.5px;
   line-height: 1.2;
   min-height: 11px;
   color: var(--color-plex-text-secondary);
 }
 .wf-cu-day-range[data-peak="true"] .wf-cu-day-range-val { color: var(--color-plex-text); }
+/* A gone or no-forecast day's value is muted by colour, as the disabled chip's number is (never
+   opacity); the bar is unchanged. Higher specificity than the peak rule above. */
+.wf-cu-day-range[data-live="false"][data-peak] .wf-cu-day-range-val { color: var(--color-plex-text-secondary); }
+/* The column stretches to the tallest chip in the row; the button inside must follow, or chips
+   in one row go ragged (measured: 48.4 / 57.4 / 75.4 on main). */
+.wf-cu-day-col > .wf-cu-day { flex: 1 0 auto; }
+/* With columns the row's items are the bars+chip columns, so the lead and the dimmed note would
+   centre against bar+chip. Align them to the chip row instead: bottom-aligned, with a bottom pad of
+   (48px shortest chip - ~16px line) / 2 so they sit at the centre of the shortest chip. Approximate
+   by design: chip heights vary with their marks. Phone stacks the row, so the pad is wider-only. */
+.wf-cu-days[data-ranged="true"] { align-items: flex-end; }
+@media (min-width: 640px) {
+  .wf-cu-days[data-ranged="true"] > .wf-cu-days-lead,
+  .wf-cu-days[data-ranged="true"] > .wf-cu-days-note { padding-bottom: 16px; }
+}
 .wf-cu-day-range-track {
   height: 26px;
   width: 10px;
@@ -9537,6 +9552,8 @@ button.wf-hc.also.on:hover {
 /* Forced colours replaces the gold focus ring with the system colour (as the map chips' outline does). */
 @media (forced-colors: active) {
   .wf-cu-day:focus-visible { outline-color: Highlight; }
+  /* Keep the bar's own colour (as .wf-aurora-bar[data-lit='true'] does): the value beside it is text. */
+  .wf-cu-day-range-bar { forced-color-adjust: none; }
 }
 
 /* Loading, error and empty all share one line, because they are one slot: exactly one of them is

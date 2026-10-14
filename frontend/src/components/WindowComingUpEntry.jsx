@@ -50,14 +50,16 @@ function DayChips({ entry, onShowOnMap }) {
       ? (chip.peak ? ', peak day' : '')
       : chip.marks.map((m) => (m.label === 'peak' ? ', peak day' : `, ${m.label}`)).join('');
     const range = rangeScale && chip.rangeMetres !== null && chip.rangeMetres !== undefined
-      ?`, ${chip.rangeMetres.toFixed(1)} metre range` : '';
+      ? `, ${chip.rangeMetres.toFixed(1)} metre range` : '';
     if (chip.gone) return `${label}${peak}${range} — gone`;
     if (!chip.live) return `${label}${peak}${range} — no forecast yet`;
     return `Show ${noun} for ${label}${peak}${range}`;
   };
 
   return (
-    <div className="wf-cu-days" data-testid="coming-up-day-chips" data-marked={marked ? 'true' : undefined}>
+    <div className="wf-cu-days" data-testid="coming-up-day-chips" data-marked={marked ? 'true' : undefined}
+      data-ranged={rangeScale ? 'true' : undefined}
+    >
       <span className="wf-cu-days-lead" id={leadId}>{leadText}</span>
       {' '}
       <div role="group" aria-labelledby={leadId} className="wf-cu-days-group">
@@ -112,7 +114,12 @@ function DayChips({ entry, onShowOnMap }) {
             ? 4 + (spread > 0 ? ((chip.rangeMetres - rangeScale.min) / spread) * 22 : 11) : 0;
           return (
             <div key={chip.date} className="wf-cu-day-col" data-testid="coming-up-day-col">
-              <span className="wf-cu-day-range" aria-hidden="true" data-peak={chip.rangePeak ? 'true' : 'false'}>
+              <span
+                className="wf-cu-day-range"
+                aria-hidden="true"
+                data-peak={chip.rangePeak ? 'true' : 'false'}
+                data-live={chip.live ? 'true' : 'false'}
+              >
                 <span className="wf-cu-day-range-val">{hasRange ? chip.rangeMetres.toFixed(1) : ''}</span>
                 <span className="wf-cu-day-range-track">
                   {hasRange && (
