@@ -155,9 +155,11 @@ Replaces S4's value-above-bar column (S4's 4/26/15px tests are REWRITTEN, not ke
   <strong>Top N%</strong> means the day ranks among the biggest N% of the year's ranges. Dashed line is
   the average, 3.4 m." (literal "Top N%", NBSP in "3.4 m"); drop the Top-N sentence without percentiles
   and the dashed-line sentence without an average. Only when columns render.
-- **Lead/note centring** (≥ 640): replace S4's single `padding-top: var(--wf-cu-range-h)` with row-level
-  variables: `padding-top = label-h + gap + 32 + gap`, `padding-bottom = gap + metres-h` (label-h 0 when
-  there is no label row). Update S4's regex test.
+- **Lead/note centring**: superseded, see the measured deviation below (no centring padding is built).
+- **Measured deviation (R2 review): the ranged lead is a heading above the row**, full width at every
+  width, not beside the chips as in the mockup, and the dimmed note sits under the row. A beside-the-row
+  lead has to centre on the chip row, which depends on whether the row wraps, and CSS cannot detect that;
+  the centring padding above was removed.
 - **Accessibility**: aria-label clause `, 4.9 metre range, top 2 percent of the year` (percent part only
   with a percentile; in every chip state, before ` — gone`/` — no forecast yet`). `title="4.9 m range ·
   1.4× average"` per the brief (multiple only with an average) — note it becomes the accessible

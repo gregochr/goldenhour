@@ -317,21 +317,51 @@ function buildDayChips(entry, action, todayStr, forecastDates) {
       // Served per-day tidal range (supermoon-tide-run-plan S4); `rangePeak` is the server's.
       rangeMetres: typeof served?.rangeMetres === 'number' ? served.rangeMetres : null,
       rangePeak: Boolean(served?.peak),
+      // Served rank of the day's range among the past year's (tide-range-rank-plan R1), or null.
+      rangePercentile: Number.isInteger(served?.rangePercentile) ? served.rangePercentile : null,
       live: !gone && (known ? forecastDates.includes(date) : true),
     });
   }
   return chips;
 }
 
+/** Track geometry of the range bars (px): the bar's floor and the track's height. */
+const RANGE_BAR_FLOOR_PX = 13;
+const RANGE_BAR_SPAN_PX = 19;
+const RANGE_BAR_FLAT_PX = 18;
+/** A day ranking in the biggest this-many percent of the year wears the "big" tier. */
+export const BIG_RANGE_PERCENTILE = 5;
+
 /**
- * The min and max of the served per-day ranges across a chip row, or null unless at least two chips
- * carry one (a single value has no scale). Geometry over served values: the licensed filter/map class.
+ * The scale of a chip row's range bars, or null unless at least two chips carry a served range (a
+ * single value has no scale). {@code min}/{@code max} span the run's days; {@code lo}/{@code hi} also
+ * take in the served average so the dashed line always sits inside the bars' track. {@code
+ * hasPercentiles} is true only when every ranged day serves one (the server's all-or-none rule).
+ * Geometry over served values: the licensed filter/map class.
  */
-function buildRangeScale(dayChips) {
+function buildRangeScale(dayChips, average) {
   if (dayChips === null) return null;
-  const values = dayChips.map((c) => c.rangeMetres).filter((v) => v !== null);
-  if (values.length < 2) return null;
-  return { min: Math.min(...values), max: Math.max(...values) };
+  const ranged = dayChips.filter((c) => c.rangeMetres !== null);
+  if (ranged.length < 2) return null;
+  const values = ranged.map((c) => c.rangeMetres);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  return {
+    min,
+    max,
+    lo: average === null ? min : Math.min(min, average),
+    hi: average === null ? max : Math.max(max, average),
+    hasPercentiles: ranged.every((c) => c.rangePercentile !== null),
+  };
+}
+
+/**
+ * The height in px (13..32) of a range bar, or of the average line, on a scale from
+ * {@code buildRangeScale}; every bar is 18px when the scale is flat.
+ */
+export function rangeBarHeight(value, scale) {
+  if (scale.hi === scale.lo) return RANGE_BAR_FLAT_PX;
+  return Math.round(RANGE_BAR_FLOOR_PX + ((value - scale.lo) / (scale.hi - scale.lo)) * RANGE_BAR_SPAN_PX);
 }
 
 /**
@@ -397,6 +427,7 @@ function buildRangeScale(dayChips) {
 export function buildEntryView(entry, todayStr, lastSeenDate, forecastDates) {
   const action = entry.action ?? { label: '', kind: null, date: entry.startDate };
   const dayChips = buildDayChips(entry, action, todayStr, forecastDates);
+  const rangeAverage = typeof entry.rangeAverageMetres === 'number' ? entry.rangeAverageMetres : null;
   // With chips each day carries its own state, so the single-door gate does not apply. It now
   // serves only a map entry over the cap (the months-long NLC season, or a run longer than its cap)
   // or one with no served date.
@@ -425,7 +456,8 @@ export function buildEntryView(entry, todayStr, lastSeenDate, forecastDates) {
     action,
     interactive: dayChips === null && INTERACTIVE_ACTION_KINDS.includes(action.kind) && !actionWithheld,
     dayChips,
-    rangeScale: buildRangeScale(dayChips),
+    rangeAverage,
+    rangeScale: buildRangeScale(dayChips, rangeAverage),
     doorNoun: dayChips === null ? null : DOOR_NAMES[action.kind],
     actionWithheld,
     actionNote: actionWithheld ? withheldNote(action.kind, action.date) : null,

@@ -1038,7 +1038,7 @@ Two consequences worth stating plainly:
 >
 > The former SSE `GET /api/briefing/evaluate` and the `/evaluate/cache[/timestamp]` GETs no longer exist — `BriefingEvaluationController` exposes only `GET /scores` and `DELETE /cache`. This matters for HTTP caching: `/api/briefing`, `/api/briefing/digest` and `/api/briefing/evaluate/scores` are ETag-revalidated (`HttpCachingConfig`), and that whitelist is exact-match precisely so it can never catch a streaming endpoint — which is also why the digest is listed in its own right rather than inheriting `/api/briefing`'s treatment as a prefix.
 
-**Coming up merged shape** (`docs/engineering/supermoon-tide-run-plan.md`, S1–S4): a supermoon on a tide run is one entry (D10: span = union, host = longest span, a dated line per topic), serving `dayMarks` on a merged entry and `dayRanges` (`peak` server-owned) on every tide-run entry with two or more derivable days; `buildRangeScale`'s min/max for the chip range bars is geometry over served values, the licensed filter/map class.
+**Coming up merged shape** (`docs/engineering/supermoon-tide-run-plan.md`, S1–S4): a supermoon on a tide run is one entry (D10: span = union, host = longest span, a dated line per topic), serving `dayMarks` on a merged entry and `dayRanges` (`peak` server-owned) on every tide-run entry with two or more derivable days; `buildRangeScale`'s min/max/lo/hi (with the served average) for the chip range bars is geometry over served values, the licensed filter/map class (the percentile and the average are served, `docs/engineering/tide-range-rank-plan.md`; the client only scales them and applies the served-value `<= 5` big tier).
 
 ### Almanac (Bearer)
 `GET /api/almanac?days=90` — the 90-day "Coming up" feed. Bearer with **no role gate**, by
