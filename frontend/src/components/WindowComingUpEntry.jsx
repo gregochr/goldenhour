@@ -31,6 +31,12 @@ function DayChips({ entry, onShowOnMap }) {
   // of a run whose other days have gone).
   const allDimmedNote = future.length === 1
     ? 'no forecast for this day yet' : 'no forecast for these days yet';
+  // A ranged row draws it under the row instead of inside it (see the return).
+  const note = (
+    <span className="wf-cu-days-note" data-testid="coming-up-day-chips-note">
+      {allDimmed ? allDimmedNote : 'dimmed · no forecast yet'}
+    </span>
+  );
   // A DOM id from an entry id like `spring-tide:2026-10-09:2026-10-14`.
   const leadId = `${entry.id.replace(/[^A-Za-z0-9_-]/g, '-')}-days-lead`;
 
@@ -164,16 +170,24 @@ function DayChips({ entry, onShowOnMap }) {
           );
         })}
       </div>
-      {anyDimmed && (
+      {anyDimmed && !rangeScale && (
         <>
           {' '}
-          <span className="wf-cu-days-note" data-testid="coming-up-day-chips-note">
-            {allDimmed ? allDimmedNote : 'dimmed · no forecast yet'}
-          </span>
+          {note}
         </>
       )}
     </div>
+    {/* A ranged row's note sits under the row, outside it, so a wrapped note never inherits the
+        row-centring padding. */}
+    {anyDimmed && rangeScale && (
+      <>
+        {' '}
+        {note}
+      </>
+    )}
     {rangeScale && (
+      <>
+      {' '}
       <p className="wf-cu-range-key" data-testid="coming-up-range-key">
         {'Bars show each day’s tidal range in metres, printed under each day.'}
         {labelled && (
@@ -185,6 +199,7 @@ function DayChips({ entry, onShowOnMap }) {
         )}
         {averaged && ` Dashed line is the average, ${rangeAverage.toFixed(1)}\u00A0m.`}
       </p>
+      </>
     )}
     </>
   );

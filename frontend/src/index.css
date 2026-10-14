@@ -9496,7 +9496,7 @@ button.wf-hc.also.on:hover {
    the lead/note offsets cannot drift apart. */
 .wf-cu-days[data-ranged="true"] {
   --wf-cu-label-h: 13px; /* 9px label x 1.2 line-height + the pill's 1px padding, top and bottom */
-  --wf-cu-track-h: 32px;
+  --wf-cu-track-h: 34px; /* bars cap at 32px; 2px of headroom keeps a high average line off the label */
   --wf-cu-metres-h: 11px;
   --wf-cu-range-gap: 3px;
   /* The label row exists only when the run serves percentiles. */
@@ -9551,6 +9551,12 @@ button.wf-hc.also.on:hover {
 }
 .wf-cu-day-col[data-tier="peak"] .wf-cu-day-range-metres { color: var(--color-plex-text); }
 .wf-cu-day-col[data-tier="big"] .wf-cu-day-range-label { color: var(--color-topic-coastal); }
+/* A gone or no-forecast big day mutes its label by colour, as the chip's number is muted. */
+.wf-cu-day-col[data-tier="big"][data-live="false"] .wf-cu-day-range-label {
+  color: var(--color-plex-text-secondary);
+}
+/* ...and a gone peak's bar stops glowing, like its pill. */
+.wf-cu-day-col[data-tier="peak"][data-live="false"] .wf-cu-day-range-bar { box-shadow: none; }
 /* A gone or no-forecast peak becomes an OUTLINE pill (an inset ring: it adds no height), with no
    fill and no glow; its metres go secondary. Higher specificity than the peak rules above. */
 .wf-cu-day-col[data-tier="peak"][data-live="false"] .wf-cu-day-range-pill {
@@ -9618,8 +9624,7 @@ button.wf-hc.also.on:hover {
    640px the row stacks and nothing ranged changes. */
 @media (min-width: 640px) {
   .wf-cu-days[data-ranged="true"] { align-items: stretch; }
-  .wf-cu-days[data-ranged="true"] > .wf-cu-days-lead,
-  .wf-cu-days[data-ranged="true"] > .wf-cu-days-note {
+  .wf-cu-days[data-ranged="true"] > .wf-cu-days-lead {
     display: flex;
     align-items: center;
     padding-top: calc(var(--wf-cu-label-block) + var(--wf-cu-track-h) + var(--wf-cu-range-gap));
@@ -9628,7 +9633,7 @@ button.wf-hc.also.on:hover {
   .wf-cu-days-axis {
     display: block;
     position: relative;
-    width: 26px;
+    width: 32px;
     font-size: 9px;
     font-weight: 600;
     letter-spacing: 0.1em;
@@ -9648,6 +9653,12 @@ button.wf-hc.also.on:hover {
     line-height: var(--wf-cu-metres-h);
   }
 }
+/* Where the lead wraps above the group (640-899px) the centring padding would leave a blank band. */
+@media (min-width: 640px) and (max-width: 899px) {
+  .wf-cu-days[data-ranged="true"] > .wf-cu-days-lead { padding: 0; align-self: flex-start; }
+}
+/* A ranged row's dimmed note sits under the row. */
+.wf-cu-days + .wf-cu-days-note { display: block; margin-top: 4px; }
 @media (max-width: 639px) {
   .wf-cu-days { flex-direction: column; align-items: flex-start; gap: 7px; }
   .wf-cu-day { width: 38px; }
@@ -9661,10 +9672,9 @@ button.wf-hc.also.on:hover {
   /* The rgba dash would vanish on a light Canvas: use the system colour. */
   .wf-cu-days[data-avg="true"] .wf-cu-day-range-track::before { border-top-color: GrayText; }
   /* The filled pill loses its fill; a ring keeps the tier. */
-  .wf-cu-day-range-pill { outline: 1px solid CanvasText; outline-offset: -1px; }
+  .wf-cu-day-col[data-tier="peak"] .wf-cu-day-range-pill { outline: 1px solid CanvasText; outline-offset: -1px; }
   .wf-cu-day-col[data-tier="peak"][data-live="false"] .wf-cu-day-range-pill { outline-color: GrayText; }
 }
-
 /* Loading, error and empty all share one line, because they are one slot: exactly one of them is
    ever on screen and they replace the rows rather than joining them. */
 .wf-cu-note {
