@@ -16,8 +16,13 @@ Interpretations of the plan (also printed in the report):
  * Cost side (D-1 step 3) = flagged gos with any of ERA5 cone/observer mid/high >= 20, as a share
    of flagged gos whose four values are known (for R1 this is the plan's definition).
  * Region-event robustness: slots of T+0/T+1 non-sync sky locations; needs >= 5 locations with a
-   latest run; flagged when >= half of them are flagged go-slots; outcome fires when >= half of its
+   latest run; flagged when ANY of its location-gos is flagged; outcome fires when >= half of its
    gos with known P-low have P-low.
+ * Gates (plan section 5 plus two pre-registered additions): >= 30 units per arm, >= 10 events and
+   >= 8 DISTINCT DATES in the flagged arm; more than 5% of bootstrap draws dropped (an arm empty
+   in the resample) also makes a comparison inconclusive.
+ * Disabled locations are kept for history (loc_enabled is read but deliberately unused).
+ * The CSV header may be a superset of the required columns, in any order; columns are by name.
 """
 from __future__ import annotations
 
@@ -72,7 +77,7 @@ COST_SHARE_MAX = 0.25
 SKY_TYPES = {'LANDSCAPE', 'SEASCAPE', 'WATERFALL'}
 DECISION_LEADS = (0, 1)
 REGION_MIN_LOCATIONS = 5
-BANDS = ('0-2', '2-5', '5-9', 'other')
+BANDS = ('<0', '0-2', '2-5', '5-9', '>=9')
 ANGEL_WARNING = ("Part B cannot see the Angel class: its absolute rates are not evidence that the "
                  "class is rare.")
 
@@ -105,8 +110,15 @@ def _parse_row(raw: Dict[str, str]) -> Dict[str, object]:
 
 
 def load_rows(path: str) -> List[Dict[str, object]]:
-    with open(path, newline='', encoding='utf-8') as f:
-        return [_parse_row(r) for r in csv.DictReader(f)]
+    """Parse by column NAME. The header may hold extra columns and any order; a missing required
+    column is a ValueError naming it."""
+    with open(path, newline='', encoding='utf-8-sig') as f:
+        reader = csv.DictReader(f)
+        have = set(reader.fieldnames or [])
+        missing = [c for c in COLUMNS if c not in have]
+        if missing:
+            raise ValueError('%s: header is missing required column(s): %s' % (path, ', '.join(missing)))
+        return [_parse_row(r) for r in reader]
 
 
 # ------------------------------------------------------------------ classification
@@ -153,9 +165,18 @@ def era5_canvas(r: Dict[str, object]) -> Optional[bool]:
     return None if any(v is None for v in vals) else False
 
 
-def angel_shape(r: Dict[str, object]) -> bool:
-    need = [r['solar_low_cloud'], r['solar_high_cloud'], r['mid_cloud'], r['high_cloud'],
+def _shape_inputs(r: Dict[str, object]) -> list:
+    return [r['solar_low_cloud'], r['solar_high_cloud'], r['mid_cloud'], r['high_cloud'],
             r['antisolar_mid_cloud'], r['antisolar_high_cloud']]
+
+
+def angel_shape_testable(r: Dict[str, object]) -> bool:
+    """False when a shape input is NULL (pre-directional capture): the row cannot be tested."""
+    return all(v is not None for v in _shape_inputs(r))
+
+
+def angel_shape(r: Dict[str, object]) -> bool:
+    need = _shape_inputs(r)
     if any(v is None for v in need):
         return False
     return (r['solar_low_cloud'] < ANGEL_LOW_MAX and r['solar_high_cloud'] >= ANGEL_HIGH_MIN
@@ -176,13 +197,15 @@ def sun_band(r: Dict[str, object]) -> Tuple[Optional[float], str]:
     idx = find_best_index(times, ev, r['target_type'])
     slot = datetime.strptime(times[idx], '%Y-%m-%dT%H:%M')
     alt = sun_position(slot, r['loc_lat'], r['loc_lon'])[0]
-    if 0 <= alt < 2:
+    if alt < 0:
+        return alt, '<0'
+    if alt < 2:
         return alt, '0-2'
-    if 2 <= alt < 5:
+    if alt < 5:
         return alt, '2-5'
-    if 5 <= alt < 9:
+    if alt < 9:
         return alt, '5-9'
-    return alt, 'other'
+    return alt, '>=9'
 
 
 def build_slots(rows: Sequence[Dict[str, object]]) -> Tuple[List[Dict[str, object]], int]:
@@ -219,7 +242,7 @@ def build_slots(rows: Sequence[Dict[str, object]]) -> Tuple[List[Dict[str, objec
             'key': key, 'row': last, 'prev': prev, 'date': last['target_date'], 'event': last['target_type'],
             'lead': last['days_ahead'], 'model': last['evaluation_model'] or 'unknown', 'engine': eng,
             'prompted': prompted, 'go': go, 'sky': is_sky_location(last['loc_types']), 'training': tl,
-            'pr': pr, 'alt': alt, 'band': band, 'angel': angel_shape(last), 'raised': raised,
+            'pr': pr, 'alt': alt, 'band': band, 'angel': angel_shape(last), 'angel_testable': angel_shape_testable(last), 'raised': raised,
             'capped': already_capped(last), 'canvas_era5': era5_canvas(last),
             'lead_hours': (last['solar_event_time'] - last['forecast_run_at']).total_seconds() / 3600.0,
             'region': last['loc_region_id'],
@@ -264,8 +287,10 @@ def prop_cell(units: Sequence[dict], pred: Callable[[dict], Optional[bool]], dra
         return '0/0', 0, 0
     w = stats.wilson(k, n)
     dc = date_counts(known, lambda u: (1 if pred(u) else 0, 1))
-    bs = stats.bootstrap_counts(dc, lambda t: t[0] / t[1] if t[1] else None, draws=draws)
-    return '%d/%d %s W%s B%s' % (k, n, pct(w[0]), ci_txt((w[1], w[2])), ci_txt(stats.percentile_interval(bs))), k, n
+    bs, dropped = stats.bootstrap_counts_ex(dc, lambda t: t[0] / t[1] if t[1] else None, draws=draws)
+    drop = ' drop %s' % pct(dropped / draws) if dropped else ''
+    return ('%d/%d %s W%s B%s%s' % (k, n, pct(w[0]), ci_txt((w[1], w[2])),
+                                    ci_txt(stats.percentile_interval(bs)), drop), k, n)
 
 
 PREMISE_NAMES = (('low', 'P-low (cone mean low >= 60)'),
@@ -286,18 +311,23 @@ def make_test(units: List[dict], draws: int) -> Dict[str, object]:
     k1, n1 = sum(u['out'] for u in f), len(f)
     k2, n2 = sum(u['out'] for u in o), len(o)
     res: Dict[str, object] = {'n1': n1, 'k1': k1, 'n2': n2, 'k2': k2, 'newcombe': stats.newcombe_diff(k1, n1, k2, n2),
-              'p_score': stats.two_prop_pvalue(k1, n1, k2, n2), 'boot_ci': None, 'p_boot': None, 'sens': {}}
+                              'p_score': stats.two_prop_pvalue(k1, n1, k2, n2), 'boot_ci': None, 'p_boot': None,
+                              'sens': {}, 'dates1': len({u['date'] for u in f}), 'dates2': len({u['date'] for u in o}),
+                              'dropped': 0.0, 'dropped_by_block': {}}
     if n1 and n2:
         dc = date_counts(units, lambda u: (int(u['flag'] and u['out']), int(u['flag']),
                                            int((not u['flag']) and u['out']), int(not u['flag'])))
 
         def stat(t):
             return t[0] / t[1] - t[2] / t[3] if t[1] and t[3] else None
-        res['sens'] = {b: stats.percentile_interval(stats.bootstrap_counts(dc, stat, block_days=b, draws=draws))
-                       for b in stats.SENSITIVITY_BLOCKS}
-        bs = stats.bootstrap_counts(dc, stat, draws=draws)
+        for b in stats.SENSITIVITY_BLOCKS:
+            bsb, drb = stats.bootstrap_counts_ex(dc, stat, block_days=b, draws=draws)
+            res['sens'][b] = stats.percentile_interval(bsb)
+            res['dropped_by_block'][b] = drb / draws if draws else 0.0
+        bs, dr = stats.bootstrap_counts_ex(dc, stat, draws=draws)
         res['boot_ci'] = stats.percentile_interval(bs)
         res['p_boot'] = stats.bootstrap_pvalue(bs)
+        res['dropped'] = dr / draws if draws else 0.0
     return res
 
 
@@ -309,7 +339,9 @@ def finish_tests(tests: Dict[str, Dict[str, object]]) -> None:
         t['p_holm'] = a
         nc, bc = t['newcombe'], t['boot_ci']
         lo = None if nc is None or bc is None else min(nc[1], bc[0])
-        t['verdict'] = stats.verdict(t['n1'], t['k1'], t['n2'], lo, a)
+        worst = max([t['dropped']] + list(t['dropped_by_block'].values()))
+        t['verdict'], t['reason'] = stats.verdict_reason(t['n1'], t['k1'], t['n2'], lo, a,
+                                                          dates_flagged=t['dates1'], dropped_fraction=worst)
 
 
 def flag_fns() -> Dict[str, Callable[[dict], bool]]:
@@ -337,7 +369,7 @@ def region_event_units(pop: Sequence[dict], flag: Callable[[dict], bool]) -> Lis
         gos = [s for s in g if s['go'] and s['pr']['low'] is not None]
         if not gos:
             continue
-        flagged = sum(1 for s in g if flag(s)) * 2 >= len(g)
+        flagged = any(flag(s) for s in g)
         outcome = sum(1 for s in gos if s['pr']['low']) * 2 >= len(gos)
         out.append({'flag': flagged, 'out': outcome, 'date': key[1], 'key': key})
     return out
@@ -366,17 +398,22 @@ def analyse(rows: Sequence[dict], draws: int = stats.DEFAULT_DRAWS) -> Dict[str,
             'loc_units': loc_units_base, 'draws': draws}
 
 
+def _tri_long(v: Optional[bool]) -> str:
+    return 'unknown (not yet verified)' if v is None else ('FLAGS' if v else 'passes')
+
+
 def angel_status(slots: Sequence[dict]) -> Tuple[str, bool]:
+    """(line, can_see). ``can_see`` is True ONLY when P-low flags the Angel row: P-far feeds no
+    decision and P-canvas must not judge R1, so neither can show Part B sees the class."""
     ang = [s for s in slots if (s['training'] or '') == 'Angel of the North']
     if not ang:
         return 'Angel of the North 2026-10-13 SUNSET: not in the export (unverified).', False
-    s = ang[0]
-    pr = s['pr']
-    desc = 'P-low=%s P-far=%s P-canvas=%s' % tuple(_tri(pr[k]) for k in ('low', 'far', 'canvas'))
-    if all(v is None for v in pr.values()):
-        return 'Angel of the North 2026-10-13 SUNSET: ERA5 unverified (%s).' % desc, False
-    flagged = any(v is True for v in pr.values())
-    return 'Angel of the North 2026-10-13 SUNSET: %s.' % desc, flagged
+    pr = ang[0]['pr']
+    line = ('Angel of the North 2026-10-13 SUNSET: P-low (the only premise that counts) %s; '
+            'P-far (diagnostic only, feeds no decision) %s; '
+            'P-canvas (upper bound, does not judge R1) %s.'
+            % (_tri_long(pr['low']), _tri_long(pr['far']), _tri_long(pr['canvas'])))
+    return line, pr['low'] is True
 
 
 def _tri(v: Optional[bool]) -> str:
@@ -398,7 +435,7 @@ def render(a: Dict[str, object]) -> str:
     dates = sorted({r for r in (s['date'] for s in slots)})
     L.append('- commit: %s' % os.environ.get('P1_COMMIT', 'unknown (set P1_COMMIT)'))
     L.append('- input rows: %d; date span: %s to %s' % (a['rows'], dates[0] if dates else '-', dates[-1] if dates else '-'))
-    L.append('- bootstrap: %d draws, 5-day circular blocks of dates, seed %d (sensitivity 3 and 7 in the tests)'
+    L.append('- bootstrap: %d draws, 5-day non-circular moving blocks of CALENDAR days (min..max date, empty days are zero units), seed %d; sensitivity at 3 and 7 days in the table'
              % (draws, stats.DEFAULT_SEED))
     L.append('- units: slots with a latest run %d (no eligible run: %d); sky %d; pooled (sky, not training) %d; '
              'batch-prompted %d; location-gos %d; synchronous-engine %d' % (
@@ -408,6 +445,7 @@ def render(a: Dict[str, object]) -> str:
              % (len(dec), sum(1 for s in dec if s['row']['cv_id'] is not None)))
     reu = region_event_units(a['pooled'], lambda s: False)
     L.append('- region-events (T+0/T+1, >= %d locations, with a go with known P-low): %d' % (REGION_MIN_LOCATIONS, len(reu)))
+    L.append('- Disabled locations are kept for history: loc_enabled is read but deliberately unused.')
     L.append('- Gos use the latest eligible run; a stability skip that retracts a rating at serve time is not '
              'modelled (rare at T+0/T+1). T+2 and later are descriptive only.')
     L.append('')
@@ -420,15 +458,28 @@ def render(a: Dict[str, object]) -> str:
         rows_ = []
         for name, t in a[key].items():
             nc = t['newcombe']
-            rows_.append([name, '%d/%d' % (t['k1'], t['n1']), '%d/%d' % (t['k2'], t['n2']),
+            rows_.append([name, '%d/%d (%d dates)' % (t['k1'], t['n1'], t['dates1']),
+                          '%d/%d (%d dates)' % (t['k2'], t['n2'], t['dates2']),
                           pct(nc[0]) if nc else '-', ci_txt((nc[1], nc[2]) if nc else None), ci_txt(t['boot_ci']),
                           ' '.join('%d:%s' % (b, ci_txt(c)) for b, c in sorted(t['sens'].items())) or '-',
                           '-' if t['p_boot'] is None else '%.4f' % t['p_boot'],
-                          '-' if t['p_holm'] is None else '%.4f' % t['p_holm'], '**%s**' % t['verdict']])
-        L += md_table(['rule', 'flagged P-low k/n', 'other k/n', 'diff', 'Newcombe', 'bootstrap(5)',
-                       'bootstrap by block', 'p boot', 'p Holm', 'verdict'], rows_)
-        L.append('Gate: >= %d units in each arm and >= %d P-low events in the flagged arm, else inconclusive '
-                 '(inconclusive is not "no effect").' % (stats.MIN_UNITS_PER_ARM, stats.MIN_FLAGGED_EVENTS))
+                          '-' if t['p_holm'] is None else '%.4f' % t['p_holm'],
+                          '%s (3:%s 5:%s 7:%s)' % (pct(t['dropped']), *(pct(t['dropped_by_block'].get(b))
+                                                                      for b in stats.SENSITIVITY_BLOCKS)),
+                          '**%s**' % t['verdict']])
+        L += md_table(['rule', 'flagged P-low k/n (dates)', 'other k/n (dates)', 'diff', 'Newcombe',
+                       'bootstrap(5)', 'bootstrap by block', 'p boot', 'p Holm', 'draws dropped', 'verdict'], rows_)
+        for name, t in a[key].items():
+            if t['reason']:
+                L.append('- %s: inconclusive because %s.' % (name, t['reason']))
+        L.append('Gate: >= %d units in each arm, >= %d P-low events and >= %d distinct dates in the flagged arm '
+                 '(pre-registered addition to plan section 5), else inconclusive (inconclusive is not "no effect"). '
+                 'More than %d%% of bootstrap draws dropped (an arm empty in the resample) is also inconclusive.'
+                 % (stats.MIN_UNITS_PER_ARM, stats.MIN_FLAGGED_EVENTS, stats.MIN_FLAGGED_DATES,
+                    int(100 * stats.MAX_DROPPED_FRACTION)))
+        if key == 'tests_reg':
+            L.append('Region-event rule: flagged if ANY of its location-gos is flagged; its outcome fires if at '
+                     'least half of its gos with known P-low are P-low.')
         L.append('')
     L.append('### D-1 step 3: cost side (flagged gos with an ERA5 canvas, share must be <= %d%%)' % int(100 * COST_SHARE_MAX))
     rows_ = []
@@ -506,6 +557,8 @@ def render(a: Dict[str, object]) -> str:
     oth = [s for s in gos if not s['angel']]
     L.append('Angel-shape gos: %d of %d gos (T+0/T+1: %d of %d).' % (
         len(ang), len(gos), sum(1 for s in ang if s['lead'] in DECISION_LEADS), len(dec)))
+    L.append('Gos excluded from the shape test because an input was NULL (pre-directional capture): %d of %d.'
+             % (sum(1 for s in gos if not s['angel_testable']), len(gos)))
     L += md_table(['group', 'gos', 'P-low share (W, B)', 'P-canvas (NOT USED to judge R1: circular)'], [
         ['Angel shape', len(ang), prop_cell(ang, lambda s: s['pr']['low'], draws)[0],
          prop_cell(ang, lambda s: s['pr']['canvas'], draws)[0]],
@@ -608,7 +661,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument('--out', default='out')
     ap.add_argument('--draws', type=int, default=stats.DEFAULT_DRAWS)
     args = ap.parse_args(argv)
-    rows = load_rows(args.csv)
+    try:
+        rows = load_rows(args.csv)
+    except ValueError as e:
+        print('error: %s' % e, file=sys.stderr)
+        return 2
     a = analyse(rows, args.draws)
     os.makedirs(args.out, exist_ok=True)
     report = render(a)

@@ -74,6 +74,44 @@ class BootstrapTest(unittest.TestCase):
         s = stats.block_sensitivity(self.units, self.stat, lambda u: u["date"], draws=100)
         self.assertEqual(sorted(s), [3, 5, 7])
 
+    def test_blocks_are_calendar_days_not_present_dates(self):
+        # finding 4: two clusters 100 calendar days apart; a block of 5 must never join them
+        # (present-date blocks would, and so would a circular wrap)
+        units = [{"date": "2026-01-%02d" % d, "ev": True} for d in range(1, 6)]
+        units += [{"date": "2026-04-%02d" % d, "ev": False} for d in range(11, 16)]
+        seen = []
+
+        def stat(us):
+            seen.append(len({u["date"] for u in us}))
+            return 0.0
+        stats.moving_block_bootstrap(units, stat, lambda u: u["date"], block_days=5, draws=200)
+        days = stats._calendar_days(u["date"] for u in units)
+        self.assertEqual(days[0], "2026-01-01")
+        self.assertEqual(days[-1], "2026-04-15")
+        self.assertEqual(len(days), 105)
+        rng = __import__("random").Random(1)
+        for _ in range(200):
+            r = stats._resample_days(days, 5, rng)
+            self.assertEqual(len(r), 105)
+            for i in range(0, 105, 5):
+                blk = r[i:i + 5]
+                if len(blk) == 5:
+                    self.assertEqual(blk, days[days.index(blk[0]):days.index(blk[0]) + 5])  # consecutive
+                    self.assertLessEqual(days.index(blk[0]), 100)  # non-circular: no wrap
+
+    def test_empty_calendar_days_carry_zero_units(self):
+        dc = {"2026-01-01": (1, 1), "2026-01-10": (1, 1)}
+        tot = []
+        stats.bootstrap_counts(dc, lambda t: tot.append(t[1]) or 0.0, block_days=10, draws=50)
+        self.assertTrue(all(x <= 2 for x in tot))  # 10-day calendar span: units never inflate
+
+    def test_dropped_draws_reported(self):
+        dc = {"2026-01-%02d" % d: ((1, 1, 0, 0) if d < 3 else (0, 0, 1, 1)) for d in range(1, 21)}
+        vals, dropped = stats.bootstrap_counts_ex(
+            dc, lambda t: t[0] / t[1] - t[2] / t[3] if t[1] and t[3] else None, block_days=3, draws=400)
+        self.assertGreater(dropped, 0)
+        self.assertEqual(len(vals) + dropped, 400)
+
     def test_counts_matches_units_path(self):
         dc = {}
         for u in self.units:
@@ -97,6 +135,19 @@ class BootstrapTest(unittest.TestCase):
 
 
 class GateTest(unittest.TestCase):
+    def test_few_distinct_dates_inconclusive(self):
+        self.assertEqual(stats.verdict(40, 15, 40, 0.2, 0.001, dates_flagged=7), "inconclusive")
+        self.assertEqual(stats.verdict(40, 15, 40, 0.2, 0.001, dates_flagged=8), "pass")
+        self.assertEqual(stats.verdict(40, 15, 40, 0.2, 0.001), "inconclusive")  # not supplied: no bypass
+        self.assertIn("distinct dates", stats.verdict_reason(40, 15, 40, 0.2, 0.001, dates_flagged=3)[1])
+
+    def test_dropped_draws_over_five_percent_inconclusive(self):
+        self.assertEqual(stats.verdict(40, 15, 40, 0.2, 0.001, dates_flagged=20, dropped_fraction=0.06),
+                         "inconclusive")
+        self.assertEqual(stats.verdict(40, 15, 40, 0.2, 0.001, dates_flagged=20, dropped_fraction=0.05), "pass")
+        self.assertIn("dropped", stats.verdict_reason(40, 15, 40, 0.2, 0.001, dates_flagged=20,
+                                                      dropped_fraction=0.2)[1])
+
     def test_inconclusive_small_arm(self):
         self.assertEqual(stats.verdict(29, 15, 100, 0.2, 0.001), "inconclusive")
         self.assertEqual(stats.verdict(40, 15, 29, 0.2, 0.001), "inconclusive")
@@ -105,10 +156,10 @@ class GateTest(unittest.TestCase):
         self.assertEqual(stats.verdict(40, 9, 100, 0.2, 0.001), "inconclusive")
 
     def test_pass_fail(self):
-        self.assertEqual(stats.verdict(30, 10, 30, 0.05, 0.01), "pass")
-        self.assertEqual(stats.verdict(30, 10, 30, -0.05, 0.01), "fail")
-        self.assertEqual(stats.verdict(30, 10, 30, 0.05, 0.2), "fail")
-        self.assertEqual(stats.verdict(30, 10, 30, None, None), "inconclusive")
+        self.assertEqual(stats.verdict(30, 10, 30, 0.05, 0.01, dates_flagged=8), "pass")
+        self.assertEqual(stats.verdict(30, 10, 30, -0.05, 0.01, dates_flagged=8), "fail")
+        self.assertEqual(stats.verdict(30, 10, 30, 0.05, 0.2, dates_flagged=8), "fail")
+        self.assertEqual(stats.verdict(30, 10, 30, None, None, dates_flagged=8), "inconclusive")
 
 
 if __name__ == "__main__":

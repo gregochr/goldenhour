@@ -186,12 +186,12 @@ class SunBandTest(unittest.TestCase):
     def test_sunrise_slot_after_event(self):
         r = mk(target_type='SUNRISE', solar_event_time=datetime(2026, 10, 13, 6, 5, 0))
         alt, band = premise.sun_band(r)
-        self.assertIn(band, ('0-2', '2-5', '5-9', 'other'))
+        self.assertIn(band, premise.BANDS)
         self.assertIsNotNone(alt)
 
     def test_wrong_time_is_other(self):
         r = mk(solar_event_time=datetime(2026, 10, 13, 12, 0, 0))  # noon "sunset": sun high
-        self.assertEqual(premise.sun_band(r)[1], 'other')
+        self.assertEqual(premise.sun_band(r)[1], '>=9')
 
     def test_missing_coordinates(self):
         self.assertEqual(premise.sun_band(mk(loc_lat=None))[1], 'unknown')
@@ -266,6 +266,41 @@ class PipelineTest(unittest.TestCase):
         self.assertTrue(units[0]['flag'])
         self.assertFalse(units[0]['out'])  # 1 of 5 is P-low
 
+    def test_region_event_flagged_if_any_go_flagged(self):
+        # finding 5: one flagged go of five used to fail the half-of-slots rule only when unflagged
+        rows = [mk(location_id=i) for i in range(1, 6)]
+        a = premise.analyse(rows, draws=20)
+        units = premise.region_event_units(a['pooled'], lambda s: s['row']['location_id'] == 3)
+        self.assertEqual(len(units), 1)
+        self.assertTrue(units[0]['flag'])
+        none = premise.region_event_units(a['pooled'], lambda s: False)
+        self.assertFalse(none[0]['flag'])
+
+    def test_few_distinct_dates_is_inconclusive(self):
+        # finding 2: 40 flagged units on 4 dates (10 locations per date) cannot pass
+        rows = []
+        for i in range(4):
+            for loc in range(10):
+                rows.append(_dated(i, location_id=100 + loc, cv_horizon_low_cloud=85.0))
+        for i in range(40):
+            rows.append(_dated(i, location_id=2, solar_low_cloud=30, cv_horizon_low_cloud=5.0))
+        a = premise.analyse(rows, draws=100)
+        t = a['tests_loc']['R1 (Angel shape / canvas)']
+        self.assertLess(t['dates1'], stats.MIN_FLAGGED_DATES + 1)
+        self.assertEqual(t['verdict'], 'inconclusive')
+        self.assertIn('distinct dates', t['reason'])
+        text = premise.render(a)
+        self.assertIn('dates)', text)
+
+    def test_shape_null_exclusion_count_reported(self):
+        rows = [mk(location_id=1), mk(location_id=2, antisolar_mid_cloud=None, antisolar_high_cloud=None)]
+        text = premise.render(premise.analyse(rows, draws=20))
+        self.assertIn('excluded from the shape test because an input was NULL (pre-directional capture): 1 of 2', text)
+
+    def test_report_states_disabled_kept(self):
+        text = premise.render(premise.analyse([mk()], draws=20))
+        self.assertIn('Disabled locations are kept for history', text)
+
 
 class AngelLineTest(unittest.TestCase):
     def _text(self, **kw):
@@ -280,8 +315,20 @@ class AngelLineTest(unittest.TestCase):
     def test_warning_when_unverified(self):
         self.assertIn(premise.ANGEL_WARNING, self._text(cv_id=None))
 
-    def test_canvas_flag_alone_counts_as_seen(self):
-        self.assertNotIn(premise.ANGEL_WARNING, self._text())
+    def test_far_or_canvas_flag_alone_does_not_silence_warning(self):
+        # finding 1: P-far feeds no decision and P-canvas must not judge R1
+        self.assertIn(premise.ANGEL_WARNING, self._text(cv_far_low_cloud=85.0))
+        self.assertIn(premise.ANGEL_WARNING, self._text(cv_observer_mid_cloud=30.0))
+        self.assertIn(premise.ANGEL_WARNING, self._text(cv_far_low_cloud=85.0, cv_observer_mid_cloud=30.0))
+
+    def test_angel_line_labels_each_premise_and_unknown(self):
+        text = self._text(cv_far_low_cloud=85.0, cv_horizon_low_cloud=None)
+        line = [l for l in text.split('\n') if l.startswith('**Angel sanity check:**')][0]
+        self.assertIn('P-low (the only premise that counts) unknown (not yet verified)', line)
+        self.assertIn('P-far (diagnostic only, feeds no decision) FLAGS', line)
+        self.assertIn('P-canvas (upper bound, does not judge R1) FLAGS', line)
+        unverified = self._text(cv_id=None)
+        self.assertIn('unknown (not yet verified)', unverified)
 
     def test_no_warning_when_a_premise_flags_it(self):
         text = self._text(cv_horizon_low_cloud=85.0)
@@ -297,6 +344,49 @@ class AngelLineTest(unittest.TestCase):
             self.assertIn('abc1234', premise.render(premise.analyse([mk()], draws=20)))
         finally:
             del os.environ['P1_COMMIT']
+
+
+class SunBandSplitTest(unittest.TestCase):
+    def test_below_horizon_and_high_are_separate_bands(self):
+        night = mk(solar_event_time=datetime(2026, 10, 13, 22, 0, 0))
+        self.assertEqual(premise.sun_band(night)[1], '<0')
+        noon = mk(solar_event_time=datetime(2026, 10, 13, 12, 0, 0))
+        self.assertEqual(premise.sun_band(noon)[1], '>=9')
+        self.assertNotIn('other', premise.BANDS)
+
+
+class HeaderCompatTest(unittest.TestCase):
+    def _write(self, tmp, header, rows):
+        import csv
+        p = os.path.join(tmp, 'x.csv')
+        with open(p, 'w', newline='', encoding='utf-8') as f:
+            w = csv.writer(f)
+            w.writerow(header)
+            w.writerows(rows)
+        return p
+
+    def test_superset_and_reordered_header_accepted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cols = list(reversed(premise.COLUMNS)) + ['loc_tide_types']
+            row = {c: '' for c in cols}
+            row.update({'evaluation_id': '7', 'location_id': '3', 'loc_name': 'A', 'rating': '4',
+                        'loc_tide_types': 'HIGH'})
+            p = self._write(tmp, cols, [[row[c] for c in cols]])
+            rows = premise.load_rows(p)
+            self.assertEqual((rows[0]['evaluation_id'], rows[0]['loc_name'], rows[0]['rating']), (7, 'A', 4))
+            self.assertNotIn('loc_tide_types', rows[0])
+
+    def test_missing_required_column_is_clear(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cols = [c for c in premise.COLUMNS if c != 'rating']
+            p = self._write(tmp, cols, [])
+            with self.assertRaises(ValueError) as cm:
+                premise.load_rows(p)
+            self.assertIn('rating', str(cm.exception))
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                self.assertEqual(premise.main([p, '--out', tmp]), 2)
+            self.assertIn('rating', err.getvalue())
 
 
 class FixtureCliTest(unittest.TestCase):

@@ -6,11 +6,18 @@ from __future__ import annotations
 
 import math
 import random
+from datetime import date, timedelta
 from typing import Callable, Dict, Hashable, Iterable, List, Optional, Sequence, Tuple
 
 # Plan section 5 minimum counts: no verdict below these.
 MIN_UNITS_PER_ARM = 30
 MIN_FLAGGED_EVENTS = 10
+# Pre-registered addition to plan section 5 (review finding 2): the flagged arm must span at least
+# this many DISTINCT dates, so a pass cannot rest on a handful of days.
+MIN_FLAGGED_DATES = 8
+# Pre-registered: if more than this share of bootstrap draws is dropped (an arm empty in the
+# resample), the interval is conditioned on the surviving draws and the verdict is inconclusive.
+MAX_DROPPED_FRACTION = 0.05
 DEFAULT_SEED = 20261014
 DEFAULT_DRAWS = 2000
 DEFAULT_BLOCK_DAYS = 5
@@ -89,67 +96,94 @@ def percentile_interval(draws: Sequence[float], alpha: float = 0.05) -> Optional
     return _percentile(s, alpha / 2.0), _percentile(s, 1.0 - alpha / 2.0)
 
 
-def _resample_dates(dates: Sequence[str], block_days: int, rng: random.Random) -> List[str]:
-    """Circular block resample of the sorted distinct date list: contiguous blocks of dates
-    (wrapping), concatenated and trimmed to the original number of dates."""
-    m = len(dates)
-    b = max(1, min(block_days, m))
-    nblocks = -(-m // b)
+def _calendar_days(dates: Iterable[str]) -> List[str]:
+    """Every ISO calendar day from min to max of ``dates`` (inclusive), as ISO strings."""
+    ds = sorted({date.fromisoformat(str(d)[:10]) for d in dates})
+    if not ds:
+        return []
+    return [(ds[0] + timedelta(days=i)).isoformat() for i in range((ds[-1] - ds[0]).days + 1)]
+
+
+def _resample_days(days: Sequence[str], block_days: int, rng: random.Random) -> List[str]:
+    """Non-circular moving-block resample of a CALENDAR day list (empty days included): blocks of
+    ``block_days`` consecutive calendar days, start uniform over the valid starts, concatenated
+    until the resample has as many days as the original (last block trimmed)."""
+    n = len(days)
+    b = max(1, min(block_days, n))
+    starts = n - b + 1
     out: List[str] = []
-    for _ in range(nblocks):
-        s = rng.randrange(m)
-        for j in range(b):
-            out.append(dates[(s + j) % m])
-    return out[:m]
+    while len(out) < n:
+        s = rng.randrange(starts)
+        out.extend(days[s:s + b])
+    return out[:n]
+
+
+def bootstrap_counts_ex(date_counts: Dict[str, Tuple[int, ...]],
+                        stat_fn: Callable[[Tuple[int, ...]], Optional[float]],
+                        block_days: int = DEFAULT_BLOCK_DAYS, draws: int = DEFAULT_DRAWS,
+                        seed: int = DEFAULT_SEED) -> Tuple[List[float], int]:
+    """Fast path. ``date_counts`` maps each present date to a tuple of additive counters; dates with
+    no units in the calendar range count as zeros. Returns (defined draws, number of draws dropped
+    because ``stat_fn`` returned None, e.g. an empty arm)."""
+    if not date_counts:
+        return [], 0
+    days = _calendar_days(date_counts)
+    width = len(next(iter(date_counts.values())))
+    zero = (0,) * width
+    rng = random.Random(seed)
+    out: List[float] = []
+    dropped = 0
+    for _ in range(draws):
+        tot = [0] * width
+        for d in _resample_days(days, block_days, rng):
+            c = date_counts.get(d, zero)
+            for i in range(width):
+                tot[i] += c[i]
+        v = stat_fn(tuple(tot))
+        if v is None:
+            dropped += 1
+        else:
+            out.append(v)
+    return out, dropped
 
 
 def bootstrap_counts(date_counts: Dict[str, Tuple[int, ...]], stat_fn: Callable[[Tuple[int, ...]], Optional[float]],
                      block_days: int = DEFAULT_BLOCK_DAYS, draws: int = DEFAULT_DRAWS,
                      seed: int = DEFAULT_SEED) -> List[float]:
-    """Fast path. ``date_counts`` maps each date to a tuple of additive counters; ``stat_fn`` gets
-    the summed tuple. Draws where the statistic is undefined (None) are dropped."""
-    if not date_counts:
-        return []
-    dates = sorted(date_counts)
-    width = len(date_counts[dates[0]])
-    rng = random.Random(seed)
-    out: List[float] = []
-    for _ in range(draws):
-        tot = [0] * width
-        for d in _resample_dates(dates, block_days, rng):
-            c = date_counts[d]
-            for i in range(width):
-                tot[i] += c[i]
-        v = stat_fn(tuple(tot))
-        if v is not None:
-            out.append(v)
-    return out
+    """As ``bootstrap_counts_ex`` but returns only the defined draws (use _ex to see the dropped count)."""
+    return bootstrap_counts_ex(date_counts, stat_fn, block_days, draws, seed)[0]
 
 
 def moving_block_bootstrap(units: Iterable, stat_fn: Callable[[List], Optional[float]], date_key: Callable,
                            block_days: int = DEFAULT_BLOCK_DAYS, draws: int = DEFAULT_DRAWS,
                            seed: int = DEFAULT_SEED,
-                           return_draws: bool = False):
-    """Circular moving-block bootstrap over contiguous DATES. A unit belongs to its date; the
-    sorted distinct dates are resampled in blocks of ``block_days`` and each drawn date brings all
-    its units. Returns the 95% percentile interval (lo, hi), or None if no draw defined the
-    statistic. With ``return_draws`` returns the list of draws instead."""
-    by_date: Dict[Hashable, List] = {}
+                           return_draws: bool = False, return_dropped: bool = False):
+    """Non-circular moving-block bootstrap over CALENDAR days (min..max date; days with no units
+    are empty). A unit belongs to its date and each drawn day brings all its units. Returns the 95%
+    percentile interval (lo, hi), or None if no draw defined the statistic. With ``return_draws``
+    returns the list of draws instead; with ``return_dropped`` returns (result, dropped_count)."""
+    by_date: Dict[str, List] = {}
     for u in units:
-        by_date.setdefault(date_key(u), []).append(u)
+        by_date.setdefault(str(date_key(u))[:10], []).append(u)
+
+    def done(res, dropped):
+        return (res, dropped) if return_dropped else res
     if not by_date:
-        return [] if return_draws else None
-    dates = sorted(by_date)
+        return done([] if return_draws else None, 0)
+    days = _calendar_days(by_date)
     rng = random.Random(seed)
     vals: List[float] = []
+    dropped = 0
     for _ in range(draws):
         sample: List = []
-        for d in _resample_dates(dates, block_days, rng):
-            sample.extend(by_date[d])
+        for d in _resample_days(days, block_days, rng):
+            sample.extend(by_date.get(d, ()))
         v = stat_fn(sample)
-        if v is not None:
+        if v is None:
+            dropped += 1
+        else:
             vals.append(v)
-    return vals if return_draws else percentile_interval(vals)
+    return done(vals if return_draws else percentile_interval(vals), dropped)
 
 
 def block_sensitivity(units: Iterable, stat_fn: Callable[[List], Optional[float]], date_key: Callable,
@@ -174,18 +208,45 @@ def bootstrap_pvalue(draws: Sequence[float]) -> Optional[float]:
 
 # ---------------------------------------------------------------- min-count gate and verdict
 
-def gate_ok(n_flagged: int, events_flagged: int, n_other: int) -> bool:
-    """True when the plan's minimum counts are met (section 5)."""
+def gate_ok(n_flagged: int, events_flagged: int, n_other: int, dates_flagged: Optional[int] = None) -> bool:
+    """True when the plan's minimum counts are met (section 5) plus the pre-registered distinct-dates
+    gate. ``dates_flagged`` of None means 'not supplied' and FAILS the gate (no silent bypass)."""
     return (n_flagged >= MIN_UNITS_PER_ARM and n_other >= MIN_UNITS_PER_ARM
-            and events_flagged >= MIN_FLAGGED_EVENTS)
+            and events_flagged >= MIN_FLAGGED_EVENTS
+            and dates_flagged is not None and dates_flagged >= MIN_FLAGGED_DATES)
+
+
+def verdict_reason(n_flagged: int, events_flagged: int, n_other: int, ci_lo: Optional[float] = None,
+                   adj_p: Optional[float] = None, alpha: float = 0.05,
+                   dates_flagged: Optional[int] = None,
+                   dropped_fraction: float = 0.0) -> Tuple[str, str]:
+    """(verdict, reason). 'inconclusive' when a count gate fails, when more than
+    MAX_DROPPED_FRACTION of bootstrap draws were dropped, or when there is no interval (not the same
+    as 'no effect'); else 'pass' when the interval lies above 0 (and, when given, the Holm-adjusted
+    p < alpha); else 'fail'."""
+    if not gate_ok(n_flagged, events_flagged, n_other, dates_flagged):
+        why = []
+        if n_flagged < MIN_UNITS_PER_ARM or n_other < MIN_UNITS_PER_ARM:
+            why.append('fewer than %d units in an arm' % MIN_UNITS_PER_ARM)
+        if events_flagged < MIN_FLAGGED_EVENTS:
+            why.append('fewer than %d events in the flagged arm' % MIN_FLAGGED_EVENTS)
+        if dates_flagged is None or dates_flagged < MIN_FLAGGED_DATES:
+            why.append('flagged arm spans fewer than %d distinct dates' % MIN_FLAGGED_DATES)
+        return 'inconclusive', 'count gate: ' + '; '.join(why)
+    if dropped_fraction > MAX_DROPPED_FRACTION:
+        return 'inconclusive', ('%.1f%% of bootstrap draws dropped (an arm empty in the resample), more than '
+                                '%d%%: the interval is conditioned on the survivors'
+                                % (100 * dropped_fraction, int(100 * MAX_DROPPED_FRACTION)))
+    if ci_lo is None:
+        return 'inconclusive', 'no interval'
+    if ci_lo > 0 and (adj_p is None or adj_p < alpha):
+        return 'pass', ''
+    return 'fail', ''
 
 
 def verdict(n_flagged: int, events_flagged: int, n_other: int, ci_lo: Optional[float] = None,
-            adj_p: Optional[float] = None, alpha: float = 0.05) -> str:
-    """'inconclusive' when a count gate fails (not the same as 'no effect'); else 'pass' when the
-    risk-difference interval lies above 0 (and, when given, the Holm-adjusted p < alpha); else 'fail'."""
-    if not gate_ok(n_flagged, events_flagged, n_other) or ci_lo is None:
-        return "inconclusive"
-    if ci_lo > 0 and (adj_p is None or adj_p < alpha):
-        return "pass"
-    return "fail"
+            adj_p: Optional[float] = None, alpha: float = 0.05, dates_flagged: Optional[int] = None,
+            dropped_fraction: float = 0.0) -> str:
+    """The verdict word of ``verdict_reason``."""
+    return verdict_reason(n_flagged, events_flagged, n_other, ci_lo, adj_p, alpha, dates_flagged,
+                          dropped_fraction)[0]
