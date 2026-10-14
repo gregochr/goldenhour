@@ -9204,7 +9204,7 @@ button.wf-hc.also.on:hover {
    is redeclared per line for exactly that reason; `.wf-cu-card[data-family]`'s own declaration
    (index.css above) covers only the card's own family and would paint every swatch the same
    colour without this. The fallback above only bites a family this list has not yet named — never
-   reachable today (the merge only ever pairs coastal with sun-moon), matching every other
+   reachable today (a merge pairs a coastal tide run with a sun-moon supermoon), matching every other
    `--wf-cu-accent` consumer's own fallback in this file. */
 .wf-cu-coin-line[data-family="coastal"] { --wf-cu-accent: var(--color-topic-coastal); }
 .wf-cu-coin-line[data-family="aurora"] { --wf-cu-accent: var(--color-topic-aurora); }
@@ -9420,6 +9420,48 @@ button.wf-hc.also.on:hover {
    the gold number to ~4.1:1. Gold at 18% over the card ground (#1E1712 + 6% accent, sRGB blending,
    worst accent) holds 4.81:1, and 4.63:1 even on the lighter `--color-plex-surface`. */
 .wf-cu-day[data-peak="true"]:hover:not(:disabled) { background: rgba(201, 162, 75, 0.18); }
+/* Day marks (supermoon-tide-run-plan S3): a merged entry serves `dayMarks`, drawn on the chip's third
+   line as one block line per mark (no visible separator), coloured by the mark's FAMILY token — never
+   by type name — for all seven families. A mark keeps its family colour on a gone/disabled chip, as
+   the gold peak word does (muting is by colour, never opacity). Measured AA (sRGB, WCAG 2.x), mark
+   colour on the chip ground (card + 6% accent, then 28% black): coastal 6.71, aurora 7.11, air 6.87,
+   night-sky 6.17, sun-moon 7.43, dust 5.70, eclipse 5.38 (worst host); on the no-forecast ground (card
+   alone): 6.07 / 6.43 / 6.22 / 5.59 / 6.72 / 5.16 / 4.87. "FULL MOON" does not fit a 38-40px chip on
+   one line at 7px, so the span wraps by word (no letter-spacing growth). */
+.wf-cu-day-mark,
+.wf-cu-day-month { display: block; }
+.wf-cu-day-mark[data-family="coastal"] { color: var(--color-topic-coastal); }
+.wf-cu-day-mark[data-family="aurora"] { color: var(--color-topic-aurora); }
+.wf-cu-day-mark[data-family="air"] { color: var(--color-topic-air); }
+.wf-cu-day-mark[data-family="night-sky"] { color: var(--color-topic-night-sky); }
+.wf-cu-day-mark[data-family="sun-moon"] { color: var(--color-topic-sun-moon); }
+.wf-cu-day-mark[data-family="dust"] { color: var(--color-topic-dust); }
+.wf-cu-day-mark[data-family="eclipse"] { color: var(--color-topic-eclipse); }
+/* The peak chip of a MERGED entry takes the HOST accent (border, number, 14% fill) instead of gold, so
+   the tide's peak is not drawn in the moon's gold beside a gold `full moon` mark. Unmerged rows keep
+   the gold rules above untouched. Hover is 16% (the plain chips' own hover): 20% dropped the coastal
+   number to 4.34. Measured AA, number on fill / mark on fill, for the hosts a merge can produce
+   (D10 pairs a tide run with a supermoon, so the host family is coastal or sun-moon): coastal host
+   chip 6.74, 14% fill 4.86 (coastal mark 4.86, sun-moon mark 5.38), hover 16% 4.68 (4.68 / 5.19),
+   disabled 6.12 (secondary number; marks 6.12 / 6.78); sun-moon host chip 7.43, 14% fill 5.22 (marks
+   4.71 / 5.22), hover 16% 5.01 (4.53 / 5.01), disabled 6.72. Another host family would need
+   re-measuring: dust, eclipse and night-sky fall below 4.5 on the 14% fill (4.25, 4.07, 4.54 for the
+   number). A dimmed peak keeps its accent border; its number is muted by colour like any dimmed day. */
+.wf-cu-days[data-marked="true"] .wf-cu-day[data-peak="true"] {
+  border-color: var(--wf-cu-accent, var(--color-home));
+}
+.wf-cu-days[data-marked="true"] .wf-cu-day[data-peak="true"] .wf-cu-day-dn {
+  color: var(--wf-cu-accent, var(--color-home));
+}
+.wf-cu-days[data-marked="true"] .wf-cu-day[data-peak="true"]:not(:disabled) {
+  background: color-mix(in oklch, var(--wf-cu-accent, var(--color-home)) 14%, transparent);
+}
+.wf-cu-days[data-marked="true"] .wf-cu-day[data-peak="true"]:hover:not(:disabled) {
+  background: color-mix(in oklch, var(--wf-cu-accent, var(--color-home)) 16%, transparent);
+}
+.wf-cu-days[data-marked="true"] .wf-cu-day[data-peak="true"]:disabled .wf-cu-day-dn {
+  color: var(--color-plex-text-secondary);
+}
 /* No forecast for the day: no fill, dim border, secondary text. A dimmed peak keeps its gold border
    and gold third line (hence the `:not([data-peak])` on the border: the peak rule above sets it). */
 .wf-cu-day:disabled {

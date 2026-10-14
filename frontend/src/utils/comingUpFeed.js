@@ -242,6 +242,13 @@ function withheldNote(kind, dateStr) {
  */
 export const MAX_CHIP_DAYS = 10;
 
+/**
+ * The cap for an entry that serves {@code dayMarks} (a merged tide run and supermoon): the union of
+ * the two spans can push a long run past {@link MAX_CHIP_DAYS}, and an unchipped run would fall back
+ * to its single peak door. Unmerged entries keep the ten.
+ */
+export const MAX_MARKED_CHIP_DAYS = 14;
+
 /** Whole days a span covers, both ends counted; NaN when either end is not a date. */
 function inclusiveSpanDays(startDate, endDate) {
   return daysBetween(startDate, endDate) + 1;
@@ -256,8 +263,12 @@ function inclusiveSpanDays(startDate, endDate) {
  * chip's map shows. A months-long season and a single-day entry whose action carries no date are
  * null; so is a reversed or unparseable span (never an empty list).
  *
- * <p>Each chip is {@code {date, dow, day, monthWord, dateLabel, today, gone, peak, live}}:
- * {@code peak} is the served action date (the day the card's figures describe), {@code today} the
+ * <p>Each chip is {@code {date, dow, day, monthWord, dateLabel, today, gone, peak, marks, live}}:
+ * {@code peak} is the served action date (the day the card's figures describe), {@code marks} the
+ * served {@code dayMarks} on that date ({@code [{label, family}]}, in served order, possibly empty)
+ * or null on EVERY chip of an entry that serves none — decided once per entry, so an unmerged card
+ * keeps its {@code peak} word and a merged one takes "peak" only from a served {@code peak} mark
+ * (a partial-coverage run's action date is its figures day, not a true peak), {@code today} the
  * reader's today, {@code gone} is a day before today (the forecast window reaches two days back, so
  * a passed day can still be listed, and the Map tab refuses a past date), {@code monthWord} is set
  * only on the first chip of a NEW month when the run crosses one, and {@code live} is never true for
@@ -275,7 +286,8 @@ function buildDayChips(entry, action, todayStr, forecastDates) {
   const { startDate, endDate } = entry;
   if (!startDate || !endDate) return null;
   const span = inclusiveSpanDays(startDate, endDate);
-  if (!(span >= 1 && span <= MAX_CHIP_DAYS)) return null;
+  const dayMarks = Array.isArray(entry.dayMarks) && entry.dayMarks.length > 0 ? entry.dayMarks : null;
+  if (!(span >= 1 && span <= (dayMarks ? MAX_MARKED_CHIP_DAYS : MAX_CHIP_DAYS))) return null;
   // A dateless single-day action keeps its single line: there is no served day to call the peak.
   if (span === 1 && !action.date) return null;
 
@@ -297,6 +309,9 @@ function buildDayChips(entry, action, todayStr, forecastDates) {
       today: date === todayStr,
       gone,
       peak: date === action.date,
+      marks: dayMarks
+        ? dayMarks.filter((m) => m.date === date).map(({ label, family }) => ({ label, family }))
+        : null,
       live: !gone && (known ? forecastDates.includes(date) : true),
     });
   }
@@ -342,13 +357,14 @@ function buildDayChips(entry, action, todayStr, forecastDates) {
  * An array means known: a map door is withheld when its date is not in it, so an empty array
  * withholds every one.
  *
- * <p>Every dated entry of at most {@link MAX_CHIP_DAYS} days gets {@code dayChips} instead of that
+ * <p>Every dated entry of at most {@link MAX_CHIP_DAYS} days ({@link MAX_MARKED_CHIP_DAYS} when it
+ * serves {@code dayMarks}) gets {@code dayChips} instead of that
  * single door (plan §11.25, §11.26 — an exception to §6's one action link and D8's single card
  * action): one door per day of a run, because its single door named only the peak day and left the
  * reachable days with nowhere to go, and a one-box row for a single-day entry so the same fact is
  * not drawn two ways. That includes {@code plan} entries, whose chips open the map unfiltered. So
  * this single-door withholding now serves only a map entry over the cap (the months-long NLC
- * season) or one with no served date.
+ * season, or a run longer than its cap) or one with no served date.
  * With chips the card is no longer the control, so {@code interactive}, {@code actionWithheld} and
  * {@code actionNote} are all false/null — each chip carries its own state — and {@code doorNoun}
  * names the door for the row's lead word and group label.
