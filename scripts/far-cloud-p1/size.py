@@ -58,7 +58,8 @@ PRESS_VAR = {"600": "cloud_cover_600hPa", "500": "cloud_cover_500hPa", "400": "c
 MODEL = "best_match"
 MIN_EVENTS, MIN_DATES = 80, 25          # FLAGGED region-events / distinct dates they fall on
 MIN_EVALUABLE = 30                      # below this a hypothesis is "not evaluable"
-MIN_PILOT_PAIRS = 20                    # cone-low pairs needed before a pilot can say "reliable"
+MIN_PILOT_PAIRS = 20                    # cone-low pairs, PER LEAD, needed before a pilot can say "reliable"
+PILOT_LEADS = (0, 1)                    # the population is T+0 and T+1
 PRECISION_BAR, FAILURE_BAR, RELIABLE_MAD = 0.7, 0.02, 15.0
 BLOCK_DAYS, DRAWS, BOOT_SEED = 5, 2000, 20261014
 BLOCK_SENSITIVITY = (3, 5, 7)
@@ -192,11 +193,13 @@ def src_spec(src: tuple):
     return "historical_forecast", om.PRESSURE_VARS, None
 
 
-def collect_needs(ctxs: Sequence[Ctx], pilot: bool, fc: bool = True) -> Dict[tuple, Dict[str, om.Coord]]:
+def collect_needs(ctxs: Sequence[Ctx], pilot: bool, fc: bool = True,
+                  leads: Optional[Sequence[int]] = None) -> Dict[tuple, Dict[str, om.Coord]]:
     """(source, day) -> {grid cell: coord}: only what the CSV does not already hold.
 
     ``fc`` False means the forecast side is stored-only: the Historical Forecast API is not
-    requested at all (ERA5 still is)."""
+    requested at all (ERA5 still is). ``leads`` (when given) limits the forecast side to rows of
+    those leads: a lead whose fetched values were not verified reliable is never fetched."""
     needs: Dict[tuple, Dict[str, om.Coord]] = defaultdict(dict)
 
     def need(src: tuple, ctx: Ctx, coord: om.Coord) -> None:
@@ -208,7 +211,7 @@ def collect_needs(ctxs: Sequence[Ctx], pilot: bool, fc: bool = True) -> Dict[tup
         need(("era5",), c, c.pts[320])
         if num(r.get("cv_far_mid_cloud")) is None or num(r.get("cv_far_high_cloud")) is None:
             need(("era5",), c, c.pts[226])
-        if not fc:
+        if not fc or (leads is not None and c.lead not in leads):
             continue
         need(("fc",), c, c.pts[165])
         need(("fc",), c, c.pts[320])
@@ -522,23 +525,54 @@ def pilot_report(ctxs: Sequence[Ctx], values: dict) -> dict:
         rep[name] = {"n": len(diffs), "median_abs_diff": statistics.median(diffs),
                      "within10": sum(d <= 10 for d in diffs) / len(diffs),
                      "within20": sum(d <= 20 for d in diffs) / len(diffs)}
-    cone = rep.get("cone low (mean of 3)")
-    if cone is None or cone["n"] < MIN_PILOT_PAIRS:
-        rep["_verdict"] = "unknown"
-        rep["_note"] = (f"fewer than {MIN_PILOT_PAIRS} comparable cone-low pairs "
-                        f"({0 if cone is None else cone['n']}): fetched forecast values are NOT used")
-    elif cone["median_abs_diff"] > RELIABLE_MAD:
-        rep["_verdict"] = "UNRELIABLE"
-        rep["_note"] = f"cone low median abs diff {cone['median_abs_diff']:.1f} pp > {RELIABLE_MAD:g}"
-    else:
+    # The verdict is per lead and fails closed: a T+1 row's fetched day-0 value is a LATER forecast than
+    # production's, so well-aligned T+0 pairs must never vouch for it (Codex review of #1166).
+    by_lead = {}
+    for lead in PILOT_LEADS:
+        e = rep.get(f"cone low (mean of 3), T+{lead} rows")
+        if e is None or e["n"] < MIN_PILOT_PAIRS:
+            by_lead[lead] = "unknown"
+        elif e["median_abs_diff"] > RELIABLE_MAD:
+            by_lead[lead] = "UNRELIABLE"
+        else:
+            by_lead[lead] = "reliable"
+    rep["_by_lead"] = {str(k): v for k, v in by_lead.items()}
+    vs = set(by_lead.values())
+    if vs == {"reliable"}:
         rep["_verdict"] = "reliable"
-        rep["_note"] = f"cone low median abs diff {cone['median_abs_diff']:.1f} pp <= {RELIABLE_MAD:g}"
+    elif "reliable" in vs:
+        rep["_verdict"] = "PARTIAL"
+    elif "UNRELIABLE" in vs:
+        rep["_verdict"] = "UNRELIABLE"
+    else:
+        rep["_verdict"] = "unknown"
+    parts = []
+    for lead in PILOT_LEADS:
+        e = rep.get(f"cone low (mean of 3), T+{lead} rows")
+        if e is None or e["n"] < MIN_PILOT_PAIRS:
+            parts.append(f"T+{lead}: fewer than {MIN_PILOT_PAIRS} comparable cone-low pairs "
+                         f"({0 if e is None else e['n']}), fetched values NOT used")
+        else:
+            parts.append(f"T+{lead}: cone low median abs diff {e['median_abs_diff']:.1f} pp "
+                         f"{'<=' if by_lead[lead] == 'reliable' else '>'} {RELIABLE_MAD:g} ({by_lead[lead]})")
+    rep["_note"] = "; ".join(parts)
     return rep
 
 
-def forecast_side_reliable(verdict_value: Optional[str]) -> bool:
-    """Fail closed: only an explicit 'reliable' verdict allows fetched forecast values."""
-    return verdict_value == "reliable"
+def reliable_leads(pilot_json) -> set:
+    """Leads whose own pilot verdict is exactly 'reliable'. Fail closed: a file without a per-lead
+    block (an older pilot.json, or anything malformed) allows no lead."""
+    by_lead = pilot_json.get("_by_lead") if isinstance(pilot_json, dict) else None
+    if not isinstance(by_lead, dict):
+        return set()
+    out = set()
+    for k, v in by_lead.items():
+        if v == "reliable":
+            try:
+                out.add(int(k))
+            except (TypeError, ValueError):
+                pass
+    return out
 
 
 # ---------------------------------------------------------------------------------- report
@@ -563,7 +597,9 @@ def render(info: dict) -> str:
           f"- passing the cone gate (solar_low_cloud < {CONE_GATE:g} at >= half the locations): {info['n_gated']}",
           f"- sampled region-events: {info['n_sampled']} (weights applied: {info['weighted']}); "
           f"locations fetched: {info['n_locs']}",
-          f"- forecast side: {'stored values + fetched Historical Forecast day-0 values (a T+1 row compares against the later run, not the one production saw)' if info['fc_fetched'] else 'STORED values only (fetched forecast not verified reliable, or unavailable)'}",
+          f"- forecast side: {'stored values + fetched Historical Forecast day-0 values (a T+1 row compares against the later run, not the one production saw)' if info['fc_fetched'] else 'STORED values only (fetched forecast not verified reliable, or unavailable)'}"
+          + (f" (fetched for lead(s) T+{', T+'.join(str(x) for x in info['fc_leads'])} only)"
+             if info.get("fc_fetched") and info.get("fc_leads") not in (None, list(PILOT_LEADS)) else ""),
           f"- API: {info['summary']}", ""]
     if info.get("pilot_rep"):
         L += ["## Calibration pilot (fetched forecast vs stored)", "",
@@ -572,9 +608,9 @@ def render(info: dict) -> str:
             if k.startswith("_"):
                 continue
             L.append(f"| {k} | {v['n']} | {v['median_abs_diff']:.1f} | {pct(v['within10'])} | {pct(v['within20'])} |")
-        L += ["", f"15 pp reliability verdict (cone low median abs diff > {RELIABLE_MAD:g}): "
+        L += ["", f"15 pp reliability verdict, per lead (cone low median abs diff > {RELIABLE_MAD:g}): "
               f"**{info['pilot_rep']['_verdict']}** ({info['pilot_rep'].get('_note', '')}). "
-              "Only an explicit 'reliable' lets the full run use fetched forecast values.", ""]
+              "Only a lead that is explicitly 'reliable' on its own pairs gets fetched forecast values.", ""]
     L += ["## H1-H5 (pooled, then sunrise first)", ""]
     L += ["| H | slice | evaluable events | dates | flagged (events/dates) | observed | precision (Wilson) | recall (bootstrap CI) | base rate | lift (block-bootstrap CI) | failure pop / all prompted |",
           "|---|---|---|---|---|---|---|---|---|---|---|"]
@@ -633,20 +669,25 @@ def run(rows: Sequence[dict], client: om.Client, *, seed: int = DEFAULT_SEED, ca
         for e in sampled:
             ctx_by_ev[e["key"]] = [c for c in ctx_by_ev[e["key"]] if id(c) in keep]
         sampled = [e for e in sampled if ctx_by_ev[e["key"]]]
-    needs = collect_needs(all_ctx, bool(pilot), fc=fc_reliable or bool(pilot))
+    # fc_reliable: True (all leads), False (none) or the set of leads whose fetched values may be used
+    allowed = set(PILOT_LEADS) if fc_reliable is True else (set() if not fc_reliable else set(fc_reliable))
+    needs = collect_needs(all_ctx, bool(pilot), fc=bool(allowed) or bool(pilot),
+                          leads=None if pilot else allowed)
     values = fetch_needs(needs, client)
     info = {"n_training_excluded": len(training), "n_prompted": len(events), "n_gated": len(gated), "n_sampled": len(sampled),
             "n_locs": len(all_ctx), "weighted": any(e["weight"] != 1.0 for e in sampled),
-            "seed": seed, "pilot": pilot, "commit": commit, "fc_fetched": fc_reliable,
+            "seed": seed, "pilot": pilot, "commit": commit, "fc_fetched": bool(allowed),
+            "fc_leads": sorted(allowed),
             "summary": client.summary(), "needs": sum(len(v) for v in needs.values())}
     if plan_only:
         return info
     if pilot:
         info["pilot_rep"] = pilot_report(all_ctx, values)
-        info["fc_fetched"] = fc_reliable = forecast_side_reliable(info["pilot_rep"]["_verdict"])
+        allowed = reliable_leads(info["pilot_rep"])
+        info["fc_fetched"], info["fc_leads"] = bool(allowed), sorted(allowed)
     evs = []
     for e in sampled:
-        rds = [readings(c, values, fc_reliable) for c in ctx_by_ev[e["key"]]]
+        rds = [readings(c, values, c.lead in allowed) for c in ctx_by_ev[e["key"]]]
         evs.append({"date": e["date"], "type": e["type"], "weight": e["weight"], "out": event_outcomes(e, rds)})
     info["stats"] = {}
     for h in HNAMES:
@@ -697,24 +738,28 @@ def main(argv: Optional[Sequence[str]] = None, client: Optional[om.Client] = Non
                     help="forecast side: auto uses fetched values ONLY if out/pilot.json says 'reliable'")
     a = ap.parse_args(argv)
     rows = load_rows(a.csv)
-    fc_reliable = True
+    fc_reliable = True            # True = every lead; a set = only those leads
     pj = os.path.join(a.out, "pilot.json")
     if a.forecast == "stored":
         fc_reliable = False
     elif a.forecast == "fetched":
         print("WARNING: --forecast fetched overrides the pilot verdict")
     elif not a.pilot:       # auto: fail closed
-        verdict_value = None
+        pilot_json = None
         if os.path.exists(pj):
             try:
                 with open(pj) as f:
-                    verdict_value = json.load(f).get("_verdict")
+                    pilot_json = json.load(f)
             except (OSError, ValueError):
-                verdict_value = None
-        fc_reliable = forecast_side_reliable(verdict_value)
+                pilot_json = None
+        fc_reliable = reliable_leads(pilot_json)
         if not fc_reliable:
-            print(f"forecast side: stored values only (pilot verdict: {verdict_value!r}; need an explicit "
-                  f"'reliable' in {pj})")
+            verdict_value = pilot_json.get("_verdict") if isinstance(pilot_json, dict) else None
+            print(f"forecast side: stored values only (pilot verdict: {verdict_value!r}; need a lead "
+                  f"explicitly 'reliable' in the per-lead block of {pj})")
+        elif fc_reliable != set(PILOT_LEADS):
+            print(f"forecast side: fetched values for T+{', T+'.join(str(x) for x in sorted(fc_reliable))} "
+                  f"only; the other lead uses stored values")
     planning = a.plan or a.dry_run
     kw = dict(seed=a.seed, cap=a.cap, pilot=a.pilot, fc_reliable=fc_reliable, commit=a.commit)
     try:

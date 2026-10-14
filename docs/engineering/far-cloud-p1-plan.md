@@ -189,7 +189,12 @@ only what is missing:
 - It would select against the heterogeneous skies that are the target case.
 - Instead, a **calibration pilot of 100 rows** fetches the stored fields too and reports how fetched
   values differ from stored ones: the median absolute difference, and the share within 10 and 20 pp.
-- If the median absolute difference exceeds 15 pp on cone low, the fetched forecast side is labelled
+- The verdict is **per lead** and fails closed: T+0 and T+1 rows are judged on their own cone-low pairs
+  (at least 20 each), and a lead is allowed fetched values only if its own median absolute difference
+  is within 15 pp. Well-aligned T+0 pairs never vouch for T+1 rows, whose fetched day-0 value is a
+  later forecast than production's (§7, §11). A lead with too few pairs is "unknown" and uses stored
+  values.
+- If the median absolute difference for a lead exceeds 15 pp on cone low, its fetched forecast side is labelled
   unreliable, and H1–H4 are reported on ERA5 alone until V175 capture fills the forecast side.
 
 **Sample.**
@@ -358,8 +363,9 @@ Whatever the outcome, the figures and reasons are written into the parent plan.
   issued the day before. For a T+0 row that is close to what production saw (an intraday run is about
   2–3 hours from its sunset). For a T+1 row it is a **later and better** forecast than the one
   production used, so H1–H4 on fetched T+1 values understate how wrong the forecast was. The pilot
-  reports the cone-low disagreement per lead (`[T+0 rows]`, `[T+1 rows]`) so the size of that gap is
-  visible; the prospective V175/V176 capture removes it.
+  reports the cone-low disagreement per lead (`[T+0 rows]`, `[T+1 rows]`) and gates each lead on its own
+  figure, so a T+1 row only reads fetched values if the T+1 pairs themselves are within 15 pp; the
+  prospective V175/V176 capture removes the gap.
 - About 40 dates of rated history, so most Part B comparisons will be wide, or inconclusive.
 
 ## 8. Build (task cards for subagents)
@@ -463,7 +469,7 @@ values. All five probed models serve it from the export start.
   a T+1 row the stored value (V175 onward) is still preferred and is the day-before run production
   used. Fetched T+1 values are the limit named in §7. They bias H1–H4 towards the forecast agreeing
   with ERA5 for T+1 rows pre-V175, which can only make a far deck look **less** wrong than it was
-  at T+1. The decisive H1, H2 and H5 run stays the prospective one (§2 Part C), which reads stored
+  at T+1; the per-lead pilot verdict keeps them out unless their own pairs are within 15 pp. The decisive H1, H2 and H5 run stays the prospective one (§2 Part C), which reads stored
   values only and is unaffected.
 - **No hypothesis is dropped.** The affected evidence is T+1 rows before V175 on the fetched side of
   H1–H4, reported separately per lead by the pilot.

@@ -147,7 +147,8 @@ python3 size.py p1_forecasts.csv --yes               # full run: writes out/part
 ```
 
 Without `--yes` a live run refuses and prints the exact command. The budget is per day: when it stops
-(exit 2), re-run the same command later and it resumes from `cache/`. Read `out/pilot.md` before the full run.
+(exit 2), re-run the same command later and it resumes from `cache/`. Read `out/pilot.md` before the full run. The pilot's reliability verdict is **per lead** (T+0 and T+1 each need 20 comparable pairs within 15 pp):
+`size.py` then fetches forecast values only for the leads marked reliable and uses stored values for the rest.
 
 ## 7. Send back to Claude
 
