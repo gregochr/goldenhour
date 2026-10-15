@@ -1686,6 +1686,17 @@
   gap: 5px;
   position: relative;
   overflow: visible;
+  /* The card is a SIZE CONTAINER for the Spread row's stacked state (spread-row-plan.md §2 #2,
+     `@container wf-card` in the value-grid block): the row switches layout on the width of THE CARD,
+     never on its content, because every card in a grid row shares one width and so makes the SAME
+     decision — a content-driven wrap would let two neighbours' Best rows land on different baselines.
+     `inline-size` only: the card's height is still its content's. The tracks above are
+     `minmax(0, 1fr)`, so the card's min-content width (which this containment zeroes) never set a
+     column floor in the first place. ⚠️ Layout containment makes the card a stacking context and the
+     containing block for fixed descendants; the pick legend (`top: -8px`, absolute) and the hover
+     `transform` below are both unaffected — measured in the §7 fixture, not reasoned. */
+  container-type: inline-size;
+  container-name: wf-card;
   transition: border-color 0.14s ease, background 0.14s ease, transform 0.12s ease;
 }
 /* Tailwind v4's Preflight no longer restores `cursor: pointer` on `button` — the gap this file has
@@ -1937,7 +1948,9 @@ button.wf-hc.on:hover {
 }
 /* ── The value grid ───────────────────────────────────────────────────────────────────────────
    Label left, value right, four rows at a shared minimum height so every card's rows land on the
-   same baselines however much any one of them has to say. */
+   same baselines however much any one of them has to say. (The Spread row is the one exception to
+   the two-column shape: it spans both columns and takes its height from `--wf-hc-well` — the
+   wrapper block below.) */
 .wf-hc-pls {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -2059,6 +2072,100 @@ button.wf-hc.on:hover {
    MEASURED (headless Chromium, the built stylesheet, the real faces): the row is 20.0px on one line
    for WORTH_IT, MAYBE and UNRATED at every viewport above, and the Spread and Best rows sit at
    y = 56 and y = 80 in an UNRATED card and in a WORTH_IT card alike, in the same row of cards. */
+/* ── The Spread row's wrapper (spread-row-plan.md §2 #2, S2) ────────────────────────────────
+   The label now has a second line — "Spread" over "(within 45m)" — and a longer label in the grid's
+   shared `auto` column would widen it and push the `5★ <name>` row below out of shape (the spec's own
+   regression note). So the row is one grid child spanning BOTH columns, and its two children are
+   laid out by the wrapper instead: label left, value right, 8px apart. Both states (bars, and the
+   below-gate note) live inside it, so the pool label is drawn in both.
+
+   ⚠️ SPECIFICITY, the trap this block already documents. `.wf-hc-pls > span` above is (0,1,1) and
+   reaches the WRAPPER (a direct child) but not its two children (grandchildren), which therefore lose
+   the `display: flex; align-items: center; min-width: 0` they used to inherit from it — the nested
+   `.wf-hc-pv` keeps its `justify-content: flex-end` only while it IS a flex container, and without
+   `display: flex` the histogram sits at the LEFT of its line in the stacked state. So every rule
+   here is written through `.wf-hc-pls > .wf-hc-sprow` ((0,2,0) for the wrapper, (0,2,1) for the
+   children's shared rule, (0,3,0) for the label's and the value cell's own overrides of it).
+
+   ⚠️ ONE FIGURE for the row's height. `--wf-hc-col` is the count column (25px: a 13px bar, the 2px
+   gap and the 9px count, with a pixel to spare) and `--wf-hc-well` is the dark well that holds it
+   (the column plus the well's 3px of vertical padding). The wrapper's `min-height`, the nested value
+   cell's `min-height` and the well's `height` all read `--wf-hc-well`, so the three cannot drift.
+   The value cell must reserve it in the text state too: `.wf-hc-hist-note` is one 10px line, and the
+   nested cell no longer inherits the grid's 20px minimum, so two neighbours on opposite sides of the
+   minimum-sample gate (one drawing bars, one printing `124/253 rated`) would otherwise differ by
+   ~15px and their Best rows would part. The note sits vertically centred in it, as the grid's own
+   `align-items: center` centred it before.
+
+   Two states, decided by the CARD's width (`@container wf-card`, below), never by content: side by
+   side where the card is wide enough, STACKED — label line, then the histogram on its own
+   right-aligned line — where it is not (§1 #7: this grid is 112–169px wide at eight of its nine
+   measured shell geometries — S2's §7 fixture — and the histogram plus the longest qualifier needs
+   155px at one-character counts). The query measures the container's CONTENT box (the card less its
+   1px border and 6px padding each side), which is the value grid's own width. 205px was sized for
+   the widest histogram the clamp allows before the `.sm` give-back below (four-character counts,
+   122px, beside the longest qualifier 73px and the 8px gap: 203px); with the give-back that card
+   needs 114px (195px beside the label), so 205 now carries about 10px of slack — deliberately left,
+   since the three-character case (113.6px, 194.6px beside the label) sits just under it. Retuning
+   `.sm`, the 17px column maximum or the type changes these figures; this threshold and its test
+   move with them. */
+.wf-hc-pls > .wf-hc-sprow {
+  --wf-hc-col: 25px;
+  --wf-hc-well: calc(var(--wf-hc-col) + 3px);
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--wf-hc-well);
+}
+.wf-hc-pls > .wf-hc-sprow > span {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.wf-hc-pls > .wf-hc-sprow > .wf-hc-pv {
+  min-height: var(--wf-hc-well);
+}
+/* The two-line label: "Spread" over its qualifier, left-aligned, the pair centred in the row.
+   ⚠️ `min-height: 21px` is RESERVED whether or not the qualifier is drawn (two 8.5px lines at 1.15
+   plus the 1px gap), and `justify-content: center` keeps the lone word where its first line would
+   be. Two neighbours in one STACKED row can legitimately disagree on the qualifier (one pool wholly
+   measured, the other holding an unknown drive — `spreadQualifier`), and `.wf-hc` is a top-packed
+   flex column: a one-line label beside a two-line one would put their Best rows a line apart.
+   `flex: none` so the value cell gives way (it clips inside itself) and the label never wraps. */
+.wf-hc-pls > .wf-hc-sprow > .wf-hc-sk {
+  flex: none;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 1px;
+  min-height: 21px;
+  line-height: 1.15;
+}
+/* The qualifier — "(within 45m)" — the same type as "Spread" at a tighter tracking, never wrapped.
+   `font-size` is stated because Tailwind's preflight sets `small { font-size: 80% }`. The text is the
+   parenthesised string from the markup, uppercased by the inherited `text-transform` like its label. */
+.wf-hc-sk small {
+  font-size: 8.5px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+/* STACKED (spread-row-plan.md §2 #2, §4 #10): below a 205px card the histogram takes its own line,
+   right-aligned. ON TOP OF the base rules above — the nested value cell keeps its
+   `justify-content: flex-end` only because `.wf-hc-pls > .wf-hc-sprow > span` made it a flex
+   container. The row-gap is 2px (the base `gap: 8px` is for the side-by-side column gap); the row
+   is then ~21 + 2 + 28px, and every card in a grid row grows together because they share a width. */
+@container wf-card (max-width: 205px) {
+  .wf-hc-pls > .wf-hc-sprow {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+  .wf-hc-pls > .wf-hc-sprow > .wf-hc-pv {
+    flex-basis: 100%;
+    margin-left: auto;
+  }
+}
 /* The spread histogram: five bars, one per star band, heights proportional to the tallest band.
    A lone spike on the right reads "one good spot, drive to it"; a right-weighted block reads "the
    whole area is on" — which two averaged digits could never say. Bar colours are the ramp's, set
@@ -2081,41 +2188,113 @@ button.wf-hc.on:hover {
    graphical object conveying information, and what 1.4.11 measures here is the bar against what
    surrounds it. Alphas are set inline in the component beside the ramp call that needs them.
 
-   `cursor: help` because the exact per-band counts are in the `title`; the pool total, the remainder
-   and the best-reach figures are all in the card's own accessible sentence, so nothing a reader acts
-   on is pointer-only. */
+   `cursor: help` because the `title` still carries the full per-band sentence (the counts under the
+   bars are its short form, §2 #7); the pool total, the non-zero band counts, the remainder and the
+   best-reach figures are all in the card's own accessible sentence, so nothing a reader acts on is
+   pointer-only. */
 .wf-hc-hist {
   display: flex;
   align-items: flex-end;
   gap: 2px;
-  height: 16px;
-  padding: 0 3px 1px;
+  height: var(--wf-hc-well);
+  padding: 1px 3px 2px;
   border-radius: 3px;
   background: var(--color-heat-sea);
   flex: none;
   cursor: help;
 }
+/* One COLUMN per bar (spread-row-plan.md §2 #3): the bar over its count, bottom-aligned so every
+   bar's foot lands on one line whatever its height. The width is the CARD's own, `--cw`, set inline
+   from `spreadCountLayout` (one value for all six columns, so the bars stay evenly spaced whatever
+   the longest count is). The column is one flex item of the well, so the well's 2px `gap` is the
+   spacing between bands. (0,2,0) — `.wf-hc-hist i` below is (0,1,1) and these are different elements,
+   but the habit of this block is one specificity per property across a rule family. */
+.wf-hc-hist .wf-hc-hb {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  width: var(--cw, 9px);
+  height: var(--wf-hc-col);
+  flex: none;
+}
+/* The unrated remainder's COLUMN carries the wider gap, not its bar. `margin-right` stacks on the
+   well's own 2px `gap`, so the hatched column sits 6px from 1★ against 2px between bands — the one
+   spacing cue that marks it as a different KIND of bar (A27 Part 2). ⚠️ It used to sit on the `<i>`;
+   inside a fixed-width column the margin would be spent inside the column (absorbed by
+   `width: var(--cw)`) and the next column would stay the ordinary 2px away. Same two-class form as
+   the bar's own rule, for the same specificity reason. `spreadColumnWidthPx`'s arithmetic
+   (`6×cw + 5×2 + 4`) already counts this 4px between OUTER items. */
+.wf-hc-hist .wf-hc-hb-unrated {
+  margin-right: 4px;
+}
+/* The bar. 7px, up from 5px (§4 #1) — wide enough to read as a bar over a column of count text, and
+   the hatched bar's width too (it used to be set on the unrated rule alone). `min-height: 1px` is
+   the empty band's hairline floor. */
 .wf-hc-hist i {
-  width: 5px;
+  width: 7px;
   border-radius: 1px;
   min-height: 1px;
   display: block;
 }
+/* The counts (§2 #3, #4): mono, 9px/600, one line, tightened tracking so a three-digit count fits
+   the 15.6px column. SECONDARY ink for every count, zero included — the spec's muted `--ink-3` at
+   .6 maps to `--color-plex-text-muted` (rgba(242,231,211,.42)), which composites over the well at
+   ~3.55:1, under the 4.5:1 AA asks of 9px text, so a ZERO count is quietened by WEIGHT (400 against
+   600) and never by a lighter ink (§4 #6). `.sm` (set when some count is four characters, e.g.
+   `1.2k`) drops to 7.5px and a tighter tracking so the longest count still fits the 17px column.
+   The specificities line up on purpose: the zero-count and `.sm` rules are (0,2,1), above the base
+   (0,1,1), and set disjoint properties, so a four-character zero count takes both. */
+.wf-hc-hist em {
+  font-family: var(--font-mono);
+  font-style: normal;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.06em;
+  white-space: nowrap;
+  color: var(--color-plex-text-secondary);
+}
+.wf-hc-hist.sm em {
+  font-size: 7.5px;
+  letter-spacing: -0.1em;
+}
+/* ⚠️ The four-character card gives its edges back (plan §6 Q4's own remedy, applied because the §7
+   measurement showed the first estimate short): the well's 3px side padding and 2px of the hatched
+   column's 4px gap. The stacked histogram's line is only the card's content width — 112px at a 320px
+   viewport, not the 116 the plan first assumed — and a `1.2k` card needs 122px, so without this the
+   value cell (`overflow: hidden`, content pushed to its right edge) cuts 10px off the hatched
+   column's leading edge: the "1" goes and the count reads ".2k", a sixth of the figure it is. With it
+   the row needs 114px: 2px is still cut, from the hatched column's own leading edge — about 1px of
+   its blank margin (a 15px count in a 17px column) and a sliver of the "1", legible in the §7
+   screenshot. Only under `.sm`:
+   every card with counts up to three characters keeps the padding and the full 4px gap. (0,2,0) and
+   (0,3,0), above the base well rule and the unrated column's own (0,2,0). */
+.wf-hc-hist.sm {
+  padding-inline: 0;
+}
+.wf-hc-hist.sm .wf-hc-hb-unrated {
+  margin-right: 2px;
+}
+.wf-hc-hist .wf-hc-hb-zero em {
+  font-weight: 400;
+}
 /* The unrated remainder's own bar (minimum-sample rule Part 2, 2026-09-29) — to the LEFT of 1★, so
    a tall bar never sits at the reading's right edge (under-reporting is this project's safe
    direction: a bar that READS as good news at a glance belongs nowhere near "most of this pool is
-   unlooked-at"). `margin-right` stacks on top of `.wf-hc-hist`'s own 2px flex `gap`, giving this one
-   gap 6px total — visibly wider than the 2px between the five bands, which is what marks it as a
-   different KIND of bar rather than a sixth band.
+   unlooked-at"). The wider gap that marks it as a different KIND of bar rather than a sixth band
+   (6px against the 2px between bands) is carried by its COLUMN, `.wf-hc-hb-unrated` above, since
+   S2 put every bar inside a fixed-width column; its 7px width is the shared bar's.
 
    ⚠️ THE SELECTOR IS `.wf-hc-hist .wf-hc-hist-unrated`, not the bare class, and this is load-bearing,
-   not decoration. `.wf-hc-hist i` (below) is a class-plus-type selector, specificity (0,1,1); the
-   bare class `.wf-hc-hist-unrated` is (0,1,0) — LOWER — so `width: 7px` here would lose to that
-   rule's `width: 5px` regardless of source order, and did in the first cut of this fix (caught by
-   loading the page and reading `getComputedStyle`, not by re-reading the CSS). The two-class
-   descendant form is (0,2,0), which clears it. `margin-right` and `background` are not actually
-   contested by `.wf-hc-hist i` (which sets neither), but the selector is written this way
-   throughout for one rule rather than mixing specificities across one element's properties.
+   not decoration. `.wf-hc-hist i` (above) is a class-plus-type selector, specificity (0,1,1); the
+   bare class `.wf-hc-hist-unrated` is (0,1,0) — LOWER — so any property both rules set (it used to
+   be `width`, which lost to the bar's regardless of source order and did in the first cut of this
+   fix, caught by loading the page and reading `getComputedStyle`) would be decided by the wrong
+   rule. The two-class descendant form is (0,2,0), which clears it; today only `background` is set
+   here, uncontested, but the selector is written this way throughout for one rule rather than mixing
+   specificities across one element's properties.
 
    ⚠️ THE ANGLE MUST MATCH THE CANVAS, and 45deg does not — verified 2026-09-29 with a side-by-side
    canvas/CSS comparison (`moveTo(x, h)` → `lineTo(x + h, 0)`, `heatField.js`'s own hatchPlate loop):
@@ -2140,8 +2319,6 @@ button.wf-hc.on:hover {
    2px stripe are a defensive margin for a lower ratio's coarser rasterisation, reasoned rather than
    screenshotted at DPR 1. See the plan-matrix-plan.md A27 update for what was actually seen. */
 .wf-hc-hist .wf-hc-hist-unrated {
-  width: 7px;
-  margin-right: 4px;
   background: repeating-linear-gradient(
     -45deg,
     rgba(242, 231, 211, 0.45) 0,
@@ -2159,10 +2336,11 @@ button.wf-hc.on:hover {
    shared class would let an unrelated future edit to the Best row silently retint or reweight this
    one, which is a different row answering a different question.
 
-   ⚠️ `white-space: nowrap`, never a wrap. The row reserves `min-height: 20px`
-   (`.wf-hc-pls > span`) for ONE line — unlike `.wf-hc-best`'s own `text-wrap: pretty`, which lives
-   in a slot (`.wf-hc-pv2`) built to absorb a second line. A wrapped Spread row grows past its
-   neighbours' and pushes every row below it out of alignment across the card grid.
+   ⚠️ `white-space: nowrap`, never a wrap. The row reserves ONE line (and, since S2, the well's
+   height around it: `.wf-hc-sprow > .wf-hc-pv`'s `min-height`, so this note and a neighbour's bars
+   take the same room) — unlike `.wf-hc-best`'s own `text-wrap: pretty`, which lives in a slot
+   (`.wf-hc-pv2`) built to absorb a second line. A wrapped Spread row grows past its neighbours' and
+   pushes every row below it out of alignment across the card grid.
 
    ⚠️ `font-size: 10px`, one size down from the card's other value text, and NEITHER escalation the
    review offered was enough alone — both are applied together. Measured in the real card grid (not
