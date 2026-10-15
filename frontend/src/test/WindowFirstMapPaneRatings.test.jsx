@@ -134,6 +134,8 @@ describe('WindowFirstMapPane — the reader\'s outcome ratings', () => {
     expect(ratings.mine.get('7|2026-08-10|SUNSET').rating).toBe(4);
     expect(typeof ratings.rate).toBe('function');
     expect(typeof ratings.clearSaveError).toBe('function');
+    expect(ratings.covers('2026-08-10')).toBe(true);
+    expect(ratings.covers('2026-08-01')).toBe(false);
   });
 
   it('a Pro reader\'s rate() PUTs; the object is handed through so MapView and the callout write through it', async () => {

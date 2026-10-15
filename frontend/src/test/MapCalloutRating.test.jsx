@@ -100,10 +100,12 @@ const KEY = rowKey(LOCATION.id, YESTERDAY, 'SUNSET');
 
 /** What `useOutcomeRatings` returns, with `rate`/`clearSaveError` spied. */
 function ratingsFor({
-  mine = [], saving = [], saveError = [], loaded = true,
+  mine = [], saving = [], saveError = [], loaded = true, coversDate = null,
 } = {}) {
   return {
     loaded,
+    // Which dates' ratings have been read — by default, every date once `loaded`.
+    covers: coversDate ?? (() => loaded),
     canRate: true,
     mine: new Map(mine),
     saving: new Set(saving),
@@ -180,6 +182,7 @@ describe('MapCallout — the rating block\'s mount condition', () => {
     ['an unrecognised role', { userRole: 'GUEST' }],
     ['the reader\'s ratings are not offered (null)', { ratings: null }],
     ['the reader\'s ratings have not loaded', { ratings: ratingsFor({ loaded: false }) }],
+    ['the reader\'s ratings for THIS window\'s date have not been read (an older day just landed)', { ratings: ratingsFor({ coversDate: (date) => date > YESTERDAY }) }],
     ['the window has not passed (a live or filler row)', { event: { ...PAST_EVENT, past: undefined } }],
     ['the window is a night', { event: { ...PAST_EVENT, id: `astro:${YESTERDAY}:ASTRO`, kind: 'astro', eventType: 'ASTRO' } }],
   ])('does not mount when %s', async (_name, props) => {

@@ -59,6 +59,7 @@ export function rowKey(locationId, date, eventType) {
  *   saving: Set<string>,
  *   saveError: Set<string>,
  *   loaded: boolean,
+ *   covers: function(string): boolean,
  *   canRate: boolean,
  *   rate: function(number, string, string, ?number): Promise<boolean>,
  *   clearSaveError: function(string): void
@@ -75,7 +76,9 @@ export function useOutcomeRatings({
   const [mine, setMine] = useState(() => new Map());
   const [saving, setSaving] = useState(() => new Set());
   const [failed, setFailed] = useState(() => new Set());
-  const [loaded, setLoaded] = useState(false);
+  // The range a read has landed for. A date outside it has NOT been read: its absent keys mean
+  // "not asked yet", never "unrated".
+  const [loadedRange, setLoadedRange] = useState(null);
 
   // The refs hold what an async continuation must read fresh; the state is what renders.
   const mineRef = useRef(mine);
@@ -151,10 +154,10 @@ export function useOutcomeRatings({
         if (local) fresh.set(key, local); else fresh.delete(key);
       }
       commitMine(fresh);
-      setLoaded(true);
+      setLoadedRange({ from: readFrom, to: readTo });
     }).catch(() => {
       // A failed read says nothing about what was rated; the block stays usable, the PUT is an upsert.
-      if (settle()) setLoaded(true);
+      if (settle()) setLoadedRange({ from: readFrom, to: readTo });
     });
     return undefined;
   }, [rewound, readFrom, readTo, readRefresh, commitMine]);
@@ -208,15 +211,30 @@ export function useOutcomeRatings({
     }
   }, [commitMine, flag, touch]);
 
+  /**
+   * Whether the reader's ratings for an event date have been read. Not the same as {@code loaded}: an
+   * older day that lands after the first read widens the range, and until that range's own read
+   * returns, a slot there has no record HERE only because nobody has asked — a block offered for it
+   * would show an empty grid over a rating the reader may already have made, and a tap would
+   * overwrite it. A failed read counts as read (the PUT is an upsert and nothing better is known); a
+   * LITE reader, who cannot write, needs only the first read.
+   */
+  const covers = useCallback((date) => {
+    if (rewound || loadedRange == null) return false;
+    if (isLite) return true;
+    return date >= loadedRange.from && date <= loadedRange.to;
+  }, [rewound, isLite, loadedRange]);
+
   const clearSaveError = useCallback((key) => flag(setFailed, key, false), [flag]);
 
   return useMemo(() => ({
     mine: rewound ? emptyMine : mine,
     saving,
     saveError: failed,
-    loaded: rewound ? false : loaded,
+    loaded: !rewound && loadedRange != null,
+    covers,
     canRate,
     rate,
     clearSaveError,
-  }), [rewound, emptyMine, mine, saving, failed, loaded, canRate, rate, clearSaveError]);
+  }), [rewound, emptyMine, mine, saving, failed, loadedRange, covers, canRate, rate, clearSaveError]);
 }

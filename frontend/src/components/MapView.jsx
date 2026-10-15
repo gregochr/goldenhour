@@ -7486,6 +7486,7 @@ MapView.propTypes = {
    */
   outcomeRatings: PropTypes.shape({
     loaded: PropTypes.bool,
+    covers: PropTypes.func,
     mine: PropTypes.instanceOf(Map),
     saving: PropTypes.instanceOf(Set),
     saveError: PropTypes.instanceOf(Set),

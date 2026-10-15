@@ -300,7 +300,7 @@ function kindShort(event) {
  *        the rating block (outcome-rating-plan.md §2 #5); null mounts none
  * @param {?object} [props.ratings] `hooks/useOutcomeRatings.js`'s return value, or null when the reader
  *        has none to offer (a rewind, the overlay, no hook mounted). The block mounts only on a past
- *        window (`event.past`), for a sky location, once `ratings.loaded`, and only when THIS place's
+ *        window (`event.past`), for a sky location, once `ratings.covers(event.date)` (that date's ratings have been read), and only when THIS place's
  *        own forecast row for the window has an event time that has passed by the afterglow rule
  *        (`placePassed`): never from `event.past` alone, which is decided on the roster's EARLIEST
  *        time, and never for a place with no row or no time — the server's per-place check would
@@ -446,7 +446,7 @@ export default function MapCallout({
   const ratingKey = event?.kind === 'solar' && location?.id != null
     ? rowKey(location.id, event.date, event.eventType) : null;
   const ratingRoleKnown = userRole === 'ADMIN' || userRole === 'PRO_USER' || userRole === 'LITE_USER';
-  const showRating = ratings != null && ratings.loaded && ratingKey != null && ratingRoleKnown
+  const showRating = ratings != null && ratingKey != null && ratings.covers(event.date) && ratingRoleKnown
     && Boolean(event?.past) && !isHide && getRewindTo() == null && isEventTimePast(placeEventTime);
   const myRating = showRating ? (ratings.mine.get(ratingKey) ?? null) : null;
   const ratingSaving = showRating && ratings.saving.has(ratingKey);
@@ -1244,6 +1244,7 @@ MapCallout.propTypes = {
   /** `useOutcomeRatings`'s return value, or null — see the JSDoc above. */
   ratings: PropTypes.shape({
     loaded: PropTypes.bool,
+    covers: PropTypes.func,
     mine: PropTypes.instanceOf(Map),
     saving: PropTypes.instanceOf(Set),
     saveError: PropTypes.instanceOf(Set),

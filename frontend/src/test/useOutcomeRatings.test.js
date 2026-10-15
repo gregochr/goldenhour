@@ -132,6 +132,49 @@ describe('useOutcomeRatings — the range read', () => {
   });
 });
 
+describe('useOutcomeRatings — covers(date): which dates have been READ', () => {
+  it('is false before any read lands and true for the range once it has', async () => {
+    const { result } = mount();
+    expect(result.current.covers('2026-06-14')).toBe(false);
+    await settle();
+    expect(result.current.covers('2026-06-14')).toBe(true);
+    expect(result.current.covers('2026-06-13')).toBe(true);
+    expect(result.current.covers('2026-06-15')).toBe(true);
+    expect(result.current.covers('2026-06-12')).toBe(false);
+  });
+
+  it('an older day widening the range is NOT covered until that range\'s own read lands (an absent key there means "not asked", not "unrated")', async () => {
+    const wider = deferred();
+    fetchMyRatings.mockResolvedValueOnce([]).mockReturnValueOnce(wider.promise);
+    const { result, rerender } = mount();
+    await settle();
+    rerender({
+      role: 'PRO_USER', rewound: false, from: '2026-06-12', to: '2026-06-15', refreshKey: 'a',
+    });
+    await settle();
+    // `loaded` stays true (a refresh must not blank the block), the new date is the one that waits.
+    expect(result.current.loaded).toBe(true);
+    expect(result.current.covers('2026-06-14')).toBe(true);
+    expect(result.current.covers('2026-06-12')).toBe(false);
+
+    await act(async () => { wider.resolve([ROW(7, 2)]); });
+    expect(result.current.covers('2026-06-12')).toBe(true);
+  });
+
+  it('a failed read still covers its range (the PUT is an upsert; nothing better is known)', async () => {
+    fetchMyRatings.mockRejectedValue(new Error('network'));
+    const { result } = mount();
+    await settle();
+    expect(result.current.covers('2026-06-14')).toBe(true);
+  });
+
+  it('is false for everything while rewound', async () => {
+    const { result } = mount({ rewound: true });
+    await settle();
+    expect(result.current.covers('2026-06-14')).toBe(false);
+  });
+});
+
 describe('useOutcomeRatings — a LITE reader', () => {
   it('reads once and never again, and never writes', async () => {
     const { result, rerender } = mount({ role: 'LITE_USER' });
@@ -142,6 +185,8 @@ describe('useOutcomeRatings — a LITE reader', () => {
     await settle();
     expect(fetchMyRatings).toHaveBeenCalledTimes(1);
     expect(fetchMyRatings).toHaveBeenCalledWith('2026-06-13', '2026-06-15');
+    // A LITE reader cannot write, so an older day needs no read of its own to be offered.
+    expect(result.current.covers('2026-06-10')).toBe(true);
 
     let saved;
     await act(async () => { saved = await result.current.rate(7, '2026-06-14', 'SUNSET', 3); });
