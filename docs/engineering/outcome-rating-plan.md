@@ -48,7 +48,7 @@ keeping both rows in phase order).
 
 | phase | branch | commit | date | notes |
 |---|---|---|---|---|
-| O0 | `claude/forecast-accuracy-ratings-5fbd0d` | (this PR) | 2026-10-15 | Plan + bundle vendored at `docs/design/outcome-rating/`. No code. Four review lenses at plan time (§5a): backend, frontend, spec fidelity, conventions and sizing — 3 P1s and ~30 P2/P3s, all accepted and folded in. Codex rounds 1–5: five P1s on provenance (the served result, not the newest cycle; only one that had arrived by the event; the fallback must not admit a late batch's own row — hence `scored_at`, V178; it must honour a stability retraction as of the event; and the calibration join must use the resolved row id, not the natural key), all accepted. |
+| O0 | `claude/forecast-accuracy-ratings-5fbd0d` | (this PR) | 2026-10-15 | Plan + bundle vendored at `docs/design/outcome-rating/`. No code. Four review lenses at plan time (§5a): backend, frontend, spec fidelity, conventions and sizing — 3 P1s and ~30 P2/P3s, all accepted and folded in. Codex rounds 1–6: seven P1s (provenance: the served result, not the newest cycle; only one that had arrived by the event; the fallback must not admit a late batch's own row — hence `scored_at`, V178; it must honour a stability retraction as of the event; the calibration join must use the resolved row id, not the natural key; the stored `forecast_rating` for a recombined OPEN_FELL slot; and the past-row rule needs the afterglow-elapsed test, not withdrawal alone), all accepted. |
 
 ---
 
@@ -252,6 +252,7 @@ CREATE TABLE outcome_rating (
     pipeline_run_id     BIGINT,
     forecast_run_at     TIMESTAMPTZ,
     forecast_evaluation_id BIGINT REFERENCES forecast_evaluation (id) ON DELETE SET NULL,
+    forecast_rating     INTEGER,
     created_at          TIMESTAMPTZ  NOT NULL DEFAULT now(),
     updated_at          TIMESTAMPTZ  NOT NULL DEFAULT now(),
     CONSTRAINT uq_outcome_rating_slot UNIQUE (user_id, location_id, event_date, event_type),
@@ -276,13 +277,20 @@ CREATE INDEX idx_outcome_rating_slot ON outcome_rating (location_id, event_date,
   and not retracted at it (step 2's candidate, resolved on EVERY write whether or not step 1
   answered the run instant) — the row the calibration gate pairs this rating with (§2 #8), so no
   join ever has to redo the availability arithmetic; nullable when no such row exists.
+  `forecast_rating` is **the predicted star the reader actually saw** — the served result's own
+  `rating` when step 1 answered, else the step-2 row's — stored because a served rating is not
+  always any one row's: an in-season OPEN_FELL place's cached rating is recombined from its sky
+  and bluebell results (`BriefingEvaluationService.recombineBluebell`, `:502–516`) and the bluebell
+  lane writes `forecast_score` only, never a `forecast_evaluation` row (`ForecastResultHandler`
+  `:735–743`, `:799–819`), so the sky row's `rating` would understate what was on the map (Codex,
+  #1185 round 6). Null only when nothing was served.
 - Entity `OutcomeRatingEntity` (`@Table(uniqueConstraints = …)` so the H2 `create-drop` schema
   carries the key; `userId` and `locationId` as plain `Long` columns like `AskUsageEntity`;
   `eventType` as `TargetType` `@Enumerated(STRING)` length 10 — SUNRISE/SUNSET only by the CHECK,
   never HOURLY; a fresh table needs no `LocalH2EnumWidener` line). ⚠️ **Write discipline, the
   `app_user` / `locations` pattern**: every column is written by the native insert and the JPQL
-  `UPDATE` below and nothing else — `rating`, `eventTime`, `pipelineRunId`, `forecastRunAt`, `forecastEvaluationId` and
-  `updatedAt` are `updatable = false` with no setter, so a later `save()` of a loaded row cannot
+  `UPDATE` below and nothing else — `rating`, `eventTime`, `pipelineRunId`, `forecastRunAt`, `forecastEvaluationId`,
+  `forecastRating` and `updatedAt` are `updatable = false` with no setter, so a later `save()` of a loaded row cannot
   become a second writer. `OutcomeRatingRepository`:
   `existsByUserIdAndLocationIdAndEventDateAndEventType`, a native `insertRow(...)`, a JPQL
   conditional `updateRow(...)` returning the count, `findByUserIdAndEventDateBetween`, and
@@ -290,7 +298,7 @@ CREATE INDEX idx_outcome_rating_slot ON outcome_rating (location_id, event_date,
   OutcomeRatingEntity r, AppUserEntity u WHERE u.id = r.userId AND …` (the `findCalibrationPairs`
   shape) ordered by `updatedAt DESC`.
 - **Which forecast is rated** (`OutcomeRatingService.resolveRatedRun(location, date, type,
-  eventInstant)` → `RatedRun(pipelineRunId, runAt, forecastEvaluationId)`): **the forecast actually served for this slot**
+  eventInstant)` → `RatedRun(pipelineRunId, runAt, forecastEvaluationId, forecastRating)`): **the forecast actually served for this slot**
   (§1 #6; the spec: "the last forecast run before the event time, even if it was stale because of
   batch failures — staleness is useful data", so the age of the forecast the reader SAW is what is
   recoverable). Step 1: for a regioned location,
@@ -317,7 +325,9 @@ CREATE INDEX idx_outcome_rating_slot ON outcome_rating (location_id, event_date,
   what the reader saw later, not what they saw then — which is also why step 1's live accessor,
   whose retraction is as-of-now, can return nothing for a slot step 2 then correctly answers).
   With `pipelineRunId = null`. **The step-2 candidate is resolved on every write even when step 1
-  answered**, and its id is stored as `forecastEvaluationId` (null when there is none). Neither →
+  answered**, and its id is stored as `forecastEvaluationId` (null when there is none);
+  `forecastRating` is step 1's served `rating` when step 1 answered, else the step-2 row's
+  `rating` (a triage row's is null). Neither →
   all null — the slot was shown with no forecast behind
   it; the rating is still recorded (the block mounts on `event.past` when the place has no row of
   its own) and the calibration gate, which pairs on a scored `forecast_evaluation` row, simply
@@ -340,7 +350,7 @@ CREATE INDEX idx_outcome_rating_slot ON outcome_rating (location_id, event_date,
   method** — a javadoc cites §1 #8 and `AskUsageStore` for why) does `upsert(userId, locationId,
   date, type, rating, eventTime, run, now)`: exists → native insert → on violation re-check → one
   JPQL `UPDATE … SET rating, eventTime, pipelineRunId, forecastRunAt, forecastEvaluationId,
-  updatedAt WHERE userId, locationId, eventDate, eventType`. `OutcomeRatingService.rate(username, locationId, date, type,
+  forecastRating, updatedAt WHERE userId, locationId, eventDate, eventType`. `OutcomeRatingService.rate(username, locationId, date, type,
   rating)` orchestrates: resolve the user (404 "User not found" if gone); the location must exist
   (404; a disabled location may still be rated — its past rows are still served); `rating` null or
   1..5, else 400 `"rating must be between 1 and 5"`; `eventType` SUNRISE/SUNSET else 400 (the
@@ -350,7 +360,7 @@ CREATE INDEX idx_outcome_rating_slot ON outcome_rating (location_id, event_date,
   happened yet"` / `"… sunset …"`; no lower bound on `date` (the superseded board's "any time means
   no cut-off"; the Map reaches T-4 and nothing else creates rows). `updatedAt` from the clock.
   Returns `OutcomeRatingDto(locationId, locationName, eventDate, eventType, rating, updatedAt,
-  forecastRunAt, pipelineRunId)`; the range read joins names with ONE `findAllById` over the
+  forecastRunAt, pipelineRunId, forecastRating)`; the range read joins names with ONE `findAllById` over the
   distinct location ids per request, never per row.
 - **Endpoints** (`OutcomeRatingController`, `@RequestMapping("/api/outcome/ratings")`; the old
   `OutcomeController` is untouched):
@@ -377,13 +387,19 @@ CREATE INDEX idx_outcome_rating_slot ON outcome_rating (location_id, event_date,
 
 `buildMapEvents` (`utils/mapEvents.js:557`) takes a new input, `pastSolarWindows` — built in
 `WindowFirstMapPane` from `locations[].forecastsByDate` for every (date, targetType) with at least
-one row and `date <= todayStr`: `{date, targetType, earliestEventTime}` (the earliest
-`solarEventTime` among the rows, UTC). A solar row is **past** (`row.past === true`) when it has
-NO served window AND it is in the forecast domain AND `date <= todayStr` — a pure filter over the
-briefing's own withdrawal, so the Map and the Plan tab retire a window at the same serve (CLAUDE.md
-Backend-heavy sixth class (e): "whether a window has passed still reads the served instant"),
-exactly when today's elapsed sunrise becomes a filler today (§4 #4 records the per-place
-consequence). A past row is `{id: 'solar:DATE:TYPE', kind: 'solar', eventType, date, past: true,
+one row and `date <= todayStr`: `{date, targetType, earliestEventTime, latestEventTime}` (the earliest and
+the latest `solarEventTime` among the rows, UTC — the first decides `past`, the second stands in
+for a place with no row of its own at the block, §2 #5). A solar row is **past** (`row.past === true`) when it has
+NO served window AND it is in the forecast domain AND **its `earliestEventTime` has elapsed by the
+afterglow rule** (`isEventTimePast`, `utils/briefingDisplay.js:269` — the same instant and the
+same 30 minutes `PlanWindowProjector.hasPassed` withdraws the served window on, so with a live
+briefing the two conditions flip together and the Map and the Plan tab retire a window at the
+same minute, CLAUDE.md Backend-heavy sixth class (e)). The elapsed test is load-bearing on its
+own: an unserved window is not necessarily over — the briefing can be absent (204) or stale, and
+`mapEvents.js:620–642`'s filler path exists precisely to represent in-domain windows the briefing
+does not serve — so without it a future sunset would wear `PAST` whenever the briefing lagged
+(Codex, #1185 round 6). A `date < todayStr` window passes the test trivially. §4 #4 records the
+per-place consequence. A past row is `{id: 'solar:DATE:TYPE', kind: 'solar', eventType, date, past: true,
 served: false, scored: false, inForecastDomain: true, label, dayLabel, time, bestRating: null,
 badges: [], pickKind: null}`; **its `time` is set in `buildMapEvents` from `earliestEventTime`
 through `formatTimeUk`** (a base that exists even with no briefing and an empty scope pool, which
@@ -527,8 +543,10 @@ same rows (§2 #3).
 `components/map/OutcomeRatingBlock.jsx`, mounted by `MapCallout` inside `.wf-callout-body` after
 the facts row when `event.past && !isHide && !rewound && placePassed`, where `placePassed` is
 `isEventTimePast(the selected place's own forecast row's solarEventTime)` when that row carries a
-time, else `event.past` — the per-place check that keeps the client and the server's own
-`hasPassed` (which is per place) in step along a coastline (§4 #4). Every string lives in
+time, else `isEventTimePast(the window's latestEventTime)` (every place on the roster has passed,
+so this one has too) — never a bare `event.past`, which is decided on the roster's EARLIEST time
+and would mount controls the server's per-place `hasPassed` then refuses (Codex, #1185 round 6);
+the per-place check that keeps the client and the server in step along a coastline (§4 #4). Every string lives in
 `components/map/outcomeRatingCopy.js` (the `WindowControl.PICK_TEXT` shape), with a header
 separating the spec's strings from the four plan-introduced ones (§4 #17). Props: `{event,
 locationId, mine, role, saving, saveError, changing, onChangingChange, onRate, admin}` where `mine`
@@ -623,7 +641,10 @@ ADMIN only; the block never mounts it for another role.
 `ForecastEvaluationRepository` gains `findCalibrationPairsFromRatings(from, to)`: a constructor
 projection over the theta join `FROM ForecastEvaluationEntity e, OutcomeRatingEntity r WHERE
 e.id = r.forecastEvaluationId AND e.rating IS NOT NULL AND r.rating IS NOT NULL AND r.eventDate
-BETWEEN :from AND :to` — **joined on the row id the rating resolved at write time** (§2 #1), never
+BETWEEN :from AND :to`, projecting **`COALESCE(r.forecastRating, e.rating)` as the predicted
+rating** (the star the reader saw, which for a recombined OPEN_FELL slot is not the sky row's —
+§2 #1) with the row's own `daysAhead`, `forecastRunAt`, `evaluationModel` and potentials —
+**joined on the row id the rating resolved at write time** (§2 #1), never
 on the natural key: a natural-key join would admit every rated row for the slot, and
 `latestPerSlotHorizon` would then crown a batch that landed after the event (Codex, #1185 round
 5); the id is the one row proven available by the event and unretracted at it, so the gate's
@@ -702,7 +723,8 @@ endpoint: LITE GET 200 `[]`, LITE PUT 403, admin-all PRO 403), `OutcomeRatingRep
    (its instant, no id) and with one scored after it (nulls); a legacy row with null `scoredAt`
    taken on `forecastRunAt`; an unregioned location (step 1 skipped); a retracted result (not
    returned by the live accessor → step 2); `forecastEvaluationId` set from step 2's candidate
-   whenever one exists, step 1 answering or not, and null otherwise; a row scored before the event with a stability skip
+   whenever one exists, step 1 answering or not, and null otherwise; `forecastRating` the served
+   result's rating when step 1 answered (a recombined 3 over a sky row's 4) and the row's when not; a row scored before the event with a stability skip
    recorded between its scoring and the event (retracted → an earlier unretracted row, else nulls);
    the same row with the skip recorded after the event (it stands).
 4. `OutcomeRatingStore.upsert` — no `@Transactional`, the javadoc citing §1 #8; the race test.
@@ -762,9 +784,11 @@ test in the `AppRewind.test.jsx` shape for the `isPast` route.
    and under a non-UK zone.
 2. Past rows in `buildMapEvents` (§2 #2): the `pastSolarWindows` input, `row.past` (not served,
    in domain, `date <= todayStr`), the base `time` from `earliestEventTime`, the `hasSolarRow` /
-   `solarRowPredicate` widening, today's elapsed sunrise becoming past exactly when its served
-   window is withdrawn (pin: served → not past; withdrawn and today → past; a date with rows and
-   `date > todayStr` still a filler), T-1 and T-2 rows present, ordering unchanged,
+   `solarRowPredicate` widening, today's sunrise becoming past exactly when its earliest event time
+   plus the afterglow elapses AND it is unserved (pin: served → not past; unserved with the
+   earliest time one minute short of the afterglow → NOT past, a filler; one minute over → past;
+   unserved with no briefing at all and a future time → a filler, never past; a date with rows and
+   `date > todayStr` still a filler), both `earliestEventTime` and `latestEventTime` carried, T-1 and T-2 rows present, ordering unchanged,
    `withScopedSolarTimes` narrowing a past row's time and leaving it when the pool is empty,
    `isForwardableRow` true for a past row.
 3. `resolveMapDate` `selectedIsPast` (§2 #2): a past date is usable only with the flag and only
@@ -859,7 +883,8 @@ real stylesheet.
 2. The block (§2 #5): states, copy, focus handoffs, `aria-pressed` on the current choice in
    Changing, the status line and its lifetime, the Lite lock (stars dim, not-seen does not; taps
    call nothing; the line swaps), the 44/40px targets, tokens.
-3. `MapCallout`: the mount condition (`event.past && !isHide && !rewound && placePassed`), the
+3. `MapCallout`: the mount condition (`event.past && !isHide && !rewound && placePassed`, with
+   `placePassed` pinned for a place with its own row and for one without), the
    owned `changing`/`adminOpen` state reset on `${locationId}|${event.id}`, both in the repaint
    dependency list (pinned), the facts row already hidden (O3a).
 4. Gate, lenses (runtime, CSS/tokens, test quality, accessibility — the block speaks its state
@@ -917,6 +942,8 @@ Files: `model/CalibrationPair.java` (the second constructor, `outcomeKey`, `slot
 `service/ForecastCalibrationService.java`, `entity/UserRole.java` (javadoc); tests
 `ForecastEvaluationRepositoryTest` (beside the `findCalibrationPairs_*` neighbours at `:713–766`:
 a rating row pairs with the row its id names and with no other row of the slot, even a newer one;
+the pair's predicted rating is `forecastRating` when set (a recombined 3 over the row's 4) and the
+row's otherwise;
 a not-seen row does not; a null id pairs with nothing; two users give two pairs), `ForecastCalibrationServiceTest`
 (two users of one slot survive `latestPerSlotHorizon`; one row in each table survives; two RUNS of
 one forecast for one user still collapse to the newest; `outcomesInRange` counts both tables).
@@ -971,10 +998,12 @@ flag), this plan's §0 (COMPLETE, every §6 question closed with a date),
 3. **`event_time` is stored per location**, not derived from the window: the admin footer's "Xh
    before sunrise" is a fact about THIS place's sunrise, and the roster's earliest would misstate
    it by up to twenty minutes along a coastline.
-4. **A past window is the briefing's own withdrawal, with a per-place check at the block.** The
-   spec says "event time < now"; the briefing withdraws a window when its EARLIEST event time plus
-   the 30-minute afterglow has passed (`PlanWindowProjector.hasPassed`), and the Map reads that
-   withdrawal, so the two tabs retire a window at the same serve (CLAUDE.md's invariant). For a
+4. **A past window is unserved AND elapsed on the roster's earliest event time, with a per-place
+   check at the block.** The spec says "event time < now"; the briefing withdraws a window when its
+   EARLIEST event time plus the 30-minute afterglow has passed (`PlanWindowProjector.hasPassed`),
+   and the Map applies the identical test to the same instant, so the two tabs retire a window at
+   the same minute (CLAUDE.md's invariant) while a stale or absent briefing cannot make a future
+   window read as past. For a
    place further north or west the window may then be "past" on the pill minutes before that
    place's own afterglow ends, and the server's PUT would refuse it; so the block itself mounts
    only when the selected place's own `solarEventTime` has passed by the same rule (`placePassed`,
@@ -1108,6 +1137,14 @@ ignore skips recorded after it (§2 #1 step 2, O1 step 3).
 landed after the event, and `latestPerSlotHorizon` would crown it. The rating now stores
 `forecast_evaluation_id` — the row step 2 resolves on every write — and the calibration pairs join
 on that id (§2 #1, §2 #8, O5b).
+
+**Codex, round 6 on #1185 (two P1s, accepted):** (a) an unserved window is not necessarily over —
+the briefing can be absent or stale — so a past row also requires the afterglow-elapsed test on the
+roster's earliest event time, and the block's per-place fallback for a place with no row reads the
+roster's LATEST time rather than `event.past` (§2 #2, §2 #5, §4 #4, O3a step 2); (b) an OPEN_FELL
+place's served rating is recombined from sky and bluebell results with no single `forecast_evaluation`
+row holding it, so the rating stores `forecast_rating`, the star the reader saw, and the calibration
+pair projects it over the row's own (§2 #1, §2 #8, O5b).
 
 ---
 
