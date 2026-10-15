@@ -148,6 +148,20 @@ public final class ForecastHorizon {
      */
     public static final int SERVE_PAST_DAYS = 2;
 
+    /**
+     * How many UK civil days before today a single stored day can still be fetched with
+     * {@code GET /api/forecast?date=}: the oldest day the Map tab's "rate how it turned out" flow can
+     * step back to (outcome-rating plan §2 #4). The stability-skip evidence the as-of-event resolver
+     * reads for such a day ({@code ForecastDispositionService.RETENTION_DAYS}) is kept far longer.
+     *
+     * <p>Its one reader is the Map tab's older-day fetch. It is deliberately larger than
+     * {@link #SERVE_PAST_DAYS}: the list carries the nearer past days, so the one-day read covers
+     * only the gap between the list's past edge and this one, and the client never asks for a day it
+     * already holds. Raising it widens how long a day's rows are reachable, not what the list
+     * carries — the list's payload does not move.
+     */
+    public static final int MAX_PAST_DAYS = 4;
+
     private ForecastHorizon() {
     }
 

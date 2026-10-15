@@ -246,6 +246,10 @@ abstract class AbstractControllerTest {
     @MockitoBean
     protected com.gregochr.goldenhour.service.ask.AskService askService;
 
+    /** What a reader had been shown for a passed slot at its event — {@code ForecastController}'s serve path. */
+    @MockitoBean
+    protected com.gregochr.goldenhour.service.AsOfEventResolver asOfEventResolver;
+
     /** Records and reads per-user outcome ratings for {@code OutcomeRatingController}. */
     @MockitoBean
     protected com.gregochr.goldenhour.service.OutcomeRatingService outcomeRatingService;

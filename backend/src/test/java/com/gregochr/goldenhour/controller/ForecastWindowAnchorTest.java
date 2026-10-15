@@ -95,6 +95,12 @@ class ForecastWindowAnchorTest {
     private FailedSlotRetryService retryService;
 
     @Mock
+    private com.gregochr.goldenhour.service.AsOfEventResolver asOfEventResolver;
+
+    @Mock
+    private com.gregochr.goldenhour.service.SolarEventFreshness solarEventFreshness;
+
+    @Mock
     private BriefingEvaluationService briefingEvaluationService;
 
     private ForecastController forecastController;
@@ -109,7 +115,7 @@ class ForecastWindowAnchorTest {
         forecastController = new ForecastController(repository, locationService, commandFactory,
                 commandExecutor, scheduledForecastService, dtoMapper, evaluationViewService,
                 jobRunService, progressTracker, Runnable::run, LATE_BST_EVENING,
-                retryService);
+                retryService, asOfEventResolver, solarEventFreshness);
         briefingEvaluationController = new BriefingEvaluationController(
                 briefingEvaluationService, evaluationViewService, LATE_BST_EVENING);
     }
