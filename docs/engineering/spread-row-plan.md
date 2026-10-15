@@ -40,7 +40,7 @@ the commit column names the PR once it lands):
 
 | phase | branch | commit | date | notes |
 |---|---|---|---|---|
-| S0 | `claude/spread-row-enhancement-7c99de` | #1180 | 2026-10-15 | Plan + bundle vendored at `docs/design/spread-row/`. No code. Codex's review of the plan found two P1s, both accepted: the qualifier must key on the pool-wide `facts.withinReach` (a mixed pool would otherwise wear "(within 45m)" over unmeasured spots — §2 #5), and the spec's 177px worst-case card does not exist here (the grid is 116–157px at six of seven geometries — §1 #7, the stacked state §2 #2, §4 #10, §6 Q4). |
+| S0 | `claude/spread-row-enhancement-7c99de` | #1180 | 2026-10-15 | Plan + bundle vendored at `docs/design/spread-row/`. No code. Codex reviewed the plan twice and found four P1s, all accepted: round 1 — the qualifier must key on the pool-wide `facts.withinReach` (a mixed pool would otherwise wear "(within 45m)" over unmeasured spots — §2 #5), and the spec's 177px worst-case card does not exist here (the grid is 116–157px at six of seven geometries — §1 #7, the stacked state §2 #2, §4 #10, §6 Q4); round 2 — the spoken sentence must name the tier the label names (§6 Q1 decided yes; `spokenPoolPhrase`, the tooltip unchanged) and the muted token is under AA on the well (zero counts quietened by weight, §2 #4, §4 #6). |
 
 ---
 
@@ -175,9 +175,14 @@ figure unexamined.)
    `formatSpreadCount(n)` (`< 1000` raw; `< 9950` one decimal + `k`, trailing `.0` dropped; else
    rounded `k`), `spreadColumnWidthPx(chars)` (the clamp, with the three constants named) and
    `spreadCountLayout(bars, unratedBar)` → `{chars, widthPx, small}`.
-4. **Count colour.** `--color-plex-text-secondary`; a zero count `--color-plex-text-muted` (§1 #4;
-   the spec's `--ink-3` at opacity .6 is approximated by the muted token rather than an opacity on
-   top of a secondary ink — one token, no stacked alpha). S2 measures both on the well (§7).
+4. **Count colour.** Every count, zero included, in `--color-plex-text-secondary` (§1 #4). A zero
+   count is quietened by WEIGHT (400 against the others' 600), never by a lighter ink: the spec's
+   `--ink-3` at .6 maps to this stylesheet's `--color-plex-text-muted` (rgba(242,231,211,.42)),
+   which composites over the well (`--color-heat-sea`, #13100e) at about 3.55:1 — under the 4.5:1
+   AA asks of 9px text, and further under at the `.sm` 7.5px (a Codex review of #1180 measured it;
+   the plan's first cut had assigned the muted token). S2 measures the secondary ink on the well
+   at both sizes (§7); if 7.5px/400 fails there, the zero count keeps 600 and the distinction is
+   the figure alone.
 5. **The qualifier.** `spreadQualifier({reachLimitMinutes, withinReach})` in
    `windowFirstSpread.js` → `"within 45m"` | `"within 1h30"` | `"within 2h30"` | `"any drive"` |
    `null`, rendered as `(…)`. **`withinReach` is the strip's EXISTING per-card `facts.withinReach`**
@@ -191,8 +196,20 @@ figure unexamined.)
    drive, so a mixed pool — some measured, some unknown — would wear "(within 45m)" over bars that
    count the unknown ones too, and the row would disagree with its own tooltip (a Codex review of
    #1180 caught it). Under "Any" the qualifier is `any drive` whatever `withinReach` says — it
-   claims no gate. **The spoken sentence is unchanged by the qualifier**: `poolPhrase` already says
-   "within reach" on exactly this condition, and naming the tier's minutes there is §6 Q1.
+   claims no gate. **The helper answers in TWO forms**: `{text: "within 45m", spoken: "within 45
+   min"}` — the compact form for the label, the lens bar's own long form (`REACH_TIERS[].label`,
+   lower-cased) for the spoken sentence, where "45m" would be voiced as a letter — and
+   `{text: "any drive", spoken: "any drive"}`; `null` is null for both.
+   **The spoken sentence names the same pool the label names** (§6 Q1, decided on the plan PR —
+   a Codex review of #1180 pointed out that under Any with measured drives the card would SHOW
+   "any drive" and SAY "within reach", and that under a finite tier the threshold the sighted
+   reader gets would never reach a screen reader): `spokenPoolPhrase(total, qualifier)` in
+   `windowFirstSpread.js` → `"7 locations within 45 min"` / `"7 locations, any drive"` /
+   `"7 locations"` (null qualifier — exactly today's bare clause), with `poolPhrase`'s own plural
+   rule; the strip's `spokenPool` reads it in place of `poolPhrase` in BOTH the bars and the text
+   branches. The TOOLTIP keeps `poolPhrase(total, withinReach)` — "N locations within reach — …"
+   — unchanged: the spec says keep it, and it sits beside the label that already names the tier,
+   so a pointer reader sees no mismatch.
 6. **The spoken sentence gains the band counts in bars mode** — the counts are now VISIBLE text, so
    a reader of the accessible name must get the same figures (SC 1.3.1, the principle
    `unratedPhrase`'s own export comment states). `spreadBandsSpoken(spread)` in
@@ -228,12 +245,17 @@ tests (`test/briefingDisplay.test.js` or wherever `formatDriveDuration` is pinne
    `12345 → "12k"`), the clamp's three regimes (1 char → 9px, 3 chars → 15.6px, 4+ → 17px),
    `small` flipping at exactly 4 chars, and that the hatched bar's count takes part in `chars`
    (a pool with 1,200 unrated and single-digit bands must answer `chars: 4`).
-4. `spreadQualifier` (§2 #5): the four tiers with `withinReach: true` → the four strings;
-   `{45, withinReach: false}` → `null`; `{null, withinReach: false}` → `"any drive"`;
-   `{null, withinReach: true}` → `"any drive"`. Pin that the string is built from `shortLabel`,
-   not a table (mutate a tier's `limitMinutes` in the test's own copy and assert the qualifier
-   follows). The helper takes a plain boolean; it is the CALLER (S2) that must pass the strip's
-   pool-wide `facts.withinReach`, and S2 pins that with a mixed pool.
+4. `spreadQualifier` (§2 #5): the four tiers with `withinReach: true` → `{text, spoken}` pairs
+   (`within 45m` / `within 45 min`, `within 1h30` / `within 1h 30min`, `within 2h30` / `within 2h
+   30min`, `any drive` / `any drive`); `{45, withinReach: false}` → `null`;
+   `{null, withinReach: false}` → the any pair; `{null, withinReach: true}` → the any pair. Pin
+   that `text` is built from `shortLabel` and `spoken` from `label`, not a table (mutate a tier's
+   `limitMinutes` in the test's own copy and assert both follow). The helper takes a plain boolean;
+   it is the CALLER (S2) that must pass the strip's pool-wide `facts.withinReach`, and S2 pins that
+   with a mixed pool. Then `spokenPoolPhrase(total, qualifier)` (§2 #5): `"7 locations within 45
+   min"`, `"7 locations, any drive"`, `"7 locations"` for null, `"1 location …"` singular — and
+   a test that its null form equals `poolPhrase(total, false)` exactly, so the sentence for a
+   mixed pool is byte-for-byte what it is today.
 5. `spreadBandsSpoken` (§2 #6): non-zero bands only, highest first, `stars` worded, `""` for an
    all-zero spread; and a test that the words it uses are the same five the tooltip's bands use,
    just filtered and reworded (drive both from one `buildSpread`).
@@ -277,9 +299,13 @@ Files: `components/WindowFirstHeatStrip.jsx` (the Spread row and `spokenPool` on
    a `.wf-hc-pls` child or of the bar must be written at least as specific. Bar width 7px moves
    from the unrated rule to the shared `i` rule (the hatched bar keeps its `margin-right` and its
    hatch). `.wf-hc-hist` keeps `cursor: help` — the tooltip stays (§2 #7).
-5. `spokenPool` gains `spreadBandsSpoken` in bars mode (§2 #6). Pin the full accessible name on a
-   bars-mode card (the existing `getByRole('button', {name: …})` test at `:620` is the model — its
-   expected string changes, and that change is the point) and that below the gate it is unchanged.
+5. `spokenPool` reads `spokenPoolPhrase(poolTotal, qualifier)` in place of `poolPhrase` in both
+   branches (§2 #5) and gains `spreadBandsSpoken` in bars mode (§2 #6). Pin the full accessible
+   name on a bars-mode card under a measured 45-minute tier (the existing `getByRole('button',
+   {name: …})` test at `:620` is the model — its expected string changes, and that change is the
+   point), under Any with measured drives ("…, any drive, …" — never "within reach"), on a mixed
+   pool (the bare "7 locations", exactly today's words), and that below the gate only the pool
+   clause moves. The tooltip's expected strings do not change — pin one to prove it.
 6. The stacked state (§2 #2): `container-type: inline-size; container-name: wf-card` on `.wf-hc`
    and `@container wf-card (max-width: 170px) { .wf-hc-sprow { flex-wrap: wrap } .wf-hc-sprow >
    .wf-hc-pv { margin-left: auto; flex-basis: 100% } }` (or the equivalent that puts the histogram
@@ -315,9 +341,9 @@ No code. One Sonnet session; a docs-only PR (CI's docs-only detector skips the s
 | 3 | Bars for any pool | The minimum-sample gate stands: below it the row prints text, with the new label line above | A27 Part 1, owner decision. A count under a bar drawn from one rated spot in 31 would make the noise look like data twice over. |
 | 4 | The label "follows the drive/reach filter" always | **Silent** (no second line) when a tier is active and the card's pool-wide `facts.withinReach` is false — any spot without a measured drive | CLAUDE.md's rule for six existing surfaces: "within reach" is claimable only where a drive time existed to gate on, and the tooltip already reads this exact predicate (`poolWithinReach`), so the label cannot disagree with it. "(any drive)" is kept under Any for every reader — it names no gate. |
 | 5 | `RSHORT` hand table keyed by tier id | `shortLabel` derived from `limitMinutes` by `formatDriveDurationCompact` | §1 #3 — one formatter, two forms; a retuned tier cannot strand the label. |
-| 6 | `--ink-2` counts, `--ink-3` at `.6` for zero | `--color-plex-text-secondary` and `--color-plex-text-muted` | §1 #4 — tokens, no stacked alpha. S2 measures both on the well. |
+| 6 | `--ink-2` counts, `--ink-3` at `.6` for zero | `--color-plex-text-secondary` for every count; a zero count at weight 400 instead of a lighter ink | §1 #4, §2 #4 — the muted token is ~3.55:1 on the well, under AA for 9px text. S2 measures the secondary ink at 9 and 7.5px. |
 | 7 | "sideways" layout rows `21px 27px 32px 1fr` | `min-height: 27px` on the wrapper; no layout mode | §1 #5 — the layout does not exist here; the row's own minimum keeps cross-card alignment. |
-| 8 | The grid's label is the only place the pool is named | The spoken sentence ALSO gains the non-zero band counts in bars mode | §1 #6, §2 #6 — the grid is `aria-hidden`; visible counts need an accessible equivalent. The tier's minutes are NOT added there (§6 Q1). |
+| 8 | The grid's label is the only place the pool is named | The spoken sentence ALSO names the tier ("7 locations within 45 min" / "7 locations, any drive") and gains the non-zero band counts in bars mode; the tooltip keeps "within reach" | §1 #6, §2 #5–#6 — the grid is `aria-hidden`; a visible label and visible counts need an accessible equivalent, and "within reach" against a visible "any drive" is a contradiction (§6 Q1, decided). |
 | 9 | Recreate in `HeatmapGrid.jsx` / `DailyBriefing.jsx` | `WindowFirstHeatStrip.jsx` | §1 #1 — the Plan card lives there; the named files are the popup's grid and a deleted component. |
 | 10 | One side-by-side layout everywhere; worst case "iPad, `.pls` 177px" | A second, STACKED state (label line, then the histogram right-aligned on its own line) below a 170px card width, by container query | §1 #7 — this grid is 116–157px wide at six of its seven measured geometries; side by side the row needs 155px at one-character counts. A card-width rule, not a content wrap, so neighbours stay aligned. |
 
@@ -339,10 +365,10 @@ No code. One Sonnet session; a docs-only PR (CI's docs-only detector skips the s
 
 ## §6 Open owner questions — none blocks a phase
 
-- **Q1.** Should the SPOKEN sentence and the tooltip name the tier's minutes ("7 locations within
-  45 min") now that the visible label does, instead of "within reach"? Default: **no** — "within
-  reach" is the statement the lens readout already makes (plan-matrix A10), and changing
-  `poolPhrase` moves the tooltip's lead on every card. Revisit after S2 is seen live.
+- **Q1 — DECIDED on the plan PR (2026-10-15).** The SPOKEN sentence names the tier's minutes
+  ("7 locations within 45 min", "7 locations, any drive") because the visible label now does and
+  the grid is `aria-hidden` (§2 #5); the TOOLTIP keeps "within reach", as the spec asks. The
+  default had been "no"; a Codex review showed the Any-tier contradiction it would have shipped.
 - **Q2.** The `.sm` 7.5px count type is below any size this stylesheet otherwise uses. Default:
   **ship it as specified** (the spec says so, and it fires only at a 4-character count — a
   catalogue of a thousand places within reach) and record the measured contrast in §7.
