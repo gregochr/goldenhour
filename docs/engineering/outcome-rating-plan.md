@@ -48,7 +48,7 @@ keeping both rows in phase order).
 
 | phase | branch | commit | date | notes |
 |---|---|---|---|---|
-| O0 | `claude/forecast-accuracy-ratings-5fbd0d` | (this PR) | 2026-10-15 | Plan + bundle vendored at `docs/design/outcome-rating/`. No code. Four review lenses at plan time (§5a): backend, frontend, spec fidelity, conventions and sizing — 3 P1s and ~30 P2/P3s, all accepted and folded in. Codex rounds 1–4: four P1s on the rated-run rule (the served result, not the newest cycle; only one that had arrived by the event; the fallback must not admit a late batch's own row — hence `scored_at`, V178; and it must honour a stability retraction as of the event), all accepted. |
+| O0 | `claude/forecast-accuracy-ratings-5fbd0d` | (this PR) | 2026-10-15 | Plan + bundle vendored at `docs/design/outcome-rating/`. No code. Four review lenses at plan time (§5a): backend, frontend, spec fidelity, conventions and sizing — 3 P1s and ~30 P2/P3s, all accepted and folded in. Codex rounds 1–5: five P1s on provenance (the served result, not the newest cycle; only one that had arrived by the event; the fallback must not admit a late batch's own row — hence `scored_at`, V178; it must honour a stability retraction as of the event; and the calibration join must use the resolved row id, not the natural key), all accepted. |
 
 ---
 
@@ -251,6 +251,7 @@ CREATE TABLE outcome_rating (
     event_time          TIMESTAMPTZ  NOT NULL,
     pipeline_run_id     BIGINT,
     forecast_run_at     TIMESTAMPTZ,
+    forecast_evaluation_id BIGINT REFERENCES forecast_evaluation (id) ON DELETE SET NULL,
     created_at          TIMESTAMPTZ  NOT NULL DEFAULT now(),
     updated_at          TIMESTAMPTZ  NOT NULL DEFAULT now(),
     CONSTRAINT uq_outcome_rating_slot UNIQUE (user_id, location_id, event_date, event_type),
@@ -271,12 +272,16 @@ CREATE INDEX idx_outcome_rating_slot ON outcome_rating (location_id, event_date,
   earliest), stored so the admin footer's "Xh before sunrise" needs no recomputation and survives a
   later change to the solar library. `pipeline_run_id` / `forecast_run_at` name the forecast being
   rated (below); nullable because a slot can have been shown with no run behind it at all.
+  `forecast_evaluation_id` is the one `forecast_evaluation` row that was available by the event
+  and not retracted at it (step 2's candidate, resolved on EVERY write whether or not step 1
+  answered the run instant) — the row the calibration gate pairs this rating with (§2 #8), so no
+  join ever has to redo the availability arithmetic; nullable when no such row exists.
 - Entity `OutcomeRatingEntity` (`@Table(uniqueConstraints = …)` so the H2 `create-drop` schema
   carries the key; `userId` and `locationId` as plain `Long` columns like `AskUsageEntity`;
   `eventType` as `TargetType` `@Enumerated(STRING)` length 10 — SUNRISE/SUNSET only by the CHECK,
   never HOURLY; a fresh table needs no `LocalH2EnumWidener` line). ⚠️ **Write discipline, the
   `app_user` / `locations` pattern**: every column is written by the native insert and the JPQL
-  `UPDATE` below and nothing else — `rating`, `eventTime`, `pipelineRunId`, `forecastRunAt` and
+  `UPDATE` below and nothing else — `rating`, `eventTime`, `pipelineRunId`, `forecastRunAt`, `forecastEvaluationId` and
   `updatedAt` are `updatable = false` with no setter, so a later `save()` of a loaded row cannot
   become a second writer. `OutcomeRatingRepository`:
   `existsByUserIdAndLocationIdAndEventDateAndEventType`, a native `insertRow(...)`, a JPQL
@@ -285,7 +290,7 @@ CREATE INDEX idx_outcome_rating_slot ON outcome_rating (location_id, event_date,
   OutcomeRatingEntity r, AppUserEntity u WHERE u.id = r.userId AND …` (the `findCalibrationPairs`
   shape) ordered by `updatedAt DESC`.
 - **Which forecast is rated** (`OutcomeRatingService.resolveRatedRun(location, date, type,
-  eventInstant)` → `RatedRun(pipelineRunId, runAt)`): **the forecast actually served for this slot**
+  eventInstant)` → `RatedRun(pipelineRunId, runAt, forecastEvaluationId)`): **the forecast actually served for this slot**
   (§1 #6; the spec: "the last forecast run before the event time, even if it was stale because of
   batch failures — staleness is useful data", so the age of the forecast the reader SAW is what is
   recoverable). Step 1: for a regioned location,
@@ -311,7 +316,9 @@ CREATE INDEX idx_outcome_rating_slot ON outcome_rating (location_id, event_date,
   was absent from the map at the event; a skip recorded AFTER the event is ignored (it retracts
   what the reader saw later, not what they saw then — which is also why step 1's live accessor,
   whose retraction is as-of-now, can return nothing for a slot step 2 then correctly answers).
-  With `pipelineRunId = null`. Neither → both null — the slot was shown with no forecast behind
+  With `pipelineRunId = null`. **The step-2 candidate is resolved on every write even when step 1
+  answered**, and its id is stored as `forecastEvaluationId` (null when there is none). Neither →
+  all null — the slot was shown with no forecast behind
   it; the rating is still recorded (the block mounts on `event.past` when the place has no row of
   its own) and the calibration gate, which pairs on a scored `forecast_evaluation` row, simply
   never pairs it. ⚠️ **`forecast_evaluation.scored_at` is new (V178, same phase)** — a
@@ -332,8 +339,8 @@ CREATE INDEX idx_outcome_rating_slot ON outcome_rating (location_id, event_date,
   (`OutcomeRatingRepository` its only dependency, **no `@Transactional` on the class or the
   method** — a javadoc cites §1 #8 and `AskUsageStore` for why) does `upsert(userId, locationId,
   date, type, rating, eventTime, run, now)`: exists → native insert → on violation re-check → one
-  JPQL `UPDATE … SET rating, eventTime, pipelineRunId, forecastRunAt, updatedAt WHERE userId,
-  locationId, eventDate, eventType`. `OutcomeRatingService.rate(username, locationId, date, type,
+  JPQL `UPDATE … SET rating, eventTime, pipelineRunId, forecastRunAt, forecastEvaluationId,
+  updatedAt WHERE userId, locationId, eventDate, eventType`. `OutcomeRatingService.rate(username, locationId, date, type,
   rating)` orchestrates: resolve the user (404 "User not found" if gone); the location must exist
   (404; a disabled location may still be rated — its past rows are still served); `rating` null or
   1..5, else 400 `"rating must be between 1 and 5"`; `eventType` SUNRISE/SUNSET else 400 (the
@@ -615,8 +622,13 @@ ADMIN only; the block never mounts it for another role.
 
 `ForecastEvaluationRepository` gains `findCalibrationPairsFromRatings(from, to)`: a constructor
 projection over the theta join `FROM ForecastEvaluationEntity e, OutcomeRatingEntity r WHERE
-e.location.id = r.locationId AND e.targetDate = r.eventDate AND e.targetType = r.eventType AND
-e.rating IS NOT NULL AND r.rating IS NOT NULL AND r.eventDate BETWEEN :from AND :to`. ⚠️ **No
+e.id = r.forecastEvaluationId AND e.rating IS NOT NULL AND r.rating IS NOT NULL AND r.eventDate
+BETWEEN :from AND :to` — **joined on the row id the rating resolved at write time** (§2 #1), never
+on the natural key: a natural-key join would admit every rated row for the slot, and
+`latestPerSlotHorizon` would then crown a batch that landed after the event (Codex, #1185 round
+5); the id is the one row proven available by the event and unretracted at it, so the gate's
+"newest run per slot and horizon" has exactly one candidate per rating. A rating with a null
+`forecastEvaluationId` pairs with nothing, by construction. ⚠️ **No
 `null` literals in the `SELECT new`** (no repository here does it and HQL's constructor resolution
 on an untyped null is not proven for this Hibernate): `CalibrationPair` gains a second, explicit
 constructor taking only the columns this join has (`fierySkyActual`, `goldenHourActual`, `wentOut`
@@ -689,7 +701,8 @@ endpoint: LITE GET 200 `[]`, LITE PUT 403, admin-all PRO 403), `OutcomeRatingRep
    when no such row); a slot the serve path has nothing for, with a row scored before the event
    (its instant, no id) and with one scored after it (nulls); a legacy row with null `scoredAt`
    taken on `forecastRunAt`; an unregioned location (step 1 skipped); a retracted result (not
-   returned by the live accessor → step 2); a row scored before the event with a stability skip
+   returned by the live accessor → step 2); `forecastEvaluationId` set from step 2's candidate
+   whenever one exists, step 1 answering or not, and null otherwise; a row scored before the event with a stability skip
    recorded between its scoring and the event (retracted → an earlier unretracted row, else nulls);
    the same row with the skip recorded after the event (it stands).
 4. `OutcomeRatingStore.upsert` — no `@Transactional`, the javadoc citing §1 #8; the race test.
@@ -903,15 +916,16 @@ Files: `model/CalibrationPair.java` (the second constructor, `outcomeKey`, `slot
 `repository/ForecastEvaluationRepository.java` (`findCalibrationPairsFromRatings`),
 `service/ForecastCalibrationService.java`, `entity/UserRole.java` (javadoc); tests
 `ForecastEvaluationRepositoryTest` (beside the `findCalibrationPairs_*` neighbours at `:713–766`:
-a rating row pairs; a not-seen row does not; two users give two pairs), `ForecastCalibrationServiceTest`
+a rating row pairs with the row its id names and with no other row of the slot, even a newer one;
+a not-seen row does not; a null id pairs with nothing; two users give two pairs), `ForecastCalibrationServiceTest`
 (two users of one slot survive `latestPerSlotHorizon`; one row in each table survives; two RUNS of
 one forecast for one user still collapse to the newest; `outcomesInRange` counts both tables).
 
 1. §2 #8 verbatim.
 2. Gate, lenses, changelog (`### Changed`), phase-log row.
 
-Acceptance: the four service cases above; the repository query compiles against H2 with no `null`
-literal in its projection.
+Acceptance: the four service cases above; a late-landing newer row for the slot never enters a
+pair; the repository query compiles against H2 with no `null` literal in its projection.
 
 ### O6 — docs sweep
 
@@ -1089,6 +1103,11 @@ selects the latest row proven available by the event.
 **Codex, round 4 on #1185 (P1, accepted):** a `SKIPPED_STABILITY` recorded before the event retracts
 the row from the served view, so the fallback must apply the same retraction as of the event and
 ignore skips recorded after it (§2 #1 step 2, O1 step 3).
+
+**Codex, round 5 on #1185 (P1, accepted):** a natural-key calibration join admits a batch that
+landed after the event, and `latestPerSlotHorizon` would crown it. The rating now stores
+`forecast_evaluation_id` — the row step 2 resolves on every write — and the calibration pairs join
+on that id (§2 #1, §2 #8, O5b).
 
 ---
 
