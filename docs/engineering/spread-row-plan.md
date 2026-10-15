@@ -40,7 +40,7 @@ the commit column names the PR once it lands):
 
 | phase | branch | commit | date | notes |
 |---|---|---|---|---|
-| S0 | `claude/spread-row-enhancement-7c99de` | #1180 | 2026-10-15 | Plan + bundle vendored at `docs/design/spread-row/`. No code. Codex reviewed the plan twice and found four P1s, all accepted: round 1 — the qualifier must key on the pool-wide `facts.withinReach` (a mixed pool would otherwise wear "(within 45m)" over unmeasured spots — §2 #5), and the spec's 177px worst-case card does not exist here (the grid is 116–157px at six of seven geometries — §1 #7, the stacked state §2 #2, §4 #10, §6 Q4); round 2 — the spoken sentence must name the tier the label names (§6 Q1 decided yes; `spokenPoolPhrase`, the tooltip unchanged) and the muted token is under AA on the well (zero counts quietened by weight, §2 #4, §4 #6); round 3 — the wrapper's children fall outside `.wf-hc-pls > span`, so they need their own `display: flex` or the stacked histogram sits left (§2 #2 ⚠️, S2 tasks 1 and 6); round 4 — the stacked threshold rose from 170 to 205px so no count the clamp allows is ever clipped side by side (§6 Q4 closed), and the empty-pool path, which short-circuits the spoken clause, must voice the qualifier too (§2 #5's empty-pool rule); round 5 — the hatched bar's 4px gap must move from the `<i>` to its new column wrapper or the fixed-width column swallows it (S2 task 4); round 6 — the Best row's empty clause stays in the sentence beside the new pool clause (the verbatim contract, §2 #5), and `.wf-hc-sk` reserves its second line so stacked neighbours that disagree on the qualifier keep their Best rows aligned (§2 #2, S2 task 1). |
+| S0 | `claude/spread-row-enhancement-7c99de` | #1180 | 2026-10-15 | Plan + bundle vendored at `docs/design/spread-row/`. No code. Codex reviewed the plan twice and found four P1s, all accepted: round 1 — the qualifier must key on the pool-wide `facts.withinReach` (a mixed pool would otherwise wear "(within 45m)" over unmeasured spots — §2 #5), and the spec's 177px worst-case card does not exist here (the grid is 116–157px at six of seven geometries — §1 #7, the stacked state §2 #2, §4 #10, §6 Q4); round 2 — the spoken sentence must name the tier the label names (§6 Q1 decided yes; `spokenPoolPhrase`, the tooltip unchanged) and the muted token is under AA on the well (zero counts quietened by weight, §2 #4, §4 #6); round 3 — the wrapper's children fall outside `.wf-hc-pls > span`, so they need their own `display: flex` or the stacked histogram sits left (§2 #2 ⚠️, S2 tasks 1 and 6); round 4 — the stacked threshold rose from 170 to 205px so no count the clamp allows is ever clipped side by side (§6 Q4 closed), and the empty-pool path, which short-circuits the spoken clause, must voice the qualifier too (§2 #5's empty-pool rule); round 5 — the hatched bar's 4px gap must move from the `<i>` to its new column wrapper or the fixed-width column swallows it (S2 task 4); round 6 — the Best row's empty clause stays in the sentence beside the new pool clause (the verbatim contract, §2 #5), and `.wf-hc-sk` reserves its second line so stacked neighbours that disagree on the qualifier keep their Best rows aligned (§2 #2, S2 task 1); round 7 — the nested value cell reserves the well's height in the text state too, so neighbours on opposite sides of the minimum-sample gate align (§2 #2, S2 tasks 1 and 4). |
 
 ---
 
@@ -176,7 +176,17 @@ figure unexamined.)
    label on one card and a two-line label on the other would put their Best rows a line apart.
    `.wf-hc-sk` therefore reserves its two lines always (`min-height: 21px` — two 8.5px lines at
    1.15 plus the 1px gap, with `justify-content: center` so the lone word sits where its first
-   line would), in both states (a Codex review of #1180 caught the unreserved line). The histogram on
+   line would), in both states (a Codex review of #1180 caught the unreserved line). **And the
+   VALUE cell reserves the well's height whether it holds bars or the text state**: the well is
+   a 25px column plus its padding (≈ 28px, one named figure in the stylesheet), while
+   `.wf-hc-hist-note` is a single 10px line, and the nested cell no longer inherits the grid's
+   20px minimum (§2 #2's first ⚠️) — so two stacked neighbours on opposite sides of the
+   minimum-sample gate (one drawing bars, one printing `124/253 rated`) would differ by ≈ 15px and
+   their Best rows would part. `.wf-hc-sprow > .wf-hc-pv { min-height: <the well's height> }` in
+   both states (the text note sits vertically centred in it, as the grid's own `align-items:
+   center` centred it before); the wrapper's own `min-height` becomes that same figure rather than
+   the spec's 27px, which was measured without a well (a further Codex round caught this one).
+   The histogram on
    its own line has the whole card width, so 122px fits everywhere down to the 320px viewport's
    116px — all but 6px, the one width where a four-character count would clip (§6 Q4).
    ⚠️ `container-type: inline-size` applies layout containment, which makes the card a stacking
@@ -312,7 +322,11 @@ Files: `components/WindowFirstHeatStrip.jsx` (the Spread row and `spokenPool` on
    what `.wf-hc-pls > span` no longer gives its two children (§2 #2's ⚠️), and `.wf-hc-sk`
    reserving its second line's height whether or not the qualifier is drawn (§2 #2's second ⚠️;
    pin the `min-height` by the cascade in jsdom, and in the §7 fixture put a qualified card beside
-   an unqualified one in a stacked row and read both Best rows' `top`). Both states — bars and
+   an unqualified one in a stacked row and read both Best rows' `top`), and `.wf-hc-sprow >
+   .wf-hc-pv` reserving the well's height in both the bars and the text state (§2 #2's third ⚠️;
+   pin the cascade, and in the fixture put a bars-mode card beside a `124/253 rated` card in a
+   stacked row AND in a side-by-side row and read both Best rows' `top` — four geometry cases in
+   all: qualified/unqualified × bars/text). Both states — bars and
    the `.wf-hc-hist-note` text — live inside the wrapper, so the label line is drawn in both. Pin that `.wf-hc-k` for
    "Spread" is no longer a direct grid child (the regression the spec names: measure that the
    rating pill's column width is unchanged with and without the qualifier — `getBoundingClientRect`
@@ -333,7 +347,9 @@ Files: `components/WindowFirstHeatStrip.jsx` (the Spread row and `spokenPool` on
    card; `.sm` only when some count is 4 chars; the hatched bar's count is the unrated remainder.
 4. CSS, in the existing block with the existing voice (every rule there explains itself): `.wf-hc-sprow`,
    `.wf-hc-sk`, `.wf-hc-hb`, `.wf-hc-hist em`, `.wf-hc-hist.sm em`, the zero-count ink, and the
-   well's height raised to hold a 25px column plus its padding. ⚠️ The specificity trap the block
+   well's height raised to hold a 25px column plus its padding — ONE figure, named in a comment
+   and reused by the nested value cell's `min-height` and the wrapper's (§2 #2), so the three
+   cannot drift. ⚠️ The specificity trap the block
    already documents: `.wf-hc-hist i` is (0,1,1) and `.wf-hc-pls > span` is (0,1,1); any override of
    a `.wf-hc-pls` child or of the bar must be written at least as specific. Bar width 7px moves
    from the unrated rule to the shared `i` rule; the hatched bar keeps its hatch. ⚠️ **Its wider
