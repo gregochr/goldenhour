@@ -40,7 +40,7 @@ the commit column names the PR once it lands):
 
 | phase | branch | commit | date | notes |
 |---|---|---|---|---|
-| S0 | `claude/spread-row-enhancement-7c99de` | #1180 | 2026-10-15 | Plan + bundle vendored at `docs/design/spread-row/`. No code. Codex reviewed the plan twice and found four P1s, all accepted: round 1 — the qualifier must key on the pool-wide `facts.withinReach` (a mixed pool would otherwise wear "(within 45m)" over unmeasured spots — §2 #5), and the spec's 177px worst-case card does not exist here (the grid is 116–157px at six of seven geometries — §1 #7, the stacked state §2 #2, §4 #10, §6 Q4); round 2 — the spoken sentence must name the tier the label names (§6 Q1 decided yes; `spokenPoolPhrase`, the tooltip unchanged) and the muted token is under AA on the well (zero counts quietened by weight, §2 #4, §4 #6); round 3 — the wrapper's children fall outside `.wf-hc-pls > span`, so they need their own `display: flex` or the stacked histogram sits left (§2 #2 ⚠️, S2 tasks 1 and 6); round 4 — the stacked threshold rose from 170 to 205px so no count the clamp allows is ever clipped side by side (§6 Q4 closed), and the empty-pool path, which short-circuits the spoken clause, must voice the qualifier too (§2 #5's empty-pool rule). |
+| S0 | `claude/spread-row-enhancement-7c99de` | #1180 | 2026-10-15 | Plan + bundle vendored at `docs/design/spread-row/`. No code. Codex reviewed the plan twice and found four P1s, all accepted: round 1 — the qualifier must key on the pool-wide `facts.withinReach` (a mixed pool would otherwise wear "(within 45m)" over unmeasured spots — §2 #5), and the spec's 177px worst-case card does not exist here (the grid is 116–157px at six of seven geometries — §1 #7, the stacked state §2 #2, §4 #10, §6 Q4); round 2 — the spoken sentence must name the tier the label names (§6 Q1 decided yes; `spokenPoolPhrase`, the tooltip unchanged) and the muted token is under AA on the well (zero counts quietened by weight, §2 #4, §4 #6); round 3 — the wrapper's children fall outside `.wf-hc-pls > span`, so they need their own `display: flex` or the stacked histogram sits left (§2 #2 ⚠️, S2 tasks 1 and 6); round 4 — the stacked threshold rose from 170 to 205px so no count the clamp allows is ever clipped side by side (§6 Q4 closed), and the empty-pool path, which short-circuits the spoken clause, must voice the qualifier too (§2 #5's empty-pool rule); round 5 — the hatched bar's 4px gap must move from the `<i>` to its new column wrapper or the fixed-width column swallows it (S2 task 4). |
 
 ---
 
@@ -322,8 +322,19 @@ Files: `components/WindowFirstHeatStrip.jsx` (the Spread row and `spokenPool` on
    well's height raised to hold a 25px column plus its padding. ⚠️ The specificity trap the block
    already documents: `.wf-hc-hist i` is (0,1,1) and `.wf-hc-pls > span` is (0,1,1); any override of
    a `.wf-hc-pls` child or of the bar must be written at least as specific. Bar width 7px moves
-   from the unrated rule to the shared `i` rule (the hatched bar keeps its `margin-right` and its
-   hatch). `.wf-hc-hist` keeps `cursor: help` — the tooltip stays (§2 #7).
+   from the unrated rule to the shared `i` rule; the hatched bar keeps its hatch. ⚠️ **Its wider
+   gap moves OUT to its column**: today's `margin-right: 4px` sits on the `<i>` itself, and once
+   that `<i>` is inside a fixed-width `.wf-hc-hb` column the margin is spent inside the column
+   (clipped or absorbed by `width: var(--cw)`) and the next column stays the ordinary 2px away —
+   the hatched bar would lose the one spacing cue that marks it as a different KIND of bar (A27
+   Part 2). So the column wrapper carries it: `.wf-hc-hist .wf-hc-hb-unrated { margin-right: 4px }`
+   (the same two-class form the bar's own rule uses, for the same specificity reason), and the
+   inner `<i>` loses the margin. `spreadColumnWidthPx`'s width arithmetic (§1 #7: `6×cw + 5×2 +
+   4`) already counts that 4px between OUTER items, so nothing in S1 moves. Pin in jsdom that the
+   unrated column, not the bar, carries the class the rule keys on; measure the gap in the §7
+   fixture (6px between the hatched bar and 1★, 2px between bands). (A Codex review of #1180 caught
+   the first cut leaving the margin on the bar.) `.wf-hc-hist` keeps `cursor: help` — the tooltip
+   stays (§2 #7).
 5. `spokenPool` reads `spokenPoolPhrase(poolTotal, qualifier)` in place of `poolPhrase` in both
    branches (§2 #5) and gains `spreadBandsSpoken` in bars mode (§2 #6). Pin the full accessible
    name on a bars-mode card under a measured 45-minute tier (the existing `getByRole('button',
