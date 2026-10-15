@@ -8,6 +8,7 @@ import {
   weatherCodeToIcon,
   msToMph,
   formatDriveDuration,
+  formatDriveDurationCompact,
   getEventTime,
   isEventPast,
   isEventTimePast,
@@ -126,6 +127,38 @@ describe('briefingDisplay', () => {
       [120, '2h'],
     ])('%s minutes → %s', (minutes, expected) => {
       expect(formatDriveDuration(minutes)).toBe(expected);
+    });
+  });
+
+  describe('formatDriveDurationCompact', () => {
+    it.each([
+      [null, null],
+      [undefined, null],
+      [45, '45m'],
+      [59, '59m'],
+      [60, '1h'],
+      [65, '1h05'],
+      [90, '1h30'],
+      [120, '2h'],
+      [150, '2h30'],
+    ])('%s minutes → %s', (minutes, expected) => {
+      expect(formatDriveDurationCompact(minutes)).toBe(expected);
+    });
+
+    it('splits hours and minutes exactly where the long form does', () => {
+      // One input table, both formatters: parse the long form's hours and minutes back out and
+      // require the compact form to carry the same two numbers, so neither can drift alone.
+      const minutesTable = [0, 1, 9, 45, 59, 60, 61, 65, 90, 119, 120, 150, 605];
+      for (const minutes of minutesTable) {
+        const [, h, mAfterHour, mOnly] = formatDriveDuration(minutes)
+          .match(/^(?:(\d+)h(?: (\d+)min)?|(\d+) min)$/);
+        const hours = Number(h ?? 0);
+        const mins = Number(mAfterHour ?? mOnly ?? 0);
+        const expected = hours === 0
+          ? `${mins}m`
+          : `${hours}h${mins > 0 ? String(mins).padStart(2, '0') : ''}`;
+        expect(formatDriveDurationCompact(minutes)).toBe(expected);
+      }
     });
   });
 
