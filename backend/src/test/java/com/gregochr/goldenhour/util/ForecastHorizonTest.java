@@ -31,6 +31,14 @@ class ForecastHorizonTest {
             Clock.fixed(Instant.parse("2026-01-11T23:30:00Z"), ZoneOffset.UTC);
 
     @Test
+    @DisplayName("the one-day read reaches further back than the list: MAX_PAST_DAYS is T-4, beyond "
+            + "SERVE_PAST_DAYS")
+    void maxPastDays_reachesBeyondTheListsPastEdge() {
+        assertThat(ForecastHorizon.MAX_PAST_DAYS).isEqualTo(4);
+        assertThat(ForecastHorizon.MAX_PAST_DAYS).isGreaterThan(ForecastHorizon.SERVE_PAST_DAYS);
+    }
+
+    @Test
     @DisplayName("in the BST hour before midnight UTC, today is already the UK's tomorrow-by-UTC")
     void bstPreMidnight_todayIsUkDate() {
         assertThat(ForecastHorizon.today(BST_PRE_MIDNIGHT)).isEqualTo(LocalDate.of(2026, 8, 12));
