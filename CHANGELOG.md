@@ -5,6 +5,84 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.27.3] - 2026-10-15
+
+### Docs — far-cloud P1: D-1/D-2 thresholds decided, plan from 2026-10-15
+
+- `docs/engineering/far-cloud-p1-plan.md` §6 now carries the owner's numeric thresholds (2026-10-14) for
+  D-1 (a rule's readiness: Angel ≤ 3★ in 15 of 20 replays, Low Hauxley 4★ in 18 of 20, at most 15% of gos
+  demoted, Part B interval above 0, cost side ≤ 25%) and D-2 (the Sonnet 4.6 switch: an 8-point gap on the
+  three-star sample, or the Angel at 4★ in over half of Sonnet 5.5's runs and not 4.6's).
+- §9 records the thresholds as decided and the Part D spend as not yet approved; the status line records the
+  exports, Part B, the Part D set and the probe.
+- New §12, the dated plan from 2026-10-15: Option A in batch mode this week, Part E starting now, ERA5
+  verification catching up with Sonnet 5.5 in two to three weeks before Part B is re-run, Part C in the
+  background, outcomes over months.
+
+### Changed — far-cloud P1 Part D replay trimmed to about half by using stored ratings as one arm
+
+`scripts/far-cloud-p1/replay_set.py` gains `split`, which copies the Part D prompt set into `need-sonnet/` (prompts
+SONNET_55 rated, to replay on SONNET 4.6), `need-sonnet55/` (prompts HAIKU rated, to replay on SONNET_55), `r1-gos/`
+(the go group only, for the R1 arm) and `training/`, with a per-directory `manifest.csv`, an `arms.json`, an optional
+seeded `--three-sample N`, and a printed call count and batch-price cost estimate. `compare` stands the stored rating
+in for the model that was not replayed, as a distinct `stored/<model> [production]` arm that is never presented as a
+replay, prints the D-2 and D-1 part 2 figures as one line each with numerator, denominator and stored-vs-replayed
+sides, and takes `--arms-json` to refuse runs that do not match the split. A stored rating is one sample, and a stored
+3-star is 3 by selection, so the trimmed D-2 is a ONE-SIDED line with no gap figure (it cannot confirm D-2.1); the
+README says so and names the control run. Python standard library only, no
+Maven run, no Anthropic call.
+
+### Added — far-cloud P1 replay: a same-model control to price the stored rating's selection drift
+
+`scripts/far-cloud-p1/replay_set.py split --control-sample N` (default 0, off; 150 recommended) writes a fourth
+directory, `control-sonnet55/`: a seeded random N of the SONNET_55-stored prompts, go and 3-star drawn in
+proportion, to replay on SONNET_55 with the production prompt, recorded in `arms.json` with role `control`, and
+printed as a cost line in the split plan (about $0.8 to $1.2 at 150). A stored rating is selected on its own value
+(the `three` group is 3 by construction, the `go` group 4 or more), so any replay compared with it regresses toward
+the mean with no real difference; `compare` could not tell that from an effect. With the control loaded it prints
+the noise floor (the share that moved off the stored rating, the control gos that fell below 4 and the control
+3-stars that rose to 4, each with numerator and denominator), the D-1 part 2 line net of the control gos' own
+below-4 share, and the one-sided D-2 line beside the control 3-stars' rise-to-4 share. The control is never an arm
+and is not counted in any decision line; `compare` refuses (exit 2) a control run on another model or prompt.
+Python standard library only, no Maven run, no Anthropic call.
+
+### Added — prompt replay harness gains a Batch API mode (half price)
+
+`PromptReplayHarnessTest` (far-cloud P1 Part D, test-only, tagged `prompt-regression`, never run by CI) takes
+`REPLAY_BATCH=true` to submit the same request bodies as one Message Batch per model at 50% of standard prices.
+A one-request primer batch per system prefix is submitted first so the real requests can read a 1-hour cache
+(`REPLAY_PRIMER_WAIT_SECONDS`, fail-open). Batch ids are written to `target/p0-replay/batches.json` as they are
+created and `REPLAY_BATCH_RESUME=true` re-polls them instead of resubmitting. The run prints the request count and
+an estimated cost first and refuses to submit unless `REPLAY_CONFIRM_COST` equals the printed request total.
+`runs.csv` keeps its columns and gains `mode`, `batch_id` and token columns at the end, so
+`scripts/far-cloud-p1/replay_set.py` reads direct and batch runs alike. No production code changed; the batch
+path is covered by a WireMock-backed `PromptReplayBatchTest`.
+
+### Fixed — far-cloud P1 tools rest on what Open-Meteo actually serves
+
+The first live run of the P1 probe failed four checks. Previous Runs documents `_previous_dayN` for
+total cloud cover only, so low, mid and high "as issued the day before" never existed; `case.py` and
+`size.py` now read each model's day-0 layers from the Historical Forecast API (identical values for the
+same model) and report no day-before column. The 20-coordinate archive "order" failure was a sea point
+answered from the neighbouring land cell, so the probe now tolerates one cell and tests for a point
+nearer a different request, `Client.get` refuses a batch answered more than 0.55 degrees from its
+requests, and a new check pins that coordinates sharing a 0.25 degree cell are not merged. The plan
+records the findings (section 11) and the T+1 limit this puts on H1–H4 before V175.
+
+### Added — Coming up tide runs rank each day against the year
+
+A tide-run entry's `dayRanges` now carry `rangePercentile` (how that day's range ranks among the past year's daily
+ranges at the run's port, "top N%") and the entry carries `rangeAverageMetres` (the year's mean daily range), both
+served only from a sample of at least 300 derivable days. The tide sparkline's delta is now measured against that
+same average when it is served (a different statistic from the all-history figure it used, so deltas shrink), and a
+merged supermoon-on-tide-run card's coincidence line reads "top N% of the year" in place of the metres on the
+run's true-peak day. Backend only; the range bars draw them in the next change
+(`docs/engineering/tide-range-rank-plan.md`, R1).
+
+### Added — Coming up tide-run bars rank each day against the year
+
+Each day of a tide run now shows `top N%` above its bar (where that day's range ranks among the past year's at the same port), the range in metres under the day chip, and a dashed line at the year's average range across the bars; from 640px a small axis names the line `AVG` and the metres row `range`, and a key sentence under the row explains both. The biggest day wears a filled pill and a glow, days in the top 5% a brighter bar, and a day that has gone or has no forecast yet mutes its label and metres (a biggest day shows an outline pill, with no glow). The percentile and average are served by the backend; the page only scales them. Covered by tests; not yet seen in the live app.
+
 ## [v2.27.2] - 2026-10-14
 
 ### Added — P1 analysis tools for wasted trips, the canvas rule and far cloud decks
