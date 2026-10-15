@@ -18,7 +18,8 @@ import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenc
 import { topMovers } from '../utils/movement.js';
 import { buildWindowMatrix, MATRIX_ROW } from '../utils/windowFirstMatrix.js';
 import {
-  buildSpread, poolPhrase, poolWithinReach, spreadBars, spreadRowState, spreadTitle, unratedBar,
+  buildSpread, formatSpreadCount, poolWithinReach, spokenPoolPhrase, spreadBandsSpoken,
+  spreadBars, spreadCountLayout, spreadQualifier, spreadRowState, spreadTitle, unratedBar,
   unratedPhrase,
 } from '../utils/windowFirstSpread.js';
 import { buildTopicIndex, chipClock, windowTopics } from '../utils/windowFirstTopics.js';
@@ -697,6 +698,8 @@ export default function WindowFirstHeatStrip({
       // empty pool answers `bars: true` (the pre-existing five-hairline treatment, unchanged by this
       // rule), so `state` takes no `withinReach` argument — nothing below the gate needs it either.
       const state = spreadRowState(spread);
+      const bars = spreadBars(spread);
+      const unrated = unratedBar(spread);
       // The card's tide-fit chip, or null below the gate — `card.tideFit.live` alone, never a
       // second read of the gate's own thresholds (tide-plan-card-plan.md §3 C2 task 2). `isBest` is
       // this card's key against the strip-wide `run.bestKey`, so the emphasis and `best of N` can
@@ -715,14 +718,28 @@ export default function WindowFirstHeatStrip({
       byKey.set(card.key, {
         spread,
         state,
-        bars: spreadBars(spread),
+        bars,
         // ⚠️ `unratedBar` is a function of `spread` ALONE — it does not know about `state.bars`, and
         // answers non-null whenever the pool has a real remainder, including a pool BELOW the
         // minimum-sample gate. The render is what ANDs this with `state.bars` before drawing
         // anything; do not read a non-null value here as "the bar is drawn".
-        unratedBar: unratedBar(spread),
+        unratedBar: unrated,
         title: spreadTitle(spread, withinReach),
         withinReach,
+        // The Spread row's second label line and the spoken pool clause both read this ONE answer
+        // (spread-row-plan.md §2 #5), so the label and the sentence cannot name different pools.
+        // ⚠️ `withinReach` is the pool-wide predicate computed above, at the top of this loop — the
+        // very one the tooltip's "within reach" reads — and NEVER `card.reachMeasured` alone: that is true as
+        // soon as ANY spot in the window has a drive, so a mixed pool (some measured, some unknown)
+        // would wear "(within 45m)" over bars that also count the unknown ones. `reachLimitMinutes`
+        // is null under "Any" (`buildHeatStripCards` folds it so); an `undefined` is an unresolved
+        // lens and the helper keeps it silent.
+        qualifier: spreadQualifier({ reachLimitMinutes: card.reachLimitMinutes, withinReach }),
+        // The count columns' per-card width and type size, from the bars that are actually DRAWN:
+        // the hatched bar's count takes part only when the row is in bars mode, because below the
+        // minimum-sample gate `unratedBar` is non-null for a real remainder and nothing is drawn
+        // for it (the `unratedBar` note above). Null `unrated` makes it count for nothing.
+        countLayout: spreadCountLayout(bars, state.bars ? unrated : null),
         best: bestReachLine(card),
         topics: windowTopics(card.key, card.badges, topicIndex, scopeNames),
         tideChip,
@@ -1127,7 +1144,7 @@ export default function WindowFirstHeatStrip({
     const tint = card.away ? null : verdictTint(card.verdict);
     const place = { '--c': column, '--r': row };
     const poolTotal = facts.spread.total;
-    // ⚠️ `poolPhrase`/`unratedPhrase`/`facts.state`, never a second spelling of any of them. The
+    // ⚠️ `spokenPoolPhrase`/`unratedPhrase`/`facts.state`, never a second spelling of any of them. The
     // pool count and the reach claim are VISIBLE TEXT nowhere else on the card once bars are not
     // drawn, so SC 2.5.3 (label in name) requires this sentence to keep saying them — a below-gate
     // clause that dropped straight to "1 of 4 rated" would read as a claim about the verdict rather
@@ -1143,11 +1160,29 @@ export default function WindowFirstHeatStrip({
     // fraction-shaped string as a number or a date, not as two counts. `spoken` is the same fact in
     // words ("1 of 4 rated"); the two strings agree for "none rated yet", where there is no count to
     // mis-voice.
+    //
+    // ⚠️ The pool clause names the SAME pool the visible label names (spread-row-plan.md §2 #5,
+    // §6 Q1): `spokenPoolPhrase(poolTotal, facts.qualifier)` — "7 locations within 45 min" / "7
+    // locations, any drive" — and is the bare "7 locations" when the label is silent (an unmeasured
+    // pool), byte for byte what `poolPhrase(n, false)` said. The tooltip keeps "within reach"; it
+    // sits beside the label, speech has no such neighbour. In bars mode the NON-ZERO band counts
+    // follow (`spreadBandsSpoken`) because the grid is `aria-hidden` and the counts are now visible
+    // text — SC 1.3.1, the same principle `unratedPhrase` states; below the gate there are no
+    // visible counts to match, so only the pool clause moves.
+    //
+    // ⚠️ An EMPTY pool no longer short-circuits to null when the label names a tier: the visible
+    // label reads "(within 45m)" over an empty well, so the sentence says "no locations within 45
+    // min" too. The Best row's own empty clause stays beside it (below) — the sentence carries "the
+    // visible best-reach words verbatim" for speech control (SC 2.5.3), and the pool clause is not
+    // those words; the redundancy is the price of that contract. With no qualifier the pool clause
+    // is null, exactly as before.
+    const poolClause = spokenPoolPhrase(poolTotal, facts.qualifier);
+    const bandsSpoken = facts.state.bars ? spreadBandsSpoken(facts.spread) : '';
     const spokenPool = poolTotal === 0
-      ? null
+      ? poolClause
       : (facts.state.bars
-        ? `${poolPhrase(poolTotal, facts.withinReach)}${unratedPhrase(facts.spread, ', ')}`
-        : `${poolPhrase(poolTotal, facts.withinReach)}${notScored ? '' : `, ${facts.state.spoken}`}`);
+        ? `${poolClause}${bandsSpoken ? `, ${bandsSpoken}` : ''}${unratedPhrase(facts.spread, ', ')}`
+        : `${poolClause}${notScored ? '' : `, ${facts.state.spoken}`}`);
     // Built once per card so the hidden sentence and the visible words cannot be assembled from
     // different values. The comma-separated form is what a screen reader pauses on.
     //
@@ -1320,56 +1355,91 @@ export default function WindowFirstHeatStrip({
               three claims about a night nobody forecast. */}
           {!card.away && (
             <>
-              <span className="wf-hc-k">Spread</span>
-              <span className="wf-hc-pv">
-                {/* `title` carries the per-band breakdown when bars are drawn (the pool count
-                    itself is in the card's hidden sentence, so the figure a reader acts on is in
-                    the accessibility tree and only the detail is pointer-only); below the
-                    minimum-sample gate it carries the SAME short text the row and the sentence
-                    show, never a longer one (`spreadTitle`'s own doc comment). */}
-                <span
-                  data-testid="wf-heat-spread"
-                  className={facts.state.bars ? 'wf-hc-hist' : 'wf-hc-hist-note'}
-                  title={facts.title}
-                >
-                  {facts.state.bars ? (
-                    <>
-                      {/* The unrated remainder (Part 2 of the minimum-sample rule) — a SIXTH,
-                          hatched bar to the LEFT of 1★, on the bands' own scale. Hatched, never a
-                          ramp colour: the map's own unscored plate already means "nothing was
-                          scored here" with this exact texture, and 1★ means "scored, and poorly" —
-                          giving the remainder a ramp colour would have this histogram contradict
-                          the map over the same fact. Absent entirely when nothing is unrated. */}
-                      {facts.unratedBar && (
-                        <i
-                          data-testid="wf-heat-spread-bar-unrated"
-                          className="wf-hc-hist-unrated"
-                          style={{ height: `${facts.unratedBar.heightPx}px` }}
-                        />
-                      )}
-                      {facts.bars.map((bar) => (
-                        <i
-                          key={bar.star}
-                          data-testid="wf-heat-spread-bar"
-                          data-star={bar.star}
-                          style={{
-                            height: `${bar.heightPx}px`,
-                            // The band's own ramp colour, from the same module the canvas above it
-                            // is painted from — never a second table of five hexes. Full opacity,
-                            // and the empty band lifted to 0.40: both are measured against the
-                            // histogram's dark well rather than against the card, which is what
-                            // puts every stop over SC 1.4.11's 3:1 — see the stylesheet's note for
-                            // the whole table.
-                            background: bar.filled
-                              ? rgb(rampRgb(bar.star), 1)
-                              : 'rgba(242,231,211,0.40)',
-                          }}
-                        />
-                      ))}
-                    </>
-                  ) : (
-                    <span data-testid="wf-heat-spread-note">{facts.state.text}</span>
+              {/* The Spread row's WRAPPER (spread-row-plan.md §2 #2): a grid child spanning both
+                  columns, so the second label line can never widen the `auto` column the rating
+                  pill below sits in. Both states — bars and the below-gate note — live inside it,
+                  so the pool label is drawn in both. */}
+              <span data-testid="wf-heat-spread-row" className="wf-hc-sprow">
+                <span data-testid="wf-heat-spread-label" className="wf-hc-k wf-hc-sk">
+                  Spread
+                  {/* Absent — no element, not an empty one — when the pool was not wholly gated by
+                      the active tier (`facts.qualifier`'s own note). Parenthesised in the markup,
+                      not by CSS `::before`, so a text assertion reads what a sighted reader sees. */}
+                  {facts.qualifier && (
+                    <small data-testid="wf-heat-spread-qualifier">({facts.qualifier.text})</small>
                   )}
+                </span>
+                <span data-testid="wf-heat-spread-value" className="wf-hc-pv">
+                  {/* `title` carries the per-band breakdown when bars are drawn (the pool count
+                      itself is in the card's hidden sentence, so the figure a reader acts on is in
+                      the accessibility tree and only the detail is pointer-only); below the
+                      minimum-sample gate it carries the SAME short text the row and the sentence
+                      show, never a longer one (`spreadTitle`'s own doc comment). The counts under
+                      the bars are visible text now, and `accessibleName` voices them too. */}
+                  <span
+                    data-testid="wf-heat-spread"
+                    className={facts.state.bars
+                      ? `wf-hc-hist${facts.countLayout.small ? ' sm' : ''}`
+                      : 'wf-hc-hist-note'}
+                    style={facts.state.bars ? { '--cw': `${facts.countLayout.widthPx}px` } : undefined}
+                    title={facts.title}
+                  >
+                    {facts.state.bars ? (
+                      <>
+                        {/* The unrated remainder (Part 2 of the minimum-sample rule) — a SIXTH,
+                            hatched bar to the LEFT of 1★, on the bands' own scale. Hatched, never a
+                            ramp colour: the map's own unscored plate already means "nothing was
+                            scored here" with this exact texture, and 1★ means "scored, and poorly"
+                            — giving the remainder a ramp colour would have this histogram
+                            contradict the map over the same fact. Absent entirely when nothing is
+                            unrated. Its COLUMN, not the bar, carries the wider gap
+                            (`wf-hc-hb-unrated`): the margin is spent between outer items, and
+                            inside a fixed-width column it would be swallowed (spread-row-plan.md
+                            §2 #3, S2 task 4). Its count IS the "not yet rated" figure the tooltip
+                            and the sentence already name. */}
+                        {facts.unratedBar && (
+                          <span className="wf-hc-hb wf-hc-hb-unrated">
+                            <i
+                              data-testid="wf-heat-spread-bar-unrated"
+                              className="wf-hc-hist-unrated"
+                              style={{ height: `${facts.unratedBar.heightPx}px` }}
+                            />
+                            <em data-testid="wf-heat-spread-count-unrated">
+                              {formatSpreadCount(facts.unratedBar.count)}
+                            </em>
+                          </span>
+                        )}
+                        {facts.bars.map((bar) => (
+                          <span
+                            key={bar.star}
+                            className={`wf-hc-hb${bar.count > 0 ? '' : ' wf-hc-hb-zero'}`}
+                          >
+                            <i
+                              data-testid="wf-heat-spread-bar"
+                              data-star={bar.star}
+                              style={{
+                                height: `${bar.heightPx}px`,
+                                // The band's own ramp colour, from the same module the canvas
+                                // above it is painted from — never a second table of five hexes.
+                                // Full opacity, and the empty band lifted to 0.40: both are
+                                // measured against the histogram's dark well rather than against
+                                // the card, which is what puts every stop over SC 1.4.11's 3:1 —
+                                // see the stylesheet's note for the whole table.
+                                background: bar.filled
+                                  ? rgb(rampRgb(bar.star), 1)
+                                  : 'rgba(242,231,211,0.40)',
+                              }}
+                            />
+                            <em data-testid="wf-heat-spread-count" data-star={bar.star}>
+                              {formatSpreadCount(bar.count)}
+                            </em>
+                          </span>
+                        ))}
+                      </>
+                    ) : (
+                      <span data-testid="wf-heat-spread-note">{facts.state.text}</span>
+                    )}
+                  </span>
                 </span>
               </span>
               {facts.best.rating != null ? (
