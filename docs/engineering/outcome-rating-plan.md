@@ -48,7 +48,7 @@ keeping both rows in phase order).
 
 | phase | branch | commit | date | notes |
 |---|---|---|---|---|
-| O0 | `claude/forecast-accuracy-ratings-5fbd0d` | (this PR) | 2026-10-15 | Plan + bundle vendored at `docs/design/outcome-rating/`. No code. Four review lenses at plan time (§5a): backend, frontend, spec fidelity, conventions and sizing — 3 P1s and ~30 P2/P3s, all accepted and folded in. Codex round 1: one P1 (the rated run must be the served result, not the newest cycle), accepted. |
+| O0 | `claude/forecast-accuracy-ratings-5fbd0d` | (this PR) | 2026-10-15 | Plan + bundle vendored at `docs/design/outcome-rating/`. No code. Four review lenses at plan time (§5a): backend, frontend, spec fidelity, conventions and sizing — 3 P1s and ~30 P2/P3s, all accepted and folded in. Codex rounds 1–2: two P1s (the rated run must be the served result, not the newest cycle; and only one that had arrived by the event), both accepted. |
 
 ---
 
@@ -290,20 +290,30 @@ CREATE INDEX idx_outcome_rating_slot ON outcome_rating (location_id, event_date,
   batch failures — staleness is useful data", so the age of the forecast the reader SAW is what is
   recoverable). Step 1: for a regioned location,
   `evaluationViewService.getLiveScoresForEnrichment(regionName, date, type).get(location.getName())`
-  — the one serve-time resolution the map and the Plan tab read; its `runAt` is the result's
-  `submittedAt`, else its `evaluatedAt`; the candidate counts only when `runAt <= eventInstant` (a
-  result that was submitted after the event is not what was seen at it; a legacy result with
-  neither instant is skipped). `pipelineRunId` is the `pipeline_run` whose `trigger_time` EQUALS the
-  result's `submittedAt` (new finder `PipelineRunRepository.findByTriggerTime(Instant)` →
-  `Optional`; a cycle's batch results carry exactly that instant), else null (an ad-hoc batch, a
-  sync run, a legacy row). Step 2, only when step 1 yields nothing (an unregioned location — the
-  batch never scores one — or a slot with no live result): the slot's latest non-PENDING
-  `forecast_evaluation` row (`findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc`,
-  `PageRequest.of(0, 1)`; a triage row counts, it is a decision the reader saw) when its
-  `forecastRunAt.toInstant(UTC) <= eventInstant`, with `pipelineRunId = null`. Neither → both null.
+  — the one serve-time resolution the map and the Plan tab read. **The result must have been
+  AVAILABLE by the event**: its `evaluatedAt` (arrival / write time) must be `<= eventInstant`
+  (a batch submitted before the event but landing after it — the Batch API allows 24 h — was not
+  what the reader saw at it; a legacy result with no `evaluatedAt` is skipped). A result that
+  passes gives `runAt` = its `submittedAt` (the forecast's own age), else its `evaluatedAt`, and
+  `pipelineRunId` = the `pipeline_run` whose `trigger_time` EQUALS that `submittedAt` (new finder
+  `PipelineRunRepository.findByTriggerTime(Instant)` → `Optional`; a cycle's batch results carry
+  exactly that instant), else null (an ad-hoc batch, a sync run, a legacy row). Step 2, when step 1
+  yields nothing — an unregioned location (the batch never scores one), a slot with no live
+  result, or a served result that arrived AFTER the event: the slot's latest non-PENDING
+  `forecast_evaluation` row whose `forecastRunAt.toInstant(UTC) <= eventInstant` AND, when a late
+  result was set aside, whose `forecastRunAt` is strictly BEFORE that result's `submittedAt` (an
+  earlier submission — the forecast that stood before the late one landed; the cache keeps no
+  history, so this row is the only trace of it), found by a new finder (the existing
+  `findTopBy…OrderByForecastRunAtDesc` plus a `ForecastRunAtLessThan` bound, PENDING excluded; a
+  triage row counts, it is a decision the reader saw), with `pipelineRunId = null`. Neither →
+  both null. ⚠️ **Stated residual**: `forecast_evaluation` carries no arrival stamp (a batch row is
+  stamped at submission and scored in place later), so a step-2 row's own availability by the
+  event cannot be proven — it is taken as served because it was submitted earlier than the result
+  known to be late; the row's `forecastRunAt` is what the footer then reports. Adding an arrival
+  column to `forecast_evaluation` would close it and is out of scope (§6 Q5).
   **Never a roster-wide "latest cycle before the event"** (§4 #2). Resolved on every write
-  (idempotent in practice: nothing re-scores a slot whose date has passed, so the served result is
-  fixed once the event is) and on the admin read, so a slot with no ratings still shows its run.
+  (idempotent in practice: nothing re-scores a slot whose date has passed, and a late batch landing
+  after the event is set aside by the availability gate, so the answer is fixed once the event is) and on the admin read, so a slot with no ratings still shows its run.
 - **The upsert** is split in two classes, the `AskUsageStore` shape: `OutcomeRatingStore`
   (`OutcomeRatingRepository` its only dependency, **no `@Transactional` on the class or the
   method** — a javadoc cites §1 #8 and `AskUsageStore` for why) does `upsert(userId, locationId,
@@ -644,13 +654,15 @@ endpoint: LITE GET 200 `[]`, LITE PUT 403, admin-all PRO 403), `OutcomeRatingRep
    stored). Re-read `ls backend/src/main/resources/db/migration | sort -V | tail -1` first.
 2. Entity (write discipline per §2 #1) + repository: the native insert, the conditional update,
    the range read, the slot read with usernames (the theta join, newest first).
-3. `resolveRatedRun` (§2 #1) through `EvaluationViewService.getLiveScoresForEnrichment` and the
-   new `PipelineRunRepository.findByTriggerTime`; pinned with exact instants: a cached result whose
-   `submittedAt` matches a cycle (id + instant); a cached result from an ad-hoc batch (instant, no
-   id); a legacy result with `evaluatedAt` only (instant, no id); a served result submitted after
-   the event (ignored → step 2); a slot the serve path has nothing for, with a non-PENDING forecast
-   row before the event (its instant, no id) and with one after it (nulls); an unregioned location
-   (step 1 skipped); a retracted result (not returned by the live accessor → step 2).
+3. `resolveRatedRun` (§2 #1) through `EvaluationViewService.getLiveScoresForEnrichment`, the
+   new `PipelineRunRepository.findByTriggerTime` and the new bounded forecast-row finder; pinned
+   with exact instants: a cached result that arrived before the event whose `submittedAt` matches
+   a cycle (id + instant); one from an ad-hoc batch (instant, no id); a legacy result with
+   `evaluatedAt` only (instant, no id); a result submitted before but ARRIVED after the event (set
+   aside → the earlier-submitted forecast row's instant, no id; and nulls when no earlier row
+   exists); a slot the serve path has nothing for, with a non-PENDING forecast row before the event
+   (its instant, no id) and with one after it (nulls); an unregioned location (step 1 skipped); a
+   retracted result (not returned by the live accessor → step 2).
 4. `OutcomeRatingStore.upsert` — no `@Transactional`, the javadoc citing §1 #8; the race test.
    `rate(...)`: the refusals in order (unknown user 404, unknown location 404, rating out of range
    400 at 0 and 6 with 1 and 5 accepted and null accepted, HOURLY 400, event not passed 400 at
@@ -902,14 +914,16 @@ flag), this plan's §0 (COMPLETE, every §6 question closed with a date),
 1. **The phone callout is 266px, not 296.** The spec's figure is the map-landing bundle's; the
    callout's width was decided at L3 and is not reopened. The five-column grid fits: 266 − 2·10
    padding − 4·5 gaps = 226 / 5 ≈ 45px a cell (§7 measures it).
-2. **The forecast being rated is the SERVED result's own instant, not a cycle lookup.** The spec
-   says "`forecast_run_id` (or run timestamp)" and "the last forecast run before the event". A
-   cycle that failed, skipped the slot or landed nothing is not a forecast the reader saw, so the
-   record resolves the slot through the same serve-time precedence the map reads (§1 #6, §2 #1),
-   stores that result's instant, and recovers the cycle id only where a cycle's trigger instant
-   matches it exactly. A hand-started run after the last cycle is covered the same way (its row is
-   the served result). Raised by Codex on #1185; the first draft took the newest cycle before the
-   event.
+2. **The forecast being rated is the SERVED result's own instant, gated on availability, not a
+   cycle lookup.** The spec says "`forecast_run_id` (or run timestamp)" and "the last forecast run
+   before the event". A cycle that failed, skipped the slot or landed nothing is not a forecast the
+   reader saw, and a result that landed after the event was not seen at it either; so the record
+   resolves the slot through the same serve-time precedence the map reads (§1 #6, §2 #1), takes a
+   result only if it had ARRIVED by the event, stores its submission instant (the forecast's age),
+   recovers the cycle id only where a cycle's trigger instant matches it exactly, and otherwise
+   falls back to the earlier-submitted `forecast_evaluation` row with a stated residual. Raised by
+   Codex on #1185 in two rounds; the first draft took the newest cycle before the event, the second
+   gated on submission alone.
 3. **`event_time` is stored per location**, not derived from the window: the admin footer's "Xh
    before sunrise" is a fact about THIS place's sunrise, and the roster's earliest would misstate
    it by up to twenty minutes along a coastline.
@@ -1032,6 +1046,11 @@ forecast, and the footer's age would describe a cycle that served them nothing. 
 the slot's SERVED result through `EvaluationViewService.getLiveScoresForEnrichment`, with the cycle
 id recovered by exact instant match only (§1 #6, §2 #1, §4 #2, O1 step 3).
 
+**Codex, round 2 on #1185 (P1, accepted):** gating on `submittedAt` alone still accepts a batch
+submitted before the event that LANDED after it. The served result now counts only when its
+`evaluatedAt` is at or before the event; a late one is set aside and the earlier-submitted
+`forecast_evaluation` row stands in, with the residual stated (no arrival stamp on that table — §6 Q5).
+
 ---
 
 ## §6 Owner questions — none blocks a phase
@@ -1046,6 +1065,10 @@ id recovered by exact instant match only (§1 #6, §2 #1, §4 #2, O1 step 3).
   `SERVE_PAST_DAYS + 1` and follows it).
 - **Q4** Should the Plan tab's location sheet show a rated past window? Out of scope (spec §1: not
   in the Plan tab).
+- **Q5** Should `forecast_evaluation` gain an arrival stamp (when a batch row was scored in place),
+  so the fallback in §2 #1 can prove a row was available by the event rather than assume it from
+  an earlier submission? A one-column migration plus one write site (`ForecastResultHandler
+  .scoreEvaluationRow`); not built here, the residual is stated instead.
 
 ---
 
