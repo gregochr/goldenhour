@@ -40,7 +40,7 @@ the commit column names the PR once it lands):
 
 | phase | branch | commit | date | notes |
 |---|---|---|---|---|
-| S0 | `claude/spread-row-enhancement-7c99de` | #1180 | 2026-10-15 | Plan + bundle vendored at `docs/design/spread-row/`. No code. Codex reviewed the plan twice and found four P1s, all accepted: round 1 — the qualifier must key on the pool-wide `facts.withinReach` (a mixed pool would otherwise wear "(within 45m)" over unmeasured spots — §2 #5), and the spec's 177px worst-case card does not exist here (the grid is 116–157px at six of seven geometries — §1 #7, the stacked state §2 #2, §4 #10, §6 Q4); round 2 — the spoken sentence must name the tier the label names (§6 Q1 decided yes; `spokenPoolPhrase`, the tooltip unchanged) and the muted token is under AA on the well (zero counts quietened by weight, §2 #4, §4 #6). |
+| S0 | `claude/spread-row-enhancement-7c99de` | #1180 | 2026-10-15 | Plan + bundle vendored at `docs/design/spread-row/`. No code. Codex reviewed the plan twice and found four P1s, all accepted: round 1 — the qualifier must key on the pool-wide `facts.withinReach` (a mixed pool would otherwise wear "(within 45m)" over unmeasured spots — §2 #5), and the spec's 177px worst-case card does not exist here (the grid is 116–157px at six of seven geometries — §1 #7, the stacked state §2 #2, §4 #10, §6 Q4); round 2 — the spoken sentence must name the tier the label names (§6 Q1 decided yes; `spokenPoolPhrase`, the tooltip unchanged) and the muted token is under AA on the well (zero counts quietened by weight, §2 #4, §4 #6); round 3 — the wrapper's children fall outside `.wf-hc-pls > span`, so they need their own `display: flex` or the stacked histogram sits left (§2 #2 ⚠️, S2 tasks 1 and 6). |
 
 ---
 
@@ -144,7 +144,14 @@ figure unexamined.)
    two-line label (`.wf-hc-k.wf-hc-sk`: `Spread` + `<small>` qualifier, flex column, `gap: 1px`,
    `line-height: 1.15`, 8.5px/600/uppercase, `Spread` at `.1em`, the qualifier at `.06em` and
    `white-space: nowrap`) and the value cell (`.wf-hc-pv`, `overflow: hidden` kept as the safety
-   net). The wrapper is the whole point of the spec's own regression note: a longer label in the
+   net). ⚠️ **The wrapper's two children are no longer direct children of the grid**, so the
+   `.wf-hc-pls > span` rule (`display: flex; align-items: center; min-width: 0; min-height: 20px`)
+   no longer reaches them, and the base `.wf-hc-pv` rule sets only `justify-content`,
+   `flex-wrap`, `gap` and `overflow` — never `display`. Both children therefore need their own
+   `display: flex; align-items: center; min-width: 0` on a `.wf-hc-sprow > span` rule (the
+   prototype's own `.pls .sprow > span { display: flex; min-width: 0 }`), written at (0,2,1) or
+   better so it is not shadowed, or the histogram sits at the LEFT of its line in the stacked state
+   and the label loses its vertical centring (a Codex review of #1180 caught the omission). The wrapper is the whole point of the spec's own regression note: a longer label in the
    shared `auto` column widens it and pushes the `5★ <name>` row below out of shape.
    **Two states, decided by the CARD's width, never by content** (§1 #7): side by side where the
    card is wide enough, and STACKED — the label line first, the histogram on its own line below,
@@ -273,8 +280,9 @@ A10/A27 pool, not a new member; say so in the header).
 Files: `components/WindowFirstHeatStrip.jsx` (the Spread row and `spokenPool` only),
 `index.css` (the value-grid block only), `test/WindowFirstHeatStrip.test.jsx`.
 
-1. Wrap the Spread row in `.wf-hc-sprow` (§2 #2). Both states — bars and the `.wf-hc-hist-note`
-   text — live inside the wrapper, so the label line is drawn in both. Pin that `.wf-hc-k` for
+1. Wrap the Spread row in `.wf-hc-sprow` (§2 #2), with the `.wf-hc-sprow > span` rule restoring
+   what `.wf-hc-pls > span` no longer gives its two children (§2 #2's ⚠️). Both states — bars and
+   the `.wf-hc-hist-note` text — live inside the wrapper, so the label line is drawn in both. Pin that `.wf-hc-k` for
    "Spread" is no longer a direct grid child (the regression the spec names: measure that the
    rating pill's column width is unchanged with and without the qualifier — `getBoundingClientRect`
    in jsdom reads 0, so assert it by the cascade: the `auto` column's only remaining children are
@@ -309,7 +317,11 @@ Files: `components/WindowFirstHeatStrip.jsx` (the Spread row and `spokenPool` on
 6. The stacked state (§2 #2): `container-type: inline-size; container-name: wf-card` on `.wf-hc`
    and `@container wf-card (max-width: 170px) { .wf-hc-sprow { flex-wrap: wrap } .wf-hc-sprow >
    .wf-hc-pv { margin-left: auto; flex-basis: 100% } }` (or the equivalent that puts the histogram
-   on its own right-aligned line). No separate markup, no `useIsMobile` branch — the same DOM at
+   on its own right-aligned line) — ON TOP OF the base `.wf-hc-sprow > span { display: flex;
+   align-items: center; min-width: 0 }` rule from task 1, since the nested `.wf-hc-pv` keeps its
+   `justify-content: flex-end` only while it IS a flex container (§2 #2's ⚠️). Pin by the cascade
+   in jsdom (the computed `display` of the nested value cell is `flex`) and by geometry in the §7
+   fixture (the histogram's right edge meets the cell's right edge in the stacked state). No separate markup, no `useIsMobile` branch — the same DOM at
    every width, which is what the spec asks. jsdom has no layout, so the switch is proven in the
    §7 fixture at every width in the table, and the pick legend and hover transform are checked
    there too (the containment stacking-context note in §2 #2).
