@@ -1,3 +1,0 @@
-### Added — Coming up tide-run bars rank each day against the year
-
-Each day of a tide run now shows `top N%` above its bar (where that day's range ranks among the past year's at the same port), the range in metres under the day chip, and a dashed line at the year's average range across the bars; from 640px a small axis names the line `AVG` and the metres row `range`, and a key sentence under the row explains both. The biggest day wears a filled pill and a glow, days in the top 5% a brighter bar, and a day that has gone or has no forecast yet mutes its label and metres (a biggest day shows an outline pill, with no glow). The percentile and average are served by the backend; the page only scales them. Covered by tests; not yet seen in the live app.
