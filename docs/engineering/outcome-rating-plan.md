@@ -48,7 +48,7 @@ keeping both rows in phase order).
 
 | phase | branch | commit | date | notes |
 |---|---|---|---|---|
-| O0 | `claude/forecast-accuracy-ratings-5fbd0d` | (this PR) | 2026-10-15 | Plan + bundle vendored at `docs/design/outcome-rating/`. No code. Four review lenses at plan time (§5a): backend, frontend, spec fidelity, conventions and sizing — 3 P1s and ~30 P2/P3s, all accepted and folded in. Codex rounds 1–10: seventeen P1s (provenance: the served result, not the newest cycle; only one that had arrived by the event; the fallback must not admit a late batch's own row — hence `scored_at`, V178; it must honour a stability retraction as of the event; the calibration join must use the resolved row id, not the natural key; the stored `forecast_rating` for a recombined OPEN_FELL slot; the past-row rule needs the afterglow-elapsed test, not withdrawal alone; retraction by submission instant; no guessed star for a canopy place after a post-event cache replacement; a canopy place's availability bound is the entry's last write; a past window's best is over painted points; no block for a place with no row; one as-of-event resolution for the serve path and the record; the write bounded to the retraction evidence's retention less the skip's lead time; a stale no-row sentence; the serve path serving the captured star, never a sky-only fallback), all accepted. |
+| O0 | `claude/forecast-accuracy-ratings-5fbd0d` | (this PR) | 2026-10-15 | Plan + bundle vendored at `docs/design/outcome-rating/`. No code. Four review lenses at plan time (§5a): backend, frontend, spec fidelity, conventions and sizing — 3 P1s and ~30 P2/P3s, all accepted and folded in. Codex rounds 1–11: nineteen P1s (provenance: the served result, not the newest cycle; only one that had arrived by the event; the fallback must not admit a late batch's own row — hence `scored_at`, V178; it must honour a stability retraction as of the event; the calibration join must use the resolved row id, not the natural key; the stored `forecast_rating` for a recombined OPEN_FELL slot; the past-row rule needs the afterglow-elapsed test, not withdrawal alone; retraction by submission instant; no guessed star for a canopy place after a post-event cache replacement; a canopy place's availability bound is the entry's last write; a past window's best is over painted points; no block for a place with no row; one as-of-event resolution for the serve path and the record; the write bounded to the retraction evidence's retention less the skip's lead time; a stale no-row sentence; the serve path serving the captured star, never a sky-only fallback; no legacy unstamped candidates; the bound at 24 days for a T+5 skip), all accepted. |
 
 ---
 
@@ -325,8 +325,11 @@ CREATE INDEX idx_outcome_rating_slot ON outcome_rating (location_id, event_date,
   result, or a served result that arrived AFTER the event: the slot's latest `forecast_evaluation`
   row that **has something to say** (`rating IS NOT NULL OR triage_reason IS NOT NULL`, the
   `hasSomethingToSay` rule — a triage row is a decision the reader saw) and **was available by the
-  event**: `COALESCE(scored_at, forecast_run_at) <= eventInstant`, **and not retracted as of the
-  event**: the slot's latest `SKIPPED_STABILITY` disposition with `created_at <= eventInstant`
+  event**: `scored_at IS NOT NULL AND scored_at <= eventInstant` — **a row with no `scored_at` (one
+  written before V178) is never a candidate**, because its `forecast_run_at` is a submission
+  instant, not an availability one, and the write window reaches 24 days back, so a legacy
+  late-landing batch row would otherwise be recorded and calibrated as served (Codex, #1185 round
+  11) — **and not retracted as of the event**: the slot's latest `SKIPPED_STABILITY` disposition with `created_at <= eventInstant`
   (a new bounded sibling of `ForecastRunDispositionRepository.findLatestStabilitySkipTimestamps`,
   by location name, date and type — the 30-day retention covers T-4) retracts any row whose
   **submission instant** (`forecastRunAt.toInstant(UTC)`, never `scored_at`) precedes it, exactly
@@ -360,8 +363,10 @@ CREATE INDEX idx_outcome_rating_slot ON outcome_rating (location_id, event_date,
   it: a batch row's `forecast_run_at` is stamped when the row is built (`ForecastService.java:817`),
   BEFORE the batch's `submittedAt` is known (`BatchSubmissionService.java:143–152`), so a
   "submitted earlier" bound would admit the very row step 1 just set aside (Codex, #1185 round 3).
-  Legacy rows with a null `scored_at` fall back to `forecast_run_at`, the stated residual, and age
-  out of the T-4 window within days of the deploy.
+  Legacy rows with a null `scored_at` are simply not candidates: for the first days after the
+  deploy a passed slot scored before it resolves to nothing (served unscored on the past-window
+  view, recorded with null provenance, never calibrated), and every row scored after it carries
+  the stamp — no backfill, no guess.
   **Never a roster-wide "latest cycle before the event"** (§4 #2). ⚠️ **This resolution has TWO
   readers, and they must agree** (Codex, #1185 round 9): the rating's provenance here, and the
   forecast SERVE path for a passed slot (§2 #4), so that the star the past-window UI draws is the
@@ -385,16 +390,18 @@ CREATE INDEX idx_outcome_rating_slot ON outcome_rating (location_id, event_date,
   `now` from the injected `Clock` (a PUT is never rewound), else 400 `"That sunrise has not
   happened yet"` / `"… sunset …"`; **and not older than the retraction evidence**: `date` must be
   on or after `today − OutcomeRatingService.MAX_RATING_AGE_DAYS`, where `MAX_RATING_AGE_DAYS =
-  ForecastDispositionService.RETENTION_DAYS − RunType.FORECAST_HORIZON_DAYS` (30 − 5 = 25; both
-  existing constants, the first made public for this reader; the javadoc shows the arithmetic),
+  ForecastDispositionService.RETENTION_DAYS − RunType.FORECAST_HORIZON_DAYS − 1` (30 − 5 − 1 = 24;
+  both existing constants, the first made public for this reader; the javadoc shows the
+  arithmetic),
   else 400 `"That sunrise is too old to rate"` — because step 2's retraction reads
   `forecast_run_disposition`, which the `disposition_cleanup` prune deletes by the disposition's own
   `created_at` at `RETENTION_DAYS` (`ForecastDispositionService.java:180–181`), while
   `forecast_evaluation` is never pruned, AND a `SKIPPED_STABILITY` for an event is recorded up to
-  four days BEFORE it (`ForecastTaskCollector.java:711–718` decides T+0..T+4), so a rating for an
-  event 26–30 days old could resolve a retracted row as served after its skip was deleted
-  (Codex, #1185 rounds 9 and 10); subtracting the full five-day candidate window leaves a day of
-  slack over the four-day lead. The
+  `FORECAST_HORIZON_DAYS` (5) days BEFORE it (`NightlyEligibilityPolicy.resolve` records every
+  T+4-and-beyond rejection as a stability skip, `NightlyEligibilityPolicy.java:57–66`, persisted at
+  `ForecastTaskCollector.java:485–488`, and the candidate window runs to T+5), so a rating for an
+  event 25–30 days old could resolve a retracted row as served after its skip was deleted (Codex,
+  #1185 rounds 9–11); the extra day covers the prune deleting by instant rather than by UK date. The
   superseded board's "any time means no cut-off" is therefore not honoured (§4 #21); the Map reaches
   T-4. `updatedAt` from the clock.
   Returns `OutcomeRatingDto(locationId, locationName, eventDate, eventType, rating, updatedAt,
@@ -776,7 +783,7 @@ endpoint: LITE GET 200 `[]`, LITE PUT 403, admin-all PRO 403), `OutcomeRatingRep
    stamped at insert, a triage row at insert, a PENDING row null until scored then stamped, an
    ABANDONED row never. Then `resolveRatedRun` (§2 #1) through
    `EvaluationViewService.getLiveScoresForEnrichment`, the new `PipelineRunRepository
-   .findByTriggerTime` and a new slot finder bounded on `COALESCE(scoredAt, forecastRunAt) <=
+   .findByTriggerTime` and a new slot finder bounded on `scoredAt IS NOT NULL AND scoredAt <=
    :instant` with the has-something-to-say rule; pinned with exact instants: a cached result that
    arrived before the event whose `submittedAt` matches a cycle (id + instant); one from an ad-hoc
    batch (instant, no id); a legacy result with `evaluatedAt` only (instant, no id); a
@@ -786,7 +793,7 @@ endpoint: LITE GET 200 `[]`, LITE PUT 403, admin-all PRO 403), `OutcomeRatingRep
    never the late batch's own row even though that row's `forecastRunAt` precedes the event; nulls
    when no such row); a slot the serve path has nothing for, with a row scored before the event
    (its instant, no id) and with one scored after it (nulls); a legacy row with null `scoredAt`
-   taken on `forecastRunAt`; an unregioned location (step 1 skipped); a retracted result (not
+   never a candidate, however early its `forecastRunAt`; an unregioned location (step 1 skipped); a retracted result (not
    returned by the live accessor → step 2); `forecastEvaluationId` set from step 2's candidate
    whenever one exists, step 1 answering or not, and null otherwise; `forecastRating` the served
    result's rating when step 1 answered (a recombined 3 over a sky row's 4) and the row's when not; a row SUBMITTED before a stability skip and
@@ -1145,10 +1152,11 @@ flag), this plan's §0 (COMPLETE, every §6 question closed with a date),
     a spot pick only; the list is per (spot, window), so a stale open list over a new window would
     show another window's ratings until refetched.
 21. **A rating cannot be older than the retraction evidence.** The superseded board says "any time
-    means no cut-off"; the PUT refuses a date older than `MAX_RATING_AGE_DAYS` (25 = the
-    disposition retention of 30 less the five-day candidate window) because the stability-skip
-    evidence provenance needs is pruned 30 days after it was RECORDED, up to four days before its
-    event, and an older date would resolve a retracted forecast as served.
+    means no cut-off"; the PUT refuses a date older than `MAX_RATING_AGE_DAYS` (24 = the
+    disposition retention of 30 less the five-day candidate window less one day of instant-prune
+    slack) because the stability-skip evidence provenance needs is pruned 30 days after it was
+    RECORDED, up to five days before its event, and an older date would resolve a retracted
+    forecast as served.
 22. **A passed slot is served as of its event.** The spec says a past window "is a database read
     only"; this codebase's read would otherwise be the slot's LATEST row, which a batch landing
     after the event (24 h ceiling) can replace, so the past-window UI would show a star the
@@ -1265,6 +1273,12 @@ captured star itself — null for a canopy place whose composite is unrecoverabl
 row's sky-only rating (§2 #4, O2 step 4); (b) a stability skip is recorded up to four days before
 its event, so the write bound subtracts the candidate window from the retention: 25 days, not 30
 (§2 #1, §4 #21, O1 step 4).
+
+**Codex, round 11 on #1185 (two P1s, accepted):** (a) a row with no `scored_at` (pre-V178) is never
+a provenance candidate — its submission instant is not an availability instant and the write
+window reaches 24 days back (§2 #1, O1 step 3); (b) the candidate window runs to T+5 and
+`NightlyEligibilityPolicy` records a T+5 rejection as a stability skip, so the write bound is
+`RETENTION_DAYS − FORECAST_HORIZON_DAYS − 1` = 24 (§2 #1, §4 #21).
 
 ---
 
