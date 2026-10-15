@@ -48,7 +48,7 @@ keeping both rows in phase order).
 
 | phase | branch | commit | date | notes |
 |---|---|---|---|---|
-| O0 | `claude/forecast-accuracy-ratings-5fbd0d` | (this PR) | 2026-10-15 | Plan + bundle vendored at `docs/design/outcome-rating/`. No code. Four review lenses at plan time (§5a): backend, frontend, spec fidelity, conventions and sizing — 3 P1s and ~30 P2/P3s, all accepted and folded in. Codex rounds 1–7: nine P1s (provenance: the served result, not the newest cycle; only one that had arrived by the event; the fallback must not admit a late batch's own row — hence `scored_at`, V178; it must honour a stability retraction as of the event; the calibration join must use the resolved row id, not the natural key; the stored `forecast_rating` for a recombined OPEN_FELL slot; the past-row rule needs the afterglow-elapsed test, not withdrawal alone; retraction by submission instant; and no guessed star for a canopy place after a post-event cache replacement), all accepted. |
+| O0 | `claude/forecast-accuracy-ratings-5fbd0d` | (this PR) | 2026-10-15 | Plan + bundle vendored at `docs/design/outcome-rating/`. No code. Four review lenses at plan time (§5a): backend, frontend, spec fidelity, conventions and sizing — 3 P1s and ~30 P2/P3s, all accepted and folded in. Codex rounds 1–8: twelve P1s (provenance: the served result, not the newest cycle; only one that had arrived by the event; the fallback must not admit a late batch's own row — hence `scored_at`, V178; it must honour a stability retraction as of the event; the calibration join must use the resolved row id, not the natural key; the stored `forecast_rating` for a recombined OPEN_FELL slot; the past-row rule needs the afterglow-elapsed test, not withdrawal alone; retraction by submission instant; no guessed star for a canopy place after a post-event cache replacement; a canopy place's availability bound is the entry's last write; a past window's best is over painted points; no block for a place with no row), all accepted. |
 
 ---
 
@@ -306,7 +306,17 @@ CREATE INDEX idx_outcome_rating_slot ON outcome_rating (location_id, event_date,
   — the one serve-time resolution the map and the Plan tab read. **The result must have been
   AVAILABLE by the event**: its `evaluatedAt` (arrival / write time) must be `<= eventInstant`
   (a batch submitted before the event but landing after it — the Batch API allows 24 h — was not
-  what the reader saw at it; a legacy result with no `evaluatedAt` is skipped). A result that
+  what the reader saw at it; a legacy result with no `evaluatedAt` is skipped). ⚠️ **For a
+  canopy-bearing place (a BLUEBELL or WOODLAND type) `evaluatedAt` is NOT proof**: an OPEN_FELL
+  recombination keeps the earlier sky result's `evaluatedAt` while the composite star exists only
+  once the bluebell lane merges (`BriefingEvaluationService.java:504–513`, `:626–632`), so for such
+  a place the availability instant is the cached ENTRY's region-level `updated_at`
+  (`CachedEvaluationEntity` for that region, date and type — the latest write to the entry, a
+  conservative upper bound on when the composite existed; read through `BriefingEvaluationService`'s
+  repository, O1 names the accessor), which must be `<= eventInstant`; a later write by ANY place
+  of the region sends a canopy place to step 2, where its star is stored null (below) — the safe
+  direction, since a guessed composite would calibrate against a star never seen (Codex, #1185
+  round 8). A result that
   passes gives `runAt` = its `submittedAt` (the forecast's own age), else its `evaluatedAt`, and
   `pipelineRunId` = the `pipeline_run` whose `trigger_time` EQUALS that `submittedAt` (new finder
   `PipelineRunRepository.findByTriggerTime(Instant)` → `Optional`; a cycle's batch results carry
@@ -398,9 +408,8 @@ CREATE INDEX idx_outcome_rating_slot ON outcome_rating (location_id, event_date,
 
 `buildMapEvents` (`utils/mapEvents.js:557`) takes a new input, `pastSolarWindows` — built in
 `WindowFirstMapPane` from `locations[].forecastsByDate` for every (date, targetType) with at least
-one row and `date <= todayStr`: `{date, targetType, earliestEventTime, latestEventTime}` (the earliest and
-the latest `solarEventTime` among the rows, UTC — the first decides `past`, the second stands in
-for a place with no row of its own at the block, §2 #5). A solar row is **past** (`row.past === true`) when it has
+one row and `date <= todayStr`: `{date, targetType, earliestEventTime}` (the earliest `solarEventTime` among the rows, UTC,
+which decides `past`; nothing stands in for a place with no row of its own at the block, §2 #5). A solar row is **past** (`row.past === true`) when it has
 NO served window AND it is in the forecast domain AND **its `earliestEventTime` has elapsed by the
 afterglow rule** (`isEventTimePast`, `utils/briefingDisplay.js:269` — the same instant and the
 same 30 minutes `PlanWindowProjector.hasPassed` withdraws the served window on, so with a live
@@ -522,9 +531,13 @@ rows — `scoreRows` plus `{locationId, locationName, date, targetType, rating}`
 windows' point sets — because `MapView.jsx:2924–2928` finds `heatWindow` in `heat.windows` and
 `:3056` reads `heat.pointsByKey.get(heatWindow.key)`, so a window absent from `heat.windows` paints
 `EMPTY_POINTS` and `fillerHasRatings` (`:3585–3589`) treats it as a filler; (c) gives the past
-window's `bestRating` as a **client max over the merged rows** — `windowUnscored` (`:3114–3120`)
-reads `heatWindow?.bestRating` to decide whether the legend key is withheld, and a rated past
-window must show its key. ⚠️ That max is a NEW named member of CLAUDE.md's licensed Map-tab class
+window's `bestRating` as a **client max over that window's PAINTED points** — the `scores[]` the
+`buildHeatSpots` output carries for the window, after its own join and sky-subject filters
+(`heatSpots.js:133–143` withholds a WOODLAND/BLUEBELL/WILDLIFE-only place's scores, an unregioned
+place and one with no coordinates), never the raw merged rows — because `windowUnscored`
+(`:3114–3120`) reads `heatWindow?.bestRating` to decide whether the legend key is withheld, and a
+key over an empty field (a window whose only rated rows are a wood's) would be a lie (Codex,
+#1185 round 8); a rated past window must show its key and an unpainted one must not. ⚠️ That max is a NEW named member of CLAUDE.md's licensed Map-tab class
 (the `mapEvents.bestOfNight` shape: a max across a roster that no served field states, because the
 briefing serves no past window) — `mapEvents.pastWindowBest`, recorded in O6 beside `bestOfNight`,
 not folded into the filter/map class. The kernel's haze reads the inferred confidence cap
@@ -553,11 +566,14 @@ same rows (§2 #3).
 
 `components/map/OutcomeRatingBlock.jsx`, mounted by `MapCallout` inside `.wf-callout-body` after
 the facts row when `event.past && !isHide && !rewound && placePassed`, where `placePassed` is
-`isEventTimePast(the selected place's own forecast row's solarEventTime)` when that row carries a
-time, else `isEventTimePast(the window's latestEventTime)` (every place on the roster has passed,
-so this one has too) — never a bare `event.past`, which is decided on the roster's EARLIEST time
-and would mount controls the server's per-place `hasPassed` then refuses (Codex, #1185 round 6);
-the per-place check that keeps the client and the server in step along a coastline (§4 #4). Every string lives in
+`isEventTimePast(the selected place's own forecast row's solarEventTime)` — **and a place with no
+forecast row for the window, or a row with no time, gets no block at all**: the roster's
+`latestEventTime` is derived from the rows and so cannot vouch for a place that has none (its own
+event may be later than every row's), and a bare `event.past` is decided on the roster's EARLIEST
+time; either would mount controls the server's per-place `hasPassed` then refuses (Codex, #1185
+rounds 6 and 8). A place with no row had no forecast to rate against, and the calibration gate
+could pair nothing. The per-place check keeps the client and the server in step along a coastline
+(§4 #4). Every string lives in
 `components/map/outcomeRatingCopy.js` (the `WindowControl.PICK_TEXT` shape), with a header
 separating the spec's strings from the four plan-introduced ones (§4 #17). Props: `{event,
 locationId, mine, role, saving, saveError, changing, onChangingChange, onRate, admin}` where `mine`
@@ -728,7 +744,9 @@ endpoint: LITE GET 200 `[]`, LITE PUT 403, admin-all PRO 403), `OutcomeRatingRep
    .findByTriggerTime` and a new slot finder bounded on `COALESCE(scoredAt, forecastRunAt) <=
    :instant` with the has-something-to-say rule; pinned with exact instants: a cached result that
    arrived before the event whose `submittedAt` matches a cycle (id + instant); one from an ad-hoc
-   batch (instant, no id); a legacy result with `evaluatedAt` only (instant, no id); a result
+   batch (instant, no id); a legacy result with `evaluatedAt` only (instant, no id); a
+   canopy-bearing place whose cached entry's region-level `updated_at` is after the event (set
+   aside → step 2, star null) and one whose entry was last written before it (taken); a result
    submitted before but ARRIVED after the event (set aside → the latest row scored by the event,
    never the late batch's own row even though that row's `forecastRunAt` precedes the event; nulls
    when no such row); a slot the serve path has nothing for, with a row scored before the event
@@ -802,7 +820,7 @@ test in the `AppRewind.test.jsx` shape for the `isPast` route.
    plus the afterglow elapses AND it is unserved (pin: served → not past; unserved with the
    earliest time one minute short of the afterglow → NOT past, a filler; one minute over → past;
    unserved with no briefing at all and a future time → a filler, never past; a date with rows and
-   `date > todayStr` still a filler), both `earliestEventTime` and `latestEventTime` carried, T-1 and T-2 rows present, ordering unchanged,
+   `date > todayStr` still a filler), T-1 and T-2 rows present, ordering unchanged,
    `withScopedSolarTimes` narrowing a past row's time and leaving it when the pool is empty,
    `isForwardableRow` true for a past row.
 3. `resolveMapDate` `selectedIsPast` (§2 #2): a past date is usable only with the flag and only
@@ -868,8 +886,10 @@ the legend key shows on a rated past window and is withheld on an unrated one; t
 
 1. The merged score rows and the past-only event list in the pane (§2 #3); `buildHeatSpots` over
    them; `heat.pointsByKey` extended.
-2. `heat.windows` extended with `{key, date, targetType, bestRating: pastWindowBest(rows),
-   confidence: null}`; `pastWindowBest` beside `bestOfNight` with the licence note in its javadoc.
+2. `heat.windows` extended with `{key, date, targetType, bestRating: pastWindowBest(spots, index),
+   confidence: null}` — the max over the painted points' `scores[index]`, so a window whose only
+   rated rows are a wood's or an unregioned place's reads `null` and withholds the key (pinned);
+   `pastWindowBest` beside `bestOfNight` with the licence note in its javadoc.
 3. `MapViewHeat.test.jsx`: a T-1 window with briefing scores paints; a T-4 window with forecast
    rows only paints; a past window with no scored place paints nothing and withholds the key.
 4. Gate, lenses (runtime, test quality, conventions — the new licensed member named), changelog,
@@ -898,7 +918,8 @@ real stylesheet.
    Changing, the status line and its lifetime, the Lite lock (stars dim, not-seen does not; taps
    call nothing; the line swaps), the 44/40px targets, tokens.
 3. `MapCallout`: the mount condition (`event.past && !isHide && !rewound && placePassed`, with
-   `placePassed` pinned for a place with its own row and for one without), the
+   `placePassed` pinned: a place with its own row and a passed time mounts; one with a row whose
+   time has not passed does not; one with no row does not), the
    owned `changing`/`adminOpen` state reset on `${locationId}|${event.id}`, both in the repaint
    dependency list (pinned), the facts row already hidden (O3a).
 4. Gate, lenses (runtime, CSS/tokens, test quality, accessibility — the block speaks its state
@@ -1166,6 +1187,13 @@ after it was never served; `scored_at` is the availability bound only (§2 #1, O
 canopy-bearing place's combined star, once replaced in the cache by a batch landing after the
 event, is not recoverable from any table, so a step-2 fallback stores no served star for such a
 place and the calibration gate requires one (§2 #1, §2 #8, O5b).
+
+**Codex, round 8 on #1185 (three P1s, accepted):** (a) a recombined composite keeps the sky result's
+`evaluatedAt`, so for a canopy-bearing place step 1's availability bound is the cached entry's
+region-level `updated_at`, conservative by design (§2 #1, O1 step 3); (b) a past window's
+`bestRating` is the max over its PAINTED points, after `buildHeatSpots`'s join and sky-subject
+filters, never the raw rows (§2 #3, O3c); (c) a place with no forecast row for the window gets no
+block — the roster's latest event time cannot vouch for it (§2 #2, §2 #5, O4a).
 
 ---
 
