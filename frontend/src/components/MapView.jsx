@@ -1437,7 +1437,7 @@ const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
  *       this component's own state.</li>
  * </ul>
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, askPhase = 'empty', panelShown = true }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, askPhase = 'empty', panelShown = true, outcomeRatings = null }) {
   // `MapView` is `React.memo`'d, and its two long-lived mounts (the Map pane, the standalone
   // overlay) sit hidden rather than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -6362,6 +6362,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               hourlyRows={activeMapEvent?.kind === 'solar'
                 ? (selectedLoc.forecastsByDate.get(activeMapEvent.date)?.hourly ?? null)
                 : null}
+              // The reader's own outcome ratings (outcome-rating-plan.md §2 #5) — null from the overlay,
+              // which mounts no hook, and while a rewind is in force. The block's mount condition
+              // lives in `MapCallout`: a past window, this place's own passed event time, a sky place.
+              userRole={role}
+              ratings={outcomeRatings}
               onSelectEv={selectEvRow}
               onOpenSheet={() => handleOpenLocationSheet(false)}
               onOpenInPlan={() => handleOpenLocationSheet(true)}
@@ -7473,6 +7478,20 @@ MapView.propTypes = {
   askOffered: PropTypes.bool,
   askPhase: PropTypes.oneOf(['empty', 'busy', 'answer', 'plan', 'cant', 'error']),
   panelShown: PropTypes.bool,
+  /**
+   * The reader's own outcome ratings (`hooks/useOutcomeRatings.js`'s return value) — handed to the
+   * callout's rating block (outcome-rating-plan.md §2 #5). Null when none are offered: the overlay,
+   * which mounts no hook, and a rewind. One memoised object from the pane, so the memo'd `MapView`
+   * re-renders when a rating, a save or a read changes it and not otherwise.
+   */
+  outcomeRatings: PropTypes.shape({
+    loaded: PropTypes.bool,
+    mine: PropTypes.instanceOf(Map),
+    saving: PropTypes.instanceOf(Set),
+    saveError: PropTypes.instanceOf(Set),
+    rate: PropTypes.func,
+    clearSaveError: PropTypes.func,
+  }),
 };
 
 export default React.memo(MapView);

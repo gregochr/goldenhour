@@ -249,6 +249,19 @@
      `--color-plex-coral` two lines up. */
   --color-plex-astro: #8E86D6;
   --color-plex-astro-bright: #A79FE4;
+
+  /* The outcome-rating block's three stars (docs/design/outcome-rating/README.md §6; outcome-rating-
+     plan.md §2 #5) — the only colours that block needs that this file did not already name; every
+     other one it draws is an existing token (`--color-plex-border`, `--color-plex-border-light`,
+     `--color-plex-panel`, `--color-plex-text*`, `--color-verdict-marginal`). `static`, not the plain
+     block above, because their only consumers are the handwritten `.wf-rate*` rules below and a
+     plain-block token with no scanned Tailwind reference prunes to the empty string (the
+     `--color-plex-panel` incident recorded at the top of this block). `--color-star-off` is the same
+     hex as `--color-plex-border-light` today and is a separate name on purpose: an unlit star is not a
+     border, and a retune of one must not recolour the other. */
+  --color-star: #E5A00D;
+  --color-star-off: #4A3A2E;
+  --color-star-selected-bg: rgba(229, 160, 13, 0.12);
 }
 
 /* ── Safe areas ──────────────────────────────────────────────────────────────────────────────────
@@ -7664,6 +7677,204 @@ button.wf-hc.also.on:hover {
   text-transform: uppercase;
   font-size: 9px;
   letter-spacing: 0.06em;
+}
+
+/* The outcome-rating block ("How was it?" — components/map/OutcomeRatingBlock.jsx, outcome-rating-
+   plan.md §2 #5, docs/design/outcome-rating/README.md §3). A past window only. It lives inside
+   `.wf-callout-body` (the card's one scroller), after the facts row, so it shares that scroll and the
+   card's measured height; the callout names its layout in its repaint dependencies.
+
+   ⚠️ Sizes are the spec's: a 44px star, a 40px "Didn't see it" and "Change". The phone card is 266px
+   wide with 13px side padding (238px inside, not the plan's 226 — §4 #1 assumed 10px), so five
+   columns and four 5px gaps leave a 43.59px cell; the phone override below takes the gap to 4px to
+   bring it to 44.39px (both measured in headless Chromium over this stylesheet, plan §0 O4a row). */
+.wf-rate {
+  border-top: 1px solid var(--color-plex-border);
+  padding-top: 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.wf-rate-q {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.wf-rate-q b {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.wf-rate-meta {
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--color-plex-text-muted);
+  text-align: right;
+}
+.wf-rate-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 5px;
+}
+.wf-rate-star {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 9px;
+  background: var(--color-plex-panel);
+  line-height: 1.05;
+  cursor: pointer;
+}
+.wf-rate-glyph {
+  font-size: 16px;
+  color: var(--color-plex-text-muted);
+}
+.wf-rate-n {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--color-plex-text-secondary);
+}
+.wf-rate-star:hover {
+  border-color: var(--color-plex-text-muted);
+}
+.wf-rate-star[data-selected] {
+  border-color: var(--color-star);
+  background: var(--color-star-selected-bg);
+}
+.wf-rate-star[data-selected] .wf-rate-glyph {
+  color: var(--color-star);
+}
+/* Saving dims both controls to .55; a Lite lock dims the stars alone to .45 and leaves "Didn't see
+   it" at full strength (screenshot 08). Both stay `aria-disabled`, never `disabled`, so a press can
+   still answer and a focused control keeps focus. */
+.wf-rate-grid.is-saving,
+.wf-rate-ns.is-saving {
+  opacity: 0.55;
+}
+.wf-rate-grid.is-locked {
+  opacity: 0.45;
+}
+.wf-rate-ns {
+  min-height: 40px;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 9px;
+  background: none;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--color-plex-text-secondary);
+  cursor: pointer;
+}
+.wf-rate-ns:hover {
+  border-color: var(--color-plex-border-light);
+  color: var(--color-plex-text);
+}
+.wf-rate-ns[data-selected] {
+  border-color: var(--color-star);
+  background: var(--color-star-selected-bg);
+  color: var(--color-plex-text);
+}
+.wf-rate-done {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 40px;
+}
+.wf-rate-you {
+  font-size: 13px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-rate-glyphs {
+  font-size: 15px;
+  letter-spacing: 1px;
+}
+.wf-rate-on {
+  color: var(--color-star);
+}
+.wf-rate-off {
+  color: var(--color-star-off);
+}
+.wf-rate-numeral {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-plex-text);
+}
+.wf-rate-change {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 8px;
+  background: none;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--color-plex-text-secondary);
+  cursor: pointer;
+  flex: none;
+}
+.wf-rate-change:hover {
+  color: var(--color-plex-text);
+}
+/* ⚠️ An INSET ring on every control in the block: `.wf-callout-body` scrolls (`overflow-y: auto`
+   clips on both axes) and has no side padding, so an outset ring at the first and last column is cut
+   off — the `.wf-callout-comfort:focus-visible` note above has the same geometry. */
+.wf-rate-star:focus-visible,
+.wf-rate-ns:focus-visible,
+.wf-rate-change:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: -2px;
+}
+/* The save-failed line and the Lite line. The status element is ALWAYS rendered (a live region mounted
+   with its text announces nothing) and collapses when empty, so an unfailed block carries no gap. */
+.wf-rate-status,
+.wf-rate-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-rate-note {
+  /* The Lite line is the only explanation for the dimmed controls, so it takes the secondary ink (the
+     spec's ink-3 is 3.6:1 on the callout at 12px); the 9.5px meta keeps the spec's muted ink. */
+  color: var(--color-plex-text-secondary);
+}
+.wf-rate-status:empty {
+  /* Collapsed, NOT `display: none`: that would take the live region out of the accessibility tree,
+     and text that arrives in a region that was not in the tree a moment earlier is announced by
+     almost nobody. 0 height cancels the row's 7px flex gap with a negative margin. */
+  height: 0;
+  margin-top: -7px;
+  overflow: hidden;
+}
+/* The only amber in the flow. */
+.wf-rate-status i {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-verdict-marginal);
+}
+@media (max-width: 639px) {
+  .wf-rate-grid {
+    gap: 4px;
+  }
+}
+/* Windows high contrast flattens every border and fill to system colours, which left the current
+   choice marked by nothing. */
+@media (forced-colors: active) {
+  .wf-rate-star[data-selected],
+  .wf-rate-ns[data-selected] {
+    border-color: Highlight;
+    border-width: 3px;
+  }
 }
 
 /* The tide-fit block (tide-window-plan.md T5, design spec §4) — ONE shared component

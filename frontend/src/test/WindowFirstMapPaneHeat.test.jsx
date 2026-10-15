@@ -27,6 +27,15 @@ vi.mock('../components/MapView.jsx', () => ({
     return <div data-testid="stub-map" />;
   },
 }));
+// The pane mounts the reader's outcome-rating hook (outcome-rating-plan.md §2 #5): it reads the role
+// and asks for the range of ratings — never answered here (a read that never lands changes no state, so
+// no act() noise), since this file is about what the pane hands the map, not about ratings
+// (`useOutcomeRatings.test.js` and `WindowFirstMapPaneRatings.test.jsx` are).
+vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: 'PRO_USER' }) }));
+vi.mock('../api/outcomeRatingApi.js', () => ({
+  fetchMyRatings: vi.fn(() => new Promise(() => {})),
+  putRating: vi.fn(),
+}));
 let briefingValue = null;
 vi.mock('../context/WindowFirstBriefingContext.jsx', () => ({
   useWindowFirstBriefing: () => briefingValue,

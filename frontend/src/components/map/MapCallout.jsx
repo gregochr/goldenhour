@@ -19,7 +19,10 @@ import {
 } from '../../utils/hourlyComfort.js';
 import { formatDateLabel } from '../../utils/conversions.js';
 import { ukDateStr } from '../../utils/mapDates.js';
-import { appNow } from '../../utils/rewind.js';
+import { appNow, getRewindTo } from '../../utils/rewind.js';
+import { isEventTimePast } from '../../utils/briefingDisplay.js';
+import { rowKey } from '../../hooks/useOutcomeRatings.js';
+import OutcomeRatingBlock, { ratingView } from './OutcomeRatingBlock.jsx';
 import { nextAlignedRow } from '../../utils/mapTideFit.js';
 import TideFitBlock from './TideFitBlock.jsx';
 import EclipseSpotLine from './EclipseSpotLine.jsx';
@@ -104,6 +107,15 @@ const NO_PENDING_ROWS = new Set();
  * answer), so on a real phone this fallback is only what a stylesheet-less read gets.
  */
 const PEEK_SHEET_COLLAPSED_HEIGHT = PEEK_HEIGHT.plain;
+
+/**
+ * "Not scored yet" promises a score still to come; on a window that has PASSED none is, so it reads
+ * "Not scored" (outcome-rating-plan.md §3 O4a). Every other unrated word is already a statement of
+ * fact ("Not rated", "Poor") and is left alone.
+ */
+function pastUnratedWord(word, past) {
+  return past && word === 'Not scored yet' ? 'Not scored' : word;
+}
 
 /** am / pm / night — reuses `WindowControl.jsx`'s own kind-chip class rather than minting a second
  * chip vocabulary (that file's own comment on `.wf-hc-sun`). */
@@ -284,6 +296,16 @@ function kindShort(event) {
  *        sheet as `onOpenSheet`, plus the tab move its label promises. The two are deliberately
  *        NOT one control: the prose is a peek that keeps the map, the button names a destination
  * @param {?Function} [props.onClose] `() => void` — the ✕ button and the map-background click rule
+ * @param {?string} [props.userRole] the reader's role, `'ADMIN' | 'PRO_USER' | 'LITE_USER'` — read only by
+ *        the rating block (outcome-rating-plan.md §2 #5); null mounts none
+ * @param {?object} [props.ratings] `hooks/useOutcomeRatings.js`'s return value, or null when the reader
+ *        has none to offer (a rewind, the overlay, no hook mounted). The block mounts only on a past
+ *        window (`event.past`), for a sky location, once `ratings.loaded`, and only when THIS place's
+ *        own forecast row for the window has an event time that has passed by the afterglow rule
+ *        (`placePassed`): never from `event.past` alone, which is decided on the roster's EARLIEST
+ *        time, and never for a place with no row or no time — the server's per-place check would
+ *        refuse the rating (§4 #4). There is no timer: the block appears at the next render after
+ *        that instant, like the window going past
  */
 export default function MapCallout({
   location, rating = null, event = null, driveMinutes = null, distanceMiles = null,
@@ -293,11 +315,18 @@ export default function MapCallout({
   astroConditionsByDate = null, auroraResultsByDate = null, pendingNightRowIds = NO_PENDING_ROWS,
   tideStripHeight = null, bandKey = null, hourlyRows = null, now = null, dayMode = false,
   onSelectEv = null, onOpenSheet = null, onOpenInPlan = null, onClose = null,
+  userRole = null, ratings = null,
 }) {
   const map = useMap();
   const isMobile = useIsMobile();
   const calloutWidth = isMobile ? CALLOUT_WIDTH_MOBILE : CALLOUT_WIDTH;
   const [stripOpen, setStripOpen] = useState(false);
+  // The rating block's two layout states are OWNED here, not by the block (outcome-rating-plan.md §1
+  // #3, §2 #5): the card places itself from a dependency list of its own props and state, and a child's
+  // private state cannot be named in it. `changing` swaps a 40px "You rated" row for the 44px grid;
+  // `adminOpen` is O5a's collapsible list. Both reset when the selection or the window changes.
+  const [changing, setChanging] = useState(false);
+  const [adminOpen, setAdminOpen] = useState(false);
   /** The candidate anchor point + band for the CURRENT paint — no DOM measurement yet. */
   const [frame, setFrame] = useState(null);
   /** `{frame, box}` once the measure-then-place pass has run for THIS frame. */
@@ -403,6 +432,33 @@ export default function MapCallout({
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
   }, []);
 
+  // ── The rating block's mount condition (outcome-rating-plan.md §2 #5) ──────────────────────────
+  // Computed ABOVE the repaint effect because its layout is one of that effect's dependencies. A past
+  // window (`event.past`) is decided on the roster's EARLIEST event time; the block needs THIS place's
+  // own, read from the place's own forecast row for the window — and a place with no row, or a row
+  // with no time, gets no block (nothing vouches for it, and the server's per-place `hasPassed` would
+  // refuse the rating). Never `activeWindowPast` and never `event.past` alone.
+  const isHide = isWildlifeOnly(location?.locationType);
+  const slotKey = event?.eventType === 'SUNRISE' ? 'sunrise' : 'sunset';
+  const placeEventTime = event?.kind === 'solar'
+    ? (location?.forecastsByDate?.get?.(event.date)?.[slotKey]?.solarEventTime ?? null)
+    : null;
+  const ratingKey = event?.kind === 'solar' && location?.id != null
+    ? rowKey(location.id, event.date, event.eventType) : null;
+  const ratingRoleKnown = userRole === 'ADMIN' || userRole === 'PRO_USER' || userRole === 'LITE_USER';
+  const showRating = ratings != null && ratings.loaded && ratingKey != null && ratingRoleKnown
+    && Boolean(event?.past) && !isHide && getRewindTo() == null && isEventTimePast(placeEventTime);
+  const myRating = showRating ? (ratings.mine.get(ratingKey) ?? null) : null;
+  const ratingSaving = showRating && ratings.saving.has(ratingKey);
+  const ratingFailed = showRating && ratings.saveError.has(ratingKey);
+  // The layout the block is in, for the repaint below: unrated/saving/changing/failed grids and the
+  // done row differ in height, and a failed save adds a line.
+  const ratingLayout = showRating
+    ? `${ratingView({
+      userRole, mine: myRating, changing, saving: ratingSaving, saveError: ratingFailed,
+    })}${ratingFailed ? '!' : ''}`
+    : null;
+
   // Repaint on anything that is not a map event but can change the anchor point or the card's own
   // size: a new selection, a different active window (content/height changes), or the strip's own
   // disclosure toggling. `paint`'s identity already moves with `location`; `stripOpen` and
@@ -458,6 +514,12 @@ export default function MapCallout({
   // and a past window hides the Drive / Leave by facts, so the card changes height with no other
   // dependency here moving.
   //
+  // ⚠️ And the rating block's layout (outcome-rating-plan.md §2 #5, §3 O4a): `ratingLayout` (it mounts
+  // on a past window once the reader's ratings and this place's own time allow, and switches between
+  // the 44px grid, the 40px "You rated" row and a grid with a failed-save line), plus the two states
+  // this component owns for it, `changing` and `adminOpen` — a child's own state cannot be named here,
+  // which is why they live in this component.
+  //
   // ⚠️ And `hourlyRows` — a wildlife hide's comfort summary is 2–5 lines of text whose number and
   // height depend on which readings are served for the window's date, and the forecast refresh that
   // lands them can arrive with the card already open. Stable between ordinary renders (the caller
@@ -466,7 +528,8 @@ export default function MapCallout({
   // poll hands a new array with the same contents and this fires once — one extra measure, no loop.
   useEffect(() => { repaintNow(); }, [
     paint, stripOpen, event?.id, event?.past, rating, ratingKnown, ratingRetrying,
-    tideAlignmentIndex, tideStripHeight, bandKey, hourlyRows, repaintNow,
+    tideAlignmentIndex, tideStripHeight, bandKey, hourlyRows, ratingLayout, changing, adminOpen,
+    repaintNow,
   ]);
 
   // "On open": bring the point into view — ONCE per new selection, never on every paint (README §7
@@ -492,6 +555,17 @@ export default function MapCallout({
   if (locKey !== prevLocKey) {
     setPrevLocKey(locKey);
     setStripOpen(false);
+  }
+  // The rating block's two states reset on a new selection OR a new window — the admin list is per
+  // (spot, window), so a list left open over another window's slot would show the wrong rows
+  // (plan §4 #20), and a half-changed block must not follow the reader to another place. Same
+  // during-render adjustment as the strip above, for the same reason: no frame with the old state.
+  const blockKey = `${locKey}|${event?.id ?? ''}`;
+  const [prevBlockKey, setPrevBlockKey] = useState(blockKey);
+  if (blockKey !== prevBlockKey) {
+    setPrevBlockKey(blockKey);
+    setChanging(false);
+    setAdminOpen(false);
   }
 
   // Measure-then-place (see the class doc's two-pass note) — keyed on the `frame` OBJECT's identity,
@@ -530,7 +604,6 @@ export default function MapCallout({
   });
 
   // A wildlife hide with no event at all is the ONE card that may exist without one (`dayMode`).
-  const isHide = isWildlifeOnly(location?.locationType);
   const isDay = !event && dayMode && isHide;
   if (!location || (!event && !isDay) || !chromeRoot) return null;
 
@@ -807,7 +880,7 @@ export default function MapCallout({
             // arriving.
             <span className="wf-callout-verdict-score unscored" data-testid="map-callout-score">
               {ratingKnown
-                ? unratedSlotWord(slotVerdictOf(scoreEntry, slotEntry))
+                ? pastUnratedWord(unratedSlotWord(slotVerdictOf(scoreEntry, slotEntry)), event?.past)
                 : ratingRetrying ? NIGHT_RETRY_LINE : 'Loading…'}
             </span>
           )}
@@ -951,6 +1024,25 @@ export default function MapCallout({
               </span>
             ))}
           </div>
+        )}
+
+        {/* "How was it?" (outcome-rating-plan.md §2 #5) — after the facts row (which a past window has
+            already shortened) and ahead of the tide-fit block, so it sits between the why text and
+            the actions as the design asks without being the last thing before them (§4 #12). Keyed on
+            the selection so a new place or window starts a fresh block. */}
+        {showRating && (
+          <OutcomeRatingBlock
+            key={blockKey}
+            event={event}
+            mine={myRating}
+            userRole={userRole}
+            saving={ratingSaving}
+            saveError={ratingFailed}
+            changing={changing}
+            onChangingChange={setChanging}
+            onRate={(value) => ratings.rate(location.id, event.date, event.eventType, value)}
+            onClearError={() => ratings.clearSaveError(ratingKey)}
+          />
         )}
 
         {/* The tide-fit block (T5, design spec §4) — keyed on a served tide fact EXISTING at all
@@ -1147,4 +1239,15 @@ MapCallout.propTypes = {
   onOpenSheet: PropTypes.func,
   onOpenInPlan: PropTypes.func,
   onClose: PropTypes.func,
+  /** The reader's role — read only by the rating block; see the JSDoc above. */
+  userRole: PropTypes.string,
+  /** `useOutcomeRatings`'s return value, or null — see the JSDoc above. */
+  ratings: PropTypes.shape({
+    loaded: PropTypes.bool,
+    mine: PropTypes.instanceOf(Map),
+    saving: PropTypes.instanceOf(Set),
+    saveError: PropTypes.instanceOf(Set),
+    rate: PropTypes.func,
+    clearSaveError: PropTypes.func,
+  }),
 };
