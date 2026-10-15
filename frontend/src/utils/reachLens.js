@@ -1,4 +1,4 @@
-import { formatDriveDuration } from './briefingDisplay.js';
+import { formatDriveDuration, formatDriveDurationCompact } from './briefingDisplay.js';
 
 /**
  * The reach lens — how far the user is willing to drive, and what that hides.
@@ -46,12 +46,20 @@ export const ANY_TIER_ID = 'any';
  * <p>Ids are the threshold in minutes so a stored value is self-describing, and {@code label} is
  * derived rather than authored (see the class comment). {@code limitMinutes} of null means the tier
  * gates nothing at all, which is a different statement from a very large number: no arithmetic runs.
+ *
+ * <p>{@code shortLabel} is the compact form ("45m", "1h30") a card's second label line can afford,
+ * derived from the same {@code limitMinutes} by the same module as {@code label} for the same
+ * reason — no second number to drift. It is {@code null} for the tier that gates nothing: that tier
+ * has no threshold to abbreviate, and a caller that names it uses its own words.
  */
 export const REACH_TIERS = [45, 90, 150].map((limitMinutes) => ({
   id: String(limitMinutes),
   limitMinutes,
   label: formatDriveDuration(limitMinutes),
-})).concat([{ id: ANY_TIER_ID, limitMinutes: null, label: 'Any' }]);
+  shortLabel: formatDriveDurationCompact(limitMinutes),
+})).concat([{
+  id: ANY_TIER_ID, limitMinutes: null, label: 'Any', shortLabel: null,
+}]);
 
 /** The tightest tier, which is also the weekday default. */
 export const WEEKDAY_TIER_ID = REACH_TIERS[0].id;

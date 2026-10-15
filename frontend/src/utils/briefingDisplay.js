@@ -146,6 +146,26 @@ export function formatDriveDuration(minutes) {
 }
 
 /**
+ * Drive duration in minutes → the COMPACT form: "45m" / "1h30" / "2h30" / "1h". The same hours and
+ * minutes split as {@link formatDriveDuration}, in the width a card's second label line can afford
+ * (the Plan card's Spread row names its reach tier with it — {@code (within 1h30)}).
+ *
+ * <p>Minutes after the hour are zero-padded to two digits so {@code 65} reads "1h05", never "1h5"
+ * — which would be read as an hour and a half. Not for speech: "45m" is voiced as a letter, so a
+ * screen-reader sentence takes the long form ({@link formatDriveDuration}) instead.
+ *
+ * @param {number|null|undefined} minutes
+ * @returns {string|null} null when the duration is unknown, exactly as the long form
+ */
+export function formatDriveDurationCompact(minutes) {
+  if (minutes == null) return null;
+  if (minutes < 60) return `${minutes}m`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m > 0 ? `${h}h${String(m).padStart(2, '0')}` : `${h}h`;
+}
+
+/**
  * Event-time ISO string → UK "HH:mm"; empty string when null.
  *
  * @param {string|null|undefined} isoString
