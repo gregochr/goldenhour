@@ -40,7 +40,7 @@ the commit column names the PR once it lands):
 
 | phase | branch | commit | date | notes |
 |---|---|---|---|---|
-| S0 | `claude/spread-row-enhancement-7c99de` | #1180 | 2026-10-15 | Plan + bundle vendored at `docs/design/spread-row/`. No code. Codex reviewed the plan twice and found four P1s, all accepted: round 1 — the qualifier must key on the pool-wide `facts.withinReach` (a mixed pool would otherwise wear "(within 45m)" over unmeasured spots — §2 #5), and the spec's 177px worst-case card does not exist here (the grid is 116–157px at six of seven geometries — §1 #7, the stacked state §2 #2, §4 #10, §6 Q4); round 2 — the spoken sentence must name the tier the label names (§6 Q1 decided yes; `spokenPoolPhrase`, the tooltip unchanged) and the muted token is under AA on the well (zero counts quietened by weight, §2 #4, §4 #6); round 3 — the wrapper's children fall outside `.wf-hc-pls > span`, so they need their own `display: flex` or the stacked histogram sits left (§2 #2 ⚠️, S2 tasks 1 and 6); round 4 — the stacked threshold rose from 170 to 205px so no count the clamp allows is ever clipped side by side (§6 Q4 closed), and the empty-pool path, which short-circuits the spoken clause, must voice the qualifier too (§2 #5's empty-pool rule); round 5 — the hatched bar's 4px gap must move from the `<i>` to its new column wrapper or the fixed-width column swallows it (S2 task 4). |
+| S0 | `claude/spread-row-enhancement-7c99de` | #1180 | 2026-10-15 | Plan + bundle vendored at `docs/design/spread-row/`. No code. Codex reviewed the plan twice and found four P1s, all accepted: round 1 — the qualifier must key on the pool-wide `facts.withinReach` (a mixed pool would otherwise wear "(within 45m)" over unmeasured spots — §2 #5), and the spec's 177px worst-case card does not exist here (the grid is 116–157px at six of seven geometries — §1 #7, the stacked state §2 #2, §4 #10, §6 Q4); round 2 — the spoken sentence must name the tier the label names (§6 Q1 decided yes; `spokenPoolPhrase`, the tooltip unchanged) and the muted token is under AA on the well (zero counts quietened by weight, §2 #4, §4 #6); round 3 — the wrapper's children fall outside `.wf-hc-pls > span`, so they need their own `display: flex` or the stacked histogram sits left (§2 #2 ⚠️, S2 tasks 1 and 6); round 4 — the stacked threshold rose from 170 to 205px so no count the clamp allows is ever clipped side by side (§6 Q4 closed), and the empty-pool path, which short-circuits the spoken clause, must voice the qualifier too (§2 #5's empty-pool rule); round 5 — the hatched bar's 4px gap must move from the `<i>` to its new column wrapper or the fixed-width column swallows it (S2 task 4); round 6 — the Best row's empty clause stays in the sentence beside the new pool clause (the verbatim contract, §2 #5), and `.wf-hc-sk` reserves its second line so stacked neighbours that disagree on the qualifier keep their Best rows aligned (§2 #2, S2 task 1). |
 
 ---
 
@@ -169,7 +169,14 @@ figure unexamined.)
    `flex-wrap`, because every card in a grid row shares a width and so makes the SAME decision —
    a content-driven wrap would let two neighbours' Best rows land on different baselines, the
    cross-card alignment the shared `min-height` exists for. Stacked, the row is the label's two
-   lines plus the well: ≈ 20 + 2 + 29px; cards in a stacked row grow together. The histogram on
+   lines plus the well: ≈ 21 + 2 + 29px; cards in a stacked row grow together — which needs the
+   LABEL to be the same height whether or not its second line is drawn: two neighbours in one
+   stacked row can legitimately disagree on the qualifier (one pool wholly measured, the other
+   holding an unknown drive — §2 #5), and `.wf-hc` is a top-packed flex column, so a one-line
+   label on one card and a two-line label on the other would put their Best rows a line apart.
+   `.wf-hc-sk` therefore reserves its two lines always (`min-height: 21px` — two 8.5px lines at
+   1.15 plus the 1px gap, with `justify-content: center` so the lone word sits where its first
+   line would), in both states (a Codex review of #1180 caught the unreserved line). The histogram on
    its own line has the whole card width, so 122px fits everywhere down to the 320px viewport's
    116px — all but 6px, the one width where a four-character count would clip (§6 Q4).
    ⚠️ `container-type: inline-size` applies layout containment, which makes the card a stacking
@@ -224,11 +231,15 @@ figure unexamined.)
    reach" clause already states the fact): with a non-null qualifier the pool clause is
    `spokenPoolPhrase(0, qualifier)` → `"no locations within 45 min"` / `"no locations, any drive"`
    — the visible label names the tier over an empty well, so the sentence must too — and the Best
-   row's empty clause (`"best, nothing in reach"`, which that pool clause now subsumes) is
-   suppressed for exactly that case so the sentence does not say the same nothing twice; with a
-   null qualifier (an empty pool and no measured drive) the path is unchanged — silent pool clause,
-   `"best, nothing to show"`. (A Codex review of #1180 found the short-circuit; the plan's first
-   cut amended only the two branches below it.) The TOOLTIP keeps `poolPhrase(total, withinReach)`
+   row's empty clause (`"best, nothing in reach"`) is KEPT beside it, not suppressed: the sentence's
+   own contract (`WindowFirstHeatStrip.jsx:1205–1210`) is that it carries "the visible best-reach
+   words verbatim" so WCAG 2.5.3 holds for a speech-control user addressing the card by the words
+   they can see, and "no locations within 45 min" is not those words. The two clauses say the
+   same nothing twice, and that redundancy is the price of the contract; with a null qualifier (an
+   empty pool and no measured drive) the path is unchanged — silent pool clause, `"best, nothing to
+   show"`. (A Codex review of #1180 found the short-circuit; the plan's first cut amended only the
+   two branches below it, and its second cut suppressed the Best clause, which a further round
+   showed broke the verbatim contract.) The TOOLTIP keeps `poolPhrase(total, withinReach)`
    — "N locations within reach — …" — and its two empty-pool sentences unchanged: the spec says
    keep it, and it sits beside the label that already names the tier, so a pointer reader sees no
    mismatch.
@@ -298,7 +309,10 @@ Files: `components/WindowFirstHeatStrip.jsx` (the Spread row and `spokenPool` on
 `index.css` (the value-grid block only), `test/WindowFirstHeatStrip.test.jsx`.
 
 1. Wrap the Spread row in `.wf-hc-sprow` (§2 #2), with the `.wf-hc-sprow > span` rule restoring
-   what `.wf-hc-pls > span` no longer gives its two children (§2 #2's ⚠️). Both states — bars and
+   what `.wf-hc-pls > span` no longer gives its two children (§2 #2's ⚠️), and `.wf-hc-sk`
+   reserving its second line's height whether or not the qualifier is drawn (§2 #2's second ⚠️;
+   pin the `min-height` by the cascade in jsdom, and in the §7 fixture put a qualified card beside
+   an unqualified one in a stacked row and read both Best rows' `top`). Both states — bars and
    the `.wf-hc-hist-note` text — live inside the wrapper, so the label line is drawn in both. Pin that `.wf-hc-k` for
    "Spread" is no longer a direct grid child (the regression the spec names: measure that the
    rating pill's column width is unchanged with and without the qualifier — `getBoundingClientRect`
@@ -341,9 +355,10 @@ Files: `components/WindowFirstHeatStrip.jsx` (the Spread row and `spokenPool` on
    {name: …})` test at `:620` is the model — its expected string changes, and that change is the
    point), under Any with measured drives ("…, any drive, …" — never "within reach"), on a mixed
    pool (the bare "7 locations", exactly today's words), on an EMPTY pool under a measured
-   45-minute tier ("no locations within 45 min" present and "best, nothing in reach" absent — the
-   §2 #5 empty-pool rule), on an empty pool with no measured drive (unchanged: no pool clause,
-   "best, nothing to show"), and that below the gate only the pool clause moves. The tooltip's
+   45-minute tier ("no locations within 45 min" present AND "best, nothing in reach" still
+   present, in that order — the §2 #5 empty-pool rule and the verbatim contract), on an empty pool
+   with no measured drive (unchanged: no pool clause, "best, nothing to show"), and that below the
+   gate only the pool clause moves. The tooltip's
    expected strings do not change — pin one to prove it, the empty-pool sentences included.
 6. The stacked state (§2 #2): `container-type: inline-size; container-name: wf-card` on `.wf-hc`
    and `@container wf-card (max-width: 205px) { .wf-hc-sprow { flex-wrap: wrap } .wf-hc-sprow >
