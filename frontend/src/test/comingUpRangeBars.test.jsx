@@ -6,7 +6,7 @@ import {
 } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
 import WindowComingUpEntry from '../components/WindowComingUpEntry.jsx';
-import { buildEntryView } from '../utils/comingUpFeed.js';
+import { buildEntryView, rangeBarHeight } from '../utils/comingUpFeed.js';
 
 afterEach(cleanup);
 
@@ -29,28 +29,46 @@ const entry = (over = {}) => ({
     { date: '2026-10-27', label: 'peak', family: 'coastal' },
   ],
   dayRanges: [
-    { date: '2026-10-25', rangeMetres: 4.0, peak: false },
-    { date: '2026-10-26', rangeMetres: 4.5, peak: false },
-    { date: '2026-10-27', rangeMetres: 5.0, peak: true },
-    { date: '2026-10-29', rangeMetres: 4.0, peak: false },
+    { date: '2026-10-25', rangeMetres: 4.0, peak: false, rangePercentile: 12 },
+    { date: '2026-10-26', rangeMetres: 4.5, peak: false, rangePercentile: 5 },
+    { date: '2026-10-27', rangeMetres: 5.0, peak: true, rangePercentile: 2 },
+    { date: '2026-10-29', rangeMetres: 4.0, peak: false, rangePercentile: 12 },
   ],
+  rangeAverageMetres: 3.4,
   ...over,
 });
+const withoutPercentiles = () => entry().dayRanges.map(({ date, rangeMetres, peak }) => ({ date, rangeMetres, peak }));
 
-const draw = (e) => render(
-  <WindowComingUpEntry entry={buildEntryView(e, TODAY, null, null)} onGoToPlan={() => {}} onShowOnMap={() => {}} />,
+const draw = (e, today = TODAY, dates = null) => render(
+  <WindowComingUpEntry entry={buildEntryView(e, today, null, dates)} onGoToPlan={() => {}} onShowOnMap={() => {}} />,
 );
-const barHeights = (c) => [...c.querySelectorAll('.wf-cu-day-col')].map((col) => {
+const cols = (c) => [...c.querySelectorAll('.wf-cu-day-col')];
+const barHeights = (c) => cols(c).map((col) => {
   const bar = col.querySelector('.wf-cu-day-range-bar');
   return bar ? bar.style.getPropertyValue('--wf-cu-bar-h') : null;
 });
+const avgH = (c) => c.querySelector('.wf-cu-days').style.getPropertyValue('--wf-cu-avg-h');
 
 describe('buildEntryView — range scale', () => {
-  it('threads served ranges by date and scales over the served values', () => {
+  it('threads served ranges, percentiles and the average, scaling over run and average', () => {
     const view = buildEntryView(entry(), TODAY, null, null);
     expect(view.dayChips.map((c) => c.rangeMetres)).toEqual([4.0, 4.5, 5.0, null, 4.0, null]);
+    expect(view.dayChips.map((c) => c.rangePercentile)).toEqual([12, 5, 2, null, 12, null]);
     expect(view.dayChips.map((c) => c.rangePeak)).toEqual([false, false, true, false, false, false]);
-    expect(view.rangeScale).toEqual({ min: 4.0, max: 5.0 });
+    expect(view.rangeAverage).toBe(3.4);
+    expect(view.rangeScale).toEqual({
+      min: 4.0, max: 5.0, lo: 3.4, hi: 5.0, hasPercentiles: true,
+    });
+  });
+
+  it('reads percentiles as all-or-none and the average as optional', () => {
+    const view = buildEntryView(
+      entry({ dayRanges: withoutPercentiles(), rangeAverageMetres: undefined }), TODAY, null, null,
+    );
+    expect(view.rangeScale).toEqual({
+      min: 4.0, max: 5.0, lo: 4.0, hi: 5.0, hasPercentiles: false,
+    });
+    expect(view.rangeAverage).toBeNull();
   });
 
   it('has no scale with fewer than two served values, or none', () => {
@@ -64,92 +82,208 @@ describe('buildEntryView — range scale', () => {
   });
 });
 
+describe('rangeBarHeight', () => {
+  const scale = (lo, hi) => ({ lo, hi });
+  it('maps lo..hi onto 13..32px, rounded', () => {
+    expect(rangeBarHeight(3.4, scale(3.4, 5.0))).toBe(13);
+    expect(rangeBarHeight(5.0, scale(3.4, 5.0))).toBe(32);
+    expect(rangeBarHeight(4.5, scale(3.4, 5.0))).toBe(26);
+  });
+  it('is 18px when the scale is flat', () => {
+    expect(rangeBarHeight(4, scale(4, 4))).toBe(18);
+  });
+});
+
 describe('Coming up range bars', () => {
-  it('sizes the bars min 4px, max 26px, middle in proportion, a missing day with no bar', () => {
+  it('sizes bars 13..32px over run and average; a missing day has no bar', () => {
     const { container } = draw(entry());
-    expect(barHeights(container)).toEqual(['4px', '15px', '26px', null, '4px', null]);
+    expect(barHeights(container)).toEqual(['20px', '26px', '32px', null, '20px', null]);
+    expect(avgH(container)).toBe('13px');
   });
 
-  it('draws a middle value in proportion', () => {
+  it('places the average line inside the run (4.5 over 4.0-5.0) and above it (5.6)', () => {
+    const inside = draw(entry({ rangeAverageMetres: 4.5 }));
+    expect(avgH(inside.container)).toBe('23px');
+    expect(barHeights(inside.container)).toEqual(['13px', '23px', '32px', null, '13px', null]);
+    cleanup();
+    const above = draw(entry({ rangeAverageMetres: 5.6 }));
+    expect(avgH(above.container)).toBe('32px');
+    expect(barHeights(above.container)[2]).toBe('25px');
+  });
+
+  it('draws 18px bars when every value, and the average, are equal', () => {
     const { container } = draw(entry({
       dayRanges: [
-        { date: '2026-10-25', rangeMetres: 4.0, peak: false },
-        { date: '2026-10-26', rangeMetres: 4.25, peak: false },
-        { date: '2026-10-27', rangeMetres: 5.0, peak: true },
+        { date: '2026-10-25', rangeMetres: 4.0, peak: false, rangePercentile: 40 },
+        { date: '2026-10-26', rangeMetres: 4.0, peak: true, rangePercentile: 40 },
       ],
+      rangeAverageMetres: 4.0,
     }));
-    expect(barHeights(container)[1]).toBe('9.5px');
+    expect(barHeights(container).filter(Boolean)).toEqual(['18px', '18px']);
+    expect(avgH(container)).toBe('18px');
   });
 
-  it('draws 15px bars when every value is equal', () => {
-    const { container } = draw(entry({
+  it('prints top N% above the bar and the metres under the chip, empty for a day with none', () => {
+    const { container } = draw(entry());
+    expect(cols(container).map((c) => c.querySelector('.wf-cu-day-range-label').textContent))
+      .toEqual(['top 12%', 'top 5%', 'top 2%', '', 'top 12%', '']);
+    expect(cols(container).map((c) => c.querySelector('.wf-cu-day-range-metres').textContent))
+      .toEqual(['4.0\u00A0m', '4.5\u00A0m', '5.0\u00A0m', '', '4.0\u00A0m', '']);
+    cols(container).forEach((col) => {
+      const kids = [...col.children];
+      expect(kids.map((k) => k.className.split(' ')[0])).toEqual([
+        'wf-cu-day-range-label', 'wf-cu-day-range-track', 'wf-cu-day', 'wf-cu-day-range-metres',
+      ]);
+    });
+  });
+
+  it('tiers: peak from the served flag, big at <= 5%, rest otherwise; big never on the peak', () => {
+    const { container } = draw(entry());
+    expect(cols(container).map((c) => c.getAttribute('data-tier')))
+      .toEqual(['rest', 'big', 'peak', null, 'rest', null]);
+    cleanup();
+    // The peak at 3% stays "peak", not "big".
+    const both = draw(entry({
       dayRanges: [
-        { date: '2026-10-25', rangeMetres: 4.0, peak: false },
-        { date: '2026-10-26', rangeMetres: 4.0, peak: true },
+        { date: '2026-10-26', rangeMetres: 4.5, peak: false, rangePercentile: 6 },
+        { date: '2026-10-27', rangeMetres: 5.0, peak: true, rangePercentile: 3 },
       ],
     }));
-    expect(barHeights(container).filter(Boolean)).toEqual(['15px', '15px']);
+    expect(cols(both.container).map((c) => c.getAttribute('data-tier')).filter(Boolean))
+      .toEqual(['rest', 'peak']);
   });
 
-  it('marks the solid bar from the served range peak, not the chip peak', () => {
-    const { container } = draw(entry());
-    const solid = [...container.querySelectorAll('.wf-cu-day-range')]
-      .map((r) => r.getAttribute('data-peak'));
-    expect(solid).toEqual(['false', 'false', 'true', 'false', 'false', 'false']);
-    expect(container.querySelectorAll('.wf-cu-day-range[data-peak="true"]')).toHaveLength(1);
+  it('draws no label row, no big tier and no percentile sentence without percentiles', () => {
+    const { container } = draw(entry({ dayRanges: withoutPercentiles() }));
+    expect(container.querySelector('.wf-cu-day-range-label')).toBeNull();
+    expect(container.querySelector('.wf-cu-days')).not.toHaveAttribute('data-labelled');
+    expect(cols(container).map((c) => c.getAttribute('data-tier')))
+      .toEqual(['rest', 'rest', 'peak', null, 'rest', null]);
+    expect(screen.getByTestId('coming-up-range-key').textContent).not.toMatch(/Top N%/);
+    expect(screen.queryByRole('button', { name: /percent of the year/ })).toBeNull();
   });
 
-  it('shows the value to one decimal, empty for a day with none', () => {
-    const { container } = draw(entry());
-    expect([...container.querySelectorAll('.wf-cu-day-range-val')].map((v) => v.textContent))
-      .toEqual(['4.0', '4.5', '5.0', '', '4.0', '']);
+  it('draws no line, no AVG and no dashed sentence when the average is null', () => {
+    const { container } = draw(entry({ rangeAverageMetres: undefined }));
+    expect(container.querySelector('.wf-cu-days')).not.toHaveAttribute('data-avg');
+    expect(avgH(container)).toBe('');
+    expect(container.querySelector('.wf-cu-days-axis-avg')).toBeNull();
+    expect(screen.getByTestId('coming-up-range-key').textContent).not.toMatch(/Dashed/);
+    expect(container.querySelector('.wf-cu-days-axis-range')).not.toBeNull();
   });
 
-  it('hides only the bar span from assistive tech; every chip button is still found by name', () => {
+  it('puts the aria-hidden axis first in the group and the key after the row, as siblings', () => {
     const { container } = draw(entry());
-    container.querySelectorAll('.wf-cu-day-col').forEach((col) => {
+    const group = container.querySelector('[role="group"]');
+    expect(group.firstElementChild).toBe(screen.getByTestId('coming-up-range-axis'));
+    expect(group.firstElementChild).toHaveAttribute('aria-hidden', 'true');
+    expect(group.firstElementChild.textContent).toBe('AVGrange');
+    const key = screen.getByTestId('coming-up-range-key');
+    expect(key.previousElementSibling).toBe(container.querySelector('.wf-cu-days'));
+    expect(key.textContent).toBe(
+      'Bars show each day’s tidal range in metres, printed under each day. '
+      + 'Top N% means the day ranks among the biggest N% of the year’s ranges. '
+      + 'Dashed line is the average, 3.4\u00A0m.',
+    );
+  });
+
+  it('hides only the label, track, metres and axis; every chip button is found by name', () => {
+    const { container } = draw(entry());
+    cols(container).forEach((col) => {
       expect(col).not.toHaveAttribute('aria-hidden');
-      expect(col.querySelector('.wf-cu-day-range')).toHaveAttribute('aria-hidden', 'true');
+      ['.wf-cu-day-range-label', '.wf-cu-day-range-track', '.wf-cu-day-range-metres'].forEach((s) => {
+        expect(col.querySelector(s)).toHaveAttribute('aria-hidden', 'true');
+      });
     });
     expect(screen.getAllByRole('button')).toHaveLength(6);
-    expect(screen.getByRole('button', { name: 'Show coastal spots for Tue 27 Oct, peak day, 5.0 metre range' }))
-      .toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Show coastal spots for Mon 26 Oct, full moon, 4.5 metre range' }))
-      .toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Show coastal spots for Thu 29 Oct, 4.0 metre range' }))
-      .toBeInTheDocument();
+    expect(screen.getByRole('button', {
+      name: 'Show coastal spots for Tue 27 Oct, peak day, 5.0 metre range, top 2 percent of the year',
+    })).toBeInTheDocument();
+    expect(screen.getByRole('button', {
+      name: 'Show coastal spots for Mon 26 Oct, full moon, 4.5 metre range, top 5 percent of the year',
+    })).toBeInTheDocument();
+  });
+
+  it('titles a column with the range and the multiple of the average only when there is one', () => {
+    const { container } = draw(entry());
+    expect(cols(container).map((c) => c.getAttribute('title'))).toEqual([
+      '4.0 m range · 1.2× average', '4.5 m range · 1.3× average',
+      '5.0 m range · 1.5× average', null, '4.0 m range · 1.2× average', null,
+    ]);
+    cleanup();
+    const none = draw(entry({ rangeAverageMetres: undefined }));
+    expect(cols(none.container)[0].getAttribute('title')).toBe('4.0 m range');
+  });
+
+  it('treats one missing percentile as none at all: no label row, no percent clause', () => {
+    const ranges = entry().dayRanges.map((r, i) => (i === 1 ? { ...r, rangePercentile: undefined } : r));
+    const { container } = draw(entry({ dayRanges: ranges }));
+    expect(container.querySelector('.wf-cu-day-range-label')).toBeNull();
+    expect(screen.queryByRole('button', { name: /percent of the year/ })).toBeNull();
+    expect(cols(container).map((c) => c.getAttribute('data-tier')))
+      .toEqual(['rest', 'rest', 'peak', null, 'rest', null]);
+  });
+
+  it('adds no multiple to the title when the average is 0', () => {
+    const { container } = draw(entry({ rangeAverageMetres: 0 }));
+    expect(cols(container)[0].getAttribute('title')).toBe('4.0 m range');
+  });
+
+  it('draws a ranged row’s dimmed note under the row, before the key; an unranged one stays inside', () => {
+    const view = buildEntryView(entry(), '2026-10-26', null, ['2026-10-26', '2026-10-27', '2026-10-28']);
+    const { container } = render(
+      <WindowComingUpEntry entry={view} onGoToPlan={() => {}} onShowOnMap={() => {}} />,
+    );
+    const row = container.querySelector('.wf-cu-days');
+    const note = screen.getByTestId('coming-up-day-chips-note');
+    expect(row.contains(note)).toBe(false);
+    expect(note.previousElementSibling).toBe(row);
+    expect(note.nextElementSibling).toBe(screen.getByTestId('coming-up-range-key'));
+    cleanup();
+    const plain = buildEntryView(
+      entry({ dayRanges: undefined, rangeAverageMetres: undefined }),
+      '2026-10-26', null, ['2026-10-26', '2026-10-27', '2026-10-28'],
+    );
+    const { container: c2 } = render(
+      <WindowComingUpEntry entry={plain} onGoToPlan={() => {}} onShowOnMap={() => {}} />,
+    );
+    expect(c2.querySelector('.wf-cu-days').contains(screen.getByTestId('coming-up-day-chips-note'))).toBe(true);
   });
 
   it('follows the served range peak on an UNMERGED run whose door date differs', () => {
     const { container } = draw(entry({ dayMarks: undefined }));
-    // chip.peak (door date, 26th) draws the gold chip; the solid bar stays on the served 27th.
     expect(container.querySelector('.wf-cu-day[data-peak="true"]').dataset.date).toBe('2026-10-26');
-    expect(container.querySelector('.wf-cu-day-range[data-peak="true"]').closest('.wf-cu-day-col')
-      .querySelector('.wf-cu-day').dataset.date).toBe('2026-10-27');
+    expect(container.querySelector('.wf-cu-day-col[data-tier="peak"] .wf-cu-day').dataset.date)
+      .toBe('2026-10-27');
   });
 
-  it('carries the range clause in the gone and no-forecast names', () => {
-    const todayFar = '2026-10-26';
-    const view = buildEntryView(entry(), todayFar, null, ['2026-10-26', '2026-10-27', '2026-10-28']);
-    render(<WindowComingUpEntry entry={view} onGoToPlan={() => {}} onShowOnMap={() => {}} />);
-    expect(screen.getByRole('button', { name: 'Sun 25 Oct, 4.0 metre range — gone' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Thu 29 Oct, 4.0 metre range — no forecast yet' }))
-      .toBeInTheDocument();
+  it('carries the range clause in the gone and no-forecast names; a gone peak is still a peak tier', () => {
+    const view = buildEntryView(entry(), '2026-10-28', null, ['2026-10-28', '2026-10-29', '2026-10-30']);
+    const { container } = render(
+      <WindowComingUpEntry entry={view} onGoToPlan={() => {}} onShowOnMap={() => {}} />,
+    );
+    expect(screen.getByRole('button', {
+      name: 'Sun 25 Oct, 4.0 metre range, top 12 percent of the year — gone',
+    })).toBeInTheDocument();
+    const peak = container.querySelector('.wf-cu-day-col[data-tier="peak"]');
+    expect(peak).toHaveAttribute('data-live', 'false');
+    expect(peak.querySelector('.wf-cu-day-range-pill').textContent).toBe('top 2%');
   });
 
-  it('draws no columns and no range clause with fewer than two served values', () => {
+  it('draws no columns, key or axis with fewer than two served values', () => {
     const { container } = draw(entry({ dayRanges: [{ date: '2026-10-27', rangeMetres: 5, peak: true }] }));
     expect(container.querySelector('.wf-cu-day-col')).toBeNull();
-    expect(container.querySelector('.wf-cu-day-range')).toBeNull();
+    expect(container.querySelector('.wf-cu-days')).not.toHaveAttribute('data-ranged');
+    expect(screen.queryByTestId('coming-up-range-key')).toBeNull();
+    expect(screen.queryByTestId('coming-up-range-axis')).toBeNull();
     expect(screen.queryByRole('button', { name: /metre range/ })).toBeNull();
   });
 
-  it('leaves an unmerged tide run with one value unchanged', () => {
-    const { container } = draw({
-      ...entry(), dayMarks: undefined, dayRanges: [{ date: '2026-10-27', rangeMetres: 5, peak: true }],
-    });
+  it('draws nothing ranged on an entry with no dayRanges', () => {
+    const { container } = draw(entry({ dayRanges: undefined, rangeAverageMetres: undefined }));
     expect(container.querySelector('.wf-cu-day-col')).toBeNull();
-    expect(container.querySelectorAll('.wf-cu-day')).toHaveLength(6);
+    expect(container.querySelector('.wf-cu-days')).not.toHaveAttribute('data-ranged');
+    expect(screen.queryByTestId('coming-up-range-key')).toBeNull();
   });
 });
 
@@ -167,7 +301,8 @@ describe('Coming up range bars — what the rules resolve to', () => {
         depth -= 1;
         if (depth === 0) {
           const sel = css.slice(start, open).trim();
-          if (/\.wf-cu-day-(col|range)|\.wf-cu-day \{|\.wf-cu-days\[data-ranged/.test(`${sel} {`)) {
+          if (/\.wf-cu-day-(col|range)|\.wf-cu-day \{|\.wf-cu-days\[data-ranged/.test(`${sel} {`)
+            && !sel.startsWith('@')) {
             rules.push(`${sel} ${css.slice(open, i + 1)}`);
           }
           start = i + 1;
@@ -186,50 +321,31 @@ describe('Coming up range bars — what the rules resolve to', () => {
     expect(cs(container.querySelector('.wf-cu-day-col > .wf-cu-day')).flex).toBe('1 0 auto');
   });
 
-  it('aligns the lead and note with the chip row only when columns exist', () => {
-    const { container } = draw(entry());
-    expect(container.querySelector('.wf-cu-days')).toHaveAttribute('data-ranged', 'true');
-    // Only from 640px: no rule outside a min-width media block touches the ranged row's alignment,
-    // so the phone stack (flex-start) is unchanged.
+  it('keeps the label-block variable for the axis and leaves the ranged row unaligned', () => {
+    expect(css).not.toMatch(/\.wf-cu-days\[data-ranged="true"\] \{ align-items: stretch; \}/);
     expect(css).toMatch(
-      /@media \(min-width: 640px\) \{\s*\.wf-cu-days\[data-ranged="true"\] \{ align-items: stretch; \}[\s\S]*?padding-top: var\(--wf-cu-range-h\);/,
+      /\[data-labelled="true"\] \{\s*--wf-cu-label-block: calc\(var\(--wf-cu-label-h\) \+ var\(--wf-cu-range-gap\)\);/,
     );
+    expect(css).toMatch(/--wf-cu-label-block: 0px;/);
+    // Nothing outside the min-width block aligns the ranged row (the phone stack is unchanged).
     expect(css.replace(/@media \(min-width: 640px\) \{[\s\S]*?\n\}\n/, '')).not.toMatch(
       /\.wf-cu-days\[data-ranged="true"\][^{]*\{[^}]*align-items/,
     );
-    expect(cs(container.querySelector('.wf-cu-days')).alignItems).not.toBe('flex-end');
-    expect(css).toMatch(/--wf-cu-range-h: calc\(var\(--wf-cu-range-val-h\) \+ var\(--wf-cu-range-track-h\) \+ var\(--wf-cu-range-gap\)\);/);
-    cleanup();
-    const plain = draw(entry({ dayRanges: undefined })).container;
-    expect(plain.querySelector('.wf-cu-days')).not.toHaveAttribute('data-ranged');
-  });
-
-  it('colours the bar 45% by default and solid on the peak column', () => {
     const { container } = draw(entry());
-    const bars = container.querySelectorAll('.wf-cu-day-range-bar');
-    expect(rawCss).toMatch(/\.wf-cu-day-range-bar \{[^}]*color-mix\(in oklch, var\(--color-topic-coastal\) 45%, transparent\)/);
-    expect(rawCss).toMatch(/\[data-peak="true"\] \.wf-cu-day-range-bar \{ background: var\(--color-topic-coastal\); \}/);
-    expect(bars).toHaveLength(4);
+    expect(container.querySelector('.wf-cu-days')).toHaveAttribute('data-ranged', 'true');
   });
 
-  it('inks the value: primary on the peak, secondary elsewhere and on a gone or no-forecast day', () => {
-    const view = buildEntryView(entry(), '2026-10-26', null, ['2026-10-26', '2026-10-27', '2026-10-28']);
-    const { container } = render(
-      <WindowComingUpEntry entry={view} onGoToPlan={() => {}} onShowOnMap={() => {}} />,
-    );
-    const val = (date) => cs(container.querySelector(`.wf-cu-day[data-date="${date}"]`)
-      .closest('.wf-cu-day-col').querySelector('.wf-cu-day-range-val')).color;
-    expect(val('2026-10-27')).toBe('var(--color-plex-text)');
-    expect(val('2026-10-26')).toBe('var(--color-plex-text-secondary)');
-    expect(val('2026-10-25')).toBe('var(--color-plex-text-secondary)');
-    expect(val('2026-10-29')).toBe('var(--color-plex-text-secondary)');
+  it('fixes the row heights and the track at 32px', () => {
+    expect(css).toMatch(/--wf-cu-track-h: 34px;/);
+    expect(css).toMatch(/--wf-cu-label-h: 13px;/);
+    expect(css).toMatch(/\.wf-cu-day-range-label \{\s*height: var\(--wf-cu-label-h\);/);
+    expect(css).toMatch(/\.wf-cu-day-range-metres \{\s*height: var\(--wf-cu-metres-h\);/);
   });
 
-  it('keeps the bar’s own colour in forced-colours mode', () => {
-    expect(rawCss).toMatch(/@media \(forced-colors: active\) \{[^@]*\.wf-cu-day-range-bar \{ forced-color-adjust: none; \}/);
-  });
-
-  it('pins the column and chip widths at both breakpoints', () => {
+  it('pins the pill: padding 1px 3px, nowrap labels that may overhang, no column growth', () => {
+    expect(css).toMatch(/\.wf-cu-day-range-pill \{[^}]*padding: 1px 3px;/);
+    expect(css).toMatch(/\.wf-cu-day-range-label \{[^}]*white-space: nowrap;/);
+    expect(css).not.toMatch(/\.wf-cu-day-range-label \{[^}]*overflow: hidden/);
     expect(css).toMatch(/\.wf-cu-day \{[^}]*\n {2}width: 40px;/);
     expect(css).toMatch(/\.wf-cu-day-col \{\s*width: 40px;/);
     expect(css).toMatch(
@@ -237,7 +353,83 @@ describe('Coming up range bars — what the rules resolve to', () => {
     );
   });
 
-  it('sizes the value label to the note and the bar track fits the column', () => {
-    expect(css).toMatch(/\.wf-cu-day-range-val \{\s*font-size: 9\.5px;/);
+  it('resolves tier colours: peak solid and primary, big coastal label, rest secondary', () => {
+    const { container } = draw(entry());
+    const col = (tier) => container.querySelector(`.wf-cu-day-col[data-tier="${tier}"]`);
+    expect(cs(col('peak').querySelector('.wf-cu-day-range-metres')).color).toBe('var(--color-plex-text)');
+    expect(cs(col('peak').querySelector('.wf-cu-day-range-pill')).color).toBe('rgb(14, 11, 9)');
+    expect(cs(col('big').querySelector('.wf-cu-day-range-label')).color).toBe('var(--color-topic-coastal)');
+    expect(cs(col('rest').querySelector('.wf-cu-day-range-label')).color)
+      .toBe('var(--color-plex-text-secondary)');
+    expect(cs(col('rest').querySelector('.wf-cu-day-range-metres')).color)
+      .toBe('var(--color-plex-text-secondary)');
+    expect(rawCss).toMatch(/\.wf-cu-day-range-bar \{[^}]*color-mix\(in oklch, var\(--color-topic-coastal\) 45%, transparent\)/);
+    expect(rawCss).toMatch(/\[data-tier="big"\] \.wf-cu-day-range-bar \{\s*background: color-mix\(in oklch, var\(--color-topic-coastal\) 80%/);
+    expect(rawCss).toMatch(/\[data-tier="peak"\] \.wf-cu-day-range-bar \{\s*width: 22px;[^}]*box-shadow: 0 0 10px color-mix\(in oklch, var\(--color-topic-coastal\) 55%/);
+  });
+
+  it('turns a gone or no-forecast peak into an outline pill with secondary metres', () => {
+    const view = buildEntryView(entry(), '2026-10-28', null, ['2026-10-28', '2026-10-29', '2026-10-30']);
+    const { container } = render(
+      <WindowComingUpEntry entry={view} onGoToPlan={() => {}} onShowOnMap={() => {}} />,
+    );
+    const peak = container.querySelector('.wf-cu-day-col[data-tier="peak"]');
+    const pill = cs(peak.querySelector('.wf-cu-day-range-pill'));
+    expect(pill.backgroundColor).toBe('rgba(0, 0, 0, 0)');
+    expect(pill.color).toBe('var(--color-plex-text-secondary)');
+    expect(pill.boxShadow).toMatch(/inset 0 0 0 1px/);
+    expect(cs(peak.querySelector('.wf-cu-day-range-metres')).color).toBe('var(--color-plex-text-secondary)');
+  });
+
+  it('mutes a gone big label and stops a gone peak bar glowing', () => {
+    expect(css).toMatch(
+      /\.wf-cu-day-col\[data-tier="big"\]\[data-live="false"\] \.wf-cu-day-range-label \{\s*color: var\(--color-plex-text-secondary\);/,
+    );
+    expect(css).toMatch(
+      /\.wf-cu-day-col\[data-tier="peak"\]\[data-live="false"\] \.wf-cu-day-range-bar \{ box-shadow: none; \}/,
+    );
+    const view = buildEntryView(
+      entry({
+        dayRanges: [
+          { date: '2026-10-26', rangeMetres: 4.5, peak: false, rangePercentile: 4 },
+          { date: '2026-10-27', rangeMetres: 5.0, peak: true, rangePercentile: 2 },
+        ],
+      }),
+      '2026-10-27', null, ['2026-10-27'],
+    );
+    const { container } = render(
+      <WindowComingUpEntry entry={view} onGoToPlan={() => {}} onShowOnMap={() => {}} />,
+    );
+    const big = container.querySelector('.wf-cu-day-col[data-tier="big"]');
+    expect(big).toHaveAttribute('data-live', 'false');
+    expect(cs(big.querySelector('.wf-cu-day-range-label')).color).toBe('var(--color-plex-text-secondary)');
+    const peak = container.querySelector('.wf-cu-day-col[data-tier="peak"]');
+    expect(peak).toHaveAttribute('data-live', 'true');
+    expect(cs(peak.querySelector('.wf-cu-day-range-bar')).boxShadow).toMatch(/0 0 10px/);
+  });
+
+  it('makes a ranged lead a full-width heading above the row from 640px; no centring rules remain', () => {
+    expect(css).toMatch(
+      /@media \(min-width: 640px\) \{\s*\.wf-cu-days\[data-ranged="true"\] > \.wf-cu-days-lead \{ flex-basis: 100%; padding: 0; display: block; \}/,
+    );
+    expect(css).not.toMatch(/max-width: 899px\) \{\s*\.wf-cu-days/);
+    expect(css).not.toMatch(/\[data-ranged="true"\] > \.wf-cu-days-note/);
+  });
+
+  it('draws the average per column under the bar, dashed, and GrayText in forced colours', () => {
+    expect(css).toMatch(
+      /\.wf-cu-days\[data-avg="true"\] \.wf-cu-day-range-track::before \{[^}]*z-index: -1;[^}]*right: -6px;[^}]*bottom: var\(--wf-cu-avg-h\);[^}]*border-top: 1px dashed/,
+    );
+    expect(css).toMatch(/\.wf-cu-day-range-track \{[^}]*isolation: isolate;/);
+    expect(rawCss).toMatch(
+      /@media \(forced-colors: active\) \{[\s\S]*?\.wf-cu-day-range-track::before \{ border-top-color: GrayText; \}/,
+    );
+    expect(rawCss).toMatch(/\.wf-cu-day-range-bar \{ forced-color-adjust: none; \}/);
+    expect(rawCss).toMatch(/\.wf-cu-day-col\[data-tier="peak"\] .wf-cu-day-range-pill \{ outline: 1px solid CanvasText;/);
+  });
+
+  it('shows the axis only from 640px', () => {
+    expect(css).toMatch(/\.wf-cu-days-axis \{ display: none; \}/);
+    expect(css).toMatch(/@media \(min-width: 640px\) \{[\s\S]*?\.wf-cu-days-axis \{\s*display: block;/);
   });
 });

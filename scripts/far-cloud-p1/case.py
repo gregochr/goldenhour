@@ -4,7 +4,9 @@
 Hours are [slot-1, slot, slot+1] with slot from ``slots.find_best_index`` on the sunset (for the
 Angel: 16:00, 17:00, 18:00 UTC). Each hour gets its OWN solar azimuth and a transect every 25 km
 from 0 to 400 km (deduplicated by production's grid cell). Sources: ERA5 (``models=era5``),
-Previous Runs (day 0 and ``_previous_day1``) per model, Historical Forecast pressure levels.
+the Historical Forecast API's day-0 low/mid/high per model (``fc:<model>``) and its pressure levels.
+There is no "as issued the day before" arm: Previous Runs serves ``_previous_dayN`` for total cloud
+cover only (plan section 11), so a forecast made the day before cannot be reconstructed per layer.
 """
 from __future__ import annotations
 
@@ -113,16 +115,14 @@ def build_case(client: om.Client, lat: float, lon: float, day: str, ttype: str,
     add("era5", client.get("archive", coords, om.CLOUD_VARS, day, day, models="era5"))
     notes: List[str] = []
     for m in models:
-        vs = om.CLOUD_VARS + [om.prev_var(v, 1) for v in om.CLOUD_VARS]
         try:
-            pts = client.get("previous_runs", coords, vs, day, day, models=m)
+            pts = client.get("historical_forecast", coords, om.CLOUD_VARS, day, day, models=m)
         except (om.RateLimited, om.BudgetExhausted, om.NetworkError):
             raise       # a limit (HTTP 429 / limit body) stops the whole run; never "model skipped"
         except om.OpenMeteoError as e:   # a model the API rejects is skipped, not fatal
             notes.append(f"model {m} skipped: {e}")
             continue
-        add(f"prev:{m}:day0", pts)
-        add(f"prev:{m}:day1", pts)  # same Points; the var name selects the lead
+        add(f"fc:{m}", pts)
     add("hist:pressure", client.get("historical_forecast", coords, om.PRESSURE_VARS, day, day))
     return {"lat": lat, "lon": lon, "day": day, "type": ttype, "event": ev, "hours": hours,
             "per_hour": per_hour, "sources": sources, "keys": keys, "notes": notes}
@@ -137,10 +137,7 @@ def reading(source: str, pt: om.Point, hour: str, layer_or_var: str) -> Optional
         return pt.value(hour, f"cloud_cover_{layer_or_var[1:]}hPa")
     if source.startswith("hist"):
         return None
-    var = cv[layer_or_var]
-    if source.endswith(":day1"):
-        var = om.prev_var(var, 1)
-    return pt.value(hour, var)
+    return pt.value(hour, cv[layer_or_var])
 
 
 COLUMNS = ["low", "mid", "high", "p850", "p700", "p600", "p500", "p400", "p300"]

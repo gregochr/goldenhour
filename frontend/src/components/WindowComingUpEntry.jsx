@@ -2,6 +2,7 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import ComingUpTideSparkline from './chart/ComingUpTideSparkline.jsx';
 import { entryGlyph, coincidenceLineGlyph } from '../utils/comingUpGlyphs.js';
+import { rangeBarHeight, BIG_RANGE_PERCENTILE } from '../utils/comingUpFeed.js';
 
 /**
  * The per-day door row of a short multi-day map-door entry (see the class doc). Lead word and
@@ -10,7 +11,9 @@ import { entryGlyph, coincidenceLineGlyph } from '../utils/comingUpGlyphs.js';
  * so differently when every future day is.
  */
 function DayChips({ entry, onShowOnMap }) {
-  const { dayChips, doorNoun, action, rangeScale } = entry;
+  const { dayChips, doorNoun, action, rangeScale, rangeAverage } = entry;
+  const labelled = Boolean(rangeScale?.hasPercentiles);
+  const averaged = Boolean(rangeScale) && rangeAverage !== null && rangeAverage !== undefined;
   // The kind decides only the subject filter: coastal sends the SEASCAPE type, dark-sky the Bortle
   // toggle, and plan (every spot) neither.
   const coastal = action.kind === 'coastal-spots';
@@ -28,6 +31,12 @@ function DayChips({ entry, onShowOnMap }) {
   // of a run whose other days have gone).
   const allDimmedNote = future.length === 1
     ? 'no forecast for this day yet' : 'no forecast for these days yet';
+  // A ranged row draws it under the row instead of inside it (see the return).
+  const note = (
+    <span className="wf-cu-days-note" data-testid="coming-up-day-chips-note">
+      {allDimmed ? allDimmedNote : 'dimmed · no forecast yet'}
+    </span>
+  );
   // A DOM id from an entry id like `spring-tide:2026-10-09:2026-10-14`.
   const leadId = `${entry.id.replace(/[^A-Za-z0-9_-]/g, '-')}-days-lead`;
 
@@ -49,20 +58,32 @@ function DayChips({ entry, onShowOnMap }) {
     const peak = !chip.marks
       ? (chip.peak ? ', peak day' : '')
       : chip.marks.map((m) => (m.label === 'peak' ? ', peak day' : `, ${m.label}`)).join('');
+    const ranked = labelled && chip.rangePercentile !== null && chip.rangePercentile !== undefined
+      ? `, top ${chip.rangePercentile} percent of the year` : '';
     const range = rangeScale && chip.rangeMetres !== null && chip.rangeMetres !== undefined
-      ? `, ${chip.rangeMetres.toFixed(1)} metre range` : '';
+      ? `, ${chip.rangeMetres.toFixed(1)} metre range${ranked}` : '';
     if (chip.gone) return `${label}${peak}${range} — gone`;
     if (!chip.live) return `${label}${peak}${range} — no forecast yet`;
     return `Show ${noun} for ${label}${peak}${range}`;
   };
 
   return (
+    <>
     <div className="wf-cu-days" data-testid="coming-up-day-chips" data-marked={marked ? 'true' : undefined}
       data-ranged={rangeScale ? 'true' : undefined}
+      data-labelled={labelled ? 'true' : undefined}
+      data-avg={averaged ? 'true' : undefined}
+      style={averaged ? { '--wf-cu-avg-h': `${rangeBarHeight(rangeAverage, rangeScale)}px` } : undefined}
     >
       <span className="wf-cu-days-lead" id={leadId}>{leadText}</span>
       {' '}
       <div role="group" aria-labelledby={leadId} className="wf-cu-days-group">
+        {rangeScale && (
+          <span className="wf-cu-days-axis" aria-hidden="true" data-testid="coming-up-range-axis">
+            {averaged && <span className="wf-cu-days-axis-avg">AVG</span>}
+            <span className="wf-cu-days-axis-range">range</span>
+          </span>
+        )}
         {dayChips.map((chip) => {
           // Unmerged: the served action date. Merged: only a served `peak` mark, in that mark's family.
           const peakMark = chip.marks ? chip.marks.find((m) => m.label === 'peak') : null;
@@ -107,44 +128,80 @@ function DayChips({ entry, onShowOnMap }) {
             </button>
           );
           if (!rangeScale) return button;
-          // Bar height 4..26px across the served min..max (15px when every value is equal). The
-          // aria-hidden span is the bar only: the column holds the button and must stay exposed.
-          const spread = rangeScale.max - rangeScale.min;
-          const barH = hasRange
-            ? 4 + (spread > 0 ? ((chip.rangeMetres - rangeScale.min) / spread) * 22 : 11) : 0;
+          const pct = labelled && chip.rangePercentile !== null && chip.rangePercentile !== undefined
+            ? chip.rangePercentile : null;
+          // Tiers read served facts only: the server's peak flag, then the served percentile.
+          let tier = 'rest';
+          if (chip.rangePeak) tier = 'peak';
+          else if (pct !== null && pct <= BIG_RANGE_PERCENTILE) tier = 'big';
+          const multiple = hasRange && averaged && rangeAverage > 0
+            ? ` · ${(chip.rangeMetres / rangeAverage).toFixed(1)}× average` : '';
+          // The aria-hidden spans are label, track and metres only: the column holds the button and
+          // must stay exposed. The served `peak` day and the gold PEAK chip are the same day on a
+          // true-peak run; on a partial-coverage run `dayRanges` flags no peak, so no pill.
           return (
-            <div key={chip.date} className="wf-cu-day-col" data-testid="coming-up-day-col">
-              <span
-                className="wf-cu-day-range"
-                aria-hidden="true"
-                data-peak={chip.rangePeak ? 'true' : 'false'}
-                data-live={chip.live ? 'true' : 'false'}
-              >
-                <span className="wf-cu-day-range-val">{hasRange ? chip.rangeMetres.toFixed(1) : ''}</span>
-                <span className="wf-cu-day-range-track">
-                  {hasRange && (
-                    <span
-                      className="wf-cu-day-range-bar"
-                      data-testid="coming-up-range-bar"
-                      style={{ '--wf-cu-bar-h': `${barH}px` }}
-                    />
-                  )}
+            <div
+              key={chip.date}
+              className="wf-cu-day-col"
+              data-testid="coming-up-day-col"
+              data-tier={hasRange ? tier : undefined}
+              data-live={chip.live ? 'true' : 'false'}
+              title={hasRange ? `${chip.rangeMetres.toFixed(1)} m range${multiple}` : undefined}
+            >
+              {labelled && (
+                <span className="wf-cu-day-range-label" aria-hidden="true">
+                  {hasRange && pct !== null && <span className="wf-cu-day-range-pill">{`top ${pct}%`}</span>}
                 </span>
+              )}
+              <span className="wf-cu-day-range-track" aria-hidden="true">
+                {hasRange && (
+                  <span
+                    className="wf-cu-day-range-bar"
+                    data-testid="coming-up-range-bar"
+                    style={{ '--wf-cu-bar-h': `${rangeBarHeight(chip.rangeMetres, rangeScale)}px` }}
+                  />
+                )}
               </span>
               {button}
+              <span className="wf-cu-day-range-metres" aria-hidden="true">
+                {hasRange ? `${chip.rangeMetres.toFixed(1)}\u00A0m` : ''}
+              </span>
             </div>
           );
         })}
       </div>
-      {anyDimmed && (
+      {anyDimmed && !rangeScale && (
         <>
           {' '}
-          <span className="wf-cu-days-note" data-testid="coming-up-day-chips-note">
-            {allDimmed ? allDimmedNote : 'dimmed · no forecast yet'}
-          </span>
+          {note}
         </>
       )}
     </div>
+    {/* A ranged row's note sits under the row, outside it, so a wrapped note never inherits the
+        row-centring padding. */}
+    {anyDimmed && rangeScale && (
+      <>
+        {' '}
+        {note}
+      </>
+    )}
+    {rangeScale && (
+      <>
+      {' '}
+      <p className="wf-cu-range-key" data-testid="coming-up-range-key">
+        {'Bars show each day’s tidal range in metres, printed under each day.'}
+        {labelled && (
+          <>
+            {' '}
+            <strong>Top N%</strong>
+            {' means the day ranks among the biggest N% of the year’s ranges.'}
+          </>
+        )}
+        {averaged && ` Dashed line is the average, ${rangeAverage.toFixed(1)}\u00A0m.`}
+      </p>
+      </>
+    )}
+    </>
   );
 }
 
@@ -169,9 +226,17 @@ DayChips.propTypes = {
       })),
       rangeMetres: PropTypes.number,
       rangePeak: PropTypes.bool,
+      rangePercentile: PropTypes.number,
       live: PropTypes.bool.isRequired,
     })).isRequired,
-    rangeScale: PropTypes.shape({ min: PropTypes.number.isRequired, max: PropTypes.number.isRequired }),
+    rangeScale: PropTypes.shape({
+      min: PropTypes.number.isRequired,
+      max: PropTypes.number.isRequired,
+      lo: PropTypes.number.isRequired,
+      hi: PropTypes.number.isRequired,
+      hasPercentiles: PropTypes.bool.isRequired,
+    }),
+    rangeAverage: PropTypes.number,
   }).isRequired,
   onShowOnMap: PropTypes.func.isRequired,
 };
