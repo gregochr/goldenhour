@@ -40,7 +40,7 @@ the commit column names the PR once it lands):
 
 | phase | branch | commit | date | notes |
 |---|---|---|---|---|
-| S0 | `claude/spread-row-enhancement-7c99de` | #1180 | 2026-10-15 | Plan + bundle vendored at `docs/design/spread-row/`. No code. Codex reviewed the plan twice and found four P1s, all accepted: round 1 — the qualifier must key on the pool-wide `facts.withinReach` (a mixed pool would otherwise wear "(within 45m)" over unmeasured spots — §2 #5), and the spec's 177px worst-case card does not exist here (the grid is 116–157px at six of seven geometries — §1 #7, the stacked state §2 #2, §4 #10, §6 Q4); round 2 — the spoken sentence must name the tier the label names (§6 Q1 decided yes; `spokenPoolPhrase`, the tooltip unchanged) and the muted token is under AA on the well (zero counts quietened by weight, §2 #4, §4 #6); round 3 — the wrapper's children fall outside `.wf-hc-pls > span`, so they need their own `display: flex` or the stacked histogram sits left (§2 #2 ⚠️, S2 tasks 1 and 6). |
+| S0 | `claude/spread-row-enhancement-7c99de` | #1180 | 2026-10-15 | Plan + bundle vendored at `docs/design/spread-row/`. No code. Codex reviewed the plan twice and found four P1s, all accepted: round 1 — the qualifier must key on the pool-wide `facts.withinReach` (a mixed pool would otherwise wear "(within 45m)" over unmeasured spots — §2 #5), and the spec's 177px worst-case card does not exist here (the grid is 116–157px at six of seven geometries — §1 #7, the stacked state §2 #2, §4 #10, §6 Q4); round 2 — the spoken sentence must name the tier the label names (§6 Q1 decided yes; `spokenPoolPhrase`, the tooltip unchanged) and the muted token is under AA on the well (zero counts quietened by weight, §2 #4, §4 #6); round 3 — the wrapper's children fall outside `.wf-hc-pls > span`, so they need their own `display: flex` or the stacked histogram sits left (§2 #2 ⚠️, S2 tasks 1 and 6); round 4 — the stacked threshold rose from 170 to 205px so no count the clamp allows is ever clipped side by side (§6 Q4 closed), and the empty-pool path, which short-circuits the spoken clause, must voice the qualifier too (§2 #5's empty-pool rule). |
 
 ---
 
@@ -157,16 +157,21 @@ figure unexamined.)
    card is wide enough, and STACKED — the label line first, the histogram on its own line below,
    right-aligned (`margin-left: auto`) — where it is not. The switch is a container query on the
    card (`.wf-hc { container-type: inline-size; container-name: wf-card }`, the precedent is
-   `@container wf-tabrow` at `index.css:12650`), threshold `wf-card (max-width: 170px)` on the
-   card's content box: sized so two-character counts (82px) beside the longest qualifier (73px)
-   and the 8px gap, 163px, fit side by side at 171px and above, and stack below it. A card-width
-   rule, not `flex-wrap`, because every card in a grid row shares a width and so makes the SAME
-   decision — a content-driven wrap would let two neighbours' Best rows land on different
-   baselines, the cross-card alignment the shared `min-height` exists for. Three-character counts
-   (114px → 195px side by side) still overflow between 171 and ~195px and the value cell's
-   `overflow: hidden` clips them; that is a hundred-plus rated places in one band within reach,
-   accepted and recorded (§6 Q4) rather than widened for. Stacked, the row is the label's two
-   lines plus the well: ≈ 20 + 2 + 29px; cards in a stacked row grow together.
+   `@container wf-tabrow` at `index.css:12650`), threshold `wf-card (max-width: 205px)` on the
+   card's content box: sized so the WIDEST histogram the clamp allows — four-character counts,
+   122px — beside the longest qualifier (73px) and the 8px gap, 203px, fits side by side at 206px
+   and above, and stacks below it, so no count the row can print is ever clipped at any width.
+   (The first cut set 170px, sized for two-character counts, and accepted a clip for three; a
+   Codex review of #1180 pointed out that a three-digit band under Any is realistic in a 253-place
+   catalogue and that the docked and 768px geometries sit in exactly the clipped range — the
+   threshold is cheap to raise, so it was.) Of the measured geometries (§1 #7) only the undocked
+   desktop (≈221px) stays side by side; every other one stacks. A card-width rule, not
+   `flex-wrap`, because every card in a grid row shares a width and so makes the SAME decision —
+   a content-driven wrap would let two neighbours' Best rows land on different baselines, the
+   cross-card alignment the shared `min-height` exists for. Stacked, the row is the label's two
+   lines plus the well: ≈ 20 + 2 + 29px; cards in a stacked row grow together. The histogram on
+   its own line has the whole card width, so 122px fits everywhere down to the 320px viewport's
+   116px — all but 6px, the one width where a four-character count would clip (§6 Q4).
    ⚠️ `container-type: inline-size` applies layout containment, which makes the card a stacking
    context; the pick legend (`BEST BET` / `ALSO GOOD`) and the card's hover `transform` must be
    checked still to paint as they do today — S2 verifies it in the fixture, both on the hovered
@@ -214,9 +219,19 @@ figure unexamined.)
    `windowFirstSpread.js` → `"7 locations within 45 min"` / `"7 locations, any drive"` /
    `"7 locations"` (null qualifier — exactly today's bare clause), with `poolPhrase`'s own plural
    rule; the strip's `spokenPool` reads it in place of `poolPhrase` in BOTH the bars and the text
-   branches. The TOOLTIP keeps `poolPhrase(total, withinReach)` — "N locations within reach — …"
-   — unchanged: the spec says keep it, and it sits beside the label that already names the tier,
-   so a pointer reader sees no mismatch.
+   branches. ⚠️ **And in the EMPTY-pool path, which today short-circuits to `null` before either
+   branch** (`WindowFirstHeatStrip.jsx:1146–1150`, because `bestReachLine`'s own "nothing in
+   reach" clause already states the fact): with a non-null qualifier the pool clause is
+   `spokenPoolPhrase(0, qualifier)` → `"no locations within 45 min"` / `"no locations, any drive"`
+   — the visible label names the tier over an empty well, so the sentence must too — and the Best
+   row's empty clause (`"best, nothing in reach"`, which that pool clause now subsumes) is
+   suppressed for exactly that case so the sentence does not say the same nothing twice; with a
+   null qualifier (an empty pool and no measured drive) the path is unchanged — silent pool clause,
+   `"best, nothing to show"`. (A Codex review of #1180 found the short-circuit; the plan's first
+   cut amended only the two branches below it.) The TOOLTIP keeps `poolPhrase(total, withinReach)`
+   — "N locations within reach — …" — and its two empty-pool sentences unchanged: the spec says
+   keep it, and it sits beside the label that already names the tier, so a pointer reader sees no
+   mismatch.
 6. **The spoken sentence gains the band counts in bars mode** — the counts are now VISIBLE text, so
    a reader of the accessible name must get the same figures (SC 1.3.1, the principle
    `unratedPhrase`'s own export comment states). `spreadBandsSpoken(spread)` in
@@ -260,9 +275,11 @@ tests (`test/briefingDisplay.test.js` or wherever `formatDriveDuration` is pinne
    `limitMinutes` in the test's own copy and assert both follow). The helper takes a plain boolean;
    it is the CALLER (S2) that must pass the strip's pool-wide `facts.withinReach`, and S2 pins that
    with a mixed pool. Then `spokenPoolPhrase(total, qualifier)` (§2 #5): `"7 locations within 45
-   min"`, `"7 locations, any drive"`, `"7 locations"` for null, `"1 location …"` singular — and
-   a test that its null form equals `poolPhrase(total, false)` exactly, so the sentence for a
-   mixed pool is byte-for-byte what it is today.
+   min"`, `"7 locations, any drive"`, `"7 locations"` for null, `"1 location …"` singular,
+   `"no locations within 45 min"` / `"no locations, any drive"` for a total of 0 with a qualifier
+   and `null` for a total of 0 without one — and a test that its null-qualifier form equals
+   `poolPhrase(total, false)` exactly for every total above zero, so the sentence for a mixed pool
+   is byte-for-byte what it is today.
 5. `spreadBandsSpoken` (§2 #6): non-zero bands only, highest first, `stars` worded, `""` for an
    all-zero spread; and a test that the words it uses are the same five the tooltip's bands use,
    just filtered and reworded (drive both from one `buildSpread`).
@@ -312,10 +329,13 @@ Files: `components/WindowFirstHeatStrip.jsx` (the Spread row and `spokenPool` on
    name on a bars-mode card under a measured 45-minute tier (the existing `getByRole('button',
    {name: …})` test at `:620` is the model — its expected string changes, and that change is the
    point), under Any with measured drives ("…, any drive, …" — never "within reach"), on a mixed
-   pool (the bare "7 locations", exactly today's words), and that below the gate only the pool
-   clause moves. The tooltip's expected strings do not change — pin one to prove it.
+   pool (the bare "7 locations", exactly today's words), on an EMPTY pool under a measured
+   45-minute tier ("no locations within 45 min" present and "best, nothing in reach" absent — the
+   §2 #5 empty-pool rule), on an empty pool with no measured drive (unchanged: no pool clause,
+   "best, nothing to show"), and that below the gate only the pool clause moves. The tooltip's
+   expected strings do not change — pin one to prove it, the empty-pool sentences included.
 6. The stacked state (§2 #2): `container-type: inline-size; container-name: wf-card` on `.wf-hc`
-   and `@container wf-card (max-width: 170px) { .wf-hc-sprow { flex-wrap: wrap } .wf-hc-sprow >
+   and `@container wf-card (max-width: 205px) { .wf-hc-sprow { flex-wrap: wrap } .wf-hc-sprow >
    .wf-hc-pv { margin-left: auto; flex-basis: 100% } }` (or the equivalent that puts the histogram
    on its own right-aligned line) — ON TOP OF the base `.wf-hc-sprow > span { display: flex;
    align-items: center; min-width: 0 }` rule from task 1, since the nested `.wf-hc-pv` keeps its
@@ -357,7 +377,7 @@ No code. One Sonnet session; a docs-only PR (CI's docs-only detector skips the s
 | 7 | "sideways" layout rows `21px 27px 32px 1fr` | `min-height: 27px` on the wrapper; no layout mode | §1 #5 — the layout does not exist here; the row's own minimum keeps cross-card alignment. |
 | 8 | The grid's label is the only place the pool is named | The spoken sentence ALSO names the tier ("7 locations within 45 min" / "7 locations, any drive") and gains the non-zero band counts in bars mode; the tooltip keeps "within reach" | §1 #6, §2 #5–#6 — the grid is `aria-hidden`; a visible label and visible counts need an accessible equivalent, and "within reach" against a visible "any drive" is a contradiction (§6 Q1, decided). |
 | 9 | Recreate in `HeatmapGrid.jsx` / `DailyBriefing.jsx` | `WindowFirstHeatStrip.jsx` | §1 #1 — the Plan card lives there; the named files are the popup's grid and a deleted component. |
-| 10 | One side-by-side layout everywhere; worst case "iPad, `.pls` 177px" | A second, STACKED state (label line, then the histogram right-aligned on its own line) below a 170px card width, by container query | §1 #7 — this grid is 116–157px wide at six of its seven measured geometries; side by side the row needs 155px at one-character counts. A card-width rule, not a content wrap, so neighbours stay aligned. |
+| 10 | One side-by-side layout everywhere; worst case "iPad, `.pls` 177px" | A second, STACKED state (label line, then the histogram right-aligned on its own line) below a 205px card width, by container query | §1 #7 — this grid is 116–157px wide at six of its seven measured geometries; side by side the row needs 155px at one-character counts and 203 at four. A card-width rule sized for the widest count, not a content wrap, so neighbours stay aligned and nothing clips. |
 
 ---
 
@@ -386,12 +406,12 @@ No code. One Sonnet session; a docs-only PR (CI's docs-only detector skips the s
   catalogue of a thousand places within reach) and record the measured contrast in §7.
 - **Q3.** Under an away origin the label copy is unchanged (spec) — the drive is from the base
   town, which is what the pool is gated on. Default: **unchanged**, as the spec says.
-- **Q4.** The stacked-state threshold (170px, §2 #2) is sized for two-character counts. Between
-  171 and ~195px a three-character count (a hundred-plus rated places in one band within reach)
-  overflows side by side and is clipped by the value cell. Default: **accept and record** —
-  today's catalogue is 253 places over the whole country, and the clip is the spec's own
-  `overflow: hidden` safety net doing its job; raise the threshold, or drop the well's padding and
-  the hatched gap under `.sm`, when the catalogue gets there.
+- **Q4 — CLOSED on the plan PR (2026-10-15).** The threshold was raised from 170 to 205px (§2 #2)
+  so the widest count the clamp allows fits side by side wherever the row is side by side. One
+  residual, recorded rather than open: at the 320px viewport the stacked histogram's own line is
+  ≈116px and a four-character count needs 122 — a six-pixel clip inside the value cell on a phone
+  showing a thousand-plus places in reach, which today's 253-place catalogue cannot produce. If the
+  catalogue ever does, drop the well's padding and the hatched bar's gap under `.sm` (6 + 2px).
 
 ---
 
