@@ -55,7 +55,17 @@ colour — the map's own unscored-plate hatch already means "nothing was scored 
 five bands' own scale, to the left of 1★ with a wider gap than the 2px between bands. The tooltip
 and the row read one shared decision function, and the tooltip deliberately says MORE than the row
 below the gate (the pool size and, for a partial sample, the rated count), never the row's text
-verbatim.
+verbatim. The row also names its pool and prints its counts (2026-10-15,
+`docs/engineering/spread-row-plan.md`): a second label line — `(within 45m)` / `(within 1h30)` /
+`(within 2h30)` / `(any drive)`, derived from `REACH_TIERS[].shortLabel` — over the bars and the
+below-gate text alike, silent under a finite tier when any spot in the pool lacks a measured drive
+(the pool-wide `facts.withinReach`, not `card.reachMeasured` alone), and a count under every bar, the
+hatched one's included; below a 205px card content width a container query (`@container wf-card`) stacks the
+histogram on its own line under the label. The spoken sentence names the same tier ("within 45 min",
+"any drive") and the non-zero bands (`spokenPoolPhrase`, `spreadBandsSpoken`), while the tooltip keeps
+"within reach" (plan §2 #5–#6, §4); the helpers are filter/map/select over that same pool (the
+already-licensed class), not a further member of the Backend-heavy bullet's reach-scoped list, which
+already names this paragraph's gate.
 Clicking a card opens **one popup** (`WindowSheetDialog`) holding everything the deleted accordion
 held — big field with greedily-placed location chips, region rail, an always-rendered prose slot,
 topic rows, the tide row, the ranked spot strip. The origin control, the search trigger and the light
