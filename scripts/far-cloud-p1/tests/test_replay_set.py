@@ -561,6 +561,301 @@ class StoredArmCompareTest(unittest.TestCase):
                                           "--out", str(self.root / "o.md")]), 2)
 
 
+class ControlSplitTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.set = self.root / "set"
+        self.set.mkdir()
+        self.rows = make_set(self.set)
+        self.out = self.root / "arms"
+
+    def split(self, *extra):
+        return replay_set.main(["split", "--set", str(self.set), "--out", str(self.out), *extra])
+
+    @staticmethod
+    def big_manifest():
+        """30 go + 70 three rated by SONNET_55, 10 go + 10 three by HAIKU, one training row."""
+        rows, i = [], 0
+        for model, group, n in (("SONNET_55", "go", 30), ("SONNET_55", "three", 70),
+                                ("HAIKU", "go", 10), ("HAIKU", "three", 10)):
+            for _ in range(n):
+                i += 1
+                rows.append({"evaluation_id": str(i), "label": str(i), "model": model, "group": group,
+                             "training": "0", "basis_rating": "4" if group == "go" else "3"})
+        rows.append({"evaluation_id": "9999", "label": "tr", "model": "SONNET_55", "group": "go",
+                     "training": "1", "basis_rating": "4"})
+        return rows
+
+    def test_off_by_default_and_changes_nothing_else(self):
+        self.assertEqual(self.split(), 0)
+        self.assertFalse((self.out / replay_set.CONTROL_RUN).exists())
+        import json
+        meta = json.loads((self.out / "arms.json").read_text())
+        self.assertNotIn(replay_set.CONTROL_RUN, meta["dirs"])
+        self.assertEqual(meta["control_sample"], 0)
+        dirs, info = replay_set.split_manifest(self.rows, None, 1)
+        self.assertNotIn(replay_set.CONTROL_RUN, dirs)
+        self.assertEqual(info["control_kept"], 0)
+
+    def test_draws_only_sonnet55_stored_prompts_proportionally_and_never_training(self):
+        rows = self.big_manifest()
+        drawn, pool = replay_set.draw_control(rows, 20, 7)
+        self.assertEqual(pool, {"go": 30, "three": 70})  # HAIKU's and the training row are not in the pool
+        self.assertEqual(len(drawn), 20)
+        self.assertEqual({m["model"] for m in drawn}, {"SONNET_55"})
+        self.assertNotIn("tr", {m["label"] for m in drawn})
+        self.assertEqual(sum(1 for m in drawn if m["group"] == "go"), 6)  # 30 of 100 -> 6 of 20
+        self.assertEqual(sum(1 for m in drawn if m["group"] == "three"), 14)
+        self.assertEqual(len({m["label"] for m in drawn}), 20)  # no prompt twice
+        again, _ = replay_set.draw_control(rows, 20, 7)
+        self.assertEqual([m["label"] for m in again], [m["label"] for m in drawn])  # seeded
+        other, _ = replay_set.draw_control(rows, 20, 8)
+        self.assertNotEqual({m["label"] for m in other}, {m["label"] for m in drawn})
+        every, _ = replay_set.draw_control(rows, 500, 7)  # larger than the pool keeps it all
+        self.assertEqual(len(every), 100)
+        self.assertEqual(replay_set.draw_control(rows, 0, 7)[0], [])
+
+    def test_odd_shares_round_to_nearest_and_the_draw_has_its_own_random_stream(self):
+        pool = [{"evaluation_id": str(i), "label": str(i), "model": "SONNET_55", "training": "0",
+                 "group": "go" if i <= 3 else "three", "basis_rating": "4"} for i in range(1, 8)]
+        drawn, _ = replay_set.draw_control(pool, 4, 1)  # 4 * 3/7 = 1.71 go: nearest is 2, truncating gives 1
+        self.assertEqual((sum(1 for m in drawn if m["group"] == "go"),
+                          sum(1 for m in drawn if m["group"] == "three")), (2, 2))
+        # all-three pool, so the three-sample and the control both sample the same list with the same seed:
+        # a shared stream would make the control IS the three-sample's kept prompts
+        threes = [{"evaluation_id": str(i), "label": str(i), "model": "SONNET_55", "training": "0",
+                   "group": "three", "basis_rating": "3", "file": f"{i}.txt"} for i in range(1, 21)]
+        dirs, _ = replay_set.split_manifest(threes, 5, 3, 5)
+        kept = {m["label"] for m in dirs["need-sonnet"]}
+        control = {m["label"] for m in dirs[replay_set.CONTROL_RUN]}
+        self.assertEqual((len(kept), len(control)), (5, 5))
+        self.assertNotEqual(kept, control)
+
+    def test_a_group_that_cannot_fill_its_share_is_topped_up_from_the_other(self):
+        rows = [r for r in self.big_manifest() if not (r["group"] == "three" and r["model"] == "SONNET_55"
+                                                       and int(r["evaluation_id"]) > 33)]
+        drawn, pool = replay_set.draw_control(rows, 30, 1)  # 30 go, 3 three
+        self.assertEqual(pool, {"go": 30, "three": 3})
+        self.assertEqual(len(drawn), 30)
+        self.assertEqual(sum(1 for m in drawn if m["group"] == "three"), 3)
+
+    def test_control_does_not_move_with_the_three_sample(self):
+        a, _ = replay_set.split_manifest(self.rows, 1, 5, 3)
+        b, _ = replay_set.split_manifest(self.rows, 6, 5, 3)
+        self.assertEqual([m["label"] for m in a[replay_set.CONTROL_RUN]],
+                         [m["label"] for m in b[replay_set.CONTROL_RUN]])
+
+    def test_split_writes_the_directory_and_records_it_in_arms_json(self):
+        import json
+        self.assertEqual(self.split("--control-sample", "3", "--seed", "7"), 0)
+        got = read(self.out / replay_set.CONTROL_RUN / "manifest.csv")
+        self.assertEqual(len(got), 3)
+        # fixture pool: g1, g3 (go) and t1..t4 (three) are SONNET_55-stored; 3 -> 1 go + 2 three
+        self.assertEqual(sorted(m["group"] for m in got), ["go", "three", "three"])
+        self.assertEqual({m["model"] for m in got}, {"SONNET_55"})
+        for m in got:
+            self.assertTrue((self.out / replay_set.CONTROL_RUN / m["file"]).is_file())
+            self.assertTrue((self.set / f"{m['label']}.inland.txt").is_file())  # copied, the set is whole
+        spec = json.loads((self.out / "arms.json").read_text())["dirs"][replay_set.CONTROL_RUN]
+        self.assertEqual((spec["model"], spec["system_prompt"], spec["role"]),
+                         ("SONNET_55", "production", "control"))
+        self.assertEqual(sorted(spec["labels"]), sorted(m["label"] for m in got))
+        # the control prompts are also in the arms' own directories: that is by design, not a clash
+        other = {m["label"] for n in ("need-sonnet", "r1-gos")
+                 for m in read(self.out / n / "manifest.csv")}
+        self.assertLessEqual({m["label"] for m in got} & {"g1", "g3", "t1", "t2", "t3", "t4"}, other)
+
+    def test_self_replay_guard_exempts_only_the_control(self):
+        dirs, _ = replay_set.split_manifest(self.rows, None, 1, 4)
+        self.assertEqual(replay_set.self_replays(dirs), [])
+        bad = dict(dirs, **{"need-sonnet55": [dict(self.rows[0], model="SONNET_55")]})
+        self.assertEqual(replay_set.self_replays(bad), [("need-sonnet55", "1")])
+
+    def test_negative_control_sample_is_refused(self):
+        self.assertEqual(self.split("--control-sample", "-1"), 2)
+        self.assertFalse(self.out.exists())
+
+    def test_plan_prints_the_control_as_a_batch_cost_line_inside_the_total(self):
+        import contextlib
+        import io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            self.split("--control-sample", "4")
+        text = buf.getvalue()
+        want = 0.5 * 4 * (3500 * 2.0 + 400 * 10.0) / 1e6
+        line = next(l for l in text.splitlines() if l.startswith(f"  {replay_set.CONTROL_RUN}:"))
+        self.assertIn("4 prompts", line)
+        self.assertIn("SONNET_55", line)
+        self.assertIn("CONTROL", line)
+        self.assertIn(f"${want:,.2f} to ${want * 1.5:,.2f}", line)
+        total = next(l for l in text.splitlines() if l.startswith("  total:"))
+        self.assertIn("control included", total)
+        self.assertIn(f"{7 + 4 + 3 + 4} calls", total)  # need-sonnet 7, need-sonnet55 4, r1-gos 3, control 4
+
+
+class ControlCompareTest(unittest.TestCase):
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        (self.root / "set").mkdir()
+        make_set(self.root / "set")
+        self.manifest = read(self.root / "set" / "manifest.csv")
+        self.arms_dir = self.root / "arms"
+        replay_set.main(["split", "--set", str(self.root / "set"), "--out", str(self.arms_dir),
+                         "--control-sample", "6"])  # the whole SONNET_55 pool of the fixture
+        import json
+        self.meta = json.loads((self.arms_dir / "arms.json").read_text())
+
+    def runs(self, name, rows, system_prompt="production"):
+        path = self.root / name
+        with open(path, "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["label", "model", "attempt", "rating", "fiery", "golden", "failure", "summary",
+                        "system_prompt"])
+            for label, model, ratings in rows:
+                for i, r in enumerate(ratings, 1):
+                    w.writerow([label, model, i, r, "", "", "", "", system_prompt])
+        return str(path)
+
+    def trimmed(self):
+        return [
+            self.runs("need-sonnet.csv", [("g1", "SONNET", [4]), ("g3", "SONNET", [4]), ("t1", "SONNET", [4]),
+                                          ("t2", "SONNET", [3]), ("t3", "SONNET", [4]), ("t4", "SONNET", [3])]),
+            self.runs("need-sonnet55.csv", [("g2", "SONNET_55", [4]), ("t5", "SONNET_55", [4]),
+                                            ("t6", "SONNET_55", [3])]),
+            self.runs("r1.csv", [("g1", "SONNET_55", [3]), ("g2", "SONNET_55", [4]), ("g3", "SONNET_55", [4])],
+                      system_prompt="system-r1.txt@sha256:abc"),
+        ]
+
+    def control_file(self):
+        # stored: g1 4, g3 4, t1..t4 3.  g1 falls, g3 holds; t1, t2, t3 rise, t4 holds.
+        return self.runs("control.csv", [("g1", "SONNET_55", [3]), ("g3", "SONNET_55", [4]),
+                                         ("t1", "SONNET_55", [4]), ("t2", "SONNET_55", [4]),
+                                         ("t3", "SONNET_55", [4]), ("t4", "SONNET_55", [3])])
+
+    def load(self, with_control=True):
+        specs = [f"{f},{l}" for f, l in zip(self.trimmed(), ["need-sonnet", "need-sonnet55", "r1-gos"])]
+        if with_control:
+            specs.append(f"{self.control_file()},{replay_set.CONTROL_RUN}")
+        return replay_set.load_runs(specs)
+
+    def test_noise_floor_numerators_and_denominators(self):
+        st = replay_set.control_stats(self.manifest, self.load())
+        self.assertEqual((st["rated"], st["moved"], st["up"], st["down"]), (6, 4, 3, 1))
+        self.assertEqual((st["go_below"], st["go_rated"]), (1, 2))
+        self.assertEqual((st["three_rose"], st["three_rated"]), (3, 4))
+        text = replay_set.compare(self.manifest, self.load())
+        self.assertIn("replay moved off the stored rating: **4/6 (66.7%)** (3 up, 1 down)", text)
+        self.assertIn("control gos that fell below 4 stars: **1/2 (50.0%)**", text)
+        self.assertIn("control 3-stars that rose to 4 or more: **3/4 (75.0%)**", text)
+        self.assertIn("CONTROL, the noise floor", text)
+
+    def test_unrated_control_prompts_are_not_in_the_denominators(self):
+        arms = replay_set.load_runs([self.runs("c.csv", [("g1", "SONNET_55", [""]), ("t1", "SONNET_55", [4]),
+                                                          ("t2", "SONNET_55", [3])]) + ",control-sonnet55"])
+        st = replay_set.control_stats(self.manifest, arms)
+        self.assertEqual((st["prompts"], st["rated"], st["unrated"]), (3, 2, 1))
+        self.assertEqual((st["go_rated"], st["three_rated"], st["moved"]), (0, 2, 1))
+        text = replay_set.compare(self.manifest, arms)
+        self.assertIn("**0/0**", text)  # a zero denominator prints, it never divides
+        self.assertNotIn("Decision lines", text)  # the control alone is not an arm of any decision
+
+    def test_net_lines_print_the_raw_figure_and_the_floor(self):
+        text = replay_set.compare(self.manifest, self.load())
+        lines = text.splitlines()
+        d1 = next(i for i, l in enumerate(lines) if l.startswith("- **D-1 part 2"))
+        self.assertIn("1/3 go prompts taken below 4 stars (33.3%; cap 15%: over)", lines[d1])  # raw, unchanged
+        self.assertIn("took 1/2 (50.0%) below 4 with no R1", lines[d1 + 1])
+        self.assertIn("**-16.7 pp**", lines[d1 + 1])
+        self.assertIn("cap 15%: within on the net figure", lines[d1 + 1])
+        d2 = next(i for i, l in enumerate(lines) if "ONE-SIDED" in l)
+        self.assertIn("SONNET 2/4 (50.0%) [4 replayed]", lines[d2])  # raw, unchanged
+        self.assertIn("3/4 (75.0%) rose to 4 or more with no model change", lines[d2 + 1])
+        self.assertIn("-25.0 pp against that floor", lines[d2 + 1])
+
+    def test_control_is_never_double_counted_with_the_decision_lines(self):
+        with_c, without = self.load(), self.load(with_control=False)
+        self.assertEqual(replay_set.with_stored_arms(self.manifest, with_c).keys() - {
+            f"{replay_set.CONTROL_RUN}/SONNET_55 [production]"}, replay_set.with_stored_arms(
+            self.manifest, without).keys())
+        full_c = replay_set.with_stored_arms(self.manifest, with_c)
+        full = replay_set.with_stored_arms(self.manifest, without)
+        for model in ("SONNET_55", "SONNET"):  # the control's SONNET_55 replay of t1 must not make it "replayed"
+            self.assertEqual(replay_set.model_view(full_c, model), replay_set.model_view(full, model))
+        self.assertEqual(replay_set.model_view(full_c, "SONNET_55")["t1"][1], "stored")
+        strip = lambda ls: [l for l in ls if not l.startswith("  - net of") and not l.startswith("  - floor")]  # noqa
+        self.assertEqual(strip(replay_set.decision_lines(self.manifest, with_c, replay_set.control_stats(
+            self.manifest, with_c))), replay_set.decision_lines(self.manifest, without))
+        text = replay_set.compare(self.manifest, with_c)
+        self.assertEqual(text.count("## Arm control-sonnet55/SONNET_55 [production]"), 1)
+        self.assertNotIn("paired on", text)  # no both-replayed D-2 pair appears from the control
+        # a report without the control has no net or floor line at all
+        self.assertNotIn("net of the control", replay_set.compare(self.manifest, without))
+        self.assertNotIn("floor", replay_set.compare(self.manifest, without))
+
+    def test_check_arms_accepts_the_control_and_refuses_the_wrong_model_or_prompt(self):
+        ok = self.load()
+        self.assertEqual(replay_set.check_arms(self.meta, self.manifest, ok), [])  # no self-replay false alarm
+        wrong_model = replay_set.load_runs([self.runs("w.csv", [("t1", "SONNET", [3])]) + ",control-sonnet55"])
+        problems = replay_set.check_arms(self.meta, self.manifest, wrong_model)
+        self.assertTrue(any("is for SONNET_55" in p for p in problems), problems)
+        r1 = replay_set.load_runs([self.runs("r.csv", [("t1", "SONNET_55", [3])], system_prompt="r1.txt@sha256:a")
+                                   + ",control-sonnet55"])
+        self.assertTrue(any("expects the production system prompt" in p for p in
+                            replay_set.check_arms(self.meta, self.manifest, r1)))
+        haiku_rated = replay_set.load_runs([self.runs("h.csv", [("g2", "SONNET_55", [4])]) + ",control-sonnet55"])
+        self.assertTrue(any("not stored by SONNET_55" in p or "not in directory" in p for p in
+                            replay_set.check_arms(self.meta, self.manifest, haiku_rated)))
+        training = replay_set.load_runs([self.runs("t.csv", [("tr1", "SONNET_55", [4])]) + ",control-sonnet55"])
+        self.assertTrue(replay_set.check_arms(self.meta, self.manifest, training))
+
+    def test_without_arms_json_a_control_of_prompts_it_may_not_hold_is_refused(self):
+        for label in ("g2", "tr1"):  # HAIKU-stored go; a training row stored by SONNET_55
+            arms = replay_set.load_runs([self.runs("a.csv", [(label, "SONNET_55", [4])]) + ",control-sonnet55"])
+            problems = replay_set.check_arms({}, self.manifest, arms)
+            self.assertTrue(any("not stored by SONNET_55" in p for p in problems), (label, problems))
+        self.assertEqual(replay_set.check_arms({}, self.manifest, replay_set.load_runs(
+            [self.runs("b.csv", [("g1", "SONNET_55", [4])]) + ",control-sonnet55"])), [])
+
+    def test_floor_is_read_against_sonnet_replays_of_stored_threes_only(self):
+        # t5/t6 are HAIKU-stored; give them a SONNET-STORED twin so one-sided pairs mix stored sides
+        rows = [dict(m) for m in self.manifest]
+        rows.append(dict(rows[3], evaluation_id="50", label="s1", model="SONNET"))  # SONNET-stored 3-star
+        arms = replay_set.load_runs([self.runs("n.csv", [("t1", "SONNET", [4]), ("t2", "SONNET", [3]),
+                                                         ("t3", "SONNET", [3]), ("t4", "SONNET", [3])]) + ",need-sonnet",
+                                     self.runs("c.csv", [("s1", "SONNET_55", [4])]) + ",need-sonnet55",
+                                     self.control_file() + ",control-sonnet55"])
+        text = replay_set.compare(rows, arms)
+        floor = next(l for l in text.splitlines() if l.startswith("  - floor"))
+        self.assertIn("SONNET replayed on SONNET_55's stored 3-stars: 1/4 (25.0%)", floor)  # s1 is not in it
+        self.assertIn("-50.0 pp against that floor", floor)  # 25.0 - 75.0
+        self.assertIn("THIN: only 4 rated control prompt(s)", floor)
+
+    def test_a_control_run_on_another_prompt_is_not_a_floor(self):
+        r1 = replay_set.load_runs([self.runs("r.csv", [("t1", "SONNET_55", [4])], system_prompt="r1.txt@sha256:a")
+                                   + ",control-sonnet55"])
+        self.assertIsNone(replay_set.control_stats(self.manifest, r1))
+
+    def test_cli_exit_codes(self):
+        base = ["compare", "--manifest", str(self.root / "set" / "manifest.csv"), "--out",
+                str(self.root / "r.md")]
+        files = self.trimmed()
+        good = [f"{files[0]},need-sonnet", f"{files[1]},need-sonnet55", f"{files[2]},r1-gos",
+                f"{self.control_file()},control-sonnet55"]
+        with_json = base + ["--arms-json", str(self.arms_dir / "arms.json")]
+        self.assertEqual(replay_set.main(with_json + ["--runs", *good]), 0)
+        self.assertIn("CONTROL, the noise floor", (self.root / "r.md").read_text())
+        bad = self.runs("bad.csv", [("t1", "SONNET", [3])])
+        for args in (with_json, base):  # wrong model: refused with and without arms.json
+            if (self.root / "r.md").exists():
+                (self.root / "r.md").unlink()
+            self.assertEqual(replay_set.main(args + ["--runs", f"{bad},control-sonnet55"]), 2)
+            self.assertFalse((self.root / "r.md").exists())
+        bad_prompt = self.runs("bp.csv", [("t1", "SONNET_55", [3])], system_prompt="r1.txt@sha256:a")
+        self.assertEqual(replay_set.main(base + ["--runs", f"{bad_prompt},control-sonnet55"]), 2)
+        # and a control run of the right model and prompt is fine without arms.json
+        self.assertEqual(replay_set.main(base + ["--runs", f"{self.control_file()},control-sonnet55"]), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
 

@@ -137,6 +137,7 @@ model was not replayed. Nothing in `/tmp/p1-replay` is moved or changed.
 ```
 python3 replay_set.py split --set /tmp/p1-replay --out /tmp/p1-replay-arms          # all 3-stars
 python3 replay_set.py split --set /tmp/p1-replay --out /tmp/p1-replay-arms --three-sample 300   # or a seeded 300
+python3 replay_set.py split --set /tmp/p1-replay --out /tmp/p1-replay-arms --control-sample 150  # recommended: + the control
 ```
 
 | directory | prompts (2026-10-14 set) | replayed on | why |
@@ -145,22 +146,39 @@ python3 replay_set.py split --set /tmp/p1-replay --out /tmp/p1-replay-arms --thr
 | `need-sonnet55/` | 204 (145 go, 59 3-star) | `SONNET_55`, production prompt | HAIKU rated these (Haiku is not a D-2 arm) |
 | `r1-gos/` | 658 (go group only) | `SONNET_55`, R1 prompt | a 3-star tells R1 nothing: it can only demote |
 | `training/` | 2 | all models, step c | as before |
+| `control-sonnet55/` | N (`--control-sample`, 150 recommended; 69 go + 81 3-star at 150) | `SONNET_55`, production prompt | the noise floor: the same model on prompts it already rated (below) |
 
 `split` refuses a target directory that already holds files (they would be replayed and billed), and prints
 the calls and the **batch** cost per directory: half the standard `cost.*` prices, the same assumed 3,500 input
 and 400 output tokens as `select`, thinking tokens and caching not included. Full 3-star group: **1,974 calls,
-about $13.9 to $20.9**; `--three-sample 300`: **1,616 calls, about $11.0 to $16.6**. It also writes
-`arms.json`, which `compare` checks the runs against.
+about $13.9 to $20.9**; `--three-sample 300`: **1,616 calls, about $11.0 to $16.6**. With
+`--control-sample 150` the control adds 150 calls and **about $0.8 to $1.2** (`SONNET_55` at batch prices):
+**2,124 calls, about $14.7 to $22.1** at the full 3-star group, **1,766 calls, about $11.9 to $17.8** at
+`--three-sample 300`. It also writes `arms.json`, which `compare` checks the runs against.
 
-Three Maven runs, each twice (the first prints the cost gate and spends nothing, the second types the number
-back), from `backend/`:
+**Why the control exists.** A stored rating is not a random sample of what its model says: the `three` group
+is 3 by construction and the `go` group is 4 or more, so it was selected on its own value. Replay either group
+and it regresses toward the mean, whichever model or prompt does the replaying: some gos fall below 4 and some
+3-stars rise to 4 with **no** real difference. `compare` would otherwise read that drift as an effect (R1 "takes
+x% of gos below 4", SONNET "rates y% of SONNET_55's 3-stars 4 or higher"). `--control-sample N` replays a seeded
+random N of the SONNET_55-stored prompts (go and 3-star drawn in proportion to their size in that pool, from the
+whole pool, never from what `--three-sample` kept) on **SONNET_55 with the production prompt**, the very model and
+prompt that made the stored rating, so any move off it is selection plus sampling noise and nothing else.
+`compare` prints that as the noise floor and sets it beside the two raw lines that read stored ratings (below).
+It is the one deliberate self-replay, so `split` and `compare --arms-json` exempt it from the "replayed on the
+model that rated it" refusal and instead refuse it on any model but SONNET_55, any prompt but the production one,
+or any prompt SONNET_55 did not rate. It is never an arm: it is not pooled with, paired against or counted in any
+decision line (a control prompt is also in `need-sonnet/` and, for a go, `r1-gos/`; that is intended).
+
+Three Maven runs (four with `--control-sample`), each twice (the first prints the cost gate and spends nothing,
+the second types the number back), from `backend/`:
 
 ```
 cd ../../backend
 export ANTHROPIC_API_KEY=...        # in your shell only
 T=(-Pprompt-regression -Dtest=PromptReplayHarnessTest#replayStoredPrompts)
 export REPLAY_BATCH=true REPLAY_N=1
-mkdir -p /tmp/p1-arms/need-sonnet /tmp/p1-arms/need-sonnet55 /tmp/p1-arms/r1-gos
+mkdir -p /tmp/p1-arms/need-sonnet /tmp/p1-arms/need-sonnet55 /tmp/p1-arms/r1-gos /tmp/p1-arms/control-sonnet55
 unset REPLAY_SYSTEM_PROMPT_FILE REPLAY_CONFIRM_COST
 
 # 1. SONNET (4.6) on what SONNET_55 rated
@@ -183,12 +201,21 @@ export REPLAY_PROMPTS_DIR=/tmp/p1-replay-arms/r1-gos REPLAY_MODELS=SONNET_55 REP
 REPLAY_CONFIRM_COST=<N> ./mvnw test "${T[@]}"
 cp target/p0-replay/runs.csv /tmp/p1-arms/r1-gos/runs.csv
 cp target/p0-replay/batches.json /tmp/p1-arms/r1-gos/batches.json
+
+# 4. (only with --control-sample) SONNET_55 with the PRODUCTION prompt on N prompts SONNET_55 already rated
+unset REPLAY_SYSTEM_PROMPT_FILE      # the control must NOT carry the R1 prompt
+export REPLAY_PROMPTS_DIR=/tmp/p1-replay-arms/control-sonnet55 REPLAY_MODELS=SONNET_55
+./mvnw test "${T[@]}"
+REPLAY_CONFIRM_COST=<N> ./mvnw test "${T[@]}"
+cp target/p0-replay/runs.csv /tmp/p1-arms/control-sonnet55/runs.csv
+cp target/p0-replay/batches.json /tmp/p1-arms/control-sonnet55/batches.json
 unset REPLAY_BATCH REPLAY_MODELS REPLAY_SYSTEM_PROMPT_FILE REPLAY_PROMPTS_DIR REPLAY_CONFIRM_COST
 cd ../scripts/far-cloud-p1
 
 python3 replay_set.py compare --manifest /tmp/p1-replay/manifest.csv --arms-json /tmp/p1-replay-arms/arms.json \
   --runs /tmp/p1-arms/need-sonnet/runs.csv,need-sonnet /tmp/p1-arms/need-sonnet55/runs.csv,need-sonnet55 \
          /tmp/p1-arms/r1-gos/runs.csv,r1-gos --slots out/slots.csv --out out/part_d.md
+# with the control, add:  /tmp/p1-arms/control-sonnet55/runs.csv,control-sonnet55
 ```
 
 Label each `runs.csv` with its directory name (`,need-sonnet`): that is how `--arms-json` matches a run to
@@ -202,12 +229,28 @@ D-2 (the 4-star share of the 3-star sample, SONNET_55 vs SONNET, paired on the p
 numerator, denominator and how many of each side are stored vs replayed; a pair with a stored side goes on a
 separate ONE-SIDED line, never into the gap) and one for D-1 part 2 (the share of
 go prompts the R1 arm takes below 4, with the 15% cap). Expected calls: **about 1,112 + 204 + 658** at the full
-3-star group.
+3-star group (+ N for the control).
+
+With a control run loaded the report adds a **CONTROL** section (the noise floor: of the control prompts, the
+share whose replay moved off the stored rating, the control gos that fell below 4 and the control 3-stars that
+rose to 4 or more, each as numerator/denominator over the prompts with a rated attempt), a **net** line under
+the D-1 part 2 line (R1's below-4 share minus the control gos' own, against the 15% cap, the raw line kept above
+it), and a **floor** line under the ONE-SIDED D-2 line (SONNET's rise-to-4 share against the control 3-stars').
+Read the net figure, not the raw one, for D-1 part 2: the raw cap is over by the drift alone if the floor is
+large. The control holds SONNET_55-stored prompts only, while R1 runs on every go (145 were rated by HAIKU).
+The D-2 floor is set against SONNET's replays of SONNET_55-stored 3-stars only (a SONNET-stored side is not a
+replay). A floor over fewer than 30 rated control prompts is printed with a THIN warning (one prompt is
+100/n pp, so the 15% cap on the net figure can flip on one prompt); the net verdict is a reading `compare`
+adds, not a threshold the plan set on the net figure, so the owner decides whether it stands.
 
 Read it with these limits in mind; they are the price of the trim:
 
 - **A stored rating is one sample; a replay is not.** P0 found the replay 20 of 20 identical on the Angel, so a
   stored rating is probably what a replay would have said, but that is one prompt, not a measurement of the set.
+- **The control measures the drift; it does not remove the selection.** It is one more replay of the same
+  prompts by the same model, so it prices the regression to the mean in the other two lines, and a replay of
+  its 3-stars on SONNET_55 is also a SONNET_55 side for them. `compare` deliberately does not pair those
+  against the SONNET replays (a new decision line, not built; do not read D-2.1 off it by hand).
 - **The 3-star group is 3 by selection, so D-2.1 cannot be confirmed from stored ratings.** For the 599 prompts
   SONNET_55 rated, its stored side is 3 for every prompt, 0% at 4 stars by construction, and D-2.1 needs
   SONNET_55 to be 8 points *above* SONNET. `compare` therefore prints those prompts as a **ONE-SIDED** line (how

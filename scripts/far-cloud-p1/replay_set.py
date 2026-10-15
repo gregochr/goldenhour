@@ -4,6 +4,8 @@ Subcommands:
   select    p1_prompts.csv + p1_forecasts.csv -> <evaluation_id>.<inland|coastal>.txt files + manifest.csv
   build-r1  production system prompt text + patch markdown -> override system prompt file
   split     select's set -> one directory per replay arm, skipping what a stored rating already answers
+            (--control-sample N adds a SONNET_55 production-prompt replay of N SONNET_55-stored prompts:
+            the noise floor a stored rating's selection bias puts under every comparison with it)
   compare   manifest.csv + runs.csv per arm (+ optional premise.py slots.csv) -> out/part_d.md
 
 Standard library only. Never touches the network.
@@ -272,17 +274,26 @@ def cmd_select(args):
 #   need-sonnet55  prompts HAIKU (or SONNET) rated -> replay on SONNET_55, production prompt
 #   r1-gos         the go group only             -> replay on SONNET_55 with the R1 system prompt
 #   training       copied as is                  -> replayed on all models, README step c
+#   control-sonnet55  (opt-in, --control-sample N)  a seeded random N of the SONNET_55-stored prompts, go and
+#                  three drawn proportionally -> replayed on SONNET_55 with the PRODUCTION prompt. That is the one
+#                  deliberate self-replay: a stored rating is chosen on its value (the `three` group is 3 by
+#                  construction, the `go` group >= 4), so ANY replay compared with it regresses toward the mean
+#                  even with no real difference; replaying the same model on the same prompt measures how far.
 # HAIKU is not an arm of the D-2 comparison (SONNET_55 vs SONNET), so a HAIKU-stored prompt gets no SONNET
 # replay; a stored model nobody recognises gets both replays, because neither stored arm is usable.
 STORED_RUN = "stored"  # the run label of an arm that is a stored rating, never a replay
+CONTROL_RUN = "control-sonnet55"  # the run label (= directory name) of the control replay, never an arm
+CONTROL_MODEL = "SONNET_55"  # the control is drawn from this model's stored ratings and replayed on it
 SPLIT_DIRS = {
-    "need-sonnet": {"model": "SONNET", "system_prompt": "production"},
-    "need-sonnet55": {"model": "SONNET_55", "system_prompt": "production"},
-    "r1-gos": {"model": "SONNET_55", "system_prompt": "override"},
-    "training": {"model": None, "system_prompt": "production"},
+    "need-sonnet": {"model": "SONNET", "system_prompt": "production", "role": "arm"},
+    "need-sonnet55": {"model": "SONNET_55", "system_prompt": "production", "role": "arm"},
+    "r1-gos": {"model": "SONNET_55", "system_prompt": "override", "role": "arm"},
+    "training": {"model": None, "system_prompt": "production", "role": "training"},
+    CONTROL_RUN: {"model": CONTROL_MODEL, "system_prompt": "production", "role": "control"},
 }
 SPLIT_REQUIRED = ("evaluation_id", "label", "model", "group", "training", "file")
 BATCH_DISCOUNT = 0.5  # Message Batches bill at half the standard per-token price
+CONTROL_THIN = 30  # a floor over fewer rated control prompts than this is printed with a warning
 
 
 def models_needing_replay(stored_model):
@@ -294,16 +305,43 @@ def models_needing_replay(stored_model):
     return ["SONNET", "SONNET_55"]
 
 
-def split_manifest(manifest, three_sample=None, seed=0):
+def draw_control(manifest, n, seed):
+    """Pure. A seeded random N of the CONTROL_MODEL-stored go/three prompts (training rows never), the two
+    groups drawn proportionally to their size in that pool. Drawn from the whole pool, never from what
+    --three-sample kept, so the control does not move when the three-sample does. Returns
+    (rows, {"go": pool size, "three": pool size})."""
+    pool = {g: sorted((m for m in manifest if m["group"] == g and m["training"] != "1"
+                       and m["model"] == CONTROL_MODEL), key=lambda m: int(m["evaluation_id"]))
+            for g in ("go", "three")}
+    sizes = {g: len(v) for g, v in pool.items()}
+    total = sizes["go"] + sizes["three"]
+    if n <= 0 or total == 0:
+        return [], sizes
+    if n >= total:
+        return pool["go"] + pool["three"], sizes
+    n_go = round(n * sizes["go"] / total)
+    n_three = min(n - n_go, sizes["three"])
+    n_go = min(n - n_three, sizes["go"])
+    rng = random.Random(f"{CONTROL_RUN}:{seed}")  # its own stream: independent of the three-sample's
+    rows = rng.sample(pool["go"], n_go) + rng.sample(pool["three"], n_three)
+    return sorted(rows, key=lambda m: int(m["evaluation_id"])), sizes
+
+
+def split_manifest(manifest, three_sample=None, seed=0, control_sample=0):
     """Pure. {directory: [manifest rows]} and an info dict. `three_sample` keeps a seeded random N of the
     `three` group (drawn once from the whole group, so both production-prompt directories see the same
-    prompts); it never touches the go group or the training rows."""
+    prompts); it never touches the go group or the training rows. `control_sample` > 0 adds the
+    control directory (draw_control); the control prompts are ALSO in the other directories, by design."""
     threes = sorted((m for m in manifest if m["group"] == "three" and m["training"] != "1"),
                     key=lambda m: int(m["evaluation_id"]))
     kept = {m["evaluation_id"] for m in threes}
     if three_sample is not None and three_sample < len(threes):
         kept = {m["evaluation_id"] for m in random.Random(seed).sample(threes, three_sample)}
-    dirs = {name: [] for name in SPLIT_DIRS}
+    dirs = {name: [] for name in SPLIT_DIRS if name != CONTROL_RUN or control_sample > 0}
+    control, control_pool = ([], {"go": 0, "three": 0})
+    if control_sample > 0:
+        control, control_pool = draw_control(manifest, control_sample, seed)
+        dirs[CONTROL_RUN] = control
     for m in manifest:
         if m["training"] == "1":
             dirs["training"].append(m)
@@ -317,7 +355,10 @@ def split_manifest(manifest, three_sample=None, seed=0):
             dirs["need-sonnet55"].append(m)
         if m["group"] == "go":
             dirs["r1-gos"].append(m)
-    return dirs, {"three_candidates": len(threes), "three_kept": len(kept & {t["evaluation_id"] for t in threes})}
+    return dirs, {"three_candidates": len(threes), "three_kept": len(kept & {t["evaluation_id"] for t in threes}),
+                  "control_pool": control_pool, "control_kept": len(control),
+                  "control_go": sum(1 for m in control if m["group"] == "go"),
+                  "control_three": sum(1 for m in control if m["group"] == "three")}
 
 
 def self_replays(dirs):
@@ -326,8 +367,8 @@ def self_replays(dirs):
     bad = []
     for name, rows in dirs.items():
         spec = SPLIT_DIRS[name]
-        if spec["model"] is None or spec["system_prompt"] != "production":
-            continue
+        if spec["model"] is None or spec["system_prompt"] != "production" or spec["role"] == "control":
+            continue  # the control replays a model on its own stored prompts on purpose
         bad += [(name, m["evaluation_id"]) for m in rows if m["model"] == spec["model"]]
     return bad
 
@@ -350,10 +391,13 @@ def cmd_split(args):
     if args.three_sample is not None and args.three_sample < 0:
         print("ERROR: --three-sample must be >= 0", file=sys.stderr)
         return 2
+    if args.control_sample < 0:
+        print("ERROR: --control-sample must be >= 0", file=sys.stderr)
+        return 2
     if out.resolve() == set_dir.resolve():
         print("ERROR: --out must not be the set directory", file=sys.stderr)
         return 2
-    dirs, info = split_manifest(manifest, args.three_sample, args.seed)
+    dirs, info = split_manifest(manifest, args.three_sample, args.seed, args.control_sample)
     clash = self_replays(dirs)
     if clash:
         print(f"ERROR: would replay a prompt on the model that rated it: {clash[:5]}", file=sys.stderr)
@@ -370,7 +414,8 @@ def cmd_split(args):
         return 2
     meta = {"set": str(set_dir), "seed": args.seed, "three_sample": args.three_sample,
             "three_candidates": info["three_candidates"], "three_kept": info["three_kept"],
-            "input_tokens": args.input_tokens, "output_tokens": args.output_tokens, "dirs": {}}
+            "control_sample": args.control_sample, "control_pool": info["control_pool"],
+            "control_kept": info["control_kept"], "input_tokens": args.input_tokens, "output_tokens": args.output_tokens, "dirs": {}}
     for name, rows in dirs.items():
         target = out / name
         target.mkdir(parents=True, exist_ok=True)
@@ -385,7 +430,7 @@ def cmd_split(args):
             w.writerows(local)
         spec = SPLIT_DIRS[name]
         meta["dirs"][name] = {"model": spec["model"], "system_prompt": spec["system_prompt"],
-                              "prompts": len(rows), "labels": [m["label"] for m in rows]}
+                              "role": spec["role"], "prompts": len(rows), "labels": [m["label"] for m in rows]}
     out.mkdir(parents=True, exist_ok=True)
     (out / "arms.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
     print(f"split of {set_dir} into {out} (prompt files copied, the set is untouched)")
@@ -396,18 +441,29 @@ def cmd_split(args):
           f"application-example.yml); same assumption as select: {args.input_tokens} input + "
           f"{args.output_tokens} output tokens per call, ASSUMED, thinking tokens and caching not included; "
           f"range x1 to x{COST_HIGH_FACTOR}")
+    if args.control_sample > 0:
+        pool = info["control_pool"]
+        print(f"control: --control-sample {args.control_sample} (seed {args.seed}) draws {info['control_go']} go "
+              f"+ {info['control_three']} three from the {pool['go']} go and {pool['three']} three prompts "
+              f"{CONTROL_MODEL} rated" + ("; N exceeds the pool, all kept"
+                                          if args.control_sample >= pool["go"] + pool["three"] else ""))
     tot_calls, tot_lo = 0, 0.0
-    for name in ("need-sonnet", "need-sonnet55", "r1-gos"):
+    for name in ("need-sonnet", "need-sonnet55", "r1-gos", CONTROL_RUN):
+        if name not in dirs:
+            continue
         spec, n = SPLIT_DIRS[name], len(dirs[name])
         lo = batch_cost(n, spec["model"], args.input_tokens, args.output_tokens)
         tot_calls += n
         tot_lo += lo
-        kind = "production prompt" if spec["system_prompt"] == "production" else "R1 system prompt"
+        kind = ("production prompt, CONTROL (same model, same prompt: the noise floor)"
+                if spec["role"] == "control" else
+                "production prompt" if spec["system_prompt"] == "production" else "R1 system prompt")
         print(f"  {name}: {n} prompts ({sum(1 for m in dirs[name] if m['group'] == 'go')} go, "
               f"{sum(1 for m in dirs[name] if m['group'] == 'three')} three) -> {n} calls on "
               f"{spec['model']}, {kind}: ${lo:,.2f} to ${lo * COST_HIGH_FACTOR:,.2f}")
-    print(f"  total: {tot_calls} calls: ${tot_lo:,.2f} to ${tot_lo * COST_HIGH_FACTOR:,.2f} "
-          f"(primer batches add 1 request per system prefix per batch)")
+    print(f"  total: {tot_calls} calls: ${tot_lo:,.2f} to ${tot_lo * COST_HIGH_FACTOR:,.2f}"
+          + (" (control included)" if CONTROL_RUN in dirs else "")
+          + " (primer batches add 1 request per system prefix per batch)")
     print(f"  training: {len(dirs['training'])} prompts, replayed separately on all models (README step c), "
           "not in the total")
     print("  a stored rating is ONE production sample; a replay is not (P0: 20 of 20 identical on the Angel)")
@@ -530,6 +586,12 @@ def is_stored_arm(arm):
     return parse_arm(arm)[0] == STORED_RUN
 
 
+def is_control_arm(arm):
+    """The control replay: a model replayed on its own stored prompts. It measures drift and is never pooled
+    with, paired against or counted as an arm of any decision line."""
+    return parse_arm(arm)[0] == CONTROL_RUN
+
+
 def with_stored_arms(manifest, arms):
     """arms plus, per model that has at least one production-prompt replay of a go/three prompt loaded, a
     `stored/<model> [production]` arm holding the stored basis rating of every go/three prompt that model
@@ -541,7 +603,7 @@ def with_stored_arms(manifest, arms):
     covered = defaultdict(set)  # model -> go/three labels present in a production replay arm
     for arm, got in arms.items():
         run, model, sp = parse_arm(arm)
-        if run == STORED_RUN:
+        if run in (STORED_RUN, CONTROL_RUN):
             continue
         touched |= set(got) & scored
         if sp == "production":
@@ -564,7 +626,7 @@ def model_view(arms, model):
     view = {}
     for arm, got in arms.items():
         run, m, sp = parse_arm(arm)
-        if m != model or sp != "production":
+        if m != model or sp != "production" or run == CONTROL_RUN:
             continue
         for label, vals in got.items():
             if run == STORED_RUN:
@@ -579,9 +641,81 @@ def _median(vals):
     return statistics.median(vals) if vals else None
 
 
-def decision_lines(manifest, arms):
+def control_stats(manifest, arms):
+    """The noise floor, or None when no control run is loaded. Over the control's go/three prompts (never a
+    training row): `rated` have a successful attempt (the denominators), `moved` is the median differing
+    from the stored basis rating, `go_below` the control gos whose median is below 4, `three_rose` the
+    control threes whose median reaches 4. Several loaded control runs (a resume) pool their attempts."""
+    # only the control's own model and prompt are a noise floor; check_arms refuses anything else
+    runs = [a for a in arms if is_control_arm(a) and parse_arm(a)[1:] == (CONTROL_MODEL, "production")]
+    if not runs:
+        return None
+    by_label = {m["label"]: m for m in manifest if m["group"] in ("go", "three") and m["training"] != "1"}
+    attempts = defaultdict(list)
+    for arm in runs:
+        for lab, vals in arms[arm].items():
+            if lab in by_label:
+                attempts[lab] += vals
+    st = {"prompts": len(attempts), "rated": 0, "unrated": 0, "moved": 0, "up": 0, "down": 0, "go_rated": 0,
+          "go_below": 0, "three_rated": 0, "three_rose": 0, "moved_rows": []}
+    for lab, vals in sorted(attempts.items()):
+        m, med = by_label[lab], _median(vals)
+        if med is None:
+            st["unrated"] += 1
+            continue
+        stored = to_int(m["basis_rating"])
+        st["rated"] += 1
+        if m["group"] == "go":
+            st["go_rated"] += 1
+            st["go_below"] += 1 if med < 4 else 0
+        else:
+            st["three_rated"] += 1
+            st["three_rose"] += 1 if med >= 4 else 0
+        if med != stored:
+            st["moved"] += 1
+            st["up" if med > stored else "down"] += 1
+            st["moved_rows"].append((lab, m["location"], m["date"], m["event"], stored, _num(med), vals))
+    return st
+
+
+def _pct(k, n):
+    return f"{k}/{n} ({100 * k / n:.1f}%)" if n else f"{k}/{n}"
+
+
+def _thin(n):
+    """A warning clause for a floor measured on few prompts: one prompt is 100/n percentage points."""
+    if n >= CONTROL_THIN:
+        return ""
+    return (f" THIN: only {n} rated control prompt(s), so one prompt moves it {100 / n:.1f} pp "
+            f"(under {CONTROL_THIN}: read it as a rough size, not a figure)." if n else "")
+
+
+def control_section(arm, st):
+    L = [f"## Arm {arm}: CONTROL, the noise floor (not an arm of any decision)", "",
+         "- SONNET_55 replayed on prompts SONNET_55 itself rated in production, with the production prompt. "
+         "Nothing about the model or the prompt differs from the stored rating, so every move below is the "
+         "stored rating's selection (a go is >= 4 and a 3-star is 3 by selection) plus sampling noise: the "
+         "drift any replay compared against a stored rating shows with no real difference. The decision "
+         "lines below set it beside their raw figures.",
+         f"- {st['prompts']} control prompts; {st['rated']} with a successful attempt, "
+         f"{st['unrated']} without (not in any figure here)",
+         f"- replay moved off the stored rating: **{_pct(st['moved'], st['rated'])}** "
+         f"({st['up']} up, {st['down']} down)",
+         f"- control gos that fell below 4 stars: **{_pct(st['go_below'], st['go_rated'])}**"
+         + _thin(st["go_rated"]),
+         f"- control 3-stars that rose to 4 or more: **{_pct(st['three_rose'], st['three_rated'])}**"
+         + _thin(st["three_rated"]), ""]
+    if st["moved_rows"]:
+        L += md_table(["evaluation", "location", "date", "event", "stored", "median", "attempts"],
+                      st["moved_rows"])
+        L.append("")
+    return L
+
+
+def decision_lines(manifest, arms, control=None):
     """The two numbers the plan's thresholds read, one line each, with numerator, denominator and which
-    side is a stored rating and which a replay."""
+    side is a stored rating and which a replay. `control` (control_stats) adds the noise floor beside
+    each: the one-sided D-2 line and the D-1 part 2 line print their raw figure and the floor."""
     lines = []
     threes = [m["label"] for m in manifest if m["group"] == "three" and m["training"] != "1"]
     v55, vs = model_view(arms, "SONNET_55"), model_view(arms, "SONNET")
@@ -611,6 +745,22 @@ def decision_lines(manifest, arms):
             "0% 4-star by construction: no gap in the direction D-2.1 needs (+8 pp for SONNET_55) can "
             "show from a stored SONNET_55 side, and none is computed. It shows only how often the "
             "replayed model rates the other model's 3-stars 4 or higher.")
+        # the floor is a share of REPLAYED SONNET_55 ratings over prompts SONNET_55 stored as 3, so it is read
+        # against SONNET's replays of exactly those: a SONNET-stored pair has no replay and is not in `ks`
+        like = [p for p in one_side if p[1] == "stored" and p[3] == "replayed"]
+        if control and control["three_rated"] and like:
+            kc, nc = control["three_rose"], control["three_rated"]
+            kl = sum(1 for p in like if p[4] >= 4)
+            lines.append(
+                f"  - floor (control, SONNET_55 replayed on its own stored 3-stars, production prompt): "
+                f"{_pct(kc, nc)} rose to 4 or more with no model change; SONNET replayed on SONNET_55's "
+                f"stored 3-stars: {_pct(kl, len(like))}, which is {100 * kl / len(like) - 100 * kc / nc:+.1f} pp "
+                f"against that floor.{_thin(nc)}")
+        elif control and control["three_rated"]:
+            lines.append("  - floor: no SONNET replay of a SONNET_55-stored 3-star is loaded to set beside "
+                         "the control.")
+        elif control:
+            lines.append("  - floor: the control holds no rated 3-star, so no rise-to-4 floor exists.")
     if both or one_side:
         unpaired = sum(1 for lab in threes if lab in v55 and lab not in vs)
         if unpaired:
@@ -631,6 +781,16 @@ def decision_lines(manifest, arms):
                 f"cap 15%: {'over' if 100 * k > 15 * n else 'within'}) [R1 side: replayed, median of attempts; "
                 f"go side: stored sky rating >= 4 by selection]; {len(gos) - n} of {len(gos)} manifest gos "
                 "have no rated attempt on this arm.")
+            if control and control["go_rated"]:
+                kc, nc = control["go_below"], control["go_rated"]
+                net = 100 * k / n - 100 * kc / nc
+                lines.append(
+                    f"  - net of the control: SONNET_55 on its own stored gos, production prompt, took {_pct(kc, nc)} "
+                    f"below 4 with no R1, so R1's share net of that floor is **{net:+.1f} pp** (raw "
+                    f"{100 * k / n:.1f}% minus {100 * kc / nc:.1f}%; cap 15%: {'over' if net > 15 else 'within'} "
+                    f"on the net figure). The control holds SONNET_55-stored gos only.{_thin(nc)}")
+            elif control:
+                lines.append("  - net of the control: the control holds no rated go, so no floor exists.")
         else:
             lines.append(f"- **D-1 part 2 (arm {arm}):** not computable: no go prompt has a rated attempt.")
     return lines
@@ -645,6 +805,8 @@ def check_arms(arms_meta, manifest, arms):
     for arm, got in sorted(arms.items()):
         run, model, sp = parse_arm(arm)
         spec = dirs.get(run)
+        if spec is None and run == CONTROL_RUN:  # no arms.json: the control's own rules still apply
+            spec = {k: v for k, v in SPLIT_DIRS[CONTROL_RUN].items()}
         if spec is None or run == STORED_RUN:
             continue
         if spec["model"] is None:  # training: replayed on every model on purpose
@@ -654,10 +816,17 @@ def check_arms(arms_meta, manifest, arms):
         if (sp == "production") != (spec["system_prompt"] == "production"):
             problems.append(f"{arm}: directory {run} expects the {spec['system_prompt']} system prompt, "
                             f"the runs carry '{sp}'")
-        stray = sorted(set(got) - set(spec["labels"]))
-        if stray:
-            problems.append(f"{arm}: {len(stray)} prompt(s) not in directory {run}, e.g. {stray[0]}")
-        if sp == "production":
+        if "labels" in spec:
+            stray = sorted(set(got) - set(spec["labels"]))
+            if stray:
+                problems.append(f"{arm}: {len(stray)} prompt(s) not in directory {run}, e.g. {stray[0]}")
+        if run == CONTROL_RUN:  # drawn only from prompts the control's model rated, never a training row
+            alien = sorted(l for l in got if by_label.get(l, {}).get("group") not in ("go", "three")
+                           or by_label[l].get("training") == "1" or by_label[l].get("model") != spec["model"])
+            if alien:
+                problems.append(f"{arm}: {len(alien)} prompt(s) not stored by {spec['model']} as a go or "
+                                f"3-star, e.g. {alien[0]}")
+        elif sp == "production":
             again = sorted(l for l in got if by_label.get(l, {}).get("model") == model)
             if again:
                 problems.append(f"{arm}: {len(again)} prompt(s) replayed on the model that rated them, "
@@ -674,8 +843,13 @@ def compare(manifest, arms, premises=None):
          "'fall' is a replay median below 4; a 'rise' is a 3-star whose median reaches 4. Training "
          "rows are never pooled.", ""]
     arms = with_stored_arms(manifest, arms)
+    control = control_stats(manifest, arms)
     for arm in sorted(arms):
         got = arms[arm]
+        if is_control_arm(arm):
+            if parse_arm(arm)[1:] == (CONTROL_MODEL, "production"):
+                L += control_section(arm, control)
+            continue
         if is_stored_arm(arm):
             n_go = sum(1 for m in manifest if m["label"] in got and m["group"] == "go")
             L += [f"## Arm {arm}: STORED RATINGS, NOT A REPLAY", "",
@@ -741,8 +915,9 @@ def compare(manifest, arms, premises=None):
             L += md_table(["label", "case", "stored", "median", "attempts", "Low Hauxley hard stop"], rows)
             L.append("")
     scored = {m["label"] for m in manifest if m["group"] in ("go", "three") and m["training"] != "1"}
-    replayed = any(not is_stored_arm(a) and set(got) & scored for a, got in arms.items())
-    decisions = decision_lines(manifest, arms) if replayed else []
+    replayed = any(not is_stored_arm(a) and not is_control_arm(a) and set(got) & scored
+                   for a, got in arms.items())
+    decisions = decision_lines(manifest, arms, control) if replayed else []
     if decisions:
         L += ["## Decision lines (plan section 6: D-2 and D-1 part 2)", ""] + decisions + [""]
     return "\n".join(L) + "\n"
@@ -779,6 +954,11 @@ def cmd_compare(args):
         if problems:
             print("ERROR: runs do not match arms.json:\n  " + "\n  ".join(problems), file=sys.stderr)
             return 2
+    else:
+        problems = check_arms({}, manifest, arms)  # only the control's own rules can fire without a split
+        if problems:
+            print("ERROR: control run is not valid:\n  " + "\n  ".join(problems), file=sys.stderr)
+            return 2
     premises = load_premises(args.slots) if args.slots else None
     text = compare(manifest, arms, premises)
     out = Path(args.out)
@@ -807,9 +987,14 @@ def main(argv=None):
     sp = sub.add_parser("split", help="split select's set into per-arm directories (trimmed Part D)")
     sp.add_argument("--set", required=True, help="select's output directory, with manifest.csv")
     sp.add_argument("--out", required=True, help="new directory: need-sonnet/, need-sonnet55/, r1-gos/, "
-                    "training/, arms.json")
+                    "training/, [control-sonnet55/], arms.json")
     sp.add_argument("--three-sample", type=int, default=None, metavar="N",
                     help="keep a seeded random N of the 3-star group (default: all)")
+    sp.add_argument("--control-sample", type=int, default=0, metavar="N",
+                    help="also write control-sonnet55/: a seeded random N of the SONNET_55-stored prompts "
+                    "(go and three proportionally), to replay on SONNET_55 with the production prompt; "
+                    "measures the regression to the mean a stored rating's selection puts under every "
+                    "comparison with it (default 0 = off; 150 recommended)")
     sp.add_argument("--seed", type=int, default=20261014)
     sp.add_argument("--input-tokens", type=int, default=DEFAULT_INPUT_TOKENS)
     sp.add_argument("--output-tokens", type=int, default=DEFAULT_OUTPUT_TOKENS)
