@@ -2099,7 +2099,7 @@ button.wf-hc.on:hover {
 
    Two states, decided by the CARD's width (`@container wf-card`, below), never by content: side by
    side where the card is wide enough, STACKED — label line, then the histogram on its own
-   right-aligned line — where it is not (§1 #7: this grid is 112–169px wide at eight of its nine
+   right-aligned line — where it is not (§1 #7: this grid is 112–169px wide at eight of its ten
    measured shell geometries — S2's §7 fixture — and the histogram plus the longest qualifier needs
    155px at one-character counts). The query measures the container's CONTENT box (the card less its
    1px border and 6px padding each side), which is the value grid's own width. 205px was sized for
