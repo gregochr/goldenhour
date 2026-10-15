@@ -19,3 +19,14 @@ to `docs/design/aurora-heat/heat-field.js` and `plan-data.js` to `docs/design/ma
 ⚠️ The prototype's histogram has no dark well, no sixth hatched "not yet rated" bar and no
 minimum-sample gate — all three exist in the codebase (plan-matrix-plan.md A27, 2026-09-29) and are
 kept; the plan's §4 says how the spec's counts and label are laid over them.
+
+**Final count, S3 sweep (2026-10-15):** the port plan's §4 "Disagreements with the spec, on purpose"
+closed at **14 entries** once every phase (S0–S3) had shipped — the original 10 written before any
+code existed (#1–#10), plus #11 (S2: under `.sm` the well's side padding and 2px of the hatched gap
+are given back, because the real stacked line is 112px at a 320px viewport, not the 116 the plan
+assumed), #12 (S1: `formatSpreadCount` rounds tenths half-up in integers, where the prototype's
+`toFixed(1)` prints 1150 as "1.1k") and #13 (S1: `spreadQualifier` treats an `undefined` threshold as
+silence) and #14 (S2: the 205px stacking threshold is kept with its new slack). ⚠️ The prototype's
+layout could not be applied as-is (plan §1 #7): the spec sizes its worst case on a 177px `.pls`,
+and this card's value grid is 112–169px wide at eight of its ten measured shell geometries, so the
+row needs a second, stacked state the prototype never had.
