@@ -55,6 +55,20 @@ public interface PipelineRunRepository extends JpaRepository<PipelineRunEntity, 
                     CycleType cycleType, Instant start, Instant end);
 
     /**
+     * The cycle whose {@code trigger_time} is exactly the given instant — how a served result's
+     * {@code submittedAt} (the cycle's own trigger time, stamped on every batch result the cycle
+     * submitted) is turned back into a cycle id for the outcome rating's provenance. An ad-hoc batch
+     * or a synchronous run carries an instant no cycle has, and matches nothing.
+     *
+     * <p>{@code trigger_time} is not unique, so the lowest id answers rather than the lookup failing
+     * on a coincidence.
+     *
+     * @param triggerTime the exact trigger instant
+     * @return the earliest-created run with that trigger time, or empty
+     */
+    Optional<PipelineRunEntity> findFirstByTriggerTimeOrderByIdAsc(Instant triggerTime);
+
+    /**
      * Returns every run of a cycle type triggered at or after an instant, oldest first. The
      * forecast-cycle watchdog reads it to see whether a cycle started and whether it is still
      * running; it changes nothing.

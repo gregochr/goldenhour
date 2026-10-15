@@ -43,6 +43,7 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -430,7 +431,7 @@ public class ForecastService {
             ForecastEvaluationEntity entity = buildEntity(
                     location, lat, lon, date, targetType, daysAhead, eventTime, azimuth,
                     forecastData, emptyEval, model);
-            entity.setTriage(new TriageDetails(tr.triageReason(), reason));
+            standDown(entity, tr.triageReason(), reason);
             repository.save(entity);
             publishEvent(runId, taskKey, locationName, date.toString(), targetType.name(),
                     LocationTaskState.TRIAGED);
@@ -460,7 +461,7 @@ public class ForecastService {
                 ForecastEvaluationEntity entity = buildEntity(
                         location, lat, lon, date, targetType, daysAhead, eventTime, azimuth,
                         forecastData, emptyEval, model);
-                entity.setTriage(new TriageDetails(tr.triageReason(), reason));
+                standDown(entity, tr.triageReason(), reason);
                 repository.save(entity);
                 publishEvent(runId, taskKey, locationName, date.toString(), targetType.name(),
                         LocationTaskState.TRIAGED);
@@ -593,7 +594,7 @@ public class ForecastService {
                 preEval.location(), preEval.location().getLat(), preEval.location().getLon(),
                 preEval.date(), preEval.targetType(), preEval.daysAhead(), preEval.eventTime(),
                 preEval.azimuth(), preEval.atmosphericData(), emptyEval, preEval.model());
-        entity.setTriage(new TriageDetails(TriageReason.GENERIC, reason));
+        standDown(entity, TriageReason.GENERIC, reason);
         ForecastEvaluationEntity saved = repository.save(entity);
 
         Long runId = jobRun != null ? jobRun.getId() : null;
@@ -787,6 +788,17 @@ public class ForecastService {
     }
 
     /**
+     * Marks an unsaved row as a stand-down: attaches the triage reason and stamps {@code scoredAt}
+     * (V178), because a triage reason is something to say — the reader saw it as the slot's
+     * decision — and the row is saved with it, never without. The three triage sites and the
+     * sentinel skip all go through here so none can forget the stamp.
+     */
+    private void standDown(ForecastEvaluationEntity entity, TriageReason reason, String message) {
+        entity.setTriage(new TriageDetails(reason, message));
+        entity.setScoredAt(clock.instant());
+    }
+
+    /**
      * Builds an unsaved {@link ForecastEvaluationEntity} from the evaluated forecast data.
      *
      * <p>Sole site at which the durable per-evaluation {@code confidence} is derived, so every
@@ -808,7 +820,9 @@ public class ForecastService {
     private ForecastEvaluationEntity buildEntity(LocationEntity location, double lat, double lon,
             LocalDate date, TargetType type, int daysAhead, LocalDateTime eventTime, Integer azimuth,
             AtmosphericData data, SunsetEvaluation evaluation, EvaluationModel model) {
+        Instant scoredAt = evaluation.rating() != null ? clock.instant() : null;
         return ForecastEvaluationEntity.builder()
+                .scoredAt(scoredAt)
                 .locationLat(BigDecimal.valueOf(lat))
                 .locationLon(BigDecimal.valueOf(lon))
                 .location(location)

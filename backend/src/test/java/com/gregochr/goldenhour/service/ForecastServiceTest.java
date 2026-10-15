@@ -818,6 +818,8 @@ class ForecastServiceTest {
         assertThat(saved.getSummary()).isNull();
         assertThat(saved.getTriage().getReason()).isEqualTo(TriageReason.TIDE_MISALIGNED);
         assertThat(saved.getTriage().getMessage()).contains("tide");
+        assertThat(saved.getScoredAt()).as("a tide stand-down is stamped like any triage row")
+                .isEqualTo(STAMP);
     }
 
     @Test
@@ -1252,6 +1254,89 @@ class ForecastServiceTest {
         }
     }
 
+    // --- forecast_evaluation.scored_at (V178): the availability stamp's write sites ---
+
+    private static final Instant STAMP = Instant.parse("2026-08-11T12:00:00Z");
+
+    @Test
+    @DisplayName("V178: a synchronous row inserted with a rating is stamped at insert; one without is not")
+    void runForecasts_stampsScoredAtOnlyWhenTheRowHasARating() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunrise = LocalDateTime.of(2026, 6, 21, 3, 30);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        AtmosphericData forecastData = buildAtmosphericData(sunrise, TargetType.SUNRISE);
+        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
+        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(forecastData, null));
+        when(evaluationService.evaluate(eq(forecastData), any(EvaluationModel.class), any()))
+                .thenReturn(new SunsetEvaluation(4, 70, 75, "Rated."))
+                .thenReturn(new SunsetEvaluation(null, 70, 75, "Potentials only, no star."));
+        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        forecastService.runForecasts(DURHAM_LOCATION, date, null, Set.of(), EvaluationModel.SONNET, null);
+
+        ArgumentCaptor<ForecastEvaluationEntity> saved = ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
+        verify(repository, times(2)).save(saved.capture());
+        assertThat(saved.getAllValues().get(0).getRating()).isEqualTo(4);
+        assertThat(saved.getAllValues().get(0).getScoredAt()).isEqualTo(STAMP);
+        assertThat(saved.getAllValues().get(1).getRating()).isNull();
+        assertThat(saved.getAllValues().get(1).getScoredAt())
+                .as("nothing to say, so no availability instant").isNull();
+    }
+
+    @Test
+    @DisplayName("V178: a triage stand-down row is stamped at insert — a triage reason is something to say")
+    void fetchWeatherAndTriage_triageRowIsStampedAtInsert() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunrise = LocalDateTime.of(2026, 6, 21, 3, 30);
+        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
+        when(solarService.sunriseAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(65);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(
+                        buildAtmosphericData(sunrise, TargetType.SUNRISE), null));
+        when(weatherTriageEvaluator.evaluate(any()))
+                .thenReturn(Optional.of(new TriageResult("Low cloud 85%", TriageRule.HIGH_CLOUD)));
+        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        forecastService.fetchWeatherAndTriage(DURHAM_LOCATION, date, TargetType.SUNRISE, Set.of(),
+                EvaluationModel.SONNET, true, null);
+
+        ArgumentCaptor<ForecastEvaluationEntity> saved = ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
+        verify(repository).save(saved.capture());
+        assertThat(saved.getValue().getRating()).isNull();
+        assertThat(saved.getValue().getScoredAt()).isEqualTo(STAMP);
+    }
+
+    @Test
+    @DisplayName("V178: a PENDING batch row is inserted unstamped, and abandoning it never stamps it")
+    void pendingRowIsUnstampedAndAbandonedRowStaysUnstamped() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
+                false, null, buildAtmosphericData(sunset, TargetType.SUNSET), DURHAM_LOCATION, date,
+                TargetType.SUNSET, sunset, 310, 0, EvaluationModel.SONNET, Set.of(),
+                DURHAM + "|" + date + "|SUNSET", null);
+        when(repository.save(any())).thenAnswer(inv -> {
+            ForecastEvaluationEntity e = inv.getArgument(0);
+            e.setId(55L);
+            return e;
+        });
+
+        Long id = forecastService.persistPendingEvaluation(preEval);
+
+        ArgumentCaptor<ForecastEvaluationEntity> saved = ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
+        verify(repository).save(saved.capture());
+        assertThat(id).isEqualTo(55L);
+        assertThat(saved.getValue().getBatchState()).isEqualTo(com.gregochr.goldenhour.entity.BatchState.PENDING);
+        assertThat(saved.getValue().getScoredAt()).isNull();
+
+        when(repository.findById(55L)).thenReturn(Optional.of(saved.getValue()));
+        forecastService.markAbandoned(55L);
+        assertThat(saved.getValue().getBatchState()).isEqualTo(com.gregochr.goldenhour.entity.BatchState.ABANDONED);
+        assertThat(saved.getValue().getScoredAt()).isNull();
+    }
+
     // --- persistCannedResult tests ---
 
     @Test
@@ -1285,6 +1370,8 @@ class ForecastServiceTest {
         assertThat(saved.getTriage().getReason()).isEqualTo(
                 com.gregochr.goldenhour.model.TriageReason.GENERIC);
         assertThat(saved.getTriage().getMessage()).contains("Sentinel skip — region poor");
+        assertThat(saved.getScoredAt()).as("a sentinel skip is a stand-down, stamped like a triage row")
+                .isEqualTo(STAMP);
     }
 
     @Test

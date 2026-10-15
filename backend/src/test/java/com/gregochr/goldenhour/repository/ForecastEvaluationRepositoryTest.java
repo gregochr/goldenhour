@@ -912,4 +912,74 @@ class ForecastEvaluationRepositoryTest {
                 .containsExactlyInAnyOrder(day.atTime(9, 0), day.atTime(10, 0), day.atTime(11, 0));
         assertThat(served).allMatch(e -> e.getForecastRunAt().equals(evening));
     }
+
+    // ── findScoredByEventInstant: the as-of-event resolver's step-2 pool (V178) ─────────────
+
+    private ForecastEvaluationEntity scored(LocationEntity location, LocalDate day, TargetType type,
+            LocalDateTime runAt, java.time.Instant scoredAt, BatchState state) {
+        ForecastEvaluationEntity row = buildSonnetEvaluation(location, day, type, runAt, 0);
+        row.setRating(4);
+        row.setScoredAt(scoredAt);
+        row.setBatchState(state);
+        return row;
+    }
+
+    @Test
+    @DisplayName("findScoredByEventInstant: bounded on scored_at, newest submission first; a NULL scored_at "
+            + "(PENDING, ABANDONED, legacy) is never returned however early its submission")
+    void findScoredByEventInstant_boundsOnAvailability() {
+        LocalDate day = LocalDate.of(2026, 10, 14);
+        java.time.Instant upTo = java.time.Instant.parse("2026-10-14T06:41:00Z");
+        ForecastEvaluationEntity early = repository.save(scored(durham, day, TargetType.SUNRISE,
+                day.atTime(1, 0), java.time.Instant.parse("2026-10-14T01:10:00Z"), BatchState.SCORED));
+        ForecastEvaluationEntity atBound = repository.save(scored(durham, day, TargetType.SUNRISE,
+                day.atTime(2, 0), upTo, BatchState.SCORED));
+        // submitted BEFORE the bound, scored AFTER it - a late batch's own row
+        repository.save(scored(durham, day, TargetType.SUNRISE,
+                day.atTime(0, 30), java.time.Instant.parse("2026-10-14T06:41:01Z"), BatchState.SCORED));
+        repository.save(scored(durham, day, TargetType.SUNRISE,
+                day.atTime(3, 0), null, BatchState.PENDING));
+        repository.save(scored(durham, day, TargetType.SUNRISE,
+                day.atTime(3, 30), null, BatchState.ABANDONED));
+        repository.save(scored(durham, day, TargetType.SUNRISE, day.atTime(4, 0), null, null));
+
+        List<ForecastEvaluationEntity> pool = repository.findScoredByEventInstant(
+                List.of(durham.getId()), day, TargetType.SUNRISE, upTo);
+
+        assertThat(pool).extracting(ForecastEvaluationEntity::getId)
+                .containsExactly(atBound.getId(), early.getId());
+    }
+
+    @Test
+    @DisplayName("findScoredByEventInstant: only the asked places, the asked date and the asked event type")
+    void findScoredByEventInstant_scopesToPlacesDateAndType() {
+        LocalDate day = LocalDate.of(2026, 10, 14);
+        java.time.Instant at = java.time.Instant.parse("2026-10-14T01:10:00Z");
+        ForecastEvaluationEntity mine = repository.save(scored(durham, day, TargetType.SUNSET,
+                day.atTime(1, 0), at, BatchState.SCORED));
+        repository.save(scored(edinburgh, day, TargetType.SUNSET, day.atTime(1, 0), at, BatchState.SCORED));
+        repository.save(scored(durham, day, TargetType.SUNRISE, day.atTime(1, 0), at, BatchState.SCORED));
+        repository.save(scored(durham, day.minusDays(1), TargetType.SUNSET, day.atTime(1, 0), at,
+                BatchState.SCORED));
+
+        List<ForecastEvaluationEntity> pool = repository.findScoredByEventInstant(
+                List.of(durham.getId()), day, TargetType.SUNSET, at.plusSeconds(3600));
+
+        assertThat(pool).extracting(ForecastEvaluationEntity::getId).containsExactly(mine.getId());
+    }
+
+    @Test
+    @DisplayName("scored_at round-trips to the microsecond and is independent of forecast_run_at")
+    void scoredAt_roundTrips() {
+        LocalDate day = LocalDate.of(2026, 10, 14);
+        java.time.Instant at = java.time.Instant.parse("2026-10-14T01:10:00.123456Z");
+        Long id = repository.save(scored(durham, day, TargetType.SUNRISE, day.atTime(0, 5), at,
+                BatchState.SCORED)).getId();
+        entityManager.flush();
+        entityManager.clear();
+
+        ForecastEvaluationEntity reloaded = repository.findById(id).orElseThrow();
+        assertThat(reloaded.getScoredAt()).isEqualTo(at);
+        assertThat(reloaded.getForecastRunAt()).isEqualTo(day.atTime(0, 5));
+    }
 }

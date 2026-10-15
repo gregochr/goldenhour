@@ -115,7 +115,7 @@ class SyncFailureApiCallLogTest {
         ForecastResultHandler forecastHandler = new ForecastResultHandler(
                 briefingEvaluationService, jobRunService, objectMapper, ratingCombiner,
                 forecastDataAugmentor, forecastScoreWriter, parser, forecastEvaluationRepository,
-                supersedingDispositionService);
+                supersedingDispositionService, java.time.Clock.systemUTC());
         AuroraResultHandler auroraHandler = new AuroraResultHandler(
                 claudeAuroraInterpreter, auroraStateCache, weatherTriageService, locationRepository,
                 new AuroraProperties(), jobRunService);

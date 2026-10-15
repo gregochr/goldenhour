@@ -91,6 +91,9 @@ class HttpCachingConfigTest {
     @ValueSource(strings = {
         "/api/outcome",
         "/api/outcome/all",
+        // Outcome rating: the caller's own ratings, and (admin) every user's for one window.
+        "/api/outcome/ratings",
+        "/api/outcome/ratings/all",
         "/api/travel-days",
         "/api/user/settings",
         "/api/user/settings/drive-times",

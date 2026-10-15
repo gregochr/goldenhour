@@ -28,6 +28,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -121,6 +122,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
     private final ForecastScoreWriter forecastScoreWriter;
     private final ForecastEvaluationRepository forecastEvaluationRepository;
     private final SupersedingDispositionService supersedingDispositionService;
+    private final Clock clock;
 
     /**
      * Constructs the handler.
@@ -150,6 +152,8 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      *                                  in front of the {@code forecast_score} dual write — see this
      *                                  class's own class javadoc for why a true batch-wide hoist is
      *                                  not possible with the streaming Batch API reader
+     * @param clock                     stamps {@code forecast_evaluation.scored_at} (V178) when a
+     *                                  {@code PENDING} row is scored in place
      */
     public ForecastResultHandler(BriefingEvaluationService briefingEvaluationService,
             JobRunService jobRunService,
@@ -159,7 +163,8 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             ForecastScoreWriter forecastScoreWriter,
             SunsetEvaluationParser parser,
             ForecastEvaluationRepository forecastEvaluationRepository,
-            SupersedingDispositionService supersedingDispositionService) {
+            SupersedingDispositionService supersedingDispositionService,
+            Clock clock) {
         this.briefingEvaluationService = briefingEvaluationService;
         this.parser = parser;
         this.jobRunService = jobRunService;
@@ -169,6 +174,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
         this.forecastScoreWriter = forecastScoreWriter;
         this.forecastEvaluationRepository = forecastEvaluationRepository;
         this.supersedingDispositionService = supersedingDispositionService;
+        this.clock = clock;
     }
 
     @Override
@@ -725,6 +731,14 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             entity.setEvaluationModel(resolvedModel);
         }
         entity.setBatchState(BatchState.SCORED);
+        if (result.rating() != null && entity.getScoredAt() == null) {
+            // V178: the AVAILABILITY instant. A result whose star was rejected leaves the row with
+            // nothing to say, so it stays unstamped and the as-of-event resolver never picks it. A row
+            // already stamped keeps its first instant: results processed a second time (a re-polled
+            // batch, a restart's recovery) must not move a row that was available before an event to
+            // after it.
+            entity.setScoredAt(clock.instant());
+        }
         forecastEvaluationRepository.save(entity);
     }
 
