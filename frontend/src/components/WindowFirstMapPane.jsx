@@ -22,7 +22,9 @@ import { buildRegionBestIndex } from '../utils/regionsJump.js';
 import { buildRegionVerdictIndex } from '../utils/mapVerdict.js';
 import { foreignModalOver } from '../utils/mapForeignModal.js';
 import { buildWindowTideIndex } from '../utils/mapTideFit.js';
-import { buildPastSolarWindows } from '../utils/mapEvents.js';
+import { buildPastSolarWindows, pastWindowBest } from '../utils/mapEvents.js';
+import { buildHeatPointSets, buildHeatSpots, forecastScoreRows } from '../utils/heatSpots.js';
+import { windowKey } from '../utils/windowKeys.js';
 import { formatTime } from '../utils/briefingDisplay.js';
 
 /**
@@ -30,6 +32,13 @@ import { formatTime } from '../utils/briefingDisplay.js';
  * one the opening `fitBounds` and the area toggle both use so the two cannot drift apart.
  */
 const FRAME_PAD_DEG = 0.12;
+
+/**
+ * The past-window heat when there is none (O3c). One shared value, so a pane with no past window
+ * keeps the identity of everything built from it — `MapView` is `React.memo`, and a fresh empty
+ * `Map` per call would rebuild the `heat` prop on every re-render of a pane that has nothing to add.
+ */
+const NO_PAST_HEAT = Object.freeze({ windows: [], pointSets: new Map() });
 
 /**
  * Subscribes to everything that can change whether this page is the one in front of the reader:
@@ -455,6 +464,62 @@ export default function WindowFirstMapPane({
     () => buildPastSolarWindows(locations, todayStr), [locations, todayStr],
   );
 
+  /**
+   * The heat field for the PAST windows (outcome-rating-plan.md §2 #3, O3c) — built HERE, in the
+   * pane, and never in the briefing context. {@code WindowFirstBriefingContext} joins its heat spots
+   * over the SAME {@code upcomingEvents} that build the Plan's cards, rows and region series, so
+   * extending that list would put past windows into the Plan matrix, which the spec forbids.
+   *
+   * <p>Three things come out: a past-only spot catalogue (the roster joined over the past windows
+   * alone), its keyed point sets, and one {@code heat.windows} entry per window. ⚠️ The score rows
+   * are drawn from {@code forecastsByDate} ONLY ({@link forecastScoreRows}), never from
+   * {@code scoreRows}: the scores endpoint serves the latest result for a slot, which for a passed
+   * slot may postdate the event, while the forecast rows for a passed slot are served as of it (once
+   * the as-of-event resolver, plan §2 #4, lands) — the chips and the callout already read them alone
+   * on a past window, and the field must agree.
+   *
+   * <p>A window the briefing still SERVES (a strip card with the same key) is left to the briefing's
+   * own entry and point set: a served and a past entry for one key would let the field read the
+   * wrong ratings. Every entry carries {@code past: true}, which {@code buildMapEvents},
+   * {@code solarRowPredicate} and {@code MapView}'s {@code activeWindowPast} all read as "NOT served"
+   * — without it each past window would turn into an unlabelled served row. The entries are built for
+   * every unserved window with rows, today's not-yet-elapsed one included (that is a D-13 filler
+   * until it elapses): the elapsed test needs the app clock, which a data-keyed memo cannot follow,
+   * so {@code MapView}'s {@code heatWindow} withholds a {@code past} entry unless its own per-render
+   * {@code activeWindowPast} agrees. So {@code heat.windows.filter((w) => w.past)} does NOT mean
+   * "windows that are over": for today it can name one that has not yet elapsed. A reader that needs
+   * that must ask {@code isPastSolarWindow} (or the EV row's {@code past}), never this list. These
+   * entries also carry only the fields the field and the colour key read (no label, time, badges,
+   * tide or {@code confidenceTier}); the past EV row ({@code mapEvents.pastSolarRow}) carries the rest.
+   *
+   * <p>The kernel's haze reads the inferred confidence cap ({@code medium}): a past window carries no
+   * served confidence (plan §4 #5). {@code bestRating} is {@link pastWindowBest}, a client max over
+   * the PAINTED points — the new named member of the licensed Map-tab class.
+   */
+  const pastHeat = useMemo(() => {
+    const served = new Set(heatStripCards.map((card) => card.key));
+    const events = pastSolarWindows
+      .filter((w) => !served.has(windowKey(w.date, w.targetType)))
+      .map(({ date, targetType }) => ({ date, targetType }));
+    if (events.length === 0) return NO_PAST_HEAT;
+    const spots = buildHeatSpots(locations, forecastScoreRows(locations, events), events);
+    return {
+      windows: events.map(({ date, targetType }, index) => {
+        const confidenceTier = resolveConfidence({ confidence: null }, daysOut(date, todayStr));
+        return {
+          key: windowKey(date, targetType),
+          date,
+          targetType,
+          past: true,
+          bestRating: pastWindowBest(spots, index),
+          confidence: null,
+          conf: confidenceScalar(confidenceTier),
+        };
+      }),
+      pointSets: buildHeatPointSets(spots, events),
+    };
+  }, [heatStripCards, pastSolarWindows, locations, todayStr]);
+
   // The briefing's served tide for every window it carries (rendered or not), with its event time.
   const tideByWindow = useMemo(
     () => buildWindowTideIndex(briefing?.days, formatTime), [briefing?.days],
@@ -495,14 +560,22 @@ export default function WindowFirstMapPane({
       hasHome,
       spots: heatSpots,
       areaSpots: framed,
-      pointsByKey: heatPointSets,
+      // The briefing's own point sets, plus the PAST windows' (`pastHeat`, built above and never in
+      // the context). With no past window the provider's Map is handed through untouched, so its
+      // identity is the provider's and a test can pin that the pane added nothing.
+      pointsByKey: pastHeat.pointSets.size === 0
+        ? heatPointSets : new Map([...heatPointSets, ...pastHeat.pointSets]),
       // The briefing's served tide for EVERY window it carries, rendered or not — lent to the
       // Map tab's D-13 filler rows (`mapEvents.solarRow`), which would otherwise lose the strip.
       tideByWindow,
       // Every rendered window, away days included, so the selector's six are the strip's six — one
       // shape of the week. An away window simply has no points and paints nothing, which is the
       // same answer the Plan tab's thumbnail gives it.
-      windows: heatStripCards.map((card) => {
+      //
+      // Then the PAST windows, each flagged `past: true` (`pastHeat`'s doc says why that flag is
+      // load-bearing): appended after the served six, never interleaved, so `windows[0..5]` stay
+      // the strip's own.
+      windows: [...heatStripCards.map((card) => {
         // One resolution, two readers: the kernel's haze (`conf`, a scalar) and the window
         // control's EV rows (`confidenceTier`, the tier string `utils/mapEvents.js` carries
         // straight through via `resolveConfidence`'s own fail-soft precedence — see that
@@ -583,7 +656,7 @@ export default function WindowFirstMapPane({
           // Agreement with the Plan tab is proven by test at whole-catalogue scope
           // (map-landing-plan.md check 8), not by shipping the same value twice.
         };
-      }),
+      }), ...pastHeat.windows],
       areaBounds: framed.length > 0 ? latLngBounds(framed, FRAME_PAD_DEG) : null,
       catalogueBounds: heatSpots.length > 0 ? latLngBounds(heatSpots, FRAME_PAD_DEG) : null,
       // ⚠️ Only while away. `MapView` fetches the per-user drive times itself and the standalone
@@ -605,8 +678,8 @@ export default function WindowFirstMapPane({
        */
       beyondRegionNames: origin ? [] : beyondRegions(heatSpots, reachById),
     };
-  }, [heatSpots, heatPointSets, heatStripCards, tideByWindow, reachById, homePlace, todayStr,
-    origin, effectiveReachById]);
+  }, [heatSpots, heatPointSets, heatStripCards, pastHeat, tideByWindow, reachById, homePlace,
+    todayStr, origin, effectiveReachById]);
 
   useEffect(() => {
     const el = wrapRef.current;
