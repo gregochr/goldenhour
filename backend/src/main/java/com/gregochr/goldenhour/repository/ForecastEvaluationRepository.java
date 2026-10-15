@@ -317,7 +317,7 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
     @Query("SELECT new com.gregochr.goldenhour.model.CalibrationPair("
             + " e.location.name, e.targetDate, e.targetType, e.daysAhead, e.forecastRunAt,"
             + " e.evaluationModel, e.rating, e.fierySkyPotential, e.goldenHourPotential,"
-            + " o.actualRating, o.fierySkyActual, o.goldenHourActual, o.wentOut)"
+            + " o.actualRating, o.fierySkyActual, o.goldenHourActual, o.wentOut, o.id)"
             + " FROM ForecastEvaluationEntity e, ActualOutcomeEntity o"
             + " WHERE e.location.id = o.location.id"
             + " AND e.targetDate = o.outcomeDate"
@@ -326,5 +326,39 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
             + " AND o.actualRating IS NOT NULL"
             + " AND o.outcomeDate BETWEEN :from AND :to")
     List<CalibrationPair> findCalibrationPairs(
+            @Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    /**
+     * Pairs each reader's {@code outcome_rating} with the forecast row it resolved to when it was
+     * written, so the calibration gate can score forecasts against what readers saw.
+     *
+     * <p>The join is on {@code r.forecastEvaluationId} — the one row proven available by the event
+     * and unretracted at it — never on the natural key, which would admit every rated row of the
+     * slot and let a batch that landed after the event win the gate's newest-run-per-slot rule. A
+     * rating with a null id therefore pairs with nothing. The predicted rating is
+     * {@code r.forecastRating}, the star the reader saw (never {@code e.rating}, which for a
+     * recombined OPEN_FELL slot is the sky lane alone); a rating with no captured star is not a
+     * pair, and neither is one whose row carries no rating. Horizon, run time, model and
+     * potentials are the row's own. "Didn't see it" ratings (null) are not pairs. The window
+     * bounds the event date, inclusive at both ends.
+     *
+     * <p>The projection uses the narrower {@code CalibrationPair} constructor rather than null
+     * literals: the record has no fiery-sky or golden-hour actual and no trip flag.
+     *
+     * @param from start of the event-date window (inclusive)
+     * @param to   end of the event-date window (inclusive)
+     * @return one pair per usable rating, unordered
+     */
+    @Query("SELECT new com.gregochr.goldenhour.model.CalibrationPair("
+            + " e.location.name, e.targetDate, e.targetType, e.daysAhead, e.forecastRunAt,"
+            + " e.evaluationModel, r.forecastRating, e.fierySkyPotential, e.goldenHourPotential,"
+            + " r.rating, r.userId)"
+            + " FROM ForecastEvaluationEntity e, OutcomeRatingEntity r"
+            + " WHERE e.id = r.forecastEvaluationId"
+            + " AND e.rating IS NOT NULL"
+            + " AND r.rating IS NOT NULL"
+            + " AND r.forecastRating IS NOT NULL"
+            + " AND r.eventDate BETWEEN :from AND :to")
+    List<CalibrationPair> findCalibrationPairsFromRatings(
             @Param("from") LocalDate from, @Param("to") LocalDate to);
 }
