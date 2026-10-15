@@ -246,6 +246,10 @@ abstract class AbstractControllerTest {
     @MockitoBean
     protected com.gregochr.goldenhour.service.ask.AskService askService;
 
+    /** Records and reads per-user outcome ratings for {@code OutcomeRatingController}. */
+    @MockitoBean
+    protected com.gregochr.goldenhour.service.OutcomeRatingService outcomeRatingService;
+
     // ── Aurora services ───────────────────────────────────────────────────────
 
     /**

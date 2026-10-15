@@ -19,6 +19,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
@@ -246,6 +247,25 @@ public class ForecastEvaluationEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "batch_state", length = 20)
     private BatchState batchState;
+
+    /**
+     * When this row GOT its rating or triage reason — its <em>availability</em> instant (V178).
+     *
+     * <p>Stamped from the clock wherever a row acquires something to say: {@code
+     * ForecastService} for a row inserted with a rating or a triage reason (the synchronous engine,
+     * a triage or sentinel row), and {@code ForecastResultHandler#scoreEvaluationRow} for a batch's
+     * {@code PENDING} row scored in place. A row still {@code PENDING} or {@code ABANDONED}, an
+     * {@code HOURLY} comfort row and every row written before V178 keep {@code null}.
+     *
+     * <p>⚠️ <b>Not {@link #forecastRunAt}.</b> That is a SUBMISSION instant (a batch row is stamped
+     * when built, before its batch's own submit time is known, and the Batch API may land the result
+     * a day later), so it cannot say what existed at a given moment. {@code AsOfEventResolver} uses
+     * this column as the availability bound alone and {@code forecastRunAt} as the retraction
+     * comparison, exactly as {@code EvaluationViewService} compares a stability skip with the
+     * submission instant. A {@code null} here is never a candidate for the as-of-event resolution.
+     */
+    @Column(name = "scored_at")
+    private Instant scoredAt;
 
     /**
      * Convenience accessor for the owning location's name.

@@ -38,8 +38,11 @@ public class ForecastDispositionService {
     /**
      * How long to keep disposition rows before pruning. ~2k/day × 30 = ~60k
      * steady-state, trivial for either H2 or Postgres but bounded.
+     *
+     * <p>Public because {@code OutcomeRatingService.MAX_RATING_AGE_DAYS} is derived from it: the
+     * stability-skip evidence an outcome rating's provenance reads is pruned at this age.
      */
-    static final int RETENTION_DAYS = 30;
+    public static final int RETENTION_DAYS = 30;
 
     private final ForecastRunDispositionRepository repository;
     private final PipelineRunRepository pipelineRunRepository;

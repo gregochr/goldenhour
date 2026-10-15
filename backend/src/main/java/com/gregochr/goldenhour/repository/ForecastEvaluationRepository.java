@@ -12,6 +12,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collection;
@@ -204,6 +205,40 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
             @Param("targetDate") LocalDate targetDate,
             @Param("targetType") TargetType targetType,
             Pageable pageable);
+
+    /**
+     * Every row of a roster's slot-day that had been SCORED by {@code upTo}, newest submission first —
+     * the as-of-event resolver's step-2 pool ({@code AsOfEventResolver}, outcome-rating plan §2 #1).
+     *
+     * <p>Bounded on the AVAILABILITY stamp: {@code scored_at IS NOT NULL AND scored_at <= upTo}. A
+     * row with no {@code scored_at} (written before V178, still {@code PENDING}, {@code ABANDONED},
+     * or an {@code HOURLY} comfort row) is never returned, because its {@code forecast_run_at} is a
+     * submission instant and proves nothing about when it arrived. The caller applies the per-place
+     * event bound, the has-something-to-say rule and the stability-skip retraction in memory, from
+     * this one read — {@code upTo} is the latest event instant among the places asked about, so the
+     * pool is a superset for every one of them.
+     *
+     * <p>Ordered {@code forecast_run_at DESC, id DESC}, the order {@link
+     * #findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc} serves a slot in, so
+     * the first row passing a caller's tests is the one the serve path would have picked.
+     *
+     * @param locationIds the places asked about
+     * @param targetDate  the event date
+     * @param targetType  SUNRISE or SUNSET
+     * @param upTo        the latest availability instant of interest
+     * @return the scored rows, newest submission first
+     */
+    @Query("SELECT e FROM ForecastEvaluationEntity e"
+            + " WHERE e.location.id IN :locationIds"
+            + " AND e.targetDate = :targetDate"
+            + " AND e.targetType = :targetType"
+            + " AND e.scoredAt IS NOT NULL AND e.scoredAt <= :upTo"
+            + " ORDER BY e.forecastRunAt DESC, e.id DESC")
+    List<ForecastEvaluationEntity> findScoredByEventInstant(
+            @Param("locationIds") Collection<Long> locationIds,
+            @Param("targetDate") LocalDate targetDate,
+            @Param("targetType") TargetType targetType,
+            @Param("upTo") Instant upTo);
 
     /**
      * Deletes one place's {@code HOURLY} (wildlife comfort) rows for one target date — the

@@ -250,6 +250,31 @@ public class BriefingEvaluationService {
     }
 
     /**
+     * The durable {@code cached_evaluation} row's LAST-WRITE instant for a region, date and event —
+     * the latest write by ANY place of the region, which is what makes it a conservative upper bound
+     * on when a recombined OPEN_FELL composite existed.
+     *
+     * <p>Read from the database (its {@code updated_at}, set on every {@code persistToDb}), not from
+     * the in-memory entry: the persisted stamp is never earlier than the in-memory one, so a bound
+     * built on it can only err toward "not yet available". Used by {@code AsOfEventResolver} for a
+     * canopy-bearing place, whose result's own {@code evaluatedAt} is the SKY result's arrival and
+     * not proof that the composite star had been written (outcome-rating plan §2 #1, Codex round 8).
+     * Empty when no row exists (including a failed persist), which the caller reads as "cannot show
+     * it was available".
+     *
+     * @param regionName the region name
+     * @param date       the forecast date
+     * @param targetType SUNRISE or SUNSET
+     * @return the row's last write, or empty when there is no durable row
+     */
+    public Optional<Instant> getCachedEntryUpdatedAt(String regionName, LocalDate date,
+            TargetType targetType) {
+        return cachedEvaluationRepository
+                .findByCacheKey(CacheKeyFactory.build(regionName, date, targetType))
+                .map(CachedEvaluationEntity::getUpdatedAt);
+    }
+
+    /**
      * Returns whether a non-empty cached evaluation exists for the given cache key.
      *
      * <p>Available for future schedulers (e.g. the planned intraday refresh) to gate work

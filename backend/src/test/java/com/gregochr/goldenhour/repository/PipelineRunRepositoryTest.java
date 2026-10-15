@@ -364,4 +364,19 @@ class PipelineRunRepositoryTest {
         assertThat(com.gregochr.goldenhour.entity.PipelinePhase.isPreSubmission(
                 com.gregochr.goldenhour.entity.PipelinePhase.FORECAST_BATCH_WAIT)).isFalse();
     }
+
+    @Test
+    @DisplayName("findFirstByTriggerTimeOrderByIdAsc matches the EXACT instant and answers the lowest id on a tie")
+    void findFirstByTriggerTime_exactMatchLowestId() {
+        Instant trigger = Instant.parse("2026-10-14T01:05:00Z");
+        PipelineRunEntity first = repository.save(run(CycleType.NIGHTLY, trigger));
+        repository.save(run(CycleType.INTRADAY, trigger));
+        repository.save(run(CycleType.INTRADAY, trigger.plusMillis(1)));
+
+        assertThat(repository.findFirstByTriggerTimeOrderByIdAsc(trigger)).map(PipelineRunEntity::getId)
+                .contains(first.getId());
+        assertThat(repository.findFirstByTriggerTimeOrderByIdAsc(trigger.minusMillis(1))).isEmpty();
+        assertThat(repository.findFirstByTriggerTimeOrderByIdAsc(Instant.parse("2026-10-14T01:05:01Z")))
+                .isEmpty();
+    }
 }

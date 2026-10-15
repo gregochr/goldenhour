@@ -168,7 +168,8 @@ class ClaudeResponseParseResilienceTest {
                 forecastScoreWriter,
                 new SunsetEvaluationParser(),
                 forecastEvaluationRepository,
-                supersedingDispositionService);
+                supersedingDispositionService,
+                java.time.Clock.systemUTC());
     }
 
     // ── (i) + (ii) + (iii), table-driven ─────────────────────────────────────

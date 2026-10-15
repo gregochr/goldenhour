@@ -409,7 +409,8 @@ class CachePayloadGoldenMasterTest {
                 jobRunService, parserHandle,
                 new RatingCombiner(List.of(new SkyVisitor(), new TideVisitor())),
                 forecastDataAugmentor, forecastScoreWriter, parser,
-                forecastEvaluationRepository, supersedingDispositionService);
+                forecastEvaluationRepository, supersedingDispositionService,
+                java.time.Clock.systemUTC());
 
         String customId = "fc-" + location.getId() + "-2026-06-21-SUNSET" + (forced ? "-f" : "");
         String rawText = "{\"injected-by-stub\":true}";
