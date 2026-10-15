@@ -48,7 +48,7 @@ keeping both rows in phase order).
 
 | phase | branch | commit | date | notes |
 |---|---|---|---|---|
-| O0 | `claude/forecast-accuracy-ratings-5fbd0d` | (this PR) | 2026-10-15 | Plan + bundle vendored at `docs/design/outcome-rating/`. No code. Four review lenses at plan time (§5a): backend, frontend, spec fidelity, conventions and sizing — 3 P1s and ~30 P2/P3s, all accepted and folded in. Codex rounds 1–8: twelve P1s (provenance: the served result, not the newest cycle; only one that had arrived by the event; the fallback must not admit a late batch's own row — hence `scored_at`, V178; it must honour a stability retraction as of the event; the calibration join must use the resolved row id, not the natural key; the stored `forecast_rating` for a recombined OPEN_FELL slot; the past-row rule needs the afterglow-elapsed test, not withdrawal alone; retraction by submission instant; no guessed star for a canopy place after a post-event cache replacement; a canopy place's availability bound is the entry's last write; a past window's best is over painted points; no block for a place with no row), all accepted. |
+| O0 | `claude/forecast-accuracy-ratings-5fbd0d` | (this PR) | 2026-10-15 | Plan + bundle vendored at `docs/design/outcome-rating/`. No code. Four review lenses at plan time (§5a): backend, frontend, spec fidelity, conventions and sizing — 3 P1s and ~30 P2/P3s, all accepted and folded in. Codex rounds 1–9: fifteen P1s (provenance: the served result, not the newest cycle; only one that had arrived by the event; the fallback must not admit a late batch's own row — hence `scored_at`, V178; it must honour a stability retraction as of the event; the calibration join must use the resolved row id, not the natural key; the stored `forecast_rating` for a recombined OPEN_FELL slot; the past-row rule needs the afterglow-elapsed test, not withdrawal alone; retraction by submission instant; no guessed star for a canopy place after a post-event cache replacement; a canopy place's availability bound is the entry's last write; a past window's best is over painted points; no block for a place with no row; one as-of-event resolution for the serve path and the record; the write bounded to the retraction evidence's retention; a stale no-row sentence), all accepted. |
 
 ---
 
@@ -349,10 +349,9 @@ CREATE INDEX idx_outcome_rating_slot ON outcome_rating (location_id, event_date,
   sky row's star would calibrate against a number the reader never saw (Codex, #1185 round 7). A
   null `forecastRating` means "the star seen is not recoverable" and the calibration gate skips
   the rating (§2 #8); the admin footer's run instant is unaffected. Neither →
-  all null — the slot was shown with no forecast behind
-  it; the rating is still recorded (the block mounts on `event.past` when the place has no row of
-  its own) and the calibration gate, which pairs on a scored `forecast_evaluation` row, simply
-  never pairs it. ⚠️ **`forecast_evaluation.scored_at` is new (V178, same phase)** — a
+  all null — the slot was shown with no forecast behind it. The UI never offers such a rating
+  (no row → no block, §2 #5); the API still accepts one, records it with null provenance, and the
+  calibration gate, which pairs on a captured star and a scored row, simply never pairs it. ⚠️ **`forecast_evaluation.scored_at` is new (V178, same phase)** — a
   nullable `TIMESTAMPTZ` stamped from the clock wherever a row GETS its rating or triage reason:
   `ForecastService.buildEntity` for a row inserted with one (the sync engine, a triage row), and
   `ForecastResultHandler.scoreEvaluationRow` for a batch's PENDING row scored in place; a row
@@ -363,7 +362,13 @@ CREATE INDEX idx_outcome_rating_slot ON outcome_rating (location_id, event_date,
   "submitted earlier" bound would admit the very row step 1 just set aside (Codex, #1185 round 3).
   Legacy rows with a null `scored_at` fall back to `forecast_run_at`, the stated residual, and age
   out of the T-4 window within days of the deploy.
-  **Never a roster-wide "latest cycle before the event"** (§4 #2). Resolved on every write
+  **Never a roster-wide "latest cycle before the event"** (§4 #2). ⚠️ **This resolution has TWO
+  readers, and they must agree** (Codex, #1185 round 9): the rating's provenance here, and the
+  forecast SERVE path for a passed slot (§2 #4), so that the star the past-window UI draws is the
+  star the record captures. It therefore lives in its own class, `AsOfEventResolver`
+  (`service/`), with one method, `resolve(location, date, type, eventInstant) → AsOfEvent(result
+  or null, forecastEvaluationId, runAt, pipelineRunId, forecastRating)`, that both
+  `OutcomeRatingService` and `ForecastController.serveRange` call; O1 builds it, O2 consumes it. Resolved on every write
   (idempotent in practice: nothing re-scores a slot whose date has passed, and a late batch landing
   after the event is set aside by the availability gate, so the answer is fixed once the event is) and on the admin read, so a slot with no ratings still shows its run.
 - **The upsert** is split in two classes, the `AskUsageStore` shape: `OutcomeRatingStore`
@@ -378,8 +383,14 @@ CREATE INDEX idx_outcome_rating_slot ON outcome_rating (location_id, event_date,
   request DTO's validation, before any lookup); **the event must have passed**:
   `PlanWindowProjector.hasPassed(solarEventFreshness.eventTime(location, date, type), now)` with
   `now` from the injected `Clock` (a PUT is never rewound), else 400 `"That sunrise has not
-  happened yet"` / `"… sunset …"`; no lower bound on `date` (the superseded board's "any time means
-  no cut-off"; the Map reaches T-4 and nothing else creates rows). `updatedAt` from the clock.
+  happened yet"` / `"… sunset …"`; **and not older than the retraction evidence**: `date` must be
+  on or after `today − ForecastDispositionService.RETENTION_DAYS` (30, the one constant the
+  `disposition_cleanup` prune reads; a package-private constant today, made public for this reader),
+  else 400 `"That sunrise is too old to rate"` — because step 2's retraction reads
+  `forecast_run_disposition`, which is pruned at that age, while `forecast_evaluation` is not, so an
+  older date could resolve a row retracted before its event as served (Codex, #1185 round 9). The
+  superseded board's "any time means no cut-off" is therefore not honoured (§4 #21); the Map reaches
+  T-4. `updatedAt` from the clock.
   Returns `OutcomeRatingDto(locationId, locationName, eventDate, eventType, rating, updatedAt,
   forecastRunAt, pipelineRunId, forecastRating)`; the range read joins names with ONE `findAllById` over the
   distinct location ids per request, never per row.
@@ -511,9 +522,11 @@ pane passes `onLoadOlderDay`, `olderDayLoading` and `canLoadOlder` to `MapView`,
 `WindowControl` and `MapPeekSheet`.
 
 **Ratings on a past window** (O3a): with `solarRowPredicate` admitting past windows,
-`getRatingForLocation` answers for them with no further change (briefing scores for today−2
-onward, the forecast row's rating — rich or sparse — for T-3/T-4); the chips, pins and the callout
-star all follow.
+`getRatingForLocation` answers for them — **from the forecast row ALONE when `row.past`**, never
+from `briefingScoreIndex` (the scores endpoint serves the latest result, which for a passed slot
+may be one that landed after the event; the forecast rows for a passed slot are served as of the
+event, §2 #4) — and the chips, pins and the callout star follow. `isStandDownLocation` reads the
+same way for a past row.
 
 ### 3. The heat field on a past window (frontend, O3c)
 
@@ -522,10 +535,11 @@ the past windows **in the pane, never in the briefing context**: `WindowFirstBri
 calls `buildHeatSpots(locations, scoreRows, upcomingEvents)` with the SAME `upcomingEvents` that
 builds the Plan's `windowCards` (`:622`), `paneItems` (`:667`) and `regionSeries` (`:724`) —
 extending it there would put past windows into the Plan matrix, which spec §1 forbids. So
-`WindowFirstMapPane`: (a) builds a past-only event list from `pastSolarWindows` and merged score
-rows — `scoreRows` plus `{locationId, locationName, date, targetType, rating}` rows drawn from
-`forecastsByDate` for every past slot the scores list lacks (T-3/T-4, and any past slot
-`/evaluate/scores` does not carry) — and runs `buildHeatSpots` + `buildHeatPointSets` over them;
+`WindowFirstMapPane`: (a) builds a past-only event list from `pastSolarWindows` and a past-only
+score-row list — `{locationId, locationName, date, targetType, rating}` rows drawn from
+`forecastsByDate` for EVERY past slot, never from `scoreRows` (the scores endpoint's latest result
+may postdate the event; the forecast rows are served as of it, §2 #4) — and runs `buildHeatSpots`
++ `buildHeatPointSets` over them;
 (b) extends `heat.windows` (built at `:490` from `heatStripCards`) with one entry per past window
 `{key, date, targetType, bestRating, confidence: null}` and `heat.pointsByKey` with the past
 windows' point sets — because `MapView.jsx:2924–2928` finds `heatWindow` in `heat.windows` and
@@ -553,14 +567,25 @@ calls it with the window it has today, and a new `@GetMapping(params = "date")` 
 `/{id:\d+}`) calls it with `from = to = date` after validating `today − ForecastHorizon.MAX_PAST_DAYS
 (4, new) <= date < today` — 400 `{"error": "date must be between T-4 and yesterday"}` otherwise,
 so the endpoint can never become a second serve path for days the list already carries or for the
-future. Stored rows only: the rich rows, the stability-skip retraction and the sparse
-`cached_evaluation` rows (§1 #10), exactly as the list does; **nothing in it may reach
-`runForecast`, a batch or a model** (pinned by a test that the controller's run-capable
-collaborators are never called). `ForecastHorizon.MAX_PAST_DAYS` carries a javadoc naming its
+future. Stored rows only; **nothing in it may reach `runForecast`, a batch or a model** (pinned
+by a test that the controller's run-capable collaborators are never called). ⚠️ **A passed slot is
+served AS OF ITS EVENT, on the list's own past days as well as on `?date=`** (Codex, #1185 round
+9): for every (location, date, type) whose event has passed — `hasPassed(eventTime, now)` with the
+roster's per-place time — `serveRange` serves the row `AsOfEventResolver` (§2 #1) resolves (the
+`forecast_evaluation` row available by the event and unretracted at it, its rating replaced by
+the captured `forecastRating` when the served result was a recombined composite; or no row at
+all when nothing was available), never the slot's latest row and never the sparse cache entry,
+so a batch that landed after the event cannot repaint a window the reader has already seen and
+may be rating — the chips, the field and the callout then show the star the record captures. An
+unpassed slot (today's sunset before it happens, every future day) is served exactly as today:
+the latest rich row, the stability-skip retraction as of now, the sparse cache rows (§1 #10).
+The existing `getForecasts_*` tests stay green for the unpassed days; the passed-slot rule gets
+its own cases (a late-landing row hidden; a retracted-before-event row hidden; a canopy place's
+captured star served). `ForecastHorizon.MAX_PAST_DAYS` carries a javadoc naming its
 reader (the Map tab's older-day fetch) and the relation to `SERVE_PAST_DAYS` (the list's past
-edge; the one-day read covers the gap between them). `/evaluate/scores` does not learn `?date=`:
-the chips read the forecast row's rating where there is no briefing score, and the field takes the
-same rows (§2 #3).
+edge; the one-day read covers the gap between them). `/evaluate/scores` does not learn `?date=` and is **not consulted for a past window at all**: the
+briefing score index serves the latest result, which for a passed slot may postdate the event, so
+the client reads only the forecast rows for a past window (§2 #2, §2 #3).
 
 ### 5. The rating block (frontend, O4a)
 
@@ -697,8 +722,8 @@ report's bucket counts say "pairs", not "slots". `CalibrationReport` needs no ne
 ## §3 Phases
 
 One Sonnet session each, one branch each (`claude/outcome-rating-o<N>-<slug>`), one PR each.
-**Dependencies and parallelism**: O1 ∥ O2 ∥ O3a (three disjoint file sets — O1 backend outcome
-files, O2 `ForecastController`/`ForecastHorizon`, O3a frontend only); O3b needs O2 and O3a merged;
+**Dependencies and parallelism**: O1 ∥ O3a (disjoint — O1 backend, O3a frontend only); O2 needs O1
+merged (it consumes `AsOfEventResolver`) and may run beside O3a; O3b needs O2 and O3a merged;
 O5b needs only O1 and may run beside O3b; O3c needs O3a; O4a needs O1, O3a and O3c (the callout
 mounts on `event.past`; the hook needs the backend); O4b needs O4a and O3b (the menu counts);
 O5a needs O4a; O6 needs everything. Never more than two phases open at once, and never two that
@@ -712,6 +737,8 @@ block**) and appends its phase-log row to §0 **in the same commit**.
 ### O1 — backend: the record and its endpoints
 
 Files: `V177__outcome_rating.sql`, `V178__forecast_evaluation_scored_at.sql`;
+`service/AsOfEventResolver.java` (new, the shared resolution §2 #1 names; `ForecastDispositionService
+.RETENTION_DAYS` made public);
 `entity/ForecastEvaluationEntity.java` (+ `scoredAt`), `service/ForecastService.java` and
 `service/evaluation/ForecastResultHandler.java` (the two stamp sites), `ForecastEvaluationRepository`
 (+ one bounded slot finder), `ForecastRunDispositionRepository` (+ one bounded skip finder); `entity/OutcomeRatingEntity.java`;
@@ -763,7 +790,9 @@ endpoint: LITE GET 200 `[]`, LITE PUT 403, admin-all PRO 403), `OutcomeRatingRep
    `rate(...)`: the refusals in order (unknown user 404, unknown location 404, rating out of range
    400 at 0 and 6 with 1 and 5 accepted and null accepted, HOURLY 400, event not passed 400 at
    exactly the afterglow boundary — `hasPassed` is strict, so `eventTime + 30 min == now` is NOT
-   passed) and the happy path writing every column.
+   passed, a date older than `RETENTION_DAYS` 400 with the boundary day accepted) and the happy
+   path writing every column. `AsOfEventResolver` is its own class with its own test; `rate`'s
+   tests mock it.
 5. The three endpoints (§2 #1): role matrix, 400 bodies `{"error": …}` through the existing
    `IllegalArgumentException` mapping, the 31-day range cap, `from > to`, PUT body with `rating`
    absent → not seen, admin-all with zero rows still carrying `forecastRunAt`, `mine` set on the
@@ -787,18 +816,23 @@ Files: `controller/ForecastController.java`, `util/ForecastHorizon.java`, tests
 2. Extract `serveRange(from, to, auth)` from `getForecasts`; the list endpoint's behaviour is
    byte-for-byte unchanged (its existing tests stay green untouched).
 3. `@GetMapping(params = "date")` on the same path: the bound (400 for today, tomorrow, T-5, a
-   malformed date; 200 for T-1 and T-4), the rich + sparse assembly for one day, the retraction
-   applied, LITE score selection applied, **no run collaborator touched** (a test that the
+   malformed date; 200 for T-1 and T-4), LITE score selection applied, **no run collaborator
+   touched** (a test that the
    command factory / executor / batch services are never called — whichever of the controller's
    injected collaborators can trigger work).
-4. One unit test over the real `EvaluationViewService` with a mocked repository returning a T-3
-   `cached_evaluation` row, pinning that `cachedOnlyViewsForDateRange(d, d, …)` returns it (§1
-   #10); the over-read noted in the endpoint's javadoc.
+4. The passed-slot rule in `serveRange` (§2 #4): every slot whose per-place event has passed is
+   served through `AsOfEventResolver` (one call per passed slot — bound it: the resolver takes the
+   roster's rows for the day in one read and answers per slot from memory, O2 shapes the batch
+   form), unpassed slots exactly as before; pinned: a late-landing row hidden on T-1; a row
+   retracted before its event hidden; a canopy place's captured star served; today's sunset before
+   it happens served as before; the list's unpassed days byte-for-byte unchanged. The sparse cache
+   path is unchanged for unpassed slots (§1 #10's over-read noted in the javadoc).
 5. Gate, lenses (runtime, test quality, conventions), changelog, phase-log row. The endpoint is
    ETag'd by path with no change to `HttpCachingConfig` (say so in the javadoc).
 
-Acceptance: `ForecastControllerTest`'s existing `getForecasts_*` tests pass unmodified; the new
-`?date=` tests cover the four refusals and the two admissions; no run collaborator is invoked.
+Acceptance: `ForecastControllerTest`'s existing `getForecasts_*` tests pass unmodified wherever
+they fix a clock before the slots' events; the new `?date=` tests cover the four refusals and the
+two admissions; the passed-slot cases above; no run collaborator is invoked.
 
 ### O3a — frontend: past rows, the PAST pill and the selection plumbing
 
@@ -830,7 +864,9 @@ test in the `AppRewind.test.jsx` shape for the `isPast` route.
    auto-event effect from undoing the event type (`:1457`, `:2206–2216`).
 4. The PAST tag on the pill (§2 #2) and the override pill, the accessible name, the CSS.
 5. `calloutFacts` `past` flag (Drive and Leave by hidden, Dark sky kept); "Open in Plan" withheld
-   on a past window; `otherWindow` skipping past rows in both paths.
+   on a past window; `otherWindow` skipping past rows in both paths; `getRatingForLocation` and
+   `isStandDownLocation` reading the forecast row alone for a past row (pin: a briefing score of 4
+   and a forecast row of 2 on a past window → 2; on a served window → 4 as today).
 6. Gate, lenses (runtime, test quality, conventions — `pastSolarWindows`, `pastDayLabel`, the
    `past` filter are the already-licensed filter/map/select class over served facts; say so in
    the module headers), changelog, phase-log row.
@@ -1099,6 +1135,16 @@ flag), this plan's §0 (COMPLETE, every §6 question closed with a date),
 20. **`adminOpen` resets on a window change as well as a spot change.** The prototype resets it on
     a spot pick only; the list is per (spot, window), so a stale open list over a new window would
     show another window's ratings until refetched.
+21. **A rating cannot be older than the retraction evidence.** The superseded board says "any time
+    means no cut-off"; the PUT refuses a date older than `ForecastDispositionService.RETENTION_DAYS`
+    (30) because the stability-skip evidence provenance needs is pruned at that age and an older
+    date would resolve a retracted forecast as served.
+22. **A passed slot is served as of its event.** The spec says a past window "is a database read
+    only"; this codebase's read would otherwise be the slot's LATEST row, which a batch landing
+    after the event (24 h ceiling) can replace, so the past-window UI would show a star the
+    rating's provenance refuses. One resolution (`AsOfEventResolver`) answers both the serve path
+    for a passed slot and the record, and the client reads a past window from the forecast rows
+    alone, never the briefing score index.
 
 ---
 
@@ -1194,6 +1240,15 @@ region-level `updated_at`, conservative by design (§2 #1, O1 step 3); (b) a pas
 `bestRating` is the max over its PAINTED points, after `buildHeatSpots`'s join and sky-subject
 filters, never the raw rows (§2 #3, O3c); (c) a place with no forecast row for the window gets no
 block — the roster's latest event time cannot vouch for it (§2 #2, §2 #5, O4a).
+
+**Codex, round 9 on #1185 (three P1s, accepted):** (a) the past-window UI drew the slot's latest
+result while provenance picked the as-of-event row, so the two could disagree on the star — one
+`AsOfEventResolver` now serves a passed slot on the forecast path AND resolves the record, and the
+client reads past windows from the forecast rows alone (§2 #1, §2 #2, §2 #3, §2 #4, §4 #22; O2
+now depends on O1); (b) `forecast_run_disposition` is pruned at 30 days while `forecast_evaluation`
+is not, so a rating older than that could resolve a retracted row as served — the PUT is bounded to
+`RETENTION_DAYS` (§2 #1, §4 #21); (c) a stale sentence still mounted the block for a place with
+no row — removed (§2 #1).
 
 ---
 
