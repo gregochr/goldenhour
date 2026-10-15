@@ -26,6 +26,9 @@ import { buildPastSolarWindows, pastWindowBest } from '../utils/mapEvents.js';
 import { buildHeatPointSets, buildHeatSpots, forecastScoreRows } from '../utils/heatSpots.js';
 import { windowKey } from '../utils/windowKeys.js';
 import { formatTime } from '../utils/briefingDisplay.js';
+import { useAuth } from '../context/AuthContext.jsx';
+import { useRewind } from '../hooks/useRewind.js';
+import { useOutcomeRatings } from '../hooks/useOutcomeRatings.js';
 
 /**
  * The framing pad, in degrees of latitude — the bundle's own figure (`map-tab.js`), and the same
@@ -520,6 +523,25 @@ export default function WindowFirstMapPane({
     };
   }, [heatStripCards, pastSolarWindows, locations, todayStr]);
 
+  /**
+   * The reader's own outcome ratings for the past windows (outcome-rating-plan.md §2 #5) — read for
+   * the oldest past date this pane knows of through today, re-read when an older day lands (that
+   * date moves) and when the forecasts refresh ({@code locations} is rebuilt by every refresh), and
+   * handed to {@code MapView} as one object for the callout's rating block. A per-user join of the
+   * reader's own records onto windows and spots, never a derivation over the shared briefing; held
+   * in state alone, so a logout cannot carry them to the next account. Offered to nobody while a
+   * rewind is in force (§5 #6): a rewind is a screenshot of the forecast as it stood.
+   */
+  const { role } = useAuth();
+  const rewound = useRewind() != null;
+  const ratingsFrom = useMemo(() => {
+    const past = (Array.isArray(dates) ? dates : []).filter((d) => d && d < todayStr).sort();
+    return past[0] ?? todayStr ?? null;
+  }, [dates, todayStr]);
+  const outcomeRatings = useOutcomeRatings({
+    role, rewound, from: ratingsFrom, to: todayStr ?? null, refreshKey: locations,
+  });
+
   // The briefing's served tide for every window it carries (rendered or not), with its event time.
   const tideByWindow = useMemo(
     () => buildWindowTideIndex(briefing?.days, formatTime), [briefing?.days],
@@ -795,6 +817,7 @@ export default function WindowFirstMapPane({
         askOffered={askOffered}
         askPhase={askPhase}
         panelShown={panelShown}
+        outcomeRatings={rewound ? null : outcomeRatings}
       />
     </div>
   );

@@ -73,10 +73,13 @@ vi.mock('../components/map/PinsLayer.jsx', () => ({ default: () => null }));
 const calloutTideStripHeights = [];
 /** Every `slotIndex` `MapCallout` was handed (unrated-verdict-plan.md U2, Codex #1140 round 2). */
 const calloutSlotIndexes = [];
+/** Every `{userRole, ratings}` pair `MapCallout` was handed (outcome-rating-plan.md §2 #5). */
+const calloutRatingProps = [];
 vi.mock('../components/map/MapCallout.jsx', () => ({
   default: (props) => {
     calloutTideStripHeights.push(props.tideStripHeight);
     calloutSlotIndexes.push(props.slotIndex);
+    calloutRatingProps.push({ userRole: props.userRole, ratings: props.ratings });
     return <div data-testid="probe-callout">{JSON.stringify(props.tideStripHeight)}</div>;
   },
 }));
@@ -201,6 +204,7 @@ beforeEach(() => {
   mockIsMobile = false;
   calloutTideStripHeights.length = 0;
   calloutSlotIndexes.length = 0;
+  calloutRatingProps.length = 0;
   tideStripCalls.length = 0;
 });
 
@@ -218,6 +222,27 @@ describe('MapView — slotIndex reaches MapCallout (unrated-verdict-plan.md U2, 
     await selectTheSpot();
     expect(screen.getByTestId('probe-callout')).toBeInTheDocument();
     expect(calloutSlotIndexes.at(-1)).toBe(slotIndex);
+  });
+});
+
+describe('MapView — the rating block\'s inputs reach MapCallout (outcome-rating-plan.md §2 #5)', () => {
+  it('hands the callout the reader\'s role and the pane\'s outcomeRatings object, by identity', async () => {
+    // `MapCallout.test.jsx` hands both in directly, and `WindowFirstMapPaneRatings.test.jsx` proves
+    // the pane hands `MapView` the object; only this proves `MapView` forwards them, role from its
+    // own `useAuth` (mocked above as PRO_USER).
+    const outcomeRatings = {
+      loaded: true, mine: new Map(), saving: new Set(), saveError: new Set(), rate: () => {}, clearSaveError: () => {},
+    };
+    await renderMap({ outcomeRatings });
+    await selectTheSpot();
+    expect(calloutRatingProps.at(-1)).toEqual({ userRole: 'PRO_USER', ratings: outcomeRatings });
+    expect(calloutRatingProps.at(-1).ratings).toBe(outcomeRatings);
+  });
+
+  it('hands the callout NO ratings when the pane offers none (the overlay, a rewind)', async () => {
+    await renderMap();
+    await selectTheSpot();
+    expect(calloutRatingProps.at(-1).ratings).toBeNull();
   });
 });
 
