@@ -41,7 +41,8 @@ import { otherWindow, tideSummary, tideVisible } from '../utils/mapPeek.js';
 import TideWave from './map/TideWave.jsx';
 import { fadeAt } from '../utils/heatHandover.js';
 import {
-  buildMapEvents, findEvIndex, isForwardableRow, nightPreviewDates, solarHorizonDates, solarRowPredicate,
+  buildMapEvents, findEvIndex, isForwardableRow, isPastSolarWindow, nightPreviewDates, solarHorizonDates,
+  solarRowPredicate,
   EVENT_KIND,
 } from '../utils/mapEvents.js';
 import { buildEvVerdicts, regionNamesOf } from '../utils/mapVerdict.js';
@@ -334,6 +335,11 @@ const EMPTY_ROWS = [];
 const EMPTY_DATES = [];
 /** Stable empty list: no Ask answer on screen. A fresh `[]` per render would defeat `MapView`'s memo. */
 const NO_ASK_PICKS = [];
+/**
+ * Stable empty list: no past solar windows. The `pastSolarWindows` prop's default, for the same
+ * reason as {@link EMPTY_DATES} — a fresh `[]` per render would bust the `solarRowExists` memo.
+ */
+const NO_PAST_WINDOWS = [];
 
 /**
  * One night's served rows (astro conditions or stored aurora results), keyed by location name —
@@ -1431,7 +1437,7 @@ const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
  *       this component's own state.</li>
  * </ul>
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, askPhase = 'empty', panelShown = true }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, askPhase = 'empty', panelShown = true }) {
   // `MapView` is `React.memo`'d, and its two long-lived mounts (the Map pane, the standalone
   // overlay) sit hidden rather than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -2739,8 +2745,30 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * briefing poll to land. Being a string, it busts the memo only when the date actually rolls.
    */
   const solarRowExists = useMemo(() => solarRowPredicate({
-    solarWindows: heat?.windows || [], forecastDates, todayStr: mapTodayStr,
-  }), [heat, forecastDates, mapTodayStr]);
+    solarWindows: heat?.windows || [], forecastDates, pastSolarWindows, todayStr: mapTodayStr,
+  }), [heat, forecastDates, pastSolarWindows, mapTodayStr]);
+  /**
+   * Whether the window on screen is a PAST row (outcome-rating-plan.md §2 #2) — the one fact the
+   * rating accessors below need before {@code mapEvents} exists (it is built several hundred lines
+   * down, after the early return), answered by the SAME function {@code buildMapEvents} calls per
+   * row so the two cannot differ. A plain per-render boolean, not a memo: the answer turns on the
+   * app clock (a window goes past when its earliest event time plus the afterglow elapses), and a
+   * memo keyed on data would hold the old answer until something else moved. Being a primitive it
+   * keeps {@code getRatingForLocation}'s identity stable between renders.
+   */
+  const activeWindowPast = !overlayMode
+    && (eventType === 'SUNRISE' || eventType === 'SUNSET')
+    && isPastSolarWindow({
+      // `!w.past`: only a window the briefing SERVED counts (see `buildMapEvents`).
+      servedWindow: (heat?.windows || []).some(
+        (w) => !w.past && w.date === date && w.targetType === eventType,
+      ),
+      pastWindow: pastSolarWindows.find((w) => w.date === date && w.targetType === eventType) ?? null,
+      inForecastDomain: forecastDates.includes(date),
+      date,
+      todayStr: mapTodayStr,
+      isEventTimePast,
+    });
   /**
    * The horizon above starts at today, so it cannot hold the two past-dated nights D-14 still
    * offers as rows — the night in progress, and the night on screen once it has ended.
@@ -3273,12 +3301,16 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // claim about a window, so a window the EV list has no row for has no triage to report
     // either. Without it a stand-down pin outlived the forecast whose stars had gone.
     if (!solarWindowOnScreen()) return false;
-    const briefingScore = lookupBriefingScore(briefingScoreIndex, loc.name, date, eventType);
+    // A PAST window reads the forecast row ALONE (outcome-rating-plan.md §2 #2): the briefing score
+    // index serves the latest result, which for a passed slot may be one that landed after the
+    // event, while the forecast rows for a passed slot are served as of it.
+    const briefingScore = activeWindowPast
+      ? null : lookupBriefingScore(briefingScoreIndex, loc.name, date, eventType);
     const dayData = loc.forecastsByDate.get(date);
     const solarType = eventType === 'SUNRISE' ? 'sunrise' : 'sunset';
     const forecast = dayData?.[solarType];
     return resolveStandDown(briefingScore, forecast);
-  }, [eventType, date, briefingScoreIndex, solarWindowOnScreen]);
+  }, [eventType, date, briefingScoreIndex, solarWindowOnScreen, activeWindowPast]);
 
   /** Get the forecast rating for a location on the current date/event. */
   const getRatingForLocation = useCallback((loc) => {
@@ -3303,13 +3335,19 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // comment here used to point at a "line ~901" that has since become an unrelated control.
     // Without the fallback, locations rated only via cached_evaluation render a medallion but get
     // hidden by the star-threshold filter.
-    const briefingScore = lookupBriefingScore(briefingScoreIndex, loc.name, date, eventType);
+    //
+    // ⚠️ A PAST window reads the forecast row ALONE (outcome-rating-plan.md §2 #2), never the
+    // briefing score index: that index serves the latest result for the slot, which for a passed
+    // slot may be one that landed after the event, while the forecast rows for a passed slot are
+    // served as of it — so the chip, the pin and the callout star show the star the reader saw.
+    const briefingScore = activeWindowPast
+      ? null : lookupBriefingScore(briefingScoreIndex, loc.name, date, eventType);
     const dayData = loc.forecastsByDate.get(date);
     const forecast = eventType === 'SUNRISE' ? dayData?.sunrise : dayData?.sunset;
     return briefingScore?.rating ?? forecast?.rating ?? null;
   }, [
     eventType, date, briefingScoreIndex, storedAuroraResults, auroraScores, astroScores,
-    solarWindowOnScreen, liveAuroraOnScreen,
+    solarWindowOnScreen, liveAuroraOnScreen, activeWindowPast,
   ]);
 
   /**
@@ -3651,6 +3689,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     tideByWindow: heat?.tideByWindow,
     isEventTimePast,
     forecastDates,
+    pastSolarWindows,
     todayStr: mapTodayStr,
     tomorrowStr: ukDateStrOffset(1),
     // D-14 (`utils/mapEvents.js`'s module doc): only nights not yet over become rows. The night in
@@ -3849,7 +3888,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         // night's provenance, and `App.resolveMapDate` refuses a night passed as a solar date once it is past —
         // which is every pick of the night in progress before nautical dawn, when `currentNightDate` is
         // YESTERDAY (`docs/engineering/ask-night-plan.md` §2.1). The third `onSelectDate` site to need it.
-        onSelectDate?.(row.date, { isNight: night });
+        // A past row is forwardable now (`isForwardableRow`) and `App` refuses its date without the flag.
+        onSelectDate?.(row.date, { isNight: night, ...(row.past === true ? { isPast: true } : {}) });
       } else {
         // A night `App` would refuse (beyond the forecast's own dates, or the one on screen once it has
         // ended) is kept local, exactly as `selectEvRow` keeps it, so the fetches and the viewline gate land on it.
@@ -4964,9 +5004,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // the calendar test this line used to be, a pick of it at 00:01 stayed on screen, ended, where the
     // same night picked at 23:59 moved on.
     //
-    // Inert for solar by construction: a served window is never past (the briefing retires elapsed
-    // ones) and the D-13 filler branch already requires `date >= todayStr`, so the solar arm narrows
-    // nothing that was reachable.
+    // For solar the arm WIDENS since the outcome-rating series (outcome-rating-plan.md §2 #2): a
+    // served window and a D-13 filler are `date >= todayStr`, and a PAST row (an elapsed, unserved
+    // window with forecast rows) is forwarded too — with the `isPast` flag below, because
+    // `App.resolveMapDate` refuses a date before today without it.
     if (isForwardableRow(row, { todayStr: mapTodayStr, currentNightDate: auroraNight })) {
       setLocalNightDate(null);
       if (row.date !== date) {
@@ -4987,7 +5028,16 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       // reader was watching ran on until dawn. It also leaves the flag correct in the other
       // direction: a SOLAR row picked on the date a night row already occupied clears it, so the
       // night licence stays per-pick rather than sticking to whatever came after it.
-      onSelectDate?.(row.date, { isNight: row.kind !== EVENT_KIND.SOLAR });
+      //
+      // A PAST solar row (outcome-rating-plan.md §2 #2) carries the second provenance flag,
+      // `isPast`, on the same terms: `App.resolveMapDate` refuses a date before today unless the
+      // pick names one, and the flag is set per pick (a later pick of a live window clears it).
+      // Named only when true: every other pick's call is byte for byte what it was, and `App`'s
+      // `isPast` default is the safe answer for a live window.
+      onSelectDate?.(row.date, {
+        isNight: row.kind !== EVENT_KIND.SOLAR,
+        ...(row.past === true ? { isPast: true } : {}),
+      });
     } else {
       setLocalNightDate(row.date);
     }
@@ -6150,7 +6200,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               // medallions are the tab's ONLY location vocabulary, and an admin with the `?`
               // unknown lens on could see them still wearing a window's stars after every other
               // surface had disowned it. Two review lenses found it independently.
-              const briefingScore = (!isAuroraMode && solarWindowOnScreen())
+              // A PAST window reads the forecast row alone here too (outcome-rating-plan.md §2 #2),
+              // so the arcs and the star come from one result.
+              const briefingScore = (!isAuroraMode && solarWindowOnScreen() && !activeWindowPast)
                 ? lookupBriefingScore(briefingScoreIndex, loc.name, date, eventType) : null;
               // Aurora: tonight's live stars exactly as before; on any other night, that night's
               // own STORED stars rather than tonight's live ones (see `liveAuroraOnScreen`).
@@ -7110,6 +7162,18 @@ MapView.propTypes = {
    * `onSelectDate` at all. Empty on the overlay, which never mounts the window control.
    */
   forecastDates: PropTypes.arrayOf(PropTypes.string),
+  /**
+   * Every (date, targetType) with at least one forecast row and `date <= today`, as
+   * `WindowFirstMapPane` builds them from `forecastsByDate` — `{date, targetType,
+   * earliestEventTime}`, the earliest `solarEventTime` among the rows (UTC-naive). The input that
+   * lets `utils/mapEvents.js` offer a window the briefing has withdrawn as a PAST row
+   * (outcome-rating-plan.md §2 #2). Empty on the overlay, which builds no window list.
+   */
+  pastSolarWindows: PropTypes.arrayOf(PropTypes.shape({
+    date: PropTypes.string.isRequired,
+    targetType: PropTypes.oneOf(['SUNRISE', 'SUNSET']).isRequired,
+    earliestEventTime: PropTypes.string,
+  })),
   autoEventType: PropTypes.string,
   handoffEventType: PropTypes.string,
   handoffFilterAction: PropTypes.string,

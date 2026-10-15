@@ -309,6 +309,25 @@ describe('calloutFacts', () => {
     });
     expect(facts.map((f) => f.key)).toEqual(['drive', 'leave', 'dark']);
   });
+
+  describe('a PAST window (outcome-rating-plan.md §2 #2)', () => {
+    const FULL = {
+      driveMinutes: 30, distanceMiles: 10, eventTimeIso: '2026-06-15T04:30:00Z', bortleClass: 2,
+    };
+
+    it('hides Drive AND Leave by, and keeps Dark sky', () => {
+      expect(calloutFacts({ ...FULL, past: true }).map((f) => f.key)).toEqual(['dark']);
+    });
+
+    it('control: the same inputs without the flag still carry all three', () => {
+      expect(calloutFacts({ ...FULL, past: false }).map((f) => f.key)).toEqual(['drive', 'leave', 'dark']);
+      expect(calloutFacts(FULL).map((f) => f.key)).toEqual(['drive', 'leave', 'dark']);
+    });
+
+    it('a past window with no Bortle class has no facts at all', () => {
+      expect(calloutFacts({ ...FULL, bortleClass: null, past: true })).toEqual([]);
+    });
+  });
 });
 
 describe('isCoastalTidalLocation', () => {

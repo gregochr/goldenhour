@@ -306,13 +306,24 @@ function AppInner() {
    */
   const [selectedDateIsNight, setSelectedDateIsNight] = useState(false);
   /**
-   * The one writer for the pair above. {@code isNight} defaults false, so every route that is not
-   * explicitly a night selection — a Plan door, a grid cell, the Map tab's own `onSelectDate` —
-   * gets the safe answer without having to know this rule exists.
+   * Whether {@code selectedDate} NAMES A PAST SOLAR WINDOW — the Map tab's window control stepped
+   * back onto a window that has gone (outcome-rating-plan.md §2 #2). The second provenance flag,
+   * on exactly the first's terms: {@code resolveMapDate} refuses a date before today, and a flag
+   * set by the pick (never inferred from the value) is the only licence, so a stale past pick
+   * without it — after a reload, a handoff, any other route to {@code selectDate} — falls through
+   * to the today-forward pick as a stale solar date always did.
    */
-  const selectDate = useCallback((date, { isNight = false } = {}) => {
+  const [selectedDateIsPast, setSelectedDateIsPast] = useState(false);
+  /**
+   * The one writer for the trio above. {@code isNight} and {@code isPast} default false, so every
+   * route that is not explicitly a night or past selection — a Plan door, a grid cell, the Ask
+   * handoff, the aurora jump — gets the safe answer without having to know these rules exist. Only
+   * `MapView.selectEvRow` can name a past window.
+   */
+  const selectDate = useCallback((date, { isNight = false, isPast = false } = {}) => {
     setSelectedDate(date);
     setSelectedDateIsNight(isNight);
+    setSelectedDateIsPast(isPast);
   }, []);
 
 
@@ -377,6 +388,7 @@ function AppInner() {
   const effectiveDate = resolveMapDate({
     selectedDate,
     selectedIsNight: selectedDateIsNight,
+    selectedIsPast: selectedDateIsPast,
     autoDate: autoSelection?.date ?? null,
     allDates,
     todayStr,
