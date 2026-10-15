@@ -48,7 +48,7 @@ keeping both rows in phase order).
 
 | phase | branch | commit | date | notes |
 |---|---|---|---|---|
-| O0 | `claude/forecast-accuracy-ratings-5fbd0d` | (this PR) | 2026-10-15 | Plan + bundle vendored at `docs/design/outcome-rating/`. No code. Four review lenses at plan time (§5a): backend, frontend, spec fidelity, conventions and sizing — 3 P1s and ~30 P2/P3s, all accepted and folded in. Codex rounds 1–9: fifteen P1s (provenance: the served result, not the newest cycle; only one that had arrived by the event; the fallback must not admit a late batch's own row — hence `scored_at`, V178; it must honour a stability retraction as of the event; the calibration join must use the resolved row id, not the natural key; the stored `forecast_rating` for a recombined OPEN_FELL slot; the past-row rule needs the afterglow-elapsed test, not withdrawal alone; retraction by submission instant; no guessed star for a canopy place after a post-event cache replacement; a canopy place's availability bound is the entry's last write; a past window's best is over painted points; no block for a place with no row; one as-of-event resolution for the serve path and the record; the write bounded to the retraction evidence's retention; a stale no-row sentence), all accepted. |
+| O0 | `claude/forecast-accuracy-ratings-5fbd0d` | (this PR) | 2026-10-15 | Plan + bundle vendored at `docs/design/outcome-rating/`. No code. Four review lenses at plan time (§5a): backend, frontend, spec fidelity, conventions and sizing — 3 P1s and ~30 P2/P3s, all accepted and folded in. Codex rounds 1–10: seventeen P1s (provenance: the served result, not the newest cycle; only one that had arrived by the event; the fallback must not admit a late batch's own row — hence `scored_at`, V178; it must honour a stability retraction as of the event; the calibration join must use the resolved row id, not the natural key; the stored `forecast_rating` for a recombined OPEN_FELL slot; the past-row rule needs the afterglow-elapsed test, not withdrawal alone; retraction by submission instant; no guessed star for a canopy place after a post-event cache replacement; a canopy place's availability bound is the entry's last write; a past window's best is over painted points; no block for a place with no row; one as-of-event resolution for the serve path and the record; the write bounded to the retraction evidence's retention less the skip's lead time; a stale no-row sentence; the serve path serving the captured star, never a sky-only fallback), all accepted. |
 
 ---
 
@@ -384,11 +384,17 @@ CREATE INDEX idx_outcome_rating_slot ON outcome_rating (location_id, event_date,
   `PlanWindowProjector.hasPassed(solarEventFreshness.eventTime(location, date, type), now)` with
   `now` from the injected `Clock` (a PUT is never rewound), else 400 `"That sunrise has not
   happened yet"` / `"… sunset …"`; **and not older than the retraction evidence**: `date` must be
-  on or after `today − ForecastDispositionService.RETENTION_DAYS` (30, the one constant the
-  `disposition_cleanup` prune reads; a package-private constant today, made public for this reader),
+  on or after `today − OutcomeRatingService.MAX_RATING_AGE_DAYS`, where `MAX_RATING_AGE_DAYS =
+  ForecastDispositionService.RETENTION_DAYS − RunType.FORECAST_HORIZON_DAYS` (30 − 5 = 25; both
+  existing constants, the first made public for this reader; the javadoc shows the arithmetic),
   else 400 `"That sunrise is too old to rate"` — because step 2's retraction reads
-  `forecast_run_disposition`, which is pruned at that age, while `forecast_evaluation` is not, so an
-  older date could resolve a row retracted before its event as served (Codex, #1185 round 9). The
+  `forecast_run_disposition`, which the `disposition_cleanup` prune deletes by the disposition's own
+  `created_at` at `RETENTION_DAYS` (`ForecastDispositionService.java:180–181`), while
+  `forecast_evaluation` is never pruned, AND a `SKIPPED_STABILITY` for an event is recorded up to
+  four days BEFORE it (`ForecastTaskCollector.java:711–718` decides T+0..T+4), so a rating for an
+  event 26–30 days old could resolve a retracted row as served after its skip was deleted
+  (Codex, #1185 rounds 9 and 10); subtracting the full five-day candidate window leaves a day of
+  slack over the four-day lead. The
   superseded board's "any time means no cut-off" is therefore not honoured (§4 #21); the Map reaches
   T-4. `updatedAt` from the clock.
   Returns `OutcomeRatingDto(locationId, locationName, eventDate, eventType, rating, updatedAt,
@@ -572,16 +578,18 @@ by a test that the controller's run-capable collaborators are never called). ⚠
 served AS OF ITS EVENT, on the list's own past days as well as on `?date=`** (Codex, #1185 round
 9): for every (location, date, type) whose event has passed — `hasPassed(eventTime, now)` with the
 roster's per-place time — `serveRange` serves the row `AsOfEventResolver` (§2 #1) resolves (the
-`forecast_evaluation` row available by the event and unretracted at it, its rating replaced by
-the captured `forecastRating` when the served result was a recombined composite; or no row at
-all when nothing was available), never the slot's latest row and never the sparse cache entry,
+`forecast_evaluation` row available by the event and unretracted at it) **with the resolver's
+captured `forecastRating` as its served `rating`, always** — so a canopy-bearing place whose
+composite is unrecoverable (a post-event cache write, §2 #1) is served with `rating = null`, an
+unscored slot, never the fallback row's sky-only star (Codex, #1185 round 10); and no row at all
+when nothing was available — never the slot's latest row and never the sparse cache entry,
 so a batch that landed after the event cannot repaint a window the reader has already seen and
 may be rating — the chips, the field and the callout then show the star the record captures. An
 unpassed slot (today's sunset before it happens, every future day) is served exactly as today:
 the latest rich row, the stability-skip retraction as of now, the sparse cache rows (§1 #10).
 The existing `getForecasts_*` tests stay green for the unpassed days; the passed-slot rule gets
 its own cases (a late-landing row hidden; a retracted-before-event row hidden; a canopy place's
-captured star served). `ForecastHorizon.MAX_PAST_DAYS` carries a javadoc naming its
+captured star served; a canopy place with an unrecoverable composite served unscored). `ForecastHorizon.MAX_PAST_DAYS` carries a javadoc naming its
 reader (the Map tab's older-day fetch) and the relation to `SERVE_PAST_DAYS` (the list's past
 edge; the one-day read covers the gap between them). `/evaluate/scores` does not learn `?date=` and is **not consulted for a past window at all**: the
 briefing score index serves the latest result, which for a passed slot may postdate the event, so
@@ -790,7 +798,7 @@ endpoint: LITE GET 200 `[]`, LITE PUT 403, admin-all PRO 403), `OutcomeRatingRep
    `rate(...)`: the refusals in order (unknown user 404, unknown location 404, rating out of range
    400 at 0 and 6 with 1 and 5 accepted and null accepted, HOURLY 400, event not passed 400 at
    exactly the afterglow boundary — `hasPassed` is strict, so `eventTime + 30 min == now` is NOT
-   passed, a date older than `RETENTION_DAYS` 400 with the boundary day accepted) and the happy
+   passed, a date older than `MAX_RATING_AGE_DAYS` 400 with the boundary day accepted) and the happy
    path writing every column. `AsOfEventResolver` is its own class with its own test; `rate`'s
    tests mock it.
 5. The three endpoints (§2 #1): role matrix, 400 bodies `{"error": …}` through the existing
@@ -824,8 +832,9 @@ Files: `controller/ForecastController.java`, `util/ForecastHorizon.java`, tests
    served through `AsOfEventResolver` (one call per passed slot — bound it: the resolver takes the
    roster's rows for the day in one read and answers per slot from memory, O2 shapes the batch
    form), unpassed slots exactly as before; pinned: a late-landing row hidden on T-1; a row
-   retracted before its event hidden; a canopy place's captured star served; today's sunset before
-   it happens served as before; the list's unpassed days byte-for-byte unchanged. The sparse cache
+   retracted before its event hidden; a canopy place's captured star served and, after a
+   post-event cache write, served with a null rating rather than the sky row's; today's sunset
+   before it happens served as before; the list's unpassed days byte-for-byte unchanged. The sparse cache
    path is unchanged for unpassed slots (§1 #10's over-read noted in the javadoc).
 5. Gate, lenses (runtime, test quality, conventions), changelog, phase-log row. The endpoint is
    ETag'd by path with no change to `HttpCachingConfig` (say so in the javadoc).
@@ -1136,9 +1145,10 @@ flag), this plan's §0 (COMPLETE, every §6 question closed with a date),
     a spot pick only; the list is per (spot, window), so a stale open list over a new window would
     show another window's ratings until refetched.
 21. **A rating cannot be older than the retraction evidence.** The superseded board says "any time
-    means no cut-off"; the PUT refuses a date older than `ForecastDispositionService.RETENTION_DAYS`
-    (30) because the stability-skip evidence provenance needs is pruned at that age and an older
-    date would resolve a retracted forecast as served.
+    means no cut-off"; the PUT refuses a date older than `MAX_RATING_AGE_DAYS` (25 = the
+    disposition retention of 30 less the five-day candidate window) because the stability-skip
+    evidence provenance needs is pruned 30 days after it was RECORDED, up to four days before its
+    event, and an older date would resolve a retracted forecast as served.
 22. **A passed slot is served as of its event.** The spec says a past window "is a database read
     only"; this codebase's read would otherwise be the slot's LATEST row, which a batch landing
     after the event (24 h ceiling) can replace, so the past-window UI would show a star the
@@ -1249,6 +1259,12 @@ now depends on O1); (b) `forecast_run_disposition` is pruned at 30 days while `f
 is not, so a rating older than that could resolve a retracted row as served — the PUT is bounded to
 `RETENTION_DAYS` (§2 #1, §4 #21); (c) a stale sentence still mounted the block for a place with
 no row — removed (§2 #1).
+
+**Codex, round 10 on #1185 (two P1s, accepted):** (a) the as-of-event serve path must serve the
+captured star itself — null for a canopy place whose composite is unrecoverable — never the fallback
+row's sky-only rating (§2 #4, O2 step 4); (b) a stability skip is recorded up to four days before
+its event, so the write bound subtracts the candidate window from the retention: 25 days, not 30
+(§2 #1, §4 #21, O1 step 4).
 
 ---
 
