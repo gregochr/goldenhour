@@ -176,6 +176,53 @@ describe('WindowFirstMapPane', () => {
       expect(MapStub.lastProps.forecastDates).toEqual(DATES);
     });
 
+    it('hands MapView the past windows its locations hold forecast rows for — never the briefing\'s '
+        + '(outcome-rating-plan.md §2 #2)', () => {
+      // The briefing withdraws a window once it is over, which is exactly when the list starts to
+      // matter; the pane builds the input from `forecastsByDate` alone. Today here is DATES[0]
+      // (2026-08-11); the fixture holds yesterday's sunset (two stations), today's sunrise and a
+      // FUTURE sunrise that must not appear.
+      vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue({
+        heatSpots: [], heatPointSets: new Map(), heatStripCards: [], reachById: new Map(),
+        homePlace: null, todayStr: DATES[0], origin: null, setOrigin: vi.fn(),
+        effectiveReachById: new Map(), scoreRows: [], scoresLoaded: true, briefing: null,
+      });
+      const locations = [
+        {
+          id: 1, name: 'A', forecastsByDate: new Map([
+            ['2026-08-10', { sunset: { solarEventTime: '2026-08-10T19:41:00' } }],
+            ['2026-08-11', { sunrise: { solarEventTime: '2026-08-11T05:02:00' } }],
+            ['2026-08-12', { sunrise: { solarEventTime: '2026-08-12T05:04:00' } }],
+          ]),
+        },
+        {
+          id: 2, name: 'B', forecastsByDate: new Map([
+            ['2026-08-10', { sunset: { solarEventTime: '2026-08-10T19:38:00' } }],
+          ]),
+        },
+      ];
+
+      renderPane({ locations });
+
+      expect(MapStub.lastProps.pastSolarWindows).toEqual([
+        { date: '2026-08-10', targetType: 'SUNSET', earliestEventTime: '2026-08-10T19:38:00' },
+        { date: '2026-08-11', targetType: 'SUNRISE', earliestEventTime: '2026-08-11T05:02:00' },
+      ]);
+    });
+
+    it('keeps the past windows\' identity across a re-render that changes nothing they depend on', () => {
+      // MapView is React.memo'd and this pane re-renders on every provider tick; a fresh array each
+      // time would bust the `solarRowExists` memo downstream.
+      const locations = [];
+      const { rerender } = renderPane({ locations });
+      const first = MapStub.lastProps.pastSolarWindows;
+      rerender(
+        <WindowFirstMapPane locations={locations} dates={DATES} selectedDate={DATES[0]}
+          onSelectDate={vi.fn()} />,
+      );
+      expect(MapStub.lastProps.pastSolarWindows).toBe(first);
+    });
+
     it('renders the map, and hands it an empty list, when there are no dates at all', () => {
       // The App-level gate is what normally prevents this; gates get edited, so the pane must
       // still degrade rather than throw.

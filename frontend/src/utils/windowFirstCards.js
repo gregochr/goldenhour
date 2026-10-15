@@ -65,6 +65,30 @@ export function dayLabelFor(dateStr, todayStr, tomorrowStr) {
     .toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'UTC' });
 }
 
+/**
+ * A PAST window's day label — {@code Today}, {@code Yesterday}, else {@code Fri 16} (short weekday,
+ * day of month with no leading zero), the outcome-rating design's vocabulary for the Map tab's past
+ * rows (docs/engineering/outcome-rating-plan.md §2 #2). Kept beside {@link dayLabelFor} rather than
+ * widening it: its two Plan-tab callers never see a past date, and a long weekday name is the wrong
+ * word for a day that has gone ("Friday" is ambiguous with next Friday; "Fri 16" is not).
+ *
+ * <p>A lookup over a date string — the already-licensed filter/map/select class (CLAUDE.md
+ * Backend-heavy), deciding nothing. The weekday and day are read in UTC from a noon-pinned instant,
+ * so the answer is the calendar date's own whatever zone the browser is in.
+ *
+ * @param {string} dateStr the window's ISO date
+ * @param {string} todayStr the UK civil today
+ * @returns {string}
+ */
+export function pastDayLabel(dateStr, todayStr) {
+  if (dateStr === todayStr) return 'Today';
+  const d = new Date(`${dateStr}T12:00:00Z`);
+  const t = new Date(`${todayStr}T12:00:00Z`);
+  if (Math.round((t.getTime() - d.getTime()) / 86400000) === 1) return 'Yesterday';
+  const dow = d.toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' });
+  return `${dow} ${d.getUTCDate()}`;
+}
+
 /** 'sunrise' | 'sunset' — the window's own event, lower case for use inside a phrase. Exported
  *  beside {@link dayLabelFor} and for the same reason. */
 export function eventWord(targetType) {

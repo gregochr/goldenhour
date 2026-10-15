@@ -65,7 +65,11 @@ export function withScopedSolarTimes({ events, spots, locations, formatTimeUk })
   return rows.map((row) => {
     // A D-13 filler (`served: false`) keeps whatever time the briefing lent it, or none: it stands
     // for a window the briefing withdrew or never rendered, and printing a time on it would be new.
-    if (row?.kind !== EVENT_KIND.SOLAR || row.served === false || !row.date) return row;
+    // ⚠️ A PAST row is `served: false` too and is the exception (outcome-rating-plan.md §2 #2): its
+    // time is a fact of the forecast rows themselves, not something lent, so it narrows to the
+    // scope pool's earliest like a served row (its base time is the roster's earliest, set by
+    // `buildMapEvents`, and an empty scope leaves it untouched at the early return above).
+    if (row?.kind !== EVENT_KIND.SOLAR || (row.served === false && !row.past) || !row.date) return row;
     const slot = SLOT_BY_EVENT[row.eventType] ?? null;
     if (!slot) return row;
     let earliest = null;
