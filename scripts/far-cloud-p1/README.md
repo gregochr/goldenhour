@@ -129,6 +129,97 @@ cp target/p0-replay/batches.json /tmp/p1-arms/arm4/batches.json
 unset REPLAY_BATCH REPLAY_MODELS REPLAY_SYSTEM_PROMPT_FILE   # so a later direct arm is not batched
 ```
 
+**Trimmed Option A (about half the calls; the plan §12 step 2 recipe).** A stored production rating is one
+sample from the model that made it, for that exact prompt, so it is that model's arm for free. `split` copies
+the set into one directory per replay that is still needed, and `compare` uses the stored rating where the
+model was not replayed. Nothing in `/tmp/p1-replay` is moved or changed.
+
+```
+python3 replay_set.py split --set /tmp/p1-replay --out /tmp/p1-replay-arms          # all 3-stars
+python3 replay_set.py split --set /tmp/p1-replay --out /tmp/p1-replay-arms --three-sample 300   # or a seeded 300
+```
+
+| directory | prompts (2026-10-14 set) | replayed on | why |
+|---|---|---|---|
+| `need-sonnet/` | 1,112 (513 go, 599 3-star) | `SONNET`, production prompt | SONNET_55 rated these, so its arm is stored |
+| `need-sonnet55/` | 204 (145 go, 59 3-star) | `SONNET_55`, production prompt | HAIKU rated these (Haiku is not a D-2 arm) |
+| `r1-gos/` | 658 (go group only) | `SONNET_55`, R1 prompt | a 3-star tells R1 nothing: it can only demote |
+| `training/` | 2 | all models, step c | as before |
+
+`split` refuses a target directory that already holds files (they would be replayed and billed), and prints
+the calls and the **batch** cost per directory: half the standard `cost.*` prices, the same assumed 3,500 input
+and 400 output tokens as `select`, thinking tokens and caching not included. Full 3-star group: **1,974 calls,
+about $13.9 to $20.9**; `--three-sample 300`: **1,616 calls, about $11.0 to $16.6**. It also writes
+`arms.json`, which `compare` checks the runs against.
+
+Three Maven runs, each twice (the first prints the cost gate and spends nothing, the second types the number
+back), from `backend/`:
+
+```
+cd ../../backend
+export ANTHROPIC_API_KEY=...        # in your shell only
+T=(-Pprompt-regression -Dtest=PromptReplayHarnessTest#replayStoredPrompts)
+export REPLAY_BATCH=true REPLAY_N=1
+mkdir -p /tmp/p1-arms/need-sonnet /tmp/p1-arms/need-sonnet55 /tmp/p1-arms/r1-gos
+unset REPLAY_SYSTEM_PROMPT_FILE REPLAY_CONFIRM_COST
+
+# 1. SONNET (4.6) on what SONNET_55 rated
+export REPLAY_PROMPTS_DIR=/tmp/p1-replay-arms/need-sonnet REPLAY_MODELS=SONNET
+./mvnw test "${T[@]}"                                  # prints the plan and refuses: read N
+REPLAY_CONFIRM_COST=<N> ./mvnw test "${T[@]}"
+cp target/p0-replay/runs.csv /tmp/p1-arms/need-sonnet/runs.csv
+cp target/p0-replay/batches.json /tmp/p1-arms/need-sonnet/batches.json
+
+# 2. SONNET_55 on what HAIKU rated
+export REPLAY_PROMPTS_DIR=/tmp/p1-replay-arms/need-sonnet55 REPLAY_MODELS=SONNET_55
+./mvnw test "${T[@]}"
+REPLAY_CONFIRM_COST=<N> ./mvnw test "${T[@]}"
+cp target/p0-replay/runs.csv /tmp/p1-arms/need-sonnet55/runs.csv
+cp target/p0-replay/batches.json /tmp/p1-arms/need-sonnet55/batches.json
+
+# 3. SONNET_55 with the R1 prompt on the go group
+export REPLAY_PROMPTS_DIR=/tmp/p1-replay-arms/r1-gos REPLAY_MODELS=SONNET_55 REPLAY_SYSTEM_PROMPT_FILE=/tmp/sp/system-r1.txt
+./mvnw test "${T[@]}"
+REPLAY_CONFIRM_COST=<N> ./mvnw test "${T[@]}"
+cp target/p0-replay/runs.csv /tmp/p1-arms/r1-gos/runs.csv
+cp target/p0-replay/batches.json /tmp/p1-arms/r1-gos/batches.json
+unset REPLAY_BATCH REPLAY_MODELS REPLAY_SYSTEM_PROMPT_FILE REPLAY_PROMPTS_DIR REPLAY_CONFIRM_COST
+cd ../scripts/far-cloud-p1
+
+python3 replay_set.py compare --manifest /tmp/p1-replay/manifest.csv --arms-json /tmp/p1-replay-arms/arms.json \
+  --runs /tmp/p1-arms/need-sonnet/runs.csv,need-sonnet /tmp/p1-arms/need-sonnet55/runs.csv,need-sonnet55 \
+         /tmp/p1-arms/r1-gos/runs.csv,r1-gos --slots out/slots.csv --out out/part_d.md
+```
+
+Label each `runs.csv` with its directory name (`,need-sonnet`): that is how `--arms-json` matches a run to
+its directory, and `compare` exits 2, writing nothing, if a run is on the wrong model or system prompt, holds a
+prompt that is not in its directory, or replays a prompt on the model that already rated it. `stored` is a
+reserved label.
+
+The report then has, per replayed arm, the usual section, a `stored/SONNET_55 [production]` section marked
+**STORED RATINGS, NOT A REPLAY** (it can show no fall or rise), and a **Decision lines** section: one line for
+D-2 (the 4-star share of the 3-star sample, SONNET_55 vs SONNET, paired on the prompts that have both, with
+numerator, denominator and how many of each side are stored vs replayed; a pair with a stored side goes on a
+separate ONE-SIDED line, never into the gap) and one for D-1 part 2 (the share of
+go prompts the R1 arm takes below 4, with the 15% cap). Expected calls: **about 1,112 + 204 + 658** at the full
+3-star group.
+
+Read it with these limits in mind; they are the price of the trim:
+
+- **A stored rating is one sample; a replay is not.** P0 found the replay 20 of 20 identical on the Angel, so a
+  stored rating is probably what a replay would have said, but that is one prompt, not a measurement of the set.
+- **The 3-star group is 3 by selection, so D-2.1 cannot be confirmed from stored ratings.** For the 599 prompts
+  SONNET_55 rated, its stored side is 3 for every prompt, 0% at 4 stars by construction, and D-2.1 needs
+  SONNET_55 to be 8 points *above* SONNET. `compare` therefore prints those prompts as a **ONE-SIDED** line (how
+  often SONNET rates a SONNET_55 3-star 4 or higher) with no gap figure, and prints a D-2 gap only over prompts
+  where both sides were replayed. There are none in the trimmed run, so it can show SONNET_55 is *not* the
+  generous one, not that it is. To get a real D-2.1 you must replay a sample of those 599 prompts on SONNET_55
+  as well (a seeded 100 of them is about $0.5 to $0.8 at batch prices; put copies of the files in a directory
+  of their own and run it as arm 2). The 59 HAIKU-rated 3-stars have a SONNET_55 replay and no SONNET one, so
+  they are listed, not paired (and `--three-sample` may spend slots on them).
+- **D-1 part 2 needs no stored arm**: it is the R1 replay against the stored go rating (>= 4 by selection).
+  Angel and Low Hauxley (D-1 part 1) still come from the training and `hauxley` runs above.
+
 `/tmp/p1-replay` for `REPLAY_PROMPTS_DIR` is the set from step a; the training and Low Hauxley sets take the same
 `REPLAY_BATCH=true` prefix and their own `REPLAY_PROMPTS_DIR`.
 

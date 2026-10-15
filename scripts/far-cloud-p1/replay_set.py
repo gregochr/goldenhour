@@ -3,14 +3,17 @@
 Subcommands:
   select    p1_prompts.csv + p1_forecasts.csv -> <evaluation_id>.<inland|coastal>.txt files + manifest.csv
   build-r1  production system prompt text + patch markdown -> override system prompt file
+  split     select's set -> one directory per replay arm, skipping what a stored rating already answers
   compare   manifest.csv + runs.csv per arm (+ optional premise.py slots.csv) -> out/part_d.md
 
 Standard library only. Never touches the network.
 """
 import argparse
 import csv
+import json
 import random
 import re
+import shutil
 import statistics
 import sys
 from collections import defaultdict
@@ -262,6 +265,157 @@ def cmd_select(args):
     return 0
 
 
+# ---- split: the trimmed Part D ("Option A, trimmed") ------------------------------------------------
+# A stored production rating is one sample from the model that produced it, for that exact prompt. So a
+# prompt never needs a replay on the model that already rated it, only on the other one.
+#   need-sonnet    prompts a SONNET_55 rated    -> replay on SONNET (4.6), production prompt
+#   need-sonnet55  prompts HAIKU (or SONNET) rated -> replay on SONNET_55, production prompt
+#   r1-gos         the go group only             -> replay on SONNET_55 with the R1 system prompt
+#   training       copied as is                  -> replayed on all models, README step c
+# HAIKU is not an arm of the D-2 comparison (SONNET_55 vs SONNET), so a HAIKU-stored prompt gets no SONNET
+# replay; a stored model nobody recognises gets both replays, because neither stored arm is usable.
+STORED_RUN = "stored"  # the run label of an arm that is a stored rating, never a replay
+SPLIT_DIRS = {
+    "need-sonnet": {"model": "SONNET", "system_prompt": "production"},
+    "need-sonnet55": {"model": "SONNET_55", "system_prompt": "production"},
+    "r1-gos": {"model": "SONNET_55", "system_prompt": "override"},
+    "training": {"model": None, "system_prompt": "production"},
+}
+SPLIT_REQUIRED = ("evaluation_id", "label", "model", "group", "training", "file")
+BATCH_DISCOUNT = 0.5  # Message Batches bill at half the standard per-token price
+
+
+def models_needing_replay(stored_model):
+    """Which production-prompt replays a prompt still needs, given the model that rated it."""
+    if stored_model == "SONNET_55":
+        return ["SONNET"]
+    if stored_model in ("SONNET", "HAIKU"):
+        return ["SONNET_55"]
+    return ["SONNET", "SONNET_55"]
+
+
+def split_manifest(manifest, three_sample=None, seed=0):
+    """Pure. {directory: [manifest rows]} and an info dict. `three_sample` keeps a seeded random N of the
+    `three` group (drawn once from the whole group, so both production-prompt directories see the same
+    prompts); it never touches the go group or the training rows."""
+    threes = sorted((m for m in manifest if m["group"] == "three" and m["training"] != "1"),
+                    key=lambda m: int(m["evaluation_id"]))
+    kept = {m["evaluation_id"] for m in threes}
+    if three_sample is not None and three_sample < len(threes):
+        kept = {m["evaluation_id"] for m in random.Random(seed).sample(threes, three_sample)}
+    dirs = {name: [] for name in SPLIT_DIRS}
+    for m in manifest:
+        if m["training"] == "1":
+            dirs["training"].append(m)
+            continue
+        if m["group"] not in ("go", "three") or (m["group"] == "three" and m["evaluation_id"] not in kept):
+            continue
+        needed = models_needing_replay(m["model"])
+        if "SONNET" in needed:
+            dirs["need-sonnet"].append(m)
+        if "SONNET_55" in needed:
+            dirs["need-sonnet55"].append(m)
+        if m["group"] == "go":
+            dirs["r1-gos"].append(m)
+    return dirs, {"three_candidates": len(threes), "three_kept": len(kept & {t["evaluation_id"] for t in threes})}
+
+
+def self_replays(dirs):
+    """Prompts that would be replayed, with the production prompt, on the model that already rated them.
+    Always empty from split_manifest; checked anyway because the cost of being wrong is real money."""
+    bad = []
+    for name, rows in dirs.items():
+        spec = SPLIT_DIRS[name]
+        if spec["model"] is None or spec["system_prompt"] != "production":
+            continue
+        bad += [(name, m["evaluation_id"]) for m in rows if m["model"] == spec["model"]]
+    return bad
+
+
+def batch_cost(n_calls, model, in_tok, out_tok):
+    p_in, p_out = PRICES[model]
+    return BATCH_DISCOUNT * n_calls * (in_tok * p_in + out_tok * p_out) / 1_000_000
+
+
+def cmd_split(args):
+    set_dir, out = Path(args.set), Path(args.out)
+    try:
+        manifest = read_csv(set_dir / "manifest.csv")
+    except OSError as e:
+        print(f"ERROR: cannot read the set's manifest: {e}", file=sys.stderr)
+        return 2
+    if not manifest or any(c not in manifest[0] for c in SPLIT_REQUIRED):
+        print(f"ERROR: {set_dir / 'manifest.csv'} is empty or lacks one of {SPLIT_REQUIRED}", file=sys.stderr)
+        return 2
+    if args.three_sample is not None and args.three_sample < 0:
+        print("ERROR: --three-sample must be >= 0", file=sys.stderr)
+        return 2
+    if out.resolve() == set_dir.resolve():
+        print("ERROR: --out must not be the set directory", file=sys.stderr)
+        return 2
+    dirs, info = split_manifest(manifest, args.three_sample, args.seed)
+    clash = self_replays(dirs)
+    if clash:
+        print(f"ERROR: would replay a prompt on the model that rated it: {clash[:5]}", file=sys.stderr)
+        return 2
+    missing = [m["file"] for rows in dirs.values() for m in rows if not (set_dir / m["file"]).is_file()]
+    if missing:
+        print(f"ERROR: {len(missing)} prompt file(s) named by the manifest are missing from {set_dir}, "
+              f"e.g. {missing[0]}", file=sys.stderr)
+        return 2
+    dirty = [n for n in dirs if (out / n).exists() and any((out / n).iterdir())]
+    if dirty:  # leftovers would be replayed, and billed, with the new set
+        print(f"ERROR: {', '.join(str(out / n) for n in dirty)} already holds files; delete it and re-run "
+              "(nothing is overwritten or removed here)", file=sys.stderr)
+        return 2
+    meta = {"set": str(set_dir), "seed": args.seed, "three_sample": args.three_sample,
+            "three_candidates": info["three_candidates"], "three_kept": info["three_kept"],
+            "input_tokens": args.input_tokens, "output_tokens": args.output_tokens, "dirs": {}}
+    for name, rows in dirs.items():
+        target = out / name
+        target.mkdir(parents=True, exist_ok=True)
+        local = []
+        for m in rows:
+            base = Path(m["file"]).name
+            shutil.copy2(set_dir / m["file"], target / base)  # copy, never move: the set stays whole
+            local.append(dict(m, file=base))
+        with open(target / "manifest.csv", "w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=MANIFEST_FIELDS, extrasaction="ignore")
+            w.writeheader()
+            w.writerows(local)
+        spec = SPLIT_DIRS[name]
+        meta["dirs"][name] = {"model": spec["model"], "system_prompt": spec["system_prompt"],
+                              "prompts": len(rows), "labels": [m["label"] for m in rows]}
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "arms.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
+    print(f"split of {set_dir} into {out} (prompt files copied, the set is untouched)")
+    print(f"3-star group: {info['three_candidates']} prompts"
+          + (f"; --three-sample {args.three_sample} (seed {args.seed}) keeps {info['three_kept']}"
+             if args.three_sample is not None else "; all kept"))
+    print(f"COST at N=1, one call per prompt, BATCH prices (half of the standard cost.* prices in "
+          f"application-example.yml); same assumption as select: {args.input_tokens} input + "
+          f"{args.output_tokens} output tokens per call, ASSUMED, thinking tokens and caching not included; "
+          f"range x1 to x{COST_HIGH_FACTOR}")
+    tot_calls, tot_lo = 0, 0.0
+    for name in ("need-sonnet", "need-sonnet55", "r1-gos"):
+        spec, n = SPLIT_DIRS[name], len(dirs[name])
+        lo = batch_cost(n, spec["model"], args.input_tokens, args.output_tokens)
+        tot_calls += n
+        tot_lo += lo
+        kind = "production prompt" if spec["system_prompt"] == "production" else "R1 system prompt"
+        print(f"  {name}: {n} prompts ({sum(1 for m in dirs[name] if m['group'] == 'go')} go, "
+              f"{sum(1 for m in dirs[name] if m['group'] == 'three')} three) -> {n} calls on "
+              f"{spec['model']}, {kind}: ${lo:,.2f} to ${lo * COST_HIGH_FACTOR:,.2f}")
+    print(f"  total: {tot_calls} calls: ${tot_lo:,.2f} to ${tot_lo * COST_HIGH_FACTOR:,.2f} "
+          f"(primer batches add 1 request per system prefix per batch)")
+    print(f"  training: {len(dirs['training'])} prompts, replayed separately on all models (README step c), "
+          "not in the total")
+    print("  a stored rating is ONE production sample; a replay is not (P0: 20 of 20 identical on the Angel)")
+    print(f"arms: {out / 'arms.json'} (pass --arms-json to compare, with each runs.csv labelled by its "
+          "directory name)")
+    return 0
+
+
 def parse_patch(text):
     olds = {m.group(1): m.group(2) for m in re.finditer(r"```old (\w+)\n(.*?)\n```", text, re.S)}
     news = {m.group(1): m.group(2) for m in re.finditer(r"```new (\w+)\n(.*?)\n```", text, re.S)}
@@ -363,6 +517,154 @@ def md_table(header, rows):
     return out
 
 
+ARM_RE = re.compile(r"^(?P<run>.*)/(?P<model>[A-Z0-9_]+) \[(?P<sp>.*)\]$")
+
+
+def parse_arm(arm):
+    """'<run label>/<model> [<system prompt>]' -> (run label, model, system prompt)."""
+    m = ARM_RE.match(arm)
+    return (m.group("run"), m.group("model"), m.group("sp")) if m else (arm, "", "")
+
+
+def is_stored_arm(arm):
+    return parse_arm(arm)[0] == STORED_RUN
+
+
+def with_stored_arms(manifest, arms):
+    """arms plus, per model that has at least one production-prompt replay of a go/three prompt loaded, a
+    `stored/<model> [production]` arm holding the stored basis rating of every go/three prompt that model
+    rated in production, that some loaded replay touched, and that no loaded production replay of that model
+    covers. One sample, never a replay. A prompt no replay touched (dropped by --three-sample) and a training
+    row get none; a run that replayed everything gets no stored arm, so its report is unchanged."""
+    scored = {m["label"] for m in manifest if m["group"] in ("go", "three") and m["training"] != "1"}
+    touched = set()
+    covered = defaultdict(set)  # model -> go/three labels present in a production replay arm
+    for arm, got in arms.items():
+        run, model, sp = parse_arm(arm)
+        if run == STORED_RUN:
+            continue
+        touched |= set(got) & scored
+        if sp == "production":
+            covered[model] |= set(got) & scored
+    out = dict(arms)
+    for model, labels in covered.items():
+        if not labels:
+            continue
+        stored = {m["label"]: [to_int(m["basis_rating"])] for m in manifest
+                  if m["model"] == model and m["label"] in touched and m["label"] not in labels
+                  and m["label"] in scored and to_int(m["basis_rating"]) is not None}
+        if stored:
+            out[f"{STORED_RUN}/{model} [production]"] = stored
+    return out
+
+
+def model_view(arms, model):
+    """{label: (attempts, 'replayed'|'stored')} over the production-prompt arms of `model`: replays
+    pooled across run labels, a stored rating only where no replay of that prompt exists."""
+    view = {}
+    for arm, got in arms.items():
+        run, m, sp = parse_arm(arm)
+        if m != model or sp != "production":
+            continue
+        for label, vals in got.items():
+            if run == STORED_RUN:
+                view.setdefault(label, (list(vals), "stored"))
+            else:
+                prev = view.get(label)
+                view[label] = ((prev[0] if prev and prev[1] == "replayed" else []) + list(vals), "replayed")
+    return view
+
+
+def _median(vals):
+    return statistics.median(vals) if vals else None
+
+
+def decision_lines(manifest, arms):
+    """The two numbers the plan's thresholds read, one line each, with numerator, denominator and which
+    side is a stored rating and which a replay."""
+    lines = []
+    threes = [m["label"] for m in manifest if m["group"] == "three" and m["training"] != "1"]
+    v55, vs = model_view(arms, "SONNET_55"), model_view(arms, "SONNET")
+    pairs = []
+    for lab in threes:
+        a, b = v55.get(lab), vs.get(lab)
+        if a and b and _median(a[0]) is not None and _median(b[0]) is not None:
+            pairs.append((lab, a[1], _median(a[0]), b[1], _median(b[0])))
+    both = [p for p in pairs if p[1] == "replayed" and p[3] == "replayed"]
+    one_side = [p for p in pairs if p not in both]
+    share = lambda ps, i: sum(1 for p in ps if p[i] >= 4)  # noqa: E731
+    if both:
+        n, k55, ks = len(both), share(both, 2), share(both, 4)
+        lines.append(
+            f"- **D-2 (4-star share of the 3-star sample, both sides replayed, paired on {n} prompts):** "
+            f"SONNET_55 {k55}/{n} ({100 * k55 / n:.1f}%) [{n} replayed] vs SONNET {ks}/{n} "
+            f"({100 * ks / n:.1f}%) [{n} replayed]; SONNET_55 minus SONNET {100 * (k55 - ks) / n:+.1f} pp "
+            "(D-2.1: Batch Near-Term goes back to Sonnet 4.6 at +8 pp or more).")
+    if one_side:
+        n, k55, ks = len(one_side), share(one_side, 2), share(one_side, 4)
+        tag = lambda i: ", ".join(f"{sum(1 for p in one_side if p[i] == k)} {k}"  # noqa: E731
+                                  for k in ("replayed", "stored") if any(p[i] == k for p in one_side))
+        lines.append(
+            f"- **D-2, ONE-SIDED (not a test of D-2.1), {n} prompts where one side is a stored rating:** "
+            f"SONNET_55 {k55}/{n} ({100 * k55 / n:.1f}%) [{tag(1)}] vs SONNET {ks}/{n} "
+            f"({100 * ks / n:.1f}%) [{tag(3)}]. A stored 3-star is 3 by selection, so the stored side is "
+            "0% 4-star by construction: no gap in the direction D-2.1 needs (+8 pp for SONNET_55) can "
+            "show from a stored SONNET_55 side, and none is computed. It shows only how often the "
+            "replayed model rates the other model's 3-stars 4 or higher.")
+    if both or one_side:
+        unpaired = sum(1 for lab in threes if lab in v55 and lab not in vs)
+        if unpaired:
+            lines.append(f"  - {unpaired} 3-star prompts have a SONNET_55 rating and no SONNET one "
+                         "(not a pair, not counted above).")
+    else:
+        lines.append("- **D-2:** not computable here: no 3-star prompt has both a SONNET_55 and a SONNET rating.")
+    gos = [m["label"] for m in manifest if m["group"] == "go" and m["training"] != "1"]
+    r1 = sorted(a for a in arms if not is_stored_arm(a) and parse_arm(a)[1] == "SONNET_55"
+                and parse_arm(a)[2] != "production")
+    for arm in r1:
+        got = arms[arm]
+        vals = {lab: _median(got[lab]) for lab in gos if lab in got and _median(got[lab]) is not None}
+        n, k = len(vals), sum(1 for v in vals.values() if v < 4)
+        if n:
+            lines.append(
+                f"- **D-1 part 2 (arm {arm}):** {k}/{n} go prompts taken below 4 stars ({100 * k / n:.1f}%; "
+                f"cap 15%: {'over' if 100 * k > 15 * n else 'within'}) [R1 side: replayed, median of attempts; "
+                f"go side: stored sky rating >= 4 by selection]; {len(gos) - n} of {len(gos)} manifest gos "
+                "have no rated attempt on this arm.")
+        else:
+            lines.append(f"- **D-1 part 2 (arm {arm}):** not computable: no go prompt has a rated attempt.")
+    return lines
+
+
+def check_arms(arms_meta, manifest, arms):
+    """Problems between arms.json (written by split) and the loaded runs. A run is matched by its run label
+    being a directory name of the split."""
+    problems = []
+    by_label = {m["label"]: m for m in manifest}
+    dirs = arms_meta.get("dirs", {})
+    for arm, got in sorted(arms.items()):
+        run, model, sp = parse_arm(arm)
+        spec = dirs.get(run)
+        if spec is None or run == STORED_RUN:
+            continue
+        if spec["model"] is None:  # training: replayed on every model on purpose
+            continue
+        if model != spec["model"]:
+            problems.append(f"{arm}: directory {run} is for {spec['model']}, the runs are on {model}")
+        if (sp == "production") != (spec["system_prompt"] == "production"):
+            problems.append(f"{arm}: directory {run} expects the {spec['system_prompt']} system prompt, "
+                            f"the runs carry '{sp}'")
+        stray = sorted(set(got) - set(spec["labels"]))
+        if stray:
+            problems.append(f"{arm}: {len(stray)} prompt(s) not in directory {run}, e.g. {stray[0]}")
+        if sp == "production":
+            again = sorted(l for l in got if by_label.get(l, {}).get("model") == model)
+            if again:
+                problems.append(f"{arm}: {len(again)} prompt(s) replayed on the model that rated them, "
+                                f"e.g. {again[0]}")
+    return problems
+
+
 def compare(manifest, arms, premises=None):
     """Markdown report text. `premises` is (by_id, by_slot) or None."""
     by_label = {m["label"]: m for m in manifest}
@@ -371,8 +673,17 @@ def compare(manifest, arms, premises=None):
          "Replay value per prompt = median of the successful attempts. A go is basis >= 4; a "
          "'fall' is a replay median below 4; a 'rise' is a 3-star whose median reaches 4. Training "
          "rows are never pooled.", ""]
+    arms = with_stored_arms(manifest, arms)
     for arm in sorted(arms):
         got = arms[arm]
+        if is_stored_arm(arm):
+            n_go = sum(1 for m in manifest if m["label"] in got and m["group"] == "go")
+            L += [f"## Arm {arm}: STORED RATINGS, NOT A REPLAY", "",
+                  f"- {len(got)} prompts ({n_go} go, {len(got) - n_go} 3-star): the production rating that "
+                  "selected each prompt, one sample from the model that made it. A go is >= 4 and a 3-star is "
+                  "3 by selection, so this arm can show no fall and no rise. It stands in only where that "
+                  "model was not replayed, in the decision lines below.", ""]
+            continue
         med = {lab: (_num(statistics.median(v)) if v else None) for lab, v in got.items()}
         L += [f"## Arm {arm}", ""]
         gos = [m for m in manifest if m["group"] == "go" and m["label"] in got]
@@ -429,6 +740,11 @@ def compare(manifest, arms, premises=None):
                 rows.append((l, "(not in manifest)", "", med[l], got[l], _hard_stop(l, got[l])))
             L += md_table(["label", "case", "stored", "median", "attempts", "Low Hauxley hard stop"], rows)
             L.append("")
+    scored = {m["label"] for m in manifest if m["group"] in ("go", "three") and m["training"] != "1"}
+    replayed = any(not is_stored_arm(a) and set(got) & scored for a, got in arms.items())
+    decisions = decision_lines(manifest, arms) if replayed else []
+    if decisions:
+        L += ["## Decision lines (plan section 6: D-2 and D-1 part 2)", ""] + decisions + [""]
     return "\n".join(L) + "\n"
 
 
@@ -449,6 +765,20 @@ def _hard_stop(name, attempts):
 def cmd_compare(args):
     manifest = read_csv(args.manifest)
     arms = load_runs(args.runs)
+    if any(is_stored_arm(a) for a in arms):
+        print(f"ERROR: a run is labelled '{STORED_RUN}', which compare reserves for stored ratings; "
+              "label it another way (runs.csv,label)", file=sys.stderr)
+        return 2
+    if args.arms_json:
+        try:
+            meta = json.loads(Path(args.arms_json).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            print(f"ERROR: cannot read --arms-json: {e}", file=sys.stderr)
+            return 2
+        problems = check_arms(meta, manifest, arms)
+        if problems:
+            print("ERROR: runs do not match arms.json:\n  " + "\n  ".join(problems), file=sys.stderr)
+            return 2
     premises = load_premises(args.slots) if args.slots else None
     text = compare(manifest, arms, premises)
     out = Path(args.out)
@@ -474,6 +804,16 @@ def main(argv=None):
     s.add_argument("--output-tokens", type=int, default=DEFAULT_OUTPUT_TOKENS)
     s.add_argument("--coastal-ids", help="file of evaluation ids to force to the coastal prompt")
     s.set_defaults(func=cmd_select)
+    sp = sub.add_parser("split", help="split select's set into per-arm directories (trimmed Part D)")
+    sp.add_argument("--set", required=True, help="select's output directory, with manifest.csv")
+    sp.add_argument("--out", required=True, help="new directory: need-sonnet/, need-sonnet55/, r1-gos/, "
+                    "training/, arms.json")
+    sp.add_argument("--three-sample", type=int, default=None, metavar="N",
+                    help="keep a seeded random N of the 3-star group (default: all)")
+    sp.add_argument("--seed", type=int, default=20261014)
+    sp.add_argument("--input-tokens", type=int, default=DEFAULT_INPUT_TOKENS)
+    sp.add_argument("--output-tokens", type=int, default=DEFAULT_OUTPUT_TOKENS)
+    sp.set_defaults(func=cmd_split)
     b = sub.add_parser("build-r1")
     b.add_argument("--system-prompt", required=True)
     b.add_argument("--patch", required=True)
@@ -483,6 +823,8 @@ def main(argv=None):
     c.add_argument("--manifest", required=True, help="manifest.csv written by select")
     c.add_argument("--runs", nargs="+", required=True, metavar="runs.csv[,label]",
                    help="one harness runs.csv per arm run; optional ',label' names it (default: its folder)")
+    c.add_argument("--arms-json", help="arms.json written by split: refuse runs that do not match it "
+                   "(label each runs.csv with its directory name)")
     c.add_argument("--slots", help="premise.py's out/slots.csv, to show premise classes")
     c.add_argument("--out", default="out/part_d.md")
     c.set_defaults(func=cmd_compare)
