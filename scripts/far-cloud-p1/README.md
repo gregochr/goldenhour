@@ -8,7 +8,9 @@ and `cache/`).
 ## 0. Prerequisites
 
 - Python 3, standard library only. Nothing to install.
-- JDK 25 and `ANTHROPIC_API_KEY` in your shell, for the Part D Maven replay only. Never paste the key into a
+- JDK 25 and `ANTHROPIC_API_KEY` in your shell, for the Part D Maven replay only. On a Mac with only JDK 23, add
+  `-Djava.version=23 -Dmaven.compiler.enablePreview=true -DargLine=--enable-preview` to every `./mvnw` command here
+  (the test sources use the class-file API, which JDK 23 treats as preview; without it test compilation fails). Never paste the key into a
   file or command line; export it in the shell that runs Maven.
 - Network to open-meteo.com for `probe.py`, `case.py` and `size.py` (the API has a daily budget; the scripts
   count it and resume from `cache/`). `premise.py` and `replay_set.py` need no network.
