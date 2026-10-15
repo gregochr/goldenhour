@@ -48,7 +48,7 @@ keeping both rows in phase order).
 
 | phase | branch | commit | date | notes |
 |---|---|---|---|---|
-| O0 | `claude/forecast-accuracy-ratings-5fbd0d` | (this PR) | 2026-10-15 | Plan + bundle vendored at `docs/design/outcome-rating/`. No code. Four review lenses at plan time (§5a): backend, frontend, spec fidelity, conventions and sizing — 3 P1s and ~30 P2/P3s, all accepted and folded in. Codex rounds 1–6: seven P1s (provenance: the served result, not the newest cycle; only one that had arrived by the event; the fallback must not admit a late batch's own row — hence `scored_at`, V178; it must honour a stability retraction as of the event; the calibration join must use the resolved row id, not the natural key; the stored `forecast_rating` for a recombined OPEN_FELL slot; and the past-row rule needs the afterglow-elapsed test, not withdrawal alone), all accepted. |
+| O0 | `claude/forecast-accuracy-ratings-5fbd0d` | (this PR) | 2026-10-15 | Plan + bundle vendored at `docs/design/outcome-rating/`. No code. Four review lenses at plan time (§5a): backend, frontend, spec fidelity, conventions and sizing — 3 P1s and ~30 P2/P3s, all accepted and folded in. Codex rounds 1–7: nine P1s (provenance: the served result, not the newest cycle; only one that had arrived by the event; the fallback must not admit a late batch's own row — hence `scored_at`, V178; it must honour a stability retraction as of the event; the calibration join must use the resolved row id, not the natural key; the stored `forecast_rating` for a recombined OPEN_FELL slot; the past-row rule needs the afterglow-elapsed test, not withdrawal alone; retraction by submission instant; and no guessed star for a canopy place after a post-event cache replacement), all accepted. |
 
 ---
 
@@ -319,15 +319,26 @@ CREATE INDEX idx_outcome_rating_slot ON outcome_rating (location_id, event_date,
   event**: the slot's latest `SKIPPED_STABILITY` disposition with `created_at <= eventInstant`
   (a new bounded sibling of `ForecastRunDispositionRepository.findLatestStabilitySkipTimestamps`,
   by location name, date and type — the 30-day retention covers T-4) retracts any row whose
-  availability instant precedes it, exactly as `EvaluationViewService.isRetractedByStabilitySkip`
-  (`:611–621`) does at serve time, because a row the pipeline had already declined to re-look at
+  **submission instant** (`forecastRunAt.toInstant(UTC)`, never `scored_at`) precedes it, exactly
+  as `EvaluationViewService.isRetractedByStabilitySkip` (`:611–621`) compares at serve time — a
+  batch row submitted before a skip but scored in place after it (`ForecastResultHandler` scores
+  superseded rows unconditionally; the serve path refuses their cache write) was never served,
+  and `scored_at` would read it as unretracted (Codex, #1185 round 7); `scored_at` serves the
+  availability bound alone — because a row the pipeline had already declined to re-look at
   was absent from the map at the event; a skip recorded AFTER the event is ignored (it retracts
   what the reader saw later, not what they saw then — which is also why step 1's live accessor,
   whose retraction is as-of-now, can return nothing for a slot step 2 then correctly answers).
   With `pipelineRunId = null`. **The step-2 candidate is resolved on every write even when step 1
   answered**, and its id is stored as `forecastEvaluationId` (null when there is none);
-  `forecastRating` is step 1's served `rating` when step 1 answered, else the step-2 row's
-  `rating` (a triage row's is null). Neither →
+  `forecastRating` is step 1's served `rating` when step 1 answered; when step 2 stands in, the
+  row's `rating` ONLY for a place with no canopy type (no WOODLAND, no BLUEBELL in
+  `LocationEntity`'s types — a single-lane place, whose row rating IS what the cache served),
+  and **null for a canopy-bearing place**: its served star may have been recombined from a sky
+  and a bluebell result the cache has since replaced (a newer batch landing after the event is
+  latest-wins, §1 #5's `cached_evaluation`), no table keeps that combined value, and storing the
+  sky row's star would calibrate against a number the reader never saw (Codex, #1185 round 7). A
+  null `forecastRating` means "the star seen is not recoverable" and the calibration gate skips
+  the rating (§2 #8); the admin footer's run instant is unaffected. Neither →
   all null — the slot was shown with no forecast behind
   it; the rating is still recorded (the block mounts on `event.past` when the place has no row of
   its own) and the calibration gate, which pairs on a scored `forecast_evaluation` row, simply
@@ -641,9 +652,10 @@ ADMIN only; the block never mounts it for another role.
 `ForecastEvaluationRepository` gains `findCalibrationPairsFromRatings(from, to)`: a constructor
 projection over the theta join `FROM ForecastEvaluationEntity e, OutcomeRatingEntity r WHERE
 e.id = r.forecastEvaluationId AND e.rating IS NOT NULL AND r.rating IS NOT NULL AND r.eventDate
-BETWEEN :from AND :to`, projecting **`COALESCE(r.forecastRating, e.rating)` as the predicted
-rating** (the star the reader saw, which for a recombined OPEN_FELL slot is not the sky row's —
-§2 #1) with the row's own `daysAhead`, `forecastRunAt`, `evaluationModel` and potentials —
+AND r.forecastRating IS NOT NULL`, projecting **`r.forecastRating` as the predicted rating**
+(the star the reader saw, captured at write time — never the row's `e.rating`, which for a
+recombined OPEN_FELL slot is the sky lane alone, §2 #1; a rating with no captured star is not a
+pair) with the row's own `daysAhead`, `forecastRunAt`, `evaluationModel` and potentials —
 **joined on the row id the rating resolved at write time** (§2 #1), never
 on the natural key: a natural-key join would admit every rated row for the slot, and
 `latestPerSlotHorizon` would then crown a batch that landed after the event (Codex, #1185 round
@@ -724,9 +736,11 @@ endpoint: LITE GET 200 `[]`, LITE PUT 403, admin-all PRO 403), `OutcomeRatingRep
    taken on `forecastRunAt`; an unregioned location (step 1 skipped); a retracted result (not
    returned by the live accessor → step 2); `forecastEvaluationId` set from step 2's candidate
    whenever one exists, step 1 answering or not, and null otherwise; `forecastRating` the served
-   result's rating when step 1 answered (a recombined 3 over a sky row's 4) and the row's when not; a row scored before the event with a stability skip
-   recorded between its scoring and the event (retracted → an earlier unretracted row, else nulls);
-   the same row with the skip recorded after the event (it stands).
+   result's rating when step 1 answered (a recombined 3 over a sky row's 4) and the row's when not; a row SUBMITTED before a stability skip and
+   scored after it, both before the event (retracted — the skip is compared with `forecastRunAt`,
+   not `scored_at` → an earlier unretracted row, else nulls); a row submitted after the skip (it
+   stands); the same row with the skip recorded after the event (it stands); `forecastRating`
+   from a step-2 row for a sky-only place, and null for a place with a BLUEBELL or WOODLAND type.
 4. `OutcomeRatingStore.upsert` — no `@Transactional`, the javadoc citing §1 #8; the race test.
    `rate(...)`: the refusals in order (unknown user 404, unknown location 404, rating out of range
    400 at 0 and 6 with 1 and 5 accepted and null accepted, HOURLY 400, event not passed 400 at
@@ -942,8 +956,8 @@ Files: `model/CalibrationPair.java` (the second constructor, `outcomeKey`, `slot
 `service/ForecastCalibrationService.java`, `entity/UserRole.java` (javadoc); tests
 `ForecastEvaluationRepositoryTest` (beside the `findCalibrationPairs_*` neighbours at `:713–766`:
 a rating row pairs with the row its id names and with no other row of the slot, even a newer one;
-the pair's predicted rating is `forecastRating` when set (a recombined 3 over the row's 4) and the
-row's otherwise;
+the pair's predicted rating is `forecastRating` (a recombined 3 over the row's 4); a rating with a
+null `forecastRating` never pairs, whatever the row's rating;
 a not-seen row does not; a null id pairs with nothing; two users give two pairs), `ForecastCalibrationServiceTest`
 (two users of one slot survive `latestPerSlotHorizon`; one row in each table survives; two RUNS of
 one forecast for one user still collapse to the newest; `outcomesInRange` counts both tables).
@@ -1145,6 +1159,13 @@ roster's LATEST time rather than `event.past` (§2 #2, §2 #5, §4 #4, O3a step 
 place's served rating is recombined from sky and bluebell results with no single `forecast_evaluation`
 row holding it, so the rating stores `forecast_rating`, the star the reader saw, and the calibration
 pair projects it over the row's own (§2 #1, §2 #8, O5b).
+
+**Codex, round 7 on #1185 (two P1s, accepted):** (a) the fallback's retraction compares the skip
+with the row's SUBMISSION instant, as serve time does — a row submitted before the skip and scored
+after it was never served; `scored_at` is the availability bound only (§2 #1, O1 step 3); (b) a
+canopy-bearing place's combined star, once replaced in the cache by a batch landing after the
+event, is not recoverable from any table, so a step-2 fallback stores no served star for such a
+place and the calibration gate requires one (§2 #1, §2 #8, O5b).
 
 ---
 
