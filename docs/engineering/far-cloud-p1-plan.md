@@ -1,7 +1,6 @@
 # P1: wasted trips, the canvas rule and far decks, measured on the history we already have
 
-**Status:** revised after adversarial review, 2026-10-14. Tools built (`scripts/far-cloud-p1/`, code-reviewed); Parts B and D selection have run on the owner's export. The live probe's first
-run failed four checks; §11 records what the API actually serves and what changed in Parts A and C because of it. The review record is §10, and the owner's decisions are §9.
+**Status:** revised after adversarial review, 2026-10-14. Tools built (`scripts/far-cloud-p1/`, code-reviewed). Exports done; Part B has run and the Part D set is built (selection run) on the owner's export. The live probe FAIL (4) on 2026-10-14, on Parts A/C assumptions; fixed and passing in #1166. §11 records what the API actually serves and what changed in Parts A and C because of it. D-1/D-2 thresholds decided (§6). The review record is §10, and the owner's decisions are §9.
 
 **Parent:** `far-cloud-lid-plan.md` §6 P1, which pre-registered hypotheses H1–H5. This plan builds P1
 and adds the analyses the reviews showed P1 cannot do without. Where it departs from a P1 rule, it
@@ -310,17 +309,28 @@ committed. **Stored prompts are pruned after 30 days**, so the prompt export is 
 - **R2 (no raise):** a go that rose from ≤ 3 on the previous rated run of the same model is held back.
 - **R3 (R1 ∪ R2).**
 
-**Thresholds, proposed for the owner (§9 Q3):**
-- **D-1. A rule is ready for the owner to consider for production** when all of these hold:
-  1. Part D shows it demotes Angel-shape gos and leaves Low Hauxley and the prompt-regression suite
-     intact.
-  2. Part B's primary test shows its demoted gos fail P-low more often than kept gos, with a risk
-     difference interval above 0.
-  3. Its cost side (demoted gos with an ERA5 canvas) is at most 25% of its demotions.
-  Without outcomes, a rule that passes changes **wording or confidence**: the star shows a stated
-  ceiling ("could be 3–4★"), shown on the same surface as the star. A star change waits for Part E.
-- **D-2. A model switch** is an owner call on Part D and Part B evidence, with hypothesis M as its
-  record. It is reversible on the Models screen, and needs no outcomes.
+**Thresholds (owner decision, 2026-10-14; §9 Q3):**
+- **D-1. A rule is ready for the owner to consider for production** when all four hold:
+  1. Replay (Part D): the rule gives the Angel prompt 3★ or below in at least 15 of 20 runs, and Low
+     Hauxley stays 4★ in at least 18 of 20. No prompt-regression failure beyond the one Sonnet 5.5
+     already fails.
+  2. Replay cost: of the go prompts in the set (658 on 2026-10-14), the rule demotes at most 15%. More
+     is a blanket downgrade, not a rule.
+  3. Premise (Part B): demoted gos fail P-low more often than kept gos, with the 95% block-bootstrap
+     interval entirely above 0 and the count gate met. Until Part B can meet this (it cannot while
+     every Sonnet 5.5 go is premise-unknown), conditions 1 and 2 together license a change to
+     **wording or confidence only**, never a star.
+  4. Cost side: demoted gos with an ERA5 canvas are at most 25% of demotions. On 2026-10-14 every
+     drafted rule read 84–86% on Part B, so this is expected to fail and to select the "Part B cannot
+     see the class" branch below; that is a result, not a reason to loosen it.
+  A rule that passes changes **wording or confidence**: the star shows a stated ceiling ("could be
+  3–4★"), on the same surface as the star. A star change waits for Part E.
+- **D-2. Batch Near-Term goes back to Sonnet 4.6** if either holds on the replay:
+  1. Sonnet 5.5 gives 4★ to at least 8 percentage points more of the three-star sample (prompts whose
+     stored rating was 3★; 658 on 2026-10-14) than Sonnet 4.6 does.
+  2. Sonnet 5.5's Angel result is 4★ in more than half of its 20 runs while Sonnet 4.6's is not.
+  Reversal: switch back to Sonnet 5.5 when a replay on a fresh month shows the gap under 4 points.
+  Hypothesis M is the record; the switch is reversible on the Models screen and needs no outcomes.
 
 **What a confidence mark must do (D-1 above):**
 - It must be shown **on the star itself**, on every surface that shows the star.
@@ -393,8 +403,8 @@ Everything lives under `scripts/far-cloud-p1/`, plus one test-only Java change. 
    - Sonnet 4.6 will be deprecated eventually, so this buys time and is not the fix.
    - Before the switch, run the prompt-regression suite on 4.6. `CLAUDE.md` records that 5.5 fails one
      case 4.6 passes, which is the safe direction.
-2. Part D's spend (§2, printed exactly before the run).
-3. The thresholds in §6 (D-1, D-2 and the branches).
+2. Part D's spend (§2, printed exactly before the run) — **not yet approved** as of 2026-10-14; the printed range was $174–261 for 1,316 prompts × 3 runs × 4 arms, excluding Sonnet 5.5 thinking tokens.
+3. The thresholds in §6 (D-1, D-2 and the branches) — **decided 2026-10-14**, values in §6.
 4. Part E's protocol: which locations, and who records.
 5. Whether Part A should also run for the other training cases.
 
@@ -479,3 +489,22 @@ values. All five probed models serve it from the export start.
 - The day-before layers cannot be reconstructed from any host found. If Open-Meteo adds layer
   `_previous_dayN`, probe check (b) reports "NOW SERVED" as an INFO and the arm can be restored.
 
+## 12. Plan from 2026-10-15
+
+Written after the exports, Part B, the Part D set, the probe fix (#1166) and the harness batch mode (#1169) all landed on 2026-10-14. Waits are stated where they exist.
+
+**This week**
+1. **Keep the replay set.** It is built at `/tmp/p1-replay` (1,316 prompts plus the two training cases), so prompt pruning no longer threatens Part D; macOS clears `/tmp` on reboot, so copy it somewhere permanent first.
+2. **Run Part D as Option A in batch mode:** two arms, one run each — the production prompt on `SONNET_55,SONNET`, and the R1 prompt on `SONNET_55` — with `REPLAY_BATCH=true REPLAY_N=1` (README §3). Printed floor about $23–35 at batch prices plus Sonnet 5.5 thinking tokens; the owner approves the printed figure on each arm's first run. Haiku is dropped (not the model under suspicion) and repeats are bought later only where the arms disagree.
+3. **Read D-2 and D-1 parts 1 and 2** from `stats.py` over the two `runs.csv` files. That decides the Sonnet 4.6 switch on evidence and says whether R1 is a rule or a blanket downgrade.
+4. **If D-2 says switch:** run the prompt-regression suite on Sonnet 4.6 first, then flip Batch Near-Term on the Models screen (§9 Q1).
+5. **Part E starts now** (§2 Part E): 5–8 named locations, two with a westward high horizon like the Angel; every go recorded with `POST /api/outcome` whatever the sky did.
+
+**Two to three weeks**
+6. **ERA5 verification catching up with Sonnet 5.5.** At the 2026-10-14 export the latest verified `target_date` was 2026-10-04 and Sonnet 5.5's first run was 2026-10-06, so every Sonnet 5.5 go was premise-unknown and Part B judged Haiku's gos only. The hourly `cloud_verification_backfill` job walks forward in slices; check `GET /api/admin/cloud-verification/backfill/status` weekly, and when verification passes about 2026-10-14, re-export `p1_forecasts.csv` and re-run Part B (free, no network). That is the first Part B that can judge Sonnet 5.5 gos and the Angel row.
+7. **Part C in the background**, now the probe passes: `size.py` under the 60-call daily Open-Meteo weight, so weeks; drop it if steps 3 and 6 settle the question.
+8. **Part A** (§9 Q5): about a week of calls, only if step 3 leaves the Angel mechanism open.
+
+**Months**
+9. **Twenty outcomes** at a few a week; the report dates its finish from the rate achieved. A star change waits for this.
+10. **Prospective far-deck data** accrues daily from the V175/V176 capture already in production, feeding H1, H2 and H5 from stored values with no fetch.
