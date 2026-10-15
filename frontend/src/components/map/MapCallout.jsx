@@ -453,6 +453,11 @@ export default function MapCallout({
   // collapsed→open, or the strip appearing/disappearing entirely) is a repaint trigger, the same
   // shape every dependency above already takes.
   //
+  // ⚠️ And `event?.past` (outcome-rating-plan.md §2 #2) — a window goes past with its row id
+  // unchanged (`solar:DATE:TYPE` is a filler's id until the clock elapses it, a past row's after),
+  // and a past window hides the Drive / Leave by facts, so the card changes height with no other
+  // dependency here moving.
+  //
   // ⚠️ And `hourlyRows` — a wildlife hide's comfort summary is 2–5 lines of text whose number and
   // height depend on which readings are served for the window's date, and the forecast refresh that
   // lands them can arrive with the card already open. Stable between ordinary renders (the caller
@@ -460,7 +465,7 @@ export default function MapCallout({
   // `[]`), but NOT across polls: `useForecasts` rebuilds `forecastsByDate` on every refresh, so a
   // poll hands a new array with the same contents and this fires once — one extra measure, no loop.
   useEffect(() => { repaintNow(); }, [
-    paint, stripOpen, event?.id, rating, ratingKnown, ratingRetrying,
+    paint, stripOpen, event?.id, event?.past, rating, ratingKnown, ratingRetrying,
     tideAlignmentIndex, tideStripHeight, bandKey, hourlyRows, repaintNow,
   ]);
 
@@ -581,6 +586,7 @@ export default function MapCallout({
     distanceMiles,
     eventTimeIso,
     bortleClass: location.bortleClass ?? null,
+    past: Boolean(event?.past),
   });
 
   const coastalTidal = isCoastalTidalLocation(location);
@@ -1049,14 +1055,20 @@ export default function MapCallout({
           >
             Zoom to it
           </button>
-          <button
-            type="button"
-            data-testid="map-callout-open-in-plan"
-            aria-haspopup="dialog"
-            onClick={() => onOpenInPlan?.()}
-          >
-            Open in Plan
-          </button>
+          {/* Withheld on a PAST window (outcome-rating-plan.md §4 #14): the location sheet this opens
+              is built from the briefing's windows, which never hold a past one, so the press would
+              open the place's upcoming windows under a card about one that has gone. "Zoom to it"
+              stays. */}
+          {!event?.past && (
+            <button
+              type="button"
+              data-testid="map-callout-open-in-plan"
+              aria-haspopup="dialog"
+              onClick={() => onOpenInPlan?.()}
+            >
+              Open in Plan
+            </button>
+          )}
         </div>
       </div>
     </>,
@@ -1089,6 +1101,8 @@ MapCallout.propTypes = {
     dayLabel: PropTypes.string,
     time: PropTypes.string,
     badges: PropTypes.array,
+    /** A window that has gone (outcome-rating-plan.md §2 #2): hides Drive / Leave by and "Open in Plan". */
+    past: PropTypes.bool,
   }),
   driveMinutes: PropTypes.number,
   distanceMiles: PropTypes.number,

@@ -4949,6 +4949,25 @@ button.wf-hc.also.on:hover {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+/* The PAST tag (outcome-rating-plan.md §2 #2): where a verdict word would sit on a window that has
+   gone. mono 9.5px, uppercase, .08em, ink-3, 1px border-light, radius 4, padding 1px 5px — the
+   design's `.wpast`, every value an existing token. `--color-plex-text-muted` IS the design's ink-3,
+   and inside the Map tab it already resolves to the passing ink (the `.wf-body--map` override), so
+   this clears 4.5:1 on the pill without a rule of its own. The text is "Past" in the DOM so the
+   pill's accessible name says it in words; the case is this rule's. `flex: none` because it is a
+   flex item beside a label that shrinks, and a tag clipped to "PA" says nothing. */
+.wf-win-past {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--color-plex-text-muted);
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
 .wf-win-caret {
   font-size: 9px;
   color: var(--color-plex-text-muted);

@@ -22,6 +22,7 @@ import { buildRegionBestIndex } from '../utils/regionsJump.js';
 import { buildRegionVerdictIndex } from '../utils/mapVerdict.js';
 import { foreignModalOver } from '../utils/mapForeignModal.js';
 import { buildWindowTideIndex } from '../utils/mapTideFit.js';
+import { buildPastSolarWindows } from '../utils/mapEvents.js';
 import { formatTime } from '../utils/briefingDisplay.js';
 
 /**
@@ -440,6 +441,20 @@ export default function WindowFirstMapPane({
     () => buildEclipseIndex(briefing?.days), [briefing?.days],
   );
 
+  /**
+   * The Map tab's PAST windows (outcome-rating-plan.md §2 #2): every (date, targetType) the
+   * locations hold at least one forecast row for with {@code date <= today}, each with the earliest
+   * {@code solarEventTime} among its rows — the instant that decides whether the window has
+   * elapsed. Built here, from {@code forecastsByDate}, and never from the briefing: the briefing
+   * withdraws a window once it is over, which is exactly when this list starts to matter. The
+   * window control's rows, the pane's rating reads and the forwarding rule are all derived from it
+   * in {@code MapView}; a filter/min over served rows, the already-licensed class (CLAUDE.md
+   * Backend-heavy), reading no rating.
+   */
+  const pastSolarWindows = useMemo(
+    () => buildPastSolarWindows(locations, todayStr), [locations, todayStr],
+  );
+
   // The briefing's served tide for every window it carries (rendered or not), with its event time.
   const tideByWindow = useMemo(
     () => buildWindowTideIndex(briefing?.days, formatTime), [briefing?.days],
@@ -638,6 +653,9 @@ export default function WindowFirstMapPane({
         // mapEvents.js` uses this both to add unscored solar rows beyond the briefing horizon and
         // to decide whether a picked EV row's date may be forwarded via `onSelectDate` at all.
         forecastDates={dates}
+        // The past windows the forecast list holds rows for (outcome-rating-plan.md §2 #2) — what
+        // lets the window control step back onto a window the briefing has already withdrawn.
+        pastSolarWindows={pastSolarWindows}
         autoEventType={autoEventType}
         // Withheld outright for a structured handoff (`isStructuredHandoff`) — see this component's
         // own `planHandoff` doc note just above: a structured payload's region/location/event ride

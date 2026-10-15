@@ -99,9 +99,10 @@ export default function WindowControl({
    */
   function verdictAt(index) {
     const row = index >= 0 && index < events.length ? events[index] : null;
-    return row ? (verdicts?.get(row.id) ?? null) : null;
+    // A PAST row has no verdict whatever the map holds (outcome-rating-plan.md §2 #2): no tint, no tick.
+    return row && !row.past ? (verdicts?.get(row.id) ?? null) : null;
   }
-  const activeVerdict = active ? (verdicts?.get(active.id) ?? null) : null;
+  const activeVerdict = active && !active.past ? (verdicts?.get(active.id) ?? null) : null;
 
   /**
    * A stepper's accessible name, carrying the neighbour's verdict when there is one.
@@ -116,6 +117,17 @@ export default function WindowControl({
   function stepLabel(base, verdict) {
     const word = verdict ? VERDICT_LABEL[verdict.tier] : null;
     return word ? `${base}, ${word}` : base;
+  }
+  /**
+   * One stepper's accessible name for the neighbour at {@code index}: the bare base when the
+   * stepper is disabled, the neighbour's verdict word when it has one, and "past" when it is a
+   * PAST window — which has no verdict (it is `served: false`) and whose word, on the pill and
+   * here, is the same one (outcome-rating-plan.md §2 #2).
+   */
+  function stepName(base, index, disabled) {
+    if (disabled) return base;
+    const row = index >= 0 && index < events.length ? events[index] : null;
+    return row?.past === true ? `${base}, past` : stepLabel(base, verdictAt(index));
   }
 
   // A press on the MAP never dismisses — `useOutsideDismiss` carries that rule for all four map
@@ -200,7 +212,7 @@ export default function WindowControl({
       <button
         type="button"
         data-testid="wf-win-prev"
-        aria-label={stepLabel('Previous event', atStart ? null : verdictAt(activeIndex - 1))}
+        aria-label={stepName('Previous event', activeIndex - 1, atStart)}
         className="wf-win-step"
         disabled={atStart}
         onClick={() => step(-1)}
@@ -269,7 +281,13 @@ export default function WindowControl({
             {' '}
             <Medallion kind={active.pickKind} />
             {' '}
-            <VerdictCell verdict={activeVerdict} scopeIsArea={scopeIsArea} />
+            {/* A PAST window (outcome-rating-plan.md §2 #2) wears this tag where a verdict would be:
+                it is `served: false`, so it has no verdict, tint or tick, and the pill states what
+                it IS. The DOM text is "Past" — the stylesheet uppercases it — so the accessible name
+                says "past" in words. */}
+            {active.past
+              ? <span className="wf-win-past" data-testid="wf-win-past">Past</span>
+              : <VerdictCell verdict={activeVerdict} scopeIsArea={scopeIsArea} />}
           </>
         ) : (
           // The map is on a date/event this list has no row for — an ordinary state (the map's
@@ -284,7 +302,7 @@ export default function WindowControl({
       <button
         type="button"
         data-testid="wf-win-next"
-        aria-label={stepLabel('Next event', atEnd ? null : verdictAt(activeIndex + 1))}
+        aria-label={stepName('Next event', activeIndex + 1, atEnd)}
         className="wf-win-step"
         disabled={atEnd}
         onClick={() => step(1)}
@@ -438,6 +456,11 @@ WindowControl.propTypes = {
     time: PropTypes.string,
     bestRating: PropTypes.number,
     scored: PropTypes.bool,
+    /**
+     * A solar window that has gone (outcome-rating-plan.md §2 #2): the pill wears a `Past` tag where
+     * a verdict would be, and the steppers name it "past".
+     */
+    past: PropTypes.bool,
     badges: PropTypes.array,
     rosterNote: PropTypes.string,
     /** `'best'` / `'also'` when this window is one of the forecast's two served picks. */
@@ -687,7 +710,12 @@ function WindowRow({ row, active, onSelect }) {
         </span>
       </span>
       <span className="wf-win-row-score">
-        {row.scored ? (
+        {/* A PAST row says so in words, the pill's own tag: without it the row read as an unscored
+            filler ("—") to sight and to a screen reader alike. Interim — the EARLIER group
+            (outcome-rating-plan.md §2 #2, O3b) replaces this cell with `Not rated` / `{n} rated`. */}
+        {row.past ? (
+          <span className="wf-win-past" data-testid="wf-win-row-past">Past</span>
+        ) : row.scored ? (
           <>
             <i aria-hidden="true" style={{ background: rampHex(row.bestRating) }} />
             {row.bestRating}&#9733; best
@@ -712,6 +740,8 @@ WindowRow.propTypes = {
     time: PropTypes.string,
     bestRating: PropTypes.number,
     scored: PropTypes.bool,
+    /** A window that has gone — the score cell prints the Past tag instead of "—". */
+    past: PropTypes.bool,
     badges: PropTypes.array,
     rosterNote: PropTypes.string,
     /** `'best'` / `'also'` when this window is one of the forecast's two served picks. */

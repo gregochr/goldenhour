@@ -346,6 +346,15 @@ export function isNightOver(date, { todayStr, nightDate = null }) {
  * trigger, and {@code MapView}'s night-row picks and aurora auto-jump — so a solar date can never
  * borrow the licence.
  *
+ * <p>⚠️ <b>A PAST SOLAR selection is the second such exemption, on the same terms</b>
+ * (outcome-rating-plan.md §2 #2). The Map tab's window control can now step back onto a window that
+ * has gone (a {@code past} row, {@code mapEvents.isPastSolarWindow}) and {@code MapView} forwards it
+ * with {@code selectedIsPast}. The flag is provenance, never inferred from the value — a stale past
+ * pick without it falls through to today-forward exactly as a stale solar date always did, so a
+ * reload cannot hold the map on a day that went — and it is usable only when the date is in {@code
+ * allDates} and not after today (today's own elapsed window is a past selection on today's date).
+ * The night exemption above is untouched, and wins if both flags arrive.
+ *
  * <p><b>{@code null} only for a genuinely empty list</b>, where {@code App} does not mount the Map
  * pane at all — returning a date there would be inventing a domain out of nothing.
  *
@@ -356,6 +365,8 @@ export function isNightOver(date, { todayStr, nightDate = null }) {
  * @param {?string} args.selectedDate the date the reader explicitly chose, if any
  * @param {boolean} [args.selectedIsNight] whether that choice NAMED A NIGHT (the aurora banner's
  *   route) rather than a calendar day — never inferred from the value
+ * @param {boolean} [args.selectedIsPast] whether that choice NAMED A PAST SOLAR WINDOW (a `past`
+ *   row of the window control) — provenance, like {@code selectedIsNight}, never inferred
  * @param {?string} args.autoDate {@code computeAutoSelection}'s date, if any
  * @param {string[]} args.allDates every date the forecast endpoint returned, sorted
  * @param {string} args.todayStr the UK civil today ({@link ukDateStr})
@@ -364,7 +375,8 @@ export function isNightOver(date, { todayStr, nightDate = null }) {
  * @returns {?string}
  */
 export function resolveMapDate({
-  selectedDate, selectedIsNight = false, autoDate, allDates, todayStr, nightDate = null,
+  selectedDate, selectedIsNight = false, selectedIsPast = false, autoDate, allDates, todayStr,
+  nightDate = null,
 }) {
   const dates = Array.isArray(allDates) ? allDates : [];
   const notPast = (d) => d >= todayStr;
@@ -372,10 +384,10 @@ export function resolveMapDate({
   // tab's forwarding rule also reads (`mapEvents.isForwardableRow`), so the pane hands over only
   // nights this function will take. The LIST may still offer one it would refuse — the night on
   // screen once it ends — and the forwarding rule keeps that one local.
-  const usable = (d, isNight = false) => Boolean(d)
-    && (isNight ? !isNightOver(d, { todayStr, nightDate }) : notPast(d))
+  const usable = (d, isNight = false, isPast = false) => Boolean(d)
+    && (isNight ? !isNightOver(d, { todayStr, nightDate }) : isPast ? d <= todayStr : notPast(d))
     && dates.includes(d);
-  if (usable(selectedDate, selectedIsNight)) return selectedDate;
+  if (usable(selectedDate, selectedIsNight, selectedIsPast)) return selectedDate;
   if (usable(autoDate)) return autoDate;
   return dates.find(notPast) ?? (dates.length > 0 ? todayStr : null);
 }

@@ -55,12 +55,21 @@ export function otherWindow(events, activeIndex, verdicts) {
   // "next" when nothing on screen matches the roster at all.
   const active = ((activeIndex % n) + n) % n;
   const tierOf = (row) => verdicts?.get(row.id)?.tier ?? null;
+  // ⚠️ A PAST row (outcome-rating-plan.md §2 #2) is never named, in the scan or the fallback: the
+  // summary points at a window the reader can still plan for, and a window that has gone is neither
+  // an alternative nor, with no verdict (`tierOf` reads null), anything the all-Poor test could
+  // rule out. Without the skip every past row passed the `!== 'STAND_DOWN'` test and led the wrap.
   for (let step = 1; step < n; step += 1) {
     const idx = (active + step) % n;
-    if (tierOf(list[idx]) !== 'STAND_DOWN') return list[idx];
+    if (!list[idx].past && tierOf(list[idx]) !== 'STAND_DOWN') return list[idx];
   }
-  // Every OTHER row is STAND_DOWN — the all-Poor fallback: the very next row, whatever its tier.
-  return list[(active + 1) % n];
+  // Every OTHER live row is STAND_DOWN — the all-Poor fallback: the very next row that has not gone,
+  // whatever its tier. Null when every other row is past.
+  for (let step = 1; step < n; step += 1) {
+    const idx = (active + step) % n;
+    if (!list[idx].past) return list[idx];
+  }
+  return null;
 }
 
 /** Whether `row` is a night row (astro or aurora) — the peek's own "no verdict, show a star
