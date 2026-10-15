@@ -151,6 +151,7 @@ vi.mock('../components/markerUtils.js', async (importOriginal) => {
 
 import MapView from '../components/MapView.jsx';
 import { buildRegionVerdictIndex } from '../utils/mapVerdict.js';
+import { buildPastSolarWindows } from '../utils/mapEvents.js';
 import {
   STOPS_VERDICT, STOPS_TEMP, setMode, rampHex,
 } from '../utils/scoreRamp.js';
@@ -3924,5 +3925,177 @@ describe('MapView heat — the pill’s time follows the scope, not the whole ca
     openFilters();
     fireEvent.click(screen.getByRole('button', { name: 'Everywhere' }));
     expect(pillTime()).toHaveTextContent('16:05');
+  });
+});
+
+/**
+ * The heat field on a PAST window (outcome-rating-plan.md §2 #3, O3c) — `MapView`'s half.
+ *
+ * <p>The pane lists a past window in `heat.windows` (flagged `past: true`) and gives it a point set;
+ * `MapView` must paint it, show the colour key only when something is rated behind it, and never let
+ * a `past` entry stand in for a window it has not itself judged to be past. The pane's half —
+ * building the entries and points from the forecast rows — is `WindowFirstMapPaneHeat.test.jsx`.
+ */
+describe('MapView heat — a past window', () => {
+  const YESTERDAY = '2026-01-14';
+
+  const pastLocations = (rating = 4) => SPOTS.map((s) => ({
+    id: s.id,
+    name: `${s.name}-${markerNonce}`,
+    lat: s.lat,
+    lon: s.lng,
+    regionName: s.rid,
+    bortleClass: s.bortleClass,
+    locationType: ['LANDSCAPE'],
+    forecastsByDate: new Map([[YESTERDAY, {
+      sunset: { rating, solarEventTime: `${YESTERDAY}T16:10:00` },
+    }]]),
+  }));
+
+  const pastEntry = (overrides = {}) => ({
+    key: `${YESTERDAY}:SUNSET`,
+    date: YESTERDAY,
+    targetType: 'SUNSET',
+    past: true,
+    bestRating: 4,
+    confidence: null,
+    conf: 0.82,
+    ...overrides,
+  });
+
+  const pastHeat = ({ entry = pastEntry(), points = [pointOf(SPOTS[0], 4), pointOf(SPOTS[2], 2)] } = {}) => heatProp({
+    windows: [...WINDOWS, entry],
+    pointsByKey: new Map([...POINTS_BY_KEY, [`${YESTERDAY}:SUNSET`, points]]),
+  });
+
+  async function renderPast(heat, extra = {}, rating = 4) {
+    const locations = pastLocations(rating);
+    return renderMap({
+      heat,
+      locations,
+      pastSolarWindows: buildPastSolarWindows(locations, TODAY),
+      date: YESTERDAY,
+      forecastDates: [YESTERDAY, TODAY, TOMORROW],
+      autoEventType: 'SUNSET',
+      ...extra,
+    });
+  }
+
+  it('paints the past window\'s own points, at the inferred confidence', async () => {
+    await renderPast(pastHeat());
+    await screen.findByTestId('map-heat-layer');
+
+    expect(heatLayerProps.last.points.map((p) => p.name)).toEqual(['Bamburgh', 'Wastwater']);
+    expect(heatLayerProps.last.conf).toBe(0.82);
+  });
+
+  it('shows the colour key for a rated past window and says nothing about it being unscored', async () => {
+    await renderPast(pastHeat());
+
+    expect(screen.getByTestId('wf-map-heat-legend')).toHaveTextContent('Poor');
+    expect(screen.queryByTestId('wf-map-heat-unscored')).toBeNull();
+    expect(screen.getByTestId('wf-win-past')).toBeInTheDocument();
+  });
+
+  it('withholds the key and names the window unscored when nothing is rated behind the field', async () => {
+    // A window whose only rated rows are a wood's: the pane reads `bestRating` null from the painted
+    // points (pinned there), and here the key must go with it rather than sit over an empty field.
+    await renderPast(pastHeat({ entry: pastEntry({ bestRating: null }), points: [] }), {}, null);
+
+    expect(screen.getByTestId('wf-map-heat-unscored')).toHaveTextContent('This event is not scored yet');
+    expect(screen.queryByTestId('wf-map-heat-legend')).toBeNull();
+    expect(heatLayerProps.last.points).toEqual([]);
+  });
+
+  it('⚠️ withholds the key but NOT contradicts the chips: stars held by unpainted places silence the line', async () => {
+    // The pane's `bestRating` counts painted points only, so a past window rated solely on places
+    // the field withholds reads null while every chip carries a star. "Not scored yet" beside rated
+    // chips is the contradiction the filler rule exists to prevent, so the line stays down; the key
+    // is still withheld because no field is painted behind it.
+    await renderPast(pastHeat({ entry: pastEntry({ bestRating: null }), points: [] }));
+
+    expect(screen.queryByTestId('wf-map-heat-unscored')).toBeNull();
+    expect(screen.queryByTestId('wf-map-heat-legend')).toBeNull();
+  });
+
+  it('paints today\'s elapsed sunrise: the entry counts once THIS view agrees the window has gone', async () => {
+    // The clock reads 12:00 and the sunrise was at 08:24 (+30 min afterglow), so `activeWindowPast`
+    // agrees with the pane's entry — the one branch of the guard that depends on the app clock.
+    const locations = pastLocations().map((l) => ({
+      ...l,
+      forecastsByDate: new Map([[TODAY, { sunrise: { rating: 4, solarEventTime: `${TODAY}T08:24:00` } }]]),
+    }));
+    await renderMap({
+      heat: heatProp({
+        windows: [pastEntry({ key: `${TODAY}:SUNRISE`, date: TODAY, targetType: 'SUNRISE' })],
+        pointsByKey: new Map([[`${TODAY}:SUNRISE`, [pointOf(SPOTS[0], 4)]]]),
+      }),
+      locations,
+      pastSolarWindows: buildPastSolarWindows(locations, TODAY),
+      date: TODAY,
+      forecastDates: [TODAY],
+      autoEventType: 'SUNRISE',
+    });
+
+    expect(screen.getByTestId('wf-win-past')).toBeInTheDocument();
+    expect(heatLayerProps.last.points).toHaveLength(1);
+    expect(screen.getByTestId('wf-map-heat-legend')).toBeInTheDocument();
+  });
+
+  it('control: the same window with NO past entry paints nothing and has no key', async () => {
+    // Without the pane's entry the window is an ordinary row with no `heatWindow`: the point set the
+    // map holds under that key is never read. The pair is the assertion that the entry is what paints.
+    await renderPast(heatProp({
+      pointsByKey: new Map([...POINTS_BY_KEY, [`${YESTERDAY}:SUNSET`, [pointOf(SPOTS[0], 4)]]]),
+    }));
+
+    expect(heatLayerProps.last?.points ?? []).toEqual([]);
+    expect(screen.queryByTestId('wf-map-heat-legend')).toBeNull();
+  });
+
+  it('⚠️ ignores a past entry for a window this view does not judge past — a filler paints no field', async () => {
+    // Tonight's sunset, 16:12 against a 12:00 clock, has not elapsed. The pane builds entries for
+    // every unserved window with rows (it cannot follow the clock), so a `past` entry exists for it;
+    // honouring it would give a D-13 filler a field and a key it has never had.
+    const locations = pastLocations().map((l) => ({
+      ...l,
+      forecastsByDate: new Map([[TODAY, { sunset: { rating: 4, solarEventTime: `${TODAY}T16:12:00` } }]]),
+    }));
+    await renderMap({
+      heat: heatProp({
+        windows: [pastEntry({ key: `${TODAY}:SUNSET`, date: TODAY })],
+        pointsByKey: new Map([[`${TODAY}:SUNSET`, [pointOf(SPOTS[0], 4)]]]),
+      }),
+      locations,
+      pastSolarWindows: buildPastSolarWindows(locations, TODAY),
+      date: TODAY,
+      forecastDates: [TODAY],
+      autoEventType: 'SUNSET',
+    });
+
+    expect(screen.queryByTestId('wf-win-past')).toBeNull();
+    expect(heatLayerProps.last?.points ?? []).toEqual([]);
+    expect(screen.queryByTestId('wf-map-heat-legend')).toBeNull();
+  });
+
+  it('does not turn the past entry into a served row: the pill is Past, not a verdict', async () => {
+    await renderPast(pastHeat());
+
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent('Yesterday');
+    expect(screen.getByTestId('wf-win-past')).toHaveTextContent('Past');
+  });
+
+  it('follows the Heat|Pins toggle on a past window as on a served one', async () => {
+    await renderPast(pastHeat());
+    expect(heatLayerProps.last.fieldEnabled).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pins' }));
+    expect(heatLayerProps.last.fieldEnabled).toBe(false);
+    expect(screen.queryByTestId('wf-map-heat-legend')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Heat' }));
+    expect(heatLayerProps.last.fieldEnabled).toBe(true);
+    expect(heatLayerProps.last.points).toHaveLength(2);
+    expect(screen.getByTestId('wf-map-heat-legend')).toBeInTheDocument();
   });
 });

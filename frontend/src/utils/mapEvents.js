@@ -3,6 +3,7 @@ import { resolveConfidence, daysOut } from './confidenceUtils.js';
 import { isNightOver } from './mapDates.js';
 import { parseUtcInstant } from './conversions.js';
 import { windowKey } from './windowKeys.js';
+import { heatPointsFor, POINT_SCORE_INDEX } from './heatSpots.js';
 
 /**
  * The Map tab's single chronological event list ("EV") — map-tab-v2-plan.md §3 P6.
@@ -78,6 +79,11 @@ import { windowKey } from './windowKeys.js';
  * {@code past} filter are the already-licensed filter/map/select class over served facts: they
  * compute no rating and no verdict.
  *
+ * <p>The heat field paints a past window too (O3c): the pane lists it in {@code heat.windows} flagged
+ * {@code past: true} — which {@link buildMapEvents} and {@link solarRowPredicate} read as "not served"
+ * — with a {@link pastWindowBest} client max as its {@code bestRating}, the one rating derivation this
+ * adds (a new named member of the licensed client-max class, beside {@link bestOfNight}).
+ *
  * <h2>Aurora is absent, not greyed, for LITE (cross-vendor review on #723)</h2>
  *
  * <p>An earlier revision of the plan promised a greyed row; it is not implemented, because
@@ -126,6 +132,42 @@ export function bestOfNight(rows) {
   for (const row of Array.isArray(rows) ? rows : []) {
     const s = numOrNull(row?.stars);
     if (s != null && (best == null || s > best)) best = s;
+  }
+  return best;
+}
+
+
+/**
+ * A PAST solar window's {@code bestRating} for the heat field — the highest star among the points
+ * the field actually PAINTS for it. outcome-rating-plan.md §2 #3 (O3c).
+ *
+ * <p>A <b>new named member of the licensed Map-tab client-max class</b> (CLAUDE.md Backend-heavy,
+ * fifth class), beside {@link bestOfNight}, and deliberately NOT folded into the filter/map/select
+ * class: it takes a max across a roster of places, a derivation, where that class only reads or
+ * reshapes a figure already served. The briefing serves no window once it has gone, so no served
+ * field states this figure, and {@code MapView}'s {@code windowUnscored} needs one to decide whether
+ * the colour key is drawn. Nothing else here derives (the entry's {@code conf} reuses
+ * {@code resolveConfidence}/{@code confidenceScalar}). CLAUDE.md still reads "those two, nothing
+ * else" for this class until the series' docs sweep (O6) records the third member.
+ *
+ * <p><b>Over the painted points, never the raw rows</b> (Codex, #1185 round 8). The population is
+ * {@link heatPointsFor}'s — the spots {@code buildHeatSpots} kept (it drops an unregioned place and
+ * one with no usable coordinates, and withholds the scores of a WOODLAND/BLUEBELL/WILDLIFE-only
+ * site) that hold a finite rating in this window. A window whose only rated rows are a wood's, or an
+ * unregioned place's, therefore reads {@code null} and the key is withheld rather than drawn over an
+ * empty field. Like {@code bestOfNight} it is unfiltered by the reader's rating floor, subject chips,
+ * reach and dark-sky toggle: the key asks "is there a rating behind the picture", not "what is left
+ * after my filters".
+ *
+ * @param {Array<{scores: Array<?number>}>} spots spots from {@code buildHeatSpots}
+ * @param {number} windowIndex which of the spots' windows to read (the index the point set was built at)
+ * @returns {?number} the highest painted star, or null when the field would paint nothing
+ */
+export function pastWindowBest(spots, windowIndex) {
+  let best = null;
+  for (const point of heatPointsFor(spots, windowIndex)) {
+    const s = point.r[POINT_SCORE_INDEX];
+    if (best == null || s > best) best = s;
   }
   return best;
 }

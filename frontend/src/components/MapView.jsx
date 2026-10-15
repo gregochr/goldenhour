@@ -2947,13 +2947,22 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    *
    * <p>Null when the map is on a date the briefing does not cover. `GET /api/forecast` reaches
    * further than the briefing's six windows, so this is an ordinary state and not an error: the
-   * field is absent, the markers are not, and the selector shows nothing selected.
+   * field is absent, the markers are not, and the selector shows nothing selected. The exception is
+   * a PAST window with forecast rows (outcome-rating-plan.md §2 #3): the pane lists it with
+   * {@code past: true} and a point set of its own, and it paints as a served one does.
    */
   const heatWindow = useMemo(() => {
     if (!heatOffered) return null;
     const key = `${date}:${eventType}`;
-    return (heat.windows || []).find((w) => w.key === key) || null;
-  }, [heatOffered, heat, date, eventType]);
+    const found = (heat.windows || []).find((w) => w.key === key) || null;
+    // A `past` entry is the pane's field for a window the briefing no longer serves
+    // (outcome-rating-plan.md §2 #3). It is built for every unserved window with forecast rows,
+    // today's not-yet-elapsed one included, because the pane cannot follow the app clock — so it
+    // counts here only while THIS view agrees the window has gone (`activeWindowPast`, per render).
+    // Otherwise a D-13 filler would paint a field and a colour key it has never had.
+    if (found?.past && !activeWindowPast) return null;
+    return found;
+  }, [heatOffered, heat, date, eventType, activeWindowPast]);
 
   /**
    * The places the field is allowed to count.
@@ -3619,9 +3628,15 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * ({@code bestRating}), which is why this is consulted only when {@code heatWindow} is null.
    * False for astro and aurora (their own point-set rule) and for a window the EV list has no row
    * for ({@code getRatingForLocation} answers null there).
+   *
+   * <p>A PAST window whose entry reads {@code bestRating} null is asked the same way (O3c): that
+   * figure counts PAINTED points only, so a window rated solely on places the field withholds (a
+   * wood, an unregioned place) has chips holding stars beside an empty field, and "not scored yet"
+   * would contradict them exactly as it did on a filler.
    */
   const fillerHasRatings = useMemo(
-    () => !isAstroMode && !isAuroraMode && heatWindow == null
+    () => !isAstroMode && !isAuroraMode
+      && (heatWindow == null || (heatWindow.past === true && heatWindow.bestRating == null))
       && locations.some((loc) => getRatingForLocation(loc) != null),
     [isAstroMode, isAuroraMode, heatWindow, locations, getRatingForLocation],
   );
@@ -7232,7 +7247,10 @@ MapView.propTypes = {
       targetType: PropTypes.string,
       label: PropTypes.string,
       time: PropTypes.string,
-      /** The window's served best rating — null means nothing in it is rated. */
+      /**
+       * The window's served best rating — null means nothing in it is rated. For a `past` entry
+       * it is the pane's client max over the PAINTED points (`mapEvents.pastWindowBest`).
+       */
       bestRating: PropTypes.number,
       conf: PropTypes.number,
       /** map-tab-v2-plan.md §3 P6 — the resolved confidence tier `utils/mapEvents.js` reads. */
@@ -7251,6 +7269,12 @@ MapView.propTypes = {
       away: PropTypes.bool,
       pickKind: PropTypes.oneOf(['best', 'also']),
       pickRegion: PropTypes.string,
+      /**
+       * outcome-rating-plan.md §2 #3 (O3c): the pane lists a PAST window here so the field can
+       * paint it. `true` means the briefing does NOT serve it — `buildMapEvents`,
+       * `solarRowPredicate` and `activeWindowPast` all ignore such an entry as a served window.
+       */
+      past: PropTypes.bool,
     })),
     areaBounds: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.number)),
     catalogueBounds: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.number)),

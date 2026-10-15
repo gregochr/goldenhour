@@ -10,10 +10,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   buildMapEvents, findEvIndex, isForwardableRow, isNightOffered, nightLabel, nightPreviewDates, EVENT_KIND,
-  solarHorizonDates, solarRowPredicate,
+  solarHorizonDates, solarRowPredicate, pastWindowBest,
 } from '../utils/mapEvents.js';
 import { ukDateStr, ukDateStrOffset, resolveMapDate } from '../utils/mapDates.js';
 import { windowKey } from '../utils/windowKeys.js';
+import { buildHeatSpots } from '../utils/heatSpots.js';
 
 const TODAY = '2026-09-02';
 const TOMORROW = '2026-09-03';
@@ -1309,5 +1310,74 @@ describe('solarRowPredicate', () => {
     expect(
       solarRowPredicate({ solarWindows: [solarWindow(TODAY, 'SUNSET')], todayStr: TODAY })(YESTERDAY, 'SUNSET'),
     ).toBe(false);
+  });
+});
+
+describe('pastWindowBest — the max over the PAINTED points (outcome-rating-plan.md §2 #3)', () => {
+  const YESTERDAY = '2026-09-01';
+  const EVENTS = [
+    { date: YESTERDAY, targetType: 'SUNSET' },
+    { date: YESTERDAY, targetType: 'SUNRISE' },
+  ];
+  const loc = (id, name, extra = {}) => ({
+    id, name, lat: 55 + id / 10, lon: -1.5, regionName: 'North East', locationType: ['LANDSCAPE'], ...extra,
+  });
+  const rowOf = (id, name, rating, targetType = 'SUNSET') => ({
+    locationId: id, locationName: name, date: YESTERDAY, targetType, rating,
+  });
+
+  it('is the highest star any painted place holds in the window', () => {
+    const spots = buildHeatSpots(
+      [loc(1, 'A'), loc(2, 'B'), loc(3, 'C')],
+      [rowOf(1, 'A', 2), rowOf(2, 'B', 4), rowOf(3, 'C', 3)],
+      EVENTS,
+    );
+    expect(pastWindowBest(spots, 0)).toBe(4);
+  });
+
+  it('reads the window it is told, not another window\'s ratings', () => {
+    const spots = buildHeatSpots(
+      [loc(1, 'A'), loc(2, 'B')],
+      [rowOf(1, 'A', 5, 'SUNRISE'), rowOf(2, 'B', 2, 'SUNSET')],
+      EVENTS,
+    );
+    expect(pastWindowBest(spots, 0)).toBe(2);
+    expect(pastWindowBest(spots, 1)).toBe(5);
+  });
+
+  it('is null when nothing is rated', () => {
+    const spots = buildHeatSpots([loc(1, 'A')], [rowOf(1, 'A', null)], EVENTS);
+    expect(pastWindowBest(spots, 0)).toBeNull();
+    expect(pastWindowBest([], 0)).toBeNull();
+    expect(pastWindowBest(undefined, 0)).toBeNull();
+  });
+
+  it('ignores a wood\'s rating — a canopy score never reaches the field, so it cannot raise the key', () => {
+    // Codex, #1185 round 8: the raw rows would say 5; the painted points hold nothing, so the key
+    // must be withheld rather than drawn over an empty field.
+    const spots = buildHeatSpots(
+      [loc(1, 'Wood', { locationType: ['WOODLAND'] })],
+      [rowOf(1, 'Wood', 5)],
+      EVENTS,
+    );
+    expect(pastWindowBest(spots, 0)).toBeNull();
+  });
+
+  it('ignores an unregioned place and one with no coordinates, which the join drops', () => {
+    const spots = buildHeatSpots(
+      [loc(1, 'Unregioned', { regionName: null }), loc(2, 'Nowhere', { lat: null }), loc(3, 'Real')],
+      [rowOf(1, 'Unregioned', 5), rowOf(2, 'Nowhere', 5), rowOf(3, 'Real', 3)],
+      EVENTS,
+    );
+    expect(pastWindowBest(spots, 0)).toBe(3);
+  });
+
+  it('keeps a wood\'s rating out while a sky place beside it still counts', () => {
+    const spots = buildHeatSpots(
+      [loc(1, 'Wood', { locationType: ['WOODLAND'] }), loc(2, 'Sky')],
+      [rowOf(1, 'Wood', 5), rowOf(2, 'Sky', 2)],
+      EVENTS,
+    );
+    expect(pastWindowBest(spots, 0)).toBe(2);
   });
 });
