@@ -48,7 +48,7 @@ keeping both rows in phase order).
 
 | phase | branch | commit | date | notes |
 |---|---|---|---|---|
-| O0 | `claude/forecast-accuracy-ratings-5fbd0d` | (this PR) | 2026-10-15 | Plan + bundle vendored at `docs/design/outcome-rating/`. No code. Four review lenses at plan time (§5a): backend, frontend, spec fidelity, conventions and sizing — 3 P1s and ~30 P2/P3s, all accepted and folded in. Codex rounds 1–3: three P1s on the rated-run rule (the served result, not the newest cycle; only one that had arrived by the event; the fallback must not admit a late batch's own row — hence `scored_at`, V178), all accepted. |
+| O0 | `claude/forecast-accuracy-ratings-5fbd0d` | (this PR) | 2026-10-15 | Plan + bundle vendored at `docs/design/outcome-rating/`. No code. Four review lenses at plan time (§5a): backend, frontend, spec fidelity, conventions and sizing — 3 P1s and ~30 P2/P3s, all accepted and folded in. Codex rounds 1–4: four P1s on the rated-run rule (the served result, not the newest cycle; only one that had arrived by the event; the fallback must not admit a late batch's own row — hence `scored_at`, V178; and it must honour a stability retraction as of the event), all accepted. |
 
 ---
 
@@ -302,8 +302,19 @@ CREATE INDEX idx_outcome_rating_slot ON outcome_rating (location_id, event_date,
   result, or a served result that arrived AFTER the event: the slot's latest `forecast_evaluation`
   row that **has something to say** (`rating IS NOT NULL OR triage_reason IS NOT NULL`, the
   `hasSomethingToSay` rule — a triage row is a decision the reader saw) and **was available by the
-  event**: `COALESCE(scored_at, forecast_run_at) <= eventInstant`, with `pipelineRunId = null`.
-  Neither → both null. ⚠️ **`forecast_evaluation.scored_at` is new (V178, same phase)** — a
+  event**: `COALESCE(scored_at, forecast_run_at) <= eventInstant`, **and not retracted as of the
+  event**: the slot's latest `SKIPPED_STABILITY` disposition with `created_at <= eventInstant`
+  (a new bounded sibling of `ForecastRunDispositionRepository.findLatestStabilitySkipTimestamps`,
+  by location name, date and type — the 30-day retention covers T-4) retracts any row whose
+  availability instant precedes it, exactly as `EvaluationViewService.isRetractedByStabilitySkip`
+  (`:611–621`) does at serve time, because a row the pipeline had already declined to re-look at
+  was absent from the map at the event; a skip recorded AFTER the event is ignored (it retracts
+  what the reader saw later, not what they saw then — which is also why step 1's live accessor,
+  whose retraction is as-of-now, can return nothing for a slot step 2 then correctly answers).
+  With `pipelineRunId = null`. Neither → both null — the slot was shown with no forecast behind
+  it; the rating is still recorded (the block mounts on `event.past` when the place has no row of
+  its own) and the calibration gate, which pairs on a scored `forecast_evaluation` row, simply
+  never pairs it. ⚠️ **`forecast_evaluation.scored_at` is new (V178, same phase)** — a
   nullable `TIMESTAMPTZ` stamped from the clock wherever a row GETS its rating or triage reason:
   `ForecastService.buildEntity` for a row inserted with one (the sync engine, a triage row), and
   `ForecastResultHandler.scoreEvaluationRow` for a batch's PENDING row scored in place; a row
@@ -642,7 +653,7 @@ block**) and appends its phase-log row to §0 **in the same commit**.
 Files: `V177__outcome_rating.sql`, `V178__forecast_evaluation_scored_at.sql`;
 `entity/ForecastEvaluationEntity.java` (+ `scoredAt`), `service/ForecastService.java` and
 `service/evaluation/ForecastResultHandler.java` (the two stamp sites), `ForecastEvaluationRepository`
-(+ one bounded slot finder); `entity/OutcomeRatingEntity.java`;
+(+ one bounded slot finder), `ForecastRunDispositionRepository` (+ one bounded skip finder); `entity/OutcomeRatingEntity.java`;
 `repository/OutcomeRatingRepository.java`; `PipelineRunRepository` (+ one finder);
 `service/OutcomeRatingStore.java`, `service/OutcomeRatingService.java`;
 `model/OutcomeRatingDto.java`, `OutcomeRatingRequest.java`, `SlotRatingsDto.java`;
@@ -678,7 +689,9 @@ endpoint: LITE GET 200 `[]`, LITE PUT 403, admin-all PRO 403), `OutcomeRatingRep
    when no such row); a slot the serve path has nothing for, with a row scored before the event
    (its instant, no id) and with one scored after it (nulls); a legacy row with null `scoredAt`
    taken on `forecastRunAt`; an unregioned location (step 1 skipped); a retracted result (not
-   returned by the live accessor → step 2).
+   returned by the live accessor → step 2); a row scored before the event with a stability skip
+   recorded between its scoring and the event (retracted → an earlier unretracted row, else nulls);
+   the same row with the skip recorded after the event (it stands).
 4. `OutcomeRatingStore.upsert` — no `@Transactional`, the javadoc citing §1 #8; the race test.
    `rate(...)`: the refusals in order (unknown user 404, unknown location 404, rating out of range
    400 at 0 and 6 with 1 and 5 accepted and null accepted, HOURLY 400, event not passed 400 at
@@ -1072,6 +1085,10 @@ submitted before the event that LANDED after it. The served result now counts on
 ad-hoc batch's OWN row, whose `forecast_run_at` is stamped at row build, before the batch's
 `submittedAt`. The arrival stamp Q5 deferred is now part of O1 (`scored_at`, V178), and the fallback
 selects the latest row proven available by the event.
+
+**Codex, round 4 on #1185 (P1, accepted):** a `SKIPPED_STABILITY` recorded before the event retracts
+the row from the served view, so the fallback must apply the same retraction as of the event and
+ignore skips recorded after it (§2 #1 step 2, O1 step 3).
 
 ---
 
