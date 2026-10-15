@@ -40,7 +40,7 @@ the commit column names the PR once it lands):
 
 | phase | branch | commit | date | notes |
 |---|---|---|---|---|
-| S0 | `claude/spread-row-enhancement-7c99de` | (this PR) | 2026-10-15 | Plan + bundle vendored at `docs/design/spread-row/`. No code. |
+| S0 | `claude/spread-row-enhancement-7c99de` | #1180 | 2026-10-15 | Plan + bundle vendored at `docs/design/spread-row/`. No code. Codex's review of the plan found two P1s, both accepted: the qualifier must key on the pool-wide `facts.withinReach` (a mixed pool would otherwise wear "(within 45m)" over unmeasured spots — §2 #5), and the spec's 177px worst-case card does not exist here (the grid is 116–157px at six of seven geometries — §1 #7, the stacked state §2 #2, §4 #10, §6 Q4). |
 
 ---
 
@@ -114,6 +114,23 @@ on is in the card's accessible name (`:1129–1195`: `poolPhrase`, `unratedPhras
 So the new label line and the printed counts reach a screen reader only through that sentence —
 §2 #5 says what changes there, and what deliberately does not.
 
+### 7. The card is narrower than the spec's own worst case — at every breakpoint the spec measured
+
+The spec sizes its worst case on "the narrowest card (iPad, `.pls` 177px wide)": five 17px columns
+plus gaps, 93px, "fits beside the label". This card grid is narrower than that in most of its
+real geometries, measured in Chromium with the real faces (`index.css:2016–2021`, the H1 note):
+the VALUE column alone is 70.3px at a 320px viewport (two columns below 640px, `index.css:2925`),
+90.3 at 360, 97.8 at 375, 79.3 at 640 (four columns), 111.3 at 768, 85.3 at a docked 1024 and
+175.3 at an undocked one — so the whole value grid (label column ≈ 40px + 6px gap + value column)
+is roughly 116 / 136 / 144 / 125 / 157 / 131 / 221px. The six-column histogram with the well and
+the hatched bar's gap is 74px at one-character counts (`6×9 + 5×2 + 4 + 6`), 82px at two, 114 at
+three and 122 at four; the longest qualifier, `(WITHIN 2H30)`, is ≈73px at 8.5px mono with .06em
+tracking. Side by side with the spec's 8px gap that is 155px at the SMALLEST — wider than every
+geometry above except the undocked desktop and (barely) 768px. The spec's layout therefore cannot
+be applied as a single rule; §2 #2 adds the stacked state and §4 #10 records the disagreement. (A
+Codex review of the plan PR, #1180, found this; the plan's first cut had carried the spec's 177px
+figure unexamined.)
+
 ---
 
 ## §2 What is genuinely new
@@ -129,6 +146,24 @@ So the new label line and the printed counts reach a screen reader only through 
    `white-space: nowrap`) and the value cell (`.wf-hc-pv`, `overflow: hidden` kept as the safety
    net). The wrapper is the whole point of the spec's own regression note: a longer label in the
    shared `auto` column widens it and pushes the `5★ <name>` row below out of shape.
+   **Two states, decided by the CARD's width, never by content** (§1 #7): side by side where the
+   card is wide enough, and STACKED — the label line first, the histogram on its own line below,
+   right-aligned (`margin-left: auto`) — where it is not. The switch is a container query on the
+   card (`.wf-hc { container-type: inline-size; container-name: wf-card }`, the precedent is
+   `@container wf-tabrow` at `index.css:12650`), threshold `wf-card (max-width: 170px)` on the
+   card's content box: sized so two-character counts (82px) beside the longest qualifier (73px)
+   and the 8px gap, 163px, fit side by side at 171px and above, and stack below it. A card-width
+   rule, not `flex-wrap`, because every card in a grid row shares a width and so makes the SAME
+   decision — a content-driven wrap would let two neighbours' Best rows land on different
+   baselines, the cross-card alignment the shared `min-height` exists for. Three-character counts
+   (114px → 195px side by side) still overflow between 171 and ~195px and the value cell's
+   `overflow: hidden` clips them; that is a hundred-plus rated places in one band within reach,
+   accepted and recorded (§6 Q4) rather than widened for. Stacked, the row is the label's two
+   lines plus the well: ≈ 20 + 2 + 29px; cards in a stacked row grow together.
+   ⚠️ `container-type: inline-size` applies layout containment, which makes the card a stacking
+   context; the pick legend (`BEST BET` / `ALSO GOOD`) and the card's hover `transform` must be
+   checked still to paint as they do today — S2 verifies it in the fixture, both on the hovered
+   and the picked card.
 3. **Counts under the bars, one column width per card.** Each bar becomes a column
    (`.wf-hc-hb`: flex column, `justify-content: flex-end; gap: 2px; width: var(--cw)`), the bar an
    `<i>` (7px wide, radius 1px — up from 5px, §4 #1), the count an `<em>` (mono, 9px/600,
@@ -143,16 +178,21 @@ So the new label line and the printed counts reach a screen reader only through 
 4. **Count colour.** `--color-plex-text-secondary`; a zero count `--color-plex-text-muted` (§1 #4;
    the spec's `--ink-3` at opacity .6 is approximated by the muted token rather than an opacity on
    top of a secondary ink — one token, no stacked alpha). S2 measures both on the well (§7).
-5. **The qualifier.** `spreadQualifier({reachLimitMinutes, reachMeasured})` in
+5. **The qualifier.** `spreadQualifier({reachLimitMinutes, withinReach})` in
    `windowFirstSpread.js` → `"within 45m"` | `"within 1h30"` | `"within 2h30"` | `"any drive"` |
-   `null`, rendered as `(…)`. `null` — no second line at all — when a tier is active but
-   `reachMeasured` is false: an unknown drive passes every tier (plan-matrix §2.5 rule 1), so
-   nothing was gated and "within 45m" would name a filter that did nothing. This is the same rule
-   `bestReachLine`'s "in reach", `withinReachCount`, `regionsReadout` and H2's "beyond the tier"
-   already apply (CLAUDE.md: *none of them may say "within reach" unless a drive time exists to
-   have gated on*). Under "Any" the qualifier is `any drive` whether or not drives are measured —
-   it claims no gate. **The spoken sentence is unchanged by the qualifier**: `poolPhrase` already
-   says "within reach" on exactly the same condition, and naming the tier's minutes there is §6 Q1.
+   `null`, rendered as `(…)`. **`withinReach` is the strip's EXISTING per-card `facts.withinReach`**
+   (`WindowFirstHeatStrip.jsx:693`: `poolWithinReach(pool)` — every spot in the pool has a measured
+   drive — or `card.reachMeasured` for an empty pool), the very predicate the tooltip's and the
+   spoken sentence's "within reach" already read, so the three surfaces agree by construction.
+   `null` — no second line at all — when a tier is active and `withinReach` is false: an unknown
+   drive passes every tier (plan-matrix §2.5 rule 1), so a pool holding even one such spot was not
+   wholly gated at 45 minutes and the label would be counting places it never measured. ⚠️ Not
+   `card.reachMeasured` (the plan's first cut): that is true as soon as ANY spot in the window has a
+   drive, so a mixed pool — some measured, some unknown — would wear "(within 45m)" over bars that
+   count the unknown ones too, and the row would disagree with its own tooltip (a Codex review of
+   #1180 caught it). Under "Any" the qualifier is `any drive` whatever `withinReach` says — it
+   claims no gate. **The spoken sentence is unchanged by the qualifier**: `poolPhrase` already says
+   "within reach" on exactly this condition, and naming the tier's minutes there is §6 Q1.
 6. **The spoken sentence gains the band counts in bars mode** — the counts are now VISIBLE text, so
    a reader of the accessible name must get the same figures (SC 1.3.1, the principle
    `unratedPhrase`'s own export comment states). `spreadBandsSpoken(spread)` in
@@ -188,10 +228,12 @@ tests (`test/briefingDisplay.test.js` or wherever `formatDriveDuration` is pinne
    `12345 → "12k"`), the clamp's three regimes (1 char → 9px, 3 chars → 15.6px, 4+ → 17px),
    `small` flipping at exactly 4 chars, and that the hatched bar's count takes part in `chars`
    (a pool with 1,200 unrated and single-digit bands must answer `chars: 4`).
-4. `spreadQualifier` (§2 #5): four tiers measured → the four strings; `{45, measured: false}` →
-   `null`; `{null, measured: false}` → `"any drive"`; `{null, measured: true}` → `"any drive"`.
-   Pin that the string is built from `shortLabel`, not a table (mutate a tier's `limitMinutes` in
-   the test's own copy and assert the qualifier follows).
+4. `spreadQualifier` (§2 #5): the four tiers with `withinReach: true` → the four strings;
+   `{45, withinReach: false}` → `null`; `{null, withinReach: false}` → `"any drive"`;
+   `{null, withinReach: true}` → `"any drive"`. Pin that the string is built from `shortLabel`,
+   not a table (mutate a tier's `limitMinutes` in the test's own copy and assert the qualifier
+   follows). The helper takes a plain boolean; it is the CALLER (S2) that must pass the strip's
+   pool-wide `facts.withinReach`, and S2 pins that with a mixed pool.
 5. `spreadBandsSpoken` (§2 #6): non-zero bands only, highest first, `stars` worded, `""` for an
    all-zero spread; and a test that the words it uses are the same five the tooltip's bands use,
    just filtered and reworded (drive both from one `buildSpread`).
@@ -215,9 +257,13 @@ Files: `components/WindowFirstHeatStrip.jsx` (the Spread row and `spokenPool` on
    rating pill's column width is unchanged with and without the qualifier — `getBoundingClientRect`
    in jsdom reads 0, so assert it by the cascade: the `auto` column's only remaining children are
    the time, the rating pill and the Best label).
-2. The qualifier `<small>` from `spreadQualifier(card)`; absent (no element, not an empty one) when
-   it answers `null`. `data-testid="wf-heat-spread-qualifier"`. Pin all four tier strings, the
-   unmeasured-tier absence and the `any drive` cases through the rendered row.
+2. The qualifier `<small>` from `spreadQualifier({reachLimitMinutes: card.reachLimitMinutes,
+   withinReach})` where `withinReach` is the card's EXISTING `facts.withinReach` (§2 #5) — never
+   `card.reachMeasured` directly; absent (no element, not an empty one) when it answers `null`.
+   `data-testid="wf-heat-spread-qualifier"`. Pin all four tier strings and the `any drive` cases
+   through the rendered row, AND the mixed pool: a 45-minute tier, `reachMeasured: true`, a pool
+   with one spot whose `driveMinutes` is null → no qualifier, while the same pool with every drive
+   measured → `(within 45m)`. That pair is the test a `reachMeasured` mutant fails.
 3. Counts: each `<i>` becomes a `.wf-hc-hb` column with its `<em>` count
    (`data-testid="wf-heat-spread-count"`, `data-star`; the hatched bar's `wf-heat-spread-count-unrated`),
    `--cw` and `.sm` from `spreadCountLayout`. Keep every existing `data-testid` on the bars so the
@@ -234,8 +280,13 @@ Files: `components/WindowFirstHeatStrip.jsx` (the Spread row and `spokenPool` on
 5. `spokenPool` gains `spreadBandsSpoken` in bars mode (§2 #6). Pin the full accessible name on a
    bars-mode card (the existing `getByRole('button', {name: …})` test at `:620` is the model — its
    expected string changes, and that change is the point) and that below the gate it is unchanged.
-6. Phone: no separate markup (the spec says same markup everywhere); verify the row at 320px in the
-   §7 fixture, not by a `useIsMobile` branch.
+6. The stacked state (§2 #2): `container-type: inline-size; container-name: wf-card` on `.wf-hc`
+   and `@container wf-card (max-width: 170px) { .wf-hc-sprow { flex-wrap: wrap } .wf-hc-sprow >
+   .wf-hc-pv { margin-left: auto; flex-basis: 100% } }` (or the equivalent that puts the histogram
+   on its own right-aligned line). No separate markup, no `useIsMobile` branch — the same DOM at
+   every width, which is what the spec asks. jsdom has no layout, so the switch is proven in the
+   §7 fixture at every width in the table, and the pick legend and hover transform are checked
+   there too (the containment stacking-context note in §2 #2).
 
 Acceptance: the gate passes; §7 measured and recorded in this plan's phase log; the three
 screenshots in `docs/design/spread-row/screenshots/` matched at desktop by eye (a headless Chromium
@@ -262,12 +313,13 @@ No code. One Sonnet session; a docs-only PR (CI's docs-only detector skips the s
 | 1 | Bars 7px, no well, empty band `rgba(242,231,211,.13)` | Bars 7px **in the existing dark well** (`--color-heat-sea`, padded), empty band stays `rgba(242,231,211,0.40)` | The well is where every bar's contrast was measured (SC 1.4.11, the stylesheet's own table); the empty band's .40 clears 3:1 against it where .13 would not. The width follows the spec; the ground does not. |
 | 2 | Five columns | **Six** — the hatched unrated bar keeps its place to the LEFT of 1★, with a count | A27 Part 2 (2026-09-29): the remainder is a real fact the card must disclose; its count is the "not yet rated" figure the tooltip already states. It takes part in `chars`. |
 | 3 | Bars for any pool | The minimum-sample gate stands: below it the row prints text, with the new label line above | A27 Part 1, owner decision. A count under a bar drawn from one rated spot in 31 would make the noise look like data twice over. |
-| 4 | The label "follows the drive/reach filter" always | **Silent** (no second line) when a tier is active and `card.reachMeasured` is false | CLAUDE.md's rule for six existing surfaces: "within reach" is claimable only where a drive time existed to gate on. "(any drive)" is kept under Any for every reader — it names no gate. |
+| 4 | The label "follows the drive/reach filter" always | **Silent** (no second line) when a tier is active and the card's pool-wide `facts.withinReach` is false — any spot without a measured drive | CLAUDE.md's rule for six existing surfaces: "within reach" is claimable only where a drive time existed to gate on, and the tooltip already reads this exact predicate (`poolWithinReach`), so the label cannot disagree with it. "(any drive)" is kept under Any for every reader — it names no gate. |
 | 5 | `RSHORT` hand table keyed by tier id | `shortLabel` derived from `limitMinutes` by `formatDriveDurationCompact` | §1 #3 — one formatter, two forms; a retuned tier cannot strand the label. |
 | 6 | `--ink-2` counts, `--ink-3` at `.6` for zero | `--color-plex-text-secondary` and `--color-plex-text-muted` | §1 #4 — tokens, no stacked alpha. S2 measures both on the well. |
 | 7 | "sideways" layout rows `21px 27px 32px 1fr` | `min-height: 27px` on the wrapper; no layout mode | §1 #5 — the layout does not exist here; the row's own minimum keeps cross-card alignment. |
 | 8 | The grid's label is the only place the pool is named | The spoken sentence ALSO gains the non-zero band counts in bars mode | §1 #6, §2 #6 — the grid is `aria-hidden`; visible counts need an accessible equivalent. The tier's minutes are NOT added there (§6 Q1). |
 | 9 | Recreate in `HeatmapGrid.jsx` / `DailyBriefing.jsx` | `WindowFirstHeatStrip.jsx` | §1 #1 — the Plan card lives there; the named files are the popup's grid and a deleted component. |
+| 10 | One side-by-side layout everywhere; worst case "iPad, `.pls` 177px" | A second, STACKED state (label line, then the histogram right-aligned on its own line) below a 170px card width, by container query | §1 #7 — this grid is 116–157px wide at six of its seven measured geometries; side by side the row needs 155px at one-character counts. A card-width rule, not a content wrap, so neighbours stay aligned. |
 
 ---
 
@@ -296,6 +348,12 @@ No code. One Sonnet session; a docs-only PR (CI's docs-only detector skips the s
   catalogue of a thousand places within reach) and record the measured contrast in §7.
 - **Q3.** Under an away origin the label copy is unchanged (spec) — the drive is from the base
   town, which is what the pool is gated on. Default: **unchanged**, as the spec says.
+- **Q4.** The stacked-state threshold (170px, §2 #2) is sized for two-character counts. Between
+  171 and ~195px a three-character count (a hundred-plus rated places in one band within reach)
+  overflows side by side and is clipped by the value cell. Default: **accept and record** —
+  today's catalogue is 253 places over the whole country, and the clip is the spec's own
+  `overflow: hidden` safety net doing its job; raise the threshold, or drop the well's padding and
+  the hatched gap under `.sm`, when the catalogue gets there.
 
 ---
 
@@ -309,20 +367,25 @@ Fixture, not assertion: a standalone page built from the REAL compiled `dist/ass
 `admin`/`golden2026`) is the bonus check if its H2 holds ratings; a fresh file holds none, so bars
 mode is a fixture question.
 
-| width | value cell width | widest histogram (six × 17 + gaps) | label width | overlap? | count ink on well (AA) | zero-count ink | `.sm` ink |
-|---|---|---|---|---|---|---|---|
-| 320 | | | | | | | |
-| 375 | | | | | | | |
-| 390 | | | | | | | |
-| 640 | | | | | | | |
-| 834 | | | | | | | |
-| 1280 | | | | | | | |
+| viewport | card content width | stacked? (§2 #2) | histogram width at 1 / 2 / 4 chars | label width | overlap or clip? | count ink on well (AA) | zero-count ink | `.sm` ink | pick legend + hover paint as before? |
+|---|---|---|---|---|---|---|---|---|---|
+| 320 | | | | | | | | | |
+| 360 | | | | | | | | | |
+| 375 | | | | | | | | | |
+| 390 | | | | | | | | | |
+| 640 | | | | | | | | | |
+| 768 | | | | | | | | | |
+| 834 | | | | | | | | | |
+| 1024 docked (Ask dock open) | | | | | | | | | |
+| 1280 | | | | | | | | | |
 
-Required cases on the NARROWEST card: single-digit counts; `999` in every column; `1.2k` in every
-column (the spec's own test); the hatched bar at `1.2k` beside single-digit bands; the text state
-(`124/253 rated`) with the label line above it; an unmeasured tier (one line, "Spread" alone);
-"Any". Nothing may draw over the label, and the rating pill's column must measure the same with
-and without the qualifier.
+Required cases on the NARROWEST card (320, stacked) AND on the narrowest side-by-side card:
+single-digit counts; `999` in every column; `1.2k` in every column (the spec's own test); the
+hatched bar at `1.2k` beside single-digit bands; the text state (`124/253 rated`) with the label
+line above it; a mixed pool (one unknown drive — one line, "Spread" alone); "Any". Nothing may
+draw over the label; the rating pill's column must measure the same with and without the
+qualifier; and a `1.2k` card at 320px may clip only inside the value cell (record by how much, if
+at all — §6 Q4).
 
 ---
 
