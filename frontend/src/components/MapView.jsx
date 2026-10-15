@@ -45,6 +45,7 @@ import {
   solarRowPredicate,
   EVENT_KIND,
 } from '../utils/mapEvents.js';
+import { pastDayLabel } from '../utils/windowFirstCards.js';
 import { buildEvVerdicts, regionNamesOf } from '../utils/mapVerdict.js';
 import { withScopedSolarTimes } from '../utils/mapScopedTime.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
@@ -1436,8 +1437,19 @@ const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
  *       which `selectTab` cannot do: the pane is mounted but hidden between visits and `openMapMenu` is
  *       this component's own state.</li>
  * </ul>
+ *
+ * <h2>…and the older-day fetch's four (outcome-rating-plan.md §2 #2, O3b)</h2>
+ * <ul>
+ *   <li>{@code canLoadOlder} / {@code olderDayDate} — the pane's verdict on whether one more stored
+ *       past day can be fetched, and which (the day before the oldest it holds, never older than T-4,
+ *       never under a rewind). This component only names the day ({@code Thu 13}) to the window
+ *       control and the peek sheet.</li>
+ *   <li>{@code olderDayLoading} — the date being fetched, or null. Puts the control in its loading
+ *       state and, on its way back to null, lands the selection on the new day (below).</li>
+ *   <li>{@code onLoadOlderDay} — {@code (date) => void}; the fetch itself lives in {@code useForecasts}.</li>
+ * </ul>
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, askPhase = 'empty', panelShown = true, outcomeRatings = null }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, askPhase = 'empty', panelShown = true, outcomeRatings = null, canLoadOlder = false, olderDayDate = null, olderDayLoading = null, onLoadOlderDay = null }) {
   // `MapView` is `React.memo`'d, and its two long-lived mounts (the Map pane, the standalone
   // overlay) sit hidden rather than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -3918,6 +3930,67 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }, [askWindow?.nonce, paneVisible, askRowFound]);
 
   /**
+   * The older-day fetch's selection landing (outcome-rating-plan.md §2 #2, §4 #11): when a day the
+   * reader asked for lands, selection moves to that day's SUNSET window if it has one, else its
+   * SUNRISE — from `‹`, `←` AND the Load row alike, so the next `‹` steps to that day's sunrise. A day
+   * that comes back with no rows (a loaded-empty day, or a failed fetch) has no row to land on: it
+   * moves nothing and says nothing. And a reader who picked another window while the fetch was out
+   * (a chip, the Ask handoff) keeps theirs — the landing is only for the window the press started from.
+   *
+   * <p>Choosing a row of the day that just landed is a lookup over the EV list the pill already holds —
+   * the already-licensed filter/map/select class (CLAUDE.md Backend-heavy); it reads no rating.
+   *
+   * <p>`pending` is set by {@link startOlderLoad} and matched to `loadingDate`, the date this effect last
+   * saw loading, so a press the hook refused (nothing loading ever follows) can never land on a later
+   * day's arrival. Keyed on `olderDayLoading` alone: the render in which it goes null is the one that
+   * already carries the merged rows, because the hook batches the two updates.
+   */
+  const olderLanding = useRef({ pending: null, loadingDate: null });
+  useEffect(() => {
+    const state = olderLanding.current;
+    if (olderDayLoading) {
+      state.loadingDate = olderDayLoading;
+      return;
+    }
+    const loaded = state.loadingDate;
+    state.loadingDate = null;
+    const { pending } = state;
+    if (!loaded || !pending || pending.date !== loaded) return;
+    state.pending = null;
+    // The async wrapper is this file's own idiom for `react-hooks/set-state-in-effect`.
+    (async () => {
+      if ((activeMapEvent?.id ?? null) !== pending.fromId) return;
+      const dayRows = mapEvents.filter((row) => row.kind === EVENT_KIND.SOLAR && row.date === loaded);
+      const landing = dayRows.find((row) => row.eventType === 'SUNSET')
+        ?? dayRows.find((row) => row.eventType === 'SUNRISE');
+      if (landing) selectEvRow(landing);
+    })();
+    // The loading edge IS the trigger; the rows and the active window are read at the moment it fires.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [olderDayLoading]);
+
+  /**
+   * The Load row's, `‹`'s and `←`'s common start (outcome-rating-plan.md §2 #2). Records the window
+   * the press started from, so a landing can tell the reader moved on, and hands the day to fetch to
+   * the parent. The CALLERS close the menu and move focus to the pill first (the control's own handler,
+   * and {@link loadOlderFromPeek}): this runs after that, on the same press.
+   */
+  function startOlderLoad() {
+    if (!canLoadOlder || !olderDayDate || olderDayLoading || !onLoadOlderDay) return;
+    olderLanding.current.pending = { date: olderDayDate, fromId: activeMapEvent?.id ?? null };
+    onLoadOlderDay(olderDayDate);
+  }
+
+  /** The phone sheet's Load row: close the sheet and move focus to the pill HERE, before the state change. */
+  function loadOlderFromPeek() {
+    winPillRef.current?.focus();
+    setOpenMapMenu(null);
+    startOlderLoad();
+  }
+  const olderDayLabel = olderDayDate ? pastDayLabel(olderDayDate, mapTodayStr) : null;
+  const olderDayLoadingLabel = olderDayLoading ? pastDayLabel(olderDayLoading, mapTodayStr) : null;
+
+  /**
    * The peek sheet's "Other windows" button value (map-mobile-sheet-plan.md §3 M2 task 3) — a scan
    * over the SAME `mapEvents`/`evVerdicts` the pill and the Windows section both already read, never
    * a second roster. Phone only; harmless to compute on desktop (it is simply never rendered there).
@@ -5377,6 +5450,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       // the entry is the honest form — there is no answer to drill into.
       onOpenWindowPanel={activeMapEvent && activeMapEvent.served !== false ? openDrilldown : null}
       pillRef={winPillRef}
+      // The older-day fetch (outcome-rating-plan.md §2 #2, O3b): `‹` on the oldest window and the
+      // Load row fetch the next older stored day; the pill says so while it is out.
+      canLoadOlder={canLoadOlder}
+      olderDayLabel={olderDayLabel}
+      olderDayLoadingLabel={olderDayLoadingLabel}
+      onLoadOlderDay={startOlderLoad}
       // Phone only (map-mobile-sheet-plan.md §3 M2 task 4) — the pill body toggles the peek
       // sheet's Windows section instead of this control's own dropdown, which stays permanently
       // closed there (`open` is `openMapMenu === 'window'`, a value the phone never sets). See
@@ -6790,6 +6869,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                       activeId={activeMapEvent?.id ?? null}
                       onSelect={selectEvRow}
                       onOpenDrilldown={activeMapEvent && activeMapEvent.served !== false ? openDrilldown : null}
+                      canLoadOlder={canLoadOlder}
+                      olderDayLabel={olderDayLabel}
+                      olderDayLoadingLabel={olderDayLoadingLabel}
+                      onLoadOlderDay={loadOlderFromPeek}
                     />
                   )}
                   layersBody={(
@@ -7493,6 +7576,14 @@ MapView.propTypes = {
     rate: PropTypes.func,
     clearSaveError: PropTypes.func,
   }),
+  /** One more stored past day can be fetched (outcome-rating-plan.md §2 #2); false under a rewind and at T-4. */
+  canLoadOlder: PropTypes.bool,
+  /** The day {@code canLoadOlder} would fetch, YYYY-MM-DD. */
+  olderDayDate: PropTypes.string,
+  /** The older day being fetched now, YYYY-MM-DD, or null. */
+  olderDayLoading: PropTypes.string,
+  /** {@code (date) => void}: fetches that older day (`useForecasts.loadOlderDay`). */
+  onLoadOlderDay: PropTypes.func,
 };
 
 export default React.memo(MapView);

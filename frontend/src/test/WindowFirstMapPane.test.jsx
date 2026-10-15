@@ -250,6 +250,81 @@ describe('WindowFirstMapPane', () => {
     });
   });
 
+  /**
+   * The older-day fetch's inputs (outcome-rating-plan.md §2 #2, §3 O3b step 2): whether one more
+   * stored past day can be loaded and which, derived here from the dates the pane holds against the
+   * T-4 floor. Today is DATES[0] (2026-08-11), so T-1 is the 10th, T-3 the 8th and the floor the 7th.
+   */
+  describe('the older-day fetch (O3b)', () => {
+    const onLoadOlderDay = vi.fn();
+    const withToday = () => vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue({
+      heatSpots: [], heatPointSets: new Map(), heatStripCards: [], reachById: new Map(),
+      homePlace: null, todayStr: DATES[0], origin: null, setOrigin: vi.fn(),
+      effectiveReachById: new Map(), scoreRows: [], scoresLoaded: true, briefing: null,
+    });
+    const props = (extra = {}) => ({
+      dates: ['2026-08-09', '2026-08-10', ...DATES], onLoadOlderDay, ...extra,
+    });
+
+    it('offers the day before the oldest held date, and hands MapView the loader unchanged', () => {
+      withToday();
+      renderPane(props());
+      expect(MapStub.lastProps.canLoadOlder).toBe(true);
+      expect(MapStub.lastProps.olderDayDate).toBe('2026-08-08');
+      expect(MapStub.lastProps.onLoadOlderDay).toBe(onLoadOlderDay);
+    });
+
+    it('passes the date being loaded straight through', () => {
+      withToday();
+      renderPane(props({ olderDayLoading: '2026-08-08' }));
+      expect(MapStub.lastProps.olderDayLoading).toBe('2026-08-08');
+    });
+
+    it('with only today held, the next older date is T-1', () => {
+      withToday();
+      renderPane(props({ dates: ['2026-08-11', '2026-08-12'] }));
+      expect(MapStub.lastProps.olderDayDate).toBe('2026-08-10');
+    });
+
+    it('counts a loaded day, an empty one included: T-3 loaded offers T-4, T-4 loaded offers nothing', () => {
+      withToday();
+      renderPane(props({ loadedPastDays: ['2026-08-08'] }));
+      expect(MapStub.lastProps.olderDayDate).toBe('2026-08-07');
+      expect(MapStub.lastProps.canLoadOlder).toBe(true);
+
+      renderPane(props({ loadedPastDays: ['2026-08-08', '2026-08-07'] }));
+      expect(MapStub.lastProps.canLoadOlder).toBe(false);
+      expect(MapStub.lastProps.olderDayDate).toBeNull();
+    });
+
+    it('never asks for anything older than T-4', () => {
+      withToday();
+      renderPane(props({ dates: ['2026-08-07', ...DATES] }));
+      expect(MapStub.lastProps.canLoadOlder).toBe(false);
+      renderPane(props({ dates: ['2026-08-03', ...DATES] }));
+      expect(MapStub.lastProps.canLoadOlder).toBe(false);
+    });
+
+    it('stands down under an admin rewind: no Load row, no fetch (plan section 5 #6)', async () => {
+      const { setRewind } = await import('../utils/rewind.js');
+      withToday();
+      setRewind('2026-08-10T12:00:00.000Z');
+      try {
+        renderPane(props());
+        expect(MapStub.lastProps.canLoadOlder).toBe(false);
+        expect(MapStub.lastProps.olderDayDate).toBeNull();
+      } finally {
+        setRewind(null);
+      }
+    });
+
+    it('offers nothing without a loader', () => {
+      withToday();
+      renderPane(props({ onLoadOlderDay: null }));
+      expect(MapStub.lastProps.canLoadOlder).toBe(false);
+    });
+  });
+
   describe('what the map is handed', () => {
     it('passes the selected date and the handoff through', () => {
       const handoff = { eventType: 'AURORA', region: 'Northumberland & Tyneside', nonce: 7 };

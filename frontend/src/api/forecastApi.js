@@ -59,6 +59,25 @@ export async function fetchForecasts() {
 }
 
 /**
+ * Fetches ONE stored past day — {@code GET /api/forecast?date=YYYY-MM-DD}
+ * (outcome-rating-plan.md §2 #4, backend O2).
+ *
+ * <p>The answer is the list's own shape for a single day: every enabled place's passed SUNRISE and
+ * SUNSET slot (served as of the event; a slot with nothing available by the event has no element)
+ * plus that day's HOURLY rows. The array is NOT ordered by location — group by date and type. The
+ * endpoint admits T-1 to T-4 and answers 400 for anything else, and it overlaps the list's own
+ * past edge, so the Map tab's older-day fetch never asks for a day it already holds. A day can
+ * legitimately come back with fewer rows than the list once did, or empty.
+ *
+ * @param {string} date - The past day, YYYY-MM-DD.
+ * @returns {Promise<Array<object>>} The forecast rows for that day (possibly empty).
+ */
+export async function fetchForecastsForDate(date) {
+  const response = await apiClient.get(`${BASE_URL}/forecast`, { params: { date } });
+  return response.data;
+}
+
+/**
  * Fetches the full ("fat") forecast detail row for a single persisted evaluation.
  *
  * The list endpoint ({@link fetchForecasts}) returns slim rows; the heavy

@@ -177,6 +177,20 @@ export function ukDateStrOffset(days, now = appNow()) {
 }
 
 /**
+ * An ISO date shifted by {@code days} calendar days, as {@code YYYY-MM-DD} — pure string arithmetic
+ * on the date itself (UTC noon, so no zone or DST boundary can move it), for a caller that already
+ * holds the date and needs its neighbour (the Map tab's older-day fetch asks for "the day before the
+ * oldest one it knows").
+ *
+ * @param {string} dateStr - ISO date, YYYY-MM-DD
+ * @param {number} days    - offset in days; may be negative
+ * @returns {string} the shifted calendar date as YYYY-MM-DD
+ */
+export function shiftDateStr(dateStr, days) {
+  return fromUtcNoon(utcNoon(dateStr, days));
+}
+
+/**
  * Whole days from today (UK) to {@code dateStr} — negative for past dates.
  *
  * <p>Exists so that every "Today"/"Tomorrow" label in the app answers to the same calendar as the

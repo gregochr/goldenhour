@@ -194,8 +194,8 @@ describe('a past window is a row of the window control', () => {
     expect(row(`solar:${TODAY}:SUNRISE`)).toBeDefined();
     expect(row(`solar:${TODAY}:SUNSET`)).toBeDefined();
     // The served sunset beside it wears no Past tag in the dropdown — only the elapsed sunrise does.
-    expect(within(row(`solar:${TODAY}:SUNRISE`)).getByTestId('wf-win-row-past')).toBeInTheDocument();
-    expect(within(row(`solar:${TODAY}:SUNSET`)).queryByTestId('wf-win-row-past')).not.toBeInTheDocument();
+    expect(within(row(`solar:${TODAY}:SUNRISE`)).getByTestId('wf-win-notrated')).toBeInTheDocument();
+    expect(within(row(`solar:${TODAY}:SUNSET`)).queryByTestId('wf-win-notrated')).not.toBeInTheDocument();
   });
 
   it('draws no Past tag on the served sunset once it is the window on screen', async () => {

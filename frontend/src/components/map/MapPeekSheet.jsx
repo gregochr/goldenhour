@@ -321,15 +321,91 @@ OtherWindowValue.propTypes = {
  * @param {Function} props.onSelect `(row) => void` — picks a row; the sheet stays open (rule 2)
  * @param {?Function} props.onOpenDrilldown opens `MapWindowPanel`; null withholds the row entirely
  *        (the same "no window to drill into" gate `WindowControl`'s own row observes)
+ * @param {boolean} [props.canLoadOlder] whether one more stored past day can be fetched (the EARLIER
+ *        group's Load row; outcome-rating-plan.md §2 #2, O3b)
+ * @param {?string} [props.olderDayLabel] the day the Load row fetches, {@code Thu 13}
+ * @param {?string} [props.olderDayLoadingLabel] the day being fetched now; the Load row is disabled
+ * @param {?Function} [props.onLoadOlderDay] the Load row's press; the caller closes the sheet and
+ *        moves focus to the pill before it starts the fetch
  */
 export function MapPeekWindowsSection({
   heading, rows, verdicts = null, activeId = null, onSelect, onOpenDrilldown = null,
+  canLoadOlder = false, olderDayLabel = null, olderDayLoadingLabel = null, onLoadOlderDay = null,
 }) {
+  // The same EARLIER group the dropdown draws (WindowControl): every PAST row under a sub-header per
+  // day, the Load row first. ⚠️ The Load row and the header sit OUTSIDE the listbox (it chooses no
+  // window); the future rows keep their flat list and per-row day label, so a date that is in both
+  // sets needs no heading disambiguation here.
+  const pastRows = rows.filter((row) => row.past === true);
+  const laterRows = rows.filter((row) => row.past !== true);
+  const pastDays = [];
+  for (const row of pastRows) {
+    if (pastDays.length === 0 || pastDays[pastDays.length - 1].date !== row.date) {
+      pastDays.push({ date: row.date, rows: [] });
+    }
+    pastDays[pastDays.length - 1].rows.push(row);
+  }
+  const loadable = Boolean(canLoadOlder && onLoadOlderDay && olderDayLabel);
+  const loading = Boolean(olderDayLoadingLabel);
   return (
     <div data-testid="wf-map-peek-windows" className="wf-map-peek-pane">
       <h3 className="wf-map-peek-h3">{heading}</h3>
+      {(pastRows.length > 0 || loadable) && (
+        <div data-testid="wf-map-peek-earlier" className="wf-map-peek-earlier">
+          EARLIER
+          <span className="wf-map-peek-earlier-hint">rate how it went</span>
+        </div>
+      )}
+      {loadable && (
+        <button
+          type="button"
+          data-testid="wf-map-peek-load"
+          className="wf-map-peek-wr wf-map-peek-load"
+          disabled={loading}
+          onClick={onLoadOlderDay}
+        >
+          <span className="wf-hc-sun wf-win-load-chip" aria-hidden="true">&#8593;</span>
+          <span className="wf-map-peek-load-txt">
+            <b className="wf-win-load-title">{`Load ${olderDayLabel}`}</b>
+            {' '}
+            <span className="wf-win-load-sub">
+              {`or press ‹ past the oldest window · fetches ${olderDayLabel}`}
+            </span>
+          </span>
+        </button>
+      )}
       <div role="listbox" aria-label="Choose an event" className="wf-map-peek-wlist">
-        {rows.map((row) => {
+        {pastDays.map((day) => (
+          <div key={`earlier:${day.date}`}>
+            <div data-testid="wf-map-peek-sub" className="wf-map-peek-sub">
+              {day.rows[0].dayLabel ?? day.date}
+            </div>
+            {day.rows.map((row) => (
+              <button
+                key={row.id}
+                type="button"
+                role="option"
+                aria-selected={row.id === activeId}
+                data-testid="wf-map-peek-win-row"
+                data-ev-id={row.id}
+                data-past="true"
+                className={`wf-map-peek-wr${row.id === activeId ? ' on' : ''}`}
+                onClick={() => onSelect(row)}
+              >
+                <KindChip row={row} />
+                <span className="wf-map-peek-wr-day wf-map-peek-wr-pasttime">
+                  <span className="sr-only">{`${row.dayLabel ?? row.label} `}</span>
+                  {row.time}
+                </span>
+                {/* `PAST` where a verdict would be (spec section 2) — the pill's own tag. */}
+                <span className="wf-map-peek-wr-verdict">
+                  <span className="wf-win-past" data-testid="wf-map-peek-wr-past">Past</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        ))}
+        {laterRows.map((row) => {
           const night = isNightRow(row);
           const verdict = night ? null : (verdicts?.get(row.id) ?? null);
           return (
@@ -394,9 +470,16 @@ MapPeekWindowsSection.propTypes = {
     time: PropTypes.string,
     bestRating: PropTypes.number,
     scored: PropTypes.bool,
+    date: PropTypes.string,
+    /** A window that has gone — drawn under the EARLIER group with a `Past` tag for its verdict. */
+    past: PropTypes.bool,
   })).isRequired,
   verdicts: PropTypes.instanceOf(Map),
   activeId: PropTypes.string,
   onSelect: PropTypes.func.isRequired,
   onOpenDrilldown: PropTypes.func,
+  canLoadOlder: PropTypes.bool,
+  olderDayLabel: PropTypes.string,
+  olderDayLoadingLabel: PropTypes.string,
+  onLoadOlderDay: PropTypes.func,
 };

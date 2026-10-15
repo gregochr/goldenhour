@@ -196,6 +196,7 @@ function AppInner() {
   const isMapTabActive = activePlanTab === 'map';
   const {
     locations, loading: forecastsLoading, error: forecastsError, refresh,
+    loadOlderDay, olderDayLoading, loadedPastDays,
   } = useForecasts();
   // Defer the two long-lived SSE streams until after first paint so they don't compete with the
   // critical forecast/briefing fetches during boot.
@@ -847,6 +848,11 @@ function AppInner() {
                     handoff={mapTabHandoff}
                     briefingScores={briefingScores}
                     onForecastRun={refresh}
+                    // The Map tab's older-day fetch (outcome-rating-plan.md §2 #2): `useForecasts` owns
+                    // the fetch and merges the day into `locations`, so `allDates` above widens by itself.
+                    onLoadOlderDay={loadOlderDay}
+                    olderDayLoading={olderDayLoading}
+                    loadedPastDays={loadedPastDays}
                     seasonalFeatures={seasonalFeatures}
                     homeCoords={homeCoords}
                     mapColourScale={mapColourScale}

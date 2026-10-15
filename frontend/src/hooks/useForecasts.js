@@ -1,8 +1,10 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { fetchForecasts, fetchLocations, fetchAllOutcomes } from '../api/forecastApi.js';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import {
+  fetchForecasts, fetchForecastsForDate, fetchLocations, fetchAllOutcomes,
+} from '../api/forecastApi.js';
 import { groupForecastsByLocation } from '../utils/conversions.js';
 import { cacheGeneration, readSwrCache, writeSwrCache } from '../utils/swrCache.js';
-import { appNow } from '../utils/rewind.js';
+import { appNow, getRewindTo } from '../utils/rewind.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { apiErrorMessage } from '../utils/apiError.js';
 
@@ -51,6 +53,59 @@ function buildLocations(forecasts, locationMeta, outcomes) {
 }
 
 /**
+ * Joins the older days the reader has fetched onto the locations the list payload built
+ * (outcome-rating-plan.md §2 #2 "Older-day fetch"). Pure: it is recomputed whenever the hook's
+ * result (a `useMemo` over the list payload and the fetched days), so the merge is re-applied to
+ * EVERY rebuilt {@code locations} array. A refresh (a forecast
+ * run, a drive-time change) replaces the list payload and must not make a loaded T-3 vanish, which
+ * would drop its date from {@code allDates}, make the map refuse a selection on it, and leave the
+ * window control offering a day the reader already fetched.
+ *
+ * <p>Merge without replace: an older day's rows fill a (date, type) the list payload does not carry
+ * and never overwrite one it does (the overlap with the list's own past days is deliberate, and the
+ * list wins). A place the roster no longer holds is ignored. Returns the same array when nothing is
+ * loaded, so a reader that never steps back sees the identity it always did.
+ *
+ * <p>A filter/map over served rows, the already-licensed class (CLAUDE.md Backend-heavy): it derives
+ * no rating and decides nothing.
+ *
+ * @param {Array} locations the per-location view models {@link buildLocations} produced
+ * @param {Map<string, Array>} olderDays date to that day's raw forecast rows (possibly empty)
+ * @returns {Array} the locations with the older days' entries merged in
+ */
+function mergeOlderDays(locations, olderDays) {
+  if (olderDays.size === 0) return locations;
+  const extraByName = new Map();
+  for (const rows of olderDays.values()) {
+    for (const group of groupForecastsByLocation(rows)) {
+      const entries = extraByName.get(group.name) ?? new Map();
+      for (const [date, entry] of group.forecastsByDate) entries.set(date, entry);
+      extraByName.set(group.name, entries);
+    }
+  }
+  return locations.map((loc) => {
+    const extra = extraByName.get(loc.name);
+    if (!extra) return loc;
+    let merged = null;
+    for (const [date, entry] of extra) {
+      const have = loc.forecastsByDate.get(date);
+      if (!have) {
+        merged = merged ?? new Map(loc.forecastsByDate);
+        merged.set(date, entry);
+        continue;
+      }
+      const sunrise = have.sunrise ?? entry.sunrise;
+      const sunset = have.sunset ?? entry.sunset;
+      const hourly = have.hourly?.length ? have.hourly : (entry.hourly ?? []);
+      if (sunrise === have.sunrise && sunset === have.sunset && hourly === have.hourly) continue;
+      merged = merged ?? new Map(loc.forecastsByDate);
+      merged.set(date, { ...have, sunrise, sunset, hourly });
+    }
+    return merged ? { ...loc, forecastsByDate: merged } : loc;
+  });
+}
+
+/**
  * Reads the cached raw payload if present, fresh enough, and structurally intact. Returns the raw
  * {forecasts, locationMeta, outcomes} object or null — kept separate from {@link buildLocations} so
  * the cheap "do we have a cache?" check (for the initial loading flag) never runs a full rebuild.
@@ -82,29 +137,47 @@ function readValidCache(cacheKey) {
  * blanking it with an error; a failed *user-initiated* {@code refresh} (an explicit action that
  * expects feedback) does surface the error/retry.
  *
+ * <p><b>Older days</b> (outcome-rating-plan.md §2 #2): {@code loadOlderDay(date)} fetches one stored
+ * past day ({@code GET /api/forecast?date=}), keeps the raw rows in hook state and merges them into
+ * {@code locations} on every render, so a refresh keeps them. Never written to the SWR cache (that
+ * payload is the list endpoint's, revalidated as a whole; an older day is re-fetched next session). An
+ * empty answer is a loaded-empty entry and still counts as loaded. A failed fetch leaves the roster
+ * unchanged and reports through {@code error}. It stands down under an admin rewind.
+ *
  * @returns {{
  *   locations: Array<{name: string, lat: number, lon: number, forecastsByDate: Map, outcomes: Array}>,
  *   loading: boolean,
  *   error: string|null,
- *   refresh: function
+ *   refresh: function,
+ *   loadOlderDay: function(string): Promise<void>,
+ *   olderDayLoading: string|null,
+ *   loadedPastDays: string[]
  * }}
  */
 export function useForecasts() {
   const { role } = useAuth();
   const cacheKey = `forecasts:${role || 'anon'}`;
 
-  const [locations, setLocations] = useState(() => {
+  const [baseLocations, setLocations] = useState(() => {
     const cached = readValidCache(cacheKey);
     return cached ? buildLocations(cached.forecasts, cached.locationMeta, cached.outcomes) : [];
   });
   // Instant paint only when the hydrated cache actually yields locations to show. An empty-but-valid
   // cache ({forecasts:[],…} from a fresh deploy or an all-disabled roster) must still show the
   // skeleton, never flash the "no forecasts loaded yet" empty state for a frame (see #287 review).
-  const [loading, setLoading] = useState(() => locations.length === 0);
+  const [loading, setLoading] = useState(() => baseLocations.length === 0);
   const [error, setError] = useState(null);
   // True once anything is on screen (cache hydrate or a successful fetch). Guards the loading flash
   // and the error path so a failed revalidation over a hydrated map keeps the stale data.
-  const hasDataRef = useRef(locations.length > 0);
+  const hasDataRef = useRef(baseLocations.length > 0);
+
+  // The older days fetched on demand, date to raw rows. State, not a ref: the merged `locations` and
+  // `loadedPastDays` below derive from it. The refs mirror it for the guards, which must read the
+  // answer of the call in flight, not of the last render.
+  const [olderDays, setOlderDays] = useState(() => new Map());
+  const [olderDayLoading, setOlderDayLoading] = useState(null);
+  const loadedDaysRef = useRef(new Set());
+  const loadingDayRef = useRef(null);
 
   const load = useCallback(async ({ userInitiated = false } = {}) => {
     setError(null);
@@ -163,6 +236,36 @@ export function useForecasts() {
   // user-initiated: a failure surfaces an error/retry rather than silently leaving stale data.
   const refresh = useCallback(() => load({ userInitiated: true }), [load]);
 
+  /**
+   * Fetches one older stored day and merges it in. A no-op for a day already held, while another
+   * older day is loading, and under an admin rewind (a rewound GET would be answered for the
+   * rewound clock, and the Map tab offers no Load row then, plan section 5 #6). The date is the
+   * caller's to choose within T-4..T-1 (the pane's {@code olderDayState}); the server refuses the rest.
+   */
+  const loadOlderDay = useCallback(async (date) => {
+    if (!date || getRewindTo() || loadedDaysRef.current.has(date) || loadingDayRef.current) return;
+    loadingDayRef.current = date;
+    setOlderDayLoading(date);
+    setError(null);
+    try {
+      const rows = await fetchForecastsForDate(date);
+      loadedDaysRef.current.add(date);
+      // The rows and the end of the loading state land in the same batched render, so a reader of
+      // `olderDayLoading` going null always finds the day's rows already merged.
+      setOlderDays((prev) => new Map(prev).set(date, Array.isArray(rows) ? rows : []));
+    } catch (err) {
+      // User-initiated, so it speaks (unlike a background revalidation) and leaves the roster
+      // exactly as it was: nothing is recorded as loaded, so the same day is offered again.
+      setError(apiErrorMessage(err, err?.message || 'Failed to load the earlier day. Please try again.'));
+    } finally {
+      loadingDayRef.current = null;
+      setOlderDayLoading(null);
+    }
+  }, []);
+
+  const locations = useMemo(() => mergeOlderDays(baseLocations, olderDays), [baseLocations, olderDays]);
+  const loadedPastDays = useMemo(() => [...olderDays.keys()].sort(), [olderDays]);
+
   useEffect(() => {
     // Invoke via an inline async function so the synchronous setState calls at
     // the top of `load` run inside the deferred async boundary rather than in
@@ -173,5 +276,7 @@ export function useForecasts() {
     })();
   }, [load]);
 
-  return { locations, loading, error, refresh };
+  return {
+    locations, loading, error, refresh, loadOlderDay, olderDayLoading, loadedPastDays,
+  };
 }
