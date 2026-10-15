@@ -396,7 +396,7 @@ Everything lives under `scripts/far-cloud-p1/`, plus one test-only Java change. 
 
 ## 9. Owner decisions
 
-1. **Interim protection, now.**
+1. **Interim protection, now.** — **Decided 2026-10-15: Batch Near-Term stays on Sonnet 5.5 until the question is resolved** (the Part B re-run after ERA5 verification reaches the Sonnet 5.5 era, §12 step 6, or Part E outcomes). D-2's second condition was met (§13) and the owner chose not to act on one case plus a disagreement whose truth is unknown.
    - Should Batch Near-Term go back to Sonnet 4.6 until Parts D and B report?
    - It is reversible on the Models screen.
    - The P0 evidence is one case: 4.6 gave 3★ 20/20 where 5.5 gave 4★ 20/20. — see §13 for the D-2 reading.
