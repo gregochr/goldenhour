@@ -220,6 +220,32 @@ python3 replay_set.py compare --manifest /tmp/p1-replay/manifest.csv --arms-json
 # with the control, add:  /tmp/p1-arms/control-sonnet55/runs.csv,control-sonnet55
 ```
 
+**Scripted run.** `run_option_a.sh` (this directory) does the Maven plan/confirm pairs above for you, in the order
+`need-sonnet`, `need-sonnet55`, `r1-gos`, `control-sonnet55`, then `training-r1` (the 2-prompt training set on
+`SONNET_55` with the R1 prompt, `REPLAY_N=20`). It reads the split from `$P1_HOME/p1-replay-arms/` and
+`$P1_HOME/sp/system-r1.txt` (`P1_HOME` defaults to `~/goldenhour-p1`), needs `ANTHROPIC_API_KEY` exported in the
+shell and never prints or writes it, and puts each arm's `plan.log`, `run.log` (and `run-resume.log` after a retry), `runs.csv`, `summary.md` and
+`batches.json` in `$P1_HOME/arms/<arm>/` (use those paths, with the arm name as the label, in `compare`).
+
+```
+scripts/far-cloud-p1/run_option_a.sh --max-usd 30     # plan each arm, ask "Submit N requests for <arm>? [y/N]"
+scripts/far-cloud-p1/run_option_a.sh --yes --max-usd 30   # no questions; the --max-usd ceiling still applies
+scripts/far-cloud-p1/run_option_a.sh --dry-run            # fake plan, no Maven, writes nothing under $P1_HOME
+scripts/far-cloud-p1/run_option_a.sh --only r1-gos        # one arm
+MVN_JDK_FLAGS= scripts/far-cloud-p1/run_option_a.sh       # JDK 25 machine: drop the three JDK 23 flags
+```
+
+Per arm it runs Maven once without `REPLAY_CONFIRM_COST` (spending nothing), prints the request count and the cost
+estimate, asks (unless `--yes`), then runs it again with `REPLAY_CONFIRM_COST=<N>`; a failed run is retried once
+with `REPLAY_BATCH_RESUME=true`. `--max-usd X` aborts, submitting nothing, when an arm's printed **ceiling**
+estimate (every reply at `max_tokens`) is above X; it is checked per arm, not summed over arms. An arm whose
+`runs.csv` already exists in `$P1_HOME/arms/<arm>/` is skipped, so a rerun picks up where an earlier one stopped.
+A run that finishes with failed attempts is still kept, flagged `submitted, F/T FAILED` in the summary. Anything already in
+`backend/target/p0-replay` is moved to a `previous-<time>/` folder before a paid run. If an arm fails twice the script stops (the next arm would be refused while `batches.json` holds uncollected
+batches); finish that arm by hand (check the console for an orphan batch first, as in the safety notes below) with
+`REPLAY_BATCH_RESUME=true` and the same settings, copy its three files
+into `$P1_HOME/arms/<arm>/` (`runs.csv` last), and rerun. Ctrl-C does not cancel a batch that was submitted.
+
 Label each `runs.csv` with its directory name (`,need-sonnet`): that is how `--arms-json` matches a run to
 its directory, and `compare` exits 2, writing nothing, if a run is on the wrong model or system prompt, holds a
 prompt that is not in its directory, or replays a prompt on the model that already rated it. `stored` is a

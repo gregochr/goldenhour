@@ -1,6 +1,6 @@
 # P1: wasted trips, the canvas rule and far decks, measured on the history we already have
 
-**Status:** revised after adversarial review, 2026-10-14. Tools built (`scripts/far-cloud-p1/`, code-reviewed). Exports done; Part B has run and the Part D set is built (selection run) on the owner's export. The live probe FAIL (4) on 2026-10-14, on Parts A/C assumptions; fixed and passing in #1166. §11 records what the API actually serves and what changed in Parts A and C because of it. D-1/D-2 thresholds decided (§6). The review record is §10, and the owner's decisions are §9.
+**Status:** revised after adversarial review, 2026-10-14. Tools built (`scripts/far-cloud-p1/`, code-reviewed). Exports done; Part B has run and the Part D set is built (selection run) on the owner's export. The live probe FAIL (4) on 2026-10-14, on Parts A/C assumptions; fixed and passing in #1166. §11 records what the API actually serves and what changed in Parts A and C because of it. D-1/D-2 thresholds decided (§6). The review record is §10, and the owner's decisions are §9. Part D run 2026-10-15 (§13).
 
 **Parent:** `far-cloud-lid-plan.md` §6 P1, which pre-registered hypotheses H1–H5. This plan builds P1
 and adds the analyses the reviews showed P1 cannot do without. Where it departs from a P1 rule, it
@@ -399,14 +399,15 @@ Everything lives under `scripts/far-cloud-p1/`, plus one test-only Java change. 
 1. **Interim protection, now.**
    - Should Batch Near-Term go back to Sonnet 4.6 until Parts D and B report?
    - It is reversible on the Models screen.
-   - The P0 evidence is one case: 4.6 gave 3★ 20/20 where 5.5 gave 4★ 20/20.
+   - The P0 evidence is one case: 4.6 gave 3★ 20/20 where 5.5 gave 4★ 20/20. — see §13 for the D-2 reading.
    - Sonnet 4.6 will be deprecated eventually, so this buys time and is not the fix.
    - Before the switch, run the prompt-regression suite on 4.6. `CLAUDE.md` records that 5.5 fails one
      case 4.6 passes, which is the safe direction.
-2. Part D's spend (§2, printed exactly before the run) — **not yet approved** as of 2026-10-14; the printed range was $174–261 for 1,316 prompts × 3 runs × 4 arms, excluding Sonnet 5.5 thinking tokens.
+2. Part D's spend (§2, printed exactly before the run) — **approved and run on 2026-10-15** (about $6.30 at batch prices across five arms, primers not counted, against a printed floor of $14.74–22.11). The earlier printed range, $174–261 for 1,316 prompts × 3 runs × 4 arms, excluded Sonnet 5.5 thinking tokens and was superseded by the trimmed Option A.
 3. The thresholds in §6 (D-1, D-2 and the branches) — **decided 2026-10-14**, values in §6.
 4. Part E's protocol: which locations, and who records.
 5. Whether Part A should also run for the other training cases.
+6. **Open:** whether to buy a narrower R1 arm that fires only on the Angel shape (10 of 513 gos), at about $4 (§13). Not yet decided.
 
 ## 10. Review record (2026-10-14)
 
@@ -509,3 +510,49 @@ Written after the exports, Part B, the Part D set, the probe fix (#1166) and the
 **Months**
 9. **Twenty outcomes** at a few a week; the report dates its finish from the rate achieved. A star change waits for this.
 10. **Prospective far-deck data** accrues daily from the V175/V176 capture already in production, feeding H1, H2 and H5 from stored values with no fetch.
+
+## 13. Part D results (2026-10-15)
+
+**Run.** The trimmed Option A of §12 step 2 plus a fifth arm, `training-r1`: the two training prompts under R1 on Sonnet 5.5, 20 runs each. Batch mode, one run per prompt otherwise. Tokens and cost per arm, from the harness summaries:
+
+| Arm | Requests | Cost |
+|---|---|---|
+| need-sonnet | 1,114 | $3.31 |
+| need-sonnet55 | 206 | $0.57 |
+| r1-gos | 660 | $1.87 |
+| control-sonnet55 | 152 | $0.42 |
+| training-r1 | 42 | $0.11 |
+
+That is about $6.28 in total at batch prices, primer batches excluded. Every arm had zero failed attempts. The report is `~/goldenhour-p1/part_d.md` on the owner's Mac (not committed).
+
+**Control (noise floor).** Sonnet 5.5 replayed on 150 prompts it rated in production, with the production prompt: 9 of 150 moved (6.0%). 3 of 69 gos fell below 4★ (4.3%). 2 of 81 three-stars rose to 4★+ (2.5%).
+
+### D-1: the R1 canvas rule (fiery_sky cap 55, on Sonnet 5.5)
+
+- **Part 1 passes.** The Angel of the North 2026-10-13 sunset prompt scored 3★ in 20 of 20 runs under R1 (it was 4★ in 20 of 20 under the production prompt, P0). Low Hauxley 2026-10-04 sunrise stayed 4★ in 20 of 20 under R1.
+- **Part 2 fails.** R1 took 179 of 658 go prompts below 4★ (27.2%) against the 15% cap; net of the 4.3% control floor, that is +22.9 pp.
+  - On the 513 gos Sonnet 5.5 itself rated, 164 fell (32.0%).
+  - On the 145 Haiku-rated gos, 15 fell (10.3%), against Sonnet 5.5's own production-prompt 12 of 145 on the same prompts, so there is no R1 effect there beyond noise.
+  - Only 10 of the 513 Sonnet 5.5 gos are Angel-shape by Part B's definition. R1 demoted 8 of those 10, and also 156 of the 503 that are not Angel-shape (31%).
+  - By event, on the 513: sunrise 51 of 267 fell (19%), sunset 113 of 246 (46%).
+  - R1 as drafted is a blanket downgrade concentrated on sunsets, not a rule.
+- **Part 3 cannot be tested yet.** Part B has no verified Sonnet 5.5 gos until ERA5 verification passes 2026-10-14 (§12 step 6).
+- **Part 4** was already failing on Part B's 2026-10-14 figures (84–86% of flagged gos had an ERA5 canvas).
+
+### D-2: Sonnet 5.5 vs Sonnet 4.6
+
+- **Item 1 (an 8-point 4★ gap on the three-star sample) is not met, and could only be read one-sided**, because a stored Sonnet 5.5 three-star is 3 by selection.
+  - Sonnet 4.6 rated 68 of 599 of Sonnet 5.5's three-stars 4★+ (11.4%), against the 2.5% control floor.
+  - Sonnet 4.6 also took 127 of 513 of Sonnet 5.5's gos below 4★ (24.8%), against the 4.3% floor.
+  - Over those 1,112 prompts Sonnet 4.6 gives 4★+ to 454 (40.8%) where Sonnet 5.5's stored ratings give 513 (46.1%): about 5 points, under the 8 the rule asks.
+  - The two models disagree in both directions rather than one being uniformly generous.
+  - Aside: Sonnet 5.5 on the 145 Haiku-rated gos took 12 below 4★ (8.3%) and rated 39 of Haiku's 59 three-stars 4★+ (66.1%). Sonnet 5.5 is far more generous than Haiku, which is not a D-2 arm.
+- **Item 2 is met, on P0's evidence.** The Angel prompt is 4★ in 20 of 20 runs on Sonnet 5.5 and 3★ in 20 of 20 on Sonnet 4.6. By §6's "either holds", D-2 recommends the switch.
+- **The 4.6 demotions and the R1 demotions are largely different prompts.** Of 228 Sonnet 5.5 gos that either demoted, only 63 were demoted by both.
+
+### Reading (the plan's own reading, not a decision)
+
+- D-2's switch stands on one case plus a 25% disagreement on gos whose truth is unknown until Part B can see the Sonnet 5.5 era (§12 step 6) or Part E records outcomes.
+- Under the owner's requirement (a wasted trip costs more than a missed sky), a model that withdraws a quarter of the other's gos is the safe direction if the two are equally accurate, and the switch is reversible.
+- R1 at a 55 cap is rejected as drafted. A narrower R1 that fires only on the Angel shape (10 of 513 gos) is a possible follow-up arm at about $4, not yet decided (§9 item 6, open).
+- Part B re-run after verification will say whether the 127 gos Sonnet 4.6 withdrew fail P-low more often than the 386 it kept. That is the one test that can adjudicate the switch without outcomes.
