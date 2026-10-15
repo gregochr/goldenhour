@@ -234,14 +234,14 @@ go prompts the R1 arm takes below 4, with the 15% cap). Expected calls: **about 
 With a control run loaded the report adds a **CONTROL** section (the noise floor: of the control prompts, the
 share whose replay moved off the stored rating, the control gos that fell below 4 and the control 3-stars that
 rose to 4 or more, each as numerator/denominator over the prompts with a rated attempt), a **net** line under
-the D-1 part 2 line (R1's below-4 share minus the control gos' own, against the 15% cap, the raw line kept above
-it), and a **floor** line under the ONE-SIDED D-2 line (SONNET's rise-to-4 share against the control 3-stars').
-Read the net figure, not the raw one, for D-1 part 2: the raw cap is over by the drift alone if the floor is
-large. The control holds SONNET_55-stored prompts only, while R1 runs on every go (145 were rated by HAIKU).
+the D-1 part 2 line (R1's below-4 share minus the control gos' own; descriptive only, the raw line above it
+keeps the 15% cap), and a **floor** line under the ONE-SIDED D-2 line (SONNET's rise-to-4 share against the control 3-stars').
+The 15% cap in plan §6 D-1 is on the **raw** share and stays there: `compare` never applies it to the net
+figure, which only shows how much of the raw share the control reproduces with no R1 (a large floor means the
+raw share is mostly drift, and that is for the owner to weigh). The control holds SONNET_55-stored prompts only, while R1 runs on every go (145 were rated by HAIKU).
 The D-2 floor is set against SONNET's replays of SONNET_55-stored 3-stars only (a SONNET-stored side is not a
 replay). A floor over fewer than 30 rated control prompts is printed with a THIN warning (one prompt is
-100/n pp, so the 15% cap on the net figure can flip on one prompt); the net verdict is a reading `compare`
-adds, not a threshold the plan set on the net figure, so the owner decides whether it stands.
+100/n pp).
 
 Read it with these limits in mind; they are the price of the trim:
 

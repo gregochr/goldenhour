@@ -766,7 +766,9 @@ class ControlCompareTest(unittest.TestCase):
         self.assertIn("1/3 go prompts taken below 4 stars (33.3%; cap 15%: over)", lines[d1])  # raw, unchanged
         self.assertIn("took 1/2 (50.0%) below 4 with no R1", lines[d1 + 1])
         self.assertIn("**-16.7 pp**", lines[d1 + 1])
-        self.assertIn("cap 15%: within on the net figure", lines[d1 + 1])
+        self.assertNotIn("within", lines[d1 + 1])  # the 15% cap stays on the raw share; the net is descriptive
+        self.assertNotIn("over", lines[d1 + 1])
+        self.assertIn("the 15% cap applies to the raw share above", lines[d1 + 1])
         d2 = next(i for i, l in enumerate(lines) if "ONE-SIDED" in l)
         self.assertIn("SONNET 2/4 (50.0%) [4 replayed]", lines[d2])  # raw, unchanged
         self.assertIn("3/4 (75.0%) rose to 4 or more with no model change", lines[d2 + 1])

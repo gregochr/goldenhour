@@ -787,8 +787,9 @@ def decision_lines(manifest, arms, control=None):
                 lines.append(
                     f"  - net of the control: SONNET_55 on its own stored gos, production prompt, took {_pct(kc, nc)} "
                     f"below 4 with no R1, so R1's share net of that floor is **{net:+.1f} pp** (raw "
-                    f"{100 * k / n:.1f}% minus {100 * kc / nc:.1f}%; cap 15%: {'over' if net > 15 else 'within'} "
-                    f"on the net figure). The control holds SONNET_55-stored gos only.{_thin(nc)}")
+                    f"{100 * k / n:.1f}% minus {100 * kc / nc:.1f}%). Descriptive: the 15% cap applies to the "
+                    f"raw share above, not to this figure. The control holds SONNET_55-stored gos "
+                    f"only.{_thin(nc)}")
             elif control:
                 lines.append("  - net of the control: the control holds no rated go, so no floor exists.")
         else:
