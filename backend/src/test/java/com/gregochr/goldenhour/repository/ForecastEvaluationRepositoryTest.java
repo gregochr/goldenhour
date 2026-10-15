@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.BatchState;
 import com.gregochr.goldenhour.entity.DirectionalCloudDetails;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
+import com.gregochr.goldenhour.entity.OutcomeRatingEntity;
 import com.gregochr.goldenhour.model.ActualOutcome;
 import com.gregochr.goldenhour.model.CalibrationPair;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
@@ -24,6 +25,7 @@ import org.springframework.data.domain.PageRequest;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -833,6 +835,163 @@ class ForecastEvaluationRepositoryTest {
         assertThat(repository.findCalibrationPairs(inside, outside)).hasSize(2);
         assertThat(repository.findCalibrationPairs(
                 outside.plusDays(1), outside.plusDays(5))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("findCalibrationPairs keys each pair on the actual_outcome row it scores")
+    void findCalibrationPairs_outcomeKeyNamesTheOutcomeRow() {
+        LocalDate date = LocalDate.of(2026, 5, 10);
+        repository.save(buildHaikuEvaluation(
+                durham, date, TargetType.SUNSET, LocalDateTime.of(2026, 5, 9, 1, 0), 1));
+        ActualOutcomeEntity outcome = outcomeRepository.save(
+                buildOutcome(durham, date, TargetType.SUNSET, 5));
+
+        List<CalibrationPair> pairs = repository.findCalibrationPairs(date, date);
+
+        assertThat(pairs).extracting(CalibrationPair::outcomeKey)
+                .containsExactly("outcome:" + outcome.getId());
+    }
+
+    // --- findCalibrationPairsFromRatings: forecast scored against what a reader said they saw ---
+
+    @Test
+    @DisplayName("findCalibrationPairsFromRatings pairs a rating with the row its id names, with the"
+            + " row's own horizon, run time, model and potentials and no trip flag")
+    void findCalibrationPairsFromRatings_pairsWithTheNamedRow() {
+        LocalDate date = LocalDate.of(2026, 5, 10);
+        ForecastEvaluationEntity row = buildHaikuEvaluation(
+                durham, date, TargetType.SUNSET, LocalDateTime.of(2026, 5, 9, 1, 0), 1);
+        row.setFierySkyPotential(61);
+        row.setGoldenHourPotential(72);
+        row = repository.save(row);
+        saveRating(11L, durham, date, 4, row.getId(), 3);
+
+        List<CalibrationPair> pairs = repository.findCalibrationPairsFromRatings(date, date);
+
+        assertThat(pairs).hasSize(1);
+        CalibrationPair pair = pairs.getFirst();
+        assertThat(pair.locationName()).isEqualTo("Durham UK");
+        assertThat(pair.targetDate()).isEqualTo(date);
+        assertThat(pair.targetType()).isEqualTo(TargetType.SUNSET);
+        assertThat(pair.daysAhead()).isEqualTo(1);
+        assertThat(pair.forecastRunAt()).isEqualTo(LocalDateTime.of(2026, 5, 9, 1, 0));
+        assertThat(pair.evaluationModel()).isEqualTo(EvaluationModel.HAIKU);
+        assertThat(pair.predictedFierySky()).isEqualTo(61);
+        assertThat(pair.predictedGoldenHour()).isEqualTo(72);
+        assertThat(pair.predictedRating()).isEqualTo(3);
+        assertThat(pair.actualRating()).isEqualTo(4);
+        assertThat(pair.actualFierySky()).isNull();
+        assertThat(pair.actualGoldenHour()).isNull();
+        assertThat(pair.wentOut()).isNull();
+        assertThat(pair.outcomeKey()).isEqualTo("rating:11");
+    }
+
+    @Test
+    @DisplayName("findCalibrationPairsFromRatings pairs with the named row only, never a newer row of the slot")
+    void findCalibrationPairsFromRatings_ignoresLaterRowsOfTheSlot() {
+        LocalDate date = LocalDate.of(2026, 5, 10);
+        ForecastEvaluationEntity named = repository.save(buildHaikuEvaluation(
+                durham, date, TargetType.SUNSET, LocalDateTime.of(2026, 5, 9, 1, 0), 1));
+        // A batch that landed after the event: newer, same slot, rated — and not the one the reader saw.
+        repository.save(buildHaikuEvaluation(
+                durham, date, TargetType.SUNSET, LocalDateTime.of(2026, 5, 11, 14, 0), 0));
+        saveRating(11L, durham, date, 4, named.getId(), 3);
+
+        List<CalibrationPair> pairs = repository.findCalibrationPairsFromRatings(date, date);
+
+        assertThat(pairs).hasSize(1);
+        assertThat(pairs.getFirst().daysAhead()).isEqualTo(1);
+        assertThat(pairs.getFirst().forecastRunAt()).isEqualTo(LocalDateTime.of(2026, 5, 9, 1, 0));
+    }
+
+    @Test
+    @DisplayName("findCalibrationPairsFromRatings predicts the captured star, not the row's own rating")
+    void findCalibrationPairsFromRatings_predictedRatingIsTheCapturedStar() {
+        LocalDate date = LocalDate.of(2026, 5, 10);
+        ForecastEvaluationEntity row = buildHaikuEvaluation(
+                durham, date, TargetType.SUNSET, LocalDateTime.of(2026, 5, 9, 1, 0), 1);
+        // A recombined OPEN_FELL slot: the row holds the sky lane's 4, the reader saw the combined 3.
+        row.setRating(4);
+        row = repository.save(row);
+        saveRating(11L, durham, date, 2, row.getId(), 3);
+
+        List<CalibrationPair> pairs = repository.findCalibrationPairsFromRatings(date, date);
+
+        assertThat(pairs).extracting(CalibrationPair::predictedRating).containsExactly(3);
+    }
+
+    @Test
+    @DisplayName("findCalibrationPairsFromRatings skips a not-seen rating, an unscored row, a null id"
+            + " and a null captured star")
+    void findCalibrationPairsFromRatings_skipsWhatCannotBeScored() {
+        LocalDate date = LocalDate.of(2026, 5, 10);
+        ForecastEvaluationEntity rated = repository.save(buildHaikuEvaluation(
+                durham, date, TargetType.SUNSET, LocalDateTime.of(2026, 5, 9, 1, 0), 1));
+        ForecastEvaluationEntity unscored = buildHaikuEvaluation(
+                edinburgh, date, TargetType.SUNSET, LocalDateTime.of(2026, 5, 9, 1, 0), 1);
+        unscored.setRating(null);
+        unscored = repository.save(unscored);
+
+        saveRating(11L, durham, date, null, rated.getId(), 3);
+        saveRating(12L, edinburgh, date, 4, unscored.getId(), 3);
+        saveRating(13L, durham, date, 4, null, 3);
+        saveRating(14L, durham, date, 4, rated.getId(), null);
+
+        assertThat(repository.findCalibrationPairsFromRatings(date, date)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("findCalibrationPairsFromRatings gives one pair per reader of the same row")
+    void findCalibrationPairsFromRatings_twoUsersGiveTwoPairs() {
+        LocalDate date = LocalDate.of(2026, 5, 10);
+        ForecastEvaluationEntity row = repository.save(buildHaikuEvaluation(
+                durham, date, TargetType.SUNSET, LocalDateTime.of(2026, 5, 9, 1, 0), 1));
+        saveRating(11L, durham, date, 4, row.getId(), 3);
+        saveRating(12L, durham, date, 1, row.getId(), 3);
+
+        List<CalibrationPair> pairs = repository.findCalibrationPairsFromRatings(date, date);
+
+        assertThat(pairs).extracting(CalibrationPair::outcomeKey)
+                .containsExactlyInAnyOrder("rating:11", "rating:12");
+        assertThat(pairs).extracting(CalibrationPair::actualRating)
+                .containsExactlyInAnyOrder(4, 1);
+    }
+
+    @Test
+    @DisplayName("findCalibrationPairsFromRatings bounds on the event date, inclusive at both ends")
+    void findCalibrationPairsFromRatings_respectsWindow() {
+        LocalDate inside = LocalDate.of(2026, 5, 10);
+        LocalDate outside = LocalDate.of(2026, 5, 20);
+        ForecastEvaluationEntity a = repository.save(buildHaikuEvaluation(
+                durham, inside, TargetType.SUNSET, LocalDateTime.of(2026, 5, 9, 1, 0), 1));
+        ForecastEvaluationEntity b = repository.save(buildHaikuEvaluation(
+                durham, outside, TargetType.SUNSET, LocalDateTime.of(2026, 5, 19, 1, 0), 1));
+        saveRating(11L, durham, inside, 4, a.getId(), 3);
+        // The outside rating's row targets a date INSIDE the window: only the rating's event date bounds.
+        b.setTargetDate(inside);
+        repository.save(b);
+        saveRating(11L, durham, outside, 2, b.getId(), 3);
+
+        assertThat(repository.findCalibrationPairsFromRatings(inside, inside)).hasSize(1);
+        assertThat(repository.findCalibrationPairsFromRatings(inside, outside)).hasSize(2);
+        assertThat(repository.findCalibrationPairsFromRatings(
+                outside.plusDays(1), outside.plusDays(5))).isEmpty();
+    }
+
+    private void saveRating(long userId, LocationEntity location, LocalDate date, Integer rating,
+            Long forecastEvaluationId, Integer forecastRating) {
+        entityManager.persistAndFlush(OutcomeRatingEntity.builder()
+                .userId(userId)
+                .locationId(location.getId())
+                .eventDate(date)
+                .eventType(TargetType.SUNSET)
+                .rating(rating)
+                .eventTime(Instant.parse("2026-05-10T19:30:00Z"))
+                .forecastEvaluationId(forecastEvaluationId)
+                .forecastRating(forecastRating)
+                .createdAt(Instant.parse("2026-05-11T09:00:00Z"))
+                .updatedAt(Instant.parse("2026-05-11T09:00:00Z"))
+                .build());
     }
 
     private ActualOutcomeEntity buildOutcome(LocationEntity location, LocalDate date,

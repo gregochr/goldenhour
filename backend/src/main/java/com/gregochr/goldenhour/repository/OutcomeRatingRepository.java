@@ -117,6 +117,16 @@ public interface OutcomeRatingRepository extends JpaRepository<OutcomeRatingEnti
             @Param("forecastRating") Integer forecastRating, @Param("now") Instant now);
 
     /**
+     * Counts every rating in an event-date window, "didn't see it" rows included — the
+     * calibration report's outcome coverage, which counts the old table's unrated rows too.
+     *
+     * @param from start of the window (inclusive)
+     * @param to   end of the window (inclusive)
+     * @return the number of rows in the window
+     */
+    long countByEventDateBetween(LocalDate from, LocalDate to);
+
+    /**
      * One user's own ratings over a date range, oldest event first.
      *
      * @param userId the user
