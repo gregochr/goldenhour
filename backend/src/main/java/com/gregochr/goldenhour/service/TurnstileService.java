@@ -33,6 +33,16 @@ public class TurnstileService {
     }
 
     /**
+     * Reports whether a secret key is configured. With none (local development) {@link #verify}
+     * accepts everything, and {@link TurnstileGate} does not apply its fallback bounds.
+     *
+     * @return true when a non-blank secret key is set
+     */
+    public boolean isConfigured() {
+        return secretKey != null && !secretKey.isBlank();
+    }
+
+    /**
      * Verifies a Turnstile response token with Cloudflare.
      *
      * @param token the client-side Turnstile response token

@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -24,8 +25,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -42,6 +46,9 @@ class UserServiceTest {
 
     @Mock
     private UserEmailService userEmailService;
+
+    @Mock
+    private EmailClaims emailClaims;
 
     @InjectMocks
     private UserService userService;
@@ -150,14 +157,43 @@ class UserServiceTest {
         }
 
         @Test
-        @DisplayName("throws when email already exists")
+        @DisplayName("throws when the email claim is refused, and saves nothing")
         void duplicateEmail_throwsException() {
             when(userRepository.existsByUsername("bob")).thenReturn(false);
-            when(userRepository.existsByEmail("taken@example.com")).thenReturn(true);
+            doThrow(new IllegalArgumentException("Email already registered"))
+                    .when(emailClaims).claim("Taken@example.com", null);
 
-            assertThatThrownBy(() -> userService.createUser("bob", "pass", UserRole.LITE_USER, "taken@example.com"))
+            assertThatThrownBy(() -> userService.createUser("bob", "pass", UserRole.LITE_USER, "Taken@example.com"))
                     .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("taken@example.com");
+                    .hasMessage("Email already registered");
+
+            verify(userRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("claims the email for a NEW account (null id) before the account is saved")
+        void claimsTheEmailBeforeSaving() {
+            when(userRepository.existsByUsername("bob")).thenReturn(false);
+            when(passwordEncoder.encode("pass")).thenReturn("hashed");
+            when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            userService.createUser("bob", "pass", UserRole.LITE_USER, "Bob@Example.com");
+
+            InOrder order = inOrder(emailClaims, userRepository);
+            order.verify(emailClaims).claim("Bob@Example.com", null);
+            order.verify(userRepository).save(any());
+        }
+
+        @Test
+        @DisplayName("refuses a username containing @, which a sign-in would read as an email address")
+        void usernameWithAt_isRefused() {
+            assertThatThrownBy(() -> userService.createUser("bob@home", "pass", UserRole.LITE_USER,
+                    "bob@example.com"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("Username must not contain '@'");
+
+            verify(userRepository, never()).save(any());
+            verifyNoInteractions(emailClaims);
         }
 
         @Test
@@ -172,6 +208,7 @@ class UserServiceTest {
             ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
             verify(userRepository).save(captor.capture());
             assertThat(captor.getValue().getEmail()).isNull();
+            verifyNoInteractions(emailClaims);
         }
 
         @Test
@@ -186,6 +223,7 @@ class UserServiceTest {
             ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
             verify(userRepository).save(captor.capture());
             assertThat(captor.getValue().getEmail()).isEqualTo("  ");
+            verifyNoInteractions(emailClaims);
         }
     }
 
@@ -440,26 +478,39 @@ class UserServiceTest {
             active.setEmail("taken@example.com");
             active.setPassword("hashed");
             when(userRepository.findByEmail("taken@example.com")).thenReturn(Optional.of(active));
+            doThrow(new IllegalArgumentException("Email already registered"))
+                    .when(emailClaims).claim("taken@example.com", null);
 
             assertThatThrownBy(() -> userService.createPendingUser("newuser", "taken@example.com", true,
                     UserRole.PRO_USER))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessage("Email already registered");
+
+            // An ACTIVE account is never deleted to make way for a registration.
+            verify(userRepository, never()).deletePendingById(any());
+            verify(userRepository, never()).save(any());
         }
 
         @Test
-        @DisplayName("deletes abandoned pending registration and re-creates")
+        @DisplayName("replaces an abandoned pending registration: lock, conditional delete, claim, then save, "
+                + "in that order")
         void abandonedPending_deletesAndReCreates() {
             when(userRepository.existsByUsername("newuser")).thenReturn(false);
             AppUserEntity abandoned = AppUserEntity.builder()
                     .id(5L).username("old").password("").role(UserRole.LITE_USER)
                     .email("reuse@example.com").enabled(false).createdAt(LocalDateTime.now()).build();
             when(userRepository.findByEmail("reuse@example.com")).thenReturn(Optional.of(abandoned));
+            when(userRepository.deletePendingById(5L)).thenReturn(1);
             when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
             userService.createPendingUser("newuser", "reuse@example.com", true, UserRole.PRO_USER);
 
-            verify(userRepository).delete(abandoned);
+            InOrder order = inOrder(userRepository, emailClaims);
+            order.verify(userRepository).findByIdForUpdate(5L);
+            order.verify(userRepository).deletePendingById(5L);
+            order.verify(emailClaims).claim("reuse@example.com", null);
+            order.verify(userRepository).save(any());
+            verify(userRepository, never()).delete(any());
 
             ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
             verify(userRepository).save(captor.capture());
@@ -467,6 +518,57 @@ class UserServiceTest {
             assertThat(captured.getUsername()).isEqualTo("newuser");
             assertThat(captured.getEmail()).isEqualTo("reuse@example.com");
             assertThat(captured.isEnabled()).isFalse();
+        }
+
+        @Test
+        @DisplayName("finds the abandoned registration by a case-insensitive ASCII match too")
+        void abandonedPending_foundByCaseInsensitiveMatch() {
+            when(userRepository.existsByUsername("newuser")).thenReturn(false);
+            AppUserEntity abandoned = AppUserEntity.builder()
+                    .id(5L).username("old").password("").role(UserRole.LITE_USER)
+                    .email("Reuse@Example.com").enabled(false).createdAt(LocalDateTime.now()).build();
+            when(userRepository.findByEmail("reuse@example.com")).thenReturn(Optional.empty());
+            when(userRepository.findPendingByEmailLower("reuse@example.com")).thenReturn(List.of(abandoned));
+            when(userRepository.deletePendingById(5L)).thenReturn(1);
+            when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            userService.createPendingUser("newuser", "reuse@example.com", true, UserRole.PRO_USER);
+
+            verify(userRepository).deletePendingById(5L);
+            verify(emailClaims).claim("reuse@example.com", null);
+        }
+
+        @Test
+        @DisplayName("a retry racing the activation deletes nothing (0 rows) and is told the email is taken: "
+                + "the account that has just been activated is never erased")
+        void abandonedPending_activatedMeanwhile_deletesNothingAndRefuses() {
+            when(userRepository.existsByUsername("newuser")).thenReturn(false);
+            AppUserEntity abandoned = AppUserEntity.builder()
+                    .id(5L).username("old").password("").role(UserRole.LITE_USER)
+                    .email("reuse@example.com").enabled(false).createdAt(LocalDateTime.now()).build();
+            when(userRepository.findByEmail("reuse@example.com")).thenReturn(Optional.of(abandoned));
+            when(userRepository.deletePendingById(5L)).thenReturn(0);
+
+            assertThatThrownBy(() -> userService.createPendingUser("newuser", "reuse@example.com", true,
+                    UserRole.PRO_USER))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("Email already registered");
+
+            verify(userRepository, never()).save(any());
+            verifyNoInteractions(emailClaims);
+        }
+
+        @Test
+        @DisplayName("claims a brand-new address once, as a new account")
+        void newAddress_isClaimedOnce() {
+            when(userRepository.existsByUsername("newuser")).thenReturn(false);
+            when(userRepository.findByEmail("fresh@example.com")).thenReturn(Optional.empty());
+            when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            userService.createPendingUser("newuser", "fresh@example.com", true, UserRole.PRO_USER);
+
+            verify(emailClaims).claim("fresh@example.com", null);
+            verify(userRepository, never()).deletePendingById(any());
         }
     }
 

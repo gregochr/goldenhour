@@ -25,6 +25,24 @@ class TurnstileServiceTest {
     }
 
     @Test
+    @DisplayName("isConfigured is true only for a non-blank secret key")
+    void isConfigured_trueOnlyForANonBlankKey() {
+        TurnstileService service = new TurnstileService(mock(RestClient.class));
+
+        setSecretKey(service, "secret");
+        assertThat(service.isConfigured()).isTrue();
+
+        setSecretKey(service, "");
+        assertThat(service.isConfigured()).isFalse();
+
+        setSecretKey(service, "   ");
+        assertThat(service.isConfigured()).isFalse();
+
+        setSecretKey(service, null);
+        assertThat(service.isConfigured()).isFalse();
+    }
+
+    @Test
     @DisplayName("Returns true when secret key is not configured (development mode)")
     void verify_noSecretKey_returnsTrue() {
         TurnstileService service = new TurnstileService(mock(RestClient.class));

@@ -3,23 +3,11 @@ import PropTypes from 'prop-types';
 import { useAuth } from '../context/AuthContext.jsx';
 import { register, resendVerification, verifyEmail, setPasswordForNewUser, submitWaitlist } from '../api/authApi.js';
 import TurnstileWidget from './TurnstileWidget.jsx';
-import BrandLockup from './shared/BrandLockup.jsx';
+import AuthShell from './auth/AuthShell.jsx';
+import AuthHeading from './auth/AuthHeading.jsx';
+import PasswordInput from './auth/PasswordInput.jsx';
+import PasswordChecklist from './auth/PasswordChecklist.jsx';
 const STEPS = { REGISTER: 'REGISTER', CHECK_EMAIL: 'CHECK_EMAIL', VERIFY: 'VERIFY', SET_PASSWORD: 'SET_PASSWORD', SUCCESS: 'SUCCESS', WAITLIST: 'WAITLIST' };
-
-/** Checks a single complexity rule and returns a styled list item. */
-function CheckItem({ ok, label }) {
-  return (
-    <li className={`flex items-center gap-1.5 text-xs ${ok ? 'text-green-400' : 'text-plex-text-muted'}`}>
-      <span className="w-3 text-center">{ok ? '\u2713' : '\u2717'}</span>
-      {label}
-    </li>
-  );
-}
-
-CheckItem.propTypes = {
-  ok: PropTypes.bool.isRequired,
-  label: PropTypes.string.isRequired,
-};
 
 /**
  * Multi-step self-registration component with internal state machine.
@@ -29,22 +17,22 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
   const [step, setStep] = useState(verifyToken ? STEPS.VERIFY : STEPS.REGISTER);
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
-  const [confirmEmail, setConfirmEmail] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   // The verification token, not the user id, identifies the account when the password is set.
   const [verifiedToken, setVerifiedToken] = useState(null);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
-  const [marketingOptIn, setMarketingOptIn] = useState(true);
+  // Marketing consent is an active opt-in (UK PECR/GDPR): unticked until the reader ticks it.
+  const [marketingOptIn, setMarketingOptIn] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState('');
   const [turnstileResetKey, setTurnstileResetKey] = useState(0);
-  const [spTurnstileToken, setSpTurnstileToken] = useState('');
-  const [spTurnstileResetKey, setSpTurnstileResetKey] = useState(0);
+  // The Turnstile script never loaded (blocked, or the domain is not whitelisted). Unlike sign-in,
+  // registration has NO server-side fallback (login-registration plan §4 #1): the form says so and
+  // the submit stays disabled.
+  const [turnstileLoadFailed, setTurnstileLoadFailed] = useState(false);
   const [waitlistEmail, setWaitlistEmail] = useState('');
   const [waitlistSubmitted, setWaitlistSubmitted] = useState(false);
 
@@ -83,20 +71,15 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
   const usernameValid = usernamePattern.test(username);
   const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   const emailValid = emailPattern.test(email);
-  const emailsMatch = confirmEmail.length > 0 && email === confirmEmail;
 
   async function handleRegister(event) {
     event.preventDefault();
-    if (!usernameValid) {
-      setError('Username must be 3-30 characters: letters, numbers, hyphens, or underscores.');
-      return;
-    }
     if (!emailValid) {
       setError('Please enter a valid email address.');
       return;
     }
-    if (email !== confirmEmail) {
-      setError('Email addresses do not match.');
+    if (!usernameValid) {
+      setError('Username must be 3-30 characters: letters, numbers, hyphens, or underscores.');
       return;
     }
     if (!turnstileToken) {
@@ -149,17 +132,15 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
 
   async function handleSetPassword(event) {
     event.preventDefault();
-    if (!allPassed || !spTurnstileToken) return;
+    if (!allPassed) return;
     setError('');
     setLoading(true);
     try {
-      const data = await setPasswordForNewUser(verifiedToken, password, spTurnstileToken);
+      const data = await setPasswordForNewUser(verifiedToken, password);
       completeRegistration(data);
       setStep(STEPS.SUCCESS);
     } catch (err) {
       setError(err?.response?.data?.error ?? 'Failed to set password. Please try again.');
-      setSpTurnstileToken('');
-      setSpTurnstileResetKey((k) => k + 1);
     } finally {
       setLoading(false);
     }
@@ -189,36 +170,11 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
   }, [step]);
 
   return (
-    <div className="min-h-screen bg-plex-bg flex items-center justify-center px-4">
-      <div className="w-full max-w-sm">
-        <div className="mb-8">
-          <BrandLockup variant="auth" />
-        </div>
-
+    <AuthShell>
         {/* REGISTER step */}
         {step === STEPS.REGISTER && (
           <form onSubmit={handleRegister} className="card flex flex-col gap-4" data-testid="register-form">
-            <p className="text-sm font-semibold text-plex-text">Create an account</p>
-
-            <div>
-              <label className="block text-xs text-plex-text-secondary mb-1" htmlFor="reg-username">Username</label>
-              <input
-                id="reg-username"
-                type="text"
-                data-testid="reg-username"
-                autoComplete="username"
-                className={`w-full bg-plex-surface-light border rounded px-3 py-2 text-sm text-plex-text placeholder-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold ${
-                  username.length > 0 && !usernameValid ? 'border-red-700' : 'border-plex-border'
-                }`}
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                disabled={loading}
-                required
-              />
-              <p className={`text-xs mt-1 ${username.length > 0 && !usernameValid ? 'text-red-400' : 'text-plex-text-muted'}`}>
-                3-30 characters, letters, numbers, hyphens, or underscores
-              </p>
-            </div>
+            <AuthHeading>Create an account</AuthHeading>
 
             <div>
               <label className="block text-xs text-plex-text-secondary mb-1" htmlFor="reg-email">Email</label>
@@ -227,37 +183,43 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
                 type="email"
                 data-testid="reg-email"
                 autoComplete="email"
-                className={`w-full bg-plex-surface-light border rounded px-3 py-2 text-sm text-plex-text placeholder-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold ${
-                  email.length > 0 && !emailValid ? 'border-red-700' : 'border-plex-border'
-                }`}
+                aria-describedby="reg-email-hint"
+                className={`field ${email.length > 0 && !emailValid ? 'field-error' : ''}`}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 disabled={loading}
                 required
               />
-              {email.length > 0 && !emailValid && (
-                <p className="text-xs text-red-400 mt-1">Please enter a valid email address</p>
-              )}
+              <p
+                id="reg-email-hint"
+                className={`text-xs mt-1 ${email.length > 0 && !emailValid ? 'text-plex-error' : 'text-plex-text-secondary'}`}
+              >
+                {email.length > 0 && !emailValid
+                  ? 'Please enter a valid email address'
+                  : "We'll send a link to confirm it."}
+              </p>
             </div>
 
             <div>
-              <label className="block text-xs text-plex-text-secondary mb-1" htmlFor="reg-confirm-email">Confirm email</label>
+              <label className="block text-xs text-plex-text-secondary mb-1" htmlFor="reg-username">Username</label>
               <input
-                id="reg-confirm-email"
-                type="email"
-                data-testid="reg-confirm-email"
-                autoComplete="email"
-                className={`w-full bg-plex-surface-light border rounded px-3 py-2 text-sm text-plex-text placeholder-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold ${
-                  confirmEmail.length > 0 && !emailsMatch ? 'border-red-700' : 'border-plex-border'
-                }`}
-                value={confirmEmail}
-                onChange={(e) => setConfirmEmail(e.target.value)}
+                id="reg-username"
+                type="text"
+                data-testid="reg-username"
+                autoComplete="username"
+                aria-describedby="reg-username-hint"
+                className={`field ${username.length > 0 && !usernameValid ? 'field-error' : ''}`}
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
                 disabled={loading}
                 required
               />
-              {confirmEmail.length > 0 && !emailsMatch && (
-                <p className="text-xs text-red-400 mt-1">Email addresses do not match</p>
-              )}
+              <p
+                id="reg-username-hint"
+                className={`text-xs mt-1 ${username.length > 0 && !usernameValid ? 'text-plex-error' : 'text-plex-text-secondary'}`}
+              >
+                3–30 letters, numbers, - or _
+              </p>
             </div>
 
             <label className="flex items-start gap-2 cursor-pointer text-xs text-plex-text-secondary">
@@ -298,24 +260,47 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
               <span>Send me occasional emails about new features and photography tips</span>
             </label>
 
-            <TurnstileWidget
-              key={`reg-${turnstileResetKey}`}
-              onVerify={(token) => setTurnstileToken(token)}
-              onExpire={() => setTurnstileToken('')}
-            />
-
-            {error && (
-              <p className="text-xs text-red-400" role="alert" data-testid="reg-error">{error}</p>
+            {!turnstileLoadFailed && (
+              <TurnstileWidget
+                key={`reg-${turnstileResetKey}`}
+                onVerify={(token) => setTurnstileToken(token)}
+                onExpire={() => setTurnstileToken('')}
+                onLoadFail={() => setTurnstileLoadFailed(true)}
+              />
+            )}
+            {turnstileLoadFailed && (
+              <p className="text-xs text-plex-text-secondary" role="status" data-testid="turnstile-unavailable">
+                Security check couldn&apos;t load. Try another browser, or turn off your ad-blocker for this page.
+              </p>
             )}
 
-            <button type="submit" data-testid="reg-submit" className="btn-primary" disabled={loading || !turnstileToken || !termsAccepted}>
+            {error && (
+              <p className="text-xs text-plex-error" role="alert" data-testid="reg-error">{error}</p>
+            )}
+
+            <button
+              type="submit"
+              data-testid="reg-submit"
+              className="btn-primary"
+              disabled={loading || !turnstileToken || !termsAccepted}
+              aria-describedby={termsAccepted ? undefined : 'reg-terms-hint'}
+            >
               {loading ? 'Creating account…' : 'Create account'}
             </button>
+            {!termsAccepted && (
+              <p
+                id="reg-terms-hint"
+                className="text-xs text-plex-text-secondary text-center -mt-2"
+                data-testid="reg-terms-hint"
+              >
+                Agree to the terms to continue
+              </p>
+            )}
 
             <div className="text-center">
               <button
                 type="button"
-                className="text-xs text-plex-text-muted hover:text-plex-text"
+                className="text-xs text-plex-text-secondary hover:text-plex-text"
                 onClick={onBackToLogin}
                 data-testid="reg-back-to-login"
               >
@@ -328,17 +313,17 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
 
         {/* CHECK_EMAIL step */}
         {step === STEPS.CHECK_EMAIL && (
-          <div className="card flex flex-col gap-4 text-center" data-testid="check-email">
-            <p className="text-sm font-semibold text-plex-text">Check your email</p>
+          <div className="card flex flex-col gap-4" data-testid="check-email">
+            <AuthHeading>Check your email</AuthHeading>
             <p className="text-sm text-plex-text-secondary">
               We&apos;ve sent a verification link to <strong className="text-plex-text">{email}</strong>
             </p>
-            <p className="text-xs text-plex-text-muted">
+            <p className="text-xs text-plex-text-secondary">
               Click the link in the email to verify your address and complete registration.
             </p>
 
             {error && (
-              <p className="text-xs text-red-400" role="alert" data-testid="resend-error">{error}</p>
+              <p className="text-xs text-plex-error" role="alert" data-testid="resend-error">{error}</p>
             )}
 
             <button
@@ -353,7 +338,7 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
 
             <button
               type="button"
-              className="text-xs text-plex-text-muted hover:text-plex-text"
+              className="text-xs text-plex-text-secondary hover:text-plex-text"
               onClick={onBackToLogin}
             >
               Back to sign in
@@ -363,17 +348,17 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
 
         {/* VERIFY step (loading spinner) */}
         {step === STEPS.VERIFY && (
-          <div className="card flex flex-col gap-4 text-center" data-testid="verify-step">
+          <div className="card flex flex-col gap-4" data-testid="verify-step">
             {loading && (
               <p className="text-sm text-plex-text-secondary animate-pulse">Verifying your email…</p>
             )}
             {!loading && error && (
               <>
-                <p className="text-sm font-semibold text-red-400">Verification failed</p>
+                <AuthHeading>Verification failed</AuthHeading>
                 <p className="text-xs text-plex-text-secondary" data-testid="verify-error">{error}</p>
                 <button
                   type="button"
-                  className="text-xs text-plex-text-muted hover:text-plex-text underline"
+                  className="text-xs text-plex-text-secondary hover:text-plex-text underline"
                   onClick={onBackToLogin}
                 >
                   Request a new verification email
@@ -387,7 +372,7 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
         {step === STEPS.SET_PASSWORD && (
           <form onSubmit={handleSetPassword} className="card flex flex-col gap-4" data-testid="set-password-form">
             <div>
-              <p className="text-sm font-semibold text-plex-text">Set your password</p>
+              <AuthHeading>Set your password</AuthHeading>
               <p className="text-xs text-plex-text-secondary mt-1">
                 Your email has been verified. Choose a password to complete registration.
               </p>
@@ -395,79 +380,39 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
 
             <div>
               <label className="block text-xs text-plex-text-secondary mb-1" htmlFor="sp-password">Password</label>
-              <div className="relative">
-                <input
-                  id="sp-password"
-                  type={showPassword ? 'text' : 'password'}
-                  data-testid="sp-password"
-                  autoComplete="new-password"
-                  className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-2 pr-10 text-sm text-plex-text placeholder-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  disabled={loading}
-                  required
-                />
-                <button
-                  type="button"
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  onClick={() => setShowPassword((v) => !v)}
-                  className="absolute inset-y-0 right-0 flex items-center px-3 text-plex-text-secondary hover:text-plex-text"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                    <path d="M10 3C5 3 1.73 7.11 1.05 8.87a1 1 0 000 .26C1.73 10.89 5 15 10 15s8.27-4.11 8.95-5.87a1 1 0 000-.26C18.27 7.11 15 3 10 3zm0 10a4 4 0 110-8 4 4 0 010 8zm0-6a2 2 0 100 4 2 2 0 000-4z" />
-                  </svg>
-                </button>
-              </div>
+              <PasswordInput
+                id="sp-password"
+                testId="sp-password"
+                autoComplete="new-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={loading}
+              />
             </div>
 
             <div>
               <label className="block text-xs text-plex-text-secondary mb-1" htmlFor="sp-confirm">Confirm password</label>
-              <div className="relative">
-                <input
-                  id="sp-confirm"
-                  type={showConfirm ? 'text' : 'password'}
-                  data-testid="sp-confirm"
-                  autoComplete="new-password"
-                  className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-2 pr-10 text-sm text-plex-text placeholder-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  disabled={loading}
-                  required
-                />
-                <button
-                  type="button"
-                  aria-label={showConfirm ? 'Hide password' : 'Show password'}
-                  onClick={() => setShowConfirm((v) => !v)}
-                  className="absolute inset-y-0 right-0 flex items-center px-3 text-plex-text-secondary hover:text-plex-text"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                    <path d="M10 3C5 3 1.73 7.11 1.05 8.87a1 1 0 000 .26C1.73 10.89 5 15 10 15s8.27-4.11 8.95-5.87a1 1 0 000-.26C18.27 7.11 15 3 10 3zm0 10a4 4 0 110-8 4 4 0 010 8zm0-6a2 2 0 100 4 2 2 0 000-4z" />
-                  </svg>
-                </button>
-              </div>
+              <PasswordInput
+                id="sp-confirm"
+                testId="sp-confirm"
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                disabled={loading}
+              />
             </div>
 
-            <ul className="flex flex-col gap-1 pl-1">
-              {checks.map((c) => (
-                <CheckItem key={c.label} ok={c.ok} label={c.label} />
-              ))}
-            </ul>
-
-            <TurnstileWidget
-              key={`sp-${spTurnstileResetKey}`}
-              onVerify={(token) => setSpTurnstileToken(token)}
-              onExpire={() => setSpTurnstileToken('')}
-            />
+            <PasswordChecklist checks={checks} testId="sp-checklist" />
 
             {error && (
-              <p className="text-xs text-red-400" role="alert" data-testid="sp-error">{error}</p>
+              <p className="text-xs text-plex-error" role="alert" data-testid="sp-error">{error}</p>
             )}
 
             <button
               type="submit"
               data-testid="sp-submit"
               className="btn-primary"
-              disabled={loading || !allPassed || !spTurnstileToken}
+              disabled={loading || !allPassed}
             >
               {loading ? 'Setting up…' : 'Complete registration'}
             </button>
@@ -476,17 +421,17 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
 
         {/* WAITLIST step */}
         {step === STEPS.WAITLIST && (
-          <div className="card flex flex-col gap-4 text-center" data-testid="waitlist-step">
+          <div className="card flex flex-col gap-4" data-testid="waitlist-step">
             {!waitlistSubmitted ? (
               <form onSubmit={handleWaitlistSubmit} className="flex flex-col gap-4">
-                <p className="text-sm font-semibold text-plex-text">Early access is full</p>
+                <AuthHeading>Early access is full</AuthHeading>
                 <p className="text-xs text-plex-text-secondary">
                   We&apos;re currently at capacity. Leave your email and we&apos;ll notify you when a spot opens up.
                 </p>
                 <input
                   type="email"
                   data-testid="waitlist-email"
-                  className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-2 text-sm text-plex-text placeholder-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold"
+                  className="field"
                   value={waitlistEmail}
                   onChange={(e) => setWaitlistEmail(e.target.value)}
                   placeholder="you@example.com"
@@ -494,7 +439,7 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
                   required
                 />
                 {error && (
-                  <p className="text-xs text-red-400" role="alert" data-testid="waitlist-error">{error}</p>
+                  <p className="text-xs text-plex-error" role="alert" data-testid="waitlist-error">{error}</p>
                 )}
                 <button type="submit" className="btn-primary" data-testid="waitlist-submit" disabled={loading}>
                   {loading ? 'Submitting…' : 'Notify me'}
@@ -502,7 +447,7 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
               </form>
             ) : (
               <>
-                <p className="text-sm font-semibold text-plex-text">You&apos;re on the list</p>
+                <AuthHeading>You&apos;re on the list</AuthHeading>
                 <p className="text-xs text-plex-text-secondary" data-testid="waitlist-success">
                   We&apos;ll be in touch when a spot opens up.
                 </p>
@@ -510,7 +455,7 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
             )}
             <button
               type="button"
-              className="text-xs text-plex-text-muted hover:text-plex-text"
+              className="text-xs text-plex-text-secondary hover:text-plex-text"
               onClick={onBackToLogin}
             >
               Back to sign in
@@ -520,14 +465,13 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
 
         {/* SUCCESS step */}
         {step === STEPS.SUCCESS && (
-          <div className="card flex flex-col gap-4 text-center" data-testid="success-step">
-            <p className="text-sm font-semibold text-plex-text">Welcome to PhotoCast!</p>
+          <div className="card flex flex-col gap-4" data-testid="success-step">
+            <AuthHeading>Welcome to PhotoCast!</AuthHeading>
             <p className="text-xs text-plex-text-secondary animate-pulse">Redirecting…</p>
           </div>
         )}
 
-      </div>
-    </div>
+    </AuthShell>
   );
 }
 
