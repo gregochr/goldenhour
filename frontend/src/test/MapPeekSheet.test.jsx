@@ -661,4 +661,42 @@ describe('MapPeekWindowsSection — the EARLIER group', () => {
     fireEvent.click(screen.getAllByTestId('wf-map-peek-win-row')[1]);
     expect(onSelect).toHaveBeenCalledWith(ROWS[1]);
   });
+
+  describe('the reader\'s rated count (outcome-rating-plan.md §2 #6, O4b)', () => {
+    const COUNTS = new Map([[ROWS[0].id, 3], [ROWS[1].id, 0]]);
+
+    it('prints "{n} rated" in star gold and "Not rated" for a zero, where PAST was', () => {
+      renderSection({ ratedCounts: COUNTS });
+      const rows = screen.getAllByTestId('wf-map-peek-win-row');
+      expect(within(rows[0]).getByTestId('wf-win-rated')).toHaveTextContent('3 rated');
+      expect(within(rows[1]).getByTestId('wf-win-notrated')).toHaveTextContent('Not rated');
+      expect(within(rows[0]).queryByTestId('wf-map-peek-wr-past')).not.toBeInTheDocument();
+    });
+
+    it('keeps the PAST tag on a row the counts do not know — never a false "Not rated"', () => {
+      renderSection({ ratedCounts: COUNTS });
+      const unknown = screen.getAllByTestId('wf-map-peek-win-row')[2];
+      expect(within(unknown).getByTestId('wf-map-peek-wr-past')).toHaveTextContent('Past');
+      expect(within(unknown).queryByTestId('wf-win-notrated')).not.toBeInTheDocument();
+      expect(within(unknown).queryByTestId('wf-win-rated')).not.toBeInTheDocument();
+    });
+
+    it('with no counts at all (a rewind) every past row keeps its PAST tag', () => {
+      renderSection({ ratedCounts: null });
+      expect(screen.getAllByTestId('wf-map-peek-wr-past')).toHaveLength(3);
+      expect(screen.queryByTestId('wf-win-notrated')).not.toBeInTheDocument();
+    });
+
+    it('puts the count in the option\'s accessible name, after the day in words', () => {
+      renderSection({ ratedCounts: COUNTS });
+      expect(screen.getAllByRole('option')[0]).toHaveAccessibleName(/Sunrise\s*Yesterday\s*07:20\s*3 rated/);
+    });
+
+    it('draws no count on the served row beside them', () => {
+      renderSection({ ratedCounts: new Map([[LIVE.id, 4]]) });
+      const live = screen.getAllByTestId('wf-map-peek-win-row')[3];
+      expect(within(live).queryByTestId('wf-win-rated')).not.toBeInTheDocument();
+      expect(live).toHaveTextContent('Worth it');
+    });
+  });
 });

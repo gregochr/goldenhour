@@ -185,6 +185,7 @@ describe('a past window is a row of the window control', () => {
       date: TODAY,
       forecastDates: [TODAY],
       autoEventType: 'SUNRISE',
+      ratedCounts: new Map([[`solar:${TODAY}:SUNRISE`, 0]]),
     });
     expect(screen.getByTestId('wf-win-pill')).toHaveTextContent('Sunrise');
     expect(screen.getByTestId('wf-win-past')).toBeInTheDocument();
@@ -377,5 +378,87 @@ describe('ratings on a past window read the forecast row ALONE', () => {
     });
 
     expect(ratings()).toEqual([4, 4]);
+  });
+});
+
+describe('spot.myRating — the reader\'s own record rides labelSpots on a PAST window only (O4b)', () => {
+  const myRatings = () => (labelSpotsSeen.last ?? []).map((s) => s.myRating ?? null);
+  /** The hook's return value, as far as `MapView` reads it. */
+  const ratingsFor = (entries, extra = {}) => ({
+    mine: new Map(entries),
+    covers: () => true,
+    wasRead: () => true,
+    readFailed: false,
+    loaded: true,
+    saving: new Set(),
+    saveError: new Set(),
+    ...extra,
+  });
+  const MINE = [
+    [`1|${YESTERDAY}|SUNSET`, { rating: 4 }],
+    [`2|${YESTERDAY}|SUNSET`, { rating: null }],
+    // Another window of the same day, and a served window: neither may leak onto the sunset.
+    [`1|${YESTERDAY}|SUNRISE`, { rating: 2 }],
+    [`1|${TODAY}|SUNSET`, { rating: 5 }],
+  ];
+  const past = (extra) => renderMap({
+    locations: makeLocations({
+      [YESTERDAY]: { sunrise: sunrise(YESTERDAY, { rating: 3 }), sunset: sunset(YESTERDAY, { rating: 3 }) },
+    }),
+    date: YESTERDAY,
+    forecastDates: [YESTERDAY, TODAY],
+    autoEventType: 'SUNSET',
+    ...extra,
+  });
+
+  it('carries a star, NOT_SEEN or nothing per spot — for the window on screen alone', async () => {
+    await past({ outcomeRatings: ratingsFor(MINE) });
+    expect(myRatings()).toEqual([4, 'NOT_SEEN']);
+  });
+
+  it('is absent on a SERVED window even though the same reader has a record for it', async () => {
+    await renderMap({
+      locations: makeLocations({ [TODAY]: { sunset: sunset(TODAY, { rating: 3 }) } }),
+      date: TODAY,
+      forecastDates: [TODAY],
+      autoEventType: 'SUNSET',
+      outcomeRatings: ratingsFor(MINE),
+    });
+    expect(screen.queryByTestId('wf-win-past')).not.toBeInTheDocument();
+    expect(myRatings()).toEqual([null, null]);
+  });
+
+  it('is absent after a FAILED read: an empty map there is not "unrated"', async () => {
+    await past({ outcomeRatings: ratingsFor(MINE, { readFailed: true }) });
+    expect(myRatings()).toEqual([null, null]);
+  });
+
+  it('is absent for a date the read has not covered yet', async () => {
+    await past({ outcomeRatings: ratingsFor(MINE, { wasRead: () => false }) });
+    expect(myRatings()).toEqual([null, null]);
+  });
+
+  it('is absent with no ratings at all (a rewind, the overlay)', async () => {
+    await past({ outcomeRatings: null });
+    expect(myRatings()).toEqual([null, null]);
+  });
+});
+
+describe('ratedCounts reach the window control (O4b)', () => {
+  it('prints "{n} rated" on a past row from the pane\'s map, and nothing for a row the map lacks', async () => {
+    await renderMap({
+      locations: makeLocations({
+        [YESTERDAY]: { sunrise: sunrise(YESTERDAY, { rating: 3 }), sunset: sunset(YESTERDAY, { rating: 3 }) },
+      }),
+      date: YESTERDAY,
+      forecastDates: [YESTERDAY, TODAY],
+      autoEventType: 'SUNSET',
+      ratedCounts: new Map([[`solar:${YESTERDAY}:SUNSET`, 2]]),
+    });
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    const row = (id) => screen.getAllByTestId('wf-win-row').find((r) => r.getAttribute('data-ev-id') === id);
+    expect(within(row(`solar:${YESTERDAY}:SUNSET`)).getByTestId('wf-win-rated')).toHaveTextContent('2 rated');
+    expect(within(row(`solar:${YESTERDAY}:SUNRISE`)).queryByTestId('wf-win-notrated')).not.toBeInTheDocument();
+    expect(within(row(`solar:${YESTERDAY}:SUNRISE`)).queryByTestId('wf-win-rated')).not.toBeInTheDocument();
   });
 });

@@ -45,6 +45,7 @@ import {
   solarRowPredicate,
   EVENT_KIND,
 } from '../utils/mapEvents.js';
+import { myRatingOf } from '../utils/outcomeRatingJoin.js';
 import { pastDayLabel } from '../utils/windowFirstCards.js';
 import { buildEvVerdicts, regionNamesOf } from '../utils/mapVerdict.js';
 import { withScopedSolarTimes } from '../utils/mapScopedTime.js';
@@ -1448,8 +1449,18 @@ const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
  *       state and, on its way back to null, lands the selection on the new day (below).</li>
  *   <li>{@code onLoadOlderDay} — {@code (date) => void}; the fetch itself lives in {@code useForecasts}.</li>
  * </ul>
+ *
+ * <h2>…and the counts and the badge (outcome-rating-plan.md §2 #6, O4b)</h2>
+ * <ul>
+ *   <li>{@code ratedCounts} — row id to the reader's rated-location count, built in the pane
+ *       ({@code utils/outcomeRatingJoin.ratedCountByWindow}); forwarded untouched to the window
+ *       control and the phone peek sheet. An id it lacks is unknown and prints nothing.</li>
+ *   <li>{@code outcomeRatings} also feeds {@code spot.myRating} in {@code labelSpots}: the reader's
+ *       own record for a place, set ONLY while the window on screen is past, which {@code MapLabels}
+ *       and {@code PinsLayer} draw as the corner badge. Per-user joins, not derivations.</li>
+ * </ul>
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, askPhase = 'empty', panelShown = true, outcomeRatings = null, canLoadOlder = false, olderDayDate = null, olderDayLoading = null, onLoadOlderDay = null }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, askPhase = 'empty', panelShown = true, outcomeRatings = null, ratedCounts = null, canLoadOlder = false, olderDayDate = null, olderDayLoading = null, onLoadOlderDay = null }) {
   // `MapView` is `React.memo`'d, and its two long-lived mounts (the Map pane, the standalone
   // overlay) sit hidden rather than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -4158,6 +4169,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         // this function already has in hand and the plan's own goal for this phase is that every
         // fact reaches the components that will draw it.
         tideFitPhrase: tideCuesOn ? (tide?.fitPhrase ?? null) : null,
+        // The reader's OWN outcome rating for this place in the window on screen — `1..5`,
+        // `'NOT_SEEN'` or null (outcome-rating-plan.md §2 #6, O4b). Set ONLY on a past window (a
+        // served one has no outcome to rate) and only when the reader's ratings for that date have
+        // been read successfully (`myRatingOf` answers null otherwise, so a failed read draws no
+        // badge rather than implying nothing was rated). A per-user join, never a derivation.
+        myRating: activeWindowPast ? myRatingOf(outcomeRatings, loc.id, date, eventType) : null,
       };
     };
     const spots = scopedVisibleLocations.map(spotOf);
@@ -4212,6 +4229,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }, [
     scopedVisibleLocations, getRatingForLocation, getTideOnLightForLocation, driveMinutesFor,
     selectedLoc, isStandDownLocation, tideCuesOn, locations, askPicks, askSelectedRank,
+    activeWindowPast, outcomeRatings, date, eventType,
   ]);
   /** The pick spots that actually reached the map — what dims the rest and what the camera frames. */
   const askPickSpots = labelSpots.filter((spot) => spot.askPick);
@@ -5456,6 +5474,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       olderDayLabel={olderDayLabel}
       olderDayLoadingLabel={olderDayLoadingLabel}
       onLoadOlderDay={startOlderLoad}
+      ratedCounts={ratedCounts}
       // Phone only (map-mobile-sheet-plan.md §3 M2 task 4) — the pill body toggles the peek
       // sheet's Windows section instead of this control's own dropdown, which stays permanently
       // closed there (`open` is `openMapMenu === 'window'`, a value the phone never sets). See
@@ -6873,6 +6892,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                       olderDayLabel={olderDayLabel}
                       olderDayLoadingLabel={olderDayLoadingLabel}
                       onLoadOlderDay={loadOlderFromPeek}
+                      ratedCounts={ratedCounts}
                     />
                   )}
                   layersBody={(
@@ -7569,13 +7589,24 @@ MapView.propTypes = {
    */
   outcomeRatings: PropTypes.shape({
     loaded: PropTypes.bool,
+    /** True after the newest read settled FAILED (the counts and badge go silent; the block stays usable). */
+    readFailed: PropTypes.bool,
     covers: PropTypes.func,
+    /** Whether the server was asked about a date (range-based for every role) — what a count/badge needs. */
+    wasRead: PropTypes.func,
     mine: PropTypes.instanceOf(Map),
     saving: PropTypes.instanceOf(Set),
     saveError: PropTypes.instanceOf(Set),
     rate: PropTypes.func,
     clearSaveError: PropTypes.func,
   }),
+  /**
+   * The reader's rated-location count per PAST window, EV row id to count ({@code utils/
+   * outcomeRatingJoin.ratedCountByWindow}, built in the pane; outcome-rating-plan.md §2 #6, O4b).
+   * An id absent from it is UNKNOWN (not yet read, a failed read, a rewind) and prints nothing; 0
+   * prints {@code Not rated}. Forwarded to the window control and the phone peek sheet.
+   */
+  ratedCounts: PropTypes.instanceOf(Map),
   /** One more stored past day can be fetched (outcome-rating-plan.md §2 #2); false under a rewind and at T-4. */
   canLoadOlder: PropTypes.bool,
   /** The day {@code canLoadOlder} would fetch, YYYY-MM-DD. */

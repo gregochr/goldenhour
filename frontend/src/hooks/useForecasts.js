@@ -1,10 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import {
-  fetchForecasts, fetchForecastsForDate, fetchLocations, fetchAllOutcomes,
-} from '../api/forecastApi.js';
+import { fetchForecasts, fetchForecastsForDate, fetchLocations } from '../api/forecastApi.js';
 import { groupForecastsByLocation } from '../utils/conversions.js';
 import { cacheGeneration, readSwrCache, writeSwrCache } from '../utils/swrCache.js';
-import { appNow, getRewindTo } from '../utils/rewind.js';
+import { getRewindTo } from '../utils/rewind.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { apiErrorMessage } from '../utils/apiError.js';
 
@@ -12,26 +10,21 @@ import { apiErrorMessage } from '../utils/apiError.js';
 const FORECASTS_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
 /**
- * Shapes the three raw API payloads into the per-location view model the map and the Plan tab's
+ * Shapes the two raw API payloads into the per-location view model the map and the Plan tab's
  * location-derived enrichments consume. Pure, so it runs identically on the live fetch and when
  * hydrating synchronously from the instant-paint cache.
  *
+ * <p>There is no {@code outcomes} on a location any more (outcome-rating-plan.md §4 #7): the old
+ * {@code GET /api/outcome/all} fed no reader since the outcome UI died (2026-02-27), and the
+ * reader's own ratings now arrive through {@code useOutcomeRatings}, mounted beside the map.
+ *
  * @param {Array} forecasts - forecast rows from /api/forecast
  * @param {Array} locationMeta - location metadata from /api/locations
- * @param {Array} outcomes - recorded outcomes from /api/outcome/all
- * @returns {Array} per-location objects with a forecastsByDate Map and attached outcomes
+ * @returns {Array} per-location objects with a forecastsByDate Map
  */
-function buildLocations(forecasts, locationMeta, outcomes) {
+function buildLocations(forecasts, locationMeta) {
   const forecastGroups = groupForecastsByLocation(forecasts);
   const forecastByName = Object.fromEntries(forecastGroups.map((g) => [g.name, g]));
-
-  // Group the batched outcomes by location name for O(1) attachment below.
-  const outcomesByName = new Map();
-  for (const outcome of outcomes) {
-    const list = outcomesByName.get(outcome.locationName);
-    if (list) list.push(outcome);
-    else outcomesByName.set(outcome.locationName, [outcome]);
-  }
 
   // Start from the full location list so locations without forecast rows
   // (e.g. pure-WILDLIFE) still appear on the map.
@@ -48,7 +41,6 @@ function buildLocations(forecasts, locationMeta, outcomes) {
       solarEventType: l.solarEventType ?? ['SUNRISE', 'SUNSET'],
       bortleClass: l.bortleClass ?? null,
       regionName: l.region?.name ?? null,
-      outcomes: outcomesByName.get(l.name) ?? [],
     }));
 }
 
@@ -107,19 +99,22 @@ function mergeOlderDays(locations, olderDays) {
 
 /**
  * Reads the cached raw payload if present, fresh enough, and structurally intact. Returns the raw
- * {forecasts, locationMeta, outcomes} object or null — kept separate from {@link buildLocations} so
- * the cheap "do we have a cache?" check (for the initial loading flag) never runs a full rebuild.
+ * {forecasts, locationMeta} object or null — kept separate from {@link buildLocations} so the cheap
+ * "do we have a cache?" check (for the initial loading flag) never runs a full rebuild.
+ *
+ * <p>⚠️ A payload cached before the old outcomes fetch was removed still carries an {@code outcomes}
+ * array; it is simply ignored (12 hours at most, role-keyed), so an upgrade does not blank the
+ * instant paint. The shape must NOT require it any more, or every reader would paint cold once.
  *
  * @param {string} cacheKey - role-specific SWR cache key
- * @returns {{forecasts: Array, locationMeta: Array, outcomes: Array}|null}
+ * @returns {{forecasts: Array, locationMeta: Array}|null}
  */
 function readValidCache(cacheKey) {
   const cached = readSwrCache(cacheKey, FORECASTS_CACHE_MAX_AGE_MS);
   if (
     cached &&
     Array.isArray(cached.forecasts) &&
-    Array.isArray(cached.locationMeta) &&
-    Array.isArray(cached.outcomes)
+    Array.isArray(cached.locationMeta)
   ) {
     return cached;
   }
@@ -127,7 +122,7 @@ function readValidCache(cacheKey) {
 }
 
 /**
- * Custom hook that fetches forecast data and actual outcomes for all configured locations.
+ * Custom hook that fetches forecast data for all configured locations.
  *
  * <p>Stale-while-revalidate: on refresh it hydrates the last-seen payload synchronously so the map
  * and the Plan tab's location-derived enrichments paint instantly, then revalidates in the
@@ -145,7 +140,7 @@ function readValidCache(cacheKey) {
  * unchanged and reports through {@code error}. It stands down under an admin rewind.
  *
  * @returns {{
- *   locations: Array<{name: string, lat: number, lon: number, forecastsByDate: Map, outcomes: Array}>,
+ *   locations: Array<{name: string, lat: number, lon: number, forecastsByDate: Map}>,
  *   loading: boolean,
  *   error: string|null,
  *   refresh: function,
@@ -160,7 +155,7 @@ export function useForecasts() {
 
   const [baseLocations, setLocations] = useState(() => {
     const cached = readValidCache(cacheKey);
-    return cached ? buildLocations(cached.forecasts, cached.locationMeta, cached.outcomes) : [];
+    return cached ? buildLocations(cached.forecasts, cached.locationMeta) : [];
   });
   // Instant paint only when the hydrated cache actually yields locations to show. An empty-but-valid
   // cache ({forecasts:[],…} from a fresh deploy or an all-disabled roster) must still show the
@@ -189,36 +184,18 @@ export function useForecasts() {
     // account's payload after the sweep.
     const gen = cacheGeneration();
     try {
-      const now = appNow();
-      // Recorded outcomes are PAST observations — a photographer rating a sunrise/sunset
-      // they already saw (ActualOutcomeEntity.outcomeDate is always historical). The window
-      // must therefore look BACKWARDS: a forward [today, today+7] range returns essentially
-      // nothing.
-      //
-      // This deliberately NO LONGER matches the forecast payload's past edge, which is now
-      // ForecastHorizon.SERVE_PAST_DAYS (2). The forecast window shrank because that payload
-      // is cached client-side and the past half was the larger half; outcomes have neither
-      // problem — `actual_outcome` has never held a row — so narrowing them would trade a future
-      // capability for nothing. The two windows answer different questions and are allowed to
-      // differ; what is not allowed is a comment claiming they agree when they do not.
-      const to = now.toISOString().slice(0, 10);
-      const from = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-        .toISOString()
-        .slice(0, 10);
-
-      // Fetch forecasts, location metadata, and every location's outcomes in parallel —
-      // outcomes are batched into one request rather than one per location.
-      const [forecasts, locationMeta, outcomes] = await Promise.all([
+      // Forecasts and location metadata in parallel. (The old recorded-outcomes request that rode
+      // here — `GET /api/outcome/all` — is gone: nothing read it; outcome-rating-plan.md §4 #7.)
+      const [forecasts, locationMeta] = await Promise.all([
         fetchForecasts(),
         fetchLocations(),
-        fetchAllOutcomes(from, to),
       ]);
 
-      setLocations(buildLocations(forecasts, locationMeta, outcomes));
+      setLocations(buildLocations(forecasts, locationMeta));
       hasDataRef.current = true;
       // Best-effort: writeSwrCache silently no-ops if the payload exceeds the storage quota,
       // and refuses the write outright if the cache was cleared since `gen` was captured.
-      writeSwrCache(cacheKey, { forecasts, locationMeta, outcomes }, gen);
+      writeSwrCache(cacheKey, { forecasts, locationMeta }, gen);
     } catch (err) {
       // Surface the error on a cold load (nothing on screen), or when the user explicitly asked to
       // refresh — an explicit action (Run Forecast, drive-time change, manual re-run) expects

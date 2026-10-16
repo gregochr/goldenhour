@@ -6880,6 +6880,32 @@ button.wf-hc.also.on:hover {
   opacity: 0.85;
 }
 
+/* The "you rated this" corner badge on a PAST window's pins and chips (outcome-rating-plan.md §2 #6,
+   O4b; the prototype's `.pin .mine`): `3★`, or `–` for "didn't see it", top-right, hanging 7px above
+   and 9px beside its host. Both hosts are `position: absolute` buttons, so this positions against
+   them. A host's own opacity (a tide miss, an Ask fade) dims it with the rest of the mark. `aria-hidden`
+   in the markup — the meaning joins the host's accessible name. ⚠️ The overhang is mirrored by
+   `BADGE_OVERHANG_X/Y` in `utils/mapLabels.js`, which the chip placer reserves around a badged chip:
+   change one and the other, and `MapLabels.test.jsx` pins the pair. A single class at (0,1,0); it
+   names no `data-ask`/`data-tide` selector, so the Ask cascade above (`askMapCascade.test.jsx`) is
+   untouched. */
+.wf-rated-badge {
+  position: absolute;
+  top: -7px;
+  right: -9px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 14px;
+  white-space: nowrap;
+  padding: 0 3px;
+  color: var(--color-star);
+  background: #0e0b09;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 6px;
+  pointer-events: none;
+}
+
 /* ── Ask PhotoCast's picks on the map (F3, docs/engineering/ask-photocast-plan.md §2.7) ──────────
    While an answer's picks are showing, every OTHER chip and pin steps back to a quarter of its
    strength and each pick is a numbered mark. Three things worth knowing before touching this block.

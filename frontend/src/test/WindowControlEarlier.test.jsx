@@ -185,8 +185,10 @@ describe('the past days under EARLIER', () => {
     expect(ids).toEqual([Y_RISE.id, Y_SET.id, T_RISE.id, T_SET.id, TM_RISE.id]);
   });
 
+  const NO_RATINGS = () => new Map([[Y_RISE.id, 0], [Y_SET.id, 0], [T_RISE.id, 0]]);
+
   it('prints the kind chip, the time and "Not rated" on a past row — and marks it data-past', () => {
-    renderControl();
+    renderControl({ ratedCounts: NO_RATINGS() });
     openMenu();
     const r = screen.getAllByTestId('wf-win-row')[0];
     expect(r).toHaveAttribute('data-past', 'true');
@@ -197,18 +199,46 @@ describe('the past days under EARLIER', () => {
   });
 
   it('carries the day in words for a screen reader (the sub-header is outside the option)', () => {
-    renderControl();
+    renderControl({ ratedCounts: NO_RATINGS() });
     openMenu();
     expect(screen.getAllByRole('option')[1]).toHaveAccessibleName(/Sunset\s*Yesterday\s*17:44\s*Not rated/);
   });
 
-  it('reads "{n} rated" from ratedCounts — the O4b seam — and "Not rated" for a zero or absent count', () => {
-    renderControl({ ratedCounts: new Map([[Y_SET.id, 3], [T_RISE.id, 0]]) });
+  it('reads "{n} rated" from ratedCounts and "Not rated" only for a ZERO count', () => {
+    renderControl({ ratedCounts: new Map([[Y_SET.id, 3], [Y_RISE.id, 0], [T_RISE.id, 0]]) });
     openMenu();
     const byId = (id) => screen.getAllByTestId('wf-win-row').find((r) => r.getAttribute('data-ev-id') === id);
     expect(within(byId(Y_SET.id)).getByTestId('wf-win-rated')).toHaveTextContent('3 rated');
     expect(within(byId(Y_RISE.id)).getByTestId('wf-win-notrated')).toBeInTheDocument();
     expect(within(byId(T_RISE.id)).getByTestId('wf-win-notrated')).toBeInTheDocument();
+  });
+
+  it('prints NOTHING in the cell for a row whose count is unknown — never a false "Not rated" (O4b)', () => {
+    // Y_SET's date has not been read (or the read failed): its id is simply absent from the map.
+    renderControl({ ratedCounts: new Map([[Y_RISE.id, 2]]) });
+    openMenu();
+    const byId = (id) => screen.getAllByTestId('wf-win-row').find((r) => r.getAttribute('data-ev-id') === id);
+    const unknown = byId(Y_SET.id);
+    expect(unknown).toHaveAttribute('data-past', 'true');
+    expect(within(unknown).queryByTestId('wf-win-notrated')).not.toBeInTheDocument();
+    expect(within(unknown).queryByTestId('wf-win-rated')).not.toBeInTheDocument();
+    expect(unknown).toHaveAccessibleName(/Sunset\s*Yesterday\s*17:44$/);
+    expect(within(byId(Y_RISE.id)).getByTestId('wf-win-rated')).toHaveTextContent('2 rated');
+  });
+
+  it('prints nothing on any past row when there is no ratings source at all (ratedCounts null — a rewind)', () => {
+    renderControl({ ratedCounts: null });
+    openMenu();
+    expect(screen.queryByTestId('wf-win-notrated')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('wf-win-rated')).not.toBeInTheDocument();
+  });
+
+  it('draws no count on a SERVED row even when ratedCounts holds its id (today\'s two windows are counted by the pane)', () => {
+    renderControl({ ratedCounts: new Map([[TM_RISE.id, 5], [Y_RISE.id, 1]]) });
+    openMenu();
+    const live = screen.getAllByTestId('wf-win-row').find((r) => r.getAttribute('data-ev-id') === TM_RISE.id);
+    expect(live).not.toHaveAttribute('data-past');
+    expect(within(live).queryByTestId('wf-win-rated')).not.toBeInTheDocument();
   });
 
   it('marks the active past row selected and selecting one reports it', () => {

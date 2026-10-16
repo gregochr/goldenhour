@@ -7,7 +7,7 @@ import VerdictWord from '../shared/VerdictWord.jsx';
 import { isNightRow } from '../../utils/mapPeek.js';
 import { EVENT_KIND } from '../../utils/mapEvents.js';
 import { meridiemOf } from '../../utils/askModel.js';
-import { KindChip } from './WindowControl.jsx';
+import { KindChip, RatedCell } from './WindowControl.jsx';
 
 /**
  * The Map tab's phone peek sheet — map-mobile-sheet-plan.md §3 M2,
@@ -327,10 +327,15 @@ OtherWindowValue.propTypes = {
  * @param {?string} [props.olderDayLoadingLabel] the day being fetched now; the Load row is disabled
  * @param {?Function} [props.onLoadOlderDay] the Load row's press; the caller closes the sheet and
  *        moves focus to the pill before it starts the fetch
+ * @param {?Map<string, number>} [props.ratedCounts] row id to the reader's rated-location count for
+ *        that PAST window (outcome-rating-plan.md §2 #6, O4b) — the dropdown's own {@code {n} rated} /
+ *        {@code Not rated}. An id it lacks is unknown (not read yet, a failed read) and the row keeps
+ *        the {@code Past} tag it wore before the counts existed, never a false {@code Not rated}
  */
 export function MapPeekWindowsSection({
   heading, rows, verdicts = null, activeId = null, onSelect, onOpenDrilldown = null,
   canLoadOlder = false, olderDayLabel = null, olderDayLoadingLabel = null, onLoadOlderDay = null,
+  ratedCounts = null,
 }) {
   // The same EARLIER group the dropdown draws (WindowControl): every PAST row under a sub-header per
   // day, the Load row first. ⚠️ The Load row and the header sit OUTSIDE the listbox (it chooses no
@@ -397,9 +402,13 @@ export function MapPeekWindowsSection({
                   <span className="sr-only">{`${row.dayLabel ?? row.label} `}</span>
                   {row.time}
                 </span>
-                {/* `PAST` where a verdict would be (spec section 2) — the pill's own tag. */}
+                {/* `{n} rated` / `Not rated` where a verdict would be (outcome-rating-plan.md §2 #6),
+                    the dropdown's own cell. Unknown to the reader's ratings yet: the pill's own `PAST`
+                    tag, which states only what is known of the row. */}
                 <span className="wf-map-peek-wr-verdict">
-                  <span className="wf-win-past" data-testid="wf-map-peek-wr-past">Past</span>
+                  {ratedCounts?.has(row.id)
+                    ? <RatedCell ratedCount={ratedCounts.get(row.id)} />
+                    : <span className="wf-win-past" data-testid="wf-map-peek-wr-past">Past</span>}
                 </span>
               </button>
             ))}
@@ -482,4 +491,6 @@ MapPeekWindowsSection.propTypes = {
   olderDayLabel: PropTypes.string,
   olderDayLoadingLabel: PropTypes.string,
   onLoadOlderDay: PropTypes.func,
+  /** Row id to the reader's rated-location count for a PAST window; an absent id is unknown. */
+  ratedCounts: PropTypes.instanceOf(Map),
 };
