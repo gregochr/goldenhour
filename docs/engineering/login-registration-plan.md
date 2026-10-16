@@ -613,7 +613,8 @@ dependencies): 400 for a missing password; 403 `{error: "Password is incorrect"}
 counted on `AuthAttemptLimiter` (key `delete:` + username, 5 per 15 min → 429); 409 `{error: "Admin
 accounts are deleted by another admin"}` for `ROLE_ADMIN` (the existing self-delete refusal,
 extended: it keeps the sole admin from locking the instance out). On success,
-`UserService.deleteOwnAccount(username, verifiedHash, expectedVersion)`: in one transaction, FIRST
+`UserService.deleteOwnAccount(username, verifiedHash, expectedVersion)` (the request's `cv`, or
+`legacyUnchanged` for a token without one — §2 #13's modes): in one transaction, FIRST
 lock the user row (`userRepository.findByUsernameForUpdate`, the `SELECT … FOR UPDATE` `saveHome`
 uses — parent before children, the ordering `UserDriveTimeWriter`'s javadoc records, so a drive-time
 calculation that holds the row finishes before the purge begins and cannot re-insert between the
@@ -816,13 +817,16 @@ credential version and refuses under the lock when the row's has moved** (Codex,
 `change-password` admits the bearer before BCrypt, so two requests authenticated under the same old
 `cv` can both reach the writer, and a stolen session finishing its hash AFTER the legitimate change
 commits would otherwise overwrite the new password, revoke the legitimate replacement tokens and get
-fresh ones. The filter puts the token's `cv` on the `Authentication`'s details; `changePassword`
-passes it as `expectedVersion`, and `apply` answers a `StaleCredentialsException` (→ 401 "Your
-session has changed. Sign in again.") when `credentials_version` differs from it. A legacy
-token with no `cv` passes `null`, accepted only while the row's stamp is null (an account whose
-credentials have never changed), otherwise the same 401 — the ≤ 24 h window again. The reset,
-activation and admin paths pass no expectation (their authority is the token or the admin role, and
-the reset/verification token's compare-and-set is their guard). ⚠️ **Every credential change also
+fresh ones. The filter puts the token's `cv` on the `Authentication`'s details, and `apply` takes an explicit
+`VersionExpectation` with THREE modes — never a bare null with two meanings (Codex, R0 round 32):
+`exact(v)` (change-password with a `cv`: refused with `StaleCredentialsException` → 401 "Your
+session has changed. Sign in again." when `credentials_version` ≠ v), `legacyUnchanged()`
+(change-password from a token with NO `cv`: accepted only while the row's `credentials_version` is
+0, otherwise the same 401 — the ≤ 24 h window again) and `trusted()` (the reset redeemer, activation,
+the admin temp-password reset and the admin disable: no version check at all, whatever the row's
+version — their authority is the consumed token or the admin role, and the token's compare-and-set
+is their guard). `CredentialChangeWriterTest` pins each mode against a never-changed row and a
+changed one. ⚠️ **Every credential change also
 invalidates the account's outstanding reset links in the same transaction** (Codex, R0 round 12):
 `apply` deletes the user's `password_reset_token` rows with `used_at IS NULL`, so a link requested or
 captured before a password change or an admin reset cannot overwrite the newer credential within its
@@ -1243,8 +1247,8 @@ tokens; the demotion lands through `updateRole`), `controller/AuthController.jav
 (`updateMarketingEmails` through the scoped update), `AuthenticationService.refresh` (the user lock first), tests: `JwtAuthenticationFilterTest` (the five cases), `AppUserRepositoryTest`
 (`@DataJpaTest`, the scoped update), `CredentialChangeWriterTest` (`@DataJpaTest`: each site's
 change record lands atomically; a forced failure after the password write rolls back the stamp,
-the flag and the revocation; a stale `expectedVersion` is refused and writes nothing; a null
-expectation is accepted only on a never-changed row; unused reset tokens are deleted and a used one
+the flag and the revocation; a stale `exact` expectation is refused and writes nothing; `legacyUnchanged` is
+accepted on a never-changed row and refused on a changed one; `trusted` succeeds on both; unused reset tokens are deleted and a used one
 kept), `TokenIssuerTest` (`@DataJpaTest` over the real repositories: refuses
 when the stored hash moved under it; the row lock is taken — a `@Transactional(NOT_SUPPORTED)` test
 with two threads, one holding the row, proves the second issue waits), `AuthenticationServiceTest`
@@ -1542,7 +1546,8 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Codex's round thirty-one made the writer's password nullable so a disable never rewrites a hash
+disagree on four points (§4 #14). Codex's round thirty-two split the writer's version expectation into `exact` / `legacyUnchanged` /
+`trusted` modes (§2 #13). Codex's round thirty-one made the writer's password nullable so a disable never rewrites a hash
 (§2 #13). Codex's round thirty routed the admin DISABLE through the writer, leaving `updateEnabled` to
 re-enable alone (§2 #13, R3c). Codex's round twenty-nine made the writer return the locked row's address and username for every
 caller that mails or answers afterwards (§2 #13). Codex's round twenty-eight aligned
