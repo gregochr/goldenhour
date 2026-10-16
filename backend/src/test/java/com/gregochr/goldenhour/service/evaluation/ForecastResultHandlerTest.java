@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service.evaluation;
 
+import com.gregochr.goldenhour.config.AppBuild;
 import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.entity.BluebellExposure;
 import com.gregochr.goldenhour.entity.EvaluationModel;
@@ -78,6 +79,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class ForecastResultHandlerTest {
 
+    private static final String BUILD = "v2.28.0";
     private static final Instant NOW = Instant.parse("2026-04-16T09:30:00Z");
     private static final Clock CLOCK = Clock.fixed(NOW, java.time.ZoneOffset.UTC);
     private static final LocalDate DATE = LocalDate.of(2026, 4, 16);
@@ -112,7 +114,8 @@ class ForecastResultHandlerTest {
                         new SkyVisitor(), new TideVisitor(), new BluebellVisitor(),
                         new WoodlandVisitor())),
                 forecastDataAugmentor, forecastScoreWriter, parser,
-                forecastEvaluationRepository, supersedingDispositionService, CLOCK);
+                forecastEvaluationRepository, supersedingDispositionService, CLOCK,
+                new AppBuild(BUILD));
     }
 
     @Test
@@ -248,6 +251,8 @@ class ForecastResultHandlerTest {
         assertThat(saved.getForecastRunAt()).isEqualTo(submittedAt);
         // V178: the AVAILABILITY instant is the clock reading at scoring, not the submission instant.
         assertThat(saved.getScoredAt()).isEqualTo(NOW);
+        // V179: stamped with the same instant, from the same guard, by the build that scored it.
+        assertThat(saved.getAppBuild()).isEqualTo(BUILD);
         // LITE-tier and inversion fields, absent from BriefingEvaluationResult, must still land.
         assertThat(saved.getBasicFierySkyPotential()).isEqualTo(55);
         assertThat(saved.getBasicGoldenHourPotential()).isEqualTo(48);
@@ -276,6 +281,7 @@ class ForecastResultHandlerTest {
                 .forecastRunAt(LocalDateTime.of(2026, 4, 16, 3, 0))
                 .batchState(BatchState.SCORED)
                 .scoredAt(first)
+                .appBuild("v2.27.0")
                 .build();
         when(forecastEvaluationRepository.findById(781L)).thenReturn(Optional.of(scoredRow));
 
@@ -286,6 +292,9 @@ class ForecastResultHandlerTest {
                 ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
         verify(forecastEvaluationRepository).save(savedCaptor.capture());
         assertThat(savedCaptor.getValue().getScoredAt()).isEqualTo(first).isNotEqualTo(NOW);
+        assertThat(savedCaptor.getValue().getAppBuild())
+                .as("a re-processed result keeps the build that first scored the row")
+                .isEqualTo("v2.27.0");
     }
 
     @Test
@@ -393,6 +402,7 @@ class ForecastResultHandlerTest {
         verify(forecastEvaluationRepository).save(savedCaptor.capture());
         assertThat(savedCaptor.getValue().getRating()).isNull();
         assertThat(savedCaptor.getValue().getScoredAt()).isNull();
+        assertThat(savedCaptor.getValue().getAppBuild()).as("nothing to say, so no build").isNull();
     }
 
     @Test

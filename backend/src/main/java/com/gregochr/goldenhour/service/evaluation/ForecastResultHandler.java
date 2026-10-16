@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service.evaluation;
 
+import com.gregochr.goldenhour.config.AppBuild;
 import com.gregochr.goldenhour.entity.BatchState;
 import com.gregochr.goldenhour.entity.BluebellExposure;
 import com.gregochr.goldenhour.entity.EvaluationModel;
@@ -123,6 +124,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
     private final ForecastEvaluationRepository forecastEvaluationRepository;
     private final SupersedingDispositionService supersedingDispositionService;
     private final Clock clock;
+    private final AppBuild appBuild;
 
     /**
      * Constructs the handler.
@@ -154,6 +156,9 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      *                                  not possible with the streaming Batch API reader
      * @param clock                     stamps {@code forecast_evaluation.scored_at} (V178) when a
      *                                  {@code PENDING} row is scored in place
+     * @param appBuild                  the running build, stamped as
+     *                                  {@code forecast_evaluation.app_build} (V179) with the same
+     *                                  instant
      */
     public ForecastResultHandler(BriefingEvaluationService briefingEvaluationService,
             JobRunService jobRunService,
@@ -164,7 +169,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             SunsetEvaluationParser parser,
             ForecastEvaluationRepository forecastEvaluationRepository,
             SupersedingDispositionService supersedingDispositionService,
-            Clock clock) {
+            Clock clock, AppBuild appBuild) {
         this.briefingEvaluationService = briefingEvaluationService;
         this.parser = parser;
         this.jobRunService = jobRunService;
@@ -175,6 +180,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
         this.forecastEvaluationRepository = forecastEvaluationRepository;
         this.supersedingDispositionService = supersedingDispositionService;
         this.clock = clock;
+        this.appBuild = appBuild;
     }
 
     @Override
@@ -738,6 +744,9 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             // batch, a restart's recovery) must not move a row that was available before an event to
             // after it.
             entity.setScoredAt(clock.instant());
+            // V179: the build that scored the row, stamped with the same instant and guard so a
+            // re-processed result keeps the build that first made the row available.
+            entity.setAppBuild(appBuild.value());
         }
         forecastEvaluationRepository.save(entity);
     }

@@ -67,6 +67,7 @@ public interface OutcomeRatingRepository extends JpaRepository<OutcomeRatingEnti
      * @param forecastRunAt        the served forecast's submission instant, or null
      * @param forecastEvaluationId the resolved {@code forecast_evaluation} row, or null
      * @param forecastRating       the star the reader saw, or null
+     * @param appBuild             the release writing the row (V179), or null
      * @param now                  stamped as both {@code created_at} and {@code updated_at}
      * @return rows inserted (1)
      */
@@ -74,16 +75,18 @@ public interface OutcomeRatingRepository extends JpaRepository<OutcomeRatingEnti
     @Transactional
     @Query(value = "INSERT INTO outcome_rating (user_id, location_id, event_date, event_type, rating, "
             + "event_time, pipeline_run_id, forecast_run_at, forecast_evaluation_id, forecast_rating, "
-            + "created_at, updated_at) VALUES (:userId, :locationId, :eventDate, :eventType, "
+            + "app_build, created_at, updated_at) VALUES (:userId, :locationId, :eventDate, :eventType, "
             + "CAST(:rating AS INTEGER), :eventTime, CAST(:pipelineRunId AS BIGINT), "
             + "CAST(:forecastRunAt AS TIMESTAMP WITH TIME ZONE), CAST(:forecastEvaluationId AS BIGINT), "
-            + "CAST(:forecastRating AS INTEGER), :now, :now)", nativeQuery = true)
+            + "CAST(:forecastRating AS INTEGER), CAST(:appBuild AS VARCHAR(40)), :now, :now)",
+            nativeQuery = true)
     int insertRow(@Param("userId") Long userId, @Param("locationId") Long locationId,
             @Param("eventDate") LocalDate eventDate, @Param("eventType") String eventType,
             @Param("rating") Integer rating, @Param("eventTime") Instant eventTime,
             @Param("pipelineRunId") Long pipelineRunId, @Param("forecastRunAt") Instant forecastRunAt,
             @Param("forecastEvaluationId") Long forecastEvaluationId,
-            @Param("forecastRating") Integer forecastRating, @Param("now") Instant now);
+            @Param("forecastRating") Integer forecastRating, @Param("appBuild") String appBuild,
+            @Param("now") Instant now);
 
     /**
      * Replaces a rating and its provenance in place: one statement, last write wins.
@@ -98,6 +101,7 @@ public interface OutcomeRatingRepository extends JpaRepository<OutcomeRatingEnti
      * @param forecastRunAt        the served forecast's submission instant, or null
      * @param forecastEvaluationId the resolved {@code forecast_evaluation} row, or null
      * @param forecastRating       the star the reader saw, or null
+     * @param appBuild             the release writing the row (V179), replacing the earlier one
      * @param now                  the new {@code updated_at}
      * @return 1 when the row was updated; 0 when there is no such row
      */
@@ -106,7 +110,7 @@ public interface OutcomeRatingRepository extends JpaRepository<OutcomeRatingEnti
     @Query("UPDATE OutcomeRatingEntity r SET r.rating = :rating, r.eventTime = :eventTime, "
             + "r.pipelineRunId = :pipelineRunId, r.forecastRunAt = :forecastRunAt, "
             + "r.forecastEvaluationId = :forecastEvaluationId, r.forecastRating = :forecastRating, "
-            + "r.updatedAt = :now "
+            + "r.appBuild = :appBuild, r.updatedAt = :now "
             + "WHERE r.userId = :userId AND r.locationId = :locationId "
             + "AND r.eventDate = :eventDate AND r.eventType = :eventType")
     int updateRow(@Param("userId") Long userId, @Param("locationId") Long locationId,
@@ -114,7 +118,8 @@ public interface OutcomeRatingRepository extends JpaRepository<OutcomeRatingEnti
             @Param("rating") Integer rating, @Param("eventTime") Instant eventTime,
             @Param("pipelineRunId") Long pipelineRunId, @Param("forecastRunAt") Instant forecastRunAt,
             @Param("forecastEvaluationId") Long forecastEvaluationId,
-            @Param("forecastRating") Integer forecastRating, @Param("now") Instant now);
+            @Param("forecastRating") Integer forecastRating, @Param("appBuild") String appBuild,
+            @Param("now") Instant now);
 
     /**
      * Counts every rating in an event-date window, "didn't see it" rows included — the

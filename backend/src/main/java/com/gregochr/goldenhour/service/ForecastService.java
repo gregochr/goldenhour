@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.config.AppBuild;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.BatchState;
 import com.gregochr.goldenhour.entity.CloudApproachDetails;
@@ -85,6 +86,7 @@ public class ForecastService {
             slotAtmosphereWriter;
     private final RunProgressTracker runProgressTracker;
     private final Clock clock;
+    private final AppBuild appBuild;
 
     /**
      * Constructs a {@code ForecastService} with all required dependencies.
@@ -109,6 +111,8 @@ public class ForecastService {
      *                                tells it when a call shows the key was rejected
      * @param clock                   supplies "today" for the {@code daysAhead} horizon, resolved in
      *                                {@code Europe/London} by {@link ForecastHorizon}
+     * @param appBuild                the running build, stamped on every row that gets a rating or a
+     *                                triage reason (V179)
      */
     public ForecastService(SolarService solarService, OpenMeteoService openMeteoService,
             ForecastDataAugmentor augmentor, EvaluationService evaluationService,
@@ -120,7 +124,7 @@ public class ForecastService {
             com.gregochr.goldenhour.service.evaluation.SlotAtmosphereWriter
                     slotAtmosphereWriter,
             RunProgressTracker runProgressTracker,
-            Clock clock) {
+            Clock clock, AppBuild appBuild) {
         this.solarService = solarService;
         this.openMeteoService = openMeteoService;
         this.augmentor = augmentor;
@@ -134,6 +138,7 @@ public class ForecastService {
         this.slotAtmosphereWriter = slotAtmosphereWriter;
         this.runProgressTracker = runProgressTracker;
         this.clock = clock;
+        this.appBuild = appBuild;
     }
 
     /**
@@ -789,13 +794,14 @@ public class ForecastService {
 
     /**
      * Marks an unsaved row as a stand-down: attaches the triage reason and stamps {@code scoredAt}
-     * (V178), because a triage reason is something to say — the reader saw it as the slot's
-     * decision — and the row is saved with it, never without. The three triage sites and the
-     * sentinel skip all go through here so none can forget the stamp.
+     * (V178) and the running build (V179), because a triage reason is something to say — the reader
+     * saw it as the slot's decision — and the row is saved with it, never without. The three triage
+     * sites and the sentinel skip all go through here so none can forget the stamp.
      */
     private void standDown(ForecastEvaluationEntity entity, TriageReason reason, String message) {
         entity.setTriage(new TriageDetails(reason, message));
         entity.setScoredAt(clock.instant());
+        entity.setAppBuild(appBuild.value());
     }
 
     /**
@@ -823,6 +829,7 @@ public class ForecastService {
         Instant scoredAt = evaluation.rating() != null ? clock.instant() : null;
         return ForecastEvaluationEntity.builder()
                 .scoredAt(scoredAt)
+                .appBuild(scoredAt != null ? appBuild.value() : null)
                 .locationLat(BigDecimal.valueOf(lat))
                 .locationLon(BigDecimal.valueOf(lon))
                 .location(location)

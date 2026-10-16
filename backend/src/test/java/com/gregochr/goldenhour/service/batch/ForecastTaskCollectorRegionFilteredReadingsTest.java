@@ -167,7 +167,8 @@ class ForecastTaskCollectorRegionFilteredReadingsTest {
                 solarService, openMeteoService, augmentor, legacyEvaluationService,
                 engineEvaluationService, forecastEvaluationRepository, notificationDispatcher,
                 eventPublisher, weatherTriageEvaluator, tideAlignmentEvaluator,
-                slotAtmosphereWriter, org.mockito.Mockito.mock(RunProgressTracker.class), CLOCK);
+                slotAtmosphereWriter, org.mockito.Mockito.mock(RunProgressTracker.class), CLOCK,
+                new com.gregochr.goldenhour.config.AppBuild("v2.28.0"));
 
         collector = new ForecastTaskCollector(
                 locationService, briefingService, briefingEvaluationService,

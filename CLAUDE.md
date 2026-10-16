@@ -482,6 +482,7 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 | V176 | pressure-level cloud at the far point (far-cloud-lid-plan P2, S0): six nullable `INTEGER` columns on `forecast_evaluation` (`far_solar_cloud_850hpa` … `far_solar_cloud_300hpa`), one `ALTER TABLE`, no backfill, no `cloud_verification` change (the ERA5 archive returns null for these). Proven by CI only (`FarSolarPressureLevelCloudMigrationTest`) |
 | V177 | `outcome_rating` — a reader's rating of a past sunrise or sunset (outcome-rating plan §2 #1): one row per (`user_id`, `location_id`, `event_date`, `event_type`) (unique `uq_outcome_rating_slot`), `rating` 1–5 or NULL for "didn't see it", the server-computed per-location `event_time`, and the provenance of the forecast the reader was shown (`pipeline_run_id`, `forecast_run_at`, `forecast_evaluation_id` `ON DELETE SET NULL`, `forecast_rating` — the star seen, NULL when not recoverable); `user_id` `ON DELETE CASCADE`, `location_id` not; three indexes, one on `forecast_evaluation_id` for the calibration join. Proven by CI only (`OutcomeRatingMigrationTest`) |
 | V178 | `forecast_evaluation.scored_at TIMESTAMPTZ NULL` — when a row GOT its rating or triage reason (the availability instant; `forecast_run_at` is a submission instant). Nullable, no backfill: a row written before V178 is never a candidate for the as-of-event resolution. Proven by CI only |
+| V179 | build and prompt provenance (forecast-build-provenance): nullable `forecast_evaluation.app_build VARCHAR(40)` and `prompt_hash VARCHAR(64)`, nullable `outcome_rating.app_build VARCHAR(40)`, no backfill. Proven by CI only (`BuildProvenanceMigrationTest`) |
 | **latest** | **Deliberately not written down — every number recorded here has rotted.** Read it from the tree before adding a migration: `ls backend/src/main/resources/db/migration/ \| sort -V \| tail -1` |
 
 ---
@@ -528,6 +529,28 @@ result) is the one answer to "what had the reader been shown", used twice: it fi
 **`GET /api/forecast` serves a PASSED slot through it** (see the Forecast endpoints), so the star a past-window chip draws is
 the star the record captures. A passed slot's served row is therefore the as-of-event row, no longer the slot's latest; the
 latest-row-per-slot reads above still describe an UNPASSED slot.
+
+⚠️ **Build and prompt provenance (V179, `app_build` and `prompt_hash`) — so a drift in the calibration gate can be pinned to a
+release or a prompt edit, not only to a model.** `forecast_evaluation.app_build` is the release (`AppBuild`, from the
+`APP_VERSION` the deploy workflow bakes in from the git tag, `dev` when unset, cut to 40 characters) running when a row GOT its
+rating or triage reason: stamped at exactly the seams `scored_at` is — `ForecastService.buildEntity` (only when the row has a
+rating) and `ForecastService.standDown` (triage sites and the sentinel skip), and `ForecastResultHandler.scoreEvaluationRow`
+inside the SAME first-score guard, so a re-processed result keeps the build that first made the row available. NULL for a
+PENDING/ABANDONED row, a row with nothing to say and every row before V179. **Why the tag and not a commit sha:** production is
+only ever built from a tag (`deploy.yml`), so the tag names exactly one commit, the number is already what `job_run.app_version`
+(V80) records, it needs no plugin and no `.git` inside the Docker build context, and it reads in the report. ⚠️ **The value is
+the release, so two commits between releases are one build** (local runs are all `dev`). `outcome_rating.app_build` is the
+release running when the reader's rating was written (`OutcomeRatingStore.upsert`, replaced on a re-rate, because the rating was
+made again by the build then running); it is NOT the forecast's build — the report reads the forecast row's. `prompt_hash` is
+the SHA-256 (hex, `PromptHash`) of the SKY **system** prompt a batch request carried (the inland or the coastal one, so two
+values exist at a time), stamped at SUBMISSION by `ForecastPromptStore.stampPromptHashes` (one `UPDATE ... WHERE id IN` per
+distinct hash, best-effort and never failing the submission) from `BatchRequestFactory.ForecastRequest.promptHash`.
+⚠️ **It deliberately does NOT hash the user message**: that embeds the slot's own weather, so its hash would differ on every row
+and group nothing; the system prompt changes only when someone edits it. The limit, stated: an edit to the USER-message
+wording in `PromptBuilder.buildUserMessage` leaves `prompt_hash` unchanged and shows up in `app_build` only. NULL for the
+synchronous engine, a triage row, a comfort row, a woodland or bluebell request and every row before V179. The two stamps can
+come from different builds for one row (a batch lands up to 24 h after it was built and a deploy can fall between) — the
+hash describes what was SENT, the build what SCORED it.
 
 ⚠️ **Round 12: "overwritten each run" is true, but "each run" means "each SUBMITTED evaluation," and
 the row that wins is decided by submission order, never by which result happened to ARRIVE last.**
@@ -1055,6 +1078,15 @@ Two consequences worth stating plainly:
 `GET /api/admin/calibration` — forecast accuracy vs **recorded outcomes**. The only non-self-referential accuracy measure in the project: prompt-regression tests compare Claude to hand-written expectations, the sky-rating eval harness to fixtures, and model-comparison to other models — all can stay green while forecasts drift from reality. `ForecastCalibrationService` joins `forecast_evaluation` to `actual_outcome` on (location, date, target type), keeps the newest run per (slot, horizon), and buckets **overall / per `daysAhead` / per model**. Each bucket carries signed mean error (separates optimism from pessimism), mean absolute error, exact-match and within-one rates, plus two decision-error counts: **missedOpportunities** (predicted ≤2, actual ≥4) and **wastedTrips** (predicted ≥4, actual ≤2). Run over a fixed window before and after any prompt or sampling-geometry change and diff the buckets — aggregation is deterministic per window. An absolute rating ceiling can only create missed opportunities, so that count gates relaxing the cloud-approach veto (see `docs/engineering/cloud-approach-veto-fix.md`).
 
 ⚠️ **Two sources since the outcome-rating series (O5b, 2026-10-15).** The pairs are the UNION of `findCalibrationPairs` (above) and `findCalibrationPairsFromRatings`: each reader's `outcome_rating` joined to `forecast_evaluation` on **`r.forecastEvaluationId = e.id`** — the one row proven available by the event and unretracted at it — never on the natural key, which would admit every rated row of the slot and let a batch that landed after the event win the newest-run rule. The PREDICTED star is the rating's captured **`forecastRating`**, the star the reader saw, never `e.rating` (for a recombined OPEN_FELL slot that is the sky lane alone); `daysAhead`, run time, model and potentials are the row's own, and a rating has no fiery-sky/golden-hour actuals or `wentOut` (null — no reader infers a trip from it). A "didn't see it" rating, a rating with a null `forecastEvaluationId` or `forecastRating`, and a resolved row with no rating of its own are NOT pairs. `CalibrationPair` gained a canonical `outcomeKey` (`outcome:<id>` for an `actual_outcome` row, `rating:<userId>` for a rating) and `slotHorizonKey()` appends it, so `latestPerSlotHorizon` still collapses RUNS of one forecast but keeps every outcome: two readers of one slot, or a row in each table, are two pairs, and the counts are PAIRS, not slots (old-table duplicates for one slot no longer collapse either — `actual_outcome` has no unique key, each is an observation). `outcomesInRange` counts BOTH tables, "didn't see it" included (`OutcomeRatingRepository.countByEventDateBetween`). The report does not say which source a bucket's pairs came from: a reader's star and a photographer's note are unioned by decision (outcome-rating plan §5 #9, Q1).
+
+⚠️ **Per-build and per-prompt buckets (V179, forecast-build-provenance).** `CalibrationPair` carries the FORECAST row's `appBuild` and
+`promptHash` (both JPQL projections select `e.appBuild, e.promptHash`, so a reader's rating is bucketed by the build that scored the
+forecast it was shown, never by the build that took the rating) and the report gains `bucketsByBuild` and `bucketsByPromptHash`
+beside `byDaysAhead` and `byModel`, built by the same `CalibrationBucket.of` over the same deduplicated pairs, ordered by key. A
+pair whose row recorded none (every row before V179, and a synchronous row's prompt) lands in an `UNKNOWN` bucket, so
+history stays visible instead of vanishing. Read it as: same prompt hash, different build = a code change that is not the system
+prompt (or the user-message wording); different hash = the system prompt was edited; same build and hash, different model = the
+model. The report does not say how many builds a prompt spans; group the JSON yourself.
 
 ### Aurora (PRO_USER/ADMIN; `/api/aurora/admin/*` and `/api/aurora/forecast/preview|run` ADMIN)
 `GET /api/aurora/status` | `GET /api/aurora/locations` | `GET /api/aurora/viewline` | `GET /api/aurora/viewline/forecast` (all PRO_USER/ADMIN — `AuroraController` is `@PreAuthorize` PRO_USER/ADMIN, so a LITE account gets 403) | `GET /api/aurora/forecast/results|results/available-dates` (PRO_USER/ADMIN, `AuroraForecastController` — the map's read path) | `GET /api/aurora/forecast/preview` and `POST /api/aurora/forecast/run` (**ADMIN** — see the ⚠️ below) | `POST /api/aurora/admin/enrich-bortle` (ADMIN) | `POST /api/aurora/admin/run` (ADMIN — runs the scheduled polling cycle now and waits for it; 409 while a cycle is running; returns `{status, dark, level, action, trigger, held}`) | `POST /api/aurora/admin/reset` (ADMIN) | `POST /api/aurora/admin/simulate` and `POST /api/aurora/admin/simulate/clear` (ADMIN)

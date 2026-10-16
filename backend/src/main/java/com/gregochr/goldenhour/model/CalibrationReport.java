@@ -25,6 +25,12 @@ import java.util.List;
  * @param overall         metrics across every pair
  * @param byDaysAhead     metrics per forecast horizon, ordered T+0 upward
  * @param byModel         metrics per evaluation model
+ * @param bucketsByBuild  metrics per release ({@code forecast_evaluation.app_build}, the build that
+ *                        scored the forecast); rows written before it was recorded read
+ *                        {@code UNKNOWN}
+ * @param bucketsByPromptHash metrics per system-prompt fingerprint
+ *                        ({@code forecast_evaluation.prompt_hash}); rows with none recorded read
+ *                        {@code UNKNOWN}
  */
 public record CalibrationReport(
         LocalDate from,
@@ -33,7 +39,9 @@ public record CalibrationReport(
         int scoredPairs,
         CalibrationBucket overall,
         List<CalibrationBucket> byDaysAhead,
-        List<CalibrationBucket> byModel) {
+        List<CalibrationBucket> byModel,
+        List<CalibrationBucket> bucketsByBuild,
+        List<CalibrationBucket> bucketsByPromptHash) {
 
     /**
      * Compact constructor — defensive copies to satisfy SpotBugs EI_EXPOSE_REP.
@@ -45,9 +53,13 @@ public record CalibrationReport(
      * @param overall         overall metrics
      * @param byDaysAhead     per-horizon metrics
      * @param byModel         per-model metrics
+     * @param bucketsByBuild  per-release metrics
+     * @param bucketsByPromptHash per-prompt metrics
      */
     public CalibrationReport {
         byDaysAhead = byDaysAhead == null ? List.of() : List.copyOf(byDaysAhead);
         byModel = byModel == null ? List.of() : List.copyOf(byModel);
+        bucketsByBuild = bucketsByBuild == null ? List.of() : List.copyOf(bucketsByBuild);
+        bucketsByPromptHash = bucketsByPromptHash == null ? List.of() : List.copyOf(bucketsByPromptHash);
     }
 }

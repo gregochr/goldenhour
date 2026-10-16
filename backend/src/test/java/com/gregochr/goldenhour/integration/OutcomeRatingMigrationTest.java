@@ -140,13 +140,17 @@ class OutcomeRatingMigrationTest extends IntegrationTestBase {
         long user = newUser("rating-unique");
         long other = newUser("rating-unique-other");
         long location = newLocation("V177 Unique Hill");
-        ratings.insertRow(user, location, DAY, "SUNRISE", 4, EVENT, null, null, null, null, NOW);
+        ratings.insertRow(user, location, DAY, "SUNRISE", 4, EVENT,
+                null, null, null, null, null, NOW);
 
-        assertThatThrownBy(() -> ratings.insertRow(user, location, DAY, "SUNRISE", 2, EVENT, null, null, null,
-                null, NOW)).isInstanceOf(DataIntegrityViolationException.class);
-        ratings.insertRow(other, location, DAY, "SUNRISE", 2, EVENT, null, null, null, null, NOW);
-        ratings.insertRow(user, location, DAY, "SUNSET", 2, EVENT, null, null, null, null, NOW);
-        ratings.insertRow(user, location, DAY.minusDays(1), "SUNRISE", 2, EVENT, null, null, null, null, NOW);
+        assertThatThrownBy(() -> ratings.insertRow(user, location, DAY, "SUNRISE", 2, EVENT,
+                null, null, null, null, null, NOW)).isInstanceOf(DataIntegrityViolationException.class);
+        ratings.insertRow(other, location, DAY, "SUNRISE", 2, EVENT,
+                null, null, null, null, null, NOW);
+        ratings.insertRow(user, location, DAY, "SUNSET", 2, EVENT,
+                null, null, null, null, null, NOW);
+        ratings.insertRow(user, location, DAY.minusDays(1), "SUNRISE", 2, EVENT,
+                null, null, null, null, null, NOW);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM outcome_rating", Integer.class)).isEqualTo(4);
     }
 
@@ -156,16 +160,19 @@ class OutcomeRatingMigrationTest extends IntegrationTestBase {
         long user = newUser("rating-check");
         long location = newLocation("V177 Check Hill");
 
-        assertThatThrownBy(() -> ratings.insertRow(user, location, DAY, "SUNRISE", 0, EVENT, null, null, null,
-                null, NOW)).isInstanceOf(DataIntegrityViolationException.class);
-        assertThatThrownBy(() -> ratings.insertRow(user, location, DAY, "SUNRISE", 6, EVENT, null, null, null,
-                null, NOW)).isInstanceOf(DataIntegrityViolationException.class);
-        assertThatThrownBy(() -> ratings.insertRow(user, location, DAY, "HOURLY", 3, EVENT, null, null, null,
-                null, NOW)).isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> ratings.insertRow(user, location, DAY, "SUNRISE", 0, EVENT,
+                null, null, null, null, null, NOW)).isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> ratings.insertRow(user, location, DAY, "SUNRISE", 6, EVENT,
+                null, null, null, null, null, NOW)).isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> ratings.insertRow(user, location, DAY, "HOURLY", 3, EVENT,
+                null, null, null, null, null, NOW)).isInstanceOf(DataIntegrityViolationException.class);
 
-        ratings.insertRow(user, location, DAY, "SUNRISE", null, EVENT, null, null, null, null, NOW);
-        ratings.insertRow(user, location, DAY, "SUNSET", 1, EVENT, null, null, null, null, NOW);
-        ratings.insertRow(user, location, DAY.minusDays(1), "SUNRISE", 5, EVENT, null, null, null, null, NOW);
+        ratings.insertRow(user, location, DAY, "SUNRISE", null, EVENT,
+                null, null, null, null, null, NOW);
+        ratings.insertRow(user, location, DAY, "SUNSET", 1, EVENT,
+                null, null, null, null, null, NOW);
+        ratings.insertRow(user, location, DAY.minusDays(1), "SUNRISE", 5, EVENT,
+                null, null, null, null, null, NOW);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM outcome_rating WHERE rating IS NULL", Integer.class))
                 .isEqualTo(1);
     }
@@ -176,10 +183,10 @@ class OutcomeRatingMigrationTest extends IntegrationTestBase {
         long user = newUser("rating-fk");
         long location = newLocation("V177 FK Hill");
 
-        assertThatThrownBy(() -> ratings.insertRow(987_654_321L, location, DAY, "SUNRISE", 3, EVENT, null, null,
-                null, null, NOW)).isInstanceOf(DataIntegrityViolationException.class);
-        assertThatThrownBy(() -> ratings.insertRow(user, 987_654_321L, DAY, "SUNRISE", 3, EVENT, null, null,
-                null, null, NOW)).isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> ratings.insertRow(987_654_321L, location, DAY, "SUNRISE", 3, EVENT,
+                null, null, null, null, null, NOW)).isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> ratings.insertRow(user, 987_654_321L, DAY, "SUNRISE", 3, EVENT,
+                null, null, null, null, null, NOW)).isInstanceOf(DataIntegrityViolationException.class);
     }
 
     @Test

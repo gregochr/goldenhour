@@ -169,6 +169,8 @@ public class EvaluationServiceImpl implements EvaluationService {
         List<BatchCreateParams.Request> requests = new ArrayList<>(tasks.size());
         // evalRowId -> the sky user message that went into that row's request (batch SKY lane only).
         Map<Long, String> skyPrompts = new java.util.LinkedHashMap<>();
+        // system-prompt hash -> the evalRowIds whose request carried that prompt (V179).
+        Map<String, List<Long>> skyPromptHashes = new java.util.LinkedHashMap<>();
         for (EvaluationTask.Forecast task : tasks) {
             Long locationId = task.location().getId();
             switch (task.promptKind()) {
@@ -194,6 +196,8 @@ public class EvaluationServiceImpl implements EvaluationService {
                     requests.add(built.request());
                     if (task.evalRowId() != null) {
                         skyPrompts.put(task.evalRowId(), built.userMessage());
+                        skyPromptHashes.computeIfAbsent(built.promptHash(), k -> new ArrayList<>())
+                                .add(task.evalRowId());
                     }
                 }
             }
@@ -205,6 +209,7 @@ public class EvaluationServiceImpl implements EvaluationService {
         if (result != null) {
             // Best-effort and never fails the submission: the store catches its own failures.
             forecastPromptStore.store(skyPrompts);
+            forecastPromptStore.stampPromptHashes(skyPromptHashes);
         }
         return result == null
                 ? EvaluationHandle.empty()

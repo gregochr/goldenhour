@@ -89,6 +89,10 @@ public class OutcomeRatingEntity {
     @Column(name = "forecast_rating", updatable = false)
     private Integer forecastRating;
 
+    /** The release ({@code APP_VERSION}, V179) running when the rating was last written, or null. */
+    @Column(name = "app_build", length = 40, updatable = false)
+    private String appBuild;
+
     /** When the first rating was recorded. */
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;

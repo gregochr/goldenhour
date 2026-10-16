@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.config.AppBuild;
 import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
@@ -126,6 +127,12 @@ class ForecastServiceTest {
      */
     @Spy
     private Clock clock = Clock.fixed(Instant.parse("2026-08-11T12:00:00Z"), java.time.ZoneOffset.UTC);
+
+    /** The release every stamped row is expected to carry (V179). */
+    private static final String BUILD = "v2.28.0";
+
+    @Spy
+    private AppBuild appBuild = new AppBuild(BUILD);
 
     @InjectMocks
     private ForecastService forecastService;
@@ -728,7 +735,8 @@ class ForecastServiceTest {
         ForecastService serviceWithFlagOff = new ForecastService(
                 solarService, openMeteoService, augmentor, evaluationService,
                 engineEvaluationService, repository, notificationDispatcher, eventPublisher,
-                weatherTriageEvaluator, tideAlignmentEvaluator, flagOffWriter, runProgressTracker, clock);
+                weatherTriageEvaluator, tideAlignmentEvaluator, flagOffWriter, runProgressTracker, clock,
+                new AppBuild(BUILD));
 
         when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
         when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
@@ -820,6 +828,8 @@ class ForecastServiceTest {
         assertThat(saved.getTriage().getMessage()).contains("tide");
         assertThat(saved.getScoredAt()).as("a tide stand-down is stamped like any triage row")
                 .isEqualTo(STAMP);
+        assertThat(saved.getAppBuild()).as("and carries the build that decided it").isEqualTo(BUILD);
+        assertThat(saved.getPromptHash()).as("a triage row had no prompt").isNull();
     }
 
     @Test
@@ -1200,7 +1210,8 @@ class ForecastServiceTest {
             ForecastService service = new ForecastService(
                     solarService, openMeteoService, augmentor, evaluationService, engineEvaluationService,
                     repository, notificationDispatcher, eventPublisher, weatherTriageEvaluator,
-                    tideAlignmentEvaluator, slotAtmosphereWriter, realTracker, clock);
+                    tideAlignmentEvaluator, slotAtmosphereWriter, realTracker, clock,
+                    new AppBuild(BUILD));
             int calls = 5;
             List<String[]> tasks = new ArrayList<>();
             List<ForecastPreEvalResult> preEvals = new ArrayList<>();
@@ -1280,9 +1291,14 @@ class ForecastServiceTest {
         verify(repository, times(2)).save(saved.capture());
         assertThat(saved.getAllValues().get(0).getRating()).isEqualTo(4);
         assertThat(saved.getAllValues().get(0).getScoredAt()).isEqualTo(STAMP);
+        assertThat(saved.getAllValues().get(0).getAppBuild()).isEqualTo(BUILD);
+        assertThat(saved.getAllValues().get(0).getPromptHash())
+                .as("the synchronous engine has no batch request, so no prompt fingerprint").isNull();
         assertThat(saved.getAllValues().get(1).getRating()).isNull();
         assertThat(saved.getAllValues().get(1).getScoredAt())
                 .as("nothing to say, so no availability instant").isNull();
+        assertThat(saved.getAllValues().get(1).getAppBuild())
+                .as("nothing to say, so no build either").isNull();
     }
 
     @Test
@@ -1306,6 +1322,7 @@ class ForecastServiceTest {
         verify(repository).save(saved.capture());
         assertThat(saved.getValue().getRating()).isNull();
         assertThat(saved.getValue().getScoredAt()).isEqualTo(STAMP);
+        assertThat(saved.getValue().getAppBuild()).isEqualTo(BUILD);
     }
 
     @Test
@@ -1330,6 +1347,7 @@ class ForecastServiceTest {
         assertThat(id).isEqualTo(55L);
         assertThat(saved.getValue().getBatchState()).isEqualTo(com.gregochr.goldenhour.entity.BatchState.PENDING);
         assertThat(saved.getValue().getScoredAt()).isNull();
+        assertThat(saved.getValue().getAppBuild()).as("a PENDING row is not yet scored").isNull();
 
         when(repository.findById(55L)).thenReturn(Optional.of(saved.getValue()));
         forecastService.markAbandoned(55L);
@@ -1372,6 +1390,7 @@ class ForecastServiceTest {
         assertThat(saved.getTriage().getMessage()).contains("Sentinel skip — region poor");
         assertThat(saved.getScoredAt()).as("a sentinel skip is a stand-down, stamped like a triage row")
                 .isEqualTo(STAMP);
+        assertThat(saved.getAppBuild()).isEqualTo(BUILD);
     }
 
     @Test
@@ -2535,7 +2554,7 @@ class ForecastServiceTest {
                     solarService, openMeteoService, augmentor, evaluationService,
                     engineEvaluationService, repository, notificationDispatcher,
                     eventPublisher, weatherTriageEvaluator, tideAlignmentEvaluator,
-                    slotAtmosphereWriter, runProgressTracker, at);
+                    slotAtmosphereWriter, runProgressTracker, at, new AppBuild(BUILD));
 
             service.fetchWeatherAndTriage(DURHAM_LOCATION, date, TargetType.SUNSET,
                     Set.of(), EvaluationModel.SONNET, true, null);
@@ -2565,7 +2584,7 @@ class ForecastServiceTest {
                     solarService, openMeteoService, augmentor, evaluationService,
                     engineEvaluationService, repository, notificationDispatcher,
                     eventPublisher, weatherTriageEvaluator, tideAlignmentEvaluator,
-                    slotAtmosphereWriter, runProgressTracker, at);
+                    slotAtmosphereWriter, runProgressTracker, at, new AppBuild(BUILD));
 
             return service.fetchWeatherAndTriage(DURHAM_LOCATION, date, TargetType.SUNSET,
                     Set.of(), EvaluationModel.SONNET, true, null);

@@ -852,6 +852,76 @@ class ForecastEvaluationRepositoryTest {
                 .containsExactly("outcome:" + outcome.getId());
     }
 
+    // --- V179: build and prompt provenance ---
+
+    @Test
+    @DisplayName("V179: findCalibrationPairs carries the forecast row's build and prompt hash")
+    void findCalibrationPairs_projectsBuildAndPromptHash() {
+        LocalDate date = LocalDate.of(2026, 5, 10);
+        ForecastEvaluationEntity row = buildHaikuEvaluation(
+                durham, date, TargetType.SUNSET, LocalDateTime.of(2026, 5, 9, 1, 0), 1);
+        row.setAppBuild("v2.28.0");
+        row.setPromptHash("a".repeat(64));
+        repository.save(row);
+        outcomeRepository.save(buildOutcome(durham, date, TargetType.SUNSET, 5));
+
+        CalibrationPair pair = repository.findCalibrationPairs(date, date).getFirst();
+
+        assertThat(pair.appBuild()).isEqualTo("v2.28.0");
+        assertThat(pair.promptHash()).isEqualTo("a".repeat(64));
+    }
+
+    @Test
+    @DisplayName("V179: findCalibrationPairsFromRatings carries the forecast row's build and prompt hash,"
+            + " and null for a row from before they were recorded")
+    void findCalibrationPairsFromRatings_projectsBuildAndPromptHash() {
+        LocalDate date = LocalDate.of(2026, 5, 10);
+        ForecastEvaluationEntity stamped = buildHaikuEvaluation(
+                durham, date, TargetType.SUNSET, LocalDateTime.of(2026, 5, 9, 1, 0), 1);
+        stamped.setAppBuild("v2.28.0");
+        stamped.setPromptHash("b".repeat(64));
+        stamped = repository.save(stamped);
+        ForecastEvaluationEntity legacy = repository.save(buildHaikuEvaluation(
+                edinburgh, date, TargetType.SUNSET, LocalDateTime.of(2026, 5, 9, 1, 0), 1));
+        saveRating(11L, durham, date, 4, stamped.getId(), 3);
+        saveRating(12L, edinburgh, date, 4, legacy.getId(), 3);
+
+        List<CalibrationPair> pairs = repository.findCalibrationPairsFromRatings(date, date);
+
+        assertThat(pairs).hasSize(2);
+        CalibrationPair withBuild = pairs.stream()
+                .filter(p -> p.outcomeKey().equals("rating:11")).findFirst().orElseThrow();
+        CalibrationPair withoutBuild = pairs.stream()
+                .filter(p -> p.outcomeKey().equals("rating:12")).findFirst().orElseThrow();
+        assertThat(withBuild.appBuild()).isEqualTo("v2.28.0");
+        assertThat(withBuild.promptHash()).isEqualTo("b".repeat(64));
+        assertThat(withoutBuild.appBuild()).isNull();
+        assertThat(withoutBuild.promptHash()).isNull();
+    }
+
+    @Test
+    @DisplayName("V179: stampPromptHash stamps the named rows only and touches no other column")
+    void stampPromptHash_stampsOnlyTheNamedRows() {
+        LocalDate date = LocalDate.of(2026, 5, 10);
+        Long first = repository.save(buildHaikuEvaluation(
+                durham, date, TargetType.SUNSET, LocalDateTime.of(2026, 5, 9, 1, 0), 1)).getId();
+        Long second = repository.save(buildHaikuEvaluation(
+                durham, date, TargetType.SUNRISE, LocalDateTime.of(2026, 5, 9, 1, 0), 1)).getId();
+        Long untouched = repository.save(buildHaikuEvaluation(
+                edinburgh, date, TargetType.SUNSET, LocalDateTime.of(2026, 5, 9, 1, 0), 1)).getId();
+        entityManager.flush();
+
+        int stamped = repository.stampPromptHash("c".repeat(64), List.of(first, second));
+        entityManager.clear();
+
+        assertThat(stamped).isEqualTo(2);
+        assertThat(repository.findById(first).orElseThrow().getPromptHash()).isEqualTo("c".repeat(64));
+        assertThat(repository.findById(second).orElseThrow().getPromptHash()).isEqualTo("c".repeat(64));
+        assertThat(repository.findById(untouched).orElseThrow().getPromptHash()).isNull();
+        assertThat(repository.findById(first).orElseThrow().getRating()).as("rating is left alone")
+                .isEqualTo(3);
+    }
+
     // --- findCalibrationPairsFromRatings: forecast scored against what a reader said they saw ---
 
     @Test

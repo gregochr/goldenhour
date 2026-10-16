@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service.evaluation;
 
 import com.gregochr.goldenhour.entity.ForecastEvaluationPromptEntity;
 import com.gregochr.goldenhour.repository.ForecastEvaluationPromptRepository;
+import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -24,16 +25,20 @@ public class ForecastPromptStore {
     private static final Logger LOG = LoggerFactory.getLogger(ForecastPromptStore.class);
 
     private final ForecastEvaluationPromptRepository repository;
+    private final ForecastEvaluationRepository evaluationRepository;
     private final Clock clock;
 
     /**
      * Constructs the store.
      *
-     * @param repository the prompt repository
-     * @param clock      injectable clock for the {@code created_at} stamp
+     * @param repository           the prompt repository
+     * @param evaluationRepository the evaluation repository, for the prompt fingerprint stamp
+     * @param clock                injectable clock for the {@code created_at} stamp
      */
-    public ForecastPromptStore(ForecastEvaluationPromptRepository repository, Clock clock) {
+    public ForecastPromptStore(ForecastEvaluationPromptRepository repository,
+            ForecastEvaluationRepository evaluationRepository, Clock clock) {
         this.repository = repository;
+        this.evaluationRepository = evaluationRepository;
         this.clock = clock;
     }
 
@@ -56,6 +61,31 @@ public class ForecastPromptStore {
         } catch (RuntimeException e) {
             LOG.warn("Could not store {} forecast prompt(s) for this batch — submission unaffected: {}",
                     promptsByEvalRowId.size(), e.toString());
+        }
+    }
+
+    /**
+     * Stamps {@code forecast_evaluation.prompt_hash} (V179) on each pending row whose request was
+     * just submitted, one statement per distinct hash (at most two exist at a time: inland and
+     * coastal). Best-effort like {@link #store}: a failure is logged and never reaches the
+     * submission, and the rows simply keep a null hash (read as an unknown prompt).
+     *
+     * @param evalRowIdsByHash pending {@code forecast_evaluation} ids per system-prompt hash
+     */
+    public void stampPromptHashes(Map<String, List<Long>> evalRowIdsByHash) {
+        if (evalRowIdsByHash == null || evalRowIdsByHash.isEmpty()) {
+            return;
+        }
+        for (Map.Entry<String, List<Long>> entry : evalRowIdsByHash.entrySet()) {
+            if (entry.getValue().isEmpty()) {
+                continue;
+            }
+            try {
+                evaluationRepository.stampPromptHash(entry.getKey(), entry.getValue());
+            } catch (RuntimeException e) {
+                LOG.warn("Could not stamp the prompt hash on {} forecast row(s) — submission "
+                        + "unaffected: {}", entry.getValue().size(), e.toString());
+            }
         }
     }
 }
