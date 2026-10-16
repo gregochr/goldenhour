@@ -337,13 +337,11 @@ public class AuthController {
         String token = body.get("token");
         String password = body.get("password");
 
-        if (token == null || token.isBlank() || password == null || password.isBlank()) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("error", "token and password are required"));
-        }
-
         try {
+            requireTokenAndPassword(token, password);
             enforceTokenBounds(SET_PASSWORD_BOUNDS, token, ClientAddress.of(request));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
         } catch (TooManyAttemptsException ex) {
             return tooManyAttempts();
         }
@@ -418,6 +416,19 @@ public class AuthController {
             authenticationService.revokeRefreshToken(rawRefresh);
         }
         return ResponseEntity.ok(Map.of("message", "Logged out"));
+    }
+
+    /**
+     * Requires both fields of a set-password body to be present.
+     *
+     * @param token    the verification token
+     * @param password the new password
+     * @throws IllegalArgumentException when either is missing or blank
+     */
+    private static void requireTokenAndPassword(String token, String password) {
+        if (token == null || token.isBlank() || password == null || password.isBlank()) {
+            throw new IllegalArgumentException("token and password are required");
+        }
     }
 
     /**
