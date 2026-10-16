@@ -899,7 +899,15 @@ enabled)` for the admin toggle (`UserService.setEnabled` → `PUT /api/users/{id
 entity and `save()`s today, so without this the toggle would answer 200 and change nothing — Codex,
 R0 round 11; `UserControllerTest`/`UserServiceTest` pin that the toggle still disables and re-enables
 through the scoped update, and a stale-entity `save()` moves none of the three). `createUser` and
-`createPendingUser` are inserts and unaffected. ⚠️ **Refresh tokens carry no issue instant** (`refresh_token` has no
+`createPendingUser` are inserts and unaffected. **`role` joins them** (Codex, R0 round 21):
+`updatable = false`, written only by a new `AppUserRepository.updateRole(id, role)` behind
+`UserService.setRole`, because `AuthController.updateMarketingEmails` still loads a detached entity
+and `save()`s it — a request that loaded an ADMIN before a demotion committed would merge the stale
+role back, and a filter that trusts the row would then keep the old token admin. That save becomes a
+scoped `updateMarketingEmailOptIn(id, optIn)` as well (the last whole-entity `save()` of an `app_user`
+row outside creation); `UserServiceTest` pins the demotion through the scoped update, and a
+`@DataJpaTest` pins that a stale entity's `save()` moves neither `role` nor the three credential
+columns while a scoped update does. ⚠️ **Refresh tokens carry no issue instant** (`refresh_token` has no
 `created_at`), so the stamp alone would leave a pre-change refresh token able to mint a fresh access
 token through `/refresh` (Codex, R0 review). Every stamp site therefore ALSO calls
 `refreshTokenRepository.revokeAllActiveByUserId(userId)` in the same transaction — `changePassword`,
@@ -1076,7 +1084,8 @@ stamp at creation; `setEnabled` through `updateEnabled`; `setEmail` locks the ro
 reset tokens), `service/PasswordResetService.java` and a new `service/PasswordResetIssuer.java`
 (`requestReset` resolves the id; the issuer locks, re-reads and inserts in its own transaction),
 `UserControllerTest` and `UserServiceTest` (the admin toggle still works; the email change deletes the
-tokens), `AuthenticationService.refresh` (the user lock first), tests: `JwtAuthenticationFilterTest` (the five cases), `AppUserRepositoryTest`
+tokens; the demotion lands through `updateRole`), `controller/AuthController.java`
+(`updateMarketingEmails` through the scoped update), `AuthenticationService.refresh` (the user lock first), tests: `JwtAuthenticationFilterTest` (the five cases), `AppUserRepositoryTest`
 (`@DataJpaTest`, the scoped update), `CredentialChangeWriterTest` (`@DataJpaTest`: each site's
 change record lands atomically; a forced failure after the password write rolls back the stamp,
 the flag and the revocation; a stale `expectedVersion` is refused and writes nothing; a null
@@ -1333,7 +1342,9 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added forty-one P1s over twenty rounds, folded in: the
+disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added forty-two P1s over twenty-one rounds, folded in:
+`role` becomes non-updatable with a scoped `updateRole`, and the marketing opt-in save stops being a
+whole-entity merge (§2 #13); the
 refresh theft response commits in its own transaction before the refusal; the filter builds
 authorities from the row's role, not the claim (§2 #13); the
 reset URL token is its own gate state outside the verification cleanup effect; the redeemer
