@@ -5,6 +5,347 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.28.0] - 2026-10-16
+
+### Docs — the outcome-rating series is written down, and a dead export goes
+
+`CLAUDE.md` now describes what the series built, replacing the sentences it made false. The overview no
+longer says outcome recording is API-only; the Roles table and its note say the Map's per-reader rating
+(`PUT /api/outcome/ratings`) is Pro and Admin while `POST /api/outcome` stays open to every role. The
+endpoints section gains `GET /api/forecast?date=` (T-4 to T-1, stored rows only), the rule that a passed
+slot is served as of its event through `AsOfEventResolver`, the three `/api/outcome/ratings` routes with
+their gates, the 24-day `MAX_RATING_AGE_DAYS` and the "not seen is `rating: null`" rule. The calibration
+gate paragraph describes its second source (readers' ratings joined on `forecast_evaluation_id`, the
+captured star as the prediction, the outcome's identity in the dedup key so counts are pairs, and
+`outcomesInRange` counting both tables), and the "starves the calibration gate" bullet is scoped to the
+old source. `outcome_rating` (V177) and `forecast_evaluation.scored_at` (V178) are in the migrations table
+and in "Where a rating lives". Two new Map-tab bullets cover past windows (the `selectedIsPast`
+provenance flag, the PAST pill, the EARLIER group and Load row, the older-day fetch, past windows read
+from the forecast rows alone) and the rating block (its mount conditions, the Admin list, the counts and
+the badge, and the pin badge that does not reserve space in the placer). The Backend-heavy bullet's
+per-user-join class grows from three members to five, the Map-tab client-max class from two to three, and
+a sentence names the series' filter/map helpers; the Role-gating section assesses the block (every role
+sees it, LITE's stars dim, the controls are `aria-disabled` rather than `disabled`); the Rewind paragraph
+lists what is hidden; the `IntegrationTestBase` count is corrected to fifteen.
+
+`v1-retirement-plan.md` §8 item 7 and `all-in/serve-surfaces.md` record that the outcome UI has a v2 home;
+`map-tab-v2-plan.md` §4 gains the past-windows entry; the outcome-rating plan is marked complete with
+every owner question closed, ten more deviations numbered (§4 #23–#32) and the measured figures in §7;
+the bundle's `VENDORING.md` gets its final count.
+
+Removed: `fetchAllOutcomes` in `forecastApi.js`, which nothing has called since the Map stopped fetching
+`GET /api/outcome/all`, and the nine test mocks that stubbed it. `OutcomeModal`, `recordOutcome` and
+`fetchOutcomes` stay. No behaviour changes.
+
+### Added — Map tab: an Admin's "All ratings" list under "How was it?" (O5a)
+
+An Admin who selects a place on a past window now sees a collapsed `All ratings` box under their own
+rating block. Opening it fetches that one window's ratings from every reader and lists them — the
+Admin's own row first, then the rest newest first: each reader's name, their stars (or `Not seen`) and
+when it was recorded (`HH:MM` for today, `Sun 19:30` for another day, on the UK clock). The header
+counts every row once it has loaded (`All ratings · 3`). A footer says which forecast run the ratings
+were recorded against and how long before the event it was made — `Rated against the run at Sat 17 Oct,
+16:05 · 2h before sunset`, in whole hours from an hour up and minutes (`40 min`) below it — or `No
+forecast run recorded before this sunset` when none was. An empty window says `No ratings yet.`, and a
+list that could not be fetched says `Couldn't load ratings.` in one quiet line and can be opened again to
+retry.
+
+The list is fetched on its first open, not with the reader's own ratings; it is fetched again once the
+Admin's own save lands (not for a save that finishes after they have moved to another place or window),
+and it closes and forgets its rows whenever the place or the window changes. It is never drawn, and the
+endpoint never asked, for a Pro or Lite reader. Frontend only: `OutcomeAdminList`, `useSlotRatings` and
+`fetchAllRatingsForSlot`; `MapCallout` now holds the list's rows and loading state (so the card
+re-measures when the box opens or its rows arrive). Three strings are the plan's, not the design's:
+the no-run footer, `Couldn't load ratings.` and `Loading …`.
+
+### Changed — The map's load no longer fetches every recorded outcome
+
+Loading the forecast data made three requests, one of which (`GET /api/outcome/all`, over the last
+seven days) fed nothing: the outcome screens it served were retired in February, and nothing reads
+`outcomes` on a location. It is gone, so the load is two requests (forecasts and locations), and a
+location no longer carries an empty `outcomes` list. The instant-paint cache no longer stores the
+field, and a payload cached by an earlier build, which still has one, loads as it did. The API
+bindings and `OutcomeModal` stay, unused, as before.
+
+### Added — Map tab: how many places you rated on each past window, and a badge on the ones you did
+
+A past window in the Map's window control now says `{n} rated` in star gold, or `Not rated`, where a
+verdict would be: n is the number of places the signed-in reader has rated for it, "didn't see it"
+included. The phone's Windows section shows the same words in place of `Past`. A window whose
+ratings have not been read yet (an older day that has only just landed) or whose read failed prints
+nothing in the dropdown, and keeps `Past` on the phone, rather than a false `Not rated`; under an
+admin rewind there are no counts at all.
+
+On a past window, every pin and every heat-view chip for a place you rated wears a small badge at its
+top-right corner: `4★`, or `–` where you marked it "didn't see it". The badge is hidden from
+assistive technology and its meaning is added to the pin's or chip's name (`, you rated 4 out of 5`
+or `, you marked this not seen`). The label placer now reserves the badge's overhang (7px above, 9px
+beside the chip), so a neighbouring name is moved clear of it rather than drawn under it. Nothing
+changes on a window the forecast served, and an Ask pick never wears a badge, since a pick belongs to
+its own window.
+
+### Added — Map tab: step back through the last few days from the window control
+
+The Map tab's window control now reaches the stored days before the two the forecast list carries.
+Pressing `‹` on the oldest window (or `←`, or the new Load row) fetches one more stored day, back to
+four days ago; the pill reads `Loading Tue 13…` while the request is out, with both steppers and
+the Load row disabled, and when the day lands the map moves to that day's sunset, so the next `‹`
+steps to its sunrise. A day that comes back empty moves nothing and says nothing, and still counts
+toward the four, so the control offers the day before it. At the oldest reachable window `‹` is
+disabled. Nothing older than four days is ever requested, and the fetch stands down under an admin
+rewind.
+
+The dropdown gains an EARLIER group above the day groups: an `EARLIER` header with `rate how it
+went` beside it, the Load row (`Load Tue 13`, `or press ‹ past the oldest window · fetches Tue 13`),
+then a sub-header per past day with its rows, sunrise first, each showing the time and `Not rated`.
+Today can appear in both groups (this morning's sunrise under EARLIER, tonight's sunset under
+`FRI 16 · today`) and is not merged. The phone's Windows section gets the same header, Load row and
+sub-headers, with `Past` where a verdict would be. When the menu opens it now scrolls itself just far
+enough to show the window you are on, which the new group would otherwise push below the fold.
+
+A fetched day is kept in memory only (never in the instant-paint cache) and survives a forecast
+refresh, which rebuilds the list payload: the day, and its date in the Map's forecast domain, stay.
+The count beside a past window (`{n} rated`) and the rating itself come in later steps.
+
+### Docs — Plan card Spread row: plan closed out, plan-matrix A28, CLAUDE.md
+
+Closes `docs/engineering/spread-row-plan.md`: status complete, the S1 and S2 commits recorded, the
+measured card widths corrected (the stacked histogram line is 112px at a 320px viewport, not 116),
+three more deliberate departures from the design bundle written into §4 (the half-up tenths in
+`formatSpreadCount`, silence for an undefined reach threshold, the 205px stacking threshold kept) and
+every owner question marked decided or closed. Adds `plan-matrix-plan.md` §4 A28 (the pool label,
+the visible counts, the stacked state and the wording of the spoken sentence, amending A27's bar
+dimensions), a sentence pair in CLAUDE.md's spread-histogram paragraph, and the final-count note in
+the vendored bundle's `VENDORING.md`. No code change.
+
+### Changed — Plan card Spread row: names its pool and prints its counts (S2)
+
+The Spread row on every Plan card now says which pool it counted over — a second label line, `(within
+45m)` / `(within 1h30)` / `(within 2h30)` / `(any drive)`, silent when the pool holds a place with no
+measured drive under a finite tier — and prints the count of each band (and of the hatched "not yet
+rated" bar) under its bar, in a column sized per card (`1.2k` for a thousand). The card's accessible
+sentence says the same: the tier in the lens bar's own words ("within 45 min", "any drive"), the
+non-zero band counts, and "no locations within 45 min" for an empty pool beside the Best row's own
+words. The hover tooltip is unchanged. Below the minimum-sample gate the row keeps its `N/M rated`
+text with the label line above it.
+
+Layout: the row is one wrapper spanning both grid columns, so the longer label cannot widen the
+rating pill's column; on a card narrower than 205px (every phone and tablet width, and a docked Ask
+panel) the label takes one line and the histogram its own right-aligned line below, by a container
+query on the card. Cross-card alignment holds: the label and the well reserve their heights whether or
+not a qualifier or bars are drawn. A zero count is quietened by weight, not ink (the muted ink is
+under AA on the well). Frontend only; no backend, API or migration change.
+
+### Changed — Plan card Spread row: count, width and qualifier helpers (S1, no visible change)
+
+First phase of `docs/engineering/spread-row-plan.md`. Adds the pure maths the Spread row's pool label
+and visible band counts will use, with no component or CSS change: `formatDriveDurationCompact`
+("45m", "1h30") beside `formatDriveDuration`, a derived `shortLabel` on every `REACH_TIERS` entry
+(`null` for Any), and in `windowFirstSpread.js` `formatSpreadCount`, `spreadColumnWidthPx`,
+`spreadCountLayout` (the hatched bar's count takes part in the column width), `spreadQualifier`
+(silent under a finite tier unless every drive in the pool is measured), `spokenPoolPhrase` and
+`spreadBandsSpoken`. All are filter/map/select over the existing A10/A27 pool, in the class the
+module header already licenses.
+
+### Docs — Plan card Spread row: the pool label and visible counts, port plan
+
+`docs/engineering/spread-row-plan.md` is the port plan for the owner's Spread-row design bundle
+(vendored verbatim at `docs/design/spread-row/`): a second label line naming the pool the
+histogram was counted over (`(within 45m)` / `(within 1h30)` / `(within 2h30)` / `(any drive)`,
+derived from the reach tier's own threshold, silent when no drive time was measured) and a count
+printed under every bar, the hatched unrated bar's included, with one clamped column width per
+card and a compact `1.2k` format. Three phases (S1 helpers, S2 the row, S3 docs); the dark well,
+the sixth hatched bar and the minimum-sample gate the prototype lacks are all kept, and the
+card's spoken sentence gains the non-zero band counts so the visible figures have an accessible
+equivalent. No code in this change.
+
+### Docs — Spread row: the stacked-state comment counts the geometries S2 measured
+
+The stylesheet's note on the Spread row's stacked state said the card grid stacks at "eight of
+its nine measured shell geometries"; S2's §7 fixture measured ten, and the plan, plan-matrix A28
+and CLAUDE.md all say eight of ten. One word in a comment; no rule changed.
+
+### Docs — "How was it?": the port plan for rating a past sunrise or sunset
+
+`docs/engineering/outcome-rating-plan.md` plans the Map tab's outcome rating: Pro and Admin readers
+record, with one tap in the location callout, how a sunrise or sunset that has passed actually
+looked (1–5★ or "Didn't see it"), per user, against the last forecast run before the event; the
+window control steps backwards through elapsed windows and the two served past days, then fetches
+one more stored day at a time back to T-4. Six phases (a new `outcome_rating` table and its three
+endpoints; a one-day `GET /api/forecast?date=` read; past windows in the window control; the rating
+block, counts and pin badge; the admin list and the calibration gate reading the new ratings; a docs
+sweep). The design bundle is vendored verbatim at `docs/design/outcome-rating/`. No code in this
+change.
+
+### Changed — the calibration gate also scores forecasts against readers' ratings
+
+`GET /api/admin/calibration` now reads two sources of "how did it actually look": the old
+`actual_outcome` records, as before, and the new per-user ratings of past sunrises and sunsets. Each
+rating is paired with the one forecast row it was recorded against — the forecast available by the
+event and not withdrawn at it — never with a forecast that landed after the event, and the predicted
+rating is the star the reader saw when they rated (for a place with a woodland or bluebell lane that
+is the combined star, not the sky lane's alone). A rating with no recoverable star, or an "I didn't
+see it", is not a pair. Several readers rating one slot give several pairs, because each is an
+observation; the gate's keep-the-newest-run rule now collapses only repeated runs of one forecast for
+one outcome, so two outcomes of a slot (two readers, or a rating beside an old `actual_outcome` row)
+no longer overwrite each other, and the report's counts are of pairs, not slots. The report's
+outcomes-in-range figure now also counts every rating row in the window, "didn't see it" included.
+No API shape changes. Also corrects the `UserRole` javadoc, which implied Lite may record outcomes
+generally: only the old `POST /api/outcome` is open to Lite; rating a past sunrise or sunset is Pro
+and Admin.
+
+### Added — Map tab: "How was it?" — rate a sunrise or sunset that has already happened (O4a)
+
+Select a place on a past window and the location callout now asks how the sky actually turned out:
+five stars and "Didn't see it", one tap. Pro and Admin readers save it (upsert, one record per
+person, place and window); a Lite reader sees the block locked — the stars dimmed, a Pro pill, and
+"Rating is part of Pro." on a tap. Once saved the block reads "You rated ★★★☆☆ 3★" (or "You marked
+this not seen") with a Change button, which brings the grid back with the current choice marked; a
+failed save puts the previous value back and says "Not saved. Tap a star again." until the next save
+lands. Nothing says whether the forecast was right, and the forecast star stays in the callout's
+verdict strip where it was.
+
+The block shows only for a place whose OWN sunrise or sunset has passed (the window turning past on
+the pill is decided on the earliest place, so along a coastline the callout can wait a few minutes
+behind it), never for a wildlife hide, never for a place with no forecast row for the window, and
+never while an admin rewind is in force. The callout's "Not scored yet" reads "Not scored" on a past
+window. The ratings come from a new `GET /api/outcome/ratings` read over the days the map holds and are
+kept in page state only — nothing is cached or stored in the browser.
+
+Frontend only: `OutcomeRatingBlock`, `useOutcomeRatings` (optimistic write, per-slot rollback, an
+overtaken response dropped whole, a re-read that cannot overwrite a save in flight), the
+`outcomeRatingApi` bindings and `outcomeRatingCopy`. The callout owns the block's `changing` state and
+names it in its repaint dependencies so the card re-anchors when the 44px grid becomes the 40px row.
+Counts in the window menu, the pin badge and the admin's all-ratings list come in later phases.
+
+### Added — Map tab: the heat field paints a window that has gone
+
+A past window on the Map tab (today's elapsed sunrise, yesterday's and the day before's) used to be
+a row with no picture behind it: the field is keyed on the briefing's rendered windows, and the
+briefing withdraws a window once it is over, so the Heat view was empty and the Heat|Pins toggle had
+nothing to toggle. The Map pane now builds a field for each past window from the locations' own
+forecast rows and hands it to the map beside the briefing's. A past window shows the same heat
+field, colour key and rated counts as a served one; a window nobody rated paints nothing and drops
+the key, as a served one does.
+
+The field reads the forecast row alone, the same rating the chips and the callout star already show
+on a past window, never the scores endpoint (which serves the latest result and, for a passed slot,
+may be one that landed after the event). The key is drawn only when a place the field actually paints
+holds a rating: a past window whose only rated rows are a wood's or an unregioned place's has no key
+over an empty field. The kernel's haze reads the inferred confidence (medium), since a past window
+carries no served confidence. The Plan matrix is untouched: past windows are added in the Map pane,
+never in the briefing context the Plan tab reads.
+
+### Added — Map tab: windows that have gone are rows of the window control, tagged Past
+
+The forecast list has served the last two days for a while, and the Map tab hid every one of them:
+the briefing withdraws a window once its sunrise or sunset is over, and the tab's own list only kept
+windows from today forward. A solar window the briefing no longer serves, that has forecast rows and
+whose earliest event time has passed (the same instant and thirty minutes the briefing retires it
+on, so the Map and the Plan tab retire a window at the same minute) is now a row: today's elapsed
+sunrise, yesterday's two windows and the day before's. The pill wears a `PAST` tag where a verdict
+word would sit, labelled `Today`, `Yesterday` or `Fri 16`, with the window's time narrowed to the
+places in your scope like any other. Stepping onto one forwards it to `App` with a provenance flag
+(`selectedDateIsPast`, beside the night one), because the map-date clamp refuses a date before today
+without it; a stale past pick without the flag still falls through to today.
+
+On a past window the chips, pins and the callout's star read the forecast row alone, never the
+briefing score index (which serves the latest result and, for a passed slot, may be one that landed
+after the event). The callout hides Drive and Leave by, keeps Dark sky and withholds "Open in Plan"
+(the location sheet it opens holds only upcoming windows); the collapsed "Other windows" summary
+never names a window that has gone. Nothing is rated or recorded yet and the window menu has no
+Earlier group: those, and the older-day fetch, are the next phases of the outcome-rating series
+(`docs/engineering/outcome-rating-plan.md`).
+
+### Changed — a sunrise or sunset that has already happened is served as the forecast stood at the event
+
+`GET /api/forecast` (its two past days, and today's elapsed sunrise) and the new `?date=` read now
+serve a passed slot — judged per place on its own event time plus the 30-minute afterglow — as of
+that event, using the same resolution an outcome rating is recorded against, instead of its latest
+row. A batch that lands after the event, or a stability skip recorded after it, can no longer repaint
+a window you have already seen. For Pro and Admin accounts the star on a passed slot is the star
+that was captured as served at the event; a woodland or bluebell place whose combined star cannot be
+recovered reads unscored (no star, no scores) rather than showing its sky-only star, and a place with
+nothing available by the event shows no row for that window. A Lite account's row is served as the
+list has always served it to Lite (the row's own rating and basic scores).
+Windows that are in the future, and today's event before it happens, are served exactly as before.
+
+Because the resolution needs the scoring time recorded since V178, for the first days after this
+deploys the windows that passed before it show fewer stars (a slot scored before V178 has nothing to
+resolve to and reads unscored); every window scored afterwards is served in full.
+
+### Added — `GET /api/forecast?date=`: one stored past day (backend only, nothing calls it yet)
+
+`GET /api/forecast?date=YYYY-MM-DD` returns that one day's stored forecast rows in the list's own
+shape, for the days the list does not carry — the Map tab's older-day fetch for rating how a past
+sunrise or sunset turned out. The day must be between four days ago and yesterday on the UK calendar
+(`ForecastHorizon.MAX_PAST_DAYS`, new); today, tomorrow, five days ago or a malformed date is a 400
+with `{"error": "date must be between T-4 and yesterday"}`. It reads stored rows only — it can never
+start a run, a batch or a model call — and LITE accounts get the same basic-score selection as the
+list.
+
+### Changed — `forecast_evaluation` rows now carry the instant they got their rating
+
+`forecast_evaluation` gains a nullable `scored_at` (V178): when a row acquired something to say. The
+synchronous engine and the triage and sentinel-skip paths stamp it at insert, from the clock, when the
+row carries a rating or a triage reason; a batch's `PENDING` row is stamped when its result scores it
+in place, and only when the star survived validation. A row still `PENDING`, an `ABANDONED` row, a
+wildlife comfort row and every row written before this deploy keep it null — no backfill, no guess.
+`forecast_run_at` is untouched: it is a submission instant (a batch row is stamped before its batch
+is even submitted, and the Batch API may land the result a day later), so it cannot say what existed
+at a given moment; `scored_at` can. Nothing reads it for serving yet; the outcome rating's provenance
+uses it as the availability bound, and a row without it is never taken as the forecast a reader saw.
+`ForecastResultHandler` now takes the application `Clock`.
+
+### Added — the outcome rating record and its three endpoints (backend only, nothing draws it yet)
+
+Pro and Admin readers can now record, per user and per location, how a sunrise or sunset that has
+already happened actually looked: 1–5 stars, or "didn't see it". `PUT /api/outcome/ratings`
+(`{locationId, eventDate, eventType, rating}`, an absent rating meaning not seen) replaces the user's
+earlier answer for the slot; `GET /api/outcome/ratings?from=&to=` returns the caller's own rows
+(any role — a Lite account simply has none — and at most 31 days); `GET /api/outcome/ratings/all`
+returns every user's row for one window, newest first, with the caller's own marked, for Admin. A
+Lite account's PUT is refused with 403, and a PUT for an event that has not yet happened (this
+place's own event time plus the 30-minute afterglow, on the real clock) or is more than 24 days old
+is a 400 with a plain sentence. The new `outcome_rating` table (V177) is separate from the old
+`actual_outcome`, whose API is untouched.
+
+Each rating is recorded against the forecast the reader actually saw, not the newest cycle before
+the event: the new `AsOfEventResolver` takes the result the Plan tab and the map serve for the slot
+if it had arrived by the event (a canopy-bearing place needs its cached entry last written by then
+as well), and otherwise the latest `forecast_evaluation` row that was scored by the event and not
+withdrawn by a stability skip recorded before it. The rating stores that forecast's age
+(`forecast_run_at`), the cycle whose trigger instant matches it exactly, the row it was paired with
+and the predicted star the reader saw — null when that star cannot be recovered, as for a
+bluebell-bearing place whose combined star the cache has since replaced. Nothing here reads a
+roster-wide "latest cycle", so a cycle that failed, skipped the slot or landed late is never named.
+A reader who changes their mind keeps the forecast record made the first time, since the event is
+fixed and a second resolution after a restart could only be poorer. The resolver also has a batch form so the forecast serve path can use the same answer for a whole
+roster in a handful of queries. The upsert is a find-or-insert in its own store class with no
+surrounding transaction, the one shape that survives a Postgres unique violation, and is raced by a
+12-thread test (and, in CI, on Postgres).
+
+The migrations and the Postgres race are proven by CI only; the H2 slice tests, the resolver's
+provenance cases and the endpoint role matrix run locally.
+
+### Docs — far-cloud P1: where the Part D working files live, and the JDK 23 flags
+
+- Plan §12 step 1 records that the replay set, its split with the 150-prompt control and the R1 system prompt
+  were made on 2026-10-15 and live under `~/goldenhour-p1/` on the owner's Mac, outside the repository.
+- The runbook's prerequisites say which three Maven flags a JDK 23 machine needs for the harness commands.
+
+### Docs — far-cloud P1: Part D results (2026-10-15)
+
+- `far-cloud-p1-plan.md` gains §13, the Part D replay results: five arms, about $6.28 at batch prices (primers not counted), zero failed attempts, with a 150-prompt same-model control giving a noise floor of 6.0% moved.
+- D-1: R1 (fiery_sky cap 55) passes the training cases (Angel 3★ in 20 of 20, Low Hauxley 4★ in 20 of 20) but fails the cost cap, demoting 179 of 658 gos (27.2%, +22.9 pp net of the control) against 15%, concentrated on sunsets; it is a blanket downgrade as drafted.
+- D-2: item 1 is not met (about 5 points against 8, and one-sided by selection) but item 2 is met (Angel 4★ 20 of 20 on Sonnet 5.5, 3★ 20 of 20 on Sonnet 4.6), so the plan's rule recommends the switch; Sonnet 4.6 withdrew 127 of 513 Sonnet 5.5 gos (24.8%).
+- §9 records the spend as approved and run, and adds item 6 (a narrower Angel-shape R1 arm, about $4, open). Docs only.
+
+### Docs — far-cloud P1: Batch Near-Term stays on Sonnet 5.5 (owner decision, 2026-10-15)
+
+- Plan §9 item 1 records the decision: no interim switch to Sonnet 4.6 until the Part B re-run over the
+  verified Sonnet 5.5 era, or Part E outcomes, resolves which model's gos are right.
+
 ## [v2.27.4] - 2026-10-15
 
 ### Docs — far-cloud P1: where the Part D working files live, and the JDK 23 flags
