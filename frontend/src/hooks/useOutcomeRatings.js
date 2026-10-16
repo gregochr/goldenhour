@@ -59,7 +59,9 @@ export function rowKey(locationId, date, eventType) {
  *   saving: Set<string>,
  *   saveError: Set<string>,
  *   loaded: boolean,
+ *   readFailed: boolean,
  *   covers: function(string): boolean,
+ *   wasRead: function(string): boolean,
  *   canRate: boolean,
  *   rate: function(number, string, string, ?number): Promise<boolean>,
  *   clearSaveError: function(string): void
@@ -79,6 +81,11 @@ export function useOutcomeRatings({
   // The range a read has landed for. A date outside it has NOT been read: its absent keys mean
   // "not asked yet", never "unrated".
   const [loadedRange, setLoadedRange] = useState(null);
+  // Whether the NEWEST read that settled failed. {@code loaded} and {@code covers} count a failed read
+  // as read (the block stays usable, the PUT is an upsert), but a COUNT or a BADGE states a fact about
+  // what the reader has rated, and an empty {@code mine} after a failed read says nothing of the kind
+  // — so a reader of those two (outcome-rating-plan.md §2 #6) stays silent while this is true.
+  const [readFailed, setReadFailed] = useState(false);
 
   // The refs hold what an async continuation must read fresh; the state is what renders.
   const mineRef = useRef(mine);
@@ -155,9 +162,14 @@ export function useOutcomeRatings({
       }
       commitMine(fresh);
       setLoadedRange({ from: readFrom, to: readTo });
+      setReadFailed(false);
     }).catch(() => {
       // A failed read says nothing about what was rated; the block stays usable, the PUT is an upsert.
-      if (settle()) setLoadedRange({ from: readFrom, to: readTo });
+      // `readFailed` is how the counts and the badge, which DO state what was rated, know to stay quiet.
+      if (settle()) {
+        setLoadedRange({ from: readFrom, to: readTo });
+        setReadFailed(true);
+      }
     });
     return undefined;
   }, [rewound, readFrom, readTo, readRefresh, commitMine]);
@@ -225,6 +237,18 @@ export function useOutcomeRatings({
     return date >= loadedRange.from && date <= loadedRange.to;
   }, [rewound, isLite, loadedRange]);
 
+  /**
+   * Whether the server was actually ASKED about an event date: the date lies in the range a read
+   * has landed for, for every role. Stricter than {@link covers}, which says "a block may be offered"
+   * and so is true for a LITE reader's every date after the first read (a LITE reader cannot write
+   * and re-reads nothing). A count or a badge states a fact about what was rated, so it needs this:
+   * an older day a LITE reader has since loaded was never read, and "Not rated" there would be a guess.
+   */
+  const wasRead = useCallback((date) => {
+    if (rewound || loadedRange == null) return false;
+    return date >= loadedRange.from && date <= loadedRange.to;
+  }, [rewound, loadedRange]);
+
   const clearSaveError = useCallback((key) => flag(setFailed, key, false), [flag]);
 
   return useMemo(() => ({
@@ -232,9 +256,11 @@ export function useOutcomeRatings({
     saving,
     saveError: failed,
     loaded: !rewound && loadedRange != null,
+    readFailed: !rewound && readFailed,
     covers,
+    wasRead,
     canRate,
     rate,
     clearSaveError,
-  }), [rewound, emptyMine, mine, saving, failed, loadedRange, covers, canRate, rate, clearSaveError]);
+  }), [rewound, emptyMine, mine, saving, failed, loadedRange, readFailed, covers, wasRead, canRate, rate, clearSaveError]);
 }

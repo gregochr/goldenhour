@@ -169,3 +169,68 @@ describe('WindowFirstMapPane — the reader\'s outcome ratings', () => {
     expect(MapStub.lastProps.outcomeRatings).toBeNull();
   });
 });
+
+describe('WindowFirstMapPane — the rated counts (outcome-rating-plan.md §2 #6, O4b)', () => {
+  const place = (id, days) => ({
+    id,
+    name: `Place ${id}`,
+    lat: 55,
+    lon: -1.5,
+    forecastsByDate: new Map(Object.entries(days)),
+  });
+  const rows = (date) => ({
+    sunrise: { solarEventTime: `${date}T05:00:00` },
+    sunset: { solarEventTime: `${date}T19:00:00` },
+  });
+  /** Two places with rows on two read dates, one date BEFORE the read range, and today. */
+  const ROSTER = [
+    place(7, {
+      '2026-08-01': rows('2026-08-01'), '2026-08-09': rows('2026-08-09'), '2026-08-10': rows('2026-08-10'),
+    }),
+    place(8, { '2026-08-10': rows('2026-08-10') }),
+  ];
+  const rated = (locationId, eventDate, eventType, rating) => ({
+    locationId, eventDate, eventType, rating, updatedAt: 'x',
+  });
+
+  it('counts the reader\'s own records per past window, "not seen" included, ignoring a place the roster lacks', async () => {
+    fetchMyRatings.mockResolvedValue([
+      rated(7, '2026-08-10', 'SUNSET', 4),
+      rated(8, '2026-08-10', 'SUNSET', null),
+      rated(99, '2026-08-10', 'SUNSET', 5),
+    ]);
+    await renderPane({ locations: ROSTER });
+    const counts = MapStub.lastProps.ratedCounts;
+    expect(counts.get('solar:2026-08-10:SUNSET')).toBe(2);
+    // A window the read covered and the reader has not rated is a FACT: zero.
+    expect(counts.get('solar:2026-08-10:SUNRISE')).toBe(0);
+    expect(counts.get('solar:2026-08-09:SUNSET')).toBe(0);
+  });
+
+  it('leaves out a window whose date the read has not covered — unknown is absent, never zero', async () => {
+    await renderPane({ locations: ROSTER });
+    // The read runs from the oldest date in `dates` (2026-08-09); 2026-08-01 has rows but no read.
+    expect(MapStub.lastProps.ratedCounts.has('solar:2026-08-01:SUNSET')).toBe(false);
+    expect(MapStub.lastProps.ratedCounts.has('solar:2026-08-10:SUNSET')).toBe(true);
+  });
+
+  it('is empty after a FAILED read — a failed read says nothing about what was rated', async () => {
+    fetchMyRatings.mockRejectedValue(new Error('down'));
+    await renderPane({ locations: ROSTER });
+    expect(MapStub.lastProps.outcomeRatings.covers('2026-08-10')).toBe(true);
+    expect(MapStub.lastProps.ratedCounts.size).toBe(0);
+  });
+
+  it('counts today\'s two windows too (the elapsed one is a past row)', async () => {
+    fetchMyRatings.mockResolvedValue([rated(7, TODAY, 'SUNRISE', 3)]);
+    await renderPane({ locations: [place(7, { [TODAY]: rows(TODAY) })] });
+    expect(MapStub.lastProps.ratedCounts.get(`solar:${TODAY}:SUNRISE`)).toBe(1);
+    expect(MapStub.lastProps.ratedCounts.get(`solar:${TODAY}:SUNSET`)).toBe(0);
+  });
+
+  it('is null while a rewind is in force', async () => {
+    setRewind('2026-08-10T21:00:00Z');
+    await renderPane({ locations: ROSTER });
+    expect(MapStub.lastProps.ratedCounts).toBeNull();
+  });
+});

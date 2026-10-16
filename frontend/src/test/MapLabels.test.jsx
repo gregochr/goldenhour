@@ -3,7 +3,7 @@ import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
 import {
-  act, fireEvent, render, screen,
+  act, cleanup, fireEvent, render, screen,
 } from '@testing-library/react';
 
 const setPosition = vi.fn();
@@ -1317,6 +1317,102 @@ describe('MapLabels — re-paints on the same rAF-guarded cadence as the field',
     await act(async () => { unmount(); });
     // No throw on a post-unmount event is the assertion — the listeners were removed.
     expect(() => currentMap.fire('moveend')).not.toThrow();
+  });
+});
+
+describe('MapLabels — the "you rated this" badge (outcome-rating-plan.md §2 #6, O4b)', () => {
+  // Zoom 12: past the region-name gate (11.2) and the ring gate, so the only things placed are the
+  // chips under test. Every element measures 30x14 (`withMeasuredLabels`), so a chip's box is known.
+  // The stub projection puts A at (30, 40) and B at (65, 40): B's own box starts 5px past A's right
+  // edge (45) plus the placer's 3px collision pad — flush, and free — until A's badge is reserved.
+  const A = {
+    name: 'Aa', lat: 52, lng: 0, rid: 'X', rating: 5,
+  };
+  const B = {
+    name: 'Bb', lat: 52, lng: 3.5, rid: 'X', rating: 3,
+  };
+  const chipNamed = (name) => [...document.querySelectorAll('[data-testid="map-label-chip"]')]
+    .find((el) => el.getAttribute('aria-label').startsWith(name));
+  const leftOf = (el) => Number.parseFloat(el.style.left);
+  const topOf = (el) => Number.parseFloat(el.style.top);
+
+  async function place(spots) {
+    restoreMeasure = withMeasuredLabels(30, 14);
+    currentMap = makeFullMap({ zoom: 12 });
+    await mount({ spots });
+    await act(async () => { runFrames(); });
+  }
+
+  it('draws N★ on a chip carrying the reader\'s rating — aria-hidden, with the spoken clause in the name', async () => {
+    await place([{ ...A, myRating: 3 }, B]);
+    const chip = chipNamed('Aa');
+    expect(chip).toHaveAccessibleName('Aa, 5 star, you rated 3 out of 5');
+    expect(chip.querySelector('.wf-rated-badge')).toHaveTextContent('3★');
+    expect(chip.querySelector('.wf-rated-badge')).toHaveAttribute('aria-hidden', 'true');
+    expect(chipNamed('Bb').querySelector('.wf-rated-badge')).toBeNull();
+    expect(chipNamed('Bb')).toHaveAccessibleName('Bb, 3 star');
+  });
+
+  it('draws an en dash and says "not seen" for a "didn\'t see it" record', async () => {
+    await place([{ ...A, myRating: 'NOT_SEEN' }, B]);
+    expect(chipNamed('Aa')).toHaveAccessibleName('Aa, 5 star, you marked this not seen');
+    expect(chipNamed('Aa').querySelector('.wf-rated-badge')).toHaveTextContent('–');
+  });
+
+  it('places the chip exactly where it would have been without a badge', async () => {
+    await place([A]);
+    const bareAt = [leftOf(chipNamed('Aa')), topOf(chipNamed('Aa'))];
+    cleanup();
+    restoreMeasure();
+    await place([{ ...A, myRating: 4 }]);
+    expect([leftOf(chipNamed('Aa')), topOf(chipNamed('Aa'))]).toEqual(bareAt);
+  });
+
+  it('PLACER RULE: a neighbour that fits flush beside a bare chip is moved clear of its badge', async () => {
+    await place([A, B]);
+    // The premise: bare, B sits flush right of A — exactly where a badge would hang.
+    const bareB = leftOf(chipNamed('Bb'));
+    expect(bareB).toBe(50);
+    expect(bareB).toBeLessThan(leftOf(chipNamed('Aa')) + 30 + 9);
+    cleanup();
+    restoreMeasure();
+
+    await place([{ ...A, myRating: 4 }, B]);
+    const a = chipNamed('Aa');
+    const b = chipNamed('Bb');
+    // The badge's box: 9px past the chip's right edge, 7px above its top, down to the chip's bottom.
+    const badge = {
+      left: leftOf(a) + 30, right: leftOf(a) + 30 + 9, top: topOf(a) - 7, bottom: topOf(a) + 14,
+    };
+    const box = {
+      left: leftOf(b), right: leftOf(b) + 30, top: topOf(b), bottom: topOf(b) + 14,
+    };
+    const overlap = box.left < badge.right && badge.left < box.right
+      && box.top < badge.bottom && badge.top < box.bottom;
+    expect(overlap).toBe(false);
+    expect(leftOf(b)).not.toBe(bareB);
+  });
+
+  it('keeps a badged chip\'s badge on screen: a chip near the top edge is nudged down, never clipped', async () => {
+    restoreMeasure = withMeasuredLabels(30, 14);
+    currentMap = makeFullMap({ zoom: 12 });
+    // y = (56 - 55.2) * 10 = 8: a bare chip's box would start at y = 1, flush with the edge inset;
+    // with a badge 7px more is reserved above it.
+    await mount({ spots: [{ ...A, lat: 55.2, myRating: 4 }] });
+    await act(async () => { runFrames(); });
+    expect(topOf(chipNamed('Aa')) - 7).toBeGreaterThanOrEqual(1);
+  });
+
+  it('an Ask pick chip never wears the badge, and keeps the pick\'s own name', async () => {
+    await place([{
+      ...A,
+      myRating: 4,
+      askPick: {
+        rank: 1, shortWindow: 'Sun', rating: 4, verdict: 'WORTH_IT', label: 'Pick 1', selected: false,
+      },
+    }]);
+    expect(document.querySelector('.wf-rated-badge')).toBeNull();
+    expect(document.querySelector('[data-ask="pick"]')).toHaveAttribute('aria-label', 'Pick 1');
   });
 });
 

@@ -662,8 +662,10 @@ WindowControl.propTypes = {
   /** Fetches the next older day. The caller owns the fetch and what selection does when it lands. */
   onLoadOlderDay: PropTypes.func,
   /**
-   * Row id to the number of locations the signed-in reader has rated for that PAST window — O4b's
-   * seam. Null (the default) prints {@code Not rated} on every past row.
+   * Row id to the number of locations the signed-in reader has rated for that PAST window
+   * (outcome-rating-plan.md §2 #6, O4b; built in the pane by {@code utils/outcomeRatingJoin}). A
+   * zero prints {@code Not rated}; an id the map LACKS — and a null map — is unknown (not read yet, a
+   * failed read, a rewind) and prints nothing in the cell.
    */
   ratedCounts: PropTypes.instanceOf(Map),
   /**
@@ -901,13 +903,15 @@ function WindowRow({ row, active, onSelect, ratedCount = null }) {
 
 /**
  * What a PAST window says where a verdict would be: {@code Not rated} (ink-3) or {@code {n} rated}
- * (star gold), n being the number of locations the signed-in reader has rated for it
- * (outcome-rating-plan.md §2 #2). O3b has no count to give: {@code ratedCount} is the seam O4b fills
- * (a null or zero count reads {@code Not rated}). The phone peek sheet does NOT use it: its past rows
- * wear {@code Past} where a verdict would be (spec section 2), so whether O4b adds a count there is
- * its call.
+ * (star gold), n being the number of locations the signed-in reader has rated for it, "didn't see
+ * it" included (outcome-rating-plan.md §2 #2, §2 #6). ⚠️ <b>It cannot say "unknown", so it is not
+ * drawn for unknown</b>: a null {@code ratedCount} (the date's ratings not read yet, a failed read,
+ * a rewind, no ratings source at all) renders NOTHING, never a false {@code Not rated} — the caller's
+ * {@code ratedCounts} map simply lacks the row's id. A zero is a fact and reads {@code Not rated}.
+ * Shared with the phone peek sheet's Windows section.
  */
-function RatedCell({ ratedCount = null }) {
+export function RatedCell({ ratedCount = null }) {
+  if (ratedCount == null) return null;
   return ratedCount > 0
     ? <span className="wf-win-rated" data-testid="wf-win-rated">{`${ratedCount} rated`}</span>
     : <span className="wf-win-notrated" data-testid="wf-win-notrated">Not rated</span>;
@@ -980,6 +984,6 @@ WindowRow.propTypes = {
   }).isRequired,
   active: PropTypes.bool.isRequired,
   onSelect: PropTypes.func.isRequired,
-  /** O4b's seam: the count a PAST row's `{n} rated` reads; null prints `Not rated`. */
+  /** The count a PAST row's `{n} rated` reads: 0 prints `Not rated`, null (unknown) prints nothing. */
   ratedCount: PropTypes.number,
 };

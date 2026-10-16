@@ -106,8 +106,10 @@ describe('useOutcomeRatings — the range read', () => {
     });
     await act(async () => { first.reject(new Error('late')); });
     expect(result.current.loaded).toBe(false);
+    expect(result.current.readFailed).toBe(false);
     await act(async () => { second.resolve([]); });
     expect(result.current.loaded).toBe(true);
+    expect(result.current.readFailed).toBe(false);
   });
 
   it('drops a read that a newer read has overtaken', async () => {
@@ -172,6 +174,92 @@ describe('useOutcomeRatings — covers(date): which dates have been READ', () =>
     const { result } = mount({ rewound: true });
     await settle();
     expect(result.current.covers('2026-06-14')).toBe(false);
+  });
+});
+
+describe('useOutcomeRatings — readFailed (the counts and the badge state a fact, so they need it)', () => {
+  it('is false before any read, and false after a read that succeeded', async () => {
+    const { result } = mount();
+    expect(result.current.readFailed).toBe(false);
+    await settle();
+    expect(result.current.readFailed).toBe(false);
+  });
+
+  it('is true after a FAILED read although loaded and covers() still say "read" (the block stays usable)', async () => {
+    fetchMyRatings.mockRejectedValue(new Error('network'));
+    const { result } = mount();
+    await settle();
+    expect(result.current.readFailed).toBe(true);
+    expect(result.current.loaded).toBe(true);
+    expect(result.current.covers('2026-06-14')).toBe(true);
+    expect(result.current.mine.size).toBe(0);
+  });
+
+  it('clears when a later read succeeds, and returns when a later read fails', async () => {
+    fetchMyRatings.mockRejectedValueOnce(new Error('network'));
+    const { result, rerender } = mount();
+    await settle();
+    expect(result.current.readFailed).toBe(true);
+    fetchMyRatings.mockResolvedValueOnce([ROW(7, 4)]);
+    await act(async () => { rerender({
+      role: 'PRO_USER', rewound: false, from: '2026-06-13', to: '2026-06-15', refreshKey: 'b',
+    }); });
+    expect(result.current.readFailed).toBe(false);
+    expect(result.current.mine.get(KEY).rating).toBe(4);
+    fetchMyRatings.mockRejectedValueOnce(new Error('network'));
+    await act(async () => { rerender({
+      role: 'PRO_USER', rewound: false, from: '2026-06-13', to: '2026-06-15', refreshKey: 'c',
+    }); });
+    expect(result.current.readFailed).toBe(true);
+  });
+
+  it('is never true while rewound — even when a live read had already failed', async () => {
+    fetchMyRatings.mockRejectedValue(new Error('network'));
+    const { result, rerender } = mount();
+    await settle();
+    expect(result.current.readFailed).toBe(true);
+    await act(async () => { rerender({
+      role: 'PRO_USER', rewound: true, from: '2026-06-13', to: '2026-06-15', refreshKey: 'a',
+    }); });
+    expect(result.current.readFailed).toBe(false);
+  });
+
+  it('a stale read\'s late FAILURE cannot silence the counts after a newer read succeeded', async () => {
+    const first = deferred();
+    const second = deferred();
+    fetchMyRatings.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const { result, rerender } = mount();
+    rerender({
+      role: 'PRO_USER', rewound: false, from: '2026-06-12', to: '2026-06-15', refreshKey: 'a',
+    });
+    await act(async () => { second.resolve([ROW(7, 4)]); });
+    await act(async () => { first.reject(new Error('late')); });
+    expect(result.current.readFailed).toBe(false);
+    expect(result.current.mine.get(KEY).rating).toBe(4);
+  });
+});
+
+describe('useOutcomeRatings — wasRead(date): the server was ASKED about the date', () => {
+  it('is range-based, false before any read lands and false outside the range read', async () => {
+    const { result } = mount();
+    expect(result.current.wasRead('2026-06-14')).toBe(false);
+    await settle();
+    expect(result.current.wasRead('2026-06-14')).toBe(true);
+    expect(result.current.wasRead('2026-06-12')).toBe(false);
+  });
+
+  it('is NOT true for a LITE reader\'s older day, though covers() is (LITE re-reads nothing)', async () => {
+    const { result } = mount({ role: 'LITE_USER' });
+    await settle();
+    expect(result.current.covers('2026-06-10')).toBe(true);
+    expect(result.current.wasRead('2026-06-10')).toBe(false);
+    expect(result.current.wasRead('2026-06-14')).toBe(true);
+  });
+
+  it('is false while rewound', async () => {
+    const { result } = mount({ rewound: true });
+    await settle();
+    expect(result.current.wasRead('2026-06-14')).toBe(false);
   });
 });
 

@@ -133,7 +133,7 @@ describe('WindowControl — steppers beside a past window', () => {
 
 describe('WindowControl — a past row in the open dropdown', () => {
   it('says "Not rated" in the score cell (the EARLIER group\'s words) instead of the unscored dash', () => {
-    renderControl({ activeIndex: 2 });
+    renderControl({ activeIndex: 2, ratedCounts: new Map([[PAST_YESTERDAY.id, 0]]) });
     fireEvent.click(screen.getByTestId('wf-win-pill'));
     const rows = screen.getAllByTestId('wf-win-row');
     const pastRow = rows.find((r) => r.getAttribute('data-ev-id') === PAST_YESTERDAY.id);

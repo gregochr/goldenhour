@@ -82,7 +82,6 @@ describe('useForecasts', () => {
     // `waitFor(loading === false)` assertions synchronise on the fetch, not a prior test's cache.
     localStorage.clear();
     mockUseAuth.mockReturnValue({ role: 'PRO_USER' });
-    fetchAllOutcomes.mockResolvedValue([]);
   });
 
   it('includes wildlife locations that have no forecast rows', async () => {
@@ -177,52 +176,43 @@ describe('useForecasts', () => {
     expect(kielder.regionName).toBe('Northumberland');
   });
 
-  it('groups batched outcomes to locations by name with a single request', async () => {
+  it('makes two requests on load — forecasts and locations — and never asks for recorded outcomes', async () => {
     fetchForecasts.mockResolvedValue([BAMBURGH_FORECAST]);
     fetchLocations.mockResolvedValue([LANDSCAPE_LOCATION, WILDLIFE_LOCATION]);
-    fetchAllOutcomes.mockResolvedValue([
-      { id: 1, locationName: 'Bamburgh Castle', outcomeDate: '2026-03-03', targetType: 'SUNSET' },
-      { id: 2, locationName: 'Bamburgh Castle', outcomeDate: '2026-03-04', targetType: 'SUNRISE' },
-      { id: 3, locationName: 'Low Barns', outcomeDate: '2026-03-03', targetType: 'SUNSET' },
-    ]);
 
     const { result } = renderHook(() => useForecasts());
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    // Outcomes are batched into exactly one request, not one per location.
-    expect(fetchAllOutcomes).toHaveBeenCalledTimes(1);
-
-    const bamburgh = result.current.locations.find((l) => l.name === 'Bamburgh Castle');
-    const lowBarns = result.current.locations.find((l) => l.name === 'Low Barns');
-    expect(bamburgh.outcomes.map((o) => o.id)).toEqual([1, 2]);
-    expect(lowBarns.outcomes.map((o) => o.id)).toEqual([3]);
+    // The old `GET /api/outcome/all` rode here and fed no reader (outcome-rating-plan.md §4 #7); the
+    // reader's own ratings come through `useOutcomeRatings`, mounted beside the map.
+    expect(fetchForecasts).toHaveBeenCalledTimes(1);
+    expect(fetchLocations).toHaveBeenCalledTimes(1);
+    expect(fetchAllOutcomes).not.toHaveBeenCalled();
   });
 
-  it('sets error and clears loading when the batched outcome fetch rejects', async () => {
+  it('sets error and clears loading when the locations fetch rejects on a cold load', async () => {
     fetchForecasts.mockResolvedValue([BAMBURGH_FORECAST]);
-    fetchLocations.mockResolvedValue([LANDSCAPE_LOCATION]);
-    fetchAllOutcomes.mockRejectedValue(new Error('outcome service unavailable'));
+    fetchLocations.mockRejectedValue(new Error('locations service unavailable'));
 
     const { result } = renderHook(() => useForecasts());
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    expect(result.current.error).toBe('outcome service unavailable');
+    expect(result.current.error).toBe('locations service unavailable');
     expect(result.current.locations).toEqual([]);
   });
 
-  it('defaults outcomes to an empty array when a location has none', async () => {
+  it('builds a location with no outcomes field (it fed no reader; plan section 4 #7)', async () => {
     fetchForecasts.mockResolvedValue([]);
     fetchLocations.mockResolvedValue([LANDSCAPE_LOCATION]);
-    fetchAllOutcomes.mockResolvedValue([]);
 
     const { result } = renderHook(() => useForecasts());
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     const bamburgh = result.current.locations.find((l) => l.name === 'Bamburgh Castle');
-    expect(bamburgh.outcomes).toEqual([]);
+    expect(bamburgh).not.toHaveProperty('outcomes');
   });
 
   it('defaults bortleClass to null and regionName to null when absent', async () => {
@@ -238,31 +228,33 @@ describe('useForecasts', () => {
     expect(bamburgh.regionName).toBeNull();
   });
 
-  it('fetches outcomes over a backward-looking (past) window, not a future one', async () => {
-    fetchForecasts.mockResolvedValue([]);
+  it('writes the cache without an outcomes key', async () => {
+    fetchForecasts.mockResolvedValue([BAMBURGH_FORECAST]);
     fetchLocations.mockResolvedValue([LANDSCAPE_LOCATION]);
-    fetchAllOutcomes.mockResolvedValue([
-      { id: 1, locationName: 'Bamburgh Castle', outcomeDate: '2026-03-03', targetType: 'SUNSET' },
-    ]);
 
     const { result } = renderHook(() => useForecasts());
 
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    // Recorded outcomes are past observations, so the window must look backwards —
-    // a forward [today, today+7] range would return nothing and leave the map empty.
-    expect(fetchAllOutcomes).toHaveBeenCalledWith(expect.any(String), expect.any(String));
-    const [from, to] = fetchAllOutcomes.mock.calls[0];
-    expect(from <= to).toBe(true);
-    expect(new Date(`${to}T00:00:00Z`).getTime()).toBeLessThanOrEqual(Date.now());
-    // ...and it spans the same 7-day past reach as the forecast payload's today-7 edge.
-    const spanDays =
-      (new Date(`${to}T00:00:00Z`) - new Date(`${from}T00:00:00Z`)) / (24 * 60 * 60 * 1000);
-    expect(spanDays).toBe(7);
+    const stored = JSON.parse(localStorage.getItem(storageKey('forecasts:PRO_USER')));
+    expect(Object.keys(stored.value).sort()).toEqual(['forecasts', 'locationMeta']);
+  });
 
-    // The outcome returned within that past window is still attached to its location.
-    const bamburgh = result.current.locations.find((l) => l.name === 'Bamburgh Castle');
-    expect(bamburgh.outcomes.map((o) => o.id)).toEqual([1]);
+  it('hydrates from a payload cached BEFORE the outcomes fetch was removed (it still carries outcomes)', () => {
+    writeSwrCache('forecasts:PRO_USER', {
+      forecasts: [BAMBURGH_FORECAST],
+      locationMeta: [LANDSCAPE_LOCATION],
+      outcomes: [{ id: 1, locationName: 'Bamburgh Castle' }],
+    });
+    fetchForecasts.mockReturnValue(new Promise(() => {}));
+    fetchLocations.mockReturnValue(new Promise(() => {}));
+
+    const { result } = renderHook(() => useForecasts());
+
+    // Instant paint survives the upgrade, and the stale field is dropped, not attached.
+    expect(result.current.loading).toBe(false);
+    expect(result.current.locations.map((l) => l.name)).toEqual(['Bamburgh Castle']);
+    expect(result.current.locations[0]).not.toHaveProperty('outcomes');
   });
 
   it('hydrates synchronously from the role-keyed cache before the fetch resolves', async () => {
@@ -270,7 +262,6 @@ describe('useForecasts', () => {
     writeSwrCache('forecasts:PRO_USER', {
       forecasts: [BAMBURGH_FORECAST],
       locationMeta: [LANDSCAPE_LOCATION],
-      outcomes: [],
     });
     // Make the live fetch hang so only the cache can supply data on the first render.
     let resolveForecasts;
@@ -291,7 +282,7 @@ describe('useForecasts', () => {
   it('under an admin rewind the cache is neither painted from nor written to, and the live entry survives the round trip', async () => {
     // A LIVE payload a previous session left behind.
     writeSwrCache('forecasts:PRO_USER', {
-      forecasts: [BAMBURGH_FORECAST], locationMeta: [LANDSCAPE_LOCATION], outcomes: [],
+      forecasts: [BAMBURGH_FORECAST], locationMeta: [LANDSCAPE_LOCATION],
     });
     const liveEntry = localStorage.getItem(storageKey('forecasts:PRO_USER'));
     expect(liveEntry).not.toBeNull();
@@ -333,7 +324,6 @@ describe('useForecasts', () => {
     writeSwrCache('forecasts:PRO_USER', {
       forecasts: [BAMBURGH_FORECAST],
       locationMeta: [LANDSCAPE_LOCATION],
-      outcomes: [],
     });
     fetchForecasts.mockRejectedValue(new Error('backend down'));
     fetchLocations.mockRejectedValue(new Error('backend down'));
@@ -354,7 +344,6 @@ describe('useForecasts', () => {
     writeSwrCache('forecasts:PRO_USER', {
       forecasts: [BAMBURGH_FORECAST],
       locationMeta: [LANDSCAPE_LOCATION],
-      outcomes: [],
     });
     mockUseAuth.mockReturnValue({ role: 'LITE_USER' });
     fetchForecasts.mockResolvedValue([]);
@@ -374,7 +363,7 @@ describe('useForecasts', () => {
     // A prior fetch that returned nothing (fresh deploy / all-disabled roster) cached empty arrays.
     // That cache is structurally "valid" but yields zero locations — the initial loading flag must
     // stay true so the map shows the skeleton, not a one-frame "no forecasts loaded yet" flash.
-    writeSwrCache('forecasts:PRO_USER', { forecasts: [], locationMeta: [], outcomes: [] });
+    writeSwrCache('forecasts:PRO_USER', { forecasts: [], locationMeta: [] });
     fetchForecasts.mockReturnValue(new Promise(() => {})); // hang so only the cache decides this tick
     fetchLocations.mockReturnValue(new Promise(() => {}));
 
@@ -438,7 +427,6 @@ describe('useForecasts — older days', () => {
     vi.clearAllMocks();
     localStorage.clear();
     mockUseAuth.mockReturnValue({ role: 'PRO_USER' });
-    fetchAllOutcomes.mockResolvedValue([]);
     setRewind(null);
   });
 

@@ -29,6 +29,7 @@ import { formatTime } from '../utils/briefingDisplay.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useRewind } from '../hooks/useRewind.js';
 import { useOutcomeRatings } from '../hooks/useOutcomeRatings.js';
+import { ratedCountByWindow } from '../utils/outcomeRatingJoin.js';
 import { olderDayState } from '../utils/mapOlderDay.js';
 
 /**
@@ -548,6 +549,29 @@ export default function WindowFirstMapPane({
   });
 
   /**
+   * How many locations the reader has rated for each PAST window — the window control's and the peek
+   * sheet's {@code {n} rated} (outcome-rating-plan.md §2 #6, O4b), "didn't see it" included. A
+   * per-user join of the reader's own records onto the past windows this pane found, one of the two
+   * new named members of CLAUDE.md's Backend-heavy per-user-join class
+   * ({@code utils/outcomeRatingJoin.js}); never a derivation over the shared briefing. A window the
+   * reader's ratings are not known for (older day still being read, a failed read, a rewind) is
+   * ABSENT from the map, so the menus print nothing rather than a false {@code Not rated}. Today's two
+   * windows are counted too: the elapsed one is a past row whether or not a forecast row carried it.
+   */
+  const ratedCounts = useMemo(() => {
+    if (rewound || !todayStr) return null;
+    return ratedCountByWindow({
+      ratings: outcomeRatings,
+      windows: [
+        ...pastSolarWindows,
+        { date: todayStr, targetType: 'SUNRISE' },
+        { date: todayStr, targetType: 'SUNSET' },
+      ],
+      locations,
+    });
+  }, [rewound, todayStr, outcomeRatings, pastSolarWindows, locations]);
+
+  /**
    * Whether the window control may offer one more stored past day, and which (outcome-rating-plan.md
    * §2 #2, O3b): the day before the oldest date held — the forecast list's {@code dates} unioned with
    * the older days already fetched, an empty one included — never older than T-4, and never while an
@@ -845,6 +869,7 @@ export default function WindowFirstMapPane({
         askPhase={askPhase}
         panelShown={panelShown}
         outcomeRatings={rewound ? null : outcomeRatings}
+        ratedCounts={ratedCounts}
       />
     </div>
   );

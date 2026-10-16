@@ -11,7 +11,9 @@ import React from 'react';
 import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
-import { act, render, screen, fireEvent } from '@testing-library/react';
+import {
+  act, render, screen, fireEvent, within,
+} from '@testing-library/react';
 
 vi.mock('leaflet', () => {
   const icon = () => ({});
@@ -253,6 +255,23 @@ describe('MapView (tab) — the Windows section (map-mobile-sheet-plan.md §3 M2
     // Still open after the selection — rule for the Windows rows (unlike the desktop dropdown,
     // which closes on a row pick).
     expect(screen.getByTestId('wf-map-peek-body')).toBeInTheDocument();
+  });
+
+  it('a PAST row wears the pane\'s rated count (outcome-rating-plan.md §2 #6, O4b) — and keeps Past when unknown', async () => {
+    mockIsMobile = true;
+    const YESTERDAY = '2026-01-14';
+    await renderMap({
+      forecastDates: [YESTERDAY, TODAY],
+      pastSolarWindows: [
+        { date: YESTERDAY, targetType: 'SUNSET', earliestEventTime: `${YESTERDAY}T16:10:00` },
+        { date: YESTERDAY, targetType: 'SUNRISE', earliestEventTime: `${YESTERDAY}T08:26:00` },
+      ],
+      ratedCounts: new Map([[`solar:${YESTERDAY}:SUNSET`, 2]]),
+    });
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    const row = (id) => screen.getAllByTestId('wf-map-peek-win-row').find((r) => r.getAttribute('data-ev-id') === id);
+    expect(within(row(`solar:${YESTERDAY}:SUNSET`)).getByTestId('wf-win-rated')).toHaveTextContent('2 rated');
+    expect(within(row(`solar:${YESTERDAY}:SUNRISE`)).getByTestId('wf-map-peek-wr-past')).toBeInTheDocument();
   });
 
   it('the drilldown row opens the window panel and collapses the sheet by exclusivity', async () => {
