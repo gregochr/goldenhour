@@ -725,12 +725,18 @@ has a test file too). `UserSettingsModal` is R4c's.
 
 ### #10 Sign-in by username or email (R3a backend, R3b frontend)
 
-`AuthenticationService.login(identifier, password)`: `identifier.contains("@")` → the §1 #5 email
-rule through `EmailIdentifier.resolve` (exact match first; then, for a pure-ASCII identifier, the
-`LOWER()` query; active rows; exactly one → that user); **no unique match → fall back to
-`findByUsername(identifier)`**, because admin-created usernames are not shape-checked and one could
-carry an `@`; a BCrypt comparison runs against a fixed dummy hash when no user resolves, so the
-email path's timing does not say whether the address exists. The request field stays `username` on
+`AuthenticationService.login(identifier, password)`: `identifier.contains("@")` → TWO candidates
+are resolved — the exact username match (`findByUsername(identifier)`, because admin-created
+usernames are not shape-checked and one could carry an `@`) and the §1 #5 email rule through
+`EmailIdentifier.resolve` (exact match first; then, for a pure-ASCII identifier, the `LOWER()`
+query; active rows; exactly one). **The password is verified against the username match FIRST and,
+if that fails or there is none, against the email match; the first that verifies wins** (Codex, R0
+round 33: when one account's username is another account's address, a precedence that picked the
+email owner alone locked the first account out for good); both failing is the generic failure, and
+the collision itself is logged once at WARN as data hygiene. A BCrypt comparison runs against a
+fixed dummy hash when no candidate resolves, so the email path's timing does not say whether the
+address exists. Going forward, admin `createUser` refuses a username containing `@` (the
+self-registration pattern already does), so the collision can no longer be created. The request field stays `username` on
 the wire (the iOS client and every test keep working); the log line says `identifier`, sanitised.
 The error stays "Invalid username or password". The client: label "Username or email",
 `autoComplete="username"` kept (password managers fill either), `data-testid="login-username"` kept.
@@ -1546,7 +1552,8 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Codex's round thirty-two split the writer's version expectation into `exact` / `legacyUnchanged` /
+disagree on four points (§4 #14). Codex's round thirty-three made an `@` identifier verify against both the username and the email
+candidate (§2 #10). Codex's round thirty-two split the writer's version expectation into `exact` / `legacyUnchanged` /
 `trusted` modes (§2 #13). Codex's round thirty-one made the writer's password nullable so a disable never rewrites a hash
 (§2 #13). Codex's round thirty routed the admin DISABLE through the writer, leaving `updateEnabled` to
 re-enable alone (§2 #13, R3c). Codex's round twenty-nine made the writer return the locked row's address and username for every
