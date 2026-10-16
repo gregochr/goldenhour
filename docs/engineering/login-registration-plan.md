@@ -338,7 +338,11 @@ its `step` state; a `verifyToken` prop that goes null after mount is harmless (`
 only when the prop is truthy, and `SET_PASSWORD` is reached only through it, so registration always
 starts with the prop set). `RegisterPage` (R4b): `STEPS` gains `HOME` between `SET_PASSWORD` and
 `SUCCESS`; `handleSetPassword` → `completeRegistration(data)` → `setStep(HOME)`; `HOME` renders
-`PostcodeCapture` (§2 #6) with the task-1 copy, matching frames 1–3; Save and Skip both → `SUCCESS`;
+`PostcodeCapture` (§2 #6) with the task-1 copy, matching frames 1–3; Save → `SUCCESS`; **Skip → `markPostcodePromptDismissed()` (awaited, a failure ignored) → `SUCCESS`**
+— "Skip for now" IS the reader's dismissal, and without it the app's first settings read would compute
+`postcodePromptDue: true` and raise the prompt overlay over the Welcome the reader just skipped past
+(Codex, R0 round 2; the spec's own frame-2 note says a skip "goes straight to Welcome" and leaves the
+masthead's "set a postcode" link to cover it, which is exactly what the dismissal does);
 `SUCCESS` keeps its copy and its 2 s timer, whose body is `finishRegistration()` (and the URL
 cleanup) instead of `window.location.reload()`. The lookup and save calls go through the ordinary
 `apiClient`, which reads the token `completeRegistration` has just stored. A page reload during
@@ -697,8 +701,13 @@ written by `AppUserRepository.stampCredentialsChangedAt(id, now)` from `Authenti
 admin temp password) and `UserService.activateUser`. `JwtAuthenticationFilter`: after
 `validateToken`, load the user ONCE (the query it already makes for `lastActiveAt`); set the
 `SecurityContext` only when the row exists, `enabled` is true, and `credentialsChangedAt == null ||
-!jwtService.extractIssuedAt(token).isBefore(credentialsChangedAt)` (the token already carries `iat`;
-`extractIssuedAt` exists); otherwise leave the context empty and let the entry point answer 401, and
+!jwtService.extractIssuedAt(token).isBefore(credentialsChangedAt.truncatedTo(ChronoUnit.SECONDS))`
+(the token already carries `iat`; `extractIssuedAt` exists). ⚠️ **The stamp is truncated to whole
+seconds for the comparison, because `iat` is whole seconds**: a stamp at `12:00:00.500` and the
+replacement token minted in the same second (`iat` `12:00:00`) must compare as "not before" — a
+plain `isBefore` would have rejected every token issued straight after a reset, a change-password or
+an activation, the registration `HOME` step's first request included (Codex, R0 round 2). The
+filter test pins exactly that pair; otherwise leave the context empty and let the entry point answer 401, and
 log one INFO line through `LogSanitizer`. The `lastActiveAt` stamp keeps its hourly rule on the
 same loaded entity. ⚠️ **Refresh tokens carry no issue instant** (`refresh_token` has no
 `created_at`), so the stamp alone would leave a pre-change refresh token able to mint a fresh access
@@ -712,9 +721,8 @@ refused. The client side is one conditional line in `AuthContext.changePassword`
 (data?.accessToken) signInWithTokens(data)` — built in R3b, safe to ship before R3c because it does
 nothing for today's `{message}` response. Tests: `JwtAuthenticationFilterTest` — a token for a deleted user, a disabled
 user, a token issued before the stamp, one issued after it, one with a null stamp; a `@DataJpaTest`
-for the scoped update; `integration/CredentialsChangedAtMigrationTest` (CI-only). ⚠️ The clock
-comparison tolerates one second of skew (`iat` is whole seconds; the stamp is micros): a token
-issued in the same second as the stamp is accepted. After R3c, "a password reset signs every other
+for the scoped update; `integration/CredentialsChangedAtMigrationTest` (CI-only). The residual, accepted: a token issued in the same second BEFORE the stamp is also accepted
+(one second of exposure, against a token the stamping request itself usually holds). After R3c, "a password reset signs every other
 device out" and "a deleted account's token is dead" are true at the next request.
 
 ---
@@ -888,7 +896,7 @@ PostcodeCapture.jsx`, `ProTag.jsx`, `PostcodePromptOverlay.jsx`, `hooks/useGeolo
 registrationPending`; `AppInner` mounting the overlay), `hooks/useReaderSettings.js`
 (`postcodePromptDue`), `settingsApi.js` (`reverseLookupPostcode`, `markPostcodePromptDismissed`),
 tests (`RegisterPage.test.jsx`: lookup → confirmation → Change restores the field with its value;
-Skip → `SUCCESS` with no save; Save → `saveHome(postcode, lat, lon, null)` exactly, once; the primary
+Skip → `markPostcodePromptDismissed` once, no save, then `SUCCESS`; Save → `saveHome(postcode, lat, lon, null)` exactly, once; the primary
 disabled until a result; `PostcodeCapture.test.jsx`: every copy string, the attributes, the
 `field-error` class on error, the pointer rule both ways, the failed-save line;
 `PostcodePromptOverlay.test.jsx` + `App.test.jsx`: shown when the mount read answers
@@ -1016,10 +1024,12 @@ planning session writes the memory file (`login-registration-series.md` + the `M
     dialog"; a second `aria-modal` over the settings dialog breaks CLAUDE.md's one-modal invariant
     and `ConfirmDialog` cannot disable its confirm button (§1 #26). The region asks for the password
     and takes focus, which is what the dialog was for.
-18. **No postcode prompt after a password reset** on the resetting device until the next mount:
+18. **"Skip for now" records the dismissal** (task 1 says only that Skip goes to `SUCCESS`): a skip
+    that did not would be followed by the prompt overlay on the next render (§2 #2).
+19. **No postcode prompt after a password reset** on the resetting device until the next mount:
     `signInWithTokens` carries no flag, and the mount read raises the overlay a moment later anyway —
     so in practice the prompt still shows; recorded because the first cut said otherwise.
-19. **`radius=2000`** on the reverse lookup (the spec names no radius; the API's 100 m default
+20. **`radius=2000`** on the reverse lookup (the spec names no radius; the API's 100 m default
     misses rural homes, §2 #5).
 
 ---
@@ -1096,7 +1106,9 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added three P1s, folded in: refresh tokens issued before a
+disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added five P1s over two rounds, folded in: the `iat`
+comparison must truncate the stamp to seconds or reject the tokens issued right after it (§2 #13);
+"Skip for now" must record the dismissal or the overlay follows at once (§2 #2, §4 #18); refresh tokens issued before a
 credential change must die too (every stamp site revokes them; `/change-password` re-issues for the
 caller — §2 #13); the global fallback ceilings need their own hourly window (§2 #4); the deletion
 locks the user row before purging drive times (§2 #7). Refuted and kept: the `AuthGate`
