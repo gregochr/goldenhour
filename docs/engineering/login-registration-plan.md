@@ -927,8 +927,13 @@ same `updatable = false`/scoped-update lesson CLAUDE.md records for the settings
 scoped updates: the writer's, and in `UserService.setEnabled` (`PUT /api/users/{id}/enabled`, which
 mutates the entity and `save()`s today, so without this the toggle would answer 200 and change
 nothing — Codex, R0 round 11) **two branches: DISABLE goes through `CredentialChangeWriter.apply`
-with the `enable = false` change** (bump `cv`, revoke refresh tokens, delete unused reset and
-verification tokens — §2 #14 rule 6, so re-enabling revives nothing; Codex, R0 round 30), **RE-ENABLE
+with the `enable = false` change and a NULL password** (`encodedPassword` is nullable on `apply`: null
+means the `UPDATE` omits the `password` column entirely, so a disable that waited on the row lock
+behind a concurrent password change can never restore the stale hash it loaded before the lock —
+Codex, R0 round 31; the writer still bumps `cv`, revokes refresh tokens and deletes unused reset and
+verification tokens — §2 #14 rule 6, so re-enabling revives nothing; Codex, R0 round 30;
+`CredentialChangeWriterTest` pins the null-password branch leaving the hash untouched across that
+interleaving), **RE-ENABLE
 through a new scoped `AppUserRepository.updateEnabled(id, true)`** (`UserControllerTest`/
 `UserServiceTest` pin both branches, and a stale-entity `save()` moves none of the three). `createUser` and
 `createPendingUser` are inserts and unaffected. **`role` joins them** (Codex, R0 round 21):
@@ -1537,7 +1542,8 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Codex's round thirty routed the admin DISABLE through the writer, leaving `updateEnabled` to
+disagree on four points (§4 #14). Codex's round thirty-one made the writer's password nullable so a disable never rewrites a hash
+(§2 #13). Codex's round thirty routed the admin DISABLE through the writer, leaving `updateEnabled` to
 re-enable alone (§2 #13, R3c). Codex's round twenty-nine made the writer return the locked row's address and username for every
 caller that mails or answers afterwards (§2 #13). Codex's round twenty-eight aligned
 forgot-password's gate refusal with its always-200 contract (§2
