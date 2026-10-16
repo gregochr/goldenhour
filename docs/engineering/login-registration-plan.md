@@ -310,8 +310,8 @@ could keep; what it keeps is the link.
 complexity failure (`validatePasswordComplexity`'s own sentence), an unknown token ("This reset link
 is invalid"), a used one ("This reset link has already been used"), an expired one ("This reset
 link has expired"), or a token whose user is disabled or pending ("This reset link is invalid" — a
-reset must not sign a banned account in); through the token-keyed attempt limit (§2 #4, key
-`reset:` + the token hash's first 16 hex chars, 10 per 15 min). On success: encode the password
+reset must not sign a banned account in); through the three set-password-shaped bounds of §2 #4 (`reset:token:` + the token hash's first 16
+hex chars 10 per 15 min, `reset:client:<addr>` 20 per 15 min, `reset:global` 200 per hour). On success: encode the password
 BEFORE opening any transaction (`AuthenticationService`'s own javadoc forbids BCrypt inside one),
 then ONE proxied transactional operation — in R3a a `PasswordResetService`-owned
 `@Transactional` collaborator `PasswordResetRedeemer.redeem(tokenId, userId, encodedPassword, now)`
@@ -474,8 +474,13 @@ tell a blocked browser from a bot that omits the token, registration's key would
 caller chooses, and each pending row counts against `registration.max-users` — a trickle of
 tokenless sign-ups could close registration for everyone and mail verification links to arbitrary
 addresses. Registration keeps today's rule (no token → 400) and the client says so honestly (§2 #12
-"Security check couldn't load"). `/set-password` loses Turnstile entirely and always takes
-`limiter.tryAcquire("set-password:" + tokenKey, 10)` → 429 the same sentence. `TurnstileService`
+"Security check couldn't load"). `/set-password` loses Turnstile entirely and always takes THREE bounds, every one refused → 429
+the same sentence: `set-password:token:<tokenKey>` (10 per 15 min), `set-password:client:<addr>`
+(20 per 15 min) and `set-password:global` (200 per hour) — a token-keyed bucket alone can be
+rotated with a fresh random token on every request, which would throttle nothing and churn the
+caches' entries out from under the real per-account limits (Codex, R0 round 13); `/reset-password`
+takes the identical three (`reset:…`). A 122-bit token is not guessable; the bounds exist for the
+cache and the database, not the token. `TurnstileService`
 gains `isConfigured()`; `verify`'s own behaviour is unchanged. A legitimate reader on a blocked
 browser who mistypes a password five times waits fifteen minutes; the copy says so. **Stated
 residuals** (§5 #4): with no token at all an attacker gets at most 60 login guesses an hour across
@@ -582,11 +587,17 @@ dependencies): 400 for a missing password; 403 `{error: "Password is incorrect"}
 counted on `AuthAttemptLimiter` (key `delete:` + username, 5 per 15 min → 429); 409 `{error: "Admin
 accounts are deleted by another admin"}` for `ROLE_ADMIN` (the existing self-delete refusal,
 extended: it keeps the sole admin from locking the instance out). On success,
-`UserService.deleteOwnAccount(username)`: in one transaction, FIRST lock the user row
-(`userRepository.findByUsernameForUpdate`, the `SELECT … FOR UPDATE` `saveHome` uses — parent before
-children, the ordering `UserDriveTimeWriter`'s javadoc records, so a drive-time calculation that
-holds the row finishes before the purge begins and cannot re-insert between the purge and the delete;
-Codex, R0 review), then `purgeUserRows(userId)` (`userDriveTimeRepository.deleteAllByUserId` — §1 #2
+`UserService.deleteOwnAccount(username, verifiedHash, expectedVersion)`: in one transaction, FIRST
+lock the user row (`userRepository.findByUsernameForUpdate`, the `SELECT … FOR UPDATE` `saveHome`
+uses — parent before children, the ordering `UserDriveTimeWriter`'s javadoc records, so a drive-time
+calculation that holds the row finishes before the purge begins and cannot re-insert between the
+purge and the delete; Codex, R0 review), **re-check under that lock that the stored hash is still
+the one the controller verified AND that `credentials_changed_at` still matches the request's
+authenticated `cv`** (the filter's details, §2 #13) — otherwise `StaleCredentialsException` → 401
+"Your session has changed. Sign in again." and nothing is purged (a stolen session that finished
+its BCrypt just before the owner's password change commits must not delete the account afterwards;
+Codex, R0 round 13; a legacy token with no `cv` is accepted only on a never-changed row), then
+`purgeUserRows(userId)` (`userDriveTimeRepository.deleteAllByUserId` — §1 #2
 — then anything the integration test below shows has no cascade), then `userRepository.delete(user)`;
 the admin path takes the same lock by id (`findByIdForUpdate`, added); the confirmation email is sent AFTER commit
 for BOTH paths (a `TransactionSynchronization.afterCommit`, or the send moved out of the
@@ -1074,7 +1085,8 @@ Task 15 (backend). Files: `controller/AccountController.java` (new), `service/Us
 (`deleteOwnAccount`, `purgeUserRows`, `deleteUser` through both, the row lock first, the after-commit
 send), `AppUserRepository` (`findByIdForUpdate`),
 `AbstractControllerTest` (the controller's dependencies), tests (`AccountControllerTest`: 204, 400,
-403 + the limiter's 429, 409 for an admin, LITE and PRO both allowed; `UserServiceTest`: purge before
+403 + the limiter's 429, 409 for an admin, 401 for a stale credential version, LITE and PRO both
+allowed; `UserServiceTest`: purge before
 delete, the email after commit on both paths, an admin refused; `integration/
 AccountDeletionIntegrationTest` CI-only, §2 #7). "Pending CI" in the PR body.
 
@@ -1262,7 +1274,9 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added twenty-eight P1s over twelve rounds, folded in: the
+disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added thirty P1s over thirteen rounds, folded in: deletion
+re-checks the verified hash and the credential version under the row lock; set-password and
+reset-password carry client and global bounds a rotated token cannot escape (§2 #1, #4, #7); the
 writer refuses a change-password whose authenticated credential version has moved; every credential
 change invalidates the account's unused reset links (§2 #13); the
 admin enable toggle gets a scoped `updateEnabled` before `enabled` goes non-updatable; the privacy
