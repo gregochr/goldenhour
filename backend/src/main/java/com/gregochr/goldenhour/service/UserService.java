@@ -5,6 +5,8 @@ import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.service.notification.UserEmailService;
+import com.gregochr.goldenhour.util.EmailIdentifier;
+import com.gregochr.goldenhour.util.EmailIdentifier.Kind;
 import java.time.Instant;
 
 import jakarta.annotation.PostConstruct;
@@ -21,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Service for user management operations.
@@ -49,6 +52,7 @@ public class UserService implements UserDetailsService {
     private final AppUserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final UserEmailService userEmailService;
+    private final EmailClaims emailClaims;
 
     /**
      * Seeds a default admin account on startup if the user table is empty.
@@ -89,20 +93,32 @@ public class UserService implements UserDetailsService {
     /**
      * Creates a new user with a BCrypt-hashed password.
      *
+     * <p>The email address (when given) is reserved in the same transaction through
+     * {@link EmailClaims#claim}, which refuses an address another account already uses under ANY casing;
+     * a concurrent claimant of a brand-new address surfaces as a
+     * {@code DataIntegrityViolationException} for the controller to translate (login-registration
+     * plan §5 #6). A username containing {@code @} is refused: a sign-in identifier with an {@code @}
+     * is read as an email address, and the self-registration pattern already forbids the character.
+     *
      * @param username    the desired login name (must be unique, at least 5 characters)
      * @param rawPassword the plain-text password to be hashed
      * @param role        the role to assign
      * @param email       the user's email address
      * @return the persisted {@link AppUserEntity}
-     * @throws IllegalArgumentException if the username or email is already taken
+     * @throws IllegalArgumentException if the username or email is already taken, or the username
+     *                                  contains {@code @}
      */
     @Transactional
     public AppUserEntity createUser(String username, String rawPassword, UserRole role, String email) {
+        if (username != null && username.contains("@")) {
+            throw new IllegalArgumentException("Username must not contain '@'");
+        }
         if (userRepository.existsByUsername(username)) {
             throw new IllegalArgumentException("Username already exists: " + username);
         }
-        if (email != null && !email.isBlank() && userRepository.existsByEmail(email)) {
-            throw new IllegalArgumentException("Email already registered: " + email);
+        boolean hasEmail = email != null && !email.isBlank();
+        if (hasEmail) {
+            emailClaims.claim(email, null);
         }
         AppUserEntity user = AppUserEntity.builder()
                 .username(username)
@@ -197,7 +213,16 @@ public class UserService implements UserDetailsService {
      * Creates a disabled user with an empty password for self-registration.
      *
      * <p>If a pending registration exists for the same email (disabled account with empty password),
-     * the old account is deleted and re-created rather than blocking signup.
+     * the old account is deleted and re-created rather than blocking signup. The abandoned row is
+     * LOCKED first and removed only by a conditional {@code DELETE … WHERE id = :id AND enabled = false
+     * AND password = ''} whose row count must be one: a retry that races the verification link's
+     * activation deletes nothing (0 rows → "Email already registered") and can never erase an account
+     * that has just been activated. The replacement is same-email, DIFFERENT-username — the username
+     * check above runs first and refuses the same name.
+     *
+     * <p>The address is then reserved through {@link EmailClaims#claim}: it refuses an address an ACTIVE
+     * account holds under any casing, and reuses silently the reservation the replaced pending row left
+     * behind (login-registration plan §5 #6, §2 #14 rule 10).
      *
      * @param username            the desired login name (3–30 chars, alphanumeric/underscore/hyphen)
      * @param email               the user's email address
@@ -214,15 +239,16 @@ public class UserService implements UserDetailsService {
             throw new IllegalArgumentException("Username already exists");
         }
 
-        userRepository.findByEmail(email).ifPresent(existing -> {
-            if (!existing.isEnabled() && "".equals(existing.getPassword())) {
-                // Abandoned pending registration — delete and allow re-creation
-                userRepository.delete(existing);
-                userRepository.flush();
-            } else {
-                throw new IllegalArgumentException("Email already registered");
+        Optional<AppUserEntity> abandoned = EmailIdentifier.resolve(email, userRepository, Kind.PENDING);
+        if (abandoned.isPresent()) {
+            Long abandonedId = abandoned.get().getId();
+            // Lock for ordering only; the decision is the conditional delete's row count.
+            userRepository.findByIdForUpdate(abandonedId);
+            if (userRepository.deletePendingById(abandonedId) != 1) {
+                throw new IllegalArgumentException(EmailClaims.EMAIL_TAKEN);
             }
-        });
+        }
+        emailClaims.claim(email, null);
 
         AppUserEntity user = AppUserEntity.builder()
                 .username(username)

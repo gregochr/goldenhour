@@ -10,17 +10,21 @@ import com.gregochr.goldenhour.service.AuthAttemptLimiter.Window;
 import com.gregochr.goldenhour.service.AuthenticationService;
 import com.gregochr.goldenhour.service.ClientAddress;
 import com.gregochr.goldenhour.service.JwtService;
+import com.gregochr.goldenhour.service.PasswordResetService;
 import com.gregochr.goldenhour.service.RegistrationService;
 import com.gregochr.goldenhour.service.TurnstileGate;
 import com.gregochr.goldenhour.service.TurnstileGate.Endpoint;
 import com.gregochr.goldenhour.service.TurnstileGate.Outcome;
 import com.gregochr.goldenhour.service.TurnstileService;
+import com.gregochr.goldenhour.util.EmailIdentifier;
 import com.gregochr.goldenhour.util.EmailValidator;
 import com.gregochr.goldenhour.util.LogSanitizer;
+import com.gregochr.goldenhour.util.UniqueViolation;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
@@ -66,6 +70,16 @@ public class AuthController {
     /** Limiter key prefix for the one-time-token endpoint that sets a first password. */
     static final String SET_PASSWORD_BOUNDS = "set-password";
 
+    /** Limiter key prefix for the one-time-token endpoint that redeems a password-reset link. */
+    static final String RESET_PASSWORD_BOUNDS = "reset";
+
+    /** What forgot-password answers for every syntactically valid email, whatever happened. */
+    static final String FORGOT_PASSWORD_MESSAGE = "If that email has an account, we've sent a reset link.";
+
+    /** The 400 for an address the app no longer accepts for NEW registrations (plan §4 #21). */
+    static final String NON_ASCII_EMAIL =
+            "Please use an email address without accented or non-Latin characters";
+
     /** Requests per endpoint across every caller, per hour, on a one-time-token endpoint. */
     static final int TOKEN_GLOBAL_LIMIT = 200;
 
@@ -85,6 +99,7 @@ public class AuthController {
     private final TurnstileGate turnstileGate;
     private final AuthAttemptLimiter attemptLimiter;
     private final JwtService jwtService;
+    private final PasswordResetService passwordResetService;
 
     /**
      * Authenticates the user and returns a JWT access token plus a refresh token.
@@ -93,7 +108,8 @@ public class AuthController {
      * has, and a request with no token at all (the script could not load) proceeds only inside the
      * gate's bounds and the account's own five-attempt budget.
      *
-     * @param body    map containing {@code username} and {@code password}
+     * @param body    map containing {@code username} (the username OR the account's email address — the
+     *                field keeps its wire name so existing clients work) and {@code password}
      * @param request the request, for the caller's address
      * @return 200 with tokens, 400 for a failed CAPTCHA, 401 if credentials are invalid, or 429 when an
      *         attempt bound is reached
@@ -101,10 +117,10 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<Map<String, Object>> login(@RequestBody Map<String, String> body,
             HttpServletRequest request) {
-        String username = body.get("username");
+        String identifier = body.get("username");
         String password = body.get("password");
 
-        Outcome outcome = turnstileGate.admit(body.get("turnstileToken"), username,
+        Outcome outcome = turnstileGate.admit(body.get("turnstileToken"), identifier,
                 ClientAddress.of(request), Endpoint.LOGIN);
         ResponseEntity<Map<String, Object>> refusal = refusalFor(outcome);
         if (refusal != null) {
@@ -112,7 +128,7 @@ public class AuthController {
         }
 
         try {
-            AuthTokens tokens = authenticationService.login(username, password,
+            AuthTokens tokens = authenticationService.login(identifier, password,
                     outcome == Outcome.OK_FALLBACK);
             return ResponseEntity.ok(buildAuthResponse(tokens));
         } catch (InvalidCredentialsException ex) {
@@ -206,6 +222,11 @@ public class AuthController {
      * consents; an absent value does not. The username {@code anonymousUser} (Spring Security's
      * anonymous principal) is refused with the same 409 as a taken name.
      *
+     * <p>A new registration must use an ASCII email address (400 otherwise): a confusable address is the
+     * one input the reset flow cannot make safe by comparison alone. A lost race on the username key or
+     * the email reservation surfaces from the service as a {@link DataIntegrityViolationException} and is
+     * translated here, outside the rolled-back transaction, to the same 409 a plain duplicate gets.
+     *
      * @param body map containing {@code username} and {@code email}
      * @return 200 with confirmation message, 400 for validation errors, 409 for duplicates
      */
@@ -233,6 +254,9 @@ public class AuthController {
             return ResponseEntity.badRequest()
                     .body(Map.of("error", "Invalid email address"));
         }
+        if (!EmailIdentifier.isAscii(email.trim())) {
+            return ResponseEntity.badRequest().body(Map.of("error", NON_ASCII_EMAIL));
+        }
 
         String turnstileToken = body.get("turnstileToken");
         if (!turnstileService.verify(turnstileToken)) {
@@ -259,6 +283,9 @@ public class AuthController {
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.status(HttpStatus.CONFLICT)
                     .body(Map.of("error", ex.getMessage()));
+        } catch (DataIntegrityViolationException ex) {
+            String conflict = UniqueViolation.conflictMessage(ex).orElseThrow(() -> ex);
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", conflict));
         }
     }
 
@@ -309,6 +336,89 @@ public class AuthController {
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest()
                     .body(Map.of("error", ex.getMessage()));
+        }
+    }
+
+    /**
+     * Starts a password reset: mails a one-hour link to the account the address belongs to, if any.
+     *
+     * <p>Answers the same 200 and sentence for EVERY syntactically valid address (400 for a blank or
+     * malformed one), whether it has an account or not, and whether or not a link was sent — a different
+     * answer for a known address would say the account exists (login-registration plan §2 #1, §4 #8).
+     * The request goes through {@link TurnstileGate}; a token that fails is a 400 (a real error), but a
+     * fallback bound that is reached answers the generic 200 with nothing sent, never a 429. The send
+     * is decided and answered before it runs, and a failure inside the reset service is logged and
+     * swallowed so a known address cannot be told apart by a 500.
+     *
+     * @param body    map containing {@code email} and optionally {@code turnstileToken}
+     * @param request the request, for the caller's address
+     * @return 200 with the generic message, or 400 for a blank or invalid address or a failed CAPTCHA
+     */
+    @PostMapping("/forgot-password")
+    public ResponseEntity<Map<String, Object>> forgotPassword(@RequestBody Map<String, String> body,
+            HttpServletRequest request) {
+        String email = body.get("email");
+        if (email == null || email.isBlank()) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Email is required"));
+        }
+        if (!EmailValidator.isValid(email)) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Invalid email address"));
+        }
+
+        Outcome outcome = turnstileGate.admit(body.get("turnstileToken"), email,
+                ClientAddress.of(request), Endpoint.FORGOT);
+        if (outcome == Outcome.CAPTCHA_FAILED) {
+            return refusalFor(outcome);
+        }
+        if (outcome != Outcome.RATE_LIMITED) {
+            try {
+                passwordResetService.requestReset(email.trim());
+            } catch (RuntimeException ex) {
+                LOG.warn("Password reset request failed: {}", LogSanitizer.sanitize(ex.toString()));
+            }
+        }
+        return ResponseEntity.ok(Map.of("message", FORGOT_PASSWORD_MESSAGE));
+    }
+
+    /**
+     * Redeems a password-reset link: sets the new password, ends every other session and signs the
+     * caller in on this device, as set-password does.
+     *
+     * <p>No Turnstile: the emailed token is the proof. Three bounds protect the caches and the database
+     * (an hourly global ceiling, the client address, the token), checked outermost first, any one refused
+     * is a 429. The complexity check runs before the token is looked up.
+     *
+     * @param body    map containing {@code token} and {@code password}
+     * @param request the request, for the caller's address
+     * @return 200 with JWT tokens (same shape as /login), 400 with the sentence for an unknown, used or
+     *         expired link, a link naming a disabled account, or a password failing complexity, or 429
+     *         when an attempt bound is reached
+     */
+    @PostMapping("/reset-password")
+    public ResponseEntity<Map<String, Object>> resetPassword(@RequestBody Map<String, String> body,
+            HttpServletRequest request) {
+        String token = body.get("token");
+        String password = body.get("password");
+
+        try {
+            requireTokenAndPassword(token, password);
+            enforceTokenBounds(RESET_PASSWORD_BOUNDS, token, ClientAddress.of(request));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
+        } catch (TooManyAttemptsException ex) {
+            return tooManyAttempts();
+        }
+
+        String complexityError = authenticationService.validatePasswordComplexity(password);
+        if (complexityError != null) {
+            return ResponseEntity.badRequest().body(Map.of("error", complexityError));
+        }
+
+        try {
+            AuthTokens tokens = passwordResetService.resetPassword(token, password);
+            return ResponseEntity.ok(buildAuthResponse(tokens));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
         }
     }
 
@@ -421,7 +531,7 @@ public class AuthController {
     /**
      * Requires both fields of a set-password body to be present.
      *
-     * @param token    the verification token
+     * @param token    the one-time token
      * @param password the new password
      * @throws IllegalArgumentException when either is missing or blank
      */

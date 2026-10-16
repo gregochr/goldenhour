@@ -39,6 +39,7 @@ import com.gregochr.goldenhour.service.ModelTestService;
 import com.gregochr.goldenhour.service.NlcSightingService;
 import com.gregochr.goldenhour.service.OptimisationStrategyService;
 import com.gregochr.goldenhour.service.OutcomeService;
+import com.gregochr.goldenhour.service.PasswordResetService;
 import com.gregochr.goldenhour.service.PromptTestService;
 import com.gregochr.goldenhour.service.RegistrationService;
 import com.gregochr.goldenhour.service.RegionDriveDurationService;
@@ -250,6 +251,10 @@ abstract class AbstractControllerTest {
      */
     @MockitoBean
     protected AuthAttemptLimiter attemptLimiter;
+
+    /** The forgot/reset flow. Mocked: its own sequence runs in {@code PasswordResetFlowTest}. */
+    @MockitoBean
+    protected PasswordResetService passwordResetService;
 
     @MockitoBean
     protected UserEmailService userEmailService;

@@ -26,6 +26,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -51,6 +52,9 @@ class RegistrationServiceTest {
 
     @Mock
     private RegistrationProperties registrationProperties;
+
+    @Mock
+    private AuthAttemptLimiter attemptLimiter;
 
     @InjectMocks
     private RegistrationService registrationService;
@@ -181,11 +185,17 @@ class RegistrationServiceTest {
                 .hasMessage("Email already registered");
     }
 
+    private void admitResend(Long userId) {
+        when(attemptLimiter.tryAcquire("resend:user:" + userId, 3, AuthAttemptLimiter.Window.QUARTER_HOUR))
+                .thenReturn(true);
+    }
+
     @Test
     @DisplayName("resendVerification sends new token when pending user exists and not rate limited")
     void resendVerification_success() {
         AppUserEntity pending = buildPendingUser(1L, "alice", "alice@example.com");
-        when(userService.listAllUsers()).thenReturn(List.of(pending));
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(pending));
+        admitResend(1L);
         when(tokenRepository.countByUserIdAndCreatedAtAfter(eq(1L), any())).thenReturn(0L);
         when(tokenRepository.findByUserIdAndVerifiedFalse(1L)).thenReturn(List.of());
         when(jwtService.generateRefreshToken()).thenReturn("new-token");
@@ -198,25 +208,124 @@ class RegistrationServiceTest {
     }
 
     @Test
-    @DisplayName("resendVerification is silent when email does not match any pending user")
-    void resendVerification_unknownEmail_silent() {
-        when(userService.listAllUsers()).thenReturn(List.of());
+    @DisplayName("resendVerification finds a pending user by a case-insensitive ASCII match and mails the "
+            + "STORED address, not the typed one")
+    void resendVerification_caseInsensitiveMatch_mailsTheStoredAddress() {
+        AppUserEntity pending = buildPendingUser(1L, "alice", "Alice@Example.com");
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.empty());
+        when(userRepository.findPendingByEmailLower("alice@example.com")).thenReturn(List.of(pending));
+        admitResend(1L);
+        when(jwtService.generateRefreshToken()).thenReturn("new-token");
+        when(jwtService.hashToken("new-token")).thenReturn("new-hash");
+        when(tokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        registrationService.resendVerification("unknown@example.com");
+        registrationService.resendVerification("alice@example.com");
+
+        verify(userEmailService).sendVerificationEmail("Alice@Example.com", "alice", "new-token");
+        verify(userEmailService, never()).sendVerificationEmail(eq("alice@example.com"), anyString(),
+                anyString());
+    }
+
+    @Test
+    @DisplayName("resendVerification does not scan every user: the pending lookup is two indexed queries")
+    void resendVerification_neverListsAllUsers() {
+        when(userRepository.findByEmail("nobody@example.com")).thenReturn(Optional.empty());
+        when(userRepository.findPendingByEmailLower("nobody@example.com")).thenReturn(List.of());
+
+        registrationService.resendVerification("nobody@example.com");
+
+        verify(userService, never()).listAllUsers();
+    }
+
+    @Test
+    @DisplayName("resendVerification ignores an ambiguous case-insensitive match (two pending accounts)")
+    void resendVerification_twoCaseInsensitiveMatches_isSilent() {
+        AppUserEntity first = buildPendingUser(1L, "alice", "Alice@Example.com");
+        AppUserEntity second = buildPendingUser(2L, "alice2", "ALICE@example.com");
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.empty());
+        when(userRepository.findPendingByEmailLower("alice@example.com")).thenReturn(List.of(first, second));
+
+        registrationService.resendVerification("alice@example.com");
+
+        verify(userEmailService, never()).sendVerificationEmail(anyString(), anyString(), anyString());
+        verifyNoInteractions(attemptLimiter);
+    }
+
+    @Test
+    @DisplayName("resendVerification does not resend to an ACTIVE account that has the address")
+    void resendVerification_activeAccount_isSilent() {
+        AppUserEntity active = buildPendingUser(1L, "alice", "alice@example.com");
+        active.setEnabled(true);
+        active.setPassword("{bcrypt}hash");
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(active));
+
+        registrationService.resendVerification("alice@example.com");
 
         verify(userEmailService, never()).sendVerificationEmail(anyString(), anyString(), anyString());
     }
 
     @Test
-    @DisplayName("resendVerification throws when rate limit exceeded")
+    @DisplayName("resendVerification is silent when email does not match any pending user")
+    void resendVerification_unknownEmail_silent() {
+        when(userRepository.findByEmail("unknown@example.com")).thenReturn(Optional.empty());
+        when(userRepository.findPendingByEmailLower("unknown@example.com")).thenReturn(List.of());
+
+        registrationService.resendVerification("unknown@example.com");
+
+        verify(userEmailService, never()).sendVerificationEmail(anyString(), anyString(), anyString());
+        verifyNoInteractions(attemptLimiter);
+    }
+
+    @Test
+    @DisplayName("resendVerification throws when the database count shows too many recent tokens")
     void resendVerification_rateLimited_throws() {
         AppUserEntity pending = buildPendingUser(1L, "alice", "alice@example.com");
-        when(userService.listAllUsers()).thenReturn(List.of(pending));
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(pending));
+        admitResend(1L);
         when(tokenRepository.countByUserIdAndCreatedAtAfter(eq(1L), any())).thenReturn(3L);
 
         assertThatThrownBy(() -> registrationService.resendVerification("alice@example.com"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Too many");
+    }
+
+    @Test
+    @DisplayName("resendVerification throws when the limiter refuses, before any token is deleted or mailed")
+    void resendVerification_limiterRefuses_throwsAndTouchesNothing() {
+        AppUserEntity pending = buildPendingUser(1L, "alice", "alice@example.com");
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(pending));
+        when(attemptLimiter.tryAcquire("resend:user:1", 3, AuthAttemptLimiter.Window.QUARTER_HOUR))
+                .thenReturn(false);
+
+        assertThatThrownBy(() -> registrationService.resendVerification("alice@example.com"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("Too many verification requests. Please try again later.");
+
+        verify(tokenRepository, never()).deleteAll(any());
+        verify(tokenRepository, never()).save(any());
+        verify(userEmailService, never()).sendVerificationEmail(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("four real resend requests through a real limiter: the first three mail, the fourth sends "
+            + "nothing and is refused")
+    void resendVerification_fourRequestsThroughARealLimiter_fourthSendsNothing() {
+        RegistrationService real = new RegistrationService(userService, userRepository, tokenRepository,
+                jwtService, userEmailService, registrationProperties, new AuthAttemptLimiter());
+        AppUserEntity pending = buildPendingUser(1L, "alice", "alice@example.com");
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(pending));
+        when(jwtService.generateRefreshToken()).thenReturn("new-token");
+        when(jwtService.hashToken("new-token")).thenReturn("new-hash");
+        when(tokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        real.resendVerification("alice@example.com");
+        real.resendVerification("alice@example.com");
+        real.resendVerification("alice@example.com");
+        assertThatThrownBy(() -> real.resendVerification("alice@example.com"))
+                .isInstanceOf(IllegalStateException.class);
+
+        verify(userEmailService, org.mockito.Mockito.times(3))
+                .sendVerificationEmail("alice@example.com", "alice", "new-token");
     }
 
     @Test

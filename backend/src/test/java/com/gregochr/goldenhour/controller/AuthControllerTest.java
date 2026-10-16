@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.RefreshTokenEntity;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.exception.RegistrationClosedException;
+import com.gregochr.goldenhour.model.AuthTokens;
 import com.gregochr.goldenhour.service.AuthAttemptLimiter.Window;
 import com.gregochr.goldenhour.service.JwtService;
 import com.gregochr.goldenhour.service.TurnstileGate.Endpoint;
@@ -13,10 +14,13 @@ import org.mockito.InOrder;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.sql.SQLException;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Optional;
 
@@ -1103,5 +1107,322 @@ class AuthControllerTest extends AbstractControllerTest {
                                 + "\"termsAccepted\":\"true\"}"))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.error").value("Early access is currently full"));
+    }
+
+    // --- login by username or email (plan §2 #10) ---
+
+    @Test
+    @DisplayName("POST /api/auth/login accepts the account's email in the username field "
+            + "and hands the gate that identifier")
+    void login_byEmail_returns200() throws Exception {
+        AppUserEntity reader = AppUserEntity.builder()
+                .id(7L).username("reader").email("Reader@Example.com")
+                .password(passwordEncoder.encode("MyP@ssw0rd!")).role(UserRole.PRO_USER)
+                .enabled(true).createdAt(LocalDateTime.now()).build();
+        when(userRepository.findByUsername("Reader@Example.com")).thenReturn(Optional.empty());
+        when(userRepository.findByEmail("Reader@Example.com")).thenReturn(Optional.of(reader));
+
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"Reader@Example.com\",\"password\":\"MyP@ssw0rd!\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.username").value("reader"))
+                .andExpect(jsonPath("$.role").value("PRO_USER"));
+
+        verify(turnstileGate).admit(null, "Reader@Example.com", "127.0.0.1", Endpoint.LOGIN);
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/login by an email nothing matches is the generic 401")
+    void login_byUnknownEmail_returns401() throws Exception {
+        mockMvc.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"ghost@example.com\",\"password\":\"anything\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error").value("Invalid username or password"));
+    }
+
+    // --- register: ASCII-only addresses and the 409 translation (plan §4 #21, §2 #14 rule 10) ---
+
+    @Test
+    @DisplayName("POST /api/auth/register refuses a non-ASCII email with its own sentence and registers nobody")
+    void register_nonAsciiEmail_returns400() throws Exception {
+        for (String email : new String[] {"bob@gmaıl.com", "josé@example.com"}) {
+            mockMvc.perform(post("/api/auth/register")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"username\":\"newuser\",\"email\":\"" + email + "\","
+                                    + "\"termsAccepted\":\"true\"}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error").value(
+                            "Please use an email address without accented or non-Latin characters"));
+        }
+
+        verifyNoInteractions(registrationService);
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/register: a lost race on the email reservation is a 409 'Email already registered'")
+    void register_emailReservationViolation_returns409() throws Exception {
+        when(registrationService.register("newuser", "new@example.com", false))
+                .thenThrow(new DataIntegrityViolationException("could not execute statement",
+                        new SQLException("ERROR: duplicate key value violates unique constraint "
+                                + "\"pk_app_user_email_claim\"")));
+
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"newuser\",\"email\":\"new@example.com\","
+                                + "\"termsAccepted\":\"true\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("Email already registered"));
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/register: a lost race on the username key is a 409 'Username already taken'")
+    void register_usernameViolation_returns409() throws Exception {
+        when(registrationService.register("newuser", "new@example.com", false))
+                .thenThrow(new DataIntegrityViolationException("could not execute statement",
+                        new SQLException("ERROR: duplicate key value violates unique constraint "
+                                + "\"app_user_username_key\"")));
+
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"newuser\",\"email\":\"new@example.com\","
+                                + "\"termsAccepted\":\"true\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("Username already taken"));
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/register: a violation of any other key is not dressed up as a 409")
+    void register_otherViolation_isNotAConflict() throws Exception {
+        when(registrationService.register("newuser", "new@example.com", false))
+                .thenThrow(new DataIntegrityViolationException("could not execute statement",
+                        new SQLException("null value in column \"role\" violates not-null constraint")));
+
+        mockMvc.perform(post("/api/auth/register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"newuser\",\"email\":\"new@example.com\","
+                                + "\"termsAccepted\":\"true\"}"))
+                .andExpect(status().is5xxServerError());
+    }
+
+    // --- forgot-password (plan §2 #1, §4 #8) ---
+
+    private static final String FORGOT_SENTENCE = "If that email has an account, we've sent a reset link.";
+
+    @Test
+    @DisplayName("POST /api/auth/forgot-password answers the generic 200 and asks the service for a link "
+            + "with the trimmed address")
+    void forgotPassword_validEmail_returnsGeneric200() throws Exception {
+        mockMvc.perform(post("/api/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"  Reader@Example.com \"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value(FORGOT_SENTENCE));
+
+        verify(passwordResetService).requestReset("Reader@Example.com");
+        verify(turnstileGate).admit(null, "  Reader@Example.com ", "127.0.0.1", Endpoint.FORGOT);
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/forgot-password answers the identical 200 whether or not the service sent anything")
+    void forgotPassword_unknownEmail_sameBodyAsKnown() throws Exception {
+        String known = mockMvc.perform(post("/api/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"known@example.com\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+
+        doThrow(new IllegalStateException("database down")).when(passwordResetService)
+                .requestReset("unknown@example.com");
+        String unknown = mockMvc.perform(post("/api/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"unknown@example.com\"}"))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+
+        org.assertj.core.api.Assertions.assertThat(unknown).isEqualTo(known);
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/forgot-password returns 400 for a blank or malformed address and never reaches "
+            + "the gate")
+    void forgotPassword_badEmail_returns400() throws Exception {
+        mockMvc.perform(post("/api/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"  \"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Email is required"));
+        mockMvc.perform(post("/api/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(post("/api/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"not-an-email\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Invalid email address"));
+
+        verifyNoInteractions(turnstileGate);
+        verifyNoInteractions(passwordResetService);
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/forgot-password: a failed CAPTCHA is a 400 and sends nothing")
+    void forgotPassword_captchaFailed_returns400() throws Exception {
+        when(turnstileGate.admit(any(), any(), any(), any())).thenReturn(Outcome.CAPTCHA_FAILED);
+
+        mockMvc.perform(post("/api/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"reader@example.com\",\"turnstileToken\":\"bad\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("CAPTCHA verification failed. Please try again."));
+
+        verify(turnstileGate).admit("bad", "reader@example.com", "127.0.0.1", Endpoint.FORGOT);
+        verifyNoInteractions(passwordResetService);
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/forgot-password: a refused fallback bound is the generic 200, never a 429, "
+            + "and sends nothing")
+    void forgotPassword_rateLimited_isTheGeneric200() throws Exception {
+        when(turnstileGate.admit(any(), any(), any(), any())).thenReturn(Outcome.RATE_LIMITED);
+
+        mockMvc.perform(post("/api/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"reader@example.com\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value(FORGOT_SENTENCE));
+
+        verifyNoInteractions(passwordResetService);
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/forgot-password on the fallback path still sends")
+    void forgotPassword_fallbackAdmitted_sends() throws Exception {
+        when(turnstileGate.admit(any(), any(), any(), any())).thenReturn(Outcome.OK_FALLBACK);
+
+        mockMvc.perform(post("/api/auth/forgot-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"reader@example.com\"}"))
+                .andExpect(status().isOk());
+
+        verify(passwordResetService).requestReset("reader@example.com");
+    }
+
+    // --- reset-password (plan §2 #1, §2 #4) ---
+
+    private static final String RESET_BODY = "{\"token\":\"reset-token\",\"password\":\"MyP@ssw0rd!\"}";
+
+    private AuthTokens signedInTokens() {
+        return new AuthTokens("access-jwt", "refresh-raw", Instant.parse("2026-10-17T10:00:00Z"),
+                Instant.parse("2026-11-16T10:00:00Z"), "reader", "PRO_USER", false, false, "April 2026");
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/reset-password returns the /login-shaped body, signed in, with "
+            + "passwordChangeRequired false")
+    void resetPassword_validLink_returns200WithTokens() throws Exception {
+        when(passwordResetService.resetPassword("reset-token", "MyP@ssw0rd!")).thenReturn(signedInTokens());
+
+        mockMvc.perform(post("/api/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(RESET_BODY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accessToken").value("access-jwt"))
+                .andExpect(jsonPath("$.refreshToken").value("refresh-raw"))
+                .andExpect(jsonPath("$.username").value("reader"))
+                .andExpect(jsonPath("$.role").value("PRO_USER"))
+                .andExpect(jsonPath("$.passwordChangeRequired").value(false))
+                .andExpect(jsonPath("$.termsVersion").value("April 2026"));
+
+        verifyNoInteractions(turnstileGate);
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/reset-password counts the global, client and token bounds in that order, "
+            + "under the reset: prefix, the token keyed on its hash")
+    void resetPassword_takesThreeBoundsOutermostFirst() throws Exception {
+        when(passwordResetService.resetPassword(any(), any())).thenReturn(signedInTokens());
+
+        mockMvc.perform(post("/api/auth/reset-password")
+                        .header("CF-Connecting-IP", "203.0.113.9")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(RESET_BODY))
+                .andExpect(status().isOk());
+
+        InOrder order = inOrder(attemptLimiter);
+        order.verify(attemptLimiter).tryAcquire("reset:global", 200, Window.HOUR);
+        order.verify(attemptLimiter).tryAcquire("reset:client:203.0.113.9", 20, Window.QUARTER_HOUR);
+        order.verify(attemptLimiter).tryAcquire("reset:token:" + tokenKeyOf("reset-token"), 10,
+                Window.QUARTER_HOUR);
+        order.verifyNoMoreInteractions();
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/reset-password: each refused bound is a 429 with the shared sentence and the "
+            + "link is never redeemed")
+    void resetPassword_anyBoundRefused_returns429() throws Exception {
+        String[][] bounds = {
+            {"reset:global", "HOUR"},
+            {"reset:client:127.0.0.1", "QUARTER_HOUR"},
+            {"reset:token:" + tokenKeyOf("reset-token"), "QUARTER_HOUR"}};
+        for (String[] bound : bounds) {
+            when(attemptLimiter.tryAcquire(eq(bound[0]), anyInt(), any())).thenReturn(false);
+
+            mockMvc.perform(post("/api/auth/reset-password")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(RESET_BODY))
+                    .andExpect(status().isTooManyRequests())
+                    .andExpect(jsonPath("$.error").value(TOO_MANY_SENTENCE));
+
+            when(attemptLimiter.tryAcquire(eq(bound[0]), anyInt(), any())).thenReturn(true);
+        }
+
+        verify(passwordResetService, never()).resetPassword(any(), any());
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/reset-password: a missing field is a 400 and counts against no bound")
+    void resetPassword_missingFields_countNothing() throws Exception {
+        mockMvc.perform(post("/api/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"password\":\"MyP@ssw0rd!\"}"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(post("/api/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"token\":\"reset-token\"}"))
+                .andExpect(status().isBadRequest());
+
+        verifyNoInteractions(attemptLimiter);
+        verifyNoInteractions(passwordResetService);
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/reset-password: a weak password is a 400 with the complexity sentence "
+            + "before the link is looked up")
+    void resetPassword_weakPassword_returns400() throws Exception {
+        mockMvc.perform(post("/api/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"token\":\"reset-token\",\"password\":\"short\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Password must be at least 8 characters."));
+
+        verify(passwordResetService, never()).resetPassword(any(), any());
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/reset-password: an unknown, used or expired link is a 400 carrying the "
+            + "service's sentence")
+    void resetPassword_refusedLink_returns400WithItsSentence() throws Exception {
+        for (String sentence : new String[] {"This reset link is invalid",
+                "This reset link has already been used", "This reset link has expired"}) {
+            doThrow(new IllegalArgumentException(sentence)).when(passwordResetService)
+                    .resetPassword("reset-token", "MyP@ssw0rd!");
+
+            mockMvc.perform(post("/api/auth/reset-password")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(RESET_BODY))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error").value(sentence));
+        }
     }
 }

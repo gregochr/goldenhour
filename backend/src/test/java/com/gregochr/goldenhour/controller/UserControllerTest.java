@@ -6,10 +6,12 @@ import com.gregochr.goldenhour.service.PasswordResetResult;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.sql.SQLException;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -20,6 +22,8 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -147,6 +151,73 @@ class UserControllerTest extends AbstractControllerTest {
                                 + "\"role\":\"LITE_USER\",\"email\":\"alice@example.com\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("Username already exists"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("POST /api/users: a lost race on the email reservation is a 409 'Email already registered', "
+            + "the admin's welcome email is not sent")
+    void createUser_emailReservationViolation_returns409() throws Exception {
+        when(userService.createUser(anyString(), anyString(), any(UserRole.class), anyString()))
+                .thenThrow(new DataIntegrityViolationException("could not execute statement",
+                        new SQLException("duplicate key value violates unique constraint "
+                                + "\"pk_app_user_email_claim\"")));
+
+        mockMvc.perform(post("/api/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"alice\",\"password\":\"pass\","
+                                + "\"role\":\"LITE_USER\",\"email\":\"alice@example.com\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("Email already registered"));
+
+        verify(userEmailService, never()).sendWelcomeEmail(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("POST /api/users: a lost race on the username key is a 409 'Username already taken'")
+    void createUser_usernameViolation_returns409() throws Exception {
+        when(userService.createUser(anyString(), anyString(), any(UserRole.class), anyString()))
+                .thenThrow(new DataIntegrityViolationException("could not execute statement",
+                        new SQLException("duplicate key value violates unique constraint "
+                                + "\"app_user_username_key\"")));
+
+        mockMvc.perform(post("/api/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"alice\",\"password\":\"pass\","
+                                + "\"role\":\"LITE_USER\",\"email\":\"alice@example.com\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("Username already taken"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("POST /api/users: any other integrity violation is not dressed up as a 409")
+    void createUser_otherViolation_isNotAConflict() throws Exception {
+        when(userService.createUser(anyString(), anyString(), any(UserRole.class), anyString()))
+                .thenThrow(new DataIntegrityViolationException("could not execute statement",
+                        new SQLException("null value in column \"role\" violates not-null constraint")));
+
+        mockMvc.perform(post("/api/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"alice\",\"password\":\"pass\","
+                                + "\"role\":\"LITE_USER\",\"email\":\"alice@example.com\"}"))
+                .andExpect(status().is5xxServerError());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/users/{id}/email: an address another account holds (unique violation) is a 409")
+    void setEmail_violation_returns409() throws Exception {
+        doThrow(new DataIntegrityViolationException("could not execute statement",
+                new SQLException("duplicate key value violates unique constraint \"idx_app_user_email\"")))
+                .when(userService).setEmail(eq(1L), anyString());
+
+        mockMvc.perform(put("/api/users/1/email")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"taken@example.com\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("Email already registered"));
     }
 
     @Test
