@@ -612,14 +612,19 @@ lock the user row (`userRepository.findByUsernameForUpdate`, the `SELECT … FOR
 uses — parent before children, the ordering `UserDriveTimeWriter`'s javadoc records, so a drive-time
 calculation that holds the row finishes before the purge begins and cannot re-insert between the
 purge and the delete; Codex, R0 review), **re-check under that lock that the stored hash is still
-the one the controller verified AND that `credentials_version` still equals the request's
-authenticated `cv`** (the filter's details, §2 #13; the version counter, never the timestamp) — otherwise `StaleCredentialsException` → 401
+the one the controller verified, that `credentials_version` still equals the request's
+authenticated `cv`** (the filter's details, §2 #13; the version counter, never the timestamp) **and
+that the locked row's role is still not ADMIN** (an admin who promoted the account during BCrypt
+must win — a role change does not move the version, and the sole administrator must never be
+deletable this way; Codex, R0 round 23; → the same 409 "Admin accounts are deleted by another
+admin") — otherwise `StaleCredentialsException` → 401
 "Your session has changed. Sign in again." and nothing is purged (a stolen session that finished
 its BCrypt just before the owner's password change commits must not delete the account afterwards;
 Codex, R0 round 13; a legacy token with no `cv` is accepted only on a never-changed row), then
 `purgeUserRows(userId)` (`userDriveTimeRepository.deleteAllByUserId` — §1 #2
-— then anything the integration test below shows has no cascade), then `userRepository.delete(user)`;
-the admin path takes the same lock by id (`findByIdForUpdate`, added); the confirmation email is sent AFTER commit
+— then anything the integration test below shows has no cascade), then `userRepository.delete(user)`,
+a flush, and the conditional release of the account's email claim (§5 #6);
+the admin path takes the same lock by id (`findByIdForUpdate`, added) and the same release; the confirmation email is sent AFTER commit
 for BOTH paths (a `TransactionSynchronization.afterCommit`, or the send moved out of the
 transactional method into its caller) — the admin path `deleteUser` calls the same `purgeUserRows`
 and the same after-commit send. 204 No Content. The access token dies with the row once R3c's filter
@@ -806,9 +811,10 @@ captured before a password change or an admin reset cannot overwrite the newer c
 hour; redemption consumes the presented token by compare-and-set and the same delete removes its
 siblings. **An EMAIL change voids them too** (Codex, R0 round 15): the admin `PUT
 /api/users/{id}/email` (`UserService.setEmail`) becomes a scoped, transactional update that locks the
-user row, **replaces the account's `app_user_email_claim` row** (delete its own, insert the new
-lower-cased address — the unique key refuses a case variant of another account's address with the
-409 "Email already registered", race-free; §5 #6; Codex, R0 rounds 19 and 22), deletes the account's unused
+user row, **claims the new lower-cased address and conditionally releases the old one** (the insert's
+unique key refuses a case variant of another account's address with the 409 "Email already
+registered", race-free; the old key is released only if no account still uses it; §5 #6; Codex, R0
+rounds 19, 22 and 23), deletes the account's unused
 `password_reset_token` rows and writes the address in one transaction, so a link mailed to the old or compromised mailbox cannot overwrite the password within
 its hour; and `PasswordResetService.requestReset` inserts its token only under the same user-row lock
 (the writer's lock order, parent first), so a request racing the email change either commits before
@@ -1295,16 +1301,25 @@ planning session writes the memory file (`login-registration-series.md` + the `M
    and an application-level check alone races: two concurrent registrations of `Foo@x` and `foo@x`,
    or two admin email edits, can both see no duplicate and both commit under READ COMMITTED (Codex, R0
    round 22). R3a's migration therefore adds `app_user_email_claim (email_lower VARCHAR(255) PRIMARY
-   KEY, user_id BIGINT NOT NULL UNIQUE REFERENCES app_user(id) ON DELETE CASCADE)`, backfilled with
-   `INSERT … SELECT LOWER(email), MIN(id) FROM app_user WHERE email IS NOT NULL GROUP BY LOWER(email)`
-   (a legacy case-duplicate leaves one account unclaimed, which the lookup rule already tolerates:
-   two active matches → no match); every write of an address — `createUser`, `createPendingUser`,
-   `setEmail` — inserts (or, for `setEmail`, deletes the user's claim and inserts the new one) in the
-   SAME transaction as the account write, and a unique violation is the 409 "Email already
-   registered". Portable to H2 (a unique constraint, no advisory lock), race-free, and the ASCII
+   KEY, claimed_at TIMESTAMPTZ NOT NULL)` — **a reservation of the normalised address, owned by no
+   one account and with NO cascade**, backfilled with `INSERT … SELECT DISTINCT LOWER(email), now()
+   FROM app_user WHERE email IS NOT NULL` (a legacy case-duplicate pair shares ONE reservation, which
+   the lookup rule already tolerates: two active matches → no match). Every write of an address —
+   `createUser`, `createPendingUser`, `setEmail` — inserts the new key in the SAME transaction as the
+   account write (a unique violation is the 409 "Email already registered"), and every path that
+   stops using an address — `setEmail`, `deleteOwnAccount`, the admin `deleteUser` — ends with a
+   **conditional release in that same transaction, after the account write has flushed**:
+   `DELETE FROM app_user_email_claim WHERE email_lower = :k AND NOT EXISTS (SELECT 1 FROM app_user
+   WHERE LOWER(email) = :k)`, so the key stays reserved while ANY account still uses it (Codex, R0
+   round 23: a claim tied to one arbitrary member of a legacy pair would be freed by that member's
+   deletion or email change while the other still used the address, and a case variant could then be
+   claimed over it). H2 supports the subquery; `LOWER()` on the ASCII-only addresses this rule admits
+   is collation-independent. Portable to H2 (a unique constraint, no advisory lock), race-free, and the ASCII
    `Locale.ROOT` lower-casing is done in Java so the claim key never depends on a database collation.
-   `AppUserEmailClaimRepositoryTest` (`@DataJpaTest`) pins the violation; `integration/
-   EmailClaimMigrationTest` (CI-only) pins the backfill over a seeded case-duplicate pair.
+   `AppUserEmailClaimRepositoryTest` (`@DataJpaTest`) pins the violation and the conditional release
+   (one of two accounts sharing a key deleted → the key stays; the last one → it goes);
+   `integration/EmailClaimMigrationTest` (CI-only) pins the backfill over a seeded case-duplicate
+   pair to one row.
 7. **An admin's self-deletion is refused (409).** `UserService.deleteUser` already refuses an admin
    deleting themself; a sole admin deleting their account in-app would orphan the instance. Another
    admin deletes an admin, as today.
@@ -1356,7 +1371,9 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added forty-three P1s over twenty-two rounds, folded in:
+disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added forty-five P1s over twenty-three rounds, folded in:
+the email claim is a reservation released only when no account uses the address; deletion re-checks
+the locked row's role (§5 #6, §2 #7);
 normalised email uniqueness moves into the database as a claim table written with every address
 (§5 #6);
 `role` becomes non-updatable with a scoped `updateRole`, and the marketing opt-in save stops being a
