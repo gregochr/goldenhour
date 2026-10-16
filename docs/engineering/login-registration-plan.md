@@ -231,8 +231,8 @@ up. Numbered so the phases can cite them.
     expiry), a disabled account's likewise, a password reset "signs other devices out" only when their
     access token expires, and a username freed by a self-service deletion could be re-registered while
     the old token, with its old ROLE claim, still answers for that name. R3c closes all of it with one
-    rule in the filter (§2 #13): no authentication unless the row exists, is enabled, and the token's
-    `iat` is not before the account's `credentials_changed_at`. The filter already pays that one
+    rule in the filter (§2 #13): no authentication unless the row exists, is enabled, the token's `uid`
+    is the row's id and its `cv` claim equals the account's `credentials_changed_at`. The filter already pays that one
     query per request; the check reorders it, it does not add one.
 20. **`landing/privacy.html` is stale for this work.** Line 36 lists the postcode as "if you choose to
     set a home location for drive time calculations — Pro feature" and line 51's processor row says
@@ -393,9 +393,13 @@ mount read and lets every later answer (`startSettingsRead`, `homeSaved`) update
 mounts `PostcodePromptOverlay` when `postcodePromptDue && !promptDone && !promptSuppressed &&
 !modalPresent && getRewindTo() == null` (`promptDone` a local `useState`, set by Save and Not now;
 `promptSuppressed` is `AuthContext`'s in-memory flag below; `modalPresent` is a new
-`hooks/useModalPresent.js` — `true` while ANY `[role="dialog"][aria-modal="true"]` exists in the
-document, kept current by a `MutationObserver` on `document.body` (`childList`, `subtree`,
-`attributeFilter: ['aria-modal']`) and read once at mount; a rewound admin is never prompted — the
+`hooks/useModalPresent.js` — `true` while any FOREIGN `[role="dialog"][aria-modal="true"]:not([data-
+postcode-prompt])` exists in the document, kept current by a `MutationObserver` on `document.body`
+(`childList`, `subtree`, `attributeFilter: ['aria-modal']`) and read once at mount; the overlay's own
+dialog node carries `data-postcode-prompt` and is excluded by that selector, otherwise its own mount
+would flip the flag and unmount it in a loop (Codex, R0 round 10 — a test mounts the overlay and
+asserts it is still there after the observer has run); once mounted it stays until Save or Not now
+(nothing under an inert app can open a dialog); a rewound admin is never prompted — the
 rewind is a read of the past, not a sign-in). A slow first read lets the reader open Settings, the
 map overlay, a Plan dialog or the Ask sheet first, and a late `postcodePromptDue` would otherwise
 put the overlay over an open `aria-modal` dialog and make it inert underneath — two modal claims, the
@@ -447,12 +451,22 @@ user id when one resolves (`login:user:<id>`), so the username and the email of 
 budget; `client:` + the forwarded address (§1 #23); and a per-endpoint `global:` key.
 
 `service/TurnstileGate`: `Outcome admit(String token, String identityKey, String clientKey,
-Endpoint endpoint)` with `Outcome { OK, CAPTCHA_FAILED, RATE_LIMITED }`: `TurnstileService
-.isConfigured()` false → `OK` (local dev, today's behaviour; the limiter is not consulted); token
-non-blank → `verify(token)` ? `OK` : `CAPTCHA_FAILED` (a token that FAILS is never a fallback);
-token blank → the fallback, admitted only when ALL of these admit: `fallback:<endpoint>:id:<key>`
-(5 per 15 min), `fallback:<endpoint>:client:<addr>` (20 per 15 min), `fallback:<endpoint>:global`
-(an hourly ceiling per endpoint: login 60, change-password 20, forgot 10). Controllers map
+Endpoint endpoint)` with `Outcome { OK_VERIFIED, OK_FALLBACK, CAPTCHA_FAILED, RATE_LIMITED }` (the
+two `OK`s because login needs to know it is on the fallback path — below): `TurnstileService
+.isConfigured()` false → `OK_VERIFIED` (local dev, today's behaviour; the limiter is not consulted);
+token non-blank → `verify(token)` ? `OK_VERIFIED` : `CAPTCHA_FAILED` (a token that FAILS is never a
+fallback); token blank → the fallback, `OK_FALLBACK` only when ALL of these admit:
+`fallback:<endpoint>:id:<key>` (5 per 15 min), `fallback:<endpoint>:client:<addr>` (20 per 15 min),
+`fallback:<endpoint>:global` (an hourly ceiling per endpoint: login 60, change-password 20, forgot
+10). ⚠️ **The per-ACCOUNT login budget is acquired AFTER the user resolves, inside
+`AuthenticationService.login(identifier, password, fallback)`** (Codex, R0 round 10: the gate runs
+before resolution and sees only the identifier, so a username and an email of one account would be
+two five-attempt buckets): on the fallback path only, once the §2 #10 lookup has answered and BEFORE
+the password check, `limiter.tryAcquire("fallback:login:user:" + userId, 5, QUARTER_HOUR)` — refused
+→ a `TooManyAttemptsException` the controller maps to the same 429; when no user resolves the
+identifier bucket has already counted the attempt and nothing further is acquired. Stated,
+accepted: alternating two identifiers of ONE account yields five attempts where two identifiers of
+no account yield ten, a weak oracle on "these two names are one account", bought for the real bound. Controllers map
 `CAPTCHA_FAILED` → 400 with today's sentence, `RATE_LIMITED` → 429 `{"error": "Too many attempts.
 Please wait a few minutes and try again."}`. Applied to `/login`, `/change-password` and
 `/forgot-password` (R3a). ⚠️ **`/register` gets NO fallback** (§4 #1, §5 #4): the fallback cannot
@@ -755,8 +769,8 @@ concurrent redemptions cannot both activate) and applies the credential change i
 transaction — token consumption and the credential change stay atomic, the hash stays outside. **The writer locks the user row first**
 (`findByIdForUpdate`, the parent-before-children order). ⚠️ **Token issuance is serialised against
 it** (Codex, R0 round 4): a login that verified the OLD hash just before the writer commits would
-otherwise issue an access token with an `iat` after the stamp and insert a refresh row after the
-revoke. Issuance therefore moves out of `AuthenticationService` into its own proxied bean,
+otherwise issue an access token carrying the NEW `cv` (read after the stamp) and insert a refresh
+row after the revoke. Issuance therefore moves out of `AuthenticationService` into its own proxied bean,
 `service/TokenIssuer` (`@Transactional issue(userId, verifiedPasswordHash)`), because
 `AuthenticationService.login` reaches `issueTokensFor` by SELF-INVOCATION, which bypasses
 `@Transactional` — the method's own Javadoc says so — and a pessimistic lock in an unproxied call
@@ -765,8 +779,8 @@ round 5). `TokenIssuer.issue` takes the SAME row lock (`findByIdForUpdate`), re-
 hash and refuses with the generic failure if it is not the one the caller verified (`login` passes
 the hash it matched; set-password, reset and activation pass the hash they just wrote; `refresh`
 passes the stored one it read under the lock) — so either the issue commits wholly before the
-writer, whose revoke then catches the new refresh row and whose stamp outdates the new `iat`, or
-wholly after it, and sees the new hash. `AuthenticationService.issueTokensFor` becomes a thin
+writer, whose revoke then catches the new refresh row and whose stamp makes the issued `cv`
+stale, or wholly after it, and sees the new hash. `AuthenticationService.issueTokensFor` becomes a thin
 delegate kept only for its callers' signatures (`AuthController.setPassword`,
 `PasswordResetService`, `refresh`), each of which now passes the hash; `TokenIssuer` is the one
 place refresh rows are inserted, so the lock covers every issuance. ⚠️ **One lock order
@@ -1188,9 +1202,12 @@ planning session writes the memory file (`login-registration-series.md` + the `M
 12. **`/forgot-password` validates the email's shape only** and decides its response before the send;
     email existence is already disclosed by register's 409, so what the endpoint protects is the link,
     not the address.
-13. **Token invalidation is a `credentials_changed_at` instant compared with the JWT's `iat`**, not a
-    token version or a denylist: no new claim, no new table, one column, one comparison in a filter
-    that already loads the row (§2 #13).
+13. **Token invalidation is a `cv` credential-version claim (the account's `credentials_changed_at`
+    as epoch millis, `0` when null) that the filter requires to EQUAL the row's current value**, plus
+    a `uid` claim bound to the account id — two claims, one column, no denylist, in a filter that
+    already loads the row; an `iat` comparison survives only for tokens issued before R3c deploys and
+    dies with them within 24 hours (§2 #13; Codex, R0 rounds 2, 9 and 10 — the `iat` rule could
+    neither tolerate nor exclude the same second).
 14. **Controller tests mock the gate and the limiter; the limiter, the gate and the one end-to-end
     reset sequence get their own classes** (§1 #24).
 15. **Screenshots are never committed**; the PR body carries the measured figures and the owner's
@@ -1218,7 +1235,9 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added twenty-one P1s over nine rounds, folded in: the
+disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added twenty-four P1s over ten rounds, folded in: the modal
+observer excludes the prompt's own node (it would have looped); the per-account login budget is
+acquired after the user resolves; §5 #13 restated for the `cv` claim (§2 #3, #4, §5 #13); the
 filter compares a `cv` credential-version claim for equality instead of `iat`, which could neither
 tolerate nor exclude the same second; the prompt defers behind ANY open `aria-modal` dialog via a
 DOM observer, not only Settings (§2 #3, #13); the access
