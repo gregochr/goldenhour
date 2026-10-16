@@ -240,6 +240,30 @@ describe('RegisterPage visual foundation', () => {
     expect(screen.getByTestId('reg-username')).toHaveClass('field-error');
   });
 
+  it('marks an invalid email and a mismatched confirmation with field-error and the error token', async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.type(screen.getByTestId('reg-email'), 'nope');
+    await user.type(screen.getByTestId('reg-confirm-email'), 'x');
+
+    expect(screen.getByTestId('reg-email')).toHaveClass('field', 'field-error');
+    expect(screen.getByTestId('reg-confirm-email')).toHaveClass('field', 'field-error');
+    expect(screen.getByText('Please enter a valid email address')).toHaveClass('text-plex-error');
+    expect(screen.getByText('Email addresses do not match')).toHaveClass('text-plex-error');
+  });
+
+  it('shows a registration failure in the error token', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(AuthApi, 'register').mockRejectedValue({ response: { status: 409, data: { error: 'Taken' } } });
+    renderPage();
+    await fillAndSubmit(user);
+
+    const alert = await screen.findByTestId('reg-error');
+    expect(alert).toHaveTextContent('Taken');
+    expect(alert).toHaveClass('text-plex-error');
+  });
+
   it('left-aligns the Check your email card and keeps its copy', async () => {
     const user = userEvent.setup();
     vi.spyOn(AuthApi, 'register').mockResolvedValue(undefined);

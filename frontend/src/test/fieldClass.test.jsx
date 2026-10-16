@@ -37,13 +37,16 @@ const textInputs = (container) => [...container.querySelectorAll('input')]
  */
 function expectOnlyTheSharedFieldStyle(input) {
   const label = `${input.id || input.name || input.type} (${input.className})`;
-  const classes = input.className.split(/\s+/);
+  const classes = input.className.split(/\s+/).filter(Boolean);
   expect(classes, label).toContain('field');
   expect(classes, label).not.toContain('text-sm');
   expect(classes, label).not.toContain('bg-plex-surface-light');
   expect(classes, label).not.toContain('rounded');
   expect(classes, label).not.toContain('border-red-700');
   expect(input.className, label).not.toMatch(/placeholder-plex/);
+  // The allowlist is the real rule: any OTHER utility (text-xs, text-lg, bg-plex-surface, px-4 …)
+  // also outranks the components layer, so only these three may ever sit beside `.field`.
+  classes.forEach((c) => expect(['field', 'field-error', 'pr-10'], label).toContain(c));
 }
 
 const renderAuth = (ui) => render(<AuthProvider>{ui}</AuthProvider>);
