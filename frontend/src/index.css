@@ -4679,6 +4679,40 @@ button.wf-hc.also.on:hover {
    `.wf-map-peek-v-verdict` above — the row word otherwise inherited primary ink. */
 .wf-map-peek-wr-verdict[data-tier="UNRATED"] { color: var(--color-plex-text-secondary); }
 .wf-map-peek-wr-unscored { color: var(--color-plex-text-muted); }
+/* The EARLIER group on the phone sheet (outcome-rating-plan.md §2 #2, O3b) — the dropdown's own
+   header, sub-header and Load row (`.wf-win-earlier`, `.wf-win-sub`, `.wf-win-load-*`) at the
+   sheet's row height. */
+.wf-map-peek-earlier {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-muted);
+  padding: 6px 4px 2px;
+}
+.wf-map-peek-earlier-hint { letter-spacing: 0; text-transform: none; font-weight: 400; }
+.wf-map-peek-sub {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--color-plex-text-secondary);
+  padding: 8px 4px 0;
+}
+.wf-map-peek-wr-pasttime { color: var(--color-plex-text-secondary); }
+.wf-map-peek-load { align-items: flex-start; padding-top: 8px; padding-bottom: 8px; }
+/* `.wf-hc-sun` carries `min-width: 0; overflow: hidden` and shrinks by default, so in this flex row the
+   long sub-line would clip the `↑` chip (`.wf-land-row .wf-hc-sun` records the same defect). */
+.wf-map-peek-load .wf-hc-sun { flex-shrink: 0; }
+/* `.wf-map-peek-wr:last-child` drops the rule under the LAST row of the list; a past day's rows sit in a
+   wrapper of their own, so each day's last row would lose it too. Put it back. */
+.wf-map-peek-wlist > div > .wf-map-peek-wr:last-child { border-bottom: 1px solid var(--color-plex-border); }
+.wf-map-peek-load:disabled { opacity: 0.35; cursor: default; }
+.wf-map-peek-load-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .wf-map-peek-drilldown {
   color: var(--color-plex-text-secondary);
   font-size: 13px;
@@ -6245,6 +6279,81 @@ button.wf-hc.also.on:hover {
   min-width: 14px;
   text-align: right;
 }
+
+/* ── The EARLIER group (outcome-rating-plan.md §2 #2, O3b) ──────────────────────────────────────
+   Header, Load row, sub-headers and past rows, every value the prototype's (`.wday.ear`, `.wr.more`,
+   `.wk.lo`, `.wsub`, `.wr.past .wm b`) on this stylesheet's tokens. */
+.wf-win-earlier {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-muted);
+  padding: 8px 12px 4px;
+}
+/* `rate how it went`: no caps, normal weight, no tracking — the prototype's `.wday.ear span`. */
+.wf-win-earlier-hint {
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 400;
+}
+/* A past day's sub-header — mono 9.5px / 600 in ink-2. */
+.wf-win-sub {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--color-plex-text-secondary);
+  padding: 6px 12px 0 14px;
+}
+/* The first future day under the EARLIER group: `.wf-win-day:first-child` removes every group's rule
+   (each heading is the first child of its own wrapper), so this puts back the one that marks where
+   the past ends. ⚠️ Written `.wf-win-day.wf-win-day-after-earlier` (0,2,0), because `:first-child`
+   counts as a class: a bare `.wf-win-day-after-earlier` (0,1,0) LOSES to it whatever the source order
+   (a review finding; the rule never drew until this was raised). */
+.wf-win-day.wf-win-day-after-earlier { border-top: 1px solid var(--color-plex-border); }
+.wf-win-row-pasttime {
+  font-size: 12.5px;
+  color: var(--color-plex-text-secondary);
+}
+/* The prototype's `.wr { min-height: 44px }` — a past row has no second line to make it tall like a
+   future one (46.75px measured), and the dropdown is also the tablet's touch menu. */
+.wf-win-row-past { min-height: 44px; }
+/* `Not rated` / `{n} rated`. Its own literal for `Not rated`, for the reason `.wf-win-row-unscored`
+   records (the muted token is the passing ink inside a panel, the same ink as a real score); the
+   count is the design's star gold (`--color-star`). The 0.6 (not .52) keeps `Not rated` above 4.5:1 on
+   the selected row's gold wash (`.wf-win-row.on`) as well as on the plate, while still a step quieter
+   than the secondary ink of the time beside it. */
+.wf-win-notrated { color: rgba(242, 231, 211, 0.6); font-weight: 400; }
+.wf-win-rated { color: var(--color-star); }
+/* The Load row: a two-line row whose chip slot holds `↑` in the tide teal on a 1px teal border (the
+   prototype's `.wk.lo`), the title in teal and the sub-line in the quiet mono. It has no score or
+   topic cell, so the grid is two columns. The sub-line WRAPS (white-space: normal) — at a 320px
+   viewport the menu is narrower than the sentence. */
+.wf-win-load { grid-template-columns: auto 1fr; align-items: start; }
+.wf-win-load-chip {
+  color: var(--color-tide);
+  border: 1px solid rgba(111, 168, 176, 0.35);
+  /* A kind chip's height (3+3 padding and a 9px line against 2+1+2+1); the width differs, as it does
+     in the prototype, since every row is its own `auto` column. */
+  padding: 2px 6px;
+}
+.wf-win-load-title { color: var(--color-tide); font-size: 12.5px; }
+.wf-win-load-sub {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--color-plex-text-muted);
+  white-space: normal;
+  line-height: 1.35;
+}
+.wf-win-load:disabled { opacity: 0.35; cursor: default; }
+.wf-win-load:disabled:hover { background: transparent; }
+/* The pill while an older day is fetched. */
+.wf-win-loading { color: var(--color-plex-text-secondary); font-weight: 500; }
 
 /* The ramp's key. It lives in the toolbar-cluster because a key belongs beside the control that
    turns on the thing it explains. On the TAB (map-tab-v2-plan.md §3 P7) every corner is spoken

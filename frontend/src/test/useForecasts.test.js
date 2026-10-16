@@ -6,6 +6,7 @@ import { setRewind } from '../utils/rewind.js';
 
 vi.mock('../api/forecastApi', () => ({
   fetchForecasts: vi.fn(),
+  fetchForecastsForDate: vi.fn(),
   fetchLocations: vi.fn(),
   fetchAllOutcomes: vi.fn(),
 }));
@@ -15,7 +16,9 @@ vi.mock('../api/forecastApi', () => ({
 const { mockUseAuth } = vi.hoisted(() => ({ mockUseAuth: vi.fn(() => ({ role: 'PRO_USER' })) }));
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: mockUseAuth }));
 
-import { fetchForecasts, fetchLocations, fetchAllOutcomes } from '../api/forecastApi';
+import {
+  fetchForecasts, fetchForecastsForDate, fetchLocations, fetchAllOutcomes,
+} from '../api/forecastApi';
 
 const LANDSCAPE_LOCATION = {
   name: 'Bamburgh Castle',
@@ -401,5 +404,258 @@ describe('useForecasts', () => {
 
     expect(result.current.error).toBe('run reload failed');
     expect(result.current.locations.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * The older-day fetch (outcome-rating-plan.md §2 #2, §3 O3b step 1): `loadOlderDay(date)` keeps the
+ * day's rows in hook state and merges them into `locations` — on every render, so a refresh keeps a
+ * loaded T-3 and the date it contributes to `allDates`.
+ */
+describe('useForecasts — older days', () => {
+  const row = (date, type, extra = {}) => ({
+    locationName: 'Bamburgh Castle',
+    locationLat: 55.609,
+    locationLon: -1.709,
+    targetDate: date,
+    targetType: type,
+    forecastRunAt: `${date}T06:00:00Z`,
+    rating: 3,
+    ...extra,
+  });
+  const OLDER = '2026-03-01';
+
+  async function loaded() {
+    fetchForecasts.mockResolvedValue([row('2026-03-03', 'SUNSET', { rating: 4 })]);
+    fetchLocations.mockResolvedValue([LANDSCAPE_LOCATION, WILDLIFE_LOCATION]);
+    const hook = renderHook(() => useForecasts());
+    await waitFor(() => expect(hook.result.current.loading).toBe(false));
+    return hook;
+  }
+  const bamburgh = (result) => result.current.locations.find((l) => l.name === 'Bamburgh Castle');
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    mockUseAuth.mockReturnValue({ role: 'PRO_USER' });
+    fetchAllOutcomes.mockResolvedValue([]);
+    setRewind(null);
+  });
+
+  it('merges the day\'s rows into the locations that hold them, and reports the day as loaded', async () => {
+    const { result } = await loaded();
+    expect(result.current.olderDayLoading).toBeNull();
+    expect(result.current.loadedPastDays).toEqual([]);
+    fetchForecastsForDate.mockResolvedValue([row(OLDER, 'SUNSET', { rating: 2 }), row(OLDER, 'SUNRISE')]);
+
+    await act(async () => { await result.current.loadOlderDay(OLDER); });
+
+    expect(fetchForecastsForDate).toHaveBeenCalledWith(OLDER);
+    expect(fetchForecastsForDate).toHaveBeenCalledTimes(1);
+    const entry = bamburgh(result).forecastsByDate.get(OLDER);
+    expect(entry.sunset.rating).toBe(2);
+    expect(entry.sunrise).not.toBeNull();
+    expect(result.current.loadedPastDays).toEqual([OLDER]);
+    expect(result.current.olderDayLoading).toBeNull();
+  });
+
+  it('puts the date in olderDayLoading while the request is out, then clears it', async () => {
+    const { result } = await loaded();
+    let resolve;
+    fetchForecastsForDate.mockReturnValue(new Promise((r) => { resolve = r; }));
+
+    let pending;
+    act(() => { pending = result.current.loadOlderDay(OLDER); });
+    expect(result.current.olderDayLoading).toBe(OLDER);
+
+    await act(async () => { resolve([row(OLDER, 'SUNSET')]); await pending; });
+    expect(result.current.olderDayLoading).toBeNull();
+  });
+
+  it('hands the rows over in the same render the loading state ends (a reader never sees "done, no rows")', async () => {
+    fetchForecasts.mockResolvedValue([row('2026-03-03', 'SUNSET')]);
+    fetchLocations.mockResolvedValue([LANDSCAPE_LOCATION]);
+    const seen = [];
+    const { result } = renderHook(() => {
+      const value = useForecasts();
+      seen.push([value.olderDayLoading, value.loadedPastDays.length]);
+      return value;
+    });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    let resolve;
+    fetchForecastsForDate.mockReturnValue(new Promise((r) => { resolve = r; }));
+
+    let pending;
+    act(() => { pending = result.current.loadOlderDay(OLDER); });
+    await act(async () => { resolve([row(OLDER, 'SUNSET')]); await pending; });
+
+    // From the first render that shows the fetch out, no render has loading cleared with the day
+    // not yet merged: the effect that lands the selection reads the render in which it goes null.
+    const start = seen.findIndex(([loading]) => loading === OLDER);
+    expect(start).toBeGreaterThan(-1);
+    expect(seen.slice(start).filter(([loading, n]) => loading === null && n === 0)).toEqual([]);
+    expect(seen[seen.length - 1]).toEqual([null, 1]);
+  });
+
+  it('records an EMPTY answer as a loaded-empty day: the roster is unchanged and the day still counts', async () => {
+    const { result } = await loaded();
+    const before = result.current.locations;
+    fetchForecastsForDate.mockResolvedValue([]);
+
+    await act(async () => { await result.current.loadOlderDay(OLDER); });
+
+    expect(result.current.loadedPastDays).toEqual([OLDER]);
+    expect(bamburgh(result).forecastsByDate.has(OLDER)).toBe(false);
+    expect(result.current.locations.map((l) => [...l.forecastsByDate.keys()]))
+      .toEqual(before.map((l) => [...l.forecastsByDate.keys()]));
+    expect(result.current.error).toBeNull();
+  });
+
+  it('never replaces a (date, type) entry the list payload already carries; it fills the missing type', async () => {
+    fetchForecasts.mockResolvedValue([row('2026-03-03', 'SUNSET', { rating: 4 })]);
+    fetchLocations.mockResolvedValue([LANDSCAPE_LOCATION]);
+    const { result } = renderHook(() => useForecasts());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    fetchForecastsForDate.mockResolvedValue([
+      row('2026-03-03', 'SUNSET', { rating: 1, forecastRunAt: '2026-03-03T12:00:00Z' }),
+      row('2026-03-03', 'SUNRISE', { rating: 5 }),
+    ]);
+
+    await act(async () => { await result.current.loadOlderDay('2026-03-03'); });
+
+    const entry = bamburgh(result).forecastsByDate.get('2026-03-03');
+    expect(entry.sunset.rating).toBe(4);
+    expect(entry.sunrise.rating).toBe(5);
+  });
+
+  it('ignores a row for a place the roster does not hold, and orders rows however the server sent them', async () => {
+    const { result } = await loaded();
+    fetchForecastsForDate.mockResolvedValue([
+      row(OLDER, 'SUNSET'),
+      { ...row(OLDER, 'SUNSET'), locationName: 'Gone Site' },
+      row(OLDER, 'SUNRISE'),
+    ]);
+    await act(async () => { await result.current.loadOlderDay(OLDER); });
+    expect(result.current.locations.map((l) => l.name)).not.toContain('Gone Site');
+    expect(Object.keys(bamburgh(result).forecastsByDate.get(OLDER)).sort()).toEqual(
+      expect.arrayContaining(['sunrise', 'sunset']),
+    );
+  });
+
+  it('merges a day\'s HOURLY rows: the whole entry on a new date, the list\'s own on an overlap, a fill when the list has none', async () => {
+    const hourly = (date, hour, temperature) => ({
+      locationName: 'Low Barns',
+      locationLat: 54.678,
+      locationLon: -1.752,
+      targetDate: date,
+      targetType: 'HOURLY',
+      forecastRunAt: `${date}T05:00:00Z`,
+      solarEventTime: `${date}T${hour}:00:00`,
+      temperatureCelsius: temperature,
+    });
+    fetchForecasts.mockResolvedValue([
+      row('2026-03-03', 'SUNSET'),
+      hourly('2026-03-02', '09', 4),
+    ]);
+    fetchLocations.mockResolvedValue([LANDSCAPE_LOCATION, WILDLIFE_LOCATION]);
+    const { result } = renderHook(() => useForecasts());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    const barns = () => result.current.locations.find((l) => l.name === 'Low Barns');
+    expect(barns().forecastsByDate.get('2026-03-02').hourly).toHaveLength(1);
+
+    fetchForecastsForDate.mockResolvedValueOnce([hourly(OLDER, '08', 1), hourly(OLDER, '09', 2)]);
+    await act(async () => { await result.current.loadOlderDay(OLDER); });
+    expect(barns().forecastsByDate.get(OLDER).hourly).toHaveLength(2);
+
+    // Overlap: the list holds hours for 03-02, so the older day's hours never replace them.
+    fetchForecastsForDate.mockResolvedValueOnce([hourly('2026-03-02', '10', 9), hourly('2026-03-02', '11', 9)]);
+    await act(async () => { await result.current.loadOlderDay('2026-03-02'); });
+    expect(barns().forecastsByDate.get('2026-03-02').hourly).toHaveLength(1);
+  });
+
+  it('KEEPS the loaded day across a refresh that rebuilds the locations from the list payload', async () => {
+    const { result } = await loaded();
+    fetchForecastsForDate.mockResolvedValue([row(OLDER, 'SUNSET', { rating: 2 })]);
+    await act(async () => { await result.current.loadOlderDay(OLDER); });
+    expect(bamburgh(result).forecastsByDate.has(OLDER)).toBe(true);
+
+    // The refresh's payload knows nothing of the older day.
+    fetchForecasts.mockResolvedValue([row('2026-03-03', 'SUNSET', { rating: 5 })]);
+    await act(async () => { await result.current.refresh(); });
+
+    const entry = bamburgh(result).forecastsByDate.get(OLDER);
+    expect(entry.sunset.rating).toBe(2);
+    expect(bamburgh(result).forecastsByDate.get('2026-03-03').sunset.rating).toBe(5);
+    expect(result.current.loadedPastDays).toEqual([OLDER]);
+  });
+
+  it('returns the very same locations array when nothing has been loaded (a reader who never steps back)', async () => {
+    const { result, rerender } = await loaded();
+    const first = result.current.locations;
+    rerender();
+    expect(result.current.locations).toBe(first);
+  });
+
+  it('never writes an older day to the SWR cache', async () => {
+    const { result } = await loaded();
+    const key = storageKey('forecasts:PRO_USER');
+    const before = localStorage.getItem(key);
+    fetchForecastsForDate.mockResolvedValue([row(OLDER, 'SUNSET')]);
+
+    await act(async () => { await result.current.loadOlderDay(OLDER); });
+
+    expect(localStorage.getItem(key)).toBe(before);
+    expect(String(localStorage.getItem(key))).not.toContain(OLDER);
+  });
+
+  it('on a failed fetch leaves the roster unchanged, clears the loading state, reports the error and offers the day again', async () => {
+    const { result } = await loaded();
+    const before = result.current.locations;
+    fetchForecastsForDate.mockRejectedValue(new Error('older day failed'));
+
+    await act(async () => { await result.current.loadOlderDay(OLDER); });
+
+    expect(result.current.error).toBe('older day failed');
+    expect(result.current.olderDayLoading).toBeNull();
+    expect(result.current.loadedPastDays).toEqual([]);
+    expect(result.current.locations).toBe(before);
+
+    fetchForecastsForDate.mockResolvedValue([row(OLDER, 'SUNSET')]);
+    await act(async () => { await result.current.loadOlderDay(OLDER); });
+    expect(fetchForecastsForDate).toHaveBeenCalledTimes(2);
+    expect(result.current.loadedPastDays).toEqual([OLDER]);
+  });
+
+  it('does not ask for a day it already holds, nor for a second day while one is out', async () => {
+    const { result } = await loaded();
+    let resolve;
+    fetchForecastsForDate.mockReturnValue(new Promise((r) => { resolve = r; }));
+
+    let first;
+    act(() => { first = result.current.loadOlderDay(OLDER); });
+    await act(async () => { await result.current.loadOlderDay('2026-02-28'); });
+    expect(fetchForecastsForDate).toHaveBeenCalledTimes(1);
+
+    await act(async () => { resolve([row(OLDER, 'SUNSET')]); await first; });
+    await act(async () => { await result.current.loadOlderDay(OLDER); });
+    expect(fetchForecastsForDate).toHaveBeenCalledTimes(1);
+  });
+
+  it('stands down under an admin rewind: no request at all', async () => {
+    const { result } = await loaded();
+    setRewind('2026-03-02T12:00:00.000Z');
+    try {
+      await act(async () => { await result.current.loadOlderDay(OLDER); });
+      expect(fetchForecastsForDate).not.toHaveBeenCalled();
+      expect(result.current.olderDayLoading).toBeNull();
+    } finally {
+      setRewind(null);
+    }
+  });
+
+  it('does nothing for a missing date', async () => {
+    const { result } = await loaded();
+    await act(async () => { await result.current.loadOlderDay(null); });
+    expect(fetchForecastsForDate).not.toHaveBeenCalled();
   });
 });

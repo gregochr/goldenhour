@@ -29,6 +29,7 @@ import { formatTime } from '../utils/briefingDisplay.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useRewind } from '../hooks/useRewind.js';
 import { useOutcomeRatings } from '../hooks/useOutcomeRatings.js';
+import { olderDayState } from '../utils/mapOlderDay.js';
 
 /**
  * The framing pad, in degrees of latitude — the bundle's own figure (`map-tab.js`), and the same
@@ -42,6 +43,9 @@ const FRAME_PAD_DEG = 0.12;
  * `Map` per call would rebuild the `heat` prop on every re-render of a pane that has nothing to add.
  */
 const NO_PAST_HEAT = Object.freeze({ windows: [], pointSets: new Map() });
+
+/** Stable empty list: no older days fetched. The `loadedPastDays` prop's default, so an absent prop keeps one identity. */
+const NO_LOADED_DAYS = Object.freeze([]);
 
 /**
  * Subscribes to everything that can change whether this page is the one in front of the reader:
@@ -193,6 +197,7 @@ export default function WindowFirstMapPane({
   onForecastRun = null, seasonalFeatures = [], homeCoords,
   mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null,
   onOpenSettings = null, onOpenLocationSheet = null, onReturnToPlan = null,
+  onLoadOlderDay = null, olderDayLoading = null, loadedPastDays = NO_LOADED_DAYS,
 }) {
   const wrapRef = useRef(null);
   const [resizeNonce, setResizeNonce] = useState(0);
@@ -542,6 +547,22 @@ export default function WindowFirstMapPane({
     role, rewound, from: ratingsFrom, to: todayStr ?? null, refreshKey: locations,
   });
 
+  /**
+   * Whether the window control may offer one more stored past day, and which (outcome-rating-plan.md
+   * §2 #2, O3b): the day before the oldest date held — the forecast list's {@code dates} unioned with
+   * the older days already fetched, an empty one included — never older than T-4, and never while an
+   * admin rewind is in force (the Rewind view turns the clock back, and a rewound GET would be
+   * answered for the rewound clock; plan §5 #6). Absent a loader there is nothing to offer. A
+   * lookup over dates the pane already holds, the already-licensed filter/map class (CLAUDE.md
+   * Backend-heavy): it reads no rating and no server rule beyond the {@code MAX_PAST_DAYS} mirror.
+   */
+  const { canLoadOlder, nextOlderDate } = useMemo(() => {
+    const state = olderDayState({
+      dates, loadedPastDays, todayStr, rewound,
+    });
+    return onLoadOlderDay ? state : { canLoadOlder: false, nextOlderDate: null };
+  }, [dates, loadedPastDays, todayStr, rewound, onLoadOlderDay]);
+
   // The briefing's served tide for every window it carries (rendered or not), with its event time.
   const tideByWindow = useMemo(
     () => buildWindowTideIndex(briefing?.days, formatTime), [briefing?.days],
@@ -751,6 +772,12 @@ export default function WindowFirstMapPane({
         // The past windows the forecast list holds rows for (outcome-rating-plan.md §2 #2) — what
         // lets the window control step back onto a window the briefing has already withdrawn.
         pastSolarWindows={pastSolarWindows}
+        // The older-day fetch (outcome-rating-plan.md §2 #2, O3b): the next day to ask for, and the
+        // loader `App` owns (`useForecasts.loadOlderDay`).
+        canLoadOlder={canLoadOlder}
+        olderDayDate={nextOlderDate}
+        olderDayLoading={olderDayLoading}
+        onLoadOlderDay={onLoadOlderDay}
         autoEventType={autoEventType}
         // Withheld outright for a structured handoff (`isStructuredHandoff`) — see this component's
         // own `planHandoff` doc note just above: a structured payload's region/location/event ride
@@ -866,4 +893,10 @@ WindowFirstMapPane.propTypes = {
   onOpenSettings: PropTypes.func,
   onOpenLocationSheet: PropTypes.func,
   onReturnToPlan: PropTypes.func,
+  /** {@code (date) => void}: fetches one older stored day (`useForecasts.loadOlderDay`). Null offers none. */
+  onLoadOlderDay: PropTypes.func,
+  /** The older day being fetched now, YYYY-MM-DD, or null. */
+  olderDayLoading: PropTypes.string,
+  /** The older days already fetched, empty ones included — they still count toward the T-4 floor. */
+  loadedPastDays: PropTypes.arrayOf(PropTypes.string),
 };

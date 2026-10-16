@@ -132,15 +132,17 @@ describe('WindowControl — steppers beside a past window', () => {
 });
 
 describe('WindowControl — a past row in the open dropdown', () => {
-  it('says "Past" in the score cell instead of the unscored dash, so the row is not an unmarked filler', () => {
+  it('says "Not rated" in the score cell (the EARLIER group\'s words) instead of the unscored dash', () => {
     renderControl({ activeIndex: 2 });
     fireEvent.click(screen.getByTestId('wf-win-pill'));
     const rows = screen.getAllByTestId('wf-win-row');
     const pastRow = rows.find((r) => r.getAttribute('data-ev-id') === PAST_YESTERDAY.id);
     const liveRow = rows.find((r) => r.getAttribute('data-ev-id') === LIVE.id);
-    expect(within(pastRow).getByTestId('wf-win-row-past')).toHaveTextContent('Past');
+    expect(pastRow).toHaveAttribute('data-past', 'true');
+    expect(within(pastRow).getByTestId('wf-win-notrated')).toHaveTextContent('Not rated');
     expect(pastRow.textContent).not.toMatch(/—/);
-    expect(within(liveRow).queryByTestId('wf-win-row-past')).not.toBeInTheDocument();
+    expect(liveRow).not.toHaveAttribute('data-past');
+    expect(within(liveRow).queryByTestId('wf-win-notrated')).not.toBeInTheDocument();
   });
 
   it('draws no verdict tick on the stepper beside a past window, even when a verdict is held for it', () => {
