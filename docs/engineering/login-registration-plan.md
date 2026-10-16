@@ -397,11 +397,16 @@ spec's "shown once" being "until dismissed or a postcode exists".
 
 ### #4 `TurnstileGate` and `AuthAttemptLimiter` (R2a)
 
-`service/AuthAttemptLimiter`: Caffeine `expireAfterWrite(15 min)`, `maximumSize(100_000)`, keys
+`service/AuthAttemptLimiter`: TWO Caffeine caches, `expireAfterWrite(15 min)` and
+`expireAfterWrite(1 h)` (`Window.QUARTER_HOUR` / `Window.HOUR`), each `maximumSize(100_000)`, keys
 `String`, values `AtomicInteger` obtained with `get(key, k -> new AtomicInteger())` and incremented
 in place — so the entry's write time is the FIRST attempt and the window is fixed from it: a locked
-key recovers 15 minutes after its first attempt, never sliding; `boolean tryAcquire(String key, int
-limit)` answers `incrementAndGet() <= limit`; an injectable `Ticker`; `void clear()` for tests. ⚠️
+key recovers one window after its first attempt, never sliding; `boolean tryAcquire(String key, int
+limit, Window window)` answers `incrementAndGet() <= limit`; an injectable `Ticker`; `void clear()`
+for tests. ⚠️ The per-endpoint `global:` keys live in the HOURLY cache (Codex, R0 review: one
+15-minute cache for every key would have reset the "60 an hour" ceiling four times an hour);
+every other key is in the quarter-hour one, and the test pins that a global key is still refused
+at minute 16 and admitted at minute 61. ⚠️
 **Keys are built from exactly the value the lookup uses**: `trim()` then `toLowerCase(Locale.ROOT)`
 for an identifier or email (" a@x" and "a@x" must share a bucket); for login ALSO the resolved
 user id when one resolves (`login:user:<id>`), so the username and the email of one account share a
@@ -529,9 +534,13 @@ dependencies): 400 for a missing password; 403 `{error: "Password is incorrect"}
 counted on `AuthAttemptLimiter` (key `delete:` + username, 5 per 15 min → 429); 409 `{error: "Admin
 accounts are deleted by another admin"}` for `ROLE_ADMIN` (the existing self-delete refusal,
 extended: it keeps the sole admin from locking the instance out). On success,
-`UserService.deleteOwnAccount(username)`: in one transaction `purgeUserRows(userId)`
-(`userDriveTimeRepository.deleteAllByUserId` — §1 #2 — then anything the integration test below
-shows has no cascade) and `userRepository.delete(user)`; the confirmation email is sent AFTER commit
+`UserService.deleteOwnAccount(username)`: in one transaction, FIRST lock the user row
+(`userRepository.findByUsernameForUpdate`, the `SELECT … FOR UPDATE` `saveHome` uses — parent before
+children, the ordering `UserDriveTimeWriter`'s javadoc records, so a drive-time calculation that
+holds the row finishes before the purge begins and cannot re-insert between the purge and the delete;
+Codex, R0 review), then `purgeUserRows(userId)` (`userDriveTimeRepository.deleteAllByUserId` — §1 #2
+— then anything the integration test below shows has no cascade), then `userRepository.delete(user)`;
+the admin path takes the same lock by id (`findByIdForUpdate`, added); the confirmation email is sent AFTER commit
 for BOTH paths (a `TransactionSynchronization.afterCommit`, or the send moved out of the
 transactional method into its caller) — the admin path `deleteUser` calls the same `purgeUserRows`
 and the same after-commit send. 204 No Content. The access token dies with the row once R3c's filter
@@ -691,7 +700,17 @@ admin temp password) and `UserService.activateUser`. `JwtAuthenticationFilter`: 
 !jwtService.extractIssuedAt(token).isBefore(credentialsChangedAt)` (the token already carries `iat`;
 `extractIssuedAt` exists); otherwise leave the context empty and let the entry point answer 401, and
 log one INFO line through `LogSanitizer`. The `lastActiveAt` stamp keeps its hourly rule on the
-same loaded entity. Tests: `JwtAuthenticationFilterTest` — a token for a deleted user, a disabled
+same loaded entity. ⚠️ **Refresh tokens carry no issue instant** (`refresh_token` has no
+`created_at`), so the stamp alone would leave a pre-change refresh token able to mint a fresh access
+token through `/refresh` (Codex, R0 review). Every stamp site therefore ALSO calls
+`refreshTokenRepository.revokeAllActiveByUserId(userId)` in the same transaction — `changePassword`,
+the admin `resetPassword`, `activateUser` (a no-op for a fresh account) and the self-service reset
+(which already does) — and **`/change-password` then issues and returns fresh tokens for the caller**
+(`issueTokensFor` after the revoke, the response `buildAuthResponse` plus the existing `message`), so
+the device that changed the password stays signed in while every other device's next refresh is
+refused. The client side is one conditional line in `AuthContext.changePassword` — `if
+(data?.accessToken) signInWithTokens(data)` — built in R3b, safe to ship before R3c because it does
+nothing for today's `{message}` response. Tests: `JwtAuthenticationFilterTest` — a token for a deleted user, a disabled
 user, a token issued before the stamp, one issued after it, one with a null stamp; a `@DataJpaTest`
 for the scoped update; `integration/CredentialsChangedAtMigrationTest` (CI-only). ⚠️ The clock
 comparison tolerates one second of skew (`iat` is whole seconds; the stamp is micros): a token
@@ -824,7 +843,8 @@ the label row), `LoginPage.jsx` (label, link, `onForgotPassword` prop), `App.jsx
 `showForgot` state; `/reset` by pathname with `?token=` BEFORE the token test; the legacy `?token=`
 on any other path still verify mode; the consumed URL replaced with `/`), `AuthContext.jsx`
 (`signInWithTokens(data)`, `completeRegistration` delegating to it and setting `registrationPending`,
-`finishRegistration()`, the flag cleared by `logout` and the session-expired handler — §2 #2),
+`finishRegistration()`, the flag cleared by `logout` and the session-expired handler — §2 #2;
+`changePassword` storing fresh tokens when the response carries them — §2 #13),
 `authApi.js`, tests (`LoginPage.test.jsx`: identifier label, the link calls the prop, the fallback
 still enables submit; `App.test.jsx`: `/reset?token=x` mounts the reset page with no token stored
 AND with one stored, `/verify?token=x` and `/?token=x` both mount verify mode, a consumed token
@@ -837,8 +857,9 @@ Reset (checklist) at the three sizes.
 
 §2 #13. Files: the migration, `AppUserEntity`, `AppUserRepository` (`stampCredentialsChangedAt`),
 `config/JwtAuthenticationFilter.java`, `service/AuthenticationService.java` (`changePassword`
-stamps), `service/PasswordResetService.java` (the `TODO(R3c)`), `service/UserService.java`
-(`resetPassword`, `activateUser` stamp), `JwtService` (only if `extractIssuedAt` is not already
+stamps, revokes every active refresh token and returns fresh tokens), `controller/AuthController.java`
+(`/change-password` answers `buildAuthResponse` + `message`), `service/PasswordResetService.java`
+(the `TODO(R3c)`), `service/UserService.java` (`resetPassword` and `activateUser` stamp and revoke), `JwtService` (only if `extractIssuedAt` is not already
 public), tests: `JwtAuthenticationFilterTest` (the five cases), `AppUserRepositoryTest`
 (`@DataJpaTest`, the scoped update), the three services' tests (the stamp call), `integration/
 CredentialsChangedAtMigrationTest` (CI-only). No frontend change: a 401 already fires the session-
@@ -893,7 +914,8 @@ possible without a session; "tested, not seen".
 ### R5a — account deletion (backend)
 
 Task 15 (backend). Files: `controller/AccountController.java` (new), `service/UserService.java`
-(`deleteOwnAccount`, `purgeUserRows`, `deleteUser` through both and the after-commit send),
+(`deleteOwnAccount`, `purgeUserRows`, `deleteUser` through both, the row lock first, the after-commit
+send), `AppUserRepository` (`findByIdForUpdate`),
 `AbstractControllerTest` (the controller's dependencies), tests (`AccountControllerTest`: 204, 400,
 403 + the limiter's 429, 409 for an admin, LITE and PRO both allowed; `UserServiceTest`: purge before
 delete, the email after commit on both paths, an admin refused; `integration/
@@ -1074,7 +1096,11 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Refuted and kept: the `AuthGate` instance-preservation mechanism,
+disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added three P1s, folded in: refresh tokens issued before a
+credential change must die too (every stamp site revokes them; `/change-password` re-issues for the
+caller — §2 #13); the global fallback ceilings need their own hourly window (§2 #4); the deletion
+locks the user row before purging drive times (§2 #7). Refuted and kept: the `AuthGate`
+instance-preservation mechanism,
 the two-origins claim, the nginx header inheritance and bind-mount claims, Vite's copying of
 `public/.well-known`, the cascade inventory, the DELETE body, the migration numbering, the lifting
 of "never push".
