@@ -7,9 +7,11 @@ import AuthHeading from './auth/AuthHeading.jsx';
 import PasswordInput from './auth/PasswordInput.jsx';
 
 /**
- * Full-page login form rendered when the user has no valid session.
+ * Full-page login form rendered when the user has no valid session. The first field takes a
+ * username or an email address (the wire field stays {@code username}); "Forgot password?" sits on
+ * the password label's row and appears only when the gate hands in {@code onForgotPassword}.
  */
-export default function LoginPage({ onRegister = null }) {
+export default function LoginPage({ onRegister = null, onForgotPassword = null }) {
   const { login, sessionExpired } = useAuth();
   const [turnstileToken, setTurnstileToken] = useState('');
   const [turnstileResetKey, setTurnstileResetKey] = useState(0);
@@ -45,7 +47,7 @@ export default function LoginPage({ onRegister = null }) {
 
         <div>
           <label className="block text-xs text-plex-text-secondary mb-1" htmlFor="login-username">
-            Username
+            Username or email
           </label>
           <input
             id="login-username"
@@ -60,9 +62,21 @@ export default function LoginPage({ onRegister = null }) {
         </div>
 
         <div>
-          <label className="block text-xs text-plex-text-secondary mb-1" htmlFor="login-password">
-            Password
-          </label>
+          <div className="flex justify-between items-baseline mb-1">
+            <label className="block text-xs text-plex-text-secondary" htmlFor="login-password">
+              Password
+            </label>
+            {onForgotPassword && (
+              <button
+                type="button"
+                className="text-xs text-plex-gold hover:underline"
+                onClick={onForgotPassword}
+                data-testid="login-forgot-link"
+              >
+                Forgot password?
+              </button>
+            )}
+          </div>
           <PasswordInput
             id="login-password"
             name="password"
@@ -121,4 +135,5 @@ export default function LoginPage({ onRegister = null }) {
 
 LoginPage.propTypes = {
   onRegister: PropTypes.func,
+  onForgotPassword: PropTypes.func,
 };

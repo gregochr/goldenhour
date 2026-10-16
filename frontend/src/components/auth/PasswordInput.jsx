@@ -13,6 +13,10 @@ import PropTypes from 'prop-types';
  * ({@code pr-10}) that clears the eye — see the note on {@code .field} in {@code index.css} for why
  * no other utility may sit beside it.
  *
+ * <p>{@code eyeLabel} names the field in the eye's accessible name ({@code Show <eyeLabel>} /
+ * {@code Hide <eyeLabel>}); the default {@code password} is every single-field form's. A form with
+ * two password fields passes a distinct one to each so a screen reader can tell the eyes apart.
+ *
  * <p>{@code testId} lands on the input (the existing tests' handle); the eye gets
  * {@code <testId>-toggle}.
  */
@@ -25,6 +29,7 @@ export default function PasswordInput({
   disabled = false,
   required = true,
   testId = undefined,
+  eyeLabel = 'password',
 }) {
   const [show, setShow] = useState(false);
   const controlled = value !== undefined;
@@ -43,7 +48,7 @@ export default function PasswordInput({
       />
       <button
         type="button"
-        aria-label={show ? 'Hide password' : 'Show password'}
+        aria-label={`${show ? 'Hide' : 'Show'} ${eyeLabel}`}
         data-testid={testId ? `${testId}-toggle` : undefined}
         onClick={() => setShow((v) => !v)}
         className="absolute inset-y-0 right-0 flex items-center px-3 text-plex-text-secondary hover:text-plex-text"
@@ -72,4 +77,5 @@ PasswordInput.propTypes = {
   disabled: PropTypes.bool,
   required: PropTypes.bool,
   testId: PropTypes.string,
+  eyeLabel: PropTypes.string,
 };
