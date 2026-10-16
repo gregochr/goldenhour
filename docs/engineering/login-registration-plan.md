@@ -715,18 +715,34 @@ is a small record carrying the site's WHOLE account-state change — `passwordCh
 `enable` (true for `activateUser`, which also writes the activation it does today) — so the
 password, the stamp, the flag and enabled state, and the refresh-token revocation commit together
 and a failure after the password write can neither leave the old sessions valid nor leave an
-activated user disabled (Codex, R0 round 4). **The writer locks the user row first**
+activated user disabled (Codex, R0 round 4). ⚠️ **Registration's activation entry point is
+restructured for the same reason** (Codex, R0 round 5): `RegistrationService.setPasswordAndActivate`
+is `@Transactional` today and calls `UserService.activateUser` inside it, so hashing in
+`activateUser` would still run inside the caller's open transaction and the writer would merely join
+it. It becomes a non-transactional method that reads and checks the token (hash, verified, not
+expired), encodes the password, and then calls ONE `@Transactional` helper
+(`RegistrationService.consumeAndActivate(tokenId, userId, encodedPassword, now)`) that deletes the
+token with a compare-and-set (`deleteByIdIfPresent` returning the row count; 0 → "already used",
+so two concurrent redemptions cannot both activate) and calls `CredentialChangeWriter.apply` in the
+same transaction — token consumption and the credential change stay atomic, the hash stays outside. **The writer locks the user row first**
 (`findByIdForUpdate`, the parent-before-children order). ⚠️ **Token issuance is serialised against
 it** (Codex, R0 round 4): a login that verified the OLD hash just before the writer commits would
 otherwise issue an access token with an `iat` after the stamp and insert a refresh row after the
-revoke. `issueTokensFor(user, verifiedPasswordHash)` therefore runs in its own transaction that
-takes the SAME row lock (`findByIdForUpdate`), re-reads the stored hash and refuses with the
-generic failure if it is not the one the caller verified (`login` passes the hash it matched;
-set-password, reset and activation pass the hash they just wrote; `refresh` passes the stored one it
-read under the lock) — so either the issue commits wholly before the writer, whose revoke then
-catches the new refresh row and whose stamp outdates the new `iat`, or wholly after it, and sees the
-new hash. `issueTokensFor` is the one place refresh rows are inserted, so the lock covers every
-issuance; the `refresh` path's existing compare-and-set stays. `JwtAuthenticationFilter`: after
+revoke. Issuance therefore moves out of `AuthenticationService` into its own proxied bean,
+`service/TokenIssuer` (`@Transactional issue(userId, verifiedPasswordHash)`), because
+`AuthenticationService.login` reaches `issueTokensFor` by SELF-INVOCATION, which bypasses
+`@Transactional` — the method's own Javadoc says so — and a pessimistic lock in an unproxied call
+would either throw for want of a transaction or fail to cover the refresh-row insert (Codex, R0
+round 5). `TokenIssuer.issue` takes the SAME row lock (`findByIdForUpdate`), re-reads the stored
+hash and refuses with the generic failure if it is not the one the caller verified (`login` passes
+the hash it matched; set-password, reset and activation pass the hash they just wrote; `refresh`
+passes the stored one it read under the lock) — so either the issue commits wholly before the
+writer, whose revoke then catches the new refresh row and whose stamp outdates the new `iat`, or
+wholly after it, and sees the new hash. `AuthenticationService.issueTokensFor` becomes a thin
+delegate kept only for its callers' signatures (`AuthController.setPassword`,
+`PasswordResetService`, `refresh`), each of which now passes the hash; `TokenIssuer` is the one
+place refresh rows are inserted, so the lock covers every issuance; the `refresh` path's existing
+compare-and-set stays. `JwtAuthenticationFilter`: after
 `validateToken`, load the user ONCE (the query it already makes for `lastActiveAt`); set the
 `SecurityContext` only when the row exists, `enabled` is true, and `credentialsChangedAt == null ||
 !jwtService.extractIssuedAt(token).isBefore(credentialsChangedAt.truncatedTo(ChronoUnit.SECONDS))`
@@ -893,14 +909,21 @@ Reset (checklist) at the three sizes.
 
 §2 #13. Files: the migration, `AppUserEntity`, `AppUserRepository` (`stampCredentialsChangedAt`),
 `config/JwtAuthenticationFilter.java`, `service/AuthenticationService.java` (`changePassword`
-stamps, revokes every active refresh token and returns fresh tokens), `controller/AuthController.java`
-(`/change-password` answers `buildAuthResponse` + `message`), `service/PasswordResetService.java`
+stamps, revokes every active refresh token and returns fresh tokens; `issueTokensFor` delegating to
+the issuer with the hash), new `service/TokenIssuer.java` and `service/CredentialChangeWriter.java`,
+`service/RegistrationService.java` (`setPasswordAndActivate` split, `consumeAndActivate`),
+`EmailVerificationTokenRepository` (`deleteByIdIfPresent`), `controller/AuthController.java`
+(`/change-password` answers `buildAuthResponse` + `message`; set-password passes the hash), `service/PasswordResetService.java`
 (the `TODO(R3c)`), `service/UserService.java` (`resetPassword` and `activateUser` stamp and revoke), `JwtService` (only if `extractIssuedAt` is not already
 public), tests: `JwtAuthenticationFilterTest` (the five cases), `AppUserRepositoryTest`
 (`@DataJpaTest`, the scoped update), `CredentialChangeWriterTest` (`@DataJpaTest`: each site's
 change record lands atomically; a forced failure after the password write rolls back the stamp,
-the flag and the revocation), `AuthenticationServiceTest` (`issueTokensFor` refuses when the stored
-hash moved under it; the hash each caller passes), the three services' tests (the stamp call), `integration/
+the flag and the revocation), `TokenIssuerTest` (`@DataJpaTest` over the real repositories: refuses
+when the stored hash moved under it; the row lock is taken — a `@Transactional(NOT_SUPPORTED)` test
+with two threads, one holding the row, proves the second issue waits), `AuthenticationServiceTest`
+(the hash each caller passes; `login` calls the issuer, never its own method),
+`RegistrationServiceTest` (`setPasswordAndActivate` encodes before `consumeAndActivate`; a second
+redemption of one token answers "already used"), the three services' tests (the stamp call), `integration/
 CredentialsChangedAtMigrationTest` (CI-only). No frontend change: a 401 already fires the session-
 expired path.
 
@@ -1141,7 +1164,9 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added nine P1s over four rounds, folded in: token issuance
+disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added eleven P1s over five rounds, folded in: issuance moves
+to a proxied `TokenIssuer` bean because `login` self-invokes and would bypass `@Transactional`;
+registration's activation hashes before a transactional consume-and-apply helper (§2 #13); token issuance
 is serialised against the credential writer by the user-row lock and a hash re-check (§2 #13); the
 writer carries each site's enabled/flag state so it commits with the password (§2 #13); a strict
 ASCII rule would have stranded accounts that already hold a non-ASCII address (exact match first,
