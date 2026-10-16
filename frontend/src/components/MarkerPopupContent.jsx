@@ -760,8 +760,8 @@ export default function MarkerPopupContent({
             </div>
           ) : null}
           {role === 'LITE_USER' && (
-            <p data-testid="upgrade-hint" style={{ fontSize: '12px', color: 'var(--color-plex-text-muted)', marginBottom: '8px' }}>
-              <a href="/upgrade" style={{ color: 'var(--color-plex-text)', textDecoration: 'underline', textUnderlineOffset: '2px' }}>Upgrade to Pro</a> for Fiery Sky &amp; Golden Hour scores, storm surge analysis, and full AI analysis
+            <p data-testid="upgrade-hint" style={{ fontSize: '12px', color: 'var(--color-plex-text-secondary)', marginBottom: '8px' }}>
+              Pro accounts get Fiery Sky &amp; Golden Hour scores, storm surge analysis, and full AI analysis
             </p>
           )}
 
@@ -1074,8 +1074,8 @@ export default function MarkerPopupContent({
                   </div>
                 )}
                 {role === 'LITE_USER' && (
-                  <p data-testid="upgrade-hint" style={{ fontSize: '12px', color: 'var(--color-plex-text-muted)', marginBottom: '8px' }}>
-                    <a href="/upgrade" style={{ color: 'var(--color-plex-text)', textDecoration: 'underline', textUnderlineOffset: '2px' }}>Upgrade to Pro</a> for Fiery Sky &amp; Golden Hour scores, storm surge analysis, and full AI analysis
+                  <p data-testid="upgrade-hint" style={{ fontSize: '12px', color: 'var(--color-plex-text-secondary)', marginBottom: '8px' }}>
+                    Pro accounts get Fiery Sky &amp; Golden Hour scores, storm surge analysis, and full AI analysis
                   </p>
                 )}
               </>

@@ -86,6 +86,20 @@
      under the entire window-first subtree, and nothing fails loudly when it does. */
   --color-plex-panel: #1E1712;
 
+  /* Status colours for the auth screens and Settings — error and success INK, nothing else. They
+     are their own tokens and deliberately not --color-verdict-standdown / --color-verdict-go: the
+     verdict colours mean a FORECAST verdict everywhere they appear, and a rejected password or a
+     met rule is not a forecast. `plex-ok` happens to share --color-verdict-go's value and must stay
+     a separate declaration, so a later retune of the verdict green does not drag the form text with
+     it. Contrast, measured at plan time: #F07A62 is 6.25:1 on --color-plex-surface (#221A15) and
+     6.77:1 on --color-plex-bg (#181210); #8AAE72 is 6.83:1 on #221A15 — all above the 4.5:1 that
+     12px text needs (authTokens.test.js recomputes them). They sit in this block so they
+     are declared whether or not a scanned file happens to name them yet — the --color-plex-panel
+     lesson — and `.field-error` below reaches `plex-error` through an @apply, not a class a file
+     mentions. */
+  --color-plex-error: #F07A62;
+  --color-plex-ok: #8AAE72;
+
   /* Condition channels — objective, independent of the sky verdict, and each its own hue so a
      tide, a noctilucent display and lying snow never read as three grades of one thing.
      (--color-tide is the third member and already lives above, where it is in use today.) */
@@ -433,6 +447,50 @@
      correct at 15.1:1. */
   .btn-secondary {
     @apply px-3 py-1.5 rounded-lg text-sm font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-plex-bg bg-plex-surface-light hover:bg-plex-border text-plex-text focus-visible:ring-plex-gold disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-plex-surface-light;
+  }
+
+  /* The ONE text-input style for the auth screens (and, from R4c, Settings).
+
+     ⚠️ `.field` REPLACES an input's class string; it does not sit beside the old one. Tailwind 4's
+     `utilities` layer outranks this `components` layer, so a `text-sm` or `bg-plex-surface-light`
+     left on the same element WINS — and `text-base sm:text-sm` below is the iOS Safari zoom fix
+     (a focused input under 16px makes the whole page zoom), so a leftover `text-sm` silently puts
+     the bug back. Only layout utilities (`pr-10`, `flex-1`) may accompany it; `fieldClass.test.jsx`
+     fails on `text-sm`, `bg-plex-surface-light` or a bare `rounded` on any auth input.
+     `focus:outline-hidden` for the reason `.btn` records: forced-colours mode repaints it. */
+  .field {
+    @apply w-full bg-plex-bg border border-plex-border rounded-lg px-3 py-2 text-base sm:text-sm text-plex-text placeholder:text-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold;
+  }
+
+  /* After `.field` on purpose: equal specificity, so source order is what makes the error border win. */
+  .field-error {
+    @apply border-plex-error;
+  }
+
+  /* The auth page wrapper (AuthShell). One padding rule per side, each resolved with `max()` against
+     the safe-area vars declared once on :root — the `.app-safe-modal` precedent, and never a raw
+     `env()`, which `safeAreas.test.jsx` forbids without a 0px fallback and which would double-count
+     with the vars. Below 640px the card sits at the top with 3rem of air so the keyboard cannot
+     cover the buttons (`dvh` follows the keyboard-aware viewport where `vh` does not); from 640px
+     it is centred and the top padding is the inset alone. The bottom and sides keep a gutter. */
+  .auth-shell {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    min-height: 100vh;
+    min-height: 100dvh;
+    background-color: var(--color-plex-bg);
+    padding-top: max(3rem, var(--safe-t));
+    padding-right: max(1rem, var(--safe-r));
+    padding-bottom: max(1.5rem, var(--safe-b));
+    padding-left: max(1rem, var(--safe-l));
+  }
+
+  @media (min-width: 640px) {
+    .auth-shell {
+      align-items: center;
+      padding-top: var(--safe-t);
+    }
   }
 }
 

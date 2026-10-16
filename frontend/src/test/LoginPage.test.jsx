@@ -135,7 +135,75 @@ describe('LoginPage', () => {
     expect(screen.getByText('Your session expired. Please sign in again.')).toBeInTheDocument();
   });
 
+  describe('visual foundation (login-registration-plan.md §2 #9)', () => {
+    it('sits in the auth shell: one h1 (the lockup) and an h2 "Sign in" inside the card', () => {
+      renderWithAuth(<LoginPage />);
+
+      expect(screen.getByTestId('auth-shell')).toBeInTheDocument();
+      expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+      const heading = screen.getByRole('heading', { level: 2, name: 'Sign in' });
+      expect(heading.closest('form')).toHaveClass('card');
+    });
+
+    it('draws the session-expired line INSIDE the card, ABOVE the heading, left-aligned in secondary ink', () => {
+      renderWithAuth(<LoginPage />);
+      act(() => {
+        window.dispatchEvent(new Event('goldenhour:session-expired'));
+      });
+
+      const line = screen.getByTestId('session-expired-message');
+      const heading = screen.getByRole('heading', { level: 2, name: 'Sign in' });
+      expect(line.closest('form')).toBe(heading.closest('form'));
+      expect(line.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(line).toHaveClass('text-plex-text-secondary');
+      expect(line.className).not.toMatch(/amber|text-center/);
+    });
+
+    it('gives both inputs the shared .field class and the password the eye', () => {
+      renderWithAuth(<LoginPage />);
+
+      expect(screen.getByTestId('login-username')).toHaveClass('field');
+      expect(screen.getByTestId('login-password')).toHaveClass('field', 'pr-10');
+      expect(screen.getByTestId('login-password')).toHaveAttribute('name', 'password');
+      expect(screen.getByTestId('login-password')).toHaveAttribute('autocomplete', 'current-password');
+    });
+
+    it('shows a failed sign-in in the error token', async () => {
+      const user = userEvent.setup();
+      vi.spyOn(AuthApi, 'login').mockRejectedValue(new Error('x'));
+      renderWithAuth(<LoginPage />);
+
+      await user.type(screen.getByTestId('login-username'), 'u');
+      await user.type(screen.getByTestId('login-password'), 'p');
+      await user.click(screen.getByTestId('login-submit'));
+
+      const alert = await screen.findByTestId('login-error');
+      expect(alert).toHaveClass('text-plex-error');
+      expect(alert).toHaveAttribute('role', 'alert');
+    });
+
+    it('keeps the register link a secondary-ink text button that calls onRegister', async () => {
+      const user = userEvent.setup();
+      const onRegister = vi.fn();
+      renderWithAuth(<LoginPage onRegister={onRegister} />);
+
+      const link = screen.getByTestId('login-register-link');
+      expect(link).toHaveClass('text-plex-text-secondary');
+      await user.click(link);
+      expect(onRegister).toHaveBeenCalledOnce();
+    });
+  });
+
   describe('when Turnstile fails to render (e.g. domain not whitelisted)', () => {
+    it('words the fallback line in secondary ink, not an amber warning', () => {
+      renderWithAuth(<LoginPage />);
+
+      const line = screen.getByTestId('turnstile-unavailable');
+      expect(line).toHaveTextContent("Security check unavailable — we'll verify your sign-in another way.");
+      expect(line).toHaveClass('text-xs', 'text-plex-text-secondary');
+      expect(line.className).not.toMatch(/amber/);
+    });
+
     beforeEach(() => {
       window.turnstile = {
         render: vi.fn(() => { throw new Error('Domain not whitelisted'); }),
