@@ -50,3 +50,26 @@ export async function putRating({
   });
   return response.data;
 }
+
+/**
+ * Every user's rating of one (location, date, event) — the Admin's "All ratings" list
+ * (`docs/engineering/outcome-rating-plan.md` §2 #7). ADMIN only: any other role is refused 403, so
+ * the caller never asks for it.
+ *
+ * <p>The rows come newest first with {@code mine} true on the caller's own; the forecast the ratings
+ * were recorded against rides the head. A slot nobody has rated still answers, with an empty
+ * {@code ratings} and the run the slot resolves to. Per-slot and never cached — the list is its own
+ * fetch (on the box's first expand), not part of the range read `fetchMyRatings` makes.
+ *
+ * @param {number} locationId
+ * @param {string} date `YYYY-MM-DD`
+ * @param {'SUNRISE'|'SUNSET'} eventType
+ * @returns {Promise<{eventTime: ?string, forecastRunAt: ?string, pipelineRunId: ?number,
+ *   ratings: Array<{username: string, rating: ?number, updatedAt: string, mine: boolean}>}>}
+ */
+export async function fetchAllRatingsForSlot(locationId, date, eventType) {
+  const response = await apiClient.get(`${BASE_URL}/outcome/ratings/all`, {
+    params: { locationId, date, eventType },
+  });
+  return response.data;
+}

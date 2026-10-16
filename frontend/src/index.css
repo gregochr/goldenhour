@@ -7997,6 +7997,110 @@ button.wf-hc.also.on:hover {
   border-radius: 50%;
   background: var(--color-verdict-marginal);
 }
+/* The Admin's "All ratings" box (outcome-rating-plan.md §2 #7; the prototype's `.adm`): a 1px
+   `--color-plex-border` box on the panel, radius 9, a 36px header, rows as a three-column grid
+   (name · stars or "Not seen" · time) and a mono 9.5px footer. The panel is `hidden` while collapsed;
+   the status line is OUTSIDE it (always mounted, 0 high when empty), so the sentences that arrive after
+   an open land in a region that already exists. The footer and the time keep the spec's muted ink (mono, 9.5–10px, the same call the
+   block's meta line made); the two sentences that carry content in prose ("Not seen", "No ratings
+   yet.", the status line) take the secondary ink, which the muted one cannot give at 11.5px (the
+   timestamp and footer are the spec's 10px / 9.5px muted ink, 3.55:1 on the panel, like the block's meta
+   line). Deviations from the prototype, on purpose: the name column is `minmax(0, 1fr)` with
+   `overflow-wrap: anywhere` (a bare `1fr` lets a long name push the stars out of the card); the time
+   column reserves 56px, not 64 — "Wed 23:59" in 10px mono is ~55px, and at the 238px inner width every
+   spare pixel goes to the name (~76px, about 11 characters before it wraps); an empty-state row is one
+   column; and the header has hover and an inset focus ring. */
+.wf-adm {
+  border: 1px solid var(--color-plex-border);
+  border-radius: 9px;
+  background: var(--color-plex-panel);
+}
+.wf-adm-h {
+  width: 100%;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  font-size: 12px;
+  color: var(--color-plex-text-secondary);
+  text-align: left;
+  cursor: pointer;
+}
+.wf-adm-h:hover {
+  color: var(--color-plex-text);
+}
+.wf-adm-caret {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-plex-text-muted);
+}
+/* Inset, like every control in the callout body: the body clips an outset ring. */
+.wf-adm-h:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: -2px;
+}
+.wf-adm-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.wf-adm-r {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  margin: 0;
+  padding: 6px 10px;
+  border-top: 1px solid var(--color-plex-border);
+  font-size: 12px;
+}
+.wf-adm-u {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.wf-adm-g {
+  font-size: 12px;
+  letter-spacing: 1px;
+}
+.wf-adm-t {
+  min-width: 56px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-plex-text-muted);
+  text-align: right;
+}
+.wf-adm-nsv {
+  font-size: 11.5px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-adm-empty {
+  grid-template-columns: minmax(0, 1fr);
+}
+.wf-adm-run {
+  padding: 6px 10px;
+  border-top: 1px solid var(--color-plex-border);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--color-plex-text-muted);
+}
+/* The loading / failed line. Collapsed (0 height) rather than `display: none` when empty: the region
+   stays in the accessibility tree, so text arriving in it is announced. */
+.wf-adm-state {
+  font-size: 11.5px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-adm-state:empty {
+  height: 0;
+  overflow: hidden;
+}
+.wf-adm-state:not(:empty) {
+  padding: 6px 10px;
+  border-top: 1px solid var(--color-plex-border);
+}
 @media (max-width: 639px) {
   .wf-rate-grid {
     gap: 4px;

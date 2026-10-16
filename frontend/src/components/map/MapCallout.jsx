@@ -22,6 +22,7 @@ import { ukDateStr } from '../../utils/mapDates.js';
 import { appNow, getRewindTo } from '../../utils/rewind.js';
 import { isEventTimePast } from '../../utils/briefingDisplay.js';
 import { rowKey } from '../../hooks/useOutcomeRatings.js';
+import { useSlotRatings } from '../../hooks/useSlotRatings.js';
 import OutcomeRatingBlock, { ratingView } from './OutcomeRatingBlock.jsx';
 import { nextAlignedRow } from '../../utils/mapTideFit.js';
 import TideFitBlock from './TideFitBlock.jsx';
@@ -324,7 +325,7 @@ export default function MapCallout({
   // The rating block's two layout states are OWNED here, not by the block (outcome-rating-plan.md §1
   // #3, §2 #5): the card places itself from a dependency list of its own props and state, and a child's
   // private state cannot be named in it. `changing` swaps a 40px "You rated" row for the 44px grid;
-  // `adminOpen` is O5a's collapsible list. Both reset when the selection or the window changes.
+  // `adminOpen` is the Admin's "All ratings" box (O5a). Both reset when the selection or the window changes.
   const [changing, setChanging] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   /** The candidate anchor point + band for the CURRENT paint — no DOM measurement yet. */
@@ -459,6 +460,23 @@ export default function MapCallout({
     })}${ratingFailed ? '!' : ''}`
     : null;
 
+  // The Admin's "All ratings" list (O5a, plan §2 #7). Its rows and `loading` are HOISTED here, above the
+  // block, for the same reason `changing` is: they change the card's height and the card places itself
+  // from this component's own dependency list. ADMIN only, and only while the block itself is mounted
+  // for this slot — any other role passes `enabled: false` and the hook never makes the request.
+  const isAdmin = userRole === 'ADMIN';
+  const slotRatings = useSlotRatings({
+    enabled: isAdmin && showRating,
+    locationId: location?.id ?? null,
+    date: event?.date ?? null,
+    eventType: event?.eventType ?? null,
+    open: adminOpen,
+  });
+  // One string naming everything about the box that changes the card's height.
+  const adminLayout = isAdmin && showRating
+    ? `${adminOpen ? 'o' : 'c'}${slotRatings.loading ? 'l' : ''}${slotRatings.failed ? 'f' : ''}:${slotRatings.rows?.length ?? '-'}`
+    : null;
+
   // Repaint on anything that is not a map event but can change the anchor point or the card's own
   // size: a new selection, a different active window (content/height changes), or the strip's own
   // disclosure toggling. `paint`'s identity already moves with `location`; `stripOpen` and
@@ -520,6 +538,12 @@ export default function MapCallout({
   // this component owns for it, `changing` and `adminOpen` — a child's own state cannot be named here,
   // which is why they live in this component.
   //
+  // ⚠️ And `adminLayout` (O5a): the Admin's "All ratings" box is a 36px header that grows into a list
+  // when opened, and the rows arrive from a fetch that lands after the open — so the box's open flag,
+  // its loading and failed states and its row count all change the card's height with nothing else
+  // here moving. They are folded into one string because the rows and `loading` live in a hook this
+  // component calls, not in the block, where the card could not see them.
+  //
   // ⚠️ And `hourlyRows` — a wildlife hide's comfort summary is 2–5 lines of text whose number and
   // height depend on which readings are served for the window's date, and the forecast refresh that
   // lands them can arrive with the card already open. Stable between ordinary renders (the caller
@@ -529,7 +553,7 @@ export default function MapCallout({
   useEffect(() => { repaintNow(); }, [
     paint, stripOpen, event?.id, event?.past, rating, ratingKnown, ratingRetrying,
     tideAlignmentIndex, tideStripHeight, bandKey, hourlyRows, ratingLayout, changing, adminOpen,
-    repaintNow,
+    adminLayout, repaintNow,
   ]);
 
   // "On open": bring the point into view — ONCE per new selection, never on every paint (README §7
@@ -1040,8 +1064,23 @@ export default function MapCallout({
             saveError={ratingFailed}
             changing={changing}
             onChangingChange={setChanging}
-            onRate={(value) => ratings.rate(location.id, event.date, event.eventType, value)}
+            onRate={async (value) => {
+              const ok = await ratings.rate(location.id, event.date, event.eventType, value);
+              // The admin's own save landed: the list they may have open (or opened before) is stale.
+              // The hook acts only when that slot is the one it holds a fetch for.
+              if (ok && isAdmin) slotRatings.refetch(ratingKey);
+              return ok;
+            }}
             onClearError={() => ratings.clearSaveError(ratingKey)}
+            admin={isAdmin ? {
+              open: adminOpen,
+              onToggle: () => setAdminOpen((o) => !o),
+              loading: slotRatings.loading,
+              failed: slotRatings.failed,
+              rows: slotRatings.rows,
+              eventTime: slotRatings.eventTime,
+              forecastRunAt: slotRatings.forecastRunAt,
+            } : null}
           />
         )}
 

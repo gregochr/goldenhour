@@ -1,6 +1,7 @@
 import { useId, useLayoutEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import ProPill from '../shared/ProPill.jsx';
+import OutcomeAdminList from './OutcomeAdminList.jsx';
 import {
   CHANGE, LITE_LOCKED, LITE_PROMPT, NOT_SEEN_BUTTON, NOT_SEEN_DONE, QUESTION, RATED_PREFIX,
   REPLACE_NOT_SEEN, SAVE_FAILED, ratedNumeral, replaceMeta, spokenRating, starLabel, unratedMeta,
@@ -92,10 +93,15 @@ Glyphs.propTypes = { rating: PropTypes.number.isRequired };
  * @param {function(?number): Promise<boolean>} props.onRate 1..5, or null for "didn't see it";
  *        resolves true when the save landed
  * @param {function(): void} [props.onClearError] clears this slot's save error — pressed Change, and on unmount
+ * @param {?object} [props.admin] the Admin's "All ratings" box (O5a, plan §2 #7), drawn under the
+ *        reader's own block in either layout; null for every other role, which never mounts it. Its
+ *        state ({@code open}, the rows, {@code loading}) is the callout's, for the same reason
+ *        {@code changing} is: the card cannot place itself from state it cannot see. See
+ *        {@code OutcomeAdminList} for the shape.
  */
 export default function OutcomeRatingBlock({
   event, mine = null, userRole = null, saving = false, saveError = false, changing = false,
-  onChangingChange, onRate, onClearError = null,
+  onChangingChange, onRate, onClearError = null, admin = null,
 }) {
   const view = ratingView({
     userRole, mine, changing, saving, saveError,
@@ -159,6 +165,13 @@ export default function OutcomeRatingBlock({
   };
 
   const kindAttr = event.eventType === 'SUNRISE' ? 'sunrise' : 'sunset';
+  // ADMIN only: the role is checked HERE as well as by the callout that builds the prop, so a caller
+  // that passed `admin` for another role would still draw nothing; and never beside the Lite lock.
+  // The fixed `key` is load-bearing: the list sits at a different child index in the 'done' and 'grid'
+  // layouts, and without it React would unmount and remount it when a save lands, taking focus off a
+  // toggle the admin was using.
+  const adminList = admin && userRole === 'ADMIN' && view !== 'lite'
+    ? <OutcomeAdminList key="admin" eventType={event.eventType} admin={admin} /> : null;
 
   if (view === 'done') {
     const rated = mine.rating != null;
@@ -194,6 +207,7 @@ export default function OutcomeRatingBlock({
             {CHANGE}
           </button>
         </div>
+        {adminList}
       </div>
     );
   }
@@ -273,6 +287,7 @@ export default function OutcomeRatingBlock({
           ) : null}
         </div>
       )}
+      {adminList}
     </div>
   );
 }
@@ -291,4 +306,18 @@ OutcomeRatingBlock.propTypes = {
   onChangingChange: PropTypes.func.isRequired,
   onRate: PropTypes.func.isRequired,
   onClearError: PropTypes.func,
+  admin: PropTypes.shape({
+    open: PropTypes.bool.isRequired,
+    onToggle: PropTypes.func.isRequired,
+    loading: PropTypes.bool,
+    failed: PropTypes.bool,
+    rows: PropTypes.arrayOf(PropTypes.shape({
+      username: PropTypes.string.isRequired,
+      rating: PropTypes.number,
+      updatedAt: PropTypes.string,
+      mine: PropTypes.bool,
+    })),
+    eventTime: PropTypes.string,
+    forecastRunAt: PropTypes.string,
+  }),
 };
