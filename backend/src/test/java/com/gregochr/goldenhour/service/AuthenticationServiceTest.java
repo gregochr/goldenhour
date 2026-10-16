@@ -460,6 +460,25 @@ class AuthenticationServiceTest {
         }
 
         @Test
+        @DisplayName("with two candidates the fallback takes BOTH accounts' budgets before any password is "
+                + "compared, and a spent second budget refuses without comparing")
+        void fallback_twoCandidates_takeBothBudgetsFirst() {
+            AppUserEntity namedLikeAnAddress = AppUserEntity.builder().id(3L).username(ADDRESS)
+                    .password("named-hash").role(UserRole.LITE_USER).enabled(true).build();
+            when(userRepository.findByUsername(ADDRESS)).thenReturn(Optional.of(namedLikeAnAddress));
+            when(userRepository.findByEmail(ADDRESS)).thenReturn(Optional.of(reader));
+            when(attemptLimiter.tryAcquire("fallback:login:user:3", 5, AuthAttemptLimiter.Window.QUARTER_HOUR))
+                    .thenReturn(true);
+            when(attemptLimiter.tryAcquire("fallback:login:user:7", 5, AuthAttemptLimiter.Window.QUARTER_HOUR))
+                    .thenReturn(false);
+
+            assertThatThrownBy(() -> service.login(ADDRESS, "pw", true))
+                    .isInstanceOf(TooManyAttemptsException.class);
+
+            verifyNoInteractions(passwordEncoder);
+        }
+
+        @Test
         @DisplayName("an ambiguous or unmatched email falls back to the exact username candidate")
         void ambiguousEmail_fallsBackToTheUsernameCandidate() {
             AppUserEntity namedLikeAnAddress = AppUserEntity.builder().id(3L).username("a@b.example")

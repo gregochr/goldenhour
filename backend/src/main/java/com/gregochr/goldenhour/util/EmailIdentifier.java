@@ -2,9 +2,9 @@ package com.gregochr.goldenhour.util;
 
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.repository.AppUserRepository;
+import com.gregochr.goldenhour.service.AuthAttemptLimiter;
 
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 
 /**
@@ -20,7 +20,7 @@ import java.util.Optional;
  *       for every address and the only one a non-ASCII address ever gets;</li>
  *   <li>only when the trimmed identifier is pure ASCII and the exact match found nothing, a
  *       case-insensitive match: an explicit {@code LOWER(email) = :key} with the key lower-cased in Java
- *       with {@link Locale#ROOT};</li>
+ *       with {@code Locale.ROOT};</li>
  *   <li>only rows of the requested {@link Kind} count (active for sign-in and reset, pending for
  *       resend); two or more case-insensitive matches are no match;</li>
  *   <li>callers mail the STORED {@code user.getEmail()}, never the request's text.</li>
@@ -41,14 +41,14 @@ public final class EmailIdentifier {
 
     /**
      * Normalises an address to the key the email reservation table and the case-insensitive queries use:
-     * trimmed and lower-cased with {@link Locale#ROOT}, so the key never depends on the JVM or database
+     * trimmed and lower-cased with {@code Locale.ROOT}, so the key never depends on the JVM or database
      * locale. A null is the empty string.
      *
      * @param email the address as typed or stored
      * @return the key form
      */
     public static String normalise(String email) {
-        return email == null ? "" : email.trim().toLowerCase(Locale.ROOT);
+        return AuthAttemptLimiter.normalise(email);
     }
 
     /**

@@ -122,7 +122,7 @@ class PasswordResetServiceTest {
         }
 
         @Test
-        @DisplayName("an unknown address sends nothing and touches neither the limiter budget nor the issuer")
+        @DisplayName("an unknown address sends nothing and never reaches the issuer")
         void unknownAddress_doesNothing() {
             when(userRepository.findByEmail("ghost@example.com")).thenReturn(Optional.empty());
             when(userRepository.findActiveByEmailLower("ghost@example.com")).thenReturn(List.of());
@@ -220,6 +220,25 @@ class PasswordResetServiceTest {
 
             verify(issuer, times(3)).issue(7L, "hashed-reset-token");
             verify(issuer, times(1)).issue(9L, "hashed-reset-token");
+        }
+
+        @Test
+        @DisplayName("the budget follows the ACCOUNT, not the typed text: three casings of one address share "
+                + "it, so a fourth variant is dropped too")
+        void budgetIsSharedAcrossCasingsOfOneAddress() {
+            when(userRepository.findByEmail(anyString())).thenReturn(Optional.empty());
+            when(userRepository.findActiveByEmailLower("reader@example.com")).thenReturn(List.of(reader));
+            stubMinting();
+            when(issuer.issue(7L, "hashed-reset-token"))
+                    .thenReturn(Optional.of(new IssuedLink("Reader@Example.com", "reader")));
+
+            List<String> casings = List.of("reader@example.com", "READER@example.com",
+                    "Reader@EXAMPLE.com", "rEaDeR@example.com");
+            for (String typed : casings) {
+                service.requestReset(typed);
+            }
+
+            verify(issuer, times(3)).issue(7L, "hashed-reset-token");
         }
 
         @Test

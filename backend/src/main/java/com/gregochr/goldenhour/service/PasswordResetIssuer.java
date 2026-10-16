@@ -23,9 +23,12 @@ import java.util.Optional;
  * that stale instance back. It deletes the account's earlier unused links, inserts the new one and
  * returns the STORED address to mail.
  *
- * <p>The lock is what orders this against an admin's email change (which deletes the account's unused
- * links under the same lock): a request racing the change either commits first and is deleted by it, or
- * commits after and mails the NEW address — never a link that survives into the old mailbox.
+ * <p>The row lock is what will order this against an admin's email change: R3c makes that change take the
+ * same lock and delete the account's unused links, so a request racing it either commits first and is
+ * deleted, or commits after and mails the NEW address. ⚠️ Until R3c lands {@code UserService.setEmail}
+ * takes no lock and voids no links, so a link already mailed to a mailbox the admin has since replaced
+ * stays redeemable for its hour (a request made AFTER the change mails the new address, because the
+ * address is read here under the lock).
  */
 @Component
 public class PasswordResetIssuer {

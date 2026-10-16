@@ -82,11 +82,50 @@ class UniqueViolationTest {
     }
 
     @Test
+    @DisplayName("a violation that is not a unique key is OTHER even when the wrapper's SQL text names the "
+            + "username column: the evidence is the driver's constraint, never the statement")
+    void notNullViolation_withUsernameInTheSqlTail_isOther() {
+        DataIntegrityViolationException notNull = new DataIntegrityViolationException(
+                "could not execute statement [ERROR: null value in column \"role\" violates not-null "
+                        + "constraint] [insert into app_user (email,username,role) values (?,?,?)]",
+                new SQLException("ERROR: null value in column \"role\" violates not-null constraint"));
+
+        assertThat(UniqueViolation.classify(notNull)).isEqualTo(Kind.OTHER);
+    }
+
+    @Test
+    @DisplayName("the wrapper's SQL tail does not turn the legacy email index into a username conflict")
+    void legacyEmailIndex_withUsernameInTheSqlTail_isEmail() {
+        DataIntegrityViolationException duplicate = new DataIntegrityViolationException(
+                "could not execute statement [insert into app_user (email,username) values (?,?)]",
+                new SQLException("ERROR: duplicate key value violates unique constraint \"idx_app_user_email\"\n"
+                        + "  Detail: Key (email)=(a@b.example) already exists."));
+
+        assertThat(UniqueViolation.classify(duplicate)).isEqualTo(Kind.EMAIL);
+    }
+
+    @Test
+    @DisplayName("the offending VALUE is not evidence: a username race loser whose name looks like a "
+            + "constraint is still a USERNAME conflict")
+    void hostileValue_doesNotChangeTheClassification() {
+        DataIntegrityViolationException duplicate = new DataIntegrityViolationException("x",
+                new SQLException("ERROR: duplicate key value violates unique constraint "
+                        + "\"app_user_username_key\"\n  Detail: Key (username)=(idx_app_user_email) "
+                        + "already exists."));
+        DataIntegrityViolationException h2 = new DataIntegrityViolationException("x",
+                new SQLException("Unique index or primary key violation: \"PUBLIC.UK_X_INDEX_4 ON "
+                        + "PUBLIC.APP_USER(USERNAME NULLS FIRST) VALUES ( /* 1 */ 'idx_app_user_email' )\""));
+
+        assertThat(UniqueViolation.classify(duplicate)).isEqualTo(Kind.USERNAME);
+        assertThat(UniqueViolation.classify(h2)).isEqualTo(Kind.USERNAME);
+    }
+
+    @Test
     @DisplayName("the 409 sentences are the agreed ones")
     void conflictSentences() {
-        assertThat(UniqueViolation.conflictMessage(viaDriver("violates \"pk_app_user_email_claim\"")))
+        assertThat(UniqueViolation.conflictMessage(viaDriver("duplicate key violates \"pk_app_user_email_claim\"")))
                 .contains("Email already registered");
-        assertThat(UniqueViolation.conflictMessage(viaDriver("violates \"app_user_username_key\"")))
+        assertThat(UniqueViolation.conflictMessage(viaDriver("duplicate key violates \"app_user_username_key\"")))
                 .contains("Username already taken");
     }
 

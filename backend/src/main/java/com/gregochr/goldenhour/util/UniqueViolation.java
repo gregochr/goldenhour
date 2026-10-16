@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.util;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 
+import java.sql.SQLException;
 import java.util.Locale;
 import java.util.Optional;
 
@@ -53,26 +54,38 @@ public final class UniqueViolation {
         };
     }
 
+    /** The cause chain is walked at most this deep, so a cyclic chain cannot loop. */
+    private static final int MAX_CAUSE_DEPTH = 10;
+
     /**
      * Classifies a data-integrity violation.
+     *
+     * <p>The evidence is the violated constraint's NAME, never the wrapper messages: Hibernate's and
+     * Spring's messages end with the SQL text ({@code insert into app_user (email, username …)}), which
+     * names columns the violation had nothing to do with, and a driver's detail line carries the offending
+     * VALUE (a username can be called {@code idx_app_user_email}). So the name comes from Hibernate's own
+     * {@link ConstraintViolationException} when the chain has one, and otherwise from the driver's
+     * {@link SQLException} message cut before its detail line, its value list and its SQL, and only when
+     * that message says the violation was of a unique key.
      *
      * @param ex the violation caught around a service call
      * @return the constraint family it belongs to
      */
     public static Kind classify(DataIntegrityViolationException ex) {
-        StringBuilder evidence = new StringBuilder();
-        for (Throwable t = ex; t != null; t = t.getCause()) {
+        String evidence = null;
+        int depth = 0;
+        for (Throwable t = ex; t != null && depth < MAX_CAUSE_DEPTH && evidence == null;
+                t = t.getCause(), depth++) {
             if (t instanceof ConstraintViolationException cve && cve.getConstraintName() != null) {
-                evidence.append(cve.getConstraintName()).append(' ');
-            }
-            if (t.getMessage() != null) {
-                evidence.append(t.getMessage()).append(' ');
-            }
-            if (t.getCause() == t) {
-                break;
+                evidence = cve.getConstraintName();
+            } else if (t instanceof SQLException sql && sql.getMessage() != null) {
+                evidence = constraintPart(sql.getMessage());
             }
         }
-        String text = evidence.toString().toLowerCase(Locale.ROOT);
+        if (evidence == null) {
+            return Kind.OTHER;
+        }
+        String text = evidence.toLowerCase(Locale.ROOT);
         if (text.contains("app_user_email_claim") || text.contains("idx_app_user_email")) {
             return Kind.EMAIL;
         }
@@ -80,5 +93,31 @@ public final class UniqueViolation {
             return Kind.USERNAME;
         }
         return Kind.OTHER;
+    }
+
+    /**
+     * Cuts a driver message down to the part that names the violated key, or to nothing when it is not a
+     * unique-key violation at all.
+     *
+     * @param message the driver's message
+     * @return the leading part of the first line, before any value list or SQL; null if not a unique
+     *         violation
+     */
+    private static String constraintPart(String message) {
+        String firstLine = message.lines().findFirst().orElse("");
+        String lower = firstLine.toLowerCase(Locale.ROOT);
+        if (!lower.contains("unique") && !lower.contains("duplicate")) {
+            return null;
+        }
+        int values = lower.indexOf(" values");
+        int bracket = lower.indexOf(" [");
+        int cut = firstLine.length();
+        if (values >= 0) {
+            cut = Math.min(cut, values);
+        }
+        if (bracket >= 0) {
+            cut = Math.min(cut, bracket);
+        }
+        return firstLine.substring(0, cut);
     }
 }

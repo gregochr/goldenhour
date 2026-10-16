@@ -18,6 +18,7 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.orm.jpa.EntityManagerHolder;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -27,6 +28,7 @@ import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doThrow;
 
 /**
  * Proves {@link PasswordResetRedeemer} against a real JPA stack, in the one shape that can fail for the
@@ -57,7 +59,7 @@ class PasswordResetRedeemerTest {
     private AppUserRepository users;
     @Autowired
     private PasswordResetTokenRepository tokens;
-    @Autowired
+    @MockitoSpyBean
     private RefreshTokenRepository refreshTokens;
     @Autowired
     private JdbcTemplate jdbc;
@@ -195,6 +197,21 @@ class PasswordResetRedeemerTest {
                 .hasMessage("This reset link has already been used");
 
         assertThat(storedPassword()).isEqualTo("old-hash");
+    }
+
+    @Test
+    @DisplayName("the redemption is ATOMIC: a failure after the token was consumed and the password set rolls "
+            + "both back, so a consumed token never sits beside an unchanged password")
+    void redeem_failureAfterTheWrites_rollsEverythingBack() {
+        doThrow(new IllegalStateException("revoke failed")).when(refreshTokens).revokeAllActiveByUserId(userId);
+
+        assertThatThrownBy(() -> redeemer.redeem(tokenId, userId, "new-hash", NOW))
+                .isInstanceOf(IllegalStateException.class);
+
+        assertThat(usedAt(tokenId)).isNull();
+        assertThat(storedPassword()).isEqualTo("old-hash");
+        assertThat(jdbc.queryForObject("SELECT password_change_required FROM app_user WHERE id = ?",
+                Boolean.class, userId)).isTrue();
     }
 
     @Test

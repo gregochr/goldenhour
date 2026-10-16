@@ -3,6 +3,8 @@ package com.gregochr.goldenhour.repository;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.service.EmailClaims;
+import com.gregochr.goldenhour.service.UserService;
+import com.gregochr.goldenhour.service.notification.UserEmailService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,6 +15,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -177,6 +180,58 @@ class AppUserEmailClaimRepositoryTest {
 
         assertThatCode(() -> emailClaims.claim("FOO@x.com", alice.getId())).doesNotThrowAnyException();
         assertThatThrownBy(() -> emailClaims.claim("bar@x.com", alice.getId()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Email already registered");
+    }
+
+    private UserService userService() {
+        PasswordEncoder encoder = org.mockito.Mockito.mock(PasswordEncoder.class);
+        org.mockito.Mockito.when(encoder.encode(org.mockito.ArgumentMatchers.any())).thenReturn("hash");
+        return new UserService(users, encoder, org.mockito.Mockito.mock(UserEmailService.class), emailClaims);
+    }
+
+    @Test
+    @DisplayName("createPendingUser with the REAL claim: a retried sign-up replaces its abandoned pending row, "
+            + "reuses the surviving reservation and leaves exactly one account and one reservation")
+    void createPendingUser_retryReplacesTheAbandonedRow() {
+        UserService service = userService();
+        AppUserEntity first = service.createPendingUser("first", "Retry@X.com", true, UserRole.LITE_USER);
+        assertThat(reservations("retry@x.com")).isEqualTo(1);
+
+        AppUserEntity second = service.createPendingUser("second", "retry@x.com", false, UserRole.LITE_USER);
+
+        assertThat(second.getId()).isNotEqualTo(first.getId());
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM app_user WHERE LOWER(email) = 'retry@x.com'",
+                Integer.class)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT username FROM app_user WHERE LOWER(email) = 'retry@x.com'",
+                String.class)).isEqualTo("second");
+        assertThat(reservations("retry@x.com")).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("createPendingUser with the REAL claim: a case variant of an ACTIVE account's address is "
+            + "refused 'Email already registered' and the active account survives")
+    void createPendingUser_againstAnActiveCaseVariant_isRefused() {
+        UserService service = userService();
+        account("alice", "Alice@X.com");
+        claims.insertClaim("alice@x.com", NOW);
+
+        assertThatThrownBy(() -> service.createPendingUser("mallory", "ALICE@x.com", true, UserRole.LITE_USER))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Email already registered");
+
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM app_user", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("createUser with the REAL claim refuses a case variant of an existing address and "
+            + "reserves a new one")
+    void createUser_claimsAndRefusesCaseVariants() {
+        UserService service = userService();
+        service.createUser("admin-made", "pass", UserRole.LITE_USER, "Made@X.com");
+        assertThat(reservations("made@x.com")).isEqualTo(1);
+
+        assertThatThrownBy(() -> service.createUser("other", "pass", UserRole.LITE_USER, "MADE@x.com"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("Email already registered");
     }

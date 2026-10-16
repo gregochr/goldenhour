@@ -142,7 +142,8 @@ public class UserController {
      * @param id   the user's primary key
      * @param body map containing {@code email}
      * @return 200 on success, 400 if the email is missing, invalid, or user not found, or 409 when the
-     *         address is already registered to another account
+     *         address is an exact duplicate of another account's (the reservation of case variants is
+     *         written by the create paths today; the edit joins them in R3c)
      */
     @PutMapping("/{id}/email")
     public ResponseEntity<Object> setEmail(
