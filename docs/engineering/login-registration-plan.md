@@ -720,11 +720,13 @@ restructured for the same reason** (Codex, R0 round 5): `RegistrationService.set
 is `@Transactional` today and calls `UserService.activateUser` inside it, so hashing in
 `activateUser` would still run inside the caller's open transaction and the writer would merely join
 it. It becomes a non-transactional method that reads and checks the token (hash, verified, not
-expired), encodes the password, and then calls ONE `@Transactional` helper
-(`RegistrationService.consumeAndActivate(tokenId, userId, encodedPassword, now)`) that deletes the
-token with a compare-and-set (`deleteByIdIfPresent` returning the row count; 0 → "already used",
-so two concurrent redemptions cannot both activate) and calls `CredentialChangeWriter.apply` in the
-same transaction — token consumption and the credential change stay atomic, the hash stays outside. **The writer locks the user row first**
+expired), encodes the password, and then calls ONE `@Transactional` method on the SEPARATE writer bean
+(`CredentialChangeWriter.consumeVerificationAndApply(tokenId, userId, encodedPassword, change,
+now)` — never a method on `RegistrationService` itself, which would be the same self-invocation
+trap the issuer avoids; Codex, R0 round 6) that locks the user row, deletes the token with a
+compare-and-set (`deleteByIdIfPresent` returning the row count; 0 → "already used", so two
+concurrent redemptions cannot both activate) and applies the credential change in the same
+transaction — token consumption and the credential change stay atomic, the hash stays outside. **The writer locks the user row first**
 (`findByIdForUpdate`, the parent-before-children order). ⚠️ **Token issuance is serialised against
 it** (Codex, R0 round 4): a login that verified the OLD hash just before the writer commits would
 otherwise issue an access token with an `iat` after the stamp and insert a refresh row after the
@@ -741,8 +743,14 @@ writer, whose revoke then catches the new refresh row and whose stamp outdates t
 wholly after it, and sees the new hash. `AuthenticationService.issueTokensFor` becomes a thin
 delegate kept only for its callers' signatures (`AuthController.setPassword`,
 `PasswordResetService`, `refresh`), each of which now passes the hash; `TokenIssuer` is the one
-place refresh rows are inserted, so the lock covers every issuance; the `refresh` path's existing
-compare-and-set stays. `JwtAuthenticationFilter`: after
+place refresh rows are inserted, so the lock covers every issuance. ⚠️ **One lock order
+everywhere: the `app_user` row FIRST, then `refresh_token` / `user_drive_time` / the token tables**
+(Codex, R0 round 6; `UserDriveTimeWriter`'s own rule). `AuthenticationService.refresh` therefore
+takes `findByIdForUpdate` on the user BEFORE its `revokeIfActive` compare-and-set (today it locks
+the refresh row first and would deadlock against the writer, which holds the user row and then
+revokes), and the issuer's own `findByIdForUpdate` inside that same transaction is a re-lock of a
+row already held; `TokenIssuerTest`'s two-thread case runs the writer and a refresh concurrently
+and asserts no deadlock and one loser. `JwtAuthenticationFilter`: after
 `validateToken`, load the user ONCE (the query it already makes for `lastActiveAt`); set the
 `SecurityContext` only when the row exists, `enabled` is true, and `credentialsChangedAt == null ||
 !jwtService.extractIssuedAt(token).isBefore(credentialsChangedAt.truncatedTo(ChronoUnit.SECONDS))`
@@ -1164,7 +1172,10 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added eleven P1s over five rounds, folded in: issuance moves
+disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added thirteen P1s over six rounds, folded in: the
+consume-and-activate helper lives on the separate writer bean, not on `RegistrationService`;
+`refresh` locks the user row before its refresh-token compare-and-set, one lock order app-wide
+(§2 #13); issuance moves
 to a proxied `TokenIssuer` bean because `login` self-invokes and would bypass `@Transactional`;
 registration's activation hashes before a transactional consume-and-apply helper (§2 #13); token issuance
 is serialised against the credential writer by the user-row lock and a hash re-check (§2 #13); the
