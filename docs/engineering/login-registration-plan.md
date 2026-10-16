@@ -232,7 +232,7 @@ up. Numbered so the phases can cite them.
     access token expires, and a username freed by a self-service deletion could be re-registered while
     the old token, with its old ROLE claim, still answers for that name. R3c closes all of it with one
     rule in the filter (§2 #13): no authentication unless the row exists, is enabled, the token's `uid`
-    is the row's id and its `cv` claim equals the account's `credentials_changed_at`. The filter already pays that one
+    is the row's id and its `cv` claim equals the account's `credentials_version` counter. The filter already pays that one
     query per request; the check reorders it, it does not add one.
 20. **`landing/privacy.html` is stale for this work.** Line 36 lists the postcode as "if you choose to
     set a home location for drive time calculations — Pro feature" and line 51's processor row says
@@ -758,8 +758,10 @@ The owner redeploys landing after the release (§7).
 
 ### #13 Token invalidation (R3c)
 
-`app_user.credentials_changed_at TIMESTAMPTZ NULL` (next free `V`, no backfill: null means "never
-changed since this column existed", so every existing token stays valid), `updatable = false`,
+`app_user.credentials_changed_at TIMESTAMPTZ NULL` **and `app_user.credentials_version BIGINT NOT
+NULL DEFAULT 0`** (one migration, next free `V`, no backfill: a null stamp and version 0 mean "never
+changed since these columns existed", so every existing token stays valid), both `updatable =
+false`,
 written by `AppUserRepository.stampCredentialsChangedAt(id, now)` from `AuthenticationService
 .changePassword`, `PasswordResetService` (the R3a `TODO(R3c)`), `UserService.resetPassword` (the
 admin temp password) and `UserService.activateUser`. ⚠️ **Hash first, then one transactional
@@ -779,7 +781,7 @@ credential version and refuses under the lock when the row's has moved** (Codex,
 commits would otherwise overwrite the new password, revoke the legitimate replacement tokens and get
 fresh ones. The filter puts the token's `cv` on the `Authentication`'s details; `changePassword`
 passes it as `expectedVersion`, and `apply` answers a `StaleCredentialsException` (→ 401 "Your
-session has changed. Sign in again.") when `credentials_changed_at`'s millis differ from it. A legacy
+session has changed. Sign in again.") when `credentials_version` differs from it. A legacy
 token with no `cv` passes `null`, accepted only while the row's stamp is null (an account whose
 credentials have never changed), otherwise the same 401 — the ≤ 24 h window again. The reset,
 activation and admin paths pass no expectation (their authority is the token or the admin role, and
@@ -838,8 +840,11 @@ and asserts no deadlock and one loser. `JwtAuthenticationFilter`: after
 `validateToken`, load the user ONCE (the query it already makes for `lastActiveAt`); set the
 `SecurityContext` only when the row exists, `enabled` is true, and **the token's credential version
 matches the row**: `JwtService.generateAccessToken` adds a `cv` claim = the account's
-`credentials_changed_at` as epoch milliseconds (`0` when null), read under the issuer's row lock, and
-the filter rejects a token whose `cv` is not exactly the loaded row's current value (Codex, R0
+`credentials_version` — a monotonic counter the writer increments by one in the same statement that
+stamps `credentials_changed_at` (`SET credentials_version = credentials_version + 1, …`; Codex, R0
+round 16: an epoch-millisecond stamp can collide for two serialized changes in one millisecond,
+which would leave the first change's access token valid after the second) — read under the issuer's
+row lock, and the filter rejects a token whose `cv` is not exactly the loaded row's current value (Codex, R0
 rounds 2 and 9: an `iat` comparison is whole seconds against a microsecond stamp — truncating the
 stamp rejected the replacement tokens, and accepting equality let a token minted in the same second
 BEFORE the change live out its 24 hours; an equality on the stamp's own value has neither problem).
@@ -1258,8 +1263,10 @@ planning session writes the memory file (`login-registration-series.md` + the `M
 12. **`/forgot-password` validates the email's shape only** and decides its response before the send;
     email existence is already disclosed by register's 409, so what the endpoint protects is the link,
     not the address.
-13. **Token invalidation is a `cv` credential-version claim (the account's `credentials_changed_at`
-    as epoch millis, `0` when null) that the filter requires to EQUAL the row's current value**, plus
+13. **Token invalidation is a `cv` credential-version claim (the account's monotonic
+    `credentials_version` counter, `0` on a never-changed row) that the filter requires to EQUAL
+    the row's current value**, with `credentials_changed_at` kept beside it as the human-readable
+    stamp and the legacy-token rule's input, plus
     a `uid` claim bound to the account id — two claims, one column, no denylist, in a filter that
     already loads the row; an `iat` comparison survives only for tokens issued before R3c deploys and
     dies with them within 24 hours (§2 #13; Codex, R0 rounds 2, 9 and 10 — the `iat` rule could
@@ -1291,7 +1298,9 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added thirty-two P1s over fifteen rounds, folded in: an
+disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added thirty-three P1s over sixteen rounds, folded in: the
+`cv` claim is a monotonic `credentials_version` counter, never a millisecond stamp that two changes
+could share (§2 #13); an
 admin email change voids the account's unused reset links under the row lock, and reset issuance
 takes the same lock (§2 #13); the
 bounds are checked outermost first so a refused request never creates an attacker-chosen entry
