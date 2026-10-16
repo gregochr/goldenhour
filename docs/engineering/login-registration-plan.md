@@ -700,9 +700,11 @@ existing "Email already registered" 409.
 `docs/app-store-privacy.md`: a table per App Store privacy "data type" — Email address and
 Username (account, linked), Coarse location (home postcode and its lat/lon; "Use my location" sends
 device coordinates to postcodes.io once, nothing is stored but the resolved postcode; linked; app
-functionality), Marketing consent (linked), Usage data (`last_active_at`, `ask_log` without
-question text, kept 90 days; job and API logs; linked; analytics/app functionality), User content
-(outcome ratings; linked) — with the table each lives in, who sees it, and how deletion removes it
+functionality), Marketing consent (linked), Usage data (`last_active_at`; `ask_log`'s outcome rows, kept 90 days; job and API logs; linked;
+analytics/app functionality), User content (outcome ratings, linked; **and Ask questions**: V167
+stores the NORMALISED question text — `normalised_question` — for the `CLAUDE_OK` and `CLAUDE_CANT`
+outcomes, linked to the account by `user_id` until deletion, which sets the link null and leaves the
+text unlinked until the 90-day prune (`ask_log_cleanup`) removes the row — Codex, R0 round 11) — with the table each lives in, who sees it, and how deletion removes it
 (§2 #7's purge). `landing/privacy.html`: line 36's postcode line rewritten (every account, light
 times; drive times Pro), line 51's processor row ("UK postcodes, or device coordinates when you
 choose Use my location"), a sentence naming in-app account deletion, the 90-day retention named.
@@ -810,9 +812,13 @@ the login one runs on a user loaded BEFORE BCrypt, so it could write the detache
 password hash back over a credential change that committed during the hash, after which the
 issuer's re-check would see the hash login verified and issue valid tokens (Codex, R0 round 7). The
 same `updatable = false`/scoped-update lesson CLAUDE.md records for the settings columns; `password`,
-`enabled` and `passwordChangeRequired` are written only by the writer and the two admin paths after
-R3c, pinned by a test that a `save()` of a stale entity does not move them (make the three columns
-`updatable = false` too, written through the writer's and `UserService`'s scoped updates). ⚠️ **Refresh tokens carry no issue instant** (`refresh_token` has no
+`enabled` and `passwordChangeRequired` become `updatable = false` and are written only through
+scoped updates: the writer's, and in `UserService` a new `AppUserRepository.updateEnabled(id,
+enabled)` for the admin toggle (`UserService.setEnabled` → `PUT /api/users/{id}/enabled` mutates the
+entity and `save()`s today, so without this the toggle would answer 200 and change nothing — Codex,
+R0 round 11; `UserControllerTest`/`UserServiceTest` pin that the toggle still disables and re-enables
+through the scoped update, and a stale-entity `save()` moves none of the three). `createUser` and
+`createPendingUser` are inserts and unaffected. ⚠️ **Refresh tokens carry no issue instant** (`refresh_token` has no
 `created_at`), so the stamp alone would leave a pre-change refresh token able to mint a fresh access
 token through `/refresh` (Codex, R0 review). Every stamp site therefore ALSO calls
 `refreshTokenRepository.revokeAllActiveByUserId(userId)` in the same transaction — `changePassword`,
@@ -983,7 +989,8 @@ the issuer with the hash), new `service/TokenIssuer.java` and `service/Credentia
 `EmailVerificationTokenRepository` (`deleteByIdIfPresent`), `controller/AuthController.java`
 (`/change-password` answers `buildAuthResponse` + `message`; set-password passes the hash), `service/PasswordResetService.java`
 (the `TODO(R3c)`), `service/UserService.java` (`resetPassword` and `activateUser` stamp and revoke), `JwtService` (the `uid` claim, `extractUserId`), `UserService` (`createUser`/`createPendingUser`
-stamp at creation), `AuthenticationService.refresh` (the user lock first), tests: `JwtAuthenticationFilterTest` (the five cases), `AppUserRepositoryTest`
+stamp at creation; `setEnabled` through `updateEnabled`), `UserControllerTest` and `UserServiceTest`
+(the admin toggle still works), `AuthenticationService.refresh` (the user lock first), tests: `JwtAuthenticationFilterTest` (the five cases), `AppUserRepositoryTest`
 (`@DataJpaTest`, the scoped update), `CredentialChangeWriterTest` (`@DataJpaTest`: each site's
 change record lands atomically; a forced failure after the password write rolls back the stamp,
 the flag and the revocation), `TokenIssuerTest` (`@DataJpaTest` over the real repositories: refuses
@@ -1235,7 +1242,9 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added twenty-four P1s over ten rounds, folded in: the modal
+disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added twenty-six P1s over eleven rounds, folded in: the
+admin enable toggle gets a scoped `updateEnabled` before `enabled` goes non-updatable; the privacy
+inventory discloses the normalised Ask question text V167 retains (§2 #11, #13); the modal
 observer excludes the prompt's own node (it would have looped); the per-account login budget is
 acquired after the user resolves; §5 #13 restated for the `cv` claim (§2 #3, #4, §5 #13); the
 filter compares a `cv` credential-version claim for equality instead of `iat`, which could neither
