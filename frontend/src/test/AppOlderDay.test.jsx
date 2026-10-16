@@ -26,7 +26,6 @@ vi.mock('../api/forecastApi.js', () => ({
   fetchForecasts: vi.fn(),
   fetchForecastsForDate: vi.fn(),
   fetchLocations: vi.fn(),
-  fetchAllOutcomes: vi.fn(),
   clearForecastDetailCache: vi.fn(),
 }));
 vi.mock('../api/briefingApi.js', () => ({ getDailyBriefing: vi.fn() }));
@@ -94,7 +93,7 @@ vi.mock('../components/WindowFirstMapPane.jsx', () => ({
 }));
 
 import {
-  fetchForecasts, fetchForecastsForDate, fetchLocations, fetchAllOutcomes,
+  fetchForecasts, fetchForecastsForDate, fetchLocations,
 } from '../api/forecastApi.js';
 import { getDailyBriefing } from '../api/briefingApi.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
@@ -165,7 +164,6 @@ describe('App — the Map pane\'s older-day fetch', () => {
     fetchForecasts.mockResolvedValue(FORECASTS);
     fetchForecastsForDate.mockResolvedValue([row(OLDER, 'SUNRISE'), row(OLDER, 'SUNSET')]);
     fetchLocations.mockResolvedValue(LOCATION_META);
-    fetchAllOutcomes.mockResolvedValue([]);
     getDailyBriefing.mockResolvedValue(null);
     getAllEvaluationScores.mockResolvedValue([]);
     getSettings.mockResolvedValue(SETTINGS);

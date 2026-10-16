@@ -1112,6 +1112,18 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
     only the flip the jump itself caused, carried forward across a second jump; a reader who chose
     Everywhere *before* jumping stays there.
 
+33. **The window control reaches the past, and carries a `selectedIsPast` provenance flag (2026-10-15 to
+    2026-10-16).** The bundle's window control lists only windows the briefing still serves, so a sunrise
+    or sunset that has gone vanished from the map. The outcome-rating series
+    (`docs/engineering/outcome-rating-plan.md`) adds **past solar windows**: rows the control draws with
+    `past: true` and `served: false` (no verdict, tint or tick; a `PAST` tag where the verdict sits), an
+    EARLIER group above the future days and a Load row that fetches one stored day at a time back to T-4.
+    `App` and `resolveMapDate` take a `selectedIsPast` flag beside `selectedIsNight`: provenance set only
+    by the routes that name a past row, never inferred from the value, because a stale past date must not
+    stay "usable" once the list no longer holds it. The heat field, the callout, the chips and pins read a
+    past window from the forecast rows alone, and "Open in Plan" is withheld on one.
+    CLAUDE.md's *Map tab — past windows* and *Map tab — rating a past window* bullets are the maintained description.
+
 ## §5 Decisions taken in this plan (challenge in review, not in code)
 
 - **D-1** Bloom gated on temp mode (§4.1). Alternative — retiring verdict mode — is O-1.

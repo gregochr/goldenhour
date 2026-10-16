@@ -147,8 +147,8 @@ export function bestOfNight(rows) {
  * reshapes a figure already served. The briefing serves no window once it has gone, so no served
  * field states this figure, and {@code MapView}'s {@code windowUnscored} needs one to decide whether
  * the colour key is drawn. Nothing else here derives (the entry's {@code conf} reuses
- * {@code resolveConfidence}/{@code confidenceScalar}). CLAUDE.md still reads "those two, nothing
- * else" for this class until the series' docs sweep (O6) records the third member.
+ * {@code resolveConfidence}/{@code confidenceScalar}). CLAUDE.md's Backend-heavy bullet records
+ * it as the class's third member.
  *
  * <p><b>Over the painted points, never the raw rows</b> (Codex, #1185 round 8). The population is
  * {@link heatPointsFor}'s — the spots {@code buildHeatSpots} kept (it drops an unregioned place and

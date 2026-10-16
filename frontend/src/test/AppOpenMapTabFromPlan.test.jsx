@@ -19,7 +19,6 @@ import { ukDateStrOffset } from '../utils/mapDates.js';
 vi.mock('../api/forecastApi.js', () => ({
   fetchForecasts: vi.fn(),
   fetchLocations: vi.fn(),
-  fetchAllOutcomes: vi.fn(),
   clearForecastDetailCache: vi.fn(),
 }));
 vi.mock('../api/briefingApi.js', () => ({ getDailyBriefing: vi.fn() }));
@@ -79,7 +78,7 @@ vi.mock('../components/WindowFirstMapPane.jsx', () => ({
   default: (props) => { MapPaneStub.lastProps = props; return <div data-testid="stub-map-pane" />; },
 }));
 
-import { fetchForecasts, fetchLocations, fetchAllOutcomes } from '../api/forecastApi.js';
+import { fetchForecasts, fetchLocations } from '../api/forecastApi.js';
 import { getDailyBriefing } from '../api/briefingApi.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
 import { getSettings, getReach, getDriveTimes } from '../api/settingsApi.js';
@@ -134,7 +133,6 @@ beforeEach(() => {
   MapPaneStub.lastProps = null;
   fetchForecasts.mockReset().mockResolvedValue(FORECASTS);
   fetchLocations.mockReset().mockResolvedValue(LOCATION_META);
-  fetchAllOutcomes.mockReset().mockResolvedValue([]);
   getDailyBriefing.mockReset().mockResolvedValue(null);
   getAllEvaluationScores.mockReset().mockResolvedValue([]);
   getSettings.mockReset().mockResolvedValue({});
