@@ -754,7 +754,23 @@ is a small record carrying the site's WHOLE account-state change — `passwordCh
 `enable` (true for `activateUser`, which also writes the activation it does today) — so the
 password, the stamp, the flag and enabled state, and the refresh-token revocation commit together
 and a failure after the password write can neither leave the old sessions valid nor leave an
-activated user disabled (Codex, R0 round 4). ⚠️ **Registration's activation entry point is
+activated user disabled (Codex, R0 round 4). ⚠️ **The writer also takes the caller's EXPECTED
+credential version and refuses under the lock when the row's has moved** (Codex, R0 round 12):
+`change-password` admits the bearer before BCrypt, so two requests authenticated under the same old
+`cv` can both reach the writer, and a stolen session finishing its hash AFTER the legitimate change
+commits would otherwise overwrite the new password, revoke the legitimate replacement tokens and get
+fresh ones. The filter puts the token's `cv` on the `Authentication`'s details; `changePassword`
+passes it as `expectedVersion`, and `apply` answers a `StaleCredentialsException` (→ 401 "Your
+session has changed. Sign in again.") when `credentials_changed_at`'s millis differ from it. A legacy
+token with no `cv` passes `null`, accepted only while the row's stamp is null (an account whose
+credentials have never changed), otherwise the same 401 — the ≤ 24 h window again. The reset,
+activation and admin paths pass no expectation (their authority is the token or the admin role, and
+the reset/verification token's compare-and-set is their guard). ⚠️ **Every credential change also
+invalidates the account's outstanding reset links in the same transaction** (Codex, R0 round 12):
+`apply` deletes the user's `password_reset_token` rows with `used_at IS NULL`, so a link requested or
+captured before a password change or an admin reset cannot overwrite the newer credential within its
+hour; redemption consumes the presented token by compare-and-set and the same delete removes its
+siblings. ⚠️ **Registration's activation entry point is
 restructured for the same reason** (Codex, R0 round 5): `RegistrationService.setPasswordAndActivate`
 is `@Transactional` today and calls `UserService.activateUser` inside it, so hashing in
 `activateUser` would still run inside the caller's open transaction and the writer would merely join
@@ -982,7 +998,9 @@ Reset (checklist) at the three sizes.
 ### R3c — token invalidation (backend)
 
 §2 #13. Files: the migration, `AppUserEntity`, `AppUserRepository` (`stampCredentialsChangedAt`),
-`config/JwtAuthenticationFilter.java`, `service/AuthenticationService.java` (`changePassword`
+`config/JwtAuthenticationFilter.java` (the row/`uid`/`cv` rule; the token's `cv` on the
+`Authentication` details), `controller/AuthController.java` (`/change-password` passes the caller's
+`cv`; the 401 for a stale one), `service/AuthenticationService.java` (`changePassword`
 stamps, revokes every active refresh token and returns fresh tokens; `issueTokensFor` delegating to
 the issuer with the hash), new `service/TokenIssuer.java` and `service/CredentialChangeWriter.java`,
 `service/RegistrationService.java` (`setPasswordAndActivate` split, `consumeAndActivate`),
@@ -993,7 +1011,9 @@ stamp at creation; `setEnabled` through `updateEnabled`), `UserControllerTest` a
 (the admin toggle still works), `AuthenticationService.refresh` (the user lock first), tests: `JwtAuthenticationFilterTest` (the five cases), `AppUserRepositoryTest`
 (`@DataJpaTest`, the scoped update), `CredentialChangeWriterTest` (`@DataJpaTest`: each site's
 change record lands atomically; a forced failure after the password write rolls back the stamp,
-the flag and the revocation), `TokenIssuerTest` (`@DataJpaTest` over the real repositories: refuses
+the flag and the revocation; a stale `expectedVersion` is refused and writes nothing; a null
+expectation is accepted only on a never-changed row; unused reset tokens are deleted and a used one
+kept), `TokenIssuerTest` (`@DataJpaTest` over the real repositories: refuses
 when the stored hash moved under it; the row lock is taken — a `@Transactional(NOT_SUPPORTED)` test
 with two threads, one holding the row, proves the second issue waits), `AuthenticationServiceTest`
 (the hash each caller passes; `login` calls the issuer, never its own method),
@@ -1242,7 +1262,9 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added twenty-six P1s over eleven rounds, folded in: the
+disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added twenty-eight P1s over twelve rounds, folded in: the
+writer refuses a change-password whose authenticated credential version has moved; every credential
+change invalidates the account's unused reset links (§2 #13); the
 admin enable toggle gets a scoped `updateEnabled` before `enabled` goes non-updatable; the privacy
 inventory discloses the normalised Ask question text V167 retains (§2 #11, #13); the modal
 observer excludes the prompt's own node (it would have looped); the per-account login budget is
