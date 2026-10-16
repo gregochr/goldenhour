@@ -17,7 +17,6 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
   const [step, setStep] = useState(verifyToken ? STEPS.VERIFY : STEPS.REGISTER);
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
-  const [confirmEmail, setConfirmEmail] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   // The verification token, not the user id, identifies the account when the password is set.
@@ -25,12 +24,15 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [resendCooldown, setResendCooldown] = useState(0);
-  const [marketingOptIn, setMarketingOptIn] = useState(true);
+  // Marketing consent is an active opt-in (UK PECR/GDPR): unticked until the reader ticks it.
+  const [marketingOptIn, setMarketingOptIn] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState('');
   const [turnstileResetKey, setTurnstileResetKey] = useState(0);
-  const [spTurnstileToken, setSpTurnstileToken] = useState('');
-  const [spTurnstileResetKey, setSpTurnstileResetKey] = useState(0);
+  // The Turnstile script never loaded (blocked, or the domain is not whitelisted). Unlike sign-in,
+  // registration has NO server-side fallback (login-registration plan §4 #1): the form says so and
+  // the submit stays disabled.
+  const [turnstileLoadFailed, setTurnstileLoadFailed] = useState(false);
   const [waitlistEmail, setWaitlistEmail] = useState('');
   const [waitlistSubmitted, setWaitlistSubmitted] = useState(false);
 
@@ -69,20 +71,15 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
   const usernameValid = usernamePattern.test(username);
   const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   const emailValid = emailPattern.test(email);
-  const emailsMatch = confirmEmail.length > 0 && email === confirmEmail;
 
   async function handleRegister(event) {
     event.preventDefault();
-    if (!usernameValid) {
-      setError('Username must be 3-30 characters: letters, numbers, hyphens, or underscores.');
-      return;
-    }
     if (!emailValid) {
       setError('Please enter a valid email address.');
       return;
     }
-    if (email !== confirmEmail) {
-      setError('Email addresses do not match.');
+    if (!usernameValid) {
+      setError('Username must be 3-30 characters: letters, numbers, hyphens, or underscores.');
       return;
     }
     if (!turnstileToken) {
@@ -135,17 +132,15 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
 
   async function handleSetPassword(event) {
     event.preventDefault();
-    if (!allPassed || !spTurnstileToken) return;
+    if (!allPassed) return;
     setError('');
     setLoading(true);
     try {
-      const data = await setPasswordForNewUser(verifiedToken, password, spTurnstileToken);
+      const data = await setPasswordForNewUser(verifiedToken, password);
       completeRegistration(data);
       setStep(STEPS.SUCCESS);
     } catch (err) {
       setError(err?.response?.data?.error ?? 'Failed to set password. Please try again.');
-      setSpTurnstileToken('');
-      setSpTurnstileResetKey((k) => k + 1);
     } finally {
       setLoading(false);
     }
@@ -182,57 +177,49 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
             <AuthHeading>Create an account</AuthHeading>
 
             <div>
-              <label className="block text-xs text-plex-text-secondary mb-1" htmlFor="reg-username">Username</label>
-              <input
-                id="reg-username"
-                type="text"
-                data-testid="reg-username"
-                autoComplete="username"
-                className={`field ${username.length > 0 && !usernameValid ? 'field-error' : ''}`}
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                disabled={loading}
-                required
-              />
-              <p className={`text-xs mt-1 ${username.length > 0 && !usernameValid ? 'text-plex-error' : 'text-plex-text-secondary'}`}>
-                3-30 characters, letters, numbers, hyphens, or underscores
-              </p>
-            </div>
-
-            <div>
               <label className="block text-xs text-plex-text-secondary mb-1" htmlFor="reg-email">Email</label>
               <input
                 id="reg-email"
                 type="email"
                 data-testid="reg-email"
                 autoComplete="email"
+                aria-describedby="reg-email-hint"
                 className={`field ${email.length > 0 && !emailValid ? 'field-error' : ''}`}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 disabled={loading}
                 required
               />
-              {email.length > 0 && !emailValid && (
-                <p className="text-xs text-plex-error mt-1">Please enter a valid email address</p>
-              )}
+              <p
+                id="reg-email-hint"
+                className={`text-xs mt-1 ${email.length > 0 && !emailValid ? 'text-plex-error' : 'text-plex-text-secondary'}`}
+              >
+                {email.length > 0 && !emailValid
+                  ? 'Please enter a valid email address'
+                  : "We'll send a link to confirm it."}
+              </p>
             </div>
 
             <div>
-              <label className="block text-xs text-plex-text-secondary mb-1" htmlFor="reg-confirm-email">Confirm email</label>
+              <label className="block text-xs text-plex-text-secondary mb-1" htmlFor="reg-username">Username</label>
               <input
-                id="reg-confirm-email"
-                type="email"
-                data-testid="reg-confirm-email"
-                autoComplete="email"
-                className={`field ${confirmEmail.length > 0 && !emailsMatch ? 'field-error' : ''}`}
-                value={confirmEmail}
-                onChange={(e) => setConfirmEmail(e.target.value)}
+                id="reg-username"
+                type="text"
+                data-testid="reg-username"
+                autoComplete="username"
+                aria-describedby="reg-username-hint"
+                className={`field ${username.length > 0 && !usernameValid ? 'field-error' : ''}`}
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
                 disabled={loading}
                 required
               />
-              {confirmEmail.length > 0 && !emailsMatch && (
-                <p className="text-xs text-plex-error mt-1">Email addresses do not match</p>
-              )}
+              <p
+                id="reg-username-hint"
+                className={`text-xs mt-1 ${username.length > 0 && !usernameValid ? 'text-plex-error' : 'text-plex-text-secondary'}`}
+              >
+                3–30 letters, numbers, - or _
+              </p>
             </div>
 
             <label className="flex items-start gap-2 cursor-pointer text-xs text-plex-text-secondary">
@@ -273,19 +260,42 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
               <span>Send me occasional emails about new features and photography tips</span>
             </label>
 
-            <TurnstileWidget
-              key={`reg-${turnstileResetKey}`}
-              onVerify={(token) => setTurnstileToken(token)}
-              onExpire={() => setTurnstileToken('')}
-            />
+            {!turnstileLoadFailed && (
+              <TurnstileWidget
+                key={`reg-${turnstileResetKey}`}
+                onVerify={(token) => setTurnstileToken(token)}
+                onExpire={() => setTurnstileToken('')}
+                onLoadFail={() => setTurnstileLoadFailed(true)}
+              />
+            )}
+            {turnstileLoadFailed && (
+              <p className="text-xs text-plex-text-secondary" role="status" data-testid="turnstile-unavailable">
+                Security check couldn&apos;t load. Try another browser, or turn off your ad-blocker for this page.
+              </p>
+            )}
 
             {error && (
               <p className="text-xs text-plex-error" role="alert" data-testid="reg-error">{error}</p>
             )}
 
-            <button type="submit" data-testid="reg-submit" className="btn-primary" disabled={loading || !turnstileToken || !termsAccepted}>
+            <button
+              type="submit"
+              data-testid="reg-submit"
+              className="btn-primary"
+              disabled={loading || !turnstileToken || !termsAccepted}
+              aria-describedby={termsAccepted ? undefined : 'reg-terms-hint'}
+            >
               {loading ? 'Creating account…' : 'Create account'}
             </button>
+            {!termsAccepted && (
+              <p
+                id="reg-terms-hint"
+                className="text-xs text-plex-text-secondary text-center -mt-2"
+                data-testid="reg-terms-hint"
+              >
+                Agree to the terms to continue
+              </p>
+            )}
 
             <div className="text-center">
               <button
@@ -394,12 +404,6 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
 
             <PasswordChecklist checks={checks} testId="sp-checklist" />
 
-            <TurnstileWidget
-              key={`sp-${spTurnstileResetKey}`}
-              onVerify={(token) => setSpTurnstileToken(token)}
-              onExpire={() => setSpTurnstileToken('')}
-            />
-
             {error && (
               <p className="text-xs text-plex-error" role="alert" data-testid="sp-error">{error}</p>
             )}
@@ -408,7 +412,7 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
               type="submit"
               data-testid="sp-submit"
               className="btn-primary"
-              disabled={loading || !allPassed || !spTurnstileToken}
+              disabled={loading || !allPassed}
             >
               {loading ? 'Setting up…' : 'Complete registration'}
             </button>

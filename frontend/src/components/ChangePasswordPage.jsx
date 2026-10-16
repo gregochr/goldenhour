@@ -16,6 +16,9 @@ export default function ChangePasswordPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [turnstileToken, setTurnstileToken] = useState('');
   const [turnstileResetKey, setTurnstileResetKey] = useState(0);
+  // The Turnstile script never loaded. The server answers an empty token with a bounded fallback
+  // (login-registration plan §2 #4), so the reader is not stranded behind a disabled button.
+  const [turnstileLoadFailed, setTurnstileLoadFailed] = useState(false);
 
   const checks = [
     { label: 'At least 8 characters', ok: newPassword.length >= 8 },
@@ -29,7 +32,7 @@ export default function ChangePasswordPage() {
   const allPassed = checks.every((c) => c.ok);
 
   const [error, submitAction, isPending] = useActionState(async () => {
-    if (!allPassed || !turnstileToken) return '';
+    if (!allPassed || (!turnstileToken && !turnstileLoadFailed)) return '';
     try {
       await changePassword(newPassword, turnstileToken);
       return '';
@@ -83,11 +86,19 @@ export default function ChangePasswordPage() {
 
         <PasswordChecklist checks={checks} testId="cp-checklist" />
 
-        <TurnstileWidget
-          key={turnstileResetKey}
-          onVerify={(token) => setTurnstileToken(token)}
-          onExpire={() => setTurnstileToken('')}
-        />
+        {!turnstileLoadFailed && (
+          <TurnstileWidget
+            key={turnstileResetKey}
+            onVerify={(token) => setTurnstileToken(token)}
+            onExpire={() => setTurnstileToken('')}
+            onLoadFail={() => setTurnstileLoadFailed(true)}
+          />
+        )}
+        {turnstileLoadFailed && (
+          <p className="text-xs text-plex-text-secondary" role="status" data-testid="turnstile-unavailable">
+            Security check unavailable — we&apos;ll verify your sign-in another way.
+          </p>
+        )}
 
         {error && (
           <p className="text-xs text-plex-error" role="alert" data-testid="cp-error">
@@ -99,7 +110,7 @@ export default function ChangePasswordPage() {
           type="submit"
           data-testid="cp-submit"
           className="btn-primary"
-          disabled={isPending || !allPassed || !turnstileToken}
+          disabled={isPending || !allPassed || (!turnstileToken && !turnstileLoadFailed)}
         >
           {isPending ? 'Saving…' : 'Set new password'}
         </button>
