@@ -48,6 +48,8 @@ import com.gregochr.goldenhour.service.ScheduledForecastService;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.TideService;
 import com.gregochr.goldenhour.service.TravelDayService;
+import com.gregochr.goldenhour.service.AuthAttemptLimiter;
+import com.gregochr.goldenhour.service.TurnstileGate;
 import com.gregochr.goldenhour.service.TurnstileService;
 import com.gregochr.goldenhour.service.UserService;
 import com.gregochr.goldenhour.service.UserSettingsService;
@@ -233,6 +235,21 @@ abstract class AbstractControllerTest {
 
     @MockitoBean
     protected TurnstileService turnstileService;
+
+    /**
+     * The Turnstile gate for login and change-password. Mocked because a real one holds counters
+     * across test classes in this shared context, which would make results order-dependent; an
+     * unstubbed mock answers null, so {@code AuthControllerTest} stubs its outcome in {@code setUp}.
+     */
+    @MockitoBean
+    protected TurnstileGate turnstileGate;
+
+    /**
+     * The attempt counters. Mocked for the same reason; an unstubbed {@code tryAcquire} answers
+     * false (refused), so the tests that reach a bound stub it explicitly.
+     */
+    @MockitoBean
+    protected AuthAttemptLimiter attemptLimiter;
 
     @MockitoBean
     protected UserEmailService userEmailService;

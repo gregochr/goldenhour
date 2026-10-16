@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.RefreshTokenEntity;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.exception.InvalidCredentialsException;
+import com.gregochr.goldenhour.exception.TooManyAttemptsException;
 import com.gregochr.goldenhour.model.AuthTokens;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.RefreshTokenRepository;
@@ -14,6 +15,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -27,6 +29,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -62,6 +65,9 @@ class AuthenticationServiceTest {
     @Mock
     private JwtProperties jwtProperties;
 
+    @Mock
+    private AuthAttemptLimiter attemptLimiter;
+
     private AuthenticationService service;
 
     private AppUserEntity user;
@@ -69,7 +75,7 @@ class AuthenticationServiceTest {
     @BeforeEach
     void setUp() {
         service = new AuthenticationService(userRepository, refreshTokenRepository,
-                jwtService, passwordEncoder, jwtProperties);
+                jwtService, passwordEncoder, jwtProperties, attemptLimiter);
         user = AppUserEntity.builder()
                 .id(1L)
                 .username("admin")
@@ -161,6 +167,64 @@ class AuthenticationServiceTest {
 
             verify(userRepository, never()).save(any());
             verifyNoInteractions(refreshTokenRepository);
+        }
+
+        @Test
+        @DisplayName("the ordinary path never touches the attempt limiter")
+        void ordinaryLogin_takesNoBudget() {
+            when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
+            when(passwordEncoder.matches("golden2026", "hashed-password")).thenReturn(true);
+            stubTokenIssuance();
+
+            service.login("admin", "golden2026");
+            service.login("admin", "golden2026", false);
+
+            verifyNoInteractions(attemptLimiter);
+        }
+
+        @Test
+        @DisplayName("the fallback takes the account's budget (user id, 5, quarter hour) before the password")
+        void fallback_takesTheAccountBudgetFirst() {
+            when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
+            when(attemptLimiter.tryAcquire("fallback:login:user:1", 5, AuthAttemptLimiter.Window.QUARTER_HOUR))
+                    .thenReturn(true);
+            when(passwordEncoder.matches("golden2026", "hashed-password")).thenReturn(true);
+            stubTokenIssuance();
+
+            AuthTokens tokens = service.login("admin", "golden2026", true);
+
+            assertThat(tokens.accessToken()).isEqualTo(ACCESS_TOKEN);
+            InOrder order = inOrder(attemptLimiter, passwordEncoder);
+            order.verify(attemptLimiter).tryAcquire("fallback:login:user:1", 5,
+                    AuthAttemptLimiter.Window.QUARTER_HOUR);
+            order.verify(passwordEncoder).matches("golden2026", "hashed-password");
+        }
+
+        @Test
+        @DisplayName("a spent account budget throws TooManyAttempts and the password is never compared")
+        void fallback_budgetSpent_throwsBeforeThePasswordCheck() {
+            when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
+            when(attemptLimiter.tryAcquire("fallback:login:user:1", 5, AuthAttemptLimiter.Window.QUARTER_HOUR))
+                    .thenReturn(false);
+
+            assertThatThrownBy(() -> service.login("admin", "golden2026", true))
+                    .isInstanceOf(TooManyAttemptsException.class);
+
+            verifyNoInteractions(passwordEncoder);
+            verify(userRepository, never()).save(any());
+            verifyNoInteractions(refreshTokenRepository);
+        }
+
+        @Test
+        @DisplayName("the fallback with no resolving user takes no budget and fails like any bad login")
+        void fallback_unknownUser_takesNoBudget() {
+            when(userRepository.findByUsername("ghost")).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.login("ghost", "anything", true))
+                    .isInstanceOf(InvalidCredentialsException.class)
+                    .hasMessage("Invalid username or password");
+
+            verifyNoInteractions(attemptLimiter);
         }
     }
 

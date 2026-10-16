@@ -2,18 +2,29 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.exception.InvalidCredentialsException;
+import com.gregochr.goldenhour.exception.TooManyAttemptsException;
 import com.gregochr.goldenhour.model.AuthTokens;
 import com.gregochr.goldenhour.repository.AppUserRepository;
+import com.gregochr.goldenhour.service.AuthAttemptLimiter;
+import com.gregochr.goldenhour.service.AuthAttemptLimiter.Window;
 import com.gregochr.goldenhour.service.AuthenticationService;
+import com.gregochr.goldenhour.service.ClientAddress;
+import com.gregochr.goldenhour.service.JwtService;
 import com.gregochr.goldenhour.service.RegistrationService;
+import com.gregochr.goldenhour.service.TurnstileGate;
+import com.gregochr.goldenhour.service.TurnstileGate.Endpoint;
+import com.gregochr.goldenhour.service.TurnstileGate.Outcome;
 import com.gregochr.goldenhour.service.TurnstileService;
 import com.gregochr.goldenhour.util.EmailValidator;
 import com.gregochr.goldenhour.util.LogSanitizer;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -33,7 +44,9 @@ import java.util.regex.Pattern;
  *
  * <p>The controller is a thin HTTP layer: request-shape validation and CAPTCHA checks happen
  * here, while credential verification, token issuance/rotation, and the password policy live in
- * {@link AuthenticationService}.
+ * {@link AuthenticationService}. Login and change-password go through {@link TurnstileGate} (a verified
+ * token, or a bounded fallback when none could be produced); registration verifies the token itself and
+ * has no fallback; set-password takes no token at all and is bounded by {@link AuthAttemptLimiter}.
  */
 @RestController
 @RequestMapping("/api/auth")
@@ -44,34 +57,69 @@ public class AuthController {
 
     private static final Pattern USERNAME_PATTERN = Pattern.compile("^[a-zA-Z0-9_-]{3,30}$");
 
+    /** The sentence every attempt bound answers with (login-registration plan §2 #12). */
+    static final String TOO_MANY_ATTEMPTS = "Too many attempts. Please wait a few minutes and try again.";
+
+    /** The name Spring Security gives the anonymous principal; no account may be called this. */
+    private static final String ANONYMOUS_PRINCIPAL = "anonymousUser";
+
+    /** Limiter key prefix for the one-time-token endpoint that sets a first password. */
+    static final String SET_PASSWORD_BOUNDS = "set-password";
+
+    /** Requests per endpoint across every caller, per hour, on a one-time-token endpoint. */
+    static final int TOKEN_GLOBAL_LIMIT = 200;
+
+    /** Requests per client address per quarter hour on a one-time-token endpoint. */
+    static final int TOKEN_CLIENT_LIMIT = 20;
+
+    /** Requests per token per quarter hour on a one-time-token endpoint. */
+    static final int TOKEN_LIMIT = 10;
+
+    /** How many leading hex characters of the token's hash name its limiter key. */
+    private static final int TOKEN_KEY_LENGTH = 16;
+
     private final AuthenticationService authenticationService;
     private final AppUserRepository userRepository;
     private final RegistrationService registrationService;
     private final TurnstileService turnstileService;
+    private final TurnstileGate turnstileGate;
+    private final AuthAttemptLimiter attemptLimiter;
+    private final JwtService jwtService;
 
     /**
      * Authenticates the user and returns a JWT access token plus a refresh token.
      *
-     * @param body map containing {@code username} and {@code password}
-     * @return 200 with tokens, or 401 if credentials are invalid
+     * <p>The Turnstile token goes through {@link TurnstileGate}: a verified token proceeds as it always
+     * has, and a request with no token at all (the script could not load) proceeds only inside the
+     * gate's bounds and the account's own five-attempt budget.
+     *
+     * @param body    map containing {@code username} and {@code password}
+     * @param request the request, for the caller's address
+     * @return 200 with tokens, 400 for a failed CAPTCHA, 401 if credentials are invalid, or 429 when an
+     *         attempt bound is reached
      */
     @PostMapping("/login")
-    public ResponseEntity<Map<String, Object>> login(@RequestBody Map<String, String> body) {
+    public ResponseEntity<Map<String, Object>> login(@RequestBody Map<String, String> body,
+            HttpServletRequest request) {
         String username = body.get("username");
         String password = body.get("password");
 
-        String turnstileToken = body.get("turnstileToken");
-        if (!turnstileService.verify(turnstileToken)) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("error", "CAPTCHA verification failed. Please try again."));
+        Outcome outcome = turnstileGate.admit(body.get("turnstileToken"), username,
+                ClientAddress.of(request), Endpoint.LOGIN);
+        ResponseEntity<Map<String, Object>> refusal = refusalFor(outcome);
+        if (refusal != null) {
+            return refusal;
         }
 
         try {
-            AuthTokens tokens = authenticationService.login(username, password);
+            AuthTokens tokens = authenticationService.login(username, password,
+                    outcome == Outcome.OK_FALLBACK);
             return ResponseEntity.ok(buildAuthResponse(tokens));
         } catch (InvalidCredentialsException ex) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", ex.getMessage()));
+        } catch (TooManyAttemptsException ex) {
+            return tooManyAttempts();
         }
     }
 
@@ -80,23 +128,29 @@ public class AuthController {
      *
      * <p>Enforces complexity: min 8 chars, upper, lower, digit, special character.
      *
-     * @param body map containing {@code newPassword}
-     * @return 200 on success, 400 if the password fails complexity rules, 401 if unauthenticated
+     * <p>The caller must be authenticated: {@code /api/auth/**} is public, so an unauthenticated call
+     * arrives as Spring's anonymous principal, which is refused here (401) rather than treated as a
+     * user. The Turnstile token goes through {@link TurnstileGate} exactly as on login.
+     *
+     * @param body    map containing {@code newPassword}
+     * @param request the request, for the caller's address
+     * @return 200 on success, 400 if the password fails complexity rules or the CAPTCHA fails, 401 if
+     *         unauthenticated, 429 when an attempt bound is reached
      */
     @PostMapping("/change-password")
-    public ResponseEntity<Map<String, Object>> changePassword(@RequestBody Map<String, String> body) {
-        String username = SecurityContextHolder.getContext().getAuthentication() != null
-                ? SecurityContextHolder.getContext().getAuthentication().getName()
-                : null;
+    public ResponseEntity<Map<String, Object>> changePassword(@RequestBody Map<String, String> body,
+            HttpServletRequest request) {
+        String username = authenticatedUsername();
         if (username == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", "Not authenticated"));
         }
 
-        String turnstileToken = body.get("turnstileToken");
-        if (!turnstileService.verify(turnstileToken)) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("error", "CAPTCHA verification failed. Please try again."));
+        Outcome outcome = turnstileGate.admit(body.get("turnstileToken"), username,
+                ClientAddress.of(request), Endpoint.CHANGE_PASSWORD);
+        ResponseEntity<Map<String, Object>> refusal = refusalFor(outcome);
+        if (refusal != null) {
+            return refusal;
         }
 
         String newPassword = body.get("newPassword");
@@ -148,6 +202,10 @@ public class AuthController {
     /**
      * Registers a new user with email verification.
      *
+     * <p>Marketing email is opt-in: only an explicit {@code "true"} in {@code marketingEmailOptIn}
+     * consents; an absent value does not. The username {@code anonymousUser} (Spring Security's
+     * anonymous principal) is refused with the same 409 as a taken name.
+     *
      * @param body map containing {@code username} and {@code email}
      * @return 200 with confirmation message, 400 for validation errors, 409 for duplicates
      */
@@ -164,6 +222,12 @@ public class AuthController {
             return ResponseEntity.badRequest()
                     .body(Map.of("error",
                             "Username must be 3-30 characters: letters, numbers, hyphens, or underscores"));
+        }
+        if (ANONYMOUS_PRINCIPAL.equalsIgnoreCase(username)) {
+            // The anonymous principal's name: an account called this would be reachable by any
+            // unauthenticated caller on the endpoints that read the principal's name.
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("error", "Username already exists"));
         }
         if (!EmailValidator.isValid(email)) {
             return ResponseEntity.badRequest()
@@ -182,7 +246,8 @@ public class AuthController {
                             "You must accept the Terms & Conditions and Privacy Policy to register."));
         }
 
-        boolean marketingEmailOptIn = !"false".equalsIgnoreCase(body.get("marketingEmailOptIn"));
+        // Opt-in is consent: an absent or unrecognised value is NOT consent (plan §1 #15).
+        boolean marketingEmailOptIn = "true".equalsIgnoreCase(body.get("marketingEmailOptIn"));
 
         try {
             registrationService.register(username, email.trim(), marketingEmailOptIn);
@@ -256,23 +321,29 @@ public class AuthController {
      * controls the mailbox, and {@link RegistrationService#setPasswordAndActivate} resolves the
      * user from it.
      *
-     * @param body map containing {@code token} and {@code password}
-     * @return 200 with JWT tokens (same shape as /login), or 400 if the token or password is rejected
+     * <p>No Turnstile: the token is a 122-bit random value, so it is not guessable and the CAPTCHA
+     * protected nothing. A caller-supplied {@code turnstileToken} is ignored. Three bounds protect the
+     * caches and the database instead, checked outermost first and any one refused is a 429: an hourly
+     * global ceiling, the client address, then the token itself.
+     *
+     * @param body    map containing {@code token} and {@code password}
+     * @param request the request, for the caller's address
+     * @return 200 with JWT tokens (same shape as /login), 400 if the token or password is rejected,
+     *         or 429 when an attempt bound is reached
      */
     @PostMapping("/set-password")
-    public ResponseEntity<Map<String, Object>> setPassword(@RequestBody Map<String, String> body) {
+    public ResponseEntity<Map<String, Object>> setPassword(@RequestBody Map<String, String> body,
+            HttpServletRequest request) {
         String token = body.get("token");
         String password = body.get("password");
 
-        if (token == null || token.isBlank() || password == null || password.isBlank()) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("error", "token and password are required"));
-        }
-
-        String turnstileToken = body.get("turnstileToken");
-        if (!turnstileService.verify(turnstileToken)) {
-            return ResponseEntity.badRequest()
-                    .body(Map.of("error", "CAPTCHA verification failed. Please try again."));
+        try {
+            requireTokenAndPassword(token, password);
+            enforceTokenBounds(SET_PASSWORD_BOUNDS, token, ClientAddress.of(request));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
+        } catch (TooManyAttemptsException ex) {
+            return tooManyAttempts();
         }
 
         String complexityError = authenticationService.validatePasswordComplexity(password);
@@ -302,13 +373,11 @@ public class AuthController {
      * Updates the authenticated user's marketing email opt-in preference.
      *
      * @param body map containing {@code optIn} (boolean)
-     * @return 200 on success, 401 if unauthenticated
+     * @return 200 on success, 401 if unauthenticated (the anonymous principal is not a user)
      */
     @PutMapping("/marketing-emails")
     public ResponseEntity<Map<String, Object>> updateMarketingEmails(@RequestBody Map<String, Object> body) {
-        String username = SecurityContextHolder.getContext().getAuthentication() != null
-                ? SecurityContextHolder.getContext().getAuthentication().getName()
-                : null;
+        String username = authenticatedUsername();
         if (username == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", "Not authenticated"));
@@ -347,6 +416,79 @@ public class AuthController {
             authenticationService.revokeRefreshToken(rawRefresh);
         }
         return ResponseEntity.ok(Map.of("message", "Logged out"));
+    }
+
+    /**
+     * Requires both fields of a set-password body to be present.
+     *
+     * @param token    the verification token
+     * @param password the new password
+     * @throws IllegalArgumentException when either is missing or blank
+     */
+    private static void requireTokenAndPassword(String token, String password) {
+        if (token == null || token.isBlank() || password == null || password.isBlank()) {
+            throw new IllegalArgumentException("token and password are required");
+        }
+    }
+
+    /**
+     * Returns the signed-in user's name, or null when the caller is not authenticated.
+     *
+     * <p>{@code /api/auth/**} is permitted without a token and anonymous authentication is not
+     * disabled, so an unauthenticated call still has a principal: the anonymous one, named
+     * {@code anonymousUser}. It is never a user (login-registration plan §2 #14 rule 5).
+     *
+     * @return the username, or null
+     */
+    private static String authenticatedUsername() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated()
+                || authentication instanceof AnonymousAuthenticationToken) {
+            return null;
+        }
+        return authentication.getName();
+    }
+
+    /**
+     * Counts a request against the three bounds of a one-time-token endpoint, outermost first and
+     * stopping at the first refusal: an hourly global ceiling, then the client address, then the token
+     * (keyed on the first sixteen hex characters of its hash, never the token itself). A token-keyed
+     * bucket alone could be rotated with a fresh random token on every request, which would throttle
+     * nothing and churn the caches' entries out from under the real limits.
+     *
+     * @param prefix the endpoint's key prefix
+     * @param token  the raw one-time token
+     * @param client the caller's address
+     * @throws TooManyAttemptsException when any bound refuses
+     */
+    private void enforceTokenBounds(String prefix, String token, String client) {
+        String tokenKey = jwtService.hashToken(token).substring(0, TOKEN_KEY_LENGTH);
+        if (!attemptLimiter.tryAcquire(prefix + ":global", TOKEN_GLOBAL_LIMIT, Window.HOUR)
+                || !attemptLimiter.tryAcquire(prefix + ":client:" + client, TOKEN_CLIENT_LIMIT,
+                        Window.QUARTER_HOUR)
+                || !attemptLimiter.tryAcquire(prefix + ":token:" + tokenKey, TOKEN_LIMIT,
+                        Window.QUARTER_HOUR)) {
+            throw new TooManyAttemptsException("One-time-token attempt bound reached");
+        }
+    }
+
+    /**
+     * Maps a refusing gate outcome to its response.
+     *
+     * @param outcome what {@link TurnstileGate#admit} decided
+     * @return the 400 or 429 to return, or null when the request may proceed
+     */
+    private static ResponseEntity<Map<String, Object>> refusalFor(Outcome outcome) {
+        return switch (outcome) {
+            case CAPTCHA_FAILED -> ResponseEntity.badRequest()
+                    .body(Map.of("error", "CAPTCHA verification failed. Please try again."));
+            case RATE_LIMITED -> tooManyAttempts();
+            case OK_VERIFIED, OK_FALLBACK -> null;
+        };
+    }
+
+    private static ResponseEntity<Map<String, Object>> tooManyAttempts() {
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(Map.of("error", TOO_MANY_ATTEMPTS));
     }
 
     /**
