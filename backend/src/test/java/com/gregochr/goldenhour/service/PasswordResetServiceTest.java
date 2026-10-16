@@ -328,7 +328,7 @@ class PasswordResetServiceTest {
         void redeemerRefusal_propagates() {
             stubToken(token(NOW.plusSeconds(600), null));
             when(passwordEncoder.encode("MyP@ssw0rd!")).thenReturn("encoded");
-            when(redeemer.redeem(3L, 7L, "encoded", NOW))
+            when(redeemer.redeem(3L, 7L, "encoded"))
                     .thenThrow(new IllegalArgumentException("This reset link is invalid"));
 
             assertThatThrownBy(() -> service.resetPassword("raw", "MyP@ssw0rd!"))
@@ -346,7 +346,7 @@ class PasswordResetServiceTest {
             when(passwordEncoder.encode("MyP@ssw0rd!")).thenReturn("encoded");
             AppUserEntity redeemed = AppUserEntity.builder().id(7L).username("reader").password("encoded")
                     .role(UserRole.PRO_USER).enabled(true).passwordChangeRequired(false).build();
-            when(redeemer.redeem(3L, 7L, "encoded", NOW)).thenReturn(redeemed);
+            when(redeemer.redeem(3L, 7L, "encoded")).thenReturn(redeemed);
             AuthTokens tokens = new AuthTokens("a", "r", NOW, NOW, "reader", "PRO_USER", false, false, null);
             when(authenticationService.issueTokensFor(redeemed)).thenReturn(tokens);
 
@@ -355,7 +355,7 @@ class PasswordResetServiceTest {
             assertThat(result).isSameAs(tokens);
             InOrder order = inOrder(passwordEncoder, redeemer, authenticationService);
             order.verify(passwordEncoder).encode("MyP@ssw0rd!");
-            order.verify(redeemer).redeem(3L, 7L, "encoded", NOW);
+            order.verify(redeemer).redeem(3L, 7L, "encoded");
             order.verify(authenticationService).issueTokensFor(redeemed);
         }
 
@@ -366,7 +366,7 @@ class PasswordResetServiceTest {
             when(passwordEncoder.encode(anyString())).thenReturn("encoded");
             AppUserEntity redeemedRow = AppUserEntity.builder().id(7L).username("reader").password("encoded")
                     .role(UserRole.PRO_USER).enabled(true).passwordChangeRequired(false).build();
-            when(redeemer.redeem(any(), any(), anyString(), any())).thenReturn(redeemedRow);
+            when(redeemer.redeem(any(), any(), anyString())).thenReturn(redeemedRow);
             when(authenticationService.issueTokensFor(redeemedRow))
                     .thenReturn(new AuthTokens("a", "r", NOW, NOW, "reader", "PRO_USER", false, false, null));
 

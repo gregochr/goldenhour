@@ -15,6 +15,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.orm.jpa.EntityManagerHolder;
@@ -23,8 +25,10 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -47,11 +51,20 @@ import static org.mockito.Mockito.doThrow;
  * covered by the row-count compare-and-sets that decide every outcome here.
  */
 @DataJpaTest
-@Import(PasswordResetRedeemer.class)
+@Import({PasswordResetRedeemer.class, PasswordResetRedeemerTest.FixedClock.class})
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
 class PasswordResetRedeemerTest {
 
     private static final Instant NOW = Instant.parse("2026-10-16T12:00:00Z");
+
+    /** Supplies the application {@link Clock} bean the redeemer injects: fixed at {@link #NOW}. */
+    @TestConfiguration
+    static class FixedClock {
+        @Bean
+        Clock clock() {
+            return Clock.fixed(NOW, ZoneOffset.UTC);
+        }
+    }
 
     @Autowired
     private PasswordResetRedeemer redeemer;
@@ -111,7 +124,7 @@ class PasswordResetRedeemerTest {
         refreshTokens.save(RefreshTokenEntity.builder().tokenHash("r2").userId(userId)
                 .expiresAt(LocalDateTime.of(2026, 12, 1, 0, 0)).revoked(false).build());
 
-        AppUserEntity redeemed = redeemer.redeem(tokenId, userId, "new-hash", NOW);
+        AppUserEntity redeemed = redeemer.redeem(tokenId, userId, "new-hash");
 
         assertThat(storedPassword()).isEqualTo("new-hash");
         assertThat(jdbc.queryForObject("SELECT password_change_required FROM app_user WHERE id = ?",
@@ -136,7 +149,7 @@ class PasswordResetRedeemerTest {
 
         jdbc.update("UPDATE app_user SET enabled = FALSE WHERE id = ?", userId);
 
-        assertThatThrownBy(() -> redeemer.redeem(tokenId, userId, "new-hash", NOW))
+        assertThatThrownBy(() -> redeemer.redeem(tokenId, userId, "new-hash"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("This reset link is invalid");
 
@@ -152,7 +165,7 @@ class PasswordResetRedeemerTest {
         users.findById(userId).orElseThrow();
         jdbc.update("UPDATE app_user SET enabled = FALSE, password = '' WHERE id = ?", userId);
 
-        assertThatThrownBy(() -> redeemer.redeem(tokenId, userId, "new-hash", NOW))
+        assertThatThrownBy(() -> redeemer.redeem(tokenId, userId, "new-hash"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("This reset link is invalid");
 
@@ -166,7 +179,7 @@ class PasswordResetRedeemerTest {
         jdbc.update("DELETE FROM password_reset_token");
         jdbc.update("DELETE FROM app_user WHERE id = ?", userId);
 
-        assertThatThrownBy(() -> redeemer.redeem(tokenId, userId, "new-hash", NOW))
+        assertThatThrownBy(() -> redeemer.redeem(tokenId, userId, "new-hash"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("This reset link is invalid");
     }
@@ -175,9 +188,9 @@ class PasswordResetRedeemerTest {
     @DisplayName("a second redemption of the same link is refused 'already been used' and changes nothing: "
             + "the compare-and-set, not a read, decides")
     void redeem_secondRedemption_isRefused() {
-        redeemer.redeem(tokenId, userId, "new-hash", NOW);
+        redeemer.redeem(tokenId, userId, "new-hash");
 
-        assertThatThrownBy(() -> redeemer.redeem(tokenId, userId, "another-hash", NOW.plusSeconds(5)))
+        assertThatThrownBy(() -> redeemer.redeem(tokenId, userId, "another-hash"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("This reset link has already been used");
 
@@ -192,7 +205,7 @@ class PasswordResetRedeemerTest {
         jdbc.update("UPDATE password_reset_token SET used_at = ? WHERE id = ?",
                 java.sql.Timestamp.from(NOW.minusSeconds(1)), tokenId);
 
-        assertThatThrownBy(() -> redeemer.redeem(tokenId, userId, "new-hash", NOW))
+        assertThatThrownBy(() -> redeemer.redeem(tokenId, userId, "new-hash"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("This reset link has already been used");
 
@@ -205,13 +218,56 @@ class PasswordResetRedeemerTest {
     void redeem_failureAfterTheWrites_rollsEverythingBack() {
         doThrow(new IllegalStateException("revoke failed")).when(refreshTokens).revokeAllActiveByUserId(userId);
 
-        assertThatThrownBy(() -> redeemer.redeem(tokenId, userId, "new-hash", NOW))
+        assertThatThrownBy(() -> redeemer.redeem(tokenId, userId, "new-hash"))
                 .isInstanceOf(IllegalStateException.class);
 
         assertThat(usedAt(tokenId)).isNull();
         assertThat(storedPassword()).isEqualTo("old-hash");
         assertThat(jdbc.queryForObject("SELECT password_change_required FROM app_user WHERE id = ?",
                 Boolean.class, userId)).isTrue();
+    }
+
+    @Test
+    @DisplayName("a link that expired while the new password was being hashed (it was unexpired when the "
+            + "service checked, expired by the instant the redeemer takes) is refused 'has expired', stays "
+            + "unconsumed and changes nothing")
+    void redeem_expiredByTheRedeemersOwnInstant_isRefused() {
+        // The service's pre-hash check saw this token as live; by the redeemer's clock (NOW) it is not.
+        jdbc.update("UPDATE password_reset_token SET expires_at = ? WHERE id = ?",
+                java.sql.Timestamp.from(NOW.minusSeconds(1)), tokenId);
+        tokens.findById(tokenId).orElseThrow();
+
+        assertThatThrownBy(() -> redeemer.redeem(tokenId, userId, "new-hash"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("This reset link has expired");
+
+        assertThat(usedAt(tokenId)).isNull();
+        assertThat(storedPassword()).isEqualTo("old-hash");
+    }
+
+    @Test
+    @DisplayName("a link expiring exactly at the redeemer's instant is expired: the consume needs "
+            + "expires_at strictly after now")
+    void redeem_expiringExactlyNow_isRefused() {
+        jdbc.update("UPDATE password_reset_token SET expires_at = ? WHERE id = ?",
+                java.sql.Timestamp.from(NOW), tokenId);
+
+        assertThatThrownBy(() -> redeemer.redeem(tokenId, userId, "new-hash"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("This reset link has expired");
+
+        assertThat(usedAt(tokenId)).isNull();
+    }
+
+    @Test
+    @DisplayName("a link one second from expiry still redeems")
+    void redeem_oneSecondLeft_redeems() {
+        jdbc.update("UPDATE password_reset_token SET expires_at = ? WHERE id = ?",
+                java.sql.Timestamp.from(NOW.plusSeconds(1)), tokenId);
+
+        redeemer.redeem(tokenId, userId, "new-hash");
+
+        assertThat(storedPassword()).isEqualTo("new-hash");
     }
 
     @Test
@@ -225,7 +281,7 @@ class PasswordResetRedeemerTest {
         tokens.save(PasswordResetTokenEntity.builder().tokenHash("other-link").userId(other.getId())
                 .expiresAt(NOW.plusSeconds(3600)).createdAt(NOW).build());
 
-        redeemer.redeem(tokenId, userId, "new-hash", NOW);
+        redeemer.redeem(tokenId, userId, "new-hash");
 
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM refresh_token WHERE revoked = FALSE "
                 + "AND user_id = ?", Integer.class, other.getId())).isEqualTo(1);

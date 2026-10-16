@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.Instant;
 
 /**
@@ -27,7 +28,8 @@ import java.time.Instant;
  *       hash, which under open-session-in-view is the very instance a locking entity query hands back.
  *       An admin who disabled the account while the password was being hashed wins: the link is refused
  *       with "invalid" and left unconsumed;</li>
- *   <li>consume the token by compare-and-set — 0 rows means a concurrent redemption won;</li>
+ *   <li>consume the token by compare-and-set on unused AND unexpired, judged at an instant taken inside
+ *       the transaction — 0 rows means a concurrent redemption won or the link expired meanwhile;</li>
  *   <li>void the account's other unused links;</li>
  *   <li>set the password by compare-and-set on {@code enabled}, and revoke every active refresh token;</li>
  *   <li>re-read and return the row as it now stands, so the response is built from the redeemed state
@@ -50,9 +52,13 @@ public class PasswordResetRedeemer {
     /** The sentence for a link that was redeemed (possibly a moment ago, by a concurrent request). */
     static final String USED_LINK = "This reset link has already been used";
 
+    /** The sentence for a link that expired, possibly while the new password was being hashed. */
+    static final String EXPIRED_LINK = "This reset link has expired";
+
     private final AppUserRepository userRepository;
     private final PasswordResetTokenRepository tokenRepository;
     private final RefreshTokenRepository refreshTokenRepository;
+    private final Clock clock;
 
     /**
      * Constructs the redeemer.
@@ -60,12 +66,14 @@ public class PasswordResetRedeemer {
      * @param userRepository         accounts
      * @param tokenRepository        reset links
      * @param refreshTokenRepository sessions
+     * @param clock                  the application clock, read INSIDE the transaction
      */
     public PasswordResetRedeemer(AppUserRepository userRepository, PasswordResetTokenRepository tokenRepository,
-            RefreshTokenRepository refreshTokenRepository) {
+            RefreshTokenRepository refreshTokenRepository, Clock clock) {
         this.userRepository = userRepository;
         this.tokenRepository = tokenRepository;
         this.refreshTokenRepository = refreshTokenRepository;
+        this.clock = clock;
     }
 
     /**
@@ -74,19 +82,26 @@ public class PasswordResetRedeemer {
      * @param tokenId         the link's primary key
      * @param userId          the account the link names
      * @param encodedPassword the new password's BCrypt hash, computed before this call
-     * @param now             the redemption instant
      * @return the account as it stands after the redemption
      * @throws IllegalArgumentException with the sentence to show when the link cannot be redeemed
      */
     @Transactional
-    public AppUserEntity redeem(Long tokenId, Long userId, String encodedPassword, Instant now) {
+    public AppUserEntity redeem(Long tokenId, Long userId, String encodedPassword) {
         LockedAccount account = userRepository.lockAccount(userId).orElse(null);
         if (account == null || !account.active()) {
             LOG.info("Password reset refused: account for user id {} is disabled, pending or gone", userId);
             throw new IllegalArgumentException(INVALID_LINK);
         }
+        // The instant is taken HERE, after the BCrypt hash and under the row lock: a link that expired
+        // while the password was being hashed must not redeem on the strength of a pre-hash check.
+        Instant now = clock.instant();
         if (tokenRepository.markUsed(tokenId, now) != 1) {
-            throw new IllegalArgumentException(USED_LINK);
+            // Zero rows: used (possibly a moment ago, by a concurrent request) or expired. One read of
+            // the row, under the account lock held since above, says which; markUsed cleared the
+            // persistence context, so this is a fresh read, not the pre-hash entity.
+            boolean used = tokenRepository.findById(tokenId)
+                    .map(token -> token.getUsedAt() != null).orElse(true);
+            throw new IllegalArgumentException(used ? USED_LINK : EXPIRED_LINK);
         }
         tokenRepository.deleteByUserIdAndUsedAtIsNull(userId);
         if (userRepository.applyPasswordReset(userId, encodedPassword) != 1) {

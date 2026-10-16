@@ -40,15 +40,19 @@ public interface PasswordResetTokenRepository extends JpaRepository<PasswordRese
     int deleteByUserIdAndUsedAtIsNull(@Param("userId") Long userId);
 
     /**
-     * Consumes a token — but only while it is still unused. A compare-and-set: of two concurrent
-     * redemptions of one link exactly one sees a count of 1.
+     * Consumes a token — but only while it is still unused AND has not expired at {@code now}. A
+     * compare-and-set: of two concurrent redemptions of one link exactly one sees a count of 1, and a link
+     * that expires while the new password is being hashed is refused, because the caller passes the instant
+     * it takes INSIDE the transaction, not the one it checked before hashing.
      *
      * @param id  the token's primary key
-     * @param now the instant to record as the redemption
-     * @return 1 if this call consumed the token; 0 if it was already used (or no token has that id)
+     * @param now the instant to record as the redemption and to judge expiry against
+     * @return 1 if this call consumed the token; 0 if it was already used or has expired (or no token has
+     *         that id) — the caller reads the row to tell which
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Transactional
-    @Query("UPDATE PasswordResetTokenEntity t SET t.usedAt = :now WHERE t.id = :id AND t.usedAt IS NULL")
+    @Query("UPDATE PasswordResetTokenEntity t SET t.usedAt = :now WHERE t.id = :id AND t.usedAt IS NULL "
+            + "AND t.expiresAt > :now")
     int markUsed(@Param("id") Long id, @Param("now") Instant now);
 }

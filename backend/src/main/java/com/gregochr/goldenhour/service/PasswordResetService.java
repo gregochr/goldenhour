@@ -159,8 +159,10 @@ public class PasswordResetService {
         }
 
         // BCrypt before any transaction opens: a pooled connection must not be pinned across the hash.
+        // The expiry above is only a cheap early refusal; the redeemer re-judges it at its own instant,
+        // taken inside its transaction, because the hash takes long enough for a link to expire.
         String encoded = passwordEncoder.encode(rawPassword);
-        AppUserEntity redeemed = redeemer.redeem(token.getId(), token.getUserId(), encoded, now);
+        AppUserEntity redeemed = redeemer.redeem(token.getId(), token.getUserId(), encoded);
         LOG.info("Password reset complete: user id {}", redeemed.getId());
         return authenticationService.issueTokensFor(redeemed);
     }

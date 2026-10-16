@@ -55,6 +55,18 @@ class PasswordResetTokenRepositoryTest {
     }
 
     @Test
+    @DisplayName("markUsed refuses a token that has expired at the instant given, including exactly at expiry, "
+            + "and leaves it unused")
+    void markUsed_refusesAnExpiredToken() {
+        PasswordResetTokenEntity saved = token("abc", 1L, null);
+
+        assertThat(repository.markUsed(saved.getId(), NOW.plusSeconds(3600))).isZero();
+        assertThat(repository.markUsed(saved.getId(), NOW.plusSeconds(3601))).isZero();
+        assertThat(repository.findByTokenHash("abc").orElseThrow().getUsedAt()).isNull();
+        assertThat(repository.markUsed(saved.getId(), NOW.plusSeconds(3599))).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("markUsed on an unknown id consumes nothing")
     void markUsed_unknownId() {
         assertThat(repository.markUsed(999L, NOW)).isZero();
