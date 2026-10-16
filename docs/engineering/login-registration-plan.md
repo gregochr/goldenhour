@@ -709,10 +709,24 @@ admin temp password) and `UserService.activateUser`. ⚠️ **Hash first, then o
 helper** (Codex, R0 round 3): `changePassword` today deliberately runs BCrypt in a
 NON-transactional method (its javadoc: never hold a pooled connection through the ~100 ms hash);
 each stamp site keeps that shape — encode outside, then call a `@Transactional`
-`CredentialChangeWriter.apply(userId, encodedPassword, now)` (one new class) that writes the
-password, the stamp and the refresh-token revocation atomically and returns, so a failure after the
-password write cannot leave the old sessions valid; `issueTokensFor` runs after it returns (it has
-its own transaction, as today). `JwtAuthenticationFilter`: after
+`CredentialChangeWriter.apply(userId, encodedPassword, change, now)` (one new class) where `change`
+is a small record carrying the site's WHOLE account-state change — `passwordChangeRequired`
+(cleared by change-password and both resets' redemption, SET by the admin temp-password reset) and
+`enable` (true for `activateUser`, which also writes the activation it does today) — so the
+password, the stamp, the flag and enabled state, and the refresh-token revocation commit together
+and a failure after the password write can neither leave the old sessions valid nor leave an
+activated user disabled (Codex, R0 round 4). **The writer locks the user row first**
+(`findByIdForUpdate`, the parent-before-children order). ⚠️ **Token issuance is serialised against
+it** (Codex, R0 round 4): a login that verified the OLD hash just before the writer commits would
+otherwise issue an access token with an `iat` after the stamp and insert a refresh row after the
+revoke. `issueTokensFor(user, verifiedPasswordHash)` therefore runs in its own transaction that
+takes the SAME row lock (`findByIdForUpdate`), re-reads the stored hash and refuses with the
+generic failure if it is not the one the caller verified (`login` passes the hash it matched;
+set-password, reset and activation pass the hash they just wrote; `refresh` passes the stored one it
+read under the lock) — so either the issue commits wholly before the writer, whose revoke then
+catches the new refresh row and whose stamp outdates the new `iat`, or wholly after it, and sees the
+new hash. `issueTokensFor` is the one place refresh rows are inserted, so the lock covers every
+issuance; the `refresh` path's existing compare-and-set stays. `JwtAuthenticationFilter`: after
 `validateToken`, load the user ONCE (the query it already makes for `lastActiveAt`); set the
 `SecurityContext` only when the row exists, `enabled` is true, and `credentialsChangedAt == null ||
 !jwtService.extractIssuedAt(token).isBefore(credentialsChangedAt.truncatedTo(ChronoUnit.SECONDS))`
@@ -883,7 +897,10 @@ stamps, revokes every active refresh token and returns fresh tokens), `controlle
 (`/change-password` answers `buildAuthResponse` + `message`), `service/PasswordResetService.java`
 (the `TODO(R3c)`), `service/UserService.java` (`resetPassword` and `activateUser` stamp and revoke), `JwtService` (only if `extractIssuedAt` is not already
 public), tests: `JwtAuthenticationFilterTest` (the five cases), `AppUserRepositoryTest`
-(`@DataJpaTest`, the scoped update), the three services' tests (the stamp call), `integration/
+(`@DataJpaTest`, the scoped update), `CredentialChangeWriterTest` (`@DataJpaTest`: each site's
+change record lands atomically; a forced failure after the password write rolls back the stamp,
+the flag and the revocation), `AuthenticationServiceTest` (`issueTokensFor` refuses when the stored
+hash moved under it; the hash each caller passes), the three services' tests (the stamp call), `integration/
 CredentialsChangedAtMigrationTest` (CI-only). No frontend change: a 401 already fires the session-
 expired path.
 
@@ -1124,7 +1141,9 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added seven P1s over three rounds, folded in: a strict
+disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added nine P1s over four rounds, folded in: token issuance
+is serialised against the credential writer by the user-row lock and a hash re-check (§2 #13); the
+writer carries each site's enabled/flag state so it commits with the password (§2 #13); a strict
 ASCII rule would have stranded accounts that already hold a non-ASCII address (exact match first,
 §1 #5); every credential change hashes outside and writes inside one transactional helper (§2 #13); the `iat`
 comparison must truncate the stamp to seconds or reject the tokens issued right after it (§2 #13);
