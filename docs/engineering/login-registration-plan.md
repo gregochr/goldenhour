@@ -312,12 +312,18 @@ is invalid"), a used one ("This reset link has already been used"), an expired o
 link has expired"), or a token whose user is disabled or pending ("This reset link is invalid" — a
 reset must not sign a banned account in); through the token-keyed attempt limit (§2 #4, key
 `reset:` + the token hash's first 16 hex chars, 10 per 15 min). On success: encode the password
-BEFORE opening the transaction (`AuthenticationService`'s own javadoc forbids BCrypt inside one),
-then in one transaction `markUsed` (0 rows → "already been used"), set the password, clear
-`passwordChangeRequired`, stamp `credentials_changed_at` (R3c's column, once it exists — R3a leaves a
-named `TODO(R3c)` and R3c fills it), `refreshTokenRepository.revokeAllActiveByUserId(userId)`;
-after it, `issueTokensFor(user)` and `buildAuthResponse` — the reader is signed in on the device that
-reset, as set-password does. **Every OTHER device is signed out at its next request once R3c lands**;
+BEFORE opening any transaction (`AuthenticationService`'s own javadoc forbids BCrypt inside one),
+then ONE proxied transactional operation — in R3a a `PasswordResetService`-owned
+`@Transactional` collaborator `PasswordResetRedeemer.redeem(tokenId, userId, encodedPassword, now)`
+(its own bean, never a self-invoked method) that locks the user row, `markUsed`s the token by
+compare-and-set (0 rows → "already been used"), sets the password, clears `passwordChangeRequired`
+and `revokeAllActiveByUserId(userId)`; in R3c that operation becomes
+`CredentialChangeWriter.consumeResetAndApply(tokenId, userId, encodedPassword, change, now)` (the
+sibling of the verification one in §2 #13) so the stamp joins the same transaction — a failure
+between consuming the token and changing the password can neither burn a valid token nor leave a
+changed password with a reusable token (Codex, R0 round 8); after it, `issueTokensFor(user,
+encodedPassword)` and `buildAuthResponse` — the reader is signed in on the device that reset, as
+set-password does. **Every OTHER device is signed out at its next request once R3c lands**;
 until then, when its access token expires (≤ 24 h) — R3a's PR body says which. Never Turnstile (the
 emailed token is the proof, task 11's own reasoning).
 
@@ -797,7 +803,16 @@ refused. The client side is one conditional line in `AuthContext.changePassword`
 nothing for today's `{message}` response. Tests: `JwtAuthenticationFilterTest` — a token for a deleted user, a disabled
 user, a token issued before the stamp, one issued after it, one with a null stamp; a `@DataJpaTest`
 for the scoped update; `integration/CredentialsChangedAtMigrationTest` (CI-only). The residual, accepted: a token issued in the same second BEFORE the stamp is also accepted
-(one second of exposure, against a token the stamping request itself usually holds). After R3c, "a password reset signs every other
+(one second of exposure, against a token the stamping request itself usually holds). ⚠️ **The token
+is bound to the account's id, not only its name** (Codex, R0 round 8): a username freed by a
+deletion and recreated by an admin (`UserService.createUser`, enabled at once) or re-registered would
+otherwise resolve an unexpired old token to the NEW row, whose stamp is null. `JwtService
+.generateAccessToken` adds a `uid` claim (the account id); the filter requires `uid` to equal the
+loaded row's id and rejects any mismatch; a token with NO `uid` (issued before R3c deploys, ≤ 24 h
+old) is accepted by name alone for that window — stated, accepted, and `credentials_changed_at` is
+ALSO stamped at creation (`createUser`, `createPendingUser`, and activation already does) as belt
+and braces, so even a legacy token meets a non-null stamp on a recreated row. The filter test adds:
+a `uid` for another id → 401; a legacy token without `uid` → accepted. After R3c, "a password reset signs every other
 device out" and "a deleted account's token is dead" are true at the next request.
 
 ---
@@ -945,8 +960,8 @@ the issuer with the hash), new `service/TokenIssuer.java` and `service/Credentia
 `service/RegistrationService.java` (`setPasswordAndActivate` split, `consumeAndActivate`),
 `EmailVerificationTokenRepository` (`deleteByIdIfPresent`), `controller/AuthController.java`
 (`/change-password` answers `buildAuthResponse` + `message`; set-password passes the hash), `service/PasswordResetService.java`
-(the `TODO(R3c)`), `service/UserService.java` (`resetPassword` and `activateUser` stamp and revoke), `JwtService` (only if `extractIssuedAt` is not already
-public), tests: `JwtAuthenticationFilterTest` (the five cases), `AppUserRepositoryTest`
+(the `TODO(R3c)`), `service/UserService.java` (`resetPassword` and `activateUser` stamp and revoke), `JwtService` (the `uid` claim, `extractUserId`), `UserService` (`createUser`/`createPendingUser`
+stamp at creation), `AuthenticationService.refresh` (the user lock first), tests: `JwtAuthenticationFilterTest` (the five cases), `AppUserRepositoryTest`
 (`@DataJpaTest`, the scoped update), `CredentialChangeWriterTest` (`@DataJpaTest`: each site's
 change record lands atomically; a forced failure after the password write rolls back the stamp,
 the flag and the revocation), `TokenIssuerTest` (`@DataJpaTest` over the real repositories: refuses
@@ -1195,7 +1210,10 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added seventeen P1s over seven rounds, folded in:
+disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added nineteen P1s over eight rounds, folded in: the access
+token carries a `uid` claim and creation stamps `credentials_changed_at`, so a recreated username
+cannot inherit a deleted account's token; the reset token is consumed inside the writer's
+transaction (§2 #1, #13);
 activation re-checks the pending state under the lock and deletes every verification token; the
 `lastActiveAt` stamps become scoped updates and the three credential columns `updatable = false`;
 the overlay never mounts over an open Settings dialog; a failed dismissal after Skip is covered by an
