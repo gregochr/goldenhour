@@ -345,11 +345,16 @@ its `step` state; a `verifyToken` prop that goes null after mount is harmless (`
 only when the prop is truthy, and `SET_PASSWORD` is reached only through it, so registration always
 starts with the prop set). `RegisterPage` (R4b): `STEPS` gains `HOME` between `SET_PASSWORD` and
 `SUCCESS`; `handleSetPassword` → `completeRegistration(data)` → `setStep(HOME)`; `HOME` renders
-`PostcodeCapture` (§2 #6) with the task-1 copy, matching frames 1–3; Save → `SUCCESS`; **Skip → `markPostcodePromptDismissed()` (awaited, a failure ignored) → `SUCCESS`**
-— "Skip for now" IS the reader's dismissal, and without it the app's first settings read would compute
-`postcodePromptDue: true` and raise the prompt overlay over the Welcome the reader just skipped past
-(Codex, R0 round 2; the spec's own frame-2 note says a skip "goes straight to Welcome" and leaves the
-masthead's "set a postcode" link to cover it, which is exactly what the dismissal does);
+`PostcodeCapture` (§2 #6) with the task-1 copy, matching frames 1–3; Save → `SUCCESS`; **Skip → `markPostcodePromptDismissed()` (awaited, a failure ignored) AND
+`AuthContext.suppressPostcodePrompt()` → `SUCCESS`** — "Skip for now" IS the reader's dismissal, and
+without it the app's first settings read would compute `postcodePromptDue: true` and raise the prompt
+overlay over the Welcome the reader just skipped past (Codex, R0 round 2; the spec's own frame-2
+note says a skip "goes straight to Welcome" and leaves the masthead's "set a postcode" link to cover
+it, which is exactly what the dismissal does). `suppressPostcodePrompt()` sets an in-memory
+`postcodePromptSuppressed` on `AuthContext` (cleared by `logout` and session expiry, never stored)
+that the overlay's mount condition reads, so a PUT that FAILS cannot bring the prompt back over the
+Welcome or the app this page session — the dismissal is retried at the reader's next mount, the safe
+direction (Codex, R0 round 7); the overlay's own Not now sets it too, for the same reason;
 `SUCCESS` keeps its copy and its 2 s timer, whose body is `finishRegistration()` (and the URL
 cleanup) instead of `window.location.reload()`. The lookup and save calls go through the ordinary
 `apiClient`, which reads the token `completeRegistration` has just stored. A page reload during
@@ -379,9 +384,16 @@ Idempotent: a second dismissal overwrites the instant. `JsonDateFormatContractTe
 **The client source is the mount read, nothing else.** `useReaderSettings` exposes
 `postcodePromptDue` (`settings?.postcodePromptDue === true`, STRICT — §1 #17) from its existing
 mount read and lets every later answer (`startSettingsRead`, `homeSaved`) update it. `AppInner`
-mounts `PostcodePromptOverlay` when `postcodePromptDue && !promptDone && getRewindTo() == null`
-(`promptDone` a local `useState`, set by Save and Not now; a rewound admin is never prompted — the
-rewind is a read of the past, not a sign-in). **An overlay, not a gate**: the app is already mounted
+mounts `PostcodePromptOverlay` when `postcodePromptDue && !promptDone && !promptSuppressed &&
+!settingsOpen && getRewindTo() == null` (`promptDone` a local `useState`, set by Save and Not now;
+`promptSuppressed` is `AuthContext`'s in-memory flag below; `settingsOpen` is `AppInner`'s existing
+`Boolean(showSettings || settingsFocus)` — a slow first read lets the reader open Settings first, and
+the dialog's own response reaches `postcodePromptDue` through `startSettingsRead`, which would
+otherwise put the overlay over an open `aria-modal` dialog and make Settings inert underneath it;
+with the guard the overlay waits for Settings to close, and a postcode saved there ends the question
+anyway — Codex, R0 round 7; a rewound admin is never prompted — the rewind is a read of the past,
+not a sign-in). `App.test.jsx` pins: Settings open + a due answer → no overlay; Settings closed →
+the overlay. **An overlay, not a gate**: the app is already mounted
 when the answer arrives (one request after mount; at a fresh sign-in that is before the briefing has
 painted), so the prompt is a `role="dialog" aria-modal="true" aria-labelledby` page portalled to
 `document.body` (`createPortal`, a sibling of `#root`, so it is NOT inside the subtree it makes
@@ -723,8 +735,11 @@ it. It becomes a non-transactional method that reads and checks the token (hash,
 expired), encodes the password, and then calls ONE `@Transactional` method on the SEPARATE writer bean
 (`CredentialChangeWriter.consumeVerificationAndApply(tokenId, userId, encodedPassword, change,
 now)` — never a method on `RegistrationService` itself, which would be the same self-invocation
-trap the issuer avoids; Codex, R0 round 6) that locks the user row, deletes the token with a
-compare-and-set (`deleteByIdIfPresent` returning the row count; 0 → "already used", so two
+trap the issuer avoids; Codex, R0 round 6) that locks the user row, **re-checks under that lock that the account is still pending**
+(disabled AND empty password — today's `activateUser` test, kept; otherwise "already used": a
+reader who verified two links and activated with one must not overwrite the live password with the
+other — Codex, R0 round 7), deletes EVERY verification token of that user (not only the one
+presented; `deleteByIdIfPresent` on the presented one returning 0 → "already used", so two
 concurrent redemptions cannot both activate) and applies the credential change in the same
 transaction — token consumption and the credential change stay atomic, the hash stays outside. **The writer locks the user row first**
 (`findByIdForUpdate`, the parent-before-children order). ⚠️ **Token issuance is serialised against
@@ -761,7 +776,15 @@ plain `isBefore` would have rejected every token issued straight after a reset, 
 an activation, the registration `HOME` step's first request included (Codex, R0 round 2). The
 filter test pins exactly that pair; otherwise leave the context empty and let the entry point answer 401, and
 log one INFO line through `LogSanitizer`. The `lastActiveAt` stamp keeps its hourly rule on the
-same loaded entity. ⚠️ **Refresh tokens carry no issue instant** (`refresh_token` has no
+same loaded entity **but becomes a column-scoped update** (`AppUserRepository.touchLastActiveAt(id,
+now)`), as does the one in `AuthenticationService.login` — both are whole-entity `save()`s today, and
+the login one runs on a user loaded BEFORE BCrypt, so it could write the detached entity's OLD
+password hash back over a credential change that committed during the hash, after which the
+issuer's re-check would see the hash login verified and issue valid tokens (Codex, R0 round 7). The
+same `updatable = false`/scoped-update lesson CLAUDE.md records for the settings columns; `password`,
+`enabled` and `passwordChangeRequired` are written only by the writer and the two admin paths after
+R3c, pinned by a test that a `save()` of a stale entity does not move them (make the three columns
+`updatable = false` too, written through the writer's and `UserService`'s scoped updates). ⚠️ **Refresh tokens carry no issue instant** (`refresh_token` has no
 `created_at`), so the stamp alone would leave a pre-change refresh token able to mint a fresh access
 token through `/refresh` (Codex, R0 review). Every stamp site therefore ALSO calls
 `refreshTokenRepository.revokeAllActiveByUserId(userId)` in the same transaction — `changePassword`,
@@ -1172,7 +1195,11 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added thirteen P1s over six rounds, folded in: the
+disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added seventeen P1s over seven rounds, folded in:
+activation re-checks the pending state under the lock and deletes every verification token; the
+`lastActiveAt` stamps become scoped updates and the three credential columns `updatable = false`;
+the overlay never mounts over an open Settings dialog; a failed dismissal after Skip is covered by an
+in-memory suppression (§2 #2, #3, #13); the
 consume-and-activate helper lives on the separate writer bean, not on `RegistrationService`;
 `refresh` locks the user row before its refresh-token compare-and-set, one lock order app-wide
 (§2 #13); issuance moves
