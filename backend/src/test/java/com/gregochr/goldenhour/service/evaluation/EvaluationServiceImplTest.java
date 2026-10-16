@@ -296,6 +296,27 @@ class EvaluationServiceImplTest {
     }
 
     @Test
+    @DisplayName("V179: the hashes are stamped BEFORE the batch is submitted, so a fast-completing or "
+            + "adopted batch can never be scored against an unstamped row")
+    void submit_stampsPromptHashesBeforeSubmittingTheBatch() {
+        EvaluationTask.Forecast withRow = forecastTaskWithRow(42L, "Castlerigg", 901L);
+        when(batchRequestFactory.buildForecastRequestAndPrompt(any(), any(), any(),
+                org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(new BatchRequestFactory.ForecastRequest(
+                        mock(BatchCreateParams.Request.class), "m", "inland-hash"));
+        when(batchSubmissionService.submit(any(), any(), any(), anyString(),
+                org.mockito.ArgumentMatchers.isNull(), eq(false)))
+                .thenReturn(new BatchSubmitResult(1L, "msgbatch_x", 1));
+
+        service.submit(List.of(withRow), BatchTriggerSource.SCHEDULED);
+
+        org.mockito.InOrder order = org.mockito.Mockito.inOrder(forecastPromptStore, batchSubmissionService);
+        order.verify(forecastPromptStore).stampPromptHashes(any());
+        order.verify(batchSubmissionService).submit(any(), any(), any(), anyString(),
+                org.mockito.ArgumentMatchers.isNull(), eq(false));
+    }
+
+    @Test
     @DisplayName("submit: woodland and bluebell tasks store nothing")
     void submit_woodlandAndBluebellTasks_storeNothing() {
         EvaluationTask.Forecast bb = bluebellTask(53L, "Bluebell Wood", "Lake District");
@@ -330,7 +351,7 @@ class EvaluationServiceImplTest {
 
         service.submit(List.of(withRow), BatchTriggerSource.SCHEDULED);
 
-        verifyNoInteractions(forecastPromptStore);
+        verify(forecastPromptStore, org.mockito.Mockito.never()).store(any());
     }
 
     @Test

@@ -543,7 +543,7 @@ the release, so two commits between releases are one build** (local runs are all
 release running when the reader's rating was written (`OutcomeRatingStore.upsert`, replaced on a re-rate, because the rating was
 made again by the build then running); it is NOT the forecast's build — the report reads the forecast row's. `prompt_hash` is
 the SHA-256 (hex, `PromptHash`) of the SKY **system** prompt a batch request carried (the inland or the coastal one, so two
-values exist at a time), stamped at SUBMISSION by `ForecastPromptStore.stampPromptHashes` (one `UPDATE ... WHERE id IN` per
+values exist at a time), stamped just BEFORE the batch is submitted by `ForecastPromptStore.stampPromptHashes` (before, because `submit()` publishes its pollable row before returning and the scoring handler does a full-entity save, so a post-submit stamp could be overwritten with a stale null) (one `UPDATE ... WHERE id IN` per
 distinct hash, best-effort and never failing the submission) from `BatchRequestFactory.ForecastRequest.promptHash`.
 ⚠️ **It deliberately does NOT hash the user message**: that embeds the slot's own weather, so its hash would differ on every row
 and group nothing; the system prompt changes only when someone edits it. The limit, stated: an edit to the USER-message

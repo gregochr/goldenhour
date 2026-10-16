@@ -202,6 +202,12 @@ public class EvaluationServiceImpl implements EvaluationService {
                 }
             }
         }
+        // V179: stamped BEFORE the batch exists. submit() publishes its SUBMITTED row before it
+        // returns, so a batch that completes quickly (or an adopted one that already has) can be
+        // polled and its row scored by ForecastResultHandler (a full-entity save) before any
+        // post-submit stamp ran, which would then write the stale null back. A submission that then
+        // fails leaves a hash on rows that were never scored, which no reader looks at.
+        forecastPromptStore.stampPromptHashes(skyPromptHashes);
         BatchSubmitResult result = batchSubmissionService.submit(
                 requests, BatchType.FORECAST, trigger,
                 "EvaluationService forecast (" + trigger + ")",
@@ -209,7 +215,6 @@ public class EvaluationServiceImpl implements EvaluationService {
         if (result != null) {
             // Best-effort and never fails the submission: the store catches its own failures.
             forecastPromptStore.store(skyPrompts);
-            forecastPromptStore.stampPromptHashes(skyPromptHashes);
         }
         return result == null
                 ? EvaluationHandle.empty()
