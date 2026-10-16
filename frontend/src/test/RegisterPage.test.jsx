@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import RegisterPage from '../components/RegisterPage.jsx';
@@ -52,7 +52,6 @@ describe('RegisterPage', () => {
 
     await user.type(screen.getByTestId('reg-username'), 'newuser');
     await user.type(screen.getByTestId('reg-email'), 'new@example.com');
-    await user.type(screen.getByTestId('reg-confirm-email'), 'new@example.com');
     await user.click(screen.getByTestId('reg-terms-accepted'));
     await user.click(screen.getByTestId('reg-submit'));
 
@@ -75,7 +74,6 @@ describe('RegisterPage', () => {
 
     await user.type(screen.getByTestId('reg-username'), 'newuser');
     await user.type(screen.getByTestId('reg-email'), 'prefilled@example.com');
-    await user.type(screen.getByTestId('reg-confirm-email'), 'prefilled@example.com');
     await user.click(screen.getByTestId('reg-terms-accepted'));
     await user.click(screen.getByTestId('reg-submit'));
 
@@ -96,7 +94,6 @@ describe('RegisterPage', () => {
     // Trigger 403 to get to waitlist step
     await user.type(screen.getByTestId('reg-username'), 'newuser');
     await user.type(screen.getByTestId('reg-email'), 'wait@example.com');
-    await user.type(screen.getByTestId('reg-confirm-email'), 'wait@example.com');
     await user.click(screen.getByTestId('reg-terms-accepted'));
     await user.click(screen.getByTestId('reg-submit'));
 
@@ -127,7 +124,6 @@ describe('RegisterPage', () => {
 
     await user.type(screen.getByTestId('reg-username'), 'newuser');
     await user.type(screen.getByTestId('reg-email'), 'fail@example.com');
-    await user.type(screen.getByTestId('reg-confirm-email'), 'fail@example.com');
     await user.click(screen.getByTestId('reg-terms-accepted'));
     await user.click(screen.getByTestId('reg-submit'));
 
@@ -153,7 +149,6 @@ describe('RegisterPage', () => {
 
     await user.type(screen.getByTestId('reg-username'), 'taken');
     await user.type(screen.getByTestId('reg-email'), 'new@example.com');
-    await user.type(screen.getByTestId('reg-confirm-email'), 'new@example.com');
     await user.click(screen.getByTestId('reg-terms-accepted'));
     await user.click(screen.getByTestId('reg-submit'));
 
@@ -181,7 +176,6 @@ describe('RegisterPage', () => {
 
     await user.type(screen.getByTestId('reg-username'), 'newuser');
     await user.type(screen.getByTestId('reg-email'), 'back@example.com');
-    await user.type(screen.getByTestId('reg-confirm-email'), 'back@example.com');
     await user.click(screen.getByTestId('reg-terms-accepted'));
     await user.click(screen.getByTestId('reg-submit'));
 
@@ -212,7 +206,6 @@ describe('RegisterPage visual foundation', () => {
   const fillAndSubmit = async (user) => {
     await user.type(screen.getByTestId('reg-username'), 'newuser');
     await user.type(screen.getByTestId('reg-email'), 'new@example.com');
-    await user.type(screen.getByTestId('reg-confirm-email'), 'new@example.com');
     await user.click(screen.getByTestId('reg-terms-accepted'));
     await user.click(screen.getByTestId('reg-submit'));
   };
@@ -230,7 +223,7 @@ describe('RegisterPage visual foundation', () => {
   it('colours an invalid username with the error token and its hint with secondary ink', async () => {
     const user = userEvent.setup();
     renderPage();
-    const hint = screen.getByText('3-30 characters, letters, numbers, hyphens, or underscores');
+    const hint = screen.getByText('3–30 letters, numbers, - or _');
     expect(hint).toHaveClass('text-plex-text-secondary');
 
     await user.type(screen.getByTestId('reg-username'), 'a');
@@ -240,17 +233,20 @@ describe('RegisterPage visual foundation', () => {
     expect(screen.getByTestId('reg-username')).toHaveClass('field-error');
   });
 
-  it('marks an invalid email and a mismatched confirmation with field-error and the error token', async () => {
+  it('marks an invalid email with field-error and swaps its hint for the error sentence in the error token', async () => {
     const user = userEvent.setup();
     renderPage();
+    const hint = screen.getByText("We'll send a link to confirm it.");
+    expect(hint).toHaveClass('text-plex-text-secondary');
 
     await user.type(screen.getByTestId('reg-email'), 'nope');
-    await user.type(screen.getByTestId('reg-confirm-email'), 'x');
 
     expect(screen.getByTestId('reg-email')).toHaveClass('field', 'field-error');
-    expect(screen.getByTestId('reg-confirm-email')).toHaveClass('field', 'field-error');
-    expect(screen.getByText('Please enter a valid email address')).toHaveClass('text-plex-error');
-    expect(screen.getByText('Email addresses do not match')).toHaveClass('text-plex-error');
+    const error = screen.getByText('Please enter a valid email address');
+    expect(error).toBe(hint);
+    expect(error).toHaveClass('text-plex-error');
+    expect(error).not.toHaveClass('text-plex-text-secondary');
+    expect(screen.queryByText("We'll send a link to confirm it.")).not.toBeInTheDocument();
   });
 
   it('shows a registration failure in the error token', async () => {
@@ -374,7 +370,7 @@ describe('RegisterPage visual foundation', () => {
       const error = await screen.findByTestId('sp-error');
       expect(error).toHaveTextContent('Nope');
       expect(error).toHaveClass('text-plex-error');
-      expect(AuthApi.setPasswordForNewUser).toHaveBeenCalledWith('tok', 'Abcdef1!', 'test-turnstile-token');
+      expect(AuthApi.setPasswordForNewUser).toHaveBeenCalledWith('tok', 'Abcdef1!');
     });
 
     it('left-aligns the Success card with the Welcome heading and the unchanged copy', async () => {
@@ -392,6 +388,291 @@ describe('RegisterPage visual foundation', () => {
       expect(card).not.toHaveClass('text-center');
       expect(h2('Welcome to PhotoCast!')).toBeInTheDocument();
       expect(screen.getByText('Redirecting…')).toBeInTheDocument();
+    });
+  });
+});
+
+/**
+ * R2b (login-registration-plan.md §3 R2b, §2 #4, §2 #12): the registration form drops "Confirm
+ * email", puts email first with its hints, opts marketing OUT by default, says why the button is
+ * disabled, keeps ONE Turnstile (set-password has none), and falls back honestly when the script
+ * cannot load.
+ */
+describe('RegisterPage registration form (R2b)', () => {
+  const REGISTER_FALLBACK =
+    "Security check couldn't load. Try another browser, or turn off your ad-blocker for this page.";
+  const LOGIN_FALLBACK = "Security check unavailable — we'll verify your sign-in another way.";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    installTurnstileMock();
+  });
+
+  afterEach(() => {
+    delete window.turnstile;
+  });
+
+  /** A Turnstile whose script is present but whose render throws, as for a non-whitelisted domain. */
+  const installBrokenTurnstile = () => {
+    window.turnstile = {
+      render: vi.fn(() => { throw new Error('Domain not whitelisted'); }),
+      remove: vi.fn(),
+    };
+  };
+
+  /** A Turnstile that renders but never produces a token (the challenge is still pending). */
+  const installPendingTurnstile = () => {
+    window.turnstile = { render: vi.fn(() => 'widget-id-1'), remove: vi.fn() };
+  };
+
+  describe('the fields', () => {
+    it('asks for Email first, then Username, and nothing else to type', () => {
+      const { container } = renderPage();
+
+      const inputs = [...container.querySelectorAll('input')]
+        .filter((i) => i.type !== 'checkbox')
+        .map((i) => i.id);
+      expect(inputs).toEqual(['reg-email', 'reg-username']);
+      expect(screen.getByLabelText('Email')).toBe(screen.getByTestId('reg-email'));
+      expect(screen.getByLabelText('Username')).toBe(screen.getByTestId('reg-username'));
+    });
+
+    it('restores the email hint once a typo is corrected', async () => {
+      const user = userEvent.setup();
+      renderPage();
+
+      await user.type(screen.getByTestId('reg-email'), 'nope');
+      expect(screen.queryByText("We'll send a link to confirm it.")).not.toBeInTheDocument();
+      await user.type(screen.getByTestId('reg-email'), '@example.com');
+
+      const hint = screen.getByText("We'll send a link to confirm it.");
+      expect(hint).toHaveClass('text-plex-text-secondary');
+      expect(hint).not.toHaveClass('text-plex-error');
+      expect(screen.getByTestId('reg-email')).not.toHaveClass('field-error');
+    });
+
+    it('has no Confirm email field, label or mismatch message', async () => {
+      const user = userEvent.setup();
+      renderPage();
+
+      await user.type(screen.getByTestId('reg-email'), 'a@example.com');
+
+      expect(screen.queryByTestId('reg-confirm-email')).not.toBeInTheDocument();
+      expect(screen.queryByText(/confirm email/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/do not match/i)).not.toBeInTheDocument();
+    });
+
+    it('puts the two hints under their fields, in secondary ink, wired with aria-describedby', () => {
+      renderPage();
+
+      const emailHint = screen.getByText("We'll send a link to confirm it.");
+      const usernameHint = screen.getByText('3–30 letters, numbers, - or _');
+      expect(emailHint).toHaveClass('text-xs', 'text-plex-text-secondary');
+      expect(usernameHint).toHaveClass('text-xs', 'text-plex-text-secondary');
+      expect(screen.getByTestId('reg-email')).toHaveAttribute('aria-describedby', emailHint.id);
+      expect(screen.getByTestId('reg-username')).toHaveAttribute('aria-describedby', usernameHint.id);
+      // The email hint belongs to the email field, the username hint to the username field.
+      expect(screen.getByTestId('reg-email').parentElement).toContainElement(emailHint);
+      expect(screen.getByTestId('reg-username').parentElement).toContainElement(usernameHint);
+    });
+
+    it('validates the email before the username when both are wrong', async () => {
+      const user = userEvent.setup();
+      vi.spyOn(AuthApi, 'register');
+      renderPage();
+
+      await user.type(screen.getByTestId('reg-email'), 'nope');
+      await user.type(screen.getByTestId('reg-username'), 'a');
+      // fireEvent.submit skips the browser's own constraint validation, which would otherwise
+      // swallow the click on a type=email field holding "nope" before the handler ever ran.
+      fireEvent.submit(screen.getByTestId('register-form'));
+
+      expect(await screen.findByTestId('reg-error')).toHaveTextContent('Please enter a valid email address.');
+      expect(AuthApi.register).not.toHaveBeenCalled();
+
+      await user.clear(screen.getByTestId('reg-email'));
+      await user.type(screen.getByTestId('reg-email'), 'ok@example.com');
+      fireEvent.submit(screen.getByTestId('register-form'));
+
+      expect(await screen.findByText(/Username must be 3-30 characters/)).toBeInTheDocument();
+      expect(AuthApi.register).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('marketing consent', () => {
+    it('is unticked by default', () => {
+      renderPage();
+      expect(screen.getByTestId('reg-marketing-opt-in')).not.toBeChecked();
+    });
+
+    it('registers with marketingEmailOptIn false unless the reader ticks it', async () => {
+      const user = userEvent.setup();
+      vi.spyOn(AuthApi, 'register').mockResolvedValue(undefined);
+      renderPage();
+
+      await user.type(screen.getByTestId('reg-email'), 'new@example.com');
+      await user.type(screen.getByTestId('reg-username'), 'newuser');
+      await user.click(screen.getByTestId('reg-terms-accepted'));
+      await user.click(screen.getByTestId('reg-submit'));
+
+      await waitFor(() => {
+        expect(AuthApi.register).toHaveBeenCalledWith(
+          'newuser', 'new@example.com', 'test-turnstile-token', false, true,
+        );
+      });
+    });
+
+    it('registers with marketingEmailOptIn true once the reader ticks it', async () => {
+      const user = userEvent.setup();
+      vi.spyOn(AuthApi, 'register').mockResolvedValue(undefined);
+      renderPage();
+
+      await user.type(screen.getByTestId('reg-email'), 'new@example.com');
+      await user.type(screen.getByTestId('reg-username'), 'newuser');
+      await user.click(screen.getByTestId('reg-terms-accepted'));
+      await user.click(screen.getByTestId('reg-marketing-opt-in'));
+      await user.click(screen.getByTestId('reg-submit'));
+
+      await waitFor(() => {
+        expect(AuthApi.register).toHaveBeenCalledWith(
+          'newuser', 'new@example.com', 'test-turnstile-token', true, true,
+        );
+      });
+    });
+  });
+
+  describe('the disabled reason', () => {
+    it('says why Create account is disabled, under the button, while terms are unticked', () => {
+      renderPage();
+
+      const hint = screen.getByTestId('reg-terms-hint');
+      expect(hint).toHaveTextContent('Agree to the terms to continue');
+      expect(hint).toHaveClass('text-xs', 'text-plex-text-secondary', 'text-center', '-mt-2');
+      expect(screen.getByTestId('reg-submit')).toBeDisabled();
+      expect(screen.getByTestId('reg-submit')).toHaveAttribute('aria-describedby', hint.id);
+      // Directly under the button, above the "Already have an account?" link.
+      expect(screen.getByTestId('reg-submit').nextElementSibling).toBe(hint);
+    });
+
+    it('disappears when the terms are ticked and comes back when they are unticked', async () => {
+      const user = userEvent.setup();
+      renderPage();
+
+      await user.click(screen.getByTestId('reg-terms-accepted'));
+      expect(screen.queryByTestId('reg-terms-hint')).not.toBeInTheDocument();
+      expect(screen.queryByText('Agree to the terms to continue')).not.toBeInTheDocument();
+      expect(screen.getByTestId('reg-submit')).toBeEnabled();
+      expect(screen.getByTestId('reg-submit')).not.toHaveAttribute('aria-describedby');
+
+      await user.click(screen.getByTestId('reg-terms-accepted'));
+      expect(screen.getByText('Agree to the terms to continue')).toBeInTheDocument();
+      expect(screen.getByTestId('reg-submit')).toBeDisabled();
+    });
+
+    it('says nothing about terms once they are ticked even while the security check is still pending', async () => {
+      installPendingTurnstile();
+      const user = userEvent.setup();
+      renderPage();
+
+      await user.click(screen.getByTestId('reg-terms-accepted'));
+
+      expect(screen.getByTestId('reg-submit')).toBeDisabled();
+      expect(screen.queryByTestId('reg-terms-hint')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Turnstile', () => {
+    it('renders exactly one widget on the form', () => {
+      renderPage();
+
+      expect(screen.getAllByTestId('turnstile-widget')).toHaveLength(1);
+      expect(window.turnstile.render).toHaveBeenCalledTimes(1);
+    });
+
+    it('on a load failure unmounts the widget and shows the REGISTER sentence, not the sign-in one', async () => {
+      installBrokenTurnstile();
+      renderPage();
+
+      const line = await screen.findByTestId('turnstile-unavailable');
+      expect(line).toHaveTextContent(REGISTER_FALLBACK);
+      expect(line).toHaveClass('text-xs', 'text-plex-text-secondary');
+      expect(line).toHaveAttribute('role', 'status');
+      expect(line.className).not.toMatch(/amber|red/);
+      expect(screen.queryByText(LOGIN_FALLBACK)).not.toBeInTheDocument();
+      expect(screen.queryByTestId('turnstile-widget')).not.toBeInTheDocument();
+    });
+
+    it('on a load failure KEEPS Create account disabled and never calls register', async () => {
+      installBrokenTurnstile();
+      const user = userEvent.setup();
+      vi.spyOn(AuthApi, 'register').mockResolvedValue(undefined);
+      renderPage();
+      await screen.findByTestId('turnstile-unavailable');
+
+      await user.type(screen.getByTestId('reg-email'), 'new@example.com');
+      await user.type(screen.getByTestId('reg-username'), 'newuser');
+      await user.click(screen.getByTestId('reg-terms-accepted'));
+      await user.click(screen.getByTestId('reg-submit'));
+      await user.type(screen.getByTestId('reg-username'), '{Enter}');
+
+      expect(screen.getByTestId('reg-submit')).toBeDisabled();
+      expect(AuthApi.register).not.toHaveBeenCalled();
+    });
+
+    it('does not show the fallback sentence while the widget is working', () => {
+      renderPage();
+      expect(screen.queryByTestId('turnstile-unavailable')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('the set-password step needs no security check', () => {
+    const toSetPassword = async () => {
+      vi.spyOn(AuthApi, 'verifyEmail').mockResolvedValue(undefined);
+      renderPage({ verifyToken: 'tok' });
+      await screen.findByTestId('set-password-form');
+    };
+
+    it('mounts no Turnstile widget, loads no script, and enables submit on the rules alone', async () => {
+      installPendingTurnstile();
+      document.querySelectorAll('script[src*="challenges.cloudflare.com"]').forEach((el) => el.remove());
+      const user = userEvent.setup();
+      await toSetPassword();
+
+      expect(screen.queryByTestId('turnstile-widget')).not.toBeInTheDocument();
+      expect(window.turnstile.render).not.toHaveBeenCalled();
+      expect(document.querySelector('script[src*="challenges.cloudflare.com"]')).toBeNull();
+      expect(screen.getByTestId('sp-submit')).toBeDisabled();
+
+      await user.type(screen.getByTestId('sp-password'), 'Abcdef1!');
+      await user.type(screen.getByTestId('sp-confirm'), 'Abcdef1!');
+
+      expect(screen.getByTestId('sp-submit')).toBeEnabled();
+    });
+
+    it('posts the token and password only, with no third argument', async () => {
+      installPendingTurnstile();
+      const user = userEvent.setup();
+      vi.spyOn(AuthApi, 'setPasswordForNewUser').mockResolvedValue({
+        accessToken: 'a', refreshToken: 'r', role: 'LITE_USER', username: 'newuser',
+      });
+      await toSetPassword();
+
+      await user.type(screen.getByTestId('sp-password'), 'Abcdef1!');
+      await user.type(screen.getByTestId('sp-confirm'), 'Abcdef1!');
+      await user.click(screen.getByTestId('sp-submit'));
+
+      await waitFor(() => expect(AuthApi.setPasswordForNewUser).toHaveBeenCalledTimes(1));
+      expect(AuthApi.setPasswordForNewUser.mock.calls[0]).toEqual(['tok', 'Abcdef1!']);
+    });
+
+    it('keeps submit disabled until every rule passes, including the confirmation matching', async () => {
+      const user = userEvent.setup();
+      await toSetPassword();
+
+      await user.type(screen.getByTestId('sp-password'), 'Abcdef1!');
+
+      // The confirmation does not match yet.
+      expect(screen.getByTestId('sp-submit')).toBeDisabled();
     });
   });
 });

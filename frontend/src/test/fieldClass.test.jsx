@@ -82,7 +82,7 @@ describe('every auth input carries the shared .field style and nothing that outr
     const { container } = renderAuth(<RegisterPage onBackToLogin={vi.fn()} />);
 
     const inputs = textInputs(container);
-    expect(inputs.map((i) => i.id)).toEqual(['reg-username', 'reg-email', 'reg-confirm-email']);
+    expect(inputs.map((i) => i.id)).toEqual(['reg-email', 'reg-username']);
     inputs.forEach(expectOnlyTheSharedFieldStyle);
     inputs.forEach((i) => expect(i.className).not.toContain('field-error'));
 
@@ -101,7 +101,6 @@ describe('every auth input carries the shared .field style and nothing that outr
 
     await user.type(screen.getByTestId('reg-username'), 'newuser');
     await user.type(screen.getByTestId('reg-email'), 'new@example.com');
-    await user.type(screen.getByTestId('reg-confirm-email'), 'new@example.com');
     await user.click(screen.getByTestId('reg-terms-accepted'));
     await user.click(screen.getByTestId('reg-submit'));
 
