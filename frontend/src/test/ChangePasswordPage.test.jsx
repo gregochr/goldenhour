@@ -214,6 +214,7 @@ describe('ChangePasswordPage Turnstile fallback', () => {
     const line = screen.getByTestId('turnstile-unavailable');
     expect(line).toHaveTextContent(FALLBACK);
     expect(line).toHaveClass('text-xs', 'text-plex-text-secondary');
+    expect(line).toHaveAttribute('role', 'status');
     expect(line.className).not.toMatch(/amber|red/);
     expect(screen.queryByTestId('turnstile-widget')).not.toBeInTheDocument();
     expect(screen.queryByText(/couldn't load/)).not.toBeInTheDocument();

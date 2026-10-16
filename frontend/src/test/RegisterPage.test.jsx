@@ -437,6 +437,20 @@ describe('RegisterPage registration form (R2b)', () => {
       expect(screen.getByLabelText('Username')).toBe(screen.getByTestId('reg-username'));
     });
 
+    it('restores the email hint once a typo is corrected', async () => {
+      const user = userEvent.setup();
+      renderPage();
+
+      await user.type(screen.getByTestId('reg-email'), 'nope');
+      expect(screen.queryByText("We'll send a link to confirm it.")).not.toBeInTheDocument();
+      await user.type(screen.getByTestId('reg-email'), '@example.com');
+
+      const hint = screen.getByText("We'll send a link to confirm it.");
+      expect(hint).toHaveClass('text-plex-text-secondary');
+      expect(hint).not.toHaveClass('text-plex-error');
+      expect(screen.getByTestId('reg-email')).not.toHaveClass('field-error');
+    });
+
     it('has no Confirm email field, label or mismatch message', async () => {
       const user = userEvent.setup();
       renderPage();
@@ -582,6 +596,7 @@ describe('RegisterPage registration form (R2b)', () => {
       const line = await screen.findByTestId('turnstile-unavailable');
       expect(line).toHaveTextContent(REGISTER_FALLBACK);
       expect(line).toHaveClass('text-xs', 'text-plex-text-secondary');
+      expect(line).toHaveAttribute('role', 'status');
       expect(line.className).not.toMatch(/amber|red/);
       expect(screen.queryByText(LOGIN_FALLBACK)).not.toBeInTheDocument();
       expect(screen.queryByTestId('turnstile-widget')).not.toBeInTheDocument();
@@ -650,7 +665,7 @@ describe('RegisterPage registration form (R2b)', () => {
       expect(AuthApi.setPasswordForNewUser.mock.calls[0]).toEqual(['tok', 'Abcdef1!']);
     });
 
-    it('keeps submit disabled until every rule passes, whatever Turnstile does', async () => {
+    it('keeps submit disabled until every rule passes, including the confirmation matching', async () => {
       const user = userEvent.setup();
       await toSetPassword();
 
