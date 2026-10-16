@@ -788,7 +788,15 @@ invalidates the account's outstanding reset links in the same transaction** (Cod
 `apply` deletes the user's `password_reset_token` rows with `used_at IS NULL`, so a link requested or
 captured before a password change or an admin reset cannot overwrite the newer credential within its
 hour; redemption consumes the presented token by compare-and-set and the same delete removes its
-siblings. ⚠️ **Registration's activation entry point is
+siblings. **An EMAIL change voids them too** (Codex, R0 round 15): the admin `PUT
+/api/users/{id}/email` (`UserService.setEmail`) becomes a scoped, transactional update that locks the
+user row, deletes the account's unused `password_reset_token` rows and writes the address in one
+transaction, so a link mailed to the old or compromised mailbox cannot overwrite the password within
+its hour; and `PasswordResetService.requestReset` inserts its token only under the same user-row lock
+(the writer's lock order, parent first), so a request racing the email change either commits before
+it and is deleted by it, or after it and mails the NEW address — never a token that survives into the
+old mailbox. `UserServiceTest` pins the delete; `PasswordResetServiceTest` pins the lock.
+⚠️ **Registration's activation entry point is
 restructured for the same reason** (Codex, R0 round 5): `RegistrationService.setPasswordAndActivate`
 is `@Transactional` today and calls `UserService.activateUser` inside it, so hashing in
 `activateUser` would still run inside the caller's open transaction and the writer would merely join
@@ -1025,8 +1033,10 @@ the issuer with the hash), new `service/TokenIssuer.java` and `service/Credentia
 `EmailVerificationTokenRepository` (`deleteByIdIfPresent`), `controller/AuthController.java`
 (`/change-password` answers `buildAuthResponse` + `message`; set-password passes the hash), `service/PasswordResetService.java`
 (the `TODO(R3c)`), `service/UserService.java` (`resetPassword` and `activateUser` stamp and revoke), `JwtService` (the `uid` claim, `extractUserId`), `UserService` (`createUser`/`createPendingUser`
-stamp at creation; `setEnabled` through `updateEnabled`), `UserControllerTest` and `UserServiceTest`
-(the admin toggle still works), `AuthenticationService.refresh` (the user lock first), tests: `JwtAuthenticationFilterTest` (the five cases), `AppUserRepositoryTest`
+stamp at creation; `setEnabled` through `updateEnabled`; `setEmail` locks the row and voids unused
+reset tokens), `service/PasswordResetService.java` (`requestReset` inserts under the user-row lock),
+`UserControllerTest` and `UserServiceTest` (the admin toggle still works; the email change deletes the
+tokens), `AuthenticationService.refresh` (the user lock first), tests: `JwtAuthenticationFilterTest` (the five cases), `AppUserRepositoryTest`
 (`@DataJpaTest`, the scoped update), `CredentialChangeWriterTest` (`@DataJpaTest`: each site's
 change record lands atomically; a forced failure after the password write rolls back the stamp,
 the flag and the revocation; a stale `expectedVersion` is refused and writes nothing; a null
@@ -1281,7 +1291,9 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added thirty-one P1s over fourteen rounds, folded in: the
+disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added thirty-two P1s over fifteen rounds, folded in: an
+admin email change voids the account's unused reset links under the row lock, and reset issuance
+takes the same lock (§2 #13); the
 bounds are checked outermost first so a refused request never creates an attacker-chosen entry
 (§2 #4); deletion
 re-checks the verified hash and the credential version under the row lock; set-password and
