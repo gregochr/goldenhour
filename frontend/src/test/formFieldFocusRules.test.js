@@ -391,15 +391,18 @@ describe('form-field focus outlines — their call sites', () => {
   it('reaches every component this task named', () => {
     // Not a count (a field added or removed shifts it) — a presence check per file, so a rebase
     // that silently drops one of the eleven edited files fails here by name.
+    //
+    // ⚠️ `ChangePasswordPage`, `LoginPage` and `RegisterPage` are no longer on this list, on
+    // purpose: their inputs moved to the shared `.field` class (login-registration-plan.md §2 #9),
+    // so the `focus:outline-hidden` that used to sit in each file's className now lives in ONE
+    // place, `.field`'s @apply in index.css — pinned below, in the `.field` test, so the fix
+    // follows every input that adopts the class instead of being repeated per file.
     const expectedFiles = [
       'components/AuroraSimulateModal.jsx',
-      'components/ChangePasswordPage.jsx',
       'components/LocationManagementView.jsx',
-      'components/LoginPage.jsx',
       'components/MapView.jsx',
       'components/OutcomeModal.jsx',
       'components/RegionManagementView.jsx',
-      'components/RegisterPage.jsx',
       'components/UserManagementView.jsx',
       'components/UserSettingsModal.jsx',
       'components/shared/SortableHeader.jsx',
@@ -410,6 +413,29 @@ describe('form-field focus outlines — their call sites', () => {
     for (const file of expectedFiles) {
       expect(filesWithOutlineHidden, file).toContain(file);
     }
+  });
+});
+
+describe('the shared .field class carries the forced-colours-safe outline', () => {
+  // The auth inputs reach `focus:outline-hidden` through `.field` (an @apply), which the className
+  // scan above cannot see. `outline-none` here would put the 28-site defect back for every auth
+  // input at once, so the class's own definition is pinned as text.
+  it('.field applies focus:outline-hidden and focus:ring-1, never outline-none', () => {
+    const css = read('../index.css').replace(/\/\*[\s\S]*?\*\//g, '');
+    const start = css.indexOf('.field {');
+    expect(start).toBeGreaterThan(-1);
+    const block = css.slice(start, css.indexOf('}', start));
+
+    expect(block).toMatch(/(^|\s)focus:outline-hidden(\s|;)/);
+    expect(block).toMatch(/(^|\s)focus:ring-1(\s|;)/);
+    expect(block).not.toMatch(/outline-none/);
+  });
+
+  it('no auth page or shared auth component carries a per-file outline utility any more', () => {
+    ['../components/LoginPage.jsx', '../components/RegisterPage.jsx', '../components/ChangePasswordPage.jsx',
+      '../components/auth/PasswordInput.jsx'].forEach((file) => {
+      expect(read(file), file).not.toMatch(/outline-(none|hidden)/);
+    });
   });
 });
 

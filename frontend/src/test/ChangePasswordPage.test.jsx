@@ -45,6 +45,59 @@ describe('ChangePasswordPage', () => {
     expect(screen.getByText(/special character/i)).toBeInTheDocument();
   });
 
+  it('sits in the auth shell with an h2 heading under the lockup h1', () => {
+    renderWithAuth(<ChangePasswordPage />);
+
+    expect(screen.getByTestId('auth-shell')).toBeInTheDocument();
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+    expect(screen.getByRole('heading', { level: 2, name: 'Change your password' })).toBeInTheDocument();
+    expect(screen.getByText('You must set a new password before accessing the app.'))
+      .toHaveClass('text-plex-text-secondary');
+  });
+
+  it('uses the shared checklist: ○ for unmet, ✓ in plex-ok for met, live as the user types', () => {
+    renderWithAuth(<ChangePasswordPage />);
+    const items = () => [...screen.getByTestId('cp-checklist').querySelectorAll('li')];
+
+    expect(items().map((li) => li.textContent.charAt(0))).toEqual(['○', '○', '○', '○', '○', '○']);
+
+    fireEvent.change(screen.getByTestId('cp-new-password'), { target: { value: 'Abcdef1!' } });
+    fireEvent.change(screen.getByTestId('cp-confirm-password'), { target: { value: 'Abcdef1!' } });
+
+    expect(items().map((li) => li.textContent.charAt(0))).toEqual(['✓', '✓', '✓', '✓', '✓', '✓']);
+    items().forEach((li) => expect(li).toHaveClass('text-plex-ok'));
+  });
+
+  it('gives each password field its own show/hide eye and the .field class', () => {
+    renderWithAuth(<ChangePasswordPage />);
+    const [first] = screen.getAllByRole('button', { name: 'Show password' });
+
+    fireEvent.click(first);
+
+    expect(screen.getByTestId('cp-new-password')).toHaveAttribute('type', 'text');
+    expect(screen.getByTestId('cp-confirm-password')).toHaveAttribute('type', 'password');
+    expect(screen.getByTestId('cp-new-password')).toHaveClass('field');
+    expect(screen.getByTestId('cp-confirm-password')).toHaveClass('field');
+  });
+
+  it('shows a failed change in the error token', async () => {
+    vi.spyOn(AuthApi, 'changePassword').mockRejectedValue({ response: { data: { error: 'Too weak' } } });
+    renderWithAuth(<ChangePasswordPage />);
+    fireEvent.change(screen.getByTestId('cp-new-password'), { target: { value: 'Abcdef1!' } });
+    fireEvent.change(screen.getByTestId('cp-confirm-password'), { target: { value: 'Abcdef1!' } });
+
+    fireEvent.click(screen.getByTestId('cp-submit'));
+
+    const alert = await screen.findByTestId('cp-error');
+    expect(alert).toHaveTextContent('Too weak');
+    expect(alert).toHaveClass('text-plex-error');
+  });
+
+  it('keeps Sign out a secondary-ink text button', () => {
+    renderWithAuth(<ChangePasswordPage />);
+    expect(screen.getByRole('button', { name: 'Sign out' })).toHaveClass('text-plex-text-secondary');
+  });
+
   it('disables submit button until all requirements are met', () => {
     renderWithAuth(<ChangePasswordPage />);
     const submitButton = screen.getByTestId('cp-submit');

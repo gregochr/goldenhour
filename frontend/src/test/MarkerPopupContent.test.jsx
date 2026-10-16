@@ -100,7 +100,29 @@ describe('MarkerPopupContent', () => {
     it('shows upgrade hint for LITE_USER', () => {
       renderPopup({ role: 'LITE_USER' });
       expect(screen.getByTestId('upgrade-hint')).toBeInTheDocument();
-      expect(screen.getByTestId('upgrade-hint').textContent).toContain('Upgrade to Pro');
+      expect(screen.getByTestId('upgrade-hint').textContent)
+        .toBe('Pro accounts get Fiery Sky & Golden Hour scores, storm surge analysis, and full AI analysis');
+    });
+
+    it('has no anchor to /upgrade in either LITE branch: it is plain text, not a link', () => {
+      // `/upgrade` is not a route, and the App Store forbids a link to a web purchase.
+      const sentence = 'Pro accounts get Fiery Sky & Golden Hour scores, storm surge analysis, and full AI analysis';
+
+      const forecastBranch = renderPopup({ role: 'LITE_USER' });
+      expect(screen.getByTestId('upgrade-hint').querySelector('a')).toBeNull();
+      expect(forecastBranch.container.querySelector('a[href="/upgrade"]')).toBeNull();
+      forecastBranch.unmount();
+
+      // The batch-scored branch (no forecast row, a briefing rating) carries its own copy of it.
+      const batchBranch = renderPopup({
+        role: 'LITE_USER',
+        forecast: null,
+        briefingScore: { rating: 4, summary: 'Clear horizon.' },
+      });
+      expect(screen.getByTestId('batch-scored-popup')).toBeInTheDocument();
+      expect(screen.getByTestId('upgrade-hint').textContent).toBe(sentence);
+      expect(screen.getByTestId('upgrade-hint').querySelector('a')).toBeNull();
+      expect(batchBranch.container.querySelector('a[href="/upgrade"]')).toBeNull();
     });
 
     it('does not show upgrade hint for PRO_USER', () => {
