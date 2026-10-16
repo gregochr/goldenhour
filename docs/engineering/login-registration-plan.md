@@ -730,7 +730,12 @@ The error stays "Invalid username or password". The client: label "Username or e
 `RegistrationService.findPendingUserByEmail` moves onto the same query with the pending predicate;
 `UserService.createPendingUser` and admin `createUser` refuse a case-insensitive duplicate with the
 existing "Email already registered" 409 — enforced by the `app_user_email_claim` unique key written
-in the same transaction (§5 #6), never by a read-then-write check alone.
+in the same transaction (§5 #6), never by a read-then-write check alone. ⚠️ **`createPendingUser`'s
+replacement of an abandoned pending row locks it first** (Codex, R0 round 25): the row is read with
+`findByIdForUpdate` and deleted only by a conditional `DELETE … WHERE id = :id AND enabled = false
+AND password = ''` whose row count must be one (0 → the account was activated meanwhile → the 409
+"Email already registered"), so a retry racing `consumeVerificationAndApply` can never erase an
+account that has just been activated; `UserServiceTest` pins the zero-row branch.
 
 ### #11 Privacy inventory (R7, after deletion exists — §1 #20)
 
@@ -814,7 +819,10 @@ siblings. **An EMAIL change voids them too** (Codex, R0 round 15): the admin `PU
 user row, **claims the new lower-cased address and conditionally releases the old one** (the insert's
 unique key refuses a case variant of another account's address with the 409 "Email already
 registered", race-free; the old key is released only if no account still uses it; §5 #6; Codex, R0
-rounds 19, 22 and 23), deletes the account's unused
+rounds 19, 22 and 23), **deletes the account's `email_verification_token` rows too** (a verification
+link is keyed by user alone and never re-checks the address, so one sent to the old or compromised
+mailbox could otherwise activate a PENDING account after the admin moved it — Codex, R0 round 25; a
+pending account then needs the admin's existing resend, which the response's message says), deletes the account's unused
 `password_reset_token` rows and writes the address in one transaction, so a link mailed to the old or compromised mailbox cannot overwrite the password within
 its hour; and `PasswordResetService.requestReset` inserts its token only under the same user-row lock
 (the writer's lock order, parent first), so a request racing the email change either commits before
@@ -1306,13 +1314,18 @@ planning session writes the memory file (`login-registration-series.md` + the `M
    FROM app_user WHERE email IS NOT NULL` (a legacy case-duplicate pair shares ONE reservation, which
    the lookup rule already tolerates: two active matches → no match). Every write of an address —
    `createUser`, `createPendingUser`, `setEmail` — claims the new key in the SAME transaction as the
-   account write through one `EmailClaims.claim(emailLower)`: insert; on a unique violation, re-check
-   `EXISTS (SELECT 1 FROM app_user WHERE LOWER(email) = :k)` and, if NO account uses the address, the
+   account write through one `EmailClaims.claim(emailLower)` that NEVER recovers from a constraint
+   error in place (Postgres aborts the transaction on one, and Spring marks it rollback-only — Codex,
+   R0 round 25): FIRST `SELECT … FROM app_user_email_claim WHERE email_lower = :k FOR UPDATE`; a row
+   found → under that lock, `EXISTS (SELECT 1 FROM app_user WHERE LOWER(email) = :k)`: none → the
    reservation is an orphan and is reused silently (so `createPendingUser`'s supported retry — which
    deletes an abandoned pending row for the same email earlier in the same transaction and recreates
-   it — succeeds against the pending row's own surviving reservation; Codex, R0 round 24), otherwise
-   the 409 "Email already registered" (`RegistrationServiceTest` pins the retry of one normalised
-   email and the 409 against a live account), and every path that
+   it — succeeds against the pending row's own surviving reservation; Codex, R0 round 24), some → the
+   409 "Email already registered"; no row found → `INSERT`, and the one way that insert can still
+   violate the key is a genuinely concurrent first claim of a brand-new address, where the loser's
+   409 is the right answer and the aborted transaction is its own rollback (`RegistrationServiceTest`
+   pins the retry of one normalised email, the 409 against a live account, and that no exception is
+   caught on the orphan path), and every path that
    stops using an address — `setEmail`, `deleteOwnAccount`, the admin `deleteUser` — ends with a
    **conditional release in that same transaction, after the account write has flushed**:
    `DELETE FROM app_user_email_claim WHERE email_lower = :k AND NOT EXISTS (SELECT 1 FROM app_user
@@ -1377,7 +1390,10 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added forty-six P1s over twenty-four rounds, folded in: an
+disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added forty-nine P1s over twenty-five rounds, folded in: an
+email change voids a pending account's verification links; the pending replacement is a locked,
+conditional delete; the claim checks for an orphan under `FOR UPDATE` before inserting rather than
+catching a constraint error (§5 #6, §2 #10, §2 #13); an
 orphaned email reservation is reusable, so a pending registration's retry does not collide with its
 own claim (§5 #6);
 the email claim is a reservation released only when no account uses the address; deletion re-checks
