@@ -1,0 +1,18 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["TEAMID.BUNDLEID"],
+        "components": [
+          { "/": "/verify", "?": { "token": "*" } },
+          { "/": "/verify/*" },
+          { "/": "/reset", "?": { "token": "*" } },
+          { "/": "/reset/*" }
+        ]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": ["TEAMID.BUNDLEID"]
+  }
+}
