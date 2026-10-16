@@ -102,15 +102,16 @@ class OutcomeRatingMigrationTest extends IntegrationTestBase {
                 "SELECT column_name, data_type, is_nullable FROM information_schema.columns "
                         + "WHERE table_name = 'outcome_rating' ORDER BY column_name");
 
-        assertThat(columns).extracting(c -> c.get("column_name")).containsExactly("created_at", "event_date",
-                "event_time", "event_type", "forecast_evaluation_id", "forecast_rating", "forecast_run_at",
-                "id", "location_id", "pipeline_run_id", "rating", "updated_at", "user_id");
+        assertThat(columns).extracting(c -> c.get("column_name")).containsExactly("app_build",
+                "created_at", "event_date", "event_time", "event_type", "forecast_evaluation_id",
+                "forecast_rating", "forecast_run_at", "id", "location_id", "pipeline_run_id", "rating",
+                "updated_at", "user_id");
         for (String notNull : List.of("user_id", "location_id", "event_date", "event_type", "event_time",
                 "created_at", "updated_at")) {
             assertThat(column(columns, notNull)).as(notNull).containsEntry("is_nullable", "NO");
         }
         for (String nullable : List.of("rating", "pipeline_run_id", "forecast_run_at",
-                "forecast_evaluation_id", "forecast_rating")) {
+                "forecast_evaluation_id", "forecast_rating", "app_build")) {
             assertThat(column(columns, nullable)).as(nullable).containsEntry("is_nullable", "YES");
         }
         assertThat(column(columns, "event_time")).containsEntry("data_type", "timestamp with time zone");
