@@ -122,12 +122,19 @@ up. Numbered so the phases can cite them.
    filters with Java `equalsIgnoreCase` — a full-table scan per resend that also folds `ı`→`I`, and
    then mails the TYPED address, so a confusable IDN address (`bob@gmaıl.com`) can receive the token
    for someone else's pending registration. `EmailValidator` accepts any non-whitespace Unicode. The
-   rules every email match in this series follows (§2 #10): the identifier is trimmed and must be
-   ASCII (a non-ASCII email identifier is refused up front with the generic answer); the query is an
-   explicit JPQL `LOWER(u.email) = :email` with the parameter lower-cased in Java with `Locale.ROOT`
-   (never a derived `IgnoreCase` method, which emits `UPPER()` and lets Postgres fold `ı`→`I`); only
-   ACTIVE rows count (enabled, non-empty password) for sign-in and reset; two or more matches are no
-   match; and mail always goes to the STORED `user.getEmail()`, never to the request's text. R3a
+   rules every email match in this series follows (`util/EmailIdentifier.resolve`, §2 #10), in order:
+   the identifier is trimmed; **first an EXACT match** (`findByEmail`, no folding of any kind — the
+   comparison that is safe for every address, and the only one a non-ASCII address gets); then, only
+   when the trimmed identifier is pure ASCII and the exact match found nothing, the case-insensitive
+   path — an explicit JPQL `LOWER(u.email) = :email` with the parameter lower-cased in Java with
+   `Locale.ROOT` (never a derived `IgnoreCase` method, which emits `UPPER()` and lets Postgres fold
+   `ı`→`I`); only ACTIVE rows count (enabled, non-empty password) for sign-in and reset, the pending
+   predicate for resend; two or more matches are no match; and mail always goes to the STORED
+   `user.getEmail()`, never to the request's text. An account that already registered a non-ASCII
+   address (today's `EmailValidator` accepts any non-whitespace Unicode) therefore keeps signing in,
+   resending and recovering by typing it exactly as registered (Codex, R0 round 3); going forward
+   `/register` refuses a non-ASCII address with "Please use an email address without accented or
+   non-Latin characters" (§4 #21, §6 Q7), while admin create is unchanged. R3a
    moves the pending-user scan onto the same rule and makes register and admin create refuse a
    case-insensitive duplicate. **No `citext`/functional-index migration in this series** (§5 #6).
 6. **The `app_user` settings columns are `updatable = false` and written by scoped updates.**
@@ -639,8 +646,8 @@ has a test file too). `UserSettingsModal` is R4c's.
 ### #10 Sign-in by username or email (R3a backend, R3b frontend)
 
 `AuthenticationService.login(identifier, password)`: `identifier.contains("@")` → the §1 #5 email
-rule (`findActiveByEmailLower(lowerAscii)`: ASCII-checked, trimmed, `Locale.ROOT` lower-cased,
-enabled, non-empty password; exactly one match → that user); **no unique match → fall back to
+rule through `EmailIdentifier.resolve` (exact match first; then, for a pure-ASCII identifier, the
+`LOWER()` query; active rows; exactly one → that user); **no unique match → fall back to
 `findByUsername(identifier)`**, because admin-created usernames are not shape-checked and one could
 carry an `@`; a BCrypt comparison runs against a fixed dummy hash when no user resolves, so the
 email path's timing does not say whether the address exists. The request field stays `username` on
@@ -698,7 +705,14 @@ The owner redeploys landing after the release (§7).
 changed since this column existed", so every existing token stays valid), `updatable = false`,
 written by `AppUserRepository.stampCredentialsChangedAt(id, now)` from `AuthenticationService
 .changePassword`, `PasswordResetService` (the R3a `TODO(R3c)`), `UserService.resetPassword` (the
-admin temp password) and `UserService.activateUser`. `JwtAuthenticationFilter`: after
+admin temp password) and `UserService.activateUser`. ⚠️ **Hash first, then one transactional
+helper** (Codex, R0 round 3): `changePassword` today deliberately runs BCrypt in a
+NON-transactional method (its javadoc: never hold a pooled connection through the ~100 ms hash);
+each stamp site keeps that shape — encode outside, then call a `@Transactional`
+`CredentialChangeWriter.apply(userId, encodedPassword, now)` (one new class) that writes the
+password, the stamp and the refresh-token revocation atomically and returns, so a failure after the
+password write cannot leave the old sessions valid; `issueTokensFor` runs after it returns (it has
+its own transaction, as today). `JwtAuthenticationFilter`: after
 `validateToken`, load the user ONCE (the query it already makes for `lastActiveAt`); set the
 `SecurityContext` only when the row exists, `enabled` is true, and `credentialsChangedAt == null ||
 !jwtService.extractIssuedAt(token).isBefore(credentialsChangedAt.truncatedTo(ChronoUnit.SECONDS))`
@@ -831,9 +845,9 @@ sequence through a real limiter: the fourth sends nothing), `service/UserService
 refusal at create), `notification/UserEmailService.java` (`sendPasswordResetLinkEmail`;
 `sendVerificationEmail`'s link → `/verify?token=`), `templates/password-reset-link-email.html`,
 `controller/AuthController.java` (`/forgot-password` through the mocked gate, `/reset-password`
-through the mocked limiter), tests: `AuthenticationServiceTest` (email: one active match / two
-matches → username fallback / none → username fallback / a disabled match ignored / a non-ASCII
-identifier refused; the dummy-hash path runs), `PasswordResetServiceTest` (unknown, disabled and
+through the mocked limiter), tests: `AuthenticationServiceTest` (email: one exact match; one case-insensitive match; two
+case-insensitive matches → username fallback; none → username fallback; a disabled match ignored; a
+non-ASCII identifier matched exactly and never folded; the dummy-hash path runs), `PasswordResetServiceTest` (unknown, disabled and
 pending emails send nothing; the fourth request in the window sends nothing and throws nothing; a
 used, expired and unknown token each refuse with its sentence; a disabled user's token refuses;
 success marks used by CAS, revokes every active refresh token and encodes before the transaction;
@@ -1020,6 +1034,10 @@ planning session writes the memory file (`login-registration-series.md` + the `M
 16. **The frozen Plan-tab overlay is edited a third time**, to turn two `/upgrade` anchors into
     text (task 14's audit found them; `/upgrade` is not a route). Copy only; the overlay's layout is
     untouched.
+21. **`/register` refuses a non-ASCII email address going forward** (today it accepts any
+    non-whitespace Unicode). A confusable address is the one input the reset flow cannot make safe
+    by comparison alone (§1 #5); existing accounts keep an exact-match path. An owner call to revisit
+    (§6 Q7).
 17. **The delete confirmation is inline, not a `ConfirmDialog`.** Task 15 says "behind a confirm
     dialog"; a second `aria-modal` over the settings dialog breaks CLAUDE.md's one-modal invariant
     and `ConfirmDialog` cannot disable its confirm button (§1 #26). The region asks for the password
@@ -1106,7 +1124,9 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added five P1s over two rounds, folded in: the `iat`
+disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added seven P1s over three rounds, folded in: a strict
+ASCII rule would have stranded accounts that already hold a non-ASCII address (exact match first,
+§1 #5); every credential change hashes outside and writes inside one transactional helper (§2 #13); the `iat`
 comparison must truncate the stamp to seconds or reject the tokens issued right after it (§2 #13);
 "Skip for now" must record the dismissal or the overlay follows at once (§2 #2, §4 #18); refresh tokens issued before a
 credential change must die too (every stamp site revokes them; `/change-password` re-issues for the
@@ -1131,6 +1151,8 @@ of "never push".
 - **Q4** `password-reset-link-email.html`'s sender and subject line — defaults in §2 #12.
 - **Q5** Should the landing privacy page name a retention period for `ask_log` (90 days) and job
   logs? Default: name the 90 days, since CLAUDE.md states it.
+- **Q7** Registration now refuses non-ASCII email addresses (§4 #21). Keep that rule, or accept
+  them and live with exact-match-only recovery for those accounts? Default: refuse.
 - **Q6** Should Codex going silent (quota exhausted — it happened twice in the last series) hold a
   phase, or may the planning session merge on green CI plus its own review after 12 hours? Default:
   hold and tell the owner (§8).
