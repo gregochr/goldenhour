@@ -321,8 +321,12 @@ and `revokeAllActiveByUserId(userId)`; in R3c that operation becomes
 `CredentialChangeWriter.consumeResetAndApply(tokenId, userId, encodedPassword, change, now)` (the
 sibling of the verification one in §2 #13) so the stamp joins the same transaction — a failure
 between consuming the token and changing the password can neither burn a valid token nor leave a
-changed password with a reusable token (Codex, R0 round 8); after it, `issueTokensFor(user,
-encodedPassword)` and `buildAuthResponse` — the reader is signed in on the device that reset, as
+changed password with a reusable token (Codex, R0 round 8); after it, `issueTokensFor(redeemed, encodedPassword)` and `buildAuthResponse`, where `redeemed` is
+the row the redeemer RE-READS and returns after its writes — never the entity resolved before
+hashing, whose `passwordChangeRequired` could still read true for an account carrying an
+admin-issued temporary password and route the reader straight into the change-password gate the
+reset just cleared (Codex, R0 round 18; `PasswordResetServiceTest` pins `passwordChangeRequired:
+false` in the response for such an account) — the reader is signed in on the device that reset, as
 set-password does. **Every OTHER device is signed out at its next request once R3c lands**;
 until then, when its access token expires (≤ 24 h) — R3a's PR body says which. Never Turnstile (the
 emailed token is the proof, task 11's own reasoning).
@@ -1306,7 +1310,8 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added thirty-four P1s over seventeen rounds, folded in: reset
+disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added thirty-five P1s over eighteen rounds, folded in: the
+reset response is built from the row as redeemed, not the pre-hash entity (§2 #1); reset
 issuance re-reads the locked row in a fresh persistence context rather than trusting the entity
 resolved before the lock (§2 #13); the
 `cv` claim is a monotonic `credentials_version` counter, never a millisecond stamp that two changes
