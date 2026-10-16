@@ -8,9 +8,11 @@ import com.gregochr.goldenhour.service.UserService;
 import com.gregochr.goldenhour.service.notification.UserEmailService;
 import com.gregochr.goldenhour.util.EmailValidator;
 import com.gregochr.goldenhour.util.LogSanitizer;
+import com.gregochr.goldenhour.util.UniqueViolation;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -64,8 +66,13 @@ public class UserController {
     /**
      * Creates a new user account.
      *
+     * <p>A lost race on the username key or the email reservation surfaces from the service as a
+     * {@link DataIntegrityViolationException} and is translated here, outside the rolled-back transaction,
+     * to a 409 naming the conflicting field (login-registration plan §5 #6, §2 #14 rule 10).
+     *
      * @param body map containing {@code username}, {@code password}, and {@code role}
-     * @return 201 with the created user summary, or 400 if the username already exists
+     * @return 201 with the created user summary, 400 if the username or email already exists, or 409 for
+     *         a concurrent duplicate
      */
     @PostMapping
     public ResponseEntity<Object> createUser(@RequestBody Map<String, String> body) {
@@ -101,6 +108,8 @@ public class UserController {
             return ResponseEntity.status(HttpStatus.CREATED).body(toSummary(created));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
+        } catch (DataIntegrityViolationException ex) {
+            return conflict(ex);
         }
     }
 
@@ -132,7 +141,8 @@ public class UserController {
      *
      * @param id   the user's primary key
      * @param body map containing {@code email}
-     * @return 200 on success, or 400 if the email is missing, invalid, or user not found
+     * @return 200 on success, 400 if the email is missing, invalid, or user not found, or 409 when the
+     *         address is already registered to another account
      */
     @PutMapping("/{id}/email")
     public ResponseEntity<Object> setEmail(
@@ -151,6 +161,8 @@ public class UserController {
             return ResponseEntity.ok(Map.of("message", "Updated"));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
+        } catch (DataIntegrityViolationException ex) {
+            return conflict(ex);
         }
     }
 
@@ -256,6 +268,18 @@ public class UserController {
         LOG.info("Admin resent verification email for user id={}, email={}",
                 id, LogSanitizer.sanitize(user.getEmail()));
         return ResponseEntity.ok(Map.of("message", "Verification email sent"));
+    }
+
+    /**
+     * Translates a unique-key violation to a 409 naming the field; any other violation is a bug and is
+     * rethrown.
+     *
+     * @param ex the violation caught around a service call
+     * @return the 409 response
+     */
+    private static ResponseEntity<Object> conflict(DataIntegrityViolationException ex) {
+        String message = UniqueViolation.conflictMessage(ex).orElseThrow(() -> ex);
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", message));
     }
 
     /**

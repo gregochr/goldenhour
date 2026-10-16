@@ -134,6 +134,140 @@ public interface AppUserRepository extends JpaRepository<AppUserEntity, Long> {
     Optional<AppUserEntity> findByUsernameForUpdate(@Param("username") String username);
 
     /**
+     * Loads a user by id and LOCKS the row until the calling transaction ends
+     * ({@code SELECT … FOR UPDATE}) — the parent-before-children order every credential and deletion
+     * path takes ({@code UserDriveTimeWriter}'s rule).
+     *
+     * <p>⚠️ Use the lock, never the entity. Open Session In View is on, so the instance this returns is
+     * the one the request's persistence context already holds, with the fields it had before any slow
+     * step (a BCrypt hash) ran. A decision that depends on the row as it stands is made by a row count
+     * ({@link #deletePendingById}, {@link #applyPasswordReset}) or by {@link #lockAccount}, never by
+     * reading a field off this entity (login-registration plan §2 #14 rule 1).
+     *
+     * @param id the user's primary key
+     * @return the locked user, or empty if no user has that id
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT u FROM AppUserEntity u WHERE u.id = :id")
+    Optional<AppUserEntity> findByIdForUpdate(@Param("id") Long id);
+
+    /**
+     * Raw {@code SELECT … FOR UPDATE} behind {@link #lockAccount}: one row of
+     * {@code enabled, password, email, username, role}, or none. A native SCALAR query on purpose — it
+     * returns column values straight off the result set, so it can never hand back a stale managed
+     * entity, and it takes the row lock in the SQL text rather than relying on how a scalar HQL query
+     * applies a lock mode.
+     *
+     * @param id the user's primary key
+     * @return zero or one row of column values
+     */
+    @Query(value = "SELECT u.enabled, u.password, u.email, u.username, u.role FROM app_user u "
+            + "WHERE u.id = :id FOR UPDATE", nativeQuery = true)
+    List<Object[]> lockAccountRow(@Param("id") Long id);
+
+    /**
+     * Locks the user's row and reads the state a credential decision needs, as it is NOW: a scalar
+     * projection under the lock (login-registration plan §2 #14 rule 1(b)).
+     *
+     * @param id the user's primary key
+     * @return the locked row's state, or empty if no user has that id
+     */
+    default Optional<LockedAccount> lockAccount(Long id) {
+        List<Object[]> rows = lockAccountRow(id);
+        if (rows.isEmpty()) {
+            return Optional.empty();
+        }
+        Object[] row = rows.get(0);
+        return Optional.of(new LockedAccount((Boolean) row[0], (String) row[1], (String) row[2],
+                (String) row[3], UserRole.valueOf((String) row[4])));
+    }
+
+    /**
+     * Finds the ACTIVE accounts (enabled, holding a password rather than the empty pending marker)
+     * whose email lower-cases to the given key. The caller lower-cases the parameter in Java with
+     * {@code Locale.ROOT}; an explicit {@code LOWER()} is used instead of a derived {@code IgnoreCase}
+     * method, which emits {@code UPPER()} and lets Postgres fold {@code ı} to {@code I}
+     * (login-registration plan §1 #5). More than one row is "no match" to every caller.
+     *
+     * @param emailLower the trimmed, lower-cased address
+     * @return the matching active accounts
+     */
+    @Query("SELECT u FROM AppUserEntity u WHERE LOWER(u.email) = :emailLower "
+            + "AND u.enabled = true AND u.password <> ''")
+    List<AppUserEntity> findActiveByEmailLower(@Param("emailLower") String emailLower);
+
+    /**
+     * Finds the PENDING registrations (disabled, empty password — the sole shape
+     * {@code UserService.createPendingUser} produces) whose email lower-cases to the given key. Used by
+     * resend and by the replacement of an abandoned registration; replaces a scan of every user.
+     *
+     * @param emailLower the trimmed, lower-cased address
+     * @return the matching pending accounts
+     */
+    @Query("SELECT u FROM AppUserEntity u WHERE LOWER(u.email) = :emailLower "
+            + "AND u.enabled = false AND u.password = ''")
+    List<AppUserEntity> findPendingByEmailLower(@Param("emailLower") String emailLower);
+
+    /**
+     * Deletes a pending registration — but only while it is still pending. A compare-and-set whose row
+     * count is the answer: a retry of a sign-up that races the verification link's activation deletes
+     * nothing (0), so an account that has just been activated can never be erased.
+     *
+     * @param id the pending user's primary key
+     * @return 1 if the pending row was deleted; 0 if it was activated or already gone
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("DELETE FROM AppUserEntity u WHERE u.id = :id AND u.enabled = false AND u.password = ''")
+    int deletePendingById(@Param("id") Long id);
+
+    /**
+     * Sets a new password from a redeemed reset link and clears the first-login password gate — but only
+     * while the account is enabled. A compare-and-set whose row count is the answer: an admin who
+     * disabled the account while the new password was being hashed wins, and the link's captured
+     * password never becomes live on re-enable.
+     *
+     * @param id              the user's primary key
+     * @param encodedPassword the BCrypt hash, computed before any transaction opened
+     * @return 1 if applied; 0 if the account is disabled (or gone)
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("UPDATE AppUserEntity u SET u.password = :encodedPassword, u.passwordChangeRequired = false "
+            + "WHERE u.id = :id AND u.enabled = true")
+    int applyPasswordReset(@Param("id") Long id, @Param("encodedPassword") String encodedPassword);
+
+    /**
+     * An account's credential-relevant state, read under the row lock by {@link #lockAccount}.
+     *
+     * @param enabled  whether the account may sign in
+     * @param password the stored hash; empty for a pending registration
+     * @param email    the STORED address — the only address ever mailed
+     * @param username the login name
+     * @param role     the account's role
+     */
+    record LockedAccount(boolean enabled, String password, String email, String username, UserRole role) {
+
+        /**
+         * Reports whether the account is a self-registration still waiting for its password.
+         *
+         * @return true when disabled and holding the empty marker rather than a hash
+         */
+        public boolean pending() {
+            return !enabled && password != null && password.isEmpty();
+        }
+
+        /**
+         * Reports whether the account can use a reset link: enabled and not pending.
+         *
+         * @return true for an active account
+         */
+        public boolean active() {
+            return enabled && password != null && !password.isEmpty();
+        }
+    }
+
+    /**
      * Writes the home fields together — postcode, coordinates and radius — and no other column.
      *
      * <p>A {@code null} radius keeps the stored one ({@code coalesce}): the client omits it when

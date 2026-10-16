@@ -8,6 +8,8 @@ import com.gregochr.goldenhour.exception.TooManyAttemptsException;
 import com.gregochr.goldenhour.model.AuthTokens;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.RefreshTokenRepository;
+import com.gregochr.goldenhour.util.EmailIdentifier;
+import com.gregochr.goldenhour.util.EmailIdentifier.Kind;
 import com.gregochr.goldenhour.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,7 +19,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.regex.Pattern;
 
 /**
@@ -48,6 +52,9 @@ public class AuthenticationService {
     /** Fallback sign-in attempts admitted per account in a quarter hour. */
     static final int FALLBACK_USER_LIMIT = 5;
 
+    /** The throwaway string whose hash a no-candidate sign-in compares against. */
+    private static final String DUMMY_PASSWORD = "not-a-real-password";
+
     private static final int MIN_PASSWORD_LENGTH = 8;
     private static final Pattern UPPERCASE = Pattern.compile("[A-Z]");
     private static final Pattern LOWERCASE = Pattern.compile("[a-z]");
@@ -60,6 +67,9 @@ public class AuthenticationService {
     private final PasswordEncoder passwordEncoder;
     private final JwtProperties jwtProperties;
     private final AuthAttemptLimiter attemptLimiter;
+
+    /** Lazily encoded by {@link #dummyHash()}; a benign race at worst encodes it twice. */
+    private volatile String dummyHash;
 
     /**
      * Constructs the service.
@@ -88,18 +98,29 @@ public class AuthenticationService {
     /**
      * Authenticates the user on the ordinary path (Turnstile verified, or not configured).
      *
-     * @param username the login username
-     * @param password the plain-text password
+     * @param identifier the login username, or the account's email address
+     * @param password   the plain-text password
      * @return the issued tokens and user fields
      * @throws InvalidCredentialsException if the credentials are wrong or the account is disabled
      */
-    public AuthTokens login(String username, String password) {
-        return login(username, password, false);
+    public AuthTokens login(String identifier, String password) {
+        return login(identifier, password, false);
     }
 
     /**
      * Authenticates the user, stamps {@code lastActiveAt}, and issues an access + refresh token
      * pair.
+     *
+     * <p><strong>The identifier is a username or an email address</strong> (login-registration plan
+     * §2 #10). One containing {@code @} resolves TWO candidates: the exact username match (admin-created
+     * usernames are not shape-checked, so one could carry an {@code @}) and the active account the email
+     * rule picks ({@link EmailIdentifier}: exact first, then ASCII case-insensitive, exactly one). The
+     * password is verified against the username match first and, if that fails or there is none, against
+     * the email match; the first that verifies wins — when one account's username is another account's
+     * address, a precedence that picked one candidate alone would lock the other account out for good.
+     * Both failing is the generic failure. A BCrypt comparison against a fixed dummy hash runs when no
+     * candidate resolves, so neither the username path's nor the email path's timing says whether the
+     * identifier exists.
      *
      * <p>Deliberately not transactional: the slow BCrypt password check runs with no database
      * connection held. The two writes (last-active stamp, token insert) are independent
@@ -108,34 +129,56 @@ public class AuthenticationService {
      *
      * <p>When {@code fallback} is true the request carried no Turnstile token (the script could not
      * load) and {@link TurnstileGate} admitted it on its bounds; the per-ACCOUNT budget is then taken
-     * here, once the username has resolved to a user and before the password is checked, so every name
-     * that reaches one account shares a single five-attempt budget per quarter hour. When no user
-     * resolves, the gate's identifier bucket has already counted the attempt and nothing more is taken.
+     * here, once the identifier has resolved to its account(s) and before any password is checked, so
+     * every name that reaches one account shares a single five-attempt budget per quarter hour. When no
+     * account resolves, the gate's identifier bucket has already counted the attempt and nothing more is
+     * taken.
      *
-     * @param username the login username
-     * @param password the plain-text password
-     * @param fallback true when the request is on the Turnstile fallback path
+     * @param identifier the login username, or the account's email address
+     * @param password   the plain-text password
+     * @param fallback   true when the request is on the Turnstile fallback path
      * @return the issued tokens and user fields
      * @throws InvalidCredentialsException if the credentials are wrong or the account is disabled
      * @throws TooManyAttemptsException    if the fallback's per-account budget is spent
      */
-    public AuthTokens login(String username, String password, boolean fallback) {
-        AppUserEntity user = userRepository.findByUsername(username).orElse(null);
+    public AuthTokens login(String identifier, String password, boolean fallback) {
+        List<AppUserEntity> candidates = loginCandidates(identifier);
 
-        if (fallback && user != null
-                && !attemptLimiter.tryAcquire(FALLBACK_USER_KEY_PREFIX + user.getId(),
+        if (fallback) {
+            for (AppUserEntity candidate : candidates) {
+                if (!attemptLimiter.tryAcquire(FALLBACK_USER_KEY_PREFIX + candidate.getId(),
                         FALLBACK_USER_LIMIT, AuthAttemptLimiter.Window.QUARTER_HOUR)) {
-            LOG.info("Login refused: fallback attempt budget spent for user id {}", user.getId());
-            throw new TooManyAttemptsException("Fallback sign-in budget spent for the account");
+                    LOG.info("Login refused: fallback attempt budget spent for user id {}", candidate.getId());
+                    throw new TooManyAttemptsException("Fallback sign-in budget spent for the account");
+                }
+            }
         }
 
-        if (user == null || !passwordEncoder.matches(password, user.getPassword())) {
-            LOG.warn("Login failed: user='{}' — bad credentials", LogSanitizer.sanitize(username));
-            throw new InvalidCredentialsException("Invalid username or password");
+        if (candidates.isEmpty()) {
+            // Same BCrypt cost as a real comparison, so the response time does not reveal that the
+            // identifier matched nothing. The result is irrelevant: there is no account to sign in.
+            passwordEncoder.matches(password, dummyHash());
         }
-        if (!user.isEnabled()) {
-            LOG.warn("Login failed: user='{}' — account disabled", LogSanitizer.sanitize(username));
-            throw new InvalidCredentialsException("Account is disabled");
+
+        AppUserEntity user = null;
+        boolean verifiedButDisabled = false;
+        for (AppUserEntity candidate : candidates) {
+            if (passwordEncoder.matches(password, candidate.getPassword())) {
+                if (candidate.isEnabled()) {
+                    user = candidate;
+                    break;
+                }
+                verifiedButDisabled = true;
+            }
+        }
+
+        if (user == null) {
+            if (verifiedButDisabled) {
+                LOG.warn("Login failed: identifier='{}' — account disabled", LogSanitizer.sanitize(identifier));
+                throw new InvalidCredentialsException("Account is disabled");
+            }
+            LOG.warn("Login failed: identifier='{}' — bad credentials", LogSanitizer.sanitize(identifier));
+            throw new InvalidCredentialsException("Invalid username or password");
         }
 
         user.setLastActiveAt(LocalDateTime.now());
@@ -145,6 +188,44 @@ public class AuthenticationService {
         // username's shape, so a stored name can still carry CRLF from the original request.
         LOG.info("Login: user='{}' role={}", LogSanitizer.sanitize(user.getUsername()), user.getRole());
         return issueTokensFor(user);
+    }
+
+    /**
+     * Resolves the accounts an identifier may name, username candidate first.
+     *
+     * @param identifier the login username or email address
+     * @return zero, one or two distinct accounts
+     */
+    private List<AppUserEntity> loginCandidates(String identifier) {
+        List<AppUserEntity> candidates = new ArrayList<>(2);
+        userRepository.findByUsername(identifier).ifPresent(candidates::add);
+        if (identifier != null && identifier.contains("@")) {
+            EmailIdentifier.resolve(identifier, userRepository, Kind.ACTIVE).ifPresent(byEmail -> {
+                if (candidates.isEmpty()) {
+                    candidates.add(byEmail);
+                } else if (!candidates.get(0).getId().equals(byEmail.getId())) {
+                    LOG.warn("Login identifier '{}' is one account's username and another account's email",
+                            LogSanitizer.sanitize(identifier));
+                    candidates.add(byEmail);
+                }
+            });
+        }
+        return candidates;
+    }
+
+    /**
+     * Returns a BCrypt hash of a throwaway string, encoded once by the live encoder so a comparison
+     * against it costs exactly what a real one does.
+     *
+     * @return the dummy hash
+     */
+    private String dummyHash() {
+        String hash = dummyHash;
+        if (hash == null) {
+            hash = passwordEncoder.encode(DUMMY_PASSWORD);
+            dummyHash = hash;
+        }
+        return hash;
     }
 
     /**

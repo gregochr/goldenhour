@@ -15,7 +15,7 @@ import org.thymeleaf.TemplateEngine;
 import org.thymeleaf.context.Context;
 
 /**
- * Sends transactional emails to users for account creation and password resets.
+ * Sends transactional emails to users for account creation, verification and password resets.
  *
  * <p>Methods are {@link Async} so they never block the admin's HTTP response.
  * Failures are caught and logged — a mail delivery problem must never prevent
@@ -120,7 +120,7 @@ public class UserEmailService {
             return;
         }
         try {
-            String verificationUrl = frontendBaseUrl + "?token=" + rawToken;
+            String verificationUrl = appLink("/verify", rawToken);
             Context context = new Context();
             context.setVariable("username", username);
             context.setVariable("verificationUrl", verificationUrl);
@@ -131,6 +131,39 @@ public class UserEmailService {
                     LogSanitizer.sanitize(email), LogSanitizer.sanitize(username));
         } catch (Exception ex) {
             LOG.error("Failed to send verification email to {} for user {}: {}",
+                    LogSanitizer.sanitize(email), LogSanitizer.sanitize(username),
+                    LogSanitizer.sanitize(ex.getMessage()));
+        }
+    }
+
+    /**
+     * Sends the "reset your password" email: a one-hour link to the app's {@code /reset} page.
+     *
+     * <p>Distinct from {@link #sendPasswordResetEmail}, which mails an admin-issued TEMPORARY PASSWORD:
+     * this one carries a link and no secret but the link's own token. The caller passes the account's
+     * STORED address, never the text of the request that asked for the reset.
+     *
+     * @param email    the recipient's stored email address
+     * @param username the account's login name
+     * @param rawToken the raw reset token (included in the link URL)
+     */
+    @Async
+    public void sendPasswordResetLinkEmail(String email, String username, String rawToken) {
+        if (!canSend(email)) {
+            return;
+        }
+        try {
+            String resetUrl = appLink("/reset", rawToken);
+            Context context = new Context();
+            context.setVariable("username", username);
+            context.setVariable("resetUrl", resetUrl);
+            String html = templateEngine.process("password-reset-link-email", context);
+
+            sendHtmlEmail(email, "Reset your PhotoCast password", html);
+            LOG.info("Password reset link email sent to {} for user {}",
+                    LogSanitizer.sanitize(email), LogSanitizer.sanitize(username));
+        } catch (Exception ex) {
+            LOG.error("Failed to send password reset link email to {} for user {}: {}",
                     LogSanitizer.sanitize(email), LogSanitizer.sanitize(username),
                     LogSanitizer.sanitize(ex.getMessage()));
         }
@@ -160,6 +193,21 @@ public class UserEmailService {
                     LogSanitizer.sanitize(email), LogSanitizer.sanitize(username),
                     LogSanitizer.sanitize(ex.getMessage()));
         }
+    }
+
+    /**
+     * Builds a link to a path on the app origin carrying a one-time token, tolerating a configured base
+     * URL with or without a trailing slash.
+     *
+     * @param path     the route, with a leading slash ({@code /verify}, {@code /reset})
+     * @param rawToken the raw one-time token
+     * @return the absolute URL
+     */
+    private String appLink(String path, String rawToken) {
+        String base = frontendBaseUrl.endsWith("/")
+                ? frontendBaseUrl.substring(0, frontendBaseUrl.length() - 1)
+                : frontendBaseUrl;
+        return base + path + "?token=" + rawToken;
     }
 
     private boolean canSend(String email) {

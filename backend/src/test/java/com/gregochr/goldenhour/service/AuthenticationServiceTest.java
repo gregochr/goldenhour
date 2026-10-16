@@ -23,14 +23,17 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Date;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -225,6 +228,255 @@ class AuthenticationServiceTest {
                     .hasMessage("Invalid username or password");
 
             verifyNoInteractions(attemptLimiter);
+        }
+    }
+
+    @Nested
+    class LoginByEmail {
+
+        private static final String ADDRESS = "Reader@Example.com";
+
+        private AppUserEntity reader;
+
+        @BeforeEach
+        void readerAccount() {
+            reader = AppUserEntity.builder()
+                    .id(7L).username("reader").email(ADDRESS).password("reader-hash")
+                    .role(UserRole.PRO_USER).enabled(true).build();
+        }
+
+        private void stubAnyIssuance() {
+            when(jwtService.generateAccessToken(any(), any())).thenReturn(ACCESS_TOKEN);
+            when(jwtService.generateRefreshToken()).thenReturn(RAW_REFRESH);
+            when(jwtService.hashToken(RAW_REFRESH)).thenReturn(REFRESH_HASH);
+            when(jwtService.extractExpiry(ACCESS_TOKEN))
+                    .thenReturn(Date.from(Instant.parse("2026-07-16T10:00:00Z")));
+            when(jwtProperties.getRefreshTokenExpiryDays()).thenReturn(REFRESH_EXPIRY_DAYS);
+        }
+
+        @Test
+        @DisplayName("an identifier with no @ never looks at emails")
+        void plainUsername_neverTouchesTheEmailQueries() {
+            when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
+            when(passwordEncoder.matches("golden2026", "hashed-password")).thenReturn(true);
+            stubTokenIssuance();
+
+            service.login("admin", "golden2026");
+
+            verify(userRepository, never()).findByEmail(any());
+            verify(userRepository, never()).findActiveByEmailLower(any());
+        }
+
+        @Test
+        @DisplayName("one EXACT email match signs in and the lower-cased query is not asked")
+        void exactEmailMatch_signsIn() {
+            when(userRepository.findByUsername(ADDRESS)).thenReturn(Optional.empty());
+            when(userRepository.findByEmail(ADDRESS)).thenReturn(Optional.of(reader));
+            when(passwordEncoder.matches("MyP@ssw0rd!", "reader-hash")).thenReturn(true);
+            stubAnyIssuance();
+
+            AuthTokens tokens = service.login(ADDRESS, "MyP@ssw0rd!");
+
+            assertThat(tokens.username()).isEqualTo("reader");
+            verify(userRepository, never()).findActiveByEmailLower(any());
+        }
+
+        @Test
+        @DisplayName("one case-insensitive match signs in, the key lower-cased with Locale.ROOT and trimmed")
+        void caseInsensitiveEmailMatch_signsIn() {
+            when(userRepository.findByUsername("  reader@EXAMPLE.com ")).thenReturn(Optional.empty());
+            when(userRepository.findByEmail("reader@EXAMPLE.com")).thenReturn(Optional.empty());
+            when(userRepository.findActiveByEmailLower("reader@example.com")).thenReturn(List.of(reader));
+            when(passwordEncoder.matches("MyP@ssw0rd!", "reader-hash")).thenReturn(true);
+            stubAnyIssuance();
+
+            AuthTokens tokens = service.login("  reader@EXAMPLE.com ", "MyP@ssw0rd!");
+
+            assertThat(tokens.username()).isEqualTo("reader");
+        }
+
+        @Test
+        @DisplayName("two case-insensitive matches are no match: the generic failure, no password compared "
+                + "against either account")
+        void twoCaseInsensitiveMatches_areNoMatch() {
+            AppUserEntity twin = AppUserEntity.builder().id(8L).username("twin").email("READER@example.com")
+                    .password("twin-hash").role(UserRole.LITE_USER).enabled(true).build();
+            when(userRepository.findByUsername("reader@example.com")).thenReturn(Optional.empty());
+            when(userRepository.findByEmail("reader@example.com")).thenReturn(Optional.empty());
+            when(userRepository.findActiveByEmailLower("reader@example.com")).thenReturn(List.of(reader, twin));
+
+            assertThatThrownBy(() -> service.login("reader@example.com", "MyP@ssw0rd!"))
+                    .isInstanceOf(InvalidCredentialsException.class)
+                    .hasMessage("Invalid username or password");
+
+            verify(passwordEncoder, never()).matches("MyP@ssw0rd!", "reader-hash");
+            verify(passwordEncoder, never()).matches("MyP@ssw0rd!", "twin-hash");
+            verifyNoInteractions(refreshTokenRepository);
+        }
+
+        @Test
+        @DisplayName("a disabled email match is ignored: the query only returns active accounts, and an "
+                + "exact match that is disabled is not an account to sign in")
+        void disabledExactEmailMatch_isIgnored() {
+            reader.setEnabled(false);
+            when(userRepository.findByUsername(ADDRESS)).thenReturn(Optional.empty());
+            when(userRepository.findByEmail(ADDRESS)).thenReturn(Optional.of(reader));
+
+            assertThatThrownBy(() -> service.login(ADDRESS, "MyP@ssw0rd!"))
+                    .isInstanceOf(InvalidCredentialsException.class)
+                    .hasMessage("Invalid username or password");
+
+            verify(passwordEncoder, never()).matches("MyP@ssw0rd!", "reader-hash");
+            verify(userRepository, never()).findActiveByEmailLower(any());
+        }
+
+        @Test
+        @DisplayName("a non-ASCII address is matched exactly and never folded")
+        void nonAsciiAddress_isMatchedExactlyAndNeverFolded() {
+            String confusable = "bob@gmaıl.com";
+            AppUserEntity bob = AppUserEntity.builder().id(9L).username("bob").email(confusable)
+                    .password("bob-hash").role(UserRole.LITE_USER).enabled(true).build();
+            when(userRepository.findByUsername(confusable)).thenReturn(Optional.empty());
+            when(userRepository.findByEmail(confusable)).thenReturn(Optional.of(bob));
+            when(passwordEncoder.matches("MyP@ssw0rd!", "bob-hash")).thenReturn(true);
+            stubAnyIssuance();
+
+            assertThat(service.login(confusable, "MyP@ssw0rd!").username()).isEqualTo("bob");
+
+            // ...and a non-ASCII identifier with no exact match goes no further.
+            String other = "ann@gmaıl.com";
+            when(userRepository.findByUsername(other)).thenReturn(Optional.empty());
+            when(userRepository.findByEmail(other)).thenReturn(Optional.empty());
+            assertThatThrownBy(() -> service.login(other, "x"))
+                    .isInstanceOf(InvalidCredentialsException.class);
+            verify(userRepository, never()).findActiveByEmailLower(any());
+        }
+
+        @Test
+        @DisplayName("a username that is another account's address: the username account verifies first")
+        void usernameCandidateWinsWhenItsPasswordVerifies() {
+            AppUserEntity namedLikeAnAddress = AppUserEntity.builder().id(3L).username(ADDRESS)
+                    .password("named-hash").role(UserRole.LITE_USER).enabled(true).build();
+            when(userRepository.findByUsername(ADDRESS)).thenReturn(Optional.of(namedLikeAnAddress));
+            when(userRepository.findByEmail(ADDRESS)).thenReturn(Optional.of(reader));
+            when(passwordEncoder.matches("named-pw", "named-hash")).thenReturn(true);
+            stubAnyIssuance();
+
+            AuthTokens tokens = service.login(ADDRESS, "named-pw");
+
+            assertThat(tokens.username()).isEqualTo(ADDRESS);
+            verify(passwordEncoder, never()).matches("named-pw", "reader-hash");
+        }
+
+        @Test
+        @DisplayName("a username that is another account's address: the email owner still signs in when the "
+                + "username account's password fails (neither account is locked out)")
+        void emailCandidateIsTriedWhenTheUsernameCandidateFails() {
+            AppUserEntity namedLikeAnAddress = AppUserEntity.builder().id(3L).username(ADDRESS)
+                    .password("named-hash").role(UserRole.LITE_USER).enabled(true).build();
+            when(userRepository.findByUsername(ADDRESS)).thenReturn(Optional.of(namedLikeAnAddress));
+            when(userRepository.findByEmail(ADDRESS)).thenReturn(Optional.of(reader));
+            when(passwordEncoder.matches("reader-pw", "named-hash")).thenReturn(false);
+            when(passwordEncoder.matches("reader-pw", "reader-hash")).thenReturn(true);
+            stubAnyIssuance();
+
+            AuthTokens tokens = service.login(ADDRESS, "reader-pw");
+
+            assertThat(tokens.username()).isEqualTo("reader");
+            InOrder order = inOrder(passwordEncoder);
+            order.verify(passwordEncoder).matches("reader-pw", "named-hash");
+            order.verify(passwordEncoder).matches("reader-pw", "reader-hash");
+        }
+
+        @Test
+        @DisplayName("an account whose username is its own address is one candidate, not two")
+        void sameAccountBothWays_isOneCandidate() {
+            reader.setUsername(ADDRESS);
+            when(userRepository.findByUsername(ADDRESS)).thenReturn(Optional.of(reader));
+            when(userRepository.findByEmail(ADDRESS)).thenReturn(Optional.of(reader));
+            when(attemptLimiter.tryAcquire("fallback:login:user:7", 5, AuthAttemptLimiter.Window.QUARTER_HOUR))
+                    .thenReturn(true);
+            when(passwordEncoder.matches("wrong", "reader-hash")).thenReturn(false);
+
+            assertThatThrownBy(() -> service.login(ADDRESS, "wrong", true))
+                    .isInstanceOf(InvalidCredentialsException.class);
+
+            verify(passwordEncoder, times(1)).matches("wrong", "reader-hash");
+            verify(attemptLimiter, times(1)).tryAcquire(any(), anyInt(), any());
+        }
+
+        @Test
+        @DisplayName("the username account that verifies but is disabled does not block the email account")
+        void disabledUsernameCandidate_doesNotBlockTheEmailOwner() {
+            AppUserEntity disabledNamed = AppUserEntity.builder().id(3L).username(ADDRESS)
+                    .password("shared-hash").role(UserRole.LITE_USER).enabled(false).build();
+            when(userRepository.findByUsername(ADDRESS)).thenReturn(Optional.of(disabledNamed));
+            when(userRepository.findByEmail(ADDRESS)).thenReturn(Optional.of(reader));
+            when(passwordEncoder.matches("pw", "shared-hash")).thenReturn(true);
+            when(passwordEncoder.matches("pw", "reader-hash")).thenReturn(true);
+            stubAnyIssuance();
+
+            assertThat(service.login(ADDRESS, "pw").username()).isEqualTo("reader");
+        }
+
+        @Test
+        @DisplayName("no candidate resolves: a BCrypt comparison against the dummy hash still runs, "
+                + "for an email and a username alike, encoding the dummy once")
+        void noCandidate_runsTheDummyHashComparison() {
+            when(passwordEncoder.encode(any())).thenReturn("dummy-hash");
+            when(userRepository.findByUsername("ghost@example.com")).thenReturn(Optional.empty());
+            when(userRepository.findByEmail("ghost@example.com")).thenReturn(Optional.empty());
+            when(userRepository.findActiveByEmailLower("ghost@example.com")).thenReturn(List.of());
+            when(userRepository.findByUsername("ghost")).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> service.login("ghost@example.com", "pw"))
+                    .isInstanceOf(InvalidCredentialsException.class)
+                    .hasMessage("Invalid username or password");
+            assertThatThrownBy(() -> service.login("ghost", "pw"))
+                    .isInstanceOf(InvalidCredentialsException.class)
+                    .hasMessage("Invalid username or password");
+
+            verify(passwordEncoder, times(2)).matches("pw", "dummy-hash");
+            verify(passwordEncoder, times(1)).encode(any());
+        }
+
+        @Test
+        @DisplayName("the fallback budget is taken for the RESOLVED account, so a username and an email of one "
+                + "account share one budget")
+        void fallback_emailAndUsernameShareTheAccountBudget() {
+            when(userRepository.findByUsername(ADDRESS)).thenReturn(Optional.empty());
+            when(userRepository.findByEmail(ADDRESS)).thenReturn(Optional.of(reader));
+            when(userRepository.findByUsername("reader")).thenReturn(Optional.of(reader));
+            when(attemptLimiter.tryAcquire("fallback:login:user:7", 5, AuthAttemptLimiter.Window.QUARTER_HOUR))
+                    .thenReturn(true, true, false);
+            when(passwordEncoder.matches("wrong", "reader-hash")).thenReturn(false);
+
+            assertThatThrownBy(() -> service.login(ADDRESS, "wrong", true))
+                    .isInstanceOf(InvalidCredentialsException.class);
+            assertThatThrownBy(() -> service.login("reader", "wrong", true))
+                    .isInstanceOf(InvalidCredentialsException.class);
+            assertThatThrownBy(() -> service.login(ADDRESS, "wrong", true))
+                    .isInstanceOf(TooManyAttemptsException.class);
+        }
+
+        @Test
+        @DisplayName("an ambiguous or unmatched email falls back to the exact username candidate")
+        void ambiguousEmail_fallsBackToTheUsernameCandidate() {
+            AppUserEntity namedLikeAnAddress = AppUserEntity.builder().id(3L).username("a@b.example")
+                    .password("named-hash").role(UserRole.LITE_USER).enabled(true).build();
+            AppUserEntity first = AppUserEntity.builder().id(4L).username("one").email("A@B.example")
+                    .password("one-hash").role(UserRole.LITE_USER).enabled(true).build();
+            AppUserEntity second = AppUserEntity.builder().id(5L).username("two").email("a@B.example")
+                    .password("two-hash").role(UserRole.LITE_USER).enabled(true).build();
+            when(userRepository.findByUsername("a@b.example")).thenReturn(Optional.of(namedLikeAnAddress));
+            when(userRepository.findByEmail("a@b.example")).thenReturn(Optional.empty());
+            when(userRepository.findActiveByEmailLower("a@b.example")).thenReturn(List.of(first, second));
+            when(passwordEncoder.matches("named-pw", "named-hash")).thenReturn(true);
+            stubAnyIssuance();
+
+            assertThat(service.login("a@b.example", "named-pw").username()).isEqualTo("a@b.example");
+            verify(passwordEncoder, never()).matches("named-pw", "one-hash");
+            verify(passwordEncoder, never()).matches("named-pw", "two-hash");
         }
     }
 

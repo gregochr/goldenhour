@@ -7,7 +7,10 @@ import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.exception.RegistrationClosedException;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.EmailVerificationTokenRepository;
+import com.gregochr.goldenhour.service.AuthAttemptLimiter.Window;
 import com.gregochr.goldenhour.service.notification.UserEmailService;
+import com.gregochr.goldenhour.util.EmailIdentifier;
+import com.gregochr.goldenhour.util.EmailIdentifier.Kind;
 import com.gregochr.goldenhour.util.LogSanitizer;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -37,12 +40,22 @@ public class RegistrationService {
     /** Rate-limit window in minutes. */
     private static final int RATE_LIMIT_WINDOW_MINUTES = 5;
 
+    /** Limiter key prefix for the per-account resend budget. */
+    static final String RESEND_USER_KEY_PREFIX = "resend:user:";
+
+    /** Resends admitted per pending account in a quarter hour. */
+    static final int RESEND_USER_LIMIT = 3;
+
+    /** The sentence a refused resend carries (the controller answers it as a 429). */
+    static final String RESEND_REFUSED = "Too many verification requests. Please try again later.";
+
     private final UserService userService;
     private final AppUserRepository userRepository;
     private final EmailVerificationTokenRepository tokenRepository;
     private final JwtService jwtService;
     private final UserEmailService userEmailService;
     private final RegistrationProperties registrationProperties;
+    private final AuthAttemptLimiter attemptLimiter;
 
     /**
      * Registers a new pending user and sends a verification email.
@@ -78,8 +91,14 @@ public class RegistrationService {
     /**
      * Resends a verification email for a pending user.
      *
-     * <p>Returns silently if the email is not found (prevents email enumeration).
-     * Throws if the rate limit is exceeded.
+     * <p>Returns silently if the email is not found (prevents email enumeration). The address is
+     * matched by the one email rule ({@link EmailIdentifier}: exact first, then ASCII
+     * case-insensitive, pending accounts only, exactly one) and the link goes to the STORED address,
+     * never the request's text. Throws if the rate limit is exceeded.
+     *
+     * <p>The limit is the in-memory {@link AuthAttemptLimiter} — three per pending account per quarter
+     * hour. The older database count below stays as a second check but can never trip on its own: this
+     * method deletes every unverified token before inserting, so that count is at most one (plan §1 #12).
      *
      * @param email the email address to resend verification to
      * @throws IllegalStateException if the rate limit is exceeded
@@ -92,10 +111,16 @@ public class RegistrationService {
             return;
         }
 
+        if (!attemptLimiter.tryAcquire(RESEND_USER_KEY_PREFIX + user.getId(), RESEND_USER_LIMIT,
+                Window.QUARTER_HOUR)) {
+            LOG.info("Verification resend refused: budget spent for user id {}", user.getId());
+            throw new IllegalStateException(RESEND_REFUSED);
+        }
+
         long recentCount = tokenRepository.countByUserIdAndCreatedAtAfter(
                 user.getId(), LocalDateTime.now().minusMinutes(RATE_LIMIT_WINDOW_MINUTES));
         if (recentCount >= RATE_LIMIT_MAX_TOKENS) {
-            throw new IllegalStateException("Too many verification requests. Please try again later.");
+            throw new IllegalStateException(RESEND_REFUSED);
         }
 
         // Invalidate old unverified tokens
@@ -105,9 +130,9 @@ public class RegistrationService {
         String rawToken = jwtService.generateRefreshToken();
         saveVerificationToken(rawToken, user.getId());
 
-        userEmailService.sendVerificationEmail(email, user.getUsername(), rawToken);
+        userEmailService.sendVerificationEmail(user.getEmail(), user.getUsername(), rawToken);
         LOG.info("Verification resent: username='{}', email='{}'",
-                LogSanitizer.sanitize(user.getUsername()), LogSanitizer.sanitize(email));
+                LogSanitizer.sanitize(user.getUsername()), LogSanitizer.sanitize(user.getEmail()));
     }
 
     /**
@@ -200,11 +225,6 @@ public class RegistrationService {
     }
 
     private AppUserEntity findPendingUserByEmail(String email) {
-        return userService.listAllUsers().stream()
-                .filter(u -> email.equalsIgnoreCase(u.getEmail()))
-                .filter(u -> !u.isEnabled())
-                .filter(u -> u.getPassword() != null && u.getPassword().isEmpty())
-                .findFirst()
-                .orElse(null);
+        return EmailIdentifier.resolve(email, userRepository, Kind.PENDING).orElse(null);
     }
 }
