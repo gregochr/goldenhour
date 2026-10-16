@@ -1314,16 +1314,25 @@ planning session writes the memory file (`login-registration-series.md` + the `M
    FROM app_user WHERE email IS NOT NULL` (a legacy case-duplicate pair shares ONE reservation, which
    the lookup rule already tolerates: two active matches → no match). Every write of an address —
    `createUser`, `createPendingUser`, `setEmail` — claims the new key in the SAME transaction as the
-   account write through one `EmailClaims.claim(emailLower)` that NEVER recovers from a constraint
-   error in place (Postgres aborts the transaction on one, and Spring marks it rollback-only — Codex,
-   R0 round 25): FIRST `SELECT … FROM app_user_email_claim WHERE email_lower = :k FOR UPDATE`; a row
-   found → under that lock, `EXISTS (SELECT 1 FROM app_user WHERE LOWER(email) = :k)`: none → the
-   reservation is an orphan and is reused silently (so `createPendingUser`'s supported retry — which
+   account write through one `EmailClaims.claim(emailLower, forUserId)` that NEVER recovers from a
+   constraint error in place (Postgres aborts the transaction on one, and Spring marks it
+   rollback-only — Codex, R0 round 25): FIRST `SELECT … FROM app_user_email_claim WHERE email_lower =
+   :k FOR UPDATE`; a row found → under that lock, `EXISTS (SELECT 1 FROM app_user WHERE LOWER(email)
+   = :k AND id <> :forUserId)` (`forUserId` null for a new account — the account being edited never
+   counts as its own occupant, so an admin changing only the CASING of an address that account alone
+   holds succeeds; Codex, R0 round 26): none → the reservation is an orphan, or the account's own, and
+   is reused silently (so `createPendingUser`'s supported retry — which
    deletes an abandoned pending row for the same email earlier in the same transaction and recreates
    it — succeeds against the pending row's own surviving reservation; Codex, R0 round 24), some → the
    409 "Email already registered"; no row found → `INSERT`, and the one way that insert can still
    violate the key is a genuinely concurrent first claim of a brand-new address, where the loser's
-   409 is the right answer and the aborted transaction is its own rollback (`RegistrationServiceTest`
+   409 is the right answer and the aborted transaction is its own rollback — **translated OUTSIDE the
+   transaction**: the three callers' transactional methods let the `DataIntegrityViolationException`
+   propagate, and the controllers (`AuthController.register`, `UserController` create and email
+   change) catch it around the service call and answer the same 409 "Email already registered"
+   (today they catch `IllegalArgumentException` alone and `GlobalExceptionHandler` would turn the
+   violation into a 500; Codex, R0 round 26; `AuthControllerTest`/`UserControllerTest` pin the
+   mapping with a mocked service throwing it) (`RegistrationServiceTest`
    pins the retry of one normalised email, the 409 against a live account, and that no exception is
    caught on the orphan path), and every path that
    stops using an address — `setEmail`, `deleteOwnAccount`, the admin `deleteUser` — ends with a
@@ -1390,7 +1399,9 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added forty-nine P1s over twenty-five rounds, folded in: an
+disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added fifty-one P1s over twenty-six rounds, folded in: the
+claim's occupancy check excludes the account being edited; the concurrent-claim violation is
+translated to 409 in the controllers, outside the rolled-back transaction (§5 #6); an
 email change voids a pending account's verification links; the pending replacement is a locked,
 conditional delete; the claim checks for an orphan under `FOR UPDATE` before inserting rather than
 catching a constraint error (§5 #6, §2 #10, §2 #13); an
