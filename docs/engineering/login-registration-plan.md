@@ -858,11 +858,22 @@ everywhere: the `app_user` row FIRST, then `refresh_token` / `user_drive_time` /
 takes `findByIdForUpdate` on the user BEFORE its `revokeIfActive` compare-and-set (today it locks
 the refresh row first and would deadlock against the writer, which holds the user row and then
 revokes), and the issuer's own `findByIdForUpdate` inside that same transaction is a re-lock of a
-row already held; `TokenIssuerTest`'s two-thread case runs the writer and a refresh concurrently
+row already held. ⚠️ **The theft response must COMMIT before the refusal is thrown** (Codex, R0
+round 20 — a pre-existing bug the plan would otherwise carry): today `refresh` calls
+`revokeFamily` (`revokeAllActiveByUserId`) on a replayed-or-raced token and then throws
+`InvalidCredentialsException` from the SAME `@Transactional` method, so Spring rolls the family
+revocation back with the runtime exception and the replacement token stays usable. R3c moves it to
+a proxied `RefreshFamilyRevoker.revokeAll(userId, reason)` marked `REQUIRES_NEW`, called BEFORE the
+throw, with a `@SpringBootTest` on H2 that replays a revoked token and asserts the family is revoked
+after the 401; `TokenIssuerTest`'s two-thread case runs the writer and a refresh concurrently
 and asserts no deadlock and one loser. `JwtAuthenticationFilter`: after
 `validateToken`, load the user ONCE (the query it already makes for `lastActiveAt`); set the
 `SecurityContext` only when the row exists, `enabled` is true, and **the token's credential version
-matches the row**: `JwtService.generateAccessToken` adds a `cv` claim = the account's
+matches the row** — and **build the authorities from the LOADED ROW's role, never from the token's
+role claim** (Codex, R0 round 20: an admin demotion through `UserService.setRole` changes only the
+row, so a claim-built authority would keep an old ADMIN token authorised for admin endpoints until it
+expired; the claim stays in the token for logging and the iOS client, the row decides; the filter
+test pins a demoted account's token answering 403 on an admin route and 200 on a reader route): `JwtService.generateAccessToken` adds a `cv` claim = the account's
 `credentials_version` — a monotonic counter the writer increments by one in the same statement that
 stamps `credentials_changed_at` (`SET credentials_version = credentials_version + 1, …`; Codex, R0
 round 16: an epoch-millisecond stamp can collide for two serialized changes in one millisecond,
@@ -1322,7 +1333,9 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added thirty-nine P1s over nineteen rounds, folded in: the
+disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added forty-one P1s over twenty rounds, folded in: the
+refresh theft response commits in its own transaction before the refusal; the filter builds
+authorities from the row's role, not the claim (§2 #13); the
 reset URL token is its own gate state outside the verification cleanup effect; the redeemer
 re-checks enabled/pending under the lock; deletion compares `credentials_version`; the admin email
 change refuses a case-insensitive duplicate (§2 #1, #7, #13); the
