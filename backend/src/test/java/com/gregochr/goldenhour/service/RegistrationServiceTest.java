@@ -7,13 +7,17 @@ import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.exception.RegistrationClosedException;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.EmailVerificationTokenRepository;
+import com.gregochr.goldenhour.service.CredentialChangeWriter.Change;
+import com.gregochr.goldenhour.service.VerificationTokenIssuer.IssuedVerification;
 import com.gregochr.goldenhour.service.notification.UserEmailService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.InOrder;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -24,6 +28,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -55,6 +60,15 @@ class RegistrationServiceTest {
 
     @Mock
     private AuthAttemptLimiter attemptLimiter;
+
+    @Mock
+    private VerificationTokenIssuer verificationTokenIssuer;
+
+    @Mock
+    private CredentialChangeWriter credentialChangeWriter;
+
+    @Mock
+    private PasswordEncoder passwordEncoder;
 
     @InjectMocks
     private RegistrationService registrationService;
@@ -197,14 +211,52 @@ class RegistrationServiceTest {
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(pending));
         admitResend(1L);
         when(tokenRepository.countByUserIdAndCreatedAtAfter(eq(1L), any())).thenReturn(0L);
-        when(tokenRepository.findByUserIdAndVerifiedFalse(1L)).thenReturn(List.of());
-        when(jwtService.generateRefreshToken()).thenReturn("new-token");
-        when(jwtService.hashToken("new-token")).thenReturn("new-hash");
-        when(tokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(verificationTokenIssuer.issue(1L))
+                .thenReturn(Optional.of(new IssuedVerification("alice@example.com", "alice", "new-token")));
 
         registrationService.resendVerification("alice@example.com");
 
         verify(userEmailService).sendVerificationEmail("alice@example.com", "alice", "new-token");
+    }
+
+    @Test
+    @DisplayName("resendVerification mails the address and name the ISSUER read under the row lock, never "
+            + "the address the typed text or the earlier lookup resolved (an admin moved the account between "
+            + "the two)")
+    void resendVerification_mailsWhatTheIssuerReadUnderTheLock() {
+        AppUserEntity pending = buildPendingUser(1L, "alice", "old@example.com");
+        when(userRepository.findByEmail("old@example.com")).thenReturn(Optional.of(pending));
+        admitResend(1L);
+        when(verificationTokenIssuer.issue(1L))
+                .thenReturn(Optional.of(new IssuedVerification("new@example.com", "alice", "new-token")));
+
+        registrationService.resendVerification("old@example.com");
+
+        verify(userEmailService).sendVerificationEmail("new@example.com", "alice", "new-token");
+        verify(userEmailService, never()).sendVerificationEmail(eq("old@example.com"), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("resendVerification sends nothing when the issuer finds the account no longer pending "
+            + "(activated or disabled between the lookup and the lock)")
+    void resendVerification_issuerEmpty_sendsNothing() {
+        AppUserEntity pending = buildPendingUser(1L, "alice", "alice@example.com");
+        when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(pending));
+        admitResend(1L);
+        when(verificationTokenIssuer.issue(1L)).thenReturn(Optional.empty());
+
+        registrationService.resendVerification("alice@example.com");
+
+        verify(userEmailService, never()).sendVerificationEmail(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("resendVerification is not transactional itself: the issuer's own transaction holds the lock")
+    void resendVerification_isNotTransactional() throws NoSuchMethodException {
+        assertThat(RegistrationService.class.getMethod("resendVerification", String.class)
+                .isAnnotationPresent(org.springframework.transaction.annotation.Transactional.class)).isFalse();
+        assertThat(RegistrationService.class.getMethod("setPasswordAndActivate", String.class, String.class)
+                .isAnnotationPresent(org.springframework.transaction.annotation.Transactional.class)).isFalse();
     }
 
     @Test
@@ -215,9 +267,8 @@ class RegistrationServiceTest {
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.empty());
         when(userRepository.findPendingByEmailLower("alice@example.com")).thenReturn(List.of(pending));
         admitResend(1L);
-        when(jwtService.generateRefreshToken()).thenReturn("new-token");
-        when(jwtService.hashToken("new-token")).thenReturn("new-hash");
-        when(tokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(verificationTokenIssuer.issue(1L))
+                .thenReturn(Optional.of(new IssuedVerification("Alice@Example.com", "alice", "new-token")));
 
         registrationService.resendVerification("alice@example.com");
 
@@ -287,6 +338,8 @@ class RegistrationServiceTest {
         assertThatThrownBy(() -> registrationService.resendVerification("alice@example.com"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Too many");
+
+        verifyNoInteractions(verificationTokenIssuer);
     }
 
     @Test
@@ -301,8 +354,7 @@ class RegistrationServiceTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("Too many verification requests. Please try again later.");
 
-        verify(tokenRepository, never()).deleteAll(any());
-        verify(tokenRepository, never()).save(any());
+        verifyNoInteractions(verificationTokenIssuer);
         verify(userEmailService, never()).sendVerificationEmail(anyString(), anyString(), anyString());
     }
 
@@ -311,12 +363,12 @@ class RegistrationServiceTest {
             + "nothing and is refused")
     void resendVerification_fourRequestsThroughARealLimiter_fourthSendsNothing() {
         RegistrationService real = new RegistrationService(userService, userRepository, tokenRepository,
-                jwtService, userEmailService, registrationProperties, new AuthAttemptLimiter());
+                jwtService, userEmailService, registrationProperties, new AuthAttemptLimiter(),
+                verificationTokenIssuer, credentialChangeWriter, passwordEncoder);
         AppUserEntity pending = buildPendingUser(1L, "alice", "alice@example.com");
         when(userRepository.findByEmail("alice@example.com")).thenReturn(Optional.of(pending));
-        when(jwtService.generateRefreshToken()).thenReturn("new-token");
-        when(jwtService.hashToken("new-token")).thenReturn("new-hash");
-        when(tokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(verificationTokenIssuer.issue(1L))
+                .thenReturn(Optional.of(new IssuedVerification("alice@example.com", "alice", "new-token")));
 
         real.resendVerification("alice@example.com");
         real.resendVerification("alice@example.com");
@@ -398,37 +450,69 @@ class RegistrationServiceTest {
     }
 
     @Test
-    @DisplayName("adminResendVerification deletes old tokens, creates new token, and sends email")
+    @DisplayName("adminResendVerification goes through the issuer and mails the STORED address it read under "
+            + "the lock, not the address on the entity the admin's list held")
     void adminResendVerification_success() {
-        AppUserEntity user = buildPendingUser(1L, "alice", "alice@example.com");
-        EmailVerificationTokenEntity oldToken = EmailVerificationTokenEntity.builder()
-                .id(1L).tokenHash("old-hash").userId(1L)
-                .expiresAt(LocalDateTime.now().plusHours(12))
-                .verified(false).createdAt(LocalDateTime.now().minusHours(1)).build();
-        when(tokenRepository.findByUserIdAndVerifiedFalse(1L)).thenReturn(List.of(oldToken));
-        when(jwtService.generateRefreshToken()).thenReturn("new-admin-token");
-        when(jwtService.hashToken("new-admin-token")).thenReturn("new-admin-hash");
-        when(tokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        AppUserEntity user = buildPendingUser(1L, "alice", "stale@example.com");
+        when(verificationTokenIssuer.issue(1L))
+                .thenReturn(Optional.of(new IssuedVerification("moved@example.com", "alice", "new-admin-token")));
 
-        registrationService.adminResendVerification(user);
+        boolean sent = registrationService.adminResendVerification(user);
 
-        verify(tokenRepository).deleteAll(List.of(oldToken));
-        verify(tokenRepository).save(any(EmailVerificationTokenEntity.class));
-        verify(userEmailService).sendVerificationEmail("alice@example.com", "alice", "new-admin-token");
+        assertThat(sent).isTrue();
+        verify(userEmailService).sendVerificationEmail("moved@example.com", "alice", "new-admin-token");
+        verify(userEmailService, never()).sendVerificationEmail(eq("stale@example.com"), anyString(), anyString());
+        verify(tokenRepository, never()).deleteAll(any());
+        verify(tokenRepository, never()).save(any());
     }
 
     @Test
-    @DisplayName("setPasswordAndActivate resolves the user from the token and consumes it")
-    void setPasswordAndActivate_verifiedToken_activatesAndDeletesToken() {
+    @DisplayName("adminResendVerification reports false and mails nothing for an account that is no longer "
+            + "pending")
+    void adminResendVerification_notPending_sendsNothing() {
+        AppUserEntity user = buildPendingUser(1L, "alice", "alice@example.com");
+        when(verificationTokenIssuer.issue(1L)).thenReturn(Optional.empty());
+
+        assertThat(registrationService.adminResendVerification(user)).isFalse();
+
+        verify(userEmailService, never()).sendVerificationEmail(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    @DisplayName("setPasswordAndActivate encodes BEFORE the one transactional writer call, passes the token's "
+            + "own ids and the activation change, and returns the id and the hash just written")
+    void setPasswordAndActivate_verifiedToken_encodesThenActivatesThroughTheWriter() {
         EmailVerificationTokenEntity token = buildToken(42L, true, LocalDateTime.now().plusHours(12));
         when(jwtService.hashToken("raw-token")).thenReturn("hash");
         when(tokenRepository.findByTokenHash("hash")).thenReturn(Optional.of(token));
+        when(passwordEncoder.encode("MyP@ssw0rd!")).thenReturn("encoded");
+        when(credentialChangeWriter.consumeVerificationAndApply(1L, 42L, "encoded", Change.activation()))
+                .thenReturn(new CredentialChangeOutcome(42L, "alice", "alice@example.com", 1L));
 
-        Long userId = registrationService.setPasswordAndActivate("raw-token", "MyP@ssw0rd!");
+        RegistrationService.Activation activation =
+                registrationService.setPasswordAndActivate("raw-token", "MyP@ssw0rd!");
 
-        assertThat(userId).isEqualTo(42L);
-        verify(userService).activateUser(42L, "MyP@ssw0rd!");
-        verify(tokenRepository).delete(token);
+        assertThat(activation).isEqualTo(new RegistrationService.Activation(42L, "encoded"));
+        InOrder order = inOrder(passwordEncoder, credentialChangeWriter);
+        order.verify(passwordEncoder).encode("MyP@ssw0rd!");
+        order.verify(credentialChangeWriter).consumeVerificationAndApply(1L, 42L, "encoded", Change.activation());
+        verify(tokenRepository, never()).delete(any());
+        verify(userService, never()).listAllUsers();
+    }
+
+    @Test
+    @DisplayName("a second redemption of one token answers 'already used': the writer's refusal propagates")
+    void setPasswordAndActivate_secondRedemption_isAlreadyUsed() {
+        EmailVerificationTokenEntity token = buildToken(42L, true, LocalDateTime.now().plusHours(12));
+        when(jwtService.hashToken("raw-token")).thenReturn("hash");
+        when(tokenRepository.findByTokenHash("hash")).thenReturn(Optional.of(token));
+        when(passwordEncoder.encode("MyP@ssw0rd!")).thenReturn("encoded");
+        when(credentialChangeWriter.consumeVerificationAndApply(1L, 42L, "encoded", Change.activation()))
+                .thenThrow(new IllegalArgumentException("This verification link has already been used"));
+
+        assertThatThrownBy(() -> registrationService.setPasswordAndActivate("raw-token", "MyP@ssw0rd!"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("This verification link has already been used");
     }
 
     @Test
@@ -440,7 +524,8 @@ class RegistrationServiceTest {
         assertThatThrownBy(() -> registrationService.setPasswordAndActivate("bad-token", "MyP@ssw0rd!"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Invalid or expired verification token");
-        verify(userService, never()).activateUser(any(), anyString());
+        verifyNoInteractions(passwordEncoder);
+        verifyNoInteractions(credentialChangeWriter);
     }
 
     @Test
@@ -453,7 +538,8 @@ class RegistrationServiceTest {
         assertThatThrownBy(() -> registrationService.setPasswordAndActivate("raw-token", "MyP@ssw0rd!"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Invalid or expired verification token");
-        verify(userService, never()).activateUser(any(), anyString());
+        verifyNoInteractions(passwordEncoder);
+        verifyNoInteractions(credentialChangeWriter);
     }
 
     @Test
@@ -466,7 +552,8 @@ class RegistrationServiceTest {
         assertThatThrownBy(() -> registrationService.setPasswordAndActivate("raw-token", "MyP@ssw0rd!"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Invalid or expired verification token");
-        verify(userService, never()).activateUser(any(), anyString());
+        verifyNoInteractions(passwordEncoder);
+        verifyNoInteractions(credentialChangeWriter);
     }
 
     private EmailVerificationTokenEntity buildToken(Long userId, boolean verified, LocalDateTime expiresAt) {

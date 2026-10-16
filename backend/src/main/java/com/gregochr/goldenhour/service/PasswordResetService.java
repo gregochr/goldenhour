@@ -25,7 +25,7 @@ import java.util.Optional;
  * (login-registration plan §2 #1).
  *
  * <p>Deliberately not transactional. The two transactional steps are separate PROXIED beans —
- * {@link PasswordResetIssuer} and {@link PasswordResetRedeemer} — because a transactional method on this
+ * {@link PasswordResetIssuer} and {@link CredentialChangeWriter} — because a transactional method on this
  * class would be reached by self-invocation and run with no transaction at all; and because BCrypt must
  * run with no database connection held.
  *
@@ -38,12 +38,11 @@ import java.util.Optional;
  *
  * <h2>Redeeming a link</h2>
  * The link must exist, be unused and unexpired; the new password is hashed before anything transactional;
- * {@link PasswordResetRedeemer} then consumes the link, sets the password and revokes every active refresh
- * token in one transaction, and the reader is signed in on the device that reset (as set-password does)
- * from the row the redeemer returned.
- *
- * <p>TODO(R3c): the redeemed account's other devices are signed out at their next refresh today, at their
- * next request once the credential-version claim lands.
+ * {@link CredentialChangeWriter#consumeResetAndApply} then consumes the link, sets the password, bumps the
+ * account's credential version and revokes every active refresh token in one transaction — so the
+ * account's other devices are signed out at their next request, not when their access token expires — and
+ * the reader is signed in on the device that reset (as set-password does), issued against the hash just
+ * written.
  */
 @Service
 public class PasswordResetService {
@@ -57,18 +56,18 @@ public class PasswordResetService {
     static final int REQUEST_USER_LIMIT = 3;
 
     /** The sentence for an unknown link. */
-    static final String INVALID_LINK = "This reset link is invalid";
+    static final String INVALID_LINK = CredentialChangeWriter.RESET_LINK_INVALID;
 
     /** The sentence for a redeemed link. */
-    static final String USED_LINK = "This reset link has already been used";
+    static final String USED_LINK = CredentialChangeWriter.RESET_LINK_USED;
 
     /** The sentence for an expired link. */
-    static final String EXPIRED_LINK = "This reset link has expired";
+    static final String EXPIRED_LINK = CredentialChangeWriter.RESET_LINK_EXPIRED;
 
     private final AppUserRepository userRepository;
     private final PasswordResetTokenRepository tokenRepository;
     private final PasswordResetIssuer issuer;
-    private final PasswordResetRedeemer redeemer;
+    private final CredentialChangeWriter credentialChangeWriter;
     private final AuthenticationService authenticationService;
     private final UserEmailService userEmailService;
     private final AuthAttemptLimiter attemptLimiter;
@@ -82,7 +81,7 @@ public class PasswordResetService {
      * @param userRepository        accounts, for the address lookup
      * @param tokenRepository       reset links, for the pre-hash checks
      * @param issuer                mints a link under the account's row lock
-     * @param redeemer              redeems a link in one transaction
+     * @param credentialChangeWriter redeems a link in one transaction
      * @param authenticationService issues the signed-in session after a reset
      * @param userEmailService      sends the link
      * @param attemptLimiter        the per-account request budget
@@ -91,14 +90,14 @@ public class PasswordResetService {
      * @param clock                 the application clock
      */
     public PasswordResetService(AppUserRepository userRepository, PasswordResetTokenRepository tokenRepository,
-            PasswordResetIssuer issuer, PasswordResetRedeemer redeemer,
+            PasswordResetIssuer issuer, CredentialChangeWriter credentialChangeWriter,
             AuthenticationService authenticationService, UserEmailService userEmailService,
             AuthAttemptLimiter attemptLimiter, JwtService jwtService, PasswordEncoder passwordEncoder,
             Clock clock) {
         this.userRepository = userRepository;
         this.tokenRepository = tokenRepository;
         this.issuer = issuer;
-        this.redeemer = redeemer;
+        this.credentialChangeWriter = credentialChangeWriter;
         this.authenticationService = authenticationService;
         this.userEmailService = userEmailService;
         this.attemptLimiter = attemptLimiter;
@@ -159,11 +158,12 @@ public class PasswordResetService {
         }
 
         // BCrypt before any transaction opens: a pooled connection must not be pinned across the hash.
-        // The expiry above is only a cheap early refusal; the redeemer re-judges it at its own instant,
+        // The expiry above is only a cheap early refusal; the writer re-judges it at its own instant,
         // taken inside its transaction, because the hash takes long enough for a link to expire.
         String encoded = passwordEncoder.encode(rawPassword);
-        AppUserEntity redeemed = redeemer.redeem(token.getId(), token.getUserId(), encoded);
-        LOG.info("Password reset complete: user id {}", redeemed.getId());
-        return authenticationService.issueTokensFor(redeemed);
+        CredentialChangeOutcome redeemed = credentialChangeWriter.consumeResetAndApply(token.getId(),
+                token.getUserId(), encoded);
+        LOG.info("Password reset complete: user id {}", redeemed.userId());
+        return authenticationService.issueTokensFor(redeemed.userId(), encoded);
     }
 }

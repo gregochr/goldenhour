@@ -1,20 +1,21 @@
 package com.gregochr.goldenhour.service;
 
-import com.gregochr.goldenhour.config.JwtProperties;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.RefreshTokenEntity;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.exception.InvalidCredentialsException;
+import com.gregochr.goldenhour.exception.StaleCredentialsException;
 import com.gregochr.goldenhour.exception.TooManyAttemptsException;
 import com.gregochr.goldenhour.model.AuthTokens;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.RefreshTokenRepository;
+import com.gregochr.goldenhour.service.CredentialChangeWriter.Change;
+import com.gregochr.goldenhour.service.CredentialChangeWriter.VersionExpectation;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -22,7 +23,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
-import java.util.Date;
 import java.util.List;
 import java.util.Optional;
 
@@ -31,6 +31,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -66,10 +67,16 @@ class AuthenticationServiceTest {
     private PasswordEncoder passwordEncoder;
 
     @Mock
-    private JwtProperties jwtProperties;
+    private AuthAttemptLimiter attemptLimiter;
 
     @Mock
-    private AuthAttemptLimiter attemptLimiter;
+    private TokenIssuer tokenIssuer;
+
+    @Mock
+    private RefreshFamilyRevoker familyRevoker;
+
+    @Mock
+    private CredentialChangeWriter credentialChangeWriter;
 
     private AuthenticationService service;
 
@@ -78,7 +85,8 @@ class AuthenticationServiceTest {
     @BeforeEach
     void setUp() {
         service = new AuthenticationService(userRepository, refreshTokenRepository,
-                jwtService, passwordEncoder, jwtProperties, attemptLimiter);
+                jwtService, passwordEncoder, attemptLimiter, tokenIssuer, familyRevoker,
+                credentialChangeWriter);
         user = AppUserEntity.builder()
                 .id(1L)
                 .username("admin")
@@ -90,24 +98,23 @@ class AuthenticationServiceTest {
                 .build();
     }
 
-    private void stubTokenIssuance() {
-        when(jwtService.generateAccessToken("admin", UserRole.ADMIN)).thenReturn(ACCESS_TOKEN);
-        when(jwtService.generateRefreshToken()).thenReturn(RAW_REFRESH);
-        when(jwtService.hashToken(RAW_REFRESH)).thenReturn(REFRESH_HASH);
-        when(jwtService.extractExpiry(ACCESS_TOKEN))
-                .thenReturn(Date.from(Instant.parse("2026-07-16T10:00:00Z")));
-        when(jwtProperties.getRefreshTokenExpiryDays()).thenReturn(REFRESH_EXPIRY_DAYS);
+    /** Stubs the issuer to return tokens for {@code who}, keyed on the id and hash login must pass it. */
+    private void issuing(AppUserEntity who) {
+        when(tokenIssuer.issue(who.getId(), who.getPassword())).thenReturn(new AuthTokens(ACCESS_TOKEN,
+                RAW_REFRESH, Instant.parse("2026-07-16T10:00:00Z"), Instant.parse("2026-08-16T10:00:00Z"),
+                who.getUsername(), who.getRole().name(), who.isPasswordChangeRequired(),
+                who.isMarketingEmailOptIn(), who.getTermsVersion()));
     }
 
     @Nested
     class Login {
 
         @Test
-        @DisplayName("valid credentials stamp lastActiveAt and persist a refresh token in one flow")
+        @DisplayName("valid credentials stamp lastActiveAt with a scoped update, then issue through the issuer")
         void validCredentials_issuesTokensAndStampsLastActive() {
             when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
             when(passwordEncoder.matches("golden2026", "hashed-password")).thenReturn(true);
-            stubTokenIssuance();
+            issuing(user);
 
             AuthTokens tokens = service.login("admin", "golden2026");
 
@@ -120,15 +127,13 @@ class AuthenticationServiceTest {
             assertThat(tokens.marketingEmailOptIn()).isTrue();
             assertThat(tokens.termsVersion()).isEqualTo("April 2026");
 
-            verify(userRepository).save(argThat(saved ->
-                    "admin".equals(saved.getUsername()) && saved.getLastActiveAt() != null));
-
-            ArgumentCaptor<RefreshTokenEntity> tokenCaptor =
-                    ArgumentCaptor.forClass(RefreshTokenEntity.class);
-            verify(refreshTokenRepository).save(tokenCaptor.capture());
-            assertThat(tokenCaptor.getValue().getTokenHash()).isEqualTo(REFRESH_HASH);
-            assertThat(tokenCaptor.getValue().getUserId()).isEqualTo(1L);
-            assertThat(tokenCaptor.getValue().isRevoked()).isFalse();
+            InOrder order = inOrder(userRepository, tokenIssuer);
+            order.verify(userRepository).touchLastActiveAt(eq(1L), any(LocalDateTime.class));
+            order.verify(tokenIssuer).issue(1L, "hashed-password");
+            // The stamp is column-scoped: login never saves the entity it loaded before the BCrypt check,
+            // which would write that entity's OLD hash back over a change committed meanwhile.
+            verify(userRepository, never()).save(any());
+            verifyNoInteractions(refreshTokenRepository);
         }
 
         @Test
@@ -177,7 +182,7 @@ class AuthenticationServiceTest {
         void ordinaryLogin_takesNoBudget() {
             when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
             when(passwordEncoder.matches("golden2026", "hashed-password")).thenReturn(true);
-            stubTokenIssuance();
+            issuing(user);
 
             service.login("admin", "golden2026");
             service.login("admin", "golden2026", false);
@@ -192,7 +197,7 @@ class AuthenticationServiceTest {
             when(attemptLimiter.tryAcquire("fallback:login:user:1", 5, AuthAttemptLimiter.Window.QUARTER_HOUR))
                     .thenReturn(true);
             when(passwordEncoder.matches("golden2026", "hashed-password")).thenReturn(true);
-            stubTokenIssuance();
+            issuing(user);
 
             AuthTokens tokens = service.login("admin", "golden2026", true);
 
@@ -245,21 +250,12 @@ class AuthenticationServiceTest {
                     .role(UserRole.PRO_USER).enabled(true).build();
         }
 
-        private void stubAnyIssuance() {
-            when(jwtService.generateAccessToken(any(), any())).thenReturn(ACCESS_TOKEN);
-            when(jwtService.generateRefreshToken()).thenReturn(RAW_REFRESH);
-            when(jwtService.hashToken(RAW_REFRESH)).thenReturn(REFRESH_HASH);
-            when(jwtService.extractExpiry(ACCESS_TOKEN))
-                    .thenReturn(Date.from(Instant.parse("2026-07-16T10:00:00Z")));
-            when(jwtProperties.getRefreshTokenExpiryDays()).thenReturn(REFRESH_EXPIRY_DAYS);
-        }
-
         @Test
         @DisplayName("an identifier with no @ never looks at emails")
         void plainUsername_neverTouchesTheEmailQueries() {
             when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
             when(passwordEncoder.matches("golden2026", "hashed-password")).thenReturn(true);
-            stubTokenIssuance();
+            issuing(user);
 
             service.login("admin", "golden2026");
 
@@ -273,7 +269,7 @@ class AuthenticationServiceTest {
             when(userRepository.findByUsername(ADDRESS)).thenReturn(Optional.empty());
             when(userRepository.findByEmail(ADDRESS)).thenReturn(Optional.of(reader));
             when(passwordEncoder.matches("MyP@ssw0rd!", "reader-hash")).thenReturn(true);
-            stubAnyIssuance();
+            issuing(reader);
 
             AuthTokens tokens = service.login(ADDRESS, "MyP@ssw0rd!");
 
@@ -288,7 +284,7 @@ class AuthenticationServiceTest {
             when(userRepository.findByEmail("reader@EXAMPLE.com")).thenReturn(Optional.empty());
             when(userRepository.findActiveByEmailLower("reader@example.com")).thenReturn(List.of(reader));
             when(passwordEncoder.matches("MyP@ssw0rd!", "reader-hash")).thenReturn(true);
-            stubAnyIssuance();
+            issuing(reader);
 
             AuthTokens tokens = service.login("  reader@EXAMPLE.com ", "MyP@ssw0rd!");
 
@@ -339,7 +335,7 @@ class AuthenticationServiceTest {
             when(userRepository.findByUsername(confusable)).thenReturn(Optional.empty());
             when(userRepository.findByEmail(confusable)).thenReturn(Optional.of(bob));
             when(passwordEncoder.matches("MyP@ssw0rd!", "bob-hash")).thenReturn(true);
-            stubAnyIssuance();
+            issuing(bob);
 
             assertThat(service.login(confusable, "MyP@ssw0rd!").username()).isEqualTo("bob");
 
@@ -360,7 +356,7 @@ class AuthenticationServiceTest {
             when(userRepository.findByUsername(ADDRESS)).thenReturn(Optional.of(namedLikeAnAddress));
             when(userRepository.findByEmail(ADDRESS)).thenReturn(Optional.of(reader));
             when(passwordEncoder.matches("named-pw", "named-hash")).thenReturn(true);
-            stubAnyIssuance();
+            issuing(namedLikeAnAddress);
 
             AuthTokens tokens = service.login(ADDRESS, "named-pw");
 
@@ -378,7 +374,7 @@ class AuthenticationServiceTest {
             when(userRepository.findByEmail(ADDRESS)).thenReturn(Optional.of(reader));
             when(passwordEncoder.matches("reader-pw", "named-hash")).thenReturn(false);
             when(passwordEncoder.matches("reader-pw", "reader-hash")).thenReturn(true);
-            stubAnyIssuance();
+            issuing(reader);
 
             AuthTokens tokens = service.login(ADDRESS, "reader-pw");
 
@@ -414,7 +410,7 @@ class AuthenticationServiceTest {
             when(userRepository.findByEmail(ADDRESS)).thenReturn(Optional.of(reader));
             when(passwordEncoder.matches("pw", "shared-hash")).thenReturn(true);
             when(passwordEncoder.matches("pw", "reader-hash")).thenReturn(true);
-            stubAnyIssuance();
+            issuing(reader);
 
             assertThat(service.login(ADDRESS, "pw").username()).isEqualTo("reader");
         }
@@ -491,7 +487,7 @@ class AuthenticationServiceTest {
             when(userRepository.findByEmail("a@b.example")).thenReturn(Optional.empty());
             when(userRepository.findActiveByEmailLower("a@b.example")).thenReturn(List.of(first, second));
             when(passwordEncoder.matches("named-pw", "named-hash")).thenReturn(true);
-            stubAnyIssuance();
+            issuing(namedLikeAnAddress);
 
             assertThat(service.login("a@b.example", "named-pw").username()).isEqualTo("a@b.example");
             verify(passwordEncoder, never()).matches("named-pw", "one-hash");
@@ -502,137 +498,93 @@ class AuthenticationServiceTest {
     @Nested
     class Refresh {
 
-        private RefreshTokenEntity storedToken(boolean revoked, LocalDateTime expiresAt) {
-            return RefreshTokenEntity.builder()
-                    .id(10L)
-                    .tokenHash("old-hash")
-                    .userId(1L)
-                    .expiresAt(expiresAt)
-                    .revoked(revoked)
-                    .build();
-        }
-
         @Test
-        @DisplayName("valid token is consumed via the atomic compare-and-set and a replacement issued")
+        @DisplayName("a rotated token returns the new pair and revokes no family: the orchestrator is "
+                + "non-transactional and hashes the raw token before the rotation")
         void validToken_rotates() {
-            RefreshTokenEntity stored = storedToken(false, LocalDateTime.now().plusDays(10));
+            AuthTokens issued = new AuthTokens(ACCESS_TOKEN, RAW_REFRESH, Instant.parse("2026-07-16T10:00:00Z"),
+                    Instant.parse("2026-08-16T10:00:00Z"), "admin", "ADMIN", false, true, "April 2026");
             when(jwtService.hashToken("old-raw")).thenReturn("old-hash");
-            when(refreshTokenRepository.findByTokenHash("old-hash")).thenReturn(Optional.of(stored));
-            when(refreshTokenRepository.revokeIfActive("old-hash")).thenReturn(1);
-            when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-            stubTokenIssuance();
+            when(tokenIssuer.rotate("old-hash"))
+                    .thenReturn(new TokenIssuer.Rotation(TokenIssuer.RotationStatus.ROTATED, 1L, issued));
 
             AuthTokens tokens = service.refresh("old-raw");
 
-            assertThat(tokens.accessToken()).isEqualTo(ACCESS_TOKEN);
-            assertThat(tokens.refreshToken()).isEqualTo(RAW_REFRESH);
-
-            verify(refreshTokenRepository).revokeIfActive("old-hash");
-            verify(refreshTokenRepository, never()).revokeAllActiveByUserId(1L);
-
-            ArgumentCaptor<RefreshTokenEntity> tokenCaptor =
-                    ArgumentCaptor.forClass(RefreshTokenEntity.class);
-            verify(refreshTokenRepository).save(tokenCaptor.capture());
-            RefreshTokenEntity issuedNew = tokenCaptor.getValue();
-            assertThat(issuedNew.getTokenHash()).isEqualTo(REFRESH_HASH);
-            assertThat(issuedNew.getUserId()).isEqualTo(1L);
-            assertThat(issuedNew.isRevoked()).isFalse();
+            assertThat(tokens).isSameAs(issued);
+            verifyNoInteractions(familyRevoker);
         }
 
         @Test
-        @DisplayName("unknown token throws and revokes nothing")
-        void unknownToken_throws() {
+        @DisplayName("a token revoked BY A CREDENTIAL CHANGE is refused but is not theft: the family is NOT "
+                + "revoked, so the device that changed the password keeps the fresh tokens it was handed")
+        void tokenRevokedByACredentialChange_isRefusedWithoutRevokingTheFamily() {
+            when(jwtService.hashToken("old-raw")).thenReturn("old-hash");
+            when(tokenIssuer.rotate("old-hash")).thenReturn(new TokenIssuer.Rotation(
+                    TokenIssuer.RotationStatus.REVOKED_BY_CREDENTIAL_CHANGE, 1L, null));
+
+            assertThatThrownBy(() -> service.refresh("old-raw"))
+                    .isInstanceOf(InvalidCredentialsException.class)
+                    .hasMessage("Refresh token is invalid or expired");
+
+            verifyNoInteractions(familyRevoker);
+        }
+
+        @Test
+        @DisplayName("an unknown or expired token: the rotation's refusal propagates and no family is revoked")
+        void invalidToken_propagatesWithoutRevoking() {
             when(jwtService.hashToken("unknown")).thenReturn("unknown-hash");
-            when(refreshTokenRepository.findByTokenHash("unknown-hash")).thenReturn(Optional.empty());
+            when(tokenIssuer.rotate("unknown-hash"))
+                    .thenThrow(new InvalidCredentialsException("Refresh token is invalid or expired"));
 
             assertThatThrownBy(() -> service.refresh("unknown"))
                     .isInstanceOf(InvalidCredentialsException.class)
                     .hasMessage("Refresh token is invalid or expired");
 
-            verify(refreshTokenRepository, never()).save(any());
-            verify(refreshTokenRepository, never()).revokeAllActiveByUserId(any());
+            verifyNoInteractions(familyRevoker);
         }
 
         @Test
-        @DisplayName("expired token throws without being consumed")
-        void expiredToken_throws() {
-            RefreshTokenEntity stored = storedToken(false, LocalDateTime.now().minusMinutes(1));
+        @DisplayName("an already-revoked token revokes the whole family IN ITS OWN TRANSACTION, then throws — the "
+                + "revocation is made after rotate() has returned, so it commits instead of rolling back with "
+                + "the refusal")
+        void revokedToken_revokesWholeFamilyThenThrows() {
             when(jwtService.hashToken("old-raw")).thenReturn("old-hash");
-            when(refreshTokenRepository.findByTokenHash("old-hash")).thenReturn(Optional.of(stored));
+            when(tokenIssuer.rotate("old-hash")).thenReturn(
+                    new TokenIssuer.Rotation(TokenIssuer.RotationStatus.REVOKED_SEEN, 1L, null));
 
             assertThatThrownBy(() -> service.refresh("old-raw"))
                     .isInstanceOf(InvalidCredentialsException.class)
                     .hasMessage("Refresh token is invalid or expired");
 
-            verify(refreshTokenRepository, never()).save(any());
-            verify(refreshTokenRepository, never()).revokeIfActive("old-hash");
-            verify(refreshTokenRepository, never()).revokeAllActiveByUserId(1L);
+            InOrder order = inOrder(tokenIssuer, familyRevoker);
+            order.verify(tokenIssuer).rotate("old-hash");
+            order.verify(familyRevoker).revokeAll(1L, "already-revoked token presented");
         }
 
         @Test
-        @DisplayName("already-revoked token throws and revokes the user's whole token family")
-        void revokedToken_revokesWholeFamilyAndThrows() {
-            RefreshTokenEntity stored = storedToken(true, LocalDateTime.now().plusDays(10));
+        @DisplayName("losing the rotation race revokes the family, then throws, and returns no tokens")
+        void lostRotationRace_revokesFamilyThenThrows() {
             when(jwtService.hashToken("old-raw")).thenReturn("old-hash");
-            when(refreshTokenRepository.findByTokenHash("old-hash")).thenReturn(Optional.of(stored));
+            when(tokenIssuer.rotate("old-hash")).thenReturn(
+                    new TokenIssuer.Rotation(TokenIssuer.RotationStatus.LOST_RACE, 1L, null));
 
             assertThatThrownBy(() -> service.refresh("old-raw"))
                     .isInstanceOf(InvalidCredentialsException.class)
                     .hasMessage("Refresh token is invalid or expired");
 
-            verify(refreshTokenRepository).revokeAllActiveByUserId(1L);
-            verify(refreshTokenRepository, never()).save(any());
-            verifyNoInteractions(userRepository);
+            verify(familyRevoker).revokeAll(1L, "lost rotation race — token concurrently consumed");
         }
 
         @Test
-        @DisplayName("losing the rotation race revokes the family and issues nothing")
-        void lostRotationRace_revokesFamilyAndThrows() {
-            RefreshTokenEntity stored = storedToken(false, LocalDateTime.now().plusDays(10));
-            when(jwtService.hashToken("old-raw")).thenReturn("old-hash");
-            when(refreshTokenRepository.findByTokenHash("old-hash")).thenReturn(Optional.of(stored));
-            when(refreshTokenRepository.revokeIfActive("old-hash")).thenReturn(0);
-            when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-
-            assertThatThrownBy(() -> service.refresh("old-raw"))
-                    .isInstanceOf(InvalidCredentialsException.class)
-                    .hasMessage("Refresh token is invalid or expired");
-
-            verify(refreshTokenRepository).revokeAllActiveByUserId(1L);
-            verify(refreshTokenRepository, never()).save(any());
-        }
-
-        @Test
-        @DisplayName("disabled user throws and the old token is NOT consumed")
-        void disabledUser_throwsWithoutRevoking() {
-            user.setEnabled(false);
-            RefreshTokenEntity stored = storedToken(false, LocalDateTime.now().plusDays(10));
-            when(jwtService.hashToken("old-raw")).thenReturn("old-hash");
-            when(refreshTokenRepository.findByTokenHash("old-hash")).thenReturn(Optional.of(stored));
-            when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-
-            assertThatThrownBy(() -> service.refresh("old-raw"))
-                    .isInstanceOf(InvalidCredentialsException.class)
-                    .hasMessage("User not found or disabled");
-
-            verify(refreshTokenRepository, never()).save(any());
-            verify(refreshTokenRepository, never()).revokeIfActive("old-hash");
-        }
-
-        @Test
-        @DisplayName("missing user throws")
-        void missingUser_throws() {
-            RefreshTokenEntity stored = storedToken(false, LocalDateTime.now().plusDays(10));
-            when(jwtService.hashToken("old-raw")).thenReturn("old-hash");
-            when(refreshTokenRepository.findByTokenHash("old-hash")).thenReturn(Optional.of(stored));
-            when(userRepository.findById(1L)).thenReturn(Optional.empty());
-
-            assertThatThrownBy(() -> service.refresh("old-raw"))
-                    .isInstanceOf(InvalidCredentialsException.class)
-                    .hasMessage("User not found or disabled");
-
-            verify(refreshTokenRepository, never()).save(any());
-            verify(refreshTokenRepository, never()).revokeIfActive("old-hash");
+        @DisplayName("the service itself carries no @Transactional on refresh — the theft response must "
+                + "commit before the refusal is thrown")
+        void refresh_isNotTransactional() throws NoSuchMethodException {
+            assertThat(AuthenticationService.class.getMethod("refresh", String.class)
+                    .isAnnotationPresent(org.springframework.transaction.annotation.Transactional.class))
+                    .isFalse();
+            assertThat(AuthenticationService.class
+                    .isAnnotationPresent(org.springframework.transaction.annotation.Transactional.class))
+                    .isFalse();
         }
     }
 
@@ -640,18 +592,24 @@ class AuthenticationServiceTest {
     class IssueTokensFor {
 
         @Test
-        @DisplayName("maps user fields onto the issued tokens")
-        void mapsUserFields() {
-            user.setPasswordChangeRequired(true);
-            stubTokenIssuance();
+        @DisplayName("delegates to the issuer with the id and the hash the caller just wrote")
+        void delegatesWithTheHash() {
+            AuthTokens issued = new AuthTokens(ACCESS_TOKEN, RAW_REFRESH, Instant.now(), Instant.now(),
+                    "admin", "ADMIN", true, true, "April 2026");
+            when(tokenIssuer.issue(1L, "just-written-hash")).thenReturn(issued);
 
-            AuthTokens tokens = service.issueTokensFor(user);
+            assertThat(service.issueTokensFor(1L, "just-written-hash")).isSameAs(issued);
+        }
 
-            assertThat(tokens.passwordChangeRequired()).isTrue();
-            assertThat(tokens.marketingEmailOptIn()).isTrue();
-            assertThat(tokens.termsVersion()).isEqualTo("April 2026");
-            assertThat(tokens.refreshTokenExpiresAt())
-                    .isAfter(Instant.now().plus(java.time.Duration.ofDays(REFRESH_EXPIRY_DAYS - 1)));
+        @Test
+        @DisplayName("the issuer's generic refusal (the hash moved, or the account was disabled) propagates")
+        void issuerRefusal_propagates() {
+            when(tokenIssuer.issue(1L, "stale-hash"))
+                    .thenThrow(new InvalidCredentialsException("Invalid username or password"));
+
+            assertThatThrownBy(() -> service.issueTokensFor(1L, "stale-hash"))
+                    .isInstanceOf(InvalidCredentialsException.class)
+                    .hasMessage("Invalid username or password");
         }
     }
 
@@ -659,28 +617,76 @@ class AuthenticationServiceTest {
     class ChangePassword {
 
         @Test
-        @DisplayName("encodes the new password and clears the change-required flag")
-        void encodesAndClearsFlag() {
-            user.setPasswordChangeRequired(true);
+        @DisplayName("encodes FIRST, then applies ONE writer change (the change-password record) with the "
+                + "caller's version expectation, then issues fresh tokens against the hash it just wrote")
+        void encodesThenWritesThenIssuesFreshTokens() {
             when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
             when(passwordEncoder.encode("NewPass1!")).thenReturn("encoded-new");
+            VersionExpectation expectation = VersionExpectation.exact(3L);
+            when(credentialChangeWriter.apply(1L, "encoded-new", Change.changePassword(), expectation))
+                    .thenReturn(new CredentialChangeOutcome(1L, "admin", "admin@example.com", 4L));
+            AuthTokens fresh = new AuthTokens("new-access", "new-refresh", Instant.now(), Instant.now(),
+                    "admin", "ADMIN", false, true, "April 2026");
+            when(tokenIssuer.issue(1L, "encoded-new")).thenReturn(fresh);
 
-            service.changePassword("admin", "NewPass1!");
+            AuthTokens result = service.changePassword("admin", "NewPass1!", expectation);
 
-            verify(userRepository).save(argThat(saved ->
-                    "encoded-new".equals(saved.getPassword()) && !saved.isPasswordChangeRequired()));
+            assertThat(result).isSameAs(fresh);
+            InOrder order = inOrder(passwordEncoder, credentialChangeWriter, tokenIssuer);
+            order.verify(passwordEncoder).encode("NewPass1!");
+            order.verify(credentialChangeWriter).apply(1L, "encoded-new", Change.changePassword(), expectation);
+            order.verify(tokenIssuer).issue(1L, "encoded-new");
+            verify(userRepository, never()).save(any());
         }
 
         @Test
-        @DisplayName("unknown user throws")
+        @DisplayName("if the issuer refuses AFTER the writer committed (the account changed again in the gap) "
+                + "the refusal propagates: the caller signs in again with the password that did change")
+        void issuerRefusalAfterTheWrite_propagates() {
+            when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
+            when(passwordEncoder.encode("NewPass1!")).thenReturn("encoded-new");
+            when(credentialChangeWriter.apply(any(), any(), any(), any()))
+                    .thenReturn(new CredentialChangeOutcome(1L, "admin", "admin@example.com", 4L));
+            when(tokenIssuer.issue(1L, "encoded-new"))
+                    .thenThrow(new InvalidCredentialsException("Invalid username or password"));
+
+            assertThatThrownBy(() -> service.changePassword("admin", "NewPass1!",
+                    VersionExpectation.trusted()))
+                    .isInstanceOf(InvalidCredentialsException.class);
+
+            verify(credentialChangeWriter).apply(1L, "encoded-new", Change.changePassword(),
+                    VersionExpectation.trusted());
+        }
+
+        @Test
+        @DisplayName("a stale session is refused by the writer, and NO fresh tokens are issued")
+        void staleSession_issuesNothing() {
+            when(userRepository.findByUsername("admin")).thenReturn(Optional.of(user));
+            when(passwordEncoder.encode("NewPass1!")).thenReturn("encoded-new");
+            when(credentialChangeWriter.apply(any(), any(), any(), any()))
+                    .thenThrow(new StaleCredentialsException());
+
+            assertThatThrownBy(() -> service.changePassword("admin", "NewPass1!",
+                    VersionExpectation.legacyUnchanged()))
+                    .isInstanceOf(StaleCredentialsException.class)
+                    .hasMessage("Your session has changed. Sign in again.");
+
+            verifyNoInteractions(tokenIssuer);
+        }
+
+        @Test
+        @DisplayName("unknown user throws before anything is hashed or written")
         void unknownUser_throws() {
             when(userRepository.findByUsername("ghost")).thenReturn(Optional.empty());
 
-            assertThatThrownBy(() -> service.changePassword("ghost", "NewPass1!"))
+            assertThatThrownBy(() -> service.changePassword("ghost", "NewPass1!",
+                    VersionExpectation.trusted()))
                     .isInstanceOf(InvalidCredentialsException.class)
                     .hasMessage("User not found");
 
-            verify(userRepository, never()).save(any());
+            verifyNoInteractions(passwordEncoder);
+            verifyNoInteractions(credentialChangeWriter);
+            verifyNoInteractions(tokenIssuer);
         }
     }
 

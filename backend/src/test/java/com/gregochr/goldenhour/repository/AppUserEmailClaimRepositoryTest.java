@@ -187,7 +187,12 @@ class AppUserEmailClaimRepositoryTest {
     private UserService userService() {
         PasswordEncoder encoder = org.mockito.Mockito.mock(PasswordEncoder.class);
         org.mockito.Mockito.when(encoder.encode(org.mockito.ArgumentMatchers.any())).thenReturn("hash");
-        return new UserService(users, encoder, org.mockito.Mockito.mock(UserEmailService.class), emailClaims);
+        return new UserService(users, encoder, org.mockito.Mockito.mock(UserEmailService.class), emailClaims,
+                org.mockito.Mockito.mock(com.gregochr.goldenhour.service.CredentialChangeWriter.class),
+                org.mockito.Mockito.mock(com.gregochr.goldenhour.repository.PasswordResetTokenRepository.class),
+                org.mockito.Mockito.mock(
+                        com.gregochr.goldenhour.repository.EmailVerificationTokenRepository.class),
+                java.time.Clock.systemUTC());
     }
 
     @Test

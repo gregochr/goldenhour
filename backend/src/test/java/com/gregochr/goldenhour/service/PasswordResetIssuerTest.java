@@ -34,7 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Proves {@link PasswordResetIssuer} against a real JPA stack, with the request-scoped persistence context
- * of open-session-in-view reproduced (see {@code PasswordResetRedeemerTest}): the account's address and
+ * of open-session-in-view reproduced (see {@code CredentialChangeWriterTest}): the account's address and
  * state are read as a scalar projection under the lock, so an email change or a disable that committed
  * after the request loaded the entity is seen, and no link is minted for the old mailbox.
  */

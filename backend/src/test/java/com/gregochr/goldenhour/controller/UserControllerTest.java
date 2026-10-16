@@ -305,6 +305,69 @@ class UserControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/users/{id}/email on a PENDING registration says its old verification link was "
+            + "voided and the admin must resend")
+    void setEmail_pendingAccount_saysToResend() throws Exception {
+        when(userService.setEmail(1L, "new@example.com")).thenReturn(true);
+
+        mockMvc.perform(put("/api/users/1/email")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"new@example.com\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Updated. The old verification link no longer works: "
+                        + "resend verification to the new address."));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/users/{id}/email: a case variant another account holds (the claim table's refusal) "
+            + "is a 409 'Email already registered', not a 400")
+    void setEmail_caseVariantOfAnotherAddress_returns409() throws Exception {
+        doThrow(new IllegalArgumentException("Email already registered"))
+                .when(userService).setEmail(eq(1L), anyString());
+
+        mockMvc.perform(put("/api/users/1/email")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"TAKEN@example.com\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("Email already registered"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/users/{id}/email: a non-ASCII address is a 400 with the sentence the service gives")
+    void setEmail_nonAscii_returns400() throws Exception {
+        doThrow(new IllegalArgumentException(
+                "Please use an email address without accented or non-Latin characters"))
+                .when(userService).setEmail(eq(1L), anyString());
+
+        mockMvc.perform(put("/api/users/1/email")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"bob@gmaıl.com\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error")
+                        .value("Please use an email address without accented or non-Latin characters"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("POST /api/users: a non-ASCII address is a 400 with the sentence the service gives")
+    void createUser_nonAsciiEmail_returns400() throws Exception {
+        when(userService.createUser(anyString(), anyString(), any(UserRole.class), anyString()))
+                .thenThrow(new IllegalArgumentException(
+                        "Please use an email address without accented or non-Latin characters"));
+
+        mockMvc.perform(post("/api/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"bobby\",\"password\":\"pass\","
+                                + "\"role\":\"LITE_USER\",\"email\":\"bob@gmaıl.com\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error")
+                        .value("Please use an email address without accented or non-Latin characters"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
     @DisplayName("PUT /api/users/{id}/email returns 400 when email field is missing")
     void setEmail_missingField_returns400() throws Exception {
         mockMvc.perform(put("/api/users/1/email")
@@ -419,10 +482,26 @@ class UserControllerTest extends AbstractControllerTest {
         user.setEmail("alice@example.com");
         user.setEnabled(false);
         when(userService.listAllUsers()).thenReturn(List.of(user));
+        when(registrationService.adminResendVerification(user)).thenReturn(true);
 
         mockMvc.perform(post("/api/users/1/resend-verification"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("Verification email sent"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("POST /api/users/{id}/resend-verification returns 400 when the account is no longer awaiting "
+            + "verification (activated, or its address moved and the link was voided): the issuer sent nothing")
+    void resendVerification_notPending_returns400() throws Exception {
+        AppUserEntity user = buildUser(1L, "alice", UserRole.LITE_USER);
+        user.setEmail("alice@example.com");
+        when(userService.listAllUsers()).thenReturn(List.of(user));
+        when(registrationService.adminResendVerification(user)).thenReturn(false);
+
+        mockMvc.perform(post("/api/users/1/resend-verification"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Account is not awaiting email verification"));
     }
 
     @Test

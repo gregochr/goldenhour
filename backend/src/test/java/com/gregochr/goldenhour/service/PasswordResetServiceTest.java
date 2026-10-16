@@ -40,7 +40,7 @@ import static org.mockito.Mockito.when;
 /**
  * Unit tests for {@link PasswordResetService}: what it asks of its collaborators, in what order, and
  * what it refuses. The locking, the compare-and-set and the stale-entity cases live where they can fail
- * for real — {@code PasswordResetRedeemerTest}, {@code PasswordResetIssuerTest} (both on a JPA stack) and
+ * for real — {@code CredentialChangeWriterTest}, {@code PasswordResetIssuerTest} (both on a JPA stack) and
  * {@code PasswordResetFlowTest} (the whole sequence).
  */
 @ExtendWith(MockitoExtension.class)
@@ -55,7 +55,7 @@ class PasswordResetServiceTest {
     @Mock
     private PasswordResetIssuer issuer;
     @Mock
-    private PasswordResetRedeemer redeemer;
+    private CredentialChangeWriter credentialChangeWriter;
     @Mock
     private AuthenticationService authenticationService;
     @Mock
@@ -72,7 +72,7 @@ class PasswordResetServiceTest {
     @BeforeEach
     void setUp() {
         attemptLimiter = new AuthAttemptLimiter();
-        service = new PasswordResetService(userRepository, tokenRepository, issuer, redeemer,
+        service = new PasswordResetService(userRepository, tokenRepository, issuer, credentialChangeWriter,
                 authenticationService, userEmailService, attemptLimiter, jwtService, passwordEncoder,
                 Clock.fixed(NOW, ZoneOffset.UTC));
         reader = AppUserEntity.builder().id(7L).username("reader").email("Reader@Example.com")
@@ -293,7 +293,7 @@ class PasswordResetServiceTest {
                     .hasMessage("This reset link is invalid");
 
             verifyNoInteractions(passwordEncoder);
-            verifyNoInteractions(redeemer);
+            verifyNoInteractions(credentialChangeWriter);
         }
 
         @Test
@@ -306,7 +306,7 @@ class PasswordResetServiceTest {
                     .hasMessage("This reset link has already been used");
 
             verifyNoInteractions(passwordEncoder);
-            verifyNoInteractions(redeemer);
+            verifyNoInteractions(credentialChangeWriter);
         }
 
         @Test
@@ -320,15 +320,15 @@ class PasswordResetServiceTest {
                         .hasMessage("This reset link has expired");
             }
 
-            verifyNoInteractions(redeemer);
+            verifyNoInteractions(credentialChangeWriter);
         }
 
         @Test
-        @DisplayName("a disabled or pending user's token: the redeemer's refusal propagates untouched")
-        void redeemerRefusal_propagates() {
+        @DisplayName("a disabled or pending user's token: the writer's refusal propagates untouched")
+        void writerRefusal_propagates() {
             stubToken(token(NOW.plusSeconds(600), null));
             when(passwordEncoder.encode("MyP@ssw0rd!")).thenReturn("encoded");
-            when(redeemer.redeem(3L, 7L, "encoded"))
+            when(credentialChangeWriter.consumeResetAndApply(3L, 7L, "encoded"))
                     .thenThrow(new IllegalArgumentException("This reset link is invalid"));
 
             assertThatThrownBy(() -> service.resetPassword("raw", "MyP@ssw0rd!"))
@@ -339,41 +339,39 @@ class PasswordResetServiceTest {
         }
 
         @Test
-        @DisplayName("success encodes BEFORE the transactional redeem, redeems with the token's own ids, and "
-                + "signs in from the row the redeemer returned")
-        void success_encodesFirst_thenRedeems_thenSignsInFromTheRedeemedRow() {
+        @DisplayName("success encodes BEFORE the transactional redemption, redeems with the token's own ids, "
+                + "and signs in against the hash just written, for the account the writer returned")
+        void success_encodesFirst_thenRedeems_thenSignsInAgainstTheHash() {
             stubToken(token(NOW.plusSeconds(600), null));
             when(passwordEncoder.encode("MyP@ssw0rd!")).thenReturn("encoded");
-            AppUserEntity redeemed = AppUserEntity.builder().id(7L).username("reader").password("encoded")
-                    .role(UserRole.PRO_USER).enabled(true).passwordChangeRequired(false).build();
-            when(redeemer.redeem(3L, 7L, "encoded")).thenReturn(redeemed);
+            when(credentialChangeWriter.consumeResetAndApply(3L, 7L, "encoded"))
+                    .thenReturn(new CredentialChangeOutcome(7L, "reader", "Reader@Example.com", 4L));
             AuthTokens tokens = new AuthTokens("a", "r", NOW, NOW, "reader", "PRO_USER", false, false, null);
-            when(authenticationService.issueTokensFor(redeemed)).thenReturn(tokens);
+            when(authenticationService.issueTokensFor(7L, "encoded")).thenReturn(tokens);
 
             AuthTokens result = service.resetPassword("raw", "MyP@ssw0rd!");
 
             assertThat(result).isSameAs(tokens);
-            InOrder order = inOrder(passwordEncoder, redeemer, authenticationService);
+            InOrder order = inOrder(passwordEncoder, credentialChangeWriter, authenticationService);
             order.verify(passwordEncoder).encode("MyP@ssw0rd!");
-            order.verify(redeemer).redeem(3L, 7L, "encoded");
-            order.verify(authenticationService).issueTokensFor(redeemed);
+            order.verify(credentialChangeWriter).consumeResetAndApply(3L, 7L, "encoded");
+            order.verify(authenticationService).issueTokensFor(7L, "encoded");
         }
 
         @Test
-        @DisplayName("the response is built from the REDEEMED row, never the entity resolved before hashing")
-        void responseComesFromTheRedeemedRow() {
+        @DisplayName("the response is built from the WRITER's outcome, never the entity resolved before hashing")
+        void responseComesFromTheWritersOutcome() {
             stubToken(token(NOW.plusSeconds(600), null));
             when(passwordEncoder.encode(anyString())).thenReturn("encoded");
-            AppUserEntity redeemedRow = AppUserEntity.builder().id(7L).username("reader").password("encoded")
-                    .role(UserRole.PRO_USER).enabled(true).passwordChangeRequired(false).build();
-            when(redeemer.redeem(any(), any(), anyString())).thenReturn(redeemedRow);
-            when(authenticationService.issueTokensFor(redeemedRow))
+            when(credentialChangeWriter.consumeResetAndApply(any(), any(), anyString()))
+                    .thenReturn(new CredentialChangeOutcome(7L, "reader", "Reader@Example.com", 4L));
+            when(authenticationService.issueTokensFor(7L, "encoded"))
                     .thenReturn(new AuthTokens("a", "r", NOW, NOW, "reader", "PRO_USER", false, false, null));
 
             AuthTokens result = service.resetPassword("raw", "MyP@ssw0rd!");
 
             assertThat(result.passwordChangeRequired()).isFalse();
-            verify(authenticationService).issueTokensFor(redeemedRow);
+            verify(authenticationService).issueTokensFor(7L, "encoded");
             verify(userRepository, never()).findById(any());
         }
     }

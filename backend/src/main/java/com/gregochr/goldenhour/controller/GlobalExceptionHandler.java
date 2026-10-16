@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.exception.RegistrationClosedException;
+import com.gregochr.goldenhour.exception.StaleCredentialsException;
 import com.gregochr.goldenhour.service.ask.AskRefusal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -72,6 +73,19 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(RegistrationClosedException.class)
     @ResponseStatus(HttpStatus.FORBIDDEN)
     public ErrorResponse handleRegistrationClosed(RegistrationClosedException ex) {
+        return new ErrorResponse(ex.getMessage());
+    }
+
+    /**
+     * Maps {@link StaleCredentialsException} to HTTP 401: the caller's session was superseded by a
+     * credential change, so the client's existing session-expired path signs the reader out.
+     *
+     * @param ex the exception
+     * @return an error response body carrying "Your session has changed. Sign in again."
+     */
+    @ExceptionHandler(StaleCredentialsException.class)
+    @ResponseStatus(HttpStatus.UNAUTHORIZED)
+    public ErrorResponse handleStaleCredentials(StaleCredentialsException ex) {
         return new ErrorResponse(ex.getMessage());
     }
 

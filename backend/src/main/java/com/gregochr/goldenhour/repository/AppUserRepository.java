@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.repository;
 
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.UserRole;
+import com.gregochr.goldenhour.util.TimestampColumns;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -11,6 +12,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -141,7 +143,7 @@ public interface AppUserRepository extends JpaRepository<AppUserEntity, Long> {
      * <p>⚠️ Use the lock, never the entity. Open Session In View is on, so the instance this returns is
      * the one the request's persistence context already holds, with the fields it had before any slow
      * step (a BCrypt hash) ran. A decision that depends on the row as it stands is made by a row count
-     * ({@link #deletePendingById}, {@link #applyPasswordReset}) or by {@link #lockAccount}, never by
+     * ({@link #deletePendingById}, {@link #applyCredentialChange}) or by {@link #lockAccount}, never by
      * reading a field off this entity (login-registration plan §2 #14 rule 1).
      *
      * @param id the user's primary key
@@ -153,7 +155,9 @@ public interface AppUserRepository extends JpaRepository<AppUserEntity, Long> {
 
     /**
      * Raw {@code SELECT … FOR UPDATE} behind {@link #lockAccount}: one row of
-     * {@code enabled, password, email, username, role}, or none. A native SCALAR query on purpose — it
+     * {@code enabled, password, email, username, role, credentials_version, credentials_changed_at,
+     * password_change_required, marketing_email_opt_in, terms_version}, or none. A native SCALAR query
+     * on purpose — it
      * returns column values straight off the result set, so it can never hand back a stale managed
      * entity, and it takes the row lock in the SQL text rather than relying on how a scalar HQL query
      * applies a lock mode.
@@ -161,8 +165,9 @@ public interface AppUserRepository extends JpaRepository<AppUserEntity, Long> {
      * @param id the user's primary key
      * @return zero or one row of column values
      */
-    @Query(value = "SELECT u.enabled, u.password, u.email, u.username, u.role FROM app_user u "
-            + "WHERE u.id = :id FOR UPDATE", nativeQuery = true)
+    @Query(value = "SELECT u.enabled, u.password, u.email, u.username, u.role, u.credentials_version, "
+            + "u.credentials_changed_at, u.password_change_required, u.marketing_email_opt_in, u.terms_version "
+            + "FROM app_user u WHERE u.id = :id FOR UPDATE", nativeQuery = true)
     List<Object[]> lockAccountRow(@Param("id") Long id);
 
     /**
@@ -179,7 +184,8 @@ public interface AppUserRepository extends JpaRepository<AppUserEntity, Long> {
         }
         Object[] row = rows.get(0);
         return Optional.of(new LockedAccount((Boolean) row[0], (String) row[1], (String) row[2],
-                (String) row[3], UserRole.valueOf((String) row[4])));
+                (String) row[3], UserRole.valueOf((String) row[4]), ((Number) row[5]).longValue(),
+                TimestampColumns.toInstant(row[6]), (Boolean) row[7], (Boolean) row[8], (String) row[9]));
     }
 
     /**
@@ -222,31 +228,170 @@ public interface AppUserRepository extends JpaRepository<AppUserEntity, Long> {
     int deletePendingById(@Param("id") Long id);
 
     /**
-     * Sets a new password from a redeemed reset link and clears the first-login password gate — but only
-     * while the account is enabled. A compare-and-set whose row count is the answer: an admin who
-     * disabled the account while the new password was being hashed wins, and the link's captured
-     * password never becomes live on re-enable.
+     * Applies a credential change — a new password, the account-state flags, the version bump and its
+     * stamp — in ONE statement, as a compare-and-set whose row count is the answer
+     * (login-registration plan §2 #14 rule 1(a)). Called only by
+     * {@link com.gregochr.goldenhour.service.CredentialChangeWriter}, under the user-row lock.
+     *
+     * <p>The flags are small integers rather than nullable booleans because a null bound into an
+     * expression is the trap §2 #14 rule 2 names: {@code passwordFlag} 1 clears
+     * {@code passwordChangeRequired}, 2 sets it, anything else leaves it; {@code enabledFlag} 1 enables,
+     * 2 disables, anything else leaves it. {@code required} 1 insists the account is active (enabled and
+     * holding a hash), 2 that it is pending (disabled, empty password), anything else asks nothing.
+     * {@code versionChecked} false skips the version comparison.
      *
      * @param id              the user's primary key
      * @param encodedPassword the BCrypt hash, computed before any transaction opened
-     * @return 1 if applied; 0 if the account is disabled (or gone)
+     * @param passwordFlag    what to do to {@code passwordChangeRequired}
+     * @param enabledFlag     what to do to {@code enabled}
+     * @param required        the state the account must be in
+     * @param versionChecked  whether {@code expectedVersion} is compared
+     * @param expectedVersion the {@code credentials_version} the row must hold when checked
+     * @param now             the change instant, stamped as {@code credentials_changed_at}
+     * @return 1 if applied; 0 if the row is gone or any predicate failed
      */
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Transactional
-    @Query("UPDATE AppUserEntity u SET u.password = :encodedPassword, u.passwordChangeRequired = false "
-            + "WHERE u.id = :id AND u.enabled = true")
-    int applyPasswordReset(@Param("id") Long id, @Param("encodedPassword") String encodedPassword);
+    @Query("UPDATE AppUserEntity u SET u.password = :encodedPassword, "
+            + "u.passwordChangeRequired = CASE WHEN :passwordFlag = 1 THEN false "
+            + "WHEN :passwordFlag = 2 THEN true ELSE u.passwordChangeRequired END, "
+            + "u.enabled = CASE WHEN :enabledFlag = 1 THEN true WHEN :enabledFlag = 2 THEN false "
+            + "ELSE u.enabled END, "
+            + "u.credentialsVersion = u.credentialsVersion + 1, u.credentialsChangedAt = :now "
+            + "WHERE u.id = :id AND (:versionChecked = false OR u.credentialsVersion = :expectedVersion) "
+            + "AND (:required = 0 OR (:required = 1 AND u.enabled = true AND u.password <> '') "
+            + "OR (:required = 2 AND u.enabled = false AND u.password = ''))")
+    int applyCredentialChange(@Param("id") Long id, @Param("encodedPassword") String encodedPassword,
+            @Param("passwordFlag") int passwordFlag, @Param("enabledFlag") int enabledFlag,
+            @Param("required") int required, @Param("versionChecked") boolean versionChecked,
+            @Param("expectedVersion") long expectedVersion, @Param("now") Instant now);
+
+    /**
+     * {@link #applyCredentialChange} without a new password: the {@code password} column is not in the
+     * statement, so a change that waited on the row lock behind a concurrent password change (an admin
+     * disable) can never write back the stale hash it loaded before the lock.
+     *
+     * @param id              the user's primary key
+     * @param passwordFlag    what to do to {@code passwordChangeRequired}
+     * @param enabledFlag     what to do to {@code enabled}
+     * @param required        the state the account must be in
+     * @param versionChecked  whether {@code expectedVersion} is compared
+     * @param expectedVersion the {@code credentials_version} the row must hold when checked
+     * @param now             the change instant, stamped as {@code credentials_changed_at}
+     * @return 1 if applied; 0 if the row is gone or any predicate failed
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("UPDATE AppUserEntity u SET "
+            + "u.passwordChangeRequired = CASE WHEN :passwordFlag = 1 THEN false "
+            + "WHEN :passwordFlag = 2 THEN true ELSE u.passwordChangeRequired END, "
+            + "u.enabled = CASE WHEN :enabledFlag = 1 THEN true WHEN :enabledFlag = 2 THEN false "
+            + "ELSE u.enabled END, "
+            + "u.credentialsVersion = u.credentialsVersion + 1, u.credentialsChangedAt = :now "
+            + "WHERE u.id = :id AND (:versionChecked = false OR u.credentialsVersion = :expectedVersion) "
+            + "AND (:required = 0 OR (:required = 1 AND u.enabled = true AND u.password <> '') "
+            + "OR (:required = 2 AND u.enabled = false AND u.password = ''))")
+    int applyCredentialChangeKeepingPassword(@Param("id") Long id, @Param("passwordFlag") int passwordFlag,
+            @Param("enabledFlag") int enabledFlag, @Param("required") int required,
+            @Param("versionChecked") boolean versionChecked, @Param("expectedVersion") long expectedVersion,
+            @Param("now") Instant now);
+
+    /**
+     * Reads when an account's credentials last changed, as a scalar (never the entity, which under
+     * open-session-in-view may be stale). Empty when the account is gone or has never changed.
+     *
+     * @param id the user's primary key
+     * @return the stamp, or empty
+     */
+    @Query("SELECT u.credentialsChangedAt FROM AppUserEntity u WHERE u.id = :id AND u.credentialsChangedAt IS NOT NULL")
+    Optional<Instant> findCredentialsChangedAt(@Param("id") Long id);
+
+    /**
+     * Stamps {@code lastActiveAt}, and nothing else. A column-scoped update: the JWT filter's hourly
+     * stamp and login's both used to be whole-entity {@code save()}s of an entity loaded before a gap,
+     * which could write a stale password hash or role back over a change committed in the gap
+     * (login-registration plan §2 #13).
+     *
+     * @param id  the user's primary key
+     * @param now the instant to record
+     * @return the number of rows updated
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("UPDATE AppUserEntity u SET u.lastActiveAt = :now WHERE u.id = :id")
+    int touchLastActiveAt(@Param("id") Long id, @Param("now") LocalDateTime now);
+
+    /**
+     * Re-enables an account — and ONLY that: disabling goes through
+     * {@link com.gregochr.goldenhour.service.CredentialChangeWriter} so it bumps the credential version,
+     * revokes the sessions and voids the links. Re-enabling revives none of them.
+     *
+     * @param id      the user's primary key
+     * @param enabled the new flag
+     * @return the number of rows updated
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("UPDATE AppUserEntity u SET u.enabled = :enabled WHERE u.id = :id")
+    int updateEnabled(@Param("id") Long id, @Param("enabled") boolean enabled);
+
+    /**
+     * Changes an account's role. A scoped update because the role column is {@code updatable = false}:
+     * a request that loaded an ADMIN before a demotion committed must not merge the stale role back,
+     * since the JWT filter takes the authority from the row.
+     *
+     * @param id   the user's primary key
+     * @param role the new role
+     * @return the number of rows updated
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("UPDATE AppUserEntity u SET u.role = :role WHERE u.id = :id")
+    int updateRole(@Param("id") Long id, @Param("role") UserRole role);
+
+    /**
+     * Records the marketing-email consent, and nothing else — the last whole-entity {@code save()} of an
+     * existing {@code app_user} row outside creation.
+     *
+     * @param id    the user's primary key
+     * @param optIn the new consent
+     * @return the number of rows updated
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("UPDATE AppUserEntity u SET u.marketingEmailOptIn = :optIn WHERE u.id = :id")
+    int updateMarketingEmailOptIn(@Param("id") Long id, @Param("optIn") boolean optIn);
+
+    /**
+     * Writes an account's email address. Called only inside {@code UserService.setEmail}'s transaction,
+     * after it has locked the row and claimed the address.
+     *
+     * @param id    the user's primary key
+     * @param email the new stored address
+     * @return the number of rows updated
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("UPDATE AppUserEntity u SET u.email = :email WHERE u.id = :id")
+    int updateEmail(@Param("id") Long id, @Param("email") String email);
 
     /**
      * An account's credential-relevant state, read under the row lock by {@link #lockAccount}.
      *
-     * @param enabled  whether the account may sign in
-     * @param password the stored hash; empty for a pending registration
-     * @param email    the STORED address — the only address ever mailed
-     * @param username the login name
-     * @param role     the account's role
+     * @param enabled                whether the account may sign in
+     * @param password               the stored hash; empty for a pending registration
+     * @param email                  the STORED address — the only address ever mailed
+     * @param username               the login name
+     * @param role                   the account's role
+     * @param credentialsVersion     the credential counter the access token's {@code cv} claim must equal
+     * @param credentialsChangedAt   when the credentials last changed, or null if they never have
+     * @param passwordChangeRequired whether the account must choose a new password
+     * @param marketingEmailOptIn    the marketing consent
+     * @param termsVersion           the accepted terms version, or null
      */
-    record LockedAccount(boolean enabled, String password, String email, String username, UserRole role) {
+    record LockedAccount(boolean enabled, String password, String email, String username, UserRole role,
+            long credentialsVersion, Instant credentialsChangedAt, boolean passwordChangeRequired,
+            boolean marketingEmailOptIn, String termsVersion) {
 
         /**
          * Reports whether the account is a self-registration still waiting for its password.

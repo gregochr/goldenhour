@@ -8,6 +8,8 @@ import com.gregochr.goldenhour.exception.RegistrationClosedException;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.EmailVerificationTokenRepository;
 import com.gregochr.goldenhour.service.AuthAttemptLimiter.Window;
+import com.gregochr.goldenhour.service.CredentialChangeWriter.Change;
+import com.gregochr.goldenhour.service.VerificationTokenIssuer.IssuedVerification;
 import com.gregochr.goldenhour.service.notification.UserEmailService;
 import com.gregochr.goldenhour.util.EmailIdentifier;
 import com.gregochr.goldenhour.util.EmailIdentifier.Kind;
@@ -15,11 +17,12 @@ import com.gregochr.goldenhour.util.LogSanitizer;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.List;
+import java.util.Optional;
 
 /**
  * Orchestrates the self-registration flow: account creation, email verification,
@@ -56,6 +59,19 @@ public class RegistrationService {
     private final UserEmailService userEmailService;
     private final RegistrationProperties registrationProperties;
     private final AuthAttemptLimiter attemptLimiter;
+    private final VerificationTokenIssuer verificationTokenIssuer;
+    private final CredentialChangeWriter credentialChangeWriter;
+    private final PasswordEncoder passwordEncoder;
+
+    /**
+     * The account a verification link activated, and the hash it now holds — what the caller needs to
+     * sign the reader in against exactly the password just written.
+     *
+     * @param userId       the activated account's primary key
+     * @param passwordHash the BCrypt hash just written
+     */
+    public record Activation(Long userId, String passwordHash) {
+    }
 
     /**
      * Registers a new pending user and sends a verification email.
@@ -97,13 +113,17 @@ public class RegistrationService {
      * never the request's text. Throws if the rate limit is exceeded.
      *
      * <p>The limit is the in-memory {@link AuthAttemptLimiter} — three per pending account per quarter
-     * hour. The older database count below stays as a second check but can never trip on its own: this
-     * method deletes every unverified token before inserting, so that count is at most one (plan §1 #12).
+     * hour. The older database count below stays as a second check but can never trip on its own: the
+     * issuer deletes every unverified token before inserting, so that count is at most one (plan §1 #12).
+     *
+     * <p>Not transactional: the token is minted by {@link VerificationTokenIssuer#issue} under the
+     * account's row lock, which also re-reads the stored address and the pending state, so a resend that
+     * resolved the account before an admin's email change committed mails the NEW address and stores no
+     * token for the old one (login-registration plan §2 #14 rule 4).
      *
      * @param email the email address to resend verification to
      * @throws IllegalStateException if the rate limit is exceeded
      */
-    @Transactional
     public void resendVerification(String email) {
         AppUserEntity user = findPendingUserByEmail(email);
         if (user == null) {
@@ -123,16 +143,16 @@ public class RegistrationService {
             throw new IllegalStateException(RESEND_REFUSED);
         }
 
-        // Invalidate old unverified tokens
-        List<EmailVerificationTokenEntity> oldTokens = tokenRepository.findByUserIdAndVerifiedFalse(user.getId());
-        tokenRepository.deleteAll(oldTokens);
+        Optional<IssuedVerification> issued = verificationTokenIssuer.issue(user.getId());
+        if (issued.isEmpty()) {
+            LOG.info("Verification resend dropped: user id {} is no longer pending", user.getId());
+            return;
+        }
 
-        String rawToken = jwtService.generateRefreshToken();
-        saveVerificationToken(rawToken, user.getId());
-
-        userEmailService.sendVerificationEmail(user.getEmail(), user.getUsername(), rawToken);
+        userEmailService.sendVerificationEmail(issued.get().email(), issued.get().username(),
+                issued.get().rawToken());
         LOG.info("Verification resent: username='{}', email='{}'",
-                LogSanitizer.sanitize(user.getUsername()), LogSanitizer.sanitize(user.getEmail()));
+                LogSanitizer.sanitize(issued.get().username()), LogSanitizer.sanitize(issued.get().email()));
     }
 
     /**
@@ -171,13 +191,20 @@ public class RegistrationService {
      * {@link #verifyEmail(String)} (the emailed link was clicked) and is deleted here, so it
      * cannot be replayed to reset the password a second time.
      *
+     * <p>Deliberately NOT transactional: the token is read and checked (hash, verified, not expired) and
+     * the password encoded with no connection held, and then ONE transaction on the SEPARATE
+     * {@link CredentialChangeWriter#consumeVerificationAndApply} locks the user row, re-checks under the
+     * lock that the account is still pending, deletes every verification token of the user, and
+     * activates it — so token consumption and the credential change stay atomic, and a reader who
+     * verified two links and activated with one cannot overwrite the live password with the other.
+     *
      * @param rawToken    the raw verification token from the email link
      * @param rawPassword the plain-text password
-     * @return the primary key of the activated user
-     * @throws IllegalArgumentException if the token is unknown, unverified or expired
+     * @return the activated account's primary key and the hash it now holds
+     * @throws IllegalArgumentException if the token is unknown, unverified or expired, or has already
+     *                                  been used
      */
-    @Transactional
-    public Long setPasswordAndActivate(String rawToken, String rawPassword) {
+    public Activation setPasswordAndActivate(String rawToken, String rawPassword) {
         String hash = jwtService.hashToken(rawToken);
         EmailVerificationTokenEntity token = tokenRepository.findByTokenHash(hash)
                 .orElseThrow(() -> new IllegalArgumentException("Invalid or expired verification token"));
@@ -186,10 +213,11 @@ public class RegistrationService {
             throw new IllegalArgumentException("Invalid or expired verification token");
         }
 
-        Long userId = token.getUserId();
-        userService.activateUser(userId, rawPassword);
-        tokenRepository.delete(token);
-        return userId;
+        String encoded = passwordEncoder.encode(rawPassword);
+        CredentialChangeOutcome outcome = credentialChangeWriter.consumeVerificationAndApply(token.getId(),
+                token.getUserId(), encoded, Change.activation());
+        LOG.info("User activated: id={}", outcome.userId());
+        return new Activation(outcome.userId(), encoded);
     }
 
     private void saveVerificationToken(String rawToken, Long userId) {
@@ -207,21 +235,24 @@ public class RegistrationService {
     /**
      * Resends a verification email for a user. Admin action — no rate limiting.
      *
-     * <p>Invalidates any existing unverified tokens for the user before generating a new one.
+     * <p>Invalidates any existing unverified tokens for the user before generating a new one, through the
+     * same {@link VerificationTokenIssuer} the reader's resend uses: the account's row is locked and its
+     * STORED address mailed, not the address the admin's list showed.
      *
-     * @param user the user to resend verification for
+     * @param user the user to resend verification for (only its id is used)
+     * @return true if a link was sent; false if the account is no longer pending, so nothing was stored
      */
-    @Transactional
-    public void adminResendVerification(AppUserEntity user) {
-        List<EmailVerificationTokenEntity> oldTokens = tokenRepository.findByUserIdAndVerifiedFalse(user.getId());
-        tokenRepository.deleteAll(oldTokens);
-
-        String rawToken = jwtService.generateRefreshToken();
-        saveVerificationToken(rawToken, user.getId());
-
-        userEmailService.sendVerificationEmail(user.getEmail(), user.getUsername(), rawToken);
+    public boolean adminResendVerification(AppUserEntity user) {
+        Optional<IssuedVerification> issued = verificationTokenIssuer.issue(user.getId());
+        if (issued.isEmpty()) {
+            LOG.info("Admin verification resend dropped: user id {} is not awaiting verification", user.getId());
+            return false;
+        }
+        userEmailService.sendVerificationEmail(issued.get().email(), issued.get().username(),
+                issued.get().rawToken());
         LOG.info("Admin resent verification: username='{}', email='{}'",
-                LogSanitizer.sanitize(user.getUsername()), LogSanitizer.sanitize(user.getEmail()));
+                LogSanitizer.sanitize(issued.get().username()), LogSanitizer.sanitize(issued.get().email()));
+        return true;
     }
 
     private AppUserEntity findPendingUserByEmail(String email) {

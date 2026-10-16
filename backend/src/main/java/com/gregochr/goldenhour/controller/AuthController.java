@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.config.JwtAuthenticationDetails;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.exception.InvalidCredentialsException;
 import com.gregochr.goldenhour.exception.TooManyAttemptsException;
@@ -9,6 +10,7 @@ import com.gregochr.goldenhour.service.AuthAttemptLimiter;
 import com.gregochr.goldenhour.service.AuthAttemptLimiter.Window;
 import com.gregochr.goldenhour.service.AuthenticationService;
 import com.gregochr.goldenhour.service.ClientAddress;
+import com.gregochr.goldenhour.service.CredentialChangeWriter.VersionExpectation;
 import com.gregochr.goldenhour.service.JwtService;
 import com.gregochr.goldenhour.service.PasswordResetService;
 import com.gregochr.goldenhour.service.RegistrationService;
@@ -77,8 +79,7 @@ public class AuthController {
     static final String FORGOT_PASSWORD_MESSAGE = "If that email has an account, we've sent a reset link.";
 
     /** The 400 for an address the app no longer accepts for NEW registrations (plan §4 #21). */
-    static final String NON_ASCII_EMAIL =
-            "Please use an email address without accented or non-Latin characters";
+    static final String NON_ASCII_EMAIL = EmailIdentifier.NON_ASCII_MESSAGE;
 
     /** Requests per endpoint across every caller, per hour, on a one-time-token endpoint. */
     static final int TOKEN_GLOBAL_LIMIT = 200;
@@ -148,10 +149,18 @@ public class AuthController {
      * arrives as Spring's anonymous principal, which is refused here (401) rather than treated as a
      * user. The Turnstile token goes through {@link TurnstileGate} exactly as on login.
      *
+     * <p>The password change ends every OTHER session (the credential version moves and every refresh
+     * token is revoked), so the response carries FRESH tokens for this device — the same body as
+     * {@code /login} plus the {@code message} — and the device that changed the password stays signed in.
+     * The caller's own session version rides in on the filter's details: a session that was superseded
+     * while this request hashed the new password is refused (401, "Your session has changed. Sign in
+     * again.") and changes nothing.
+     *
      * @param body    map containing {@code newPassword}
      * @param request the request, for the caller's address
-     * @return 200 on success, 400 if the password fails complexity rules or the CAPTCHA fails, 401 if
-     *         unauthenticated, 429 when an attempt bound is reached
+     * @return 200 with fresh tokens and {@code message} on success, 400 if the password fails complexity
+     *         rules or the CAPTCHA fails, 401 if unauthenticated or the session is stale, 429 when an
+     *         attempt bound is reached
      */
     @PostMapping("/change-password")
     public ResponseEntity<Map<String, Object>> changePassword(@RequestBody Map<String, String> body,
@@ -176,13 +185,15 @@ public class AuthController {
         }
 
         try {
-            authenticationService.changePassword(username, newPassword);
+            AuthTokens tokens = authenticationService.changePassword(username, newPassword,
+                    sessionVersionExpectation());
+            Map<String, Object> response = buildAuthResponse(tokens);
+            response.put("message", "Password updated");
+            return ResponseEntity.ok(response);
         } catch (InvalidCredentialsException ex) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", ex.getMessage()));
         }
-
-        return ResponseEntity.ok(Map.of("message", "Password updated"));
     }
 
     /**
@@ -419,6 +430,9 @@ public class AuthController {
             return ResponseEntity.ok(buildAuthResponse(tokens));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
+        } catch (InvalidCredentialsException ex) {
+            // The reset committed, but the account changed again before the auto-login: sign in normally.
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", ex.getMessage()));
         }
     }
 
@@ -461,21 +475,23 @@ public class AuthController {
             return ResponseEntity.badRequest().body(Map.of("error", complexityError));
         }
 
-        Long userId;
+        RegistrationService.Activation activation;
         try {
-            userId = registrationService.setPasswordAndActivate(token, password);
+            activation = registrationService.setPasswordAndActivate(token, password);
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
         }
 
-        // Auto-login: issue tokens
-        AppUserEntity user = userRepository.findById(userId).orElse(null);
-        if (user == null) {
-            return ResponseEntity.badRequest().body(Map.of("error", "User not found"));
+        // Auto-login: issue tokens against the hash just written, so a credential change that committed
+        // in between issues nothing.
+        AuthTokens tokens;
+        try {
+            tokens = authenticationService.issueTokensFor(activation.userId(), activation.passwordHash());
+        } catch (InvalidCredentialsException ex) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", ex.getMessage()));
         }
-
-        AuthTokens tokens = authenticationService.issueTokensFor(user);
-        LOG.info("Registration complete: user='{}' role={}", user.getUsername(), user.getRole());
+        LOG.info("Registration complete: user='{}' role={}", LogSanitizer.sanitize(tokens.username()),
+                tokens.role());
         return ResponseEntity.ok(buildAuthResponse(tokens));
     }
 
@@ -506,10 +522,9 @@ public class AuthController {
                     .body(Map.of("error", "User not found"));
         }
 
-        user.setMarketingEmailOptIn(optIn);
-        userRepository.save(user);
+        userRepository.updateMarketingEmailOptIn(user.getId(), optIn);
 
-        LOG.info("Marketing email opt-in updated: user='{}' optIn={}", username, optIn);
+        LOG.info("Marketing email opt-in updated: user='{}' optIn={}", LogSanitizer.sanitize(username), optIn);
         return ResponseEntity.ok(Map.of("marketingEmailOptIn", optIn));
     }
 
@@ -557,6 +572,23 @@ public class AuthController {
             return null;
         }
         return authentication.getName();
+    }
+
+    /**
+     * Reads the credential version the caller's session was issued at from the filter's OWN details
+     * type (login-registration plan §2 #14 rule 5): exact when the token carried a {@code cv} claim,
+     * {@code legacyUnchanged} for a token with none (issued before the counter existed). Never a cast of
+     * {@code WebAuthenticationDetails}, so no other kind of authentication can be mistaken for one.
+     *
+     * @return the expectation the writer holds the row to
+     */
+    private static VersionExpectation sessionVersionExpectation() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication != null && authentication.getDetails() instanceof JwtAuthenticationDetails details
+                && details.credentialsVersion() != null) {
+            return VersionExpectation.exact(details.credentialsVersion());
+        }
+        return VersionExpectation.legacyUnchanged();
     }
 
     /**

@@ -5,6 +5,8 @@ import com.gregochr.goldenhour.entity.RefreshTokenEntity;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.exception.RegistrationClosedException;
 import com.gregochr.goldenhour.model.AuthTokens;
+import com.gregochr.goldenhour.repository.AppUserRepository.LockedAccount;
+import com.gregochr.goldenhour.service.RegistrationService.Activation;
 import com.gregochr.goldenhour.service.AuthAttemptLimiter.Window;
 import com.gregochr.goldenhour.service.JwtService;
 import com.gregochr.goldenhour.service.TurnstileGate.Endpoint;
@@ -23,7 +25,9 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -70,6 +74,7 @@ class AuthControllerTest extends AbstractControllerTest {
                 .build();
 
         when(refreshTokenRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        known(adminUser);
 
         // Defaults: Turnstile always passes (register verifies directly; login and change-password go
         // through the gate), and every attempt bound admits. Tests that exercise a refusal restub.
@@ -78,10 +83,46 @@ class AuthControllerTest extends AbstractControllerTest {
         when(attemptLimiter.tryAcquire(anyString(), anyInt(), any())).thenReturn(true);
     }
 
+    /**
+     * Makes {@code user} a row the database "holds": found by name for the sign-in and the JWT filter, and
+     * readable under the row lock (the scalar projection the issuer and the writer re-read).
+     */
+    private void known(AppUserEntity user) {
+        when(userRepository.findByUsername(user.getUsername())).thenReturn(Optional.of(user));
+        when(userRepository.lockAccount(user.getId())).thenReturn(Optional.of(lockedRow(user)));
+    }
+
+    /**
+     * Makes the compare-and-set of {@code applyCredentialChange} succeed and the row, read under the lock
+     * afterwards, hold the hash it was handed — as the database would — so the issuer's "the hash I was
+     * given is the stored one" check passes.
+     *
+     * @return the hash the row currently holds
+     */
+    private AtomicReference<String> theRowHoldsWhatTheWriterWrites() {
+        AtomicReference<String> written = new AtomicReference<>(adminUser.getPassword());
+        when(userRepository.applyCredentialChange(eq(1L), anyString(), anyInt(), anyInt(), anyInt(),
+                anyBoolean(), org.mockito.ArgumentMatchers.anyLong(), any())).thenAnswer(inv -> {
+                    written.set(inv.getArgument(1));
+                    return 1;
+                });
+        when(userRepository.lockAccount(1L)).thenAnswer(inv -> Optional.of(new LockedAccount(true, written.get(),
+                adminUser.getEmail(), adminUser.getUsername(), adminUser.getRole(),
+                adminUser.getCredentialsVersion(), adminUser.getCredentialsChangedAt(), false,
+                adminUser.isMarketingEmailOptIn(), adminUser.getTermsVersion())));
+        return written;
+    }
+
+    private static LockedAccount lockedRow(AppUserEntity user) {
+        return new LockedAccount(user.isEnabled(), user.getPassword(), user.getEmail(), user.getUsername(),
+                user.getRole(), user.getCredentialsVersion(), user.getCredentialsChangedAt(),
+                user.isPasswordChangeRequired(), user.isMarketingEmailOptIn(), user.getTermsVersion());
+    }
+
     @Test
     @DisplayName("POST /api/auth/login returns 200 and tokens for valid credentials")
     void login_validCredentials_returns200WithTokens() throws Exception {
-        when(userRepository.findByUsername("admin")).thenReturn(Optional.of(adminUser));
+        known(adminUser);
 
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -96,7 +137,7 @@ class AuthControllerTest extends AbstractControllerTest {
     @Test
     @DisplayName("POST /api/auth/login returns 401 for wrong password")
     void login_wrongPassword_returns401() throws Exception {
-        when(userRepository.findByUsername("admin")).thenReturn(Optional.of(adminUser));
+        known(adminUser);
 
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -128,7 +169,7 @@ class AuthControllerTest extends AbstractControllerTest {
                 .enabled(false)
                 .createdAt(LocalDateTime.now())
                 .build();
-        when(userRepository.findByUsername("inactive")).thenReturn(Optional.of(disabled));
+        known(disabled);
 
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -151,7 +192,6 @@ class AuthControllerTest extends AbstractControllerTest {
                 .build();
         when(refreshTokenRepository.findByTokenHash(hash)).thenReturn(Optional.of(stored));
         when(refreshTokenRepository.revokeIfActive(hash)).thenReturn(1);
-        when(userRepository.findById(1L)).thenReturn(Optional.of(adminUser));
 
         mockMvc.perform(post("/api/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -176,7 +216,6 @@ class AuthControllerTest extends AbstractControllerTest {
                 .build();
         when(refreshTokenRepository.findByTokenHash(hash)).thenReturn(Optional.of(stored));
         when(refreshTokenRepository.revokeIfActive(hash)).thenReturn(1);
-        when(userRepository.findById(1L)).thenReturn(Optional.of(adminUser));
 
         mockMvc.perform(post("/api/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -200,7 +239,6 @@ class AuthControllerTest extends AbstractControllerTest {
                 .build();
         when(refreshTokenRepository.findByTokenHash(hash)).thenReturn(Optional.of(stored));
         when(refreshTokenRepository.revokeIfActive(hash)).thenReturn(0);
-        when(userRepository.findById(1L)).thenReturn(Optional.of(adminUser));
 
         mockMvc.perform(post("/api/auth/refresh")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -269,15 +307,84 @@ class AuthControllerTest extends AbstractControllerTest {
     @DisplayName("POST /api/auth/change-password returns 200 for authenticated user with valid password")
     void changePassword_validPassword_returns200() throws Exception {
         String validJwt = jwtService.generateAccessToken("admin", UserRole.ADMIN);
-        when(userRepository.findByUsername("admin")).thenReturn(Optional.of(adminUser));
-        when(userRepository.save(any())).thenReturn(adminUser);
+        AtomicReference<String> written = theRowHoldsWhatTheWriterWrites();
 
         mockMvc.perform(post("/api/auth/change-password")
                         .header("Authorization", "Bearer " + validJwt)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"newPassword\":\"NewPass1!\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.message").value("Password updated"));
+                .andExpect(jsonPath("$.message").value("Password updated"))
+                // Fresh tokens for THIS device: the same body as /login.
+                .andExpect(jsonPath("$.accessToken").exists())
+                .andExpect(jsonPath("$.refreshToken").exists())
+                .andExpect(jsonPath("$.refreshExpiresAt").exists())
+                .andExpect(jsonPath("$.username").value("admin"))
+                .andExpect(jsonPath("$.role").value("ADMIN"))
+                .andExpect(jsonPath("$.passwordChangeRequired").value(false));
+
+        assertThat(passwordEncoder.matches("NewPass1!", written.get())).isTrue();
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/change-password from a token with NO cv (issued before the counter) asks the "
+            + "writer to accept only a never-changed row: clear the gate, active account, version 0 checked")
+    void changePassword_legacyToken_asksForTheLegacyExpectation() throws Exception {
+        String legacyJwt = jwtService.generateAccessToken("admin", UserRole.ADMIN);
+        theRowHoldsWhatTheWriterWrites();
+
+        mockMvc.perform(post("/api/auth/change-password")
+                        .header("Authorization", "Bearer " + legacyJwt)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"newPassword\":\"NewPass1!\"}"))
+                .andExpect(status().isOk());
+
+        verify(userRepository).applyCredentialChange(eq(1L), anyString(), eq(1), eq(0), eq(1), eq(true),
+                eq(0L), any());
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/change-password from a token carrying cv asks the writer for EXACTLY that "
+            + "version — read from the filter's own details, so the compare-and-set holds the row to it")
+    void changePassword_tokenWithCv_asksForTheExactVersion() throws Exception {
+        adminUser.setCredentialsVersion(3L);
+        known(adminUser);
+        String jwt = jwtService.generateAccessToken("admin", UserRole.ADMIN, 1L, 3L);
+        theRowHoldsWhatTheWriterWrites();
+
+        mockMvc.perform(post("/api/auth/change-password")
+                        .header("Authorization", "Bearer " + jwt)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"newPassword\":\"NewPass1!\"}"))
+                .andExpect(status().isOk());
+
+        verify(userRepository).applyCredentialChange(eq(1L), anyString(), eq(1), eq(0), eq(1), eq(true),
+                eq(3L), any());
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/change-password from a session that was superseded while the new password "
+            + "was being hashed is a 401 'Your session has changed. Sign in again.', and issues NO tokens")
+    void changePassword_staleSession_returns401WithoutTokens() throws Exception {
+        adminUser.setCredentialsVersion(3L);
+        known(adminUser);
+        String jwt = jwtService.generateAccessToken("admin", UserRole.ADMIN, 1L, 3L);
+        // The filter loaded the row at version 3; by the time the writer locks it, another change moved it.
+        when(userRepository.lockAccount(1L)).thenReturn(Optional.of(
+                new LockedAccount(true, adminUser.getPassword(), null, "admin", UserRole.ADMIN, 4L, null,
+                        false, true, null)));
+
+        mockMvc.perform(post("/api/auth/change-password")
+                        .header("Authorization", "Bearer " + jwt)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"newPassword\":\"NewPass1!\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error").value("Your session has changed. Sign in again."))
+                .andExpect(jsonPath("$.accessToken").doesNotExist());
+
+        verify(userRepository, never()).applyCredentialChange(any(), any(), anyInt(), anyInt(), anyInt(),
+                anyBoolean(), org.mockito.ArgumentMatchers.anyLong(), any());
+        verify(refreshTokenRepository, never()).save(any());
     }
 
     @Test
@@ -518,10 +625,11 @@ class AuthControllerTest extends AbstractControllerTest {
     @DisplayName("POST /api/auth/set-password returns 200 with tokens for valid request")
     void setPassword_valid_returns200WithTokens() throws Exception {
         AppUserEntity user = AppUserEntity.builder()
-                .id(42L).username("newuser").password("").role(UserRole.LITE_USER)
-                .enabled(false).createdAt(LocalDateTime.now()).build();
-        when(registrationService.setPasswordAndActivate("verify-token", "MyP@ssw0rd!")).thenReturn(42L);
-        when(userRepository.findById(42L)).thenReturn(Optional.of(user));
+                .id(42L).username("newuser").password("activated-hash").role(UserRole.LITE_USER)
+                .enabled(true).createdAt(LocalDateTime.now()).build();
+        when(registrationService.setPasswordAndActivate("verify-token", "MyP@ssw0rd!"))
+                .thenReturn(new Activation(42L, user.getPassword()));
+        known(user);
 
         mockMvc.perform(post("/api/auth/set-password")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -536,11 +644,12 @@ class AuthControllerTest extends AbstractControllerTest {
     @DisplayName("POST /api/auth/set-password response includes termsVersion from user record")
     void setPassword_valid_includesTermsVersion() throws Exception {
         AppUserEntity user = AppUserEntity.builder()
-                .id(42L).username("newuser").password("").role(UserRole.LITE_USER)
-                .enabled(false).createdAt(LocalDateTime.now())
+                .id(42L).username("newuser").password("activated-hash").role(UserRole.LITE_USER)
+                .enabled(true).createdAt(LocalDateTime.now())
                 .termsVersion("April 2026").build();
-        when(registrationService.setPasswordAndActivate("verify-token", "MyP@ssw0rd!")).thenReturn(42L);
-        when(userRepository.findById(42L)).thenReturn(Optional.of(user));
+        when(registrationService.setPasswordAndActivate("verify-token", "MyP@ssw0rd!"))
+                .thenReturn(new Activation(42L, user.getPassword()));
+        known(user);
 
         mockMvc.perform(post("/api/auth/set-password")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -553,10 +662,11 @@ class AuthControllerTest extends AbstractControllerTest {
     @DisplayName("POST /api/auth/set-password ignores a caller-supplied userId")
     void setPassword_userIdInBody_isNotUsedToSelectAccount() throws Exception {
         AppUserEntity pending = AppUserEntity.builder()
-                .id(42L).username("newuser").password("").role(UserRole.LITE_USER)
-                .enabled(false).createdAt(LocalDateTime.now()).build();
-        when(registrationService.setPasswordAndActivate("verify-token", "MyP@ssw0rd!")).thenReturn(42L);
-        when(userRepository.findById(42L)).thenReturn(Optional.of(pending));
+                .id(42L).username("newuser").password("activated-hash").role(UserRole.LITE_USER)
+                .enabled(true).createdAt(LocalDateTime.now()).build();
+        when(registrationService.setPasswordAndActivate("verify-token", "MyP@ssw0rd!"))
+                .thenReturn(new Activation(42L, pending.getPassword()));
+        known(pending);
 
         // userId 1 is the seeded ADMIN row — the token, not the body, decides whose password is set.
         mockMvc.perform(post("/api/auth/set-password")
@@ -590,7 +700,7 @@ class AuthControllerTest extends AbstractControllerTest {
                 .password(passwordEncoder.encode("OldP@ss1!"))
                 .role(UserRole.LITE_USER).enabled(true)
                 .createdAt(LocalDateTime.now()).build();
-        when(userRepository.findByUsername("olduser")).thenReturn(Optional.of(preExisting));
+        known(preExisting);
 
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -633,7 +743,7 @@ class AuthControllerTest extends AbstractControllerTest {
     @DisplayName("POST /api/auth/login response includes termsVersion")
     void login_validCredentials_includesTermsVersion() throws Exception {
         adminUser.setTermsVersion("April 2026");
-        when(userRepository.findByUsername("admin")).thenReturn(Optional.of(adminUser));
+        known(adminUser);
 
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -645,8 +755,7 @@ class AuthControllerTest extends AbstractControllerTest {
     @Test
     @DisplayName("POST /api/auth/login records lastActiveAt on successful login")
     void login_validCredentials_setsLastActiveAt() throws Exception {
-        when(userRepository.findByUsername("admin")).thenReturn(Optional.of(adminUser));
-        when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        known(adminUser);
 
         LocalDateTime before = LocalDateTime.now();
 
@@ -655,17 +764,18 @@ class AuthControllerTest extends AbstractControllerTest {
                         .content("{\"username\":\"admin\",\"password\":\"golden2026\"}"))
                 .andExpect(status().isOk());
 
-        org.mockito.Mockito.verify(userRepository).save(org.mockito.ArgumentMatchers.argThat(
-                user -> "admin".equals(user.getUsername())
-                        && user.getLastActiveAt() != null
-                        && !user.getLastActiveAt().isBefore(before)));
+        org.mockito.ArgumentCaptor<LocalDateTime> stamped = org.mockito.ArgumentCaptor.forClass(LocalDateTime.class);
+        verify(userRepository).touchLastActiveAt(eq(1L), stamped.capture());
+        assertThat(stamped.getValue()).isAfterOrEqualTo(before);
+        // A scoped update: login never saves the entity it loaded before the BCrypt check.
+        verify(userRepository, never()).save(any());
     }
 
     @Test
     @DisplayName("POST /api/auth/login response includes marketingEmailOptIn")
     void login_validCredentials_includesMarketingEmailOptIn() throws Exception {
         adminUser.setMarketingEmailOptIn(true);
-        when(userRepository.findByUsername("admin")).thenReturn(Optional.of(adminUser));
+        known(adminUser);
 
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -678,8 +788,7 @@ class AuthControllerTest extends AbstractControllerTest {
     @DisplayName("PUT /api/auth/marketing-emails toggles opt-in preference")
     void marketingEmails_toggleOptIn_returns200() throws Exception {
         String validJwt = jwtService.generateAccessToken("admin", UserRole.ADMIN);
-        when(userRepository.findByUsername("admin")).thenReturn(Optional.of(adminUser));
-        when(userRepository.save(any())).thenReturn(adminUser);
+        known(adminUser);
 
         mockMvc.perform(put("/api/auth/marketing-emails")
                         .header("Authorization", "Bearer " + validJwt)
@@ -687,6 +796,10 @@ class AuthControllerTest extends AbstractControllerTest {
                         .content("{\"optIn\":false}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.marketingEmailOptIn").value(false));
+
+        // The scoped update, never a save of an entity that may hold a stale role or hash.
+        verify(userRepository).updateMarketingEmailOptIn(1L, false);
+        verify(userRepository, never()).save(any());
     }
 
     @Test
@@ -753,7 +866,7 @@ class AuthControllerTest extends AbstractControllerTest {
     @Test
     @DisplayName("POST /api/auth/login hands the gate the CF-Connecting-IP address, then X-Forwarded-For's first hop")
     void login_clientAddress_followsTheHeaderRule() throws Exception {
-        when(userRepository.findByUsername("admin")).thenReturn(Optional.of(adminUser));
+        known(adminUser);
 
         mockMvc.perform(post("/api/auth/login")
                         .header("CF-Connecting-IP", "203.0.113.7")
@@ -775,7 +888,7 @@ class AuthControllerTest extends AbstractControllerTest {
     @DisplayName("POST /api/auth/login on the fallback takes the account's own budget once the user resolves")
     void login_fallback_takesThePerAccountBudget() throws Exception {
         when(turnstileGate.admit(any(), any(), any(), any())).thenReturn(Outcome.OK_FALLBACK);
-        when(userRepository.findByUsername("admin")).thenReturn(Optional.of(adminUser));
+        known(adminUser);
 
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -791,7 +904,7 @@ class AuthControllerTest extends AbstractControllerTest {
             + "once the account's budget is spent")
     void login_fallback_accountBudgetSpent_returns429() throws Exception {
         when(turnstileGate.admit(any(), any(), any(), any())).thenReturn(Outcome.OK_FALLBACK);
-        when(userRepository.findByUsername("admin")).thenReturn(Optional.of(adminUser));
+        known(adminUser);
         when(attemptLimiter.tryAcquire("fallback:login:user:1", 5, Window.QUARTER_HOUR)).thenReturn(false);
 
         mockMvc.perform(post("/api/auth/login")
@@ -822,7 +935,7 @@ class AuthControllerTest extends AbstractControllerTest {
     @Test
     @DisplayName("POST /api/auth/login with a verified token never touches the account budget")
     void login_verified_takesNoAccountBudget() throws Exception {
-        when(userRepository.findByUsername("admin")).thenReturn(Optional.of(adminUser));
+        known(adminUser);
 
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -874,8 +987,7 @@ class AuthControllerTest extends AbstractControllerTest {
     void changePassword_fallback_returns200() throws Exception {
         when(turnstileGate.admit(any(), any(), any(), any())).thenReturn(Outcome.OK_FALLBACK);
         String validJwt = jwtService.generateAccessToken("admin", UserRole.ADMIN);
-        when(userRepository.findByUsername("admin")).thenReturn(Optional.of(adminUser));
-        when(userRepository.save(any())).thenReturn(adminUser);
+        theRowHoldsWhatTheWriterWrites();
 
         mockMvc.perform(post("/api/auth/change-password")
                         .header("Authorization", "Bearer " + validJwt)
@@ -939,10 +1051,11 @@ class AuthControllerTest extends AbstractControllerTest {
 
     private void stubSetPasswordSuccess() {
         AppUserEntity user = AppUserEntity.builder()
-                .id(42L).username("newuser").password("").role(UserRole.LITE_USER)
-                .enabled(false).createdAt(LocalDateTime.now()).build();
-        when(registrationService.setPasswordAndActivate("verify-token", "MyP@ssw0rd!")).thenReturn(42L);
-        when(userRepository.findById(42L)).thenReturn(Optional.of(user));
+                .id(42L).username("newuser").password("activated-hash").role(UserRole.LITE_USER)
+                .enabled(true).createdAt(LocalDateTime.now()).build();
+        when(registrationService.setPasswordAndActivate("verify-token", "MyP@ssw0rd!"))
+                .thenReturn(new Activation(42L, user.getPassword()));
+        known(user);
     }
 
     @Test
@@ -1121,6 +1234,7 @@ class AuthControllerTest extends AbstractControllerTest {
                 .enabled(true).createdAt(LocalDateTime.now()).build();
         when(userRepository.findByUsername("Reader@Example.com")).thenReturn(Optional.empty());
         when(userRepository.findByEmail("Reader@Example.com")).thenReturn(Optional.of(reader));
+        when(userRepository.lockAccount(7L)).thenReturn(Optional.of(lockedRow(reader)));
 
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -1335,6 +1449,21 @@ class AuthControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.termsVersion").value("April 2026"));
 
         verifyNoInteractions(turnstileGate);
+    }
+
+    @Test
+    @DisplayName("POST /api/auth/reset-password is a 401, not a 500, when the account changed again between "
+            + "the committed reset and the auto-login")
+    void resetPassword_issuerRefusesAfterTheReset_returns401() throws Exception {
+        when(passwordResetService.resetPassword("reset-token", "MyP@ssw0rd!"))
+                .thenThrow(new com.gregochr.goldenhour.exception.InvalidCredentialsException(
+                        "Invalid username or password"));
+
+        mockMvc.perform(post("/api/auth/reset-password")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"token\":\"reset-token\",\"password\":\"MyP@ssw0rd!\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error").value("Invalid username or password"));
     }
 
     @Test

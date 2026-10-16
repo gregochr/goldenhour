@@ -2,12 +2,12 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.UserRole;
+import com.gregochr.goldenhour.service.EmailClaims;
 import com.gregochr.goldenhour.service.PasswordResetResult;
 import com.gregochr.goldenhour.service.RegistrationService;
 import com.gregochr.goldenhour.service.UserService;
 import com.gregochr.goldenhour.service.notification.UserEmailService;
 import com.gregochr.goldenhour.util.EmailValidator;
-import com.gregochr.goldenhour.util.LogSanitizer;
 import com.gregochr.goldenhour.util.UniqueViolation;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -45,6 +45,10 @@ import java.util.Map;
 public class UserController {
 
     private static final Logger LOG = LoggerFactory.getLogger(UserController.class);
+
+    /** What the email edit answers for a pending registration, whose old verification link it voided. */
+    static final String EMAIL_UPDATED_PENDING =
+            "Updated. The old verification link no longer works: resend verification to the new address.";
 
     private final UserService userService;
     private final UserEmailService userEmailService;
@@ -139,11 +143,14 @@ public class UserController {
     /**
      * Updates the email address of a user.
      *
+     * <p>The edit voids the account's unused password-reset links and every verification link, so a link
+     * mailed to the old mailbox cannot be used after the move; for a pending registration the message
+     * says the admin must resend verification.
+     *
      * @param id   the user's primary key
      * @param body map containing {@code email}
-     * @return 200 on success, 400 if the email is missing, invalid, or user not found, or 409 when the
-     *         address is an exact duplicate of another account's (the reservation of case variants is
-     *         written by the create paths today; the edit joins them in R3c)
+     * @return 200 on success, 400 if the email is missing, invalid, not ASCII, or user not found, or 409
+     *         when another account already uses the address under any casing
      */
     @PutMapping("/{id}/email")
     public ResponseEntity<Object> setEmail(
@@ -158,9 +165,12 @@ public class UserController {
                     .body(Map.of("error", "Invalid email address: " + email));
         }
         try {
-            userService.setEmail(id, email.trim());
-            return ResponseEntity.ok(Map.of("message", "Updated"));
+            boolean pending = userService.setEmail(id, email.trim());
+            return ResponseEntity.ok(Map.of("message", pending ? EMAIL_UPDATED_PENDING : "Updated"));
         } catch (IllegalArgumentException ex) {
+            if (EmailClaims.EMAIL_TAKEN.equals(ex.getMessage())) {
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", ex.getMessage()));
+            }
             return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
         } catch (DataIntegrityViolationException ex) {
             return conflict(ex);
@@ -248,7 +258,7 @@ public class UserController {
      * Resends a verification email for a pending user. Admin action — bypasses rate limiting.
      *
      * @param id the user's primary key
-     * @return 200 on success, 400 if user not found or has no email
+     * @return 200 on success, 400 if user not found, has no email, or is no longer awaiting verification
      */
     @PostMapping("/{id}/resend-verification")
     public ResponseEntity<Object> resendVerification(@PathVariable Long id) {
@@ -265,9 +275,11 @@ public class UserController {
             return ResponseEntity.badRequest().body(Map.of("error", "User has no email address"));
         }
 
-        registrationService.adminResendVerification(user);
-        LOG.info("Admin resent verification email for user id={}, email={}",
-                id, LogSanitizer.sanitize(user.getEmail()));
+        if (!registrationService.adminResendVerification(user)) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Account is not awaiting email verification"));
+        }
+        LOG.info("Admin resent verification email for user id={}", id);
         return ResponseEntity.ok(Map.of("message", "Verification email sent"));
     }
 
