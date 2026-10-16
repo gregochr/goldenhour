@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.config.JwtProperties;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.RefreshTokenEntity;
 import com.gregochr.goldenhour.exception.InvalidCredentialsException;
+import com.gregochr.goldenhour.exception.TooManyAttemptsException;
 import com.gregochr.goldenhour.model.AuthTokens;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.RefreshTokenRepository;
@@ -41,6 +42,12 @@ public class AuthenticationService {
     /** Generic message for all invalid-token outcomes, to avoid leaking token state. */
     private static final String INVALID_TOKEN_MESSAGE = "Refresh token is invalid or expired";
 
+    /** Limiter key prefix for the per-account fallback sign-in budget. */
+    static final String FALLBACK_USER_KEY_PREFIX = "fallback:login:user:";
+
+    /** Fallback sign-in attempts admitted per account in a quarter hour. */
+    static final int FALLBACK_USER_LIMIT = 5;
+
     private static final int MIN_PASSWORD_LENGTH = 8;
     private static final Pattern UPPERCASE = Pattern.compile("[A-Z]");
     private static final Pattern LOWERCASE = Pattern.compile("[a-z]");
@@ -52,6 +59,7 @@ public class AuthenticationService {
     private final JwtService jwtService;
     private final PasswordEncoder passwordEncoder;
     private final JwtProperties jwtProperties;
+    private final AuthAttemptLimiter attemptLimiter;
 
     /**
      * Constructs the service.
@@ -61,17 +69,32 @@ public class AuthenticationService {
      * @param jwtService             JWT generation and hashing
      * @param passwordEncoder        password hashing
      * @param jwtProperties          token expiry configuration
+     * @param attemptLimiter         the per-account budget for fallback sign-ins
      */
     public AuthenticationService(AppUserRepository userRepository,
             RefreshTokenRepository refreshTokenRepository,
             JwtService jwtService,
             PasswordEncoder passwordEncoder,
-            JwtProperties jwtProperties) {
+            JwtProperties jwtProperties,
+            AuthAttemptLimiter attemptLimiter) {
         this.userRepository = userRepository;
         this.refreshTokenRepository = refreshTokenRepository;
         this.jwtService = jwtService;
         this.passwordEncoder = passwordEncoder;
         this.jwtProperties = jwtProperties;
+        this.attemptLimiter = attemptLimiter;
+    }
+
+    /**
+     * Authenticates the user on the ordinary path (Turnstile verified, or not configured).
+     *
+     * @param username the login username
+     * @param password the plain-text password
+     * @return the issued tokens and user fields
+     * @throws InvalidCredentialsException if the credentials are wrong or the account is disabled
+     */
+    public AuthTokens login(String username, String password) {
+        return login(username, password, false);
     }
 
     /**
@@ -83,13 +106,28 @@ public class AuthenticationService {
      * single-row saves — a failure between them fails the login with only the harmless
      * telemetry stamp persisted, matching the original controller flow.
      *
+     * <p>When {@code fallback} is true the request carried no Turnstile token (the script could not
+     * load) and {@link TurnstileGate} admitted it on its bounds; the per-ACCOUNT budget is then taken
+     * here, once the username has resolved to a user and before the password is checked, so every name
+     * that reaches one account shares a single five-attempt budget per quarter hour. When no user
+     * resolves, the gate's identifier bucket has already counted the attempt and nothing more is taken.
+     *
      * @param username the login username
      * @param password the plain-text password
+     * @param fallback true when the request is on the Turnstile fallback path
      * @return the issued tokens and user fields
      * @throws InvalidCredentialsException if the credentials are wrong or the account is disabled
+     * @throws TooManyAttemptsException    if the fallback's per-account budget is spent
      */
-    public AuthTokens login(String username, String password) {
+    public AuthTokens login(String username, String password, boolean fallback) {
         AppUserEntity user = userRepository.findByUsername(username).orElse(null);
+
+        if (fallback && user != null
+                && !attemptLimiter.tryAcquire(FALLBACK_USER_KEY_PREFIX + user.getId(),
+                        FALLBACK_USER_LIMIT, AuthAttemptLimiter.Window.QUARTER_HOUR)) {
+            LOG.info("Login refused: fallback attempt budget spent for user id {}", user.getId());
+            throw new TooManyAttemptsException("Fallback sign-in budget spent for the account");
+        }
 
         if (user == null || !passwordEncoder.matches(password, user.getPassword())) {
             LOG.warn("Login failed: user='{}' — bad credentials", LogSanitizer.sanitize(username));
