@@ -27,7 +27,7 @@ AI-driven sunrise and sunset forecasting for landscape, wildlife, and coastal ph
 - Per-run-type model configuration — three independent configs (Very Short-Term, Short-Term, Long-Term), each selectable as Haiku/Sonnet/Opus via Admin UI
 - Model comparison + prompt test harnesses for A/B evaluation
 - Stores every evaluation so you can track how the forecast converges as the date approaches
-- Outcome recording (API-only — no UI since 2026-02-27) — log whether you went out and your actual rating; builds an accuracy feedback loop
+- Outcome recording — Pro and Admin readers rate how a past sunrise or sunset turned out from the Map tab's location callout ("How was it?"); the older free-text `POST /api/outcome` has no UI. Ratings feed the calibration gate
 - Self-registration with email verification and Cloudflare Turnstile CAPTCHA
 - JWT-authenticated with ADMIN / PRO_USER / LITE_USER roles
 - Notifications via email (Thymeleaf HTML templates) and Web Push (VAPID)
@@ -159,7 +159,7 @@ Users can self-register at the login page — email verification is required, an
 | Role | Access |
 |---|---|
 | `ADMIN` | All endpoints + Operations tab (users, regions, job metrics, model selection, model test) |
-| `PRO_USER` | 3-day forecast, all scores, outcome recording |
+| `PRO_USER` | 3-day forecast, all scores, outcome recording, rating past windows |
 | `LITE_USER` | 3-day forecast, star rating only |
 
 ---

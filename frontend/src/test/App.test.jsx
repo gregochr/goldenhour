@@ -30,7 +30,6 @@ import { ukDateStrOffset } from '../utils/mapDates.js';
 vi.mock('../api/forecastApi.js', () => ({
   fetchForecasts: vi.fn(),
   fetchLocations: vi.fn(),
-  fetchAllOutcomes: vi.fn(),
   // AuthContext imports this for its logout sweep.
   clearForecastDetailCache: vi.fn(),
 }));
@@ -107,7 +106,7 @@ vi.mock('../api/authApi.js', () => ({
   submitWaitlist: vi.fn(),
 }));
 
-import { fetchForecasts, fetchLocations, fetchAllOutcomes } from '../api/forecastApi.js';
+import { fetchForecasts, fetchLocations } from '../api/forecastApi.js';
 import { getDailyBriefing } from '../api/briefingApi.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
 import {
@@ -176,7 +175,6 @@ beforeEach(() => {
   // implementations, so a value resolved in one test would otherwise leak into the next.
   fetchForecasts.mockReset().mockResolvedValue(FORECASTS);
   fetchLocations.mockReset().mockResolvedValue(LOCATION_META);
-  fetchAllOutcomes.mockReset().mockResolvedValue([]);
   getDailyBriefing.mockReset().mockResolvedValue(null); // 204 — the shell keeps its empty state
   getAllEvaluationScores.mockReset().mockResolvedValue([]);
   getSettings.mockReset().mockResolvedValue({}); // no home postcode saved

@@ -19,3 +19,15 @@ unlike the Plan-tab bundles.
 (`MapCallout.CALLOUT_WIDTH_MOBILE`), and there is no `#cal` / `.cv2` — the callout is
 `.wf-callout` and its verdict strip `.wf-callout-verdict` (plan §1 #3). The README's "set `/forecast`
 to 2 past days" open item is already true (`ForecastHorizon.SERVE_PAST_DAYS = 2`, plan §1 #1).
+
+**Final count, O6 sweep (2026-10-16):** the port plan's §4 "Disagreements with the spec, on purpose"
+closed at **32 entries** once every phase (O0–O6) had shipped — the original 22 written before any
+code existed (#1–#22, several raised by Codex across the plan's own review rounds), plus #23 (O4b: a
+pin's badge is unreserved, only chips reserve its overhang), #24 (O4b: an Ask pick never wears a
+badge), #25 (O5a: the admin list's time column is 56px), #26 (O1: a re-rate keeps the provenance
+recorded the first time), #27 (O1: `findFirstByTriggerTimeOrderByIdAsc`), #28 (O3b: the older-day
+merge is a derived memo), #29 (O3b: the menu scrolls itself to the active row), #30 (O4b: counts and
+badges read `ratingsKnownFor`, unknown is not zero), #31 (O2: LITE's star on a passed slot is the
+row's own) and #32 (O2: a passed slot with nothing available is no row, for a few days after V178).
+⚠️ The prototype's map, pins and coast are placeholders, so the widths the plan relies on (266 / 238 /
+43.59 / 44.39px) were measured on the real components, not read off the prototype (plan §7).

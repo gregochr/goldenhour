@@ -8,7 +8,6 @@ vi.mock('../api/forecastApi', () => ({
   fetchForecasts: vi.fn(),
   fetchForecastsForDate: vi.fn(),
   fetchLocations: vi.fn(),
-  fetchAllOutcomes: vi.fn(),
 }));
 
 // useForecasts now reads the auth role to key its instant-paint cache; mock it so the hook can be
@@ -17,7 +16,7 @@ const { mockUseAuth } = vi.hoisted(() => ({ mockUseAuth: vi.fn(() => ({ role: 'P
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: mockUseAuth }));
 
 import {
-  fetchForecasts, fetchForecastsForDate, fetchLocations, fetchAllOutcomes,
+  fetchForecasts, fetchForecastsForDate, fetchLocations,
 } from '../api/forecastApi';
 
 const LANDSCAPE_LOCATION = {
@@ -176,7 +175,7 @@ describe('useForecasts', () => {
     expect(kielder.regionName).toBe('Northumberland');
   });
 
-  it('makes two requests on load — forecasts and locations — and never asks for recorded outcomes', async () => {
+  it('makes two requests on load — forecasts and locations', async () => {
     fetchForecasts.mockResolvedValue([BAMBURGH_FORECAST]);
     fetchLocations.mockResolvedValue([LANDSCAPE_LOCATION, WILDLIFE_LOCATION]);
 
@@ -188,7 +187,6 @@ describe('useForecasts', () => {
     // reader's own ratings come through `useOutcomeRatings`, mounted beside the map.
     expect(fetchForecasts).toHaveBeenCalledTimes(1);
     expect(fetchLocations).toHaveBeenCalledTimes(1);
-    expect(fetchAllOutcomes).not.toHaveBeenCalled();
   });
 
   it('sets error and clears loading when the locations fetch rejects on a cold load', async () => {

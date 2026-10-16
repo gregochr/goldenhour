@@ -975,6 +975,11 @@ Backend / product, out of this series' scope by the owner's instruction:
    `OutcomeModal.jsx` (+ test) and the orphaned `forecastApi.fetchOutcomes`, or keep them as the seed
    of a v2 outcome route (the popup? the location sheet?). CLAUDE.md still lists the feedback loop as
    a differentiator and LITE's one write permission.
+   **Status (2026-10-16): resolved — the outcome UI has a v2 home.** It is the Map tab's "How was it?"
+   rating block in the location callout, for a past sunrise or sunset, written by Pro and Admin
+   readers (`docs/engineering/outcome-rating-plan.md`, O0–O6). `OutcomeModal.jsx` and
+   `forecastApi.recordOutcome`/`fetchOutcomes` were left in place, as this item asked; the dead
+   `forecastApi.fetchAllOutcomes` went with the series (O6), its one caller having stopped fetching in O4b.
 8. **Dead API bindings to live endpoints** — `authApi.updateMarketingEmailOptIn`,
    `auroraApi.resetAuroraState`/`triggerAuroraRun`, `metricsApi.getBuildInfo`,
    `skyRatingEvalApi.getSkyRatingEvalResults` — zero callers; deleting a client for a live admin

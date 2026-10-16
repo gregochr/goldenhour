@@ -22,7 +22,6 @@ import { ukDateStrOffset } from '../utils/mapDates.js';
 vi.mock('../api/forecastApi.js', () => ({
   fetchForecasts: vi.fn(),
   fetchLocations: vi.fn(),
-  fetchAllOutcomes: vi.fn(),
   clearForecastDetailCache: vi.fn(),
 }));
 vi.mock('../api/briefingApi.js', () => ({ getDailyBriefing: vi.fn() }));
@@ -91,7 +90,7 @@ vi.mock('../components/WindowFirstMapPane.jsx', () => ({
   ),
 }));
 
-import { fetchForecasts, fetchLocations, fetchAllOutcomes } from '../api/forecastApi.js';
+import { fetchForecasts, fetchLocations } from '../api/forecastApi.js';
 import { getDailyBriefing } from '../api/briefingApi.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
 import { getSettings, getReach, getDriveTimes } from '../api/settingsApi.js';
@@ -164,7 +163,6 @@ describe('App — the past-window selection licence (selectedDateIsPast)', () =>
     vi.clearAllMocks();
     fetchForecasts.mockResolvedValue(FORECASTS);
     fetchLocations.mockResolvedValue(LOCATION_META);
-    fetchAllOutcomes.mockResolvedValue([]);
     getDailyBriefing.mockResolvedValue(null);
     getAllEvaluationScores.mockResolvedValue([]);
     getSettings.mockResolvedValue(SETTINGS);
