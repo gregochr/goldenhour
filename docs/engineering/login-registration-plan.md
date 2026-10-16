@@ -797,7 +797,14 @@ transaction, so a link mailed to the old or compromised mailbox cannot overwrite
 its hour; and `PasswordResetService.requestReset` inserts its token only under the same user-row lock
 (the writer's lock order, parent first), so a request racing the email change either commits before
 it and is deleted by it, or after it and mails the NEW address — never a token that survives into the
-old mailbox. `UserServiceTest` pins the delete; `PasswordResetServiceTest` pins the lock.
+old mailbox. ⚠️ **The locked row is re-read, never the entity resolved earlier** (Codex, R0 round
+17): `requestReset` resolves only the user ID outside any transaction, then a separate proxied
+`PasswordResetIssuer.issue(userId)` (`@Transactional`, its own fresh persistence context because the
+caller holds none) takes `findByIdForUpdate`, reads the address and the pending/enabled state off
+THAT row, inserts the token and returns the address to mail — a JPA context that already held the
+entity would hand back the stale one without refreshing it. `UserServiceTest` pins the delete;
+`PasswordResetServiceTest` pins the lock and the re-read: an email change committed between the
+resolve and the issue mails the NEW address and leaves no token for the old one.
 ⚠️ **Registration's activation entry point is
 restructured for the same reason** (Codex, R0 round 5): `RegistrationService.setPasswordAndActivate`
 is `@Transactional` today and calls `UserService.activateUser` inside it, so hashing in
@@ -1039,7 +1046,8 @@ the issuer with the hash), new `service/TokenIssuer.java` and `service/Credentia
 (`/change-password` answers `buildAuthResponse` + `message`; set-password passes the hash), `service/PasswordResetService.java`
 (the `TODO(R3c)`), `service/UserService.java` (`resetPassword` and `activateUser` stamp and revoke), `JwtService` (the `uid` claim, `extractUserId`), `UserService` (`createUser`/`createPendingUser`
 stamp at creation; `setEnabled` through `updateEnabled`; `setEmail` locks the row and voids unused
-reset tokens), `service/PasswordResetService.java` (`requestReset` inserts under the user-row lock),
+reset tokens), `service/PasswordResetService.java` and a new `service/PasswordResetIssuer.java`
+(`requestReset` resolves the id; the issuer locks, re-reads and inserts in its own transaction),
 `UserControllerTest` and `UserServiceTest` (the admin toggle still works; the email change deletes the
 tokens), `AuthenticationService.refresh` (the user lock first), tests: `JwtAuthenticationFilterTest` (the five cases), `AppUserRepositoryTest`
 (`@DataJpaTest`, the scoped update), `CredentialChangeWriterTest` (`@DataJpaTest`: each site's
@@ -1298,7 +1306,9 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added thirty-three P1s over sixteen rounds, folded in: the
+disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added thirty-four P1s over seventeen rounds, folded in: reset
+issuance re-reads the locked row in a fresh persistence context rather than trusting the entity
+resolved before the lock (§2 #13); the
 `cv` claim is a monotonic `credentials_version` counter, never a millisecond stamp that two changes
 could share (§2 #13); an
 admin email change voids the account's unused reset links under the row lock, and reset issuance
