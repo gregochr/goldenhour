@@ -10,7 +10,9 @@
  * record, and settles each save by hand so the Saving and Save-failed states can be observed.
  */
 import React, { useEffect, useRef, useState } from 'react';
-import { describe, it, expect, vi } from 'vitest';
+import {
+  describe, it, expect, vi, beforeEach, afterEach,
+} from 'vitest';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
 import OutcomeRatingBlock, { ratingView } from '../components/map/OutcomeRatingBlock.jsx';
@@ -531,5 +533,253 @@ describe('outcomeRatingCopy', () => {
     expect(starLabel('SUNRISE', 2)).toBe('Rate the sunrise 2 out of 5');
     expect(spokenRating(5)).toBe('5 out of 5');
     expect(ratedNumeral(1)).toBe('1★');
+  });
+});
+
+// ── The Admin's "All ratings" box (outcome-rating-plan.md §2 #7; screenshots 09 and 14) ───────────
+
+describe('OutcomeRatingBlock — the Admin list', () => {
+  // Friday 16 Oct 2026, 12:00 UTC (13:00 UK, BST).
+  const NOW = new Date('2026-10-16T12:00:00Z');
+  const RUN = '2026-10-15T15:05:00Z';
+  const EVENT_TIME = '2026-10-15T17:05:00Z';
+
+  const MINE = {
+    username: 'jgregory', rating: 3, updatedAt: '2026-10-16T09:05:00Z', mine: true,
+  };
+  const NEWER = {
+    username: 'zoe', rating: 5, updatedAt: '2026-10-16T10:30:00Z', mine: false,
+  };
+  const OLDER = {
+    username: 'mhart', rating: 4, updatedAt: '2026-10-14T18:40:00Z', mine: false,
+  };
+  const NOT_SEEN = {
+    username: 'pat', rating: null, updatedAt: '2026-10-13T17:10:00Z', mine: false,
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** The block with an `admin` prop whose open flag is held here, as `MapCallout` holds it. */
+  function AdminHarness({
+    initialOpen = false, rows = [MINE, NEWER, OLDER], loading = false, failed = false,
+    forecastRunAt = RUN, eventTime = EVENT_TIME, mine = null, userRole = 'ADMIN',
+    event = SUNSET_TODAY, onToggle = () => {}, admin: adminOverride = undefined,
+  }) {
+    const [open, setOpen] = useState(initialOpen);
+    const admin = adminOverride === undefined ? {
+      open,
+      onToggle: () => { onToggle(); setOpen((o) => !o); },
+      loading,
+      failed,
+      rows,
+      eventTime,
+      forecastRunAt,
+    } : adminOverride;
+    return (
+      <OutcomeRatingBlock
+        event={event}
+        mine={mine}
+        userRole={userRole}
+        changing={false}
+        onChangingChange={() => {}}
+        onRate={async () => true}
+        admin={admin}
+      />
+    );
+  }
+
+  const list = () => screen.getByTestId('outcome-admin-list');
+  const toggle = () => screen.getByTestId('outcome-admin-toggle');
+  const panel = () => screen.getByTestId('outcome-admin-panel');
+  const rowEls = () => screen.queryAllByTestId('outcome-admin-row');
+
+  it('is collapsed by default: a header with the count and a ▾, the panel hidden, aria-expanded false', () => {
+    render(<AdminHarness />);
+    expect(toggle()).toHaveTextContent('All ratings · 3');
+    expect(toggle()).toHaveTextContent('▾');
+    expect(toggle()).toHaveAttribute('aria-expanded', 'false');
+    expect(panel()).toHaveAttribute('hidden');
+    expect(toggle().getAttribute('aria-controls')).toBe(panel().id);
+    expect(panel().id).not.toBe('');
+  });
+
+  it('opens on the toggle: ▴, aria-expanded true, the panel visible, and closes again', () => {
+    const onToggle = vi.fn();
+    render(<AdminHarness onToggle={onToggle} />);
+    fireEvent.click(toggle());
+    expect(onToggle).toHaveBeenCalledTimes(1);
+    expect(toggle()).toHaveAttribute('aria-expanded', 'true');
+    expect(toggle()).toHaveTextContent('▴');
+    expect(panel()).not.toHaveAttribute('hidden');
+    expect(list()).toHaveAttribute('data-open');
+    fireEvent.click(toggle());
+    expect(toggle()).toHaveAttribute('aria-expanded', 'false');
+    expect(panel()).toHaveAttribute('hidden');
+  });
+
+  it('puts the caller\'s own row first, then the rest in the order served — never re-sorted by time', () => {
+    // Served order deliberately differs from time order (mhart's is older than pat's yet served first), so
+    // a client that re-sorted the rest by `updatedAt` would show pat before mhart.
+    render(<AdminHarness initialOpen rows={[OLDER, MINE, NOT_SEEN, NEWER]} />);
+    expect(rowEls().map((r) => r.querySelector('.wf-adm-u').textContent))
+      .toEqual(['jgregory', 'mhart', 'pat', 'zoe']);
+    expect(rowEls()[0]).toHaveAttribute('data-mine');
+    expect(rowEls()[1]).not.toHaveAttribute('data-mine');
+  });
+
+  it('counts every row in the header, the caller\'s own included', () => {
+    render(<AdminHarness rows={[MINE, OLDER]} />);
+    expect(toggle()).toHaveTextContent('All ratings · 2');
+  });
+
+  it('draws a rating as decorative stars with ONE visually hidden "N out of 5", and "Not seen" as text', () => {
+    render(<AdminHarness initialOpen rows={[NEWER, NOT_SEEN]} />);
+    const [five, unseen] = rowEls();
+    const glyphs = five.querySelector('.wf-adm-g [aria-hidden="true"]');
+    expect(glyphs).toHaveTextContent('★★★★★');
+    expect(within(five).getAllByText('5 out of 5')).toHaveLength(1);
+    expect(five.querySelector('.sr-only')).toHaveTextContent('5 out of 5');
+    expect(unseen).toHaveTextContent('Not seen');
+    expect(unseen.querySelector('.wf-adm-g')).toBeNull();
+    expect(unseen).not.toHaveTextContent('out of 5');
+  });
+
+  it('shows the star count lit and unlit as two runs, so the colours can differ', () => {
+    render(<AdminHarness initialOpen rows={[MINE]} />);
+    const row = rowEls()[0];
+    expect(row.querySelector('.wf-rate-on')).toHaveTextContent('★★★');
+    expect(row.querySelector('.wf-rate-off')).toHaveTextContent('☆☆');
+  });
+
+  it('stamps a rating from today as HH:MM on the UK clock and any other day as {Dow} HH:MM', () => {
+    render(<AdminHarness initialOpen rows={[MINE, OLDER]} />);
+    const stamps = rowEls().map((r) => r.querySelector('.wf-adm-t').textContent);
+    // 09:05Z is 10:05 BST, and today is Friday 16 Oct; the 14th was a Wednesday (18:40Z = 19:40 BST).
+    expect(stamps).toEqual(['10:05', 'Wed 19:40']);
+  });
+
+  it('says "No ratings yet." for an empty list, with a count of 0 and the footer still stating the run', () => {
+    render(<AdminHarness initialOpen rows={[]} />);
+    expect(toggle()).toHaveTextContent('All ratings · 0');
+    expect(screen.getByTestId('outcome-admin-empty')).toHaveTextContent('No ratings yet.');
+    expect(rowEls()).toHaveLength(0);
+    expect(screen.getByTestId('outcome-admin-footer'))
+      .toHaveTextContent('Rated against the run at Thu 15 Oct, 16:05 · 2h before sunset');
+  });
+
+  it('footers the run it was rated against and how long before the event, in sunrise or sunset words', () => {
+    const { unmount } = render(<AdminHarness initialOpen />);
+    expect(screen.getByTestId('outcome-admin-footer'))
+      .toHaveTextContent('Rated against the run at Thu 15 Oct, 16:05 · 2h before sunset');
+    unmount();
+    render(<AdminHarness initialOpen event={SUNRISE_YESTERDAY} />);
+    expect(screen.getByTestId('outcome-admin-footer')).toHaveTextContent('· 2h before sunrise');
+  });
+
+  it('footers "No forecast run recorded before this sunset" when no run was recorded', () => {
+    render(<AdminHarness initialOpen forecastRunAt={null} />);
+    expect(screen.getByTestId('outcome-admin-footer'))
+      .toHaveTextContent('No forecast run recorded before this sunset');
+  });
+
+  it('footers the gap in minutes under an hour', () => {
+    render(<AdminHarness initialOpen eventTime="2026-10-15T15:45:00Z" />);
+    expect(screen.getByTestId('outcome-admin-footer')).toHaveTextContent('· 40 min before sunset');
+  });
+
+  it('before the list has arrived: the bare header, no rows, no footer, and a Loading line while the fetch is out', () => {
+    render(<AdminHarness initialOpen rows={null} loading eventTime={null} forecastRunAt={null} />);
+    expect(toggle()).toHaveTextContent(/^All ratings\s*▴$/);
+    expect(panel()).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByTestId('outcome-admin-state')).toHaveTextContent('Loading …');
+    expect(screen.getByTestId('outcome-admin-state')).toHaveAttribute('role', 'status');
+    expect(rowEls()).toHaveLength(0);
+    expect(screen.queryByTestId('outcome-admin-footer')).toBeNull();
+  });
+
+  it('a failed read is one quiet line, no footer, and the box stays openable', () => {
+    render(<AdminHarness initialOpen rows={null} failed eventTime={null} forecastRunAt={null} />);
+    expect(screen.getByTestId('outcome-admin-state')).toHaveTextContent('Couldn\'t load ratings.');
+    expect(screen.queryByTestId('outcome-admin-footer')).toBeNull();
+    expect(panel()).not.toHaveAttribute('aria-busy');
+    expect(toggle()).not.toBeDisabled();
+    expect(toggle()).not.toHaveAttribute('aria-disabled');
+    fireEvent.click(toggle());
+    expect(toggle()).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('keeps the status region mounted and empty when there is nothing to say (so its first text is announced)', () => {
+    render(<AdminHarness initialOpen />);
+    expect(screen.getByTestId('outcome-admin-state')).toBeEmptyDOMElement();
+  });
+
+  it('keeps the status region OUTSIDE the hidden panel, and silent while the box is collapsed', () => {
+    render(<AdminHarness rows={null} loading />);
+    expect(panel()).not.toContainElement(screen.getByTestId('outcome-admin-state'));
+    expect(screen.getByTestId('outcome-admin-state')).toBeEmptyDOMElement();
+    fireEvent.click(toggle());
+    expect(screen.getByTestId('outcome-admin-state')).toHaveTextContent('Loading …');
+  });
+
+  it('keeps the SAME toggle element, and its focus, when the block flips between its two layouts', () => {
+    const { rerender } = render(<AdminHarness />);
+    const before = toggle();
+    before.focus();
+    expect(block()).toHaveAttribute('data-state', 'unrated');
+    rerender(<AdminHarness mine={{ rating: 4, updatedAt: 'now' }} />);
+    expect(block()).toHaveAttribute('data-state', 'rated');
+    expect(toggle()).toBe(before);
+    expect(document.activeElement).toBe(before);
+    rerender(<AdminHarness mine={null} />);
+    expect(toggle()).toBe(before);
+    expect(document.activeElement).toBe(before);
+  });
+
+  it('draws a star count it cannot trust (out of range) without throwing', () => {
+    render(<AdminHarness initialOpen rows={[{ ...NEWER, rating: 9 }, { ...OLDER, rating: 0 }]} />);
+    expect(rowEls()[0].querySelector('.wf-rate-on')).toHaveTextContent('★★★★★');
+    expect(rowEls()[1].querySelector('.wf-rate-on')).toHaveTextContent('★');
+  });
+
+  it('sits under the reader\'s own block in BOTH layouts: the unrated grid and the rated row', () => {
+    const { unmount } = render(<AdminHarness />);
+    expect(block().lastElementChild).toBe(list());
+    expect(stars()).toHaveLength(5);
+    unmount();
+    render(<AdminHarness mine={{ rating: 3, updatedAt: 'now' }} />);
+    expect(block()).toHaveAttribute('data-state', 'rated');
+    expect(block().lastElementChild).toBe(list());
+    expect(screen.getByTestId('outcome-rating-change')).toBeInTheDocument();
+  });
+
+  it('is never drawn without an admin prop (every other role), nor beside the Lite lock', () => {
+    const { unmount } = render(<AdminHarness admin={null} userRole="PRO_USER" />);
+    expect(screen.queryByTestId('outcome-admin-list')).toBeNull();
+    unmount();
+    render(<AdminHarness userRole="LITE_USER" />);
+    expect(block()).toHaveAttribute('data-state', 'lite');
+    expect(screen.queryByTestId('outcome-admin-list')).toBeNull();
+  });
+
+  it('draws nothing for a PRO reader even if an admin prop is handed to it (the role is checked here too)', () => {
+    const adminProp = {
+      open: true, onToggle: () => {}, loading: false, rows: [MINE], eventTime: EVENT_TIME, forecastRunAt: RUN,
+    };
+    render(<AdminHarness userRole="PRO_USER" admin={adminProp} />);
+    expect(block()).toBeInTheDocument();
+    expect(screen.queryByTestId('outcome-admin-list')).toBeNull();
+  });
+
+  it('is a plain button: pressing it leaves focus on it', () => {
+    render(<AdminHarness />);
+    toggle().focus();
+    fireEvent.click(toggle());
+    expect(document.activeElement).toBe(toggle());
   });
 });

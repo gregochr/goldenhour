@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../api/axiosClient.js', () => ({ default: { get: vi.fn(), put: vi.fn() } }));
 import apiClient from '../api/axiosClient.js';
-import { fetchMyRatings, putRating } from '../api/outcomeRatingApi.js';
+import { fetchAllRatingsForSlot, fetchMyRatings, putRating } from '../api/outcomeRatingApi.js';
 
 beforeEach(() => vi.resetAllMocks());
 
@@ -48,5 +48,27 @@ describe('outcomeRatingApi', () => {
     await expect(putRating({
       locationId: 7, eventDate: '2026-06-14', eventType: 'SUNSET', rating: 3,
     })).rejects.toThrow('403');
+  });
+
+  it('reads every user\'s rating of one slot, the slot sent as query params, and returns the body as served', async () => {
+    const body = {
+      eventTime: '2026-06-14T20:10:00Z',
+      forecastRunAt: '2026-06-14T17:00:00Z',
+      pipelineRunId: 9,
+      ratings: [{ username: 'jgregory', rating: 3, updatedAt: '2026-06-14T21:30:00Z', mine: true }],
+    };
+    apiClient.get.mockResolvedValue({ data: body });
+
+    const all = await fetchAllRatingsForSlot(7, '2026-06-14', 'SUNSET');
+
+    expect(apiClient.get).toHaveBeenCalledWith('/api/outcome/ratings/all', {
+      params: { locationId: 7, date: '2026-06-14', eventType: 'SUNSET' },
+    });
+    expect(all).toBe(body);
+  });
+
+  it('lets a refusal through (a non-admin is 403; the list is never asked for by one)', async () => {
+    apiClient.get.mockRejectedValue(Object.assign(new Error('403'), { response: { status: 403 } }));
+    await expect(fetchAllRatingsForSlot(7, '2026-06-14', 'SUNSET')).rejects.toThrow('403');
   });
 });

@@ -228,6 +228,70 @@ describe('the rating block — high contrast and ink', () => {
   });
 });
 
+describe('the Admin list (outcome-rating-plan.md §2 #7; the prototype\'s .adm) — the rules, as written', () => {
+  it('is a 1px border-token box, radius 9, on the panel surface', () => {
+    expect(declared('.wf-adm', 'border')).toBe('1px solid var(--color-plex-border)');
+    expect(declared('.wf-adm', 'border-radius')).toBe('9px');
+    expect(declared('.wf-adm', 'background')).toBe('var(--color-plex-panel)');
+  });
+
+  it('has a 36px full-width header, and rings it INSET like every control in the scrolling body', () => {
+    expect(declared('.wf-adm-h', 'min-height')).toBe('36px');
+    expect(declared('.wf-adm-h', 'width')).toBe('100%');
+    expect(declared('.wf-adm-h', 'justify-content')).toBe('space-between');
+    expect(declared('.wf-adm-h:focus-visible', 'outline')).toBe('2px solid var(--color-plex-gold)');
+    expect(declared('.wf-adm-h:focus-visible', 'outline-offset')).toBe('-2px');
+  });
+
+  it('lays a row out as three columns — name (shrinkable), rating, time — under a 1px rule', () => {
+    expect(declared('.wf-adm-r', 'display')).toBe('grid');
+    expect(declared('.wf-adm-r', 'grid-template-columns')).toBe('minmax(0, 1fr) auto auto');
+    expect(declared('.wf-adm-r', 'gap')).toBe('10px');
+    expect(declared('.wf-adm-r', 'padding')).toBe('6px 10px');
+    expect(declared('.wf-adm-r', 'border-top')).toBe('1px solid var(--color-plex-border)');
+    expect(declared('.wf-adm-u', 'overflow-wrap')).toBe('anywhere');
+  });
+
+  it('sets the time and the footer in mono, muted: 10px and 9.5px', () => {
+    expect(declared('.wf-adm-t', 'font-family')).toBe('var(--font-mono)');
+    expect(declared('.wf-adm-t', 'font-size')).toBe('10px');
+    expect(declared('.wf-adm-t', 'min-width')).toBe('56px');
+    expect(declared('.wf-adm-t', 'text-align')).toBe('right');
+    expect(declared('.wf-adm-run', 'font-family')).toBe('var(--font-mono)');
+    expect(declared('.wf-adm-run', 'font-size')).toBe('9.5px');
+    expect(declared('.wf-adm-run', 'color')).toBe('var(--color-plex-text-muted)');
+    expect(declared('.wf-adm-run', 'border-top')).toBe('1px solid var(--color-plex-border)');
+  });
+
+  it('puts the prose sentences ("Not seen", the empty state, the loading/failed line) on the secondary ink', () => {
+    expect(declared('.wf-adm-nsv', 'color')).toBe('var(--color-plex-text-secondary)');
+    expect(declared('.wf-adm-state', 'color')).toBe('var(--color-plex-text-secondary)');
+  });
+
+  it('collapses the status line when empty WITHOUT `display: none`, so it stays in the accessibility tree', () => {
+    expect(declared('.wf-adm-state:empty', 'display')).toBeNull();
+    expect(declared('.wf-adm-state:empty', 'height')).toBe('0');
+    expect(declared('.wf-adm-state:empty', 'overflow')).toBe('hidden');
+  });
+
+  it('draws every colour from a token — no raw hex, no rgba literal', () => {
+    const selectors = [
+      '.wf-adm', '.wf-adm-h', '.wf-adm-caret', '.wf-adm-r', '.wf-adm-t', '.wf-adm-nsv',
+      '.wf-adm-run', '.wf-adm-state', '.wf-adm-state:not(:empty)',
+    ];
+    for (const selector of selectors) {
+      expect(bodies(selector).length, `no rule for ${selector}`).toBeGreaterThan(0);
+      for (const body of bodies(selector)) {
+        expect(body, `${selector} carries a raw colour`).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(/i);
+      }
+    }
+  });
+
+  it('never hides the panel by CSS: the `hidden` attribute does it, so aria-controls always names a live element', () => {
+    for (const body of bodies('.wf-adm')) expect(body).not.toMatch(/display\s*:\s*none/);
+  });
+});
+
 describe('the rating block — focus', () => {
   it('rings every control INSET: `.wf-callout-body` scrolls, so an outset ring would be clipped at the first and last column', () => {
     for (const selector of ['.wf-rate-star:focus-visible', '.wf-rate-ns:focus-visible', '.wf-rate-change:focus-visible']) {
