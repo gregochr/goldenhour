@@ -202,6 +202,10 @@ public class AuthController {
     /**
      * Registers a new user with email verification.
      *
+     * <p>Marketing email is opt-in: only an explicit {@code "true"} in {@code marketingEmailOptIn}
+     * consents; an absent value does not. The username {@code anonymousUser} (Spring Security's
+     * anonymous principal) is refused with the same 409 as a taken name.
+     *
      * @param body map containing {@code username} and {@code email}
      * @return 200 with confirmation message, 400 for validation errors, 409 for duplicates
      */

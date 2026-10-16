@@ -6,6 +6,14 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -115,9 +123,50 @@ class AuthAttemptLimiterTest {
     void normalise_isTheSharedKeyForm() {
         assertThat(AuthAttemptLimiter.normalise("  A@X.com ")).isEqualTo("a@x.com");
         assertThat(AuthAttemptLimiter.normalise("a@x.com")).isEqualTo("a@x.com");
-        // Locale.ROOT: the Turkish dotted capital I must not become a dotless ı under a default locale.
-        assertThat(AuthAttemptLimiter.normalise("TITLE")).isEqualTo("title");
         assertThat(AuthAttemptLimiter.normalise(null)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("normalise lower-cases with Locale.ROOT even when the JVM default is Turkish")
+    void normalise_ignoresTheDefaultLocale() {
+        Locale original = Locale.getDefault();
+        try {
+            Locale.setDefault(Locale.forLanguageTag("tr"));
+            // Under a Turkish default, toLowerCase() maps 'I' to a dotless 'ı'.
+            assertThat(AuthAttemptLimiter.normalise("TITLE")).isEqualTo("title");
+        } finally {
+            Locale.setDefault(original);
+        }
+    }
+
+    @Test
+    @DisplayName("concurrent attempts on one key admit exactly the limit")
+    void concurrentAttempts_admitExactlyTheLimit() throws Exception {
+        int threads = 16;
+        int perThread = 50;
+        int limit = 100;
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        CountDownLatch start = new CountDownLatch(1);
+        AtomicInteger admitted = new AtomicInteger();
+        List<Future<?>> futures = new ArrayList<>();
+        for (int t = 0; t < threads; t++) {
+            futures.add(pool.submit(() -> {
+                start.await();
+                for (int i = 0; i < perThread; i++) {
+                    if (limiter.tryAcquire("shared", limit, Window.QUARTER_HOUR)) {
+                        admitted.incrementAndGet();
+                    }
+                }
+                return null;
+            }));
+        }
+        start.countDown();
+        for (Future<?> future : futures) {
+            future.get();
+        }
+        pool.shutdown();
+
+        assertThat(admitted.get()).isEqualTo(limit);
     }
 
     @Test
