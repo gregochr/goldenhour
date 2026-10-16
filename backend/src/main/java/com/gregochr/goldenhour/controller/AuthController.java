@@ -342,7 +342,9 @@ public class AuthController {
                     .body(Map.of("error", "token and password are required"));
         }
 
-        if (!withinTokenBounds(SET_PASSWORD_BOUNDS, token, ClientAddress.of(request))) {
+        try {
+            enforceTokenBounds(SET_PASSWORD_BOUNDS, token, ClientAddress.of(request));
+        } catch (TooManyAttemptsException ex) {
             return tooManyAttempts();
         }
 
@@ -446,15 +448,17 @@ public class AuthController {
      * @param prefix the endpoint's key prefix
      * @param token  the raw one-time token
      * @param client the caller's address
-     * @return true when every bound admits
+     * @throws TooManyAttemptsException when any bound refuses
      */
-    private boolean withinTokenBounds(String prefix, String token, String client) {
+    private void enforceTokenBounds(String prefix, String token, String client) {
         String tokenKey = jwtService.hashToken(token).substring(0, TOKEN_KEY_LENGTH);
-        return attemptLimiter.tryAcquire(prefix + ":global", TOKEN_GLOBAL_LIMIT, Window.HOUR)
-                && attemptLimiter.tryAcquire(prefix + ":client:" + client, TOKEN_CLIENT_LIMIT,
+        if (!attemptLimiter.tryAcquire(prefix + ":global", TOKEN_GLOBAL_LIMIT, Window.HOUR)
+                || !attemptLimiter.tryAcquire(prefix + ":client:" + client, TOKEN_CLIENT_LIMIT,
                         Window.QUARTER_HOUR)
-                && attemptLimiter.tryAcquire(prefix + ":token:" + tokenKey, TOKEN_LIMIT,
-                        Window.QUARTER_HOUR);
+                || !attemptLimiter.tryAcquire(prefix + ":token:" + tokenKey, TOKEN_LIMIT,
+                        Window.QUARTER_HOUR)) {
+            throw new TooManyAttemptsException("One-time-token attempt bound reached");
+        }
     }
 
     /**
