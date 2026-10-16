@@ -315,12 +315,15 @@ hex chars 10 per 15 min, `reset:client:<addr>` 20 per 15 min, `reset:global` 200
 BEFORE opening any transaction (`AuthenticationService`'s own javadoc forbids BCrypt inside one),
 then ONE proxied transactional operation — in R3a a `PasswordResetService`-owned
 `@Transactional` collaborator `PasswordResetRedeemer.redeem(tokenId, userId, encodedPassword, now)`
-(its own bean, never a self-invoked method) that locks the user row, **re-checks on the locked row
-that the account is still enabled and not pending** (the pre-hash check is stale by then — an admin
-who disabled the account during BCrypt must win, or the captured link sets a password that becomes
-live on re-enable; Codex, R0 round 19; refused → "This reset link is invalid", the token left
-unconsumed), then `markUsed`s the token by compare-and-set (0 rows → "already been used"), sets the
-password, clears `passwordChangeRequired` and `revokeAllActiveByUserId(userId)`; in R3c that operation becomes
+(its own bean, never a self-invoked method) that locks the user row and **re-checks enabled and
+not-pending as a SCALAR projection under that lock — never off the entity the request loaded before
+BCrypt, which under OSIV is the one a locking entity query hands back** (§2 #14 rule 1; Codex, R0
+rounds 19 and 27; an admin who disabled the account during BCrypt must win, or the captured link
+sets a password that becomes live on re-enable; refused → "This reset link is invalid", the token
+left unconsumed), then `markUsed`s the token by compare-and-set (0 rows → "already been used"), sets
+the password, clears `passwordChangeRequired` and `revokeAllActiveByUserId(userId)` through
+compare-and-set updates whose row counts are checked; `PasswordResetRedeemerTest` (`@DataJpaTest`)
+preloads the entity, disables the account on a second connection, and asserts the refusal; in R3c that operation becomes
 `CredentialChangeWriter.consumeResetAndApply(tokenId, userId, encodedPassword, change, now)` (the
 sibling of the verification one in §2 #13) so the stamp joins the same transaction — a failure
 between consuming the token and changing the password can neither burn a valid token nor leave a
@@ -1047,8 +1050,12 @@ subject to them.
     (`JwtAuthenticationFilter.isSsePath`) stay open through a deletion, demotion or disable until
     they reconnect; not closed in this series.
 
-Phase ownership of the above: R2a #5; R3a #2, #3, #10 (and `findByIdForUpdate`, which the pending
-replacement and the redeemer need — R3a adds it, R5a reuses it); R3c #1, #4, #6, #7, #8, #9 and the
+Phase ownership of the above: R2a #5; **R3a #1 for every lock it takes** (the redeemer's
+enabled/pending re-check and its compare-and-set, the reset issuer's scalar re-read, the pending
+replacement's conditional delete — the rule applies from the FIRST phase that re-reads under a lock,
+and R3a's `@DataJpaTest`s carry the preloaded-entity shape; Codex, R0 round 27), #2, #3, #10 (and the
+scalar `FOR UPDATE` projection and `findByIdForUpdate`, which R3a adds and R3c/R5a reuse); R3c #1 for
+the writer, `TokenIssuer`, the verification issuer and deletion, plus #4, #6, #7, #8, #9 and the
 `UserController` 409 translation; R4b #11.
 
 ## §3 Phases
@@ -1518,8 +1525,9 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). An internal concurrency lens after round twenty-six added five P1s and nine smaller findings, all
-folded into §2 #14 (OSIV makes every locked entity re-read stale; a bound null fails the claim check
+disagree on four points (§4 #14). Codex's round twenty-seven moved §2 #14 rule 1 forward to R3a, the first phase that re-reads under a
+lock. An internal concurrency lens after round twenty-six added five P1s and nine smaller findings,
+all folded into §2 #14 (OSIV makes every locked entity re-read stale; a bound null fails the claim check
 open; verification resend was not serialised against an email change; the anonymous principal
 reaches two `/api/auth/**` routes; disable/re-enable invalidated nothing). Codex's review of the plan
 PR (#1197) added fifty-one P1s over twenty-six rounds, folded in: the
