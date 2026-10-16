@@ -1305,8 +1305,14 @@ planning session writes the memory file (`login-registration-series.md` + the `M
    one account and with NO cascade**, backfilled with `INSERT … SELECT DISTINCT LOWER(email), now()
    FROM app_user WHERE email IS NOT NULL` (a legacy case-duplicate pair shares ONE reservation, which
    the lookup rule already tolerates: two active matches → no match). Every write of an address —
-   `createUser`, `createPendingUser`, `setEmail` — inserts the new key in the SAME transaction as the
-   account write (a unique violation is the 409 "Email already registered"), and every path that
+   `createUser`, `createPendingUser`, `setEmail` — claims the new key in the SAME transaction as the
+   account write through one `EmailClaims.claim(emailLower)`: insert; on a unique violation, re-check
+   `EXISTS (SELECT 1 FROM app_user WHERE LOWER(email) = :k)` and, if NO account uses the address, the
+   reservation is an orphan and is reused silently (so `createPendingUser`'s supported retry — which
+   deletes an abandoned pending row for the same email earlier in the same transaction and recreates
+   it — succeeds against the pending row's own surviving reservation; Codex, R0 round 24), otherwise
+   the 409 "Email already registered" (`RegistrationServiceTest` pins the retry of one normalised
+   email and the 409 against a live account), and every path that
    stops using an address — `setEmail`, `deleteOwnAccount`, the admin `deleteUser` — ends with a
    **conditional release in that same transaction, after the account write has flushed**:
    `DELETE FROM app_user_email_claim WHERE email_lower = :k AND NOT EXISTS (SELECT 1 FROM app_user
@@ -1371,7 +1377,9 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added forty-five P1s over twenty-three rounds, folded in:
+disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added forty-six P1s over twenty-four rounds, folded in: an
+orphaned email reservation is reusable, so a pending registration's retry does not collide with its
+own claim (§5 #6);
 the email claim is a reservation released only when no account uses the address; deletion re-checks
 the locked row's role (§5 #6, §2 #7);
 normalised email uniqueness moves into the database as a claim table written with every address
