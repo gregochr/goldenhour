@@ -924,11 +924,13 @@ password hash back over a credential change that committed during the hash, afte
 issuer's re-check would see the hash login verified and issue valid tokens (Codex, R0 round 7). The
 same `updatable = false`/scoped-update lesson CLAUDE.md records for the settings columns; `password`,
 `enabled` and `passwordChangeRequired` become `updatable = false` and are written only through
-scoped updates: the writer's, and in `UserService` a new `AppUserRepository.updateEnabled(id,
-enabled)` for the admin toggle (`UserService.setEnabled` → `PUT /api/users/{id}/enabled` mutates the
-entity and `save()`s today, so without this the toggle would answer 200 and change nothing — Codex,
-R0 round 11; `UserControllerTest`/`UserServiceTest` pin that the toggle still disables and re-enables
-through the scoped update, and a stale-entity `save()` moves none of the three). `createUser` and
+scoped updates: the writer's, and in `UserService.setEnabled` (`PUT /api/users/{id}/enabled`, which
+mutates the entity and `save()`s today, so without this the toggle would answer 200 and change
+nothing — Codex, R0 round 11) **two branches: DISABLE goes through `CredentialChangeWriter.apply`
+with the `enable = false` change** (bump `cv`, revoke refresh tokens, delete unused reset and
+verification tokens — §2 #14 rule 6, so re-enabling revives nothing; Codex, R0 round 30), **RE-ENABLE
+through a new scoped `AppUserRepository.updateEnabled(id, true)`** (`UserControllerTest`/
+`UserServiceTest` pin both branches, and a stale-entity `save()` moves none of the three). `createUser` and
 `createPendingUser` are inserts and unaffected. **`role` joins them** (Codex, R0 round 21):
 `updatable = false`, written only by a new `AppUserRepository.updateRole(id, role)` behind
 `UserService.setRole`, because `AuthController.updateMarketingEmails` still loads a detached entity
@@ -1227,7 +1229,8 @@ translations by constraint name),
 `EmailVerificationTokenRepository` (`deleteByIdIfPresent`), `controller/AuthController.java`
 (`/change-password` answers `buildAuthResponse` + `message`; set-password passes the hash), `service/PasswordResetService.java`
 (the `TODO(R3c)`), `service/UserService.java` (`resetPassword` and `activateUser` stamp and revoke), `JwtService` (the `uid` claim, `extractUserId`), `UserService` (`createUser`/`createPendingUser`
-stamp at creation; `setEnabled` through `updateEnabled`; `setEmail` locks the row and voids unused
+stamp at creation; `setEnabled` — disable through the writer, re-enable through `updateEnabled`;
+`setEmail` locks the row and voids unused
 reset tokens), `service/PasswordResetService.java` and a new `service/PasswordResetIssuer.java`
 (`requestReset` resolves the id; the issuer locks, re-reads and inserts in its own transaction),
 `UserControllerTest` and `UserServiceTest` (the admin toggle still works; the email change deletes the
@@ -1534,7 +1537,8 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Codex's round twenty-nine made the writer return the locked row's address and username for every
+disagree on four points (§4 #14). Codex's round thirty routed the admin DISABLE through the writer, leaving `updateEnabled` to
+re-enable alone (§2 #13, R3c). Codex's round twenty-nine made the writer return the locked row's address and username for every
 caller that mails or answers afterwards (§2 #13). Codex's round twenty-eight aligned
 forgot-password's gate refusal with its always-200 contract (§2
 #4, §4 #8). Codex's round twenty-seven moved §2 #14 rule 1 forward to R3a, the first phase that re-reads under a
