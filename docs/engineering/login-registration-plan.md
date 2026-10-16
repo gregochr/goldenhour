@@ -411,8 +411,8 @@ postcode-prompt])` exists in the document, kept current by a `MutationObserver` 
 (`childList`, `subtree`, `attributeFilter: ['aria-modal']`) and read once at mount; the overlay's own
 dialog node carries `data-postcode-prompt` and is excluded by that selector, otherwise its own mount
 would flip the flag and unmount it in a loop (Codex, R0 round 10 — a test mounts the overlay and
-asserts it is still there after the observer has run); once mounted it stays until Save or Not now
-(nothing under an inert app can open a dialog); a rewound admin is never prompted — the
+asserts it is still there after the observer has run); a `promptShown` latch set on first mount keeps it mounted until Save or Not now (the mount
+expression alone does not latch; §2 #14 rule 11), and nothing under an inert app can open a dialog; a rewound admin is never prompted — the
 rewind is a read of the past, not a sign-in). A slow first read lets the reader open Settings, the
 map overlay, a Plan dialog or the Ask sheet first, and a late `postcodePromptDue` would otherwise
 put the overlay over an open `aria-modal` dialog and make it inert underneath — two modal claims, the
@@ -624,7 +624,7 @@ Codex, R0 round 13; a legacy token with no `cv` is accepted only on a never-chan
 `purgeUserRows(userId)` (`userDriveTimeRepository.deleteAllByUserId` — §1 #2
 — then anything the integration test below shows has no cascade), then `userRepository.delete(user)`,
 a flush, and the conditional release of the account's email claim (§5 #6);
-the admin path takes the same lock by id (`findByIdForUpdate`, added) and the same release; the confirmation email is sent AFTER commit
+the admin path takes the same lock by id (`findByIdForUpdate`, R3a's) and the same release; the confirmation email is sent AFTER commit
 for BOTH paths (a `TransactionSynchronization.afterCommit`, or the send moved out of the
 transactional method into its caller) — the admin path `deleteUser` calls the same `purgeUserRows`
 and the same after-commit send. 204 No Content. The access token dies with the row once R3c's filter
@@ -783,7 +783,8 @@ The owner redeploys landing after the release (§7).
 ### #13 Token invalidation (R3c)
 
 `app_user.credentials_changed_at TIMESTAMPTZ NULL` **and `app_user.credentials_version BIGINT NOT
-NULL DEFAULT 0`** (one migration, next free `V`, no backfill: a null stamp and version 0 mean "never
+NULL DEFAULT 0`** (mapped as a primitive `long`, §2 #14 rule 8; one migration, next free `V`, no
+backfill: a null stamp and version 0 mean "never
 changed since these columns existed", so every existing token stays valid), both `updatable =
 false`,
 written by `AppUserRepository.stampCredentialsChangedAt(id, now)` from `AuthenticationService
@@ -829,10 +830,10 @@ its hour; and `PasswordResetService.requestReset` inserts its token only under t
 it and is deleted by it, or after it and mails the NEW address — never a token that survives into the
 old mailbox. ⚠️ **The locked row is re-read, never the entity resolved earlier** (Codex, R0 round
 17): `requestReset` resolves only the user ID outside any transaction, then a separate proxied
-`PasswordResetIssuer.issue(userId)` (`@Transactional`, its own fresh persistence context because the
-caller holds none) takes `findByIdForUpdate`, reads the address and the pending/enabled state off
-THAT row, inserts the token and returns the address to mail — a JPA context that already held the
-entity would hand back the stale one without refreshing it. `UserServiceTest` pins the delete;
+`PasswordResetIssuer.issue(userId)` (`@Transactional`) takes the row lock and reads the address and
+the pending/enabled state as a SCALAR projection under it (§2 #14 rule 1 — under OSIV the request's
+persistence context already holds the stale entity and a locking entity query would hand it back),
+inserts the token and returns the address to mail. `UserServiceTest` pins the delete;
 `PasswordResetServiceTest` pins the lock and the re-read: an email change committed between the
 resolve and the issue mails the NEW address and leaves no token for the old one.
 ⚠️ **Registration's activation entry point is
@@ -858,8 +859,9 @@ row after the revoke. Issuance therefore moves out of `AuthenticationService` in
 `AuthenticationService.login` reaches `issueTokensFor` by SELF-INVOCATION, which bypasses
 `@Transactional` — the method's own Javadoc says so — and a pessimistic lock in an unproxied call
 would either throw for want of a transaction or fail to cover the refresh-row insert (Codex, R0
-round 5). `TokenIssuer.issue` takes the SAME row lock (`findByIdForUpdate`), re-reads the stored
-hash and refuses with the generic failure if it is not the one the caller verified (`login` passes
+round 5). `TokenIssuer.issue` takes the SAME row lock, re-reads the stored hash, `credentials_version`
+and `enabled` as a scalar projection under it (§2 #14 rule 1) and refuses with the generic failure
+if the hash is not the one the caller verified or the row is disabled (`login` passes
 the hash it matched; set-password, reset and activation pass the hash they just wrote; `refresh`
 passes the stored one it read under the lock) — so either the issue commits wholly before the
 writer, whose revoke then catches the new refresh row and whose stamp makes the issued `cv`
@@ -876,10 +878,12 @@ row already held. ⚠️ **The theft response must COMMIT before the refusal is 
 round 20 — a pre-existing bug the plan would otherwise carry): today `refresh` calls
 `revokeFamily` (`revokeAllActiveByUserId`) on a replayed-or-raced token and then throws
 `InvalidCredentialsException` from the SAME `@Transactional` method, so Spring rolls the family
-revocation back with the runtime exception and the replacement token stays usable. R3c moves it to
-a proxied `RefreshFamilyRevoker.revokeAll(userId, reason)` marked `REQUIRES_NEW`, called BEFORE the
-throw, with a `@SpringBootTest` on H2 that replays a revoked token and asserts the family is revoked
-after the 401; `TokenIssuerTest`'s two-thread case runs the writer and a refresh concurrently
+revocation back with the runtime exception and the replacement token stays usable. R3c makes `refresh` a
+non-transactional orchestrator over a transactional `rotate()` that returns an outcome instead of
+throwing, and calls a proxied `RefreshFamilyRevoker.revokeAll(userId, reason)` in its own
+transaction AFTER `rotate()` has ended, then throws (§2 #14 rule 7 — never `REQUIRES_NEW` inside the
+open transaction), with a `@SpringBootTest` on H2 that replays a revoked token and asserts the family
+is revoked after the 401; `TokenIssuerTest`'s two-thread case runs the writer and a refresh concurrently
 and asserts no deadlock and one loser. `JwtAuthenticationFilter`: after
 `validateToken`, load the user ONCE (the query it already makes for `lastActiveAt`); set the
 `SecurityContext` only when the row exists, `enabled` is true, and **the token's credential version
@@ -947,6 +951,105 @@ a `uid` for another id → 401; a legacy token without `uid` → accepted. After
 device out" and "a deleted account's token is dead" are true at the next request.
 
 ---
+
+### #14 Credential-subsystem invariants (R2a, R3a, R3c, R5a — read before any of them)
+
+An internal concurrency lens run after Codex's twenty-sixth round (2026-10-16) found five more P1s
+in families Codex had not reached. They are stated here once, and every §2 design above is read
+subject to them.
+
+1. **Open Session In View is ON** (Boot's default; nothing in `backend/src` overrides
+   `spring.jpa.open-in-view`, the fact `user-settings-lost-update` in memory records), so EVERY
+   `@Transactional` method called from a controller joins the request's one `EntityManager`, and a
+   JPQL `… FOR UPDATE` query (`findByUsernameForUpdate`, the planned `findByIdForUpdate`) takes the
+   row lock in the database but hands back the instance ALREADY in that persistence context, with
+   the fields it had before BCrypt ran. **"A fresh persistence context because the caller holds
+   none" is false under OSIV; no re-check in this series may read a locked ENTITY.** Every check under
+   a lock is one of: (a) a compare-and-set whose ROW COUNT is the answer — `UPDATE app_user SET
+   password = :p, credentials_version = credentials_version + 1, credentials_changed_at = :now, … WHERE
+   id = :id AND credentials_version = :expected AND enabled = true` (the writer), `DELETE FROM
+   app_user WHERE id = :id AND password = :hash AND credentials_version = :cv AND role <> 'ADMIN'`
+   (deletion, after the purge; 0 rows → throw, which rolls the purge back); (b) a SCALAR projection
+   under the lock — `SELECT u.password, u.credentialsVersion, u.enabled, u.email, u.role FROM
+   AppUserEntity u WHERE u.id = :id` with `PESSIMISTIC_WRITE` (the issuers' re-reads, the redeemer's
+   pending/enabled check, the mail address); or (c) `entityManager.refresh(entity,
+   LockModeType.PESSIMISTIC_WRITE)`. Each class's `@DataJpaTest` preloads the entity into the SAME
+   `EntityManager`, commits the concurrent change through a second connection, and asserts the check
+   sees the new state — a test that fails without the rule. `touchLastActiveAt` and every scoped
+   update keep the repository's `clearAutomatically = true` shape.
+2. **Never bind a null into a predicate.** `id <> :forUserId` with a null is UNKNOWN for every row
+   and makes the occupancy check fail OPEN (every reservation reads as an orphan — `foo@x` registers
+   beside a live `Foo@x`, the duplicate the table exists to stop). Two queries: `existsOtherOccupant(k,
+   forUserId)` for an edit, `existsAnyOccupant(k)` for a new account — the rule
+   `clearDriveTimesCalculatedAtIfHomeIs` already records. `AppUserEmailClaimRepositoryTest` pins a
+   NEW account refused against a live case variant whose reservation exists.
+3. **The claim is an immediate native `INSERT`, never `save()`.** The claim entity's id is assigned,
+   so Spring Data `save()` is a `merge` — a SELECT, then an INSERT deferred to flush; a claimer whose
+   SELECT lands after a concurrent first claim committed would UPDATE `claimed_at` instead and
+   produce a silent duplicate, and a violation at flush would fire AFTER `register` has already sent
+   the verification email inside its transaction. `@Modifying INSERT INTO app_user_email_claim …`
+   (or `persist` + `flush`) at the claim site.
+4. **Every token kind has ONE proxied issuer that takes the user-row lock, re-reads by rule 1,
+   re-checks the state it needs, deletes what it supersedes, inserts, and returns the STORED address
+   to mail**: `TokenIssuer` (access + refresh), `PasswordResetIssuer`, and a new
+   `VerificationTokenIssuer.issue(userId)` behind BOTH `resendVerification` and
+   `adminResendVerification` (today they resolve the user, then delete and insert with no lock and
+   mail the TYPED address — a resend that resolved the old address before `setEmail` committed would
+   insert a token after `setEmail`'s delete and mail the old mailbox, reopening the round-25 case).
+5. **The anonymous principal is a principal on `/api/auth/**`.** `SecurityConfig` permits the prefix
+   and does not disable anonymous authentication, so `AuthController.changePassword` and
+   `updateMarketingEmails`, which test only `getAuthentication() != null`, run an unauthenticated
+   call as the user named `anonymousUser` — with R2a's fallback that is a tokenless, CAPTCHA-less
+   password change on any account of that name, and R3c would hand back fresh tokens. Both endpoints
+   require `auth != null && auth.isAuthenticated() && !(auth instanceof
+   AnonymousAuthenticationToken)` (R2a), `cv` is read only from the filter's OWN details type (never a
+   cast of `WebAuthenticationDetails`), `/register` refuses the username `anonymousUser`, and
+   `AuthControllerTest` pins an anonymous change-password → 401. The filter's "leave the context
+   empty → 401" rule (§2 #13) holds only on authenticated routes; on `/api/auth/**` the request
+   continues as anonymous, which is why the endpoints must test it themselves.
+6. **Disable goes through the writer; re-enable revives nothing.** `setEnabled(false)` runs
+   `CredentialChangeWriter.apply` with the `enable = false` change (bump `cv`, revoke refresh tokens,
+   delete unused reset and verification tokens), so an admin disable ends every session at once and
+   re-enabling revives no old access token, refresh token or link; `TokenIssuer` refuses unless the
+   locked row is enabled, so a login whose BCrypt straddles a disable mints nothing. Disabling a
+   PENDING account also deletes its verification tokens (activation would otherwise re-enable it).
+7. **`refresh` is a non-transactional orchestrator.** A transactional `rotate()` returns `ROTATED |
+   REVOKED_SEEN | LOST_RACE` without throwing; on the last two the orchestrator calls
+   `RefreshFamilyRevoker.revokeAll` in its OWN `REQUIRED` transaction after `rotate()` has ended,
+   then throws — never `REQUIRES_NEW` nested inside an open transaction, which would hold one pooled
+   connection while waiting for a second on a PUBLIC, unlimited endpoint (ten concurrent replays of
+   one revoked token would starve Hikari for the whole app).
+8. **`UserService.resetPassword` (the admin temp password) becomes non-transactional** before it
+   calls the writer, so "hash first" holds there too; `credentialsVersion` is a primitive `long`
+   (`columnDefinition` with the default, the `passwordChangeRequired` shape), never a boxed `Long`
+   whose null would be sent on insert and defeat the database default.
+9. **Harness truths for the pins.** `CredentialChangeWriterTest`'s rollback case runs with
+   `@Transactional(propagation = NOT_SUPPORTED)` and manual cleanup (inside the test's own
+   transaction a rollback cannot be observed); the after-commit email is sent FROM THE CALLER after
+   the transactional method returns (a `registerSynchronization` throws in a Mockito test);
+   `PasswordResetServiceTest` is Mockito and cannot pin the re-read — `PasswordResetIssuerTest`
+   (`@DataJpaTest`, rule 1's shape) does; `AppUserEmailClaimRepositoryTest`'s violation is the LAST
+   statement of its test (H2 does not abort the transaction after one, Postgres does).
+10. **Two constraint names, two messages.** Two concurrent registrations of one USERNAME both pass
+    `existsByUsername` and the loser's violation is on `app_user.username`, not the claim; the
+    controllers tell the two apart (by constraint name in the `DataIntegrityViolationException`'s
+    cause) and answer "Username already taken" or "Email already registered". The pending-row
+    replacement is documented as same-email, DIFFERENT-username (the username check runs first and
+    refuses the same name; moving the replacement ahead of it is not built).
+11. **Prompt overlay details.** A `promptShown` latch, set when the overlay first mounts, keeps it
+    mounted until Save or Not now (the mount expression alone does not latch); the `inert` walk
+    starts from a ref rendered OUTSIDE the portal (the shell's walk starts from `shellRef` inside
+    `#root`; started from the dialog, a `<body>` child, it would put `inert` on the dialog itself);
+    on close focus goes to `#root`'s first focusable or the masthead (never `<body>`);
+    `useReaderSettings.homeFieldsOf` carries `postcodePromptDue` and the reducer's early return does
+    not drop the dismissal answer.
+12. **Stated residual.** The admin-only SSE streams authenticated by query parameter
+    (`JwtAuthenticationFilter.isSsePath`) stay open through a deletion, demotion or disable until
+    they reconnect; not closed in this series.
+
+Phase ownership of the above: R2a #5; R3a #2, #3, #10 (and `findByIdForUpdate`, which the pending
+replacement and the redeemer need — R3a adds it, R5a reuses it); R3c #1, #4, #6, #7, #8, #9 and the
+`UserController` 409 translation; R4b #11.
 
 ## §3 Phases
 
@@ -1019,8 +1122,9 @@ Tasks 9 (backend), 10 (server default), 11 (set-password). Files: new `service/A
 static method) (+ `AuthAttemptLimiterTest`, `TurnstileGateTest`, `ClientAddressTest`),
 `service/TurnstileService.java` (`isConfigured()`, + `TurnstileServiceTest`),
 `controller/AuthController.java` (login and change-password through the gate; set-password's
-Turnstile removed and the token-keyed limit added; register's absent-field default; register itself
-NOT on the gate), `AuthControllerTest` (every existing Turnstile case re-pinned through the mocked
+Turnstile removed and the three bounds added; register's absent-field default; register itself NOT
+on the gate; change-password and marketing-emails refusing the anonymous principal and register
+refusing the username `anonymousUser` — §2 #14 rule 5), `AuthControllerTest` (every existing Turnstile case re-pinned through the mocked
 gate; the new 429s), `AbstractControllerTest` (the two new `@MockitoBean`s), `application-example.yml`
 (nothing: the limits are constants with Javadoc, not properties — a bad value cannot fail startup).
 Backward-compatible with the running frontend: an old client's extra `turnstileToken` on set-password
@@ -1045,7 +1149,10 @@ Set password (no Turnstile) at the three sizes.
 Tasks 12 (backend), 17. Files: the migration (§2 #1 and the claim table of §5 #6 — one `V`, or two consecutive),
 `entity/PasswordResetTokenEntity.java`, `repository/PasswordResetTokenRepository.java`,
 `entity/AppUserEmailClaimEntity.java`, `repository/AppUserEmailClaimRepository.java` (+ its
-`@DataJpaTest`), `AppUserRepository` (`findActiveByEmailLower`), `util/EmailIdentifier.java` (ASCII
+`@DataJpaTest`), `service/EmailClaims.java` (§5 #6, §2 #14 rules 2–3), `service/PasswordResetRedeemer
+.java` (§2 #1), `AppUserRepository` (`findActiveByEmailLower`, `findByIdForUpdate` — added HERE, reused
+by R3c and R5a), `controller/UserController.java` and `AuthController.java` (the 409 translations,
+§2 #14 rule 10), `util/EmailIdentifier.java` (ASCII
 check + normalisation, one home),
 `service/PasswordResetService.java` (+ test), `service/AuthenticationService.java` (`login` by
 identifier with the dummy-hash comparison), `service/RegistrationService.java` (the pending lookup
@@ -1092,7 +1199,15 @@ Reset (checklist) at the three sizes.
 `cv`; the 401 for a stale one), `service/AuthenticationService.java` (`changePassword`
 stamps, revokes every active refresh token and returns fresh tokens; `issueTokensFor` delegating to
 the issuer with the hash), new `service/TokenIssuer.java` and `service/CredentialChangeWriter.java`,
-`service/RegistrationService.java` (`setPasswordAndActivate` split, `consumeAndActivate`),
+`service/RegistrationService.java` (`setPasswordAndActivate` split: read, check, encode, then
+`CredentialChangeWriter.consumeVerificationAndApply` on the writer bean; `resendVerification` and
+`adminResendVerification` through the new `service/VerificationTokenIssuer.java`),
+`service/RefreshFamilyRevoker.java` (new), `exception/StaleCredentialsException.java` (new, mapped
+to 401 in `GlobalExceptionHandler`), `AppUserRepository` (`touchLastActiveAt`, `updateEnabled`,
+`updateRole`, `updateMarketingEmailOptIn`, the scalar `FOR UPDATE` projection), `UserService.setEmail`
+(the verification-token delete, the claim and release), `UserService.setEnabled` through the writer,
+`UserService.resetPassword` non-transactional, `controller/UserController.java` (the 409
+translations by constraint name),
 `EmailVerificationTokenRepository` (`deleteByIdIfPresent`), `controller/AuthController.java`
 (`/change-password` answers `buildAuthResponse` + `message`; set-password passes the hash), `service/PasswordResetService.java`
 (the `TODO(R3c)`), `service/UserService.java` (`resetPassword` and `activateUser` stamp and revoke), `JwtService` (the `uid` claim, `extractUserId`), `UserService` (`createUser`/`createPendingUser`
@@ -1110,8 +1225,11 @@ kept), `TokenIssuerTest` (`@DataJpaTest` over the real repositories: refuses
 when the stored hash moved under it; the row lock is taken — a `@Transactional(NOT_SUPPORTED)` test
 with two threads, one holding the row, proves the second issue waits), `AuthenticationServiceTest`
 (the hash each caller passes; `login` calls the issuer, never its own method),
-`RegistrationServiceTest` (`setPasswordAndActivate` encodes before `consumeAndActivate`; a second
-redemption of one token answers "already used"), the three services' tests (the stamp call), `integration/
+`RegistrationServiceTest` (`setPasswordAndActivate` encodes before the writer call; a second
+redemption of one token answers "already used"; both resends go through the issuer),
+`VerificationTokenIssuerTest` and `PasswordResetIssuerTest` (`@DataJpaTest`, §2 #14 rule 1's
+preloaded-entity shape; the issuer mails the NEW address after an email change committed on another
+connection), `RefreshFamilyRevokerTest`, the three services' tests (the stamp call), `integration/
 CredentialsChangedAtMigrationTest` (CI-only). No frontend change: a 401 already fires the session-
 expired path.
 
@@ -1164,8 +1282,9 @@ possible without a session; "tested, not seen".
 ### R5a — account deletion (backend)
 
 Task 15 (backend). Files: `controller/AccountController.java` (new), `service/UserService.java`
-(`deleteOwnAccount`, `purgeUserRows`, `deleteUser` through both, the row lock first, the after-commit
-send), `AppUserRepository` (`findByIdForUpdate`),
+(`deleteOwnAccount`, `purgeUserRows`, `deleteUser` through both, the row lock first, the conditional
+`DELETE … WHERE password = :hash AND credentials_version = :cv AND role <> 'ADMIN'` of §2 #14 rule 1,
+the claim release, the send from the caller after the transactional method returns),
 `AbstractControllerTest` (the controller's dependencies), tests (`AccountControllerTest`: 204, 400,
 403 + the limiter's 429, 409 for an admin, 401 for a stale credential version, LITE and PRO both
 allowed; `UserServiceTest`: purge before
@@ -1317,14 +1436,14 @@ planning session writes the memory file (`login-registration-series.md` + the `M
    account write through one `EmailClaims.claim(emailLower, forUserId)` that NEVER recovers from a
    constraint error in place (Postgres aborts the transaction on one, and Spring marks it
    rollback-only — Codex, R0 round 25): FIRST `SELECT … FROM app_user_email_claim WHERE email_lower =
-   :k FOR UPDATE`; a row found → under that lock, `EXISTS (SELECT 1 FROM app_user WHERE LOWER(email)
-   = :k AND id <> :forUserId)` (`forUserId` null for a new account — the account being edited never
-   counts as its own occupant, so an admin changing only the CASING of an address that account alone
-   holds succeeds; Codex, R0 round 26): none → the reservation is an orphan, or the account's own, and
+   :k FOR UPDATE`; a row found → under that lock, `existsOtherOccupant(k, forUserId)` for an edit or `existsAnyOccupant(k)` for a new
+   account — two queries, never a bound null (§2 #14 rule 2); the account being edited never counts
+   as its own occupant, so an admin changing only the CASING of an address that account alone holds
+   succeeds (Codex, R0 round 26): none → the reservation is an orphan, or the account's own, and
    is reused silently (so `createPendingUser`'s supported retry — which
    deletes an abandoned pending row for the same email earlier in the same transaction and recreates
    it — succeeds against the pending row's own surviving reservation; Codex, R0 round 24), some → the
-   409 "Email already registered"; no row found → `INSERT`, and the one way that insert can still
+   409 "Email already registered"; no row found → an immediate native `INSERT` (§2 #14 rule 3), and the one way that insert can still
    violate the key is a genuinely concurrent first claim of a brand-new address, where the loser's
    409 is the right answer and the aborted transaction is its own rollback — **translated OUTSIDE the
    transaction**: the three callers' transactional methods let the `DataIntegrityViolationException`
@@ -1399,7 +1518,11 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added fifty-one P1s over twenty-six rounds, folded in: the
+disagree on four points (§4 #14). An internal concurrency lens after round twenty-six added five P1s and nine smaller findings, all
+folded into §2 #14 (OSIV makes every locked entity re-read stale; a bound null fails the claim check
+open; verification resend was not serialised against an email change; the anonymous principal
+reaches two `/api/auth/**` routes; disable/re-enable invalidated nothing). Codex's review of the plan
+PR (#1197) added fifty-one P1s over twenty-six rounds, folded in: the
 claim's occupancy check excludes the account being edited; the concurrent-claim violation is
 translated to 409 in the controllers, outside the rolled-back transaction (§5 #6); an
 email change voids a pending account's verification links; the pending replacement is a locked,
