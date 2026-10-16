@@ -724,7 +724,8 @@ The error stays "Invalid username or password". The client: label "Username or e
 `autoComplete="username"` kept (password managers fill either), `data-testid="login-username"` kept.
 `RegistrationService.findPendingUserByEmail` moves onto the same query with the pending predicate;
 `UserService.createPendingUser` and admin `createUser` refuse a case-insensitive duplicate with the
-existing "Email already registered" 409.
+existing "Email already registered" 409 — enforced by the `app_user_email_claim` unique key written
+in the same transaction (§5 #6), never by a read-then-write check alone.
 
 ### #11 Privacy inventory (R7, after deletion exists — §1 #20)
 
@@ -805,10 +806,9 @@ captured before a password change or an admin reset cannot overwrite the newer c
 hour; redemption consumes the presented token by compare-and-set and the same delete removes its
 siblings. **An EMAIL change voids them too** (Codex, R0 round 15): the admin `PUT
 /api/users/{id}/email` (`UserService.setEmail`) becomes a scoped, transactional update that locks the
-user row, **refuses a case-insensitive duplicate of another account's address** (the §1 #5 rule with
-the account itself excluded — the case-sensitive index would accept a case variant and
-`EmailIdentifier.resolve` would then see two matches and fail sign-in and recovery for BOTH
-accounts; Codex, R0 round 19; 409 "Email already registered"), deletes the account's unused
+user row, **replaces the account's `app_user_email_claim` row** (delete its own, insert the new
+lower-cased address — the unique key refuses a case variant of another account's address with the
+409 "Email already registered", race-free; §5 #6; Codex, R0 rounds 19 and 22), deletes the account's unused
 `password_reset_token` rows and writes the address in one transaction, so a link mailed to the old or compromised mailbox cannot overwrite the password within
 its hour; and `PasswordResetService.requestReset` inserts its token only under the same user-row lock
 (the writer's lock order, parent first), so a request racing the email change either commits before
@@ -1028,14 +1028,16 @@ Set password (no Turnstile) at the three sizes.
 
 ### R3a — sign-in backend: identifier, forgot and reset, `/verify` link
 
-Tasks 12 (backend), 17. Files: the migration (§2 #1), `entity/PasswordResetTokenEntity.java`,
-`repository/PasswordResetTokenRepository.java`, `AppUserRepository` (`findActiveByEmailLower`,
-`existsByEmailLower`), `util/EmailIdentifier.java` (ASCII check + normalisation, one home),
+Tasks 12 (backend), 17. Files: the migration (§2 #1 and the claim table of §5 #6 — one `V`, or two consecutive),
+`entity/PasswordResetTokenEntity.java`, `repository/PasswordResetTokenRepository.java`,
+`entity/AppUserEmailClaimEntity.java`, `repository/AppUserEmailClaimRepository.java` (+ its
+`@DataJpaTest`), `AppUserRepository` (`findActiveByEmailLower`), `util/EmailIdentifier.java` (ASCII
+check + normalisation, one home),
 `service/PasswordResetService.java` (+ test), `service/AuthenticationService.java` (`login` by
 identifier with the dummy-hash comparison), `service/RegistrationService.java` (the pending lookup
 on the new query; resend on the limiter) and `RegistrationServiceTest` (a REAL four-request
-sequence through a real limiter: the fourth sends nothing), `service/UserService.java` (duplicate
-refusal at create), `notification/UserEmailService.java` (`sendPasswordResetLinkEmail`;
+sequence through a real limiter: the fourth sends nothing), `service/UserService.java` (the email claim
+inserted with every create, the 409 on violation), `notification/UserEmailService.java` (`sendPasswordResetLinkEmail`;
 `sendVerificationEmail`'s link → `/verify?token=`), `templates/password-reset-link-email.html`,
 `controller/AuthController.java` (`/forgot-password` through the mocked gate, `/reset-password`
 through the mocked limiter), tests: `AuthenticationServiceTest` (email: one exact match; one case-insensitive match; two
@@ -1287,10 +1289,22 @@ planning session writes the memory file (`login-registration-series.md` + the `M
 5. **Reset tokens are a sibling table, not rows in `email_verification_token`.** A verification
    token is deleted on use and proves an address; a reset token is kept with `used_at` and proves a
    request — different lifecycles, and the admin's resend path deletes "unverified" tokens by user.
-6. **No email-uniqueness migration.** Making the index case-insensitive would need a data check for
-   existing case-duplicates CI cannot see; the application refuses new duplicates and the lookups
-   tolerate old ones (two active matches → no match, so sign-in by username still works). A follow-up,
-   not built.
+6. **Normalised email uniqueness is enforced by the database through a CLAIM table, not by a
+   functional index and not by application checks alone.** A `UNIQUE INDEX ON LOWER(email)` would
+   fail at production startup if two legacy rows already differ only by case (data CI cannot see),
+   and an application-level check alone races: two concurrent registrations of `Foo@x` and `foo@x`,
+   or two admin email edits, can both see no duplicate and both commit under READ COMMITTED (Codex, R0
+   round 22). R3a's migration therefore adds `app_user_email_claim (email_lower VARCHAR(255) PRIMARY
+   KEY, user_id BIGINT NOT NULL UNIQUE REFERENCES app_user(id) ON DELETE CASCADE)`, backfilled with
+   `INSERT … SELECT LOWER(email), MIN(id) FROM app_user WHERE email IS NOT NULL GROUP BY LOWER(email)`
+   (a legacy case-duplicate leaves one account unclaimed, which the lookup rule already tolerates:
+   two active matches → no match); every write of an address — `createUser`, `createPendingUser`,
+   `setEmail` — inserts (or, for `setEmail`, deletes the user's claim and inserts the new one) in the
+   SAME transaction as the account write, and a unique violation is the 409 "Email already
+   registered". Portable to H2 (a unique constraint, no advisory lock), race-free, and the ASCII
+   `Locale.ROOT` lower-casing is done in Java so the claim key never depends on a database collation.
+   `AppUserEmailClaimRepositoryTest` (`@DataJpaTest`) pins the violation; `integration/
+   EmailClaimMigrationTest` (CI-only) pins the backfill over a seeded case-duplicate pair.
 7. **An admin's self-deletion is refused (409).** `UserService.deleteUser` already refuses an admin
    deleting themself; a sole admin deleting their account in-app would orphan the instance. Another
    admin deletes an admin, as today.
@@ -1342,7 +1356,9 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added forty-two P1s over twenty-one rounds, folded in:
+disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added forty-three P1s over twenty-two rounds, folded in:
+normalised email uniqueness moves into the database as a claim table written with every address
+(§5 #6);
 `role` becomes non-updatable with a scoped `updateRole`, and the marketing opt-in save stops being a
 whole-entity merge (§2 #13); the
 refresh theft response commits in its own transaction before the refusal; the filter builds
