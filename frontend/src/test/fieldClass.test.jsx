@@ -137,7 +137,7 @@ describe('the .field rules in index.css', () => {
     ['w-full', 'bg-plex-bg', 'border', 'border-plex-border', 'rounded-lg', 'px-3', 'py-2', 'text-base',
       'sm:text-sm', 'text-plex-text', 'placeholder:text-plex-text-muted', 'focus:outline-hidden',
       'focus:ring-1', 'focus:ring-plex-gold'].forEach((u) => {
-      expect(block, u).toMatch(new RegExp(`(^|\\s)${u.replace(/[:[\]]/g, '\\$&')}(\\s|;)`));
+      expect(block, u).toMatch(new RegExp(`(^|\\s)${u.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|;)`));
     });
     expect(block).not.toMatch(/(^|\s)text-sm(\s|;)/);
   });
