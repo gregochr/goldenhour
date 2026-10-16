@@ -490,8 +490,11 @@ identifier bucket has already counted the attempt and nothing further is acquire
 accepted: alternating two identifiers of ONE account yields five attempts where two identifiers of
 no account yield ten, a weak oracle on "these two names are one account", bought for the real bound. Controllers map
 `CAPTCHA_FAILED` → 400 with today's sentence, `RATE_LIMITED` → 429 `{"error": "Too many attempts.
-Please wait a few minutes and try again."}`. Applied to `/login`, `/change-password` and
-`/forgot-password` (R3a). ⚠️ **`/register` gets NO fallback** (§4 #1, §5 #4): the fallback cannot
+Please wait a few minutes and try again."}` on `/login` and `/change-password`; **`/forgot-password`
+maps `RATE_LIMITED` to its generic 200 with no send** (§4 #8's contract — every valid forgot request
+answers the same sentence; Codex, R0 round 28; `CAPTCHA_FAILED` stays a 400 there, a failed token
+being a real error, not a budget). Applied to `/login`, `/change-password` and `/forgot-password`
+(R3a). ⚠️ **`/register` gets NO fallback** (§4 #1, §5 #4): the fallback cannot
 tell a blocked browser from a bot that omits the token, registration's key would be an email the
 caller chooses, and each pending row counts against `registration.max-users` — a trickle of
 tokenless sign-ups could close registration for everyone and mail verification links to arbitrary
@@ -1363,8 +1366,8 @@ planning session writes the memory file (`login-registration-series.md` + the `M
 7. **The forgot-password request has a Turnstile.** The spec does not mention one; without it the
    endpoint is an unauthenticated email-sender. It takes the same gate and bounded fallback as
    sign-in.
-8. **A rate-limited forgot request answers 200, not 429**, and the limit is the in-memory limiter,
-   not a DB count. Task 12 asks for "the same rate limit as resend (3 per 5 min)"; resend's DB count
+8. **A rate-limited forgot request answers 200, not 429** — whichever bound refused it, the gate's
+   fallback bounds included — and the limit is the in-memory limiter, not a DB count. Task 12 asks for "the same rate limit as resend (3 per 5 min)"; resend's DB count
    can never trip (§1 #12) and a 429 here would say "this email has an account". Both go on the
    limiter (3 per 15 min per user), resend keeping its 429.
 9. **Reset signs the reader in** and, after R3c, signs every other device out at its next request.
@@ -1525,7 +1528,8 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Codex's round twenty-seven moved §2 #14 rule 1 forward to R3a, the first phase that re-reads under a
+disagree on four points (§4 #14). Codex's round twenty-eight aligned forgot-password's gate refusal with its always-200 contract (§2
+#4, §4 #8). Codex's round twenty-seven moved §2 #14 rule 1 forward to R3a, the first phase that re-reads under a
 lock. An internal concurrency lens after round twenty-six added five P1s and nine smaller findings,
 all folded into §2 #14 (OSIV makes every locked entity re-read stale; a bound null fails the claim check
 open; verification resend was not serialised against an email change; the anonymous principal
