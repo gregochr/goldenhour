@@ -455,10 +455,16 @@ Endpoint endpoint)` with `Outcome { OK_VERIFIED, OK_FALLBACK, CAPTCHA_FAILED, RA
 two `OK`s because login needs to know it is on the fallback path — below): `TurnstileService
 .isConfigured()` false → `OK_VERIFIED` (local dev, today's behaviour; the limiter is not consulted);
 token non-blank → `verify(token)` ? `OK_VERIFIED` : `CAPTCHA_FAILED` (a token that FAILS is never a
-fallback); token blank → the fallback, `OK_FALLBACK` only when ALL of these admit:
-`fallback:<endpoint>:id:<key>` (5 per 15 min), `fallback:<endpoint>:client:<addr>` (20 per 15 min),
-`fallback:<endpoint>:global` (an hourly ceiling per endpoint: login 60, change-password 20, forgot
-10). ⚠️ **The per-ACCOUNT login budget is acquired AFTER the user resolves, inside
+fallback); token blank → the fallback, `OK_FALLBACK` only when ALL of these admit, **checked in THIS order,
+outermost first, stopping at the first refusal**: `fallback:<endpoint>:global` (an hourly ceiling per
+endpoint: login 60, change-password 20, forgot 10), then `fallback:<endpoint>:client:<addr>` (20 per
+15 min), then `fallback:<endpoint>:id:<key>` (5 per 15 min) — the identifier is the one key the
+caller chooses, so it is touched only by a request the non-rotatable bounds have already admitted,
+and a refused request creates no entry at all (otherwise rotating identifiers against an exhausted
+client bound would go on filling the quarter-hour cache and evicting other accounts' counters;
+Codex, R0 round 14). The same order holds for set-password and reset-password (global → client →
+token) and the tests pin it: a refused global bound leaves the client and identifier/token caches
+empty. ⚠️ **The per-ACCOUNT login budget is acquired AFTER the user resolves, inside
 `AuthenticationService.login(identifier, password, fallback)`** (Codex, R0 round 10: the gate runs
 before resolution and sees only the identifier, so a username and an email of one account would be
 two five-attempt buckets): on the fallback path only, once the §2 #10 lookup has answered and BEFORE
@@ -474,9 +480,9 @@ tell a blocked browser from a bot that omits the token, registration's key would
 caller chooses, and each pending row counts against `registration.max-users` — a trickle of
 tokenless sign-ups could close registration for everyone and mail verification links to arbitrary
 addresses. Registration keeps today's rule (no token → 400) and the client says so honestly (§2 #12
-"Security check couldn't load"). `/set-password` loses Turnstile entirely and always takes THREE bounds, every one refused → 429
-the same sentence: `set-password:token:<tokenKey>` (10 per 15 min), `set-password:client:<addr>`
-(20 per 15 min) and `set-password:global` (200 per hour) — a token-keyed bucket alone can be
+"Security check couldn't load"). `/set-password` loses Turnstile entirely and always takes THREE bounds in the same outermost-first
+order, any one refused → 429 the same sentence: `set-password:global` (200 per hour), then
+`set-password:client:<addr>` (20 per 15 min), then `set-password:token:<tokenKey>` (10 per 15 min) — a token-keyed bucket alone can be
 rotated with a fresh random token on every request, which would throttle nothing and churn the
 caches' entries out from under the real per-account limits (Codex, R0 round 13); `/reset-password`
 takes the identical three (`reset:…`). A 122-bit token is not guessable; the bounds exist for the
@@ -490,7 +496,8 @@ account's owner from a blocked browser.
 **Testing** (§1 #24): `AuthAttemptLimiterTest` (a sixth call within the window refused, the first
 call after 15 minutes from the FIRST attempt admitted, keys independent, `clear()`),
 `TurnstileGateTest` with mocks (unconfigured → OK and no limiter call; a failing token → `CAPTCHA_FAILED`
-and no limiter call; blank → the three keys consulted in order and the first refusal wins). In
+and no limiter call; blank → global, then client, then identifier, the first refusal wins and the
+later keys are never touched). In
 `AbstractControllerTest` BOTH `TurnstileGate` and `AuthAttemptLimiter` are `@MockitoBean`s; each
 `AuthControllerTest` case stubs the gate's `Outcome` (default `OK`) and the limiter's answer, so the
 controller tests pin the status mapping (200/400/429 per endpoint; set-password with NO token
@@ -1274,7 +1281,9 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added thirty P1s over thirteen rounds, folded in: deletion
+disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added thirty-one P1s over fourteen rounds, folded in: the
+bounds are checked outermost first so a refused request never creates an attacker-chosen entry
+(§2 #4); deletion
 re-checks the verified hash and the credential version under the row lock; set-password and
 reset-password carry client and global bounds a rotated token cannot escape (§2 #1, #4, #7); the
 writer refuses a change-password whose authenticated credential version has moved; every credential
