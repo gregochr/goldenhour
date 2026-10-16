@@ -805,7 +805,13 @@ is a small record carrying the site's WHOLE account-state change — `passwordCh
 `enable` (true for `activateUser`, which also writes the activation it does today) — so the
 password, the stamp, the flag and enabled state, and the refresh-token revocation commit together
 and a failure after the password write can neither leave the old sessions valid nor leave an
-activated user disabled (Codex, R0 round 4). ⚠️ **The writer also takes the caller's EXPECTED
+activated user disabled (Codex, R0 round 4). **`apply` RETURNS a `CredentialChangeOutcome(userId,
+username, email, credentialsVersion)` read as a scalar projection under the row lock** (§2 #14 rule
+1), and every caller that mails or answers afterwards uses THAT — the admin `resetPassword`'s
+`PasswordResetResult` (today built from the entity loaded before BCrypt, so an email change that
+committed during the hash would send the temporary password to the old, possibly compromised,
+mailbox; Codex, R0 round 29), `changePassword`'s `buildAuthResponse`, and the reset redeemer's
+response; `CredentialChangeWriterTest` pins the interleaving with the preloaded-entity shape. ⚠️ **The writer also takes the caller's EXPECTED
 credential version and refuses under the lock when the row's has moved** (Codex, R0 round 12):
 `change-password` admits the bearer before BCrypt, so two requests authenticated under the same old
 `cv` can both reach the writer, and a stolen session finishing its hash AFTER the legitimate change
@@ -1528,7 +1534,9 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Codex's round twenty-eight aligned forgot-password's gate refusal with its always-200 contract (§2
+disagree on four points (§4 #14). Codex's round twenty-nine made the writer return the locked row's address and username for every
+caller that mails or answers afterwards (§2 #13). Codex's round twenty-eight aligned
+forgot-password's gate refusal with its always-200 contract (§2
 #4, §4 #8). Codex's round twenty-seven moved §2 #14 rule 1 forward to R3a, the first phase that re-reads under a
 lock. An internal concurrency lens after round twenty-six added five P1s and nine smaller findings,
 all folded into §2 #14 (OSIV makes every locked entity re-read stale; a bound null fails the claim check
