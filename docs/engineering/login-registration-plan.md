@@ -391,15 +391,20 @@ Idempotent: a second dismissal overwrites the instant. `JsonDateFormatContractTe
 `postcodePromptDue` (`settings?.postcodePromptDue === true`, STRICT — §1 #17) from its existing
 mount read and lets every later answer (`startSettingsRead`, `homeSaved`) update it. `AppInner`
 mounts `PostcodePromptOverlay` when `postcodePromptDue && !promptDone && !promptSuppressed &&
-!settingsOpen && getRewindTo() == null` (`promptDone` a local `useState`, set by Save and Not now;
-`promptSuppressed` is `AuthContext`'s in-memory flag below; `settingsOpen` is `AppInner`'s existing
-`Boolean(showSettings || settingsFocus)` — a slow first read lets the reader open Settings first, and
-the dialog's own response reaches `postcodePromptDue` through `startSettingsRead`, which would
-otherwise put the overlay over an open `aria-modal` dialog and make Settings inert underneath it;
-with the guard the overlay waits for Settings to close, and a postcode saved there ends the question
-anyway — Codex, R0 round 7; a rewound admin is never prompted — the rewind is a read of the past,
-not a sign-in). `App.test.jsx` pins: Settings open + a due answer → no overlay; Settings closed →
-the overlay. **An overlay, not a gate**: the app is already mounted
+!modalPresent && getRewindTo() == null` (`promptDone` a local `useState`, set by Save and Not now;
+`promptSuppressed` is `AuthContext`'s in-memory flag below; `modalPresent` is a new
+`hooks/useModalPresent.js` — `true` while ANY `[role="dialog"][aria-modal="true"]` exists in the
+document, kept current by a `MutationObserver` on `document.body` (`childList`, `subtree`,
+`attributeFilter: ['aria-modal']`) and read once at mount; a rewound admin is never prompted — the
+rewind is a read of the past, not a sign-in). A slow first read lets the reader open Settings, the
+map overlay, a Plan dialog or the Ask sheet first, and a late `postcodePromptDue` would otherwise
+put the overlay over an open `aria-modal` dialog and make it inert underneath — two modal claims, the
+exact thing CLAUDE.md's one-modal invariant forbids (Codex, R0 rounds 7 and 9; the DOM test is the
+only one that sees every dialog, including those the shell owns and `AppInner` cannot read). The
+overlay therefore waits until the last dialog closes; a postcode saved in Settings meanwhile ends the
+question anyway. `App.test.jsx` pins: Settings open + a due answer → no overlay, and the overlay
+appears when it closes; the same for the map overlay (`mapOverlay`); and the overlay never mounts
+while its own predecessor is still in the DOM. **An overlay, not a gate**: the app is already mounted
 when the answer arrives (one request after mount; at a fresh sign-in that is before the briefing has
 painted), so the prompt is a `role="dialog" aria-modal="true" aria-labelledby` page portalled to
 `document.body` (`createPortal`, a sibling of `#root`, so it is NOT inside the subtree it makes
@@ -773,14 +778,17 @@ revokes), and the issuer's own `findByIdForUpdate` inside that same transaction 
 row already held; `TokenIssuerTest`'s two-thread case runs the writer and a refresh concurrently
 and asserts no deadlock and one loser. `JwtAuthenticationFilter`: after
 `validateToken`, load the user ONCE (the query it already makes for `lastActiveAt`); set the
-`SecurityContext` only when the row exists, `enabled` is true, and `credentialsChangedAt == null ||
-!jwtService.extractIssuedAt(token).isBefore(credentialsChangedAt.truncatedTo(ChronoUnit.SECONDS))`
-(the token already carries `iat`; `extractIssuedAt` exists). ⚠️ **The stamp is truncated to whole
-seconds for the comparison, because `iat` is whole seconds**: a stamp at `12:00:00.500` and the
-replacement token minted in the same second (`iat` `12:00:00`) must compare as "not before" — a
-plain `isBefore` would have rejected every token issued straight after a reset, a change-password or
-an activation, the registration `HOME` step's first request included (Codex, R0 round 2). The
-filter test pins exactly that pair; otherwise leave the context empty and let the entry point answer 401, and
+`SecurityContext` only when the row exists, `enabled` is true, and **the token's credential version
+matches the row**: `JwtService.generateAccessToken` adds a `cv` claim = the account's
+`credentials_changed_at` as epoch milliseconds (`0` when null), read under the issuer's row lock, and
+the filter rejects a token whose `cv` is not exactly the loaded row's current value (Codex, R0
+rounds 2 and 9: an `iat` comparison is whole seconds against a microsecond stamp — truncating the
+stamp rejected the replacement tokens, and accepting equality let a token minted in the same second
+BEFORE the change live out its 24 hours; an equality on the stamp's own value has neither problem).
+A token with NO `cv` claim (issued before R3c deploys, ≤ 24 h old) falls back to the second-truncated
+`iat` rule, `credentialsChangedAt == null || !iat.isBefore(stamp.truncatedTo(SECONDS))`, for that
+window only — stated, accepted. The filter test pins: matching `cv` → accepted; a stale `cv` → 401; a
+legacy token without `cv` before and after a stamp; otherwise leave the context empty and let the entry point answer 401, and
 log one INFO line through `LogSanitizer`. The `lastActiveAt` stamp keeps its hourly rule on the
 same loaded entity **but becomes a column-scoped update** (`AppUserRepository.touchLastActiveAt(id,
 now)`), as does the one in `AuthenticationService.login` — both are whole-entity `save()`s today, and
@@ -802,8 +810,8 @@ refused. The client side is one conditional line in `AuthContext.changePassword`
 (data?.accessToken) signInWithTokens(data)` — built in R3b, safe to ship before R3c because it does
 nothing for today's `{message}` response. Tests: `JwtAuthenticationFilterTest` — a token for a deleted user, a disabled
 user, a token issued before the stamp, one issued after it, one with a null stamp; a `@DataJpaTest`
-for the scoped update; `integration/CredentialsChangedAtMigrationTest` (CI-only). The residual, accepted: a token issued in the same second BEFORE the stamp is also accepted
-(one second of exposure, against a token the stamping request itself usually holds). ⚠️ **The token
+for the scoped update; `integration/CredentialsChangedAtMigrationTest` (CI-only). No same-second residual remains for tokens carrying `cv`; the legacy-token window above is the
+only one, and it closes 24 hours after R3c deploys. ⚠️ **The token
 is bound to the account's id, not only its name** (Codex, R0 round 8): a username freed by a
 deletion and recreated by an admin (`UserService.createUser`, enabled at once) or re-registered would
 otherwise resolve an unexpired old token to the NEW row, whose stamp is null. `JwtService
@@ -1210,7 +1218,10 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added nineteen P1s over eight rounds, folded in: the access
+disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added twenty-one P1s over nine rounds, folded in: the
+filter compares a `cv` credential-version claim for equality instead of `iat`, which could neither
+tolerate nor exclude the same second; the prompt defers behind ANY open `aria-modal` dialog via a
+DOM observer, not only Settings (§2 #3, #13); the access
 token carries a `uid` claim and creation stamps `credentials_changed_at`, so a recreated username
 cannot inherit a deleted account's token; the reset token is consumed inside the writer's
 transaction (§2 #1, #13);
