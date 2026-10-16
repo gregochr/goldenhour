@@ -10,4 +10,4 @@ deletion; and the native-app prep (`apple-app-site-association`, clean `/verify`
 links, a privacy inventory). §1 answers the bundle's five "check first" questions (no reset flow
 exists; deletion is admin-only and `user_drive_time` has no cascade; set-password verifies
 Turnstile; the login fallback has no backend at all; emails are unique but case-sensitive) and §3
-cuts the work into nine Sonnet phases. No code.
+cuts the work into thirteen Sonnet phases; §5a records the plan-time review (four lenses, 60 charges) and what it changed. No code.

@@ -5,15 +5,16 @@ specification, eighteen tasks in four groups) and `Postcode Capture.html` (eight
 `docs/design/login-registration/VENDORING.md` records what was copied. Read the spec before any
 phase; **this document is the port plan**: what the codebase already has (and where the spec guessed
 wrong), what is genuinely new, how the work cuts into single-session phases for **Sonnet** sessions,
-and every place the plan and the spec disagree on purpose.
+and every place the plan and the spec disagree on purpose. §5a records the plan-time adversarial
+review (four lenses, 60 charges) and what each changed.
 
 **The one-sentence version.** Registration gains a `HOME` postcode step and sign-in a one-time
 prompt for accounts with no postcode (both with "Use my location"); the auth screens are made to
 work on phones and to look like the rest of the app; marketing consent becomes opt-in; "Confirm
 email" and the second Turnstile go; sign-in accepts an email, offers a real forgot-password flow and
-a backend fallback when Turnstile cannot load; Settings gains account deletion; and the server is
-readied for the iOS app (`apple-app-site-association`, clean `/verify` and `/reset` links, a privacy
-inventory).
+a bounded backend fallback when Turnstile cannot load; a password reset or an account deletion now
+ends every session at once; Settings gains account deletion; and the server is readied for the iOS
+app (`apple-app-site-association`, clean `/verify` and `/reset` links, a privacy inventory).
 
 **Cadence per phase** (CLAUDE.md "UI Work — Review Cadence"): build → tests → adversarial review of
 the diff (prosecutor lenses + one refuter per charge, all read-only, run in the FOREGROUND so their
@@ -23,15 +24,22 @@ for every phase of this series on 2026-10-16** ("Push and Open a PR. Merge once 
 is happy. Then move on to the next stage"); CLAUDE.md's standing "never push" rule is lifted for
 exactly this series and nothing else — never tag, never run `release.sh` ("I'll release when we're
 feature complete"). Backend gate before any push (JDK 23 on this Mac, see `no-jdk-25-on-this-mac`
-in memory; `$SCRATCH` is the session scratchpad, never bare `/tmp`):
+in memory; set `SCRATCH` to the session's scratchpad directory first — unset, the redirect fails and
+Maven never runs):
 
 ```bash
 cd backend && export JAVA_HOME=/Users/chrisgregory/Library/Java/JavaVirtualMachines/openjdk-23.0.2/Contents/Home MAVEN_OPTS=--enable-preview && ./mvnw clean verify --batch-mode --no-transfer-progress -Djava.version=23 -Dmaven.compiler.enablePreview=true -Dtest='!**/integration/**,!EvaluationModelTest' -DfailIfNoSpecifiedTests=false >"$SCRATCH/v.log" 2>&1; echo "exit: $?"
 ```
 
-Gate on the echoed exit code, never a grep. Frontend gate: `cd frontend && npm run lint && npm test
-&& npm audit --audit-level=high && npm run build`. Paste the relevant section of THIS plan and the
-spec into every review agent's prompt — an agent cannot open a path it was not given.
+Gate on the echoed exit code, never a grep; say in the PR body that the local gate ran on JDK 23
+with `EvaluationModelTest` excluded and that CI's Backend job is the proof. Frontend gate, CI's own
+four steps: `cd frontend && npm run lint && npm test -- --reporter=dot && ../scripts/npm-audit.sh
+frontend high && npm run build` (run the audit script from the repo root: `./scripts/npm-audit.sh
+frontend high`). "CI green" means every check on the PR: *Backend — Build, Test & Coverage*,
+*Frontend — Lint, Test & Build*, ShellCheck and CodeQL (CodeQL's `java/log-injection` flags any new
+log line carrying an email or identifier that does not go through `util/LogSanitizer`). Paste the
+relevant section of THIS plan and the spec into every review agent's prompt — an agent cannot open a
+path it was not given.
 
 **Check open PRs first.** `gh pr list --state open` and grep the titles for *login*, *register*,
 *auth*, *postcode*, *settings*, *turnstile*. Checked 2026-10-16 at plan time: three open PRs (#1132
@@ -43,25 +51,32 @@ a jsdom bump, #843 and #815 docs), none touching any file this plan names.
 
 | phase | PR | merged | notes |
 |---|---|---|---|
-| R0 plan | — | — | this document, the vendored bundle, `changelog.d/20261016-login-registration-plan.md` |
-| R1 auth visual foundation | | | |
-| R2 Turnstile gate + registration form | | | |
+| R0 plan | | | this document, the vendored bundle, `changelog.d/20261016-login-registration-plan.md` |
+| R1 auth visual foundation (frontend, not Settings) | | | |
+| R2a Turnstile gate, attempt limiter, set-password without Turnstile (backend) | | | |
+| R2b registration form, Turnstile fallback on the forms (frontend) | | | |
 | R3a sign-in backend: identifier, forgot/reset, `/verify` link | | | |
-| R3b sign-in frontend: forgot/reset pages, label, link | | | |
-| R4a postcode backend: prompt column, login flag, reverse lookup | | | |
-| R4b postcode frontend: `PostcodeCapture`, `HOME` step, prompt page, Settings | | | |
-| R5 account deletion | | | |
-| R6 native prep: AASA, nginx, privacy docs | | | |
-| R7 docs sweep | | | |
+| R3b sign-in frontend: forgot/reset pages, label, link, `registrationPending` | | | |
+| R3c token invalidation: `credentials_changed_at` and the filter | | | |
+| R4a postcode backend: prompt column + flag, reverse lookup | | | |
+| R4b postcode frontend: `PostcodeCapture`, `HOME`, the prompt overlay | | | |
+| R4c Settings: `.field`, tokens, copy, Use my location, attributes | | | |
+| R5a account deletion (backend) | | | |
+| R5b account deletion (Settings danger zone) | | | |
+| R6 native prep: AASA, nginx, `nginx -t` in CI | | | |
+| R7 docs sweep + privacy docs | | | |
 
-Each phase appends its row **in the same commit** as its code.
+⚠️ **No build phase edits this file.** Two phases run in parallel and their §0 rows are adjacent
+lines, which git treats as a conflict; the planning session tracks status in its memory and R7 fills
+this table from the merged PRs. A phase that finds a plan statement wrong says so, with file:line,
+in its final report; the planning session folds it into R7 or into the next phase's brief.
 
 ---
 
 ## §1 What the codebase already has — corrections to the spec
 
-The spec's "check these first" list, answered, plus what else the survey turned up. Numbered so the
-phases can cite them.
+The spec's "check these first" list, answered, plus what else the survey and the plan review turned
+up. Numbered so the phases can cite them.
 
 1. **No user-facing password reset exists.** `PUT /api/users/{id}/reset-password` is the ADMIN's
    temp-password reset (`UserService.resetPassword` → `PasswordResetResult` →
@@ -71,36 +86,50 @@ phases can cite them.
    the old one and its admin path are untouched.
 2. **Account deletion exists for admins only.** `DELETE /api/users/{id}` →
    `UserService.deleteUser(id, currentUsername)` (refuses self-delete, then
-   `userRepository.delete(user)`, then `sendAccountDeletedEmail`, template
-   `account-deleted-email.html`). There is no self-service endpoint and no Settings control. ⚠️ **The
-   FK cascades are incomplete**: `refresh_token`, `email_verification_token`, `ask_usage` and
-   `outcome_rating` cascade, `ask_log` sets null — but `user_drive_time.user_id` (V67) has **no
-   `ON DELETE` clause at all**, so a whole-entity delete of a user who has drive times violates the FK.
-   R5 deletes the drive-time rows explicitly inside the same transaction, through one shared
-   `purgeUserRows` step the admin path calls too, and pins it with a test that gives the user drive
-   times first. No push-subscription table exists (Web Push is a planned feature), so there is
-   nothing else to purge; no other table is keyed on `username`.
+   `userRepository.delete(user)`, then `sendAccountDeletedEmail` — an `@Async` send made INSIDE the
+   transaction, so a delete that fails at commit has already mailed "your account was removed").
+   There is no self-service endpoint and no Settings control. ⚠️ **The FK cascades are
+   incomplete**: `refresh_token`, `email_verification_token`, `ask_usage` and `outcome_rating`
+   cascade, `ask_log` sets null — but `user_drive_time.user_id` (V67) has **no `ON DELETE` clause at
+   all**, so a whole-entity delete of a user who has drive times violates the FK in Postgres. ⚠️ **H2
+   cannot show this**: the test profile is `ddl-auto: create-drop` and `UserDriveTimeEntity` maps
+   `userId` as a plain `Long` (no `@ManyToOne`), so the H2 schema has no FK and a negative test there
+   passes with or without the fix. R5a deletes the drive-time rows explicitly
+   (`UserDriveTimeRepository.deleteAllByUserId` already exists) through one `purgeUserRows` step both
+   delete paths call, moves BOTH paths' email after commit, and proves the FK in a CI-only
+   `integration/` test on Postgres + Flyway. No push-subscription table exists (Web Push is a
+   planned feature) and no other table is keyed on `username`, so there is nothing else to purge.
 3. **Set-password validates Turnstile server-side.** `AuthController.setPassword` calls
    `turnstileService.verify(body.get("turnstileToken"))` and answers 400 "CAPTCHA verification
-   failed" on a miss. R2 removes it (front and back) and puts a token-keyed attempt limit in its
-   place (§2 #4).
+   failed" on a miss. R2a removes it and puts a token-keyed attempt limit in its place (§2 #4). The
+   token itself is a 122-bit random UUID, the complexity check runs before the lookup, and
+   `/verify-email` has never had a Turnstile — removing this one opens nothing.
 4. **Login with Turnstile unavailable has NO backend handling — the frontend's promise is empty.**
    `TurnstileService.verify` returns `true` only when `turnstile.secret-key` is blank (local dev);
    with a key configured a null or blank token returns `false`, so in production a sign-in from a
    browser where the script failed to load is a 400 — the `LoginPage` line "Security check unavailable
    — we'll verify your sign-in another way" promises something nothing does. Task 9's "mirror the
-   login behaviour, front and back" therefore has nothing to mirror on the back. R2 builds the
-   fallback once, as `TurnstileGate` (§2 #4), and applies it to login, register, forgot-password and
-   change-password; `LoginPage.test.jsx`'s "submits with an empty token and lets the backend respond"
-   stays true and finally means something.
-5. **Emails are unique but case-SENSITIVE.** V33 created `idx_app_user_email` as a plain
-   `UNIQUE INDEX ON app_user(email)` (nulls allowed for the seeded admin). `AppUserRepository
-   .findByEmail` is exact-match; `RegistrationService.findPendingUserByEmail` loads EVERY user and
-   filters with `equalsIgnoreCase` (a full-table scan per resend). The email sign-in needs a
-   case-insensitive query (`LOWER(u.email) = LOWER(:email)`) that returns a list and treats two or
-   more matches as no match (two rows differing only in case are possible under this index), and
-   R3a replaces the pending-user scan with the same query. **No `citext`/functional-index migration
-   in this series** (§5 #6).
+   login behaviour, front and back" therefore has nothing to mirror on the back. R2a builds a BOUNDED
+   fallback once, as `TurnstileGate` (§2 #4), for login, change-password and forgot-password — and
+   deliberately NOT for registration (§4 #1, §5 #4). ⚠️ Scope note: the frontend fallback covers
+   only `onLoadFail`; `TurnstileWidget` routes the challenge's `error-callback` to `onExpire`, so a
+   script that loads but whose challenge errors still leaves the submit disabled — a narrower dead
+   end this series does not close (recorded, not fixed).
+5. **Emails are unique but case-SENSITIVE, and the existing matching is unsafe.** V33 created
+   `idx_app_user_email` as a plain `UNIQUE INDEX ON app_user(email)` (nulls allowed for the seeded
+   admin). `AppUserRepository.findByEmail` and `existsByEmail` are exact-match (so `Victim@x` can be
+   registered beside `victim@x`); `RegistrationService.findPendingUserByEmail` loads EVERY user and
+   filters with Java `equalsIgnoreCase` — a full-table scan per resend that also folds `ı`→`I`, and
+   then mails the TYPED address, so a confusable IDN address (`bob@gmaıl.com`) can receive the token
+   for someone else's pending registration. `EmailValidator` accepts any non-whitespace Unicode. The
+   rules every email match in this series follows (§2 #10): the identifier is trimmed and must be
+   ASCII (a non-ASCII email identifier is refused up front with the generic answer); the query is an
+   explicit JPQL `LOWER(u.email) = :email` with the parameter lower-cased in Java with `Locale.ROOT`
+   (never a derived `IgnoreCase` method, which emits `UPPER()` and lets Postgres fold `ı`→`I`); only
+   ACTIVE rows count (enabled, non-empty password) for sign-in and reset; two or more matches are no
+   match; and mail always goes to the STORED `user.getEmail()`, never to the request's text. R3a
+   moves the pending-user scan onto the same rule and makes register and admin create refuse a
+   case-insensitive duplicate. **No `citext`/functional-index migration in this series** (§5 #6).
 6. **The `app_user` settings columns are `updatable = false` and written by scoped updates.**
    `postcode_prompt_dismissed_at` copies `coming_up_last_seen_at` exactly: nullable column, `updatable
    = false` field, `AppUserRepository.updatePostcodePromptDismissedAtByUsername` (the
@@ -108,85 +137,135 @@ phases can cite them.
    (the `markComingUpSeen` shape, re-reading the row for the response), `PUT
    /api/user/settings/postcode-prompt-dismissed` with no body.
 7. **The registration `SUCCESS` step is unreachable today.** `handleSetPassword` calls
-   `completeRegistration(data)` and THEN `setStep(SUCCESS)`; `completeRegistration` sets the token,
-   `AuthGate` re-renders, `!token` is false, and the gate returns `<RewindGate/>` — `RegisterPage`
-   unmounts in that same commit and its 2 s reload timer is cleared on unmount. New users land in
-   the app straight from Set password; nobody has seen "Welcome to PhotoCast!". A `HOME` step after
-   the token exists needs the gate to keep `RegisterPage` mounted: `AuthContext.registrationPending`
-   (§2 #2). The spec's "the `SUCCESS` step and its 2s reload stay" is honoured as a 2 s Welcome that
-   ends the pending state — no reload (§4 #3).
+   `completeRegistration(data)` and then `setStep(SUCCESS)` in one batched update; `completeRegistration`
+   sets the token, `AuthGate` re-renders, `!token` is false, and the gate returns `<RewindGate/>` —
+   `RegisterPage` unmounts in that same commit, so the `SUCCESS` effect (and its 2 s reload timer)
+   never commits at all. New users land in the app straight from Set password; nobody has seen
+   "Welcome to PhotoCast!". A `HOME` step after the token exists needs the gate to keep `RegisterPage`
+   mounted: `AuthContext.registrationPending` (§2 #2). The spec's "the `SUCCESS` step and its 2s
+   reload stay" is honoured as a 2 s Welcome that ends the pending state — no reload (§4 #3).
 8. **`nginx.conf` disables geolocation for the page itself.** Both the `/` and `/assets/` blocks
    send `Permissions-Policy: geolocation=(), camera=(), …` — `navigator.geolocation` rejects in the
    document under that header, so "Use my location" is dead until the directive reads
    `geolocation=(self)`. `nginx.conf` is bind-mounted into the frontend container
-   (`docker-compose.yml`: `./nginx.conf:/etc/nginx/nginx.conf:ro`), so the change ships with the
-   deploy, not with an image. R6 owns every `nginx.conf` edit in this series (the header and the
-   AASA location), so the two phases that touch infrastructure never edit the same file.
+   (`docker-compose.yml`: `./nginx.conf:/etc/nginx/nginx.conf:ro`) and `deploy.yml` writes it from
+   the tag and recreates the container, so the change ships with the deploy. ⚠️ **Nothing checks the
+   file's syntax before production** — no CI step runs `nginx -t`, this machine has neither nginx nor
+   Docker, and the container has `restart: always`, so a stray brace takes `app.photocast.online`
+   down until a rollback. R6 owns every `nginx.conf` edit in this series (the header and the AASA
+   location) and adds the CI step (§2 #8). An installed PWA picks the new header up only when its
+   precached `index.html` revision changes — any release with a JS change does that.
 9. **Email links are bare `?token=` on the app origin.** `UserEmailService.sendVerificationEmail`
-   builds `frontendBaseUrl + "?token=" + rawToken` (`photocast.frontend-base-url`, production
+   builds `frontendBaseUrl + "?token=" + rawToken` (`app.frontend-base-url`, production
    `https://app.photocast.online`); `App.jsx`'s `AuthGate` reads `?token=` from ANY path and replaces
    the URL with `window.location.pathname` once consumed. `/verify?token=` already reaches the app
    (nginx `try_files … /index.html`; the PWA's `navigateFallback: '/index.html'` with a denylist of
    `/api` and `/actuator` only). R3a changes the link to `/verify?token=`; the gate keeps accepting
    the legacy bare form for links sent in the 24 h before the deploy and replaces the consumed URL
-   with `/`, not the pathname (`/verify` with no token would otherwise survive a consumed link).
-   `/reset?token=` is a NEW route the gate must tell apart by `pathname` (§2 #1).
+   with `/`, not the pathname. `/reset?token=` is a NEW route the gate tells apart by `pathname`, and
+   it takes precedence over an existing session (§2 #1, §4 #15).
 10. **Safe areas are already a system.** `index.css` declares `--safe-t/-r/-b/-l/-v/-h` once on
-    `:root` with `0px` fallbacks and an `.app-safe` rule; `index.html` already carries
-    `viewport-fit=cover`; `safeAreas.test.jsx` pins that every `env(safe-area-*)` in the stylesheet
-    carries a fallback and that the six insets are declared ONCE. The auth wrappers therefore read
-    the vars (`pt-[max(3rem,var(--safe-t))]`-shaped arbitrary values or a `.auth-shell` rule in the
-    components layer), never a raw `env()`. Task 7's "the app's top bar and bottom-anchored controls"
-    is already covered by that system; R1 touches the auth wrappers only (§4 #6).
+    `:root` with `0px` fallbacks and `.app-safe`/`.app-safe-modal` rules (the modal one resolves its
+    gutter with `max()`); `index.html` already carries `viewport-fit=cover`; `safeAreas.test.jsx` pins
+    that every `env(safe-area-*)` in the stylesheet carries a fallback and that the six insets are
+    declared ONCE. The auth wrapper therefore reads the vars through `max()`, never a raw `env()`
+    (§2 #9). Task 7's "the app's top bar and bottom-anchored controls" is already covered by that
+    system; R1 touches the auth wrapper only (§4 #6).
 11. **Postcode lookup errors.** `PostcodeLookupException extends RuntimeException` (not
     `IllegalArgumentException`, the only one `GlobalExceptionHandler` maps to 400), and
     `UserSettingsController.lookupPostcode` does not catch it — so an invalid postcode may answer 500
-    today; `UserSettingsModal` maps ANY failure to "Invalid postcode", which hides it. R4a's first
-    step measures the status with a controller test and, if it is not 400, adds the one
-    `@ExceptionHandler` line so both the forward and the reverse lookup answer 400 `{error}`
-    deterministically (the modal's own mapping is unchanged either way).
+    today; `UserSettingsModal` maps ANY failure to "Invalid postcode", which hides it. The client
+    also throws that ONE exception type for an upstream failure and for "no such postcode". R4a's
+    first step measures the status with a controller test; it then splits the client's failure into
+    `PostcodeLookupException` (not found → 400 `{error}`) and `PostcodeLookupUnavailableException`
+    (transport/5xx → 502 `{"error": "Postcode lookup is unavailable right now"}`), mapped in
+    `GlobalExceptionHandler`, **never echoing the upstream message** (the modal's own "Invalid
+    postcode" mapping is unchanged either way).
 12. **Rate limits.** The only auth-side limit is `RegistrationService.resendVerification`'s DB count
-    of tokens per user (3 in 5 min → `IllegalStateException` → 429). `POST /home/lookup` has none
-    (task 3's "if that has a limit" is answered: it does not, and neither does the reverse). The Ask
-    stack has an in-memory per-user limiter (`service/ask/AskRateLimiter`, Caffeine-backed; Caffeine
-    is already a dependency) — the model for §2 #4's limiter, not reused (it is Ask-shaped).
+    of tokens per user (3 in 5 min → 429) — ⚠️ **and it can never trip**: the method counts, then
+    DELETES every unverified token for the user, then inserts one, so the count is at most 1 whatever
+    the call rate (`RegistrationServiceTest` only ever mocks the count to 3). `POST /home/lookup` has
+    none. The Ask stack has an in-memory per-user sliding-window limiter (`service/ask/AskRateLimiter`,
+    a `ConcurrentHashMap`, not Caffeine) — a model in shape, not reused. R2a's `AuthAttemptLimiter`
+    (§2 #4) is the one limiter this series adds, and R3a puts BOTH resend and forgot on it (the DB
+    count stays as a harmless second check).
 13. **`ChangePasswordPage` is the same Turnstile dead end.** It mounts a `TurnstileWidget` with no
     `onLoadFail`, and `/change-password` verifies the token server-side — the first-login password
-    gate is unreachable from a blocked browser. R2 gives it the same fallback as the other three forms.
+    gate is unreachable from a blocked browser. R2a/R2b give it the bounded fallback.
 14. **The password checklist is duplicated** (`CheckItem` in `RegisterPage.jsx` and
     `ChangePasswordPage.jsx`, identical). R1 extracts `PasswordChecklist` and `PasswordInput` (the
     field with the show/hide eye) once; R3b's reset page is their third consumer.
 15. **Marketing opt-in defaults to true on BOTH sides.** `RegisterPage` `useState(true)`, and
     `AuthController.register` parses `!"false".equalsIgnoreCase(body.get("marketingEmailOptIn"))`
-    — an absent field opts the account IN. The flip is both: the client default and the server's
-    reading of an absent value (`"true".equalsIgnoreCase(...)`), because the iOS client will call
-    this endpoint too and an omitted field must never be consent. `AppUserEntity.marketingEmailOptIn
-    = true` is the entity default for `createPendingUser`'s explicit argument and stays.
-16. **The login response is built in one place.** `AuthController.buildAuthResponse(AuthTokens)` is
-    shared by `/login` and `/set-password`; `AuthTokens` is a record filled by
-    `AuthenticationService.issueTokensFor(user)`. `postcodePromptDue` (§2 #3) is one new record
-    component and one `response.put`, nothing more.
-17. **`App.test.jsx` and `AppSettingsRoutes.test.jsx` mock `getSettings` to `{}` / a no-home
-    fixture.** A sign-in prompt keyed on a settings READ would fire in all 86 of those tests; a
-    prompt keyed on the LOGIN RESPONSE fires in none of them (they start with a token in storage,
-    never through `login()`). That is the second reason §2 #3 rides the login response.
-18. **`UserSettingsModal` is 847 lines with its own focus-landing state machine.** Its postcode
-    field is not swapped for the shared component; R4b adds only the input attributes, the `.field`
-    class (R1), the "Use my location" link below the field and the task-14 copy (§4 #5).
-19. **The JWT filter resolves the user per request** (`JwtAuthenticationFilter`:
-    `userRepository.findByUsername(username).ifPresent(...)`), so a deleted account's still-valid
-    access token authenticates nothing and the next request is a 401 — R5 pins that rather than
-    inventing a denylist.
-20. **`landing/privacy.html` is stale for this work.** It lists the postcode as "if you choose to set
-    a home location for drive time calculations — Pro feature"; since the masthead light rule the
-    postcode serves every account, and "Use my location" will send coordinates to postcodes.io. R6
-    rewrites those lines and adds in-app deletion.
+    — an absent field opts the account IN. The flip is both: the client default (R2b) and the server's
+    reading of an absent value (`"true".equalsIgnoreCase(...)`, R2a), because the iOS client will call
+    this endpoint too and an omitted field must never be consent.
+16. **`AuthTokens`/`buildAuthResponse` need no change for the prompt.** The first cut carried a
+    `postcodePromptDue` flag on the login response; the review showed `AuthController.refresh` extends
+    the session by 30 days on every refresh, so an existing user never signs in again and would never
+    be prompted. The flag now rides `GET /api/user/settings` (§2 #3), which `useReaderSettings` already
+    reads once at every mount of the authenticated app — one source, no extra request.
+17. **`App.test.jsx` (60 tests) and `AppSettingsRoutes.test.jsx` (19) mock `getSettings` to `{}` or
+    a no-home fixture and never go through `login()`.** The prompt therefore keys on a STRICT
+    `settings.postcodePromptDue === true` (a server-computed boolean), so a mock without the field
+    never prompts and no existing test changes; the field is added to the fixtures of exactly the new
+    tests that want the overlay.
+18. **`UserSettingsModal` is 847 lines with its own focus-landing state machine** (110 tests in its
+    file). Its postcode field is not swapped for the shared component, and its explicit
+    `focusField === 'postcode'` landing is NOT gated on the pointer rule — it is the signpost the
+    masthead nudge and the map's ⌂ open the dialog FOR, the test setup stubs `matchMedia` to `false`,
+    and three existing tests assert that focus. R4c adds only the `.field` class, the status tokens,
+    the task-14 copy, the task-4 input attributes and the "Use my location" link below the field (§4
+    #5). `UserSettingsModal.test.jsx` asserts the old task-14 sentence and changes with it.
+19. **The JWT filter authenticates from the token's claims ALONE.** `JwtAuthenticationFilter` sets
+    the `SecurityContext` from the JWT's subject and role before it ever touches the database; its
+    `findByUsername(...).ifPresent` afterwards only stamps `lastActiveAt` (at most hourly) and gates
+    nothing. So a deleted account's access token keeps authenticating for up to 24 h (production
+    expiry), a disabled account's likewise, a password reset "signs other devices out" only when their
+    access token expires, and a username freed by a self-service deletion could be re-registered while
+    the old token, with its old ROLE claim, still answers for that name. R3c closes all of it with one
+    rule in the filter (§2 #13): no authentication unless the row exists, is enabled, and the token's
+    `iat` is not before the account's `credentials_changed_at`. The filter already pays that one
+    query per request; the check reorders it, it does not add one.
+20. **`landing/privacy.html` is stale for this work.** Line 36 lists the postcode as "if you choose to
+    set a home location for drive time calculations — Pro feature" and line 51's processor row says
+    postcodes.io receives "UK postcodes … for drive times"; since the masthead light rule the postcode
+    serves every account, and "Use my location" will send device coordinates. The landing site is
+    deployed by hand (`landing/README.md`: not part of the tagged release), so R7 — after deletion
+    exists — rewrites those lines and the owner redeploys landing after the release (§7).
 21. **Two origins.** The landing site is `photocast.online` (its own nginx, `landing/`); the app is
     `app.photocast.online` (root `nginx.conf`). `/verify`, `/reset` and therefore the AASA file live
     on the APP origin; the Terms and Privacy links in `RegisterPage` point at the landing origin and
     stay.
 22. **`TurnstileWidget` already has `onLoadFail`** (10 s script timeout and a render failure both
-    call it); `LoginPage` is its only consumer. R2 wires the other three forms to it.
+    call it); `LoginPage` is its only consumer. R2b wires the register and change-password forms to it.
+23. **The client IP IS available, with a caveat.** The backend's `remoteAddr` is the nginx
+    container; nginx sets `X-Forwarded-For` (`$proxy_add_x_forwarded_for`) and forwards the client's
+    own headers, `CF-Connecting-IP` included. But `docker-compose.yml` publishes 80 and 8082 on the
+    host, so a caller who reaches the host directly can forge both. The address is therefore an
+    ADDITIONAL bound in §2 #4 (never the only one), read as `CF-Connecting-IP`, else the first
+    `X-Forwarded-For` hop, else `remoteAddr`.
+24. **`AbstractControllerTest` is one shared `@SpringBootTest` context** with `TurnstileService`,
+    `AppUserRepository`, `RefreshTokenRepository`, `RegistrationService` and `UserEmailService` as
+    `@MockitoBean`s. A REAL in-memory limiter in that context keeps counts across test classes and
+    makes results order-dependent; an unstubbed mocked `isConfigured()` answers false and makes
+    every gate test vacuous. §2 #4 and the R2a/R3a test plans are written for that: the gate and the
+    limiter are mocked in the base class and unit-tested on their own, and the one end-to-end reset
+    sequence runs in its own `@SpringBootTest` against real H2 repositories.
+25. **`ProPill` is not a tag.** `components/shared/ProPill.jsx` renders sentence-case "Pro" in sans
+    11px (an inline `style`), `bg-plex-surface-light rounded-md`, no border, no `size` prop, and is
+    shared by Ask and the rating lock. The spec's `PRO` tag (mono 10px, 0.12em, uppercase, 1px
+    `border-light`, 3px radius, 1px 5px padding) is a new `components/auth/ProTag.jsx` built from
+    Tailwind classes alone (§2 #6); `ProPill` is untouched.
+26. **`ConfirmDialog` cannot disable its confirm button and `UserSettingsModal`'s `Modal` takes no
+    `stacked`** — a `ConfirmDialog` opened from Settings would put two `aria-modal` dialogs on screen,
+    the exact thing CLAUDE.md's Plan-tab invariant forbids. R5b's confirmation is therefore an INLINE
+    region inside the settings dialog, not a second dialog (§2 #7, §4 #17).
+27. **The sign-in prompt's three remaining sources of a `getSettings` read are the two existing ones.**
+    `useReaderSettings` reads on mount; `UserSettingsModal` reads on open; `App.test.jsx` counts those
+    calls (`toHaveBeenCalledTimes`). R4b adds NO read: the overlay consumes `useReaderSettings`'
+    answer and the dismissal PUT's response goes through the hook's existing `homeSaved`-style
+    answer path (`startSettingsRead`), so the counts stand.
 
 ---
 
@@ -197,58 +276,80 @@ phases can cite them.
 **Table** `password_reset_token` (next free `V` — re-read `ls backend/src/main/resources/db/migration
 | sort -V | tail -1` at phase time; V178 is the latest at plan time): `id` identity PK, `token_hash
 VARCHAR(64) NOT NULL UNIQUE`, `user_id BIGINT NOT NULL REFERENCES app_user(id) ON DELETE CASCADE`,
-`expires_at TIMESTAMP NOT NULL`, `used_at TIMESTAMP NULL`, `created_at TIMESTAMP NOT NULL`, an index
-on `(user_id, created_at)`. The V33 shape with `used_at` in place of `verified`. Entity
-`PasswordResetTokenEntity`, repository with `findByTokenHash`, `countByUserIdAndCreatedAtAfter`,
-`deleteByUserIdAndUsedAtIsNull`.
+`expires_at TIMESTAMPTZ NOT NULL`, `used_at TIMESTAMPTZ NULL`, `created_at TIMESTAMPTZ NOT NULL`,
+an index on `(user_id, created_at)`. The V33 shape with `used_at` in place of `verified` and
+instants, not naive timestamps (`Instant` on the entity). Entity `PasswordResetTokenEntity`,
+repository with `findByTokenHash`, `deleteByUserIdAndUsedAtIsNull`, and the compare-and-set
+`@Modifying int markUsed(id, now)` = `UPDATE … SET usedAt = :now WHERE id = :id AND usedAt IS NULL`
+(the `revokeIfActive` precedent — two concurrent redemptions of one token must not both succeed).
 
 **`POST /api/auth/forgot-password`** `{email, turnstileToken?}` → **always** 200
 `{"message": "If that email has an account, we've sent a reset link."}` for a syntactically valid
 email (400 `{error}` for a blank or invalid one, the `register` shape); through `TurnstileGate`
-(§2 #4; the fallback key is the lower-cased email). `PasswordResetService.requestReset(email)`:
-find the user case-insensitively (§1 #5); none, disabled, or pending (empty password) → log at
-DEBUG, return; `countByUserIdAndCreatedAtAfter(now − 5 min) >= 3` → log at INFO, **return 200
-silently** (never 429: a 429 says the account exists); else delete that user's unused tokens, mint
-`jwtService.generateRefreshToken()`, store its hash with `expires_at = now + 1 h`, send
-`sendPasswordResetLinkEmail(email, username, rawToken)` whose link is `frontendBaseUrl +
-"/reset?token=" + rawToken` (template `password-reset-link-email.html`, the verification email's
-layout, copy in §2 #12).
+(§2 #4; the fallback key is the normalised email). `PasswordResetService.requestReset(email)`:
+resolve the user by the §1 #5 rule (ASCII, trimmed, `Locale.ROOT` lower-case, active rows only,
+exactly one); none → log at DEBUG through `LogSanitizer`, return; then
+`limiter.tryAcquire("forgot:user:" + userId, 3)` over 15 minutes → refused → log at INFO, **return
+200 silently** (never 429: a 429 says the account exists); else delete that user's unused tokens,
+mint `jwtService.generateRefreshToken()`, store its hash with `expires_at = now + 1 h`, send
+`sendPasswordResetLinkEmail(user.getEmail(), username, rawToken)` — the STORED address — whose link
+is `frontendBaseUrl + "/reset?token=" + rawToken` (template `password-reset-link-email.html`, the
+verification email's layout, copy in §2 #12). The response is decided before the send runs, so a
+known and an unknown address take the same path up to it. Stated exposure, not hidden: register
+already answers 409 "Email already registered", so email existence is not a secret this endpoint
+could keep; what it keeps is the link.
 
 **`POST /api/auth/reset-password`** `{token, password}` → 400 `{error}` for a missing field, a
 complexity failure (`validatePasswordComplexity`'s own sentence), an unknown token ("This reset link
-is invalid"), a used one ("This reset link has already been used") or an expired one ("This reset
-link has expired"); through the token-keyed attempt limit (§2 #4, key `reset:` + the token hash's
-first 16 hex chars, 10 per 15 min). On success, in one transaction: set the password, clear
-`passwordChangeRequired`, stamp `used_at`, `refreshTokenRepository.revokeAllActiveByUserId(userId)`
-(every other device signs out), then `issueTokensFor(user)` and answer `buildAuthResponse` — the
-reader is signed in on the device that reset, exactly as set-password does. Never Turnstile (the
+is invalid"), a used one ("This reset link has already been used"), an expired one ("This reset
+link has expired"), or a token whose user is disabled or pending ("This reset link is invalid" — a
+reset must not sign a banned account in); through the token-keyed attempt limit (§2 #4, key
+`reset:` + the token hash's first 16 hex chars, 10 per 15 min). On success: encode the password
+BEFORE opening the transaction (`AuthenticationService`'s own javadoc forbids BCrypt inside one),
+then in one transaction `markUsed` (0 rows → "already been used"), set the password, clear
+`passwordChangeRequired`, stamp `credentials_changed_at` (R3c's column, once it exists — R3a leaves a
+named `TODO(R3c)` and R3c fills it), `refreshTokenRepository.revokeAllActiveByUserId(userId)`;
+after it, `issueTokensFor(user)` and `buildAuthResponse` — the reader is signed in on the device that
+reset, as set-password does. **Every OTHER device is signed out at its next request once R3c lands**;
+until then, when its access token expires (≤ 24 h) — R3a's PR body says which. Never Turnstile (the
 emailed token is the proof, task 11's own reasoning).
 
 **Client** (R3b): `ForgotPasswordPage` (email field, Turnstile with the load-fail fallback, "Send
 reset link", the always-200 sentence shown as the done state, "Back to sign in") reached from the
 "Forgot password?" link; `ResetPasswordPage` mounted by `AuthGate` when `window.location.pathname ===
-'/reset'` and `?token=` is present (`PasswordInput` × 2 + `PasswordChecklist`, "Set new password" →
-`completeRegistration(data)`-shaped sign-in through a new `AuthContext.signInWithTokens(data)` that
-both call, then `history.replaceState({}, '', '/')`); an invalid/used/expired token shows the
-server's sentence and a "Request a new link" button that goes to `ForgotPasswordPage`.
+'/reset'` and `?token=` is present — **before** the token test, so a reader already signed in on that
+browser still gets the reset page (the common case: the link is opened on the phone the account is
+signed in on; §4 #15) — with `PasswordInput` × 2 + `PasswordChecklist`, "Set new password" →
+`signInWithTokens(data)` then `history.replaceState({}, '', '/')`; an invalid/used/expired token
+shows the server's sentence and a "Request a new link" button that goes to `ForgotPasswordPage`.
 `authApi.js` gains `requestPasswordReset(email, turnstileToken)` and `resetPassword(token, password)`.
 
-### #2 `registrationPending` and the `HOME` step (R4b, with the context change in R3b)
+### #2 `registrationPending` and the `HOME` step (R3b builds the context flag, R4b the step)
 
 `AuthContext` gains an in-memory boolean `registrationPending` (never storage), set `true` by
-`completeRegistration(data)` and cleared by a new `finishRegistration()`. `AuthGate`'s first test
-becomes `if (!token || registrationPending)`, and inside it the verify branch becomes `if
+`completeRegistration(data)`, cleared by a new `finishRegistration()` AND by `logout()` and the
+session-expired handler (a session-expired event during `HOME` must not leave the gate on
+`RegisterPage` with no token). `completeRegistration` delegates to a new `signInWithTokens(data)`
+(its present body) and adds the flag; the reset page calls `signInWithTokens` alone. `AuthGate`'s
+first test becomes `if (!token || registrationPending)`, and inside it the verify branch becomes `if
 (verifyToken || registrationPending)` so the SAME `<RegisterPage>` element (same type, same tree
-position) stays mounted while the token already exists — React preserves the instance and its
-`step` state; a `verifyToken` prop that goes null after mount is harmless (`handleVerify` runs only
-when the prop is truthy). `RegisterPage`: `STEPS` gains `HOME` between `SET_PASSWORD` and
+position, no key) stays mounted while the token already exists — React preserves the instance and
+its `step` state; a `verifyToken` prop that goes null after mount is harmless (`handleVerify` runs
+only when the prop is truthy, and `SET_PASSWORD` is reached only through it, so registration always
+starts with the prop set). `RegisterPage` (R4b): `STEPS` gains `HOME` between `SET_PASSWORD` and
 `SUCCESS`; `handleSetPassword` → `completeRegistration(data)` → `setStep(HOME)`; `HOME` renders
-`PostcodeCapture` (§2 #6) with the task-1 copy; Save and Skip both → `SUCCESS`; `SUCCESS` keeps its
-copy and its 2 s timer, whose body is `finishRegistration()` (and the URL cleanup) instead of
-`window.location.reload()`. The lookup and save calls go through the ordinary `apiClient`, which
-reads the token `completeRegistration` has just stored. A page reload during `HOME` lands in the app
-with no postcode (the pending flag is memory) — the masthead's "set a postcode" nudge and, at the
-next sign-in, the prompt both still cover it; stated, accepted.
+`PostcodeCapture` (§2 #6) with the task-1 copy, matching frames 1–3; Save and Skip both → `SUCCESS`;
+`SUCCESS` keeps its copy and its 2 s timer, whose body is `finishRegistration()` (and the URL
+cleanup) instead of `window.location.reload()`. The lookup and save calls go through the ordinary
+`apiClient`, which reads the token `completeRegistration` has just stored. A page reload during
+`HOME` lands in the app with no postcode (the pending flag is memory) — the masthead's "set a
+postcode" nudge and the prompt overlay (§2 #3, which the settings read then raises) both cover it.
+⚠️ **The mutation pin** (R4b, `App.test.jsx`): render `/verify?token=x` through the real
+`AuthProvider` + `AuthGate` with `verifyEmail` and `setPasswordForNewUser` mocked, walk Set password,
+assert the `HOME` heading is on screen and no app shell is mounted, press Skip, see `success-step`,
+advance 2 s with fake timers, see the app; the test must FAIL with `|| registrationPending` removed
+from either branch (`RegisterPage.test.jsx` renders the page without the gate, so it cannot catch
+this).
 
 ### #3 The one-time sign-in prompt (R4a backend, R4b frontend)
 
@@ -256,126 +357,203 @@ next sign-in, the prompt both still cover it; stated, accepted.
 null is "never dismissed", the spec's "existing users without a postcode see it once"). Entity field
 `Instant postcodePromptDismissedAt`, `updatable = false`, written only by
 `AppUserRepository.updatePostcodePromptDismissedAtByUsername(username, at)` (§1 #6).
-`UserSettingsResponse` gains `postcodePromptDismissedAt` (nullable; the spec asks for it on the
-settings read, and it costs nothing). **`PUT /api/user/settings/postcode-prompt-dismissed`**, no
-body, `isAuthenticated()`, answers the settings response like `/coming-up-seen`; added to
-`HttpCachingConfigTest.personalDataPathsAreNeverFiltered` (a PUT is never filtered, pinned anyway, the
-`/map-colours` precedent). Idempotent: a second dismissal overwrites the instant.
+`UserSettingsResponse` gains `postcodePromptDismissedAt` (nullable) **and `boolean
+postcodePromptDue`** = `homePostcode == null && postcodePromptDismissedAt == null`, computed in
+`UserSettingsService.getSettings` (and on every path that builds the response). **`PUT
+/api/user/settings/postcode-prompt-dismissed`**, no body, `isAuthenticated()`, answers the settings
+response like `/coming-up-seen`; added to `HttpCachingConfigTest.personalDataPathsAreNeverFiltered`.
+Idempotent: a second dismissal overwrites the instant. `JsonDateFormatContractTest` constructs
+`UserSettingsResponse` and must pin the new `Instant`.
 
-**The login flag.** `AuthTokens` gains `boolean postcodePromptDue`; `issueTokensFor` fills it as
-`user.getHomePostcode() == null && user.getPostcodePromptDismissedAt() == null`;
-`buildAuthResponse` puts `postcodePromptDue`. Carried by `/login` and `/set-password` (and
-`/reset-password`), never by `/refresh`. **The client keeps it in memory only**: `AuthContext.login`
-sets `postcodePromptDue` from the response (default false), `completeRegistration` and
-`signInWithTokens` leave it false (registration has `HOME`; a reset is not a fresh look at the
-account), `logout`/session-expiry clear it, `clearPostcodePrompt()` clears it. `AuthGate` order:
-no token → auth pages; `mustChangePassword` → `ChangePasswordPage`; `postcodePromptDue` →
-`PostcodePromptPage`; else `RewindGate`. The prompt is therefore never over the app shell, never
-over the Settings dialog, never a dialog-stack member (CLAUDE.md's Plan-tab modal invariants are
-untouched), and never counted by `AppSettingsRoutes.test.jsx`.
+**The client source is the mount read, nothing else.** `useReaderSettings` exposes
+`postcodePromptDue` (`settings?.postcodePromptDue === true`, STRICT — §1 #17) from its existing
+mount read and lets every later answer (`startSettingsRead`, `homeSaved`) update it. `AppInner`
+mounts `PostcodePromptOverlay` when `postcodePromptDue && !promptDone && getRewindTo() == null`
+(`promptDone` a local `useState`, set by Save and Not now; a rewound admin is never prompted — the
+rewind is a read of the past, not a sign-in). **An overlay, not a gate**: the app is already mounted
+when the answer arrives (one request after mount; at a fresh sign-in that is before the briefing has
+painted), so the prompt is a `role="dialog" aria-modal="true" aria-labelledby` page portalled to
+`document.body` (`createPortal`, a sibling of `#root`, so it is NOT inside the subtree it makes
+inert), `fixed inset-0 z-[1400] overflow-y-auto bg-plex-bg` (above `MapView`'s `z-[1200]`;
+R4b screenshots it over the Map tab), laid out like the auth pages (`AuthShell`'s column and
+lockup); it sets `inert` on the app container with the SAME layout-effect shape
+`WindowFirstShell` uses for the Ask sheet (walk up from a ref to the child of `<body>`, never
+`<body>` itself, never if something else already holds it, remove in cleanup — copy the twelve
+lines with a comment naming the original; jsdom has no `inert`, tests assert the attribute). Focus
+moves into the dialog on mount (the heading, `tabIndex={-1}`, or the field under the pointer rule);
+Escape does nothing — Save and Not now are the two exits. Nothing under it can open a dialog, so the
+Plan-tab modal invariants and `AppSettingsRoutes.test.jsx` are untouched; `App.test.jsx` pins that
+while the overlay shows, the app container carries `inert` (the spec's "check it doesn't open while
+the Settings dialog is open", answered structurally and by test).
 
-**`PostcodePromptPage`** = `AuthShell` + `PostcodeCapture` with the task-2 copy; Save →
-`saveHome(...)` then `clearPostcodePrompt()`; "Not now" → `markPostcodePromptDismissed()` (fire,
-await, ignore a failure — the app must open either way; a failed dismissal means one more prompt at
-a later sign-in, the safe direction) then `clearPostcodePrompt()`. A reload while the prompt is up
-goes to the app (the flag is memory) and the prompt returns at the next sign-in — consistent with
-"shown once after login" and with the dismissal being the only durable state.
+**`PostcodePromptOverlay`** = `PostcodeCapture` with the task-2 copy (frame 4). Save:
+`PostcodeCapture` saves (§2 #6) and calls `onSaved(updated)` → the overlay hands the response to
+`useReaderSettings.homeSaved` (the masthead light rule updates without a reload) and sets
+`promptDone`. Not now → `markPostcodePromptDismissed()` (await; on failure log nothing, proceed — the
+app must open either way, and a failed dismissal means one more prompt at a later mount, the safe
+direction), the response through `startSettingsRead`'s answer path, then `promptDone`. A reload while
+the prompt is up raises it again (the dismissal is the only durable state) — consistent with the
+spec's "shown once" being "until dismissed or a postcode exists".
 
-### #4 `TurnstileGate` and `AuthAttemptLimiter` (R2)
+### #4 `TurnstileGate` and `AuthAttemptLimiter` (R2a)
 
 `service/AuthAttemptLimiter`: Caffeine `expireAfterWrite(15 min)`, `maximumSize(100_000)`, keys
-are `String`, values `AtomicInteger`; `boolean tryAcquire(String key, int limit)` increments and
-answers `count <= limit`; injectable `Ticker` for tests. Keys are `"<endpoint>:" + the lower-cased
-identifier` (login: the identifier typed; register and forgot: the email; change-password: the
-authenticated username; set-password and reset-password: the token hash's first 16 hex chars). ⚠️
-**Never the client IP**: behind `cloudflared` → nginx, the backend's `remoteAddr` is the tunnel's
-own address for every reader and nothing today reads `CF-Connecting-IP`, so an IP key would lock
-everyone out together the moment Turnstile was down (§5 #4 records the trade).
+`String`, values `AtomicInteger` obtained with `get(key, k -> new AtomicInteger())` and incremented
+in place — so the entry's write time is the FIRST attempt and the window is fixed from it: a locked
+key recovers 15 minutes after its first attempt, never sliding; `boolean tryAcquire(String key, int
+limit)` answers `incrementAndGet() <= limit`; an injectable `Ticker`; `void clear()` for tests. ⚠️
+**Keys are built from exactly the value the lookup uses**: `trim()` then `toLowerCase(Locale.ROOT)`
+for an identifier or email (" a@x" and "a@x" must share a bucket); for login ALSO the resolved
+user id when one resolves (`login:user:<id>`), so the username and the email of one account share a
+budget; `client:` + the forwarded address (§1 #23); and a per-endpoint `global:` key.
 
-`service/TurnstileGate`: `Outcome admit(String token, String fallbackKey)` with
-`Outcome { OK, CAPTCHA_FAILED, RATE_LIMITED }`: `TurnstileService.isConfigured()` false → `OK`
-(local dev, today's behaviour); token non-blank → `verify(token)` ? `OK` : `CAPTCHA_FAILED`; token
-blank → `limiter.tryAcquire("fallback:" + key, 5)` ? `OK` : `RATE_LIMITED`. Controllers map
+`service/TurnstileGate`: `Outcome admit(String token, String identityKey, String clientKey,
+Endpoint endpoint)` with `Outcome { OK, CAPTCHA_FAILED, RATE_LIMITED }`: `TurnstileService
+.isConfigured()` false → `OK` (local dev, today's behaviour; the limiter is not consulted); token
+non-blank → `verify(token)` ? `OK` : `CAPTCHA_FAILED` (a token that FAILS is never a fallback);
+token blank → the fallback, admitted only when ALL of these admit: `fallback:<endpoint>:id:<key>`
+(5 per 15 min), `fallback:<endpoint>:client:<addr>` (20 per 15 min), `fallback:<endpoint>:global`
+(an hourly ceiling per endpoint: login 60, change-password 20, forgot 10). Controllers map
 `CAPTCHA_FAILED` → 400 with today's sentence, `RATE_LIMITED` → 429 `{"error": "Too many attempts.
-Please wait a few minutes and try again."}`. Applied to `/login`, `/register`, `/change-password`,
-`/forgot-password` (R3a). `/set-password` loses Turnstile entirely and always takes
+Please wait a few minutes and try again."}`. Applied to `/login`, `/change-password` and
+`/forgot-password` (R3a). ⚠️ **`/register` gets NO fallback** (§4 #1, §5 #4): the fallback cannot
+tell a blocked browser from a bot that omits the token, registration's key would be an email the
+caller chooses, and each pending row counts against `registration.max-users` — a trickle of
+tokenless sign-ups could close registration for everyone and mail verification links to arbitrary
+addresses. Registration keeps today's rule (no token → 400) and the client says so honestly (§2 #12
+"Security check couldn't load"). `/set-password` loses Turnstile entirely and always takes
 `limiter.tryAcquire("set-password:" + tokenKey, 10)` → 429 the same sentence. `TurnstileService`
 gains `isConfigured()`; `verify`'s own behaviour is unchanged. A legitimate reader on a blocked
-browser who mistypes a password five times waits fifteen minutes; the copy says so. **Nothing about
-a token that VERIFIES changes** — the fallback exists only for the no-token path, and a token that
-fails verification is still a 400, never a fallback.
+browser who mistypes a password five times waits fifteen minutes; the copy says so. **Stated
+residuals** (§5 #4): with no token at all an attacker gets at most 60 login guesses an hour across
+every identifier and client, 5 against any one account; today they get none — and neither does the
+account's owner from a blocked browser.
 
-Frontend (R2): `RegisterPage` (both the register form and set-password), `ChangePasswordPage`
-take `LoginPage`'s exact pattern — `turnstileLoadFailed` state, `onLoadFail`, the widget unmounted
-and the amber line "Security check unavailable — we'll verify your sign-in another way." shown
-(verbatim on every form, the one sentence `LoginPage` already owns), the submit enabled, an empty
-token sent. Set-password's widget, state and token are deleted outright (task 11). A 429 renders the
+**Testing** (§1 #24): `AuthAttemptLimiterTest` (a sixth call within the window refused, the first
+call after 15 minutes from the FIRST attempt admitted, keys independent, `clear()`),
+`TurnstileGateTest` with mocks (unconfigured → OK and no limiter call; a failing token → `CAPTCHA_FAILED`
+and no limiter call; blank → the three keys consulted in order and the first refusal wins). In
+`AbstractControllerTest` BOTH `TurnstileGate` and `AuthAttemptLimiter` are `@MockitoBean`s; each
+`AuthControllerTest` case stubs the gate's `Outcome` (default `OK`) and the limiter's answer, so the
+controller tests pin the status mapping (200/400/429 per endpoint; set-password with NO token
+succeeds and a refused limiter answers 429; register with the field absent stores
+`marketingEmailOptIn = false`) and never depend on order.
+
+Frontend (R2b): `ChangePasswordPage` takes `LoginPage`'s exact pattern — `turnstileLoadFailed`
+state, `onLoadFail`, the widget unmounted, the line "Security check unavailable — we'll verify your
+sign-in another way." in `text-plex-text-secondary`, the submit enabled, an empty token sent.
+`RegisterPage`'s register form takes the same state but a DIFFERENT line and keeps the submit
+disabled: "Security check couldn't load. Try another browser, or turn off your ad-blocker for this
+page." Set-password's widget, state and token are deleted outright (task 11). A 429 renders the
 server's sentence in the form's error slot.
 
 ### #5 Reverse lookup (R4a)
 
 `PostcodesIoClient.reverseLookup(double lat, double lon)` → `GET
-https://api.postcodes.io/postcodes?lon={lon}&lat={lat}&limit=1`; the response is `{status, result:
-[Result] | null}`; an empty/null result or any transport failure throws `PostcodeLookupException`
-exactly as `lookup` does; a hit maps through the same `buildPlaceName` to the same
-`PostcodeLookupResult`. **`POST /api/user/settings/home/reverse`** `{latitude, longitude}`,
-`isAuthenticated()`: 400 `{error}` for a missing or out-of-range value (lat −90..90, lon −180..180,
-finite), 400 `{error: "No UK postcode found for that location"}` from the exception (§1 #11),
-otherwise the result; never ETag'd (added to the caching test's personal list). `settingsApi.js`
-gains `reverseLookupPostcode(latitude, longitude)`. No rate limit (§1 #12).
+https://api.postcodes.io/postcodes?lon={lon}&lat={lat}&limit=1&radius=2000` (the API's default
+radius is 100 m, which misses most rural homes; 2000 m is its maximum); the response is `{status,
+result: [Result] | null}`; an empty or null result throws `PostcodeLookupException`, a transport
+failure or 5xx throws `PostcodeLookupUnavailableException` (§1 #11), a hit maps through the same
+`buildPlaceName` to the same `PostcodeLookupResult`. **`POST /api/user/settings/home/reverse`**
+`{latitude, longitude}`, `isAuthenticated()`: 400 `{error}` for a missing, non-finite or
+out-of-range value (lat −90..90, lon −180..180), 400 `{error: "No UK postcode found for that
+location"}` from the not-found exception, 502 from the unavailable one, otherwise the result; never
+ETag'd (added to the caching test's personal list). `settingsApi.js` gains
+`reverseLookupPostcode(latitude, longitude)`. No rate limit (§1 #12). ⚠️ **The contract test is the
+one that can see the URL**: `client/contract/PostcodesIoClientContractTest` (its javadoc names the
+fail-open caveat — every exception is wrapped, so `server.verify()` is required) gains a case that
+expects EXACTLY `https://api.postcodes.io/postcodes?lon=-1.575&lat=54.776&limit=1&radius=2000`
+(a lat/lon swap or a wrong path is the silent-wrong mode) and ends with `server.verify()`; the
+unit test covers a hit, `result: []`, `result: null` and a 500.
 
-### #6 `PostcodeCapture` and `useGeolocationPostcode` (R4b)
+### #6 `PostcodeCapture`, `ProTag` and `useGeolocationPostcode` (R4b)
 
 `components/auth/PostcodeCapture.jsx`, props `{heading, sub, primaryLabel, secondaryLabel,
-onSaved(result), onSkip, autoFocus}` — the field + "Look up" / "Looking up…" (Enter runs the lookup;
-the task-4 attributes `autoComplete="postal-code" autoCapitalize="characters" autoCorrect="off"
-spellCheck={false} inputMode="text" enterKeyHint="search"`), the confirmation row (`✓ {placeName}`
-with `{postcode}` beneath in `font-mono text-[11px]`, a **Change** text button restoring the field
-with its last value), the error "Invalid postcode" (`text-plex-error`, the field's border swapped
-to the error token), the "Use my location" text button (hidden when `navigator.geolocation` is
-undefined), the Pro line (`PRO` tag + "Also gives you drive times from home to every location." —
-every role, no link), the primary button disabled until a lookup result exists, the secondary text
-button. Save calls `saveHome(result.postcode, result.latitude, result.longitude, null)` — the
-null radius keeps the column NULL (`UserSettingsModal`'s own rule) — then `onSaved(response)`; a
-failed save keeps the confirmation row and shows "Couldn't save. Try again." (§5 #9). Autofocus
-only when `autoFocus && window.matchMedia('(pointer: fine)').matches` (task 8; `matchMedia` absent
-in a test → false).
+onSaved(response), onSkip, autoFocus, testIdPrefix}` — matching frames 1–4 in `.field` geometry
+(the frames draw the OLD input style; task 13 wins, §4 #14):
+
+- The heading and sub block: `AuthHeading` (an `<h2>`, §2 #9) then the sub `text-xs
+  text-plex-text-secondary leading-normal mt-1`.
+- The field row: label "Home postcode" (`block text-xs text-plex-text-secondary mb-1`), then a
+  `flex gap-2` row of the input (`field flex-1`, placeholder *Enter UK postcode*, the task-4
+  attributes `autoComplete="postal-code" autoCapitalize="characters" autoCorrect="off"
+  spellCheck={false} inputMode="text" enterKeyHint="search"`; Enter runs the lookup) and the
+  **Look up** button — `btn-secondary` (the frames'), *Looking up…* while busy, `disabled` while the
+  field is blank or a lookup is in flight.
+- Under the field: the error line *Invalid postcode* (`text-xs text-plex-error mt-1`; the input takes
+  `field-error`) and, on its own line, the **Use my location** text button (`text-xs text-plex-gold
+  hover:underline`; *Locating…* while busy; hidden when `navigator.geolocation` is undefined; its own
+  error replaces the error line).
+- After a lookup the field row is replaced by the confirmation row: a `field`-styled box
+  (`flex items-center justify-between`) holding `✓` in `text-plex-ok` + `{placeName}` in
+  `text-sm text-plex-text`, with `{postcode}` beneath in `font-mono text-[11px] tracking-[0.06em]
+  text-plex-text-muted mt-0.5`, and a **Change** text button (`text-xs text-plex-text-secondary`)
+  that restores the field with its last value.
+- The Pro line: `flex items-baseline gap-2 text-xs text-plex-text-secondary` — `ProTag` then *Also
+  gives you drive times from home to every location.* — every role, no link.
+- The actions: a full-width `btn-primary` (`primaryLabel`, `disabled` until a lookup result exists
+  or while saving) above a centred text button (`secondaryLabel`, `text-xs text-plex-text-secondary
+  hover:text-plex-text` — secondary, not muted: 12px muted fails 4.5:1 by the spec's own argument,
+  §4 #14), `gap-2.5`.
+
+Save calls `saveHome(result.postcode, result.latitude, result.longitude, null)` — the null radius
+keeps the column NULL (`UserSettingsModal`'s own rule) — then `onSaved(response)`; **consumers never
+save**, `onSaved` is a notification. A failed save keeps the confirmation row and shows *Couldn't save.
+Try again.* (§5 #9). Autofocus only when `autoFocus && window.matchMedia('(pointer: fine)').matches`
+(`test/setup.js` stubs `matchMedia` to `matches: false`; a test wanting `true` overrides
+`globalThis.matchMedia` and restores it).
+
+`components/auth/ProTag.jsx` (§1 #25): `<span className="font-mono text-[10px] uppercase
+tracking-[0.12em] text-plex-text border border-plex-border-light rounded-[3px] px-[5px] py-px"
+data-testid="pro-tag">Pro</span>` — the text is "Pro" and CSS upper-cases it, so tests assert
+`/pro/i`; PropTypes-free (no props), Tailwind only.
 
 `hooks/useGeolocationPostcode.js`: `{locate, locating, error}`; `locate()` calls
 `navigator.geolocation.getCurrentPosition(ok, fail, {enableHighAccuracy: false, timeout: 10000,
-maximumAge: 600000})`, then `reverseLookupPostcode(lat, lon)`; the error strings, verbatim:
-`PERMISSION_DENIED` → "Location access is off. Enter your postcode instead."; a 400 from the
-reverse endpoint → "We couldn't find a UK postcode for your location."; `TIMEOUT`,
-`POSITION_UNAVAILABLE`, any other failure of either step → "Couldn't get your location. Enter your
+maximumAge: 600000})`, then `reverseLookupPostcode(lat, lon)`; the error strings, verbatim, keyed on
+the NUMERIC codes (jsdom has neither `navigator.geolocation` nor `GeolocationPositionError`, so
+mocks pass `{code: N}`): `1` (permission denied) → "Location access is off. Enter your postcode
+instead."; a 400 from the reverse endpoint → "We couldn't find a UK postcode for your location.";
+`2`, `3`, a 502, any other failure of either step → "Couldn't get your location. Enter your
 postcode instead." A result lands in the same confirmation row as a typed lookup.
 
-Consumers: `RegisterPage` `HOME` (R4b), `PostcodePromptPage` (R4b), and `UserSettingsModal` takes
-the hook and the link, the attributes and the autofocus rule — not the component (§1 #18, §4 #5).
+Consumers: `RegisterPage` `HOME` and `PostcodePromptOverlay` (R4b) take the component;
+`UserSettingsModal` (R4c) takes the hook and the link, the attributes and the class — not the
+component and not the pointer rule (§1 #18, §4 #5).
 
-### #7 Account deletion (R5)
+### #7 Account deletion (R5a backend, R5b frontend)
 
 **`DELETE /api/user/account`** `{password}`, `isAuthenticated()`, new `AccountController`
-(`/api/user/account` — not under `/settings`, it is not a setting): 400 for a missing password; 403
-`{error: "Password is incorrect"}` on a mismatch, counted on `AuthAttemptLimiter` (key `delete:` +
-username, 5 per 15 min → 429); 409 `{error: "Admin accounts are deleted by another admin"}` for
-`ROLE_ADMIN` (the existing self-delete refusal, extended: it keeps the sole admin from locking the
-instance out). On success, `UserService.deleteOwnAccount(username)` in one transaction:
-`purgeUserRows(userId)` (explicit `user_drive_time` delete — §1 #2 — then anything else without a
-cascade a test discovers), `userRepository.delete(user)`; after commit `sendAccountDeletedEmail`.
-The admin path `deleteUser` calls the same `purgeUserRows`. 204 No Content. The access token dies
-with the row (§1 #19). `CLAUDE.md`'s "deleting a user must not be blocked" (`ask_usage` cascade)
-already states the direction.
+(`/api/user/account` — not under `/settings`, it is not a setting; `AbstractControllerTest` gains its
+dependencies): 400 for a missing password; 403 `{error: "Password is incorrect"}` on a mismatch,
+counted on `AuthAttemptLimiter` (key `delete:` + username, 5 per 15 min → 429); 409 `{error: "Admin
+accounts are deleted by another admin"}` for `ROLE_ADMIN` (the existing self-delete refusal,
+extended: it keeps the sole admin from locking the instance out). On success,
+`UserService.deleteOwnAccount(username)`: in one transaction `purgeUserRows(userId)`
+(`userDriveTimeRepository.deleteAllByUserId` — §1 #2 — then anything the integration test below
+shows has no cascade) and `userRepository.delete(user)`; the confirmation email is sent AFTER commit
+for BOTH paths (a `TransactionSynchronization.afterCommit`, or the send moved out of the
+transactional method into its caller) — the admin path `deleteUser` calls the same `purgeUserRows`
+and the same after-commit send. 204 No Content. The access token dies with the row once R3c's filter
+rule is in (R5a's PR states it). ⚠️ **The FK is proven only in CI**: `integration/
+AccountDeletionIntegrationTest extends IntegrationTestBase` (Postgres + Flyway) deletes a user
+holding drive times, Ask usage, a rating and an `ask_log` row, asserts the delete FAILS without the
+purge and succeeds with it, and that the `ask_log` row survives with a null user — R5a is "pending CI"
+like a migration phase. `UserServiceTest` (Mockito) pins the call order and the after-commit send.
 
-**Client**: a **Danger zone** section at the foot of `UserSettingsModal` — `btn-secondary` "Delete
-account" → `ConfirmDialog` (`destructive`, title "Delete your account?", message "This deletes your
+**Client** (R5b): a **Danger zone** section at the foot of `UserSettingsModal` (`<h3>` in the
+section-heading style) — `btn-secondary` "Delete account" → an INLINE confirmation region inside the
+settings dialog (`role="group" aria-labelledby`; §1 #26, §4 #17): the sentence "This deletes your
 account, your home postcode and drive times, your Ask history and your ratings. It cannot be
-undone.", a `PasswordInput` as `children`, confirm "Delete account" disabled until the password is
-non-empty) → `deleteAccount(password)` (`userApi.js` or a new `accountApi.js`:
-`apiClient.delete('/api/user/account', {data: {password}})`) → on 204 `logout()` (its `/logout`
-call finds no refresh token and answers 200 — harmless) → the login page. A 403 shows the server's
-sentence inside the dialog; a 429 likewise; the dialog stays open.
+undone.", a `PasswordInput` (`autoComplete="current-password"`, focus moved to it when the region
+opens), a destructive "Delete account" button (`disabled` until the password is non-empty and while
+the request is in flight) and a "Cancel" text button that collapses the region and returns focus to
+the opener → `deleteAccount(password)` (`accountApi.js`: `apiClient.delete('/api/user/account',
+{data: {password}})`) → on 204 `logout()` (its `/logout` call finds no refresh token and answers
+200 — harmless) → the login page. A 403 or 429 shows the server's sentence inside the region (`role=
+"alert"`); the region stays open.
 
-### #8 `apple-app-site-association` (R6)
+### #8 `apple-app-site-association` and the nginx check (R6)
 
 `frontend/public/.well-known/apple-app-site-association` — JSON, no extension:
 
@@ -393,53 +571,85 @@ sentence inside the dialog; a 429 likewise; the dialog stays open.
 `TEAMID.BUNDLEID` is the literal placeholder until the owner has both (§6 Q2). nginx: an exact
 `location = /.well-known/apple-app-site-association { default_type application/json; add_header
 Cache-Control "no-cache"; + the nosniff/frame/referrer/permissions/COOP/CSP headers the `/` block
-repeats (the file's note says a location that sets ANY header inherits none) }` before `location /`.
-R6 proves Vite copies the dot-directory into `dist/` (`npm run build && test -f
-dist/.well-known/apple-app-site-association`) and that the PWA precache ignores it (its
-`globPatterns` match extensions only — read `vite.config.js` and say so in the PR).
+repeats (the file's note says a location that sets ANY header inherits none) }` (order against
+`location /` is irrelevant — an exact match wins), and `geolocation=(self)` in both
+`Permissions-Policy` lines. R6 proves Vite copies the dot-directory into `dist/` (`npm run build &&
+test -f dist/.well-known/apple-app-site-association`; there is no `publicDir` override and
+`.dockerignore` excludes only `node_modules`, `dist` and `.env*`) and that the PWA precache ignores
+it (its `globPatterns` name extensions and `assets/index-*.js`; an extensionless file matches none —
+read `vite.config.js` and say so in the PR). ⚠️ **`nginx -t` in CI**: a new step in
+`.github/workflows/ci.yml`'s frontend job (Actions runners have Docker; the ShellCheck job already
+uses `docker run`): copy `nginx.conf` with `goldenhour-backend:8082` replaced by `127.0.0.1:8082`
+(an unresolvable upstream fails `-t` on its own) and run `docker run --rm -v "$PWD/<copy>:/etc/nginx/
+nginx.conf:ro" nginx:1.27-alpine nginx -t`; the step must fail on a deliberately broken copy once,
+in the PR, to prove it bites. Two Vitest files read the committed files: one parses the AASA as JSON
+and asserts the four paths and the two placeholders; one reads `nginx.conf` and asserts the
+permissions directive in both blocks and the exact location block (the file-reading pattern
+`safeAreas.test.jsx` uses on `index.html`).
 
 ### #9 Visual foundation (R1)
 
-`index.css` `@theme`: `--color-plex-error: #F07A62` (measured ≥ 4.5:1 on `#221A15` — R1 records the
-figure) and `--color-plex-ok: #8AAE72` (a separate token from `--color-verdict-go`, same value, with
-the `static` marker and a comment in the file's own voice: verdict colours mean forecast verdicts).
-`@layer components`: `.field` = `w-full bg-plex-bg border border-plex-border rounded-lg px-3 py-2
-text-base sm:text-sm text-plex-text placeholder:text-plex-text-muted focus:outline-hidden
-focus:ring-1 focus:ring-plex-gold` and `.field-error` swapping the border to `border-plex-error`;
-`.auth-shell` = the page wrapper: `min-h-dvh bg-plex-bg flex justify-center px-4 items-start pt-12
-sm:items-center sm:pt-0` plus padding from `--safe-t/-b/-l/-r` (§1 #10). Components under
-`components/auth/`: `AuthShell` (wrapper + `BrandLockup variant="auth"` + `max-w-sm` column),
-`AuthHeading` (`font-serif font-semibold text-[22px] leading-tight tracking-[-0.015em]
-text-plex-text`, optional mono kicker `font-mono text-[10px] uppercase tracking-[0.2em]
-text-plex-text-muted`), `PasswordInput` (field + eye button, `autoComplete` prop),
-`PasswordChecklist` (✓ in `text-plex-ok` for met, ○ in `text-plex-text-secondary` for unmet).
-`LoginPage`, `RegisterPage` (every step), `ChangePasswordPage` and `UserSettingsModal` adopt
-`.field`, the tokens (every `red-400`/`red-700`/`amber-400`/`green-400`/`green-500` in those four
-files; the role badges stay), `text-plex-text-secondary` for 12px hints, left alignment on the
-session-expired, Check your email, Verify, Waitlist and Success cards; the session-expired line moves
-inside the card above the heading. Task 14's Settings copy change rides here. **R1 changes no
-behaviour and no test id** — every existing test passes with at most class assertions updated.
+`index.css`: `--color-plex-error: #F07A62` and `--color-plex-ok: #8AAE72` declared **inside the
+existing `@theme static` block** (the file's own pruning guard; a separate token from
+`--color-verdict-go` with the same value, commented in the file's voice: verdict colours mean
+forecast verdicts). Measured at plan time: `#F07A62` is 6.25:1 on `#221A15` and 6.77:1 on
+`#181210`; `#8AAE72` is 6.83:1 on `#221A15`. `@layer components`: `.field` = `w-full bg-plex-bg
+border border-plex-border rounded-lg px-3 py-2 text-base sm:text-sm text-plex-text
+placeholder:text-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold` and
+`.field-error` swapping the border to `border-plex-error`; ⚠️ **`.field` REPLACES each input's
+class string** — Tailwind 4's utilities layer outranks `@layer components`, so a `text-sm` or
+`bg-plex-surface-light` left beside `field` wins and the iOS-zoom fix silently fails; only layout
+utilities stay (`pr-10`, `flex-1`), and a test asserts no auth or Settings input carries `text-sm`,
+`bg-plex-surface-light` or a bare `rounded`. `.auth-shell` = the page wrapper: `min-h-dvh bg-plex-bg
+flex justify-center items-start sm:items-center` with ONE padding rule each side — `padding-top:
+max(3rem, var(--safe-t))` below 640px and `var(--safe-t)` from 640px, `padding-bottom:
+max(1.5rem, var(--safe-b))`, `padding-left/right: max(1rem, var(--safe-l/r))` — the `.app-safe-modal`
+precedent, never a raw `env()`. Components under `components/auth/`: `AuthShell` (wrapper +
+`BrandLockup variant="auth"` in `mb-8` + the `max-w-sm` column), `AuthHeading` (an **`<h2>`** —
+`BrandLockup` already renders the page's `<h1>` — `font-serif font-semibold text-[22px] leading-tight
+tracking-[-0.015em] text-plex-text`; **no kicker on any auth screen** — the spec says "optionally"
+and one answer across the series beats five), `PasswordInput` (field + eye button, `autoComplete`
+prop, the existing `aria-label`s), `PasswordChecklist` (✓ in `text-plex-ok` for met, ○ in
+`text-plex-text-secondary` for unmet). `LoginPage`, `RegisterPage` (every step) and
+`ChangePasswordPage` adopt `.field`, the tokens (every `red-400`/`red-700`/`green-400`/`green-500`
+→ `plex-error`/`plex-ok`; **both `amber-400` lines — the session-expired line and the Turnstile
+fallback line — become `text-plex-text-secondary`**, informational ink, never a verdict colour),
+`text-plex-text-secondary` for 12px hints, left alignment on the session-expired, Check your email,
+Verify, Waitlist and Success cards; the session-expired line moves inside the card above the heading.
+`MarkerPopupContent.jsx`'s two `<a href="/upgrade">Upgrade to Pro</a>` anchors (lines 764 and 1078;
+`/upgrade` is not a route and the App Store forbids a link to a web purchase) become plain text
+"Pro accounts get …" (task 14's audit; a stated, second-time break of the frozen overlay, §4 #16);
+the tooltips that merely SAY "Upgrade to Pro" are text and stay. **R1 changes no behaviour and no
+test id** — the existing suites pass with class and copy assertions updated (`ChangePasswordPage`
+has a test file too). `UserSettingsModal` is R4c's.
 
 ### #10 Sign-in by username or email (R3a backend, R3b frontend)
 
-`AuthenticationService.login(identifier, password)`: `identifier.contains("@")` →
-`userRepository.findAllByEmailIgnoreCase(identifier.trim())` (`LOWER(u.email) = LOWER(:email)`,
-a `List`); exactly one → that user; zero or several → the same generic failure; otherwise
-`findByUsername`. The request field stays `username` on the wire (the iOS client and every test
-keep working); the log line says `identifier`. The error stays "Invalid username or password". The
-client: label "Username or email", `autoComplete="username"` kept (password managers fill either),
-`data-testid="login-username"` kept.
+`AuthenticationService.login(identifier, password)`: `identifier.contains("@")` → the §1 #5 email
+rule (`findActiveByEmailLower(lowerAscii)`: ASCII-checked, trimmed, `Locale.ROOT` lower-cased,
+enabled, non-empty password; exactly one match → that user); **no unique match → fall back to
+`findByUsername(identifier)`**, because admin-created usernames are not shape-checked and one could
+carry an `@`; a BCrypt comparison runs against a fixed dummy hash when no user resolves, so the
+email path's timing does not say whether the address exists. The request field stays `username` on
+the wire (the iOS client and every test keep working); the log line says `identifier`, sanitised.
+The error stays "Invalid username or password". The client: label "Username or email",
+`autoComplete="username"` kept (password managers fill either), `data-testid="login-username"` kept.
+`RegistrationService.findPendingUserByEmail` moves onto the same query with the pending predicate;
+`UserService.createPendingUser` and admin `createUser` refuse a case-insensitive duplicate with the
+existing "Email already registered" 409.
 
-### #11 Privacy inventory (R6)
+### #11 Privacy inventory (R7, after deletion exists — §1 #20)
 
 `docs/app-store-privacy.md`: a table per App Store privacy "data type" — Email address and
 Username (account, linked), Coarse location (home postcode and its lat/lon; "Use my location" sends
 device coordinates to postcodes.io once, nothing is stored but the resolved postcode; linked; app
 functionality), Marketing consent (linked), Usage data (`last_active_at`, `ask_log` without
-question text, job and API logs; linked; analytics/app functionality), User content (outcome ratings;
-linked) — with the table each lives in, who sees it, and how deletion removes it (§2 #7's purge).
-`landing/privacy.html`: the postcode line rewritten (every account, light times; drive times Pro),
-a "Use my location" sentence, in-app account deletion named.
+question text, kept 90 days; job and API logs; linked; analytics/app functionality), User content
+(outcome ratings; linked) — with the table each lives in, who sees it, and how deletion removes it
+(§2 #7's purge). `landing/privacy.html`: line 36's postcode line rewritten (every account, light
+times; drive times Pro), line 51's processor row ("UK postcodes, or device coordinates when you
+choose Use my location"), a sentence naming in-app account deletion, the 90-day retention named.
+The owner redeploys landing after the release (§7).
 
 ### #12 Copy table (verbatim; every string a test may assert)
 
@@ -449,296 +659,433 @@ a "Use my location" sentence, in-app account deletion named.
 | Field label / placeholder / button / busy | **Home postcode** / *Enter UK postcode* / **Look up** / *Looking up…* |
 | Confirmation / change | `✓ {placeName}`, `{postcode}` beneath / **Change** |
 | Error | *Invalid postcode* |
-| Pro line | `PRO` *Also gives you drive times from home to every location.* |
+| Pro line | `Pro` tag (upper-cased by CSS) *Also gives you drive times from home to every location.* |
 | HOME buttons | **Save and continue** / **Skip for now** |
 | Prompt heading / sub | **Set your home postcode** / *You haven't saved one yet. It sets your light times, and you can change it any time in Settings.* |
 | Prompt buttons | **Save** / **Not now** |
-| Use my location | **Use my location**; errors per §2 #6 |
+| Use my location | **Use my location** / *Locating…*; errors per §2 #6 |
 | Save failed | *Couldn't save. Try again.* |
-| Register hints | *We'll send a link to confirm it.* (under Email) / *3–30 letters, numbers, - or _* (under Username) / *Agree to the terms to continue* (under the disabled button, 12px, `text-plex-text-secondary`, centred) |
-| Turnstile fallback | *Security check unavailable — we'll verify your sign-in another way.* |
+| Register hints | *We'll send a link to confirm it.* (under Email) / *3–30 letters, numbers, - or _* (under Username) / *Agree to the terms to continue* (under the disabled button, 12px, `text-plex-text-secondary`, centred, `-mt-2`) |
+| Turnstile fallback (login, change-password, forgot) | *Security check unavailable — we'll verify your sign-in another way.* |
+| Turnstile fallback (register) | *Security check couldn't load. Try another browser, or turn off your ad-blocker for this page.* |
 | Rate limited | *Too many attempts. Please wait a few minutes and try again.* |
-| Sign-in label / link | **Username or email** / **Forgot password?** (right of the Password label, 12px, `text-plex-gold`) |
-| Forgot heading / sub / button / done | **Reset your password** / *Enter your email and we'll send you a link.* / **Send reset link** / *If that email has an account, we've sent a reset link.* |
+| Sign-in label / link | **Username or email** / **Forgot password?** (the label row is `flex justify-between items-baseline`; the link 12px `text-plex-gold`) |
+| Forgot heading / sub / button / done / back | **Reset your password** / *Enter your email and we'll send you a link.* / **Send reset link** / *If that email has an account, we've sent a reset link.* / **Back to sign in** |
 | Reset heading / sub / button | **Set a new password** / *Choose a new password for your account.* / **Set new password** |
 | Reset link errors | *This reset link is invalid* / *This reset link has already been used* / *This reset link has expired* + button **Request a new link** |
 | Reset email | subject *Reset your PhotoCast password*; body: *Someone asked to reset the password for {username}. If that was you, use the link below within the next hour. If it wasn't, you can ignore this email — your password hasn't changed.* |
 | Settings copy (task 14) | *Your postcode sets your light times. Pro accounts also get drive times from home.* |
-| Delete account | **Delete account** / *Delete your account?* / message per §2 #7 / *Password is incorrect* / *Admin accounts are deleted by another admin* |
+| Delete account | section **Danger zone** / button **Delete account** / *This deletes your account, your home postcode and drive times, your Ask history and your ratings. It cannot be undone.* / **Cancel** / *Password is incorrect* / *Admin accounts are deleted by another admin* |
+| Reverse lookup | *No UK postcode found for that location* (400) / *Postcode lookup is unavailable right now* (502) |
 | Success | **Welcome to PhotoCast!** / *Redirecting…* (unchanged) |
+
+### #13 Token invalidation (R3c)
+
+`app_user.credentials_changed_at TIMESTAMPTZ NULL` (next free `V`, no backfill: null means "never
+changed since this column existed", so every existing token stays valid), `updatable = false`,
+written by `AppUserRepository.stampCredentialsChangedAt(id, now)` from `AuthenticationService
+.changePassword`, `PasswordResetService` (the R3a `TODO(R3c)`), `UserService.resetPassword` (the
+admin temp password) and `UserService.activateUser`. `JwtAuthenticationFilter`: after
+`validateToken`, load the user ONCE (the query it already makes for `lastActiveAt`); set the
+`SecurityContext` only when the row exists, `enabled` is true, and `credentialsChangedAt == null ||
+!jwtService.extractIssuedAt(token).isBefore(credentialsChangedAt)` (the token already carries `iat`;
+`extractIssuedAt` exists); otherwise leave the context empty and let the entry point answer 401, and
+log one INFO line through `LogSanitizer`. The `lastActiveAt` stamp keeps its hourly rule on the
+same loaded entity. Tests: `JwtAuthenticationFilterTest` — a token for a deleted user, a disabled
+user, a token issued before the stamp, one issued after it, one with a null stamp; a `@DataJpaTest`
+for the scoped update; `integration/CredentialsChangedAtMigrationTest` (CI-only). ⚠️ The clock
+comparison tolerates one second of skew (`iat` is whole seconds; the stamp is micros): a token
+issued in the same second as the stamp is accepted. After R3c, "a password reset signs every other
+device out" and "a deleted account's token is dead" are true at the next request.
 
 ---
 
 ## §3 Phases
 
-One Sonnet session each, one branch each (`claude/login-reg-r<N>-<slug>`), one PR each.
-**Dependencies and parallelism**: R1 ∥ R6 (disjoint: R1 is `frontend/src` + `index.css`, R6 is
-`nginx.conf`, `frontend/public`, `docs/`, `landing/`); R2 needs R1 merged (it restructures the
-RegisterPage R1 restyles); R3a needs R2 merged (`TurnstileGate`); R3b needs R3a merged; R4a needs
-R3a merged (both edit `AuthController`/`AuthTokens`) and may run ∥ R3b; R4b needs R3b and R4a
-merged; R5 needs R4b merged (both edit `UserSettingsModal`); R7 needs everything. Never more than
-two phases open at once, and never two that touch one source file. Each phase re-verifies every
-file:line it touches against `origin/main` before editing, reads
+One Sonnet session each, one branch each (`claude/login-reg-<id>-<slug>` — the series convention
+of the last four plans, a deliberate deviation from CLAUDE.md's `feature/` prefix), one PR each.
+**Waves** (never more than two phases open at once; a phase starts only when every phase it depends
+on has MERGED to `origin/main`):
+
+| wave | phases | why they may share a wave |
+|---|---|---|
+| 1 | R1 (frontend) ∥ R2a (backend) | disjoint trees |
+| 2 | R2b (frontend; needs R1, R2a) ∥ R3a (backend; needs R2a) | disjoint trees |
+| 3 | R3b (frontend; needs R3a, R2b) ∥ R3c (backend; needs R3a) | disjoint trees |
+| 4 | R4a (backend; needs R3c) ∥ R6 (infra/CI; needs nothing) | disjoint files |
+| 5 | R4b (frontend; needs R3b, R4a) ∥ R5a (backend; needs R3c, R2a) | disjoint trees |
+| 6 | R4c (frontend Settings; needs R4b, R1) | alone — it owns `UserSettingsModal` |
+| 7 | R5b (frontend Settings; needs R4c, R5a) | alone |
+| 8 | R7 (docs; needs everything) | alone |
+
+Each phase re-verifies every file:line it touches against `origin/main` before editing, reads
 `docs/engineering/test-improvement-standards.md` (backend) or
-`docs/engineering/frontend-test-standards.md` (frontend), writes its
-`changelog.d/<its own date YYYYMMDD>-login-reg-r<N>-<slug>.md` (`### Added` for new behaviour,
-`### Changed` for an existing one, `### Fixed` for a dead end it closes, `### Docs` for R6's docs and
-R7; **one file per `###` block**) and appends its phase-log row to §0 **in the same commit**.
-Every phase that touches a screen a browser can reach WITHOUT signing in (R1, R2, R3b: the login,
-register, forgot and reset pages) screenshots it at 390×844 and 1280×800 through the preview tools
-(or headless Chromium — `browser-pane-headless-fallback` in memory) and attaches both to the PR; a
-phase that needs a signed-in page (R4b's prompt, R5's dialog) signs in as `admin` / `golden2026` on
-the local H2 backend (`./mvnw -Plocal-dev spring-boot:run -Dspring-boot.run.profiles=local`, port
-8083; a fresh H2 admin has no postcode, so the prompt shows at that sign-in).
+`docs/engineering/frontend-test-standards.md` (frontend), and writes its changelog entries as
+`changelog.d/<its own date YYYYMMDD>-login-reg-<id>-<slug>.md`, **one file per `###` block** —
+a phase with an `### Added`, a `### Changed` and a `### Removed` writes three files with distinct
+slugs (`-added`, `-changed`, `-removed`). Every new component carries a `data-testid` and PropTypes;
+every new public Java type, method and constructor carries Javadoc; no inline `style`. **No phase
+edits this plan or CLAUDE.md** (R7 does both). Screenshots: a phase whose screens need no sign-in
+(R1, R2b, R3b: login, register, forgot, reset; and the register `SET_PASSWORD`/`HOME` steps and the
+prompt overlay through ROUTE STUBS) renders them in headless Chromium over the Vite dev server with
+`page.route` stubs for `/api/auth/verify-email`, `/api/auth/set-password`, `/api/auth/login` and
+`/api/user/settings` (memory `browser-pane-headless-fallback`), at 390×844, 390×500 (the keyboard
+proxy) and 1280×800, keeps the PNGs in its scratchpad (never committed, `gh` cannot attach images)
+and describes what each shows, with the measured figures, in the PR body. ⚠️ **No phase signs in to
+a running backend as anyone** — a session cannot sign in on the owner's behalf; the signed-in flows
+(a real prompt at sign-in, a real deletion) are the owner's browser check in §7 and are reported as
+"tested, not seen".
 
-### R1 — auth visual foundation (frontend only)
+### R1 — auth visual foundation (frontend; not Settings)
 
-Tasks 5, 6, 7 (auth wrappers), 13, 14. Files: `frontend/src/index.css` (tokens, `.field`,
-`.field-error`, `.auth-shell`); new `components/auth/AuthShell.jsx`, `AuthHeading.jsx`,
-`PasswordInput.jsx`, `PasswordChecklist.jsx` (+ tests for each); `LoginPage.jsx`,
-`RegisterPage.jsx`, `ChangePasswordPage.jsx`, `UserSettingsModal.jsx`; tests `LoginPage.test.jsx`,
-`RegisterPage.test.jsx`, `UserSettingsModal.test.jsx`, `safeAreas.test.jsx` (extend: the auth
-shell reads the vars), a new `authTokens.test.js` (the two tokens exist in the built CSS — the
-`--color-plex-panel` pruning incident in `index.css`'s own comments is the reason; `askCss.test.js`
-is the model for reading the stylesheet), `frontend-test-standards.md` read first.
+Tasks 5, 6, 7 (auth wrapper), 13 (auth screens), 14 (the Upgrade audit). Files: `frontend/src/
+index.css` (the two tokens in `@theme static`, `.field`, `.field-error`, `.auth-shell`); new
+`components/auth/AuthShell.jsx`, `AuthHeading.jsx`, `PasswordInput.jsx`, `PasswordChecklist.jsx`
+(+ a test each); `LoginPage.jsx`, `RegisterPage.jsx`, `ChangePasswordPage.jsx`,
+`MarkerPopupContent.jsx` (the two anchors); tests `LoginPage.test.jsx`, `RegisterPage.test.jsx`,
+`ChangePasswordPage.test.jsx`, `MarkerPopupContent`'s test if one asserts the anchors,
+`safeAreas.test.jsx` (extend: `.auth-shell` reads the vars through `max()`), a new
+`authTokens.test.js` (reads `src/index.css`, asserts both tokens sit inside the `@theme static` block
+— the declaration pin; the built-CSS grep is §7's manual proof — and asserts the contrast figures
+with a contrast function), a new `fieldClass.test.jsx` (no auth input carries `text-sm`,
+`bg-plex-surface-light` or a bare `rounded`).
 
-1. Tokens and classes per §2 #9; measure `#F07A62` on `#221A15` and `#181210` with a contrast
-   function in the test, assert ≥ 4.5.
+1. Tokens and classes per §2 #9.
 2. The four shared components; `PasswordChecklist` takes `checks: [{label, ok}]`; `PasswordInput`
-   takes `id, name, value, onChange, autoComplete, disabled, testId` and owns the eye button with
-   its existing `aria-label`s.
-3. `LoginPage`: `AuthShell`, `AuthHeading` "Sign in", `.field` on both inputs (`text-base sm:text-sm`
-   comes with it), `PasswordInput`, the session-expired line moved inside the card above the heading
-   and left-aligned (`data-testid` kept), tokens.
+   takes `id, name, value, onChange, autoComplete, disabled, testId` and owns the eye button.
+3. `LoginPage`: `AuthShell`, `AuthHeading` "Sign in", `.field` on both inputs, `PasswordInput`, the
+   session-expired line moved inside the card above the heading, left-aligned, in
+   `text-plex-text-secondary` (`data-testid` kept); the Turnstile fallback line likewise.
 4. `RegisterPage`: the same on every step; the five centred cards left-aligned; the checklist from
    the shared component; hints to `text-plex-text-secondary`; tokens. **No field order, copy or
-   state change here** — R2 does those.
+   state change here** — R2b does those.
 5. `ChangePasswordPage`: the same.
-6. `UserSettingsModal`: `.field` on the postcode input, tokens for its status colours (`settings-
-   lookup-error` and the drive-time lines), the task-14 sentence. Nothing else.
-7. Tests: existing suites green with class assertions updated; new component tests; the shell's
-   padding assertions; screenshots (§3 preamble) of Sign in and Create account at both sizes.
+6. `MarkerPopupContent`: the two anchors to text (§2 #9).
+7. Tests green; screenshots of Sign in and Create account at the three sizes (the lockup sits under
+   the 48px top padding at 390; the column is centred vertically at 1280; no horizontal scroll at 320).
 
-### R2 — `TurnstileGate` and the registration form
+### R2a — `TurnstileGate`, `AuthAttemptLimiter`, set-password without Turnstile (backend)
 
-Tasks 9, 10, 11. Backend files: new `service/AuthAttemptLimiter.java`, `service/TurnstileGate.java`
-(+ `AuthAttemptLimiterTest` with an injected `Ticker`, `TurnstileGateTest`),
-`service/TurnstileService.java` (`isConfigured()`), `controller/AuthController.java` (login,
-register, change-password through the gate; set-password's Turnstile removed and the token-keyed
-limit added; the marketing default — §1 #15), `AuthControllerTest`, `AbstractControllerTest` (the
-new beans). Frontend: `RegisterPage.jsx` (confirm-email field/state/`emailsMatch`/error deleted;
-email before username with the two hints; "Agree to the terms to continue" under the disabled
-button, only while terms are unticked; `marketingOptIn` default `false`; `turnstileLoadFailed` on
-the register form; set-password's widget, token and reset key deleted), `ChangePasswordPage.jsx`
-(the fallback), `authApi.js` (`setPasswordForNewUser(token, password)` — two arguments),
-`RegisterPage.test.jsx` (new step order, no confirm email, unticked marketing by default, single
-Turnstile, the fallback on both forms, the disabled reason appears and disappears),
-`ChangePasswordPage` test.
+Tasks 9 (backend), 10 (server default), 11 (set-password). Files: new `service/AuthAttemptLimiter
+.java`, `service/TurnstileGate.java`, `service/ClientAddress.java` (the §1 #23 header rule, one
+static method) (+ `AuthAttemptLimiterTest`, `TurnstileGateTest`, `ClientAddressTest`),
+`service/TurnstileService.java` (`isConfigured()`, + `TurnstileServiceTest`),
+`controller/AuthController.java` (login and change-password through the gate; set-password's
+Turnstile removed and the token-keyed limit added; register's absent-field default; register itself
+NOT on the gate), `AuthControllerTest` (every existing Turnstile case re-pinned through the mocked
+gate; the new 429s), `AbstractControllerTest` (the two new `@MockitoBean`s), `application-example.yml`
+(nothing: the limits are constants with Javadoc, not properties — a bad value cannot fail startup).
+Backward-compatible with the running frontend: an old client's extra `turnstileToken` on set-password
+is ignored.
 
-1. Limiter and gate per §2 #4, with tests: a sixth call within fifteen minutes refused, the first
-   call after the window admitted, keys independent, `isConfigured()` false → `OK` with no limiter
-   call, a non-blank failing token → `CAPTCHA_FAILED` with no limiter call.
-2. Controller: each endpoint's three outcomes pinned (200/400/429) with `TurnstileService` mocked
-   `isConfigured() = true`; set-password with NO `turnstileToken` succeeds and the eleventh attempt
-   on one token answers 429; register with the field absent stores `marketingEmailOptIn = false`.
-3. Frontend per the file list; `LoginPage` untouched.
-4. Screenshots of Create account (empty, terms unticked with the reason line) and Set password
-   (no Turnstile) at both sizes.
+### R2b — registration form and the Turnstile fallback (frontend)
+
+Tasks 9 (frontend), 10, 11. Files: `RegisterPage.jsx` (confirm-email field/state/`emailsMatch`/error
+deleted; email before username with the two hints; "Agree to the terms to continue" under the
+disabled button only while terms are unticked; `marketingOptIn` default `false`; the register form's
+`turnstileLoadFailed` with the REGISTER sentence and the submit still disabled; set-password's
+widget, token and reset key deleted; frame 6), `ChangePasswordPage.jsx` (the fallback, the LOGIN
+sentence), `authApi.js` (`setPasswordForNewUser(token, password)` — two arguments),
+`RegisterPage.test.jsx` (field order, no confirm email, marketing unticked by default, one Turnstile,
+the register fallback keeps submit disabled and shows its sentence, set-password needs no token, the
+disabled reason appears and disappears), `ChangePasswordPage.test.jsx` (the fallback enables submit
+and sends an empty token). Screenshots: Create account (empty; terms unticked with the reason line),
+Set password (no Turnstile) at the three sizes.
 
 ### R3a — sign-in backend: identifier, forgot and reset, `/verify` link
 
-Tasks 12 (backend), 17 (verification link). Files: the migration (§2 #1), `entity/
-PasswordResetTokenEntity.java`, `repository/PasswordResetTokenRepository.java`, `AppUserRepository`
-(`findAllByEmailIgnoreCase`), `service/PasswordResetService.java` (+ test),
-`service/AuthenticationService.java` (`login` by identifier, `resetPassword` is the service's;
-`RegistrationService.findPendingUserByEmail` moved onto the new query), `notification/
-UserEmailService.java` (`sendPasswordResetLinkEmail`; `sendVerificationEmail`'s link →
-`/verify?token=`), `templates/password-reset-link-email.html`, `controller/AuthController.java`
-(`/forgot-password`, `/reset-password`), tests (`AuthenticationServiceTest`: email login one match /
-two matches / none / username fallback; `PasswordResetServiceTest`: unknown, disabled and pending
-emails send nothing; the fourth request in five minutes sends nothing and throws nothing; a used,
-expired and unknown token each refuse with its sentence; success revokes every active refresh
-token and stamps `used_at`; `AuthControllerTest`: both endpoints' statuses, forgot through the gate,
-reset through the token limit, forgot ALWAYS 200 for an unknown email; `UserEmailServiceTest`: both
-links' paths; `integration/PasswordResetTokenMigrationTest` CI-only), `HttpCachingConfigTest`
-(nothing to add — `/api/auth/**` is never filtered; pin the two new paths anyway).
+Tasks 12 (backend), 17. Files: the migration (§2 #1), `entity/PasswordResetTokenEntity.java`,
+`repository/PasswordResetTokenRepository.java`, `AppUserRepository` (`findActiveByEmailLower`,
+`existsByEmailLower`), `util/EmailIdentifier.java` (ASCII check + normalisation, one home),
+`service/PasswordResetService.java` (+ test), `service/AuthenticationService.java` (`login` by
+identifier with the dummy-hash comparison), `service/RegistrationService.java` (the pending lookup
+on the new query; resend on the limiter) and `RegistrationServiceTest` (a REAL four-request
+sequence through a real limiter: the fourth sends nothing), `service/UserService.java` (duplicate
+refusal at create), `notification/UserEmailService.java` (`sendPasswordResetLinkEmail`;
+`sendVerificationEmail`'s link → `/verify?token=`), `templates/password-reset-link-email.html`,
+`controller/AuthController.java` (`/forgot-password` through the mocked gate, `/reset-password`
+through the mocked limiter), tests: `AuthenticationServiceTest` (email: one active match / two
+matches → username fallback / none → username fallback / a disabled match ignored / a non-ASCII
+identifier refused; the dummy-hash path runs), `PasswordResetServiceTest` (unknown, disabled and
+pending emails send nothing; the fourth request in the window sends nothing and throws nothing; a
+used, expired and unknown token each refuse with its sentence; a disabled user's token refuses;
+success marks used by CAS, revokes every active refresh token and encodes before the transaction;
+the mail goes to the STORED address when the request's casing differs), `AuthControllerTest` (both
+endpoints' statuses; forgot ALWAYS 200 for an unknown email; the body shapes), `UserEmailServiceTest`
+(both links' paths), a new `PasswordResetFlowTest` — its own `@SpringBootTest` on H2 with REAL
+repositories and the mail service mocked: forgot → the captured link's token → reset → the response
+signs in → the earlier refresh token is refused by `/refresh` — `integration/
+PasswordResetTokenMigrationTest` (CI-only). Every new log line through `LogSanitizer`.
 
 ### R3b — sign-in frontend: forgot and reset pages, the label, the link, the routes
 
-Files: new `components/auth/ForgotPasswordPage.jsx`, `ResetPasswordPage.jsx` (+ tests),
-`LoginPage.jsx` (label, link, `onForgotPassword` prop), `App.jsx` (`AuthGate`: `showForgot` state;
-`/reset` by pathname with `?token=`; the legacy `?token=` on any other path still verify mode; the
-consumed URL replaced with `/`), `AuthContext.jsx` (`signInWithTokens(data)` — the body
-`completeRegistration` has today, which now delegates to it and additionally sets
-`registrationPending`; `finishRegistration()`; `registrationPending` exposed — §2 #2, built here so
-R4b's gate change is one line), `authApi.js`, tests (`LoginPage.test.jsx`: identifier label, the
-link calls the prop, the fallback still enables submit; `App.test.jsx`: `/reset?token=x` mounts the
-reset page, `/verify?token=x` and `/?token=x` both mount verify mode, a consumed token leaves
-`location.pathname === '/'`; `AuthContext.test.jsx`: `registrationPending` set by
-`completeRegistration`, cleared by `finishRegistration`, `signInWithTokens` leaves it false).
-Screenshots of Sign in (with the link), Forgot (empty and done), Reset (checklist) at both sizes.
+Files: new `components/auth/ForgotPasswordPage.jsx`, `ResetPasswordPage.jsx` (+ tests; frame 8 for
+the label row), `LoginPage.jsx` (label, link, `onForgotPassword` prop), `App.jsx` (`AuthGate`:
+`showForgot` state; `/reset` by pathname with `?token=` BEFORE the token test; the legacy `?token=`
+on any other path still verify mode; the consumed URL replaced with `/`), `AuthContext.jsx`
+(`signInWithTokens(data)`, `completeRegistration` delegating to it and setting `registrationPending`,
+`finishRegistration()`, the flag cleared by `logout` and the session-expired handler — §2 #2),
+`authApi.js`, tests (`LoginPage.test.jsx`: identifier label, the link calls the prop, the fallback
+still enables submit; `App.test.jsx`: `/reset?token=x` mounts the reset page with no token stored
+AND with one stored, `/verify?token=x` and `/?token=x` both mount verify mode, a consumed token
+leaves `location.pathname === '/'`; `AuthContext.test.jsx`: `registrationPending` set by
+`completeRegistration`, cleared by `finishRegistration`, by `logout` and by the session-expired event;
+`signInWithTokens` leaves it false). Screenshots: Sign in (with the link), Forgot (empty and done),
+Reset (checklist) at the three sizes.
 
-### R4a — postcode backend: the prompt column, the login flag, the reverse lookup
+### R3c — token invalidation (backend)
+
+§2 #13. Files: the migration, `AppUserEntity`, `AppUserRepository` (`stampCredentialsChangedAt`),
+`config/JwtAuthenticationFilter.java`, `service/AuthenticationService.java` (`changePassword`
+stamps), `service/PasswordResetService.java` (the `TODO(R3c)`), `service/UserService.java`
+(`resetPassword`, `activateUser` stamp), `JwtService` (only if `extractIssuedAt` is not already
+public), tests: `JwtAuthenticationFilterTest` (the five cases), `AppUserRepositoryTest`
+(`@DataJpaTest`, the scoped update), the three services' tests (the stamp call), `integration/
+CredentialsChangedAtMigrationTest` (CI-only). No frontend change: a 401 already fires the session-
+expired path.
+
+### R4a — postcode backend: the prompt column and flag, the reverse lookup
 
 Tasks 2 (backend), 3 (backend). Files: the migration (§2 #3), `AppUserEntity`, `AppUserRepository`,
-`UserSettingsResponse`, `UserSettingsService` (`markPostcodePromptDismissed`),
-`UserSettingsController` (`PUT /postcode-prompt-dismissed`, `POST /home/reverse`),
-`model/AuthTokens.java` (+ `postcodePromptDue`), `AuthenticationService.issueTokensFor`,
-`AuthController.buildAuthResponse`, `client/PostcodesIoClient.java` (`reverseLookup`),
-`GlobalExceptionHandler` (§1 #11, if needed), tests (`UserSettingsControllerTest`: the PUT answers
-the response with the instant set, the reverse's three statuses, LITE allowed on both;
-`UserSettingsServiceTest`; `PostcodesIoClientTest` with a `MockRestServiceServer` or the file's
-existing shape: a hit, an empty `result: []`, a `result: null`, a 500; `AuthenticationServiceTest`:
-`postcodePromptDue` true with neither, false with a postcode, false with a dismissal;
-`AuthControllerTest`: the login body carries it; `HttpCachingConfigTest`: the two paths;
-`integration/PostcodePromptDismissedMigrationTest` CI-only). `UserSettingsRaceSequenceTest`
-unchanged — the write is a scoped update like its siblings.
+`UserSettingsResponse` (`postcodePromptDismissedAt`, `postcodePromptDue`), `UserSettingsService`
+(`markPostcodePromptDismissed`; the flag on every response build), `UserSettingsController` (`PUT
+/postcode-prompt-dismissed`, `POST /home/reverse`), `client/PostcodesIoClient.java` (`reverseLookup`,
+the two exception types), `client/PostcodeLookupUnavailableException.java`, `GlobalExceptionHandler`
+(400 and 502, no echo), tests (`UserSettingsControllerTest`: the lookup's measured status before and
+after; the PUT answers the response with the instant set and `postcodePromptDue` false; the reverse's
+four statuses; LITE allowed on both; `UserSettingsServiceTest`: `postcodePromptDue` true with neither,
+false with a postcode, false with a dismissal; `PostcodesIoClientTest` and
+`PostcodesIoClientContractTest` per §2 #5; `HttpCachingConfigTest`: the two paths;
+`JsonDateFormatContractTest`: the new `Instant`; `integration/PostcodePromptDismissedMigrationTest`
+CI-only). `UserSettingsRaceSequenceTest` unchanged — the write is a scoped update like its siblings.
 
-### R4b — postcode frontend: `PostcodeCapture`, the `HOME` step, the prompt page, Settings
+### R4b — postcode frontend: `PostcodeCapture`, the `HOME` step, the prompt overlay
 
-Tasks 1, 2 (frontend), 3 (frontend), 4, 8. Files: new `components/auth/PostcodeCapture.jsx`,
-`PostcodePromptPage.jsx`, `hooks/useGeolocationPostcode.js` (+ tests for each), `RegisterPage.jsx`
-(`HOME`), `App.jsx` (the two-line gate change of §2 #2 and the prompt branch of §2 #3),
-`AuthContext.jsx` (`postcodePromptDue`, `clearPostcodePrompt`), `settingsApi.js`
-(`reverseLookupPostcode`, `markPostcodePromptDismissed`), `UserSettingsModal.jsx` (attributes, the
-link, the autofocus rule — `(pointer: fine)` added to its existing focus landing for the `postcode`
-field ONLY when the request did not come from a keyboard route; read its focus comments first and
-leave the landings alone if the rule would fight them, saying so in the PR), tests
-(`RegisterPage.test.jsx`: lookup → confirmation → Change restores the field; Skip → SUCCESS with no
-save; Save → `saveHome(postcode, lat, lon, null)` exactly; the primary disabled until a result; the
-HOME step is reached after set-password; `PostcodePromptPage.test.jsx`: shown by `AuthGate` when the
-login response said due, hidden after Not now (`markPostcodePromptDismissed` called once, gate moves
-on even when it rejects), hidden after Save; `useGeolocationPostcode.test.js`: the three error
-strings against `PERMISSION_DENIED`/`TIMEOUT`/`POSITION_UNAVAILABLE` codes and a 400 from the
-endpoint, the link absent with no `navigator.geolocation`; `App.test.jsx`: the gate order — a user
-with `mustChangePassword` sees Change password BEFORE the prompt; `AppSettingsRoutes.test.jsx`
-unchanged and still green). Screenshots: HOME empty / found / invalid and the prompt, at both sizes
-(the first three without signing in — the step is reachable in a test harness only; render them
-through the storybook-less route the other phases used, or a Vitest DOM snapshot plus the signed-in
-prompt screenshot — state which).
+Tasks 1, 2 (frontend), 3 (frontend), 4 and 8 (the new screens). Files: new `components/auth/
+PostcodeCapture.jsx`, `ProTag.jsx`, `PostcodePromptOverlay.jsx`, `hooks/useGeolocationPostcode.js`
+(+ a test each), `RegisterPage.jsx` (`HOME`, frames 1–3), `App.jsx` (the gate's two `||
+registrationPending`; `AppInner` mounting the overlay), `hooks/useReaderSettings.js`
+(`postcodePromptDue`), `settingsApi.js` (`reverseLookupPostcode`, `markPostcodePromptDismissed`),
+tests (`RegisterPage.test.jsx`: lookup → confirmation → Change restores the field with its value;
+Skip → `SUCCESS` with no save; Save → `saveHome(postcode, lat, lon, null)` exactly, once; the primary
+disabled until a result; `PostcodeCapture.test.jsx`: every copy string, the attributes, the
+`field-error` class on error, the pointer rule both ways, the failed-save line;
+`PostcodePromptOverlay.test.jsx` + `App.test.jsx`: shown when the mount read answers
+`postcodePromptDue: true`, NOT shown for `{}` or `false` (the strict pin), the app container carries
+`inert` while shown and loses it after, Not now calls `markPostcodePromptDismissed` once and the
+overlay goes even when it rejects, Save hands the response to the settings record and the masthead's
+place name changes, the overlay is absent under a rewind, the mutation pin of §2 #2;
+`useGeolocationPostcode.test.js`: the three strings against codes 1/2/3, a 400 and a 502, the link
+absent with no `navigator.geolocation`; `useReaderSettings.test.jsx`: the flag's strictness and its
+update through `startSettingsRead`). Screenshots through route stubs: HOME empty / found / invalid,
+the overlay over the Map tab and over the Plan tab, at the three sizes.
 
-### R5 — account deletion
+### R4c — Settings: the field, the tokens, the copy, Use my location, the attributes
 
-Task 15. Files: `controller/AccountController.java` (new), `service/UserService.java`
-(`deleteOwnAccount`, `purgeUserRows`, `deleteUser` through it), `repository/
-UserDriveTimeRepository` (`deleteByUserId` if absent), tests (`AccountControllerTest`: 204, 400,
-403 + the limiter's 429, 409 for an admin, LITE and PRO both allowed; `UserServiceTest`: a user WITH
-drive times, ask usage and a rating is deleted and the email sent after commit; the admin path with
-drive times no longer fails; a `@DataJpaTest` that proves the FK: without the purge the delete
-throws); `UserSettingsModal.jsx` (Danger zone), `accountApi.js`, `UserSettingsModal.test.jsx` (the
-dialog, the password requirement, a 403 kept inside the dialog, 204 → `logout`), `AuthContext` only
-if `logout` needs a no-network variant (it does not: §2 #7). Screenshot of the dialog.
+Tasks 3 (Settings), 4 (Settings), 13 (Settings), 14. Files: `UserSettingsModal.jsx` (`.field` on the
+postcode input, the status tokens for `settings-lookup-error` and the drive-time lines, the task-14
+sentence, the task-4 attributes, the "Use my location" link under the field through
+`useGeolocationPostcode` landing in the modal's own `lookupResult`; **the focus landings untouched**,
+§1 #18), `UserSettingsModal.test.jsx` (the old sentence → the new; the link; the attributes; the
+landings still green), `fieldClass.test.jsx` (extended to the Settings input). Screenshot: not
+possible without a session; "tested, not seen".
 
-### R6 — native prep: AASA, nginx, privacy docs
+### R5a — account deletion (backend)
 
-Tasks 16, 18, and §1 #8's header. Files: `nginx.conf` (the AASA location; `geolocation=(self)` in
-both header lines), `frontend/public/.well-known/apple-app-site-association`, `vite.config.js`
-(only if the PWA glob would precache it — it should not), `docs/app-store-privacy.md`,
-`landing/privacy.html`, a test under `frontend/src/test/` that reads `nginx.conf` and asserts the
-permissions directive and the location block exist (the file-reading pattern `safeAreas.test.jsx`
-uses on `index.html`), and one that parses the AASA file as JSON and asserts the four paths. The PR
-body records the `dist/.well-known` proof. No code paths change.
+Task 15 (backend). Files: `controller/AccountController.java` (new), `service/UserService.java`
+(`deleteOwnAccount`, `purgeUserRows`, `deleteUser` through both and the after-commit send),
+`AbstractControllerTest` (the controller's dependencies), tests (`AccountControllerTest`: 204, 400,
+403 + the limiter's 429, 409 for an admin, LITE and PRO both allowed; `UserServiceTest`: purge before
+delete, the email after commit on both paths, an admin refused; `integration/
+AccountDeletionIntegrationTest` CI-only, §2 #7). "Pending CI" in the PR body.
 
-### R7 — docs sweep
+### R5b — account deletion (Settings danger zone)
 
-CLAUDE.md: the **Auth** line under *What's Built* (forgot/reset, identifier login, the Turnstile
-fallback and limiter, the `HOME` step and the prompt, deletion); *API Endpoints* (`/forgot-password`,
-`/reset-password`, `/home/reverse`, `/postcode-prompt-dismissed`, `DELETE /api/user/account`, the
-AASA path); *Roles* (deletion open to every role but admin; the prompt); *User settings* (the ninth
-`updatable = false` column); the migrations table (two rows); *Role gating — UI pattern* (a line:
-the Pro line on the postcode screens is text with no link, App Store rule). `docs/engineering/
-login-registration-plan.md` §0 closed out and §6 answered by what shipped. Memory file
-`login-registration-series.md` + `MEMORY.md` line (the planning session writes memory; R7 the repo
-docs).
+Task 15 (frontend). Files: `UserSettingsModal.jsx` (the section and the inline region, §2 #7),
+`api/accountApi.js` (+ test), `UserSettingsModal.test.jsx` (the region opens and takes focus, the
+button needs a password, a 403 and a 429 stay inside the region, 204 → `logout`, Cancel returns
+focus to the opener, no second `aria-modal` on the page). Screenshot through a route stub for
+`/api/user/settings` only if the modal can be opened without a session (it cannot — the shell needs
+one) → "tested, not seen".
+
+### R6 — native prep: AASA, nginx, `nginx -t` in CI
+
+Task 16 and §1 #8's header. Files: `nginx.conf`, `frontend/public/.well-known/
+apple-app-site-association`, `.github/workflows/ci.yml` (the `nginx -t` step), two Vitest files
+(§2 #8), `vite.config.js` only if the PWA glob would precache the file (it should not — say so). The
+PR body records the `dist/.well-known` proof and the one deliberately-broken CI run. No code paths
+change; the privacy documents are R7's (§1 #20).
+
+### R7 — docs sweep and the privacy documents
+
+`docs/app-store-privacy.md` and `landing/privacy.html` (§2 #11). CLAUDE.md: the **Auth** line under
+*What's Built* (today "Self-registration with email verification + Turnstile CAPTCHA | First-login
+password change gate | Session expiry warnings | Marketing email opt-in" → forgot/reset, identifier
+login, the bounded Turnstile fallback and the attempt limiter, registration's honest no-fallback,
+no confirm-email, no set-password Turnstile, marketing opt-IN with an absent field meaning no, the
+`HOME` step and the prompt overlay, token invalidation on password change/reset/deletion, self-service
+deletion); *API Endpoints* (`/forgot-password`, `/reset-password`, `/home/reverse`,
+`/postcode-prompt-dismissed`, `DELETE /api/user/account`, the AASA path; `DELETE /api/users/{id}`
+now purges drive times); *Roles* (deletion open to every role but admin; the prompt); *User
+settings* (the ninth and tenth `updatable = false` columns); the migrations table (four rows); the
+`IntegrationTestBase` count (fifteen → nineteen, re-counted); *Role gating — UI pattern* (the Pro
+line is text with no link, App Store rule); *Deployment* (the `nginx -t` CI step; landing is
+redeployed by hand). This plan's §0 filled from the merged PRs and §6 answered by what shipped. The
+planning session writes the memory file (`login-registration-series.md` + the `MEMORY.md` line).
 
 ---
 
 ## §4 Disagreements with the spec, on purpose
 
-1. **Task 9 "front and back" — the back is built, not mirrored.** §1 #4: there was no backend
-   behaviour to mirror. The fallback is one gate for every Turnstile-verified endpoint, with a limit
-   keyed on the identifier, not the IP (§5 #4).
-2. **The prompt rides the login response, not the settings read.** Task 2 says "if `homePostcode ==
-   null` and the prompt hasn't been dismissed, show frame 4" — true, computed by the server at
-   sign-in and carried as `postcodePromptDue`. The dismissal is server-side exactly as asked; only
-   WHERE the client learns it changed (§1 #17, §2 #3). A reader who signs in on a second device
-   before dismissing sees it there too — the spec's own "carries across devices".
+1. **Task 9 "front and back" — the back is built, bounded, and NOT for registration.** §1 #4: there
+   was no backend behaviour to mirror. Login, change-password and forgot take one gate with
+   identifier, client and global limits (§2 #4); registration keeps today's refusal and an honest
+   sentence, because a tokenless registration path lets a bot fill `registration.max-users` with
+   pending rows and mail verification links to any address (§5 #4, §6 Q1).
+2. **The prompt rides the settings read, not the login response, and is an overlay.** Task 2's
+   "after a successful login … before the app shell": the flag is computed by the server and read at
+   every mount, because a refresh keeps an existing user signed in for ever (§1 #16); the prompt
+   paints over the already-mounted app within one request of mount and makes it inert (§2 #3). A
+   reader who opens the app on a second device before dismissing sees it there too — the spec's own
+   "carries across devices".
 3. **No reload after registration.** The `SUCCESS` step stays with its 2 s wait, but the wait ends
    in `finishRegistration()` rather than `window.location.reload()` (§1 #7: the reload never ran).
-   The app mounts through the same `AuthGate` path a sign-in takes; nothing in the authenticated tree
-   assumes a fresh document.
+   `login()` already mounts the app with no reload; registration takes the same path.
 4. **Task 11's "username can be pre-filled from the email" (the HTML note) is not built.** A
    derived username invites `john.smith@` → `john.smith`, which the username rule rejects (dots).
-5. **Settings keeps its own postcode field.** Task 3 wants "Use my location" in Settings and task 13
-   wants one input style: both delivered as the hook, the link, the class and the attributes, not by
-   replacing the field with `PostcodeCapture` (§1 #18: the modal's focus landings are a documented
-   state machine with 110 tests).
-6. **Task 7 is scoped to the auth wrappers.** The app's own safe-area system exists and is pinned
+5. **Settings keeps its own postcode field and its focus landings.** Task 3 wants "Use my location"
+   in Settings, task 13 one input style, and task 8 no phone autofocus: the first two are delivered
+   as the hook, the link, the class and the attributes, not by replacing the field with
+   `PostcodeCapture`; the third is NOT applied to the modal, whose `focusField === 'postcode'`
+   landing exists so the nudge and the ⌂ land the reader on the field they asked for (§1 #18) — the
+   pointer rule applies to the two new screens only (§5 #10).
+6. **Task 7 is scoped to the auth wrapper.** The app's own safe-area system exists and is pinned
    (§1 #10); re-touching the top bar and bottom controls would be a second owner of the same rule.
 7. **The forgot-password request has a Turnstile.** The spec does not mention one; without it the
-   endpoint is an unauthenticated email-sender behind only a per-user DB count. It takes the same
-   gate and fallback as sign-in, so a blocked browser still gets through.
-8. **A rate-limited forgot request answers 200, not 429.** Task 12 asks for "the same rate limit as
-   resend (3 per 5 min)"; resend answers 429, but a 429 here says "this email has an account".
-9. **Reset signs the reader in.** Task 12 says the `/reset` page "reuses the Set password form" —
-   and that form signs in on success, so the reset does too, and revokes every OTHER session as asked.
+   endpoint is an unauthenticated email-sender. It takes the same gate and bounded fallback as
+   sign-in.
+8. **A rate-limited forgot request answers 200, not 429**, and the limit is the in-memory limiter,
+   not a DB count. Task 12 asks for "the same rate limit as resend (3 per 5 min)"; resend's DB count
+   can never trip (§1 #12) and a 429 here would say "this email has an account". Both go on the
+   limiter (3 per 15 min per user), resend keeping its 429.
+9. **Reset signs the reader in** and, after R3c, signs every other device out at its next request.
+   Task 12 says the `/reset` page "reuses the Set password form" — and that form signs in on success.
 10. **An admin cannot delete their own account in-app** (409). Task 15 is unconditional; the
     existing admin rule and the sole-admin lockout decide it (§5 #7).
 11. **The AASA components name `/verify` and `/reset` exactly plus a wildcard child**, not `/verify*`
     — Apple's `components` matcher treats `*` per segment, and the query form is listed separately
     so a bare `/verify` with no token is still claimed.
-12. **The `PRO` tag is `ProPill`** where its size permits (the existing component: mono, uppercase,
-    bordered) — one Pro marker app-wide rather than a second hand-built tag; the spec's 10px/0.12em
-    geometry is matched by a `size` prop if `ProPill`'s differs, not by a parallel class.
+12. **The `PRO` tag is a new `ProTag`, not `ProPill`** (§1 #25): the spec's geometry cannot be reached
+    from the shared pill without changing it for Ask and the rating lock, and the pill's "Pro" is
+    kept as the tag's text with CSS upper-casing.
 13. **`inputMode="text"` is kept as written even though it is the default** — it documents the
     "never numeric" rule at the one place a future edit would make that mistake.
+14. **Task 13 overrides frames 1–4 on four points** the bundle's own Fidelity note does not list:
+    the frames draw 14px sans headings (task 13: Newsreader 22px), `#f87171`/`#b91c1c` error reds
+    (the `plex-error` token), a `--go` ✓ (`plex-ok`, never the verdict colour) and muted 12px hints
+    and text buttons (`text-plex-text-secondary`, the spec's own 4.5:1 argument).
+15. **`/reset?token=` opens the reset page even on a signed-in browser.** The spec does not say; the
+    link is most often opened on the phone the account is signed in on, and dropping it silently
+    (today's `/verify` behaviour, which stays) would make the emailed link do nothing.
+16. **The frozen Plan-tab overlay is edited a third time**, to turn two `/upgrade` anchors into
+    text (task 14's audit found them; `/upgrade` is not a route). Copy only; the overlay's layout is
+    untouched.
+17. **The delete confirmation is inline, not a `ConfirmDialog`.** Task 15 says "behind a confirm
+    dialog"; a second `aria-modal` over the settings dialog breaks CLAUDE.md's one-modal invariant
+    and `ConfirmDialog` cannot disable its confirm button (§1 #26). The region asks for the password
+    and takes focus, which is what the dialog was for.
+18. **No postcode prompt after a password reset** on the resetting device until the next mount:
+    `signInWithTokens` carries no flag, and the mount read raises the overlay a moment later anyway —
+    so in practice the prompt still shows; recorded because the first cut said otherwise.
+19. **`radius=2000`** on the reverse lookup (the spec names no radius; the API's 100 m default
+    misses rural homes, §2 #5).
 
 ---
 
 ## §5 Decisions taken at plan time (defaults every phase builds on)
 
-1. **Phase order R1 → R2 → R3a → R3b → R4a → R4b → R5, with R6 ∥ R1 and R4a ∥ R3b.** The restyle
-   first so every later phase writes against the final classes; backend before its frontend so a
-   frontend phase mocks nothing that does not exist on main.
+1. **Eight waves, two phases at most, backend before its frontend** (§3): the restyle first so every
+   later phase writes against the final classes; a frontend phase mocks nothing that is not on main.
 2. **The dismissal is a timestamp, not a boolean** — the spec's own `postcode_prompt_dismissed_at`;
    it says when, which a support question will want.
-3. **The prompt state is server-side + in-memory**, never `localStorage` (the HTML note's
-   alternative): a second account on the same browser must never inherit a dismissal, the same rule
-   that keeps every Ask and settings value out of module scope.
-4. **The fallback limiter is keyed on the identifier, 5 per 15 minutes, in memory.** Not IP (§2 #4);
-   not durable (a restart forgets counts — a rate limit on a single-instance app, the same acceptance
-   `UserSettingsService.pendingDriveTimeAttempts` records). Stated residual: a distributed attacker
-   can try five passwords per identifier per fifteen minutes with no token; today, with Turnstile
-   down, they can try none and neither can the account's owner. The owner can revisit (§6 Q1).
+3. **The prompt state is server-side + one in-memory `promptDone` per mount**, never `localStorage`
+   (the HTML note's alternative): a second account on the same browser must never inherit a
+   dismissal, the same rule that keeps every Ask and settings value out of module scope.
+4. **The fallback is bounded three ways and absent on registration.** Per identifier (5/15 min, keyed
+   on the normalised value the lookup uses, plus the resolved user id), per forwarded client address
+   (20/15 min; spoofable by a caller who reaches the host directly, so never the only bound), and a
+   global hourly ceiling per endpoint (login 60, change-password 20, forgot 10). In memory (a
+   restart forgets counts — a rate limit on a single-instance app, the acceptance
+   `UserSettingsService.pendingDriveTimeAttempts` records). Residuals, stated: a distributed attacker
+   with no token gets at most 60 login guesses an hour in total and 5 against any one account; today
+   they get none, and neither does the account's owner from a blocked browser. Registration gets no
+   fallback because its key would be attacker-chosen and each admission is a pending row against the
+   sign-up cap (§4 #1). The owner can revisit (§6 Q1).
 5. **Reset tokens are a sibling table, not rows in `email_verification_token`.** A verification
    token is deleted on use and proves an address; a reset token is kept with `used_at` and proves a
    request — different lifecycles, and the admin's resend path deletes "unverified" tokens by user.
 6. **No email-uniqueness migration.** Making the index case-insensitive would need a data check for
-   existing case-duplicates CI cannot see; the login query tolerates the duplicate instead. Noted as a
-   follow-up, not built.
+   existing case-duplicates CI cannot see; the application refuses new duplicates and the lookups
+   tolerate old ones (two active matches → no match, so sign-in by username still works). A follow-up,
+   not built.
 7. **An admin's self-deletion is refused (409).** `UserService.deleteUser` already refuses an admin
    deleting themself; a sole admin deleting their account in-app would orphan the instance. Another
    admin deletes an admin, as today.
-8. **`DELETE` with a JSON body**, as the spec names it; axios sends `data` on a DELETE and nginx and
-   Spring both pass it. If a review shows a proxy stripping it, the fallback is `POST
-   /api/user/account/delete` — decided then, not now.
+8. **`DELETE` with a JSON body**, as the spec names it; axios sends `data` on a DELETE, CORS allows
+   DELETE, Spring binds `@RequestBody` on it and nginx passes it.
 9. **A failed `saveHome` in `PostcodeCapture` keeps the confirmation row and says "Couldn't save.
-   Try again."** — the modal's own behaviour ("Save failed — leave lookup result visible for retry").
-10. **Autofocus rule**: `(pointer: fine)` only, on the postcode field of the three new screens; the
-    login and register forms keep today's behaviour (no autofocus) — the spec names the postcode
-    field alone.
+   Try again."** — the modal keeps its own result on a failed save too (it shows no sentence; this
+   sentence is new).
+10. **Autofocus rule**: `(pointer: fine)` only, on the postcode field of the TWO new screens (`HOME`
+    and the prompt); the login and register forms keep today's behaviour (no autofocus); the Settings
+    landing is untouched (§4 #5).
 11. **The Pro line shows for every role**, including PRO and ADMIN (the spec's rule; the HTML note's
     role-specific wording is not built).
-12. **`/forgot-password` validates the email's shape only**; it never says whether the address is
-    known, in status, body or timing it can control (the work is the same for a known and an unknown
-    address except the send, which runs after the response is decided).
+12. **`/forgot-password` validates the email's shape only** and decides its response before the send;
+    email existence is already disclosed by register's 409, so what the endpoint protects is the link,
+    not the address.
+13. **Token invalidation is a `credentials_changed_at` instant compared with the JWT's `iat`**, not a
+    token version or a denylist: no new claim, no new table, one column, one comparison in a filter
+    that already loads the row (§2 #13).
+14. **Controller tests mock the gate and the limiter; the limiter, the gate and the one end-to-end
+    reset sequence get their own classes** (§1 #24).
+15. **Screenshots are never committed**; the PR body carries the measured figures and the owner's
+    browser check is the visual proof of the signed-in flows (§3 preamble).
+
+## §5a What the plan-time review changed
+
+Four read-only prosecutor lenses (backend; frontend/CSS/tests; spec fidelity and copy; conventions,
+process and sizing), 60 charges, 56 upheld after refutation. The P1s and what they did to the plan:
+the JWT filter authenticates from claims alone, so a deleted account's token kept working and a
+reset signed nobody else out → §2 #13 and R3c; the resend rate limit the reset flow copied can never
+trip → the limiter (§1 #12, §2 #1); an identifier-keyed Turnstile fallback let a bot skip the CAPTCHA
+on every endpoint and fill the registration cap → the three bounds and no fallback on registration
+(§2 #4); the prompt flag on the login response never reached an existing user → the settings read and
+the overlay (§2 #3); a `UPPER()`-based email match plus mailing the typed address could send a token
+to a confusable address → the ASCII/`LOWER`/stored-address rule (§1 #5); the `HOME` step's gate
+change had no test that could fail → the mutation pin (§2 #2); the FK proof could not fail on H2 →
+the CI-only integration test (§1 #2); `nginx.conf` had no syntax check before production → the CI
+step (§2 #8). The P2s: `ProPill` is not a tag (`ProTag`); `ConfirmDialog` would stack two modals
+(the inline region); `.field` had to replace, not join, the utilities; the `amber-400` replacement
+was unnamed (`text-plex-text-secondary`); the Settings landing must not take the pointer rule; the
+screenshots and the "sign in as admin" instruction were not achievable by a session (route stubs and
+"tested, not seen"); R2 and R4b were two sessions' work each (R2a/R2b, R4b/R4c, R5a/R5b); phases
+editing §0 in parallel would conflict (no phase edits the plan); the shared controller context cannot
+host a real limiter (mocked in the base class); the privacy documents described deletion before it
+existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
+split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
+disagree on four points (§4 #14). Refuted and kept: the `AuthGate` instance-preservation mechanism,
+the two-origins claim, the nginx header inheritance and bind-mount claims, Vite's copying of
+`public/.well-known`, the cascade inventory, the DELETE body, the migration numbering, the lifting
+of "never push".
 
 ---
 
 ## §6 Owner questions — none blocks a phase
 
-- **Q1** Is the identifier-keyed fallback limit (5 per 15 min with no Turnstile token) acceptable,
-  or should a missing token simply be refused as today (which keeps the dead end)? Default: the limit.
+- **Q1** The Turnstile fallback: is the bounded no-token path on login, change-password and forgot
+  (§5 #4's limits and residuals) acceptable, and is "no fallback on registration" the right side of
+  the trade? Default: as written.
 - **Q2** TEAMID and bundle id for the AASA file. Default: the literal `TEAMID.BUNDLEID` placeholder;
   the file is harmless until Apple reads a matching app.
 - **Q3** Should the admin self-delete refusal stand (409), or should an admin who is not the last
@@ -746,40 +1093,45 @@ docs).
 - **Q4** `password-reset-link-email.html`'s sender and subject line — defaults in §2 #12.
 - **Q5** Should the landing privacy page name a retention period for `ask_log` (90 days) and job
   logs? Default: name the 90 days, since CLAUDE.md states it.
+- **Q6** Should Codex going silent (quota exhausted — it happened twice in the last series) hold a
+  phase, or may the planning session merge on green CI plus its own review after 12 hours? Default:
+  hold and tell the owner (§8).
 
 ---
 
 ## §7 Verification — what each phase checks
 
-- **R1**: the two tokens resolve to non-empty values in the built CSS (`npm run build`, grep
-  `dist/assets/*.css` for `--color-plex-error`); contrast ≥ 4.5 asserted; screenshots at 390 and
-  1280 of Sign in and Create account show the card top-aligned at 390 with 48px above it and
-  centred at 1280; no horizontal scroll at 320.
-- **R2**: with `turnstile.secret-key` set in a test profile, `/login` with no token answers 200 up
-  to five times and 429 on the sixth within the window; `/set-password` needs no token; Create
-  account shows "Agree to the terms to continue" until the box is ticked.
-- **R3a**: the full forgot → email → reset → signed-in → old refresh token refused sequence in one
-  controller test with a captured link; `findAllByEmailIgnoreCase` returns both rows for
-  `A@x` / `a@x` in a `@DataJpaTest`.
-- **R3b**: `/reset?token=` renders the reset page with no backend call until submit;
-  `/verify?token=` and `/?token=` both verify; a consumed link leaves `/`.
-- **R4a**: the login body of a user with no postcode and no dismissal carries
+- **R1**: the two tokens resolve in the built CSS (`npm run build`, grep `dist/assets/*.css` for
+  `--color-plex-error`); contrast ≥ 4.5 asserted; the `fieldClass` test; screenshots at 390×844,
+  390×500 and 1280×800 of Sign in and Create account; no horizontal scroll at 320.
+- **R2a**: `TurnstileGateTest` proves the fallback order and the register exclusion; the controller
+  tests prove set-password needs no token.
+- **R2b**: Create account shows "Agree to the terms to continue" until the box is ticked; a stubbed
+  `onLoadFail` keeps the register submit disabled and enables change-password's.
+- **R3a**: `PasswordResetFlowTest` runs forgot → link → reset → signed in → the old refresh token
+  refused; `findActiveByEmailLower` returns both rows for `A@x` / `a@x` in a `@DataJpaTest` and the
+  service treats that as no match; the real four-request resend sequence.
+- **R3b**: `/reset?token=` renders the reset page with no backend call until submit, signed in or
+  not; `/verify?token=` and `/?token=` both verify; a consumed link leaves `/`.
+- **R3c**: the filter test's five cases; a `@SpringBootTest` request with a token for a user deleted
+  after issue answers 401.
+- **R4a**: the settings body of a user with no postcode and no dismissal carries
   `postcodePromptDue: true`; after the PUT it carries `false`; the reverse endpoint on
-  `54.776, -1.575` answers Durham in a WireMock/`MockRestServiceServer` test (never the live API).
-- **R4b**: a local sign-in as a fresh `admin` shows the prompt; Not now opens the app and a second
-  sign-in does not show it; Save shows the masthead light rule with no "set a postcode" nudge;
-  Chrome's device toolbar at 390 with the keyboard open keeps the buttons visible (screenshot).
-- **R5**: a PRO account with drive times is deleted (H2) and the next request with its old token is
-  a 401; the admin's user list no longer shows it.
-- **R6**: `curl -sI http://localhost:<nginx>/.well-known/apple-app-site-association` (the frontend
-  image built locally, or a `docker run nginx` with the conf and the dist mounted — if neither is
-  possible on this machine, say so and rely on the config test) shows `Content-Type:
-  application/json` and `Permissions-Policy: geolocation=(self)…` on `/`.
+  `54.776, -1.575` answers Durham in the contract test with the exact URL (never the live API).
+- **R4b**: the overlay's `inert` pin; the strict-flag pin; the `HOME` mutation pin; screenshots of
+  the overlay over the Map and Plan tabs at the three sizes through route stubs.
+- **R4c / R5b**: unit tests only; "tested, not seen".
+- **R5a**: the integration test fails without the purge; the controller's six statuses.
+- **R6**: the CI `nginx -t` step fails once on a deliberately broken copy and passes on the real
+  file; `test -f dist/.well-known/apple-app-site-association`.
 - **Owner's browser check (after release)**: register a new account on a phone end to end (email
   first, no confirm, consent unticked, one Turnstile, `HOME` with Use my location, Welcome, the
-  masthead light rule set); sign in on a second device with an account that has no postcode and
+  masthead light rule set); open the app on a second device with an account that has no postcode and
   see the prompt once; Forgot password from the phone's mail client (the `/reset` link opens the
-  app); delete a throwaway account.
+  app signed in or not; the other device is signed out at its next tap); delete a throwaway account;
+  `curl -sI https://app.photocast.online/.well-known/apple-app-site-association` shows
+  `Content-Type: application/json` and `/` shows `Permissions-Policy: geolocation=(self)…`;
+  redeploy `landing/` by hand (`landing/README.md`) so the privacy page matches.
 
 ---
 
@@ -789,18 +1141,20 @@ Each phase is a **fresh Sonnet session in its own worktree**, launched by the pl
 this plan's §3 phase text, the relevant §1/§2/§4/§5 entries and the spec pasted in (the plan is on
 main once R0 merges; an agent's worktree is cut from `origin/main`, so a dependent phase must not
 start until its predecessor's PR has MERGED). The session: builds → runs the gate → runs its review
-lenses in the foreground → fixes → checks (§7) → writes its changelog.d entry and its phase-log
-row → commits (conventional commit, the attribution trailer) → pushes its branch → opens the PR
-(`gh pr create`, body ending with the generated-with line) → watches CI and Codex → fixes anything
-either raises, pushing follow-up commits and asking `@codex review` after each → merges with
-`gh pr merge --squash --match-head-commit "$(gh pr view <N> --json headRefOid -q .headRefOid)"`
-only when CI is green AND Codex has answered for the HEAD sha. ⚠️ **Codex clean** is the "Codex
-Review Summary" comment's row reading `✅ Completed` on the head's short sha **with no Codex review
-posted against that sha** — the row names the head sha while still 🔄 Running, so the status word
-matters; a 👍 reaction on the PR body is the same answer; 👀 is in progress, never clean; a
-force-push does not re-trigger it. The planning session's watcher applies exactly that rule. The
-planning session verifies each merge on `origin/main` before launching the next phase. The owner is
-told only when a phase is genuinely blocked (a Codex finding the session cannot resolve with cited
-evidence, a CI failure outside the diff) — never for a decision §5 already takes. ⚠️ Review agents
-never write to the working tree (CLAUDE.md "UI Work — Review Cadence"); a reviewer that must mutate
-gets `isolation: 'worktree'`.
+lenses in the foreground → fixes → checks (§7) → writes its changelog.d entry → commits (conventional
+commit, the attribution trailer) → pushes its branch → opens the PR (`gh pr create`, body ending
+with the generated-with line) → watches CI and Codex → fixes anything either raises, pushing
+follow-up commits and asking `@codex review` after each → merges with
+`gh pr merge --squash --delete-branch --match-head-commit "$(gh pr view <N> --json headRefOid -q
+.headRefOid)"` only when CI is green AND Codex has answered for the HEAD sha. ⚠️ **Codex clean, for
+the CURRENT round**: the "Codex Review Summary" comment's row reading `✅ Completed` on the head's
+short sha **with no Codex review or inline comment whose `original_commit_id` is that sha** — the
+row names the head sha while still 🔄 Running, so the status word matters; a 👍 reaction on the PR
+body counts only when its `created_at` is after the head commit's date (a round-1 👍 persists after a
+round-2 `@codex review`); 👀 is in progress, never clean; a force-push does not re-trigger it. Codex
+silent for 12 hours or a quota message → the phase holds and the owner is told (§6 Q6). The
+planning session's watcher applies exactly that rule and verifies each merge on `origin/main` before
+launching the next phase. The owner is told only when a phase is genuinely blocked (a Codex finding
+the session cannot resolve with cited evidence, a CI failure outside the diff) — never for a
+decision §5 already takes. ⚠️ Review agents never write to the working tree (CLAUDE.md "UI Work —
+Review Cadence"); a reviewer that must mutate gets `isolation: 'worktree'`.
