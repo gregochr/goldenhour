@@ -450,7 +450,7 @@ describe('opening the menu keeps the window on screen in view', () => {
 describe('the stylesheet (jsdom applies none, so the real rules are read)', () => {
   const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
   const bodyOf = (selector) => {
-    const escaped = selector.replace(/[.[\]]/g, '\\$&');
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\:]/g, '\\$&');
     const match = css.match(new RegExp(`(?:^|\\})\\s*${escaped}\\s*\\{([^}]*)\\}`));
     return match ? match[1] : null;
   };
