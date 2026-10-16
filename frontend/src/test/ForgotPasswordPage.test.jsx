@@ -59,12 +59,12 @@ describe('ForgotPasswordPage', () => {
     expect(screen.queryByTestId('forgot-done')).not.toBeInTheDocument();
   });
 
-  it('posts the trimmed email and the Turnstile token, then shows the done state', async () => {
+  it('posts the email and the Turnstile token, then shows the done state', async () => {
     const user = userEvent.setup();
     AuthApi.requestPasswordReset.mockResolvedValue({ message: 'whatever the server says' });
     renderPage();
 
-    await fillAndSubmit(user, '  chris@example.com ');
+    await fillAndSubmit(user, 'chris@example.com');
 
     await waitFor(() => expect(screen.getByTestId('forgot-done')).toBeInTheDocument());
     expect(AuthApi.requestPasswordReset).toHaveBeenCalledOnce();
@@ -74,6 +74,8 @@ describe('ForgotPasswordPage', () => {
     expect(screen.getByTestId('forgot-done-message')).toHaveAttribute('role', 'status');
     expect(screen.queryByTestId('forgot-form')).not.toBeInTheDocument();
     expect(screen.queryByText('whatever the server says')).not.toBeInTheDocument();
+    // The pressed button is gone; focus goes to the sentence so it is read out, not to <body>.
+    expect(screen.getByTestId('forgot-done-message')).toHaveFocus();
   });
 
   it('the done state offers Back to sign in, which calls onBackToLogin', async () => {

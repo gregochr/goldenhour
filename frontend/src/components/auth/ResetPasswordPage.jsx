@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { resetPassword } from '../../api/authApi.js';
@@ -45,6 +45,13 @@ export default function ResetPasswordPage({ token, onDone, onRequestNewLink }) {
   ];
   const allPassed = checks.every((c) => c.ok);
   const linkDead = LINK_ERRORS.includes(error);
+  const newLinkRef = useRef(null);
+
+  // A dead link replaces the form, unmounting the submit button that held focus; hand it to the
+  // one thing the reader can do next.
+  useEffect(() => {
+    if (linkDead) newLinkRef.current?.focus();
+  }, [linkDead]);
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -83,6 +90,7 @@ export default function ResetPasswordPage({ token, onDone, onRequestNewLink }) {
               {error}
             </p>
             <button
+              ref={newLinkRef}
               type="button"
               className="btn-primary"
               onClick={handleRequestNewLink}

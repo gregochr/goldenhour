@@ -1774,6 +1774,7 @@ describe('App — the auth gate', () => {
 
   afterEach(() => {
     window.history.pushState({}, '', '/');
+    delete window.turnstile;
   });
 
   it('/reset?token=x mounts the reset page with no session stored, and makes no request until submit', async () => {
@@ -1924,6 +1925,5 @@ describe('App — the auth gate', () => {
     expect(await screen.findByTestId('forgot-done-message'))
       .toHaveTextContent("If that email has an account, we've sent a reset link.");
     expect(requestPasswordReset).toHaveBeenCalledWith('chris@example.com', 'ts');
-    delete window.turnstile;
   });
 });

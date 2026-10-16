@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { requestPasswordReset } from '../../api/authApi.js';
 import TurnstileWidget from '../TurnstileWidget.jsx';
@@ -26,6 +26,14 @@ export default function ForgotPasswordPage({ onBackToLogin }) {
   const [error, setError] = useState('');
   const [pending, setPending] = useState(false);
   const [done, setDone] = useState(false);
+  const doneRef = useRef(null);
+
+  // The submit button the reader pressed unmounts with the form, which would drop focus to <body>
+  // and leave a screen reader silent (a live region injected already populated is not announced).
+  // Moving focus to the sentence reads it out and keeps the keyboard where the reader was.
+  useEffect(() => {
+    if (done) doneRef.current?.focus();
+  }, [done]);
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -33,7 +41,7 @@ export default function ForgotPasswordPage({ onBackToLogin }) {
     setError('');
     setPending(true);
     try {
-      await requestPasswordReset(email.trim(), turnstileToken);
+      await requestPasswordReset(email, turnstileToken);
       setDone(true);
     } catch (err) {
       setError(err?.response?.data?.error ?? 'Something went wrong. Please try again.');
@@ -49,7 +57,13 @@ export default function ForgotPasswordPage({ onBackToLogin }) {
       <AuthShell>
         <div className="card flex flex-col gap-4" data-testid="forgot-done">
           <AuthHeading>Reset your password</AuthHeading>
-          <p className="text-sm text-plex-text-secondary" role="status" data-testid="forgot-done-message">
+          <p
+            ref={doneRef}
+            tabIndex={-1}
+            className="text-sm text-plex-text-secondary focus:outline-hidden"
+            role="status"
+            data-testid="forgot-done-message"
+          >
             {DONE_MESSAGE}
           </p>
           <button

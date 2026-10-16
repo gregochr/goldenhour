@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AuthProvider, useAuth } from '../context/AuthContext.jsx';
 import { writeSwrCache, readSwrCache } from '../utils/swrCache.js';
 import * as AuthApi from '../api/authApi.js';
+import * as ForecastApi from '../api/forecastApi.js';
 
 vi.mock('../api/authApi.js');
 
@@ -37,11 +38,12 @@ function AuthStateDisplay() {
 function SessionActions({ data }) {
   const {
     registrationPending, signInWithTokens, completeRegistration, finishRegistration, changePassword,
-    logout, token, mustChangePassword, role,
+    logout, token, mustChangePassword, role, sessionExpired,
   } = useAuth();
   return (
     <div>
       <span data-testid="pending">{String(registrationPending)}</span>
+      <span data-testid="expired">{String(sessionExpired)}</span>
       <span data-testid="token">{token ?? 'null'}</span>
       <span data-testid="role">{role ?? 'null'}</span>
       <span data-testid="must-change">{String(mustChangePassword)}</span>
@@ -53,6 +55,8 @@ function SessionActions({ data }) {
     </div>
   );
 }
+
+vi.mock('../api/forecastApi.js', () => ({ clearForecastDetailCache: vi.fn() }));
 
 const SESSION = {
   accessToken: 'access-1', refreshToken: 'refresh-1', role: 'PRO_USER', username: 'chris',
@@ -305,19 +309,43 @@ describe('AuthContext', () => {
       expect(screen.getByTestId('token')).toHaveTextContent('null');
     });
 
+    it('signInWithTokens ends the expired-session state, so a reset from the expiry screen does not keep it', () => {
+      renderActions();
+      act(() => { window.dispatchEvent(new Event('goldenhour:session-expired')); });
+      expect(screen.getByTestId('expired')).toHaveTextContent('true');
+
+      act(() => { fireEvent.click(screen.getByTestId('sign-in')); });
+
+      expect(screen.getByTestId('expired')).toHaveTextContent('false');
+    });
+
+    it('clears no cache on a first sign-in with no stored account', () => {
+      ForecastApi.clearForecastDetailCache.mockClear();
+      writeSwrCache('briefing:PRO_USER', { best: 'Bamburgh' });
+      renderActions();
+
+      act(() => { fireEvent.click(screen.getByTestId('sign-in')); });
+
+      expect(readSwrCache('briefing:PRO_USER')).toEqual({ best: 'Bamburgh' });
+      expect(ForecastApi.clearForecastDetailCache).not.toHaveBeenCalled();
+    });
+
     it('keeps the previous account\'s instant-paint cache for the same account but drops it for another', () => {
+      ForecastApi.clearForecastDetailCache.mockClear();
       localStorage.setItem(USERNAME_KEY, 'chris');
       writeSwrCache('briefing:PRO_USER', { best: 'Bamburgh' });
       renderActions();
 
       act(() => { fireEvent.click(screen.getByTestId('sign-in')); });
       expect(readSwrCache('briefing:PRO_USER')).toEqual({ best: 'Bamburgh' });
+      expect(ForecastApi.clearForecastDetailCache).not.toHaveBeenCalled();
 
       cleanup();
       localStorage.setItem(USERNAME_KEY, 'someone-else');
       renderActions();
       act(() => { fireEvent.click(screen.getByTestId('sign-in')); });
       expect(readSwrCache('briefing:PRO_USER')).toBeNull();
+      expect(ForecastApi.clearForecastDetailCache).toHaveBeenCalledOnce();
       expect(localStorage.getItem(USERNAME_KEY)).toBe('chris');
     });
   });

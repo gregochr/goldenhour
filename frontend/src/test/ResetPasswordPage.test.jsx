@@ -37,6 +37,7 @@ describe('ResetPasswordPage', () => {
   });
 
   afterEach(() => {
+    delete window.turnstile;
     localStorage.clear();
     window.history.replaceState({}, '', '/');
   });
@@ -79,6 +80,8 @@ describe('ResetPasswordPage', () => {
     expect(rule('At least 8 characters')).toHaveAttribute('data-ok', 'false');
     expect(rule('One lowercase letter')).toHaveAttribute('data-ok', 'true');
     expect(rule('One uppercase letter')).toHaveAttribute('data-ok', 'false');
+    expect(rule('One number')).toHaveAttribute('data-ok', 'false');
+    expect(rule('One special character')).toHaveAttribute('data-ok', 'false');
     expect(submit).toBeDisabled();
 
     await user.type(screen.getByTestId('reset-new-password'), 'DEF1!');
@@ -140,6 +143,8 @@ describe('ResetPasswordPage', () => {
     expect(alert).toHaveTextContent(sentence);
     expect(alert).toHaveAttribute('role', 'alert');
     expect(screen.getByTestId('reset-new-link')).toHaveTextContent('Request a new link');
+    // The submit button that held focus is gone; the one next step takes it.
+    expect(screen.getByTestId('reset-new-link')).toHaveFocus();
     // A dead link cannot succeed, so the form goes with it.
     expect(screen.queryByTestId('reset-new-password')).not.toBeInTheDocument();
     expect(screen.queryByTestId('reset-submit')).not.toBeInTheDocument();
@@ -223,6 +228,5 @@ describe('ResetPasswordPage', () => {
 
     expect(screen.queryByTestId('turnstile-widget')).not.toBeInTheDocument();
     expect(window.turnstile.render).not.toHaveBeenCalled();
-    delete window.turnstile;
   });
 });
