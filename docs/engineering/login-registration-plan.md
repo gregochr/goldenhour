@@ -315,9 +315,12 @@ hex chars 10 per 15 min, `reset:client:<addr>` 20 per 15 min, `reset:global` 200
 BEFORE opening any transaction (`AuthenticationService`'s own javadoc forbids BCrypt inside one),
 then ONE proxied transactional operation — in R3a a `PasswordResetService`-owned
 `@Transactional` collaborator `PasswordResetRedeemer.redeem(tokenId, userId, encodedPassword, now)`
-(its own bean, never a self-invoked method) that locks the user row, `markUsed`s the token by
-compare-and-set (0 rows → "already been used"), sets the password, clears `passwordChangeRequired`
-and `revokeAllActiveByUserId(userId)`; in R3c that operation becomes
+(its own bean, never a self-invoked method) that locks the user row, **re-checks on the locked row
+that the account is still enabled and not pending** (the pre-hash check is stale by then — an admin
+who disabled the account during BCrypt must win, or the captured link sets a password that becomes
+live on re-enable; Codex, R0 round 19; refused → "This reset link is invalid", the token left
+unconsumed), then `markUsed`s the token by compare-and-set (0 rows → "already been used"), sets the
+password, clears `passwordChangeRequired` and `revokeAllActiveByUserId(userId)`; in R3c that operation becomes
 `CredentialChangeWriter.consumeResetAndApply(tokenId, userId, encodedPassword, change, now)` (the
 sibling of the verification one in §2 #13) so the stamp joins the same transaction — a failure
 between consuming the token and changing the password can neither burn a valid token nor leave a
@@ -336,7 +339,13 @@ reset link", the always-200 sentence shown as the done state, "Back to sign in")
 "Forgot password?" link; `ResetPasswordPage` mounted by `AuthGate` when `window.location.pathname ===
 '/reset'` and `?token=` is present — **before** the token test, so a reader already signed in on that
 browser still gets the reset page (the common case: the link is opened on the phone the account is
-signed in on; §4 #15) — with `PasswordInput` × 2 + `PasswordChecklist`, "Set new password" →
+signed in on; §4 #15). ⚠️ **The reset token is its own state, `resetToken`, read from the URL only
+when the pathname is `/reset`, and the gate's existing cleanup effect — which clears `verifyToken`
+and the query string whenever a stored token AND a URL token coexist — is left to the VERIFICATION
+token alone** (Codex, R0 round 19: with one shared state the page would mount once and be unmounted
+by that effect before the reader could submit); the reset page clears `resetToken` and replaces the
+URL itself, on success or on "Request a new link". `App.test.jsx` pins that the signed-in reset page
+survives a re-render and submits — with `PasswordInput` × 2 + `PasswordChecklist`, "Set new password" →
 `signInWithTokens(data)` then `history.replaceState({}, '', '/')`; an invalid/used/expired token
 shows the server's sentence and a "Request a new link" button that goes to `ForgotPasswordPage`.
 `authApi.js` gains `requestPasswordReset(email, turnstileToken)` and `resetPassword(token, password)`.
@@ -603,8 +612,8 @@ lock the user row (`userRepository.findByUsernameForUpdate`, the `SELECT … FOR
 uses — parent before children, the ordering `UserDriveTimeWriter`'s javadoc records, so a drive-time
 calculation that holds the row finishes before the purge begins and cannot re-insert between the
 purge and the delete; Codex, R0 review), **re-check under that lock that the stored hash is still
-the one the controller verified AND that `credentials_changed_at` still matches the request's
-authenticated `cv`** (the filter's details, §2 #13) — otherwise `StaleCredentialsException` → 401
+the one the controller verified AND that `credentials_version` still equals the request's
+authenticated `cv`** (the filter's details, §2 #13; the version counter, never the timestamp) — otherwise `StaleCredentialsException` → 401
 "Your session has changed. Sign in again." and nothing is purged (a stolen session that finished
 its BCrypt just before the owner's password change commits must not delete the account afterwards;
 Codex, R0 round 13; a legacy token with no `cv` is accepted only on a never-changed row), then
@@ -796,8 +805,11 @@ captured before a password change or an admin reset cannot overwrite the newer c
 hour; redemption consumes the presented token by compare-and-set and the same delete removes its
 siblings. **An EMAIL change voids them too** (Codex, R0 round 15): the admin `PUT
 /api/users/{id}/email` (`UserService.setEmail`) becomes a scoped, transactional update that locks the
-user row, deletes the account's unused `password_reset_token` rows and writes the address in one
-transaction, so a link mailed to the old or compromised mailbox cannot overwrite the password within
+user row, **refuses a case-insensitive duplicate of another account's address** (the §1 #5 rule with
+the account itself excluded — the case-sensitive index would accept a case variant and
+`EmailIdentifier.resolve` would then see two matches and fail sign-in and recovery for BOTH
+accounts; Codex, R0 round 19; 409 "Email already registered"), deletes the account's unused
+`password_reset_token` rows and writes the address in one transaction, so a link mailed to the old or compromised mailbox cannot overwrite the password within
 its hour; and `PasswordResetService.requestReset` inserts its token only under the same user-row lock
 (the writer's lock order, parent first), so a request racing the email change either commits before
 it and is deleted by it, or after it and mails the NEW address — never a token that survives into the
@@ -1310,7 +1322,10 @@ editing §0 in parallel would conflict (no phase edits the plan); the shared con
 host a real limiter (mocked in the base class); the privacy documents described deletion before it
 existed (moved to R7); `AuthHeading` must be an `<h2>`; the reverse lookup needed `radius=2000`, a
 split of "not found" from "unavailable" and a URL-pinning contract test; the frames and task 13
-disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added thirty-five P1s over eighteen rounds, folded in: the
+disagree on four points (§4 #14). Codex's review of the plan PR (#1197) added thirty-nine P1s over nineteen rounds, folded in: the
+reset URL token is its own gate state outside the verification cleanup effect; the redeemer
+re-checks enabled/pending under the lock; deletion compares `credentials_version`; the admin email
+change refuses a case-insensitive duplicate (§2 #1, #7, #13); the
 reset response is built from the row as redeemed, not the pre-hash entity (§2 #1); reset
 issuance re-reads the locked row in a fresh persistence context rather than trusting the entity
 resolved before the lock (§2 #13); the
