@@ -44,7 +44,7 @@
 <h2>Third-party services</h2>
 <p>PhotoCast uses the following third-party services that may process data on our behalf:</p>
 <div class="tw" tabindex="0" role="region" aria-label="Third-party services, scrollable"><table><thead><tr><th>Service</th><th>What data</th><th>Purpose</th></tr></thead><tbody>
-<tr><td>Anthropic (Claude AI)</td><td>Location names and weather data for forecast scoring. If you use Ask PhotoCast: the question you type and, for a follow-up, your earlier questions and answers in that session. Never your name, email address, username, home postcode or home coordinates. When a question is about distance from home, the drive times or radius used to answer it are sent too</td><td>AI forecast scoring and recommendations; answering Ask PhotoCast questions</td></tr>
+<tr><td>Anthropic (Claude AI)</td><td>Location names and weather data for forecast scoring. If you use Ask PhotoCast: the question you type and, for a follow-up, your earlier questions and answers in that session. PhotoCast never adds your name, email address, username, home postcode or home coordinates to what it sends — but a question is sent as you typed it, so anything personal you put in one goes with it. When a question is about distance from home, the drive times or radius used to answer it are sent too</td><td>AI forecast scoring and recommendations; answering Ask PhotoCast questions</td></tr>
 <tr><td>Open-Meteo</td><td>Location coordinates</td><td>Weather and air quality forecasts</td></tr>
 <tr><td>WorldTides</td><td>Location coordinates</td><td>Tide predictions for coastal locations</td></tr>
 <tr><td>NOAA SWPC</td><td>No personal data</td><td>Aurora and space weather forecasts</td></tr>
@@ -56,7 +56,7 @@
 <tr><td>Esri</td><td>IP address and the map tiles your browser requests</td><td>Map background tiles</td></tr>
 <tr><td>Google Fonts</td><td>IP address of visitors to photocast.online (this website only — the app serves its own fonts)</td><td>Fonts on this website</td></tr>
 </tbody></table></div>
-<p>No names, email addresses, usernames, passwords or home locations are sent to the AI model. Forecast prompts contain only location names and weather data; if you use Ask PhotoCast, the question you type is sent as well.</p>
+<p>PhotoCast itself sends no names, email addresses, usernames, passwords or home locations to the AI model: forecast prompts contain only location names and weather data. If you use Ask PhotoCast, the question you type is sent as well, exactly as typed, so do not put personal details in a question you would not want the model to see.</p>
 <p>When Stripe is integrated for Pro subscriptions, Stripe will process your payment card details directly. PhotoCast will never see or store your full card number.</p>
 <h2>Cookies and local storage</h2>
 <p>PhotoCast does not use tracking cookies or third-party analytics. We use browser local storage to maintain your login session (authentication tokens, your role and username) and to remember your preferences. This is essential for the service to function and is not used for tracking.</p>
