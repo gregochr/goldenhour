@@ -2,6 +2,9 @@ package com.gregochr.goldenhour.service;
 
 import lombok.Getter;
 import lombok.Setter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.InitializingBean;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
@@ -21,7 +24,9 @@ import org.springframework.stereotype.Component;
 @Component
 @ConfigurationProperties(prefix = "photocast.neighbour-guard")
 @Getter
-public class NeighbourGuardProperties {
+public class NeighbourGuardProperties implements InitializingBean {
+
+    private static final Logger LOG = LoggerFactory.getLogger(NeighbourGuardProperties.class);
 
     /** Smallest neighbourhood radius accepted, in kilometres. */
     public static final double MIN_RADIUS_KM = 1.0;
@@ -107,6 +112,23 @@ public class NeighbourGuardProperties {
     public void setMaxElevationGapM(int maxElevationGapM) {
         this.maxElevationGapM = within("max-elevation-gap-m", maxElevationGapM,
                 MIN_ELEVATION_GAP_M, MAX_ELEVATION_GAP_M);
+    }
+
+    /**
+     * Logs the effective configuration once, as bound, and warns when the thresholds cannot work
+     * together: a slot rated exactly {@code min-rating} needs a neighbour {@code margin} stars below
+     * it, so with {@code min-rating - margin < 1} there is no such neighbour and it can never be
+     * flagged.
+     */
+    @Override
+    public void afterPropertiesSet() {
+        LOG.info("[NEIGHBOUR GUARD] enabled={} radiusKm={} minNeighbours={} margin={} minRating={}"
+                + " maxElevationGapM={}", enabled, radiusKm, minNeighbours, margin, minRating,
+                maxElevationGapM);
+        if (minRating - margin < 1) {
+            LOG.warn("[NEIGHBOUR GUARD] min-rating ({}) minus margin ({}) is below 1: a slot rated exactly"
+                    + " min-rating can never be flagged", minRating, margin);
+        }
     }
 
     private static int within(String key, int value, int min, int max) {

@@ -1,13 +1,19 @@
 package com.gregochr.goldenhour.service;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.properties.bind.BindException;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.source.MapConfigurationPropertySource;
 
+import java.util.List;
 import java.util.Map;
 import java.util.function.BiConsumer;
 import java.util.stream.Stream;
@@ -85,6 +91,49 @@ class NeighbourGuardPropertiesTest {
 
         assertThatThrownBy(() -> p.setMargin(5)).isInstanceOf(IllegalArgumentException.class);
         assertThat(p.getMargin()).isEqualTo(2);
+    }
+
+    private static List<ILoggingEvent> logOf(NeighbourGuardProperties p) {
+        Logger logger = (Logger) LoggerFactory.getLogger(NeighbourGuardProperties.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            p.afterPropertiesSet();
+        } finally {
+            logger.detachAppender(appender);
+        }
+        return appender.list;
+    }
+
+    @Test
+    @DisplayName("startup logs the effective configuration once at INFO")
+    void startupLogsTheEffectiveConfiguration() {
+        NeighbourGuardProperties p = new NeighbourGuardProperties();
+        p.setEnabled(true);
+        p.setRadiusKm(7.5);
+
+        List<ILoggingEvent> events = logOf(p);
+
+        assertThat(events).filteredOn(e -> e.getLevel() == Level.INFO).extracting(
+                ILoggingEvent::getFormattedMessage).containsExactly(
+                "[NEIGHBOUR GUARD] enabled=true radiusKm=7.5 minNeighbours=2 margin=2 minRating=3"
+                        + " maxElevationGapM=150");
+        assertThat(events).filteredOn(e -> e.getLevel() == Level.WARN).isEmpty();
+    }
+
+    @Test
+    @DisplayName("startup warns when min-rating minus margin is below 1, and not at exactly 1")
+    void startupWarnsWhenTheGuardCanNeverFlagTheFloor() {
+        NeighbourGuardProperties unreachable = new NeighbourGuardProperties();
+        unreachable.setMargin(3);
+        unreachable.setMinRating(3);
+        NeighbourGuardProperties reachable = new NeighbourGuardProperties();
+        reachable.setMargin(3);
+        reachable.setMinRating(4);
+
+        assertThat(logOf(unreachable)).filteredOn(e -> e.getLevel() == Level.WARN).hasSize(1);
+        assertThat(logOf(reachable)).filteredOn(e -> e.getLevel() == Level.WARN).isEmpty();
     }
 
     @Test

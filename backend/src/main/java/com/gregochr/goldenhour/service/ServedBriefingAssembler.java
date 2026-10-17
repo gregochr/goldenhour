@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.LocationTideFact;
+import com.gregochr.goldenhour.repository.LocationPoint;
 import com.gregochr.goldenhour.service.pipeline.BestBetFallbackService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -184,7 +185,7 @@ class ServedBriefingAssembler {
      * Marks the neighbour outliers in a response (docs/engineering/neighbour-guard-plan.md §4).
      *
      * <p>A no-op, and never reads the location provider, unless {@code photocast.neighbour-guard.enabled}
-     * is set. Fails open: a failed coordinates read serves the response unmarked. Only slots in a
+     * is set. Fails open: a failed or empty coordinates read serves the response unmarked. Only slots in a
      * region are touched; every other slot, and every field of every slot, is carried by the
      * withers.
      *
@@ -197,8 +198,14 @@ class ServedBriefingAssembler {
         }
         NeighbourOutlierGuard.Result result;
         try {
-            result = NeighbourOutlierGuard.flag(response.days(), locationPointProvider.points(),
-                    neighbourGuardProperties);
+            Map<Long, LocationPoint> points = locationPointProvider.points();
+            if (points.isEmpty()) {
+                // The provider answers an empty map when its read failed (it logged that once); no
+                // real roster is empty, and a pass over no points would log a summary claiming the
+                // guard had judged the briefing.
+                return response;
+            }
+            result = NeighbourOutlierGuard.flag(response.days(), points, neighbourGuardProperties);
         } catch (Exception e) {
             LOG.warn("Neighbour guard failed — this serve carries no outlier marks: {}", e.getMessage());
             return response;

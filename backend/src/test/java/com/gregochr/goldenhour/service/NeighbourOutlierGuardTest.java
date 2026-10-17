@@ -33,6 +33,9 @@ class NeighbourOutlierGuardTest {
 
     private static final NeighbourGuardProperties DEFAULTS = new NeighbourGuardProperties();
 
+    /** The kilometres-to-miles factor, written out so no expectation is derived from the constant under test. */
+    private static final double MILES_PER_KM_LITERAL = 0.621371;
+
     private static Set<Long> flaggedIds(NeighbourGuardProperties config, Map<Long, LocationPoint> points,
             BriefingSlot... slots) {
         return ids(NeighbourOutlierGuard.flag(List.of(day(D, TargetType.SUNRISE,
@@ -350,15 +353,23 @@ class NeighbourOutlierGuardTest {
                     .as("both are inside").containsExactly(1L);
         }
 
-        /** The radius in kilometres whose conversion to miles equals {@code miles} exactly. */
+        /** The radius in kilometres whose conversion to miles, by the literal factor, equals {@code miles} exactly. */
         private double radiusKmEqualTo(double miles) {
-            double km = miles / NeighbourOutlierGuard.MILES_PER_KM;
-            for (int i = 0; i < 8 && km * NeighbourOutlierGuard.MILES_PER_KM != miles; i++) {
-                km = km * NeighbourOutlierGuard.MILES_PER_KM < miles ? Math.nextUp(km) : Math.nextDown(km);
+            double km = miles / MILES_PER_KM_LITERAL;
+            for (int i = 0; i < 8 && km * MILES_PER_KM_LITERAL != miles; i++) {
+                km = km * MILES_PER_KM_LITERAL < miles ? Math.nextUp(km) : Math.nextDown(km);
             }
-            org.junit.jupiter.api.Assumptions.assumeTrue(km * NeighbourOutlierGuard.MILES_PER_KM == miles,
+            org.junit.jupiter.api.Assumptions.assumeTrue(km * MILES_PER_KM_LITERAL == miles,
                     "no radius converts to exactly this distance");
             return km;
+        }
+
+        @Test
+        @DisplayName("the kilometres-to-miles factor is 0.621371, which is 1 / 1.609344 to six places")
+        void milesPerKmIsPinned() {
+            assertThat(NeighbourOutlierGuard.MILES_PER_KM).isEqualTo(MILES_PER_KM_LITERAL);
+            assertThat(NeighbourOutlierGuard.MILES_PER_KM).isCloseTo(1 / 1.609344,
+                    org.assertj.core.data.Offset.offset(1e-6));
         }
     }
 
@@ -535,22 +546,60 @@ class NeighbourOutlierGuardTest {
     }
 
     @Test
-    @DisplayName("Caw Gap, 18 Oct: a 4-star slot with a 1-star neighbour 2.25 km away, a 2-star one at "
-            + "2.2 km and four more low places inside 5 km is flagged; Cawfields alone is not")
-    void cawGapRealNumbers() {
+    @DisplayName("Caw Gap, 18 Oct: a 4-star slot with ONLY its two real neighbours, Cawfields 1 star at "
+            + "2.25 km and Steel Rigg 2 stars at 2.2 km, is flagged")
+    void cawGapWithItsTwoRealNeighbours() {
+        Map<Long, LocationPoint> pts = points(at(1, 0, 0, 240), at(2, 2.25, 0, 235), at(3, 0, 2.2, 250));
+
+        assertThat(flaggedIds(DEFAULTS, pts, sky(1L, "Caw Gap", 4), sky(2L, "Cawfields", 1),
+                sky(3L, "Steel Rigg", 2))).containsExactly(1L);
+    }
+
+    @Test
+    @DisplayName("Caw Gap with Cawfields alone is not flagged: one neighbour is no evidence")
+    void cawGapWithCawfieldsAloneIsNotFlagged() {
+        Map<Long, LocationPoint> pts = points(at(1, 0, 0, 240), at(2, 2.25, 0, 235));
+
+        assertThat(flaggedIds(DEFAULTS, pts, sky(1L, "Caw Gap", 4), sky(2L, "Cawfields", 1))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("synthetic: Caw Gap among six low places all inside 5 km at a similar height is flagged")
+    void cawGapAmongSixSyntheticLowNeighbours() {
         Map<Long, LocationPoint> pts = points(
-                at(1, 0, 0, 240),       // Caw Gap
-                at(2, 2.25, 0, 235),    // Cawfields, 1 star
-                at(3, 0, 2.2, 250),     // Steel Rigg, 2 stars
+                at(1, 0, 0, 240), at(2, 2.25, 0, 235), at(3, 0, 2.2, 250),
                 at(4, -2.8, 1.0, 230), at(5, 1.5, -3.0, 245), at(6, -1.0, -3.5, 238),
                 at(7, 3.0, 2.5, 225));
-        BriefingSlot[] slots = {sky(1L, "Caw Gap", 4), sky(2L, "Cawfields", 1), sky(3L, "Steel Rigg", 2),
-            sky(4L, "Walltown", 2), sky(5L, "Housesteads", 1), sky(6L, "Sycamore Gap", 2),
-            sky(7L, "Hotbank", 1)};
 
-        assertThat(flaggedIds(DEFAULTS, pts, slots)).containsExactly(1L);
-        assertThat(flaggedIds(DEFAULTS, pts, sky(1L, "Caw Gap", 4), sky(2L, "Cawfields", 1)))
-                .as("one neighbour is no evidence").isEmpty();
+        assertThat(flaggedIds(DEFAULTS, pts, sky(1L, "Caw Gap", 4), sky(2L, "Cawfields", 1),
+                sky(3L, "Steel Rigg", 2), sky(4L, "Walltown", 2), sky(5L, "Housesteads", 1),
+                sky(6L, "Sycamore Gap", 2), sky(7L, "Hotbank", 1))).containsExactly(1L);
+    }
+
+    @Test
+    @DisplayName("a sky rating outside 1-5 is read as absent: it is no candidate, no supporter, no witness")
+    void outOfRangeSkyRatingIsAbsent() {
+        Map<Long, LocationPoint> pts = points(at(1, 0, 0, null), at(2, 1, 0, null), at(3, 0, 2, null),
+                at(4, 2, 1, null));
+
+        assertThat(flaggedIds(DEFAULTS, pts, sky(1L, "A", 4, 6), sky(2L, "B", 2), sky(3L, "C", 2)))
+                .as("a candidate at sky 6").isEmpty();
+        assertThat(flaggedIds(DEFAULTS, pts, sky(1L, "A", 4), sky(2L, "B", 2), sky(3L, "C", 2),
+                sky(4L, "D", 4, 9))).as("a sky 9 neighbour is not a supporter").containsExactly(1L);
+        assertThat(flaggedIds(DEFAULTS, pts, sky(1L, "A", 4), sky(2L, "B", 2), sky(3L, "C", 2, 0)))
+                .as("a sky 0 neighbour is not a witness").isEmpty();
+        assertThat(NeighbourOutlierGuard.flag(List.of(day(D, TargetType.SUNRISE, region("North",
+                sky(1L, "A", 4), sky(2L, "B", 2, 9), sky(3L, "C", 2, 0)))), pts, DEFAULTS).withSkyRating())
+                .as("only sky ratings on the scale are counted").isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("coverage rounds to the nearest whole percent: 2 of 3 is 67 and 7 of 8 is 88")
+    void coverageRounds() {
+        assertThat(new NeighbourOutlierGuard.Result(Set.of(), 3, 2, 1, Map.of()).coveragePercent())
+                .isEqualTo(67);
+        assertThat(new NeighbourOutlierGuard.Result(Set.of(), 8, 7, 1, Map.of()).coveragePercent())
+                .isEqualTo(88);
     }
 
     @Test

@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.repository.LocationPoint;
+import com.gregochr.goldenhour.service.evaluation.RatingValidator;
 import com.gregochr.goldenhour.util.GeoUtils;
 
 import java.time.LocalDate;
@@ -37,7 +38,8 @@ import java.util.Set;
  *
  * <p>It reads {@code skyRating}, never the served {@code claudeRating}, which averages in each
  * coastal place's own tide score. A slot with no location id, no point or no {@code skyRating} is
- * neither a candidate nor a neighbour (fail open). Pure: no clock, no I/O, no logging.
+ * neither a candidate nor a neighbour (fail open), and neither is a {@code skyRating} outside Claude's
+ * 1 to 5 scale (a bad row, read as absent). Pure: no clock, no I/O, no logging.
  *
  * <p>A neighbour rated <em>above</em> the candidate also clears it. The plan's wording ("within
  * {@code margin - 1} of it") is silent on direction, but the guard exists for a rating far ABOVE the
@@ -134,7 +136,7 @@ public final class NeighbourOutlierGuard {
                         if (slot.claudeRating() != null) {
                             rated++;
                             any = true;
-                            if (slot.skyRating() != null) {
+                            if (RatingValidator.isInRange(slot.skyRating())) {
                                 withSky++;
                             }
                         }
@@ -158,7 +160,7 @@ public final class NeighbourOutlierGuard {
     }
 
     private static Entry entryOf(BriefingSlot slot, Map<Long, LocationPoint> points) {
-        if (slot.locationId() == null || slot.skyRating() == null) {
+        if (slot.locationId() == null || !RatingValidator.isInRange(slot.skyRating())) {
             return null;
         }
         LocationPoint point = points.get(slot.locationId());

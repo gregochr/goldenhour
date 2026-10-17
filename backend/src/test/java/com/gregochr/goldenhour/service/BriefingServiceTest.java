@@ -121,6 +121,11 @@ class BriefingServiceTest {
     private DailyBriefingCacheRepository briefingCacheRepository;
     @Mock
     private LocationRepository locationRepository;
+    /** The neighbour guard's coordinates; unstubbed unless a test turns the guard on. */
+    @Mock
+    private LocationPointProvider locationPointProvider;
+    /** The guard's switch, shared with the assembler built in {@code setUp}; off unless a test sets it. */
+    private final NeighbourGuardProperties guardProperties = new NeighbourGuardProperties();
     @Mock
     private BriefingBestBetAdvisor bestBetAdvisor;
     @Mock
@@ -235,8 +240,7 @@ class BriefingServiceTest {
     private ServedBriefingAssembler assembler(java.time.Clock clock) {
         return new ServedBriefingAssembler(bestBetFallbackService, snapshots(),
                 windowTideRollupBuilder, evaluationViewService, clock, rollup(clock),
-                org.mockito.Mockito.mock(LocationPointProvider.class), new NeighbourGuardProperties(),
-                new NeighbourGuardLog(line -> { }));
+                locationPointProvider, guardProperties, new NeighbourGuardLog(line -> { }));
     }
 
     /**
@@ -2414,6 +2418,61 @@ class BriefingServiceTest {
             assertThat(slot.fierySkyPotential()).isEqualTo(78);
             assertThat(slot.goldenHourPotential()).isEqualTo(52);
             assertThat(slot.claudeSummary()).isEqualTo("Dramatic light expected.");
+        }
+
+        @Test
+        @DisplayName("neighbour guard ENABLED: the persisted payload never carries the mark, the build never "
+                + "reads coordinates, and the same briefing served to the Plan tab does carry it")
+        void neighbourMarkIsServeTimeOnly() {
+            // persistBriefing serialises the BUILD-path response, which ServedBriefingAssembler's
+            // guard step (assembleForPlan only) never sees. So the narrowest real test is the whole
+            // refresh with a flaggable fixture and the guard on: the provider must not be consulted,
+            // the captured daily_briefing_cache payload must have no key, and only the served read
+            // marks the slot.
+            guardProperties.setEnabled(true);
+            RegionEntity wall = RegionEntity.builder().name("Wall").build();
+            LocationEntity cawGap = locationWithRegion("Caw Gap", "Wall");
+            cawGap.setId(11L);
+            LocationEntity cawfields = locationWithRegion("Cawfields", "Wall");
+            cawfields.setId(12L);
+            LocationEntity steelRigg = locationWithRegion("Steel Rigg", "Wall");
+            steelRigg.setId(13L);
+            cawGap.setRegion(wall);
+            cawfields.setRegion(wall);
+            steelRigg.setRegion(wall);
+            stubFullRefresh(List.of(cawGap, cawfields, steelRigg));
+            stubBulkScores("Wall", Map.of(
+                    "Caw Gap", new BriefingEvaluationResult("Caw Gap", 4, 70, 60, "s", null, null, null,
+                            null, 4),
+                    "Cawfields", new BriefingEvaluationResult("Cawfields", 1, 20, 20, "s", null, null,
+                            null, null, 1),
+                    "Steel Rigg", new BriefingEvaluationResult("Steel Rigg", 2, 30, 30, "s", null, null,
+                            null, null, 2)));
+            when(locationPointProvider.points()).thenReturn(NeighbourGuardFixtures.points(
+                    NeighbourGuardFixtures.at(11, 0, 0, null), NeighbourGuardFixtures.at(12, 2.25, 0, null),
+                    NeighbourGuardFixtures.at(13, 0, 2.2, null)));
+
+            briefingService.refreshBriefing();
+
+            verify(locationPointProvider, never()).points();
+            ArgumentCaptor<DailyBriefingCacheEntity> captor =
+                    ArgumentCaptor.forClass(DailyBriefingCacheEntity.class);
+            verify(briefingCacheRepository).save(captor.capture());
+            assertThat(captor.getValue().getPayload()).contains("Caw Gap").doesNotContain("neighbourOutlier");
+            assertThat(allSlots(briefingService.getCachedBriefing()))
+                    .extracting(BriefingSlot::neighbourOutlier).containsOnlyNulls();
+
+            DailyBriefingResponse served = briefingService.getCachedBriefingForApi();
+
+            assertThat(allSlots(served)).filteredOn(s -> "Caw Gap".equals(s.locationName()))
+                    .isNotEmpty().extracting(BriefingSlot::neighbourOutlier).containsOnly(Boolean.TRUE);
+            assertThat(allSlots(served)).filteredOn(s -> !"Caw Gap".equals(s.locationName()))
+                    .extracting(BriefingSlot::neighbourOutlier).containsOnlyNulls();
+        }
+
+        private List<BriefingSlot> allSlots(DailyBriefingResponse response) {
+            return response.days().stream().flatMap(d -> d.eventSummaries().stream())
+                    .flatMap(es -> es.regions().stream()).flatMap(r -> r.slots().stream()).toList();
         }
 
         @Test

@@ -18,10 +18,11 @@ import java.util.function.Consumer;
  * <ul>
  *   <li>one line the first time a (location id, date, type, sky rating) is flagged in this JVM, so a
  *       place that stays flagged for hours is not logged on every serve; the set of keys seen is
- *       bounded at {@value #MAX_KEYS} and evicts the oldest;</li>
- *   <li>one summary whenever the briefing's {@code generatedAt} or the flagged count changes:
- *       flagged N of M rated sky slots over W windows, sky-rating coverage K%. This is the figure the
- *       rollout reads.</li>
+ *       bounded at {@value #MAX_KEYS} and <b>FIFO</b>: first-time-per-JVM, and a key evicted by the
+ *       bound is logged again if it is flagged afterwards;</li>
+ *   <li>one summary whenever the briefing's {@code generatedAt}, the flagged count or the coverage
+ *       percent changes: flagged N of M rated sky slots over W windows, sky-rating coverage K%. This
+ *       is the figure the rollout reads.</li>
  * </ul>
  * The sink is injectable so tests read the lines without a logging framework (the
  * {@code AskDenialCounter} shape).
@@ -38,8 +39,8 @@ public class NeighbourGuardLog {
     private record Flagged(NeighbourOutlierGuard.Key key, int skyRating) {
     }
 
-    /** The last summary's identity: the build it described and the count it reported. */
-    private record Basis(LocalDateTime generatedAt, int flagged) {
+    /** The last summary's identity: the build, the flagged count and the coverage it reported. */
+    private record Basis(LocalDateTime generatedAt, int flagged, int coveragePercent) {
     }
 
     private final Consumer<String> sink;
@@ -77,7 +78,7 @@ public class NeighbourGuardLog {
                             + flagged.getKey().targetType() + " (sky rating " + flagged.getValue() + ")");
                 }
             }
-            Basis basis = new Basis(generatedAt, result.flagged().size());
+            Basis basis = new Basis(generatedAt, result.flagged().size(), result.coveragePercent());
             if (!Objects.equals(basis, lastSummary)) {
                 lastSummary = basis;
                 sink.accept("[NEIGHBOUR GUARD] Flagged " + result.flagged().size() + " of "

@@ -116,6 +116,20 @@ class NeighbourGuardLogTest {
     }
 
     @Test
+    @DisplayName("the summary is written again when only the sky-rating coverage changes")
+    void summaryOnCoverageChange() {
+        Map<NeighbourOutlierGuard.Key, Integer> flagged = Map.of(key(1), 4);
+        log.record(BUILT, new NeighbourOutlierGuard.Result(Set.copyOf(flagged.keySet()), 40, 38, 12, flagged));
+        log.record(BUILT, new NeighbourOutlierGuard.Result(Set.copyOf(flagged.keySet()), 40, 38, 12, flagged));
+        assertThat(summaryLines()).hasSize(1);
+
+        log.record(BUILT, new NeighbourOutlierGuard.Result(Set.copyOf(flagged.keySet()), 40, 30, 12, flagged));
+
+        assertThat(summaryLines()).hasSize(2);
+        assertThat(summaryLines().get(1)).endsWith("sky-rating coverage 75%");
+    }
+
+    @Test
     @DisplayName("a pass that flags nothing still writes its summary once, with a zero count")
     void zeroFlaggedStillSummarised() {
         NeighbourOutlierGuard.Result none = new NeighbourOutlierGuard.Result(Set.of(), 40, 40, 12, Map.of());

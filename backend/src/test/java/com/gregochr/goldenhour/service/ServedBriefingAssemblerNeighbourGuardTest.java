@@ -1,7 +1,5 @@
 package com.gregochr.goldenhour.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
@@ -15,8 +13,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.mockito.junit.jupiter.MockitoSettings;
-import org.mockito.quality.Strictness;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Clock;
@@ -37,6 +33,7 @@ import static com.gregochr.goldenhour.service.NeighbourGuardFixtures.wood;
 import static com.gregochr.goldenhour.service.NeighbourGuardFixtures.zeroCoverageRegion;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -48,7 +45,6 @@ import static org.mockito.Mockito.when;
  * on the build path, and off by default.
  */
 @ExtendWith(MockitoExtension.class)
-@MockitoSettings(strictness = Strictness.LENIENT)
 class ServedBriefingAssemblerNeighbourGuardTest {
 
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-10-17T08:00:00Z"), ZoneOffset.UTC);
@@ -71,17 +67,22 @@ class ServedBriefingAssemblerNeighbourGuardTest {
 
     @BeforeEach
     void setUp() {
-        when(regionSnapshotService.previousBuild(any()))
+        // Not every test serves a snapshot (a null one reaches neither), hence lenient.
+        lenient().when(regionSnapshotService.previousBuild(any()))
                 .thenReturn(BriefingRegionSnapshotService.PreviousBuild.none());
-        when(evaluationViewService.loadServeTriage(any(), any(), any()))
+        lenient().when(evaluationViewService.loadServeTriage(any(), any(), any()))
                 .thenReturn(EvaluationViewService.ServeTriage.EMPTY);
-        when(locationPointProvider.points()).thenReturn(points(
-                at(1, 0, 0, null), at(2, 1, 0, null), at(3, 0, 2, null), at(4, 8, 0, null)));
         properties.setEnabled(true);
         assembler = new ServedBriefingAssembler(bestBetFallbackService, regionSnapshotService,
                 windowTideRollupBuilder, evaluationViewService, CLOCK,
                 (days, resolver, triaged) -> days, locationPointProvider, properties,
                 new NeighbourGuardLog(logLines::add));
+    }
+
+    /** The four places the fixtures use: 1 at the origin, 2 and 3 within 2 km of it, 4 eight kilometres north. */
+    private void stubPoints() {
+        when(locationPointProvider.points()).thenReturn(points(
+                at(1, 0, 0, null), at(2, 1, 0, null), at(3, 0, 2, null), at(4, 8, 0, null)));
     }
 
     private static DailyBriefingResponse snapshot(BriefingDay... days) {
@@ -107,6 +108,7 @@ class ServedBriefingAssemblerNeighbourGuardTest {
     @Test
     @DisplayName("an outlier top slot is flagged and the window's pick names the next slot, id and name together")
     void outlierMovesThePickDestination() {
+        stubPoints();
         DailyBriefingResponse served = assembler.assembleForPlan(caw(), 0.5);
 
         assertThat(slotsOf(served)).filteredOn(s -> Boolean.TRUE.equals(s.neighbourOutlier()))
@@ -122,6 +124,7 @@ class ServedBriefingAssemblerNeighbourGuardTest {
     @Test
     @DisplayName("an unflagged slot carries no mark, not FALSE")
     void unflaggedSlotsCarryNull() {
+        stubPoints();
         DailyBriefingResponse served = assembler.assembleForPlan(caw(), 0.5);
 
         assertThat(slotsOf(served)).filteredOn(s -> s.locationId() != 1L)
@@ -144,6 +147,7 @@ class ServedBriefingAssemblerNeighbourGuardTest {
     @Test
     @DisplayName("when the next slot is rated 2 the pick names the region only")
     void nextBelowTheNamedFloorGivesNoDestination() {
+        stubPoints();
         DailyBriefingResponse served = assembler.assembleForPlan(snapshot(day(D, TargetType.SUNRISE,
                 region("North", sky(1L, "Caw Gap", 4), sky(2L, "Cawfields", 2), sky(3L, "Steel Rigg", 2)))),
                 0.5);
@@ -158,6 +162,7 @@ class ServedBriefingAssemblerNeighbourGuardTest {
     @Test
     @DisplayName("a region whose only rated slot is an outlier names no place")
     void allOutlierRegionNamesNoPlace() {
+        stubPoints();
         DailyBriefingResponse served = assembler.assembleForPlan(snapshot(day(D, TargetType.SUNRISE,
                 region("North", sky(1L, "Caw Gap", 4)),
                 region("South", sky(2L, "Cawfields", 2), sky(3L, "Steel Rigg", 2)))), 0.5);
@@ -170,6 +175,7 @@ class ServedBriefingAssemblerNeighbourGuardTest {
     @Test
     @DisplayName("the guard runs after the honesty filter: a zero-coverage region's raw slots are not neighbours")
     void zeroCoverageRegionSlotsAreNotNeighbours() {
+        stubPoints();
         DailyBriefingResponse served = assembler.assembleForPlan(snapshot(day(D, TargetType.SUNRISE,
                 region("North", sky(1L, "Caw Gap", 4), sky(4L, "Housesteads", 3)),
                 zeroCoverageRegion("Blanked", sky(2L, "Cawfields", 2), sky(3L, "Steel Rigg", 2)))), 0.5);
@@ -181,6 +187,7 @@ class ServedBriefingAssemblerNeighbourGuardTest {
     @Test
     @DisplayName("the mark survives the slot-tide strip and the window projection on the served payload")
     void markSurvivesTheStripAndTheProjection() {
+        stubPoints();
         DailyBriefingResponse served = assembler.assembleForPlan(caw(), 0.5);
 
         BriefingSlot flagged = slotsOf(served).stream().filter(s -> s.locationId() == 1L).findFirst()
@@ -192,6 +199,7 @@ class ServedBriefingAssemblerNeighbourGuardTest {
     @Test
     @DisplayName("a canopy slot is never marked, even one that shares a flagged sky slot's location id")
     void canopySlotIsNeverMarked() {
+        stubPoints();
         DailyBriefingResponse served = assembler.assembleForPlan(snapshot(day(D, TargetType.SUNRISE,
                 region("North", sky(1L, "Caw Gap", 4), sky(2L, "Cawfields", 2), sky(3L, "Steel Rigg", 2)),
                 region("Woods", wood(1L, "Same id, a wood", 4)))), 0.5);
@@ -205,6 +213,7 @@ class ServedBriefingAssemblerNeighbourGuardTest {
     @Test
     @DisplayName("served JSON (Jackson 3) carries the key once, only on the flagged slot; none when nothing is flagged")
     void servedJsonCarriesTheKeyOnlyWhenFlagged() throws Exception {
+        stubPoints();
         JsonMapper mapper = JsonMapper.builder().build();
 
         String flagged = mapper.writeValueAsString(assembler.assembleForPlan(caw(), 0.5));
@@ -217,9 +226,9 @@ class ServedBriefingAssemblerNeighbourGuardTest {
     }
 
     @Test
-    @DisplayName("the build-side stage never marks a slot or reads coordinates, and the cached snapshot stays "
-            + "free of the key (Jackson 2)")
-    void buildSideNeverCarriesTheMark() throws Exception {
+    @DisplayName("the build-side stage never marks a slot (persisted-payload proof: BriefingServiceTest)")
+    void buildSideNeverCarriesTheMark() {
+        stubPoints();
         DailyBriefingResponse cached = caw();
 
         DailyBriefingResponse withoutPlan = assembler.assembleWithoutPlan(cached, 0.5);
@@ -227,8 +236,58 @@ class ServedBriefingAssemblerNeighbourGuardTest {
 
         assertThat(slotsOf(withoutPlan)).extracting(BriefingSlot::neighbourOutlier).containsOnlyNulls();
         assertThat(slotsOf(cached)).extracting(BriefingSlot::neighbourOutlier).containsOnlyNulls();
-        ObjectMapper jackson2 = new ObjectMapper().registerModule(new JavaTimeModule());
-        assertThat(jackson2.writeValueAsString(cached)).doesNotContain("neighbourOutlier");
+    }
+
+    @Test
+    @DisplayName("the mark is per window: the same location flagged at sunrise stays unmarked at that "
+            + "day's sunset, where its neighbours agree")
+    void markIsPerTargetType() {
+        stubPoints();
+        BriefingDay both = new BriefingDay(D, List.of(
+                new BriefingEventSummary(TargetType.SUNRISE, List.of(region("North", sky(1L, "Caw Gap", 4),
+                        sky(2L, "Cawfields", 2), sky(3L, "Steel Rigg", 2))), List.of()),
+                new BriefingEventSummary(TargetType.SUNSET, List.of(region("North", sky(1L, "Caw Gap", 4),
+                        sky(2L, "Cawfields", 4), sky(3L, "Steel Rigg", 4))), List.of())));
+
+        DailyBriefingResponse served = assembler.assembleForPlan(snapshot(both), 0.5);
+
+        List<BriefingEventSummary> events = served.days().get(0).eventSummaries();
+        assertThat(events.get(0).regions().get(0).slots()).filteredOn(s -> s.locationId() == 1L)
+                .extracting(BriefingSlot::neighbourOutlier).containsExactly(Boolean.TRUE);
+        assertThat(events.get(1).regions().get(0).slots()).filteredOn(s -> s.locationId() == 1L)
+                .extracting(BriefingSlot::neighbourOutlier).containsOnlyNulls();
+    }
+
+    @Test
+    @DisplayName("the mark is per date: the same location flagged on one day stays unmarked the next "
+            + "morning, where its neighbours agree")
+    void markIsPerDate() {
+        stubPoints();
+        BriefingDay today = day(D, TargetType.SUNRISE, region("North", sky(1L, "Caw Gap", 4),
+                sky(2L, "Cawfields", 2), sky(3L, "Steel Rigg", 2)));
+        BriefingDay tomorrow = day(D.plusDays(1), TargetType.SUNRISE, region("North", sky(1L, "Caw Gap", 4),
+                sky(2L, "Cawfields", 4), sky(3L, "Steel Rigg", 4)));
+
+        DailyBriefingResponse served = assembler.assembleForPlan(snapshot(today, tomorrow), 0.5);
+
+        assertThat(served.days().get(0).eventSummaries().get(0).regions().get(0).slots())
+                .filteredOn(s -> s.locationId() == 1L)
+                .extracting(BriefingSlot::neighbourOutlier).containsExactly(Boolean.TRUE);
+        assertThat(served.days().get(1).eventSummaries().get(0).regions().get(0).slots())
+                .filteredOn(s -> s.locationId() == 1L)
+                .extracting(BriefingSlot::neighbourOutlier).containsOnlyNulls();
+    }
+
+    @Test
+    @DisplayName("an empty coordinates answer (a failed read, memoised by the provider) skips the guard "
+            + "and writes no summary")
+    void emptyPointsSkipTheGuard() {
+        when(locationPointProvider.points()).thenReturn(java.util.Map.of());
+
+        DailyBriefingResponse served = assembler.assembleForPlan(caw(), 0.5);
+
+        assertThat(slotsOf(served)).extracting(BriefingSlot::neighbourOutlier).containsOnlyNulls();
+        assertThat(logLines).isEmpty();
     }
 
     @Test
@@ -254,6 +313,7 @@ class ServedBriefingAssemblerNeighbourGuardTest {
     @Test
     @DisplayName("each serve logs the summary once per briefing and the flagged slot once, ids only")
     void logsOncePerBriefing() {
+        stubPoints();
         assembler.assembleForPlan(caw(), 0.5);
         assembler.assembleForPlan(caw(), 0.5);
 
@@ -265,6 +325,7 @@ class ServedBriefingAssemblerNeighbourGuardTest {
     @Test
     @DisplayName("the other windows of the response are rebuilt with the same regions, days and events")
     void otherEventsAndDaysAreCarried() {
+        stubPoints();
         BriefingDay sunrise = day(D, TargetType.SUNRISE, region("North", sky(1L, "Caw Gap", 4),
                 sky(2L, "Cawfields", 2), sky(3L, "Steel Rigg", 2)));
         BriefingDay nextDay = day(D.plusDays(1), TargetType.SUNSET, region("North", sky(1L, "Caw Gap", 3)));
