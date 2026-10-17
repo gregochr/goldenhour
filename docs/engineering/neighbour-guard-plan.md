@@ -1,10 +1,12 @@
 # Neighbour guard — plan
 
-**Status:** plan, G0. Owner decision 2026-10-17: build option (b) of
-`docs/engineering/same-cell-rating-spread-plan.md` in its "withhold" form, whether or not the FAR
-bucket moves to Sonnet 5.5, and build and merge the phases without further interaction unless a
-product decision blocks them. Reviewed adversarially (three lenses: code seams, product behaviour,
-tests and rollout) before merge; §10 records what the review changed.
+**Status:** COMPLETE, 2026-10-17. G1a (#1210), G1b (#1214), G2 (#1216), G3 (#1218) and G4 (#1220) are
+merged; the guard is ON by default (`photocast.neighbour-guard.enabled`, rollback `false` and a
+restart). Owner decision 2026-10-17: build option (b) of `docs/engineering/same-cell-rating-spread-plan.md`
+in its "withhold" form, whether or not the FAR bucket moves to Sonnet 5.5, and build and merge the
+phases without further interaction unless a product decision blocks them. Reviewed adversarially (three
+lenses, then a second round, then Codex) before merge; §10 records what the review changed. Nothing
+reaches production until the owner cuts a release.
 
 ## 1. What it is for
 
