@@ -8,12 +8,17 @@
 -- Not modelled: the honesty filter (it empties zero-coverage regions, which only removes places) and
 -- the region roster join (places are matched by name, enabled, sky type). Postgres-only. Read-only.
 -- :since is the first window date; :km the radius; margin 2, floor 3, two witnesses, 150 m are the
--- plan's defaults. A canopy slot is approximated as a place with no LANDSCAPE/SEASCAPE/WATERFALL type.
+-- plan's defaults.
+-- A served sky place: enabled, in a region (unregioned slots are neither candidates nor neighbours),
+-- and either untyped (the app briefs an untyped place as an ordinary sky place) or with an open-sky
+-- type. A place whose types are only WOODLAND, BLUEBELL or WILDLIFE stands in for a canopy slot.
 CREATE TEMP VIEW sky_place AS
 SELECT l.id, l.name, l.lat, l.lon, l.elevation_m AS elev
 FROM locations l
-WHERE l.enabled AND EXISTS (SELECT 1 FROM location_location_type t WHERE t.location_id = l.id
-                            AND t.location_type IN ('LANDSCAPE', 'SEASCAPE', 'WATERFALL'));
+WHERE l.enabled AND l.region_id IS NOT NULL
+  AND (NOT EXISTS (SELECT 1 FROM location_location_type t WHERE t.location_id = l.id)
+       OR EXISTS (SELECT 1 FROM location_location_type t WHERE t.location_id = l.id
+                  AND t.location_type IN ('LANDSCAPE', 'SEASCAPE', 'WATERFALL')));
 
 -- One cached result per place and window. The app reads a place under its CURRENT region only; a
 -- place that changed region can leave an entry under the old one, so this keeps the newest entry.
