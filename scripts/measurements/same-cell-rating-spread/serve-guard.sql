@@ -15,30 +15,41 @@ FROM locations l
 WHERE l.enabled AND EXISTS (SELECT 1 FROM location_location_type t WHERE t.location_id = l.id
                             AND t.location_type IN ('LANDSCAPE', 'SEASCAPE', 'WATERFALL'));
 
-CREATE TEMP VIEW cache_src AS
+-- One cached result per place and window. The app reads a place under its CURRENT region only; a
+-- place that changed region can leave an entry under the old one, so this keeps the newest entry.
+CREATE TEMP VIEW cache_all AS
 SELECT p.id, c.evaluation_date AS d, c.target_type AS t,
        CAST(r ->> 'rating' AS INTEGER) AS rating, CAST(r ->> 'skyRating' AS INTEGER) AS sky,
        -- evaluatedAt is written by the Jackson 2 mapper as epoch seconds; an ISO string is read too.
+       -- With none, the region row's updated_at, as BriefingEvaluationService rehydrates it (its
+       -- evaluated_at is set only when the row is created and later writes do not advance it).
        COALESCE(CASE WHEN r ->> 'evaluatedAt' ~ '^[0-9.]+$'
                      THEN TO_TIMESTAMP(CAST(r ->> 'evaluatedAt' AS DOUBLE PRECISION))
                      ELSE CAST(r ->> 'evaluatedAt' AS TIMESTAMPTZ) END,
-                c.evaluated_at) AS written
+                c.updated_at) AS written
 FROM cached_evaluation c
 CROSS JOIN LATERAL json_array_elements(CAST(c.results_json AS json)) AS r
 JOIN sky_place p ON p.name = r ->> 'locationName'
 WHERE c.evaluation_date >= CAST(:'since' AS DATE) AND c.target_type IN ('SUNRISE', 'SUNSET');
 
+CREATE TEMP VIEW cache_src AS
+SELECT id, d, t, rating, sky, written FROM (
+  SELECT a.*, ROW_NUMBER() OVER (PARTITION BY id, d, t ORDER BY written DESC) AS rn FROM cache_all a) x
+WHERE rn = 1;
+
+-- The latest non-PENDING row per slot, exactly ONE: the app keeps the first of tied rows in the
+-- query's order, which the query does not fix within a tie, so this takes the lowest id.
 CREATE TEMP VIEW row_src AS
-SELECT e.location_id AS id, e.target_date AS d, e.target_type AS t, e.rating, e.sky_rating AS sky,
-       e.triage_reason, e.forecast_run_at AT TIME ZONE 'UTC' AS written
-FROM forecast_evaluation e
-JOIN sky_place p ON p.id = e.location_id
-WHERE e.target_date >= CAST(:'since' AS DATE) AND e.target_type IN ('SUNRISE', 'SUNSET')
-  AND (e.batch_state IS NULL OR e.batch_state <> 'PENDING')
-  AND e.forecast_run_at = (SELECT MAX(e2.forecast_run_at) FROM forecast_evaluation e2
-                           WHERE e2.location_id = e.location_id AND e2.target_date = e.target_date
-                             AND e2.target_type = e.target_type
-                             AND (e2.batch_state IS NULL OR e2.batch_state <> 'PENDING'));
+SELECT id, d, t, rating, sky, triage_reason, written FROM (
+  SELECT e.location_id AS id, e.target_date AS d, e.target_type AS t, e.rating, e.sky_rating AS sky,
+         e.triage_reason, e.forecast_run_at AT TIME ZONE 'UTC' AS written,
+         ROW_NUMBER() OVER (PARTITION BY e.location_id, e.target_date, e.target_type
+                            ORDER BY e.forecast_run_at DESC, e.id ASC) AS rn
+  FROM forecast_evaluation e
+  JOIN sky_place p ON p.id = e.location_id
+  WHERE e.target_date >= CAST(:'since' AS DATE) AND e.target_type IN ('SUNRISE', 'SUNSET')
+    AND (e.batch_state IS NULL OR e.batch_state <> 'PENDING')) x
+WHERE rn = 1;
 
 CREATE TEMP VIEW skip_src AS
 SELECT p.id, d.evaluation_date AS d, d.event_type AS t, MAX(d.created_at) AS skip_at

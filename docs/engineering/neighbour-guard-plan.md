@@ -274,7 +274,9 @@ and not on a repeat serve.
 **G2.** `isPickEligible` clause test extended; `rank_spots` omits the outlier; the validator drops a
 submitted outlier; a thread pick that became an outlier re-joins with the held-back line and is not
 offered; the all-held-back stale thread gives the new missing text; a Ready answer whose pick became
-an outlier is withheld; `windowInfo.bestRating` is the best eligible rating.
+an outlier is withheld; `windowInfo.bestRating` is the existing window maximum with only outliers
+removed: a verdict-ineligible region's star, a sub-3★ best and an all-canopy window keep today's
+figure, and only a window whose best was an outlier changes.
 
 **G3.** `bestReach` skips an outlier to the next spot; skip-then-below-3 and all-outlier give the
 "no clear pick" state with its title and spoken text, and never "not scored yet"; no outlier gives
