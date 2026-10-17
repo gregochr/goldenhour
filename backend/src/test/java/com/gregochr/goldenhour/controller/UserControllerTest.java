@@ -2,9 +2,11 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.UserRole;
+import com.gregochr.goldenhour.service.DeletedAccount;
 import com.gregochr.goldenhour.service.PasswordResetResult;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
@@ -20,10 +22,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -642,11 +645,43 @@ class UserControllerTest extends AbstractControllerTest {
     @WithMockUser(username = "admin", roles = "ADMIN")
     @DisplayName("DELETE /api/users/{id} returns 200 when user is successfully deleted")
     void deleteUser_asAdmin_returns200() throws Exception {
-        doNothing().when(userService).deleteUser(eq(2L), eq("admin"));
+        when(userService.deleteUser(eq(2L), eq("admin")))
+                .thenReturn(new DeletedAccount("bob", "bob@example.com"));
 
         mockMvc.perform(delete("/api/users/2"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("User deleted"));
+    }
+
+    @Test
+    @WithMockUser(username = "admin", roles = "ADMIN")
+    @DisplayName("DELETE /api/users/{id} sends the 'account removed' email AFTER the service's transaction "
+            + "has returned, to the STORED address the service read under the lock")
+    void deleteUser_sendsTheEmailAfterTheServiceReturns_toTheStoredAddress() throws Exception {
+        when(userService.deleteUser(eq(2L), eq("admin")))
+                .thenReturn(new DeletedAccount("bob", "stored@example.com"));
+
+        mockMvc.perform(delete("/api/users/2")).andExpect(status().isOk());
+
+        InOrder order = inOrder(userService, userEmailService);
+        order.verify(userService).deleteUser(2L, "admin");
+        order.verify(userEmailService).sendAccountDeletedEmail("stored@example.com", "bob");
+    }
+
+    @Test
+    @WithMockUser(username = "admin", roles = "ADMIN")
+    @DisplayName("DELETE /api/users/{id} sends NO email when the delete fails: a refused self-delete and a "
+            + "missing user mail nobody")
+    void deleteUser_failure_sendsNoEmail() throws Exception {
+        doThrow(new IllegalStateException("Cannot delete your own account"))
+                .when(userService).deleteUser(eq(1L), eq("admin"));
+        doThrow(new IllegalArgumentException("User not found: 99"))
+                .when(userService).deleteUser(eq(99L), eq("admin"));
+
+        mockMvc.perform(delete("/api/users/1")).andExpect(status().isConflict());
+        mockMvc.perform(delete("/api/users/99")).andExpect(status().isBadRequest());
+
+        verifyNoInteractions(userEmailService);
     }
 
     @Test

@@ -541,4 +541,39 @@ public interface AppUserRepository extends JpaRepository<AppUserEntity, Long> {
             + "WHERE u.id = :id AND u.homeLatitude = :latitude AND u.homeLongitude = :longitude")
     int clearDriveTimesCalculatedAtIfHomeIs(@Param("id") Long id, @Param("latitude") double latitude,
             @Param("longitude") double longitude);
+
+    /**
+     * Deletes the account, but only while it is still the one the caller authenticated and verified: a
+     * compare-and-set whose ROW COUNT is the answer (login-registration plan §2 #14 rule 1(a), §2 #7).
+     * It holds the stored hash to the one the caller's BCrypt check matched, the credential version to the
+     * caller's session ({@code credentials_version = :cv}), and the role to anything but ADMIN — a role
+     * change does not move the version, and the sole administrator must never be deletable this way. A
+     * count of 0 makes the caller throw, which rolls its purge of the dependent rows back.
+     *
+     * @param id    the user's primary key
+     * @param hash  the stored password hash the caller verified
+     * @param cv    the credential version the caller's session carries
+     * @param admin the ADMIN role, bound as a parameter so no enum literal is spelled in the query
+     * @return 1 if the account was deleted; 0 if the password, the version or the role no longer matches
+     *         (or the account is gone)
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("DELETE FROM AppUserEntity u WHERE u.id = :id AND u.password = :hash "
+            + "AND u.credentialsVersion = :cv AND u.role <> :admin")
+    int deleteOwnAccountIfUnchanged(@Param("id") Long id, @Param("hash") String hash, @Param("cv") long cv,
+            @Param("admin") UserRole admin);
+
+    /**
+     * Deletes an account by id with one statement and reports whether a row went. The admin path's delete
+     * (it holds the row lock and has already purged the dependent rows); the row count, not a re-read
+     * entity, says whether the account was there.
+     *
+     * @param id the user's primary key
+     * @return 1 if the account was deleted; 0 if no such account exists
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("DELETE FROM AppUserEntity u WHERE u.id = :id")
+    int deleteAccountById(@Param("id") Long id);
 }

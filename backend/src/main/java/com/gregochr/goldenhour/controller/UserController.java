@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.UserRole;
+import com.gregochr.goldenhour.service.DeletedAccount;
 import com.gregochr.goldenhour.service.EmailClaims;
 import com.gregochr.goldenhour.service.PasswordResetResult;
 import com.gregochr.goldenhour.service.RegistrationService;
@@ -234,7 +235,9 @@ public class UserController {
     /**
      * Permanently deletes a user account.
      *
-     * <p>The authenticated admin cannot delete their own account.
+     * <p>The authenticated admin cannot delete their own account. The "account removed" email is sent here,
+     * after the service's transaction has committed (login-registration plan §2 #7), to the address read
+     * from the locked row; a delete that fails sends nothing.
      *
      * @param id        the user's primary key
      * @param principal the authenticated admin (used to prevent self-deletion)
@@ -243,7 +246,8 @@ public class UserController {
     @DeleteMapping("/{id}")
     public ResponseEntity<Object> deleteUser(@PathVariable Long id, Principal principal) {
         try {
-            userService.deleteUser(id, principal.getName());
+            DeletedAccount deleted = userService.deleteUser(id, principal.getName());
+            userEmailService.sendAccountDeletedEmail(deleted.email(), deleted.username());
             LOG.info("Admin deleted user id={}", id);
             return ResponseEntity.ok(Map.of("message", "User deleted"));
         } catch (IllegalStateException ex) {
