@@ -102,6 +102,7 @@ export const INITIAL_CONVERSATION = Object.freeze({
   busyRunLabel: null,
   selectedPick: null,
   selectionNonce: 0,
+  selectionCallout: false,
   planPick: null,
   error: null,
   inputError: null,
@@ -296,17 +297,25 @@ export function reduce(conv, action) {
       // Choosing a pick leaves the plan view for the answer: the pick list is where a choice is made
       // (a chip on the map is one too), and the reader who tapped another spot wants to see it in the
       // list, not a plan for the one they were on. The answer is put BACK, not delivered.
+      // `callout` rides the choice, atomic with its nonce (docs/engineering/phone-pick-callout-plan.md §3
+      // P1): a chip on the phone asks for the pick's callout, a card never does, so a later card choice
+      // can never inherit an earlier chip's intent and a deferred choice keeps its own.
       return {
         ...conv,
         selectedPick: action.rank,
         selectionNonce: action.nonce,
+        selectionCallout: action.callout === true,
         ...(conv.planPick !== null ? { planPick: null, restored: true } : null),
       };
     case ACTION.PLAN_OPENED:
       // The pick is chosen as well as planned: the map follows it and the Plan card is highlighted.
       if (!conv.answer || conv.phase !== 'answer') return conv;
       return {
-        ...conv, planPick: action.rank, selectedPick: action.rank, selectionNonce: action.nonce,
+        ...conv,
+        planPick: action.rank,
+        selectedPick: action.rank,
+        selectionNonce: action.nonce,
+        selectionCallout: false,
       };
     case ACTION.PLAN_LEFT:
       // The answer is put BACK, not delivered: it goes outside the live region (`restored`), or a

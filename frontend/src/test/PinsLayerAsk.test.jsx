@@ -191,6 +191,20 @@ describe('a pick pin', () => {
     expect(onSelect).toHaveBeenCalledWith('Bamburgh');
   });
 
+  // Safari and iOS do not focus a tapped <button>; with no Ask section expanding to rescue it, focus would
+  // be on <body> and the pane's Escape rule would never fire (phone-pick-callout-plan.md P1 review).
+  it('⚠️ takes focus itself on a press that did not give it, so Escape still reaches the pane', async () => {
+    currentMap = makeMap();
+    await mount({ spots: [{ ...WHITBY, askPick: PICK(3) }], onSelectAskPick: vi.fn() });
+    const pin = picks()[0];
+    pin.blur();
+    expect(document.activeElement).not.toBe(pin);
+
+    fireEvent.click(pin);
+
+    expect(document.activeElement).toBe(pin);
+  });
+
   it('a pin that BECOMES a pick under a resting pointer does not leave a tooltip hanging', async () => {
     currentMap = makeMap();
     const view = await mount({ spots: [WHITBY] });

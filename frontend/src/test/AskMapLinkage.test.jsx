@@ -449,6 +449,18 @@ describe('choosing a pick', () => {
     await waitFor(() => expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/sunrise/i));
   });
 
+  // The callout is the PHONE's (phone-pick-callout-plan.md): an intent that reached the pane off the phone
+  // (only the phone's handler sends one) must not open a callout.
+  it('a choice that asked for a callout opens none off the phone', async () => {
+    await renderMap();
+    await askAnAnswer();
+
+    await act(async () => { ask$.selectPick(2, { callout: true }); });
+
+    await waitFor(() => expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/sunrise/i));
+    expect(screen.queryByTestId('map-callout')).toBeNull();
+  });
+
   it('an ordinary chip still opens its callout while an answer is showing', async () => {
     await renderMap();
     await askAnAnswer();

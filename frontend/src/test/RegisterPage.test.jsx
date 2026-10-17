@@ -4,8 +4,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import RegisterPage from '../components/RegisterPage.jsx';
 import { AuthProvider } from '../context/AuthContext.jsx';
 import * as AuthApi from '../api/authApi.js';
+import * as SettingsApi from '../api/settingsApi.js';
 
 vi.mock('../api/authApi.js');
+vi.mock('../api/settingsApi.js');
 
 function installTurnstileMock() {
   window.turnstile = {
@@ -383,6 +385,9 @@ describe('RegisterPage visual foundation', () => {
       await user.type(screen.getByTestId('sp-confirm'), 'Abcdef1!');
 
       await user.click(screen.getByTestId('sp-submit'));
+      // The password step now leads to HOME; Skip for now is the way on to the Welcome.
+      SettingsApi.markPostcodePromptDismissed.mockResolvedValue({});
+      await user.click(await screen.findByTestId('home-secondary'));
 
       const card = await screen.findByTestId('success-step');
       expect(card).not.toHaveClass('text-center');

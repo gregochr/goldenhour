@@ -196,14 +196,20 @@ effect stays). `MapViewAsk.test`'s comment "the phone wraps it to expand a minim
 
 ## 6. Accepted limits
 
-- A pick whose row cannot be followed opens no callout; the tap still chooses the card and the camera
-  flies. Picks come from the rendered windows, so this is rare.
+- A pick whose row cannot be followed opens no callout; the tap still chooses the card (and, since the
+  review round, the camera stays put on any phone chip tap). Picks come from the rendered windows, so this
+  is rare.
 - The callout is silent to assistive technology and is portalled outside the chip's tab order, exactly
   as an ordinary chip's is; a keyboard reader reaches its buttons by tabbing on.
 - The door clears a standing callout (an open sheet and a callout never coexist), and opening and
   closing Layers moves the camera's inset twice.
 - On a tap from an expanded answer the sheet animates down (.28s) while the callout is already placed
   for 112px, so the sheet can briefly paint over the callout's lower edge.
+- On a short phone (seen at 320×568), a pick chip near the TOP of the free band leaves the callout no room
+  above it or below it (above the 112px line), so the callout is clamped over the lower part of its own chip
+  and ring (about 10px, seen in headless Chromium on 2026-10-17). The callout's title names the place. An
+  ordinary chip at the same spot does the same today: it is the callout's placement limit, not P1's, and the
+  camera does not move on a chip tap.
 - A running phone page keeps the JS it loaded until reload (CLAUDE.md's standing note).
 
 ## 7. Docs that change
@@ -235,6 +241,14 @@ glyph; the full layout CSS and hiding `when` below 400px; rewriting (not flippin
 with a provider step; the mutant-killing tests; the docs list; changelog entries; and a throwaway Vite
 page for the width check instead of the label-obstacle harness. Considered and not adopted: a polite
 live-region announcement for a pick callout (an ordinary chip's callout has none; recorded in §6).
+
+**P1 review round (2026-10-17, after the headless-Chromium check).** Added: a chip choice does not fly the select
+camera (`askSelection.still`; at 320×568 the flight landed the chip at y≈216–245 under its own 221px card);
+the pick chip and pin focus themselves on press (Safari/iOS, and no expand route rescues focus now); a
+deferred night choice skips its callout when the answer was reopened or another place selected meanwhile; the
+callout's ✕ returns focus to the ringed chip, else the pane (`tabIndex -1`); `selectPick` tolerates a null
+options argument. A phone chip whose row the map lacks therefore opens no callout and no longer flies either
+(§6's "the camera flies" is superseded).
 
 ## 9. Owner's check on a real phone (no session can sign in)
 

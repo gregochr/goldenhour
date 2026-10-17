@@ -35,15 +35,15 @@ import { getSettings, saveMapTideMode } from '../api/settingsApi.js';
 /** `GET /api/user/settings` for one reader, before and after moving from Morpeth to Keswick. */
 const MORPETH = {
   homePostcode: 'NE61 1AA', homeLatitude: 55.17, homeLongitude: -1.69,
-  homePlaceName: 'Morpeth', driveTimesCalculatedAt: '2026-09-01T10:00:00Z',
+  homePlaceName: 'Morpeth', driveTimesCalculatedAt: '2026-09-01T10:00:00Z', postcodePromptDue: false,
 };
 const KESWICK = {
   homePostcode: 'CA12 5JR', homeLatitude: 54.6, homeLongitude: -3.13,
-  homePlaceName: 'Keswick', driveTimesCalculatedAt: null,
+  homePlaceName: 'Keswick', driveTimesCalculatedAt: null, postcodePromptDue: false,
 };
 const NO_HOME = {
   homePostcode: null, homeLatitude: null, homeLongitude: null,
-  homePlaceName: null, driveTimesCalculatedAt: null,
+  homePlaceName: null, driveTimesCalculatedAt: null, postcodePromptDue: false,
 };
 
 const read = (settings) => ({ type: 'read', settings });
@@ -252,6 +252,115 @@ describe('useReaderSettings — a recalculation', () => {
     const record = readOf({ ...KESWICK, driveTimesCalculatedAt: '2026-09-15T11:00:00.123457Z' });
 
     expect(recordReducer(record, recalculated('2026-09-15T11:00:00.123456789Z'))).toBe(record);
+  });
+});
+
+describe('useReaderSettings — postcodePromptDue (login-registration-plan.md §2 #3)', () => {
+  /** What `PUT /postcode-prompt-dismissed` answers: the same home (none), no place name, flag down. */
+  const DISMISSED = { ...NO_HOME, postcodePromptDue: false };
+  const DUE = { ...NO_HOME, postcodePromptDue: true };
+  const NO_HOME_WITHOUT_FLAG = {
+    homePostcode: null, homeLatitude: null, homeLongitude: null,
+    homePlaceName: null, driveTimesCalculatedAt: null,
+  };
+
+  it('is read STRICTLY: only a literal true is due', () => {
+    expect(readOf(DUE).settings.postcodePromptDue).toBe(true);
+    [false, undefined, null, 'true', 1, 'yes', {}].forEach((value) => {
+      expect(readOf({ ...NO_HOME, postcodePromptDue: value }).settings.postcodePromptDue).toBe(false);
+    });
+    // A response with no such field at all — an older server, or any fixture that predates it.
+    expect(readOf(NO_HOME_WITHOUT_FLAG).settings.postcodePromptDue).toBe(false);
+  });
+
+  it('a dismissal answer lowers the flag and moves NO counter — same home, no place name', () => {
+    const record = readOf(DUE);
+
+    const after = recordReducer(record, answer(DISMISSED));
+
+    expect(after.settings.postcodePromptDue).toBe(false);
+    expect(after).not.toBe(record); // the early return must not drop the one thing this answer says
+    expect(after.homeSettingsVersion).toBe(0);
+    expect(after.driveTimesVersion).toBe(0);
+  });
+
+  it('a saved home lowers the flag and moves the home counter', () => {
+    const after = recordReducer(readOf(DUE), answer({ ...MORPETH, postcodePromptDue: false }));
+
+    expect(after.settings.postcodePromptDue).toBe(false);
+    expect(after.homeSettingsVersion).toBe(1);
+  });
+
+  it('an unchanged flag with the same home is still the same record', () => {
+    const record = readOf(DUE);
+
+    expect(recordReducer(record, answer(DUE))).toBe(record);
+  });
+
+  it('keeps the place name on record when a dismissal for the same home arrives without one', () => {
+    const record = readOf({ ...MORPETH, postcodePromptDue: true });
+
+    const after = recordReducer(record, answer({ ...MORPETH, homePlaceName: null, postcodePromptDue: false }));
+
+    expect(after.settings.homePlaceName).toBe('Morpeth');
+    expect(after.settings.postcodePromptDue).toBe(false);
+  });
+
+  describe('through the hook', () => {
+    beforeEach(() => { vi.resetAllMocks(); });
+
+    it('is false while the mount read is unanswered and after it fails — silence never prompts', async () => {
+      getSettings.mockReturnValue(new Promise(() => {}));
+      const pending = renderHook(() => useReaderSettings());
+      expect(pending.result.current.postcodePromptDue).toBe(false);
+
+      getSettings.mockRejectedValue(new Error('offline'));
+      const failed = renderHook(() => useReaderSettings());
+      await act(async () => { await Promise.resolve(); });
+      expect(failed.result.current.postcodePromptDue).toBe(false);
+    });
+
+    it('is true once the mount read answers due, and false for an answer without the field', async () => {
+      getSettings.mockResolvedValue(DUE);
+      const due = renderHook(() => useReaderSettings());
+      await act(async () => { await Promise.resolve(); });
+      expect(due.result.current.postcodePromptDue).toBe(true);
+
+      getSettings.mockResolvedValue({ ...NO_HOME, postcodePromptDue: undefined });
+      const bare = renderHook(() => useReaderSettings());
+      await act(async () => { await Promise.resolve(); });
+      expect(bare.result.current.postcodePromptDue).toBe(false);
+    });
+
+    it("drops to false through startSettingsRead's reporter (the dismissal) and stays down after homeSaved", async () => {
+      getSettings.mockResolvedValue(DUE);
+      const { result } = renderHook(() => useReaderSettings());
+      await act(async () => { await Promise.resolve(); });
+      expect(result.current.postcodePromptDue).toBe(true);
+
+      let report;
+      act(() => { report = result.current.startSettingsRead(); });
+      act(() => { report(DISMISSED); });
+      expect(result.current.postcodePromptDue).toBe(false);
+
+      act(() => { result.current.homeSaved({ ...MORPETH, postcodePromptDue: false }); });
+      expect(result.current.postcodePromptDue).toBe(false);
+      expect(result.current.homePlace).toBe('Morpeth');
+    });
+
+    it('a dismissal answer numbered BEFORE a newer one is dropped — the saved home stays', async () => {
+      getSettings.mockResolvedValue(DUE);
+      const { result } = renderHook(() => useReaderSettings());
+      await act(async () => { await Promise.resolve(); });
+
+      let dismissal;
+      act(() => { dismissal = result.current.startSettingsRead(); });
+      act(() => { result.current.homeSaved({ ...MORPETH, postcodePromptDue: false }); });
+      act(() => { dismissal(DISMISSED); });
+
+      expect(result.current.homePlace).toBe('Morpeth');
+      expect(result.current.postcodePromptDue).toBe(false);
+    });
   });
 });
 
