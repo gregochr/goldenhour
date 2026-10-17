@@ -5,6 +5,7 @@ import {
 import {
   act, render, screen, fireEvent, waitFor,
 } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import UserSettingsModal from '../components/UserSettingsModal.jsx';
 import { createColourSaveQueue, saveColourInTurn } from '../utils/colourSaveQueue.js';
 
@@ -17,6 +18,9 @@ vi.mock('../api/settingsApi', () => ({
   reverseLookupPostcode: vi.fn(),
 }));
 
+vi.mock('../api/accountApi', () => ({ deleteAccount: vi.fn() }));
+
+import { deleteAccount } from '../api/accountApi';
 import {
   getSettings, lookupPostcode, saveHome, refreshDriveTimes, saveMapColourPreferences,
   reverseLookupPostcode,
@@ -2105,5 +2109,313 @@ describe('UserSettingsModal — the postcode field: the shared style, the mobile
 
       await waitFor(() => expect(screen.getByTestId('settings-home-current')).toHaveFocus());
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Danger zone — deleting the reader's own account (login-registration plan R5b, §2 #7)
+// ---------------------------------------------------------------------------
+
+describe('UserSettingsModal — danger zone', () => {
+  const SENTENCE = 'This deletes your account, your home postcode and drive times, your Ask history and your '
+    + 'ratings. It cannot be undone.';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getSettings.mockResolvedValue(PRO_SETTINGS);
+  });
+
+  /** An axios-shaped refusal: the status and the sentence the server put under `error`. */
+  const refusal = (status, error) => ({
+    response: { status, data: error === undefined ? '' : { error } },
+  });
+
+  async function openRegion(props = {}) {
+    const user = userEvent.setup();
+    const onSignOut = vi.fn();
+    const view = renderModal({ onSignOut, ...props });
+    await user.click(await screen.findByTestId('settings-delete-open'));
+    return { user, onSignOut, ...view };
+  }
+
+  const confirmButton = () => screen.getByTestId('settings-delete-confirm');
+  const passwordField = () => screen.getByTestId('settings-delete-password');
+
+  it.each([['PRO_USER', PRO_SETTINGS], ['LITE_USER', LITE_SETTINGS], ['ADMIN', ADMIN_SETTINGS]])(
+    'offers the section to a %s, collapsed: a heading and a btn-secondary opener, no region, no call',
+    async (_role, settings) => {
+      getSettings.mockResolvedValue(settings);
+      renderModal();
+      const opener = await screen.findByTestId('settings-delete-open');
+
+      expect(screen.getByRole('heading', { level: 3, name: 'Danger zone' })).toBeInTheDocument();
+      expect(opener).toHaveTextContent('Delete account');
+      expect(opener.className.split(/\s+/)).toContain('btn-secondary');
+      expect(opener).toHaveAttribute('type', 'button');
+      expect(screen.queryByTestId('settings-delete-region')).toBeNull();
+      expect(screen.queryByTestId('settings-delete-password')).toBeNull();
+      expect(deleteAccount).not.toHaveBeenCalled();
+    },
+  );
+
+  it('opens an inline group labelled by the heading, with the sentence, and moves focus to the password field', async () => {
+    await openRegion();
+
+    const region = screen.getByRole('group', { name: 'Danger zone' });
+    expect(region).toBe(screen.getByTestId('settings-delete-region'));
+    expect(region).toHaveTextContent(SENTENCE);
+    expect(region).toHaveAccessibleDescription(SENTENCE);
+
+    const field = passwordField();
+    expect(field).toHaveAttribute('type', 'password');
+    expect(field).toHaveAttribute('autocomplete', 'current-password');
+    expect(field).toHaveAccessibleName('Password');
+    expect(field).toHaveValue('');
+    expect(field).toHaveFocus();
+    // The opener leaves with the press: one button named "Delete account" on screen, the confirm.
+    expect(screen.queryByTestId('settings-delete-open')).toBeNull();
+    expect(screen.getAllByRole('button', { name: 'Delete account' })).toEqual([confirmButton()]);
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+    expect(deleteAccount).not.toHaveBeenCalled();
+  });
+
+  it('never puts a second modal on the page: the settings dialog is the only aria-modal, before and after opening', async () => {
+    const user = userEvent.setup();
+    renderModal();
+    await screen.findByTestId('settings-delete-open');
+    expect(document.querySelectorAll('[aria-modal="true"]')).toHaveLength(1);
+
+    await user.click(screen.getByTestId('settings-delete-open'));
+
+    expect(document.querySelectorAll('[aria-modal="true"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[role="dialog"], [role="alertdialog"]')).toHaveLength(1);
+    expect(screen.getByRole('dialog', { name: 'Settings' })).toContainElement(
+      screen.getByTestId('settings-delete-region'),
+    );
+  });
+
+  it('keeps Delete disabled until a password is typed, and disabled again when it is cleared', async () => {
+    const { user } = await openRegion();
+
+    expect(confirmButton()).toBeDisabled();
+    await user.click(confirmButton());
+    expect(deleteAccount).not.toHaveBeenCalled();
+
+    await user.type(passwordField(), 'p');
+    expect(confirmButton()).toBeEnabled();
+    expect(confirmButton()).not.toHaveAttribute('aria-disabled');
+
+    await user.clear(passwordField());
+    expect(confirmButton()).toBeDisabled();
+    await user.type(passwordField(), '{enter}');
+    expect(deleteAccount).not.toHaveBeenCalled();
+  });
+
+  it('draws the destructive button with .btn-danger, never a raw red', async () => {
+    await openRegion();
+    const classes = confirmButton().className.split(/\s+/);
+
+    // `.btn-danger` owns the fill and the focus ring (index.css; buttonFocusRules.test.js pins
+    // the rule from the token), and no ring utility may sit beside a `.btn*` class.
+    expect(classes).toContain('btn-danger');
+    expect(classes.filter((c) => /(^|:)(ring|outline)(-|$)/.test(c))).toEqual([]);
+    expect(classes.filter((c) => /(?:red|rose)-\d{2,3}/.test(c))).toEqual([]);
+  });
+
+  it('sends exactly the typed password once, shows Deleting… and refuses a second press while it is out', async () => {
+    const out = deferred();
+    deleteAccount.mockReturnValue(out.promise);
+    const { user, onSignOut } = await openRegion();
+    await user.type(passwordField(), 'correct horse');
+
+    await user.click(confirmButton());
+
+    expect(deleteAccount).toHaveBeenCalledTimes(1);
+    expect(deleteAccount).toHaveBeenCalledWith('correct horse');
+    expect(confirmButton()).toHaveTextContent('Deleting…');
+    expect(confirmButton()).toHaveAttribute('aria-disabled', 'true');
+    // Not `disabled`: the reader pressed this button and keeps focus on it.
+    expect(confirmButton()).not.toBeDisabled();
+    expect(confirmButton()).toHaveFocus();
+
+    await user.click(confirmButton());
+    await user.type(passwordField(), '{enter}');
+    expect(deleteAccount).toHaveBeenCalledTimes(1);
+    expect(onSignOut).not.toHaveBeenCalled();
+    await land(() => out.resolve());
+  });
+
+  it('submits with Enter in the password field', async () => {
+    deleteAccount.mockResolvedValue(undefined);
+    const { user } = await openRegion();
+
+    await user.type(passwordField(), 'hunter2{enter}');
+
+    expect(deleteAccount).toHaveBeenCalledTimes(1);
+    expect(deleteAccount).toHaveBeenCalledWith('hunter2');
+  });
+
+  it('on a 204 signs out, once, and does not re-enable the button in the gap', async () => {
+    const out = deferred();
+    deleteAccount.mockReturnValue(out.promise);
+    const { user, onSignOut } = await openRegion();
+    await user.type(passwordField(), 'pw');
+    await user.click(confirmButton());
+    expect(onSignOut).not.toHaveBeenCalled();
+
+    await land(() => out.resolve(undefined));
+
+    expect(onSignOut).toHaveBeenCalledTimes(1);
+    expect(onSignOut).toHaveBeenCalledWith();
+    expect(screen.queryByTestId('settings-delete-error')).toBeNull();
+    expect(confirmButton()).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('on a 403 shows the server\'s sentence in an alert inside the region and keeps focus on the button', async () => {
+    deleteAccount.mockRejectedValue(refusal(403, 'Password is incorrect'));
+    const { user, onSignOut } = await openRegion();
+    await user.type(passwordField(), 'wrong');
+    await user.click(confirmButton());
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Password is incorrect');
+    expect(alert).toBe(screen.getByTestId('settings-delete-error'));
+    expect(screen.getByTestId('settings-delete-region')).toContainElement(alert);
+    expect(onSignOut).not.toHaveBeenCalled();
+    // The region stays as it was: the password is kept for a correction, the button is live again,
+    // and — the point of aria-disabled over disabled — focus never left it.
+    expect(passwordField()).toHaveValue('wrong');
+    expect(confirmButton()).toHaveTextContent('Delete account');
+    expect(confirmButton()).not.toHaveAttribute('aria-disabled');
+    expect(confirmButton()).toHaveFocus();
+    expect(passwordField()).toHaveAttribute('aria-invalid', 'true');
+    expect(passwordField()).toHaveAccessibleDescription('Password is incorrect');
+  });
+
+  it('prefers the server\'s own sentence over the plan\'s, and falls back to the plan\'s when the body has none', async () => {
+    deleteAccount.mockRejectedValueOnce(refusal(403, 'That is not your password'));
+    const { user } = await openRegion();
+    await user.type(passwordField(), 'x');
+    await user.click(confirmButton());
+    expect(await screen.findByRole('alert')).toHaveTextContent('That is not your password');
+
+    deleteAccount.mockRejectedValueOnce(refusal(403));
+    await user.click(confirmButton());
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/^Password is incorrect$/));
+  });
+
+  it.each([
+    [429, 'Too many attempts. Please wait a few minutes and try again.'],
+    [409, 'Admin accounts are deleted by another admin'],
+  ])('on a %i shows the server\'s sentence inside the region and keeps it open, without marking the password invalid', async (status, sentence) => {
+    deleteAccount.mockRejectedValue(refusal(status, sentence));
+    const { user, onSignOut } = await openRegion();
+    await user.type(passwordField(), 'pw');
+    await user.click(confirmButton());
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(sentence);
+    expect(onSignOut).not.toHaveBeenCalled();
+    expect(screen.getByTestId('settings-delete-region')).toContainElement(screen.getByRole('alert'));
+    expect(passwordField()).not.toHaveAttribute('aria-invalid');
+    expect(confirmButton()).toHaveFocus();
+    expect(confirmButton()).not.toHaveAttribute('aria-disabled');
+  });
+
+  it('on a 401 (the credentials changed under this session) signs out and shows no error', async () => {
+    deleteAccount.mockRejectedValue(refusal(401, 'Your session has changed. Sign in again.'));
+    const { user, onSignOut } = await openRegion();
+    await user.type(passwordField(), 'pw');
+    await user.click(confirmButton());
+
+    await waitFor(() => expect(onSignOut).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId('settings-delete-error')).toBeNull();
+  });
+
+  it.each([[500, 'Internal'], [400, 'Password is required'], [undefined, undefined]])(
+    'on anything else (%s) says one fixed sentence and never the server\'s text, and signs nobody out',
+    async (status, text) => {
+      deleteAccount.mockRejectedValue(
+        status === undefined ? new Error('Network Error') : refusal(status, text),
+      );
+      const { user, onSignOut } = await openRegion();
+      await user.type(passwordField(), 'pw');
+      await user.click(confirmButton());
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(/^Couldn.t delete your account\. Try again\.$/);
+      expect(onSignOut).not.toHaveBeenCalled();
+      expect(confirmButton()).toHaveFocus();
+    },
+  );
+
+  it('clears the previous refusal while the next attempt is out', async () => {
+    deleteAccount.mockRejectedValueOnce(refusal(403, 'Password is incorrect'));
+    const { user } = await openRegion();
+    await user.type(passwordField(), 'bad');
+    await user.click(confirmButton());
+    await screen.findByRole('alert');
+
+    const second = deferred();
+    deleteAccount.mockReturnValueOnce(second.promise);
+    await user.click(confirmButton());
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(passwordField()).not.toHaveAttribute('aria-invalid');
+    expect(deleteAccount).toHaveBeenCalledTimes(2);
+    await land(() => second.resolve());
+  });
+
+  it('Cancel collapses the region, returns focus to the opener, drops the password and the error, and calls nothing', async () => {
+    deleteAccount.mockRejectedValue(refusal(403, 'Password is incorrect'));
+    const { user, onSignOut } = await openRegion();
+    await user.type(passwordField(), 'secret');
+    await user.click(confirmButton());
+    await screen.findByRole('alert');
+    deleteAccount.mockClear();
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByTestId('settings-delete-region')).toBeNull();
+    expect(screen.getByTestId('settings-delete-open')).toHaveFocus();
+    expect(deleteAccount).not.toHaveBeenCalled();
+    expect(onSignOut).not.toHaveBeenCalled();
+
+    await user.click(screen.getByTestId('settings-delete-open'));
+    expect(passwordField()).toHaveValue('');
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(passwordField()).not.toHaveAttribute('aria-invalid');
+  });
+
+  it('refuses Cancel while the request is out, so a delete that lands is not walked away from', async () => {
+    const out = deferred();
+    deleteAccount.mockReturnValue(out.promise);
+    const { user } = await openRegion();
+    await user.type(passwordField(), 'pw');
+    await user.click(confirmButton());
+
+    const cancel = screen.getByRole('button', { name: 'Cancel' });
+    expect(cancel).toHaveAttribute('aria-disabled', 'true');
+    await user.click(cancel);
+
+    expect(screen.getByTestId('settings-delete-region')).toBeInTheDocument();
+    await land(() => out.resolve());
+  });
+
+  it('has the eye toggle on the password field, labelled for the field', async () => {
+    const { user } = await openRegion();
+
+    await user.click(screen.getByRole('button', { name: 'Show password' }));
+    expect(passwordField()).toHaveAttribute('type', 'text');
+    expect(screen.getByRole('button', { name: 'Hide password' })).toBeInTheDocument();
+  });
+
+  it('is quiet about it when no onSignOut is given: a 204 changes nothing and throws nothing', async () => {
+    deleteAccount.mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    renderModal();
+    await user.click(await screen.findByTestId('settings-delete-open'));
+    await user.type(passwordField(), 'pw');
+    await user.click(confirmButton());
+
+    await waitFor(() => expect(deleteAccount).toHaveBeenCalledTimes(1));
   });
 });

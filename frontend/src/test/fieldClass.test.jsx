@@ -143,6 +143,19 @@ describe('every auth input carries the shared .field style and nothing that outr
     classes.forEach((c) => expect(['field', 'field-error', 'flex-1', 'min-w-0']).toContain(c));
   });
 
+  it('settings: the danger zone\'s password field is the shared PasswordInput on .field, with only its eye\'s padding beside it', async () => {
+    getSettings.mockResolvedValue({
+      username: 'alice', role: 'LITE_USER', homePostcode: null, homePlaceName: null, driveTimesCalculatedAt: null,
+    });
+    const user = userEvent.setup();
+    render(<UserSettingsModal onClose={vi.fn()} />);
+    await user.click(await screen.findByTestId('settings-delete-open'));
+
+    const input = screen.getByTestId('settings-delete-password');
+    expect(input.className).toBe('field pr-10');
+    expect(input).toHaveAttribute('type', 'password');
+  });
+
   it('register: the form step, with and without the error state', async () => {
     const user = userEvent.setup();
     const { container } = renderAuth(<RegisterPage onBackToLogin={vi.fn()} />);
@@ -267,6 +280,12 @@ describe('the Settings dialog uses status tokens, not raw colours', () => {
     // At least the five error lines and two dots R4c converted; a later section may add more.
     expect(withoutBadges.match(/text-plex-error/g).length).toBeGreaterThanOrEqual(5);
     expect(withoutBadges.match(/bg-plex-ok/g).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('draws the danger zone\'s error line and destructive button from .btn-danger', () => {
+    // R5b: the 403/409/429 line and the Delete button, beside the five lines R4c converted.
+    expect(withoutBadges).toMatch(/className="text-sm text-plex-error -mt-1"/);
+    expect(withoutBadges).toMatch(/className="btn-danger /);
   });
 
   it('carries no per-file outline utility: .field owns the focus ring', () => {

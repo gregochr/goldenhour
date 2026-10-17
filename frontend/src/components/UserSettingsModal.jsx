@@ -3,6 +3,8 @@ import {
 } from 'react';
 import PropTypes from 'prop-types';
 import Modal from './shared/Modal';
+import PasswordInput from './auth/PasswordInput.jsx';
+import { deleteAccount } from '../api/accountApi.js';
 import {
   getSettings, lookupPostcode, saveHome, refreshDriveTimes, saveMapColourPreferences,
 } from '../api/settingsApi';
@@ -28,6 +30,16 @@ const ROLE_LABELS = {
  */
 const DEFAULT_RADIUS_MILES = 22;
 
+/** The account-deletion refusals a reader is told in the server's own words (plan §2 #12). */
+const DELETE_REFUSAL_FALLBACKS = {
+  403: 'Password is incorrect',
+  409: 'Admin accounts are deleted by another admin',
+  429: 'Too many attempts. Please wait a few minutes and try again.',
+};
+
+/** Anything else the delete can fail with — a 400, a 5xx, a lost connection. */
+const DELETE_FAILED = "Couldn't delete your account. Try again.";
+
 /**
  * The lines this dialog moves focus ONTO — the new home, the refresh's status line, its "last
  * calculated" line, its error. They are text, not controls: `tabIndex={-1}` keeps them out of the
@@ -51,6 +63,7 @@ const LANDING_TARGET = '-mx-1 px-1 rounded-sm focus-visible:outline-2 focus-visi
 export default function UserSettingsModal({
   onClose, onDriveTimesRefreshed, startSettingsRead, onHomeSaved, onDriveTimesRecalculated,
   onColourSaved, colourSaveQueue = null, focusField = null, restoreFocusFallback = null,
+  onSignOut = undefined,
 }) {
   const [settings, setSettings] = useState(null);
   // The read on opening starts through the newest callback without the read re-running when the
@@ -100,6 +113,22 @@ export default function UserSettingsModal({
   // during render) so the render stays pure (react-hooks/purity), and refreshed
   // every minute so the label stays current.
   const [now, setNow] = useState(null);
+
+  // ── Danger zone: deleting the reader's own account ─────────────────────────────────────────────
+  //
+  // An INLINE confirmation region in this dialog, never a second `aria-modal` over it (plan §1 #26,
+  // §4 #17). `deleteOpen` swaps the opener for the region; the region asks for the password.
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deletePassword, setDeletePassword] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  // `{ text, passwordRefused }` — the sentence the reader is shown, and whether it is about the
+  // password field itself (a 403) rather than the request (a 409 or 429).
+  const [deleteError, setDeleteError] = useState(null);
+  const deleteOpenerRef = useRef(null);
+  const deletePasswordRef = useRef(null);
+  const deleteHeadingId = useId();
+  const deleteSentenceId = useId();
+  const deleteErrorId = useId();
 
   // ── Where focus goes when a step of this dialog removes the control the reader pressed ─────────
   //
@@ -450,6 +479,64 @@ export default function UserSettingsModal({
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter') handleLookup();
+  };
+
+  /**
+   * Opens the confirmation region. The opener leaves with the press, so the reader lands on the
+   * password field — which is also what the dialog a confirm would have been was for.
+   */
+  const openDelete = () => {
+    setDeleteOpen(true);
+    setFocusRequest([deletePasswordRef]);
+  };
+
+  /**
+   * Collapses the region and returns the reader to the button that opened it. Refused while the
+   * request is out: a delete that then succeeds would sign the reader out of a region they had
+   * just walked away from. The password is dropped with the region.
+   */
+  const cancelDelete = () => {
+    if (deleting) return;
+    setDeleteOpen(false);
+    setDeletePassword('');
+    setDeleteError(null);
+    setFocusRequest([deleteOpenerRef]);
+  };
+
+  /**
+   * Sends the delete. `aria-disabled`, not `disabled`, while it is out (BUSY_BUTTON's reason): the
+   * reader has just pressed this button, and a button that becomes `disabled` under focus drops it
+   * on `<body>` — where a refused password would leave them. So a second press, or Enter in the
+   * field, is refused here instead.
+   *
+   * <p>204 and 401 both end the session — the first because the account is gone, the second because
+   * the credentials changed under this one (plan §2 #7) — and both go through `onSignOut`. A 403,
+   * 409 or 429 shows the server's sentence inside the region, which stays open.
+   */
+  const handleDelete = async (e) => {
+    e.preventDefault();
+    if (!deletePassword || deleting) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await deleteAccount(deletePassword);
+    } catch (err) {
+      const status = err?.response?.status;
+      if (status === 401) {
+        await onSignOut?.();
+        return;
+      }
+      const fallback = DELETE_REFUSAL_FALLBACKS[status];
+      setDeleteError({
+        text: fallback ? apiErrorMessage(err, fallback) : DELETE_FAILED,
+        passwordRefused: status === 403,
+      });
+      setDeleting(false);
+      return;
+    }
+    // Left `deleting` on: the page is about to drop this dialog, and a button that re-enabled in
+    // the gap would let a second delete go out against an account that no longer exists.
+    await onSignOut?.();
   };
 
   // A location request's own failure replaces the typed lookup's line; the two never show together.
@@ -864,6 +951,87 @@ export default function UserSettingsModal({
               Your postcode sets your light times. Pro accounts also get drive times from home.
             </p>
           )}
+
+          {/* Danger zone — every role, the administrator included: an admin's attempt is a 409 the
+              region reports in the server's words, so the refusal is not duplicated here. */}
+          <section className="border-t border-plex-border pt-4">
+            <h3
+              id={deleteHeadingId}
+              className="text-xs font-medium text-plex-text-muted uppercase tracking-wide mb-2"
+            >
+              Danger zone
+            </h3>
+            {deleteOpen ? (
+              <div
+                role="group"
+                aria-labelledby={deleteHeadingId}
+                aria-describedby={deleteSentenceId}
+                className="flex flex-col gap-3"
+                data-testid="settings-delete-region"
+              >
+                <p id={deleteSentenceId} className="text-sm text-plex-text-secondary">
+                  This deletes your account, your home postcode and drive times, your Ask history and your
+                  ratings. It cannot be undone.
+                </p>
+                <form onSubmit={handleDelete} noValidate className="flex flex-col gap-3">
+                  <label htmlFor="settings-delete-password" className="sr-only">Password</label>
+                  <PasswordInput
+                    id="settings-delete-password"
+                    testId="settings-delete-password"
+                    autoComplete="current-password"
+                    required={false}
+                    value={deletePassword}
+                    onChange={(e) => setDeletePassword(e.target.value)}
+                    inputRef={deletePasswordRef}
+                    describedBy={deleteError ? deleteErrorId : undefined}
+                    invalid={Boolean(deleteError?.passwordRefused)}
+                  />
+                  {deleteError && (
+                    <p
+                      id={deleteErrorId}
+                      className="text-sm text-plex-error -mt-1"
+                      role="alert"
+                      data-testid="settings-delete-error"
+                    >
+                      {deleteError.text}
+                    </p>
+                  )}
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="submit"
+                      className="btn-danger aria-disabled:opacity-40 aria-disabled:cursor-not-allowed aria-disabled:hover:opacity-40"
+                      // Truly disabled only while the field is empty — the reader cannot be on this
+                      // button then. In flight it is `aria-disabled` (see `handleDelete`).
+                      disabled={!deletePassword}
+                      aria-disabled={deleting || undefined}
+                      data-testid="settings-delete-confirm"
+                    >
+                      {deleting ? 'Deleting…' : 'Delete account'}
+                    </button>
+                    <button
+                      type="button"
+                      className="text-sm text-plex-text-secondary hover:text-plex-text rounded-sm py-1.5 focus-visible:outline-2 focus-visible:outline-plex-gold aria-disabled:opacity-40 aria-disabled:cursor-not-allowed"
+                      onClick={cancelDelete}
+                      aria-disabled={deleting || undefined}
+                      data-testid="settings-delete-cancel"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              </div>
+            ) : (
+              <button
+                ref={deleteOpenerRef}
+                type="button"
+                className="btn-secondary"
+                onClick={openDelete}
+                data-testid="settings-delete-open"
+              >
+                Delete account
+              </button>
+            )}
+          </section>
         </div>
       ) : (
         <p className="text-sm text-plex-error py-4">Failed to load settings.</p>
@@ -914,4 +1082,10 @@ UserSettingsModal.propTypes = {
    * button a saved postcode can replace while this dialog is still open.
    */
   restoreFocusFallback: PropTypes.func,
+  /**
+   * Called when the reader's session is over — their account was deleted (204), or the credentials
+   * it was signed in with changed under it (401). `App` passes `logout`. Awaited, but nothing here
+   * waits on its result: the page drops this dialog when the session goes.
+   */
+  onSignOut: PropTypes.func,
 };

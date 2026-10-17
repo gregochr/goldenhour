@@ -1035,6 +1035,8 @@ function AppInner() {
           onColourSaved={colourSaved}
           colourSaveQueue={colourSaveQueue}
           onDriveTimesRefreshed={refresh}
+          // Account deletion (the dialog's danger zone) ends the session through the same sign-out.
+          onSignOut={logout}
         />
       )}
 
