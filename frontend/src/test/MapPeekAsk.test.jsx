@@ -380,7 +380,9 @@ describe('focus never falls to <body>', () => {
     expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask'));
   });
 
-  it('does not take focus from a control the reader already holds (a pick chip that opened it)', () => {
+  // No pick-chip route expands the answer any more (phone-pick-callout-plan.md §3 P1: a chip opens a
+  // callout); the expand effect itself still yields to a control the reader holds, whatever opened it.
+  it('does not take focus from a control the reader already holds when the section expands', () => {
     mockAsk = ask({ phase: 'answer', pickCards: [card(1)], answer: { summary: 's' } });
     mount('minimised');
     screen.getByTestId('elsewhere').focus();

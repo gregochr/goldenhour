@@ -690,7 +690,10 @@ verdict}]`), `askSelectedRank`, `onSelectAskPick`, `askWindow` (`{date, eventTyp
   offset by the same clamped inset. Reduced motion: no animation.
 - **Selecting a pick** clears `selectedLocationName` (no stale callout for another window), sets
   `askWindow`, and does not open a callout. Tapping a map pick selects its card. Tapping an
-  ordinary chip selects that location as usual.
+  ordinary chip selects that location as usual. *(2026-10-17, `docs/engineering/phone-pick-callout-plan.md`
+  P1: one exception, a pick chip or pin **on the phone** — `MapView`'s window-follow effect opens that pick's
+  own callout once it has followed the pick's window, over the minimised answer. A card, and tablet and
+  desktop, open none, as written here.)*
 - Clearing the answer removes every `data-ask` and the dim; it does not move the camera back.
 
 **Phone (F4).** Heights: 126px collapsed (the ask row above the three buttons); 470px with Ask
@@ -702,13 +705,18 @@ expanded"; whether an answer exists and whether it is minimised is Ask state.
 |---|---|---|---|
 | Map touch / drag / zoom | collapse to 126 | minimise to 112 | stay |
 | Ordinary chip press | collapse; callout opens | minimise; callout opens | callout opens |
-| Pick chip press | — | select card | expand, select card |
+| Pick chip press | — | ~~select card~~ minimise; select card; callout opens | ~~expand, select card~~ select card; callout opens |
 | Escape | collapse | minimise | as today (clears selection) |
 | Window pill / a peek button | switch section | minimise, open that section | open that section |
 | That section closes | — | — | back to the 112 line |
 | ✕ in the ask row | collapse | clear answer, restore buttons | — |
 | Tap the 112 line | — | — | expand |
 | Tab switch away and back | closed | answer kept, minimised | kept |
+
+> **Superseded 2026-10-17 (phone-pick-callout-plan.md P1).** The "Pick chip press" row above is the F4 rule as
+> built; it is replaced, on the phone only: a chip or pin tap chooses the card, minimises the answer from any
+> state (an expanded sheet and a callout never coexist) and opens the pick's own callout over the 112px line.
+> A reader who wants the cards back taps the line. Tablet and desktop are unchanged.
 
 `--psh` is set inline on `.wf-map-tab` from state (126 / 112); every 74 literal in the phone block
 becomes 126; `MapCallout` gains a `bandKey` prop so it repaints when the sheet's height changes
@@ -1838,7 +1846,7 @@ equal to its card's.
   (7) The first fit ignores a chosen pick (it fits every pick, the chosen one ringed); only a LATER choice flies to it. (8) Two
   picks at one location (the server cannot send this) leave the second unmarked. (9) Under a docked column the camera's
   re-fit after a close is not asserted against a real `ResizeObserver`/`MapSizeSync` chain.
-- **For F4:** the phone table's "pick chip press while minimised → expand and select" meets the existing map-touch collapse (a
+- **For F4** *(superseded 2026-10-17 by phone-pick-callout-plan.md P1: a phone chip no longer expands the answer; it opens the pick's callout and the handler minimises the sheet itself)*: the phone table's "pick chip press while minimised → expand and select" meets the existing map-touch collapse (a
   pick chip is a map touch): order them in `MapView`, not in the controller. `askWindow`/`selectionNonce`/`asked` are
   surface-independent; `inset` re-applies on change, so a sheet height change needs only a new inset object, not a new
   answer. `useAskRequestContext` has no dock/sheet assumption. The camera's `active` gate is a modal test, which the peek sheet
@@ -1905,6 +1913,12 @@ callout do not overlap (measured rects).
   and expands only from null or a peek value, so an open drilldown, Regions or Filters stays open — **which means a
   pick pressed while the drilldown is open selects the card but the sheet stays on the 112px line** (the table's
   "minimised: expand, select card" holds when nothing else is open; panels persist under a press on the map).
+  ⚠️ **Superseded on the phone, 2026-10-17** (`docs/engineering/phone-pick-callout-plan.md` P1): a pick press no
+  longer expands anything. `handleSelectAskPick` asks for the pick's callout (`onSelectAskPick(rank, {callout:
+  true})`), turns any open `peek:*` value to null itself (so the camera flies for the 112px inset, not 470), clears
+  the standing selection only for a different place, and the window-follow effect selects the pick's place once the
+  window has followed. A drilldown, Regions or Filters still stays open, and the callout opens over it, as an
+  ordinary chip's does.
 - **`--psh` is three-valued, not "every 74 becomes 126" (the plan was wrong).** With Ask not offered (the flag, an
   unreachable server, a rewind) the sheet must be exactly what it was — a 52px empty band would be a defect — so
   `MapView` writes `--psh` inline on the pane (an inline style in a "Tailwind only" codebase: `--tsh` is written the same

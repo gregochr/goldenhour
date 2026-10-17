@@ -599,8 +599,9 @@ describe('picks on the map', () => {
 
     await renderTab({ askPicks: [pick()], askAnswerId: 1, onSelectAskPick });
 
-    // Not the same function since F4 (the phone wraps it to expand a minimised answer), but the same
-    // CHOICE: pressing a chip reaches the caller with the rank, unchanged.
+    // Not the same function since F4 (`MapView` wraps it; on the phone the wrap asks for the pick's
+    // callout, `onSelectAskPick(rank, { callout: true })`, docs/engineering/phone-pick-callout-plan.md),
+    // but the same CHOICE: off the phone, as here, pressing a chip reaches the caller with the bare rank.
     act(() => { lastLabels().onSelectAskPick(2); });
     expect(onSelectAskPick).toHaveBeenCalledExactlyOnceWith(2);
   });

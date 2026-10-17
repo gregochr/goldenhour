@@ -443,7 +443,9 @@ describe('an answer, from landing to clearing', () => {
     expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask'));
   });
 
-  it('a pick chip pressed while minimised EXPANDS the sheet to the card it chose, and the window follows', async () => {
+  // docs/engineering/phone-pick-callout-plan.md §3 P1 (2026-10-17): a pick chip used to EXPAND the answer;
+  // it now opens the pick's own callout and leaves the answer on its line.
+  it('a pick chip pressed while minimised opens that pick\'s callout over the line, the card chosen and the window followed', async () => {
     await renderMap();
     await openAsk();
     await typeQuestion();
@@ -451,10 +453,42 @@ describe('an answer, from landing to clearing', () => {
 
     await act(async () => { fireEvent.click(pickChips().find((c) => c.dataset.askRank === '2')); });
 
-    expect(mode()).toBe('expanded');
+    expect(mode()).toBe('minimised');
     expect(ask$.selectedPick).toBe(2);
-    expect(screen.getByTestId('ask-pick-2')).toHaveAttribute('data-selected', 'true');
+    expect(await screen.findByTestId('map-callout')).toHaveTextContent('Whitby');
     await waitFor(() => expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/sunrise/i));
+    expect(psh()).toBe('112px');
+  });
+
+  it('a pick chip pressed with the answer EXPANDED minimises it under the pick\'s callout; the card is the chosen one', async () => {
+    await renderMap();
+    await openAsk();
+    await typeQuestion();
+    expect(mode()).toBe('expanded');
+
+    await act(async () => { fireEvent.click(pickChips().find((c) => c.dataset.askRank === '2')); });
+
+    expect(mode()).toBe('minimised');
+    expect(ask$.selectedPick).toBe(2);
+    expect(await screen.findByTestId('map-callout')).toHaveTextContent('Whitby');
+    // Tapping the line brings the cards back with 2 chosen, and the callout goes (an open sheet and a
+    // callout never coexist).
+    await act(async () => { fireEvent.click(screen.getByTestId('wf-map-peek-mini')); });
+    expect(screen.getByTestId('ask-pick-2')).toHaveAttribute('data-selected', 'true');
+    expect(screen.queryByTestId('map-callout')).not.toBeInTheDocument();
+  });
+
+  it('a CARD chosen in the expanded answer opens no callout: the chip is the only route that asks for one', async () => {
+    await renderMap();
+    await openAsk();
+    await typeQuestion();
+
+    await act(async () => { fireEvent.click(screen.getByTestId('ask-pick-select-2')); });
+
+    expect(ask$.selectedPick).toBe(2);
+    expect(mode()).toBe('expanded');
+    await waitFor(() => expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/sunrise/i));
+    expect(screen.queryByTestId('map-callout')).not.toBeInTheDocument();
   });
 
   it('a callout may stand over the minimised line — and its band is told the sheet is 112', async () => {
@@ -727,15 +761,21 @@ describe('Plan this, in the expanded Ask section (F5)', () => {
     expect(screen.getByTestId('ask-plan')).toBeInTheDocument();
   });
 
-  it('a chip pressed on the map leaves the plan for the answer, with that card chosen', async () => {
+  // The plan view is DISCARDED, not hidden (phone-pick-callout-plan.md §3 P1 #6): the chip leaves it for
+  // the answer, which then minimises under the pick's callout.
+  it('a chip pressed on the map leaves the plan for the answer, minimised under that pick\'s callout', async () => {
     await planPickTwo();
 
     await act(async () => { fireEvent.click(pickChips().find((c) => c.textContent.includes('Saltburn'))); });
 
     expect(ask$.phase).toBe('answer');
+    expect(ask$.planPick).toBeNull();
     expect(ask$.selectedPick).toBe(1);
-    expect(screen.getByTestId('ask-picks')).toBeInTheDocument();
-    expect(mode()).toBe('expanded');
+    expect(mode()).toBe('minimised');
+    expect(await screen.findByTestId('map-callout')).toHaveTextContent('Saltburn');
+    const line = screen.getByTestId('wf-map-peek-mini');
+    expect(line).toHaveTextContent('2 picks');
+    expect(line).not.toHaveTextContent('Plan this');
   });
 
   it('the ✕ clears a plan view like any settled answer, and focus lands on the Ask row', async () => {

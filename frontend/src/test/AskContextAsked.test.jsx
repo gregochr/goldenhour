@@ -341,6 +341,29 @@ describe('selectPick numbers every choice', () => {
     expect(ctx.selectedPick).toBe(1);
   });
 
+  it('carries the callout intent ON the choice: a chip asks for one, the next card choice does not', async () => {
+    await answered();
+    expect(ctx.selectionCallout).toBe(false);
+
+    act(() => ctx.selectPick(1, { callout: true }));
+    const chip = ctx.selectionNonce;
+    expect(ctx.selectionCallout).toBe(true);
+
+    act(() => ctx.selectPick(1));
+    expect(ctx.selectionNonce).toBeGreaterThan(chip);
+    expect(ctx.selectionCallout).toBe(false);
+  });
+
+  it('a rank with no card changes nothing, nonce and callout included', async () => {
+    await answered();
+    act(() => ctx.selectPick(1, { callout: true }));
+
+    act(() => ctx.selectPick(9));
+
+    expect(ctx.selectedPick).toBe(1);
+    expect(ctx.selectionCallout).toBe(true);
+  });
+
   it('a rank with no card changes nothing, nonce included', async () => {
     await answered();
     act(() => ctx.selectPick(1));

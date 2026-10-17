@@ -132,6 +132,9 @@ const EMPTY_THREAD = [];
  * @property {?number} selectedPick the selected card's rank, or null
  * @property {number} selectionNonce new on EVERY choice of a pick, the same pick again included (0
  *           until one is made): the map's window follow and camera key on it
+ * @property {boolean} selectionCallout whether that choice asked for the pick's callout (a phone chip
+ *           did; a card, and {@code openPlan}, never do) — it rides the nonce, so a later choice can
+ *           never inherit it
  * @property {?{regionIds: Array<number>, regionNames: Array<string>, windowId: ?string,
  *           windowLabel: ?string, viewLabel: string}} mapContext what the Map pane last published
  *           (`utils/askMapContext.js`), or null when no Map pane is mounted
@@ -163,8 +166,10 @@ const EMPTY_THREAD = [];
  *           second argument is the context it is opened in (the chips' labels)
  * @property {function(?object): void} registerMapContext the Map pane's channel: it publishes the
  *           scope and window the Map is showing, and null when it goes
- * @property {function(?number): void} selectPick choosing a pick during {@code plan} returns the
- *           conversation to its answer (the pick list is where the choice was made)
+ * @property {function(?number, {callout: boolean}=): void} selectPick choosing a pick during {@code plan}
+ *           returns the conversation to its answer (the pick list is where the choice was made). The
+ *           optional {@code {callout: true}} (a phone chip) asks the Map to open the pick's callout
+ *           when it follows the choice; omitted, it opens none
  * @property {function(number): void} openPlan shows one pick's "Plan this" view and selects the pick
  *           (the map follows it, as for any choice); a rank with no card is ignored
  * @property {function(): void} backToAnswer leaves the plan view for the answer, keeping the selection
@@ -194,6 +199,7 @@ const AskContext = createContext({
   asked: null,
   selectedPick: null,
   selectionNonce: 0,
+  selectionCallout: false,
   mapContext: null,
   planPick: null,
   removedWindow: null,
@@ -413,14 +419,16 @@ export function AskProvider({ children }) {
     [conv.answer, days, reachById, nights, isPro, todayStr, tomorrowStr],
   );
 
-  const selectPick = useCallback((rank) => {
+  const selectPick = useCallback((rank, { callout = false } = {}) => {
     if (rank === null) {
       dispatch({ type: ACTION.PICK_SELECTED, rank: null });
       return;
     }
     if (!pickCards.some((card) => card.rank === rank)) return;
     selectionSeq.current += 1;
-    dispatch({ type: ACTION.PICK_SELECTED, rank, nonce: selectionSeq.current });
+    dispatch({
+      type: ACTION.PICK_SELECTED, rank, nonce: selectionSeq.current, callout: callout === true,
+    });
   }, [pickCards]);
 
   const openPlan = useCallback((rank) => {
@@ -461,6 +469,7 @@ export function AskProvider({ children }) {
     asked: conv.asked,
     selectedPick,
     selectionNonce: conv.selectionNonce,
+    selectionCallout: conv.selectionCallout,
     mapContext,
     planPick,
     removedWindow,
