@@ -258,13 +258,13 @@ photocast:
   #       retention-days: 90        # ask_log rows kept, 1-3650
   # Neighbour guard (docs/engineering/neighbour-guard-plan.md §4). A sky rating far above SEVERAL nearby
   # places that see the same sky is far more likely model noise than a real local difference, so the
-  # guard marks such a slot and no surface NAMES it as the single best place (it keeps its star).
-  # In this phase the guard affects only the Plan window pick (the BEST BET / ALSO GOOD destination);
-  # do not enable it before the Ask and client phases land. Every key is optional; each default is
-  # shown. Uncomment to change one. A value outside its stated range fails startup.
+  # guard marks such a slot and no surface NAMES it as the single best place (the Plan window pick,
+  # the best-reachable line, Ask); it keeps its star. ON BY DEFAULT since G4 (2026-10-17): production
+  # needs no config. Every key is optional; each default is shown. Uncomment to change one. A value
+  # outside its stated range fails startup.
   #   neighbour-guard:
-  #     enabled: false              # OFF until the Ask and client phases land; with it off nothing is
-  #                                 # flagged and no coordinates are read. Rollback is this flag + a restart
+  #     enabled: true               # rollback is `enabled: false` + a restart: nothing is flagged and no
+  #                                 # coordinates are read
   #     radius-km: 5.0              # how near counts as "the same sky", 1-20
   #     min-neighbours: 2           # similar-height nearby places rated `margin` or more below the slot
   #                                 # that are needed to flag it, 1-5. Any nearby place, at any height,

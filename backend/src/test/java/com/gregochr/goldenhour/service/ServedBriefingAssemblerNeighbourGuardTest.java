@@ -122,6 +122,22 @@ class ServedBriefingAssemblerNeighbourGuardTest {
     }
 
     @Test
+    @DisplayName("with DEFAULT-constructed properties (no setEnabled call) the Caw Gap fixture is flagged")
+    void defaultPropertiesFlagTheCawGapFixture() {
+        stubPoints();
+        ServedBriefingAssembler defaulted = new ServedBriefingAssembler(bestBetFallbackService,
+                regionSnapshotService, windowTideRollupBuilder, evaluationViewService, CLOCK,
+                (days, resolver, triaged) -> days, locationPointProvider, new NeighbourGuardProperties(),
+                new NeighbourGuardLog(logLines::add));
+
+        DailyBriefingResponse served = defaulted.assembleForPlan(caw(), 0.5);
+
+        assertThat(slotsOf(served)).filteredOn(s -> Boolean.TRUE.equals(s.neighbourOutlier()))
+                .extracting(BriefingSlot::locationName).containsExactly("Caw Gap");
+        assertThat(windowOf(served).pick().locationName()).isEqualTo("Housesteads");
+    }
+
+    @Test
     @DisplayName("an unflagged slot carries no mark, not FALSE")
     void unflaggedSlotsCarryNull() {
         stubPoints();

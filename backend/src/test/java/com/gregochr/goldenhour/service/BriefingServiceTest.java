@@ -161,6 +161,8 @@ class BriefingServiceTest {
 
     @BeforeEach
     void setUp() {
+        // The guard has its own tests; every other test here states it off rather than lean on the default.
+        guardProperties.setEnabled(false);
         org.mockito.Mockito.lenient().when(evaluationViewService.loadServeTriage(
                 org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any()))

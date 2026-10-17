@@ -41,11 +41,11 @@ class NeighbourGuardPropertiesTest {
     }
 
     @Test
-    @DisplayName("the defaults are the plan's: off, 5 km, 2 neighbours, margin 2, floor 3, 150 m")
+    @DisplayName("the defaults are the plan's: on, 5 km, 2 neighbours, margin 2, floor 3, 150 m")
     void defaults() {
         NeighbourGuardProperties p = new NeighbourGuardProperties();
 
-        assertThat(p.isEnabled()).isFalse();
+        assertThat(p.isEnabled()).as("on by default since G4").isTrue();
         assertThat(p.getRadiusKm()).isEqualTo(5.0);
         assertThat(p.getMinNeighbours()).isEqualTo(2);
         assertThat(p.getMargin()).isEqualTo(2);
@@ -110,7 +110,6 @@ class NeighbourGuardPropertiesTest {
     @DisplayName("startup logs the effective configuration once at INFO")
     void startupLogsTheEffectiveConfiguration() {
         NeighbourGuardProperties p = new NeighbourGuardProperties();
-        p.setEnabled(true);
         p.setRadiusKm(7.5);
 
         List<ILoggingEvent> events = logOf(p);
@@ -134,6 +133,20 @@ class NeighbourGuardPropertiesTest {
 
         assertThat(logOf(unreachable)).filteredOn(e -> e.getLevel() == Level.WARN).hasSize(1);
         assertThat(logOf(reachable)).filteredOn(e -> e.getLevel() == Level.WARN).isEmpty();
+    }
+
+    @Test
+    @DisplayName("an empty configuration binds to the enabled defaults, and enabled=false is the rollback")
+    void bindsEnabledByDefaultAndRollsBack() {
+        NeighbourGuardProperties unset = new Binder(new MapConfigurationPropertySource(Map.of(
+                "photocast.neighbour-guard.radius-km", "6")))
+                .bind("photocast.neighbour-guard", NeighbourGuardProperties.class).get();
+        NeighbourGuardProperties off = new Binder(new MapConfigurationPropertySource(Map.of(
+                "photocast.neighbour-guard.enabled", "false")))
+                .bind("photocast.neighbour-guard", NeighbourGuardProperties.class).get();
+
+        assertThat(unset.isEnabled()).isTrue();
+        assertThat(off.isEnabled()).isFalse();
     }
 
     @Test
