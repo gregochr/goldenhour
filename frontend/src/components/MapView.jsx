@@ -46,7 +46,7 @@ import {
   EVENT_KIND,
 } from '../utils/mapEvents.js';
 import { myRatingOf } from '../utils/outcomeRatingJoin.js';
-import { pastDayLabel } from '../utils/windowFirstCards.js';
+import { dowDayLabel, pastDayLabel } from '../utils/windowFirstCards.js';
 import { buildEvVerdicts, regionNamesOf } from '../utils/mapVerdict.js';
 import { withScopedSolarTimes } from '../utils/mapScopedTime.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
@@ -1441,12 +1441,15 @@ const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
  *       this component's own state.</li>
  * </ul>
  *
- * <h2>…and the older-day fetch's four (outcome-rating-plan.md §2 #2, O3b)</h2>
+ * <h2>…and the older-day fetch's five (outcome-rating-plan.md §2 #2, O3b; §4 #15 as amended)</h2>
  * <ul>
  *   <li>{@code canLoadOlder} / {@code olderDayDate} — the pane's verdict on whether one more stored
  *       past day can be fetched, and which (the day before the oldest it holds, never older than T-4,
  *       never under a rewind). This component only names the day ({@code Thu 13}) to the window
  *       control and the peek sheet.</li>
+ *   <li>{@code emptyOlderDayDate} — the most recently loaded older day when it came back with no rows
+ *       (the pane's {@code emptyOlderDay}); named to the menus as {@code Fri 16}, which say there is no
+ *       stored forecast for it (added 2026-10-17).</li>
  *   <li>{@code olderDayLoading} — the date being fetched, or null. Puts the control in its loading
  *       state and, on its way back to null, lands the selection on the new day (below).</li>
  *   <li>{@code onLoadOlderDay} — {@code (date) => void}; the fetch itself lives in {@code useForecasts}.</li>
@@ -1462,7 +1465,7 @@ const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
  *       and {@code PinsLayer} draw as the corner badge. Per-user joins, not derivations.</li>
  * </ul>
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, askPhase = 'empty', panelShown = true, outcomeRatings = null, ratedCounts = null, canLoadOlder = false, olderDayDate = null, olderDayLoading = null, onLoadOlderDay = null }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, askPhase = 'empty', panelShown = true, outcomeRatings = null, ratedCounts = null, canLoadOlder = false, olderDayDate = null, emptyOlderDayDate = null, olderDayLoading = null, onLoadOlderDay = null }) {
   // `MapView` is `React.memo`'d, and its two long-lived mounts (the Map pane, the standalone
   // overlay) sit hidden rather than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -3975,8 +3978,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * reader asked for lands, selection moves to that day's SUNSET window if it has one, else its
    * SUNRISE — from `‹`, `←` AND the Load row alike, so the next `‹` steps to that day's sunrise. A day
    * that comes back with no rows (a loaded-empty day, or a failed fetch) has no row to land on: it
-   * moves nothing and says nothing. And a reader who picked another window while the fetch was out
-   * (a chip, the Ask handoff) keeps theirs — the landing is only for the window the press started from.
+   * moves nothing. A loaded-empty day is named by the menus and the status region instead (§4 #15 as
+   * amended 2026-10-17); a failed fetch reports through `error`. And a reader who picked another window
+   * while the fetch was out (a chip, the Ask handoff) keeps theirs — the landing is only for the window the press started from.
    *
    * <p>Choosing a row of the day that just landed is a lookup over the EV list the pill already holds —
    * the already-licensed filter/map/select class (CLAUDE.md Backend-heavy); it reads no rating.
@@ -4029,6 +4033,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     startOlderLoad();
   }
   const olderDayLabel = olderDayDate ? pastDayLabel(olderDayDate, mapTodayStr) : null;
+  // The most recently loaded older day, if it had no rows: the calendar form (`Fri 16`), since the line
+  // is a sentence about that one day (outcome-rating-plan.md §4 #15, amended 2026-10-17).
+  const emptyOlderDayLabel = emptyOlderDayDate ? dowDayLabel(emptyOlderDayDate) : null;
   const olderDayLoadingLabel = olderDayLoading ? pastDayLabel(olderDayLoading, mapTodayStr) : null;
 
   /**
@@ -5546,6 +5553,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       // Load row fetch the next older stored day; the pill says so while it is out.
       canLoadOlder={canLoadOlder}
       olderDayLabel={olderDayLabel}
+      emptyOlderDayLabel={emptyOlderDayLabel}
       olderDayLoadingLabel={olderDayLoadingLabel}
       onLoadOlderDay={startOlderLoad}
       ratedCounts={ratedCounts}
@@ -6973,6 +6981,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                       onOpenDrilldown={activeMapEvent && activeMapEvent.served !== false ? openDrilldown : null}
                       canLoadOlder={canLoadOlder}
                       olderDayLabel={olderDayLabel}
+                      emptyOlderDayLabel={emptyOlderDayLabel}
                       olderDayLoadingLabel={olderDayLoadingLabel}
                       onLoadOlderDay={loadOlderFromPeek}
                       ratedCounts={ratedCounts}
@@ -7696,6 +7705,8 @@ MapView.propTypes = {
   canLoadOlder: PropTypes.bool,
   /** The day {@code canLoadOlder} would fetch, YYYY-MM-DD. */
   olderDayDate: PropTypes.string,
+  /** The most recently loaded older day when it returned no rows, YYYY-MM-DD, else null. */
+  emptyOlderDayDate: PropTypes.string,
   /** The older day being fetched now, YYYY-MM-DD, or null. */
   olderDayLoading: PropTypes.string,
   /** {@code (date) => void}: fetches that older day (`useForecasts.loadOlderDay`). */

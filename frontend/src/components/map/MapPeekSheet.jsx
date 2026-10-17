@@ -8,6 +8,7 @@ import { isNightRow } from '../../utils/mapPeek.js';
 import { EVENT_KIND } from '../../utils/mapEvents.js';
 import { meridiemOf } from '../../utils/askModel.js';
 import { KindChip, RatedCell } from './WindowControl.jsx';
+import { noStoredForecast } from './outcomeRatingCopy.js';
 
 /**
  * The Map tab's phone peek sheet — map-mobile-sheet-plan.md §3 M2,
@@ -355,6 +356,8 @@ OtherWindowValue.propTypes = {
  * @param {boolean} [props.canLoadOlder] whether one more stored past day can be fetched (the EARLIER
  *        group's Load row; outcome-rating-plan.md §2 #2, O3b)
  * @param {?string} [props.olderDayLabel] the day the Load row fetches, {@code Thu 13}
+ * @param {?string} [props.emptyOlderDayLabel] the most recently loaded older day, {@code Fri 16}, when it
+ *   returned no rows; drawn as a quiet line in the Load row's place
  * @param {?string} [props.olderDayLoadingLabel] the day being fetched now; the Load row is disabled
  * @param {?Function} [props.onLoadOlderDay] the Load row's press; the caller closes the sheet and
  *        moves focus to the pill before it starts the fetch
@@ -366,6 +369,7 @@ OtherWindowValue.propTypes = {
 export function MapPeekWindowsSection({
   heading, rows, verdicts = null, activeId = null, onSelect, onOpenDrilldown = null,
   canLoadOlder = false, olderDayLabel = null, olderDayLoadingLabel = null, onLoadOlderDay = null,
+  emptyOlderDayLabel = null,
   ratedCounts = null,
 }) {
   // The same EARLIER group the dropdown draws (WindowControl): every PAST row under a sub-header per
@@ -383,14 +387,20 @@ export function MapPeekWindowsSection({
   }
   const loadable = Boolean(canLoadOlder && onLoadOlderDay && olderDayLabel);
   const loading = Boolean(olderDayLoadingLabel);
+  // Not announced from here: the window control's `role="status"` region (mounted on the phone too, under
+  // the pill override) says it once.
+  const noStoredLine = emptyOlderDayLabel ? noStoredForecast(emptyOlderDayLabel) : null;
   return (
     <div data-testid="wf-map-peek-windows" className="wf-map-peek-pane">
       <h3 className="wf-map-peek-h3">{heading}</h3>
-      {(pastRows.length > 0 || loadable) && (
+      {(pastRows.length > 0 || loadable || noStoredLine) && (
         <div data-testid="wf-map-peek-earlier" className="wf-map-peek-earlier">
           EARLIER
           <span className="wf-map-peek-earlier-hint">rate how it went</span>
         </div>
+      )}
+      {noStoredLine && (
+        <div data-testid="wf-map-peek-none" className="wf-map-peek-none">{noStoredLine}</div>
       )}
       {loadable && (
         <button
@@ -521,6 +531,7 @@ MapPeekWindowsSection.propTypes = {
   canLoadOlder: PropTypes.bool,
   olderDayLabel: PropTypes.string,
   olderDayLoadingLabel: PropTypes.string,
+  emptyOlderDayLabel: PropTypes.string,
   onLoadOlderDay: PropTypes.func,
   /** Row id to the reader's rated-location count for a PAST window; an absent id is unknown. */
   ratedCounts: PropTypes.instanceOf(Map),

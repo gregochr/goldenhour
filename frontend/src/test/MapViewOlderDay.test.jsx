@@ -6,7 +6,8 @@
  * <p>Pinned here, because only a real `MapView` mount can: `‹`, `←` and the Load row (dropdown and
  * phone sheet alike) each hand the pane the day to fetch; the pill says "Loading …" while it is out;
  * and when the day lands, selection moves to that day's SUNSET row if it has one, else its SUNRISE —
- * unless the day came back empty (nothing moves, nothing is said) or the reader picked another window
+ * unless the day came back empty (nothing moves; the menus and the status region say so, §4 #15 as amended
+ * 2026-10-17) or the reader picked another window
  * while it was out. The harness re-renders the same mount with new props the way `useForecasts` does:
  * the rows and the end of the loading state in ONE render.
  */
@@ -146,6 +147,9 @@ function Harness({ register, onLoad, onSelect, startDate = T2, baseDays = BASE_D
   const locations = locationsFor(days);
   const dates = Object.keys(days).filter((d) => days[d].sunrise || days[d].sunset).sort();
   const oldestHeld = [...dates, ...loaded].sort()[0];
+  // What `WindowFirstMapPane` hands over: the most recently loaded (= oldest loaded) day, when it had no rows.
+  const oldestLoaded = [...loaded].sort()[0];
+  const emptyOlderDayDate = oldestLoaded && !days[oldestLoaded] ? oldestLoaded : null;
   const next = new Date(`${oldestHeld}T12:00:00Z`);
   next.setUTCDate(next.getUTCDate() - 1);
   const nextDate = next.toISOString().slice(0, 10);
@@ -171,6 +175,7 @@ function Harness({ register, onLoad, onSelect, startDate = T2, baseDays = BASE_D
       heat={heat}
       canLoadOlder={nextDate >= T4}
       olderDayDate={nextDate >= T4 ? nextDate : null}
+      emptyOlderDayDate={emptyOlderDayDate}
       olderDayLoading={loading}
       onLoadOlderDay={(d) => { setLoading(d); onLoad(d); }}
     />
@@ -287,7 +292,7 @@ describe('when the day lands', () => {
     expect(pill()).toHaveTextContent('Mon 12');
   });
 
-  it('moves NOTHING and says nothing for a day that came back empty — and offers the next older day', async () => {
+  it('moves NOTHING for a day that came back empty, NAMES it, and offers the next older day', async () => {
     const { ctl, onSelect, onLoad } = await mount();
     fireEvent.click(screen.getByTestId('wf-win-prev'));
     onSelect.mockClear();
@@ -299,9 +304,45 @@ describe('when the day lands', () => {
     expect(pill()).toHaveTextContent('Tue 13');
     expect(pill()).not.toHaveTextContent('Loading');
     expect(screen.getByTestId('wf-win-prev')).toHaveAccessibleName('Load Sun 11');
+    // The status region says it (the pill keeps focus, and a content change under focus is not read) ...
+    expect(screen.getByTestId('wf-win-status')).toHaveTextContent('No stored forecast for Mon 12');
+    // ... and the menu draws the line above the Load row for the next older day.
+    fireEvent.click(pill());
+    expect(screen.getByTestId('wf-win-none')).toHaveTextContent('No stored forecast for Mon 12');
+    expect(screen.getByTestId('wf-win-load')).toHaveTextContent('Load Sun 11');
+    fireEvent.click(pill());
 
     fireEvent.click(screen.getByTestId('wf-win-prev'));
     expect(onLoad).toHaveBeenLastCalledWith(T4);
+  });
+
+  it('keeps the line at the T-4 floor after the last empty day, and drops it when a later day has rows', async () => {
+    const { ctl } = await mount();
+    fireEvent.click(screen.getByTestId('wf-win-prev'));
+    await finish(ctl, T3, null);
+    fireEvent.click(screen.getByTestId('wf-win-prev'));
+    await finish(ctl, T4, null);
+
+    // T-4 is the floor: nothing left to load, and `‹` is disabled where it would have fetched.
+    expect(screen.getByTestId('wf-win-status')).toHaveTextContent('No stored forecast for Sun 11');
+    fireEvent.click(pill());
+    expect(screen.getByTestId('wf-win-none')).toHaveTextContent('No stored forecast for Sun 11');
+    expect(screen.queryByTestId('wf-win-load')).not.toBeInTheDocument();
+    expect(screen.getByTestId('wf-win-prev')).toBeDisabled();
+  });
+
+  it('says nothing about an empty day once the next older day lands WITH rows', async () => {
+    const { ctl } = await mount();
+    fireEvent.click(screen.getByTestId('wf-win-prev'));
+    await finish(ctl, T3, null);
+    expect(screen.getByTestId('wf-win-status')).toHaveTextContent('No stored forecast for Mon 12');
+
+    fireEvent.click(screen.getByTestId('wf-win-prev'));
+    await finish(ctl, T4, { sunrise: sunrise(T4), sunset: sunset(T4) });
+
+    expect(screen.getByTestId('wf-win-status')).toBeEmptyDOMElement();
+    fireEvent.click(pill());
+    expect(screen.queryByTestId('wf-win-none')).not.toBeInTheDocument();
   });
 
   it('leaves the reader\'s own pick alone when they chose another window while it was out', async () => {
@@ -360,6 +401,30 @@ describe('when the day lands', () => {
     expect(screen.getByTestId('wf-win-prev')).toHaveAccessibleName('Load Yesterday');
     fireEvent.click(screen.getByTestId('wf-win-prev'));
     expect(pill()).toHaveTextContent('Loading Yesterday…');
+  });
+});
+
+describe('an empty day is named on the phone sheet and in the calendar form', () => {
+  it('draws the line in the open sheet, in the Load row\'s place', async () => {
+    mockIsMobile = true;
+    const { ctl } = await mount();
+    fireEvent.click(pill());
+    fireEvent.click(screen.getByTestId('wf-map-peek-load'));
+    await finish(ctl, T3, null);
+
+    fireEvent.click(pill());
+    expect(screen.getByTestId('wf-map-peek-none')).toHaveTextContent('No stored forecast for Mon 12');
+    expect(screen.getByTestId('wf-map-peek-load')).toHaveTextContent('Load Sun 11');
+  });
+
+  it('says Dow d for an empty YESTERDAY, never "Yesterday"', async () => {
+    const { ctl } = await mount({ baseDays: { [TODAY]: { sunset: sunset(TODAY) } }, startDate: TODAY });
+    fireEvent.click(screen.getByTestId('wf-win-prev'));
+    fireEvent.click(screen.getByTestId('wf-win-prev'));
+    await finish(ctl, T1, null);
+
+    expect(screen.getByTestId('wf-win-status')).toHaveTextContent('No stored forecast for Wed 14');
+    expect(screen.getByTestId('wf-win-status')).not.toHaveTextContent('Yesterday');
   });
 });
 

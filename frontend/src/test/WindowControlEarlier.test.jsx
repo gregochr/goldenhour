@@ -344,6 +344,114 @@ describe('stepping back past the oldest window fetches', () => {
   });
 });
 
+describe('an older day that loaded with no rows (§4 #15, amended 2026-10-17)', () => {
+  const NONE = 'No stored forecast for Thu 15';
+  const noneProps = { emptyOlderDayLabel: 'Thu 15' };
+
+  it('draws a quiet, non-interactive line in the Load row\'s place, ABOVE the Load row for the next older day', () => {
+    renderControl({ ...noneProps, olderDayLabel: 'Wed 14' });
+    openMenu();
+    const line = screen.getByTestId('wf-win-none');
+    expect(line).toHaveTextContent(NONE);
+    expect(line).toHaveClass('wf-win-none');
+    expect(line.tagName).toBe('DIV');
+    expect(line).not.toHaveAttribute('role');
+    expect(within(line).queryByRole('button')).not.toBeInTheDocument();
+    const load = screen.getByTestId('wf-win-load');
+    expect(load).toHaveTextContent('Load Wed 14');
+    expect(line.compareDocumentPosition(load) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByTestId('wf-win-earlier').compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+    // The line is outside the listbox: it chooses no window, and the listbox admits only options.
+    expect(screen.getByTestId('wf-win-listbox')).not.toContainElement(line);
+  });
+
+  it('leaves ‹ fetching the next older day, and presses on the line do nothing', () => {
+    const { onLoadOlderDay } = renderControl({ ...noneProps, activeIndex: 0, olderDayLabel: 'Wed 14' });
+    expect(screen.getByTestId('wf-win-prev')).toHaveAccessibleName('Load Wed 14');
+    openMenu();
+    fireEvent.click(screen.getByTestId('wf-win-none'));
+    expect(onLoadOlderDay).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId('wf-win-load'));
+    expect(onLoadOlderDay).toHaveBeenCalledTimes(1);
+  });
+
+  it('is absent when the day had rows (no label)', () => {
+    renderControl();
+    openMenu();
+    expect(screen.queryByTestId('wf-win-none')).not.toBeInTheDocument();
+    expect(screen.getByTestId('wf-win-status')).toBeEmptyDOMElement();
+  });
+
+  it('stays at the T-4 floor, where no Load row follows, so the disabled ‹ is explained', () => {
+    renderControl({
+      ...noneProps, events: [T_SET, TM_RISE], activeIndex: 0, canLoadOlder: false, olderDayLabel: null,
+    });
+    expect(screen.getByTestId('wf-win-prev')).toBeDisabled();
+    openMenu();
+    expect(screen.getByTestId('wf-win-earlier')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-win-none')).toHaveTextContent(NONE);
+    expect(screen.queryByTestId('wf-win-load')).not.toBeInTheDocument();
+  });
+
+  it('describes the disabled ‹ at the floor by the status line, and only then', () => {
+    renderControl({
+      ...noneProps, events: [T_SET, TM_RISE], activeIndex: 0, canLoadOlder: false, olderDayLabel: null,
+    });
+    expect(screen.getByTestId('wf-win-prev')).toHaveAccessibleDescription(NONE);
+    cleanup();
+    renderControl({ events: [T_SET, TM_RISE], activeIndex: 0, canLoadOlder: false, olderDayLabel: null });
+    expect(screen.getByTestId('wf-win-prev')).not.toHaveAttribute('aria-describedby');
+  });
+
+  it('is announced through the one status region, which is the same element, and clears with the line', () => {
+    const { rerender } = renderControl({ activeIndex: 2, olderDayLoadingLabel: 'Thu 15' });
+    const status = screen.getByTestId('wf-win-status');
+    expect(status).toHaveTextContent('Loading Thu 15…');
+
+    const rerenderWith = (extra) => rerender(
+      <WindowControl
+        events={EVENTS}
+        activeIndex={2}
+        onSelect={() => {}}
+        canLoadOlder
+        olderDayLabel="Wed 14"
+        onLoadOlderDay={() => {}}
+        {...extra}
+      />,
+    );
+    // The fetch ends with no rows: the SAME live region now says so (a region added with its text is not read).
+    rerenderWith(noneProps);
+    expect(screen.getByTestId('wf-win-status')).toBe(status);
+    expect(status).toHaveAttribute('role', 'status');
+    expect(status).toHaveTextContent(NONE);
+
+    // The next day loads WITH rows: the line and the announcement go.
+    rerenderWith({});
+    expect(status).toBeEmptyDOMElement();
+  });
+
+  it('says Loading while a fetch is out, even if an earlier day is empty', () => {
+    renderControl({ ...noneProps, activeIndex: 2, olderDayLoadingLabel: 'Wed 14' });
+    expect(screen.getByTestId('wf-win-status')).toHaveTextContent('Loading Wed 14…');
+  });
+
+  it('is announced when the day is empty even with the menu closed', () => {
+    renderControl({ ...noneProps, activeIndex: 2 });
+    expect(screen.getByTestId('wf-win-status')).toHaveTextContent(NONE);
+    expect(screen.queryByTestId('wf-win-none')).not.toBeInTheDocument();
+  });
+
+  it('the stylesheet gives it the Load row\'s sub-line voice (mono 9.5px, muted ink)', () => {
+    const css = readFileSync(resolve(__dirname, '../index.css'), 'utf8');
+    const rule = css.match(/\.wf-win-none\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(rule).toMatch(/font-family:\s*var\(--font-mono\)/);
+    expect(rule).toMatch(/font-size:\s*9\.5px/);
+    expect(rule).toMatch(/color:\s*var\(--color-plex-text-muted\)/);
+    expect(rule).not.toMatch(/cursor:\s*pointer/);
+  });
+});
+
 describe('while an older day is loading', () => {
   const loadingProps = { olderDayLoadingLabel: 'Wed 14' };
 

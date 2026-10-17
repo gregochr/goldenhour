@@ -256,7 +256,9 @@ public class ForecastEvaluationEntity {
      * ForecastService} for a row inserted with a rating or a triage reason (the synchronous engine,
      * a triage or sentinel row), and {@code ForecastResultHandler#scoreEvaluationRow} for a batch's
      * {@code PENDING} row scored in place. A row still {@code PENDING} or {@code ABANDONED}, an
-     * {@code HOURLY} comfort row and every row written before V178 keep {@code null}.
+     * {@code HOURLY} comfort row keep {@code null}, and so does a row written before V178 that had
+     * nothing to say; one that had a rating or a triage reason was stamped once, with its
+     * {@link #forecastRunAt}, by V183 (a deliberate, bounded backfill, outcome-rating plan §0 O7).
      *
      * <p>⚠️ <b>Not {@link #forecastRunAt}.</b> That is a SUBMISSION instant (a batch row is stamped
      * when built, before its batch's own submit time is known, and the Batch API may land the result

@@ -491,10 +491,45 @@ describe('useForecasts — older days', () => {
     await act(async () => { await result.current.loadOlderDay(OLDER); });
 
     expect(result.current.loadedPastDays).toEqual([OLDER]);
+    expect(result.current.emptyPastDays).toEqual([OLDER]);
     expect(bamburgh(result).forecastsByDate.has(OLDER)).toBe(false);
     expect(result.current.locations.map((l) => [...l.forecastsByDate.keys()]))
       .toEqual(before.map((l) => [...l.forecastsByDate.keys()]));
     expect(result.current.error).toBeNull();
+  });
+
+  it('names ONLY the days that came back empty in emptyPastDays, sorted, and none for a day with rows', async () => {
+    const { result } = await loaded();
+    expect(result.current.emptyPastDays).toEqual([]);
+
+    fetchForecastsForDate.mockResolvedValue([row('2026-03-02', 'SUNSET')]);
+    await act(async () => { await result.current.loadOlderDay('2026-03-02'); });
+    expect(result.current.emptyPastDays).toEqual([]);
+
+    fetchForecastsForDate.mockResolvedValue([]);
+    await act(async () => { await result.current.loadOlderDay('2026-03-01'); });
+    expect(result.current.loadedPastDays).toEqual(['2026-03-01', '2026-03-02']);
+    expect(result.current.emptyPastDays).toEqual(['2026-03-01']);
+  });
+
+  it('a day holding only a hide\'s HOURLY rows is named empty too: it gives no window to step onto', async () => {
+    const { result } = await loaded();
+    fetchForecastsForDate.mockResolvedValue([row(OLDER, 'HOURLY', { rating: null })]);
+
+    await act(async () => { await result.current.loadOlderDay(OLDER); });
+
+    expect(result.current.loadedPastDays).toEqual([OLDER]);
+    expect(result.current.emptyPastDays).toEqual([OLDER]);
+  });
+
+  it('a FAILED fetch is in neither list: nothing is recorded, so the same day is offered again', async () => {
+    const { result } = await loaded();
+    fetchForecastsForDate.mockRejectedValue(new Error('boom'));
+
+    await act(async () => { await result.current.loadOlderDay(OLDER); });
+
+    expect(result.current.loadedPastDays).toEqual([]);
+    expect(result.current.emptyPastDays).toEqual([]);
   });
 
   it('never replaces a (date, type) entry the list payload already carries; it fills the missing type', async () => {

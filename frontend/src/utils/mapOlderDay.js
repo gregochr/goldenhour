@@ -51,3 +51,30 @@ export function olderDayState({ dates, loadedPastDays = [], todayStr, rewound = 
   if (next < shiftDateStr(todayStr, -MAX_PAST_DAYS)) return none;
   return { canLoadOlder: true, nextOlderDate: next };
 }
+
+/**
+ * The older day the window control should say has no stored forecast, or null.
+ *
+ * <p>Only the MOST RECENTLY loaded day speaks (outcome-rating-plan.md §4 #15, amended 2026-10-17):
+ * the Load row steps from the newest older day to the oldest, so that is the oldest loaded date. When
+ * it came back with no rows the menus name it in the Load row's place, and the line stays at the T-4
+ * floor so a disabled `‹` is explained. A later day that loads WITH rows replaces it. A pure select
+ * over the two lists the hook already exposes (the already-licensed filter/map/select class); it reads
+ * no rating, no clock and no server rule.
+ *
+ * @param {object} args
+ * @param {Iterable<string>} [args.loadedPastDays] the older days already fetched, empty ones too
+ * @param {Iterable<string>} [args.emptyPastDays] the subset of those that returned no rows
+ * @returns {?string} the date, or null
+ */
+export function emptyOlderDay({ loadedPastDays = [], emptyPastDays = [] }) {
+  let oldest = null;
+  for (const d of loadedPastDays) {
+    if (d && (oldest === null || d < oldest)) oldest = d;
+  }
+  if (oldest === null) return null;
+  for (const d of emptyPastDays) {
+    if (d === oldest) return oldest;
+  }
+  return null;
+}

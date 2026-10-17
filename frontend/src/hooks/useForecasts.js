@@ -136,7 +136,9 @@ function readValidCache(cacheKey) {
  * past day ({@code GET /api/forecast?date=}), keeps the raw rows in hook state and merges them into
  * {@code locations} on every render, so a refresh keeps them. Never written to the SWR cache (that
  * payload is the list endpoint's, revalidated as a whole; an older day is re-fetched next session). An
- * empty answer is a loaded-empty entry and still counts as loaded. A failed fetch leaves the roster
+ * empty answer is a loaded-empty entry, still counts as loaded, and is named in {@code emptyPastDays}
+ * with any day that holds no sunrise or sunset row (a hide's HOURLY rows alone give no window), so the
+ * Map tab can say the day has no stored forecast (§4 #15 as amended 2026-10-17). A failed fetch leaves the roster
  * unchanged and reports through {@code error}. It stands down under an admin rewind.
  *
  * @returns {{
@@ -146,7 +148,8 @@ function readValidCache(cacheKey) {
  *   refresh: function,
  *   loadOlderDay: function(string): Promise<void>,
  *   olderDayLoading: string|null,
- *   loadedPastDays: string[]
+ *   loadedPastDays: string[],
+ *   emptyPastDays: string[]
  * }}
  */
 export function useForecasts() {
@@ -242,6 +245,18 @@ export function useForecasts() {
 
   const locations = useMemo(() => mergeOlderDays(baseLocations, olderDays), [baseLocations, olderDays]);
   const loadedPastDays = useMemo(() => [...olderDays.keys()].sort(), [olderDays]);
+  // The loaded days with no sunrise or sunset row — a subset of `loadedPastDays`, read off the same state
+  // rather than re-derived from `allDates` (a day with no windows never reaches that list). ⚠️ Not
+  // `rows.length === 0`: the endpoint also serves a hide's HOURLY comfort rows for a past day, and a day
+  // holding only those has no window to step onto — the same silent no-op, which
+  // `conversions.colourForecastDates` already treats as no colour day.
+  const emptyPastDays = useMemo(
+    () => [...olderDays]
+      .filter(([, rows]) => !rows.some((r) => r.targetType === 'SUNRISE' || r.targetType === 'SUNSET'))
+      .map(([date]) => date)
+      .sort(),
+    [olderDays],
+  );
 
   useEffect(() => {
     // Invoke via an inline async function so the synchronous setState calls at
@@ -254,6 +269,6 @@ export function useForecasts() {
   }, [load]);
 
   return {
-    locations, loading, error, refresh, loadOlderDay, olderDayLoading, loadedPastDays,
+    locations, loading, error, refresh, loadOlderDay, olderDayLoading, loadedPastDays, emptyPastDays,
   };
 }

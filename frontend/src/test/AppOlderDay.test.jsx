@@ -76,12 +76,14 @@ vi.mock('../components/ManageView.jsx', () => ({
 const mockDates = { older: '' };
 vi.mock('../components/WindowFirstMapPane.jsx', () => ({
   default: ({
-    selectedDate, onSelectDate, dates, onLoadOlderDay, olderDayLoading, loadedPastDays, onForecastRun,
+    selectedDate, onSelectDate, dates, onLoadOlderDay, olderDayLoading, loadedPastDays, emptyPastDays,
+    onForecastRun,
   }) => (
     <div data-testid="map-pane-stub" data-selected-date={selectedDate ?? ''}>
       <span data-testid="map-pane-dates">{(dates ?? []).join(',')}</span>
       <span data-testid="map-pane-loading">{olderDayLoading ?? ''}</span>
       <span data-testid="map-pane-loaded">{(loadedPastDays ?? []).join(',')}</span>
+      <span data-testid="map-pane-empty">{(emptyPastDays ?? []).join(',')}</span>
       <span data-testid="map-pane-has-loader">{typeof onLoadOlderDay === 'function' ? 'yes' : 'no'}</span>
       <button type="button" onClick={() => onLoadOlderDay(mockDates.older)}>load older day</button>
       <button type="button" onClick={() => onForecastRun()}>refresh forecasts</button>
@@ -232,6 +234,15 @@ describe('App — the Map pane\'s older-day fetch', () => {
     await press('load older day');
 
     expect(screen.getByTestId('map-pane-loaded')).toHaveTextContent(OLDER);
+    expect(screen.getByTestId('map-pane-empty')).toHaveTextContent(OLDER);
     expect(screen.getByTestId('map-pane-dates')).not.toHaveTextContent(OLDER);
+  });
+
+  it('names no empty day when the fetched day had rows', async () => {
+    await openMapTab();
+    await press('load older day');
+
+    expect(screen.getByTestId('map-pane-loaded')).toHaveTextContent(OLDER);
+    expect(screen.getByTestId('map-pane-empty')).toBeEmptyDOMElement();
   });
 });
