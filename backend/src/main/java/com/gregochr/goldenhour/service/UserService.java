@@ -3,13 +3,14 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.config.TermsConstants;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.UserRole;
+import com.gregochr.goldenhour.exception.StaleCredentialsException;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.AppUserRepository.LockedAccount;
 import com.gregochr.goldenhour.repository.EmailVerificationTokenRepository;
 import com.gregochr.goldenhour.repository.PasswordResetTokenRepository;
+import com.gregochr.goldenhour.repository.UserDriveTimeRepository;
 import com.gregochr.goldenhour.service.CredentialChangeWriter.Change;
 import com.gregochr.goldenhour.service.CredentialChangeWriter.VersionExpectation;
-import com.gregochr.goldenhour.service.notification.UserEmailService;
 import com.gregochr.goldenhour.util.EmailIdentifier;
 import com.gregochr.goldenhour.util.EmailIdentifier.Kind;
 import com.gregochr.goldenhour.util.LogSanitizer;
@@ -56,14 +57,17 @@ public class UserService implements UserDetailsService {
     private static final int    TEMP_PW_LENGTH  = 12;
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
+    /** The sentence for an administrator deleting their own account, and the 409 body for it. */
+    public static final String ADMIN_SELF_DELETE_REFUSED = "Admin accounts are deleted by another admin";
+
     private final AppUserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
-    private final UserEmailService userEmailService;
     private final EmailClaims emailClaims;
     private final CredentialChangeWriter credentialChangeWriter;
     private final PasswordResetTokenRepository resetTokenRepository;
     private final EmailVerificationTokenRepository verificationTokenRepository;
     private final Clock clock;
+    private final UserDriveTimeRepository userDriveTimeRepository;
 
     /**
      * Seeds a default admin account on startup if the user table is empty.
@@ -332,27 +336,138 @@ public class UserService implements UserDetailsService {
     }
 
     /**
-     * Deletes a user account permanently.
+     * Deletes a user account permanently (the admin path).
      *
-     * <p>Admins cannot delete their own account to prevent lockout.
+     * <p>Admins cannot delete their own account to prevent lockout. One transaction, in the parent-before-
+     * children lock order every credential and deletion path takes: the user row is locked FIRST and read as
+     * a scalar projection ({@link AppUserRepository#lockAccount}, login-registration plan §2 #14 rule 1), so
+     * a drive-time calculation that holds the row finishes before the purge and cannot re-insert between the
+     * purge and the delete; the dependent rows are purged ({@link #purgeUserRows}); the account is deleted;
+     * and its email claim is released if no account still uses the address. The confirmation email is NOT
+     * sent here: the caller sends it from the {@link DeletedAccount} this returns, after this method has
+     * returned and the transaction has committed — a delete that fails at commit must not have mailed "your
+     * account was removed".
      *
      * @param id              the user's primary key
-     * @param currentUsername  the username of the admin performing the deletion
+     * @param currentUsername the username of the admin performing the deletion
+     * @return the deleted account's name and stored address, for the after-commit email
      * @throws IllegalArgumentException if no user with that id exists
      * @throws IllegalStateException    if the admin attempts to delete their own account
      */
     @Transactional
-    public void deleteUser(Long id, String currentUsername) {
-        AppUserEntity user = userRepository.findById(id)
+    public DeletedAccount deleteUser(Long id, String currentUsername) {
+        LockedAccount account = userRepository.lockAccount(id)
                 .orElseThrow(() -> new IllegalArgumentException("User not found: " + id));
-        if (user.getUsername().equals(currentUsername)) {
+        if (account.username().equals(currentUsername)) {
             throw new IllegalStateException("Cannot delete your own account");
         }
-        String email = user.getEmail();
-        String username = user.getUsername();
-        userRepository.delete(user);
-        LOG.info("User deleted: id={}, username={}", id, username);
-        userEmailService.sendAccountDeletedEmail(email, username);
+        purgeUserRows(id);
+        if (userRepository.deleteAccountById(id) != 1) {
+            throw new IllegalArgumentException("User not found: " + id);
+        }
+        releaseEmailClaim(account.email());
+        LOG.info("User deleted: id={}, username={}", id, LogSanitizer.sanitize(account.username()));
+        return new DeletedAccount(account.username(), account.email());
+    }
+
+    /**
+     * Checks a signed-in reader's password for a destructive request, with no transaction and no connection
+     * held through the BCrypt hash.
+     *
+     * @param username    the authenticated login name
+     * @param rawPassword the password the reader typed
+     * @return the stored hash the password matched — handed back to {@link #deleteOwnAccount} so it can hold
+     *         the row to exactly that credential — or empty when the password is wrong or the account has no
+     *         password to match
+     * @throws StaleCredentialsException if the account no longer exists
+     */
+    public Optional<String> verifyPassword(String username, String rawPassword) {
+        AppUserEntity user = userRepository.findByUsername(username)
+                .orElseThrow(StaleCredentialsException::new);
+        String hash = user.getPassword();
+        if (hash == null || hash.isEmpty() || !passwordEncoder.matches(rawPassword, hash)) {
+            return Optional.empty();
+        }
+        return Optional.of(hash);
+    }
+
+    /**
+     * Deletes the caller's own account (login-registration plan §2 #7, §2 #14 rule 1).
+     *
+     * <p>The caller has verified the password by BCrypt OUTSIDE any transaction ({@link #verifyPassword});
+     * this method runs the row-lock-first transaction. Under the lock it reads the account as a scalar
+     * projection — never the entity the request's persistence context may hold from before the hash — and
+     * refuses unless the stored hash is still {@code verifiedHash}, the credential version still equals the
+     * session's, and the role is still not ADMIN. The purge then runs, and the delete is itself a
+     * compare-and-set on the same three conditions whose row count must be one: zero throws, which rolls the
+     * purge back. A stolen session that finished its BCrypt just before the owner's password change
+     * committed therefore deletes nothing. Finally the account's email claim is released if no account still
+     * uses the address. The confirmation email is the caller's, after commit.
+     *
+     * @param username     the authenticated login name
+     * @param verifiedHash the stored hash the caller's BCrypt check matched
+     * @param expectation  the session's credential version: {@code exact(cv)}, or {@code legacyUnchanged()}
+     *                     for a token with no {@code cv}; {@code trusted()} is refused, since nothing here
+     *                     may skip the version check
+     * @return the deleted account's name and stored address, for the after-commit email
+     * @throws IllegalStateException     ({@link #ADMIN_SELF_DELETE_REFUSED}) if the locked row's role is ADMIN
+     * @throws StaleCredentialsException if the account is gone, its password or credential version has moved
+     *                                   since the caller authenticated, or it is no longer active
+     */
+    @Transactional
+    public DeletedAccount deleteOwnAccount(String username, String verifiedHash, VersionExpectation expectation) {
+        long expectedVersion = expectedVersionOf(expectation);
+        Long id = userRepository.findByUsernameForUpdate(username)
+                .map(AppUserEntity::getId)
+                .orElseThrow(StaleCredentialsException::new);
+        LockedAccount account = userRepository.lockAccount(id).orElseThrow(StaleCredentialsException::new);
+        if (account.role() == UserRole.ADMIN) {
+            throw new IllegalStateException(ADMIN_SELF_DELETE_REFUSED);
+        }
+        if (!account.active() || !account.password().equals(verifiedHash)
+                || account.credentialsVersion() != expectedVersion) {
+            LOG.info("Account deletion refused: credentials moved for user id={}", id);
+            throw new StaleCredentialsException();
+        }
+        purgeUserRows(id);
+        if (userRepository.deleteOwnAccountIfUnchanged(id, verifiedHash, expectedVersion, UserRole.ADMIN) != 1) {
+            LOG.info("Account deletion refused at the delete: credentials moved for user id={}", id);
+            throw new StaleCredentialsException();
+        }
+        releaseEmailClaim(account.email());
+        LOG.info("Account deleted by its owner: id={}, username={}", id, LogSanitizer.sanitize(account.username()));
+        return new DeletedAccount(account.username(), account.email());
+    }
+
+    /**
+     * Deletes the rows that reference an account and have no {@code ON DELETE} rule of their own — the one
+     * step both deletion paths share. {@code user_drive_time.user_id} (V67) has no cascade, so a delete of a
+     * user holding drive times violates the foreign key in Postgres (H2 has no such key, so only the
+     * CI-only {@code AccountDeletionIntegrationTest} can show it). Every other table that references the
+     * account cascades or nulls its own reference. Must run inside the deleting transaction, after the
+     * user row is locked and before the user row is deleted.
+     *
+     * @param userId the account's primary key
+     */
+    private void purgeUserRows(Long userId) {
+        userDriveTimeRepository.deleteAllByUserId(userId);
+    }
+
+    /** Releases an address's email claim, if the deleted account had one and no account still uses it. */
+    private void releaseEmailClaim(String email) {
+        if (email != null && !email.isBlank()) {
+            emailClaims.release(email);
+        }
+    }
+
+    /** The version the delete's compare-and-set holds the row to: the session's {@code cv}, or 0 for none. */
+    private static long expectedVersionOf(VersionExpectation expectation) {
+        return switch (expectation.mode()) {
+            case EXACT -> expectation.version();
+            case LEGACY_UNCHANGED -> 0L;
+            case TRUSTED -> throw new IllegalArgumentException(
+                    "An account deletion must be held to the caller's credential version");
+        };
     }
 
     /** Generates a 12-character random password containing upper, lower, digit, and special chars. */

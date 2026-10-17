@@ -3,13 +3,14 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.config.TermsConstants;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.UserRole;
+import com.gregochr.goldenhour.exception.StaleCredentialsException;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.AppUserRepository.LockedAccount;
 import com.gregochr.goldenhour.repository.EmailVerificationTokenRepository;
 import com.gregochr.goldenhour.repository.PasswordResetTokenRepository;
+import com.gregochr.goldenhour.repository.UserDriveTimeRepository;
 import com.gregochr.goldenhour.service.CredentialChangeWriter.Change;
 import com.gregochr.goldenhour.service.CredentialChangeWriter.VersionExpectation;
-import com.gregochr.goldenhour.service.notification.UserEmailService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -34,6 +35,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
@@ -55,9 +57,6 @@ class UserServiceTest {
     private PasswordEncoder passwordEncoder;
 
     @Mock
-    private UserEmailService userEmailService;
-
-    @Mock
     private EmailClaims emailClaims;
 
     @Mock
@@ -69,15 +68,18 @@ class UserServiceTest {
     @Mock
     private EmailVerificationTokenRepository verificationTokenRepository;
 
+    @Mock
+    private UserDriveTimeRepository userDriveTimeRepository;
+
     private static final Instant NOW = Instant.parse("2026-10-16T12:00:00Z");
 
     private UserService userService;
 
     @BeforeEach
     void setUp() {
-        userService = new UserService(userRepository, passwordEncoder, userEmailService, emailClaims,
+        userService = new UserService(userRepository, passwordEncoder, emailClaims,
                 credentialChangeWriter, resetTokenRepository, verificationTokenRepository,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                Clock.fixed(NOW, ZoneOffset.UTC), userDriveTimeRepository);
     }
 
     // ── loadUserByUsername ──────────────────────────────────────────────────────
@@ -748,6 +750,284 @@ class UserServiceTest {
 
             verify(emailClaims).claim("fresh@example.com", null);
             verify(userRepository, never()).deletePendingById(any());
+        }
+    }
+
+    // ── account deletion ───────────────────────────────────────────────────────
+
+    @Nested
+    @DisplayName("deleteOwnAccount")
+    class DeleteOwnAccount {
+
+        private LockedAccount row(UserRole role, boolean enabled, String hash, long version, String email) {
+            return new LockedAccount(enabled, hash, email, "reader", role, version, null, false, true, null);
+        }
+
+        private void theRowIs(LockedAccount row) {
+            when(userRepository.findByUsernameForUpdate("reader"))
+                    .thenReturn(Optional.of(buildUser(7L, "reader", UserRole.PRO_USER)));
+            when(userRepository.lockAccount(7L)).thenReturn(Optional.of(row));
+        }
+
+        @Test
+        @DisplayName("locks the row FIRST, purges the dependent rows, deletes by compare-and-set on the "
+                + "verified hash and the session's version, and only then releases the email claim")
+        void happyPath_runsInTheLockOrder() {
+            theRowIs(row(UserRole.PRO_USER, true, "hash", 3L, "Reader@Example.com"));
+            when(userRepository.deleteOwnAccountIfUnchanged(7L, "hash", 3L, UserRole.ADMIN)).thenReturn(1);
+
+            DeletedAccount deleted = userService.deleteOwnAccount("reader", "hash", VersionExpectation.exact(3L));
+
+            assertThat(deleted).isEqualTo(new DeletedAccount("reader", "Reader@Example.com"));
+            InOrder order = inOrder(userRepository, userDriveTimeRepository, emailClaims);
+            order.verify(userRepository).findByUsernameForUpdate("reader");
+            order.verify(userRepository).lockAccount(7L);
+            order.verify(userDriveTimeRepository).deleteAllByUserId(7L);
+            order.verify(userRepository).deleteOwnAccountIfUnchanged(7L, "hash", 3L, UserRole.ADMIN);
+            order.verify(emailClaims).release("Reader@Example.com");
+            verify(userRepository, never()).delete(any());
+        }
+
+        @Test
+        @DisplayName("a token with NO cv is held to a never-changed row: the delete's version is 0")
+        void legacyToken_isHeldToVersionZero() {
+            theRowIs(row(UserRole.LITE_USER, true, "hash", 0L, null));
+            when(userRepository.deleteOwnAccountIfUnchanged(7L, "hash", 0L, UserRole.ADMIN)).thenReturn(1);
+
+            userService.deleteOwnAccount("reader", "hash", VersionExpectation.legacyUnchanged());
+
+            verify(userRepository).deleteOwnAccountIfUnchanged(7L, "hash", 0L, UserRole.ADMIN);
+        }
+
+        @Test
+        @DisplayName("an account with no address releases no claim")
+        void noAddress_releasesNothing() {
+            theRowIs(row(UserRole.LITE_USER, true, "hash", 0L, null));
+            when(userRepository.deleteOwnAccountIfUnchanged(7L, "hash", 0L, UserRole.ADMIN)).thenReturn(1);
+
+            userService.deleteOwnAccount("reader", "hash", VersionExpectation.exact(0L));
+
+            verifyNoInteractions(emailClaims);
+        }
+
+        @Test
+        @DisplayName("a locked row whose role is ADMIN is refused with the admin sentence BEFORE the purge — "
+                + "an admin who promoted the account during BCrypt wins")
+        void adminUnderTheLock_isRefusedBeforeThePurge() {
+            theRowIs(row(UserRole.ADMIN, true, "hash", 3L, "a@example.com"));
+
+            assertThatThrownBy(() -> userService.deleteOwnAccount("reader", "hash", VersionExpectation.exact(3L)))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessage("Admin accounts are deleted by another admin");
+
+            verifyNoInteractions(userDriveTimeRepository);
+            verify(userRepository, never()).deleteOwnAccountIfUnchanged(any(), any(), anyLong(), any());
+            verifyNoInteractions(emailClaims);
+        }
+
+        @Test
+        @DisplayName("a password changed while the typed one was being checked (the stored hash is no longer "
+                + "the verified one) is a StaleCredentialsException and nothing is purged")
+        void hashMoved_isStale() {
+            theRowIs(row(UserRole.PRO_USER, true, "newer-hash", 4L, "a@example.com"));
+
+            assertThatThrownBy(() -> userService.deleteOwnAccount("reader", "hash", VersionExpectation.exact(3L)))
+                    .isInstanceOf(StaleCredentialsException.class)
+                    .hasMessage("Your session has changed. Sign in again.");
+
+            verifyNoInteractions(userDriveTimeRepository);
+            verifyNoInteractions(emailClaims);
+        }
+
+        @Test
+        @DisplayName("a credential version that moved with the SAME hash (a disable and re-enable, an admin "
+                + "reset to a colliding hash) is stale too")
+        void versionMoved_isStale() {
+            theRowIs(row(UserRole.PRO_USER, true, "hash", 4L, "a@example.com"));
+
+            assertThatThrownBy(() -> userService.deleteOwnAccount("reader", "hash", VersionExpectation.exact(3L)))
+                    .isInstanceOf(StaleCredentialsException.class);
+
+            verifyNoInteractions(userDriveTimeRepository);
+        }
+
+        @Test
+        @DisplayName("a legacy token (no cv) on a row that has since changed is stale")
+        void legacyToken_onAChangedRow_isStale() {
+            theRowIs(row(UserRole.PRO_USER, true, "hash", 1L, "a@example.com"));
+
+            assertThatThrownBy(() -> userService.deleteOwnAccount("reader", "hash",
+                    VersionExpectation.legacyUnchanged())).isInstanceOf(StaleCredentialsException.class);
+
+            verifyNoInteractions(userDriveTimeRepository);
+        }
+
+        @Test
+        @DisplayName("an account disabled meanwhile is stale: only an active account deletes itself")
+        void disabledMeanwhile_isStale() {
+            theRowIs(row(UserRole.PRO_USER, false, "hash", 3L, "a@example.com"));
+
+            assertThatThrownBy(() -> userService.deleteOwnAccount("reader", "hash", VersionExpectation.exact(3L)))
+                    .isInstanceOf(StaleCredentialsException.class);
+
+            verifyNoInteractions(userDriveTimeRepository);
+        }
+
+        @Test
+        @DisplayName("an account that is already gone — at the name lookup or at the scalar read — is stale")
+        void accountGone_isStale() {
+            when(userRepository.findByUsernameForUpdate("reader")).thenReturn(Optional.empty());
+            assertThatThrownBy(() -> userService.deleteOwnAccount("reader", "hash", VersionExpectation.exact(3L)))
+                    .isInstanceOf(StaleCredentialsException.class);
+
+            when(userRepository.findByUsernameForUpdate("reader"))
+                    .thenReturn(Optional.of(buildUser(7L, "reader", UserRole.PRO_USER)));
+            when(userRepository.lockAccount(7L)).thenReturn(Optional.empty());
+            assertThatThrownBy(() -> userService.deleteOwnAccount("reader", "hash", VersionExpectation.exact(3L)))
+                    .isInstanceOf(StaleCredentialsException.class);
+
+            verifyNoInteractions(userDriveTimeRepository);
+        }
+
+        @Test
+        @DisplayName("when the compare-and-set deletes 0 rows the method throws — which rolls the purge back — "
+                + "and releases no claim")
+        void compareAndSetDeletesNothing_throwsAndReleasesNothing() {
+            theRowIs(row(UserRole.PRO_USER, true, "hash", 3L, "a@example.com"));
+            when(userRepository.deleteOwnAccountIfUnchanged(7L, "hash", 3L, UserRole.ADMIN)).thenReturn(0);
+
+            assertThatThrownBy(() -> userService.deleteOwnAccount("reader", "hash", VersionExpectation.exact(3L)))
+                    .isInstanceOf(StaleCredentialsException.class);
+
+            verify(userDriveTimeRepository).deleteAllByUserId(7L);
+            verifyNoInteractions(emailClaims);
+        }
+
+        @Test
+        @DisplayName("a trusted expectation is refused outright: a deletion must be held to a version")
+        void trustedExpectation_isRefused() {
+            assertThatThrownBy(() -> userService.deleteOwnAccount("reader", "hash", VersionExpectation.trusted()))
+                    .isInstanceOf(IllegalArgumentException.class);
+
+            verifyNoInteractions(userRepository);
+        }
+    }
+
+    @Nested
+    @DisplayName("verifyPassword")
+    class VerifyPassword {
+
+        @Test
+        @DisplayName("returns the stored hash the typed password matched")
+        void matching_returnsTheStoredHash() {
+            AppUserEntity user = buildUser(7L, "reader", UserRole.PRO_USER);
+            user.setPassword("stored-hash");
+            when(userRepository.findByUsername("reader")).thenReturn(Optional.of(user));
+            when(passwordEncoder.matches("typed", "stored-hash")).thenReturn(true);
+
+            assertThat(userService.verifyPassword("reader", "typed")).contains("stored-hash");
+        }
+
+        @Test
+        @DisplayName("a wrong password, and an account with no hash to match, answer empty")
+        void mismatchOrNoHash_isEmpty() {
+            AppUserEntity user = buildUser(7L, "reader", UserRole.PRO_USER);
+            user.setPassword("stored-hash");
+            when(userRepository.findByUsername("reader")).thenReturn(Optional.of(user));
+            when(passwordEncoder.matches("wrong", "stored-hash")).thenReturn(false);
+            assertThat(userService.verifyPassword("reader", "wrong")).isEmpty();
+
+            user.setPassword("");
+            assertThat(userService.verifyPassword("reader", "anything")).isEmpty();
+            user.setPassword(null);
+            assertThat(userService.verifyPassword("reader", "anything")).isEmpty();
+            verify(passwordEncoder, never()).matches("anything", "");
+            verify(passwordEncoder, never()).matches("anything", null);
+        }
+
+        @Test
+        @DisplayName("an account that no longer exists is a stale session, not a wrong password")
+        void missingAccount_isStale() {
+            when(userRepository.findByUsername("ghost")).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> userService.verifyPassword("ghost", "typed"))
+                    .isInstanceOf(StaleCredentialsException.class);
+        }
+    }
+
+    @Nested
+    @DisplayName("deleteUser (admin path)")
+    class DeleteUser {
+
+        private LockedAccount row(String username, String email) {
+            return new LockedAccount(true, "hash", email, username, UserRole.LITE_USER, 0L, null, false, true,
+                    null);
+        }
+
+        @Test
+        @DisplayName("locks the row FIRST, purges the dependent rows, deletes, then releases the email claim; "
+                + "hands back the STORED name and address for the after-commit email and sends none itself")
+        void happyPath_runsInTheLockOrder() {
+            when(userRepository.lockAccount(7L)).thenReturn(Optional.of(row("bob", "Bob@Example.com")));
+            when(userRepository.deleteAccountById(7L)).thenReturn(1);
+
+            DeletedAccount deleted = userService.deleteUser(7L, "admin");
+
+            assertThat(deleted).isEqualTo(new DeletedAccount("bob", "Bob@Example.com"));
+            InOrder order = inOrder(userRepository, userDriveTimeRepository, emailClaims);
+            order.verify(userRepository).lockAccount(7L);
+            order.verify(userDriveTimeRepository).deleteAllByUserId(7L);
+            order.verify(userRepository).deleteAccountById(7L);
+            order.verify(emailClaims).release("Bob@Example.com");
+        }
+
+        @Test
+        @DisplayName("an admin deleting their own account is refused before anything is purged")
+        void selfDeletion_isRefusedBeforeThePurge() {
+            when(userRepository.lockAccount(1L)).thenReturn(Optional.of(row("admin", "a@example.com")));
+
+            assertThatThrownBy(() -> userService.deleteUser(1L, "admin"))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessage("Cannot delete your own account");
+
+            verifyNoInteractions(userDriveTimeRepository);
+            verify(userRepository, never()).deleteAccountById(any());
+            verifyNoInteractions(emailClaims);
+        }
+
+        @Test
+        @DisplayName("a missing user is an IllegalArgumentException and purges nothing")
+        void missingUser_isRefused() {
+            when(userRepository.lockAccount(99L)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> userService.deleteUser(99L, "admin"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("99");
+
+            verifyNoInteractions(userDriveTimeRepository);
+        }
+
+        @Test
+        @DisplayName("a delete that removes no row throws (rolling the purge back) and releases no claim")
+        void noRowDeleted_throwsAndReleasesNothing() {
+            when(userRepository.lockAccount(7L)).thenReturn(Optional.of(row("bob", "bob@example.com")));
+            when(userRepository.deleteAccountById(7L)).thenReturn(0);
+
+            assertThatThrownBy(() -> userService.deleteUser(7L, "admin"))
+                    .isInstanceOf(IllegalArgumentException.class);
+
+            verifyNoInteractions(emailClaims);
+        }
+
+        @Test
+        @DisplayName("an account with a blank address releases no claim")
+        void blankAddress_releasesNothing() {
+            when(userRepository.lockAccount(7L)).thenReturn(Optional.of(row("bob", " ")));
+            when(userRepository.deleteAccountById(7L)).thenReturn(1);
+
+            userService.deleteUser(7L, "admin");
+
+            verifyNoInteractions(emailClaims);
         }
     }
 

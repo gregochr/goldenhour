@@ -582,7 +582,7 @@ public class AuthController {
      *
      * @return the expectation the writer holds the row to
      */
-    private static VersionExpectation sessionVersionExpectation() {
+    static VersionExpectation sessionVersionExpectation() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication != null && authentication.getDetails() instanceof JwtAuthenticationDetails details
                 && details.credentialsVersion() != null) {
