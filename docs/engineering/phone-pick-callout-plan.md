@@ -196,14 +196,20 @@ effect stays). `MapViewAsk.test`'s comment "the phone wraps it to expand a minim
 
 ## 6. Accepted limits
 
-- A pick whose row cannot be followed opens no callout; the tap still chooses the card and the camera
-  flies. Picks come from the rendered windows, so this is rare.
+- A pick whose row cannot be followed opens no callout; the tap still chooses the card (and, since the
+  review round, the camera stays put on any phone chip tap). Picks come from the rendered windows, so this
+  is rare.
 - The callout is silent to assistive technology and is portalled outside the chip's tab order, exactly
   as an ordinary chip's is; a keyboard reader reaches its buttons by tabbing on.
 - The door clears a standing callout (an open sheet and a callout never coexist), and opening and
   closing Layers moves the camera's inset twice.
 - On a tap from an expanded answer the sheet animates down (.28s) while the callout is already placed
   for 112px, so the sheet can briefly paint over the callout's lower edge.
+- On a short phone (seen at 320×568), a pick chip near the TOP of the free band leaves the callout no room
+  above it or below it (above the 112px line), so the callout is clamped over the lower part of its own chip
+  and ring (about 10px, seen in headless Chromium on 2026-10-17). The callout's title names the place. An
+  ordinary chip at the same spot does the same today: it is the callout's placement limit, not P1's, and the
+  camera does not move on a chip tap.
 - A running phone page keeps the JS it loaded until reload (CLAUDE.md's standing note).
 
 ## 7. Docs that change
