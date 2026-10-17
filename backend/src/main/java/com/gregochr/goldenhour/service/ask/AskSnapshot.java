@@ -156,10 +156,33 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
      * @param tideAligned    the preference fact: the location's own wanted water is the water at
      *                       the event
      * @param tideFitPhrase  the served tide-fit sentence, or null
+     * @param neighbourOutlier true when the neighbour guard marked this slot as rated far above the
+     *                       places beside it ({@code BriefingSlot.neighbourOutlier}): its star stays,
+     *                       but it is never offered as a pick
      */
     public record Slot(Long locationId, String name, Integer rating, DisplayVerdict verdict,
             String headline, boolean canopy, String tideState, boolean tideAligned,
-            String tideFitPhrase) {
+            String tideFitPhrase, boolean neighbourOutlier) {
+
+        /**
+         * A slot the neighbour guard has not marked.
+         *
+         * @param locationId    the location id, or null
+         * @param name          the location name
+         * @param rating        the served rating, or null
+         * @param verdict       the slot's served display verdict
+         * @param headline      the served headline, or null
+         * @param canopy        true when this is a wood
+         * @param tideState     the served tide state band, or null for an inland place
+         * @param tideAligned   the preference fact
+         * @param tideFitPhrase the served tide-fit sentence, or null
+         */
+        public Slot(Long locationId, String name, Integer rating, DisplayVerdict verdict,
+                String headline, boolean canopy, String tideState, boolean tideAligned,
+                String tideFitPhrase) {
+            this(locationId, name, rating, verdict, headline, canopy, tideState, tideAligned,
+                    tideFitPhrase, false);
+        }
 
         /**
          * Whether this is a coastal slot: it carries a served tide state.
@@ -599,15 +622,34 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
      * The one pick-eligibility rule (plan §2.2, D-3): a non-null location id and a name to put on
      * the card, not a wood, a served rating on Claude's 1-5 scale
      * ({@link RatingValidator#isInRange}, the bound the Plan projector uses) and at least
-     * {@value #MIN_PICK_RATING}, and a region the Plan tab would let carry a verdict. There is no
-     * rating that exempts an ineligible region and no fallback that admits a canopy slot — a
-     * handful of hand-run 4★ ratings must never crown a region the Plan tab refuses to crown.
+     * {@value #MIN_PICK_RATING}, and a region the Plan tab would let carry a verdict, and not a
+     * neighbour outlier (a rating far above every nearby place, which the guard withholds from being
+     * named as the best). There is no rating that exempts an ineligible region and no fallback that
+     * admits a canopy slot — a handful of hand-run 4★ ratings must never crown a region the Plan tab
+     * refuses to crown.
      *
      * @param region the slot's region
      * @param slot   the slot
      * @return true when the slot may be offered as a pick
      */
     public static boolean isPickEligible(Region region, Slot slot) {
+        return meetsPickRules(region, slot) && !slot.neighbourOutlier();
+    }
+
+    /**
+     * Whether the slot is a pick in every respect but one: the neighbour guard has marked it as rated
+     * far above the places beside it. Only the thread's wording asks, to say why an earlier pick is no
+     * longer offered ("held back") rather than that its rating fell, which it has not.
+     *
+     * @param region the slot's region
+     * @param slot   the slot
+     * @return true when {@link #isPickEligible} refuses the slot for the mark alone
+     */
+    public static boolean isHeldBack(Region region, Slot slot) {
+        return slot.neighbourOutlier() && meetsPickRules(region, slot);
+    }
+
+    private static boolean meetsPickRules(Region region, Slot slot) {
         return slot.locationId() != null
                 && slot.name() != null && !slot.name().isBlank()
                 && !slot.canopy()

@@ -109,7 +109,9 @@ public class AskPromptBuilder {
             to rank earlier options, submit them as the picks, best first, as many as three.
             Never use emoji or symbols other than ★ in the summary.
             An earlier place the message lists as no longer in the forecast, or outside the area, \
-            cannot be a pick: say so in the summary when it bears on the question.
+            cannot be a pick: say so in the summary when it bears on the question. An earlier \
+            place the message lists as held back is rated well above the places beside it and is not \
+            offered: never describe it as rated low.
             """;
 
     /**

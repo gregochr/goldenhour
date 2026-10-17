@@ -71,6 +71,21 @@ public class AskAnswerValidator {
     static final String STALE_THREAD_SUMMARY =
             "The places from your earlier answers are no longer in the forecast.";
 
+    /** The {@code missing} phrase when every earlier place is held back by the neighbour guard (7 words). */
+    static final String HELD_BACK_MISSING = "those places rate well above their neighbours";
+
+    /** The summary of that can't-answer: ours, and true, since the places are still in the forecast. */
+    static final String HELD_BACK_SUMMARY =
+            "The places from your earlier answers are rated well above the places beside them, "
+                    + "so none can be suggested.";
+
+    /** The {@code missing} phrase when some earlier places are held back and some are gone (7 words). */
+    static final String MIXED_STALE_MISSING = "those places can no longer be picked";
+
+    /** The summary of that can't-answer: ours, true of both reasons. */
+    static final String MIXED_STALE_SUMMARY =
+            "The places from your earlier answers can no longer be suggested.";
+
     /** The {@code missing} phrase of a follow-up that turned the earlier places down and has nothing else to offer. */
     static final String TURNED_DOWN_MISSING = "the other places are not rated well enough";
 
@@ -233,8 +248,14 @@ public class AskAnswerValidator {
             if (evidence.thread().staleOnly(submittedPairs(raw.picks()))) {
                 // A follow-up about places the thread named and the forecast has since lost: an honest
                 // can't-answer in our words, not the model's, and not an engine fault.
-                return new Result(new AskAnswer(false, STALE_THREAD_SUMMARY, List.of(), List.of(),
-                        STALE_THREAD_MISSING), null);
+                return switch (evidence.thread().staleKind(submittedPairs(raw.picks()))) {
+                    case HELD_BACK -> new Result(new AskAnswer(false, HELD_BACK_SUMMARY, List.of(),
+                            List.of(), HELD_BACK_MISSING), null);
+                    case MIXED -> new Result(new AskAnswer(false, MIXED_STALE_SUMMARY, List.of(),
+                            List.of(), MIXED_STALE_MISSING), null);
+                    case GONE -> new Result(new AskAnswer(false, STALE_THREAD_SUMMARY, List.of(),
+                            List.of(), STALE_THREAD_MISSING), null);
+                };
             }
             return discard("answerable with no pick, no event and no tool call");
         }
