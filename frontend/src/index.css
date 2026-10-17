@@ -4783,6 +4783,14 @@ button.wf-hc.also.on:hover {
    wrapper of their own, so each day's last row would lose it too. Put it back. */
 .wf-map-peek-wlist > div > .wf-map-peek-wr:last-child { border-bottom: 1px solid var(--color-plex-border); }
 .wf-map-peek-load:disabled { opacity: 0.35; cursor: default; }
+/* The same line on the phone sheet (`.wf-win-none` at the sheet's gutter). */
+.wf-map-peek-none {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--color-plex-text-muted);
+  line-height: 1.35;
+  padding: 6px 4px;
+}
 .wf-map-peek-load-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .wf-map-peek-drilldown {
   color: var(--color-plex-text-secondary);
@@ -6423,6 +6431,15 @@ button.wf-hc.also.on:hover {
 }
 .wf-win-load:disabled { opacity: 0.35; cursor: default; }
 .wf-win-load:disabled:hover { background: transparent; }
+/* An older day that loaded with no rows (§4 #15, amended 2026-10-17): a quiet, non-interactive line in
+   the Load row's place — the sub-line's own mono 9.5px and muted ink. */
+.wf-win-none {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--color-plex-text-muted);
+  line-height: 1.35;
+  padding: 6px 12px;
+}
 /* The pill while an older day is fetched. */
 .wf-win-loading { color: var(--color-plex-text-secondary); font-weight: 500; }
 

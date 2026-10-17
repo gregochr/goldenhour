@@ -30,7 +30,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { useRewind } from '../hooks/useRewind.js';
 import { useOutcomeRatings } from '../hooks/useOutcomeRatings.js';
 import { ratedCountByWindow } from '../utils/outcomeRatingJoin.js';
-import { olderDayState } from '../utils/mapOlderDay.js';
+import { emptyOlderDay, olderDayState } from '../utils/mapOlderDay.js';
 
 /**
  * The framing pad, in degrees of latitude — the bundle's own figure (`map-tab.js`), and the same
@@ -199,6 +199,7 @@ export default function WindowFirstMapPane({
   mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null,
   onOpenSettings = null, onOpenLocationSheet = null, onReturnToPlan = null,
   onLoadOlderDay = null, olderDayLoading = null, loadedPastDays = NO_LOADED_DAYS,
+  emptyPastDays = NO_LOADED_DAYS,
 }) {
   const wrapRef = useRef(null);
   const [resizeNonce, setResizeNonce] = useState(0);
@@ -595,6 +596,12 @@ export default function WindowFirstMapPane({
     });
     return onLoadOlderDay ? state : { canLoadOlder: false, nextOlderDate: null };
   }, [dates, loadedPastDays, todayStr, rewound, onLoadOlderDay]);
+  // The most recently loaded older day, when it came back with no rows: the menus say so in the Load
+  // row's place (outcome-rating-plan.md §4 #15, amended 2026-10-17). Null with no loader.
+  const emptyOlderDayDate = useMemo(
+    () => (onLoadOlderDay ? emptyOlderDay({ loadedPastDays, emptyPastDays }) : null),
+    [loadedPastDays, emptyPastDays, onLoadOlderDay],
+  );
 
   // The briefing's served tide for every window it carries (rendered or not), with its event time.
   const tideByWindow = useMemo(
@@ -809,6 +816,7 @@ export default function WindowFirstMapPane({
         // loader `App` owns (`useForecasts.loadOlderDay`).
         canLoadOlder={canLoadOlder}
         olderDayDate={nextOlderDate}
+        emptyOlderDayDate={emptyOlderDayDate}
         olderDayLoading={olderDayLoading}
         onLoadOlderDay={onLoadOlderDay}
         autoEventType={autoEventType}
@@ -933,4 +941,6 @@ WindowFirstMapPane.propTypes = {
   olderDayLoading: PropTypes.string,
   /** The older days already fetched, empty ones included — they still count toward the T-4 floor. */
   loadedPastDays: PropTypes.arrayOf(PropTypes.string),
+  /** The subset of {@code loadedPastDays} that came back with no rows (`useForecasts.emptyPastDays`). */
+  emptyPastDays: PropTypes.arrayOf(PropTypes.string),
 };

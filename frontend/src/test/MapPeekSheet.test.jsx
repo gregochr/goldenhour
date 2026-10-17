@@ -631,6 +631,36 @@ describe('MapPeekWindowsSection — the EARLIER group', () => {
     expect(screen.queryByTestId('wf-map-peek-load')).not.toBeInTheDocument();
   });
 
+  it('draws the empty older day as a quiet line above the Load row, outside the listbox, not a button', () => {
+    renderSection({ emptyOlderDayLabel: 'Thu 15' });
+    const line = screen.getByTestId('wf-map-peek-none');
+    expect(line).toHaveTextContent('No stored forecast for Thu 15');
+    expect(line).toHaveClass('wf-map-peek-none');
+    expect(line.tagName).toBe('DIV');
+    expect(screen.queryByRole('button', { name: /No stored forecast/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('listbox')).not.toContainElement(line);
+    const load = screen.getByTestId('wf-map-peek-load');
+    expect(screen.getByTestId('wf-map-peek-earlier').compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+    expect(line.compareDocumentPosition(load) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(load).toHaveTextContent('Load Wed 14');
+  });
+
+  it('keeps the empty day\'s line at the T-4 floor, with the header over it and no Load row', () => {
+    renderSection({ rows: [LIVE], canLoadOlder: false, emptyOlderDayLabel: 'Thu 15' });
+    expect(screen.getByTestId('wf-map-peek-earlier')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-map-peek-none')).toHaveTextContent('No stored forecast for Thu 15');
+    expect(screen.queryByTestId('wf-map-peek-load')).not.toBeInTheDocument();
+  });
+
+  it('draws no line when the day had rows, and does not announce (the window control owns the one status)', () => {
+    renderSection();
+    expect(screen.queryByTestId('wf-map-peek-none')).not.toBeInTheDocument();
+    cleanup();
+    renderSection({ emptyOlderDayLabel: 'Thu 15' });
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
   it('draws no header and no sub-header when there is nothing past and nothing to fetch', () => {
     renderSection({ rows: [LIVE], canLoadOlder: false });
     expect(screen.queryByTestId('wf-map-peek-earlier')).not.toBeInTheDocument();
