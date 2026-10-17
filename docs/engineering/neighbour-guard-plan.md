@@ -25,8 +25,9 @@ A served slot is a neighbour outlier when ALL of these hold:
    unregioned slots are neither candidates nor neighbours), in a SUNRISE or SUNSET event summary,
    and with a `skyRating` of at least `min-rating` (default 3).
 2. **No supporter.** No OTHER sky slot in the same window (same date and target type, across every
-   region of that day) within `radius-km` (default 5 km) has a `skyRating` within `margin - 1` of it.
-   With the default `margin` 2, every nearby place, at ANY height, is rated at least 2 stars lower.
+   region of that day) within `radius-km` (default 5 km) has a `skyRating` less than `margin` below
+   it; a place rated the same or HIGHER is a supporter too. With the default `margin` 2, every nearby
+   place, at ANY height, is rated at least 2 stars lower.
 3. **Enough witnesses.** At least `min-neighbours` (default **2**) of those nearby sky slots are at a
    similar height: both places have no elevation, or both have one and they differ by at most
    `max-elevation-gap-m` (default 150 m).
@@ -63,7 +64,8 @@ Why each choice, measured in §7 or argued:
 - **Margin 2, floor 3.** A 1-star gap is the model's ordinary resolution; 2 is the measurement's
   definition of disagreement. With margin 2 a floor below 3 is unreachable, so the floor's bound is
   3–5 and it exists to let an operator guard only 4★+ claims.
-- **Above EVERY nearby place.** One nearby place rated within `margin - 1` clears the slot.
+- **Above EVERY nearby place.** One nearby place rated less than `margin` below it (or higher)
+  clears the slot.
 
 ## 3. Where it applies
 
@@ -253,7 +255,7 @@ with a rating and no `sky_rating` serves null.
   with the cos-latitude term (kills a dropped term), and a pair that distinguishes swapped lat/lon;
 - `min-neighbours`: one neighbour does not flag at the default; two do; under `min-neighbours` 1 one
   does;
-- supporter: one nearby place within `margin - 1` clears it, AT ANY HEIGHT (a 3★ place 200 m below a
+- supporter: one nearby place rated less than `margin` below it, or higher, clears it, AT ANY HEIGHT (a 3★ place 200 m below a
   4★ clears it: the Latrigg/Castlerigg case);
 - witnesses: a nearby place 200 m below, both elevations known, does not count toward
   `min-neighbours`; a place with an unknown elevation is not a witness for one with a known
