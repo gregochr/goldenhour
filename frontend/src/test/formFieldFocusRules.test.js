@@ -397,6 +397,8 @@ describe('form-field focus outlines — their call sites', () => {
     // so the `focus:outline-hidden` that used to sit in each file's className now lives in ONE
     // place, `.field`'s @apply in index.css — pinned below, in the `.field` test, so the fix
     // follows every input that adopts the class instead of being repeated per file.
+    // ⚠️ `UserSettingsModal` left the list for the same reason at R4c: its postcode input is the
+    // modal's only text input, and it now takes `.field`.
     const expectedFiles = [
       'components/AuroraSimulateModal.jsx',
       'components/LocationManagementView.jsx',
@@ -404,7 +406,6 @@ describe('form-field focus outlines — their call sites', () => {
       'components/OutcomeModal.jsx',
       'components/RegionManagementView.jsx',
       'components/UserManagementView.jsx',
-      'components/UserSettingsModal.jsx',
       'components/shared/SortableHeader.jsx',
     ];
     const filesWithOutlineHidden = new Set(
@@ -431,9 +432,9 @@ describe('the shared .field class carries the forced-colours-safe outline', () =
     expect(block).not.toMatch(/outline-none/);
   });
 
-  it('no auth page or shared auth component carries a per-file outline utility any more', () => {
+  it('no auth page, shared auth component or the Settings dialog carries a per-file outline utility any more', () => {
     ['../components/LoginPage.jsx', '../components/RegisterPage.jsx', '../components/ChangePasswordPage.jsx',
-      '../components/auth/PasswordInput.jsx'].forEach((file) => {
+      '../components/auth/PasswordInput.jsx', '../components/UserSettingsModal.jsx'].forEach((file) => {
       expect(read(file), file).not.toMatch(/outline-(none|hidden)/);
     });
   });
