@@ -29,12 +29,13 @@ import java.util.List;
  * <p>Implements {@link UserDetails} so Spring Security can load and authenticate users
  * directly from the database. Passwords are stored as BCrypt hashes.
  *
- * <p><strong>The eight settings columns are {@code updatable = false}, deliberately.</strong> The
+ * <p><strong>The nine settings columns are {@code updatable = false}, deliberately.</strong> The
  * home postcode and coordinates, the local radius, the drive-time stamp, the map colour scale, the
- * map tide mode and the Coming-up last-seen instant are written only by the column-scoped updates on
- * {@link com.gregochr.goldenhour.repository.AppUserRepository}, never by {@code save()} on this
- * entity. It carries neither {@code @Version} nor {@code @DynamicUpdate}, so a whole-entity save
- * writes every updatable column from whatever copy it holds, and several callers hold a copy across
+ * map tide mode, the Coming-up last-seen instant and the postcode-prompt dismissal are written only
+ * by the column-scoped updates on {@link com.gregochr.goldenhour.repository.AppUserRepository},
+ * never by {@code save()} on this entity. It carries neither {@code @Version} nor
+ * {@code @DynamicUpdate}, so a whole-entity save writes every updatable column from whatever copy
+ * it holds, and several callers hold a copy across
  * a gap: the JWT filter's hourly last-active write, login's (a BCrypt check wide), a password
  * change, the marketing opt-in and the admin paths. Any of them could write back a home, a colour or
  * a stamp read before a concurrent settings save committed, and silently undo it. Taking the
@@ -202,6 +203,20 @@ public class AppUserEntity implements UserDetails {
      */
     @Column(name = "coming_up_last_seen_at", updatable = false)
     private Instant comingUpLastSeenAt;
+
+    /**
+     * When this user dismissed the one-time sign-in postcode prompt ("Not now"), or {@code null}
+     * when they never have (V181, login-registration plan §2 #3).
+     *
+     * <p>The prompt is due while the account has neither a home postcode nor this instant, which
+     * {@code UserSettingsService} computes and serves as {@code postcodePromptDue}. Null is "never
+     * dismissed" — there is no backfill, so an existing account without a postcode is asked once.
+     *
+     * <p>Not updatable through the entity — see the class Javadoc. Written by
+     * {@code AppUserRepository.updatePostcodePromptDismissedAtByUsername}.
+     */
+    @Column(name = "postcode_prompt_dismissed_at", updatable = false)
+    private Instant postcodePromptDismissedAt;
 
     /** When the user accepted the Terms &amp; Conditions. */
     @Column(name = "terms_accepted_at")
