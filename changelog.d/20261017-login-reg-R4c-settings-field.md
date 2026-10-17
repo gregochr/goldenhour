@@ -1,3 +1,0 @@
-### Changed — Settings postcode field: shared input style, mobile attributes, status tokens, Pro copy
-
-The Settings postcode input takes the shared `.field` style (16px text below 640px, so iOS Safari no longer zooms into it on focus) and the mobile attributes the sign-in screens have (postal-code autofill, upper-case keyboard, no autocorrect or spellcheck, a Search key). Its error, the drive-time and radius and colour errors and the "failed to load" line move from raw red to the error token, and the two saved-place dots from raw green to the ok token. The line shown to a Lite account now reads "Your postcode sets your light times. Pro accounts also get drive times from home." instead of pointing at an upgrade, which the App Store does not allow.

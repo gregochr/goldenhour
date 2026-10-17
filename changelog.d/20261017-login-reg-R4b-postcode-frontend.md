@@ -1,3 +1,0 @@
-### Added — home postcode asked at registration and once at sign-in, with "Use my location"
-
-Registration gains a "Where's home?" step between Set password and Welcome (look up a postcode or use the device's location, confirm the place, Save and continue or Skip for now), and an account with no postcode and no dismissal on record sees a one-time "Set your home postcode" prompt over the app (Save or Not now; it waits for any other open dialog and makes the app inert while it shows). Skipping either one records the dismissal on the server, so it is asked once across devices. The Welcome step now ends by mounting the app on the session already stored, with no page reload.
