@@ -80,8 +80,9 @@ const insetKeyOf = (inset) => `${inset.top ?? 0}|${inset.right ?? 0}|${inset.bot
  * @param {boolean} props.active the map is on screen and nothing modal stands over it
  * @param {?number} props.answerId the answer on screen ({@code AskContext}'s monotonic id), or null
  * @param {Array<{lat: number, lng: number}>} props.points the picks' coordinates
- * @param {?{lat: number, lng: number, nonce: number}} props.selection the chosen pick;
- *        {@code nonce} is new on every choice, so choosing the same pick again moves the camera again
+ * @param {?{lat: number, lng: number, nonce: number, still: ?boolean}} props.selection the chosen pick;
+ *        {@code nonce} is new on every choice, so choosing the same pick again moves the camera again.
+ *        {@code still} marks a choice that must NOT move it (a phone chip, whose callout opens in place)
  * @param {{top: number, right: number, bottom: number, left: number}} [props.inset] what a surface
  *        covers of the frame; none by default. The phone's peek sheet is the one caller that passes one
  *        (F4): 470 with the Ask section open, 112 for the minimised line — a change re-applies the move
@@ -160,8 +161,15 @@ export default function AskCameraController({
       return;
     }
     if (sel && sel.nonce !== selectedNonce.current) {
-      startOwnMove();
       selectedNonce.current = sel.nonce;
+      if (sel.still) {
+        // A choice that must not move the camera (a phone chip opening its callout): spent, and nothing
+        // is left to re-apply — a later resize or inset change must not snap the map back to an earlier
+        // move the reader has since left behind.
+        lastMove.current = null;
+        return;
+      }
+      startOwnMove();
       const at = selectCentre(map, sel, pad);
       lastMove.current = { kind: 'pick', sel };
       if (reduced) map.setView(at, ASK_SELECT_ZOOM, { animate: false });
@@ -268,6 +276,7 @@ AskCameraController.propTypes = {
     lat: PropTypes.number.isRequired,
     lng: PropTypes.number.isRequired,
     nonce: PropTypes.number.isRequired,
+    still: PropTypes.bool,
   }),
   inset: PropTypes.shape({
     top: PropTypes.number, right: PropTypes.number, bottom: PropTypes.number, left: PropTypes.number,

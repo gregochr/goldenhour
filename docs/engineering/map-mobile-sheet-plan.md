@@ -222,8 +222,9 @@ moves the verdict, so it cannot be dropped. §4 #5 adds the row.
 
 `MapTideStrip` publishes `--tsh` and `wf-tide-strip-on` on the pane through a `ResizeObserver`, and
 `onHeightChange` feeds `MapCallout`'s placement band. On phone the strip goes; the sheet is the new
-obstacle. Because **every** route that opens the callout is a map tap, and every map tap collapses
-the sheet (rule 4), the callout only ever has to clear the collapsed 74 px — so the sheet publishes
+obstacle. Because every route but one that opens the callout is a map tap, and every map tap collapses
+the sheet (rule 4), and the one exception — an Ask pick chip's window-follow effect (since 2026-10-17,
+`phone-pick-callout-plan.md` P1; D-7 below) — collapses the sheet in its own handler, the callout only ever has to clear the collapsed 74 px — so the sheet publishes
 one fixed `--psh` (peek sheet height) and never a live-measured one (§5 D-7).
 
 ### 16. The map is not the phone's first tab
@@ -732,6 +733,11 @@ Branch `feature/map-mobile-sheet-m6-sweep`; slug `map-mobile-sheet-m6-sweep`, he
   may stand over the 112px minimised line.** It is safe because that height is fixed (not mid-transition:
   the band reads the target), `--psh` is live, and `MapCallout`'s `bandKey` repaints the band when it
   changes. An OPEN sheet (356 / 408 / 470px) and a callout still never coexist, in either order.
+  ⚠️ **Amended again, 2026-10-17** (`docs/engineering/phone-pick-callout-plan.md` P1): a second route now opens
+  the callout over the 112px line — not a map tap but the window-follow effect, after an Ask pick chip or pin on
+  the phone. It keeps the clause: the handler turns any open `peek:*` section (an expanded answer included) to
+  null in the same batch as the press, and the effect selects the place only after the window has followed, so no
+  commit holds a callout beside an open sheet.
 - **D-8** The pill's dropdown listbox is unreachable on the phone after M2 (the pill toggles the
   Windows section). Everything it held is in the section (rows, drilldown) or withheld on phone
   anyway (the landing reopen row).

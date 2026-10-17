@@ -13615,6 +13615,8 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
 /* The pane's own node is a programmatic-only focus target (`tabIndex -1`): focus parks here when a
    control that held it unmounts, and moves on to the entry button. It needs no ring. */
 .wf-map-peek-ask:focus { outline: none; }
+/* The pane's own node is a programmatic focus target (the callout's ✕ hands focus to it): not a control, no ring. */
+.wf-map-tab:focus { outline: none; }
 .wf-map-peek[data-ask='expanded'] .wf-map-peek-ask { flex: 1 1 auto; }
 .wf-map-peek-ask-row {
   flex: none;

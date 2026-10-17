@@ -1416,7 +1416,9 @@ const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
  *       numbered chips and pins, and dim everything else, while any is on the map.</li>
  *   <li>{@code askSelectedRank}, {@code onSelectAskPick} — the chosen card's rank, and the chip's way
  *       of choosing one.</li>
- *   <li>{@code askWindow} — {@code {date, eventType, nonce}}: the window a chosen pick names. Its own
+ *   <li>{@code askWindow} — {@code {date, eventType, nonce, callout, locationId}}: the window a chosen pick
+ *       names, and — when {@code callout} is true (a pick chip on the phone) — the place whose callout
+ *       to open once it is followed. Its own
  *       channel and its own effect, NOT {@code planHandoff}: that effect applies the Plan lens (rating
  *       floor, reach tier, scope) and mounts the breadcrumb for every source that is not
  *       {@code 'map'}, and is one slot a second writer would clobber. This one sets the window and
@@ -3880,9 +3882,16 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * Its own channel and its own effect — see the {@code askWindow} note at the top of this component
    * for why it is not {@code planHandoff} — and it does the smallest thing that is true: the window,
    * and nothing else. No lens (the rating floor, the reach tier and the scope are the reader's and
-   * stay), no breadcrumb, no camera (`AskCameraController` owns that), and no callout: the selected
-   * location is CLEARED, because a callout left open for another window would contradict the window
-   * the map just moved to.
+   * stay), no breadcrumb, no camera (`AskCameraController` owns that), and no callout of its own
+   * choosing: the selected location is CLEARED, because a callout left open for another window would
+   * contradict the window the map just moved to.
+   *
+   * <p>The one exception is a choice that ASKED for its callout ({@code askWindow.callout}: a pick chip on
+   * the phone, `handleSelectAskPick`). Once the pick's row has been found and followed (or kept local, for
+   * a night), the pick's place is selected in the same batch, so the callout describes the pick's OWN
+   * window and never the one the pill was on. A row that is missing or not forwardable opens none: the
+   * tap chose the card and the camera flew. A card choice carries {@code callout: false}, so it can never
+   * inherit a chip's intent.
    *
    * <p>The row goes through the same forwarding rule {@code selectEvRow} applies ({@code
    * isForwardableRow}): a window {@code App} would refuse is not followed, so the map and its parent
@@ -3910,8 +3919,22 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     appliedAskNonce.current = askWindow.nonce;
     // The async wrapper is this file's own idiom for `react-hooks/set-state-in-effect` (see the
     // handoff effects above): the body still runs synchronously in this tick.
+    // The pick's callout, if this choice asked for one (phone chips only; see the JSDoc). ⚠️ `askRowOn` is
+    // declared further down this component: it is a closure read at run time, after the render that declared
+    // it, not a value read while the effect is defined.
+    const wantsCallout = askWindow.callout && askRowOn;
+    const place = wantsCallout
+      ? askPlaceName(askWindow.locationId, askPicks.find((p) => p.rank === askSelectedRank)?.name)
+      : null;
+    // ⚠️ A DEFERRED choice (a night waiting for its row) can outlive its moment: if the reader has since
+    // reopened the Ask section (`'peek:ask'`) or selected another place, the callout it would open is stale —
+    // the window still follows, but the selection (the reader's, or the open sheet's) is left alone. An
+    // immediate choice is never stale: its handler has already cleared a different place and any open
+    // section, and a re-tap's own place is the selection already.
+    const calloutStale = wantsCallout
+      && (openMapMenu === 'peek:ask' || (selectedLocationName != null && selectedLocationName !== place));
     (async () => {
-      setSelectedLocationName(null);
+      if (!calloutStale) setSelectedLocationName(null);
       const row = mapEvents[findEvIndex(mapEvents, askWindow.eventType, askWindow.date)];
       if (!row) return;
       const forwardable = isForwardableRow(row, { todayStr: mapTodayStr, currentNightDate: auroraNight });
@@ -3933,6 +3956,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         // ended) is kept local, exactly as `selectEvRow` keeps it, so the fetches and the viewline gate land on it.
         setLocalNightDate(row.date);
       }
+      if (wantsCallout && !calloutStale && place != null) setSelectedLocationName(place);
     })();
     // The nonce IS the trigger (every other handoff effect here reasons the same way), the pane
     // being on screen is the other, and a night row's arrival the third; the rest are read at the
@@ -4241,6 +4265,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       lat: askSelectedSpot.lat,
       lng: askSelectedSpot.lng,
       nonce: askWindow.nonce,
+      // A phone chip choice (the one that opens the pick's callout): the chip was on screen to be tapped,
+      // so the camera stays where the reader has it — flying would put the point above the frame centre
+      // and the card (266px wide, ~300px tall) would then fit neither side of it and cover the ring just
+      // tapped; `MapCallout`'s own one-shot pan keeps the card in view, as for an ordinary chip. The
+      // expression is `askRowOn`'s (declared further down, so not read here).
+      still: askWindow.callout === true && isMobile && !overlayMode && askOffered,
     }
     : null;
 
@@ -5177,6 +5207,33 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }
 
   /**
+   * The callout's ✕: close it and keep focus somewhere the pane's Escape rule can still hear. The ✕ unmounts
+   * with the callout, which would drop focus to {@code <body>} — and this pane's `onKeyDown` fires only
+   * while focus is inside it (the defect this tab has had five times). So focus goes to the chip or pin that
+   * is ringed as the selection (it carries `data-selected`; the answer's own cards carry it too, hence the
+   * narrower selector), else to the pane's own node ({@code tabIndex -1},
+   * a programmatic-only target). Before the state clears, while the ✕ still holds focus; harmless when the
+   * ✕ was not the focused control.
+   */
+  function closeCallout() {
+    const origin = mapPaneRef.current?.querySelector(
+      '[data-testid="map-label-chip"][data-selected="true"], [data-testid="map-pin"][data-selected="true"]',
+    );
+    const target = origin instanceof HTMLElement && origin.isConnected ? origin : mapPaneRef.current;
+    target?.focus({ preventScroll: true });
+    setSelectedLocationName(null);
+  }
+
+  /**
+   * The name a pick's place is selected under: the location with the pick's id (the name `MapCallout` and
+   * every chip key on), else the pick's own name. A plain function over `locations`, read at run time.
+   */
+  function askPlaceName(locationId, fallbackName) {
+    const loc = locationId != null ? locations.find((l) => l.id === locationId) : null;
+    return loc?.name ?? fallbackName ?? null;
+  }
+
+  /**
    * The peek sheet's own open section — a VALUE of `openMapMenu`, not a second piece of state
    * (map-mobile-sheet-plan.md §5 D-1). `'peek:win' | 'peek:tide' | 'peek:lay'` strip down to
    * `'win' | 'tide' | 'lay'` for `MapPeekSheet`'s own prop; every other `openMapMenu` value (the
@@ -5257,26 +5314,37 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }
 
   /**
-   * A pick chip was pressed (the table's "Pick chip press" row): choose the card, and make sure the
-   * card is on screen — a minimised answer EXPANDS (the chip is a map press, but never a "map touch":
-   * it stops its own propagation, so the minimise-on-touch rule cannot meet it), an expanded one stays
-   * put, and another peek section gives way. Phone only; elsewhere the pick is chosen and nothing moves.
+   * A pick chip (or its pin) was pressed: choose the pick's card, and — on the phone — open the pick's own
+   * callout over the minimised answer (docs/engineering/phone-pick-callout-plan.md §3 P1, which supersedes
+   * the F4 rule that expanded the answer). Tablet and desktop choose the card and nothing else:
+   * {@code onSelectAskPick(rank)}, no callout.
    *
-   * <p>⚠️ **The selection is cleared HERE, not left to the window-follow effect** (`askWindow`, which
-   * clears it too): that effect runs only while the pane is on screen and once per choice, so it is a
-   * second line of defence, not the guarantee — the callout and an EXPANDED sheet must never coexist,
-   * and a callout standing over the 112px line would otherwise be left standing over the 470px one.
-   * ⚠️ **And a drilldown, Regions or Filters stays open**: those are panels ABOUT the map that persist
-   * under a press on it (map-landing L3), so only a peek value — or nothing — makes way for the Ask
-   * section.
+   * <p>On the phone the press asks for the callout by {@code onSelectAskPick(rank, {callout: true})}: the
+   * intent rides the choice (`AskContext.selectPick`, atomic with its nonce), and the window-follow effect
+   * below opens the callout once the pick's row has been followed, so the card describes the pick's OWN
+   * window. This handler does the other half, synchronously: it turns any open peek value (Windows, Tide,
+   * Layers, or an EXPANDED answer) to null, so the sheet is already at its resting height when the camera
+   * flies (`peekTarget` is then 112, not 470) and no commit holds a callout beside an open sheet. An
+   * expanded answer is minimised on purpose: the callout opens and an expanded sheet never coexist, and
+   * a reader who wants the cards back taps the line.
+   *
+   * <p>⚠️ **A drilldown, Regions or Filters stays open** — those are panels ABOUT the map that persist
+   * under a press on it (map-landing L3), exactly as they do under an ordinary chip, which opens its
+   * callout over them. ⚠️ **The standing selection is cleared only when the tapped place is a different
+   * one**: a re-tap of a `1·2` place (one chip, two windows) steps to the other window and must not tear
+   * its callout down and rebuild it. The window-follow effect clears it too, then installs the place, in
+   * one batch.
    */
   function handleSelectAskPick(rank) {
-    onSelectAskPick?.(rank);
-    if (!askRowOn) return;
-    setSelectedLocationName(null);
-    setOpenMapMenu((cur) => (cur == null || (typeof cur === 'string' && cur.startsWith('peek:'))
-      ? 'peek:ask'
-      : cur));
+    if (!askRowOn) {
+      onSelectAskPick?.(rank);
+      return;
+    }
+    onSelectAskPick?.(rank, { callout: true });
+    const pick = askPicks.find((p) => p.rank === rank);
+    const place = askPlaceName(pick?.locationId, pick?.name);
+    if (place !== selectedLocationName) setSelectedLocationName(null);
+    setOpenMapMenu((cur) => (typeof cur === 'string' && cur.startsWith('peek:') ? null : cur));
   }
 
   /**
@@ -5639,6 +5707,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       // see exactly the stylesheet's own value (none), as before.
       style={!overlayMode && isMobile ? { '--psh': `${peekResting}px` } : undefined}
       onKeyDown={overlayMode ? undefined : handleMapPaneKeyDown}
+      // A programmatic-only focus target (never a tab stop): where focus goes when the callout's ✕ unmounts.
+      tabIndex={overlayMode ? undefined : -1}
     >
       {overlayMode && (
         /* ── Context bar — the overlay's default row ──
@@ -6468,7 +6538,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               onSelectEv={selectEvRow}
               onOpenSheet={() => handleOpenLocationSheet(false)}
               onOpenInPlan={() => handleOpenLocationSheet(true)}
-              onClose={() => setSelectedLocationName(null)}
+              onClose={closeCallout}
             />
           )}
         </MapContainer>
@@ -7575,6 +7645,8 @@ MapView.propTypes = {
     date: PropTypes.string.isRequired,
     eventType: PropTypes.string.isRequired,
     nonce: PropTypes.number.isRequired,
+    callout: PropTypes.bool,
+    locationId: PropTypes.number,
   }),
   askAnswerId: PropTypes.number,
   onAskContext: PropTypes.func,

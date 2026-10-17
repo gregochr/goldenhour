@@ -248,6 +248,33 @@ describe('selecting a pick', () => {
     expect(centrePoint.x - pickPoint.x).toBeCloseTo(150, 0);
   });
 
+  // A phone chip opens its callout in place (phone-pick-callout-plan.md): the camera stays where the reader
+  // has it. The choice is still SPENT, and nothing earlier is left to re-apply.
+  it('a choice marked still moves nothing, is spent, and leaves nothing for a later inset change to re-apply', () => {
+    const flyTo = vi.spyOn(testMap, 'flyTo');
+    const setView = vi.spyOn(testMap, 'setView');
+    const view = render(controller());
+    view.rerender(controller({ selection: { ...SELECTED, nonce: 1 } }));
+    flyTo.mockClear();
+    setView.mockClear();
+    view.rerender(controller({ selection: { ...SELECTED, nonce: 2, still: true } }));
+    view.rerender(controller({ selection: { ...SELECTED, nonce: 2, still: true }, inset: { top: 0, right: 0, bottom: 112, left: 0 } }));
+    view.rerender(controller({ selection: { ...SELECTED, nonce: 2 } }));
+
+    expect(flyTo).not.toHaveBeenCalled();
+    expect(setView).not.toHaveBeenCalled();
+  });
+
+  it('a choice that is not still flies, as every choice did before', () => {
+    const flyTo = vi.spyOn(testMap, 'flyTo');
+    const view = render(controller());
+    flyTo.mockClear();
+
+    view.rerender(controller({ selection: { ...SELECTED, still: false } }));
+
+    expect(flyTo).toHaveBeenCalledTimes(1);
+  });
+
   it('flies again when the SAME pick is chosen again (a new nonce)', () => {
     const flyTo = vi.spyOn(testMap, 'flyTo');
     const view = render(controller());
