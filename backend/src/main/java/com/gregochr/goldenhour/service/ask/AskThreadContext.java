@@ -75,6 +75,9 @@ final class AskThreadContext {
     private final boolean canSeeAurora;
     private Map<Long, AskLocationNames.Place> nameById;
 
+    /** Said of an earlier pick the neighbour guard now withholds: its rating has not fallen. */
+    static final String HELD_BACK_MARK = " · held back: rated well above the places beside it";
+
     /** The line that tells the model the reader has turned the earlier places down. */
     static final String TURNED_DOWN_MARK = " · the reader has turned this place down";
 
@@ -114,6 +117,7 @@ final class AskThreadContext {
         Set<Long> turnedDownIds = new LinkedHashSet<>();
         Set<Pair> offered = new LinkedHashSet<>();
         Set<Pair> dropped = new LinkedHashSet<>();
+        Set<Pair> heldBack = new LinkedHashSet<>();
         Map<String, EventFact> live = new LinkedHashMap<>();
         List<AskSnapshot.ComingUp> timeline = hasEvents(thread)
                 ? snapshot.timeline(scope, AskSnapshot.MAX_COMING_UP_DAYS) : List.of();
@@ -127,6 +131,9 @@ final class AskThreadContext {
                         snapshot.resolvePick(ref.windowId(), ref.locationId(), canSeeAurora);
                 boolean stillOffered = resolved.isPresent() && scope.contains(resolved.get().regionName());
                 (stillOffered ? offered : dropped).add(pair);
+                if (!stillOffered && isHeldBack(snapshot, scope, ref)) {
+                    heldBack.add(pair);
+                }
             }
             for (EventRef ref : exchange.events()) {
                 liveEvent(ref, snapshot, scope, timeline).ifPresent(
@@ -135,8 +142,17 @@ final class AskThreadContext {
         }
         // A pick named twice is offered if it is offered at all: nothing is both.
         dropped.removeAll(offered);
-        ThreadFact fact = new ThreadFact(offered, dropped, new LinkedHashSet<>(live.values()), turnedDownIds);
+        ThreadFact fact = new ThreadFact(offered, dropped, new LinkedHashSet<>(live.values()), turnedDownIds,
+                heldBack);
         return new AskThreadContext(thread, fact, live, snapshot, scope, tools, names, canSeeAurora);
+    }
+
+    /** Whether an earlier solar pick is in scope and refused for the neighbour mark alone. */
+    private static boolean isHeldBack(AskSnapshot snapshot, AskScope scope, PickRef ref) {
+        return snapshot.slotAt(ref.windowId(), ref.locationId())
+                .filter(c -> scope.contains(c.region().name()))
+                .filter(c -> AskSnapshot.isHeldBack(c.region(), c.slot()))
+                .isPresent();
     }
 
     private static boolean hasEvents(AskThread thread) {
@@ -244,6 +260,9 @@ final class AskThreadContext {
         AskSnapshot.Candidate c = slot.get();
         if (!scope.contains(c.region().name())) {
             return c.slot().name() + " · outside the area you are now asking about";
+        }
+        if (AskSnapshot.isHeldBack(c.region(), c.slot())) {
+            return c.slot().name() + HELD_BACK_MARK;
         }
         if (!AskSnapshot.isPickEligible(c.region(), c.slot())) {
             return c.slot().name() + " · no longer rated well enough to pick";

@@ -418,6 +418,24 @@ public final class PlanWindowProjector {
     }
 
     /**
+     * The window's {@link #bestRating} with the neighbour outliers left out: the same population (every
+     * non-canopy regioned slot's usable rating, any region, any rating; the all-canopy fallback) minus
+     * the slots the neighbour guard marked. Ask reports it so that its window list never advertises a
+     * rating its own picks cannot reach. Equal to the served figure when no slot is marked, or when a
+     * marked slot was not the best.
+     *
+     * @param summary the event summary, whose slots may carry the neighbour mark
+     * @return the highest usable rating among unmarked slots, or null
+     */
+    public static Integer bestRatingWithoutOutliers(BriefingEventSummary summary) {
+        boolean canopyCounts = canopyCounts(summary);
+        return maxRating(regionSlots(summary).stream()
+                .filter(s -> canopyCounts || !s.canopy())
+                .filter(s -> !Boolean.TRUE.equals(s.neighbourOutlier()))
+                .toList());
+    }
+
+    /**
      * Whether canopy slots count for this window — true only when the window has no sky slot at
      * all.
      *

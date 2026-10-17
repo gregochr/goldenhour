@@ -170,7 +170,8 @@ class AskPromptBuilderTest {
 
             assertThat(builder.systemPrompt(MONDAY, TestScopes.of(), null, hasUser, false))
                     .isEqualTo(legacy);
-            assertThat(legacy).doesNotContain("Earlier picks").doesNotContain("emoji");
+            assertThat(legacy).doesNotContain("Earlier picks").doesNotContain("emoji")
+                    .doesNotContain("held back").doesNotContain("held-back");
         }
     }
 

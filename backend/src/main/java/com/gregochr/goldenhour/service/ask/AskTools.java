@@ -256,7 +256,7 @@ public class AskTools {
      * @param event      sunrise or sunset
      * @param time       the event time, {@code HH:mm} UK local, or null
      * @param verdict    the window's served verdict
-     * @param bestRating the window's served best rating, or null
+     * @param bestRating the window's served best rating with any neighbour outlier left out, or null
      * @param bestBet    the BEST BET pick when it is in scope, or null
      * @param alsoGood   the ALSO GOOD pick when it is in scope, or null
      */
@@ -300,7 +300,8 @@ public class AskTools {
      * The {@code rank_spots} result.
      *
      * @param spots            the spots, best first
-     * @param note             why the list is empty, or null
+     * @param note             why the list is empty, or how many places the neighbour guard withheld (never
+     *                         which), or null
      * @param withinMilesOfHome the radius {@code nearHome} was resolved to, in miles, so the model can
      *                         say "within N miles of home"; null when {@code nearHome} was not used
      */
@@ -430,7 +431,8 @@ public class AskTools {
 
     /**
      * {@code list_windows}: every window in the window set, with the served verdict, best rating
-     * and the forecast's BEST BET / ALSO GOOD pick when it is in scope.
+     * (the served figure with neighbour outliers left out, so it does not advertise a rating only an
+     * outlier holds) and the forecast's BEST BET / ALSO GOOD pick when it is in scope.
      *
      * @return the windows
      */
@@ -567,9 +569,10 @@ public class AskTools {
                 }
             }
         }
+        String heldBackNote = heldBackNote(windows, regionFilter);
         if (pool.isEmpty()) {
-            return finish("rank_spots", new RankSpotsResult(List.of(), NOTHING_ELIGIBLE_NOTE),
-                    () -> { });
+            return finish("rank_spots", new RankSpotsResult(List.of(),
+                    joinNotes(NOTHING_ELIGIBLE_NOTE, heldBackNote)), () -> { });
         }
 
         boolean coastalOnly = Boolean.TRUE.equals(a.coastalOnly());
@@ -592,11 +595,47 @@ public class AskTools {
                 ? (nearHome ? "Nothing pick-eligible within " + radius + " miles of home matches those filters."
                         : NOTHING_MATCHES_NOTE)
                 : null;
-        return finish("rank_spots", new RankSpotsResult(spots, note, radius), () -> {
+        return finish("rank_spots", new RankSpotsResult(spots, joinNotes(note, heldBackNote), radius), () -> {
             for (SpotInfo s : spots) {
                 pairs.add(new AskEvidence.Pair(s.locationId(), s.windowId()));
             }
         });
+    }
+
+    /**
+     * The note {@code rank_spots} adds when the neighbour guard withheld places from the windows and regions it
+     * searched: how many, never which. Counted over the distinct locations in scope that are refused for the mark
+     * alone ({@link AskSnapshot#isHeldBack}); null when there are none. A tool-result note, so a fresh question
+     * about such a place is not told it is simply "not in the forecast", and no name, id or star is given.
+     */
+    private String heldBackNote(List<AskSnapshot.Window> windows, Set<String> regionFilter) {
+        Set<Long> held = new java.util.HashSet<>();
+        for (AskSnapshot.Window w : windows) {
+            for (AskSnapshot.Region r : w.regions()) {
+                if (!scope.contains(r.name()) || !(regionFilter.isEmpty() || regionFilter.contains(r.name()))) {
+                    continue;
+                }
+                for (AskSnapshot.Slot s : r.slots()) {
+                    if (AskSnapshot.isHeldBack(r, s)) {
+                        held.add(s.locationId());
+                    }
+                }
+            }
+        }
+        if (held.isEmpty()) {
+            return null;
+        }
+        return held.size() == 1
+                ? "1 place in these windows is rated well above the places beside it and is not offered."
+                : held.size() + " places in these windows are rated well above the places beside them and are "
+                        + "not offered.";
+    }
+
+    private static String joinNotes(String first, String second) {
+        if (first == null) {
+            return second;
+        }
+        return second == null ? first : first + " " + second;
     }
 
     /**
