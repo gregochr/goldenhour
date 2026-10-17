@@ -219,6 +219,8 @@ constant as the server's `topSlot`), `bestReach` is null and
   field through), so the popup header and `planSearch`'s figure, which read the strip descriptor, can
   take the same state; the popup header's "nothing rated yet" branch must not fire for it.
   `raceSpot`'s fallback skips outliers.
+- `planConflicts.js` `ceilingOf` keeps the ceiling's rating (the forecast, outliers included) but names a
+  place only when a non-outlier spot carries that rating; otherwise the sentence names none.
 - A running page keeps the JS it loaded, so a phone opened before the deploy keeps naming the outlier
   on the card until it reloads; Ask and the BEST BET pick are server-side and are guarded at once.
 
@@ -289,7 +291,9 @@ figure, and only a window whose best was an outlier changes.
 **G3.** `bestReach` skips an outlier to the next spot; skip-then-below-3 and all-outlier give the
 "no clear pick" state with its title and spoken text, and never "not scored yet"; no outlier gives
 exactly today's `bestReach`; the histogram counts the outlier; the popup header and the search figure
-follow; `raceSpot` never names an outlier; "within reach" is absent without a measured drive.
+follow; `raceSpot` never names an outlier; "within reach" is absent without a measured drive;
+`ceilingOf` keeps a ceiling that only an outlier carries but names no place, and names the non-outlier
+when one carries the same rating.
 
 ## 7. Measured basis
 
