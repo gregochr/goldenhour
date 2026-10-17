@@ -172,8 +172,9 @@ public class ForecastEvaluationEntity {
     /**
      * Claude's own sky rating (1-5) before the tide score is averaged in; {@link #rating} is the
      * combined star. Written by the batch result handler only; null for the sky-not-forecast
-     * substitution, triage rows, rows scored before V164 and the synchronous engine. Never
-     * serialised to any API response.
+     * substitution, triage rows, rows scored before V164 and the synchronous engine. Read on the
+     * serve path by {@code EvaluationViewService} so a row-served slot carries it as a
+     * cache-served one does, but never serialised from the entity to any API response directly.
      */
     @Column(name = "sky_rating")
     private Integer skyRating;
