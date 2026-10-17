@@ -211,9 +211,10 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
      * the as-of-event resolver's step-2 pool ({@code AsOfEventResolver}, outcome-rating plan §2 #1).
      *
      * <p>Bounded on the AVAILABILITY stamp: {@code scored_at IS NOT NULL AND scored_at <= upTo}. A
-     * row with no {@code scored_at} (written before V178, still {@code PENDING}, {@code ABANDONED},
-     * or an {@code HOURLY} comfort row) is never returned, because its {@code forecast_run_at} is a
-     * submission instant and proves nothing about when it arrived. The caller applies the per-place
+     * row with no {@code scored_at} (still {@code PENDING}, {@code ABANDONED}, an {@code HOURLY}
+     * comfort row, or written before V178 with nothing to say: V183 stamped the rest) is never
+     * returned, because its {@code forecast_run_at} is a submission instant and proves nothing about
+     * when it arrived. The caller applies the per-place
      * event bound, the has-something-to-say rule and the stability-skip retraction in memory, from
      * this one read — {@code upTo} is the latest event instant among the places asked about, so the
      * pool is a superset for every one of them.

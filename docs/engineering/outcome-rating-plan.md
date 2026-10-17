@@ -638,7 +638,7 @@ rounds 6 and 8). A place with no row had no forecast to rate against, and the ca
 could pair nothing. The per-place check keeps the client and the server in step along a coastline
 (§4 #4). Every string lives in
 `components/map/outcomeRatingCopy.js` (the `WindowControl.PICK_TEXT` shape), with a header
-separating the spec's strings from the four plan-introduced ones (§4 #17). Props: `{event,
+separating the spec's strings from the plan-introduced ones (§4 #17; a fifth, the older-day line, joined 2026-10-17). Props: `{event,
 locationId, mine, role, saving, saveError, changing, onChangingChange, onRate, admin}` where `mine`
 is `{rating: number | null, updatedAt} | null` (null = unrated), `role` from MapView's
 `useAuth()`, `onRate(value)` with `value` 1..5 or `null` (not seen), `changing` / `adminOpen`
@@ -1181,12 +1181,13 @@ one code change, §0).
     control's existing `role="status"` region announces the same sentence (the phone sheet's copy is
     not live, so it is said once). At the T-4 floor the line stays, so the disabled `‹` is explained.
     A later day that loads WITH rows replaces it. `useForecasts` exposes `emptyPastDays` (the loaded
-    days with no rows), `mapOlderDay.emptyOlderDay` picks the one that speaks, the string is
+    days with no sunrise or sunset row: the endpoint also serves a hide's HOURLY rows for a past day,
+    and a day of those alone gives no window to step onto), `mapOlderDay.emptyOlderDay` picks the one that speaks, the string is
     `noStoredForecast` in `outcomeRatingCopy.js` (plan-introduced, §4 #17's rule) and the day is the
     calendar form (`dowDayLabel`), never "yesterday".
 16. **`‹` at the oldest window is opacity .35, not .3.** The stylesheet's one `:disabled` rule
     for the steppers (`index.css:4843`) is reused, not duplicated for a 0.05 difference.
-17. **Four plan-introduced strings** (`No forecast run recorded before this {sunrise|sunset}`, the
+17. **Four plan-introduced strings** (a fifth, `No stored forecast for {Dow} {d}`, joined 2026-10-17 with #15's reversal) (`No forecast run recorded before this {sunrise|sunset}`, the
     `40 min` footer variant, `Load {Dow} {d}` as the `‹` stepper's accessible name, `Loading …` as
     an `aria-busy` state) are marked as such in `outcomeRatingCopy.js` so the copy module is never
     read as the spec.

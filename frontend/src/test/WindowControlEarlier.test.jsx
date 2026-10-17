@@ -394,6 +394,16 @@ describe('an older day that loaded with no rows (§4 #15, amended 2026-10-17)', 
     expect(screen.queryByTestId('wf-win-load')).not.toBeInTheDocument();
   });
 
+  it('describes the disabled ‹ at the floor by the status line, and only then', () => {
+    renderControl({
+      ...noneProps, events: [T_SET, TM_RISE], activeIndex: 0, canLoadOlder: false, olderDayLabel: null,
+    });
+    expect(screen.getByTestId('wf-win-prev')).toHaveAccessibleDescription(NONE);
+    cleanup();
+    renderControl({ events: [T_SET, TM_RISE], activeIndex: 0, canLoadOlder: false, olderDayLabel: null });
+    expect(screen.getByTestId('wf-win-prev')).not.toHaveAttribute('aria-describedby');
+  });
+
   it('is announced through the one status region, which is the same element, and clears with the line', () => {
     const { rerender } = renderControl({ activeIndex: 2, olderDayLoadingLabel: 'Thu 15' });
     const status = screen.getByTestId('wf-win-status');

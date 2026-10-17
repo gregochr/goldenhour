@@ -290,7 +290,7 @@ export default function WindowControl({
           content change under focus is not reliably spoken, so this region (mounted ALWAYS, since a
           live region must exist before its text changes) says it. It also says an older day that loaded
           with no rows (`No stored forecast for Fri 16`), the one other thing the press does. */}
-      <span role="status" className="sr-only" data-testid="wf-win-status">
+      <span role="status" id="wf-win-status" className="sr-only" data-testid="wf-win-status">
         {loading ? `Loading ${olderDayLoadingLabel}\u2026` : (noStoredLine ?? '')}
       </span>
       <button
@@ -300,6 +300,9 @@ export default function WindowControl({
            is what it will fetch, not "Previous event" (outcome-rating-plan.md §2 #2, §4 #17). */
         aria-label={prevLoads ? `Load ${olderDayLabel}` : stepName('Previous event', activeIndex - 1, atStart)}
         className="wf-win-step"
+        /* At the T-4 floor the disabled `‹` is explained by the status line (the same sentence the menu
+           shows), so a reader who lands on it with the menu closed is told why. */
+        aria-describedby={atStart && noStoredLine && !loading ? 'wf-win-status' : undefined}
         disabled={atStart}
         onClick={() => step(-1)}
       >

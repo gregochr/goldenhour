@@ -137,7 +137,8 @@ function readValidCache(cacheKey) {
  * {@code locations} on every render, so a refresh keeps them. Never written to the SWR cache (that
  * payload is the list endpoint's, revalidated as a whole; an older day is re-fetched next session). An
  * empty answer is a loaded-empty entry, still counts as loaded, and is named in {@code emptyPastDays}
- * (so the Map tab can say the day has no stored forecast, §4 #15 as amended 2026-10-17). A failed fetch leaves the roster
+ * with any day that holds no sunrise or sunset row (a hide's HOURLY rows alone give no window), so the
+ * Map tab can say the day has no stored forecast (§4 #15 as amended 2026-10-17). A failed fetch leaves the roster
  * unchanged and reports through {@code error}. It stands down under an admin rewind.
  *
  * @returns {{
@@ -244,10 +245,16 @@ export function useForecasts() {
 
   const locations = useMemo(() => mergeOlderDays(baseLocations, olderDays), [baseLocations, olderDays]);
   const loadedPastDays = useMemo(() => [...olderDays.keys()].sort(), [olderDays]);
-  // The loaded days that came back with no rows at all — a subset of `loadedPastDays`, read off the same
-  // state rather than re-derived from `allDates` (a day with no rows never reaches that list).
+  // The loaded days with no sunrise or sunset row — a subset of `loadedPastDays`, read off the same state
+  // rather than re-derived from `allDates` (a day with no windows never reaches that list). ⚠️ Not
+  // `rows.length === 0`: the endpoint also serves a hide's HOURLY comfort rows for a past day, and a day
+  // holding only those has no window to step onto — the same silent no-op, which
+  // `conversions.colourForecastDates` already treats as no colour day.
   const emptyPastDays = useMemo(
-    () => [...olderDays].filter(([, rows]) => rows.length === 0).map(([date]) => date).sort(),
+    () => [...olderDays]
+      .filter(([, rows]) => !rows.some((r) => r.targetType === 'SUNRISE' || r.targetType === 'SUNSET'))
+      .map(([date]) => date)
+      .sort(),
     [olderDays],
   );
 

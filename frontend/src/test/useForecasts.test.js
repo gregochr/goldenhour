@@ -512,6 +512,16 @@ describe('useForecasts — older days', () => {
     expect(result.current.emptyPastDays).toEqual(['2026-03-01']);
   });
 
+  it('a day holding only a hide\'s HOURLY rows is named empty too: it gives no window to step onto', async () => {
+    const { result } = await loaded();
+    fetchForecastsForDate.mockResolvedValue([row(OLDER, 'HOURLY', { rating: null })]);
+
+    await act(async () => { await result.current.loadOlderDay(OLDER); });
+
+    expect(result.current.loadedPastDays).toEqual([OLDER]);
+    expect(result.current.emptyPastDays).toEqual([OLDER]);
+  });
+
   it('a FAILED fetch is in neither list: nothing is recorded, so the same day is offered again', async () => {
     const { result } = await loaded();
     fetchForecastsForDate.mockRejectedValue(new Error('boom'));

@@ -404,6 +404,30 @@ describe('when the day lands', () => {
   });
 });
 
+describe('an empty day is named on the phone sheet and in the calendar form', () => {
+  it('draws the line in the open sheet, in the Load row\'s place', async () => {
+    mockIsMobile = true;
+    const { ctl } = await mount();
+    fireEvent.click(pill());
+    fireEvent.click(screen.getByTestId('wf-map-peek-load'));
+    await finish(ctl, T3, null);
+
+    fireEvent.click(pill());
+    expect(screen.getByTestId('wf-map-peek-none')).toHaveTextContent('No stored forecast for Mon 12');
+    expect(screen.getByTestId('wf-map-peek-load')).toHaveTextContent('Load Sun 11');
+  });
+
+  it('says Dow d for an empty YESTERDAY, never "Yesterday"', async () => {
+    const { ctl } = await mount({ baseDays: { [TODAY]: { sunset: sunset(TODAY) } }, startDate: TODAY });
+    fireEvent.click(screen.getByTestId('wf-win-prev'));
+    fireEvent.click(screen.getByTestId('wf-win-prev'));
+    await finish(ctl, T1, null);
+
+    expect(screen.getByTestId('wf-win-status')).toHaveTextContent('No stored forecast for Wed 14');
+    expect(screen.getByTestId('wf-win-status')).not.toHaveTextContent('Yesterday');
+  });
+});
+
 describe('the phone sheet\'s Load row', () => {
   it('closes the sheet, focuses the pill, fetches, and lands on the sunset', async () => {
     mockIsMobile = true;
