@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service.evaluation;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.gregochr.goldenhour.config.AppBuild;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LocationType;
@@ -410,7 +411,7 @@ class CachePayloadGoldenMasterTest {
                 new RatingCombiner(List.of(new SkyVisitor(), new TideVisitor())),
                 forecastDataAugmentor, forecastScoreWriter, parser,
                 forecastEvaluationRepository, supersedingDispositionService,
-                java.time.Clock.systemUTC());
+                java.time.Clock.systemUTC(), new AppBuild("v2.28.0"));
 
         String customId = "fc-" + location.getId() + "-2026-06-21-SUNSET" + (forced ? "-f" : "");
         String rawText = "{\"injected-by-stub\":true}";

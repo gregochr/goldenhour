@@ -62,7 +62,7 @@ class OutcomeRatingRepositoryTest {
 
     private void insert(long user, long location, LocalDate date, TargetType type, Integer rating, Instant at) {
         repository.insertRow(user, location, date, type.name(), rating, EVENT, 5L,
-                Instant.parse("2026-10-14T01:05:00Z"), 8L, 3, at);
+                Instant.parse("2026-10-14T01:05:00Z"), 8L, 3, "v2.28.0", at);
         entityManager.flush();
         entityManager.clear();
     }
@@ -86,6 +86,32 @@ class OutcomeRatingRepositoryTest {
         assertThat(rows.getFirst().eventTime()).isEqualTo(EVENT);
         assertThat(rows.getFirst().forecastRunAt()).isEqualTo(Instant.parse("2026-10-14T01:05:00Z"));
         assertThat(rows.getFirst().pipelineRunId()).isEqualTo(5L);
+    }
+
+    @Test
+    @DisplayName("V182: insertRow stores the build, a null build stores NULL, and updateRow replaces it")
+    void appBuild_isStoredAndReplaced() {
+        Instant at = Instant.parse("2026-10-14T08:00:00Z");
+        insert(alice, LOCATION, DAY, TargetType.SUNRISE, 4, at);
+        repository.insertRow(bob, LOCATION, DAY, TargetType.SUNRISE.name(), 3, EVENT, null, null, null,
+                null, null, at);
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(repository.findByUserIdAndLocationIdAndEventDateAndEventType(
+                alice, LOCATION, DAY, TargetType.SUNRISE).orElseThrow().getAppBuild())
+                .isEqualTo("v2.28.0");
+        assertThat(repository.findByUserIdAndLocationIdAndEventDateAndEventType(
+                bob, LOCATION, DAY, TargetType.SUNRISE).orElseThrow().getAppBuild()).isNull();
+
+        int updated = repository.updateRow(alice, LOCATION, DAY, TargetType.SUNRISE, 2, EVENT, null, null,
+                null, null, "v2.29.0", at.plusSeconds(60));
+        entityManager.clear();
+
+        assertThat(updated).isEqualTo(1);
+        assertThat(repository.findByUserIdAndLocationIdAndEventDateAndEventType(
+                alice, LOCATION, DAY, TargetType.SUNRISE).orElseThrow().getAppBuild())
+                .isEqualTo("v2.29.0");
     }
 
     @Test
@@ -124,7 +150,7 @@ class OutcomeRatingRepositoryTest {
                 bob, LOCATION, DAY, TargetType.SUNRISE)).isFalse();
 
         int missing = repository.updateRow(bob, LOCATION, DAY, TargetType.SUNRISE, 1, EVENT, null, null,
-                null, null, Instant.parse("2026-10-14T12:00:00Z"));
+                null, null, null, Instant.parse("2026-10-14T12:00:00Z"));
         assertThat(missing).isZero();
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM outcome_rating", Integer.class)).isEqualTo(1);
     }

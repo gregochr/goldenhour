@@ -35,6 +35,10 @@ import java.time.LocalDateTime;
  * @param outcomeKey          which outcome this pair scores: {@code "outcome:" + id} for an
  *                            {@code actual_outcome} row, {@code "rating:" + userId} for a reader's
  *                            {@code outcome_rating}; it keeps two outcomes of one slot apart
+ * @param appBuild            the release that scored the forecast row (V182), or {@code null} for a
+ *                            row written before it was recorded
+ * @param promptHash          the system-prompt fingerprint the forecast row's request carried
+ *                            (V182), or {@code null} when none was recorded
  */
 public record CalibrationPair(
         String locationName,
@@ -50,7 +54,9 @@ public record CalibrationPair(
         Integer actualFierySky,
         Integer actualGoldenHour,
         Boolean wentOut,
-        String outcomeKey) {
+        String outcomeKey,
+        String appBuild,
+        String promptHash) {
 
     /**
      * Builds a pair from an {@code actual_outcome} row — the projection
@@ -70,15 +76,17 @@ public record CalibrationPair(
      * @param actualGoldenHour    the recorded golden-hour score, or {@code null}
      * @param wentOut             whether the photographer travelled, or {@code null}
      * @param outcomeId           the {@code actual_outcome} row's id
+     * @param appBuild            the release that scored the forecast row, or {@code null}
+     * @param promptHash          the forecast row's system-prompt fingerprint, or {@code null}
      */
     public CalibrationPair(String locationName, LocalDate targetDate, TargetType targetType,
             Integer daysAhead, LocalDateTime forecastRunAt, EvaluationModel evaluationModel,
             Integer predictedRating, Integer predictedFierySky, Integer predictedGoldenHour,
             Integer actualRating, Integer actualFierySky, Integer actualGoldenHour,
-            Boolean wentOut, Long outcomeId) {
+            Boolean wentOut, Long outcomeId, String appBuild, String promptHash) {
         this(locationName, targetDate, targetType, daysAhead, forecastRunAt, evaluationModel,
                 predictedRating, predictedFierySky, predictedGoldenHour, actualRating,
-                actualFierySky, actualGoldenHour, wentOut, "outcome:" + outcomeId);
+                actualFierySky, actualGoldenHour, wentOut, "outcome:" + outcomeId, appBuild, promptHash);
     }
 
     /**
@@ -98,14 +106,16 @@ public record CalibrationPair(
      * @param predictedGoldenHour the resolved row's golden-hour score, or {@code null}
      * @param actualRating        the reader's 1–5 star rating
      * @param userId              the rating reader's id
+     * @param appBuild            the release that scored the resolved forecast row, or {@code null}
+     * @param promptHash          the resolved row's system-prompt fingerprint, or {@code null}
      */
     public CalibrationPair(String locationName, LocalDate targetDate, TargetType targetType,
             Integer daysAhead, LocalDateTime forecastRunAt, EvaluationModel evaluationModel,
             Integer predictedRating, Integer predictedFierySky, Integer predictedGoldenHour,
-            Integer actualRating, Long userId) {
+            Integer actualRating, Long userId, String appBuild, String promptHash) {
         this(locationName, targetDate, targetType, daysAhead, forecastRunAt, evaluationModel,
                 predictedRating, predictedFierySky, predictedGoldenHour, actualRating,
-                null, null, null, "rating:" + userId);
+                null, null, null, "rating:" + userId, appBuild, promptHash);
     }
 
     /**

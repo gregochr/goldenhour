@@ -317,7 +317,8 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
     @Query("SELECT new com.gregochr.goldenhour.model.CalibrationPair("
             + " e.location.name, e.targetDate, e.targetType, e.daysAhead, e.forecastRunAt,"
             + " e.evaluationModel, e.rating, e.fierySkyPotential, e.goldenHourPotential,"
-            + " o.actualRating, o.fierySkyActual, o.goldenHourActual, o.wentOut, o.id)"
+            + " o.actualRating, o.fierySkyActual, o.goldenHourActual, o.wentOut, o.id,"
+            + " e.appBuild, e.promptHash)"
             + " FROM ForecastEvaluationEntity e, ActualOutcomeEntity o"
             + " WHERE e.location.id = o.location.id"
             + " AND e.targetDate = o.outcomeDate"
@@ -352,7 +353,7 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
     @Query("SELECT new com.gregochr.goldenhour.model.CalibrationPair("
             + " e.location.name, e.targetDate, e.targetType, e.daysAhead, e.forecastRunAt,"
             + " e.evaluationModel, r.forecastRating, e.fierySkyPotential, e.goldenHourPotential,"
-            + " r.rating, r.userId)"
+            + " r.rating, r.userId, e.appBuild, e.promptHash)"
             + " FROM ForecastEvaluationEntity e, OutcomeRatingEntity r"
             + " WHERE e.id = r.forecastEvaluationId"
             + " AND e.rating IS NOT NULL"
@@ -361,4 +362,18 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
             + " AND r.eventDate BETWEEN :from AND :to")
     List<CalibrationPair> findCalibrationPairsFromRatings(
             @Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    /**
+     * Stamps the system-prompt fingerprint on rows whose batch request carried it (V182). One
+     * statement per distinct prompt, never a load-modify-save, so it cannot rewrite any other column
+     * of a row a result handler is scoring.
+     *
+     * @param hash the {@code PromptHash} of the system prompt
+     * @param ids  the {@code forecast_evaluation} ids whose requests carried it
+     * @return the number of rows stamped
+     */
+    @Modifying
+    @Transactional
+    @Query("UPDATE ForecastEvaluationEntity e SET e.promptHash = :hash WHERE e.id IN :ids")
+    int stampPromptHash(@Param("hash") String hash, @Param("ids") Collection<Long> ids);
 }
