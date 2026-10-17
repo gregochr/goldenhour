@@ -270,7 +270,13 @@ export default function UserSettingsModal({
     const seq = lookupSeq.current;
     setLookupError(null);
     const found = await locate();
-    if (seq !== lookupSeq.current || !found) return;
+    if (seq !== lookupSeq.current) {
+      // Superseded by a typed lookup or a save: its result is dropped, and so is a failure the
+      // hook raised late, which would otherwise surface above the newer, valid result.
+      clearLocateError();
+      return;
+    }
+    if (!found) return;
     setPostcode(found.postcode);
     setLookupResult(found);
   };
@@ -278,6 +284,10 @@ export default function UserSettingsModal({
   const handleSave = async () => {
     // `saving` as well: the button stays focusable while the save is out (see BUSY_BUTTON).
     if (!lookupResult || saving) return;
+    // A location request still out must not land after this save: it would overwrite the field and
+    // raise a Save row for a postcode the reader did not choose, or unmount the home line focus is
+    // about to land on.
+    lookupSeq.current += 1;
     setSaving(true);
     try {
       // null when the user has never chosen one, so the column stays NULL and the server keeps
@@ -850,7 +860,7 @@ export default function UserSettingsModal({
             </div>
           </section>
           {!isPro && (
-            <p className="text-center text-plex-text-secondary" style={{ fontSize: '13px' }}>
+            <p className="text-center text-plex-text-secondary text-[13px]">
               Your postcode sets your light times. Pro accounts also get drive times from home.
             </p>
           )}

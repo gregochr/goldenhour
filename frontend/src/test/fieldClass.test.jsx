@@ -264,8 +264,9 @@ describe('the Settings dialog uses status tokens, not raw colours', () => {
   });
 
   it('names the error and ok tokens where the raw colours were', () => {
-    expect(withoutBadges.match(/text-plex-error/g)).toHaveLength(5);
-    expect(withoutBadges.match(/bg-plex-ok/g)).toHaveLength(2);
+    // At least the five error lines and two dots R4c converted; a later section may add more.
+    expect(withoutBadges.match(/text-plex-error/g).length).toBeGreaterThanOrEqual(5);
+    expect(withoutBadges.match(/bg-plex-ok/g).length).toBeGreaterThanOrEqual(2);
   });
 
   it('carries no per-file outline utility: .field owns the focus ring', () => {

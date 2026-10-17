@@ -1988,6 +1988,106 @@ describe('UserSettingsModal — the postcode field: the shared style, the mobile
       await land(() => typed.resolve(NEWCASTLE));
     });
 
+    it('⚠️ a Save pressed while a location request is out wins: the late location result is dropped, and no Save row comes back under the saved home', async () => {
+      const request = hold();
+      const save = hold();
+      installGeolocation(fix(54.776, -1.575));
+      reverseLookupPostcode.mockReturnValue(request.promise);
+      lookupPostcode.mockResolvedValue(NEWCASTLE);
+      saveHome.mockReturnValue(save.promise);
+      const input = await open();
+      fireEvent.change(input, { target: { value: 'NE1 7RU' } });
+      fireEvent.click(screen.getByTestId('settings-lookup-btn'));
+      await screen.findByTestId('settings-lookup-result');
+      press(screen.getByTestId('settings-use-location'));
+      press(screen.getByTestId('settings-save-home-btn'));
+      expect(saveHome).toHaveBeenCalledWith('NE1 7RU', 54.97, -1.61, null);
+
+      await land(() => request.resolve(DURHAM));
+      // Dropped on arrival, not merely cleared later by the save: the field keeps what is saving.
+      expect(input).toHaveValue('NE1 7RU');
+      expect(screen.getByTestId('settings-lookup-result')).toHaveTextContent('Newcastle');
+      await land(() => save.resolve({ ...NO_HOME, homePostcode: 'NE1 7RU' }));
+
+      expect(screen.queryByTestId('settings-lookup-result')).toBeNull();
+      expect(screen.queryByTestId('settings-save-home-btn')).toBeNull();
+      expect(screen.getByTestId('settings-home-current')).toHaveTextContent('Newcastle');
+      expect(screen.getByTestId('settings-home-current')).toHaveFocus();
+    });
+
+    it('a location request that lands AFTER the save finished is dropped too', async () => {
+      const request = hold();
+      installGeolocation(fix(54.776, -1.575));
+      reverseLookupPostcode.mockReturnValue(request.promise);
+      lookupPostcode.mockResolvedValue(NEWCASTLE);
+      saveHome.mockResolvedValue({ ...NO_HOME, homePostcode: 'NE1 7RU' });
+      const input = await open();
+      fireEvent.change(input, { target: { value: 'NE1 7RU' } });
+      fireEvent.click(screen.getByTestId('settings-lookup-btn'));
+      await screen.findByTestId('settings-lookup-result');
+      press(screen.getByTestId('settings-use-location'));
+      press(screen.getByTestId('settings-save-home-btn'));
+      await waitFor(() => expect(screen.queryByTestId('settings-save-home-btn')).toBeNull());
+
+      await land(() => request.resolve(DURHAM));
+
+      expect(screen.queryByTestId('settings-lookup-result')).toBeNull();
+      expect(screen.getByTestId('settings-home-current')).toHaveTextContent('Newcastle');
+      expect(screen.getByTestId('settings-home-current')).toHaveFocus();
+    });
+
+    it('is held while a save is out, so a located result cannot replace the one being saved', async () => {
+      const save = hold();
+      installGeolocation(fix(54.776, -1.575));
+      lookupPostcode.mockResolvedValue(NEWCASTLE);
+      saveHome.mockReturnValue(save.promise);
+      const input = await open();
+      fireEvent.change(input, { target: { value: 'NE1 7RU' } });
+      fireEvent.click(screen.getByTestId('settings-lookup-btn'));
+      await screen.findByTestId('settings-lookup-result');
+      press(screen.getByTestId('settings-save-home-btn'));
+
+      const link = screen.getByTestId('settings-use-location');
+      expect(link).toHaveAttribute('aria-disabled', 'true');
+      fireEvent.click(link);
+      expect(reverseLookupPostcode).not.toHaveBeenCalled();
+
+      await land(() => save.resolve({ ...NO_HOME, homePostcode: 'NE1 7RU' }));
+    });
+
+    it('a location failure that lands after a newer typed lookup is not shown above that lookup\'s result', async () => {
+      const request = hold();
+      installGeolocation(vi.fn((_ok, fail) => { request.promise.then(() => fail({ code: 1 })); }));
+      lookupPostcode.mockResolvedValue(NEWCASTLE);
+      const input = await open();
+      press(await screen.findByTestId('settings-use-location'));
+      fireEvent.change(input, { target: { value: 'NE1 7RU' } });
+      fireEvent.click(screen.getByTestId('settings-lookup-btn'));
+      await screen.findByTestId('settings-lookup-result');
+
+      await land(() => request.resolve());
+
+      expect(screen.queryByTestId('settings-lookup-error')).toBeNull();
+      expect(screen.getByTestId('settings-lookup-result')).toHaveTextContent('Newcastle');
+    });
+
+    it('a successful location result clears a typed "Invalid postcode" beside it, field-error included', async () => {
+      installGeolocation(fix(54.776, -1.575));
+      reverseLookupPostcode.mockResolvedValue(DURHAM);
+      lookupPostcode.mockRejectedValue(new Error('bad'));
+      const input = await open();
+      fireEvent.change(input, { target: { value: 'XX1' } });
+      fireEvent.click(screen.getByTestId('settings-lookup-btn'));
+      await screen.findByText('Invalid postcode');
+
+      press(screen.getByTestId('settings-use-location'));
+
+      await screen.findByTestId('settings-lookup-result');
+      expect(screen.queryByTestId('settings-lookup-error')).toBeNull();
+      expect(input.className.split(/\s+/)).not.toContain('field-error');
+      expect(input).not.toHaveAttribute('aria-invalid');
+    });
+
     it('moves no focus landing: the explicit postcode landing still holds, and a save still lands on the home line', async () => {
       installGeolocation(fix(54.776, -1.575));
       reverseLookupPostcode.mockResolvedValue(DURHAM);
