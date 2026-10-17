@@ -4,7 +4,6 @@ import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.service.EmailClaims;
 import com.gregochr.goldenhour.service.UserService;
-import com.gregochr.goldenhour.service.notification.UserEmailService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -187,12 +186,13 @@ class AppUserEmailClaimRepositoryTest {
     private UserService userService() {
         PasswordEncoder encoder = org.mockito.Mockito.mock(PasswordEncoder.class);
         org.mockito.Mockito.when(encoder.encode(org.mockito.ArgumentMatchers.any())).thenReturn("hash");
-        return new UserService(users, encoder, org.mockito.Mockito.mock(UserEmailService.class), emailClaims,
+        return new UserService(users, encoder, emailClaims,
                 org.mockito.Mockito.mock(com.gregochr.goldenhour.service.CredentialChangeWriter.class),
                 org.mockito.Mockito.mock(com.gregochr.goldenhour.repository.PasswordResetTokenRepository.class),
                 org.mockito.Mockito.mock(
                         com.gregochr.goldenhour.repository.EmailVerificationTokenRepository.class),
-                java.time.Clock.systemUTC());
+                java.time.Clock.systemUTC(),
+                org.mockito.Mockito.mock(com.gregochr.goldenhour.repository.UserDriveTimeRepository.class));
     }
 
     @Test
