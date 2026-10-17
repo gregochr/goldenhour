@@ -1750,6 +1750,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   /** The Ask row's entry button — the sheet's other focus-return routes fall back to it. */
   const askEntryRef = useRef(null);
   /**
+   * The minimised line's Layers door (`phone-pick-callout-plan.md` §3 P2). While an answer is minimised
+   * the three peek buttons are not drawn, so it is where focus returns when Layers, Regions or Filters
+   * close back onto the line, and the sheet's rescue target when the buttons unmount holding focus.
+   */
+  const askDoorRef = useRef(null);
+  /**
    * The drilldown's LEVEL, while `openMapMenu === 'window-panel'` (map-landing-plan.md §3 L6) — a
    * region NAME for the region panel, null for the window panel above it.
    *
@@ -6899,9 +6905,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             {isMobile && (
               <>
                 {/* The Layers button is not drawn while an answer has replaced the buttons (F4), so the
-                    return address falls back to the Ask row's entry button, which always is. */}
-                <RegionsJump {...regionsJumpProps} chipHidden restoreFallback={() => layersPeekBtnRef.current ?? askEntryRef.current} />
-                <FiltersPopover {...filtersPopoverProps} chipHidden restoreFallback={() => layersPeekBtnRef.current ?? askEntryRef.current} />
+                    return address falls back to the minimised line's Layers door, then to the Ask row's
+                    entry button, which always is. */}
+                <RegionsJump {...regionsJumpProps} chipHidden restoreFallback={() => layersPeekBtnRef.current ?? askDoorRef.current ?? askEntryRef.current} />
+                <FiltersPopover {...filtersPopoverProps} chipHidden restoreFallback={() => layersPeekBtnRef.current ?? askDoorRef.current ?? askEntryRef.current} />
                 {/* The peek sheet itself (map-mobile-sheet-plan.md §3 M2, Tide wired at M3, its
                     fuller Auto/Always/Off gate and pulse wired at M5). The Tide button is gated on
                     `tideCuesOn` — the SAME one gate the spot-build site's `tideTier` null reads
@@ -6909,13 +6916,19 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 <MapPeekSheet
                   section={sheetSection}
                   askMode={askMode}
-                  fallbackFocusRef={askEntryRef}
+                  /* The door while an answer is minimised (the buttons or the open section's body unmount
+                     holding focus onto the line); the Ask entry otherwise — still reachable: a section
+                     closing with no answer standing (Escape in the Layers body) leaves the collapsed row. */
+                  fallbackFocusRef={askMode === 'minimised' ? askDoorRef : askEntryRef}
                   ask={askRowOn ? (
                     <MapPeekAsk
                       mode={askMode}
                       onOpen={openAskSection}
                       onClose={() => setOpenMapMenu(null)}
+                      onOpenLayers={() => handlePeekPress('lay')}
                       entryRef={askEntryRef}
+                      doorRef={askDoorRef}
+                      layersRef={layersPeekBtnRef}
                       planActions={askPlanActions}
                     />
                   ) : null}

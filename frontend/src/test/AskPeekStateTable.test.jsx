@@ -95,6 +95,11 @@ vi.mock('../components/map/MapCallout.jsx', () => ({
     return <div data-testid="mock-callout">{props.location?.name ?? ''}</div>;
   },
 }));
+// Only its return address is read here (the real one is the Regions list; its own tests are its own).
+const regionsJumpCalls = [];
+vi.mock('../components/map/RegionsJump.jsx', () => ({
+  default: (props) => { regionsJumpCalls.push(props); return null; },
+}));
 const filtersPopoverCalls = [];
 vi.mock('../components/map/FiltersPopover.jsx', () => ({
   default: (props) => { filtersPopoverCalls.push(props); return null; },
@@ -270,6 +275,7 @@ beforeEach(() => {
   pickOver = {};
   askNonce = 0;
   filtersPopoverCalls.length = 0;
+  regionsJumpCalls.length = 0;
   cornerEl = document.createElement('div');
   cornerEl.className = 'leaflet-bottom leaflet-right';
   document.body.appendChild(cornerEl);
@@ -1129,7 +1135,9 @@ describe('answers arriving, and focus, around the buttons', () => {
 
   // The ordinary route: an answer is minimised, the pill opens Windows (the buttons come back), and the
   // reader shuts that section with its own button — which unmounts while it holds focus.
-  it('closing a section with its OWN button over a settled answer: focus lands on the Ask row, not <body>', async () => {
+  // phone-pick-callout-plan.md §3 P2: the minimised line has a Layers door, so that is where focus goes now
+  // (the Ask row's entry button is not the line; it was the rescue target only while the line had no door).
+  it('closing a section with its OWN button over a settled answer: focus lands on the Layers door, not <body>', async () => {
     await mount('answer');
     pressPill();
     const windows = screen.getByTestId('wf-map-peek-btn-win');
@@ -1140,16 +1148,16 @@ describe('answers arriving, and focus, around the buttons', () => {
 
     expect(mode()).toBe('minimised');
     expect(screen.queryByTestId('wf-map-peek-btn-win')).not.toBeInTheDocument();
-    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-entry'));
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-mini-lay'));
   });
 
-  it('an answer replacing the buttons while one holds focus: focus lands on the Ask row', async () => {
+  it('an answer replacing the buttons while one holds focus: focus lands on the Layers door', async () => {
     await mount('empty');
     screen.getByTestId('wf-map-peek-btn-lay').focus();
 
     await setPhase('answer');
 
-    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-entry'));
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-mini-lay'));
   });
 
   it('a press on the pill that closes the section keeps focus where the reader put it (the pill)', async () => {
@@ -1163,15 +1171,162 @@ describe('answers arriving, and focus, around the buttons', () => {
     expect(document.activeElement).toBe(pill);
   });
 
-  it('Regions and Filters return focus to the Layers button — or, while an answer has taken the buttons, to the Ask row', async () => {
+  it('Regions and Filters return focus to the Layers button — or, while an answer has taken the buttons, to the Layers door', async () => {
     await mount('empty');
     const layers = screen.getByTestId('wf-map-peek-btn-lay');
     expect(filtersPopoverCalls.at(-1).restoreFallback()).toBe(layers);
+    expect(regionsJumpCalls.at(-1).restoreFallback()).toBe(layers);
 
     await setPhase('answer');
 
     expect(screen.queryByTestId('wf-map-peek-btn-lay')).not.toBeInTheDocument();
-    expect(filtersPopoverCalls.at(-1).restoreFallback()).toBe(screen.getByTestId('wf-map-peek-ask-entry'));
+    expect(filtersPopoverCalls.at(-1).restoreFallback()).toBe(screen.getByTestId('wf-map-peek-mini-lay'));
+    expect(regionsJumpCalls.at(-1).restoreFallback()).toBe(screen.getByTestId('wf-map-peek-mini-lay'));
+  });
+});
+
+// docs/engineering/phone-pick-callout-plan.md §3 P2: a Layers door beside the minimised line.
+describe('the Layers door (phone, P2)', () => {
+  const door = () => screen.getByTestId('wf-map-peek-mini-lay');
+
+  it('opens Layers over the settled answer, which is kept — the buttons come back, the line goes', async () => {
+    await mount('answer');
+    expect(mode()).toBe('minimised');
+
+    fireEvent.click(door());
+
+    expect(mode()).toBe('section');
+    expect(screen.getByTestId('wf-map-peek-btn-lay')).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('wf-map-peek-body')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-map-peek-mini')).not.toBeInTheDocument();
+    expect(mockAsk.clear).not.toHaveBeenCalled();
+    expect(psh()).toBe('112px');
+  });
+
+  // The mutant that wrote `setOpenMapMenu('peek:lay')` directly would leave the callout standing beside an
+  // open 408px sheet, which D-7 forbids in either order.
+  it('clears a standing callout first: an ordinary chip → its callout → the door → no callout, and Layers open', async () => {
+    await mount('answer');
+    await pressOrdinaryChip();
+    expect(screen.getByTestId('mock-callout')).toBeInTheDocument();
+    expect(mode()).toBe('minimised');
+
+    fireEvent.click(door());
+
+    expect(screen.queryByTestId('mock-callout')).not.toBeInTheDocument();
+    expect(mode()).toBe('section');
+  });
+
+  it('hands focus to the Layers button — the door unmounted under the press — and Escape fired AT the active element closes Layers', async () => {
+    await mount('answer');
+    door().focus();
+
+    fireEvent.click(door());
+
+    expect(screen.queryByTestId('wf-map-peek-mini-lay')).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-btn-lay'));
+    fireEvent.keyDown(document.activeElement, { key: 'Escape' });
+    expect(mode()).toBe('minimised');
+  });
+
+  it('takes focus onto itself on the press, for a browser that does not focus a button it was tapped on (Safari)', async () => {
+    await mount('answer');
+    expect(document.activeElement).toBe(document.body);
+
+    fireEvent.click(door());
+
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-btn-lay'));
+  });
+
+  it.each([
+    ['the Layers button itself', async () => { fireEvent.click(screen.getByTestId('wf-map-peek-btn-lay')); }],
+    ['Escape', async () => { fireEvent.keyDown(document.activeElement, { key: 'Escape' }); }],
+  ])('closing Layers with %s returns focus to the door, never <body>', async (_name, close) => {
+    await mount('answer');
+    door().focus();
+    fireEvent.click(door());
+    expect(mode()).toBe('section');
+
+    await close();
+
+    expect(mode()).toBe('minimised');
+    expect(document.activeElement).toBe(door());
+  });
+
+  it('Regions and Filters, closing back onto the minimised line, find the door as their return address', async () => {
+    await mount('answer');
+    fireEvent.click(door());
+    expect(filtersPopoverCalls.at(-1).restoreFallback()).toBe(screen.getByTestId('wf-map-peek-btn-lay'));
+    expect(regionsJumpCalls.at(-1).restoreFallback()).toBe(screen.getByTestId('wf-map-peek-btn-lay'));
+
+    fireEvent.click(screen.getByTestId('wf-map-peek-btn-lay')); // Layers closed: the line is back
+
+    expect(filtersPopoverCalls.at(-1).restoreFallback()).toBe(door());
+    expect(regionsJumpCalls.at(-1).restoreFallback()).toBe(door());
+  });
+
+  it('a question going busy while the door holds focus lands focus on the Ask entry — the line is unmounted', async () => {
+    await mount('answer');
+    door().focus();
+    expect(document.activeElement).toBe(door());
+
+    await setPhase('busy');
+
+    expect(mode()).toBe('collapsed');
+    expect(screen.queryByTestId('wf-map-peek-mini-lay')).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-entry'));
+  });
+
+  // Focus INSIDE the open section's body (Heat / Pins, Tide mode…) when the section closes: the body
+  // unmounts with it, and the button row's report (focus inside the row) does not see it.
+  it('Escape fired AT a control inside the Layers body, with an answer standing, lands focus on the door', async () => {
+    await mount('answer');
+    fireEvent.click(door());
+    const pins = screen.getByTestId('wf-map-peek-view-pins');
+    pins.focus();
+    expect(document.activeElement).toBe(pins);
+
+    fireEvent.keyDown(pins, { key: 'Escape' });
+
+    expect(mode()).toBe('minimised');
+    expect(screen.queryByTestId('wf-map-peek-view-pins')).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(door());
+  });
+
+  it('the same with NO answer standing: focus lands on the Ask entry, never <body>', async () => {
+    await mount('empty');
+    fireEvent.click(screen.getByTestId('wf-map-peek-btn-lay'));
+    const pins = screen.getByTestId('wf-map-peek-view-pins');
+    pins.focus();
+
+    fireEvent.keyDown(pins, { key: 'Escape' });
+
+    expect(mode()).toBe('collapsed');
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-entry'));
+  });
+
+  // The class test in the door's unmount report: the line also unmounts when the PILL opens Windows over a
+  // minimised answer, and focus that was never on the door must not be dragged to the Layers button.
+  it('the line unmounting for the pill\'s Windows section, with focus on <body>, moves focus nowhere', async () => {
+    await mount('answer');
+    expect(document.activeElement).toBe(document.body);
+
+    pressPill();
+
+    expect(mode()).toBe('section');
+    expect(screen.queryByTestId('wf-map-peek-mini-lay')).not.toBeInTheDocument();
+    expect(document.activeElement).not.toBe(screen.getByTestId('wf-map-peek-btn-lay'));
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('is not drawn on the sheets that have no minimised line: collapsed, expanded, a section open', async () => {
+    await mount('empty');
+    expect(screen.queryByTestId('wf-map-peek-mini-lay')).not.toBeInTheDocument();
+
+    await setPhase('answer');
+    expandMinimised();
+    expect(screen.queryByTestId('wf-map-peek-mini-lay')).not.toBeInTheDocument();
   });
 });
 

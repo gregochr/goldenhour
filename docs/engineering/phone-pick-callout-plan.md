@@ -257,3 +257,28 @@ options argument. A phone chip whose row the map lacks therefore opens no callou
    pick's window.
 2. Tap LAYERS on the minimised line: Layers opens with the answer kept; close it: back to the line.
 3. On an iPad or desktop, tap a pick chip: no callout, as before.
+
+## 10. P2 as built (2026-10-17)
+
+Built as §3 P2, with these recorded decisions and divergences:
+
+- **Divergence from the vendored design READMEs** (`docs/design/ask-photocast/`, `docs/design/map-mobile-sheet/`,
+  which are not edited): State 6's minimised line is one button there; here it is a row of the line and a
+  LAYERS door, and the README's "answer replaces the Window/Tide/Layers buttons" no longer leaves Layers
+  unreachable from the line. Tide still is (through the pill's Windows section).
+- **The focus hand-off is a PASSIVE effect in `MapPeekAsk`, not a layout effect.** The Layers button is a
+  later sibling of the Ask row, so its ref is attached after `MapPeekAsk`'s layout effects run in the commit
+  that mounts it; the door's unmount is reported from a layout-effect cleanup (the focused node is still
+  `document.activeElement` then), and the effect that acts on it runs after the commit.
+- **The door focuses itself on press** (`event.currentTarget.focus()`), because Safari and iOS do not focus a
+  button a pointer pressed, and focus that was never on the door cannot be reported lost when it unmounts.
+- `MapPeekAsk` takes `doorRef` and `layersRef` as well as `onOpenLayers`; `MapView` also passes the door's ref
+  to the sheet's rescue (`askMode === 'minimised' ? askDoorRef : askEntryRef`), so an answer landing while a
+  peek button holds focus now lands focus on the door, not the Ask entry. Where the door is unmounted while
+  focused by a question going busy (mode `collapsed`), the Ask entry takes it. The ternary's else arm is
+  live, not defensive: with NO answer standing, Escape inside the Layers body closes the section onto the
+  collapsed row, and the Ask entry is the rescue target there.
+- **The rescue also covers focus inside the open section's body** (`PeekBody` in `MapPeekSheet`, review round):
+  Escape at Tide mode or Heat / Pins used to drop focus to `<body>` because the button row's report only saw
+  focus inside the row. The body now reports from its own layout-effect cleanup, to the same target.
+- The 320px measurement (§4, §5) and the owner's look at the door on a real phone are not done by this change.
