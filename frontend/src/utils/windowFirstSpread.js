@@ -82,9 +82,9 @@ import { RAMP_MAX, RAMP_MIN } from './scoreRamp.js';
  * over (the reach tier lives in the lens bar, three cards away) or HOW MANY sit in each band (the
  * tooltip alone says). {@link spreadQualifier} and {@link spokenPoolPhrase} name the pool, in the
  * compact form for the label and the long form for speech; {@link formatSpreadCount}, {@link
- * spreadColumnWidthPx} and {@link spreadCountLayout} size the counts; {@link spreadBandsSpoken}
- * gives the accessible sentence the figures the eye now reads. All of them are filter/map/select
- * over the A10/A27 pool and the lens's own tiers — the already-licensed class of the CLAUDE.md
+ * spreadColumnWidthPx}, {@link spreadCountLayout} and {@link spreadCountLayoutAcross} size the
+ * counts; {@link spreadBandsSpoken} gives the accessible sentence the figures the eye now reads.
+ * All of them are filter/map/select over the A10/A27 pool and the lens's own tiers — the already-licensed class of the CLAUDE.md
  * "Backend-heavy" bullet, not a new member of it: nothing here decides a verdict, a rating or a
  * pick, and nothing reads a clock or per-user state beyond the plain booleans and numbers the
  * caller hands in.
@@ -418,8 +418,9 @@ export function formatSpreadCount(count) {
 }
 
 /**
- * The width every count column on a card is drawn at, in px: {@code chars × 5.2} clamped to
- * 9–17. One width for all six columns of a card, so the bars stay evenly spaced whatever the
+ * The width every count column is drawn at, in px: {@code chars × 5.2} clamped to
+ * 9–17. One width for all six columns of a card (and, via {@link spreadCountLayoutAcross}, for every
+ * card of the strip), so the bars stay evenly spaced whatever the
  * longest count is. Rounded to two decimals because it is written into an inline custom property
  * and {@code 3 × 5.2} is {@code 15.600000000000001} in floating point.
  *
@@ -434,6 +435,8 @@ export function spreadColumnWidthPx(chars) {
 
 /**
  * The per-card layout of the counts: how wide the columns are and whether the type drops a size.
+ * The strip draws the widest of these on every card ({@link spreadCountLayoutAcross}); this is the
+ * primitive it folds.
  *
  * <p>⚠️ <b>The hatched unrated bar's count takes part in {@code chars}.</b> It is a printed count
  * like the five bands' — usually the LARGEST on the card (most of a large catalogue is
@@ -451,6 +454,38 @@ export function spreadCountLayout(bars, unrated) {
   const chars = drawn.reduce(
     (longest, bar) => Math.max(longest, formatSpreadCount(bar?.count).length),
     0,
+  );
+  return {
+    chars,
+    widthPx: spreadColumnWidthPx(chars),
+    small: chars > SPREAD_COUNT_NORMAL_MAX_CHARS,
+  };
+}
+
+/**
+ * The ONE count-column layout every card in the strip is drawn at: the widest of the per-card
+ * layouts, with its width and its type size.
+ *
+ * <p>Neighbours in a row make the same decision so their wells line up — the reasoning
+ * spread-row-plan.md §2 #2 gives for the stacked-state threshold, applied to the column width. The
+ * design bundle sized each card alone, and two cards side by side then drew histograms of different
+ * widths (a longest count of {@code 91} against {@code 125}: 10.4px columns against 15.6px), which
+ * reads as the two windows being measured differently when only their pools differ in size.
+ *
+ * <p>A card that draws no bars (an away cell, a row below the minimum-sample gate) passes
+ * {@code null} and contributes nothing, so a thousand-place pool that only prints text cannot widen
+ * its neighbours' columns. With nothing drawn at all the layout is the one-character floor, which
+ * is what a drawn card with only zero counts gets.
+ *
+ * @param {Array<?{chars: number}>} layouts each card's {@link spreadCountLayout}, or null where no
+ *        bars are drawn
+ * @returns {{chars: number, widthPx: number, small: boolean}} the longest printed count across the
+ *          strip (at least one character), the column width and whether the type drops a size
+ */
+export function spreadCountLayoutAcross(layouts) {
+  const chars = (Array.isArray(layouts) ? layouts : []).reduce(
+    (longest, layout) => Math.max(longest, layout && Number.isFinite(layout.chars) ? layout.chars : 0),
+    1,
   );
   return {
     chars,
