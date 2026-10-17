@@ -4,6 +4,7 @@ import com.anthropic.errors.AnthropicIoException;
 import com.anthropic.errors.AnthropicServiceException;
 import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.MessageCreateParams;
+import com.gregochr.goldenhour.config.AppBuild;
 import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.entity.AlertLevel;
@@ -115,7 +116,8 @@ class SyncFailureApiCallLogTest {
         ForecastResultHandler forecastHandler = new ForecastResultHandler(
                 briefingEvaluationService, jobRunService, objectMapper, ratingCombiner,
                 forecastDataAugmentor, forecastScoreWriter, parser, forecastEvaluationRepository,
-                supersedingDispositionService, java.time.Clock.systemUTC());
+                supersedingDispositionService, java.time.Clock.systemUTC(),
+                new AppBuild("v2.28.0"));
         AuroraResultHandler auroraHandler = new AuroraResultHandler(
                 claudeAuroraInterpreter, auroraStateCache, weatherTriageService, locationRepository,
                 new AuroraProperties(), jobRunService);

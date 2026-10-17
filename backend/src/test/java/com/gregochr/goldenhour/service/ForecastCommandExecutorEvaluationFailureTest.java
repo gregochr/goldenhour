@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.anthropic.errors.AnthropicServiceException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gregochr.goldenhour.config.AppBuild;
 import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.config.ProductionAnthropicBreaker;
 import com.gregochr.goldenhour.entity.EvaluationModel;
@@ -184,7 +185,8 @@ class ForecastCommandExecutorEvaluationFailureTest {
                         tracker.onTaskEvent(taskEvent);
                     }
                 },
-                weatherTriageEvaluator, tideAlignmentEvaluator, slotAtmosphereWriter, tracker, CLOCK);
+                weatherTriageEvaluator, tideAlignmentEvaluator, slotAtmosphereWriter, tracker, CLOCK,
+                new AppBuild("v2.28.0"));
     }
 
     /** Stubs exactly what a pipeline run through the real {@link ForecastService} touches; no strategies. */

@@ -54,7 +54,11 @@ class CalibrationControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.scoredPairs").value(12))
                 .andExpect(jsonPath("$.overall.meanAbsoluteRatingError").value(0.75))
                 .andExpect(jsonPath("$.overall.missedOpportunities").value(3))
-                .andExpect(jsonPath("$.byDaysAhead[0].key").value("T+0"));
+                .andExpect(jsonPath("$.byDaysAhead[0].key").value("T+0"))
+                .andExpect(jsonPath("$.bucketsByBuild[0].key").value("v2.28.0"))
+                .andExpect(jsonPath("$.bucketsByBuild[0].sampleCount").value(6))
+                .andExpect(jsonPath("$.bucketsByPromptHash[0].key").value("UNKNOWN"))
+                .andExpect(jsonPath("$.bucketsByPromptHash[1]").doesNotExist());
     }
 
     @Test
@@ -76,7 +80,11 @@ class CalibrationControllerTest extends AbstractControllerTest {
                 "ALL", 12, 0.25, 0.75, 0.5, 0.83, 3, 1, 18.0);
         CalibrationBucket sameDay = new CalibrationBucket(
                 "T+0", 6, 0.0, 0.5, 0.67, 1.0, 0, 0, 12.0);
+        CalibrationBucket build = new CalibrationBucket(
+                "v2.28.0", 6, 0.0, 0.5, 0.67, 1.0, 0, 0, 12.0);
+        CalibrationBucket unknownPrompt = new CalibrationBucket(
+                "UNKNOWN", 12, 0.25, 0.75, 0.5, 0.83, 3, 1, 18.0);
         return new CalibrationReport(FROM, TO, 9, 12, overall,
-                List.of(sameDay), List.of(overall));
+                List.of(sameDay), List.of(overall), List.of(build), List.of(unknownPrompt));
     }
 }
