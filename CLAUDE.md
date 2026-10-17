@@ -1148,6 +1148,18 @@ model. The report does not say how many builds a prompt spans; group the JSON yo
 > repository's read methods filter on; `deleteByForecastDateIn` stays unfiltered so a real re-run
 > still clears an earlier simulated test run for the same night.
 
+> ⚠️ **An admin simulation ends on the next real reading that reaches `AuroraStateCache.evaluate`, or
+> on `POST /simulate/clear`, whichever comes first — and Clear is not `/reset`.** A quiet reading
+> clears the simulation; an alert-worthy one replaces it with a new real alert (a NOTIFY at the real
+> level, never measured against the simulated one). A night poll that would CLEAR *holds* instead
+> while a block's NOAA reading is still due, and `AuroraStateCache.wouldClear` counts a simulated
+> alert, so a simulation can outlive the next poll. `simulate/clear` calls `endSimulation()`, which
+> acts **only while a simulation stands**: with none running — a real reading got there first,
+> perhaps leaving a real alert — it changes nothing, and still answers 200 with "No aurora simulation
+> was running — nothing cleared". `POST /reset` is the one that wipes the machine, a real alert
+> included, so the Aurora photography bullet's “only the admin reset and simulate/clear do” holds for
+> `simulate/clear` on a simulated alert alone.
+
 ### Briefing (Bearer / ADMIN for writes)
 `GET /api/briefing` | `GET /api/briefing/digest` (Bearer) | `POST /api/briefing/run` (ADMIN; 409 while a build is running) | `GET /api/briefing/evaluate/scores` (Bearer) | `DELETE /api/briefing/evaluate/cache` (ADMIN) | `POST /api/briefing/compare-models` (ADMIN) | `GET /api/briefing/compare-models/runs` (ADMIN) | `GET /api/briefing/compare-models/results` (ADMIN)
 
