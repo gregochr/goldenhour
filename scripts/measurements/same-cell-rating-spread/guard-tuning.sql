@@ -7,7 +7,29 @@
 -- plan's full default rule: no neighbour within 5 km rated within 1 star of it (any elevation), and at
 -- least two neighbours within 5 km that are at a similar height (both elevations unknown, or both known
 -- and within 150 m). Run after
--- cell-groups.sql. Rows written before V164 have no sky_rating and are not counted.
+-- nothing else (it does not use cell-groups.sql). Rows written before V164 have no sky_rating and are
+-- not counted. Its population is the GUARD's: a regioned place that is untyped or carries an open-sky
+-- type (LANDSCAPE, SEASCAPE, WATERFALL), mixed types included (the app treats a place with LANDSCAPE and
+-- BLUEBELL as a sky place). cell-groups.sql's narrower population (no woodland, bluebell or wildlife
+-- type at all) is the same-cell spread measurement's and is left as published.
+CREATE TEMP VIEW guard_loc AS
+SELECT l.id, l.lat, l.lon, l.elevation_m, l.grid_lat, l.grid_lng
+FROM locations l
+WHERE l.region_id IS NOT NULL
+  AND (NOT EXISTS (SELECT 1 FROM location_location_type t WHERE t.location_id = l.id)
+       OR EXISTS (SELECT 1 FROM location_location_type t WHERE t.location_id = l.id
+                  AND t.location_type IN ('LANDSCAPE', 'SEASCAPE', 'WATERFALL')));
+
+CREATE TEMP VIEW rated AS
+SELECT e.location_id, g.lat, g.lon, g.elevation_m, g.grid_lat, g.grid_lng, e.target_date, e.target_type,
+       e.evaluation_model, e.days_ahead, e.sky_rating,
+       SUBSTR(CAST(e.forecast_run_at AS VARCHAR(40)), 1, 13) AS run_hour
+FROM forecast_evaluation e
+JOIN guard_loc g ON g.id = e.location_id
+WHERE e.rating IS NOT NULL
+  AND e.target_type IN ('SUNRISE', 'SUNSET')
+  AND e.forecast_run_at >= :'since';
+
 CREATE TEMP VIEW near_pair AS
 SELECT a.location_id, a.target_date, a.target_type, a.run_hour, a.evaluation_model, a.days_ahead,
        a.sky_rating AS sky, b.sky_rating AS nb_sky,

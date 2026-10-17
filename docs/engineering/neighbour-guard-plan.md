@@ -45,9 +45,9 @@ Why each choice, measured in §7 or argued:
   inputs within 5 points" test is not available at serve time.
 - **At least two neighbours.** With ONE disagreeing neighbour there is no evidence which rating is the
   noisy one: a noisy LOW neighbour would make an honest 3★ look like an outlier. Every flag the
-  one-neighbour rule raised on the served cache (5 in 18 windows) had exactly one neighbour; with two
-  required, the served cache raises none and Sonnet's 36 runs raise none, while Haiku's FAR bucket
-  still raises some (6 in 16 runs under the full rule), and Caw Gap is caught.
+  one-neighbour rule raised on the raw served cache (5 in 18 windows) had exactly one neighbour; under
+  the full rule (§7) the served ratings raise none and Sonnet's 36 runs raise none, while Haiku's FAR
+  bucket still raises some (6 in 16 runs), and Caw Gap is caught.
 - **Supporters at any height, witnesses at a similar height.** The app rates an inversion overlook
   high exactly when the valley below is in cloud, so two valley places must not outvote a fell top.
   But a nearby place that AGREES is evidence for the high rating wherever it stands. So any nearby
@@ -290,7 +290,9 @@ follow; `raceSpot` never names an outlier; "within reach" is absent without a me
 
 ## 7. Measured basis
 
-**Stored rows by run** (`guard-tuning.sql`, rows with a `sky_rating`, which exists from 2026-10-04;
+**Stored rows by run** (`guard-tuning.sql`, the guard's own population: regioned places that are
+untyped or carry an open-sky type, mixed types included; rows with a `sky_rating`, which exists from
+2026-10-04;
 counts are flagged ROWS over the runs shown; Sonnet's T+0 and T+1 rows come from the same cycles;
 the "any neighbour" columns flag a row 2+ above every neighbour inside the radius, the last two add
 the plan's tests):
@@ -298,10 +300,10 @@ the plan's tests):
 | bucket | model | T+ | runs | same cell | 3 km | 5 km | 8 km | 12 km | 5 km, ≥ 2 neighbours | **the plan's rule** |
 |---|---|---|---|---|---|---|---|---|---|---|
 | near (until 4 Oct) | Haiku 4.5 | 0 | 2 | 4 | 5 | 7 | 1 | 2 | 1 | **0** |
-| FAR | Haiku 4.5 | 2 | 10 | 6 | 12 | 14 | 10 | 12 | 7 | **5** |
+| FAR | Haiku 4.5 | 2 | 10 | 6 | 12 | 15 | 10 | 12 | 9 | **5** |
 | FAR | Haiku 4.5 | 3 | 6 | 1 | 3 | 6 | 4 | 4 | 1 | **1** |
-| near | Sonnet 5.5 | 0 | 17 | 0 | 1 | 2 | 5 | 4 | 0 | **0** |
-| near | Sonnet 5.5 | 1 | 19 | 1 | 2 | 2 | 4 | 4 | 0 | **0** |
+| near | Sonnet 5.5 | 0 | 17 | 0 | 1 | 3 | 5 | 4 | 1 | **0** |
+| near | Sonnet 5.5 | 1 | 19 | 1 | 2 | 3 | 4 | 4 | 0 | **0** |
 
 The Caw Gap 4★ of 16 Oct (its 2026-10-16 01:07 run) is flagged at every radius from 3 to 12 km and
 under the plan's rule (neighbour maximum 2★, six neighbours at a similar height inside 5 km), and

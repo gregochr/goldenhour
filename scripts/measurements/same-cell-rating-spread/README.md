@@ -29,12 +29,12 @@ cat $D/cell-groups.sql $D/guard-candidates.sql | ssh dockermacmini "$R -v since=
 cat $D/far-cost.sql                            | ssh dockermacmini "$R -v since=$SINCE"
 
 # The neighbour guard (docs/engineering/neighbour-guard-plan.md)
-cat $D/cell-groups.sql $D/guard-tuning.sql     | ssh dockermacmini "$R -v since=$SINCE"
+cat $D/guard-tuning.sql                        | ssh dockermacmini "$R -v since=$SINCE"
 cat $D/serve-guard.sql | ssh dockermacmini "$R -v since=$(date -v-7d +%F) -v km=5 -c 'SET statement_timeout = 60000' -f -"
 ```
 
 `cell-groups.sql` defines three temp views the next four files read, so it always goes first.
-`far-cost.sql` stands alone.
+`far-cost.sql`, `guard-tuning.sql` and `serve-guard.sql` stand alone.
 
 ## What each file measures
 
