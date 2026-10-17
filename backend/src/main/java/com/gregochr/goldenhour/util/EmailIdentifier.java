@@ -36,6 +36,14 @@ public final class EmailIdentifier {
         PENDING
     }
 
+    /**
+     * The sentence for an address the app no longer accepts for a NEW write: the reservation key is
+     * lower-cased in Java, the database's {@code LOWER()} may fold a non-ASCII character differently,
+     * and the claim table is exact only for addresses both fold alike.
+     */
+    public static final String NON_ASCII_MESSAGE =
+            "Please use an email address without accented or non-Latin characters";
+
     private EmailIdentifier() {
     }
 

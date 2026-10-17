@@ -5,6 +5,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
@@ -34,6 +35,7 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshTokenEntity
      * @return the number of rows updated: 1 if this call revoked the token, 0 otherwise
      */
     @Modifying
+    @Transactional
     @Query("UPDATE RefreshTokenEntity t SET t.revoked = true "
             + "WHERE t.tokenHash = :tokenHash AND t.revoked = false")
     int revokeIfActive(@Param("tokenHash") String tokenHash);
@@ -49,6 +51,7 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshTokenEntity
      * @return the number of tokens revoked
      */
     @Modifying
+    @Transactional
     @Query("UPDATE RefreshTokenEntity t SET t.revoked = true "
             + "WHERE t.userId = :userId AND t.revoked = false")
     int revokeAllActiveByUserId(@Param("userId") Long userId);

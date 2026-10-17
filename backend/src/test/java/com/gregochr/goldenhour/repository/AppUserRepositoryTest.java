@@ -95,6 +95,14 @@ class AppUserRepositoryTest {
                 + "coming_up_last_seen_at, last_active_at, email FROM app_user WHERE id = ?", userId);
     }
 
+    /** The credential and authority columns as the database holds them, bypassing the persistence context. */
+    private Map<String, Object> accountRow() {
+        entityManager.flush();
+        return jdbcTemplate.queryForMap("SELECT password, enabled, password_change_required, role, "
+                + "credentials_version, credentials_changed_at, marketing_email_opt_in, email "
+                + "FROM app_user WHERE id = ?", userId);
+    }
+
     private Instant stamp() {
         entityManager.flush();
         OffsetDateTime value = jdbcTemplate.queryForObject(
@@ -290,6 +298,111 @@ class AppUserRepositoryTest {
         assertThat(row.get("map_colour_scale")).isEqualTo("temp");
         assertThat(stamp()).isEqualTo(RECALCULATED);
         assertThat(lastSeen()).isEqualTo(RECALCULATED);
+    }
+
+    @Test
+    @DisplayName("a whole-entity save of a copy read before a credential change or a demotion writes NEITHER the "
+            + "old hash, enabled flag, gate or role NOR the credential version and stamp back (login-"
+            + "registration plan §2 #13); the scoped updates are the only writers")
+    void staleWholeEntitySave_cannotRevertCredentialsOrRole() {
+        AppUserEntity staleCopy = repository.findByUsername(USERNAME).orElseThrow();
+        entityManager.detach(staleCopy);
+        assertThat(staleCopy.getRole()).isEqualTo(UserRole.PRO_USER);
+
+        jdbcTemplate.update("UPDATE app_user SET password = 'new-hash', enabled = FALSE, "
+                + "password_change_required = TRUE, role = 'LITE_USER', credentials_version = 4, "
+                + "credentials_changed_at = ? WHERE id = ?", java.sql.Timestamp.from(RECALCULATED), userId);
+
+        LocalDateTime nowActive = LocalDateTime.of(2026, 9, 2, 9, 0);
+        staleCopy.setLastActiveAt(nowActive);
+        staleCopy.setMarketingEmailOptIn(false);
+        repository.save(staleCopy);
+
+        // Positive control: the whole-entity save really wrote (an updatable column moved) ...
+        assertThat(lastActive()).isEqualTo(nowActive);
+        // ... and the credential and authority columns survived that write.
+        Map<String, Object> row = accountRow();
+        assertThat(row.get("password")).isEqualTo("new-hash");
+        assertThat(row.get("enabled")).isEqualTo(false);
+        assertThat(row.get("password_change_required")).isEqualTo(true);
+        assertThat(row.get("role")).isEqualTo("LITE_USER");
+        assertThat(((Number) row.get("credentials_version")).longValue()).isEqualTo(4L);
+        assertThat(row.get("credentials_changed_at")).isNotNull();
+    }
+
+    @Nested
+    @DisplayName("the scoped updates write their own column and no other")
+    class ScopedUpdates {
+
+        @Test
+        @DisplayName("touchLastActiveAt writes lastActiveAt alone")
+        void touchLastActiveAt() {
+            LocalDateTime now = LocalDateTime.of(2026, 10, 16, 9, 0);
+
+            assertThat(repository.touchLastActiveAt(userId, now)).isEqualTo(1);
+
+            assertThat(lastActive()).isEqualTo(now);
+            assertThat(accountRow().get("role")).isEqualTo("PRO_USER");
+            assertThat(accountRow().get("enabled")).isEqualTo(true);
+            assertThat(repository.touchLastActiveAt(userId + 1000, now)).isZero();
+        }
+
+        @Test
+        @DisplayName("findCredentialsChangedAt reads the stamp as a scalar, and is empty for a row that never "
+                + "changed or does not exist")
+        void findCredentialsChangedAt() {
+            assertThat(repository.findCredentialsChangedAt(userId)).isEmpty();
+            jdbcTemplate.update("UPDATE app_user SET credentials_changed_at = ? WHERE id = ?",
+                    java.sql.Timestamp.from(STAMP), userId);
+
+            assertThat(repository.findCredentialsChangedAt(userId)).contains(STAMP);
+            assertThat(repository.findCredentialsChangedAt(userId + 1000)).isEmpty();
+        }
+
+        @Test
+        @DisplayName("updateEnabled flips the flag and nothing else — no version bump")
+        void updateEnabled() {
+            assertThat(repository.updateEnabled(userId, false)).isEqualTo(1);
+            assertThat(accountRow().get("enabled")).isEqualTo(false);
+
+            assertThat(repository.updateEnabled(userId, true)).isEqualTo(1);
+
+            assertThat(accountRow().get("enabled")).isEqualTo(true);
+            assertThat(((Number) accountRow().get("credentials_version")).longValue()).isZero();
+            assertThat(accountRow().get("password")).isEqualTo("{bcrypt}hash");
+            assertThat(repository.updateEnabled(userId + 1000, true)).isZero();
+        }
+
+        @Test
+        @DisplayName("updateRole changes the role and nothing else")
+        void updateRole() {
+            assertThat(repository.updateRole(userId, UserRole.LITE_USER)).isEqualTo(1);
+
+            assertThat(accountRow().get("role")).isEqualTo("LITE_USER");
+            assertThat(accountRow().get("enabled")).isEqualTo(true);
+            assertThat(((Number) accountRow().get("credentials_version")).longValue()).isZero();
+            assertThat(repository.updateRole(userId + 1000, UserRole.ADMIN)).isZero();
+        }
+
+        @Test
+        @DisplayName("updateMarketingEmailOptIn writes the consent and nothing else")
+        void updateMarketingEmailOptIn() {
+            assertThat(repository.updateMarketingEmailOptIn(userId, false)).isEqualTo(1);
+
+            assertThat(accountRow().get("marketing_email_opt_in")).isEqualTo(false);
+            assertThat(accountRow().get("role")).isEqualTo("PRO_USER");
+            assertThat(repository.updateMarketingEmailOptIn(userId + 1000, true)).isZero();
+        }
+
+        @Test
+        @DisplayName("updateEmail writes the address and nothing else")
+        void updateEmail() {
+            assertThat(repository.updateEmail(userId, "moved@example.com")).isEqualTo(1);
+
+            assertThat(accountRow().get("email")).isEqualTo("moved@example.com");
+            assertThat(accountRow().get("role")).isEqualTo("PRO_USER");
+            assertThat(repository.updateEmail(userId + 1000, "x@example.com")).isZero();
+        }
     }
 
     @Test

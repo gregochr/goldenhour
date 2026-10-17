@@ -4,20 +4,28 @@ import com.gregochr.goldenhour.config.TermsConstants;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.repository.AppUserRepository;
+import com.gregochr.goldenhour.repository.AppUserRepository.LockedAccount;
+import com.gregochr.goldenhour.repository.EmailVerificationTokenRepository;
+import com.gregochr.goldenhour.repository.PasswordResetTokenRepository;
+import com.gregochr.goldenhour.service.CredentialChangeWriter.Change;
+import com.gregochr.goldenhour.service.CredentialChangeWriter.VersionExpectation;
 import com.gregochr.goldenhour.service.notification.UserEmailService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 
@@ -25,6 +33,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
@@ -50,8 +60,25 @@ class UserServiceTest {
     @Mock
     private EmailClaims emailClaims;
 
-    @InjectMocks
+    @Mock
+    private CredentialChangeWriter credentialChangeWriter;
+
+    @Mock
+    private PasswordResetTokenRepository resetTokenRepository;
+
+    @Mock
+    private EmailVerificationTokenRepository verificationTokenRepository;
+
+    private static final Instant NOW = Instant.parse("2026-10-16T12:00:00Z");
+
     private UserService userService;
+
+    @BeforeEach
+    void setUp() {
+        userService = new UserService(userRepository, passwordEncoder, userEmailService, emailClaims,
+                credentialChangeWriter, resetTokenRepository, verificationTokenRepository,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+    }
 
     // ── loadUserByUsername ──────────────────────────────────────────────────────
 
@@ -197,6 +224,37 @@ class UserServiceTest {
         }
 
         @Test
+        @DisplayName("stamps credentialsChangedAt at creation, so even a legacy token meets a non-null stamp "
+                + "on a recreated row")
+        void stampsCredentialsChangedAtAtCreation() {
+            when(userRepository.existsByUsername("bob")).thenReturn(false);
+            when(passwordEncoder.encode("pass")).thenReturn("hashed");
+            when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+            userService.createUser("bob", "pass", UserRole.LITE_USER, "bob@example.com");
+
+            ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
+            verify(userRepository).save(captor.capture());
+            assertThat(captor.getValue().getCredentialsChangedAt()).isEqualTo(NOW);
+            assertThat(captor.getValue().getCredentialsVersion()).isZero();
+        }
+
+        @Test
+        @DisplayName("refuses a non-ASCII address, claiming and saving nothing: the claim key is lower-cased "
+                + "in Java while the database's LOWER() may fold it differently")
+        void nonAsciiEmail_isRefused() {
+            when(userRepository.existsByUsername("bob")).thenReturn(false);
+
+            assertThatThrownBy(() -> userService.createUser("bob", "pass", UserRole.LITE_USER,
+                    "bob@gmaıl.com"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("Please use an email address without accented or non-Latin characters");
+
+            verify(userRepository, never()).save(any());
+            verifyNoInteractions(emailClaims);
+        }
+
+        @Test
         @DisplayName("null email bypasses duplicate check")
         void nullEmail_bypassesDuplicateCheck() {
             when(userRepository.existsByUsername("bob")).thenReturn(false);
@@ -240,48 +298,77 @@ class UserServiceTest {
 
     // ── setEnabled ─────────────────────────────────────────────────────────────
 
-    @Test
-    @DisplayName("setEnabled updates the enabled flag on the user")
-    void setEnabled_existingUser_updatesFlag() {
-        AppUserEntity user = buildUser(1L, "alice", UserRole.LITE_USER);
-        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        when(userRepository.save(any())).thenReturn(user);
+    @Nested
+    @DisplayName("setEnabled")
+    class SetEnabled {
 
-        userService.setEnabled(1L, false);
+        @Test
+        @DisplayName("DISABLE goes through the credential writer with a NULL password, the disable change and "
+                + "no version check — and never touches the entity or saves it")
+        void disable_goesThroughTheWriterWithANullPassword() {
+            when(credentialChangeWriter.apply(1L, null, Change.disable(), VersionExpectation.trusted()))
+                    .thenReturn(new CredentialChangeOutcome(1L, "alice", "alice@example.com", 5L));
 
-        assertThat(user.isEnabled()).isFalse();
-        verify(userRepository).save(user);
-    }
+            userService.setEnabled(1L, false);
 
-    @Test
-    @DisplayName("setEnabled throws IllegalArgumentException when user is not found")
-    void setEnabled_missingUser_throwsException() {
-        when(userRepository.findById(99L)).thenReturn(Optional.empty());
+            verify(credentialChangeWriter).apply(1L, null, Change.disable(), VersionExpectation.trusted());
+            verify(userRepository, never()).save(any());
+            verify(userRepository, never()).updateEnabled(any(), anyBoolean());
+            verify(userRepository, never()).findById(any());
+        }
 
-        assertThatThrownBy(() -> userService.setEnabled(99L, true))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("99");
+        @Test
+        @DisplayName("RE-ENABLE is the scoped updateEnabled(id, true) and nothing else: no writer call, no "
+                + "version bump, no entity save")
+        void reEnable_isTheScopedUpdate() {
+            when(userRepository.updateEnabled(1L, true)).thenReturn(1);
+
+            userService.setEnabled(1L, true);
+
+            verify(userRepository).updateEnabled(1L, true);
+            verifyNoInteractions(credentialChangeWriter);
+            verify(userRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("re-enabling an unknown account throws 'User not found'")
+        void reEnable_missingUser_throwsException() {
+            when(userRepository.updateEnabled(99L, true)).thenReturn(0);
+
+            assertThatThrownBy(() -> userService.setEnabled(99L, true))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("User not found: 99");
+        }
+
+        @Test
+        @DisplayName("disabling an unknown account throws: the writer's refusal propagates")
+        void disable_missingUser_throwsException() {
+            when(credentialChangeWriter.apply(99L, null, Change.disable(), VersionExpectation.trusted()))
+                    .thenThrow(new IllegalArgumentException("User not found: 99"));
+
+            assertThatThrownBy(() -> userService.setEnabled(99L, false))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("99");
+        }
     }
 
     // ── setRole ────────────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("setRole updates the role on the user")
+    @DisplayName("setRole lands through the scoped updateRole — a demotion never goes through save()")
     void setRole_existingUser_updatesRole() {
-        AppUserEntity user = buildUser(1L, "alice", UserRole.LITE_USER);
-        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        when(userRepository.save(any())).thenReturn(user);
+        when(userRepository.updateRole(1L, UserRole.LITE_USER)).thenReturn(1);
 
-        userService.setRole(1L, UserRole.ADMIN);
+        userService.setRole(1L, UserRole.LITE_USER);
 
-        assertThat(user.getRole()).isEqualTo(UserRole.ADMIN);
-        verify(userRepository).save(user);
+        verify(userRepository).updateRole(1L, UserRole.LITE_USER);
+        verify(userRepository, never()).save(any());
     }
 
     @Test
     @DisplayName("setRole throws IllegalArgumentException when user is not found")
     void setRole_missingUser_throwsException() {
-        when(userRepository.findById(99L)).thenReturn(Optional.empty());
+        when(userRepository.updateRole(99L, UserRole.ADMIN)).thenReturn(0);
 
         assertThatThrownBy(() -> userService.setRole(99L, UserRole.ADMIN))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -290,58 +377,149 @@ class UserServiceTest {
 
     // ── setEmail ───────────────────────────────────────────────────────────────
 
-    @Test
-    @DisplayName("setEmail updates the email on the user")
-    void setEmail_existingUser_updatesEmail() {
-        AppUserEntity user = buildUser(1L, "alice", UserRole.LITE_USER);
-        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        when(userRepository.save(any())).thenReturn(user);
+    @Nested
+    @DisplayName("setEmail")
+    class SetEmail {
 
-        userService.setEmail(1L, "newemail@example.com");
+        private LockedAccount account(boolean enabled, String password, String email) {
+            return new LockedAccount(enabled, password, email, "alice", UserRole.LITE_USER, 0L, null, false,
+                    true, null);
+        }
 
-        assertThat(user.getEmail()).isEqualTo("newemail@example.com");
-        verify(userRepository).save(user);
-    }
+        @Test
+        @DisplayName("locks the row FIRST, then claims the new address for THIS account, writes it, deletes "
+                + "the account's unused reset links and ALL its verification links, and only then releases "
+                + "the old key — in the writer's lock order")
+        void setEmail_doesEverythingInOneOrderedTransaction() {
+            when(userRepository.lockAccount(1L)).thenReturn(Optional.of(account(true, "hash", "Old@Example.com")));
 
-    @Test
-    @DisplayName("setEmail throws IllegalArgumentException when user is not found")
-    void setEmail_missingUser_throwsException() {
-        when(userRepository.findById(99L)).thenReturn(Optional.empty());
+            boolean pending = userService.setEmail(1L, "New@Example.com");
 
-        assertThatThrownBy(() -> userService.setEmail(99L, "test@example.com"))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("99");
+            assertThat(pending).isFalse();
+            InOrder order = inOrder(userRepository, emailClaims, resetTokenRepository,
+                    verificationTokenRepository);
+            order.verify(userRepository).lockAccount(1L);
+            order.verify(emailClaims).claim("New@Example.com", 1L);
+            order.verify(userRepository).updateEmail(1L, "New@Example.com");
+            order.verify(resetTokenRepository).deleteByUserIdAndUsedAtIsNull(1L);
+            order.verify(verificationTokenRepository).deleteAllByUserIdInBulk(1L);
+            order.verify(emailClaims).release("Old@Example.com");
+            verify(userRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("a duplicate (another account holds the address under any casing) is refused with "
+                + "'Email already registered' and nothing is written or deleted")
+        void duplicateAddress_isRefusedBeforeAnyWrite() {
+            when(userRepository.lockAccount(1L)).thenReturn(Optional.of(account(true, "hash", "old@example.com")));
+            doThrow(new IllegalArgumentException("Email already registered"))
+                    .when(emailClaims).claim("TAKEN@example.com", 1L);
+
+            assertThatThrownBy(() -> userService.setEmail(1L, "TAKEN@example.com"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("Email already registered");
+
+            verify(userRepository, never()).updateEmail(any(), any());
+            verifyNoInteractions(resetTokenRepository);
+            verifyNoInteractions(verificationTokenRepository);
+            verify(emailClaims, never()).release(any());
+        }
+
+        @Test
+        @DisplayName("an account with no previous address releases nothing")
+        void noPreviousAddress_releasesNothing() {
+            when(userRepository.lockAccount(1L)).thenReturn(Optional.of(account(true, "hash", null)));
+
+            userService.setEmail(1L, "new@example.com");
+
+            verify(emailClaims, never()).release(any());
+        }
+
+        @Test
+        @DisplayName("a PENDING account reports true so the response can say the verification link was "
+                + "voided and the admin must resend")
+        void pendingAccount_returnsTrue() {
+            when(userRepository.lockAccount(1L)).thenReturn(Optional.of(account(false, "", "old@example.com")));
+
+            assertThat(userService.setEmail(1L, "new@example.com")).isTrue();
+            verify(verificationTokenRepository).deleteAllByUserIdInBulk(1L);
+        }
+
+        @Test
+        @DisplayName("a non-ASCII address is refused before the row is even locked: the claim key is "
+                + "lower-cased in Java and the database's LOWER() may fold it differently")
+        void nonAsciiAddress_isRefused() {
+            assertThatThrownBy(() -> userService.setEmail(1L, "bob@gmaıl.com"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessage("Please use an email address without accented or non-Latin characters");
+
+            verifyNoInteractions(userRepository);
+            verifyNoInteractions(emailClaims);
+        }
+
+        @Test
+        @DisplayName("setEmail throws IllegalArgumentException when user is not found")
+        void setEmail_missingUser_throwsException() {
+            when(userRepository.lockAccount(99L)).thenReturn(Optional.empty());
+
+            assertThatThrownBy(() -> userService.setEmail(99L, "test@example.com"))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("99");
+
+            verifyNoInteractions(emailClaims);
+        }
     }
 
     // ── resetPassword ──────────────────────────────────────────────────────────
 
-    @Test
-    @DisplayName("resetPassword returns a PasswordResetResult and sets passwordChangeRequired")
-    void resetPassword_existingUser_returnsResultAndSetsFlag() {
-        AppUserEntity user = buildUser(1L, "alice", UserRole.LITE_USER);
-        user.setEmail("alice@example.com");
-        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-        when(passwordEncoder.encode(any(String.class))).thenReturn("hashed-temp");
-        when(userRepository.save(any())).thenReturn(user);
+    @Nested
+    @DisplayName("resetPassword")
+    class ResetPassword {
 
-        PasswordResetResult result = userService.resetPassword(1L);
+        @Test
+        @DisplayName("hashes the temporary password FIRST, applies the admin-temporary-password change through "
+                + "the writer, and answers from the WRITER's outcome — the username and address read under the "
+                + "lock after the change, never an entity loaded before the hash")
+        void hashesFirst_thenWrites_andMailsTheOutcomesAddress() {
+            when(userRepository.existsById(1L)).thenReturn(true);
+            when(passwordEncoder.encode(any(String.class))).thenReturn("hashed-temp");
+            when(credentialChangeWriter.apply(eq(1L), eq("hashed-temp"), eq(Change.adminTemporaryPassword()),
+                    eq(VersionExpectation.trusted())))
+                    .thenReturn(new CredentialChangeOutcome(1L, "alice", "moved@example.com", 2L));
 
-        assertThat(result.temporaryPassword()).isNotNull().isNotBlank().hasSize(12);
-        assertThat(result.username()).isEqualTo("alice");
-        assertThat(result.email()).isEqualTo("alice@example.com");
-        assertThat(user.isPasswordChangeRequired()).isTrue();
-        verify(passwordEncoder).encode(result.temporaryPassword());
-        verify(userRepository).save(user);
-    }
+            PasswordResetResult result = userService.resetPassword(1L);
 
-    @Test
-    @DisplayName("resetPassword throws IllegalArgumentException when user is not found")
-    void resetPassword_missingUser_throwsException() {
-        when(userRepository.findById(99L)).thenReturn(Optional.empty());
+            assertThat(result.temporaryPassword()).isNotNull().isNotBlank().hasSize(12);
+            assertThat(result.username()).isEqualTo("alice");
+            assertThat(result.email()).isEqualTo("moved@example.com");
+            InOrder order = inOrder(passwordEncoder, credentialChangeWriter);
+            order.verify(passwordEncoder).encode(result.temporaryPassword());
+            order.verify(credentialChangeWriter).apply(1L, "hashed-temp", Change.adminTemporaryPassword(),
+                    VersionExpectation.trusted());
+            verify(userRepository, never()).save(any());
+            verify(userRepository, never()).findById(any());
+        }
 
-        assertThatThrownBy(() -> userService.resetPassword(99L))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("99");
+        @Test
+        @DisplayName("resetPassword is not transactional: BCrypt runs with no connection held")
+        void resetPassword_isNotTransactional() throws NoSuchMethodException {
+            assertThat(UserService.class.getMethod("resetPassword", Long.class)
+                    .isAnnotationPresent(org.springframework.transaction.annotation.Transactional.class))
+                    .isFalse();
+        }
+
+        @Test
+        @DisplayName("resetPassword throws IllegalArgumentException when user is not found, hashing nothing")
+        void resetPassword_missingUser_throwsException() {
+            when(userRepository.existsById(99L)).thenReturn(false);
+
+            assertThatThrownBy(() -> userService.resetPassword(99L))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("99");
+
+            verifyNoInteractions(passwordEncoder);
+            verifyNoInteractions(credentialChangeWriter);
+        }
     }
 
     // ── createPendingUser ──────────────────────────────────────────────────────
@@ -368,6 +546,7 @@ class UserServiceTest {
             assertThat(captured.isEnabled()).isFalse();
             assertThat(captured.isMarketingEmailOptIn()).isTrue();
             assertThat(captured.getRole()).isEqualTo(UserRole.PRO_USER);
+            assertThat(captured.getCredentialsChangedAt()).isEqualTo(NOW);
         }
 
         @Test
@@ -569,71 +748,6 @@ class UserServiceTest {
 
             verify(emailClaims).claim("fresh@example.com", null);
             verify(userRepository, never()).deletePendingById(any());
-        }
-    }
-
-    // ── activateUser ───────────────────────────────────────────────────────────
-
-    @Nested
-    @DisplayName("activateUser")
-    class ActivateUser {
-
-        @Test
-        @DisplayName("sets password, enables account, and clears passwordChangeRequired")
-        void setsPasswordAndEnables() {
-            AppUserEntity user = AppUserEntity.builder()
-                    .id(1L).username("alice").password("").role(UserRole.LITE_USER)
-                    .enabled(false).createdAt(LocalDateTime.now()).build();
-            when(userRepository.findById(1L)).thenReturn(Optional.of(user));
-            when(passwordEncoder.encode("MyP@ss1!")).thenReturn("encoded");
-            when(userRepository.save(any())).thenReturn(user);
-
-            userService.activateUser(1L, "MyP@ss1!");
-
-            assertThat(user.isEnabled()).isTrue();
-            assertThat(user.getPassword()).isEqualTo("encoded");
-            assertThat(user.isPasswordChangeRequired()).isFalse();
-            verify(userRepository).save(user);
-        }
-
-        @Test
-        @DisplayName("throws when user not found")
-        void missingUser_throws() {
-            when(userRepository.findById(99L)).thenReturn(Optional.empty());
-
-            assertThatThrownBy(() -> userService.activateUser(99L, "pass"))
-                    .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("99");
-        }
-
-        @Test
-        @DisplayName("refuses an already-enabled account, leaving its credentials untouched")
-        void enabledAccount_throwsAndDoesNotOverwrite() {
-            AppUserEntity active = buildUser(1L, "admin", UserRole.ADMIN);
-            when(userRepository.findById(1L)).thenReturn(Optional.of(active));
-
-            assertThatThrownBy(() -> userService.activateUser(1L, "Attacker1!"))
-                    .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("not awaiting activation");
-
-            assertThat(active.getPassword()).isEqualTo("hashed");
-            verify(userRepository, never()).save(any());
-        }
-
-        @Test
-        @DisplayName("refuses a disabled account that already has a password")
-        void disabledAccountWithPassword_throws() {
-            AppUserEntity suspended = AppUserEntity.builder()
-                    .id(2L).username("bob").password("hashed").role(UserRole.LITE_USER)
-                    .enabled(false).createdAt(LocalDateTime.now()).build();
-            when(userRepository.findById(2L)).thenReturn(Optional.of(suspended));
-
-            assertThatThrownBy(() -> userService.activateUser(2L, "Attacker1!"))
-                    .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("not awaiting activation");
-
-            assertThat(suspended.getPassword()).isEqualTo("hashed");
-            verify(userRepository, never()).save(any());
         }
     }
 

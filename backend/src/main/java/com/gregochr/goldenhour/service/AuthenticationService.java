@@ -1,13 +1,15 @@
 package com.gregochr.goldenhour.service;
 
-import com.gregochr.goldenhour.config.JwtProperties;
 import com.gregochr.goldenhour.entity.AppUserEntity;
-import com.gregochr.goldenhour.entity.RefreshTokenEntity;
 import com.gregochr.goldenhour.exception.InvalidCredentialsException;
+import com.gregochr.goldenhour.exception.StaleCredentialsException;
 import com.gregochr.goldenhour.exception.TooManyAttemptsException;
 import com.gregochr.goldenhour.model.AuthTokens;
 import com.gregochr.goldenhour.repository.AppUserRepository;
 import com.gregochr.goldenhour.repository.RefreshTokenRepository;
+import com.gregochr.goldenhour.service.CredentialChangeWriter.Change;
+import com.gregochr.goldenhour.service.CredentialChangeWriter.VersionExpectation;
+import com.gregochr.goldenhour.service.TokenIssuer.Rotation;
 import com.gregochr.goldenhour.util.EmailIdentifier;
 import com.gregochr.goldenhour.util.EmailIdentifier.Kind;
 import com.gregochr.goldenhour.util.LogSanitizer;
@@ -18,9 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.List;
 import java.util.regex.Pattern;
 
@@ -28,23 +28,24 @@ import java.util.regex.Pattern;
  * Owns the authentication flows: credential verification, refresh-token rotation, token
  * issuance, password changes, and the password complexity policy.
  *
- * <p>{@link #refresh(String)} is {@link Transactional} and race-safe: the old token is
- * consumed with a database-level compare-and-set
- * ({@link RefreshTokenRepository#revokeIfActive}), so of two concurrent refresh calls
- * presenting the same token exactly one is issued new tokens. Any refresh attempt with an
- * already-consumed token is treated as evidence of token theft and revokes every active
- * token for that user (family revocation). {@link #login} and {@link #changePassword} are
- * deliberately <em>not</em> transactional: BCrypt verification/encoding takes ~100 ms, and a
- * surrounding transaction would pin a pooled database connection across it on a public
- * endpoint. Their writes are independent single-row saves, each atomic on its own.
+ * <p><strong>Nothing here is transactional, on purpose.</strong> BCrypt verification and encoding take
+ * ~100 ms, and a surrounding transaction would pin a pooled database connection across it on a public
+ * endpoint. Each flow does its slow work first and then calls ONE transactional method on a separate,
+ * proxied bean (login-registration plan §2 #13): {@link TokenIssuer} issues tokens (and rotates a
+ * refresh token), {@link CredentialChangeWriter} changes credentials, {@link RefreshFamilyRevoker}
+ * answers token theft. A transactional method on this class would be reached by self-invocation and run
+ * with no transaction at all.
+ *
+ * <p>{@link #refresh(String)} is race-safe: the old token is consumed with a database-level
+ * compare-and-set inside {@link TokenIssuer#rotate}, so of two concurrent refresh calls presenting the
+ * same token exactly one is issued new tokens. Any refresh attempt with an already-consumed token is
+ * treated as evidence of token theft and revokes every active token for that user (family revocation) —
+ * in a transaction of its own that COMMITS before the refusal is thrown.
  */
 @Service
 public class AuthenticationService {
 
     private static final Logger LOG = LoggerFactory.getLogger(AuthenticationService.class);
-
-    /** Generic message for all invalid-token outcomes, to avoid leaking token state. */
-    private static final String INVALID_TOKEN_MESSAGE = "Refresh token is invalid or expired";
 
     /** Limiter key prefix for the per-account fallback sign-in budget. */
     static final String FALLBACK_USER_KEY_PREFIX = "fallback:login:user:";
@@ -65,8 +66,10 @@ public class AuthenticationService {
     private final RefreshTokenRepository refreshTokenRepository;
     private final JwtService jwtService;
     private final PasswordEncoder passwordEncoder;
-    private final JwtProperties jwtProperties;
     private final AuthAttemptLimiter attemptLimiter;
+    private final TokenIssuer tokenIssuer;
+    private final RefreshFamilyRevoker familyRevoker;
+    private final CredentialChangeWriter credentialChangeWriter;
 
     /** Lazily encoded by {@link #dummyHash()}; a benign race at worst encodes it twice. */
     private volatile String dummyHash;
@@ -76,23 +79,29 @@ public class AuthenticationService {
      *
      * @param userRepository         user data access
      * @param refreshTokenRepository refresh token persistence
-     * @param jwtService             JWT generation and hashing
+     * @param jwtService             refresh-token hashing
      * @param passwordEncoder        password hashing
-     * @param jwtProperties          token expiry configuration
      * @param attemptLimiter         the per-account budget for fallback sign-ins
+     * @param tokenIssuer            issues token pairs and rotates refresh tokens, under the row lock
+     * @param familyRevoker          revokes a whole refresh family in its own committed transaction
+     * @param credentialChangeWriter changes credentials atomically
      */
     public AuthenticationService(AppUserRepository userRepository,
             RefreshTokenRepository refreshTokenRepository,
             JwtService jwtService,
             PasswordEncoder passwordEncoder,
-            JwtProperties jwtProperties,
-            AuthAttemptLimiter attemptLimiter) {
+            AuthAttemptLimiter attemptLimiter,
+            TokenIssuer tokenIssuer,
+            RefreshFamilyRevoker familyRevoker,
+            CredentialChangeWriter credentialChangeWriter) {
         this.userRepository = userRepository;
         this.refreshTokenRepository = refreshTokenRepository;
         this.jwtService = jwtService;
         this.passwordEncoder = passwordEncoder;
-        this.jwtProperties = jwtProperties;
         this.attemptLimiter = attemptLimiter;
+        this.tokenIssuer = tokenIssuer;
+        this.familyRevoker = familyRevoker;
+        this.credentialChangeWriter = credentialChangeWriter;
     }
 
     /**
@@ -123,9 +132,11 @@ public class AuthenticationService {
      * identifier exists.
      *
      * <p>Deliberately not transactional: the slow BCrypt password check runs with no database
-     * connection held. The two writes (last-active stamp, token insert) are independent
-     * single-row saves — a failure between them fails the login with only the harmless
-     * telemetry stamp persisted, matching the original controller flow.
+     * connection held. The {@code lastActiveAt} stamp is a column-scoped update — never a save of the
+     * entity loaded before the hash, which would write that entity's OLD password hash back over a
+     * credential change that committed meanwhile — and the tokens are then issued by
+     * {@link TokenIssuer#issue} with the hash this method matched: it re-reads the stored hash under the
+     * row lock and refuses if it moved.
      *
      * <p>When {@code fallback} is true the request carried no Turnstile token (the script could not
      * load) and {@link TurnstileGate} admitted it on its bounds; the per-ACCOUNT budget is then taken
@@ -181,13 +192,12 @@ public class AuthenticationService {
             throw new InvalidCredentialsException("Invalid username or password");
         }
 
-        user.setLastActiveAt(LocalDateTime.now());
-        userRepository.save(user);
+        userRepository.touchLastActiveAt(user.getId(), LocalDateTime.now());
 
         // Sanitised even though it comes from the database: registration never validates the
         // username's shape, so a stored name can still carry CRLF from the original request.
         LOG.info("Login: user='{}' role={}", LogSanitizer.sanitize(user.getUsername()), user.getRole());
-        return issueTokensFor(user);
+        return tokenIssuer.issue(user.getId(), user.getPassword());
     }
 
     /**
@@ -230,15 +240,16 @@ public class AuthenticationService {
 
     /**
      * Rotates a refresh token: consumes the supplied token atomically and issues a new access
-     * + refresh token pair. Revoke and reissue share one transaction, so a mid-flow failure
-     * rolls back the revoke instead of stranding the user without a valid token.
+     * + refresh token pair.
      *
-     * <p>The revoke is a database-level compare-and-set ({@code UPDATE … WHERE revoked =
-     * false}): of two concurrent refresh calls presenting the same token, exactly one sees an
-     * update count of 1 and rotates; the other is rejected. Presenting an already-revoked
-     * token, or losing that race, indicates the token was stolen (the legitimate rotation
-     * already consumed it), so every active token for the user is revoked and all sessions
-     * must re-authenticate.
+     * <p>A non-transactional orchestrator over {@link TokenIssuer#rotate}: the rotation (the account
+     * lock, the compare-and-set that consumes the token, the issue) is one transaction that returns an
+     * outcome instead of throwing. Presenting an already-revoked token, or losing the compare-and-set to
+     * a concurrent refresh, indicates the token was stolen (the legitimate rotation already consumed
+     * it), so {@link RefreshFamilyRevoker#revokeAll} then revokes every active token for the user in a
+     * transaction of its own, AFTER the rotation's has ended — and only then is the refusal thrown, so
+     * the revocation commits instead of being rolled back with the exception (login-registration plan
+     * §2 #13, §2 #14 rule 7).
      *
      * @param rawRefreshToken the raw refresh token supplied by the client
      * @return the newly issued tokens and user fields
@@ -246,98 +257,72 @@ public class AuthenticationService {
      *                                     consumed by a concurrent refresh, or the user no
      *                                     longer exists or is disabled
      */
-    @Transactional
     public AuthTokens refresh(String rawRefreshToken) {
         String hash = jwtService.hashToken(rawRefreshToken);
-        RefreshTokenEntity stored = refreshTokenRepository.findByTokenHash(hash).orElse(null);
-
-        if (stored == null) {
-            throw new InvalidCredentialsException(INVALID_TOKEN_MESSAGE);
+        Rotation rotation = tokenIssuer.rotate(hash);
+        if (rotation.status() == TokenIssuer.RotationStatus.ROTATED) {
+            return rotation.tokens();
         }
-        if (stored.isRevoked()) {
-            revokeFamily(stored.getUserId(), "already-revoked token presented");
-            throw new InvalidCredentialsException(INVALID_TOKEN_MESSAGE);
+        if (rotation.status() == TokenIssuer.RotationStatus.REVOKED_BY_CREDENTIAL_CHANGE) {
+            // Not theft: the credential change revoked it. The device that made the change keeps its
+            // fresh tokens; this one is simply refused and signs in again.
+            throw new InvalidCredentialsException(TokenIssuer.INVALID_TOKEN_MESSAGE);
         }
-        if (stored.getExpiresAt().isBefore(LocalDateTime.now())) {
-            throw new InvalidCredentialsException(INVALID_TOKEN_MESSAGE);
-        }
-
-        AppUserEntity user = userRepository.findById(stored.getUserId()).orElse(null);
-        if (user == null || !user.isEnabled()) {
-            throw new InvalidCredentialsException("User not found or disabled");
-        }
-
-        // Atomic compare-and-set: only one concurrent refresh can consume the token.
-        int consumed = refreshTokenRepository.revokeIfActive(hash);
-        if (consumed != 1) {
-            revokeFamily(stored.getUserId(), "lost rotation race — token concurrently consumed");
-            throw new InvalidCredentialsException(INVALID_TOKEN_MESSAGE);
-        }
-
-        return issueTokensFor(user);
+        familyRevoker.revokeAll(rotation.userId(),
+                rotation.status() == TokenIssuer.RotationStatus.REVOKED_SEEN
+                        ? "already-revoked token presented"
+                        : "lost rotation race — token concurrently consumed");
+        throw new InvalidCredentialsException(TokenIssuer.INVALID_TOKEN_MESSAGE);
     }
 
     /**
-     * Issues an access + refresh token pair for an already-authenticated user (e.g. the
-     * auto-login after registration set-password).
+     * Issues an access + refresh token pair for an account whose password hash the caller has just
+     * written (the auto-login after set-password or a reset).
      *
-     * <p>Opens its own transaction when invoked through the Spring proxy. When called
-     * internally from {@link #login} the annotation is bypassed (self-invocation) and the
-     * single token insert runs in the repository's own implicit transaction — equivalent,
-     * since there is only one write.
+     * <p>A thin delegate to {@link TokenIssuer#issue}, kept for its callers' signatures. The hash is
+     * the guard: the issuer re-reads the stored hash under the row lock and refuses if it is not this
+     * one, so a credential change that committed in between issues nothing.
      *
-     * @param user the user to issue tokens for
+     * @param userId               the account's primary key
+     * @param verifiedPasswordHash the hash just written
      * @return the issued tokens and user fields
+     * @throws InvalidCredentialsException with the generic failure if the account is disabled or its
+     *                                     hash has moved
      */
-    @Transactional
-    public AuthTokens issueTokensFor(AppUserEntity user) {
-        String accessToken = jwtService.generateAccessToken(user.getUsername(), user.getRole());
-        String rawRefresh = jwtService.generateRefreshToken();
-        String refreshHash = jwtService.hashToken(rawRefresh);
-        Date accessExpiresAt = jwtService.extractExpiry(accessToken);
-
-        LocalDateTime refreshExpiresAt = LocalDateTime.now()
-                .plusDays(jwtProperties.getRefreshTokenExpiryDays());
-        RefreshTokenEntity tokenEntity = RefreshTokenEntity.builder()
-                .tokenHash(refreshHash)
-                .userId(user.getId())
-                .expiresAt(refreshExpiresAt)
-                .revoked(false)
-                .build();
-        refreshTokenRepository.save(tokenEntity);
-
-        return new AuthTokens(
-                accessToken,
-                rawRefresh,
-                accessExpiresAt.toInstant(),
-                refreshExpiresAt.toInstant(ZoneOffset.UTC),
-                user.getUsername(),
-                user.getRole().name(),
-                user.isPasswordChangeRequired(),
-                user.isMarketingEmailOptIn(),
-                user.getTermsVersion());
+    public AuthTokens issueTokensFor(Long userId, String verifiedPasswordHash) {
+        return tokenIssuer.issue(userId, verifiedPasswordHash);
     }
 
     /**
-     * Changes the user's password and clears the {@code passwordChangeRequired} flag.
+     * Changes the signed-in user's password, ends every other session and returns fresh tokens for the
+     * caller's device.
      *
      * <p>Complexity validation is the caller's responsibility via
-     * {@link #validatePasswordComplexity(String)}. Deliberately not transactional: BCrypt
-     * encoding is slow, and both field changes commit atomically anyway as one row update.
+     * {@link #validatePasswordComplexity(String)}. Deliberately not transactional: the password is
+     * encoded first, with no connection held, and then ONE transaction on {@link CredentialChangeWriter}
+     * sets it, clears the {@code passwordChangeRequired} flag, bumps the credential version and revokes
+     * every refresh token. The caller's {@code expectation} makes a stale session lose: two requests
+     * authenticated under the same old version can both reach the writer, and a stolen session finishing
+     * its hash after the legitimate change committed must not overwrite the new password.
      *
      * @param username    the authenticated user's username
      * @param newPassword the new plain-text password
+     * @param expectation the credential version the caller's session was issued at
+     * @return the fresh tokens, so the device that changed the password stays signed in
      * @throws InvalidCredentialsException if no user with that username exists
+     * @throws StaleCredentialsException   if the account's credentials moved since the caller's token was
+     *                                     issued, or the account is no longer active
      */
-    public void changePassword(String username, String newPassword) {
+    public AuthTokens changePassword(String username, String newPassword, VersionExpectation expectation) {
         AppUserEntity user = userRepository.findByUsername(username)
                 .orElseThrow(() -> new InvalidCredentialsException("User not found"));
 
-        user.setPassword(passwordEncoder.encode(newPassword));
-        user.setPasswordChangeRequired(false);
-        userRepository.save(user);
+        String encoded = passwordEncoder.encode(newPassword);
+        CredentialChangeOutcome outcome = credentialChangeWriter.apply(user.getId(), encoded,
+                Change.changePassword(), expectation);
 
-        LOG.info("Password changed: user='{}'", LogSanitizer.sanitize(username));
+        LOG.info("Password changed: user='{}'", LogSanitizer.sanitize(outcome.username()));
+        return tokenIssuer.issue(outcome.userId(), encoded);
     }
 
     /**
@@ -381,9 +366,4 @@ public class AuthenticationService {
         return null;
     }
 
-    private void revokeFamily(Long userId, String reason) {
-        int revoked = refreshTokenRepository.revokeAllActiveByUserId(userId);
-        LOG.warn("Refresh token reuse detected (userId={}, {}): revoked {} active token(s)",
-                userId, reason, revoked);
-    }
 }

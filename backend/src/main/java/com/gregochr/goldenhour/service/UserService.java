@@ -4,9 +4,15 @@ import com.gregochr.goldenhour.config.TermsConstants;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.repository.AppUserRepository;
+import com.gregochr.goldenhour.repository.AppUserRepository.LockedAccount;
+import com.gregochr.goldenhour.repository.EmailVerificationTokenRepository;
+import com.gregochr.goldenhour.repository.PasswordResetTokenRepository;
+import com.gregochr.goldenhour.service.CredentialChangeWriter.Change;
+import com.gregochr.goldenhour.service.CredentialChangeWriter.VersionExpectation;
 import com.gregochr.goldenhour.service.notification.UserEmailService;
 import com.gregochr.goldenhour.util.EmailIdentifier;
 import com.gregochr.goldenhour.util.EmailIdentifier.Kind;
+import com.gregochr.goldenhour.util.LogSanitizer;
 import java.time.Instant;
 
 import jakarta.annotation.PostConstruct;
@@ -21,6 +27,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -53,6 +60,10 @@ public class UserService implements UserDetailsService {
     private final PasswordEncoder passwordEncoder;
     private final UserEmailService userEmailService;
     private final EmailClaims emailClaims;
+    private final CredentialChangeWriter credentialChangeWriter;
+    private final PasswordResetTokenRepository resetTokenRepository;
+    private final EmailVerificationTokenRepository verificationTokenRepository;
+    private final Clock clock;
 
     /**
      * Seeds a default admin account on startup if the user table is empty.
@@ -98,15 +109,21 @@ public class UserService implements UserDetailsService {
      * a concurrent claimant of a brand-new address surfaces as a
      * {@code DataIntegrityViolationException} for the controller to translate (login-registration
      * plan §5 #6). A username containing {@code @} is refused: a sign-in identifier with an {@code @}
-     * is read as an email address, and the self-registration pattern already forbids the character.
+     * is read as an email address, and the self-registration pattern already forbids the character. A
+     * non-ASCII address is refused too, as {@code /register} refuses it: the reservation key is
+     * lower-cased in Java while the database's {@code LOWER()} folds some characters differently, so the
+     * claim table can guarantee uniqueness only for addresses both fold alike.
+     *
+     * <p>The new row's {@code credentialsChangedAt} is stamped at creation, so even a legacy token
+     * (one with no credential version) meets a non-null stamp on a recreated row.
      *
      * @param username    the desired login name (must be unique, at least 5 characters)
      * @param rawPassword the plain-text password to be hashed
      * @param role        the role to assign
      * @param email       the user's email address
      * @return the persisted {@link AppUserEntity}
-     * @throws IllegalArgumentException if the username or email is already taken, or the username
-     *                                  contains {@code @}
+     * @throws IllegalArgumentException if the username or email is already taken, the username
+     *                                  contains {@code @}, or the email is not ASCII
      */
     @Transactional
     public AppUserEntity createUser(String username, String rawPassword, UserRole role, String email) {
@@ -117,6 +134,9 @@ public class UserService implements UserDetailsService {
             throw new IllegalArgumentException("Username already exists: " + username);
         }
         boolean hasEmail = email != null && !email.isBlank();
+        if (hasEmail && !EmailIdentifier.isAscii(email.trim())) {
+            throw new IllegalArgumentException(EmailIdentifier.NON_ASCII_MESSAGE);
+        }
         if (hasEmail) {
             emailClaims.claim(email, null);
         }
@@ -127,6 +147,7 @@ public class UserService implements UserDetailsService {
                 .email(email)
                 .enabled(true)
                 .createdAt(LocalDateTime.now())
+                .credentialsChangedAt(clock.instant())
                 .passwordChangeRequired(true)
                 .build();
         return userRepository.save(user);
@@ -144,16 +165,27 @@ public class UserService implements UserDetailsService {
     /**
      * Enables or disables an existing user account.
      *
+     * <p>⚠️ The two directions are not symmetric (login-registration plan §2 #13, §2 #14 rule 6).
+     * DISABLING goes through {@link CredentialChangeWriter} with a NULL password: it bumps the credential
+     * version, revokes every refresh token and voids the account's unused reset and verification links,
+     * so an admin disable ends every session at once — and, because the password column is left out of
+     * the statement, a disable that waited on the row lock behind a concurrent password change can never
+     * restore the stale hash it loaded. RE-ENABLING is the scoped {@code updateEnabled} and nothing
+     * more: it revives no old access token, refresh token or link.
+     *
      * @param id      the user's primary key
      * @param enabled {@code true} to enable, {@code false} to disable
      * @throws IllegalArgumentException if no user with that id exists
      */
     @Transactional
     public void setEnabled(Long id, boolean enabled) {
-        AppUserEntity user = userRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("User not found: " + id));
-        user.setEnabled(enabled);
-        userRepository.save(user);
+        if (enabled) {
+            if (userRepository.updateEnabled(id, true) != 1) {
+                throw new IllegalArgumentException("User not found: " + id);
+            }
+            return;
+        }
+        credentialChangeWriter.apply(id, null, Change.disable(), VersionExpectation.trusted());
     }
 
     /**
@@ -163,39 +195,73 @@ public class UserService implements UserDetailsService {
      * <p>The raw temporary password is returned to the caller (admin) exactly once and is
      * never stored — only the BCrypt hash is persisted.
      *
+     * <p>Deliberately not transactional: the temporary password is hashed first, with no connection
+     * held, and then {@link CredentialChangeWriter#apply} sets it, bumps the credential version (the
+     * account's access tokens stop authenticating at their next request) and revokes its refresh
+     * tokens in one transaction. The username and the address the temporary password is mailed to come
+     * from the writer's {@link CredentialChangeOutcome}, read under the row lock AFTER the change — never
+     * from an entity loaded before the hash, so an email change that committed meanwhile cannot send the
+     * password to the old, possibly compromised, mailbox.
+     *
      * @param id the user's primary key
      * @return a {@link PasswordResetResult} containing the raw password, username, and email
      * @throws IllegalArgumentException if no user with that id exists
      */
-    @Transactional
     public PasswordResetResult resetPassword(Long id) {
-        AppUserEntity user = userRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("User not found: " + id));
+        if (!userRepository.existsById(id)) {
+            throw new IllegalArgumentException("User not found: " + id);
+        }
         String rawPassword = generateTempPassword();
-        user.setPassword(passwordEncoder.encode(rawPassword));
-        user.setPasswordChangeRequired(true);
-        userRepository.save(user);
-        LOG.info("Password reset for user id={}, username={}", id, user.getUsername());
-        return new PasswordResetResult(rawPassword, user.getUsername(), user.getEmail());
+        CredentialChangeOutcome outcome = credentialChangeWriter.apply(id, passwordEncoder.encode(rawPassword),
+                Change.adminTemporaryPassword(), VersionExpectation.trusted());
+        LOG.info("Password reset for user id={}, username={}", id, LogSanitizer.sanitize(outcome.username()));
+        return new PasswordResetResult(rawPassword, outcome.username(), outcome.email());
     }
 
     /**
-     * Updates the email address of an existing user.
+     * Updates the email address of an existing user (login-registration plan §2 #13).
+     *
+     * <p>One transaction: the user row is LOCKED first (the writer's lock order, parent first), the new
+     * lower-cased address is CLAIMED — the claim table's unique key refuses a case variant of another
+     * account's address race-free — the address is written by a scoped update, the account's unused
+     * password-reset links and ALL its verification links are deleted (a link mailed to the old or
+     * compromised mailbox must not outlive the move: a reset link could overwrite the password within its
+     * hour, and a verification link, keyed by user alone, could activate a pending account), and the old
+     * key is released only if no account still uses it. {@code PasswordResetIssuer} and
+     * {@code VerificationTokenIssuer} take the same row lock, so a request racing this either commits
+     * first and is deleted, or commits after and mails the NEW address.
      *
      * @param id    the user's primary key
      * @param email the new email address
-     * @throws IllegalArgumentException if no user with that id exists
+     * @return true if the account is a pending registration, whose verification link was voided and which
+     *         now needs the admin's resend
+     * @throws IllegalArgumentException if no user with that id exists, the address is not ASCII, or
+     *                                  another account already uses it under any casing
+     *                                  ({@link EmailClaims#EMAIL_TAKEN})
      */
     @Transactional
-    public void setEmail(Long id, String email) {
-        AppUserEntity user = userRepository.findById(id)
+    public boolean setEmail(Long id, String email) {
+        if (!EmailIdentifier.isAscii(email.trim())) {
+            throw new IllegalArgumentException(EmailIdentifier.NON_ASCII_MESSAGE);
+        }
+        LockedAccount account = userRepository.lockAccount(id)
                 .orElseThrow(() -> new IllegalArgumentException("User not found: " + id));
-        user.setEmail(email);
-        userRepository.save(user);
+        emailClaims.claim(email, id);
+        userRepository.updateEmail(id, email);
+        resetTokenRepository.deleteByUserIdAndUsedAtIsNull(id);
+        verificationTokenRepository.deleteAllByUserIdInBulk(id);
+        if (account.email() != null && !account.email().isBlank()) {
+            emailClaims.release(account.email());
+        }
+        LOG.info("Email changed for user id={}: unused reset and verification links voided", id);
+        return account.pending();
     }
 
     /**
      * Changes the role of an existing user.
+     *
+     * <p>A scoped update: the role column is {@code updatable = false}, and the JWT filter takes the
+     * authority from the row, so the demotion is effective at the account's next request.
      *
      * @param id   the user's primary key
      * @param role the new role to assign
@@ -203,10 +269,9 @@ public class UserService implements UserDetailsService {
      */
     @Transactional
     public void setRole(Long id, UserRole role) {
-        AppUserEntity user = userRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("User not found: " + id));
-        user.setRole(role);
-        userRepository.save(user);
+        if (userRepository.updateRole(id, role) != 1) {
+            throw new IllegalArgumentException("User not found: " + id);
+        }
     }
 
     /**
@@ -257,50 +322,13 @@ public class UserService implements UserDetailsService {
                 .email(email)
                 .enabled(false)
                 .createdAt(LocalDateTime.now())
+                .credentialsChangedAt(clock.instant())
                 .passwordChangeRequired(false)
                 .marketingEmailOptIn(marketingEmailOptIn)
                 .termsAcceptedAt(Instant.now())
                 .termsVersion(TermsConstants.CURRENT_TERMS_VERSION)
                 .build();
         return userRepository.save(user);
-    }
-
-    /**
-     * Activates a pending user by setting their password and enabling the account.
-     *
-     * @param userId      the user's primary key
-     * @param rawPassword the plain-text password to be hashed
-     * @throws IllegalArgumentException if no user with that id exists, or the account is not
-     *                                  awaiting activation
-     */
-    @Transactional
-    public void activateUser(Long userId, String rawPassword) {
-        AppUserEntity user = userRepository.findById(userId)
-                .orElseThrow(() -> new IllegalArgumentException("User not found: " + userId));
-        if (!isAwaitingActivation(user)) {
-            throw new IllegalArgumentException("Account is not awaiting activation");
-        }
-        user.setPassword(passwordEncoder.encode(rawPassword));
-        user.setEnabled(true);
-        user.setPasswordChangeRequired(false);
-        userRepository.save(user);
-        LOG.info("User activated: id={}, username={}", userId, user.getUsername());
-    }
-
-    /**
-     * Reports whether an account is a self-registration still waiting for its password.
-     *
-     * <p>That is the sole shape {@link #createPendingUser} produces — not enabled, and holding an
-     * empty password rather than a hash. Every other account, including one an admin created and
-     * one already activated, fails this check, which is what stops a caller who reaches
-     * {@link #activateUser} with someone else's id from overwriting live credentials.
-     *
-     * @param user the account to test
-     * @return true only if the account is awaiting activation
-     */
-    private static boolean isAwaitingActivation(AppUserEntity user) {
-        String password = user.getPassword();
-        return !user.isEnabled() && password != null && password.isEmpty();
     }
 
     /**
