@@ -46,7 +46,8 @@ const picksWord = (n) => (n === 1 ? '1 pick' : `${n} picks`);
  * which runs only while focus is inside the pane, goes quiet once focus is on {@code <body>}: the
  * defect the Map's panels had five times. So: opening focuses the field when there is nothing to read
  * and the pane's own node ({@code tabIndex -1}, a programmatic-only target) when there is, only when
- * focus has actually been lost (a pick chip that was pressed keeps it); and everything that closes the
+ * focus has actually been lost (a control the reader already holds keeps it; no pick-chip route expands the
+ * answer any more — a chip opens the pick's callout over the minimised line, `MapView.handleSelectAskPick`); and everything that closes the
  * section from inside it first parks focus on that same node, and an effect hands it on to the entry
  * button once the button exists. Escape parks through a native listener, which runs before the pane's
  * own handler closes the section.

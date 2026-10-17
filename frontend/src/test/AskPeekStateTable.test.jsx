@@ -83,9 +83,15 @@ vi.mock('../components/map/AskCameraController.jsx', () => ({
   default: (props) => { cameraCalls.push(props); return null; },
 }));
 const calloutCalls = [];
+/** 'mount' / 'unmount' of the callout, so a test can tell a callout kept from one torn down and rebuilt. */
+let calloutLifecycle = [];
 vi.mock('../components/map/MapCallout.jsx', () => ({
-  default: (props) => {
+  default: function MockCallout(props) {
     calloutCalls.push(props);
+    React.useEffect(() => {
+      calloutLifecycle.push('mount');
+      return () => { calloutLifecycle.push('unmount'); };
+    }, []);
     return <div data-testid="mock-callout">{props.location?.name ?? ''}</div>;
   },
 }));
@@ -124,6 +130,8 @@ vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
 vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null }));
 
 import MapView from '../components/MapView.jsx';
+import { getAstroAvailableDates } from '../api/astroApi.js';
+import { deferred } from './askFixtures.js';
 
 const TODAY = '2026-01-15';
 
@@ -222,6 +230,9 @@ const conversation = (phase) => {
 };
 
 let view;
+/** What the pick-chip tests hand `MapView`, and the provider-simulated choice counter (see providerChooses). */
+let pickOver = {};
+let askNonce = 0;
 const props = (over = {}) => ({
   locations: [NEAR],
   date: TODAY,
@@ -255,6 +266,9 @@ beforeEach(() => {
   mapLabelsCalls.length = 0;
   cameraCalls.length = 0;
   calloutCalls.length = 0;
+  calloutLifecycle = [];
+  pickOver = {};
+  askNonce = 0;
   filtersPopoverCalls.length = 0;
   cornerEl = document.createElement('div');
   cornerEl.className = 'leaflet-bottom leaflet-right';
@@ -501,69 +515,347 @@ describe('§2.7 table — row: ordinary chip press', () => {
   });
 });
 
-describe('§2.7 table — row: pick chip press', () => {
-  it('with an answer expanded: selects the card, and the sheet stays expanded', async () => {
-    const onSelectAskPick = vi.fn();
-    await mount('answer', { ...withPicks, onSelectAskPick });
+/**
+ * The provider's part of a CHOICE, which this file's stand-in conversation does not play: the pane's
+ * `askWindow` memo is `{date, eventType, nonce, callout, locationId}`, with a nonce new on every choice and
+ * `callout` the intent the choice carried (`AskContext.selectPick(rank, { callout })`).
+ */
+async function providerChooses(rank, { callout, cards = CARDS } = {}) {
+  const card = cards.find((c) => c.rank === rank);
+  askNonce += 1;
+  pickOver = {
+    ...pickOver,
+    askSelectedRank: rank,
+    askWindow: {
+      date: card.date, eventType: card.targetType, nonce: askNonce, callout, locationId: card.locationId,
+    },
+  };
+  await act(async () => { view.rerender(<MapView {...props(pickOver)} />); });
+}
+
+/**
+ * A chip press as the whole chain sees it: the handler runs, then the provider answers with the intent the
+ * handler PASSED (not one the test chooses), so a handler that stops asking for the callout fails here.
+ */
+async function chipChosen(rank, { cards = CARDS } = {}) {
+  await pressPickChip(rank);
+  const [, options] = pickOver.onSelectAskPick.mock.lastCall;
+  await providerChooses(rank, { callout: options?.callout === true, cards });
+}
+
+/** Mounts with an answer's picks on the map and an `onSelectAskPick` that only records the call. */
+async function mountPicks(phase, { cards = CARDS, ...over } = {}) {
+  askNonce = 0;
+  pickOver = {
+    askPicks: cards.map((c) => ({ ...c, eventType: c.targetType })),
+    askAnswerId: 1,
+    onSelectAskPick: vi.fn(),
+    ...over,
+  };
+  await mount(phase, pickOver);
+  return pickOver.onSelectAskPick;
+}
+
+const calloutEvents = () => calloutCalls.map((c) => c.event?.eventType);
+
+// docs/engineering/phone-pick-callout-plan.md §3 P1 (2026-10-17) superseded F4's rule here: a pick chip no
+// longer expands the answer — it opens the pick's own callout over the 112px line.
+describe('§2.7 table — row: pick chip press (phone, P1)', () => {
+  it('with an answer expanded: minimises at once, the callout opens only once the window has followed, and it is the pick\'s place', async () => {
+    const onSelect = await mountPicks('answer');
     expandMinimised();
 
     await pressPickChip(2);
 
-    expect(onSelectAskPick).toHaveBeenCalledExactlyOnceWith(2);
-    expect(mode()).toBe('expanded');
+    expect(onSelect).toHaveBeenCalledExactlyOnceWith(2, { callout: true });
+    expect(mode()).toBe('minimised');
+    expect(psh()).toBe('112px');
+    expect(screen.queryByTestId('mock-callout')).not.toBeInTheDocument();
+
+    await providerChooses(2, { callout: true });
+
+    expect(screen.getByTestId('mock-callout')).toHaveTextContent('Near');
+    expect(mode()).toBe('minimised');
+    expect(calloutCalls.at(-1).bandKey).toBe(112);
   });
 
-  it('with the answer minimised: expands, and selects the card', async () => {
-    const onSelectAskPick = vi.fn();
-    await mount('answer', { ...withPicks, onSelectAskPick });
+  it('with the answer minimised: stays minimised, and the callout opens over the line', async () => {
+    const onSelect = await mountPicks('answer');
     expect(mode()).toBe('minimised');
 
-    await pressPickChip(3);
+    await chipChosen(3);
 
-    expect(onSelectAskPick).toHaveBeenCalledExactlyOnceWith(3);
-    expect(mode()).toBe('expanded');
+    expect(onSelect).toHaveBeenCalledExactlyOnceWith(3, { callout: true });
+    expect(mode()).toBe('minimised');
+    expect(screen.getByTestId('mock-callout')).toHaveTextContent('Near');
   });
 
-  // The callout and an EXPANDED sheet must never coexist. The window-follow effect clears the selection
-  // too, but only while the pane is on screen and once per choice: the press itself must not rely on it.
-  it('with the answer minimised UNDER A CALLOUT: expands, and the callout comes down with the press', async () => {
-    const onSelectAskPick = vi.fn(); // a provider that does nothing — nothing else may clear the callout
-    await mount('answer', { ...withPicks, onSelectAskPick });
-    await pressOrdinaryChip();
-    expect(screen.getByTestId('mock-callout')).toBeInTheDocument();
-    expect(mode()).toBe('minimised');
+  it('with the answer minimised UNDER ANOTHER PLACE\'S CALLOUT: that callout comes down with the press, and the pick\'s opens after the follow', async () => {
+    const OTHER = { ...NEAR, id: 2, name: 'Other' };
+    await mountPicks('answer', { locations: [NEAR, OTHER] });
+    await act(async () => { lastLabels().onSelect('Other'); });
+    expect(screen.getByTestId('mock-callout')).toHaveTextContent('Other');
 
     await pressPickChip(1);
 
-    expect(mode()).toBe('expanded');
+    // A provider that does nothing must not leave the old place's callout standing for a new choice.
     expect(screen.queryByTestId('mock-callout')).not.toBeInTheDocument();
-    expect(onSelectAskPick).toHaveBeenCalledExactlyOnceWith(1);
+    expect(mode()).toBe('minimised');
+
+    await providerChooses(1, { callout: true });
+
+    expect(screen.getByTestId('mock-callout')).toHaveTextContent('Near');
   });
 
-  // Panels about the map persist under a press on it (map-landing L3): a drilldown is not the Ask
-  // section's to close, so the card is chosen and the sheet stays at its line.
-  it('with a drilldown open: the card is chosen and the drilldown stays, the sheet does not expand over it', async () => {
-    const onSelectAskPick = vi.fn();
-    await mount('answer', { ...withPicks, onSelectAskPick });
+  // Mutant (b): the callout drawn before the window has followed would describe the pill's window.
+  it('a pick for another window than the pill\'s: no callout is ever drawn for the pill\'s window, and the last carries the pick\'s', async () => {
+    const SUNRISE_CARDS = CARDS.map((c) => ({ ...c, targetType: 'SUNRISE', shortWindow: 'Thu AM' }));
+    await mountPicks('answer', { cards: SUNRISE_CARDS });
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/sunset/i);
+
+    await pressPickChip(1);
+    expect(calloutCalls).toHaveLength(0);
+    await providerChooses(1, { callout: true, cards: SUNRISE_CARDS });
+
+    expect(screen.getByTestId('mock-callout')).toHaveTextContent('Near');
+    expect(calloutCalls.length).toBeGreaterThan(0);
+    expect(new Set(calloutEvents())).toEqual(new Set(['SUNRISE']));
+    expect(calloutEvents().at(-1)).toBe('SUNRISE');
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/sunrise/i);
+  });
+
+  it('a pick whose window the map does not carry: the card is chosen, the answer stays minimised, and NO callout opens', async () => {
+    const UNFOLLOWABLE = [
+      CARDS[0], { ...CARDS[1], date: '2026-01-16', targetType: 'SUNRISE' },
+    ];
+    const onSelect = await mountPicks('answer', { cards: UNFOLLOWABLE });
+
+    await chipChosen(2, { cards: UNFOLLOWABLE });
+
+    expect(onSelect).toHaveBeenCalledExactlyOnceWith(2, { callout: true });
+    expect(mode()).toBe('minimised');
+    expect(screen.queryByTestId('mock-callout')).not.toBeInTheDocument();
+  });
+
+  // Tide has no button in this harness (it needs a coastal spot in the padded bounds, which the mocked
+  // map never has); it is the same write, since every `peek:*` value gives way.
+  it.each([['win'], ['lay']])('with the %s section open: it closes, and the callout opens', async (section) => {
+    await mountPicks('answer');
+    pressPill();
+    if (section !== 'win') fireEvent.click(screen.getByTestId(`wf-map-peek-btn-${section}`));
+    expect(mode()).toBe('section');
+
+    await chipChosen(1);
+
+    expect(mode()).toBe('minimised');
+    expect(screen.getByTestId('mock-callout')).toHaveTextContent('Near');
+  });
+
+  // Panels about the map persist under a press on it (map-landing L3), and an ordinary chip's callout
+  // already opens over an open drilldown: a pick chip does the same.
+  it('with a drilldown open: it stays, the sheet stays at its line, and the callout opens over it', async () => {
+    await mountPicks('answer');
     pressPill();
     fireEvent.click(screen.getByTestId('wf-map-peek-drilldown'));
     expect(screen.getByTestId('wf-win-panel')).toBeInTheDocument();
 
+    await chipChosen(2);
+
+    expect(screen.getByTestId('wf-win-panel')).toBeInTheDocument();
+    expect(mode()).toBe('minimised');
+    expect(screen.getByTestId('mock-callout')).toHaveTextContent('Near');
+  });
+
+  // Collapsing in the HANDLER (not through the selection-collapse effect, which waits for the provider)
+  // means the camera never flies for the 470px sheet and then snaps.
+  it('from an expanded answer, the camera is never given the 470px inset after the press', async () => {
+    await mountPicks('answer');
+    expandMinimised();
+    expect(cameraCalls.at(-1).inset.bottom).toBe(470);
+    const before = cameraCalls.length;
+
     await pressPickChip(2);
 
-    expect(onSelectAskPick).toHaveBeenCalledExactlyOnceWith(2);
-    expect(screen.getByTestId('wf-win-panel')).toBeInTheDocument();
+    const after = cameraCalls.slice(before).map((c) => c.inset.bottom);
+    expect(after.length).toBeGreaterThan(0);
+    expect(after.every((bottom) => bottom === 112)).toBe(true);
+  });
+
+  // An ordinary chip tap never moves the camera: the chip was on screen to be tapped, and a flight would put
+  // it above the frame centre, where the card fits neither side of it and covers the ring just tapped.
+  it('a chip choice does not ask the camera to fly to the pick; a CARD choice still does', async () => {
+    await mountPicks('answer');
+
+    await chipChosen(1);
+    expect(cameraCalls.at(-1).selection).toMatchObject({ nonce: 1, still: true });
+
+    await providerChooses(2, { callout: false });
+    expect(cameraCalls.at(-1).selection).toMatchObject({ nonce: 2, still: false });
+  });
+
+  // A `1·2` place is one chip for two windows (ask-thread-plan): each press steps the rank, follows that
+  // rank's window and keeps the callout on the place — the callout is not torn down and rebuilt.
+  it('a re-tap of a place picked at two windows keeps ONE callout mounted, and follows the second window', async () => {
+    const TWO_WINDOWS = [CARDS[0], { ...CARDS[1], targetType: 'SUNRISE' }];
+    await mountPicks('answer', { cards: TWO_WINDOWS });
+    await chipChosen(1, { cards: TWO_WINDOWS });
+    expect(screen.getByTestId('mock-callout')).toHaveTextContent('Near');
+    expect(calloutLifecycle).toEqual(['mount']);
+
+    await chipChosen(2, { cards: TWO_WINDOWS });
+
+    expect(screen.getByTestId('mock-callout')).toHaveTextContent('Near');
+    expect(calloutEvents().at(-1)).toBe('SUNRISE');
+    expect(calloutLifecycle).toEqual(['mount']);
+  });
+
+  it('Escape clears the pick\'s callout and leaves the line', async () => {
+    await mountPicks('answer');
+    await chipChosen(1);
+    expect(screen.getByTestId('mock-callout')).toBeInTheDocument();
+
+    escape();
+
+    expect(screen.queryByTestId('mock-callout')).not.toBeInTheDocument();
     expect(mode()).toBe('minimised');
   });
 
-  it('a pick for a window other than the one on the pill is still a pick: the sheet does not care which', async () => {
-    const onSelectAskPick = vi.fn();
-    const other = CARDS.map((c) => ({ ...c, eventType: 'SUNRISE', date: '2026-01-16' }));
-    await mount('answer', { askPicks: other, askAnswerId: 1, onSelectAskPick });
+  // The pick names a place the roster no longer lists under that id: the callout falls back to the pick's name.
+  it('opens the callout under the pick\'s NAME when its locationId is not among the locations', async () => {
+    const RENAMED = CARDS.map((c) => ({ ...c, locationId: 99, name: 'Near' }));
+    await mountPicks('answer', { cards: RENAMED });
+
+    await chipChosen(1, { cards: RENAMED });
+
+    expect(screen.getByTestId('mock-callout')).toHaveTextContent('Near');
+  });
+
+  // The callout's ✕ unmounts with the callout; focus must not fall to <body>, or the pane's Escape rule
+  // (it fires only while focus is inside the pane) goes quiet.
+  it('the callout\'s ✕ leaves focus inside the pane, and Escape fired AT the active element still reaches it', async () => {
+    await mountPicks('answer');
+    await chipChosen(1);
+    expect(screen.getByTestId('mock-callout')).toBeInTheDocument();
+
+    await act(async () => { calloutCalls.at(-1).onClose(); });
+
+    expect(screen.queryByTestId('mock-callout')).not.toBeInTheDocument();
+    expect(document.activeElement).not.toBe(document.body);
+    expect(screen.getByTestId('wf-map-pane')).toContainElement(document.activeElement);
+    // Escape reaches the pane's ladder from there: it closes an open section.
+    pressPill();
+    expect(mode()).toBe('section');
+    fireEvent.keyDown(document.activeElement, { key: 'Escape' });
+    expect(mode()).toBe('minimised');
+  });
+
+  describe('a DEFERRED night choice (its row has not arrived yet)', () => {
+    const NIGHT_CARDS = CARDS.map((c) => ({ ...c, targetType: 'ASTRO' }));
+    const OTHER = { ...NEAR, id: 2, name: 'Other' };
+    let gate;
+    beforeEach(() => {
+      gate = deferred();
+      getAstroAvailableDates.mockReturnValue(gate.promise);
+    });
+    afterEach(() => {
+      getAstroAvailableDates.mockReset();
+      getAstroAvailableDates.mockResolvedValue([]);
+    });
+    const rowArrives = () => act(async () => { gate.resolve([TODAY]); await gate.promise; });
+
+    // The plan's headline reason for carrying the intent ON the choice.
+    it('opens its callout when the row arrives, and the answer is still minimised', async () => {
+      await mountPicks('answer', { cards: NIGHT_CARDS });
+      await chipChosen(1, { cards: NIGHT_CARDS });
+      expect(screen.queryByTestId('mock-callout')).not.toBeInTheDocument();
+
+      await rowArrives();
+
+      expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/astro/i);
+      expect(screen.getByTestId('mock-callout')).toHaveTextContent('Near');
+      expect(mode()).toBe('minimised');
+    });
+
+    it('does NOT open when the reader has reopened the answer meanwhile', async () => {
+      await mountPicks('answer', { cards: NIGHT_CARDS });
+      await chipChosen(1, { cards: NIGHT_CARDS });
+      expandMinimised();
+      expect(mode()).toBe('expanded');
+
+      await rowArrives();
+
+      expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/astro/i);
+      expect(screen.queryByTestId('mock-callout')).not.toBeInTheDocument();
+      expect(mode()).toBe('expanded');
+    });
+
+    it('does NOT displace a place the reader has selected meanwhile', async () => {
+      await mountPicks('answer', { cards: NIGHT_CARDS, locations: [NEAR, OTHER] });
+      await chipChosen(1, { cards: NIGHT_CARDS });
+      await act(async () => { lastLabels().onSelect('Other'); });
+      expect(screen.getByTestId('mock-callout')).toHaveTextContent('Other');
+
+      await rowArrives();
+
+      expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/astro/i);
+      expect(screen.getByTestId('mock-callout')).toHaveTextContent('Other');
+    });
+  });
+
+  describe('a card, or a choice that never arrived, never inherits a chip\'s callout', () => {
+    // Mutant (c): the intent kept anywhere but ON the choice (a flag in the handler, a ref in the pane)
+    // is spent by the first choice that happens to run the effect.
+    it('a chip on a window the map does not carry, then a CARD choice: no callout', async () => {
+      const UNFOLLOWABLE = [
+        CARDS[0], { ...CARDS[1], date: '2026-01-16', targetType: 'SUNRISE' },
+      ];
+      await mountPicks('answer', { cards: UNFOLLOWABLE });
+      await chipChosen(2, { cards: UNFOLLOWABLE });
+      expect(screen.queryByTestId('mock-callout')).not.toBeInTheDocument();
+
+      await providerChooses(1, { callout: false, cards: UNFOLLOWABLE });
+
+      expect(screen.queryByTestId('mock-callout')).not.toBeInTheDocument();
+    });
+
+    it('a chip, its callout, Escape, then a CARD choice: no callout comes back', async () => {
+      const TWO_WINDOWS = [CARDS[0], { ...CARDS[1], targetType: 'SUNRISE' }];
+      await mountPicks('answer', { cards: TWO_WINDOWS });
+      await chipChosen(1, { cards: TWO_WINDOWS });
+      escape();
+      expect(screen.queryByTestId('mock-callout')).not.toBeInTheDocument();
+
+      await providerChooses(2, { callout: false, cards: TWO_WINDOWS });
+
+      expect(screen.queryByTestId('mock-callout')).not.toBeInTheDocument();
+    });
+
+    it('a chip whose choice never yields a window (the conversation went busy), then a CARD choice: no callout', async () => {
+      await mountPicks('answer');
+      await pressPickChip(1); // the provider never answers with an `askWindow`
+
+      await providerChooses(2, { callout: false });
+
+      expect(screen.queryByTestId('mock-callout')).not.toBeInTheDocument();
+    });
+  });
+});
+
+describe('§2.7 table — row: pick chip press (tablet and desktop, unchanged)', () => {
+  // Mutant (d): the effect opening the callout without the phone's gate. A provider that asked for one
+  // (which only the phone's handler does) must still get none off the phone.
+  it('chooses the card and opens no callout: the handler asks for none, and the follow ignores one that was asked', async () => {
+    mockIsMobile = false;
+    const onSelect = await mountPicks('answer');
 
     await pressPickChip(2);
+    expect(onSelect).toHaveBeenCalledExactlyOnceWith(2);
 
-    expect(mode()).toBe('expanded');
+    await providerChooses(2, { callout: true });
+
+    expect(screen.queryByTestId('mock-callout')).not.toBeInTheDocument();
+    // And the camera flies for it as it always did: no callout opened, so nothing is in the way.
+    expect(cameraCalls.at(-1).selection).toMatchObject({ nonce: 1, still: false });
   });
 });
 

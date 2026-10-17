@@ -258,6 +258,36 @@ describe('PICK_SELECTED', () => {
     expect(next).toMatchObject({ selectedPick: null, selectionNonce: 5 });
   });
 
+  // The callout intent rides the choice, atomic with its nonce (phone-pick-callout-plan.md §3 P1).
+  it('records whether THIS choice asked for the pick\'s callout, and a card choice (none asked) resets it', () => {
+    const chip = reduce(anAnswer(), {
+      type: ACTION.PICK_SELECTED, rank: 2, nonce: 5, callout: true,
+    });
+    expect(chip).toMatchObject({ selectedPick: 2, selectionNonce: 5, selectionCallout: true });
+
+    const card = reduce(chip, { type: ACTION.PICK_SELECTED, rank: 2, nonce: 6 });
+    expect(card).toMatchObject({ selectionNonce: 6, selectionCallout: false });
+  });
+
+  it('asks for no callout unless the action says exactly true', () => {
+    expect(INITIAL_CONVERSATION.selectionCallout).toBe(false);
+    const next = reduce(anAnswer(), {
+      type: ACTION.PICK_SELECTED, rank: 2, nonce: 5, callout: 'yes',
+    });
+
+    expect(next.selectionCallout).toBe(false);
+  });
+
+  it('opening a pick\'s plan is a choice that asks for no callout, whatever chip came before', () => {
+    const chip = reduce(anAnswer(), {
+      type: ACTION.PICK_SELECTED, rank: 2, nonce: 5, callout: true,
+    });
+
+    const planning = reduce(chip, { type: ACTION.PLAN_OPENED, rank: 2, nonce: 6 });
+
+    expect(planning).toMatchObject({ selectionNonce: 6, selectionCallout: false });
+  });
+
   it('leaves the plan view for the answer — put back, not delivered', () => {
     const planning = reduce(anAnswer(), { type: ACTION.PLAN_OPENED, rank: 1, nonce: 1 });
 
