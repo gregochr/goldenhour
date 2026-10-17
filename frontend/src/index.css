@@ -13813,7 +13813,8 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
   outline: 2px solid var(--color-plex-gold);
   outline-offset: -2px;
 }
-/* Below 400px the window pill above already says when; the spot's name needs the room (measured at 320px). */
+/* Below 400px the window pill above usually already says it (the map follows the chosen pick); the spot's
+   name needs the room (measured at 320px). */
 @media (max-width: 399px) {
   .wf-map-peek-mini-when { display: none; }
 }

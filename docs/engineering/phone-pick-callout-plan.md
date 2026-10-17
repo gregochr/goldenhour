@@ -275,5 +275,10 @@ Built as §3 P2, with these recorded decisions and divergences:
 - `MapPeekAsk` takes `doorRef` and `layersRef` as well as `onOpenLayers`; `MapView` also passes the door's ref
   to the sheet's rescue (`askMode === 'minimised' ? askDoorRef : askEntryRef`), so an answer landing while a
   peek button holds focus now lands focus on the door, not the Ask entry. Where the door is unmounted while
-  focused by a question going busy (mode `collapsed`), the Ask entry takes it.
+  focused by a question going busy (mode `collapsed`), the Ask entry takes it. The ternary's else arm is
+  live, not defensive: with NO answer standing, Escape inside the Layers body closes the section onto the
+  collapsed row, and the Ask entry is the rescue target there.
+- **The rescue also covers focus inside the open section's body** (`PeekBody` in `MapPeekSheet`, review round):
+  Escape at Tide mode or Heat / Pins used to drop focus to `<body>` because the button row's report only saw
+  focus inside the row. The body now reports from its own layout-effect cleanup, to the same target.
 - The 320px measurement (§4, §5) and the owner's look at the door on a real phone are not done by this change.

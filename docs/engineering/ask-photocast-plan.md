@@ -1939,7 +1939,7 @@ callout do not overlap (measured rects).
   *open* sheet (356 / 408 / 470) and a callout still never coexist, in either order.
 - **The answer replaces the three buttons, in the expanded state and the minimised one** (the mock's
   `.sh.askmin .pk{display:none}`; there is no room in 112px). So with an answer minimised **Tide and Layers are one
-  step further**: the pill opens the Windows section, which draws the buttons. The table's "a peek button" cell for the
+  step further** (Layers has a door on the minimised line since 2026-10-17): the pill opens the Windows section, which draws the buttons. The table's "a peek button" cell for the
   minimised column is therefore reachable through the pill only. The minimised row is the **entry button** plus the
   line, not the mock's field: the field mounts when the section opens, so a draft does not survive a collapse (the
   sheet's and the dock's rule too).
@@ -1993,7 +1993,7 @@ callout do not overlap (measured rects).
   **Accepted, with the reason, and refuted as defects by the second pass:** the expanded 470px sheet covers the picks the
   camera fits on frames under ~590px (nothing the camera can do shows them; minimising re-fits); the parked node has no
   role; an answer landing while the section was closed on purpose is not announced; Tide and Layers are two steps
-  away while an answer is minimised; `--psh` steps instantly while the sheet animates (a 14px step).
+  away while an answer is minimised (Layers has a door on the minimised line since 2026-10-17); `--psh` steps instantly while the sheet animates (a 14px step).
 - **For F5:** (1) `'plan'` is already in `PEEK_SETTLED_PHASES` and `MinimisedLine` treats it like an answer; F5 must
   give the line a plan text and decide that choosing a pick during `plan` returns the conversation to `answer`
   (`handleSelectAskPick` expands whatever the phase) *(superseded 2026-10-17: a phone chip minimises and opens a callout)*. `AskClearAnswer`'s own list is untouched and must stay so until
@@ -2390,7 +2390,7 @@ Tick each; a defect found here is a new fix, not an edit to the sessions' notes.
 **F4 — phone Map peek**
 - [ ] 390 × 844 and 375 × 667 with measured rects: the open sheet never covers the pill; a minimised answer and a callout do not overlap; the real `MapView` + Leaflet + real callout over the 112px line.
 - [ ] The iOS keyboard with the field at the top of a sheet that is not `visualViewport`-aware; the transition and reduced motion; whether the re-fit when a touch minimises the answer reads as a jump; a screen reader on the parked Ask node and the minimised line; Safari; the deferred inset re-apply during a drag.
-- [ ] Accepted: on frames under ~590px the expanded sheet covers the fitted picks (minimising re-fits); the parked focus node has no role; Tide and Layers are a step further while an answer is minimised; `--psh` steps instantly while the sheet animates.
+- [ ] Accepted: on frames under ~590px the expanded sheet covers the fitted picks (minimising re-fits); the parked focus node has no role; Tide and Layers are a step further while an answer is minimised (Layers has a door on the minimised line since 2026-10-17); `--psh` steps instantly while the sheet animates.
 
 **F5 — Plan this**
 - [ ] The real shell with a real dock or sheet beside the real matrix: the highlight scrolls clear of the sticky lens bar; "Open in Plan ›" opens the location sheet at the right row and focus comes back (dock, tablet sheet, phone peek); Safari's mouse-press focus rule.

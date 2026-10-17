@@ -1277,6 +1277,49 @@ describe('the Layers door (phone, P2)', () => {
     expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-entry'));
   });
 
+  // Focus INSIDE the open section's body (Heat / Pins, Tide mode…) when the section closes: the body
+  // unmounts with it, and the button row's report (focus inside the row) does not see it.
+  it('Escape fired AT a control inside the Layers body, with an answer standing, lands focus on the door', async () => {
+    await mount('answer');
+    fireEvent.click(door());
+    const pins = screen.getByTestId('wf-map-peek-view-pins');
+    pins.focus();
+    expect(document.activeElement).toBe(pins);
+
+    fireEvent.keyDown(pins, { key: 'Escape' });
+
+    expect(mode()).toBe('minimised');
+    expect(screen.queryByTestId('wf-map-peek-view-pins')).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(door());
+  });
+
+  it('the same with NO answer standing: focus lands on the Ask entry, never <body>', async () => {
+    await mount('empty');
+    fireEvent.click(screen.getByTestId('wf-map-peek-btn-lay'));
+    const pins = screen.getByTestId('wf-map-peek-view-pins');
+    pins.focus();
+
+    fireEvent.keyDown(pins, { key: 'Escape' });
+
+    expect(mode()).toBe('collapsed');
+    expect(document.activeElement).not.toBe(document.body);
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-entry'));
+  });
+
+  // The class test in the door's unmount report: the line also unmounts when the PILL opens Windows over a
+  // minimised answer, and focus that was never on the door must not be dragged to the Layers button.
+  it('the line unmounting for the pill\'s Windows section, with focus on <body>, moves focus nowhere', async () => {
+    await mount('answer');
+    expect(document.activeElement).toBe(document.body);
+
+    pressPill();
+
+    expect(mode()).toBe('section');
+    expect(screen.queryByTestId('wf-map-peek-mini-lay')).not.toBeInTheDocument();
+    expect(document.activeElement).not.toBe(screen.getByTestId('wf-map-peek-btn-lay'));
+    expect(document.activeElement).toBe(document.body);
+  });
+
   it('is not drawn on the sheets that have no minimised line: collapsed, expanded, a section open', async () => {
     await mount('empty');
     expect(screen.queryByTestId('wf-map-peek-mini-lay')).not.toBeInTheDocument();

@@ -127,17 +127,18 @@ export default function MapPeekAsk({
   // The door unmounts when pressed (the line becomes the Layers section) and when a typed question goes
   // busy; it reports, from its layout-effect cleanup, that it held focus. Acted on after the commit that
   // removed it, and only if focus was truly lost: Layers when the section is what replaced the line, the
-  // door again if the line is back (a remount), the entry row otherwise.
+  // entry row otherwise.
   const doorLostFocus = useRef(false);
   const reportDoorLost = useCallback(() => { doorLostFocus.current = true; }, []);
   useEffect(() => {
     if (!doorLostFocus.current) return;
     doorLostFocus.current = false;
+    // Defensive: the door is gone, so focus is on <body> unless something else in the same commit has already
+    // taken it (a child effect that focused somewhere deliberate), which this must not undo.
     const active = document.activeElement;
     if (active && active !== document.body) return;
-    let target = entryRef;
-    if (mode === 'section') target = layersRef;
-    else if (mode === 'minimised') target = doorRef;
+    // The line is unmounted only when the mode has left `minimised`, so the door never needs to be a target.
+    const target = mode === 'section' ? layersRef : entryRef;
     target.current?.focus({ preventScroll: true });
   });
 

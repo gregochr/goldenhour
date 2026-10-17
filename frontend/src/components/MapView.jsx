@@ -6916,6 +6916,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 <MapPeekSheet
                   section={sheetSection}
                   askMode={askMode}
+                  /* The door while an answer is minimised (the buttons or the open section's body unmount
+                     holding focus onto the line); the Ask entry otherwise — still reachable: a section
+                     closing with no answer standing (Escape in the Layers body) leaves the collapsed row. */
                   fallbackFocusRef={askMode === 'minimised' ? askDoorRef : askEntryRef}
                   ask={askRowOn ? (
                     <MapPeekAsk
