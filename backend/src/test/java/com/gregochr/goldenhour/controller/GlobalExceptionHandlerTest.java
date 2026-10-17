@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.client.PostcodeLookupUnavailableException;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.exception.RegistrationClosedException;
 import org.junit.jupiter.api.BeforeEach;
@@ -56,6 +57,18 @@ class GlobalExceptionHandlerTest extends AbstractControllerTest {
         mockMvc.perform(post("/api/forecast/run"))
                 .andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.error").exists());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("PostcodeLookupUnavailableException is mapped to 502 with the fixed sentence")
+    void handlePostcodeUnavailable_returns502WithFixedMessage() throws Exception {
+        when(commandFactory.create(any(), anyBoolean(), any(), any(), any()))
+                .thenThrow(new PostcodeLookupUnavailableException());
+
+        mockMvc.perform(post("/api/forecast/run"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error").value(PostcodeLookupUnavailableException.MESSAGE));
     }
 
     @Test

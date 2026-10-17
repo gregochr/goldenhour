@@ -25,7 +25,7 @@
 </div>
 </header>
 <main>
-<div class="phead"><div class="wrap"><div class="eyebrow">Legal</div><h1>Privacy Policy.</h1><p class="lab" style="margin-top:20px">Last updated: September 2026</p></div></div>
+<div class="phead"><div class="wrap"><div class="eyebrow">Legal</div><h1>Privacy Policy.</h1><p class="lab" style="margin-top:20px">Last updated: October 2026</p></div></div>
 <div class="doc"><div class="wrap">
 <h2>Who we are</h2>
 <p>PhotoCast is operated by Chris Gregory, an individual based in the United Kingdom. For any privacy-related queries, contact <a href="mailto:privacy@photocast.online">privacy@photocast.online</a>.</p>
@@ -33,7 +33,8 @@
 <p>When you register for PhotoCast, we collect:</p>
 <ul><li>Your email address and username (required for account creation)</li><li>Your chosen password (stored securely using one-way hashing — we cannot read it)</li></ul>
 <p>When you use PhotoCast, we may also collect:</p>
-<ul><li>Your home postcode (if you choose to set a home location for drive time calculations — Pro feature)</li><li>Forecast outcome ratings you submit (your assessment of whether a forecast was accurate)</li><li>Usage data such as login times and feature interactions (for service improvement)</li></ul>
+<ul><li>Your home postcode and the coordinates it resolves to, if you choose to set one. It sets the sunrise and sunset times shown for your area on every account, and on Pro accounts it also gives drive times from home to the forecast locations</li><li>Forecast outcome ratings you submit (your rating of how a past sunrise or sunset turned out)</li><li>Whether you opted in to marketing email, and when you accepted the Terms</li><li>If you use Ask PhotoCast, where it is available: the questions you type, how many you have asked each day, and a record of each answered request</li><li>Usage data: when your account was last active</li></ul>
+<p>If you press <strong>Use my location</strong>, your device&rsquo;s coordinates are sent once to our server to find the nearest UK postcode. They are not stored in our database: only the postcode you then choose to save is. (If the postcode lookup itself fails, the error our server logs can include the coordinates it sent; see Server logs below.)</p>
 <h2>Why we collect it</h2>
 <p>We use your data to:</p>
 <ul><li>Provide the PhotoCast service (account authentication, personalised forecasts, drive times)</li><li>Improve forecast accuracy through outcome feedback</li><li>Send transactional emails (account verification, password resets)</li><li>Send marketing emails about new features and photography tips (only if you opt in)</li></ul>
@@ -43,24 +44,29 @@
 <h2>Third-party services</h2>
 <p>PhotoCast uses the following third-party services that may process data on our behalf:</p>
 <div class="tw" tabindex="0" role="region" aria-label="Third-party services, scrollable"><table><thead><tr><th>Service</th><th>What data</th><th>Purpose</th></tr></thead><tbody>
-<tr><td>Anthropic (Claude AI)</td><td>Location names and weather data only — no personal information</td><td>AI forecast scoring and recommendations</td></tr>
+<tr><td>Anthropic (Claude AI)</td><td>Location names and weather data for forecast scoring. If you use Ask PhotoCast: the question you type and, for a follow-up, your earlier questions and answers in that session. Never your name, email address, username, home postcode or home coordinates. When a question is about distance from home, the drive times or radius used to answer it are sent too</td><td>AI forecast scoring and recommendations; answering Ask PhotoCast questions</td></tr>
 <tr><td>Open-Meteo</td><td>Location coordinates</td><td>Weather and air quality forecasts</td></tr>
 <tr><td>WorldTides</td><td>Location coordinates</td><td>Tide predictions for coastal locations</td></tr>
 <tr><td>NOAA SWPC</td><td>No personal data</td><td>Aurora and space weather forecasts</td></tr>
 <tr><td>lightpollutionmap.info</td><td>Location coordinates</td><td>Light pollution / Bortle class data</td></tr>
-<tr><td>Postcodes.io</td><td>UK postcodes (if you set a home location)</td><td>Postcode geocoding for drive times</td></tr>
-<tr><td>SendGrid</td><td>Your email address</td><td>Transactional and marketing emails</td></tr>
-<tr><td>Cloudflare</td><td>IP address (standard web traffic)</td><td>DNS, SSL, and tunnel hosting</td></tr>
+<tr><td>Postcodes.io</td><td>A UK postcode you enter or have saved, or your device&rsquo;s coordinates if you choose Use my location. Our server makes the request, so Postcodes.io sees our server, not you</td><td>Finding a postcode&rsquo;s coordinates and place name, and the nearest postcode to a point</td></tr>
+<tr><td>OpenRouteService</td><td>Your saved home coordinates and the forecast locations&rsquo; coordinates</td><td>Drive times from home to forecast locations</td></tr>
+<tr><td>Our email provider (an SMTP service)</td><td>Your email address and the message sent to it</td><td>Verification, password-reset and account emails, and marketing emails only if you opt in</td></tr>
+<tr><td>Cloudflare</td><td>IP address and, as the service that carries our traffic, the content of requests in transit (such as your password at sign-in). For the security check on sign-in and registration (Cloudflare Turnstile), your browser talks to Cloudflare directly and our server sends Cloudflare only the check&rsquo;s result token</td><td>DNS, SSL, tunnel hosting, and the sign-in security check</td></tr>
+<tr><td>Esri</td><td>IP address and the map tiles your browser requests</td><td>Map background tiles</td></tr>
+<tr><td>Google Fonts</td><td>IP address of visitors to photocast.online (this website only — the app serves its own fonts)</td><td>Fonts on this website</td></tr>
 </tbody></table></div>
-<p>No personal data (names, emails, passwords) is sent to the AI model. Prompts contain only location names and weather data.</p>
+<p>No names, email addresses, usernames, passwords or home locations are sent to the AI model. Forecast prompts contain only location names and weather data; if you use Ask PhotoCast, the question you type is sent as well.</p>
 <p>When Stripe is integrated for Pro subscriptions, Stripe will process your payment card details directly. PhotoCast will never see or store your full card number.</p>
 <h2>Cookies and local storage</h2>
-<p>PhotoCast does not use tracking cookies or third-party analytics. We use browser local storage to maintain your login session (JWT authentication token). This is essential for the service to function and is not used for tracking.</p>
+<p>PhotoCast does not use tracking cookies or third-party analytics. We use browser local storage to maintain your login session (authentication tokens, your role and username) and to remember your preferences. This is essential for the service to function and is not used for tracking.</p>
 <h2>Data retention</h2>
-<ul><li>Active accounts: data retained for the lifetime of your account</li><li>Dormant accounts: accounts with no login activity for 90 days may be deleted, along with all associated data</li><li>Marketing email preferences: retained until you change them or your account is deleted</li></ul>
+<ul><li>Active accounts: data retained for the lifetime of your account</li><li>Dormant accounts: accounts with no login activity for 90 days may be deleted, along with all associated data</li><li>Marketing email preferences: retained until you change them or your account is deleted</li><li>Ask PhotoCast request log: deleted after 90 days. Where the AI model answered or declined a question, the log keeps the question&rsquo;s text for those 90 days</li><li>Server logs: kept for 30 days in log files (the same lines are also held in a size-limited container log). They can include your username and email address (at registration, sign-in and whenever we email you), the postcode you save and the coordinates used for your drive times, and, if a postcode lookup fails, the postcode or coordinates it used</li><li>Backups: we keep database backups, which contain account data. A deleted account stays in them for up to about five weeks, and in the backup taken before each release until we remove it</li><li>Waitlist: if registration is full you can join a waitlist; we store the email address you give, unlinked to any account, until you ask us to remove it (privacy@photocast.online). Registrations that are never verified are held until we remove them</li><li>Sign-in sessions: an access token lasts 24 hours and a refresh token 30 days; a password-reset link works for one hour</li></ul>
+<h2>Deleting your account</h2>
+<p>You can delete your account yourself in the app: Settings, then Danger zone, then Delete account (you confirm with your password). This removes your account, email address, username, home postcode and drive times, ratings, Ask allowance records and sign-in sessions, and we email you to confirm. Some things remain for a time: the Ask PhotoCast request log, whose entries lose their link to you when your account is deleted but are removed only when the 90 days above are up; server logs (30 days); and database backups (see above). Copies held by our email provider and Cloudflare are governed by their own policies.</p>
 <h2>Your rights</h2>
 <p>Under UK GDPR, you have the right to:</p>
-<ul><li>Access your personal data — request a copy of what we hold</li><li>Rectify inaccurate data — update your email, username, or home location</li><li>Delete your data — request account deletion and removal of all associated data</li><li>Data portability — request your data in a machine-readable format</li><li>Object to processing — opt out of marketing emails at any time</li><li>Withdraw consent — you can delete your account at any time</li></ul>
+<ul><li>Access your personal data — request a copy of what we hold</li><li>Rectify inaccurate data — edit your home location in Settings, or ask us to correct your email or username</li><li>Delete your data — delete your account in the app, or request deletion by email (see Deleting your account above for what remains briefly)</li><li>Data portability — request your data in a machine-readable format</li><li>Object to processing — opt out of marketing emails at any time</li><li>Withdraw consent — you can delete your account at any time</li></ul>
 <p>To exercise any of these rights, contact <a href="mailto:privacy@photocast.online">privacy@photocast.online</a>.</p>
 <h2>Children</h2>
 <p>PhotoCast is not directed at children under 13. We do not knowingly collect data from anyone under 13. If you believe a child under 13 has registered, please contact us and we will delete the account.</p>
