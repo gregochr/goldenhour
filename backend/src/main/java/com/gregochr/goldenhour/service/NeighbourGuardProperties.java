@@ -13,9 +13,9 @@ import org.springframework.stereotype.Component;
  *
  * <p>Every numeric bound is enforced by the setter, so an out-of-range value fails startup (the
  * binder wraps the {@link IllegalArgumentException}) exactly as {@code AskProperties} does. Every
- * key is optional. {@code enabled} defaults to <b>false</b>: the guard ships off until the Ask and
- * client phases land, so the Plan pick, the best-reachable line and Ask never disagree about a place
- * in between.
+ * key is optional. {@code enabled} defaults to <b>true</b> (since G4, 2026-10-17): the Plan pick, the
+ * best-reachable line and Ask all honour the guard. The rollback is
+ * {@code photocast.neighbour-guard.enabled: false} and a restart.
  *
  * <p>The margin's lower bound of 2 makes a {@code min-rating} below 3 unreachable (a slot rated 2
  * cannot be two stars above anything rated 1 or more and still be worth guarding), so the floor's
@@ -49,9 +49,9 @@ public class NeighbourGuardProperties implements InitializingBean {
     /** Largest elevation gap accepted, in metres. */
     public static final int MAX_ELEVATION_GAP_M = 1_000;
 
-    /** Whether the guard flags anything at all. Off by default. */
+    /** Whether the guard flags anything at all. On by default; {@code false} is the rollback. */
     @Setter
-    private boolean enabled;
+    private boolean enabled = true;
 
     private double radiusKm = 5.0;
     private int minNeighbours = 2;

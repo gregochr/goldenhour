@@ -71,6 +71,8 @@ class ServedBriefingAssemblerTest {
 
     @BeforeEach
     void setUp() {
+        // These tests are about the other steps; the guard has its own tests, so it is stated off here.
+        neighbourGuardProperties.setEnabled(false);
         when(regionSnapshotService.previousBuild(any()))
                 .thenReturn(BriefingRegionSnapshotService.PreviousBuild.none());
         when(evaluationViewService.loadServeTriage(any(), any(), any()))
