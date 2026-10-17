@@ -236,4 +236,77 @@ describe('LoginPage', () => {
       });
     });
   });
+
+  describe('sign-in by username or email, and the forgot-password link (login-registration-plan.md §2 #10, #12)', () => {
+    it('labels the first field "Username or email", keeping its id, test id, name and autocomplete', () => {
+      renderWithAuth(<LoginPage />);
+
+      const input = screen.getByLabelText('Username or email');
+      expect(input).toBe(screen.getByTestId('login-username'));
+      expect(input).toHaveAttribute('id', 'login-username');
+      expect(input).toHaveAttribute('name', 'username');
+      expect(input).toHaveAttribute('autocomplete', 'username');
+      expect(screen.queryByText('Username')).not.toBeInTheDocument();
+    });
+
+    it('sends an email address on the wire field that is still called username', async () => {
+      const user = userEvent.setup();
+      vi.spyOn(AuthApi, 'login').mockResolvedValue(undefined);
+      renderWithAuth(<LoginPage />);
+
+      await user.type(screen.getByTestId('login-username'), 'Chris@Example.com');
+      await user.type(screen.getByTestId('login-password'), 'password123');
+      await user.click(screen.getByTestId('login-submit'));
+
+      await waitFor(() => {
+        expect(AuthApi.login).toHaveBeenCalledWith('Chris@Example.com', 'password123', 'test-turnstile-token');
+      });
+    });
+
+    it('draws "Forgot password?" on the password label\'s row, right of it, in the gold 12px link style', () => {
+      renderWithAuth(<LoginPage onForgotPassword={vi.fn()} />);
+
+      const link = screen.getByTestId('login-forgot-link');
+      const label = screen.getByText('Password', { selector: 'label' });
+      expect(link).toHaveTextContent('Forgot password?');
+      expect(link).toHaveClass('text-xs', 'text-plex-gold');
+      expect(link).toHaveAttribute('type', 'button');
+      // One flex row holds both, label first.
+      expect(link.parentElement).toBe(label.parentElement);
+      expect(label.parentElement).toHaveClass('flex', 'justify-between', 'items-baseline');
+      expect(label.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it('calls onForgotPassword once on press and does not submit the form', async () => {
+      const user = userEvent.setup();
+      const onForgotPassword = vi.fn();
+      vi.spyOn(AuthApi, 'login').mockResolvedValue(undefined);
+      renderWithAuth(<LoginPage onForgotPassword={onForgotPassword} />);
+
+      await user.type(screen.getByTestId('login-username'), 'u');
+      await user.type(screen.getByTestId('login-password'), 'p');
+      await user.click(screen.getByTestId('login-forgot-link'));
+
+      expect(onForgotPassword).toHaveBeenCalledOnce();
+      expect(AuthApi.login).not.toHaveBeenCalled();
+    });
+
+    it('draws no link when the gate hands in no handler', () => {
+      renderWithAuth(<LoginPage />);
+
+      expect(screen.queryByTestId('login-forgot-link')).not.toBeInTheDocument();
+      expect(screen.queryByText('Forgot password?')).not.toBeInTheDocument();
+    });
+
+    it('keeps the link usable and submit enabled when the Turnstile script cannot load', () => {
+      window.turnstile = {
+        render: vi.fn(() => { throw new Error('Domain not whitelisted'); }),
+        remove: vi.fn(),
+      };
+      renderWithAuth(<LoginPage onForgotPassword={vi.fn()} />);
+
+      expect(screen.getByTestId('login-forgot-link')).toBeEnabled();
+      expect(screen.getByTestId('login-submit')).toBeEnabled();
+    });
+  });
 });

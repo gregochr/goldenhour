@@ -89,4 +89,13 @@ describe('PasswordInput', () => {
     render(<PasswordInput id="pw" autoComplete="new-password" />);
     expect(screen.getByRole('button', { name: 'Show password' })).not.toHaveAttribute('data-testid');
   });
+
+  it('names the field in the eye\'s accessible name when given an eyeLabel, both ways', () => {
+    render(<PasswordInput id="pw" testId="pw-input" autoComplete="new-password" eyeLabel="new password" />);
+
+    expect(screen.queryByRole('button', { name: 'Show password' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Show new password' }));
+    expect(screen.getByTestId('pw-input')).toHaveAttribute('type', 'text');
+    expect(screen.getByTestId('pw-input-toggle')).toHaveAttribute('aria-label', 'Hide new password');
+  });
 });

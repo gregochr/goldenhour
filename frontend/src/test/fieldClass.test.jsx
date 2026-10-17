@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 import LoginPage from '../components/LoginPage.jsx';
 import RegisterPage from '../components/RegisterPage.jsx';
 import ChangePasswordPage from '../components/ChangePasswordPage.jsx';
+import ForgotPasswordPage from '../components/auth/ForgotPasswordPage.jsx';
+import ResetPasswordPage from '../components/auth/ResetPasswordPage.jsx';
 import { AuthProvider } from '../context/AuthContext.jsx';
 import * as AuthApi from '../api/authApi.js';
 
@@ -75,6 +77,25 @@ describe('every auth input carries the shared .field style and nothing that outr
     const inputs = textInputs(container);
     expect(inputs.map((i) => i.id)).toEqual(['cp-new', 'cp-confirm']);
     inputs.forEach(expectOnlyTheSharedFieldStyle);
+  });
+
+  it('forgot password: the email field', () => {
+    const { container } = renderAuth(<ForgotPasswordPage onBackToLogin={vi.fn()} />);
+
+    const inputs = textInputs(container);
+    expect(inputs.map((i) => i.id)).toEqual(['forgot-email']);
+    inputs.forEach(expectOnlyTheSharedFieldStyle);
+  });
+
+  it('reset password: both fields, with the eye room', () => {
+    const { container } = renderAuth(
+      <ResetPasswordPage token="t" onDone={vi.fn()} onRequestNewLink={vi.fn()} />,
+    );
+
+    const inputs = textInputs(container);
+    expect(inputs.map((i) => i.id)).toEqual(['reset-new', 'reset-confirm']);
+    inputs.forEach(expectOnlyTheSharedFieldStyle);
+    inputs.forEach((i) => expect(i.className).toContain('pr-10'));
   });
 
   it('register: the form step, with and without the error state', async () => {
@@ -163,12 +184,14 @@ describe('the auth screens use status tokens, not raw colours', () => {
     expect(text).not.toMatch(/placeholder-plex/);
   });
 
-  it('the set of scanned sources includes all four shared components', () => {
+  it('the set of scanned sources includes the shared components and the forgot and reset pages', () => {
     expect(sources.filter((s) => s.includes('/auth/')).sort()).toEqual([
       '../components/auth/AuthHeading.jsx',
       '../components/auth/AuthShell.jsx',
+      '../components/auth/ForgotPasswordPage.jsx',
       '../components/auth/PasswordChecklist.jsx',
       '../components/auth/PasswordInput.jsx',
+      '../components/auth/ResetPasswordPage.jsx',
     ]);
   });
 });

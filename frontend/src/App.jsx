@@ -5,6 +5,8 @@ import { buildMapOverlay, normalizeMapTrigger } from './utils/mapOverlay.js';
 import LoginPage from './components/LoginPage.jsx';
 import RegisterPage from './components/RegisterPage.jsx';
 import ChangePasswordPage from './components/ChangePasswordPage.jsx';
+import ForgotPasswordPage from './components/auth/ForgotPasswordPage.jsx';
+import ResetPasswordPage from './components/auth/ResetPasswordPage.jsx';
 import SessionExpiryBanner from './components/SessionExpiryBanner.jsx';
 import AuroraBanner from './components/AuroraBanner.jsx';
 import NlcSightingBanner from './components/NlcSightingBanner.jsx';
@@ -56,30 +58,73 @@ function ViewFallback() {
 }
 
 /**
+ * Reads the {@code ?token=} of the page's URL, or null.
+ *
+ * @returns {string|null}
+ */
+function urlToken() {
+  return new URLSearchParams(window.location.search).get('token') || null;
+}
+
+/**
  * Auth gate — renders {@link LoginPage} when no token is present,
  * or the main app otherwise. This keeps hooks out of the unauthenticated path.
+ *
+ * <p>Two emailed links arrive here with a {@code ?token=}, and they must not share state. A link
+ * on {@code /reset} is a password reset ({@code resetToken}); a token on any other path
+ * ({@code /verify}, or the legacy {@code /}) is an email verification ({@code verifyToken}). The
+ * reset page is chosen BEFORE the token test, so a reader already signed in on this browser — the
+ * usual case, the link is opened on the phone the account lives on — still gets it. The cleanup
+ * effect below belongs to the verification token alone: the reset page clears its own token and
+ * the URL itself, because an effect that cleared both whenever a stored token coexists with a URL
+ * token would unmount the reset page before the reader could submit.
  */
 function AuthGate() {
   const { token, mustChangePassword } = useAuth();
   const [showRegister, setShowRegister] = useState(false);
+  const [showForgot, setShowForgot] = useState(false);
 
-  // Check URL for ?token= param (email verification link) and clear it once consumed
-  const [verifyToken, setVerifyToken] = useState(() => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get('token') || null;
-  });
+  // /reset?token= is a reset link; read once, from the pathname it was opened on.
+  const [resetToken, setResetToken] = useState(() => (
+    window.location.pathname === '/reset' ? urlToken() : null
+  ));
+
+  // Any other path with ?token= (the /verify link, or the legacy /?token=) is email verification;
+  // cleared once consumed.
+  const [verifyToken, setVerifyToken] = useState(() => (
+    window.location.pathname === '/reset' ? null : urlToken()
+  ));
 
   // Once authenticated, clear any leftover verify token from URL and state.
   // RegisterPage unmounts before its own cleanup can run, so we handle it here.
   useEffect(() => {
     if (token && verifyToken) {
-      window.history.replaceState({}, '', window.location.pathname);
+      window.history.replaceState({}, '', '/');
       // One-time cleanup coupled to the history side effect above: clear the
       // consumed verify token so RegisterPage stops rendering in verify mode.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setVerifyToken(null);
     }
   }, [token, verifyToken]);
+
+  if (resetToken) {
+    return (
+      <ResetPasswordPage
+        token={resetToken}
+        onDone={() => setResetToken(null)}
+        onRequestNewLink={() => {
+          setResetToken(null);
+          setShowForgot(true);
+        }}
+      />
+    );
+  }
+
+  // Also ahead of the token test: "Request a new link" on a dead link must reach this page for a
+  // reader who is signed in on this browser too. Its "Back to sign in" then lands them in the app.
+  if (showForgot) {
+    return <ForgotPasswordPage onBackToLogin={() => setShowForgot(false)} />;
+  }
 
   if (!token) {
     // If there's a verification token in the URL, show RegisterPage in verify mode
@@ -88,7 +133,7 @@ function AuthGate() {
         <RegisterPage
           verifyToken={verifyToken}
           onBackToLogin={() => {
-            window.history.replaceState({}, '', window.location.pathname);
+            window.history.replaceState({}, '', '/');
             setVerifyToken(null);
             setShowRegister(false);
           }}
@@ -98,7 +143,12 @@ function AuthGate() {
     if (showRegister) {
       return <RegisterPage onBackToLogin={() => setShowRegister(false)} />;
     }
-    return <LoginPage onRegister={() => setShowRegister(true)} />;
+    return (
+      <LoginPage
+        onRegister={() => setShowRegister(true)}
+        onForgotPassword={() => setShowForgot(true)}
+      />
+    );
   }
   if (mustChangePassword) {
     return <ChangePasswordPage />;
