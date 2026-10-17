@@ -204,6 +204,11 @@ effect stays). `MapViewAsk.test`'s comment "the phone wraps it to expand a minim
   closing Layers moves the camera's inset twice.
 - On a tap from an expanded answer the sheet animates down (.28s) while the callout is already placed
   for 112px, so the sheet can briefly paint over the callout's lower edge.
+- On a short phone (seen at 320×568), a pick chip near the TOP of the free band leaves the callout no room
+  above it or below it (above the 112px line), so the callout is clamped over the lower part of its own chip
+  and ring (about 10px, seen in headless Chromium on 2026-10-17). The callout's title names the place. An
+  ordinary chip at the same spot does the same today: it is the callout's placement limit, not P1's, and the
+  camera does not move on a chip tap.
 - A running phone page keeps the JS it loaded until reload (CLAUDE.md's standing note).
 
 ## 7. Docs that change
