@@ -8,10 +8,13 @@ import {
   weatherCodeToIcon,
   msToMph,
   formatDriveDuration,
+  formatDriveDurationCompact,
   getEventTime,
   isEventPast,
+  isEventTimePast,
   AFTERGLOW_MS,
 } from '../utils/briefingDisplay.js';
+import { setRewind } from '../utils/rewind.js';
 
 describe('briefingDisplay', () => {
   afterEach(() => {
@@ -24,6 +27,12 @@ describe('briefingDisplay', () => {
       expect(isPoorSlot({ displayVerdict: 'AWAITING' })).toBe(true);
       expect(isPoorSlot({ displayVerdict: 'WORTH_IT' })).toBe(false);
       expect(isPoorSlot({ displayVerdict: 'MAYBE' })).toBe(false);
+    });
+
+    it('UNRATED is NOT poor — the weather passed it; it stays in the main list, not under "poor · not evaluated" (U2)', () => {
+      expect(isPoorSlot({ displayVerdict: 'UNRATED' })).toBe(false);
+      // Even when the legacy triage field disagrees: the served displayVerdict decides.
+      expect(isPoorSlot({ displayVerdict: 'UNRATED', verdict: 'STANDDOWN' })).toBe(false);
     });
 
     it('displayVerdict wins over the legacy verdict — a Claude-elevated STANDDOWN slot is not poor', () => {
@@ -46,8 +55,11 @@ describe('briefingDisplay', () => {
       { locationName: 'Embleton', verdict: 'MARGINAL', tideAligned: true },
     ];
 
+    // The tide lookup is the caller's (window.tideFacts); these fixtures keep their marker on the slot.
+    const alignedOf = (slot) => slot.tideAligned === true;
+
     it('puts king tide first, then tide-aligned, within each verdict', () => {
-      expect(sortedSlotsByTidePriority(slots).map((s) => s.locationName)).toEqual([
+      expect(sortedSlotsByTidePriority(slots, alignedOf).map((s) => s.locationName)).toEqual([
         'Dunstanburgh', // GO + king
         'Craster', // GO + tide-aligned
         'Bamburgh', // GO plain
@@ -58,17 +70,25 @@ describe('briefingDisplay', () => {
 
     it('does not mutate its input', () => {
       const copy = [...slots];
-      sortedSlotsByTidePriority(slots);
+      sortedSlotsByTidePriority(slots, alignedOf);
       expect(slots).toEqual(copy);
     });
 
+    it('slotSortKey and the sort take alignment from the argument, never the slot', () => {
+      expect(slotSortKey({ verdict: 'GO', tideAligned: true }, false)).toBe(2);
+      expect(slotSortKey({ verdict: 'MARGINAL', tideAligned: true }, false)).toBe(4);
+      const bare = [{ locationName: 'Alnmouth', verdict: 'GO' }, { locationName: 'Craster', verdict: 'GO' }];
+      expect(sortedSlotsByTidePriority(bare, (s) => s.locationName === 'Craster').map((s) => s.locationName))
+        .toEqual(['Craster', 'Alnmouth']);
+    });
+
     it('slotSortKey ranks king detection case-insensitively from flags', () => {
-      expect(slotSortKey({ verdict: 'GO', flags: ['KING TIDE'] })).toBe(0);
-      expect(slotSortKey({ verdict: 'GO', tideAligned: true })).toBe(1);
-      expect(slotSortKey({ verdict: 'GO' })).toBe(2);
-      expect(slotSortKey({ verdict: 'MARGINAL', tideAligned: true })).toBe(3);
-      expect(slotSortKey({ verdict: 'MARGINAL' })).toBe(4);
-      expect(slotSortKey({ verdict: 'STANDDOWN' })).toBe(5);
+      expect(slotSortKey({ verdict: 'GO', flags: ['KING TIDE'] }, false)).toBe(0);
+      expect(slotSortKey({ verdict: 'GO' }, true)).toBe(1);
+      expect(slotSortKey({ verdict: 'GO' }, false)).toBe(2);
+      expect(slotSortKey({ verdict: 'MARGINAL' }, true)).toBe(3);
+      expect(slotSortKey({ verdict: 'MARGINAL' }, false)).toBe(4);
+      expect(slotSortKey({ verdict: 'STANDDOWN' }, false)).toBe(5);
     });
   });
 
@@ -110,6 +130,38 @@ describe('briefingDisplay', () => {
     });
   });
 
+  describe('formatDriveDurationCompact', () => {
+    it.each([
+      [null, null],
+      [undefined, null],
+      [45, '45m'],
+      [59, '59m'],
+      [60, '1h'],
+      [65, '1h05'],
+      [90, '1h30'],
+      [120, '2h'],
+      [150, '2h30'],
+    ])('%s minutes → %s', (minutes, expected) => {
+      expect(formatDriveDurationCompact(minutes)).toBe(expected);
+    });
+
+    it('splits hours and minutes exactly where the long form does', () => {
+      // One input table, both formatters: parse the long form's hours and minutes back out and
+      // require the compact form to carry the same two numbers, so neither can drift alone.
+      const minutesTable = [0, 1, 9, 45, 59, 60, 61, 65, 90, 119, 120, 150, 605];
+      for (const minutes of minutesTable) {
+        const [, h, mAfterHour, mOnly] = formatDriveDuration(minutes)
+          .match(/^(?:(\d+)h(?: (\d+)min)?|(\d+) min)$/);
+        const hours = Number(h ?? 0);
+        const mins = Number(mAfterHour ?? mOnly ?? 0);
+        const expected = hours === 0
+          ? `${mins}m`
+          : `${hours}h${mins > 0 ? String(mins).padStart(2, '0') : ''}`;
+        expect(formatDriveDurationCompact(minutes)).toBe(expected);
+      }
+    });
+  });
+
   describe('event time helpers', () => {
     const es = {
       regions: [
@@ -135,6 +187,55 @@ describe('briefingDisplay', () => {
       expect(isEventPast(es)).toBe(false);
       vi.setSystemTime(eventMs + AFTERGLOW_MS + 1000);
       expect(isEventPast(es)).toBe(true);
+    });
+
+    it('isEventPast reads the admin rewind, so a sunrise that has gone NOW is still ahead THEN', () => {
+      // 09:30 on the day: the 05:20 sunrise is long gone on the wall clock…
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-07-16T09:30:00Z'));
+      const sunrise = { targetType: 'SUNRISE', solarEventTime: '2026-07-16T05:20:00', regions: [], unregioned: [] };
+      expect(isEventPast(sunrise, '2026-07-16')).toBe(true);
+      try {
+        // …but rewound to an hour before it, it has not happened yet.
+        setRewind('2026-07-16T04:20:00Z');
+        expect(isEventPast(sunrise, '2026-07-16')).toBe(false);
+        // The dated fallback for a payload with no time reads the same clock: before noon UK, a
+        // same-day sunrise with no time is still current.
+        expect(isEventPast({ targetType: 'SUNRISE', regions: [], unregioned: [] }, '2026-07-16')).toBe(false);
+      } finally {
+        setRewind(null);
+      }
+      expect(isEventPast(sunrise, '2026-07-16')).toBe(true);
+    });
+
+    it('pins the afterglow to the backend\'s literal', () => {
+      // PlanWindowProjector.AFTERGLOW_MINUTES = 30. A drift on either side makes the Map tab and the
+      // briefing disagree about when a window has gone; change both or neither.
+      expect(AFTERGLOW_MS).toBe(30 * 60 * 1000);
+    });
+
+    it('isEventTimePast mirrors PlanWindowProjector.hasPassed: 30 minutes of afterglow, strictly after, null is current', () => {
+      const eventMs = new Date('2026-07-16T05:20:00Z').getTime();
+      vi.useFakeTimers();
+      vi.setSystemTime(eventMs + AFTERGLOW_MS);
+      // Exactly at the boundary: `plusMinutes(30).isBefore(now)` is false, and so is this.
+      expect(isEventTimePast('2026-07-16T05:20:00')).toBe(false);
+      vi.setSystemTime(eventMs + AFTERGLOW_MS + 1);
+      expect(isEventTimePast('2026-07-16T05:20:00')).toBe(true);
+      expect(isEventTimePast(null)).toBe(false);
+      expect(isEventTimePast(undefined)).toBe(false);
+    });
+
+    it('isEventTimePast reads the admin rewind', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-07-16T09:30:00Z'));
+      expect(isEventTimePast('2026-07-16T05:20:00')).toBe(true);
+      try {
+        setRewind('2026-07-16T04:20:00Z');
+        expect(isEventTimePast('2026-07-16T05:20:00')).toBe(false);
+      } finally {
+        setRewind(null);
+      }
     });
 
     it('getEventTime falls back to the summary time when every slot was withdrawn', () => {
@@ -210,6 +311,16 @@ describe('briefingDisplay', () => {
       expect(DISPLAY_ORDER.WORTH_IT).toBeLessThan(DISPLAY_ORDER.MAYBE);
       expect(DISPLAY_ORDER.MAYBE).toBeLessThan(DISPLAY_ORDER.STAND_DOWN);
       expect(DISPLAY_ORDER.STAND_DOWN).toBeLessThan(DISPLAY_ORDER.AWAITING);
+    });
+
+    it('ranks UNRATED above STAND_DOWN and below MAYBE — the weather did not rule it out (U2)', () => {
+      // It sorted in the Worth-it/Maybe band when the triage pass wore those words; demoting it
+      // below Poor would silently reorder the regional panel's rows.
+      expect(DISPLAY_ORDER.MAYBE).toBeLessThan(DISPLAY_ORDER.UNRATED);
+      expect(DISPLAY_ORDER.UNRATED).toBeLessThan(DISPLAY_ORDER.STAND_DOWN);
+      expect(Object.keys(DISPLAY_ORDER).sort()).toEqual(
+        ['AWAITING', 'MAYBE', 'STAND_DOWN', 'UNRATED', 'WORTH_IT'],
+      );
     });
   });
 });

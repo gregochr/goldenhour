@@ -142,6 +142,54 @@ class TideExtremeRepositoryTest {
         assertThat(stats[0]).isNull();
     }
 
+    @Test
+    @DisplayName("findHighWatersInWindow returns only HIGH rows, for the asked locations, inside the "
+            + "inclusive window, as bare triples in time order — the rows TideSizeIndex used to "
+            + "hydrate as entities")
+    void findHighWatersInWindow_returnsTheSameRowsAsTheEntityQuery() {
+        // setUp holds highs at CUTOFF-3d 06:00, -2d 07:00, -1d 08:00 and a LOW at -1d 02:00.
+        repository.save(otherLocationExtreme(CUTOFF.minusDays(2).withHour(9), TideExtremeType.HIGH, "5.000"));
+        LocalDateTime from = CUTOFF.minusDays(3).withHour(6);
+        LocalDateTime to = CUTOFF.minusDays(1).withHour(8);
+
+        List<TideHighWater> window = repository.findHighWatersInWindow(
+                List.of(LOCATION_ID, OTHER_LOCATION_ID), from, to);
+
+        // Both ends are inclusive, the LOW is absent, and the order is by time across locations.
+        assertThat(window).extracting(TideHighWater::eventTime).containsExactly(
+                CUTOFF.minusDays(3).withHour(6), CUTOFF.minusDays(2).withHour(7),
+                CUTOFF.minusDays(2).withHour(9), CUTOFF.minusDays(1).withHour(8));
+        assertThat(window).extracting(TideHighWater::locationId)
+                .containsExactly(LOCATION_ID, LOCATION_ID, OTHER_LOCATION_ID, LOCATION_ID);
+        assertThat(window.getFirst().heightMetres()).isEqualByComparingTo("2.000");
+
+        List<TideExtremeEntity> viaEntities = repository
+                .findByLocationIdInAndTypeAndEventTimeBetweenOrderByEventTimeAsc(
+                        List.of(LOCATION_ID, OTHER_LOCATION_ID), TideExtremeType.HIGH, from, to);
+        assertThat(window).extracting(TideHighWater::eventTime)
+                .containsExactlyElementsOf(viaEntities.stream().map(TideExtremeEntity::getEventTime).toList());
+    }
+
+    @Test
+    @DisplayName("findHighWatersInWindow leaves out a location that was not asked for and rows outside "
+            + "the window")
+    void findHighWatersInWindow_respectsTheLocationAndTheWindow() {
+        repository.save(otherLocationExtreme(CUTOFF.minusDays(2).withHour(9), TideExtremeType.HIGH, "5.000"));
+
+        assertThat(repository.findHighWatersInWindow(
+                List.of(LOCATION_ID), CUTOFF.minusDays(3), CUTOFF))
+                .extracting(TideHighWater::locationId).containsOnly(LOCATION_ID).hasSize(3);
+        assertThat(repository.findHighWatersInWindow(
+                List.of(LOCATION_ID), CUTOFF.minusDays(2).withHour(8), CUTOFF.minusDays(1).withHour(7)))
+                .isEmpty();
+    }
+
+    private static TideExtremeEntity otherLocationExtreme(LocalDateTime at, TideExtremeType type, String height) {
+        TideExtremeEntity extreme = extreme(at, type, height);
+        extreme.setLocationId(OTHER_LOCATION_ID);
+        return extreme;
+    }
+
     private static TideExtremeEntity extreme(LocalDateTime at, TideExtremeType type, String height) {
         return TideExtremeEntity.builder()
                 .locationId(LOCATION_ID)

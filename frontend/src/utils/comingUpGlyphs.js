@@ -6,7 +6,7 @@ export const FAMILY_GLYPHS = {
   dust: '🏜️', air: '☁️', eclipse: '◐',
 };
 /* wire-type overrides within a family — the moon events read as moon, not sun */
-const TYPE_GLYPHS = { supermoon: '🌙' };
+const TYPE_GLYPHS = { supermoon: '🌙', 'lunar-eclipse': '🌘' };
 export const entryGlyph = (entry) =>
   TYPE_GLYPHS[entry?.type] ?? FAMILY_GLYPHS[entry?.family] ?? null;
 /* filter chips (utils/comingUpFeed.js chip ids); 'all' deliberately carries none */
@@ -14,7 +14,8 @@ export const CHIP_GLYPHS = { coastal: '🌊', 'night-sky': '🌌', 'sun-moon': '
 
 /**
  * A coincidence sub-line's glyph (plan §4.5 — P3b's `.wf-cu-coin-line`, PR #690, merged). Prefers
- * the line's own served `family` — the same lookup every other surface uses — and falls back to
+ * the line's own served wire `type` (so a supermoon line is 🌙, as its card is), then its served
+ * `family` — the same lookup every other surface uses — and falls back to
  * the design's name regex (moon → 🌙, tide/water → 🌊) only when a line carries no family at all,
  * which is not reachable on today's wire (every served coincidence line carries one) but is kept
  * as the documented degrade rather than a silent null.
@@ -23,6 +24,8 @@ export const CHIP_GLYPHS = { coastal: '🌊', 'night-sky': '🌌', 'sun-moon': '
  * @returns {?string}
  */
 export function coincidenceLineGlyph(line) {
+  // The line's own served wire type first, so the supermoon line reads 🌙 like its card glyph.
+  if (line?.type && TYPE_GLYPHS[line.type]) return TYPE_GLYPHS[line.type];
   if (line?.family) return FAMILY_GLYPHS[line.family] ?? null;
   const name = (line?.name ?? '').toLowerCase();
   if (/moon/.test(name)) return '🌙';

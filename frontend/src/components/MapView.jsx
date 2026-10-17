@@ -21,27 +21,43 @@ import { buildBriefingScoreIndex, lookupBriefingScore } from '../utils/briefingS
 import { lookupForWindow } from '../utils/locationSheet.js';
 import { resolveStandDown } from '../utils/standDown.js';
 import { isNightOver, resolveAuroraNight, ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
-import { LOCATION_TYPE_META, DISPLAY_TYPES, locationTypeLabel } from '../utils/locationTypes.js';
+import { appNow } from '../utils/rewind.js';
+import {
+  LOCATION_TYPE_META, DISPLAY_TYPES, locationTypeLabel, isWildlifeOnly,
+} from '../utils/locationTypes.js';
 import AuroraViewlineOverlay from './AuroraViewlineOverlay.jsx';
+import { viewlineDrawable } from '../utils/viewlineDrawable.js';
 import { rampHex, rampGradientCss, getMode } from '../utils/scoreRamp.js';
+import { AURORA_RAMP, AURORA_BLOOM } from '../utils/auroraRamp.js';
 import WindowControl from './map/WindowControl.jsx';
 import FiltersPopover from './map/FiltersPopover.jsx';
 import MapCallout from './map/MapCallout.jsx';
 import MapLegendPanel from './map/MapLegendPanel.jsx';
 import RegionsJump from './map/RegionsJump.jsx';
 import MapBreadcrumb from './map/MapBreadcrumb.jsx';
+import MapPeekSheet, { OtherWindowValue, MapPeekWindowsSection } from './map/MapPeekSheet.jsx';
+import MapPeekTideSection from './map/MapPeekTideSection.jsx';
+import { otherWindow, tideSummary, tideVisible } from '../utils/mapPeek.js';
+import TideWave from './map/TideWave.jsx';
 import { fadeAt } from '../utils/heatHandover.js';
 import {
-  buildMapEvents, findEvIndex, isForwardableRow, nightPreviewDates, solarHorizonDates, solarRowPredicate,
+  buildMapEvents, findEvIndex, isForwardableRow, isPastSolarWindow, nightPreviewDates, solarHorizonDates,
+  solarRowPredicate,
   EVENT_KIND,
 } from '../utils/mapEvents.js';
+import { myRatingOf } from '../utils/outcomeRatingJoin.js';
+import { dowDayLabel, pastDayLabel } from '../utils/windowFirstCards.js';
 import { buildEvVerdicts, regionNamesOf } from '../utils/mapVerdict.js';
+import { withScopedSolarTimes } from '../utils/mapScopedTime.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
 import { GLANCE_MINUTES } from '../utils/planningArea.js';
 import { latLngBounds } from '../utils/heatGeometry.js';
 import { buildJumpRows, regionBestRatingFor, buildNightRegionBest } from '../utils/regionsJump.js';
 import { landingCardModel } from '../utils/mapLanding.js';
-import { NIGHT_RETRY_LINE } from '../utils/mapCallout.js';
+import { NIGHT_RETRY_LINE, isCoastalTidalLocation } from '../utils/mapCallout.js';
+import { isEventTimePast } from '../utils/briefingDisplay.js';
+import { tierOf, stripModel, siblingEventTime, coastalInView } from '../utils/mapTideFit.js';
+import MapTideStrip from './map/MapTideStrip.jsx';
 import MapLandingCard from './map/MapLandingCard.jsx';
 import { foreignModalOver } from '../utils/mapForeignModal.js';
 import MapWindowPanel from './map/MapWindowPanel.jsx';
@@ -50,6 +66,14 @@ import {
 } from '../utils/mapDrilldown.js';
 import MapRegionPanel from './map/MapRegionPanel.jsx';
 import { regionGlossEntry } from '../utils/regionGloss.js';
+import AskCameraController from './map/AskCameraController.jsx';
+import MapPeekAsk from './map/MapPeekAsk.jsx';
+import { askPeekMode, peekRestingHeight, peekTargetHeight } from '../utils/askPeek.js';
+import { SETTLED_PHASES } from '../utils/askModel.js';
+import { askWindowOf } from '../utils/askMapContext.js';
+import { isNightType } from '../utils/askNights.js';
+import { ranksPhrase } from '../utils/askPickChip.js';
+import { ASK_HEAT_DIM, NO_INSET } from '../utils/askCamera.js';
 
 /** localStorage key for the "colours changed" notice's one-time dismissal. */
 const COLOUR_SCALE_NOTICE_DISMISSED_KEY = 'colourScaleNoticeDismissed';
@@ -311,6 +335,13 @@ const EMPTY_ROWS = [];
  * dodge it.
  */
 const EMPTY_DATES = [];
+/** Stable empty list: no Ask answer on screen. A fresh `[]` per render would defeat `MapView`'s memo. */
+const NO_ASK_PICKS = [];
+/**
+ * Stable empty list: no past solar windows. The `pastSolarWindows` prop's default, for the same
+ * reason as {@link EMPTY_DATES} — a fresh `[]` per render would bust the `solarRowExists` memo.
+ */
+const NO_PAST_WINDOWS = [];
 
 /**
  * One night's served rows (astro conditions or stored aurora results), keyed by location name —
@@ -718,6 +749,54 @@ BoundsTracker.propTypes = {
 };
 
 /**
+ * The peek sheet's map-touch collapse (map-mobile-sheet-plan.md §3 M2 task 7, README rule 4 — "Any
+ * map interaction closes the sheet"). A `useMapEvents` child, deliberately NOT
+ * `useOutsideDismiss` (§1 #11): that hook skips any press inside the map frame ON PURPOSE (the
+ * drilldown panels' own persistence rule), which is the exact opposite of what the peek sheet
+ * needs — it is chrome, not a panel, and the whole point of collapsing on a map touch is that the
+ * touch WAS inside the frame.
+ *
+ * <p>Listens to Leaflet's own {@code mousedown}/{@code touchstart}/{@code dragstart}/
+ * {@code zoomstart} rather than a DOM listener on the pane, so a press that starts on the MAP
+ * itself (panning, a pinch-zoom) collapses the sheet while a press inside the sheet's own DOM
+ * subtree — outside the Leaflet container entirely — never reaches these handlers at all.
+ *
+ * <p>⚠️ This listener alone is not sufficient (a Codex finding on the plan's M0): a chip or pin
+ * press calls {@code L.DomEvent.disableClickPropagation} and invokes {@code selectMapLocation}
+ * directly, so it never reaches Leaflet's own {@code mousedown}. The SECOND half of rule 4 is the
+ * {@code selectedLocationName} effect above this component, which collapses the sheet whenever a
+ * selection is installed, whatever installed it.
+ *
+ * <p><b>With Ask's section expanded this is "minimise", and it is the same write</b> (F4, plan §2.7's
+ * table): the section closes ({@code openMapMenu → null}) and the conversation, not this listener,
+ * decides whether the reader is left with the 126px row (nothing settled) or the 112px line (an answer).
+ * The one exemption {@code open} carries is an answer still being fetched — the table is silent on it
+ * and the mock leaves it open: collapsing then would hide the only sign the question is out.
+ */
+function SheetDismissOnMapTouch({ open, onCollapse, ownMoveUntil }) {
+  // ⚠️ A `zoomstart` is not always a hand. Leaflet fires one for ANY zoom, programmatic included, and
+  // Ask's camera flies to a new answer's picks and to a chosen pick's card — which, ungated, minimised
+  // the very answer that had just landed (and the card the reader had just chosen) the instant the
+  // camera moved. The camera stamps the end of each of its own moves into `ownMoveUntil`; a zoom
+  // inside that window is its, and says nothing about the reader. A press, a touch and a drag are
+  // only ever a hand, so those are never gated (the camera's own `dragstart` reasoning).
+  const ownZoom = () => Date.now() < ownMoveUntil.current;
+  useMapEvents({
+    mousedown: () => { if (open) onCollapse(); },
+    touchstart: () => { if (open) onCollapse(); },
+    dragstart: () => { if (open) onCollapse(); },
+    zoomstart: () => { if (open && !ownZoom()) onCollapse(); },
+  });
+  return null;
+}
+
+SheetDismissOnMapTouch.propTypes = {
+  open: PropTypes.bool.isRequired,
+  onCollapse: PropTypes.func.isRequired,
+  ownMoveUntil: PropTypes.shape({ current: PropTypes.number }).isRequired,
+};
+
+/**
  * Deselects the current location when the reader clicks empty map — and does nothing else.
  *
  * <p>⚠️ **It no longer closes popovers**, which inverts what map-tab-v2-plan.md §3 P7 and
@@ -1013,13 +1092,15 @@ const MAP_FILTER_CHIPS = DISPLAY_TYPES.map((type) => [type, LOCATION_TYPE_META[t
  * @returns {string} 'SUNRISE' or 'SUNSET'.
  */
 function getNextEventType(locations, date) {
-  const now = new Date();
+  const now = appNow();
   // UK calendar — `date` is a backend date keyed to Europe/London, so judging it on the browser's
   // zone made a reader outside the UK take the future-date branch on the actual current day.
   const todayStr = ukDateStr(now);
   if (date !== todayStr) return 'SUNSET';
 
   for (const loc of locations) {
+    // ⚠️ Not `isWildlifeOnly`: `.every` with no length guard, so an UNTYPED location also skips here.
+    // Left as it was (a known divergent site, named in `isWildlifeOnly`'s JSDoc).
     if ((loc.locationType ?? []).every((t) => t === 'WILDLIFE')) continue;
     const dayData = loc.forecastsByDate.get(date);
     const sunriseTime = dayData?.sunrise?.solarEventTime;
@@ -1081,6 +1162,17 @@ const COMPACT_LABEL_WIDTH = '78px';
  * than disappearing: a control that is absent explains nothing, and this one's whole job when unset
  * is to say where the missing setting lives. Clicking it opens Settings on the postcode field.
  *
+ * <p><b>"No postcode" is {@code null}, and only {@code null}.</b> {@code undefined} means the home
+ * is not known — `App`'s one read of the settings has not answered yet, or it failed and the
+ * settings dialog has not answered since (`useReaderSettings`) — and that is no evidence the reader
+ * has not saved one, so with no origin in force the control makes no claim at all: it renders
+ * nothing, and `index.css` keeps its empty container's box without painting it, until an answer
+ * arrives. The prompt used to show to a reader who reached the Map tab before the read answered,
+ * and after a read that failed, until the settings dialog was next closed or the page reloaded.
+ * Nothing on the way down may default the prop to {@code null} — `WindowFirstMapPane` and
+ * `MapView` both take it bare for that reason. Under an
+ * origin the control is actionable either way (below), so an unknown home changes nothing there.
+ *
  * <p><b>O-D5 (D1, plan-to-map-doors-plan.md §3/§6):</b> unlike the HOME marker and the reach rings,
  * this control deliberately keeps reading the RAW {@code homeCoords} prop, never the origin-gated
  * {@code homeGeo} `MapView` derives for the drawn geography — but it also takes `origin` directly,
@@ -1097,8 +1189,9 @@ const COMPACT_LABEL_WIDTH = '78px';
  * rather than left as a known gap.
  *
  * @param {Object}    props
- * @param {?Object}   props.homeCoords  `{ lat, lon }`, or null when no postcode is saved — the RAW
- *        value, not gated on origin (see O-D5 above)
+ * @param {?Object}   [props.homeCoords]  `{ lat, lon }`, null when no postcode is saved, or
+ *        `undefined` while that is not known (see above) — the RAW value, not gated on origin (see
+ *        O-D5 above). Deliberately no default.
  * @param {?Object}   props.origin `{id, name, baseName}` of the origin in force, or null at home —
  *        makes the control actionable while away even with no home coordinate (see O-D5 above)
  * @param {?Function} props.onResetScope resets scope to My area and refits (animate:false) — called
@@ -1107,7 +1200,7 @@ const COMPACT_LABEL_WIDTH = '78px';
  * @param {?Function} props.onOpenSettings opens the settings dialog focused on the postcode field
  */
 function CentreOnHomeControl({
-  homeCoords = null, origin = null, onResetScope = null, onOpenSettings = null,
+  homeCoords, origin = null, onResetScope = null, onOpenSettings = null,
 }) {
   const map = useMap();
   // The container is made once, in a state initialiser rather than in the effect, so it exists on
@@ -1134,7 +1227,14 @@ function CentreOnHomeControl({
     return () => control.remove();
   }, [container, map]);
 
-  if (!container) return null;
+  // Home not known and no origin to reset to: no claim either way (see the doc above). The portal
+  // renders nothing, and `index.css` keeps the `:empty` container's box without painting it, so the
+  // zoom bar above it never moves and a press there reaches the map: collapsed, the bar dropped
+  // 50px and rose again when the ⌂ came back, putting the ⌂ where "−" had just been. It stays
+  // attached rather than being taken off and re-added for the same reason: Leaflet puts a re-added
+  // bottom-corner control ABOVE the zoom bar, not below it.
+  const unknown = homeCoords === undefined && !origin;
+  if (!container || unknown) return null;
 
   const hasHome = homeCoords?.lat != null && homeCoords?.lon != null;
   // O-D5 (D1): actionable while EITHER a home coordinate exists OR an origin is in force — never
@@ -1273,6 +1373,9 @@ const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
  *   `scoreRows` `LocationFourDaySheet` already reads (`WindowFirstBriefingContext`), so the
  *   callout's reason prose and its "every window" strip can never disagree with the sheet one step
  *   away in the Plan tab about what this location was rated.
+ * - `slotIndex` — from `utils/locationSheet.buildSlotIndex` over the briefing's `days`; the callout
+ *   reads only a slot's served `displayVerdict` from it, as the fallback behind `scoreIndex`'s for a
+ *   slot the scores endpoint has no row for (unrated-verdict-plan.md U2, Codex #1140 round 2).
  * - `regionGlossIndex` — from `utils/mapCallout.buildRegionGlossIndex`, the reason prose's fallback
  *   when this location's own window carries no served summary.
  * - `reachById` — the per-user HOME reach map (`{driveMinutes, distanceMiles}`). Originally read
@@ -1294,18 +1397,80 @@ const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
  *   tweak): whether THIS window's water lands on the light for a location, read through
  *   {@link lookupForWindow} exactly like `scoreIndex` — never {@code tideAligned}, a different
  *   question (see that function's own doc).
+ * - `eclipseIndex` — from `utils/locationSheet.buildEclipseIndex` (L4), over the SAME
+ *   `briefing.days` (L7, `docs/engineering/lunar-eclipse-plan.md` §3 L7): the callout's per-location
+ *   eclipse line, read through {@link lookupForWindow} exactly like `tideAlignmentIndex` above.
  *
  * `origin` (doors D1, plan-to-map-doors-plan.md §3) — `{id, name, baseName}` from
  * `WindowFirstBriefingContext`, or null at home; the pane passes the context's live value, the
  * overlay never passes one (it is frozen and has no origin concept). Gates home geography — see
  * `homeGeo` below.
+ *
+ * <h2>Ask PhotoCast's six props (`docs/engineering/ask-photocast-plan.md` §2.7, F3) — Map tab only</h2>
+ * The frozen overlay never passes any of them, and with none passed this component draws exactly what
+ * it drew before they existed.
+ * <ul>
+ *   <li>{@code askPicks} — the answer's picks as {@code {rank, locationId, name, date, eventType,
+ *       shortWindow, rating, verdict, label}}, each already joined to the briefing (the card's own
+ *       facts: the rating and verdict are the PICK'S window's, not the active one's). They become the
+ *       numbered chips and pins, and dim everything else, while any is on the map.</li>
+ *   <li>{@code askSelectedRank}, {@code onSelectAskPick} — the chosen card's rank, and the chip's way
+ *       of choosing one.</li>
+ *   <li>{@code askWindow} — {@code {date, eventType, nonce, callout, locationId}}: the window a chosen pick
+ *       names, and — when {@code callout} is true (a pick chip on the phone) — the place whose callout
+ *       to open once it is followed. Its own
+ *       channel and its own effect, NOT {@code planHandoff}: that effect applies the Plan lens (rating
+ *       floor, reach tier, scope) and mounts the breadcrumb for every source that is not
+ *       {@code 'map'}, and is one slot a second writer would clobber. This one sets the window and
+ *       nothing else (no lens, no scope, no camera, no breadcrumb).</li>
+ *   <li>{@code askAnswerId} — the answer on screen, so the camera fits ONCE per answer.</li>
+ *   <li>{@code onAskContext} — called with the facts a question asked from here carries (the region in
+ *       scope, the window on the pill), whenever they change.</li>
+ * </ul>
+ *
+ * <h2>…and the phone's three (F4, plan §2.7's phone paragraph and state table)</h2>
+ * <ul>
+ *   <li>{@code askOffered} — the peek sheet draws Ask's row (Ask is on, or unreachable and shown
+ *       disabled; never while rewound). False draws the sheet exactly as it was before Ask.</li>
+ *   <li>{@code askPhase} — {@code AskContext.phase}. Whether an answer is SETTLED decides the sheet's
+ *       resting height (126 with nothing, 112 with an answer: the minimised line), and a map touch
+ *       leaves an answer that is still being fetched alone.</li>
+ *   <li>{@code panelShown} — the shell is showing this pane's tab. Going false closes the Ask section
+ *       (the table's "tab switch away and back": closed with nothing settled, minimised with an answer),
+ *       which `selectTab` cannot do: the pane is mounted but hidden between visits and `openMapMenu` is
+ *       this component's own state.</li>
+ * </ul>
+ *
+ * <h2>…and the older-day fetch's five (outcome-rating-plan.md §2 #2, O3b; §4 #15 as amended)</h2>
+ * <ul>
+ *   <li>{@code canLoadOlder} / {@code olderDayDate} — the pane's verdict on whether one more stored
+ *       past day can be fetched, and which (the day before the oldest it holds, never older than T-4,
+ *       never under a rewind). This component only names the day ({@code Thu 13}) to the window
+ *       control and the peek sheet.</li>
+ *   <li>{@code emptyOlderDayDate} — the most recently loaded older day when it came back with no rows
+ *       (the pane's {@code emptyOlderDay}); named to the menus as {@code Fri 16}, which say there is no
+ *       stored forecast for it (added 2026-10-17).</li>
+ *   <li>{@code olderDayLoading} — the date being fetched, or null. Puts the control in its loading
+ *       state and, on its way back to null, lands the selection on the new day (below).</li>
+ *   <li>{@code onLoadOlderDay} — {@code (date) => void}; the fetch itself lives in {@code useForecasts}.</li>
+ * </ul>
+ *
+ * <h2>…and the counts and the badge (outcome-rating-plan.md §2 #6, O4b)</h2>
+ * <ul>
+ *   <li>{@code ratedCounts} — row id to the reader's rated-location count, built in the pane
+ *       ({@code utils/outcomeRatingJoin.ratedCountByWindow}); forwarded untouched to the window
+ *       control and the phone peek sheet. An id it lacks is unknown and prints nothing.</li>
+ *   <li>{@code outcomeRatings} also feeds {@code spot.myRating} in {@code labelSpots}: the reader's
+ *       own record for a place, set ONLY while the window on screen is past, which {@code MapLabels}
+ *       and {@code PinsLayer} draw as the corner badge. Per-user joins, not derivations.</li>
+ * </ul>
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, pastSolarWindows = NO_PAST_WINDOWS, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null, scoreIndex = null, slotIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, eclipseIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null, askPicks = NO_ASK_PICKS, askSelectedRank = null, onSelectAskPick = null, askWindow = null, askAnswerId = null, onAskContext = null, askOffered = false, askPhase = 'empty', panelShown = true, outcomeRatings = null, ratedCounts = null, canLoadOlder = false, olderDayDate = null, emptyOlderDayDate = null, olderDayLoading = null, onLoadOlderDay = null }) {
   // `MapView` is `React.memo`'d, and its two long-lived mounts (the Map pane, the standalone
   // overlay) sit hidden rather than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
   // in its normal prop set changes when only the colour preference does. `mapColourScale` exists
-  // for exactly that: a caller that re-resolves the setting (`App.jsx`'s `loadHomeCoords`) hands
+  // for exactly that: a caller that re-resolves the setting (`App.jsx`'s `useReaderSettings`) hands
   // down a genuinely new value, which is what breaks `React.memo`'s shallow prop compare and lets
   // this render run at all. Its own VALUE is deliberately never consulted below — every actual
   // colour read (`rampHex`, and `getMode()` in `makeMarkerIcon`'s cache key) goes straight to
@@ -1316,10 +1481,34 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // the old ramp while the markers around it repaint. Neither use reads the value for colour:
   // every colour read goes to `scoreRamp`'s live module state.
   void mapColourScale;
+  // `mapTideMode` and `saveTideMode` (map-mobile-sheet-plan.md M4) are threaded on this same route
+  // — App.jsx's `useReaderSettings` → `WindowFirstMapPane` → here — one hook instance shared by
+  // both phases. M5 is the first consumer: `mapTideMode` feeds `tideCuesOn`'s Auto/Always/Off rule
+  // (below) and the Layers section's own segment; `saveTideMode` is that segment's press handler
+  // (`handleTideModePress`, further down) — never a second `useReaderSettings` call.
   const { role } = useAuth();
   const isMobile = useIsMobile();
   const [userHasOverriddenEvent, setUserHasOverriddenEvent] = useState(false);
   const [eventType, setEventType] = useState(() => getNextEventType(locations, date));
+  /**
+   * The scored-locations toast's phone fade (map-mobile-sheet-plan.md §3 M1 task 2,
+   * `docs/design/map-mobile-sheet/README.md` "Frame" — "Fades out after 3000 ms"). Phone only:
+   * desktop keeps the standing legend (§5 D-4), so this state and its effect are inert there —
+   * {@code toastGone} never turns true because the effect below returns before starting a timer.
+   *
+   * <p>Keyed on the SAME {@code |date|eventType|} pair the toast's own gate reads off
+   * {@code briefingScores} (below), so a window change restarts the 3 s clock and the reader sees
+   * the toast again for the new window — "a window change re-shows it for 3 s; a re-mount re-shows
+   * it" (§3 M1). The cleanup clears the pending timer on every change, so an in-flight fade from the
+   * PREVIOUS window can never fire after this one has already reset {@code toastGone} to false.
+   *
+   * <p>⚠️ The clock starts when the toast is SHOWN, not when the window changes — the effect lives
+   * further down, beside {@code toastShown}, and keys on it. A review of M1 found the gap: keyed on
+   * the window alone, a toast whose gate opened more than 3 s after mount (a slow {@code
+   * /api/briefing} landing on an already-open Map tab) was born with the class already applied —
+   * invisible from its first render, {@code aria-hidden} and all.
+   */
+  const [toastGone, setToastGone] = useState(false);
   /**
    * The EV-ownership forwarding rule's local half (map-tab-v2-plan.md §3 P6). A night (astro or
    * aurora) EV row `App` would reject cannot be forwarded through `onSelectDate` — one whose date is
@@ -1485,6 +1674,31 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const [heatArea, setHeatArea] = useState(true);
   const [heatFitNonce, setHeatFitNonce] = useState(0);
   /**
+   * The tide strip's own collapse state (tide-window-plan.md T6 §4 #12) — `MapView` state, not
+   * `sessionStorage`: the pane is never unmounted (`plan-to-map-doors-plan.md`'s D2 note), so
+   * "persists for the session" needs no storage and no try/catch, and it must survive a window
+   * change on purpose (design §2's own "does not reset on window change").
+   */
+  const [tideStripCollapsed, setTideStripCollapsed] = useState(false);
+  /**
+   * The tide strip's own real, measured height (T7 follow-up, Codex P1) — written from
+   * `MapTideStrip`'s `onHeightChange`, the same `ResizeObserver` callback that already publishes
+   * `--tsh` onto `.wf-map-tab`. `null` while the strip is not on screen. Exists ONLY to retrigger
+   * `MapCallout`'s repaint when the strip's own rect changes (open ⇄ collapsed, or it appearing/
+   * disappearing) — `MapCallout` treats the strip as one of its placement-band bars
+   * (`BAND_BAR_SELECTOR`, T7) and re-measures it fresh off the DOM every time it repaints, but
+   * nothing in that component's own trigger list ever fired on the strip's OWN resize, so the
+   * card kept a stale band until an unrelated pan/zoom forced a re-measure. `MapView` is the one
+   * place both components already meet, so it is the one place this can be wired without either
+   * importing the other or a second `ResizeObserver` duplicating the one `MapTideStrip` already
+   * runs. ⚠️ **Desktop/tablet-only since map-mobile-sheet-plan.md §3 M3 task 5** — the phone's own
+   * `<MapTideStrip>` mount (T7 #16) is retired; its content is the peek sheet's Tide section
+   * instead, which reads no live-measured height at all (the sheet publishes a fixed `--psh`,
+   * §5 D-7). The desktop/tablet mount nested in `.wf-map-chrome-bl` is therefore the ONLY caller
+   * left that ever sets this state.
+   */
+  const [tideStripHeight, setTideStripHeight] = useState(null);
+  /**
    * The Regions jump list's own camera target (map-tab-v2-plan.md §3 P11) — an OVERRIDE of the
    * ordinary `heatArea`-derived bounds below, not a second `HeatBoundsController`.
    *
@@ -1532,6 +1746,19 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   const [openMapMenu, setOpenMapMenu] = useState(null);
   /**
+   * The end of the Ask camera's own latest move (a `Date.now()` stamp), shared between the camera
+   * (writes it) and the peek sheet's map-touch listener (reads it) — see `SheetDismissOnMapTouch`.
+   */
+  const askMoveClockRef = useRef(0);
+  /** The Ask row's entry button — the sheet's other focus-return routes fall back to it. */
+  const askEntryRef = useRef(null);
+  /**
+   * The minimised line's Layers door (`phone-pick-callout-plan.md` §3 P2). While an answer is minimised
+   * the three peek buttons are not drawn, so it is where focus returns when Layers, Regions or Filters
+   * close back onto the line, and the sheet's rescue target when the buttons unmount holding focus.
+   */
+  const askDoorRef = useRef(null);
+  /**
    * The drilldown's LEVEL, while `openMapMenu === 'window-panel'` (map-landing-plan.md §3 L6) — a
    * region NAME for the region panel, null for the window panel above it.
    *
@@ -1578,6 +1805,84 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * survivor instead. The pill is the control the whole drilldown hangs from.
    */
   const winPillRef = useRef(null);
+  /**
+   * The peek sheet's Layers button — the phone Regions/Filters `BottomSheet` hosts' own restore
+   * target (map-mobile-sheet-plan.md §3 M2 task 6). Both hosts stay mounted OUTSIDE the peek body
+   * (their chip hidden, `chipHidden`), so the row that actually opened either sheet is a Layers
+   * peek row that unmounts the instant `openMapMenu` leaves `'peek:lay'` — the very commit that
+   * opens the sheet. Without an explicit fallback, `useDialogFocus` finds `<body>` as the opener on
+   * close (a Codex finding on the plan's M0); this button stays mounted while the sheet is
+   * collapsed, so it is always there to focus back onto.
+   */
+  const layersPeekBtnRef = useRef(null);
+  /**
+   * The peek sheet's Other windows and Tide buttons — the LATTER's own close-and-rescue rule
+   * (map-mobile-sheet-plan.md §3 M3 task 4) needs both: `tidePeekBtnRef` to test whether IT held
+   * focus when its gate turned false, and `windowsPeekBtnRef` as the rescue target, since Other
+   * windows is the one peek button guaranteed to stay mounted whatever the tide gate does.
+   * `tidePeekBtnRef` is also `MapPeekTideSection`'s own next-fit jump's stable focus target (§3 M3
+   * task 3) — the same button, one ref, two callers.
+   */
+  const windowsPeekBtnRef = useRef(null);
+  const tidePeekBtnRef = useRef(null);
+  /**
+   * Whether the Tide peek button currently HOLDS focus — maintained by real `focus`/`blur` DOM
+   * events on the button itself (wired through `MapPeekSheet`'s `onTideButtonFocus`/
+   * `onTideButtonBlur` props), never by comparing `document.activeElement` after the fact.
+   *
+   * <p>⚠️ **This replaces a `document.activeElement === tidePeekBtnRef.current` comparison that
+   * could never be true** (a defect found while wiring M5's own Auto rule, the first gate able to
+   * flip false purely from a VERDICT change while the Tide button already holds focus — M3's own
+   * close scenarios, a night row or a coast panned out of view, never happened to land on a
+   * focused-and-unmounting button in its own browser pass, so this stayed latent, and a Codex
+   * retrospective finding against #928 confirmed it live). The button that held focus is IN THE
+   * SAME RENDER'S OWN JSX conditional (`tideVisible && onPressTide && (<button>…)`), so when the
+   * gate goes false the button unmounts in the SAME commit; removing a focused element resets
+   * `document.activeElement` to `<body>` SYNCHRONOUSLY as part of that commit, before even a
+   * `useLayoutEffect` could read it — so a `useEffect` (which runs strictly after) always sees
+   * `body`, never the removed button, and could never rescue focus at all (proven with a plain
+   * jsdom `removeChild` call). A `blur` event, by contrast, is NOT fired when a focused element is
+   * simply removed from the document — so a ref updated only by `focus`/`blur` retains its `true`
+   * value straight through the unmount, and the close-and-rescue effect below can read it
+   * regardless of render/commit timing. Reset to `false` the instant it is consumed (below) so a
+   * later close, on a future mount of the button that was never refocused, cannot rescue on stale
+   * state.
+   */
+  const tideButtonHadFocusRef = useRef(false);
+  const handleTideButtonFocus = useCallback(() => { tideButtonHadFocusRef.current = true; }, []);
+  const handleTideButtonBlur = useCallback(() => { tideButtonHadFocusRef.current = false; }, []);
+  /**
+   * The Tide section's close-and-rescue hand-off (map-mobile-sheet-plan.md §3 M3 task 4) —
+   * `{active, tideVisible}`, written fresh by a plain (non-hook) assignment further down this
+   * render, right next to where `tideStripModel`/`sheetSection` are actually computed. The EFFECT
+   * that reads it has to be declared HERE instead, ahead of this component's "no forecast data"
+   * early return (`if (!date || locations.length === 0) return (...)`, a few thousand lines down):
+   * every hook must run unconditionally (Rules of Hooks), while the values this rule needs are only
+   * computable after that guard. There is no staleness window between the write and the read —
+   * React finishes executing this whole render function (including the later ref write) before
+   * committing, and only THEN runs effects, so by the time the effect below fires the ref already
+   * holds this exact render's own `{active, tideVisible}`, never a prior one's. `hadFocus` is NOT
+   * part of this hand-off — it lives in `tideButtonHadFocusRef` above, maintained independently by
+   * DOM focus/blur events rather than by this render's own snapshot, for the reason that ref's own
+   * doc explains.
+   *
+   * <p>⚠️ Deliberately NO dependency array — there is nothing available this early whose IDENTITY
+   * tracks the ref's own contents (that is the whole reason the hand-off exists), so this runs
+   * after every commit and re-reads the freshest values each time. Self-terminating, not an
+   * infinite chain: `setOpenMapMenu(null)` only fires while `active` is true, and it immediately
+   * makes the NEXT render's own hand-off write `active: false` (`sheetSection` follows
+   * `openMapMenu`), so the guard fails on the very next pass.
+   */
+  const tideCloseGateRef = useRef({ active: false, tideVisible: true });
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- no dep array is intentional, see doc above
+  useEffect(() => {
+    const { active, tideVisible } = tideCloseGateRef.current;
+    if (!active || tideVisible) return;
+    const hadFocus = tideButtonHadFocusRef.current;
+    tideButtonHadFocusRef.current = false;
+    setOpenMapMenu(null);
+    if (hadFocus) windowsPeekBtnRef.current?.focus();
+  });
   /**
    * ⚠️ **The drilldown can close with nobody pressing anything, and that path has no handler to hang
    * a focus move on.** Every DELIBERATE exit — both ✕ buttons, the sheet handoff, `Zoom to region` —
@@ -1656,6 +1961,19 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // would re-render (and so rebuild every marker) for a viewport that has not actually moved.
     setMapBounds((prev) => (prev && prev.every((v, i) => v === next[i]) ? prev : next));
   }, []);
+  /**
+   * The TAB's own viewport, as the raw Leaflet `LatLngBounds` object — not the plain
+   * `[south, west, north, east]` array {@code mapBounds} above stores for the overlay's simple box
+   * test. `mapTideFit.stripModel` needs a real {@code pad}/{@code contains} pair (tide-window-plan.md
+   * §1 #8: "no `bounds.pad()` existed anywhere in this codebase before this increment"), which
+   * Leaflet's own object already supplies — converting to and back from a plain array would only
+   * lose that. No identity-dedupe here: `stripModel` is one deliberately un-split function (T3's own
+   * documented tension) that DOES need to recompute on every pan (§5 "Derived per (window,
+   * viewport): recompute on pan"), so a fresh object each `moveend` is the intended behaviour, not
+   * the wasted-render risk {@code handleBounds} above guards against.
+   */
+  const [tideViewBounds, setTideViewBounds] = useState(null);
+  const handleTideBounds = useCallback((b) => setTideViewBounds(b), []);
   const { status: auroraStatus } = useAuroraStatus();
   // The night aurora results are keyed to — from the backend, which owns the dusk/dawn rule.
   // Falls back to the local calendar date when status is absent (LITE, failed fetch, or a backend
@@ -1704,6 +2022,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const liveAuroraOnScreen = nightDate === auroraNight;
   const viewlineEnabled = role !== 'LITE_USER' && auroraStatus != null
     && ALERT_WORTHY_LEVELS.has(auroraStatus.level);
+  // Whether the overlay is ELIGIBLE to mount: role, alert level, event and night. It says nothing
+  // about whether a line exists (the fetch may be pending, failed or answer inactive).
+  const viewlineEligible = viewlineEnabled && eventType === 'AURORA' && liveAuroraOnScreen;
   const [viewlineUpsellDismissed, setViewlineUpsellDismissed] = useState(false);
   const showViewlineUpsell = role === 'LITE_USER' && !viewlineUpsellDismissed
     && auroraStatus != null && ALERT_WORTHY_LEVELS.has(auroraStatus.level);
@@ -1744,13 +2065,29 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const [landingSeenRun, setLandingSeenRun] = useState(() => readMapFilter(LANDING_SEEN_KEY));
   const [landingReopenedRun, setLandingReopenedRun] = useState(null);
   const landingRunStamp = overlayMode ? null : landingSeenKeyFor(runId);
-  const landingOpen = Boolean(landingRunStamp)
+  /**
+   * ⚠️ **On the phone the card never opens at all** (map-mobile-sheet-plan.md §3 M1 task 1,
+   * §1 #3 — {@code MapLandingCard}'s own class doc, which used to open with "the phone keeps this
+   * card, inset", is rewritten by this SAME phase to say so). The `!isMobile` term is first so the
+   * whole expression short-circuits before
+   * touching `landingSeenRun`/`landingReopenedRun` — neither is ever read, let alone written, on a
+   * phone mount, which is what keeps {@link LANDING_SEEN_KEY} untouched there (§5 D-3): the card's
+   * only writer is {@link dismissLanding}, and with `landingOpen` permanently false the card never
+   * renders, so its close button, its `Escape` listener and `selectLandingRow` are all unreachable.
+   * One caller IS reachable on the phone — {@code openDrilldown}, from the pill menu's drilldown
+   * row — which is why {@link dismissLanding} itself also returns at once on the phone.
+   */
+  const landingOpen = !isMobile && Boolean(landingRunStamp)
     && (landingSeenRun !== landingRunStamp || landingReopenedRun === landingRunStamp);
   /**
    * Closes the card for this run. Clears the reopen stamp too — without that, a card reopened from
    * the pill menu could never be closed again, since the reopen clause would keep winning.
    */
   const dismissLanding = () => {
+    // ⚠️ On the phone there is no card to dismiss and the stamp must not be written (§5 D-3) —
+    // and this is NOT unreachable there: `openDrilldown` calls it unconditionally, and the pill
+    // menu's drilldown row renders on every viewport. A review of M1 found exactly that route.
+    if (isMobile) return;
     setLandingReopenedRun(null);
     if (!landingRunStamp) return;
     setLandingSeenRun(landingRunStamp);
@@ -1801,10 +2138,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // notice describing a ramp they are not looking at.
   const showColourScaleNotice = colourScaleDefaulted && getMode() === 'temp'
     && !colourScaleNoticeDismissed;
-  // The Kp rides along because the forecast line is built from it: an escalation inside a
-  // forecast-triggered alert moves it without moving `viewlineEnabled` or the trigger, and without
-  // it the hook would go on offering the old Kp's line under an overlay label quoting the new one.
-  const { viewline } = useAuroraViewline(viewlineEnabled, auroraStatus?.triggerType, auroraStatus?.forecastKp);
+  // Always live, forecast as the fallback, never both: the hook asks both viewline endpoints and
+  // offers one line. It needs only whether to poll — the forecast endpoint reads NOAA's live forecast
+  // per request, so the alert's trigger and Kp are no longer its input.
+  const { viewline } = useAuroraViewline(viewlineEnabled);
+  // What the legend may say about the line: the overlay is eligible AND its own test says it
+  // will draw (`viewlineDrawable`, shared with the overlay so the two cannot drift).
+  const viewlineShown = viewlineEligible && viewlineDrawable(viewline);
   const [auroraScores, setAuroraScores] = useState({});
   // The last stored-aurora ANSWER that landed, tagged with the night it answers for —
   // `{night, byName}`, or null before any has. Set by a successful response and by nothing else.
@@ -1828,33 +2168,75 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const [astroConditionsByDate, setAstroConditionsByDate] = useState(new Map());
   const [auroraResultsByDate, setAuroraResultsByDate] = useState(new Map());
   const [flyTarget, setFlyTarget] = useState(null);
+  // The best-aurora card's dismissal (aurora heat A4): `${nightDate}|${best location name}`, so the
+  // card returns for a different night or a different top spot. Session-only, deliberately.
+  const [bestAuroraDismissedKey, setBestAuroraDismissedKey] = useState(null);
+  /**
+   * Hands focus to a surviving control when the best-aurora card's ✕ is about to unmount the card:
+   * the window pill (this tab's return address) or, when no window exists to draw one, the first
+   * control in the pane that is outside the card, enabled, not hidden/inert/aria-hidden and not
+   * `tabindex="-1"`, and that actually accepts focus (the result is read back from
+   * `document.activeElement`, falling through to the next candidate otherwise).
+   */
+  const moveFocusOffCard = (card) => {
+    const pill = winPillRef.current;
+    if (pill) {
+      pill.focus();
+      if (document.activeElement === pill) return;
+    }
+    const candidates = mapPaneRef.current?.querySelectorAll(
+      'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled])',
+    ) ?? [];
+    Array.from(candidates).some((el) => {
+      if (card?.contains(el) || el.getAttribute('tabindex') === '-1'
+        || el.closest('[aria-hidden="true"], [inert], [hidden]')) return false;
+      el.focus();
+      return document.activeElement === el;
+    });
+  };
   const [fitBoundsTarget, setFitBoundsTarget] = useState(null);
   const [tideFetchedAt, setTideFetchedAt] = useState({});
   // Live Leaflet marker instances keyed by location name — used to open a popup
   // programmatically when the Plan tab hands off a specific location.
   const markerRefs = useRef(new Map());
-  // Aurora is available when the user is ADMIN/PRO and either the state machine is active
-  // or there are stored forecast results for any date on the date strip.
+  // Aurora is available when the user is ADMIN/PRO and either the live alert is active or this map's
+  // list of stored aurora nights is non-empty. The list names every night that held a real
+  // (non-simulated) stored result when this map asked, and is asked for once, when this map mounts
+  // (again only if the role changes): it is empty until that request answers, stays empty if it fails,
+  // and never learns of a night stored after it answered — the Map tab's map stays mounted once visited.
   const hasStoredAuroraResults = auroraAvailableDates.length > 0;
   const auroraAvailable = role !== 'LITE_USER'
     && (auroraStatus?.active === true || hasStoredAuroraResults);
   const astroAvailable = astroAvailableDates.length > 0;
 
-  // Auto-reset to SUNSET when aurora mode becomes unavailable.
+  // Auto-reset to SUNSET when aurora mode becomes unavailable. A reader meets this when an alert
+  // ends (the status turns `active: false`) while they are in aurora mode and this map's list of
+  // stored aurora nights is empty — on the Map tab and on the Plan-tab overlay alike. That includes a
+  // list that has not answered yet, so a map mounted into aurora mode after an alert has ended leaves
+  // it at once, even when a stored night exists.
   useEffect(() => {
     if (eventType === 'AURORA' && !auroraAvailable) {
       // Wrapped in an inline async function to satisfy react-hooks/set-state-in-effect.
       // The body still runs synchronously in this tick, preserving prior behaviour.
       (async () => {
         setEventType('SUNSET');
-        setMinStars(null);
+        // ⚠️ No reader asked for this change, so it leaves what the reader set alone — an owner
+        // decision. The rating floor and the stand-down lens keep their values and their saved
+        // copies, and the subject, drive-time and dark-sky filters stand; only the admin "unknown"
+        // lens and the kept-local night reset. It used to set the floor to `null` and clear the saved
+        // one. `null` meant "no floor" when that was written (a5a23f2e), but since 7618a02c the floor
+        // always holds a value, so every reader of it went wrong: an empty chip on the overlay's
+        // context bar, every star button pressed, a filter count and a Clear for a floor nobody
+        // chose, every rating let through — and a reload lost the floor the reader had saved.
+        // `selectEvRow` still resets and clears the floor on an explicit kind change, as
+        // `ForecastTypeSelector`'s `onChange` does on the overlay; map-landing-plan.md §4 #21(a)
+        // records the former as inherited, not chosen.
         setShowUnrated(false);
         // A kept-local night (adversarial review, BLOCKING) has no meaning once the mode that
         // produced it is gone — this leaves SUNSET, which never reads `nightDate`'s override at
         // all, but a later re-entry into ASTRO/AURORA must not resume a night from a session ago.
         setLocalNightDate(null);
       })();
-      clearMapFilter('mapFilterMinStars');
     }
   }, [auroraAvailable, eventType]);
 
@@ -2090,6 +2472,62 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     void 0;
   }, [isMobile]);
 
+  /**
+   * **Any INSTALLED selection collapses an open peek section** (map-mobile-sheet-plan.md §3 M2
+   * task 7, §5 D-7's reverse-order clause) — the other half of the callout/sheet mutual-exclusion
+   * rule. A peek-button press clears the selection first (`handlePeekPress`, below), so the ordinary
+   * route never needs this effect at all; it exists for every OTHER writer of
+   * `selectedLocationName`, since selection is not centralised on this tab — the Leaflet marker
+   * handler, `selectMapLocation` (chips and pins, which stop click propagation before it ever
+   * reaches the map-touch listener below), and the location/plan-handoff effects above all call
+   * {@code setSelectedLocationName} directly (a Codex finding on the plan's M0). Keyed on the
+   * value itself, not on a ref-based "did it change" test, so a selection that arrives while a
+   * section is open (a Plan-tab handoff landing mid-browse) collapses it exactly like a chip press
+   * does — the callout this selection is about to draw must never sit placed for the RESTING sheet
+   * (74 / 126 / 112px) under an open one (356 / 408 / 470px). ⚠️ With Ask's section expanded this is
+   * "minimise" (`utils/askPeek.js`: the same write, `openMapMenu → null`, leaves the 112px line when an
+   * answer is settled and the 126px row when not) — which is why this effect needed no exemption.
+   *
+   * <p>Phone only: `openMapMenu` never holds a `'peek:'` value on desktop/tablet, so this is inert
+   * there regardless of the `isMobile` guard.
+   */
+  useEffect(() => {
+    if (!isMobile) return undefined;
+    if (selectedLocationName == null) return undefined;
+    // Inline async wrapper (this file's own idiom, above) satisfies
+    // react-hooks/set-state-in-effect while the setState still applies synchronously this tick.
+    (async () => {
+      setOpenMapMenu((cur) => (typeof cur === 'string' && cur.startsWith('peek:') ? null : cur));
+    })();
+    return undefined;
+  }, [isMobile, selectedLocationName]);
+
+  /**
+   * **Ask's section cannot outlive its row, or its tab** (F4, plan §2.7's table). `'peek:ask'` means
+   * "the Ask section is EXPANDED" and nothing else: whether an answer exists is Ask's own state
+   * (`askPhase`), and "minimised" is simply no section open with an answer settled
+   * (`utils/askPeek.js`). So both releases here are the same write, {@code → null}:
+   * <ul>
+   *   <li>{@code panelShown} going false — the table's "tab switch away and back" row: nothing settled
+   *       comes back closed, an answer comes back minimised, a minimised one is already null. This is
+   *       the Map pane's own signal because the shell cannot reach this state: `selectTab` runs during
+   *       the shell's render and may only call the shell's own setters, and the pane is mounted but
+   *       hidden between visits (it gets no `active` prop, which `panelShown` is the stand-in for).</li>
+   *   <li>{@code askOffered} going false (Ask switched off, a rewind, a widening past the phone) —
+   *       otherwise a stale value would sit in `openMapMenu` with no row to show for it, and every
+   *       "is anything open" test on this tab (the Escape ladder, the landing card) would answer
+   *       for a sheet that is not there.</li>
+   * </ul>
+   * Other sections ({@code 'peek:win'} and so on) are deliberately left alone, as they always were.
+   */
+  useEffect(() => {
+    if (panelShown && askOffered && isMobile) return undefined;
+    (async () => {
+      setOpenMapMenu((cur) => (cur === 'peek:ask' ? null : cur));
+    })();
+    return undefined;
+  }, [panelShown, askOffered, isMobile]);
+
   // Fetch per-location aurora scores when an alert is active (MODERATE or STRONG).
   // Scores are keyed by location name for O(1) lookup in popup render.
   //
@@ -2285,7 +2723,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * keyed on other things, so across UK midnight they could and did disagree with the third.
    *
    * <p>Not every date read on this tab: {@code tomorrowStr} beside the EV build is still its own
-   * {@code ukDateStrOffset(1)} call, and {@code astroConfidenceScalar} its own {@code ukDateStr()}.
+   * {@code ukDateStrOffset(1)} call, and {@code astroConfidenceScalar} and {@code auroraConfidenceScalar} their own {@code ukDateStr()}.
    * Both feed labels and a haze scalar rather than deciding whether a row or a rating exists, so
    * neither is on this rule's path — named here so the omission reads as a bound, not an oversight.
    */
@@ -2341,8 +2779,30 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * briefing poll to land. Being a string, it busts the memo only when the date actually rolls.
    */
   const solarRowExists = useMemo(() => solarRowPredicate({
-    solarWindows: heat?.windows || [], forecastDates, todayStr: mapTodayStr,
-  }), [heat, forecastDates, mapTodayStr]);
+    solarWindows: heat?.windows || [], forecastDates, pastSolarWindows, todayStr: mapTodayStr,
+  }), [heat, forecastDates, pastSolarWindows, mapTodayStr]);
+  /**
+   * Whether the window on screen is a PAST row (outcome-rating-plan.md §2 #2) — the one fact the
+   * rating accessors below need before {@code mapEvents} exists (it is built several hundred lines
+   * down, after the early return), answered by the SAME function {@code buildMapEvents} calls per
+   * row so the two cannot differ. A plain per-render boolean, not a memo: the answer turns on the
+   * app clock (a window goes past when its earliest event time plus the afterglow elapses), and a
+   * memo keyed on data would hold the old answer until something else moved. Being a primitive it
+   * keeps {@code getRatingForLocation}'s identity stable between renders.
+   */
+  const activeWindowPast = !overlayMode
+    && (eventType === 'SUNRISE' || eventType === 'SUNSET')
+    && isPastSolarWindow({
+      // `!w.past`: only a window the briefing SERVED counts (see `buildMapEvents`).
+      servedWindow: (heat?.windows || []).some(
+        (w) => !w.past && w.date === date && w.targetType === eventType,
+      ),
+      pastWindow: pastSolarWindows.find((w) => w.date === date && w.targetType === eventType) ?? null,
+      inForecastDomain: forecastDates.includes(date),
+      date,
+      todayStr: mapTodayStr,
+      isEventTimePast,
+    });
   /**
    * The horizon above starts at today, so it cannot hold the two past-dated nights D-14 still
    * offers as rows — the night in progress, and the night on screen once it has ended.
@@ -2461,16 +2921,37 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * the field or renders the toolbar. Deliberate, not an oversight: a field and toolbar over a
    * modal would be a second plan.
    *
-   * <p>Withheld in AURORA mode even when handed: aurora's marker quantity (Kp visibility) is
-   * latitude-led rather than a place property, so a field over it would be a smear over a signal
-   * the field's own geography has nothing to say about.
+   * <p>Offered in every mode, AURORA included (aurora-heat-plan.md §3 A2). It was withheld there
+   * until then, on the argument that aurora's marker quantity is latitude-led and a field over it
+   * would be a smear over a signal the field's geography has nothing to say about. The field
+   * paints each location's RATING, though, and that rating already folds in latitude, cloud and
+   * sky darkness — the viewline carries the latitude signal on top of it.
    *
-   * <p>ASTRO is the one exception, since map-tab-v2-plan.md §3 P6 — an astro night's observing
-   * quality IS a place property, exactly like a solar window's sky colour, so the field paints it
-   * the same way; see {@code astroHeatPoints} below for how it is scored.
+   * <p>ASTRO has painted the field since map-tab-v2-plan.md §3 P6 (see {@code astroHeatPoints});
+   * aurora is its twin with a different score source and its own ramp ({@code auroraHeatPoints}).
    */
-  const heatOffered = Boolean(heat?.enabled) && !isAuroraMode;
+  const heatOffered = Boolean(heat?.enabled);
   const heatOn = heatOffered && heatView === 'heat';
+  /**
+   * The colour key's words and gradient, one definition for the three places it is drawn (desktop
+   * toolbar, the phone peek sheet's Layers legend, and the legacy toolbar branch). An aurora night
+   * is painted in the aurora ramp and is a RATING, not a verdict, so its ends are 1★ and 5★ (the
+   * solar "Poor"/"Worth it" are verdict words); the gradient is read at render, never memoised,
+   * because the solar one follows the live colour-scale preference.
+   */
+  const colourKey = isAuroraMode
+    ? {
+      gradient: AURORA_RAMP.gradientCss(),
+      low: '1★',
+      high: '5★',
+      label: 'Colour key: the field runs from 1★ to 5★ aurora rating',
+    }
+    : {
+      gradient: rampGradientCss(),
+      low: 'Poor',
+      high: 'Worth it',
+      label: 'Colour key: the field runs from Poor to Worth it',
+    };
   /**
    * Pins mode, tab-only (map-tab-v2-plan.md §3 P10) — `heatView === 'pins'` can only be reached
    * through the tab's own segment button (the overlay's dead render branch still writes/reads the
@@ -2500,13 +2981,22 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    *
    * <p>Null when the map is on a date the briefing does not cover. `GET /api/forecast` reaches
    * further than the briefing's six windows, so this is an ordinary state and not an error: the
-   * field is absent, the markers are not, and the selector shows nothing selected.
+   * field is absent, the markers are not, and the selector shows nothing selected. The exception is
+   * a PAST window with forecast rows (outcome-rating-plan.md §2 #3): the pane lists it with
+   * {@code past: true} and a point set of its own, and it paints as a served one does.
    */
   const heatWindow = useMemo(() => {
     if (!heatOffered) return null;
     const key = `${date}:${eventType}`;
-    return (heat.windows || []).find((w) => w.key === key) || null;
-  }, [heatOffered, heat, date, eventType]);
+    const found = (heat.windows || []).find((w) => w.key === key) || null;
+    // A `past` entry is the pane's field for a window the briefing no longer serves
+    // (outcome-rating-plan.md §2 #3). It is built for every unserved window with forecast rows,
+    // today's not-yet-elapsed one included, because the pane cannot follow the app clock — so it
+    // counts here only while THIS view agrees the window has gone (`activeWindowPast`, per render).
+    // Otherwise a D-13 filler would paint a field and a colour key it has never had.
+    if (found?.past && !activeWindowPast) return null;
+    return found;
+  }, [heatOffered, heat, date, eventType, activeWindowPast]);
 
   /**
    * The places the field is allowed to count.
@@ -2567,6 +3057,38 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }, [isAstroMode, heat, astroScores]);
 
   /**
+   * The aurora field's points (aurora-heat-plan.md §3 A2, D1): the astro arm's shape over aurora
+   * stars. ⚠️ Which star follows the MEDALLION rule, not {@code getRatingForLocation}'s: on the
+   * night in progress the live {@code auroraScores}, otherwise that night's STORED results — the
+   * field replaces the medallions, and `MapViewAuroraLiveNight.test.jsx` pins that rule as the
+   * tab's behaviour. (Whether the callout's stored-first rule should follow is the plan's Q1.)
+   * A location with no aurora rating is absent, never a 1★ placeholder.
+   */
+  const auroraHeatPoints = useMemo(() => {
+    if (!isAuroraMode || !heat?.spots?.length) return EMPTY_POINTS;
+    const points = [];
+    for (const spot of heat.spots) {
+      // Live first on the night in progress, but a spot the live cache does not hold falls back to
+      // its stored result: `auroraScores` is empty whenever the alert is below MODERATE, while
+      // tonight's stored run can still exist — and the chips and pins read stored-first, so a
+      // live-only field would be blank under rated chips and a "not scored" key (A2 review).
+      const live = liveAuroraOnScreen ? auroraScores[spot.name]?.stars : undefined;
+      const score = Number.isFinite(live) ? live : storedAuroraResults[spot.name]?.stars;
+      if (typeof score !== 'number' || !Number.isFinite(score)) continue;
+      points.push({
+        id: spot.id, name: spot.name, lat: spot.lat, lng: spot.lng, rid: spot.rid, r: [score],
+      });
+    }
+    return points;
+  }, [isAuroraMode, heat, liveAuroraOnScreen, auroraScores, storedAuroraResults]);
+
+  /** The aurora field's own confidence — the astro arm's formula, on the aurora night (plan D2). */
+  const auroraConfidenceScalar = useMemo(() => {
+    if (!isAuroraMode) return null;
+    return confidenceScalar(resolveConfidence(null, daysOut(nightDate, ukDateStr())));
+  }, [isAuroraMode, nightDate]);
+
+  /**
    * The astro field's own confidence — adversarial review finding (real #3). Astro carries no
    * `heat.windows` entry, so `heatWindow?.conf` (the solar path's own scalar, computed once in
    * `WindowFirstMapPane.jsx`) is always null for it, and the field was painting at full strength
@@ -2593,12 +3115,20 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   const heatPoints = useMemo(() => {
     if (isAstroMode) return astroHeatPoints;
+    if (isAuroraMode) {
+      // The dark-sky toggle narrows the aurora field exactly as it narrows a solar one (the chips
+      // and pins already follow it): darkness is a property of the place. Astro does not, by
+      // construction — its roster is dark-sky-enriched already (see above).
+      if (!heatSpotPool) return auroraHeatPoints;
+      const allowedAurora = new Set(heatSpotPool.map(heatSpotKey));
+      return auroraHeatPoints.filter((p) => allowedAurora.has(heatSpotKey(p)));
+    }
     if (!heatOn || !heatWindow) return EMPTY_POINTS;
     const points = heat.pointsByKey?.get(heatWindow.key) || EMPTY_POINTS;
     if (!heatSpotPool) return points;
     const allowed = new Set(heatSpotPool.map(heatSpotKey));
     return points.filter((p) => allowed.has(heatSpotKey(p)));
-  }, [isAstroMode, astroHeatPoints, heatOn, heatWindow, heat, heatSpotPool]);
+  }, [isAstroMode, astroHeatPoints, isAuroraMode, auroraHeatPoints, heatOn, heatWindow, heat, heatSpotPool]);
 
   /**
    * Whether the payload says nothing in the selected window is rated — the Plan tab's mark, adapted
@@ -2610,6 +3140,15 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * have been told the forecast was unscored. The unfiltered set fixes that and is still wrong for
    * a subtler reason the strip's class comment records: an empty point set is a fact about the
    * join behind the picture, and in production three windows the payload was rating had one.
+   *
+   * <p>⚠️ <b>This flag answers the KEY's question — "is there a painted field with a rating behind
+   * it" — and is NOT the "not scored yet" line's gate on a filler row</b> (plan-card-verdict-honesty
+   * H3, 2026-10-13). On a D-13 filler row it is true whatever the chips show, because no field is
+   * painted there ({@code heat.pointsByKey} is keyed by the rendered windows), so the key stays
+   * withheld; the LINE asks the different question "did the forecast rate nothing here" and
+   * consults the score index for a filler row — see {@code fillerHasRatings} and
+   * {@code unscoredLineShown}. Reading this one flag for both is what drew "not scored yet" over
+   * 26 rated chips and "14 rated" in the footer (Friday sunset, production, 2026-10-13).
    *
    * <p>⚠️ <b>A null {@code heatWindow} counts as unscored too, and used to not.</b> This read
    * {@code heatWindow && heatWindow.bestRating == null}, excused by "the selector already says
@@ -2646,7 +3185,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const windowUnscored = Boolean(
     heatOn && (isAstroMode
       ? astroHeatPoints.length === 0
-      : heatWindow?.bestRating == null),
+      : isAuroraMode
+        ? auroraHeatPoints.length === 0
+        : heatWindow?.bestRating == null),
   );
 
   /**
@@ -2765,22 +3306,54 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     [overlayMode, solarRowExists, date, eventType],
   );
 
+  /**
+   * Whether the scored-locations toast is on screen for this window — the ONE gate its render
+   * and its phone fade both read (map-mobile-sheet-plan.md §3 M1 task 2), so the 3 s clock can only
+   * start once there is a toast to fade. The tab's copy only: the overlay's own copy is
+   * deliberately ungated (see the mount).
+   */
+  const toastShown = useMemo(() => {
+    if (overlayMode || isAuroraMode || isAstroMode || briefingScores.size === 0) return false;
+    if (!solarWindowOnScreen()) return false;
+    const suffix = `|${date}|${eventType}|`;
+    for (const key of briefingScores.keys()) {
+      if (key.includes(suffix)) return true;
+    }
+    return false;
+  }, [overlayMode, isAuroraMode, isAstroMode, briefingScores, solarWindowOnScreen, date, eventType]);
+  useEffect(() => {
+    if (!isMobile) return undefined;
+    // Inline async wrapper satisfies react-hooks/set-state-in-effect while the setState still
+    // applies synchronously this tick (the same idiom this file already uses above, for the
+    // aurora-unavailable and auto-event-type effects).
+    (async () => {
+      setToastGone(false);
+    })();
+    if (!toastShown) return undefined;
+    const timer = setTimeout(() => setToastGone(true), 3000);
+    return () => clearTimeout(timer);
+  }, [isMobile, toastShown, date, eventType]);
+
   /** True when this location's forecast for the current event was triaged (stand-down). */
   const isStandDownLocation = useCallback((loc) => {
     if (eventType === 'AURORA') return false;
     const types = loc.locationType ?? [];
-    const isPureWildlife = types.length > 0 && types.every((t) => t === 'WILDLIFE');
+    const isPureWildlife = isWildlifeOnly(types);
     if (isPureWildlife) return false;
     // Same gate as the rating below, and for the same reason: "this window was triaged" is a
     // claim about a window, so a window the EV list has no row for has no triage to report
     // either. Without it a stand-down pin outlived the forecast whose stars had gone.
     if (!solarWindowOnScreen()) return false;
-    const briefingScore = lookupBriefingScore(briefingScoreIndex, loc.name, date, eventType);
+    // A PAST window reads the forecast row ALONE (outcome-rating-plan.md §2 #2): the briefing score
+    // index serves the latest result, which for a passed slot may be one that landed after the
+    // event, while the forecast rows for a passed slot are served as of it.
+    const briefingScore = activeWindowPast
+      ? null : lookupBriefingScore(briefingScoreIndex, loc.name, date, eventType);
     const dayData = loc.forecastsByDate.get(date);
     const solarType = eventType === 'SUNRISE' ? 'sunrise' : 'sunset';
     const forecast = dayData?.[solarType];
     return resolveStandDown(briefingScore, forecast);
-  }, [eventType, date, briefingScoreIndex, solarWindowOnScreen]);
+  }, [eventType, date, briefingScoreIndex, solarWindowOnScreen, activeWindowPast]);
 
   /** Get the forecast rating for a location on the current date/event. */
   const getRatingForLocation = useCallback((loc) => {
@@ -2805,13 +3378,19 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // comment here used to point at a "line ~901" that has since become an unrelated control.
     // Without the fallback, locations rated only via cached_evaluation render a medallion but get
     // hidden by the star-threshold filter.
-    const briefingScore = lookupBriefingScore(briefingScoreIndex, loc.name, date, eventType);
+    //
+    // ⚠️ A PAST window reads the forecast row ALONE (outcome-rating-plan.md §2 #2), never the
+    // briefing score index: that index serves the latest result for the slot, which for a passed
+    // slot may be one that landed after the event, while the forecast rows for a passed slot are
+    // served as of it — so the chip, the pin and the callout star show the star the reader saw.
+    const briefingScore = activeWindowPast
+      ? null : lookupBriefingScore(briefingScoreIndex, loc.name, date, eventType);
     const dayData = loc.forecastsByDate.get(date);
     const forecast = eventType === 'SUNRISE' ? dayData?.sunrise : dayData?.sunset;
     return briefingScore?.rating ?? forecast?.rating ?? null;
   }, [
     eventType, date, briefingScoreIndex, storedAuroraResults, auroraScores, astroScores,
-    solarWindowOnScreen, liveAuroraOnScreen,
+    solarWindowOnScreen, liveAuroraOnScreen, activeWindowPast,
   ]);
 
   /**
@@ -2899,6 +3478,20 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     return lookupForWindow(tideAlignmentIndex, loc.id, loc.name, date, eventType);
   }, [eventType, date, tideAlignmentIndex, solarWindowOnScreen]);
 
+  /**
+   * This window's lunar eclipse sight for a location (L7, `docs/engineering/lunar-eclipse-plan.md`
+   * §3 L7) — the callout's per-location line, read through the SAME `buildEclipseIndex`/
+   * `lookupForWindow` join the popup's `DawnRace` reads for this location's window (L4). Gated
+   * exactly like {@code getTideOnLightForLocation} above and for the identical reason: a served
+   * `EclipseSight` is a fact about a SOLAR window, never a night, and it says nothing while the tab
+   * has no forecast on screen for the window it names.
+   */
+  const getEclipseForLocation = useCallback((loc) => {
+    if (eventType !== 'SUNRISE' && eventType !== 'SUNSET') return null;
+    if (!solarWindowOnScreen()) return null;
+    return lookupForWindow(eclipseIndex, loc.id, loc.name, date, eventType);
+  }, [eventType, date, eclipseIndex, solarWindowOnScreen]);
+
   // Filter logic: type filters and rating filters are both AND-ed.
   // Within each filter group, any match passes (OR).
   const typeFiltered = useMemo(() => (
@@ -2911,8 +3504,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   ), [locations, activeTypeFilters]);
 
   const hasStandDown = typeFiltered.some((loc) => isStandDownLocation(loc));
+  // ⚠️ Excludes a coastal location with a served tide fact (tide-window-plan.md §3 T4 item 1): it
+  // is not "unknown" — it carries a served miss — so it must not make the admin "unknown" toggle
+  // read as actionable, nor be the thing that toggle's title claims exists to reveal. `visibleLocations` below already lets it through the rating stage
+  // unconditionally; this just stops it also being counted as the OTHER kind of absence.
   const hasUnrated = typeFiltered.some((loc) => (
     !isStandDownLocation(loc) && getRatingForLocation(loc) == null
+    && !getTideOnLightForLocation(loc)
   ));
 
   // Full filter pipeline → the markers actually rendered. Memoised so a re-render that touches no
@@ -2921,13 +3519,44 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const visibleLocations = useMemo(() => {
     const ratingFiltered = typeFiltered.filter((loc) => {
       if (isStandDownLocation(loc)) return showStandDown;
+      // Tide-window increment (T4, tide-window-plan.md §3 T4 item 1): a coastal slot with a
+      // served tide fact — aligned or not, or RATED (the weather-stood-down-then-rated
+      // path, §1 #3, which can land a real 1–2★) — passes the rating stage WHATEVER that rating
+      // is, before either the null-rating branch below or the ordinary star floor at the foot of
+      // this callback. It is withheld or answered for a STATED reason, never "nothing scored
+      // yet"; type, drive, dark-sky, scope and `focus` (below and in the caller) still narrow it
+      // like anything else (plan §5 #9).
+      //
+      // ⚠️ Moved here from inside the `rating == null` branch (Codex review, PR #880 P1): the
+      // plan's own item 1 gives the literal rule as `if (tideFact) return true` ahead of the
+      // rating stage, not merely ahead of the null-rating fallback — checking it only inside that
+      // branch let a served coastal MISS that also carries a real 1–2★ rating be removed by the
+      // default 3★+ floor a few lines down, which is exactly the "coast disappears for tide"
+      // defect this item exists to fix. (`isStandDownLocation` above is untouched: a location
+      // triaged for a genuinely unrelated, non-tide reason — a real `triageReason` with no
+      // rating, `resolveStandDown`'s own test — stays behind the pre-existing `showStandDown`
+      // toggle regardless of tide, which is that toggle's own job, not this item's.)
+      //
+      // ⚠️ Deliberately ANY served tide fact, not only a served `gated` one (adversarial
+      // review, T4) — §5 #9's own prose says "tide-gated…and nothing else", but its own item 1
+      // gives the literal rule as `if (tideFact) return true` before ever checking `.gated`.
+      // The tide fact (`tideState`/`tideAligned`/…) is computed from stored extremes
+      // independently of the evaluation pipeline (§1 #4), so a `null` rating alongside one is
+      // already evidence the pipeline reached this slot and had something to say about its
+      // water — narrower than "genuinely never looked at" even when the null rating's cause is
+      // not itself the tide gate (e.g. a still-rated-elsewhere miss that happens to read null
+      // for this window). Reading `.gated` here would leave such a slot behind the "unknown"
+      // toggle regardless, which is the exact defect this item exists to fix.
+      if (getTideOnLightForLocation(loc)) return true;
       const types = loc.locationType ?? [];
-      const isPureWildlife = types.length > 0 && types.every((t) => t === 'WILDLIFE');
+      const isPureWildlife = isWildlifeOnly(types);
       const rating = getRatingForLocation(loc);
-      // Wildlife has no sky rating by design, so the sky-quality threshold must not
-      // hide it. Other unrated (not-yet-evaluated) locations stay admin-gated behind
-      // the "unknown" toggle, so the default 3★+ map reads quality-first.
-      if (rating == null) return isPureWildlife || showUnrated;
+      if (rating == null) {
+        // Wildlife has no sky rating by design, so the sky-quality threshold must not
+        // hide it. Other unrated (not-yet-evaluated) locations stay admin-gated behind
+        // the "unknown" toggle, so the default 3★+ map reads quality-first.
+        return isPureWildlife || showUnrated;
+      }
       return rating >= minStars;
     });
 
@@ -2955,7 +3584,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         ? darkSkyFiltered.filter((loc) => loc.bortleClass != null)
         : darkSkyFiltered;
   }, [
-    typeFiltered, locations, isStandDownLocation, getRatingForLocation,
+    typeFiltered, locations, isStandDownLocation, getRatingForLocation, getTideOnLightForLocation,
     showStandDown, showUnrated, minStars, driveTimeFilter, driveMinutesFor,
     darkSkyFilter, focus, isAstroMode,
   ]);
@@ -3020,6 +3649,482 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     () => scopedVisibleLocations.filter((loc) => getRatingForLocation(loc) != null).length,
     [scopedVisibleLocations, getRatingForLocation],
   );
+  /**
+   * Whether ANY place holds a rating for the solar window on screen when that window has no served
+   * {@code heatWindow} — a D-13 filler row (plan-card-verdict-honesty H3). The "not scored yet" line
+   * answers "the forecast rated nothing here"; on a filler row the Plan tab's served window cannot
+   * say (there is none), so the question goes to the same score index and forecast rows the chips
+   * and the counts footer read, through the same {@link getRatingForLocation}.
+   *
+   * <p>⚠️ <b>Over {@code locations}, never {@code scopedVisibleLocations}</b>: the scope segment and
+   * the filters hide places, they do not unrate them, so a reader whose area holds no rated place
+   * is still looking at a window the forecast rated. A served window keeps its own rule
+   * ({@code bestRating}), which is why this is consulted only when {@code heatWindow} is null.
+   * False for astro and aurora (their own point-set rule) and for a window the EV list has no row
+   * for ({@code getRatingForLocation} answers null there).
+   *
+   * <p>A PAST window whose entry reads {@code bestRating} null is asked the same way (O3c): that
+   * figure counts PAINTED points only, so a window rated solely on places the field withholds (a
+   * wood, an unregioned place) has chips holding stars beside an empty field, and "not scored yet"
+   * would contradict them exactly as it did on a filler.
+   */
+  const fillerHasRatings = useMemo(
+    () => !isAstroMode && !isAuroraMode
+      && (heatWindow == null || (heatWindow.past === true && heatWindow.bestRating == null))
+      && locations.some((loc) => getRatingForLocation(loc) != null),
+    [isAstroMode, isAuroraMode, heatWindow, locations, getRatingForLocation],
+  );
+  /**
+   * ⚠️ Hoisted ABOVE `labelSpots` below (map-mobile-sheet-plan.md §3 M5 task 1): the phone tide
+   * rule (`tideCuesOn`, just below this block) reads the active window's own served verdict
+   * tier off `evVerdicts`/`activeMapEvent`, and `labelSpots` reads `tideCuesOn` to decide whether
+   * to carry `tideTier` at all — so this block (unchanged from its previous position further
+   * down the render) has to exist before `labelSpots`'s own `useMemo` runs. Every input below
+   * (`heat`, `forecastDates`, `mapTodayStr`, `auroraNight`, `eventType`/`nightDate`,
+   * `astroAvailableDates`/`astroConditionsByDate`, `auroraAvailableDates`/`auroraResultsByDate`,
+   * `role`, `regionVerdictIndex`, `heatArea`, `locations`) is already in scope this early in the
+   * render — none of it is itself derived from `labelSpots` or from anything declared between the
+   * two positions. The block opens with the scope pool, which the rows' solar times read.
+   */
+  // ── The scope pool ──
+  /**
+   * The region names in scope — "My area" or "Everywhere", before every OTHER filter
+   * (map-landing-plan.md §3 L1, `docs/design/map-landing/README.md` §1).
+   *
+   * <p><b>Read off the scope pool, which is the point.</b> The design's first check is that
+   * minimum rating, reach, subject and dark-sky must never move the verdict while the scope segment
+   * must — so the tally's population is taken from the one pool that is already scope-only, the same
+   * pool the counts footer reports as "of K". A reader hiding 3★ locations cannot turn a Maybe into
+   * a Worth it, because no reader filter reaches this list at all.
+   *
+   * <p>⚠️ <b>Built from {@code heat?.enabled}, NOT from {@code heatOffered}</b>, and the difference
+   * is a real defect this phase's review caught. {@code heatOffered} used to fold in
+   * {@code !isAuroraMode} (until aurora heat A2 it gated whether the FIELD was drawable), and selecting any aurora night row sets
+   * {@code eventType} to `AURORA`, so routing the verdict through it emptied the scope and silently
+   * deleted the verdict from every SOLAR window in the list. Which regions are in the reader's scope
+   * is a fact about geography and has nothing to do with which layer is currently painted. L2's
+   * stepper ticks are exactly the case that would have exposed it: standing on an aurora row is when
+   * both neighbours are solar and both ticks must be coloured.
+   *
+   * <p>⚠️ A plain {@code const}, <b>not</b> a {@code useMemo}. Hoisted with {@code mapEvents}
+   * (§3 M5 task 1), and ahead of it since {@code withScopedSolarTimes} reads this pool, to sit
+   * BEFORE the {@code if (!date || locations.length === 0)} early return a few hundred lines
+   * down; a {@code useMemo} there would be a conditional hook — that is
+   * the trap {@code scopedRatedCount}'s own doc block records having already paid for once, in a
+   * lint error and a "rendered fewer hooks" failure — but a plain {@code const} pays no such cost
+   * on either side of that line. The work is a `Set` over ~50 spots.
+   */
+  const verdictScopePool = heat?.enabled
+    ? ((heatArea ? heat?.areaSpots : heat?.spots) || EMPTY_POINTS)
+    : EMPTY_POINTS;
+  const regionsInScope = regionNamesOf(verdictScopePool);
+
+  /**
+   * The Map tab's single chronological event list — map-tab-v2-plan.md §3 P6, replacing the
+   * date strip, the event pills and the in-map window select on the TAB only (the overlay keeps
+   * `eventSelector` above, inherited from the card that opened it).
+   *
+   * <p>Built fresh every render rather than `useMemo`'d: every input already recomputes on its
+   * own cadence above (the briefing poll's `heat.windows`, the two multi-date fetches), so a memo
+   * here would carry the identical dependency list for a builder over a few tens of rows at most —
+   * not a cost worth a second list to keep in sync.
+   *
+   * <p>The overlay gets the empty list outright rather than a real one nobody reads: it never
+   * mounts {@code WindowControl} below, so building one would be pure waste on a surface that
+   * cannot show it (the same reasoning that scopes the multi-date astro/aurora fetches above).
+   */
+  const servedMapEvents = overlayMode ? [] : buildMapEvents({
+    solarWindows: heat?.windows || [],
+    tideByWindow: heat?.tideByWindow,
+    isEventTimePast,
+    forecastDates,
+    pastSolarWindows,
+    todayStr: mapTodayStr,
+    tomorrowStr: ukDateStrOffset(1),
+    // D-14 (`utils/mapEvents.js`'s module doc): only nights not yet over become rows. The night in
+    // progress is `auroraNight`, the SAME value `App` hands `resolveMapDate`, so the two agree on
+    // which nights are over; and the night on screen keeps its row once it ends, so the pill never
+    // reads "No forecast" over stars this map is still painting for it. That exception is a row
+    // `App` would refuse, which is why `selectEvRow` forwards only `isForwardableRow` rows.
+    currentNightDate: auroraNight,
+    nightOnScreen: (isAstroMode || isAuroraMode) ? { eventType, date: nightDate } : null,
+    astroAvailableDates,
+    astroConditionsByDate,
+    auroraAvailableDates,
+    auroraResultsByDate,
+    isLite: role === 'LITE_USER',
+    formatTimeUk: formatEventTimeUk,
+  });
+  /**
+   * The same rows, each solar row's clock time taken over the places in SCOPE rather than the
+   * whole catalogue (`utils/mapScopedTime.js`): the served window time is the earliest sunset
+   * anywhere, which named a north-coast minute over a "My area" map. Display only — the elapsed
+   * test stays on the served instant. The same pool as the verdict, so the pill's word and its time
+   * describe one set of places.
+   */
+  const mapEvents = withScopedSolarTimes({
+    events: servedMapEvents, spots: verdictScopePool, locations, formatTimeUk: formatEventTimeUk,
+  });
+  /**
+   * The night rows whose served rows the window control's preview has NOT answered — still in
+   * flight, or failed with nothing earlier to keep — by EV row id, for the callout's every-window
+   * strip: its cell for one of these reads "…", never the "—" that says this location is not rated
+   * that night.
+   *
+   * <p>⚠️ <b>Only nights the preview actually asks about</b> — {@code astroPreviewDates}/
+   * {@code auroraPreviewDates}, the same two lists its effects fetch, so the two cannot drift. A
+   * night outside them is never fetched by the preview, so it is never pending — marking it would
+   * leave "…" beside it for good. Its cell reads "—" unless it is the window on screen;
+   * `MapCallout`'s strip note says why.
+   *
+   * <p>A plain {@code const}, built fresh every render for the reason {@code mapEvents} above is:
+   * that list is itself new on every render. ⚠️ Hoisted alongside {@code mapEvents} above (§3 M5
+   * task 1) to sit BEFORE the {@code if (!date || locations.length === 0)} early return a few
+   * hundred lines down — harmless to compute unconditionally, since it is not a hook.
+   */
+  const pendingNightRowIds = new Set(mapEvents
+    .filter((row) => (row.kind === EVENT_KIND.ASTRO
+      ? astroPreviewDates.includes(row.date) && !astroConditionsByDate.has(row.date)
+      : row.kind === EVENT_KIND.AURORA
+        && auroraPreviewDates.includes(row.date) && !auroraResultsByDate.has(row.date)))
+    .map((row) => row.id));
+
+  /**
+   * Each solar EV row's verdict, the region it names, and how many other in-scope regions share its
+   * tier — keyed by row id (map-landing-plan.md §3 L1).
+   *
+   * <p>A thin wrapper over {@code utils/mapVerdict.buildEvVerdicts}, which holds the guards, the
+   * night-row rule and the keying so a test can reach them without a component — the correction the
+   * doors series' own no-caller-yet phase was given at review.
+   *
+   * <p>Built fresh every render, for the same reason {@code mapEvents} above is, and not merely by
+   * analogy: {@code mapEvents} is a new array on every render, so a {@code useMemo} listing it as a
+   * dependency could never hit.
+   *
+   * <p>Read by the window control's verdict cell, its medallion and its two stepper ticks
+   * (map-landing-plan.md §3 L2).
+   */
+  const evVerdicts = buildEvVerdicts({
+    events: mapEvents, index: regionVerdictIndex, regionsInScope, overlayMode,
+  });
+
+  /**
+   * Everything the landing card draws (map-landing-plan.md §3 L4) — one call into the pure
+   * {@code utils/mapLanding.landingCardModel}, which owns the row selection, the header
+   * derivation, the pick suppression and the all-Poor branch.
+   *
+   * <p><b>Derived here rather than inside the card, because it has two readers</b>: the card, and
+   * the window pill's own reopen row, which prints the SAME header string. Deriving it twice is
+   * how the reopen row would come to name a different pair of windows from the card it reopens —
+   * which is L4's own "a header naming windows not on screen" defect, one level out.
+   *
+   * <p>Built fresh every render, like {@code mapEvents} and {@code evVerdicts} above and for the
+   * identical reason: {@code mapEvents} is a new array on every render, so a memo listing it could
+   * never hit.
+   */
+  const landingModel = landingCardModel({ events: mapEvents, verdicts: evVerdicts });
+
+
+  /** Which EV row is "now showing" — derived from `eventType`/`nightDate`, never a second store. */
+  const activeEvIndex = findEvIndex(mapEvents, eventType, nightDate);
+
+  /**
+   * The active EV row's label+time, for {@code MapLabels}' hover tooltip "event" line
+   * (`docs/design/map-tab-v2/README.md` "Interactions & behaviour": "Tooltip: name, event, N★
+   * verdict, region · drive · Bortle"). Read straight off the row the window control itself shows
+   * as current, so the tooltip can never name a different window than the pill does.
+   */
+  const mapEventLabel = (() => {
+    const row = mapEvents[activeEvIndex];
+    if (!row) return '';
+    return row.time ? `${row.label} ${row.time}` : row.label;
+  })();
+
+  /** The row `MapCallout`'s verdict block and "every window" strip treat as "now showing" — the
+   * SAME row the pill/tooltip above already read off `activeEvIndex`, never a second lookup. */
+  const activeMapEvent = mapEvents[activeEvIndex] ?? null;
+
+  /**
+   * What a question asked from this tab is sent with (F3, plan §2.6 "Scope follows the Map's scope,
+   * never the camera") — published up whenever it changes, never read back. A focused region (a
+   * Regions jump that still stands) is that region; otherwise "My area" is the regions the scope pool
+   * holds — and only when the segment narrows anything (a home or an origin exists; with neither it is
+   * the whole catalogue whatever the segment says, the rule {@code jumpResetArea} applies) — and
+   * "Everywhere" is all of them. The window is the pill's, for a SOLAR row the briefing served only.
+   * The CAMERA is never an input: a reader who pans away has not changed what they are asking about.
+   *
+   * <p>Keyed on primitives, not on a fresh facts object, so a render that changed none of them
+   * publishes nothing. The pane turns names into region ids and words (`utils/askMapContext.js`).
+   */
+  /** The last `askWindow` nonce this map applied — see the window-follow effect below. */
+  const appliedAskNonce = useRef(null);
+  /**
+   * Whether the EV list holds the row a chosen pick names — by (date, kind), never by the row's id (the Map's
+   * night ids, `astro:DATE:ASTRO`, are not Ask's, and no door ever converts one to the other). A plain value
+   * read at render so the window-follow effect below can WAIT for a night row and run again the moment it
+   * arrives: a freshly mounted Map's astro/aurora rows come from two fetches still in flight when a "Show on
+   * map ›" from the Plan tab fires its handoff (`docs/engineering/ask-night-plan.md` §2.1).
+   */
+  const askRowFound = askWindow != null
+    && findEvIndex(mapEvents, askWindow.eventType, askWindow.date) >= 0;
+  const askWindowFacts = askWindowOf(activeMapEvent);
+  const askFocusRegion = jumpFitOverride?.regionName ?? null;
+  const askScoped = Boolean(heat?.hasHome) && heatArea;
+  const askAreaLabel = heat?.areaLabel ?? null;
+  const askAreaKey = regionsInScope.join('\u0000');
+  useEffect(() => {
+    if (!onAskContext) return;
+    onAskContext({
+      focusRegion: askFocusRegion,
+      scoped: askScoped,
+      areaNames: askAreaKey === '' ? [] : askAreaKey.split('\u0000'),
+      areaLabel: askAreaLabel,
+      window: askWindowFacts,
+    });
+    // `askWindowFacts` is a fresh object each render; its three fields are the key.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onAskContext, askFocusRegion, askScoped, askAreaKey, askAreaLabel,
+    askWindowFacts?.date, askWindowFacts?.eventType, askWindowFacts?.label]);
+
+  /**
+   * A pick was chosen (a card, or its chip): clear the selection, and follow the pick's window.
+   * Its own channel and its own effect — see the {@code askWindow} note at the top of this component
+   * for why it is not {@code planHandoff} — and it does the smallest thing that is true: the window,
+   * and nothing else. No lens (the rating floor, the reach tier and the scope are the reader's and
+   * stay), no breadcrumb, no camera (`AskCameraController` owns that), and no callout of its own
+   * choosing: the selected location is CLEARED, because a callout left open for another window would
+   * contradict the window the map just moved to.
+   *
+   * <p>The one exception is a choice that ASKED for its callout ({@code askWindow.callout}: a pick chip on
+   * the phone, `handleSelectAskPick`). Once the pick's row has been found and followed (or kept local, for
+   * a night), the pick's place is selected in the same batch, so the callout describes the pick's OWN
+   * window and never the one the pill was on. A row that is missing or not forwardable opens none: the
+   * tap chose the card and the camera flew. A card choice carries {@code callout: false}, so it can never
+   * inherit a chip's intent.
+   *
+   * <p>The row goes through the same forwarding rule {@code selectEvRow} applies ({@code
+   * isForwardableRow}): a window {@code App} would refuse is not followed, so the map and its parent
+   * can never name two different days. The rating-floor reset {@code selectEvRow} makes on a change of
+   * event kind is deliberately NOT made — a reader moving between two picks has not asked for their
+   * floor back at the default.
+   */
+  useEffect(() => {
+    // ⚠️ Applied ONCE per choice, whatever re-renders around it. `askWindow` goes null while a typed
+    // question is out (the busy conversation holds no answer) and comes back with the SAME nonce when a
+    // refusal puts the earlier answer back — which, keyed on the nonce alone, was a second choice: the
+    // map snapped back to a window the reader had since moved away from and dropped their callout.
+    // And held until the pane is on screen with nothing modal over it (`paneVisible`, the camera's own
+    // gate): a card chosen in the dock on Plan must not move the app's date behind the reader, and one
+    // chosen in the tablet's sheet applies when the sheet closes, with the camera. A choice made while
+    // the pane was never mounted applies on its first mount, which is what "Show on map ›" needs.
+    if (!askWindow || !paneVisible || appliedAskNonce.current === askWindow.nonce) return;
+    // ⚠️ A NIGHT choice is not spent until its row exists. The astro and aurora rows arrive from fetches of
+    // their own (the availability lists, then the nights), so on a Map that has only just mounted — "Show on
+    // map ›" from the Plan tab is exactly that — the row is not there when the handoff fires, and marking the
+    // nonce applied first consumed the choice with nothing to apply it to. Re-run on `askRowFound`, the moment
+    // the row appears. A solar row has always been in the briefing the pick was joined to, so its choice is
+    // spent at once, as it always was: a window the map never carries stays unfollowed, not pending forever.
+    if (isNightType(askWindow.eventType) && !askRowFound) return;
+    appliedAskNonce.current = askWindow.nonce;
+    // The async wrapper is this file's own idiom for `react-hooks/set-state-in-effect` (see the
+    // handoff effects above): the body still runs synchronously in this tick.
+    // The pick's callout, if this choice asked for one (phone chips only; see the JSDoc). ⚠️ `askRowOn` is
+    // declared further down this component: it is a closure read at run time, after the render that declared
+    // it, not a value read while the effect is defined.
+    const wantsCallout = askWindow.callout && askRowOn;
+    const place = wantsCallout
+      ? askPlaceName(askWindow.locationId, askPicks.find((p) => p.rank === askSelectedRank)?.name)
+      : null;
+    // ⚠️ A DEFERRED choice (a night waiting for its row) can outlive its moment: if the reader has since
+    // reopened the Ask section (`'peek:ask'`) or selected another place, the callout it would open is stale —
+    // the window still follows, but the selection (the reader's, or the open sheet's) is left alone. An
+    // immediate choice is never stale: its handler has already cleared a different place and any open
+    // section, and a re-tap's own place is the selection already.
+    const calloutStale = wantsCallout
+      && (openMapMenu === 'peek:ask' || (selectedLocationName != null && selectedLocationName !== place));
+    (async () => {
+      if (!calloutStale) setSelectedLocationName(null);
+      const row = mapEvents[findEvIndex(mapEvents, askWindow.eventType, askWindow.date)];
+      if (!row) return;
+      const forwardable = isForwardableRow(row, { todayStr: mapTodayStr, currentNightDate: auroraNight });
+      const night = row.kind !== EVENT_KIND.SOLAR;
+      if (!night && !forwardable) return;
+      setEventType(row.eventType);
+      setUserHasOverriddenEvent(true);
+      if (forwardable) {
+        setLocalNightDate(null);
+        if (row.date !== date) forwardedDateRef.current = row.date;
+        // ⚠️ `isNight` is the ROW's kind, not a constant: `selectEvRow` and the aurora auto-jump both say a
+        // night's provenance, and `App.resolveMapDate` refuses a night passed as a solar date once it is past —
+        // which is every pick of the night in progress before nautical dawn, when `currentNightDate` is
+        // YESTERDAY (`docs/engineering/ask-night-plan.md` §2.1). The third `onSelectDate` site to need it.
+        // A past row is forwardable now (`isForwardableRow`) and `App` refuses its date without the flag.
+        onSelectDate?.(row.date, { isNight: night, ...(row.past === true ? { isPast: true } : {}) });
+      } else {
+        // A night `App` would refuse (beyond the forecast's own dates, or the one on screen once it has
+        // ended) is kept local, exactly as `selectEvRow` keeps it, so the fetches and the viewline gate land on it.
+        setLocalNightDate(row.date);
+      }
+      if (wantsCallout && !calloutStale && place != null) setSelectedLocationName(place);
+    })();
+    // The nonce IS the trigger (every other handoff effect here reasons the same way), the pane
+    // being on screen is the other, and a night row's arrival the third; the rest are read at the
+    // moment it fires.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [askWindow?.nonce, paneVisible, askRowFound]);
+
+  /**
+   * The older-day fetch's selection landing (outcome-rating-plan.md §2 #2, §4 #11): when a day the
+   * reader asked for lands, selection moves to that day's SUNSET window if it has one, else its
+   * SUNRISE — from `‹`, `←` AND the Load row alike, so the next `‹` steps to that day's sunrise. A day
+   * that comes back with no rows (a loaded-empty day, or a failed fetch) has no row to land on: it
+   * moves nothing. A loaded-empty day is named by the menus and the status region instead (§4 #15 as
+   * amended 2026-10-17); a failed fetch reports through `error`. And a reader who picked another window
+   * while the fetch was out (a chip, the Ask handoff) keeps theirs — the landing is only for the window the press started from.
+   *
+   * <p>Choosing a row of the day that just landed is a lookup over the EV list the pill already holds —
+   * the already-licensed filter/map/select class (CLAUDE.md Backend-heavy); it reads no rating.
+   *
+   * <p>`pending` is set by {@link startOlderLoad} and matched to `loadingDate`, the date this effect last
+   * saw loading, so a press the hook refused (nothing loading ever follows) can never land on a later
+   * day's arrival. Keyed on `olderDayLoading` alone: the render in which it goes null is the one that
+   * already carries the merged rows, because the hook batches the two updates.
+   */
+  const olderLanding = useRef({ pending: null, loadingDate: null });
+  useEffect(() => {
+    const state = olderLanding.current;
+    if (olderDayLoading) {
+      state.loadingDate = olderDayLoading;
+      return;
+    }
+    const loaded = state.loadingDate;
+    state.loadingDate = null;
+    const { pending } = state;
+    if (!loaded || !pending || pending.date !== loaded) return;
+    state.pending = null;
+    // The async wrapper is this file's own idiom for `react-hooks/set-state-in-effect`.
+    (async () => {
+      if ((activeMapEvent?.id ?? null) !== pending.fromId) return;
+      const dayRows = mapEvents.filter((row) => row.kind === EVENT_KIND.SOLAR && row.date === loaded);
+      const landing = dayRows.find((row) => row.eventType === 'SUNSET')
+        ?? dayRows.find((row) => row.eventType === 'SUNRISE');
+      if (landing) selectEvRow(landing);
+    })();
+    // The loading edge IS the trigger; the rows and the active window are read at the moment it fires.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [olderDayLoading]);
+
+  /**
+   * The Load row's, `‹`'s and `←`'s common start (outcome-rating-plan.md §2 #2). Records the window
+   * the press started from, so a landing can tell the reader moved on, and hands the day to fetch to
+   * the parent. The CALLERS close the menu and move focus to the pill first (the control's own handler,
+   * and {@link loadOlderFromPeek}): this runs after that, on the same press.
+   */
+  function startOlderLoad() {
+    if (!canLoadOlder || !olderDayDate || olderDayLoading || !onLoadOlderDay) return;
+    olderLanding.current.pending = { date: olderDayDate, fromId: activeMapEvent?.id ?? null };
+    onLoadOlderDay(olderDayDate);
+  }
+
+  /** The phone sheet's Load row: close the sheet and move focus to the pill HERE, before the state change. */
+  function loadOlderFromPeek() {
+    winPillRef.current?.focus();
+    setOpenMapMenu(null);
+    startOlderLoad();
+  }
+  const olderDayLabel = olderDayDate ? pastDayLabel(olderDayDate, mapTodayStr) : null;
+  // The most recently loaded older day, if it had no rows: the calendar form (`Fri 16`), since the line
+  // is a sentence about that one day (outcome-rating-plan.md §4 #15, amended 2026-10-17).
+  const emptyOlderDayLabel = emptyOlderDayDate ? dowDayLabel(emptyOlderDayDate) : null;
+  const olderDayLoadingLabel = olderDayLoading ? pastDayLabel(olderDayLoading, mapTodayStr) : null;
+
+  /**
+   * The peek sheet's "Other windows" button value (map-mobile-sheet-plan.md §3 M2 task 3) — a scan
+   * over the SAME `mapEvents`/`evVerdicts` the pill and the Windows section both already read, never
+   * a second roster. Phone only; harmless to compute on desktop (it is simply never rendered there).
+   */
+  const peekOtherWindow = otherWindow(mapEvents, activeEvIndex, evVerdicts);
+  const peekOtherWindowVerdict = peekOtherWindow ? (evVerdicts.get(peekOtherWindow.id) ?? null) : null;
+
+  /**
+   * The phone tide-visibility rule's own three inputs (map-mobile-sheet-plan.md §3 M5 task 1) —
+   * computed from the UNDECORATED spot list, never from `labelSpots` below: `labelSpots` is what
+   * `tideCuesOn` DECIDES (it carries `tideTier` only when this is true), so reading it here would
+   * be a cycle (a Codex finding on the plan's M0). `scopedVisibleLocations` already carries
+   * `lat`/`lon` and everything `isCoastalTidalLocation` needs, before any tide decoration exists.
+   *
+   * <p>`hasCoastalInView` is a BOOLEAN (`.length > 0`), never the filtered array itself —
+   * `mapTideFit.coastalInView` returns the array, and an empty array is truthy, so passing it
+   * straight into the gate would keep the tide on after a pan inland.
+   *
+   * <p>Desktop/tablet never read this at all: `tideCuesOn` short-circuits on `!isMobile` before
+   * `tideVisible` is even called, so a Poor window's `data-tide` is untouched there whatever the
+   * saved mode is (plan §5 D-6, README Verify 6's invariance).
+   */
+  const tideAvailableForCues = activeMapEvent?.kind === EVENT_KIND.SOLAR && activeMapEvent?.tide != null;
+  const hasCoastalInViewForCues = coastalInView(
+    scopedVisibleLocations.map((loc) => ({ lat: loc.lat, lng: loc.lon, coastal: isCoastalTidalLocation(loc) })),
+    tideViewBounds,
+  ).length > 0;
+  const activeWindowTier = evVerdicts.get(activeMapEvent?.id)?.tier ?? null;
+  /**
+   * The one gate every phone tide cue reads (map-mobile-sheet-plan.md §1 #6, §3 M5 task 2) — a
+   * single boolean, never a flag threaded to `MapLabels`, `PinsLayer` or the tooltips. Desktop and
+   * tablet are unconditionally `true` here: the mode/rule are phone-only by construction, so
+   * `tierOf(tide)` below runs exactly as it always has on every other viewport.
+   */
+  const tideCuesOn = !isMobile || tideVisible({
+    mode: mapTideMode,
+    tideAvailable: tideAvailableForCues,
+    hasCoastalInView: hasCoastalInViewForCues,
+    tier: activeWindowTier,
+  });
+
+  /**
+   * The Tide peek button's one-shot pulse (map-mobile-sheet-plan.md §3 M5 task 3) — plays once on a
+   * false → true transition of `tideCuesOn`, ARMED ONLY after the first bounds-backed evaluation.
+   *
+   * <p>`tideViewBounds` is `null` until `BoundsTracker`'s own mount effect reports the real
+   * viewport (declared above, alongside `handleTideBounds`), so a coastal Worth-it window's FIRST
+   * resolved visibility is itself a post-mount `false → true` — pulsing on it would fire on every
+   * load of a tide-eligible window, not on a genuine change (a Codex finding on the plan's M0). The
+   * ref is therefore seeded, never compared, on the first render whose `tideViewBounds` is not
+   * null; only renders after that seed ever set the pulse.
+   *
+   * <p>Declared here (a hook, so it must run unconditionally, ahead of the
+   * {@code if (!date || locations.length === 0)} early return a few hundred lines down) rather than
+   * beside {@code tideCloseGateRef} above: unlike that ref's hand-off, this effect needs
+   * {@code tideCuesOn} and {@code tideViewBounds} as VALUES, not a ref written after the return, and
+   * both are already in scope here.
+   */
+  const tidePulseArmedRef = useRef({ armed: false, prevTideVisible: false });
+  const [tidePulse, setTidePulse] = useState(false);
+  useEffect(() => {
+    if (tideViewBounds == null) return; // no bounds report yet — nothing to arm or compare against
+    const state = tidePulseArmedRef.current;
+    if (!state.armed) {
+      // The seed render: record where things stand, but this is the baseline, never a transition.
+      state.armed = true;
+      state.prevTideVisible = tideCuesOn;
+      return;
+    }
+    if (!state.prevTideVisible && tideCuesOn) setTidePulse(true);
+    state.prevTideVisible = tideCuesOn;
+  }, [tideCuesOn, tideViewBounds]);
+  /** Clears the pulse on the animation's own `animationend` (`MapPeekSheet`'s `onTidePulseEnd`) —
+   * never a timer, which could race a second transition landing mid-animation. Under
+   * `prefers-reduced-motion: reduce` the CSS drops the animation outright (this file's existing
+   * convention), so the class simply sits inert until the next genuine transition overwrites it;
+   * either way nothing ever double-pulses, since `setTidePulse(true)` above is idempotent. */
+  const clearTidePulse = useCallback(() => setTidePulse(false), []);
+  /**
+   * The Layers Tide segment's own save-failure announcement (map-mobile-sheet-plan.md §3 M5 task
+   * 4) — folded into the tab's ONE status region (`statusLine`, below), never a second live region.
+   * `saveTideMode` itself already reverts `mapTideMode` to the hook's last-persisted baseline on a
+   * failure (`useReaderSettings.js`'s own doc), so this state carries only the WORDS a screen
+   * reader needs, cleared the instant a later press succeeds or is itself in flight.
+   */
+  const [tideModeSaveFailed, setTideModeSaveFailed] = useState(false);
 
   /**
    * The Map tab's label catalogue (map-tab-v2-plan.md §3 P8) — `MapLabels`' own "named" pool,
@@ -3045,12 +4150,20 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const labelSpots = useMemo(() => {
     const spotOf = (loc) => {
       const tide = getTideOnLightForLocation(loc);
+      const rating = getRatingForLocation(loc);
       return {
+        // ⚠️ Load-bearing for `mapTideFit.nextAlignedRow`'s id-first lookup (tide-window-plan.md
+        // T3, `docs/engineering/tide-window-plan.md`) — without this, every strip next-fit scan
+        // silently falls through to a name-only join, which two roster entries sharing a display
+        // name would conflate (the exact failure class `locationSheet.js#lookupForWindow`'s own
+        // id-first design exists to avoid). Null rather than omitted, matching `lookupForWindow`'s
+        // own "id-first, falls back to name" contract when a caller has no id to offer.
+        id: loc.id ?? null,
         name: loc.name,
         lat: loc.lat,
         lng: loc.lon,
         rid: loc.regionName || '',
-        rating: getRatingForLocation(loc),
+        rating,
         bortleClass: loc.bortleClass ?? null,
         driveMinutes: driveMinutesFor(loc.id),
         // `PinsLayer`'s own stand-down/no-data distinction (adversarial review C8) — a triaged
@@ -3064,17 +4177,115 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         // itself (CLAUDE.md: backend formats all clock/offset prose).
         onTheLight: Boolean(tide?.onTheLight),
         nearestSolarOffsetPhrase: tide?.onTheLight ? (tide.phrase ?? null) : null,
+        // Tide-window increment (T3, tide-window-plan.md §3): the location's own configured want,
+        // whether it is coastal-and-tidal at all, and this WINDOW's served preference-axis tier —
+        // never derived here, only read off `tide` (the extended `buildTideAlignmentIndex` entry)
+        // via `mapTideFit.tierOf`, which answers the axis this increment cares about
+        // (`tideAligned`), never the on-the-light one above.
+        tideTypes: loc.tideType ?? [],
+        coastal: isCoastalTidalLocation(loc),
+        // ⚠️ The phone tide-visibility rule's ONE gate (map-mobile-sheet-plan.md §1 #6, §3 M5 task
+        // 2) — `tideCuesOn` is `true` unconditionally on desktop/tablet (computed above,
+        // `!isMobile || tideVisible(...)`), so this null only ever fires on a phone whose mode/
+        // verdict/viewport combination says "hide". `tideShortfall`/`tideFitPhrase` follow it so a
+        // tooltip clause can never read a real phrase behind a glyph the chip isn't drawing; every
+        // consumer (`MapLabels`, `PinsLayer`) already gates on `tideTier` first, so this is the
+        // single null they all inherit — never a second flag threaded to any of them.
+        tideTier: tideCuesOn ? tierOf(tide) : null,
+        tideShortfall: tideCuesOn ? (tide?.shortfall ?? null) : null,
+        // The served state at the light this window (tide-window-plan.md §4 #21) — the match
+        // glyph's own letter reads this, never a level or threshold computed here.
+        tideState: tide?.state ?? null,
+        // Whether the light was ASSESSED for this location in this window (window-tide-facts-plan
+        // §4.2): a sky rating or a combined rating exists. Only then may a tide miss be headed
+        // "wrong water, not wrong light"; on a window nothing scored (T+3/T+4, a travel day) the
+        // heading makes no claim about the light.
+        tideAssessed: tide?.skyRating != null || rating != null,
+        // The block body T4's tooltip reads for BOTH tiers (tide-window-plan.md §3 T4 item 4) —
+        // carried here rather than left for that phase to add, since it is the same `tide` object
+        // this function already has in hand and the plan's own goal for this phase is that every
+        // fact reaches the components that will draw it.
+        tideFitPhrase: tideCuesOn ? (tide?.fitPhrase ?? null) : null,
+        // The reader's OWN outcome rating for this place in the window on screen — `1..5`,
+        // `'NOT_SEEN'` or null (outcome-rating-plan.md §2 #6, O4b). Set ONLY on a past window (a
+        // served one has no outcome to rate) and only when the reader's ratings for that date have
+        // been read successfully (`myRatingOf` answers null otherwise, so a failed read draws no
+        // badge rather than implying nothing was rated). A per-user join, never a derivation.
+        myRating: activeWindowPast ? myRatingOf(outcomeRatings, loc.id, date, eventType) : null,
       };
     };
     const spots = scopedVisibleLocations.map(spotOf);
     if (selectedLoc && !spots.some((s) => s.name === selectedLoc.name)) {
       spots.push(spotOf(selectedLoc));
     }
+    // ⚠️ Ask PhotoCast's picks (F3, plan §2.7). Every pick is on the map: one the reader's rating
+    // floor, subject chips or scope removed is APPENDED, exactly as the selected location is above,
+    // because the answer named it and a numbered card with no number on the map is the failure. The
+    // pick rides on the spot as `askPick` — the card's own facts for the PICK'S window (rank, short
+    // window, that window's rating and verdict) — so the chip draws those and not the active window's
+    // `rating`, which the spot keeps for everything else that reads it. Identity is id first, name
+    // second (`heatSpots`' doctrine). A place may win MORE than one pick — a ranking follow-up over the
+    // thread's own picks can return one place at two windows — and the map has one position per place,
+    // so it is ONE chip carrying every rank it won (`askPick.ranks`, present only then, so a single-pick
+    // place's `askPick` is exactly what it was). The chip is `selected` when ANY of its picks is, and
+    // shows the facts of the chosen pick (else the lowest rank's); `selectedRank` says which, so a press
+    // can move on to the next. The camera keys on the selection's nonce and the place's position, never
+    // on a rank, so choosing either pick flies to the one chip. A pick whose location the catalogue does
+    // not hold, or holds without coordinates, has nowhere to be drawn and is skipped.
+    if (askPicks.length > 0) {
+      const byPlace = new Map();
+      for (const pick of [...askPicks].sort((a, b) => a.rank - b.rank)) {
+        const loc = locations.find((l) => l.id === pick.locationId)
+          ?? locations.find((l) => l.name === pick.name);
+        if (!loc || !Number.isFinite(loc.lat) || !Number.isFinite(loc.lon)) continue;
+        if (!byPlace.has(loc.name)) byPlace.set(loc.name, { loc, picks: [] });
+        byPlace.get(loc.name).picks.push(pick);
+      }
+      for (const { loc, picks } of byPlace.values()) {
+        const chosen = picks.find((p) => p.rank === askSelectedRank);
+        const shown = chosen ?? picks[0];
+        const askPick = {
+          rank: picks[0].rank,
+          shortWindow: shown.shortWindow,
+          rating: shown.rating,
+          verdict: shown.verdict,
+          label: shown.label,
+          selected: chosen !== undefined,
+        };
+        if (picks.length > 1) {
+          askPick.ranks = picks.map((p) => p.rank);
+          askPick.selectedRank = chosen?.rank ?? null;
+          askPick.label = `Ask picks ${ranksPhrase(askPick.ranks)}: ${picks.map((p) => p.label).join('; ')}`;
+        }
+        const at = spots.findIndex((s) => s.name === loc.name);
+        if (at >= 0) spots[at] = { ...spots[at], askPick };
+        else spots.push({ ...spotOf(loc), askPick });
+      }
+    }
     return spots;
   }, [
     scopedVisibleLocations, getRatingForLocation, getTideOnLightForLocation, driveMinutesFor,
-    selectedLoc, isStandDownLocation,
+    selectedLoc, isStandDownLocation, tideCuesOn, locations, askPicks, askSelectedRank,
+    activeWindowPast, outcomeRatings, date, eventType,
   ]);
+  /** The pick spots that actually reached the map — what dims the rest and what the camera frames. */
+  const askPickSpots = labelSpots.filter((spot) => spot.askPick);
+  const askActive = askPickSpots.length > 0;
+  /** The chosen pick, as the camera flies to it: `askWindow.nonce` is new on every choice. */
+  const askSelectedSpot = askPickSpots.find((spot) => spot.askPick.selected) ?? null;
+  const askSelection = askWindow && askSelectedSpot
+    ? {
+      lat: askSelectedSpot.lat,
+      lng: askSelectedSpot.lng,
+      nonce: askWindow.nonce,
+      // A phone chip choice (the one that opens the pick's callout): the chip was on screen to be tapped,
+      // so the camera stays where the reader has it — flying would put the point above the frame centre
+      // and the card (266px wide, ~300px tall) would then fit neither side of it and cover the ring just
+      // tapped; `MapCallout`'s own one-shot pan keeps the card in view, as for an ordinary chip. The
+      // expression is `askRowOn`'s (declared further down, so not read here).
+      still: askWindow.callout === true && isMobile && !overlayMode && askOffered,
+    }
+    : null;
 
   /**
    * The map "in force" for reach-MEASUREMENT purposes (D1, plan-to-map-doors-plan.md §3) — the
@@ -3222,14 +4433,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     const forecast = dayData?.[solarType];
     const hourlyData = dayData?.hourly ?? [];
     const types = loc.locationType ?? [];
-    const isPureWildlife = types.length > 0 && types.every((t) => t === 'WILDLIFE');
-    const isWaterfall = types.includes('WATERFALL');
-    // A canopy site's rating answers a different question from every other pin's. Excluded from
-    // cluster averages for the same reason WATERFALL is: a wood rated 5 on a flat overcast misty
-    // evening would drag its cluster's grey→gold ramp toward gold on precisely the nights the sky
-    // is at its worst. The two are ORed into one flag because the cluster only asks "does this
-    // score mean sky colour", and for both the answer is no.
-    return { forecast, hourlyData, isPureWildlife, isWaterfall };
+    const isPureWildlife = isWildlifeOnly(types);
+    // `isPureWildlife` selects the popup's hourly-comfort branch (the Plan-tab OVERLAY's
+    // `MarkerPopupContent`) and the pin's wildlife colour. A canopy site is deliberately NOT part of
+    // it: a wood's rating is a real, inverted-polarity sky score, and it keeps its own treatment.
+    return { forecast, hourlyData, isPureWildlife };
   }
 
   // Active (non-default) filters drive the collapsed pill summary and its highlight — and, in the
@@ -3361,143 +4569,39 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     />
   );
 
-  /**
-   * The Map tab's single chronological event list — map-tab-v2-plan.md §3 P6, replacing the
-   * date strip, the event pills and the in-map window select on the TAB only (the overlay keeps
-   * `eventSelector` above, inherited from the card that opened it).
-   *
-   * <p>Built fresh every render rather than `useMemo`'d: every input already recomputes on its
-   * own cadence above (the briefing poll's `heat.windows`, the two multi-date fetches), so a memo
-   * here would carry the identical dependency list for a builder over a few tens of rows at most —
-   * not a cost worth a second list to keep in sync.
-   *
-   * <p>The overlay gets the empty list outright rather than a real one nobody reads: it never
-   * mounts {@code WindowControl} below, so building one would be pure waste on a surface that
-   * cannot show it (the same reasoning that scopes the multi-date astro/aurora fetches above).
-   */
-  const mapEvents = overlayMode ? [] : buildMapEvents({
-    solarWindows: heat?.windows || [],
-    forecastDates,
-    todayStr: mapTodayStr,
-    tomorrowStr: ukDateStrOffset(1),
-    // D-14 (`utils/mapEvents.js`'s module doc): only nights not yet over become rows. The night in
-    // progress is `auroraNight`, the SAME value `App` hands `resolveMapDate`, so the two agree on
-    // which nights are over; and the night on screen keeps its row once it ends, so the pill never
-    // reads "No forecast" over stars this map is still painting for it. That exception is a row
-    // `App` would refuse, which is why `selectEvRow` forwards only `isForwardableRow` rows.
-    currentNightDate: auroraNight,
-    nightOnScreen: (isAstroMode || isAuroraMode) ? { eventType, date: nightDate } : null,
-    astroAvailableDates,
-    astroConditionsByDate,
-    auroraAvailableDates,
-    auroraResultsByDate,
-    isLite: role === 'LITE_USER',
-    formatTimeUk: formatEventTimeUk,
-  });
-  /**
-   * The night rows whose served rows the window control's preview has NOT answered — still in
-   * flight, or failed with nothing earlier to keep — by EV row id, for the callout's every-window
-   * strip: its cell for one of these reads "…", never the "—" that says this location is not rated
-   * that night.
-   *
-   * <p>⚠️ <b>Only nights the preview actually asks about</b> — {@code astroPreviewDates}/
-   * {@code auroraPreviewDates}, the same two lists its effects fetch, so the two cannot drift. A
-   * night outside them is never fetched by the preview, so it is never pending — marking it would
-   * leave "…" beside it for good. Its cell reads "—" unless it is the window on screen;
-   * `MapCallout`'s strip note says why.
-   *
-   * <p>A plain {@code const} below the early return, built fresh every render for the reason
-   * {@code mapEvents} above is: that list is itself new on every render.
-   */
-  const pendingNightRowIds = new Set(mapEvents
-    .filter((row) => (row.kind === EVENT_KIND.ASTRO
-      ? astroPreviewDates.includes(row.date) && !astroConditionsByDate.has(row.date)
-      : row.kind === EVENT_KIND.AURORA
-        && auroraPreviewDates.includes(row.date) && !auroraResultsByDate.has(row.date)))
-    .map((row) => row.id));
-  /**
-   * The region names in scope — "My area" or "Everywhere", before every OTHER filter
-   * (map-landing-plan.md §3 L1, `docs/design/map-landing/README.md` §1).
-   *
-   * <p><b>Read off the scope pool, which is the point.</b> The design's first check is that
-   * minimum rating, reach, subject and dark-sky must never move the verdict while the scope segment
-   * must — so the tally's population is taken from the one pool that is already scope-only, the same
-   * pool the counts footer reports as "of K". A reader hiding 3★ locations cannot turn a Maybe into
-   * a Worth it, because no reader filter reaches this list at all.
-   *
-   * <p>⚠️ <b>Built from {@code heat?.enabled}, NOT from {@code heatOffered}</b>, and the difference
-   * is a real defect this phase's review caught. {@code heatOffered} folds in {@code !isAuroraMode}
-   * because it gates whether the FIELD is drawable — and selecting any aurora night row sets
-   * {@code eventType} to `AURORA`, so routing the verdict through it emptied the scope and silently
-   * deleted the verdict from every SOLAR window in the list. Which regions are in the reader's scope
-   * is a fact about geography and has nothing to do with which layer is currently painted. L2's
-   * stepper ticks are exactly the case that would have exposed it: standing on an aurora row is when
-   * both neighbours are solar and both ticks must be coloured.
-   *
-   * <p>⚠️ A plain {@code const}, <b>not</b> a {@code useMemo} — it is declared below the
-   * {@code if (!date || locations.length === 0)} early return, where a hook would be a conditional
-   * hook. That is the trap {@code scopedRatedCount}'s own doc block records having already paid for
-   * once, in a lint error and a "rendered fewer hooks" failure. The work is a `Set` over ~50 spots.
-   */
-  const verdictScopePool = heat?.enabled
-    ? ((heatArea ? heat?.areaSpots : heat?.spots) || EMPTY_POINTS)
-    : EMPTY_POINTS;
-  const regionsInScope = regionNamesOf(verdictScopePool);
 
   /**
-   * Each solar EV row's verdict, the region it names, and how many other in-scope regions share its
-   * tier — keyed by row id (map-landing-plan.md §3 L1).
+   * The tide strip's own per-render model (tide-window-plan.md T6) — one call into the pure
+   * {@code mapTideFit.stripModel}, built fresh every render like {@code mapEvents}/{@code
+   * evVerdicts}/{@code landingModel} above and for the identical reason: {@code mapEvents} is a new
+   * array every render, so a {@code useMemo} listing it could never hit (T3's own documented tension
+   * over the "two independent memos" split — inert until a measured cost says otherwise).
    *
-   * <p>A thin wrapper over {@code utils/mapVerdict.buildEvVerdicts}, which holds the guards, the
-   * night-row rule and the keying so a test can reach them without a component — the correction the
-   * doors series' own no-caller-yet phase was given at review.
-   *
-   * <p>Built fresh every render, for the same reason {@code mapEvents} above is, and not merely by
-   * analogy: {@code mapEvents} is a new array on every render, so a {@code useMemo} listing it as a
-   * dependency could never hit.
-   *
-   * <p>Read by the window control's verdict cell, its medallion and its two stepper ticks
-   * (map-landing-plan.md §3 L2).
+   * <p>{@code labelSpots} is the same pool `MapLabels`/`PinsLayer` draw from, so the strip's counts
+   * can never disagree with a chip a reader is looking at. {@code tideViewBounds} is the TAB's own
+   * Leaflet viewport (declared above, alongside the overlay's plain-array {@code mapBounds}) — never
+   * mounted in {@code overlayMode}, so this reads {@code null} there and the strip never visible.
    */
-  const evVerdicts = buildEvVerdicts({
-    events: mapEvents, index: regionVerdictIndex, regionsInScope, overlayMode,
+  const tideStripModel = stripModel({
+    row: activeMapEvent,
+    spots: labelSpots,
+    bounds: tideViewBounds,
+    evRows: mapEvents,
+    evIndex: activeEvIndex,
+    idx: tideAlignmentIndex,
   });
 
   /**
-   * Everything the landing card draws (map-landing-plan.md §3 L4) — one call into the pure
-   * {@code utils/mapLanding.landingCardModel}, which owns the row selection, the header
-   * derivation, the pick suppression and the all-Poor branch.
-   *
-   * <p><b>Derived here rather than inside the card, because it has two readers</b>: the card, and
-   * the window pill's own reopen row, which prints the SAME header string. Deriving it twice is
-   * how the reopen row would come to name a different pair of windows from the card it reopens —
-   * which is L4's own "a header naming windows not on screen" defect, one level out.
-   *
-   * <p>Built fresh every render, like {@code mapEvents} and {@code evVerdicts} above and for the
-   * identical reason: {@code mapEvents} is a new array on every render, so a memo listing it could
-   * never hit.
+   * The sunrise/sunset clock times the strip's chart labels — a lookup over the SAME EV list
+   * (tide-window-plan.md T6, `mapTideFit.siblingEventTime`), never a client-side formula:
+   * {@code BriefingWindowTide} states WHERE the sun rises/sets on the tide axis but not the clock
+   * time itself, and the sibling SUNRISE/SUNSET row for this date already carries it, served.
+   * Skipped entirely while the strip is not visible — there is nothing for either label to draw.
    */
-  const landingModel = landingCardModel({ events: mapEvents, verdicts: evVerdicts });
-
-
-  /** Which EV row is "now showing" — derived from `eventType`/`nightDate`, never a second store. */
-  const activeEvIndex = findEvIndex(mapEvents, eventType, nightDate);
-
-  /**
-   * The active EV row's label+time, for {@code MapLabels}' hover tooltip "event" line
-   * (`docs/design/map-tab-v2/README.md` "Interactions & behaviour": "Tooltip: name, event, N★
-   * verdict, region · drive · Bortle"). Read straight off the row the window control itself shows
-   * as current, so the tooltip can never name a different window than the pill does.
-   */
-  const mapEventLabel = (() => {
-    const row = mapEvents[activeEvIndex];
-    if (!row) return '';
-    return row.time ? `${row.label} ${row.time}` : row.label;
-  })();
-
-  /** The row `MapCallout`'s verdict block and "every window" strip treat as "now showing" — the
-   * SAME row the pill/tooltip above already read off `activeEvIndex`, never a second lookup. */
-  const activeMapEvent = mapEvents[activeEvIndex] ?? null;
+  const tideStripSunriseTime = tideStripModel.visible
+    ? siblingEventTime(mapEvents, activeMapEvent?.date, 'SUNRISE') : null;
+  const tideStripSunsetTime = tideStripModel.visible
+    ? siblingEventTime(mapEvents, activeMapEvent?.date, 'SUNSET') : null;
   /**
    * The window panel's rows and its note — the drilldown's first level (map-landing-plan.md §3 L5).
    *
@@ -3596,13 +4700,19 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * which IS a statement about the forecast rather than the camera. Gating it would have silenced
    * the one mode whose message is always earned — once the night has answered, that is; see
    * {@code windowUnscored} for the loading case in which it is not.
+   *
+   * <p>⚠️ <b>Also withheld on a filler row that holds ratings</b> ({@code fillerHasRatings}, plan-card-
+   * verdict-honesty H3): the line says the forecast rated nothing, which is false beside chips
+   * drawing real stars. The colour key does NOT follow — it stays down on that row because it
+   * describes the painted field, and none is painted ({@code windowUnscored} is still true).
    */
-  const unscoredLineShown = windowUnscored && (isAstroMode || activeMapEvent != null);
+  const unscoredLineShown = windowUnscored && !fillerHasRatings
+    && (isAstroMode || activeMapEvent != null);
 
   /**
    * What that line says: {@code NIGHT_RETRY_LINE} while the night on screen's own request has failed
    * and is being asked again with no answer in hand ({@link ratingRetrying} — astro in practice,
-   * since an aurora night withholds the field), otherwise that the event is not scored. "Not scored"
+   * since an aurora night is not retried the way an astro night's rating is, though both now paint the field), otherwise that the event is not scored. "Not scored"
    * is a claim about the forecast, which a failed request is no evidence for, and the callout beside
    * this says the same failure in the same words. Both render sites below read it.
    */
@@ -3626,12 +4736,21 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * failure while the reader was on another tab filled the region outside the accessibility tree;
    * coming back only removes `hidden`, and a region revealed already full announces nothing. Empty
    * while hidden, it fills on the return — a change, announced — and a failure on another tab is
-   * not read out on that tab.
+   * not read out on that tab. {@code paneVisible} is the pane's answer, and it covers more than the
+   * panel: the document's visibility (a background browser tab — Codex's post-merge review of #848),
+   * the window's focus (another app in front, since through both the panel keeps its box and the
+   * screen reader is presenting something else), and a foreign dialog over the pane (the four-day
+   * sheet opened as a peek, or settings — neither leaves this tab or is `inert` behind, O-20).
+   * `WindowFirstMapPane.jsx`'s own doc on `paneVisible` has the detail; this file only consumes the
+   * one boolean. ⚠️ Not this file's {@code paneIsOffScreen}, which asks only whether the pane's
+   * panel is laid out, for focus and Escape handling.
    */
-  const statusLine = paneVisible && ratingRetrying && (
-    unscoredLineShown
-    || (selectedLoc != null && activeMapEvent != null && getRatingForLocation(selectedLoc) == null)
-  ) ? NIGHT_RETRY_LINE : '';
+  const statusLine = tideModeSaveFailed
+    ? 'Could not save tide mode — kept the last saved choice.'
+    : (paneVisible && ratingRetrying && (
+      unscoredLineShown
+      || (selectedLoc != null && activeMapEvent != null && getRatingForLocation(selectedLoc) == null)
+    ) ? NIGHT_RETRY_LINE : '');
 
   /**
    * "No forecast to show." — the Map tab's own empty state, in the Plan screen's exact words
@@ -3668,6 +4787,28 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * "which window" state to be empty about.)
    */
   const noForecastLineShown = activeMapEvent == null && !unscoredLineShown;
+
+  /**
+   * A forecast of wildlife hides ALONE: the EV list is empty (no sunrise or sunset row exists, so
+   * `buildMapEvents` drew no window and there is no `activeMapEvent`), yet at least one hide carries
+   * hourly comfort rows. Two consequences, both only in that state and never for a roster with a
+   * single event:
+   * <ul>
+   *   <li>{@code hideDayCard} — a SELECTED pure-wildlife hide still gets its callout, in day mode
+   *       (`MapCallout`'s `dayMode`): the card that is mounted behind `activeMapEvent` everywhere
+   *       else, which left the tab open onto a dead end where a hide could be picked and nothing
+   *       came of it. A sky location with no event still gets no card.</li>
+   *   <li>{@code hidesOnlyForecast} — "No forecast to show." is false for those places, so the
+   *       empty-state sentence says what is true instead.</li>
+   * </ul>
+   * Not a synthetic event: nothing here invents a window, a verdict or a sunset.
+   */
+  const hideDayCard = mapEvents.length === 0 && selectedLoc != null
+    && isWildlifeOnly(selectedLoc.locationType);
+  const hidesOnlyForecast = mapEvents.length === 0 && locations.some((loc) => (
+    isWildlifeOnly(loc.locationType)
+    && Array.from(loc.forecastsByDate.values()).some((entry) => entry?.hourly?.length > 0)
+  ));
 
   /**
    * The Regions jump list (map-tab-v2-plan.md §3 P11, `docs/design/map-tab-v2/README.md` §2).
@@ -4012,9 +5153,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // the calendar test this line used to be, a pick of it at 00:01 stayed on screen, ended, where the
     // same night picked at 23:59 moved on.
     //
-    // Inert for solar by construction: a served window is never past (the briefing retires elapsed
-    // ones) and the D-13 filler branch already requires `date >= todayStr`, so the solar arm narrows
-    // nothing that was reachable.
+    // For solar the arm WIDENS since the outcome-rating series (outcome-rating-plan.md §2 #2): a
+    // served window and a D-13 filler are `date >= todayStr`, and a PAST row (an elapsed, unserved
+    // window with forecast rows) is forwarded too — with the `isPast` flag below, because
+    // `App.resolveMapDate` refuses a date before today without it.
     if (isForwardableRow(row, { todayStr: mapTodayStr, currentNightDate: auroraNight })) {
       setLocalNightDate(null);
       if (row.date !== date) {
@@ -4035,7 +5177,16 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       // reader was watching ran on until dawn. It also leaves the flag correct in the other
       // direction: a SOLAR row picked on the date a night row already occupied clears it, so the
       // night licence stays per-pick rather than sticking to whatever came after it.
-      onSelectDate?.(row.date, { isNight: row.kind !== EVENT_KIND.SOLAR });
+      //
+      // A PAST solar row (outcome-rating-plan.md §2 #2) carries the second provenance flag,
+      // `isPast`, on the same terms: `App.resolveMapDate` refuses a date before today unless the
+      // pick names one, and the flag is set per pick (a later pick of a live window clears it).
+      // Named only when true: every other pick's call is byte for byte what it was, and `App`'s
+      // `isPast` default is the safe answer for a live window.
+      onSelectDate?.(row.date, {
+        isNight: row.kind !== EVENT_KIND.SOLAR,
+        ...(row.past === true ? { isPast: true } : {}),
+      });
     } else {
       setLocalNightDate(row.date);
     }
@@ -4067,6 +5218,273 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   function selectMapLocation(name) {
     setSelectedLocationName(name);
   }
+
+  /**
+   * The callout's ✕: close it and keep focus somewhere the pane's Escape rule can still hear. The ✕ unmounts
+   * with the callout, which would drop focus to {@code <body>} — and this pane's `onKeyDown` fires only
+   * while focus is inside it (the defect this tab has had five times). So focus goes to the chip or pin that
+   * is ringed as the selection (it carries `data-selected`; the answer's own cards carry it too, hence the
+   * narrower selector), else to the pane's own node ({@code tabIndex -1},
+   * a programmatic-only target). Before the state clears, while the ✕ still holds focus; harmless when the
+   * ✕ was not the focused control.
+   */
+  function closeCallout() {
+    const origin = mapPaneRef.current?.querySelector(
+      '[data-testid="map-label-chip"][data-selected="true"], [data-testid="map-pin"][data-selected="true"]',
+    );
+    const target = origin instanceof HTMLElement && origin.isConnected ? origin : mapPaneRef.current;
+    target?.focus({ preventScroll: true });
+    setSelectedLocationName(null);
+  }
+
+  /**
+   * The name a pick's place is selected under: the location with the pick's id (the name `MapCallout` and
+   * every chip key on), else the pick's own name. A plain function over `locations`, read at run time.
+   */
+  function askPlaceName(locationId, fallbackName) {
+    const loc = locationId != null ? locations.find((l) => l.id === locationId) : null;
+    return loc?.name ?? fallbackName ?? null;
+  }
+
+  /**
+   * The peek sheet's own open section — a VALUE of `openMapMenu`, not a second piece of state
+   * (map-mobile-sheet-plan.md §5 D-1). `'peek:win' | 'peek:tide' | 'peek:lay'` strip down to
+   * `'win' | 'tide' | 'lay'` for `MapPeekSheet`'s own prop; every other `openMapMenu` value (the
+   * desktop dropdown, `'jump'`, `'filters'`, `'legend'`, `'window-panel'`) reads as collapsed here,
+   * which is exactly the exclusivity rule §1 #9 draws attention to. Phone only — desktop never sets
+   * a `'peek:'` value at all, so this is always null there regardless of the `isMobile` guard.
+   */
+  const sheetSection = isMobile && typeof openMapMenu === 'string' && openMapMenu.startsWith('peek:')
+    && openMapMenu !== 'peek:ask'
+    ? openMapMenu.slice(5)
+    : null;
+
+  // ── The Ask row of the sheet (F4, plan §2.7's phone paragraph) ────────────────────────────────────
+  // Three facts, one derivation (`utils/askPeek.js`): is the Ask section EXPANDED (a value of
+  // `openMapMenu`, D-1's one gate), is another section open, and is an answer SETTLED (Ask's state).
+  // "Minimised" is no flag: it is a settled answer with nothing open. The row exists only on a phone,
+  // on the tab, and while Ask is offered.
+  const askRowOn = isMobile && !overlayMode && askOffered;
+  const askSettled = SETTLED_PHASES.includes(askPhase);
+  const askMode = askPeekMode({
+    offered: askRowOn,
+    expanded: askRowOn && openMapMenu === 'peek:ask',
+    section: sheetSection,
+    phase: askPhase,
+  });
+  /** What the sheet RESTS at — `--psh`, the callout's band and the chrome's floor. See `peekRestingHeight`. */
+  const peekResting = isMobile ? peekRestingHeight(askRowOn, askSettled) : null;
+  /** What the sheet is heading for — the camera's inset, and the label placer's obstacle. */
+  const peekTarget = peekTargetHeight(askMode, sheetSection != null);
+
+  /**
+   * What the phone's peek sheet covers of the frame, for the camera (F4, plan §2.7): the sheet's TARGET
+   * height — 470 with the Ask section open, 112 for the minimised line, 408 under another section — as
+   * a bottom inset, so the picks are fitted into what the reader can see. The camera clamps it to 60%
+   * of the frame (`utils/askCamera.js`), and re-applies its last move when it changes, which is how the
+   * map re-fits when the answer is minimised. Only while picks are on the map and the sheet is a phone's:
+   * everywhere else it is no inset at all, which is what the camera was already being given.
+   */
+  const askInset = isMobile && askActive ? { ...NO_INSET, bottom: peekTarget } : NO_INSET;
+
+  /**
+   * A peek button (or the phone pill override) was pressed — the ONE toggle rule both routes share
+   * (map-mobile-sheet-plan.md §3 M2 task 4). Pressing the ACTIVE section's own button collapses it;
+   * pressing a different one switches without collapsing (README rule 2).
+   *
+   * <p>⚠️ **Clears the selection FIRST** (§5 D-7's reverse-order clause, task 8) — the callout and
+   * an open sheet must never coexist on the phone in EITHER order: every callout-opening route is a
+   * map tap, which the map-touch listener below already collapses the sheet for, and this is the
+   * reverse route — growing the sheet while a callout is up would otherwise place a card for the
+   * RESTING sheet underneath an open one a beat later. Harmless to call with nothing selected.
+   */
+  function handlePeekPress(section) {
+    setSelectedLocationName(null);
+    setOpenMapMenu((cur) => (cur === `peek:${section}` ? null : `peek:${section}`));
+  }
+
+  /**
+   * The Ask camera is about to make a move of its own, ending at {@code until}: stamped so the sheet's
+   * map-touch listener can tell the zoom Leaflet fires for it from a hand (`SheetDismissOnMapTouch`).
+   */
+  function stampAskMove(until) {
+    askMoveClockRef.current = until;
+  }
+
+  /**
+   * The Ask row's entry button, or the minimised line, was pressed: open the Ask section. It is
+   * `handlePeekPress('ask')`'s write without its toggle — same gate, same clearing of the selection (the
+   * callout and an EXPANDED sheet must never coexist; only the 112px line may) — behind the one refusal
+   * every Ask entry makes: it never opens over a dialog (`foreignModalOver`, the predicate every Escape
+   * rule on this tab and the shell's own `openAskSheet` apply).
+   */
+  function openAskSection() {
+    if (foreignModalOver(mapPaneRef.current)) return;
+    // Not `handlePeekPress`'s toggle: this only ever OPENS (the control that calls it is not drawn while
+    // the section is open), and a second press landing before the first has re-rendered must not shut it.
+    setSelectedLocationName(null);
+    setOpenMapMenu('peek:ask');
+  }
+
+  /**
+   * A pick chip (or its pin) was pressed: choose the pick's card, and — on the phone — open the pick's own
+   * callout over the minimised answer (docs/engineering/phone-pick-callout-plan.md §3 P1, which supersedes
+   * the F4 rule that expanded the answer). Tablet and desktop choose the card and nothing else:
+   * {@code onSelectAskPick(rank)}, no callout.
+   *
+   * <p>On the phone the press asks for the callout by {@code onSelectAskPick(rank, {callout: true})}: the
+   * intent rides the choice (`AskContext.selectPick`, atomic with its nonce), and the window-follow effect
+   * below opens the callout once the pick's row has been followed, so the card describes the pick's OWN
+   * window. This handler does the other half, synchronously: it turns any open peek value (Windows, Tide,
+   * Layers, or an EXPANDED answer) to null, so the sheet is already at its resting height when the camera
+   * flies (`peekTarget` is then 112, not 470) and no commit holds a callout beside an open sheet. An
+   * expanded answer is minimised on purpose: the callout opens and an expanded sheet never coexist, and
+   * a reader who wants the cards back taps the line.
+   *
+   * <p>⚠️ **A drilldown, Regions or Filters stays open** — those are panels ABOUT the map that persist
+   * under a press on it (map-landing L3), exactly as they do under an ordinary chip, which opens its
+   * callout over them. ⚠️ **The standing selection is cleared only when the tapped place is a different
+   * one**: a re-tap of a `1·2` place (one chip, two windows) steps to the other window and must not tear
+   * its callout down and rebuild it. The window-follow effect clears it too, then installs the place, in
+   * one batch.
+   */
+  function handleSelectAskPick(rank) {
+    if (!askRowOn) {
+      onSelectAskPick?.(rank);
+      return;
+    }
+    onSelectAskPick?.(rank, { callout: true });
+    const pick = askPicks.find((p) => p.rank === rank);
+    const place = askPlaceName(pick?.locationId, pick?.name);
+    if (place !== selectedLocationName) setSelectedLocationName(null);
+    setOpenMapMenu((cur) => (typeof cur === 'string' && cur.startsWith('peek:') ? null : cur));
+  }
+
+  /**
+   * The two doors out of the Ask section's "Plan this" view (F5, plan §2.8) — the phone's version of what
+   * the shell hands the dock and the sheet.
+   *
+   * <p>"Open in Plan ›" is {@code onOpenLocationSheet} with {@code inPlan: true} and the PICK'S window —
+   * <b>not</b> {@code handleOpenLocationSheet}, which reads the date and the event off the active map
+   * window and the place off the selection (a card the map has not followed yet would open the wrong
+   * window). The shell's handoff effect moves the tab and opens the sheet in one batch; the pane then goes
+   * hidden, {@code panelShown} falls and the Ask section closes (the conversation, plan view and all,
+   * is kept), so the Map comes back minimised.
+   *
+   * <p>Each door exists only when the host handed one over: a control that does nothing is not drawn.
+   */
+  const askPlanActions = {
+    openInPlan: onOpenLocationSheet
+      ? (card) => onOpenLocationSheet({
+        id: card.locationId ?? null,
+        name: card.name,
+        regionName: card.regionName ?? null,
+        inPlan: true,
+        date: card.date,
+        targetType: card.targetType,
+      })
+      : undefined,
+    setPostcode: onOpenSettings ? () => onOpenSettings() : undefined,
+  };
+
+  /**
+   * The Layers Tide segment's press handler (map-mobile-sheet-plan.md §3 M5 task 4) — the segment
+   * moves at once (`saveTideMode` sets `mapTideMode` synchronously before its own save resolves,
+   * `useReaderSettings.js`'s own doc), and this only has to react to the OUTCOME: clear a standing
+   * failure message on a save that succeeds or is itself superseded/ended by a newer press, or show
+   * one when this reader's own choice comes back `'failed'` (the hook has already reverted the
+   * shown/stored mode to its last-persisted baseline by the time the promise settles).
+   */
+  function handleTideModePress(mode) {
+    if (!saveTideMode) return;
+    // Clear a standing failure message the instant a fresh press is made — a reader retrying should
+    // not keep reading the previous attempt's outcome while this one is still in flight.
+    setTideModeSaveFailed(false);
+    saveTideMode(mode).then((outcome) => {
+      setTideModeSaveFailed(outcome === 'failed');
+    });
+  }
+
+  /**
+   * The Tide section's close-and-rescue gate, freshly written every render (map-mobile-sheet-
+   * plan.md §3 M3 task 4, reused UNCHANGED here per §3 M5 task 2 — only the gate's SOURCE changed,
+   * `tideStripModel.visible` → `tideCuesOn`). The `‹ ›` steppers can land the pill on a night row, a
+   * solar window with no coastal spot in the padded viewport, a Poor window in Auto, or an
+   * Off/mode change while `'peek:tide'` is open; the Tide button that opened it is gated on the
+   * SAME test, so it unmounts on the very render this value also goes stale — an open body with
+   * nothing left to have opened it. The actual close-and-rescue EFFECT lives next to
+   * `tideCloseGateRef`'s own declaration, ahead of this component's early return (that comment
+   * explains why, and `tideButtonHadFocusRef`'s own doc explains why focus itself is tracked
+   * separately, by DOM events, rather than here); this plain assignment is the hand-off, never a
+   * hook itself, so it is exactly as safe to place after the early return as any other derived
+   * `const`.
+   */
+  tideCloseGateRef.current = {
+    active: isMobile && sheetSection === 'tide',
+    tideVisible: tideCuesOn,
+  };
+
+  /**
+   * `RegionsJump`'s own props, in ONE object rather than typed out twice — the desktop mount
+   * (`.wf-map-chrome-tr`, chip visible) and the phone mount (mounted once outside the peek body,
+   * chip withheld, its `BottomSheet` opened from a Layers row instead — map-mobile-sheet-plan.md
+   * §3 M2 task 6) are the SAME control at the SAME `openMapMenu` value; only the trigger differs.
+   */
+  const regionsJumpProps = {
+    open: openMapMenu === 'jump',
+    onOpenChange: (next) => setOpenMapMenu(next ? 'jump' : null),
+    rows: jumpRows,
+    onSelectRegion: jumpToRegion,
+    activeRegion: jumpFitOverride?.regionName ?? null,
+    resetLabel: jumpResetLabel,
+    onReset: clearRegionJump,
+  };
+
+  /** `FiltersPopover`'s own props — the identical one-object-not-two-mounts shape as
+   * {@link regionsJumpProps}, above. */
+  const filtersPopoverProps = {
+    open: openMapMenu === 'filters',
+    onOpenChange: (next) => setOpenMapMenu(next ? 'filters' : null),
+    minStars,
+    onSelectMinStars: handleMinStarsClick,
+    activeTypeFilters,
+    onToggleType: toggleTypeFilter,
+    subjectChips: MAP_FILTER_CHIPS,
+    seasonalFeatures,
+    role,
+    driveTimeFilter,
+    onSelectDriveTime: setDriveTimeFilter,
+    darkSkyFilter,
+    onToggleDarkSky: () => setDarkSkyFilter((v) => !v),
+    darkSkyThreshold: DARK_SKY_THRESHOLD,
+    hasHome: Boolean(heat?.hasHome),
+    heatArea,
+    // `next === true` ("My area") is `resetToMyArea` itself — the SAME function `⌂` calls
+    // (map-tab-v2-plan.md §3 P11's reconciliation) — so the two controls can never disagree about
+    // what resetting scope means. `next === false` ("Everywhere") clears any standing jump
+    // override for the identical reason: a stale region fit must not survive the reader's own
+    // later choice to widen scope.
+    onSelectScope: (next) => {
+      if (next) { resetToMyArea(); return; }
+      setJumpFitOverride(null);
+      setHeatArea(false);
+      setHeatFitNonce((n) => n + 1);
+    },
+    areaLabel: heat?.areaLabel,
+    isAuroraMode,
+    isAstroMode,
+    showAdminRow: role === 'ADMIN' && !isAuroraMode && !isAstroMode,
+    showStandDown,
+    onToggleStandDown: toggleShowStandDown,
+    hasStandDown,
+    showUnrated,
+    onToggleUnrated: toggleShowUnrated,
+    hasUnrated,
+    activeCount: filterActiveCount,
+    filteredCount: scopedVisibleLocations.length,
+    scopeCount: scopeBasePool.length,
+    onClearAll: clearAllMapFilters,
+  };
 
   /**
    * The window control, controlled for menu exclusivity (map-tab-v2-plan.md §3 P7). `openMapMenu`
@@ -4113,8 +5531,15 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       // `landingReopenedRun` to that stamp, so with no run to key on it writes null and
       // `landingOpen` stays false — a menu row whose every press does nothing, which this file
       // bans outright elsewhere in its own words (`CentreOnHomeControl`).
-      landingLabel={!landingOpen ? landingModel.header : ''}
-      onReopenLanding={landingRunStamp && landingModel.rows.length > 0 ? reopenLanding : null}
+      //
+      // ⚠️ `!isMobile` is a FOURTH, explicit term on both lines (map-mobile-sheet-plan.md §3 M1
+      // task 1) — `landingOpen` is already permanently false on the phone (above), and `!landingOpen`
+      // alone would therefore read TRUE there, handing `landingLabel` the card's header and standing
+      // the `↺ Back to …` row up for a card that can never be reopened (`reopenLanding` sets a stamp
+      // nothing on the phone ever reads back). Withheld, not merely inert: the row must not exist to
+      // land a press on at all.
+      landingLabel={!isMobile && !landingOpen ? landingModel.header : ''}
+      onReopenLanding={!isMobile && landingRunStamp && landingModel.rows.length > 0 ? reopenLanding : null}
       // The drilldown's entry (map-landing-plan.md §3 L5). Withheld when the map is on a date the
       // EV list has no row for at all — there would be no window for the panel to be about.
       // ⚠️ `served`, not merely "there is a row". A D-13 filler is a window the briefing served
@@ -4124,6 +5549,23 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       // the entry is the honest form — there is no answer to drill into.
       onOpenWindowPanel={activeMapEvent && activeMapEvent.served !== false ? openDrilldown : null}
       pillRef={winPillRef}
+      // The older-day fetch (outcome-rating-plan.md §2 #2, O3b): `‹` on the oldest window and the
+      // Load row fetch the next older stored day; the pill says so while it is out.
+      canLoadOlder={canLoadOlder}
+      olderDayLabel={olderDayLabel}
+      emptyOlderDayLabel={emptyOlderDayLabel}
+      olderDayLoadingLabel={olderDayLoadingLabel}
+      onLoadOlderDay={startOlderLoad}
+      ratedCounts={ratedCounts}
+      // Phone only (map-mobile-sheet-plan.md §3 M2 task 4) — the pill body toggles the peek
+      // sheet's Windows section instead of this control's own dropdown, which stays permanently
+      // closed there (`open` is `openMapMenu === 'window'`, a value the phone never sets). See
+      // `WindowControl`'s own doc on the prop for why the popup semantics travel with it.
+      pillOverride={isMobile ? {
+        onPress: () => handlePeekPress('win'),
+        expanded: sheetSection === 'win',
+        controlsId: 'wf-map-peek-body',
+      } : null}
     />
   );
 
@@ -4191,8 +5633,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    *
    * <p>Containment, not "is any modal open": a dialog this pane renders INLINE is its own business
    * and must keep behaving exactly as it does — only a FOREIGN one suppresses the press. It is the
-   * same test, for the same reason, that `WindowFirstShell`'s `/` shortcut already applies to
-   * `UserSettingsModal`. ⚠️ <b>It is DOM containment, so it protects no component that exists
+   * same test, for the same reason, that `WindowFirstShell`'s `/` shortcut (now Ask's) and `openAskSheet` apply to
+   * `UserSettingsModal` (`utils/shellForeignDialog.js`). ⚠️ <b>It is DOM containment, so it protects no component that exists
    * today</b> — a first draft of this comment named the phone `BottomSheet` and was wrong:
    * `BottomSheet` portals to `document.body`, so it is foreign by this test whatever the React tree
    * says (unreachable either way — the tab's two callers pass `modal={false}`, and the only
@@ -4272,7 +5714,15 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       // class sits on THIS element, the one carrying `mapPaneRef` and the pane's key handler,
       // rather than merely existing somewhere in the tree.
       data-testid={overlayMode ? undefined : 'wf-map-pane'}
+      // The peek sheet's RESTING height, published for everything that clears it (`index.css`'s
+      // lifted stack, the Leaflet corner's padding) and for `MapCallout`'s band, which reads it off
+      // this element when it paints. State-driven since Ask (F4): 74 with no Ask row, 126 with one,
+      // 112 while an answer is minimised. Phone and tab only — unset elsewhere, so desktop and tablet
+      // see exactly the stylesheet's own value (none), as before.
+      style={!overlayMode && isMobile ? { '--psh': `${peekResting}px` } : undefined}
       onKeyDown={overlayMode ? undefined : handleMapPaneKeyDown}
+      // A programmatic-only focus target (never a tab stop): where focus goes when the callout's ✕ unmounts.
+      tabIndex={overlayMode ? undefined : -1}
     >
       {overlayMode && (
         /* ── Context bar — the overlay's default row ──
@@ -4480,7 +5930,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               <select
                 value={driveTimeFilter}
                 onChange={(e) => setDriveTimeFilter(parseInt(e.target.value, 10))}
-                className="text-xs px-2 py-1 bg-plex-surface border border-plex-border rounded-full text-plex-text-secondary focus:outline-none focus:ring-1 focus:ring-plex-gold"
+                className="text-xs px-2 py-1 bg-plex-surface border border-plex-border rounded-full text-plex-text-secondary focus:outline-hidden focus:ring-1 focus:ring-plex-gold"
                 data-testid="drive-time-filter-select"
                 title="Filter by drive time from home"
               >
@@ -4533,7 +5983,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       )}
 
       {/* Best aurora location card — visible only in aurora mode */}
-      {isAuroraMode && bestAuroraLocation && (
+      {isAuroraMode && bestAuroraLocation
+        && bestAuroraDismissedKey !== `${nightDate}|${bestAuroraLocation.location.name}` && (
         <div
           style={overlayMode ? { margin: '10px 18px' } : undefined}
           className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-lg border border-indigo-500/30 bg-indigo-900/20 text-sm"
@@ -4554,6 +6005,20 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             className="shrink-0 px-3 py-1 text-xs font-medium rounded-full border border-indigo-500/40 text-indigo-300 bg-indigo-900/40 hover:bg-indigo-800/40 transition-colors"
           >
             Centre map
+          </button>
+          {/* ⚠️ The card unmounts on this press, so focus is handed to a surviving control first —
+              otherwise it falls to <body>, where the pane's key handler never fires. */}
+          <button
+            type="button"
+            onClick={(pressEvent) => {
+              moveFocusOffCard(pressEvent.currentTarget.closest('[data-testid="aurora-best-location-card"]'));
+              setBestAuroraDismissedKey(`${nightDate}|${bestAuroraLocation.location.name}`);
+            }}
+            aria-label="Dismiss best aurora location"
+            data-testid="aurora-best-location-dismiss"
+            className="shrink-0 flex items-center justify-center w-11 h-11 -mr-2 rounded-full text-indigo-300 hover:text-indigo-100 hover:bg-indigo-800/40 transition-colors"
+          >
+            <span aria-hidden="true">✕</span>
           </button>
         </div>
       )}
@@ -4622,8 +6087,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
              not a fallback itself, and it is written down because the first cut's comment claimed
              the opposite.
 
-             Gated on `heat.enabled` rather than on `heatOffered`, which additionally excludes aurora
-             and astro modes: `MapContainer` reads `bounds` once at construction, so a tab that
+             Gated on `heat.enabled` rather than on `heatOffered` (since aurora heat A2 the two agree
+             outside the overlay, but this is the construction-time read, so it names its own input): `MapContainer` reads `bounds` once at construction, so a tab that
              happened to mount in aurora mode would have taken the heat framing and kept it for the
              session. */
           bounds={openingBounds || bounds}
@@ -4675,10 +6140,20 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 points={heatPoints}
                 // ASTRO has no `heat.windows` entry to read a scalar off (adversarial review,
                 // real #3) — `astroConfidenceScalar` is this mode's own capped-inference figure.
-                conf={isAstroMode ? astroConfidenceScalar : (heatWindow?.conf ?? null)}
+                // AURORA likewise (aurora-heat-plan.md D2): its own capped-inference scalar.
+                conf={isAstroMode ? astroConfidenceScalar
+                  : isAuroraMode ? auroraConfidenceScalar
+                    : (heatWindow?.conf ?? null)}
+                // An aurora night is an event-type override of the colour preference, never a
+                // persisted mode (plan §4 #1): the ramp and bloom ride down as props.
+                ramp={isAuroraMode ? AURORA_RAMP.rgb : null}
+                bloom={isAuroraMode ? AURORA_BLOOM : null}
                 homeCoords={homeGeo}
                 rings={ringsEnabled}
                 fieldEnabled={heatOn}
+                // Ask's picks are on the map: the FILL steps back (a factor inside the draw — never
+                // a pane opacity, which would take the coastline and the reach rings with it).
+                dim={askActive ? ASK_HEAT_DIM : 1}
               />
             </Suspense>
           )}
@@ -4697,7 +6172,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 reachMeasured={mapReachMeasured}
                 selectedName={selectedLocationName}
                 onSelect={selectMapLocation}
+                onSelectAskPick={onSelectAskPick ? handleSelectAskPick : null}
                 eventLabel={mapEventLabel}
+                rampHex={isAuroraMode ? AURORA_RAMP.hex : rampHex}
+                omitUnrated={isAuroraMode}
+                // The phone's peek sheet is an obstacle while an answer's picks are on the map (F4),
+                // from its TARGET height; with no answer it is not one, as it never was.
+                bottomInset={isMobile && askActive ? peekTarget : 0}
               />
             </Suspense>
           )}
@@ -4708,13 +6189,17 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 homeCoords={homeGeo}
                 selectedName={selectedLocationName}
                 onSelect={selectMapLocation}
+                onSelectAskPick={onSelectAskPick ? handleSelectAskPick : null}
                 eventLabel={mapEventLabel}
+                rampHex={isAuroraMode ? AURORA_RAMP.hex : rampHex}
+                glow={isAuroraMode}
+                omitUnrated={isAuroraMode}
               />
             </Suspense>
           )}
           {/* ⚠️ Gated on `!overlayMode`, NOT `heatOffered` (PR #740 review — a confirmed Codex
-              finding). `heatOffered` is `Boolean(heat?.enabled) && !isAuroraMode` — false for the
-              whole time an aurora window is active — but `RegionsJump`/`⌂` are mounted regardless
+              finding). `heatOffered` WAS `Boolean(heat?.enabled) && !isAuroraMode` — false for the
+              whole time an aurora window was active, until aurora heat A2 — but `RegionsJump`/`⌂` are mounted regardless
               of aurora mode and write ONLY `jumpFitOverride`/`heatArea`/`heatFitNonce`, which this
               controller is the SOLE reader of. Gating the controller itself on `heatOffered` meant
               a jump or a `⌂` press during an aurora window silently moved nothing (the state changed,
@@ -4793,6 +6278,18 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             </>
           )}
           {overlayMode && <BoundsTracker onBounds={handleBounds} />}
+          {/* The tab's own viewport, for the tide strip's in-view coastal count (tide-window-plan.md
+              T6) — the frozen overlay never mounts the strip, so it never needs this. */}
+          {!overlayMode && <BoundsTracker onBounds={handleTideBounds} />}
+          {/* The peek sheet's map-touch collapse (map-mobile-sheet-plan.md §3 M2 task 7) — phone
+              only; the sheet itself is never mounted on desktop/tablet. */}
+          {!overlayMode && isMobile && (
+            <SheetDismissOnMapTouch
+              open={sheetSection != null || (askMode === 'expanded' && askPhase !== 'busy')}
+              onCollapse={() => setOpenMapMenu(null)}
+              ownMoveUntil={askMoveClockRef}
+            />
+          )}
           {/* Tab only — the overlay has no ground-click behaviour of its own.
 
               ⚠️ **A ground press does exactly one thing now: it deselects** (map-landing-plan.md
@@ -4821,6 +6318,20 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           <MapSizeSync trigger={overlayMode ? advancedOpen : resizeNonce} />
           <FlyToController target={flyTarget} />
           <FitBoundsController target={fitBoundsTarget} />
+          {/* Ask PhotoCast's camera (F3): fits the picks once per answer and flies to a chosen one.
+              Tab only — the frozen overlay never shows an answer. `active` is the pane's own "is this
+              on screen with nothing modal over it" (`paneVisible`), which is what holds the fit while
+              the tablet's Ask sheet stands over the map and releases it when the sheet closes. */}
+          {!overlayMode && (
+            <AskCameraController
+              active={paneVisible}
+              answerId={askAnswerId}
+              points={askPickSpots}
+              selection={askSelection}
+              inset={askInset}
+              onOwnMove={stampAskMove}
+            />
+          )}
           <HandoffPopupController
             locationName={handoffLocationName}
             nonce={handoffNonce}
@@ -4839,8 +6350,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               when the EV-ownership rule kept the row local (`localNightDate`), and in exactly that
               case a raw `date` compare would have hidden the viewline on the night the reader had
               just picked. */}
-          {viewlineEnabled && eventType === 'AURORA' && liveAuroraOnScreen && (
-            <AuroraViewlineOverlay viewline={viewline} forecastKp={auroraStatus?.forecastKp} />
+          {viewlineEligible && (
+            <AuroraViewlineOverlay viewline={viewline} />
           )}
 
           {/* Azimuth lines for the selected location. Overlay-only in Pins mode (map-tab-v2-
@@ -4875,7 +6386,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
 
           <>
             {visibleLocations.map((loc) => {
-              const { forecast, hourlyData, isPureWildlife, isWaterfall } = getContentProps(loc);
+              const { forecast, hourlyData, isPureWildlife } = getContentProps(loc);
               // Look up briefing evaluation score for this location (if any)
               // ⚠️ Gated, and read through the SHARED accessors rather than re-derived here.
               // This block used to carry its own copy of the briefing-then-forecast precedence and
@@ -4886,7 +6397,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               // medallions are the tab's ONLY location vocabulary, and an admin with the `?`
               // unknown lens on could see them still wearing a window's stars after every other
               // surface had disowned it. Two review lenses found it independently.
-              const briefingScore = (!isAuroraMode && solarWindowOnScreen())
+              // A PAST window reads the forecast row alone here too (outcome-rating-plan.md §2 #2),
+              // so the arcs and the star come from one result.
+              const briefingScore = (!isAuroraMode && solarWindowOnScreen() && !activeWindowPast)
                 ? lookupBriefingScore(briefingScoreIndex, loc.name, date, eventType) : null;
               // Aurora: tonight's live stars exactly as before; on any other night, that night's
               // own STORED stars rather than tonight's live ones (see `liveAuroraOnScreen`).
@@ -4967,7 +6480,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                           hourlyData={hourlyData}
                           eventType={isAuroraMode || isAstroMode ? 'SUNSET' : eventType}
                           isPureWildlife={isPureWildlife}
-                          showComfortRows={isWaterfall}
                           role={role}
                           date={date}
                           travelDay={isTravelDayForDate}
@@ -4996,15 +6508,19 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               tab's ONLY selection surface now (no Leaflet popup left to fall back to). ⚠️ Said "a
               marker click" until the medallions stopped being visible on the tab at all — their
               `click` handler is still bound but unreachable through `pointer-events: none`. */}
-          {!overlayMode && selectedLoc && activeMapEvent && (
+          {!overlayMode && selectedLoc && (activeMapEvent || hideDayCard) && (
             <MapCallout
               location={selectedLoc}
               rating={getRatingForLocation(selectedLoc)}
               event={activeMapEvent}
+              dayMode={hideDayCard}
               driveMinutes={driveMinutesFor(selectedLoc.id)}
               distanceMiles={distanceMilesFor(selectedLoc.id)}
               tideOnLight={getTideOnLightForLocation(selectedLoc)}
+              tideAlignmentIndex={tideAlignmentIndex}
+              eclipseSight={getEclipseForLocation(selectedLoc)}
               scoreIndex={scoreIndex}
+              slotIndex={slotIndex}
               scoresKnown={scoresKnown}
               ratingKnown={ratingKnown}
               ratingRetrying={ratingRetrying}
@@ -5013,10 +6529,30 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               astroConditionsByDate={astroConditionsByDate}
               auroraResultsByDate={auroraResultsByDate}
               pendingNightRowIds={pendingNightRowIds}
+              tideStripHeight={tideStripHeight}
+              // The phone sheet's resting height (74 / 126 / 112 — `--psh`): a callout may stand over
+              // the 112px minimised line, and the sheet changing height under a card that is already
+              // placed must repaint its band. Null off the phone.
+              bandKey={peekResting}
+              // A wildlife hide's hourly comfort rows for the ACTIVE WINDOW's date — SOLAR windows
+              // only: the rows are a daylight forecast, and on an astro or aurora night (whose
+              // `date` can be a night kept local, or yesterday's until dawn) they would be another
+              // day's, so a night window hands over `null`. The callout reads them for a pure-
+              // wildlife place only (`isWildlifeOnly`). Straight off the per-date entry, so the
+              // array is stable between ordinary renders (a poll rebuilds it); `null`, not a fresh
+              // `[]`, when the date holds none.
+              hourlyRows={activeMapEvent?.kind === 'solar'
+                ? (selectedLoc.forecastsByDate.get(activeMapEvent.date)?.hourly ?? null)
+                : null}
+              // The reader's own outcome ratings (outcome-rating-plan.md §2 #5) — null from the overlay,
+              // which mounts no hook, and while a rewind is in force. The block's mount condition
+              // lives in `MapCallout`: a past window, this place's own passed event time, a sky place.
+              userRole={role}
+              ratings={outcomeRatings}
               onSelectEv={selectEvRow}
               onOpenSheet={() => handleOpenLocationSheet(false)}
               onOpenInPlan={() => handleOpenLocationSheet(true)}
-              onClose={() => setSelectedLocationName(null)}
+              onClose={closeCallout}
             />
           )}
         </MapContainer>
@@ -5086,16 +6622,16 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                     data-testid="wf-map-heat-legend"
                     className="wf-map-key"
                     role="img"
-                    aria-label="Colour key: the field runs from Poor to Worth it"
+                    aria-label={colourKey.label}
                   >
-                    <span aria-hidden="true">Poor</span>
+                    <span aria-hidden="true">{colourKey.low}</span>
                     <span
                       aria-hidden="true"
                       data-testid="wf-map-heat-legend-ramp"
                       className="wf-map-key-ramp"
-                      style={{ background: rampGradientCss() }}
+                      style={{ background: colourKey.gradient }}
                     />
-                    <span aria-hidden="true">Worth it</span>
+                    <span aria-hidden="true">{colourKey.high}</span>
                   </div>
                 )}
               </div>
@@ -5180,10 +6716,21 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 top-right key slot beside "This event is not scored yet"; on a map that is
                 genuinely blank the corner is not where the eye goes, which is the whole reason
                 this surface has to speak at all. */}
-            {noForecastLineShown && (
-              <div className="wf-map-empty">
-                <div data-testid="wf-map-no-forecast" className="wf-map-key">
-                  No forecast to show.
+            {/* Not while a day-mode card is up (`hideDayCard`): the reader has the comfort forecast in
+                front of them, the sentence is for the UNSELECTED state, and the card paints over a
+                centred or low pill and leaves its two ends sticking out from behind it. It returns
+                when the selection closes. No live region is involved either way — the pill is a plain
+                div, and the one status region on this tab is `map-status` (`statusLine`), which this
+                never touches — and it is a `MapLabels` obstacle only while it is in the DOM. */}
+            {noForecastLineShown && !hideDayCard && (
+              <div className={hidesOnlyForecast ? 'wf-map-empty wf-map-empty-low' : 'wf-map-empty'}>
+                <div
+                  data-testid="wf-map-no-forecast"
+                  className={hidesOnlyForecast ? 'wf-map-key wf-map-key-wrap' : 'wf-map-key'}
+                >
+                  {hidesOnlyForecast
+                    ? 'No sunrise or sunset forecast to show. Wildlife hides still carry a comfort forecast.'
+                    : 'No forecast to show.'}
                 </div>
               </div>
             )}
@@ -5292,16 +6839,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               />
             )}
 
+            {/* ⚠️ Desktop/tablet only (map-mobile-sheet-plan.md §3 M2 task 1, §1 #1). On the
+                phone this whole bar is replaced by the peek sheet's Layers section, mounted
+                below — `RegionsJump`/`FiltersPopover` themselves stay mounted (chip withheld)
+                so their `BottomSheet`s remain reachable from a Layers row. */}
+            {!isMobile && (
             <div className="wf-map-chrome-tr" data-testid="wf-map-chrome-tr">
-              <RegionsJump
-                open={openMapMenu === 'jump'}
-                onOpenChange={(next) => setOpenMapMenu(next ? 'jump' : null)}
-                rows={jumpRows}
-                onSelectRegion={jumpToRegion}
-                activeRegion={jumpFitOverride?.regionName ?? null}
-                resetLabel={jumpResetLabel}
-                onReset={clearRegionJump}
-              />
+              <RegionsJump {...regionsJumpProps} />
               {heatOffered && (
                 <div data-testid="wf-map-toolbar" className="wf-map-toolbar-cluster">
                   <div className="wf-map-toolbar-row">
@@ -5342,64 +6886,231 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                       data-testid="wf-map-heat-legend"
                       className="wf-map-key"
                       role="img"
-                      aria-label="Colour key: the field runs from Poor to Worth it"
+                      aria-label={colourKey.label}
                     >
-                      <span aria-hidden="true">Poor</span>
+                      <span aria-hidden="true">{colourKey.low}</span>
                       <span
                         aria-hidden="true"
                         data-testid="wf-map-heat-legend-ramp"
                         className="wf-map-key-ramp"
-                        style={{ background: rampGradientCss() }}
+                        style={{ background: colourKey.gradient }}
                       />
-                      <span aria-hidden="true">Worth it</span>
+                      <span aria-hidden="true">{colourKey.high}</span>
                     </div>
                   )}
                 </div>
               )}
-              <FiltersPopover
-                open={openMapMenu === 'filters'}
-                onOpenChange={(next) => setOpenMapMenu(next ? 'filters' : null)}
-                minStars={minStars}
-                onSelectMinStars={handleMinStarsClick}
-                activeTypeFilters={activeTypeFilters}
-                onToggleType={toggleTypeFilter}
-                subjectChips={MAP_FILTER_CHIPS}
-                seasonalFeatures={seasonalFeatures}
-                role={role}
-                driveTimeFilter={driveTimeFilter}
-                onSelectDriveTime={setDriveTimeFilter}
-                darkSkyFilter={darkSkyFilter}
-                onToggleDarkSky={() => setDarkSkyFilter((v) => !v)}
-                darkSkyThreshold={DARK_SKY_THRESHOLD}
-                hasHome={Boolean(heat?.hasHome)}
-                heatArea={heatArea}
-                // `next === true` ("My area") is `resetToMyArea` itself — the SAME function `⌂`
-                // calls (map-tab-v2-plan.md §3 P11's reconciliation) — so the two controls can never
-                // disagree about what resetting scope means. `next === false` ("Everywhere")
-                // clears any standing jump override for the identical reason: a stale region fit
-                // must not survive the reader's own later choice to widen scope.
-                onSelectScope={(next) => {
-                  if (next) { resetToMyArea(); return; }
-                  setJumpFitOverride(null);
-                  setHeatArea(false);
-                  setHeatFitNonce((n) => n + 1);
-                }}
-                areaLabel={heat?.areaLabel}
-                isAuroraMode={isAuroraMode}
-                isAstroMode={isAstroMode}
-                showAdminRow={role === 'ADMIN' && !isAuroraMode && !isAstroMode}
-                showStandDown={showStandDown}
-                onToggleStandDown={toggleShowStandDown}
-                hasStandDown={hasStandDown}
-                showUnrated={showUnrated}
-                onToggleUnrated={toggleShowUnrated}
-                hasUnrated={hasUnrated}
-                activeCount={filterActiveCount}
-                filteredCount={scopedVisibleLocations.length}
-                scopeCount={scopeBasePool.length}
-                onClearAll={clearAllMapFilters}
-              />
+              <FiltersPopover {...filtersPopoverProps} />
             </div>
+            )}
+
+            {/* Phone only — the two hosts stay mounted OUTSIDE the peek body with their chip
+                withheld (a Codex finding on the plan's M0, gregochr/goldenhour#923): the peek body
+                unmounts the moment `openMapMenu` leaves `'peek:lay'`, so a host mounted INSIDE the
+                Layers section would be torn down by the very press that opens its sheet. The
+                restore target is the Layers peek button, which stays mounted while the sheet is
+                collapsed (map-mobile-sheet-plan.md §3 M2 task 6). */}
+            {isMobile && (
+              <>
+                {/* The Layers button is not drawn while an answer has replaced the buttons (F4), so the
+                    return address falls back to the minimised line's Layers door, then to the Ask row's
+                    entry button, which always is. */}
+                <RegionsJump {...regionsJumpProps} chipHidden restoreFallback={() => layersPeekBtnRef.current ?? askDoorRef.current ?? askEntryRef.current} />
+                <FiltersPopover {...filtersPopoverProps} chipHidden restoreFallback={() => layersPeekBtnRef.current ?? askDoorRef.current ?? askEntryRef.current} />
+                {/* The peek sheet itself (map-mobile-sheet-plan.md §3 M2, Tide wired at M3, its
+                    fuller Auto/Always/Off gate and pulse wired at M5). The Tide button is gated on
+                    `tideCuesOn` — the SAME one gate the spot-build site's `tideTier` null reads
+                    (§1 #6) — never a second flag. */}
+                <MapPeekSheet
+                  section={sheetSection}
+                  askMode={askMode}
+                  /* The door while an answer is minimised (the buttons or the open section's body unmount
+                     holding focus onto the line); the Ask entry otherwise — still reachable: a section
+                     closing with no answer standing (Escape in the Layers body) leaves the collapsed row. */
+                  fallbackFocusRef={askMode === 'minimised' ? askDoorRef : askEntryRef}
+                  ask={askRowOn ? (
+                    <MapPeekAsk
+                      mode={askMode}
+                      onOpen={openAskSection}
+                      onClose={() => setOpenMapMenu(null)}
+                      onOpenLayers={() => handlePeekPress('lay')}
+                      entryRef={askEntryRef}
+                      doorRef={askDoorRef}
+                      layersRef={layersPeekBtnRef}
+                      planActions={askPlanActions}
+                    />
+                  ) : null}
+                  onPressWindows={() => handlePeekPress('win')}
+                  onPressLayers={() => handlePeekPress('lay')}
+                  onPressTide={() => handlePeekPress('tide')}
+                  tideVisible={tideCuesOn}
+                  tidePulse={tidePulse}
+                  onTidePulseEnd={clearTidePulse}
+                  layersButtonRef={layersPeekBtnRef}
+                  windowsButtonRef={windowsPeekBtnRef}
+                  tideButtonRef={tidePeekBtnRef}
+                  onTideButtonFocus={handleTideButtonFocus}
+                  onTideButtonBlur={handleTideButtonBlur}
+                  tideButtonContent={(
+                    <>
+                      <TideWave />
+                      {tideSummary(activeMapEvent?.tide, tideStripModel.dimmed.length)}
+                    </>
+                  )}
+                  tideBody={(
+                    <MapPeekTideSection
+                      tide={activeMapEvent?.tide ?? null}
+                      activeRow={activeMapEvent}
+                      sunriseTime={tideStripSunriseTime}
+                      sunsetTime={tideStripSunsetTime}
+                      model={tideStripModel}
+                      onSelectEv={selectEvRow}
+                      focusTargetRef={tidePeekBtnRef}
+                    />
+                  )}
+                  otherWindowContent={(
+                    <OtherWindowValue row={peekOtherWindow} verdict={peekOtherWindowVerdict} />
+                  )}
+                  windowsBody={(
+                    <MapPeekWindowsSection
+                      heading={landingModel.header}
+                      rows={mapEvents}
+                      verdicts={evVerdicts}
+                      activeId={activeMapEvent?.id ?? null}
+                      onSelect={selectEvRow}
+                      onOpenDrilldown={activeMapEvent && activeMapEvent.served !== false ? openDrilldown : null}
+                      canLoadOlder={canLoadOlder}
+                      olderDayLabel={olderDayLabel}
+                      emptyOlderDayLabel={emptyOlderDayLabel}
+                      olderDayLoadingLabel={olderDayLoadingLabel}
+                      onLoadOlderDay={loadOlderFromPeek}
+                      ratedCounts={ratedCounts}
+                    />
+                  )}
+                  layersBody={(
+                    <div data-testid="wf-map-peek-layers" className="wf-map-peek-pane">
+                      {/* ⚠️ Gated on `heatOffered`, matching the desktop toolbar cluster
+                          (`.wf-map-toolbar-cluster` above, itself `{heatOffered && (...)}`) — a
+                          Codex retrospective finding against #927. With `heatOffered` false (no
+                          served heat data, or an astro/aurora window selected) `heatOn`/
+                          `heatPinsOn` are both forced false, so neither `MapLabels` nor
+                          `PinsLayer` mounts and this row's two buttons only flipped `heatView`
+                          with nothing on the map to show for it. */}
+                      {heatOffered && (
+                      <div className="wf-map-peek-lay-row">
+                        <span className="wf-map-peek-lay-label">Show</span>
+                        <div className="wf-seg" role="group" aria-label="Map view">
+                          <button
+                            type="button"
+                            data-testid="wf-map-peek-view-heat"
+                            aria-pressed={heatView === 'heat'}
+                            onClick={() => setHeatView('heat')}
+                            className={`wf-seg-btn${heatView === 'heat' ? ' on' : ''}`}
+                          >
+                            Heat
+                          </button>
+                          <button
+                            type="button"
+                            data-testid="wf-map-peek-view-pins"
+                            aria-pressed={heatView === 'pins'}
+                            onClick={() => setHeatView('pins')}
+                            className={`wf-seg-btn${heatView === 'pins' ? ' on' : ''}`}
+                          >
+                            <span aria-hidden="true">&#9677; </span>
+                            Pins
+                          </button>
+                        </div>
+                      </div>
+                      )}
+                      <button
+                        type="button"
+                        data-testid="wf-map-peek-lay-regions"
+                        className="wf-map-peek-lay-row wf-map-peek-lay-trigger"
+                        onClick={() => setOpenMapMenu('jump')}
+                      >
+                        <span className="wf-map-peek-lay-label">Regions</span>
+                        <span aria-hidden="true" className="wf-win-caret">&#9662;</span>
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="wf-map-peek-lay-filters"
+                        className="wf-map-peek-lay-row wf-map-peek-lay-trigger"
+                        onClick={() => setOpenMapMenu('filters')}
+                      >
+                        <span className="wf-map-peek-lay-label">
+                          Filters{filterActiveCount > 0 && ` (${filterActiveCount})`}
+                        </span>
+                        <span aria-hidden="true" className="wf-win-caret">&#9662;</span>
+                      </button>
+                      {/* The persisted Tide mode (map-mobile-sheet-plan.md §3 M5 task 4) — Auto is
+                          the default (never-chosen server value), Always/Off override it. The
+                          segment moves at once (`saveTideMode` sets `mapTideMode` synchronously);
+                          a failed save is announced through the tab's one status region, below. */}
+                      <div className="wf-map-peek-lay-row wf-map-peek-lay-tide-row">
+                        <span className="wf-map-peek-lay-label">Tide</span>
+                        <div className="wf-seg" role="group" aria-label="Tide">
+                          <button
+                            type="button"
+                            data-testid="wf-map-peek-tide-mode-auto"
+                            aria-pressed={mapTideMode === 'auto'}
+                            onClick={() => handleTideModePress('auto')}
+                            className={`wf-seg-btn${mapTideMode === 'auto' ? ' on' : ''}`}
+                          >
+                            Auto
+                          </button>
+                          <button
+                            type="button"
+                            data-testid="wf-map-peek-tide-mode-always"
+                            aria-pressed={mapTideMode === 'always'}
+                            onClick={() => handleTideModePress('always')}
+                            className={`wf-seg-btn${mapTideMode === 'always' ? ' on' : ''}`}
+                          >
+                            Always
+                          </button>
+                          <button
+                            type="button"
+                            data-testid="wf-map-peek-tide-mode-off"
+                            aria-pressed={mapTideMode === 'off'}
+                            onClick={() => handleTideModePress('off')}
+                            className={`wf-seg-btn${mapTideMode === 'off' ? ' on' : ''}`}
+                          >
+                            Off
+                          </button>
+                        </div>
+                      </div>
+                      <p data-testid="wf-map-peek-tide-hint" className="wf-map-peek-tide-hint">
+                        Auto: shown when the light is Maybe or better and the coast is in view.
+                      </p>
+                      {heatOffered && unscoredLineShown && (
+                        <div data-testid="wf-map-peek-heat-unscored" className="wf-map-peek-lay-row">
+                          <span className="wf-map-peek-lay-label">{unscoredLineText}</span>
+                        </div>
+                      )}
+                      {heatOffered && heatOn && !windowUnscored && (
+                        <div
+                          data-testid="wf-map-peek-legend"
+                          className="wf-map-peek-lay-row"
+                          role="img"
+                          aria-label={colourKey.label}
+                        >
+                          <span className="wf-map-peek-lay-label">Legend</span>
+                          <span className="wf-map-peek-legend-scale">
+                            <span aria-hidden="true">{colourKey.low}</span>
+                            <span
+                              aria-hidden="true"
+                              data-testid="wf-map-peek-legend-ramp"
+                              className="wf-map-key-ramp"
+                              style={{ background: colourKey.gradient }}
+                            />
+                            <span aria-hidden="true">{colourKey.high}</span>
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                />
+              </>
+            )}
 
             {showColourScaleNotice && (
               <div
@@ -5424,16 +7135,28 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 the Legend chip STACK here rather than one suppressing the other. ⚠️ They are NOT
                 mutually exclusive: `showViewlineUpsell` is keyed on `auroraStatus`'s ALERT LEVEL
                 (a background poll, live regardless of which event type is on screen), while the
-                Legend chip is keyed on `heatView`/`heatOffered`, which excludes AURORA MODE
-                (`eventType === 'AURORA'`) specifically — and a LITE reader can never enter aurora
+                Legend chip is keyed on `heatView`/`heatOffered` and, until A3, excludes AURORA MODE
+                (`eventType === 'AURORA'`) by name — and a LITE reader can never enter aurora
                 mode in the first place (`viewlineEnabled` above is PRO/ADMIN-only), so an alert can
                 fire while a LITE reader sits on an ordinary Heat-view sunset. An earlier revision
                 of this comment conflated those two different "aurora" axes and claimed the chips
                 never coexist; a live browser pass proved otherwise (adversarial review C1/C3).
                 Both chips are plain flex children of ONE positioned wrapper now — neither carries
                 its own `absolute` placement any more — so they can only ever stack with a gap,
-                never overlap. */}
-            {(showViewlineUpsell || (heatOffered && heatView === 'heat' && !isMobile)) && (
+                never overlap.
+
+                ⚠️ The tide strip (tide-window-plan.md T6) is a THIRD reason this wrapper renders —
+                added to the condition below rather than left implicit, since a viewport holding
+                coast on a solar window can be true with NEITHER other chip showing (Pins mode, or a
+                LITE reader with no alert). It mounts as the LAST child so the two chips above it
+                clear it by flex order alone (§4 #6) — never `position: absolute` and never its own
+                entry in the obstacle list, since `.wf-map-chrome-bl` already carries that seed. The
+                frozen overlay never draws it — this whole bottom-left wrapper already sits inside the
+                `!overlayMode` branch above, so no second `!overlayMode` test here (CodeQL flagged the
+                first cut's as an always-true negation) — and `!isMobile` because the phone gets its
+                OWN mount below (T7, full width, above the bar, never nested in this column). */}
+            {(showViewlineUpsell || (heatOffered && heatView === 'heat' && !isMobile)
+              || (!isMobile && tideStripModel.visible)) && (
               <div className="wf-map-chrome-bl" data-testid="wf-map-chrome-bl">
                 {showViewlineUpsell && (
                   <div
@@ -5462,6 +7185,22 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                     onToggleRings={() => setRingsEnabled((v) => !v)}
                     hasHome={hasHomeCoords}
                     reachMeasured={mapReachMeasured}
+                    variant={isAuroraMode ? 'aurora' : 'solar'}
+                    viewlineShown={viewlineShown}
+                  />
+                )}
+                {!isMobile && (
+                  <MapTideStrip
+                    model={tideStripModel}
+                    tide={activeMapEvent?.tide ?? null}
+                    activeRow={activeMapEvent}
+                    sunriseTime={tideStripSunriseTime}
+                    sunsetTime={tideStripSunsetTime}
+                    collapsed={tideStripCollapsed}
+                    onToggleCollapse={() => setTideStripCollapsed((v) => !v)}
+                    onSelectEv={selectEvRow}
+                    mapPaneRef={mapPaneRef}
+                    onHeightChange={setTideStripHeight}
                   />
                 )}
               </div>
@@ -5475,7 +7214,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 reported it. The OVERLAY's own copy above is deliberately NOT gated: the predicate
                 exempts `overlayMode` outright, so a guard there would be dead code wearing a
                 comment that claims otherwise. */}
-            {!isAuroraMode && !isAstroMode && briefingScores.size > 0 && solarWindowOnScreen() && (() => {
+            {toastShown && (() => {
               const suffix = `|${date}|${eventType}|`;
               for (const key of briefingScores.keys()) {
                 if (key.includes(suffix)) {
@@ -5492,9 +7231,20 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                       // `wf-map-scored-legend` is a pure CSS hook (PR #741 review) — the phone
                       // media query lifts this clear of the new bottom bar the same way it lifts
                       // `.wf-map-chrome-bl`; every Tailwind class above it is unmodified.
-                      className="absolute bottom-2 right-[54px] z-[1100] bg-plex-surface/80 backdrop-blur-sm
-                        text-plex-text-secondary rounded-full px-3 py-1 border border-plex-border/30 wf-map-scored-legend"
+                      //
+                      // ⚠️ `wf-map-scored-legend-gone` (map-mobile-sheet-plan.md §3 M1 task 2) only
+                      // ever lands on the PHONE mount: `toastGone` starts false and the effect that
+                      // flips it true returns before starting a timer whenever `!isMobile`, so a
+                      // desktop/tablet render's class list is exactly what it was before this phase.
+                      className={`absolute bottom-2 right-[54px] z-[1100] bg-plex-surface/80 backdrop-blur-sm
+                        text-plex-text-secondary rounded-full px-3 py-1 border border-plex-border/30 wf-map-scored-legend
+                        ${isMobile && toastGone ? 'wf-map-scored-legend-gone' : ''}`}
                       style={{ fontSize: '11px' }}
+                      // Once faded, a screen-reader user has no reason to keep hearing a toast the
+                      // sighted reader can no longer see — `aria-hidden` only once `wf-map-scored-
+                      // legend-gone` is actually applied, never merely because the timer fired on a
+                      // WIDER viewport where the class itself never lands (see the className note).
+                      aria-hidden={isMobile && toastGone ? 'true' : undefined}
                     >
                       ★ PhotoCast-scored locations shown
                     </div>
@@ -5535,6 +7285,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 )}
               </div>
             )}
+
+            {/* ⚠️ The phone MapTideStrip mount that used to live here (tide-window-plan.md §3 T7)
+                is RETIRED (map-mobile-sheet-plan.md §3 M3 task 5) — its content is now the peek
+                sheet's Tide section (`MapPeekTideSection`, mounted above inside `MapPeekSheet`'s
+                `tideBody`), and `--tsh` is desktop-only from here: the desktop mount below is the
+                ONLY caller left that can ever set it or `wf-tide-strip-on`. */}
           </>
         )}
       </div>
@@ -5546,7 +7302,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       {overlayMode && isMobile && selectedLocationName && (() => {
         const loc = visibleLocations.find((l) => l.name === selectedLocationName);
         if (!loc) return null;
-        const { forecast, hourlyData, isPureWildlife, isWaterfall } = getContentProps(loc);
+        const { forecast, hourlyData, isPureWildlife } = getContentProps(loc);
         const briefingScore = !isAuroraMode ? lookupBriefingScore(briefingScoreIndex, loc.name, date, eventType) : null;
         return (
           <BottomSheet
@@ -5563,7 +7319,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 hourlyData={hourlyData}
                 eventType={isAuroraMode || isAstroMode ? 'SUNSET' : eventType}
                 isPureWildlife={isPureWildlife}
-                showComfortRows={isWaterfall}
                 role={role}
                 date={date}
                 travelDay={isTravelDayForDate}
@@ -5622,6 +7377,18 @@ MapView.propTypes = {
    * `onSelectDate` at all. Empty on the overlay, which never mounts the window control.
    */
   forecastDates: PropTypes.arrayOf(PropTypes.string),
+  /**
+   * Every (date, targetType) with at least one forecast row and `date <= today`, as
+   * `WindowFirstMapPane` builds them from `forecastsByDate` — `{date, targetType,
+   * earliestEventTime}`, the earliest `solarEventTime` among the rows (UTC-naive). The input that
+   * lets `utils/mapEvents.js` offer a window the briefing has withdrawn as a PAST row
+   * (outcome-rating-plan.md §2 #2). Empty on the overlay, which builds no window list.
+   */
+  pastSolarWindows: PropTypes.arrayOf(PropTypes.shape({
+    date: PropTypes.string.isRequired,
+    targetType: PropTypes.oneOf(['SUNRISE', 'SUNSET']).isRequired,
+    earliestEventTime: PropTypes.string,
+  })),
   autoEventType: PropTypes.string,
   handoffEventType: PropTypes.string,
   handoffFilterAction: PropTypes.string,
@@ -5650,10 +7417,16 @@ MapView.propTypes = {
    */
   resizeNonce: PropTypes.number,
   /**
-   * Whether this map is on screen — false while the Map pane's panel is hidden between visits (the
-   * pane reads it off its ResizeObserver's zero box). Gates the status region (`statusLine`), so a
-   * failure while the reader is on another tab is announced when they come back, not into a hidden
-   * panel. Default true: every other mount is on screen whenever it is mounted.
+   * Whether this map is on screen for the reader — false while the Map pane's panel is hidden
+   * between visits (the pane reads it off its ResizeObserver's zero box), while the document is
+   * hidden (a background browser tab), while the window is not focused (another app in front) — the
+   * pane's `useSyncExternalStore` on `visibilitychange`, `focus` and `blur` — or while a dialog
+   * foreign to the pane is open over it (the four-day sheet peek, settings), read the same way
+   * against the pane's own wrapper via `utils/mapForeignModal.js`'s `foreignModalOver`. Gates the
+   * status region (`statusLine`), so a failure while the reader is elsewhere — including behind a
+   * dialog they are looking at instead — is announced when they come back rather than to nobody.
+   * Default true for the one other mount, the frozen Plan-tab overlay, which renders no status
+   * region, so there is nothing there for it to gate.
    */
   paneVisible: PropTypes.bool,
   /**
@@ -5667,13 +7440,17 @@ MapView.propTypes = {
     spots: PropTypes.array,
     areaSpots: PropTypes.array,
     pointsByKey: PropTypes.instanceOf(Map),
+    tideByWindow: PropTypes.instanceOf(Map),
     windows: PropTypes.arrayOf(PropTypes.shape({
       key: PropTypes.string,
       date: PropTypes.string,
       targetType: PropTypes.string,
       label: PropTypes.string,
       time: PropTypes.string,
-      /** The window's served best rating — null means nothing in it is rated. */
+      /**
+       * The window's served best rating — null means nothing in it is rated. For a `past` entry
+       * it is the pane's client max over the PAINTED points (`mapEvents.pastWindowBest`).
+       */
       bestRating: PropTypes.number,
       conf: PropTypes.number,
       /** map-tab-v2-plan.md §3 P6 — the resolved confidence tier `utils/mapEvents.js` reads. */
@@ -5692,6 +7469,12 @@ MapView.propTypes = {
       away: PropTypes.bool,
       pickKind: PropTypes.oneOf(['best', 'also']),
       pickRegion: PropTypes.string,
+      /**
+       * outcome-rating-plan.md §2 #3 (O3c): the pane lists a PAST window here so the field can
+       * paint it. `true` means the briefing does NOT serve it — `buildMapEvents`,
+       * `solarRowPredicate` and `activeWindowPast` all ignore such an entry as a served window.
+       */
+      past: PropTypes.bool,
     })),
     areaBounds: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.number)),
     catalogueBounds: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.number)),
@@ -5712,10 +7495,12 @@ MapView.propTypes = {
     beyondRegionNames: PropTypes.arrayOf(PropTypes.string),
   }),
   /**
-   * `{ lat, lon }` of the user's saved home postcode, or null when none is saved. The RAW value —
-   * `MapView` derives its own origin-gated `homeGeo` from this for the drawn home geography (D1);
-   * this prop itself is untouched by origin, and `CentreOnHomeControl` deliberately keeps reading
-   * it directly (see that component's own O-D5 doc note).
+   * `{ lat, lon }` of the user's saved home postcode, null when none is saved, or `undefined` while
+   * that is not known — which draws the same nothing but must not reach `CentreOnHomeControl` as
+   * null, whose prompt to set a postcode is a claim an unanswered read is no evidence for (hence no
+   * default here). The RAW value — `MapView` derives its own origin-gated `homeGeo` from this for
+   * the drawn home geography (D1); this prop itself is untouched by origin, and
+   * `CentreOnHomeControl` deliberately keeps reading it directly (see its own O-D5 doc note).
    */
   homeCoords: PropTypes.shape({ lat: PropTypes.number, lon: PropTypes.number }),
   /**
@@ -5748,11 +7533,30 @@ MapView.propTypes = {
    */
   colourScaleDefaulted: PropTypes.bool,
   /**
+   * The caller's persisted Map tab tide mode (map-mobile-sheet-plan.md M4) — threaded here from
+   * `App.jsx`'s `useReaderSettings` through `WindowFirstMapPane`, on the same route as
+   * `mapColourScale`. Not read by this component in this phase; M5 is its first consumer.
+   */
+  mapTideMode: PropTypes.oneOf(['auto', 'always', 'off']),
+  /**
+   * The serialised save action for `mapTideMode` — threaded on the same route, forwarded straight
+   * through. Not called by this component in this phase; M5 is its first consumer.
+   */
+  saveTideMode: PropTypes.func,
+  /**
    * From `utils/locationSheet.buildScoreIndex` over `WindowFirstBriefingContext`'s `scoreRows` —
    * the selection callout's reason prose and "every window" strip (map-tab-v2-plan.md §3 P9). Tab
    * only; the overlay never selects a location through the callout.
    */
   scoreIndex: PropTypes.object,
+  /**
+   * The BRIEFING slot index (`utils/locationSheet.buildSlotIndex`, over the SAME `briefing.days` the
+   * pane's other indexes read) — `MapCallout` reads only its served `displayVerdict`, as the fallback
+   * behind `scoreIndex`'s for a slot the scores endpoint has no row for (unrated-verdict-plan.md U2,
+   * Codex review of #1140, round 2). Unlike `scoreIndex` it needs no `scoresKnown` gate of its own:
+   * it arrives with the briefing, and the callout still waits on `ratingKnown` before printing.
+   */
+  slotIndex: PropTypes.object,
   /** Whether the ratings response `scoreIndex` is built from has actually landed — an unfetched
    * response is not evidence that nothing was rated (the same rule `scoresLoaded` states everywhere
    * else it is read). It speaks for the SOLAR windows alone; a night's equivalent is derived in the
@@ -5785,6 +7589,12 @@ MapView.propTypes = {
    * like `scoreIndex`.
    */
   tideAlignmentIndex: PropTypes.object,
+  /**
+   * From `utils/locationSheet.buildEclipseIndex` (L4) — a location's own lunar eclipse sight per
+   * window, read through `lookupForWindow` exactly like `tideAlignmentIndex` (L7,
+   * `docs/engineering/lunar-eclipse-plan.md` §3 L7).
+   */
+  eclipseIndex: PropTypes.object,
   /**
    * The per-user HOME reach map (`{driveMinutes, distanceMiles}`). Originally read ONLY for the
    * callout's straight-line miles fact; since D1 (plan-to-map-doors-plan.md) also the tab's home
@@ -5836,6 +7646,71 @@ MapView.propTypes = {
    * on the plan itself with no dialog reopened and no window key carried (plan §6 Q2, decided).
    */
   onReturnToPlan: PropTypes.func,
+  /**
+   * Ask PhotoCast's picks (F3) — see the six-prop note above `MapView`. {@code rating}/{@code verdict}
+   * are the PICK'S window's, joined by `utils/askModel.buildPickCards`.
+   */
+  askPicks: PropTypes.arrayOf(PropTypes.shape({
+    rank: PropTypes.number.isRequired,
+    locationId: PropTypes.number,
+    name: PropTypes.string.isRequired,
+    date: PropTypes.string,
+    eventType: PropTypes.string,
+    shortWindow: PropTypes.string,
+    rating: PropTypes.number,
+    verdict: PropTypes.string,
+    label: PropTypes.string,
+  })),
+  askSelectedRank: PropTypes.number,
+  onSelectAskPick: PropTypes.func,
+  askWindow: PropTypes.shape({
+    date: PropTypes.string.isRequired,
+    eventType: PropTypes.string.isRequired,
+    nonce: PropTypes.number.isRequired,
+    callout: PropTypes.bool,
+    locationId: PropTypes.number,
+  }),
+  askAnswerId: PropTypes.number,
+  onAskContext: PropTypes.func,
+  askOffered: PropTypes.bool,
+  askPhase: PropTypes.oneOf(['empty', 'busy', 'answer', 'plan', 'cant', 'error']),
+  panelShown: PropTypes.bool,
+  /**
+   * The reader's own outcome ratings (`hooks/useOutcomeRatings.js`'s return value) — handed to the
+   * callout's rating block (outcome-rating-plan.md §2 #5). Null when none are offered: the overlay,
+   * which mounts no hook, and a rewind. One memoised object from the pane, so the memo'd `MapView`
+   * re-renders when a rating, a save or a read changes it and not otherwise.
+   */
+  outcomeRatings: PropTypes.shape({
+    loaded: PropTypes.bool,
+    /** True after the newest read settled FAILED (the counts and badge go silent; the block stays usable). */
+    readFailed: PropTypes.bool,
+    covers: PropTypes.func,
+    /** Whether the server was asked about a date (range-based for every role) — what a count/badge needs. */
+    wasRead: PropTypes.func,
+    mine: PropTypes.instanceOf(Map),
+    saving: PropTypes.instanceOf(Set),
+    saveError: PropTypes.instanceOf(Set),
+    rate: PropTypes.func,
+    clearSaveError: PropTypes.func,
+  }),
+  /**
+   * The reader's rated-location count per PAST window, EV row id to count ({@code utils/
+   * outcomeRatingJoin.ratedCountByWindow}, built in the pane; outcome-rating-plan.md §2 #6, O4b).
+   * An id absent from it is UNKNOWN (not yet read, a failed read, a rewind) and prints nothing; 0
+   * prints {@code Not rated}. Forwarded to the window control and the phone peek sheet.
+   */
+  ratedCounts: PropTypes.instanceOf(Map),
+  /** One more stored past day can be fetched (outcome-rating-plan.md §2 #2); false under a rewind and at T-4. */
+  canLoadOlder: PropTypes.bool,
+  /** The day {@code canLoadOlder} would fetch, YYYY-MM-DD. */
+  olderDayDate: PropTypes.string,
+  /** The most recently loaded older day when it returned no rows, YYYY-MM-DD, else null. */
+  emptyOlderDayDate: PropTypes.string,
+  /** The older day being fetched now, YYYY-MM-DD, or null. */
+  olderDayLoading: PropTypes.string,
+  /** {@code (date) => void}: fetches that older day (`useForecasts.loadOlderDay`). */
+  onLoadOlderDay: PropTypes.func,
 };
 
 export default React.memo(MapView);

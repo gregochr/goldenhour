@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.SkyRatingEvalResultEntity;
 import com.gregochr.goldenhour.entity.SkyRatingEvalRunEntity;
@@ -363,5 +364,134 @@ class SkyRatingEvalServiceTest {
                 .expectedMax(5)
                 .missDirection(direction)
                 .build();
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("finalise: pass rate is passes / attempted; failures count as non-passes")
+    void finalise_failedEvaluationsCountInTheDenominator() {
+        SkyRatingEvalService.Aggregate agg = new SkyRatingEvalService.Aggregate();
+        agg.recordFailure("REFUSAL");
+        agg.recordFailure("REFUSAL");
+        agg.recordFailure("MAX_TOKENS");
+        SkyRatingEvalRunEntity run = SkyRatingEvalRunEntity.builder()
+                .id(5L).model(EvaluationModel.SONNET_55).runsPerFixture(1)
+                .status(SkyRatingEvalStatus.RUNNING).build();
+
+        service().finalise(run, agg, SkyRatingEvalStatus.COMPLETED, "3 failed", System.currentTimeMillis());
+
+        assertThat(run.getTotalRuns()).isEqualTo(3);
+        assertThat(run.getTotalPasses()).isZero();
+        assertThat(run.getPassRate()).isZero();
+        assertThat(agg.failureSummary()).isEqualTo("MAX_TOKENS=1, REFUSAL=2");
+        assertThat(agg.failedCount()).isEqualTo(3);
+        assertThat(new SkyRatingEvalService.Aggregate().failureSummary()).isNull();
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("persistFailureRow: no rating or band, failure type in summary")
+    void persistFailureRow_savesAnAttemptWithNoRating() {
+        SkyRatingEvalFixture fixture = SkyRatingEvalFixtures.ALL.get(0);
+        ArgumentCaptor<SkyRatingEvalResultEntity> saved =
+                ArgumentCaptor.forClass(SkyRatingEvalResultEntity.class);
+
+        service().persistFailureRow(runningRun(), fixture, 3, "REFUSAL", new TokenUsage(700, 70, 0, 0));
+
+        verify(resultRepository).save(saved.capture());
+        SkyRatingEvalResultEntity row = saved.getValue();
+        assertThat(row.getRunId()).isEqualTo(42L);
+        assertThat(row.getFixtureName()).isEqualTo(fixture.name());
+        assertThat(row.getRunIndex()).isEqualTo(3);
+        assertThat(row.getRating()).isNull();
+        assertThat(row.getFierySky()).isNull();
+        assertThat(row.getGoldenHour()).isNull();
+        assertThat(row.getMissDirection()).isNull();
+        assertThat(row.getSummary()).isEqualTo("FAILED: REFUSAL");
+        // the billed response's tokens are kept, like a success row's
+        assertThat(row.getInputTokens()).isEqualTo(700L);
+        assertThat(row.getOutputTokens()).isEqualTo(70L);
+        assertThat(row.getExpectedMin()).isEqualTo(fixture.band().min());
+        assertThat(row.getExpectedMax()).isEqualTo(fixture.band().max());
+    }
+
+    @Test
+    @org.junit.jupiter.api.DisplayName("a mixed run reconciles: per-fixture sums equal the run aggregate, "
+            + "and failures never become rating values")
+    void mixedRun_perFixtureTrendReconcilesWithRunAggregate() {
+        List<SkyRatingEvalResultEntity> stored = new java.util.ArrayList<>();
+        when(resultRepository.save(any())).thenAnswer(inv -> {
+            stored.add(inv.getArgument(0));
+            return inv.getArgument(0);
+        });
+        // hand-computable batch price: 3 micro-dollars per input token, 7 per output token
+        when(costCalculator.calculateCostMicroDollars(any(), any(), anyBoolean())).thenAnswer(inv -> {
+            TokenUsage u = inv.getArgument(1);
+            return u.inputTokens() * 3 + u.outputTokens() * 7;
+        });
+        SkyRatingEvalService svc = service();
+        SkyRatingEvalRunEntity run = SkyRatingEvalRunEntity.builder()
+                .id(42L).runTimestamp(LocalDateTime.of(2026, 6, 27, 3, 0))
+                .startedAt(LocalDateTime.of(2026, 6, 27, 3, 0)).model(EvaluationModel.SONNET)
+                .runsPerFixture(8).triggerSource(SkyRatingEvalTrigger.SCHEDULED)
+                .status(SkyRatingEvalStatus.RUNNING).build();
+        SkyRatingEvalService.Aggregate agg = new SkyRatingEvalService.Aggregate();
+        TokenUsage usage = new TokenUsage(10, 5, 0, 0);
+        int fixtures = SkyRatingEvalFixtures.ALL.size();
+        for (int f = 0; f < fixtures; f++) {
+            SkyRatingEvalFixture fixture = SkyRatingEvalFixtures.ALL.get(f);
+            int inBand = fixture.band().min();
+            for (int r = 1; r <= 8; r++) {
+                boolean fails = (f == 0 && r == 8) || f == 1;
+                if (fails && f == 1 && r == 8) {
+                    // never answered: nothing billed
+                    agg.recordFailure("MISSING");
+                    svc.persistFailureRow(run, fixture, r, "MISSING", null);
+                } else if (fails) {
+                    String type = f == 0 ? "REFUSAL" : "MAX_TOKENS";
+                    TokenUsage billed = new TokenUsage(100, 10, 0, 0);
+                    agg.recordFailure(type, billed, svc.batchCostMicroDollars(run, billed));
+                    svc.persistFailureRow(run, fixture, r, type, billed);
+                } else {
+                    svc.persistResult(run, fixture, r, new SunsetEvaluation(inBand, 50, 50, "s"),
+                            usage, null, true, agg);
+                }
+            }
+        }
+        svc.finalise(run, agg, SkyRatingEvalStatus.COMPLETED, "failures", System.currentTimeMillis());
+        when(runRepository.findByStatusOrderByRunTimestampAsc(SkyRatingEvalStatus.COMPLETED))
+                .thenReturn(List.of(run));
+        when(resultRepository.findByRunIdIn(any())).thenReturn(stored);
+
+        List<SkyRatingEvalTrendPoint> trend = svc.trend();
+
+        assertThat(trend).hasSize(fixtures);
+        SkyRatingEvalTrendPoint f0 = trend.stream()
+                .filter(p -> p.fixtureName().equals(SkyRatingEvalFixtures.ALL.get(0).name())).findFirst().orElseThrow();
+        SkyRatingEvalTrendPoint f1 = trend.stream()
+                .filter(p -> p.fixtureName().equals(SkyRatingEvalFixtures.ALL.get(1).name())).findFirst().orElseThrow();
+        // 7 passes + 1 refusal: 8 runs, 7 passes, the mean over the 7 real ratings only
+        assertThat(f0.runs()).isEqualTo(8);
+        assertThat(f0.passes()).isEqualTo(7);
+        assertThat(f0.avgRating()).isEqualTo((double) SkyRatingEvalFixtures.ALL.get(0).band().min());
+        // an entirely failed fixture still appears: 8 runs, 0 passes, no rating, no sub-scores
+        assertThat(f1.runs()).isEqualTo(8);
+        assertThat(f1.passes()).isZero();
+        assertThat(f1.avgRating()).isNull();
+        assertThat(f1.avgFierySky()).isNull();
+        // reconciliation with the run aggregate
+        assertThat(trend.stream().mapToInt(SkyRatingEvalTrendPoint::runs).sum())
+                .isEqualTo(run.getTotalRuns()).isEqualTo(fixtures * 8);
+        assertThat(trend.stream().mapToInt(SkyRatingEvalTrendPoint::passes).sum())
+                .isEqualTo(run.getTotalPasses()).isEqualTo(7 + (fixtures - 2) * 8);
+        assertThat(run.getPassRate()).isEqualTo((7.0 + (fixtures - 2) * 8) / (fixtures * 8));
+        assertThat(agg.failedCount()).isEqualTo(1 + 8);
+        // tokens and cost reconcile across success AND failure rows: the run totals equal the sums
+        long rowInput = stored.stream().mapToLong(r -> r.getInputTokens() == null ? 0 : r.getInputTokens()).sum();
+        long rowOutput = stored.stream().mapToLong(r -> r.getOutputTokens() == null ? 0 : r.getOutputTokens()).sum();
+        long successes = 7L + (fixtures - 2) * 8L;
+        long billedFailures = 1 + 7; // 1 refusal + 7 truncations; the 8th truncation was unanswered
+        assertThat(run.getInputTokens()).isEqualTo(rowInput).isEqualTo(successes * 10 + billedFailures * 100);
+        assertThat(run.getOutputTokens()).isEqualTo(rowOutput).isEqualTo(successes * 5 + billedFailures * 10);
+        // success: 10*3 + 5*7 = 65 each; failure: 100*3 + 10*7 = 370 each
+        assertThat(run.getCostMicroDollars()).isEqualTo(successes * 65 + billedFailures * 370);
     }
 }

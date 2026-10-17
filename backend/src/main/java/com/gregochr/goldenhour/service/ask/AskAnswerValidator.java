@@ -1,0 +1,436 @@
+package com.gregochr.goldenhour.service.ask;
+
+import com.gregochr.goldenhour.model.BriefingWindow;
+import com.gregochr.goldenhour.service.evaluation.PromptUtils;
+import org.springframework.stereotype.Component;
+
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.regex.Pattern;
+
+/**
+ * Holds a model's submitted answer to what the tools actually returned (plan §2.3 <em>Validation</em>).
+ * Pure: no I/O, no clock, and no logging. Why a typed answer was discarded is the {@code reason}
+ * it returns, which the caller logs once (see {@code AskService}).
+ *
+ * <p>The model supplies only a location id, a window id and a reason per pick, and a type and a
+ * reason per event. Everything a card shows — name, region, date, event, rating, verdict, label —
+ * is joined here from the snapshot, so a card can never state something served data does not.
+ *
+ * <p><b>Two pick rules, one chosen per answer.</b> A <em>fresh</em> answer carries at most
+ * {@value #MAX_PICKS} picks at <em>distinct locations</em>: three different places, never one place
+ * three times. A <em>ranking follow-up</em> — a thread offered earlier picks, and <em>every</em> pick the
+ * model submitted is one of them — carries at most {@value #MAX_RANKED_PICKS} picks distinct by
+ * <em>(location, window)</em>, so "rank those options" can return Bamburgh sunrise, Whitby sunrise, Whitby
+ * sunset and Saltburn sunset: the reader's own four options, not two. <b>A mixed answer</b> (any submitted
+ * pick that is not one of the thread's offered picks, including one returned by a new
+ * {@code rank_spots}) falls under the fresh rule: the relaxation exists to let the reader's own options
+ * be ranked whole, and a mixed answer is a "new places" answer, where one place at two windows would
+ * crowd out the variety the fresh rule exists to give. The decision reads the submitted pairs only, so
+ * it never depends on which picks happen to survive the checks below.
+ *
+ * <p><b>Residual, stated:</b> the summary's prose is not fact-checked. The cards beside it carry
+ * served facts.
+ */
+@Component
+public class AskAnswerValidator {
+
+    /** The most picks an answer may carry. */
+    public static final int MAX_PICKS = 3;
+
+    /** The most picks a ranking follow-up may carry: its earlier options, one place at two windows allowed. */
+    public static final int MAX_RANKED_PICKS = 4;
+
+    /** Word cap of a summary. */
+    public static final int SUMMARY_WORDS = 60;
+
+    /**
+     * The most code points a served summary may hold, and the most a thread summary may be sent back with
+     * ({@link AskQuestionSanitiser#MAX_THREAD_SUMMARY_LENGTH} is this value). One constant, so the two can
+     * never drift: the bound exists for the round trip, so that every summary the server serves is accepted
+     * back verbatim as an earlier exchange. The word cap alone bounds nothing in characters (sixty long
+     * words is over a thousand).
+     */
+    public static final int THREAD_SUMMARY_MAX_CODE_POINTS = 500;
+
+    /** Word cap of one pick's or event's reason. */
+    public static final int WHY_WORDS = 24;
+
+    /** Word cap of the {@code missing} phrase. */
+    public static final int MISSING_WORDS = 8;
+
+    /** The {@code missing} phrase of a follow-up whose earlier places have left the forecast (8 words). */
+    static final String STALE_THREAD_MISSING = "those places are no longer in the forecast";
+
+    /** The summary of that same can't-answer: ours, never the model's, which assumed the places stood. */
+    static final String STALE_THREAD_SUMMARY =
+            "The places from your earlier answers are no longer in the forecast.";
+
+    /**
+     * The {@code missing} phrase when every earlier place is held back by the neighbour guard (6 words).
+     * The client reads it after "PhotoCast doesn't have:", so it is a noun phrase.
+     */
+    static final String HELD_BACK_MISSING = "a trustworthy rating for those places";
+
+    /** The summary of that can't-answer: ours, and true, since the places are still in the forecast. */
+    static final String HELD_BACK_SUMMARY =
+            "The places from your earlier answers are rated well above the places beside them, "
+                    + "so PhotoCast is not suggesting them.";
+
+    /**
+     * The {@code missing} phrase when some earlier places are held back and some are gone (4 words); a
+     * noun phrase for the client's "PhotoCast doesn't have:" frame.
+     */
+    static final String MIXED_STALE_MISSING = "those places as suggestions";
+
+    /** The summary of that can't-answer: ours, true of both reasons. */
+    static final String MIXED_STALE_SUMMARY =
+            "The places from your earlier answers can no longer be suggested.";
+
+    /** The {@code missing} phrase of a follow-up that turned the earlier places down and has nothing else to offer. */
+    static final String TURNED_DOWN_MISSING = "the other places are not rated well enough";
+
+    /** The summary of that same can't-answer: ours, never the model's. */
+    static final String TURNED_DOWN_SUMMARY =
+            "Apart from the places you have turned down, nothing else is rated well enough to suggest.";
+
+    private static final Pattern URL_LIKE = Pattern.compile(
+            "(?i)(?:\\b(?:https?|ftp)://\\S+|\\bmailto:\\S+|\\bwww\\.\\S+"
+                    + "|\\b[a-z0-9-]+(?:\\.[a-z0-9-]+)*\\.(?:com|net|org|co\\.uk|uk|io|app|dev|info"
+                    + "|online|me|ly|gl|be|to)\\b(?:/\\S*)?)");
+    private static final Pattern WHITESPACE = Pattern.compile("\\s+");
+
+    /**
+     * An answer as the model submitted it, before any check.
+     *
+     * @param answerable whether the model says the forecast can answer
+     * @param summary    the model's summary
+     * @param picks      the model's picks, in its order
+     * @param events     the model's events
+     * @param missing    what the model says PhotoCast lacks
+     */
+    public record Raw(boolean answerable, String summary, List<RawPick> picks,
+            List<RawEvent> events, String missing) {
+
+        /** Canonical constructor: a null list reads as empty. */
+        public Raw {
+            picks = picks == null ? List.of() : List.copyOf(picks);
+            events = events == null ? List.of() : List.copyOf(events);
+        }
+    }
+
+    /**
+     * A pick as the model submitted it.
+     *
+     * @param locationId the location id
+     * @param windowId   the window id
+     * @param why        the model's reason
+     */
+    public record RawPick(long locationId, String windowId, String why) {
+    }
+
+    /**
+     * An event as the model submitted it.
+     *
+     * @param type the event type
+     * @param date the date the model names, or null to take the served one
+     * @param why  the model's reason
+     */
+    public record RawEvent(String type, LocalDate date, String why) {
+    }
+
+    /**
+     * The extra rule of a Ready {@code BEST_*} question: it must lead with the Plan tab's own BEST
+     * BET (plan §1 #6) — two different "bests" on one screen is the aggregator divergence the
+     * project has already paid for.
+     *
+     * <p>It has no scope of its own: the question's one scope is the {@code scope} argument of
+     * {@link #validate}, so the anchor and the pick filter cannot be given two that differ.
+     *
+     * @param windowIds the windows the question covers
+     */
+    public record BestAnchor(Set<String> windowIds) {
+
+        /** Canonical constructor: takes an immutable copy; null reads as empty. */
+        public BestAnchor {
+            windowIds = windowIds == null ? Set.of() : Set.copyOf(windowIds);
+        }
+    }
+
+    /**
+     * The verdict on a submitted answer.
+     *
+     * @param answer the validated answer, or null when the answer was discarded
+     * @param reason why it was discarded, or null when it was accepted
+     * @param turnedDownDropped how many submitted picks were dropped because the reader had turned their
+     *                          place down (a count for the log, never a name)
+     */
+    public record Result(AskAnswer answer, String reason, int turnedDownDropped) {
+
+        /**
+         * A verdict that dropped no turned-down pick.
+         *
+         * @param answer the validated answer, or null when the answer was discarded
+         * @param reason why it was discarded, or null when it was accepted
+         */
+        public Result(AskAnswer answer, String reason) {
+            this(answer, reason, 0);
+        }
+
+        /**
+         * Whether the answer survived.
+         *
+         * @return true when {@code answer} is present
+         */
+        public boolean accepted() {
+            return answer != null;
+        }
+    }
+
+    /**
+     * Validates an answer.
+     *
+     * @param raw      the model's submitted answer
+     * @param snapshot the snapshot the conversation ran against
+     * @param evidence what the conversation's tools returned
+     * @param scope    the regions the question is about. Enforced here, not left to the evidence
+     *                 being scoped: a pick whose region is outside it is dropped
+     * @param anchor   the Ready {@code BEST_*} rule, or null for every other question
+     * @param eventsQuestion which events question this is ({@link ReadyIntentRules#eventsQuestion}),
+     *                 or null when it is not one: an answer to it with no event it admits is discarded while
+     *                 the snapshot offers an event the question admits, whatever the model concluded
+     * @param canSeeAurora whether the asker's role may see aurora figures ({@link AskUserContext#canSeeAurora},
+     *                 false for a user-less conversation): the snapshot is user-less and holds the aurora
+     *                 rows, so a night pick on an AURORA window is eligible only when this is true
+     * @return the validated answer, or the reason it was discarded
+     */
+    public Result validate(Raw raw, AskSnapshot snapshot, AskEvidence evidence,
+            AskScope scope, BestAnchor anchor, ReadyQuestion eventsQuestion, boolean canSeeAurora) {
+        // Strip what a follow-up would refuse the summary for, THEN the word cap and the code-point bound, so
+        // every summary served is accepted back verbatim as an earlier exchange.
+        String summary = boundCodePoints(
+                clean(AskQuestionSanitiser.stripRefusedInProse(raw.summary()), SUMMARY_WORDS),
+                THREAD_SUMMARY_MAX_CODE_POINTS);
+        if (summary == null || summary.isBlank()) {
+            return discard("no summary");
+        }
+        String missing = clean(raw.missing(), MISSING_WORDS);
+        if (missing != null && missing.isBlank()) {
+            missing = null;
+        }
+        List<AskEvent> events = raw.answerable() ? validEvents(raw.events(), evidence) : List.of();
+        // "None" means no event the question admits: a typed answer is never relevance-filtered afterwards.
+        if (eventsQuestion != null
+                && events.stream().noneMatch(e -> ReadyRelevance.admitsEvent(eventsQuestion, e.type()))) {
+            long offered = offeredEvents(snapshot, scope, eventsQuestion);
+            if (offered > 0) {
+                return discard("events question answered \"none\" while " + offered
+                        + " events were offered");
+            }
+        }
+        if (!raw.answerable()) {
+            if (anchor != null && anchoredWindow(snapshot, anchor, scope).isPresent()) {
+                return discard("a BEST question cannot be unanswerable while the forecast has a BEST BET");
+            }
+            return new Result(new AskAnswer(false, summary, List.of(), List.of(), missing), null);
+        }
+
+        int[] turnedDownDropped = {0};
+        List<AskPick> picks = validPicks(raw.picks(), snapshot, evidence, scope, turnedDownDropped,
+                canSeeAurora);
+        if (!evidence.thread().turnedDown().isEmpty() && picks.isEmpty() && events.isEmpty()
+                && (turnedDownDropped[0] > 0 || evidence.anyToolCalled())) {
+            // The reader turned the earlier places down and nothing else survives: an honest can't-answer in
+            // our words, the same shape as the stale-thread exit.
+            return new Result(new AskAnswer(false, TURNED_DOWN_SUMMARY, List.of(), List.of(),
+                    TURNED_DOWN_MISSING), null, turnedDownDropped[0]);
+        }
+        if (picks.isEmpty() && events.isEmpty() && !evidence.anyToolCalled()) {
+            if (evidence.thread().staleOnly(submittedPairs(raw.picks()))) {
+                // A follow-up about places the thread named and the forecast has since lost: an honest
+                // can't-answer in our words, not the model's, and not an engine fault.
+                return switch (evidence.thread().staleKind(submittedPairs(raw.picks()))) {
+                    case HELD_BACK -> new Result(new AskAnswer(false, HELD_BACK_SUMMARY, List.of(),
+                            List.of(), HELD_BACK_MISSING), null);
+                    case MIXED -> new Result(new AskAnswer(false, MIXED_STALE_SUMMARY, List.of(),
+                            List.of(), MIXED_STALE_MISSING), null);
+                    case GONE -> new Result(new AskAnswer(false, STALE_THREAD_SUMMARY, List.of(),
+                            List.of(), STALE_THREAD_MISSING), null);
+                };
+            }
+            return discard("answerable with no pick, no event and no tool call");
+        }
+        if (anchor != null) {
+            Optional<AskSnapshot.Window> lead = anchoredWindow(snapshot, anchor, scope);
+            if (lead.isPresent()
+                    && (picks.isEmpty() || !picks.getFirst().windowId().equals(lead.get().id()))) {
+                return discard("pick 1 is not on the BEST BET window " + lead.get().id());
+            }
+        }
+        return new Result(new AskAnswer(true, summary, picks, events, null), null, turnedDownDropped[0]);
+    }
+
+    /**
+     * How many distinct events (type and date) the snapshot offers an events question: the in-scope
+     * live hot topics ({@code get_hot_topics}) and the {@code get_coming_up} timeline, of the types
+     * the question admits. Read from the snapshot, never from what the model's tool calls returned, so
+     * a model that filtered, limited or skipped a tool cannot make "none" true.
+     */
+    private static long offeredEvents(AskSnapshot snapshot, AskScope scope, ReadyQuestion question) {
+        Set<String> offered = new HashSet<>();
+        snapshot.hotTopics().stream()
+                .filter(t -> t.inScope(scope) && ReadyRelevance.admitsEvent(question, t.type()))
+                .forEach(t -> offered.add(AskEventType.offerKey(t.type(), t.date())));
+        snapshot.timeline(scope, AskSnapshot.MAX_COMING_UP_DAYS).stream()
+                .filter(e -> ReadyRelevance.admitsEvent(question, e.type()))
+                .forEach(e -> offered.add(AskEventType.offerKey(e.type(), e.startDate())));
+        return offered.size();
+    }
+
+    /**
+     * The window a BEST question's pick 1 must be on: a covered window carrying the forecast's BEST
+     * pick, in scope, that has at least one pick-eligible slot to lead with <em>within the
+     * question's scope</em> ({@link AskSnapshot#candidates(AskSnapshot.Window, AskScope)},
+     * the same set {@code rank_spots} draws from). Without that last clause a BEST BET whose own
+     * location is under 3★, or whose only eligible neighbours sit in a region the question did not
+     * ask about, would make every answer unsatisfiable.
+     */
+    static Optional<AskSnapshot.Window> anchoredWindow(AskSnapshot snapshot,
+            BestAnchor anchor, AskScope scope) {
+        return snapshot.windows().stream()
+                .filter(w -> anchor.windowIds().contains(w.id()))
+                .filter(w -> w.pick() != null && w.pick().kind() == BriefingWindow.PickKind.BEST)
+                .filter(w -> scope.contains(w.pick().regionName()))
+                .filter(w -> !snapshot.candidates(w, scope).isEmpty())
+                .findFirst();
+    }
+
+    private List<AskPick> validPicks(List<RawPick> raw, AskSnapshot snapshot, AskEvidence evidence,
+            AskScope scope, int[] turnedDownDropped, boolean canSeeAurora) {
+        List<AskPick> out = new ArrayList<>();
+        boolean ranking = isRankingFollowUp(raw, evidence);
+        int cap = ranking ? MAX_RANKED_PICKS : MAX_PICKS;
+        Set<Object> seen = new HashSet<>();
+        for (RawPick pick : raw) {
+            if (out.size() >= cap) {
+                break;
+            }
+            if (evidence.thread().turnedDown().contains(pick.locationId())) {
+                // The reader turned this place down: it is excluded at every window, however it was offered.
+                turnedDownDropped[0]++;
+                continue;
+            }
+            Object key = ranking ? new AskEvidence.Pair(pick.locationId(), pick.windowId()) : pick.locationId();
+            // Offered by a tool in this conversation or by the thread; either way it must still be a live,
+            // in-scope, pick-eligible slot below.
+            if (!evidence.offers(new AskEvidence.Pair(pick.locationId(), pick.windowId()))
+                    || seen.contains(key)) {
+                continue;
+            }
+            // Solar or night, each held to its own eligibility rule (the night's reads canSeeAurora).
+            Optional<AskSnapshot.ResolvedPick> live =
+                    snapshot.resolvePick(pick.windowId(), pick.locationId(), canSeeAurora);
+            if (live.isEmpty() || !scope.contains(live.get().regionName())) {
+                continue;
+            }
+            seen.add(key);
+            AskSnapshot.ResolvedPick r = live.get();
+            String why = clean(pick.why(), WHY_WORDS);
+            out.add(new AskPick(out.size() + 1, pick.locationId(), r.locationName(), r.regionName(),
+                    r.date(), r.kind(), r.windowId(), why == null ? "" : why, r.rating(), r.verdict()));
+        }
+        return out;
+    }
+
+    /**
+     * An event survives only if its type was returned by an events tool. The label, date and safety
+     * note shown are the served ones: the model's date picks between served dates of that type and
+     * is never trusted on its own, and {@link RawEvent} has no field through which the model could
+     * write a safety note. A served warning (the solar eclipse's lens-filter note) therefore always
+     * reaches the validated event; no path drops it.
+     */
+    private List<AskEvent> validEvents(List<RawEvent> raw, AskEvidence evidence) {
+        List<AskEvent> out = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (RawEvent event : raw) {
+            Optional<AskEvidence.EventFact> fact = evidence.offeredEvents().stream()
+                    .filter(f -> AskEventType.same(f.type(), event.type()))
+                    .filter(f -> event.date() == null || event.date().equals(f.date()))
+                    .min(Comparator.comparing(AskEvidence.EventFact::date,
+                            Comparator.nullsLast(Comparator.naturalOrder()))
+                            // Of otherwise equal facts the one carrying a warning wins: never lose it.
+                            .thenComparing(f -> f.safetyNote() == null));
+            if (fact.isEmpty() || !seen.add(AskEventType.offerKey(fact.get().type(), fact.get().date()))) {
+                continue;
+            }
+            String why = clean(event.why(), WHY_WORDS);
+            out.add(new AskEvent(AskEventType.key(fact.get().type()), fact.get().label(), fact.get().date(),
+                    why == null ? "" : why, fact.get().safetyNote()));
+        }
+        return out;
+    }
+
+    /**
+     * Cleans model text: URL-like strings removed, the model's own brand names replaced, whitespace
+     * collapsed, then capped at {@code maxWords} words.
+     *
+     * @param text     the text; may be null
+     * @param maxWords the word cap
+     * @return the cleaned text, or null for null input
+     */
+    static String clean(String text, int maxWords) {
+        if (text == null) {
+            return null;
+        }
+        String noUrls = URL_LIKE.matcher(text).replaceAll(" ");
+        String branded = PromptUtils.sanitizeBrand(noUrls);
+        String collapsed = WHITESPACE.matcher(branded).replaceAll(" ").strip();
+        return PromptUtils.truncateToWords(collapsed, maxWords);
+    }
+
+    /**
+     * Whether a submission is a ranking follow-up: the thread offered earlier picks and every pick the
+     * model submitted is one of them. Empty submissions and mixed ones are not.
+     */
+    private static boolean isRankingFollowUp(List<RawPick> raw, AskEvidence evidence) {
+        Set<AskEvidence.Pair> offered = evidence.thread().picks();
+        return !offered.isEmpty() && !raw.isEmpty()
+                && submittedPairs(raw).stream().allMatch(offered::contains);
+    }
+
+    private static Set<AskEvidence.Pair> submittedPairs(List<RawPick> picks) {
+        Set<AskEvidence.Pair> pairs = new HashSet<>();
+        for (RawPick pick : picks) {
+            pairs.add(new AskEvidence.Pair(pick.locationId(), pick.windowId()));
+        }
+        return pairs;
+    }
+
+    /**
+     * Cuts already-cleaned text to at most {@code maxCodePoints} code points, at a word boundary: the
+     * longest whole-word prefix that fits. A single word longer than the bound is cut at the bound (never
+     * inside a surrogate pair). Text already within the bound is returned as it is, byte for byte.
+     *
+     * @param text          cleaned text with single spaces between words; may be null
+     * @param maxCodePoints the bound
+     * @return the text, within the bound; null for null input
+     */
+    static String boundCodePoints(String text, int maxCodePoints) {
+        if (text == null || text.codePointCount(0, text.length()) <= maxCodePoints) {
+            return text;
+        }
+        int end = text.offsetByCodePoints(0, maxCodePoints);
+        int boundary = text.charAt(end) == ' ' ? end : text.lastIndexOf(' ', end);
+        String cut = boundary > 0 ? text.substring(0, boundary) : text.substring(0, end);
+        return cut.strip();
+    }
+
+    private static Result discard(String reason) {
+        return new Result(null, reason);
+    }
+}

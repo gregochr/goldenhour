@@ -471,6 +471,27 @@ describe('WindowFirstShell — moving between tabs', () => {
     expect(screen.queryAllByRole('dialog')).toHaveLength(0);
   });
 
+  it('⚠️ takes SEARCH down with the tab too — the dialog the list left out until 2026-09-16', async () => {
+    // Search is a shell dialog like the rest but lived outside the list: it is `searchSeed`, not a
+    // sheet. The search box is no trap, and only the tick line leaves the tab order under it, so a
+    // keyboard reader could Tab out onto this bar and arrow away with search still open — over the
+    // map, where the four-day peek then landed `inert` beneath it rather than as the only layer. The
+    // route is driven the way that reader drives it: focus on the tab, then the arrow key.
+    renderShell();
+    fireEvent.click(screen.getByTestId('window-first-search'));
+    await screen.findByTestId('plan-search');
+    // Control: the tab the reader lands on is still in the tab order with search up.
+    expect(tab('Plan')).toHaveAttribute('tabindex', '0');
+
+    act(() => { tab('Plan').focus(); });
+    fireEvent.keyDown(tab('Plan'), { key: 'ArrowRight' });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(tab('Coming up')).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByTestId('plan-search')).toBeNull();
+    expect(screen.queryAllByRole('dialog')).toHaveLength(0);
+  });
+
   it('leaves keys it does not own alone, so the page can still be scrolled', () => {
     // Up/Down are deliberately unbound: this is a horizontal tab list, and taking the vertical keys
     // would cost the page scroll for nothing.
@@ -544,6 +565,120 @@ describe('WindowFirstShell — the reach lens across tabs', () => {
 
     fireEvent.click(tab('Plan'));
     expect(screen.getByTestId('window-first-lens')).toBeInTheDocument();
+  });
+});
+
+/**
+ * Search is a Plan-tab control, like the lens bar above.
+ *
+ * <p>Everything search finds is a Plan object — one of the six windows, a region to plan from, or a
+ * place's four-day sheet — and every pick opens a Plan dialog or moves the Plan's origin. The `/`
+ * shortcut was Plan-only from M3 until F2 handed the key to Ask; search is now reached through the two
+ * buttons alone. Until 2026-09-16 the masthead's two buttons were not Plan-only: on
+ * Coming up (and Operations) the ⌕ and the origin button both opened search, and a pick then opened
+ * the window popup or the four-day sheet over a pane that was not the Plan's. `selectTab` exists to
+ * prevent exactly that state, and nothing moved the tab. Reproduced in jsdom through both buttons
+ * before the fix.
+ *
+ * <p>So the masthead withholds both buttons off Plan rather than refusing their presses: plan-matrix
+ * §3 rule 14 bans a control with no visible effect. The origin is still stated, as it is on the Map
+ * tab, and the controls that do something else stay: the nudge opens settings, and ⌂ moves the
+ * origin home.
+ */
+describe('WindowFirstShell — search across tabs', () => {
+  const PLAN_CONTROLS = ['window-first-settings', 'window-first-signout',
+    'window-first-origin-chip', 'window-first-search'];
+
+  /** The band's buttons in DOM order, as an exact list — a count passes when one is swapped. */
+  const mastheadControls = () => within(screen.getByTestId('window-first-masthead'))
+    .getAllByRole('button').map((b) => b.getAttribute('data-testid'));
+
+  it.each([
+    ['at home', {},
+      ['window-first-settings', 'window-first-signout'],
+      'Home · Newcastle'],
+    ['away, where the way home stays', { origin: { id: 7, name: 'The Lake District', baseName: 'Keswick' } },
+      ['window-first-settings', 'window-first-signout', 'window-first-origin-home'],
+      'The Lake District · from Keswick'],
+  ])('⚠️ offers no search trigger on Coming up, %s — neither the ⌕ nor the origin button', async (
+    _label, overrides, controls, place,
+  ) => {
+    renderShell(overrides);
+    await openComingUp();
+
+    expect(mastheadControls()).toEqual(controls);
+    expect(screen.queryByRole('button', { name: 'Search days, regions and places' })).toBeNull();
+    // Still stated: the tick line is the page's one statement of where the plan is computed from,
+    // and a tab change must not take that away with the control.
+    const statement = screen.getByTestId('window-first-origin-statement');
+    expect(statement.tagName).toBe('SPAN');
+    expect(statement).toHaveTextContent(place);
+  });
+
+  it('keeps the postcode nudge on Coming up, because it opens settings rather than search', async () => {
+    // CLAUDE.md: never re-gate the postcode input. The nudge is the origin button's empty state, but
+    // its job is a setting, and that job exists on every tab — the Map tab keeps it for the same
+    // reason. Only the ⌕ beside it goes.
+    const { onOpenSettings } = renderShell({ homePlace: null });
+    await openComingUp();
+
+    expect(mastheadControls()).toEqual(['window-first-settings', 'window-first-signout',
+      'masthead-set-postcode']);
+    fireEvent.click(screen.getByRole('button', { name: 'Set a postcode for light and drive times' }));
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('⚠️ opens nothing when the place in the tick line is pressed on Coming up', async () => {
+    // The statement is drawn where the origin button was, with the same words. A click handler left
+    // on it would reopen the route with no button for the inventory above to count.
+    renderShell();
+    const place = () => within(screen.getByTestId('window-first-tickline')).getByText('Home · Newcastle');
+
+    // Control, and it loads search's chunk. `PlanSearch` is lazy, so an absence asserted before its
+    // chunk has ever resolved passes whether or not anything asked for it. Once it has resolved, a
+    // press that did open search renders it in that press's own commit.
+    fireEvent.click(place());
+    expect(await screen.findByTestId('plan-search')).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByTestId('plan-search')).toBeNull();
+
+    await openComingUp();
+    fireEvent.click(place());
+    expect(screen.queryByTestId('plan-search')).toBeNull();
+    expect(screen.queryAllByRole('dialog')).toHaveLength(0);
+  });
+
+  it('gives both triggers back on the way to Plan', async () => {
+    renderShell();
+    await openComingUp();
+    fireEvent.click(tab('Plan'));
+
+    expect(mastheadControls()).toEqual(PLAN_CONTROLS);
+    fireEvent.click(screen.getByRole('button', { name: 'Search days, regions and places' }));
+    expect(await screen.findByTestId('plan-search')).toBeInTheDocument();
+  });
+
+  it('⚠️ withholds them on Operations too — the rule is "only on Plan", not "not on Coming up"', async () => {
+    renderShell({}, { operationsPane: <p data-testid="ops-pane">operations pane</p> });
+    fireEvent.click(screen.getByRole('tab', { name: 'Operations' }));
+    // Settles the feed request every mount makes, which would otherwise land outside `act`.
+    await act(async () => { await Promise.resolve(); });
+
+    expect(mastheadControls()).toEqual(['window-first-settings', 'window-first-signout']);
+    expect(screen.getByTestId('window-first-origin-statement')).toHaveTextContent('Home · Newcastle');
+  });
+
+  it('captions the statement "drive times from here" on the Map tab alone', async () => {
+    // The caption is true on the map, where every drive time and leave-by on screen is measured from
+    // this place. Coming up shows no drive time at all, so there it would be a claim about nothing.
+    renderShell({}, { mapPane: <p data-testid="map-pane">map pane</p> });
+    fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
+    expect(mastheadControls()).toEqual(['window-first-settings', 'window-first-signout']);
+    expect(screen.getByTestId('masthead-origin-caption')).toHaveTextContent('drive times from here');
+
+    await openComingUp();
+    expect(screen.getByTestId('window-first-origin-statement')).toHaveTextContent('Home · Newcastle');
+    expect(screen.queryByTestId('masthead-origin-caption')).toBeNull();
   });
 });
 
@@ -1009,5 +1144,55 @@ describe('WindowFirstShell — the Coming up handoff row (plan P1/D14)', () => {
 
     expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
     expect(tab('Plan')).toHaveFocus();
+  });
+});
+
+describe('WindowFirstShell — the forecast dates reach the Coming up cards (plan §11.24)', () => {
+  const MAP_FEED = {
+    ...FEED,
+    entries: [{
+      id: 'spring-tide:2026-08-12:2026-12-31',
+      type: 'spring-tide',
+      startDate: '2026-08-12',
+      // Over the day-chip cap, so the entry keeps its single door (a short or one-day one gets chips).
+      endDate: '2026-12-31',
+      kind: 'ALMANAC',
+      family: 'coastal',
+      title: 'Spring tide run',
+      kindTag: 'Almanac',
+      facts: [],
+      action: { label: 'Show coastal spots for 12 Aug →', kind: 'coastal-spots', date: '2026-08-12' },
+    }],
+  };
+
+  it('draws a live map door when the shell is handed the entry’s date', async () => {
+    getAlmanac.mockResolvedValue(MAP_FEED);
+    renderShell({}, { forecastDates: ['2026-08-08', '2026-08-12'] });
+    await openComingUp();
+    expect(screen.getByRole('button', { name: /Show coastal spots/ })).toBeInTheDocument();
+  });
+
+  it('withholds it, with the reason, when the date is not among the forecast dates', async () => {
+    getAlmanac.mockResolvedValue(MAP_FEED);
+    renderShell({}, { forecastDates: ['2026-08-08', '2026-08-09'] });
+    await openComingUp();
+    expect(screen.queryByRole('button', { name: /Spring tide run|Coastal spots/ })).toBeNull();
+    expect(screen.getByTestId('coming-up-card').tagName).toBe('DIV');
+    expect(screen.getByTestId('coming-up-action'))
+      .toHaveTextContent('Coastal spots: no forecast for 12 Aug');
+  });
+
+  it('withholds it when the forecast dates are known to be empty', async () => {
+    getAlmanac.mockResolvedValue(MAP_FEED);
+    renderShell({}, { forecastDates: [] });
+    await openComingUp();
+    expect(screen.queryByRole('button', { name: /Spring tide run|Coastal spots/ })).toBeNull();
+  });
+
+  it('leaves it live when no forecast dates are passed — not known yet is no claim', async () => {
+    getAlmanac.mockResolvedValue(MAP_FEED);
+    renderShell();
+    await openComingUp();
+    expect(screen.getByRole('button', { name: /Show coastal spots/ })).toBeInTheDocument();
   });
 });

@@ -111,7 +111,9 @@ class DynamicSchedulerServiceIntegrationTest {
         // Trigger now
         schedulerService.triggerNow("lifecycle_test");
 
-        // Cleanup
+        // Cleanup: cancel the resumed cron too, or the shared context's scheduler keeps a task
+        // due at 04:00 that outlives this class (SchedulerConfig records what that used to cost).
+        schedulerService.pause("lifecycle_test");
         repository.delete(repository.findByJobKey("lifecycle_test").orElseThrow());
     }
 

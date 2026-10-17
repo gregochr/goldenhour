@@ -8,6 +8,8 @@ vi.mock('../api/schedulerApi', () => ({
   pauseJob: vi.fn(),
   resumeJob: vi.fn(),
   triggerJob: vi.fn(),
+  fetchSolarPreview: vi.fn(),
+  switchScheduleType: vi.fn(),
 }));
 
 import {
@@ -16,6 +18,7 @@ import {
   pauseJob,
   resumeJob,
   triggerJob,
+  fetchSolarPreview,
 } from '../api/schedulerApi';
 
 const MOCK_JOBS = [
@@ -57,6 +60,7 @@ describe('SchedulerView', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     fetchSchedulerJobs.mockResolvedValue(MOCK_JOBS);
+    fetchSolarPreview.mockRejectedValue(new Error('preview not under test here'));
   });
 
   it('renders job cards after loading', async () => {
@@ -321,32 +325,38 @@ describe('SchedulerView', () => {
 
   it('polls for job updates at the configured interval', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    render(<SchedulerView />);
+    try {
+      render(<SchedulerView />);
 
-    // Wait for initial load to complete
-    await vi.waitFor(() => {
-      expect(fetchSchedulerJobs).toHaveBeenCalledTimes(1);
-    });
+      // Wait for initial load to complete
+      await vi.waitFor(() => {
+        expect(fetchSchedulerJobs).toHaveBeenCalledTimes(1);
+      });
 
-    // Advance past the 30s polling interval
-    await act(async () => {
-      vi.advanceTimersByTime(30_000);
-    });
+      // Advance past the 30s polling interval
+      await act(async () => {
+        vi.advanceTimersByTime(30_000);
+      });
 
-    await vi.waitFor(() => {
-      expect(fetchSchedulerJobs).toHaveBeenCalledTimes(2);
-    });
+      await vi.waitFor(() => {
+        expect(fetchSchedulerJobs).toHaveBeenCalledTimes(2);
+      });
 
-    // Advance another interval
-    await act(async () => {
-      vi.advanceTimersByTime(30_000);
-    });
+      // Advance another interval
+      await act(async () => {
+        vi.advanceTimersByTime(30_000);
+      });
 
-    await vi.waitFor(() => {
-      expect(fetchSchedulerJobs).toHaveBeenCalledTimes(3);
-    });
-
-    vi.useRealTimers();
+      await vi.waitFor(() => {
+        expect(fetchSchedulerJobs).toHaveBeenCalledTimes(3);
+      });
+    } finally {
+      // Restored here, not on a bare last line: an assertion above that throws must still hand
+      // fake timers back before the next test, matching this file's own convention below
+      // (`SchedulerView — the Run Now confirmation`) — see frontend-test-standards.md, "What NOT
+      // to do".
+      vi.useRealTimers();
+    }
   });
 });
 

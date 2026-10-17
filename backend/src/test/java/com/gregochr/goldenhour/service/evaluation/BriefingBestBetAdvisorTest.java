@@ -18,6 +18,8 @@ import com.gregochr.goldenhour.model.AuroraForecastScore;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.model.CacheDiagnostics;
+import com.gregochr.goldenhour.model.CacheDiagnosticsFixtures;
 import com.gregochr.goldenhour.model.BestBet;
 import com.gregochr.goldenhour.model.BestBetResult;
 import com.gregochr.goldenhour.model.BestBetStatus;
@@ -36,7 +38,7 @@ import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
-import com.gregochr.goldenhour.service.BriefingEvaluationService;
+import com.gregochr.goldenhour.service.EvaluationViewService;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.TravelDayService;
 import com.gregochr.goldenhour.service.JobRunService;
@@ -56,6 +58,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -69,6 +72,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -84,7 +88,7 @@ class BriefingBestBetAdvisorTest {
     @Mock private ModelSelectionService modelSelectionService;
     @Mock private AuroraStateCache auroraStateCache;
     @Mock private StabilitySnapshotProvider stabilitySnapshotProvider;
-    @Mock private BriefingEvaluationService briefingEvaluationService;
+    @Mock private EvaluationViewService evaluationViewService;
     @Mock private TravelDayService travelDayService;
 
     /** Response-token ceiling injected into the advisor under test. */
@@ -105,7 +109,7 @@ class BriefingBestBetAdvisorTest {
         advisor = new BriefingBestBetAdvisor(
                 anthropicApiClient, new ObjectMapper().findAndRegisterModules(),
                 jobRunService, modelSelectionService, auroraStateCache,
-                stabilitySnapshotProvider, briefingEvaluationService, travelDayService,
+                stabilitySnapshotProvider, evaluationViewService, travelDayService,
                 TEST_MAX_TOKENS, CLOCK);
     }
 
@@ -369,8 +373,8 @@ class BriefingBestBetAdvisorTest {
         }
 
         @Test
-        @DisplayName("advise(): token-limited response logs a truncation WARN and salvages picks")
-        void adviseTokenLimitedLogsTruncationWarn() {
+        @DisplayName("advise(): token-limited response is a FAILED call, logged as a failure, never salvaged")
+        void adviseTokenLimitedFailsAndLogsFailure() {
             stubModelSelection();
             when(auroraStateCache.isActive()).thenReturn(false);
             LocalDate tomorrow = FIXED_TODAY.plusDays(1);
@@ -387,16 +391,20 @@ class BriefingBestBetAdvisorTest {
                     new BriefingEventSummary(TargetType.SUNSET,
                             List.of(region("Northumberland", Verdict.GO, 3, 0, 0)), List.of()))));
 
-            List<BestBet> picks = advisor.advise(days, 99L, Map.of()).picks();
+            BestBetResult result = advisor.advise(days, 99L, Map.of());
 
-            assertThat(picks).hasSize(1);
-            assertThat(picks.get(0).region()).isEqualTo("Northumberland");
-            ILoggingEvent warn = appender.list.stream()
-                    .filter(e -> e.getLevel() == Level.WARN
-                            && e.getFormattedMessage().contains("[BEST-BET TRUNCATION]"))
-                    .findFirst().orElseThrow();
-            assertThat(warn.getFormattedMessage()).contains("jobRunId=99");
-            assertThat(warn.getFormattedMessage()).contains("salvaged");
+            assertThat(result.status()).isEqualTo(BestBetStatus.FAILED);
+            assertThat(result.picks()).isEmpty();
+            ArgumentCaptor<Boolean> succeeded = ArgumentCaptor.forClass(Boolean.class);
+            ArgumentCaptor<String> errorMessage = ArgumentCaptor.forClass(String.class);
+            verify(jobRunService).logApiCall(eq(99L), eq(ServiceName.ANTHROPIC), eq("POST"),
+                    eq("briefing-best-bet"), org.mockito.ArgumentMatchers.anyString(),
+                    org.mockito.ArgumentMatchers.anyLong(), eq(200), eq(truncated),
+                    succeeded.capture(), errorMessage.capture(), eq(EvaluationModel.OPUS),
+                    org.mockito.ArgumentMatchers.isNull(), eq(CacheDiagnostics.EMPTY));
+            assertThat(succeeded.getValue()).isFalse();
+            assertThat(errorMessage.getValue()).isEqualTo("Claude's best-bet response was truncated "
+                    + "at the max_tokens limit (stop_reason=max_tokens)");
         }
 
         @Test
@@ -436,9 +444,10 @@ class BriefingBestBetAdvisorTest {
                     new BriefingEventSummary(TargetType.SUNSET,
                             List.of(region("Northumberland", Verdict.GO, 3, 0, 0)), List.of()))));
 
-            List<BestBet> picks = advisor.advise(days, 11L, Map.of()).picks();
+            BestBetResult result = advisor.advise(days, 11L, Map.of());
 
-            assertThat(picks).isEmpty();
+            assertThat(result.picks()).isEmpty();
+            assertThat(result.status()).isEqualTo(BestBetStatus.FAILED);
             assertThat(appender.list).noneMatch(e ->
                     e.getFormattedMessage().contains("Advisor returned no picks"));
             ILoggingEvent warn = appender.list.stream()
@@ -446,6 +455,17 @@ class BriefingBestBetAdvisorTest {
                             && e.getFormattedMessage().contains("[BEST-BET REFUSAL]"))
                     .findFirst().orElseThrow();
             assertThat(warn.getFormattedMessage()).contains("jobRunId=11");
+            ArgumentCaptor<Boolean> succeeded = ArgumentCaptor.forClass(Boolean.class);
+            ArgumentCaptor<String> errorMessage = ArgumentCaptor.forClass(String.class);
+            verify(jobRunService).logApiCall(eq(11L), eq(ServiceName.ANTHROPIC), eq("POST"),
+                    eq("briefing-best-bet"), org.mockito.ArgumentMatchers.anyString(),
+                    org.mockito.ArgumentMatchers.anyLong(), eq(200),
+                    eq("I can't help with evaluating this request."),
+                    succeeded.capture(), errorMessage.capture(), eq(EvaluationModel.OPUS),
+                    org.mockito.ArgumentMatchers.isNull(), eq(CacheDiagnostics.EMPTY));
+            assertThat(succeeded.getValue()).isFalse();
+            assertThat(errorMessage.getValue())
+                    .isEqualTo("Claude refused the best-bet request (stop_reason=refusal)");
         }
 
         @Test
@@ -483,7 +503,7 @@ class BriefingBestBetAdvisorTest {
             BriefingBestBetAdvisor custom = new BriefingBestBetAdvisor(
                     anthropicApiClient, new ObjectMapper().findAndRegisterModules(),
                     jobRunService, modelSelectionService, auroraStateCache,
-                    stabilitySnapshotProvider, briefingEvaluationService, travelDayService, customMax, CLOCK);
+                    stabilitySnapshotProvider, evaluationViewService, travelDayService, customMax, CLOCK);
             when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
                     .thenReturn(EvaluationModel.HAIKU);
             when(anthropicApiClient.createMessage(any()))
@@ -973,7 +993,9 @@ class BriefingBestBetAdvisorTest {
         }
 
         private CandidateCoverage cov(int rated, int daysAhead) {
-            return new CandidateCoverage(rated, daysAhead, 4.0);
+            // verdictEligible is irrelevant here — applyCoverageAwareRanking never reads it,
+            // only dropIneligiblePicks does (round 10, P1-B) — true is a neutral default.
+            return new CandidateCoverage(rated, daysAhead, 4.0, true);
         }
 
         @Test
@@ -1118,7 +1140,7 @@ class BriefingBestBetAdvisorTest {
         @Test
         @DisplayName("End-to-end advise(): cache coverage flips the inversion through the real path")
         void adviseEndToEndInversionFlips() {
-            // Full path: getCachedScores → buildRollupJson coverage map → gate.
+            // Full path: getLiveScoresForEnrichmentBulk → buildRollupJson coverage map → gate.
             stubModelSelection();
             when(auroraStateCache.isActive()).thenReturn(false);
             LocalDate nearDate = FIXED_TODAY.plusDays(1);
@@ -1127,17 +1149,26 @@ class BriefingBestBetAdvisorTest {
             String farEvent = farDate + "_sunset";
 
             // Far Northumberland: thinly evaluated (2). Near North Yorkshire: well-covered (5).
-            when(briefingEvaluationService.getCachedScores(NORTHUMBERLAND, farDate, TargetType.SUNSET))
+            // ONE bulk call over the whole rollup window (nearDate..farDate), never a per-region
+            // getLiveScoresForEnrichment — see BriefingRollupBuilder.loadLiveScores.
+            when(evaluationViewService.getLiveScoresForEnrichmentBulk(
+                    nearDate, farDate, Set.of(TargetType.SUNSET)))
                     .thenReturn(Map.of(
-                            "Bamburgh", new BriefingEvaluationResult("Bamburgh", 4, 80, 70, "Good"),
-                            "Dunstanburgh", new BriefingEvaluationResult("Dunstanburgh", 4, 78, 66, "Good")));
-            when(briefingEvaluationService.getCachedScores(NORTH_YORKS, nearDate, TargetType.SUNSET))
-                    .thenReturn(Map.of(
-                            "Whitby", new BriefingEvaluationResult("Whitby", 4, 70, 60, "Good"),
-                            "Sandsend", new BriefingEvaluationResult("Sandsend", 3, 55, 50, "Decent"),
-                            "Saltburn", new BriefingEvaluationResult("Saltburn", 4, 72, 61, "Good"),
-                            "Runswick", new BriefingEvaluationResult("Runswick", 3, 52, 48, "Decent"),
-                            "Staithes", new BriefingEvaluationResult("Staithes", 4, 75, 63, "Good")));
+                            NORTHUMBERLAND + "|" + farDate + "|" + TargetType.SUNSET, Map.of(
+                                    "Bamburgh",
+                                    new BriefingEvaluationResult("Bamburgh", 4, 80, 70, "Good"),
+                                    "Dunstanburgh",
+                                    new BriefingEvaluationResult("Dunstanburgh", 4, 78, 66, "Good")),
+                            NORTH_YORKS + "|" + nearDate + "|" + TargetType.SUNSET, Map.of(
+                                    "Whitby", new BriefingEvaluationResult("Whitby", 4, 70, 60, "Good"),
+                                    "Sandsend",
+                                    new BriefingEvaluationResult("Sandsend", 3, 55, 50, "Decent"),
+                                    "Saltburn",
+                                    new BriefingEvaluationResult("Saltburn", 4, 72, 61, "Good"),
+                                    "Runswick",
+                                    new BriefingEvaluationResult("Runswick", 3, 52, 48, "Decent"),
+                                    "Staithes",
+                                    new BriefingEvaluationResult("Staithes", 4, 75, 63, "Good"))));
 
             TextBlock textBlock = mock(TextBlock.class);
             when(textBlock.text()).thenReturn(
@@ -1714,6 +1745,154 @@ class BriefingBestBetAdvisorTest {
         }
     }
 
+    // ── advise — verdict-minimum-sample eligibility (round 10, P1-B) ──
+
+    @Nested
+    @DisplayName("advise drops picks naming a verdict-ineligible region")
+    class AdviseVerdictEligibilityTests {
+
+        /** Builds a region whose {@code sampleSufficient}/{@code forcedSample} are set explicitly,
+         * the way {@code BriefingRegionEvaluationRollup.enrich()} leaves them on every region before
+         * the advisor ever sees it — {@link #region} alone (via the legacy 11-arg constructor)
+         * always leaves both null, i.e. not eligible. */
+        private static BriefingRegion regionWithEligibility(String name, Verdict verdict,
+                int go, int marginal, int standdown, boolean sampleSufficient, boolean forcedSample) {
+            return region(name, verdict, go, marginal, standdown)
+                    .withSampleSufficient(sampleSufficient)
+                    .withForcedSample(forcedSample);
+        }
+
+        private void stubClaudeNames(String eventId, String regionName) {
+            TextBlock textBlock = mock(TextBlock.class);
+            when(textBlock.text()).thenReturn(
+                    "{\"picks\":[{\"rank\":1,\"headline\":\"Go shoot\",\"detail\":\"Clear skies.\","
+                    + "\"event\":\"" + eventId + "\",\"region\":\"" + regionName + "\","
+                    + "\"confidence\":\"high\"}]}");
+            ContentBlock contentBlock = mock(ContentBlock.class);
+            when(contentBlock.isText()).thenReturn(true);
+            when(contentBlock.asText()).thenReturn(textBlock);
+            Message message = mock(Message.class);
+            when(message.content()).thenReturn(List.of(contentBlock));
+            when(anthropicApiClient.createMessage(any())).thenReturn(message);
+        }
+
+        @Test
+        @DisplayName("region with one rating in a 50-voting-roster, not sample-sufficient and "
+                + "not forced, is NOT in bestBets even though Claude names it")
+        void insufficientNonExemptRegionIsDropped() {
+            stubModelSelection();
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            String eventId = tomorrow.toString() + "_sunset";
+            stubClaudeNames(eventId, "Northumberland");
+            stubCoverage("Northumberland", tomorrow, TargetType.SUNSET);
+
+            // 50 voting slots, only one of which carries a Claude rating (via stubCoverage above)
+            // — a real VerdictSampleGate would compute sampleSufficient=false for this roster, and
+            // BriefingRegionEvaluationRollup would never set forcedSample true without an actual
+            // force-evaluation exemption. Setting both explicitly here isolates the advisor's own
+            // consultation of the flag from the (separately tested) VerdictSampleGate arithmetic.
+            BriefingRegion insufficient = regionWithEligibility(
+                    "Northumberland", Verdict.GO, 50, 0, 0, false, false);
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(insufficient), List.of())));
+
+            BestBetResult result = advisor.advise(List.of(day), 42L, Map.of());
+            assertThat(result.picks()).isEmpty();
+            assertThat(result.status()).isEqualTo(BestBetStatus.SUCCESS_NO_PICKS);
+        }
+
+        @Test
+        @DisplayName("the same region with a force-evaluation exemption IS allowed")
+        void forcedSampleRegionIsAllowed() {
+            stubModelSelection();
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            String eventId = tomorrow.toString() + "_sunset";
+            stubClaudeNames(eventId, "Northumberland");
+            stubCoverage("Northumberland", tomorrow, TargetType.SUNSET);
+
+            BriefingRegion forced = regionWithEligibility(
+                    "Northumberland", Verdict.GO, 50, 0, 0, false, true);
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(forced), List.of())));
+
+            BestBetResult result = advisor.advise(List.of(day), 42L, Map.of());
+            assertThat(result.picks()).hasSize(1);
+            assertThat(result.picks().get(0).region()).isEqualTo("Northumberland");
+        }
+
+        @Test
+        @DisplayName("a sample-sufficient region IS allowed")
+        void sufficientRegionIsAllowed() {
+            stubModelSelection();
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            String eventId = tomorrow.toString() + "_sunset";
+            stubClaudeNames(eventId, "Northumberland");
+            stubCoverage("Northumberland", tomorrow, TargetType.SUNSET);
+
+            BriefingRegion sufficient = regionWithEligibility(
+                    "Northumberland", Verdict.GO, 5, 0, 0, true, false);
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(sufficient), List.of())));
+
+            BestBetResult result = advisor.advise(List.of(day), 42L, Map.of());
+            assertThat(result.picks()).hasSize(1);
+            assertThat(result.picks().get(0).region()).isEqualTo("Northumberland");
+        }
+
+        @Test
+        @DisplayName("legacy region with both eligibility fields null is NOT eligible")
+        void legacyNullFieldsAreNotEligible() {
+            stubModelSelection();
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            String eventId = tomorrow.toString() + "_sunset";
+            stubClaudeNames(eventId, "Northumberland");
+            stubCoverage("Northumberland", tomorrow, TargetType.SUNSET);
+
+            // The legacy 11-arg constructor, called directly (bypassing the region() helper's
+            // round-10 sampleSufficient=true default), leaves sampleSufficient and forcedSample
+            // both null — the pre-round-9 cached payload shape.
+            BriefingRegion legacy = new BriefingRegion("Northumberland", Verdict.GO, "Summary",
+                    List.of(), List.of(slot("Loc0", Verdict.GO, null), slot("Loc1", Verdict.GO, null),
+                            slot("Loc2", Verdict.GO, null), slot("Loc3", Verdict.GO, null),
+                            slot("Loc4", Verdict.GO, null)),
+                    null, null, null, null, null, null);
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(legacy), List.of())));
+
+            BestBetResult result = advisor.advise(List.of(day), 42L, Map.of());
+            assertThat(result.picks()).isEmpty();
+            assertThat(result.status()).isEqualTo(BestBetStatus.SUCCESS_NO_PICKS);
+        }
+
+        @Test
+        @DisplayName("when every returned pick is dropped as ineligible, the outcome is the same "
+                + "SUCCESS_NO_PICKS the zero-coverage drop already uses")
+        void allPicksDroppedMatchesExistingNoPicksOutcome() {
+            stubModelSelection();
+            when(auroraStateCache.isActive()).thenReturn(false);
+            // No BriefingDay/region at all — mirrors the existing zero-coverage
+            // "claudeThrowsReturnsEmpty"-style expectation that an empty roster with a Claude
+            // response naming an unknown region parses to SUCCESS_NO_PICKS after validation drops
+            // it; here the roster exists but is ineligible, and the two failure modes must produce
+            // an identical, indistinguishable status so nothing downstream needs to special-case it.
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            String eventId = tomorrow.toString() + "_sunset";
+            stubClaudeNames(eventId, "Northumberland");
+            stubCoverage("Northumberland", tomorrow, TargetType.SUNSET);
+            BriefingRegion insufficient = regionWithEligibility(
+                    "Northumberland", Verdict.GO, 50, 0, 0, false, false);
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(insufficient), List.of())));
+
+            BestBetResult result = advisor.advise(List.of(day), 42L, Map.of());
+            assertThat(result.status()).isEqualTo(BestBetResult.noPicks().status());
+        }
+    }
+
     // ── advise — relationship preserved through enrichment ──
 
     @Nested
@@ -1870,9 +2049,10 @@ class BriefingBestBetAdvisorTest {
             // Give the sunset region colour coverage so the honesty gate (dropUnevaluatedPicks)
             // keeps it as the rank-1 anchor. Without coverage it is dropped as zero-evaluation,
             // and the aurora pick — now the sole head — correctly loses its relationship.
-            when(briefingEvaluationService.getCachedScores("Northumberland", today, TargetType.SUNSET))
-                    .thenReturn(Map.of("Bamburgh",
-                            new BriefingEvaluationResult("Bamburgh", 4, 80, 70, "Good")));
+            when(evaluationViewService.getLiveScoresForEnrichmentBulk(
+                    today, today, Set.of(TargetType.SUNSET)))
+                    .thenReturn(Map.of("Northumberland|" + today + "|" + TargetType.SUNSET, Map.of(
+                            "Bamburgh", new BriefingEvaluationResult("Bamburgh", 4, 80, 70, "Good"))));
 
             List<BestBet> picks = advisor.advise(List.of(day), 42L, Map.of()).picks();
 
@@ -2795,13 +2975,13 @@ class BriefingBestBetAdvisorTest {
             LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             LocalDateTime now = FIXED_NOW;
 
-            when(briefingEvaluationService.getCachedScores(
-                    "Northumberland", tomorrow, TargetType.SUNSET))
-                    .thenReturn(Map.of(
+            when(evaluationViewService.getLiveScoresForEnrichmentBulk(
+                    tomorrow, tomorrow, Set.of(TargetType.SUNSET)))
+                    .thenReturn(Map.of("Northumberland|" + tomorrow + "|" + TargetType.SUNSET, Map.of(
                             "Bamburgh", new BriefingEvaluationResult(
                                     "Bamburgh", 4, 75, 60, "Good colour"),
                             "Dunstanburgh", new BriefingEvaluationResult(
-                                    "Dunstanburgh", 3, 50, 45, "Moderate")));
+                                    "Dunstanburgh", 3, 50, 45, "Moderate"))));
 
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
@@ -2844,15 +3024,15 @@ class BriefingBestBetAdvisorTest {
             LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             LocalDateTime now = FIXED_NOW;
 
-            when(briefingEvaluationService.getCachedScores(
-                    "Northumberland", tomorrow, TargetType.SUNSET))
-                    .thenReturn(Map.of(
+            when(evaluationViewService.getLiveScoresForEnrichmentBulk(
+                    tomorrow, tomorrow, Set.of(TargetType.SUNSET)))
+                    .thenReturn(Map.of("Northumberland|" + tomorrow + "|" + TargetType.SUNSET, Map.of(
                             "Bamburgh", new BriefingEvaluationResult(
                                     "Bamburgh", 5, 90, 85, "Excellent"),
                             "Kielder", new BriefingEvaluationResult(
                                     "Kielder", null, null, null, null,
                                     com.gregochr.goldenhour.model.TriageReason.HIGH_CLOUD,
-                                    "Heavy cloud")));
+                                    "Heavy cloud"))));
 
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
@@ -2874,13 +3054,13 @@ class BriefingBestBetAdvisorTest {
             LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             LocalDateTime now = FIXED_NOW;
 
-            when(briefingEvaluationService.getCachedScores(
-                    "Northumberland", tomorrow, TargetType.SUNSET))
-                    .thenReturn(Map.of(
+            when(evaluationViewService.getLiveScoresForEnrichmentBulk(
+                    tomorrow, tomorrow, Set.of(TargetType.SUNSET)))
+                    .thenReturn(Map.of("Northumberland|" + tomorrow + "|" + TargetType.SUNSET, Map.of(
                             "Kielder", new BriefingEvaluationResult(
                                     "Kielder", null, null, null, null,
                                     com.gregochr.goldenhour.model.TriageReason.HIGH_CLOUD,
-                                    "Heavy cloud")));
+                                    "Heavy cloud"))));
 
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
@@ -2894,7 +3074,8 @@ class BriefingBestBetAdvisorTest {
         }
 
         @Test
-        @DisplayName("Cache lookup uses exact region name, date and targetType")
+        @DisplayName("One bulk load for the whole rollup with exact window and types — the "
+                + "single-key retraction-aware read never runs")
         void cacheLookupUsesExactParameters() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
             LocalDate tomorrow = FIXED_TODAY.plusDays(1);
@@ -2907,9 +3088,16 @@ class BriefingBestBetAdvisorTest {
 
             advisor.buildRollupJson(List.of(day), now);
 
-            // Called twice: once in appendClaudeScores, once in logCacheCoverage
-            verify(briefingEvaluationService, times(2)).getCachedScores(
-                    eq("Northumberland"), eq(tomorrow), eq(TargetType.SUNSET));
+            // Pins the contract a Codex review of #940 caught missing: computeRegionStats and
+            // logCacheCoverage both read one pre-loaded snapshot (BriefingRollupBuilder
+            // #loadLiveScores) rather than each calling EvaluationViewService per region/event, so
+            // the bulk load runs exactly ONCE per rollup — never once per call site, never once
+            // per region — and the single-key getLiveScoresForEnrichment never runs from here at
+            // all, regardless of how many regions or events the rollup covers.
+            verify(evaluationViewService, times(1)).getLiveScoresForEnrichmentBulk(
+                    eq(tomorrow), eq(tomorrow), eq(Set.of(TargetType.SUNSET)));
+            verify(evaluationViewService, never())
+                    .getLiveScoresForEnrichment(any(), any(), any());
         }
 
         @Test
@@ -2919,13 +3107,13 @@ class BriefingBestBetAdvisorTest {
             LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             LocalDateTime now = FIXED_NOW;
 
-            when(briefingEvaluationService.getCachedScores(
-                    "Northumberland", tomorrow, TargetType.SUNSET))
-                    .thenReturn(Map.of(
+            when(evaluationViewService.getLiveScoresForEnrichmentBulk(
+                    tomorrow, tomorrow, Set.of(TargetType.SUNSET)))
+                    .thenReturn(Map.of("Northumberland|" + tomorrow + "|" + TargetType.SUNSET, Map.of(
                             "Bamburgh", new BriefingEvaluationResult(
                                     "Bamburgh", 2, 25, 20, "Poor"),
                             "Dunstanburgh", new BriefingEvaluationResult(
-                                    "Dunstanburgh", 1, 10, 5, "Very poor")));
+                                    "Dunstanburgh", 1, 10, 5, "Very poor"))));
 
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
@@ -2948,15 +3136,15 @@ class BriefingBestBetAdvisorTest {
             LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             LocalDateTime now = FIXED_NOW;
 
-            when(briefingEvaluationService.getCachedScores(
-                    "Northumberland", tomorrow, TargetType.SUNSET))
-                    .thenReturn(Map.of(
+            when(evaluationViewService.getLiveScoresForEnrichmentBulk(
+                    tomorrow, tomorrow, Set.of(TargetType.SUNSET)))
+                    .thenReturn(Map.of("Northumberland|" + tomorrow + "|" + TargetType.SUNSET, Map.of(
                             "Loc1", new BriefingEvaluationResult(
                                     "Loc1", 2, 30, 25, "Low"),
                             "Loc2", new BriefingEvaluationResult(
                                     "Loc2", 3, 50, 45, "Moderate"),
                             "Loc3", new BriefingEvaluationResult(
-                                    "Loc3", 4, 75, 70, "Good")));
+                                    "Loc3", 4, 75, 70, "Good"))));
 
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
@@ -2980,15 +3168,15 @@ class BriefingBestBetAdvisorTest {
             LocalDateTime now = FIXED_NOW;
 
             // Ratings: 2, 3, 5 → avg 3.333... → rounds to 3.3
-            when(briefingEvaluationService.getCachedScores(
-                    "Northumberland", tomorrow, TargetType.SUNSET))
-                    .thenReturn(Map.of(
+            when(evaluationViewService.getLiveScoresForEnrichmentBulk(
+                    tomorrow, tomorrow, Set.of(TargetType.SUNSET)))
+                    .thenReturn(Map.of("Northumberland|" + tomorrow + "|" + TargetType.SUNSET, Map.of(
                             "Loc1", new BriefingEvaluationResult(
                                     "Loc1", 2, 30, 25, "Low"),
                             "Loc2", new BriefingEvaluationResult(
                                     "Loc2", 3, 50, 45, "Moderate"),
                             "Loc3", new BriefingEvaluationResult(
-                                    "Loc3", 5, 95, 90, "Excellent")));
+                                    "Loc3", 5, 95, 90, "Excellent"))));
 
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
@@ -3002,22 +3190,23 @@ class BriefingBestBetAdvisorTest {
         }
 
         @Test
-        @DisplayName("Two regions in same event get independent cache lookups")
+        @DisplayName("Two regions in same event resolve independently from one shared bulk snapshot")
         void twoRegions_independentCacheLookups() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
             LocalDate tomorrow = FIXED_TODAY.plusDays(1);
             LocalDateTime now = FIXED_NOW;
 
-            when(briefingEvaluationService.getCachedScores(
-                    "Northumberland", tomorrow, TargetType.SUNSET))
+            // ONE bulk call covers both regions — see BriefingRollupBuilder.loadLiveScores. The
+            // two regions' outputs must still be attributed correctly from the shared snapshot.
+            when(evaluationViewService.getLiveScoresForEnrichmentBulk(
+                    tomorrow, tomorrow, Set.of(TargetType.SUNSET)))
                     .thenReturn(Map.of(
-                            "Bamburgh", new BriefingEvaluationResult(
-                                    "Bamburgh", 5, 90, 85, "Excellent")));
-            when(briefingEvaluationService.getCachedScores(
-                    "Lake District", tomorrow, TargetType.SUNSET))
-                    .thenReturn(Map.of(
-                            "Derwentwater", new BriefingEvaluationResult(
-                                    "Derwentwater", 2, 20, 15, "Poor")));
+                            "Northumberland|" + tomorrow + "|" + TargetType.SUNSET, Map.of(
+                                    "Bamburgh", new BriefingEvaluationResult(
+                                            "Bamburgh", 5, 90, 85, "Excellent")),
+                            "Lake District|" + tomorrow + "|" + TargetType.SUNSET, Map.of(
+                                    "Derwentwater", new BriefingEvaluationResult(
+                                            "Derwentwater", 2, 20, 15, "Poor"))));
 
             BriefingDay day = new BriefingDay(tomorrow, List.of(
                     new BriefingEventSummary(TargetType.SUNSET, List.of(
@@ -3032,15 +3221,15 @@ class BriefingBestBetAdvisorTest {
             assertThat(result.json()).contains("\"claudeHighRatedCount\":1");
             assertThat(result.json()).contains("\"claudeHighRatedCount\":0");
 
-            // Verify each region gets its own lookup
-            verify(briefingEvaluationService, times(2)).getCachedScores(
-                    eq("Northumberland"), eq(tomorrow), eq(TargetType.SUNSET));
-            verify(briefingEvaluationService, times(2)).getCachedScores(
-                    eq("Lake District"), eq(tomorrow), eq(TargetType.SUNSET));
+            // One bulk load serves both regions — never a per-region call.
+            verify(evaluationViewService, times(1)).getLiveScoresForEnrichmentBulk(
+                    eq(tomorrow), eq(tomorrow), eq(Set.of(TargetType.SUNSET)));
+            verify(evaluationViewService, never())
+                    .getLiveScoresForEnrichment(any(), any(), any());
         }
 
         @Test
-        @DisplayName("SUNRISE event passes SUNRISE targetType to cache lookup")
+        @DisplayName("SUNRISE event passes SUNRISE targetType to the bulk load")
         void sunriseEvent_passesSunriseTargetType() throws Exception {
             when(auroraStateCache.isActive()).thenReturn(false);
             LocalDate tomorrow = FIXED_TODAY.plusDays(1);
@@ -3053,8 +3242,8 @@ class BriefingBestBetAdvisorTest {
 
             advisor.buildRollupJson(List.of(day), now);
 
-            verify(briefingEvaluationService, times(2)).getCachedScores(
-                    eq("Northumberland"), eq(tomorrow), eq(TargetType.SUNRISE));
+            verify(evaluationViewService, times(1)).getLiveScoresForEnrichmentBulk(
+                    eq(tomorrow), eq(tomorrow), eq(Set.of(TargetType.SUNRISE)));
         }
 
         @Test
@@ -3093,7 +3282,7 @@ class BriefingBestBetAdvisorTest {
     class ReplayHarnessTests {
 
         /** A minimal, faithful stored rollup: one event, one region with Claude coverage. */
-        private static final String FIXTURE_ROLLUP = """
+        static final String FIXTURE_ROLLUP = """
                 {
                   "currentTime": "2026-06-17 06:00",
                   "validEvents": ["2026-06-18_sunset"],
@@ -3193,6 +3382,37 @@ class BriefingBestBetAdvisorTest {
         }
 
         @Test
+        @DisplayName("capture: advise() writes the response's cache diagnostics to api_call_log")
+        void captureWritesCacheDiagnostics() {
+            stubModelSelection();
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            String response = "{\"picks\":[{\"rank\":1,\"headline\":\"h\",\"detail\":\"d\","
+                    + "\"event\":\"" + tomorrow + "_sunset\",\"region\":\"Northumberland\","
+                    + "\"confidence\":\"high\"}]}";
+            Message stub = message(response);
+            Usage usage = mock(Usage.class);
+            when(usage.inputTokens()).thenReturn(1500L);
+            when(usage.outputTokens()).thenReturn(400L);
+            when(usage.cacheCreationInputTokens()).thenReturn(java.util.Optional.of(0L));
+            when(usage.cacheReadInputTokens()).thenReturn(java.util.Optional.of(0L));
+            when(stub.usage()).thenReturn(usage);
+            when(stub.diagnostics()).thenReturn(java.util.Optional.of(CacheDiagnosticsFixtures.MESSAGES_CHANGED));
+            when(anthropicApiClient.createMessage(any())).thenReturn(stub);
+
+            advisor.advise(List.of(new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET,
+                            List.of(region("Northumberland", Verdict.GO, 3, 0, 0)), List.of())))),
+                    7L, Map.of());
+
+            verify(jobRunService).logApiCall(eq(7L), eq(ServiceName.ANTHROPIC), eq("POST"),
+                    eq("briefing-best-bet"), org.mockito.ArgumentMatchers.anyString(), anyLong(), eq(200),
+                    eq(response), eq(true), isNull(), eq(EvaluationModel.OPUS),
+                    eq(new TokenUsage(1500L, 400L, 0L, 0L)),
+                    eq(CacheDiagnosticsFixtures.MESSAGES_CHANGED_READ));
+        }
+
+        @Test
         @DisplayName("capture: advise() writes the rollup JSON and real token usage to api_call_log")
         void captureWritesRollupToRequestBody() {
             stubModelSelection();
@@ -3222,7 +3442,7 @@ class BriefingBestBetAdvisorTest {
             verify(jobRunService).logApiCall(eq(7L), eq(ServiceName.ANTHROPIC), eq("POST"),
                     eq("briefing-best-bet"), bodyCaptor.capture(), anyLong(), eq(200),
                     eq(response), eq(true), isNull(), eq(EvaluationModel.OPUS),
-                    eq(new TokenUsage(1500L, 400L, 0L, 0L)));
+                    eq(new TokenUsage(1500L, 400L, 0L, 0L)), eq(CacheDiagnostics.EMPTY));
             String captured = bodyCaptor.getValue();
             assertThat(captured).isNotNull();
             assertThat(captured).contains("\"validEvents\"");
@@ -3515,15 +3735,47 @@ class BriefingBestBetAdvisorTest {
     }
 
     /**
+     * Accumulates every {@link #stubCoverage} call in a test into ONE shared index, registered
+     * once against {@code any()} arguments rather than the exact (start, end, types) triple
+     * {@code BriefingRollupBuilder.loadLiveScores} computes from the whole day list — which this
+     * generic helper has no reliable way to predict when a caller stubs several regions, dates or
+     * event types in one test (the actual bulk load spans the union of every day's event types,
+     * not one type per call). Mockito returns the same map reference on every matching
+     * invocation, so a later {@code stubCoverage} call's {@code put} is visible to a bulk load
+     * that already ran earlier in the same test. A caller that needs the exact-arguments
+     * assertion instead (that the bulk load runs once, with precisely this window) stubs
+     * {@code getLiveScoresForEnrichmentBulk} directly, as the {@code ClaudeScoreEnrichmentTests}
+     * nested class does.
+     */
+    private final Map<String, Map<String, BriefingEvaluationResult>> coverageBulkIndex =
+            new HashMap<>();
+    private boolean coverageBulkStubRegistered = false;
+
+    /**
      * Stubs one cached colour rating for a region/event so its candidate has non-zero Claude
      * coverage — otherwise {@code dropUnevaluatedPicks} removes it as an un-evidenced pick.
      */
     private void stubCoverage(String region, LocalDate date, TargetType type) {
-        when(briefingEvaluationService.getCachedScores(region, date, type))
-                .thenReturn(Map.of("Loc",
-                        new BriefingEvaluationResult("Loc", 4, 70, 60, "Good")));
+        coverageBulkIndex.put(region + "|" + date + "|" + type, Map.of("Loc",
+                new BriefingEvaluationResult("Loc", 4, 70, 60, "Good")));
+        if (!coverageBulkStubRegistered) {
+            when(evaluationViewService.getLiveScoresForEnrichmentBulk(any(), any(), any()))
+                    .thenReturn(coverageBulkIndex);
+            coverageBulkStubRegistered = true;
+        }
     }
 
+    /**
+     * Builds a fixture region for a happy-path advisor test. Defaults {@code sampleSufficient} to
+     * {@code true} (round 10, P1-B) — every test built against this helper before the
+     * verdict-minimum-sample rule existed implicitly assumed a healthy, normal region with real
+     * coverage behind it, never the insufficient-sample case, so defaulting the flag preserves
+     * every pre-existing expectation. A test that needs to exercise ineligibility explicitly
+     * overrides with {@code .withSampleSufficient(false)}/{@code .withForcedSample(...)}, or (for
+     * the true legacy-payload case, both fields null) constructs a {@link BriefingRegion} directly
+     * via its 11-arg convenience constructor instead of this helper — see
+     * {@code AdviseVerdictEligibilityTests.legacyNullFieldsAreNotEligible}.
+     */
     private static BriefingRegion region(String name, Verdict verdict,
             int go, int marginal, int standdown) {
         List<BriefingSlot> slots = new java.util.ArrayList<>();
@@ -3537,9 +3789,11 @@ class BriefingBestBetAdvisorTest {
             slots.add(slot("S" + i, Verdict.STANDDOWN, null));
         }
         return new BriefingRegion(name, verdict, "Summary", List.of(), slots,
-                null, null, null, null, null, null);
+                null, null, null, null, null, null)
+                .withSampleSufficient(true);
     }
 
+    /** Same defaulting rationale as {@link #region}. */
     private static BriefingRegion regionWithTime(String name, Verdict verdict,
             int go, int marginal, int standdown, LocalDateTime time) {
         List<BriefingSlot> slots = new java.util.ArrayList<>();
@@ -3553,7 +3807,8 @@ class BriefingBestBetAdvisorTest {
             slots.add(slot("S" + i, Verdict.STANDDOWN, time));
         }
         return new BriefingRegion(name, verdict, "Summary", List.of(), slots,
-                null, null, null, null, null, null);
+                null, null, null, null, null, null)
+                .withSampleSufficient(true);
     }
 
     private static BriefingSlot slot(String name, Verdict verdict, LocalDateTime time) {
@@ -3561,5 +3816,189 @@ class BriefingBestBetAdvisorTest {
                 new BriefingSlot.WeatherConditions(20, BigDecimal.ZERO, 15000, 70,
                         8.0, null, null, BigDecimal.ONE, 0, 0),
                 BriefingSlot.TideInfo.NONE, List.of(), null);
+    }
+
+    // ── Sonnet 5.5 across the advisor's three paths ──
+
+    @Nested
+    @DisplayName("Sonnet 5.5 request shape and response handling")
+    class Sonnet55Tests {
+
+        private static final long THINKING_SIZED = 16000L;
+        private static final String NO_PICKS = "{\"picks\":[]}";
+
+        private MessageCreateParams captureLive(EvaluationModel model, boolean thinkingFlag) {
+            when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET)).thenReturn(model);
+            when(modelSelectionService.isExtendedThinking(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(thinkingFlag);
+            when(anthropicApiClient.createMessage(any()))
+                    .thenThrow(new RuntimeException("stop after capture"));
+            advisor.advise(List.of(), 1L, Map.of());
+            ArgumentCaptor<MessageCreateParams> captor = ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            return captor.getValue();
+        }
+
+        @Test
+        @DisplayName("live: Sonnet 5.5 gets effort LOW, no thinking param even with the thinking flag on, "
+                + "and the thinking-sized ceiling")
+        void live_sonnet55() {
+            MessageCreateParams params = captureLive(EvaluationModel.SONNET_55, true);
+
+            ModelRequestAssertions.assertMessage(params, EvaluationModel.SONNET_55, THINKING_SIZED,
+                    java.util.Optional.empty());
+        }
+
+        @Test
+        @DisplayName("live: Haiku 5.5 gets thinking disabled and effort LOW even with the thinking flag on, "
+                + "and the configured (not thinking-sized) ceiling")
+        void live_haiku55() {
+            MessageCreateParams params = captureLive(EvaluationModel.HAIKU_55, true);
+
+            ModelRequestAssertions.assertMessage(params, EvaluationModel.HAIKU_55, TEST_MAX_TOKENS,
+                    java.util.Optional.empty());
+        }
+
+        @Test
+        @DisplayName("live: Haiku and Sonnet 4.6 (flag off) are unchanged: configured ceiling, no effort")
+        void live_otherModelsUnchanged() {
+            ModelRequestAssertions.assertMessage(captureLive(EvaluationModel.HAIKU, false),
+                    EvaluationModel.HAIKU, TEST_MAX_TOKENS, java.util.Optional.empty());
+        }
+
+        @Test
+        @DisplayName("live: Sonnet 4.6 with the thinking flag on still sends its adaptive thinking block")
+        void live_sonnet46WithFlag_sendsThinking() {
+            MessageCreateParams params = captureLive(EvaluationModel.SONNET, true);
+
+            assertThat(params.thinking()).isPresent();
+            assertThat(params.maxTokens()).isEqualTo(THINKING_SIZED);
+            assertThat(params.outputConfig()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("live: a thinking block ahead of the text block is skipped and an empty array is a decline")
+        void live_thinkingFirst() {
+            when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(EvaluationModel.SONNET_55);
+            when(anthropicApiClient.createMessage(any())).thenReturn(ModelRequestAssertions.message(
+                    List.of(ModelRequestAssertions.thinking("hmm"), ModelRequestAssertions.text(NO_PICKS)),
+                    StopReason.END_TURN));
+
+            BestBetResult result = advisor.advise(List.of(), 5L, Map.of());
+
+            assertThat(result.status()).isEqualTo(BestBetStatus.SUCCESS_NO_PICKS);
+        }
+
+        @Test
+        @DisplayName("live: a refusal from Sonnet 5.5 is FAILED and logged as a failure carrying its usage")
+        void live_refusal() {
+            when(modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET))
+                    .thenReturn(EvaluationModel.SONNET_55);
+            when(anthropicApiClient.createMessage(any())).thenReturn(
+                    ModelRequestAssertions.message(List.of(), StopReason.REFUSAL));
+
+            BestBetResult result = advisor.advise(List.of(), 6L, Map.of());
+
+            assertThat(result.status()).isEqualTo(BestBetStatus.FAILED);
+            verify(jobRunService).logApiCall(eq(6L), eq(ServiceName.ANTHROPIC), eq("POST"),
+                    eq("briefing-best-bet"), org.mockito.ArgumentMatchers.anyString(),
+                    org.mockito.ArgumentMatchers.anyLong(), eq(200), eq(""), eq(false),
+                    eq("Claude refused the best-bet request (stop_reason=refusal)"),
+                    eq(EvaluationModel.SONNET_55),
+                    eq(new com.gregochr.goldenhour.model.TokenUsage(10, 20, 0, 0, 0)), eq(CacheDiagnostics.EMPTY));
+        }
+
+        @Test
+        @DisplayName("comparison: Sonnet 5.5 request has effort LOW, no thinking and the thinking-sized ceiling")
+        void comparison_sonnet55() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            when(anthropicApiClient.createMessage(any())).thenReturn(ModelRequestAssertions.message(
+                    List.of(ModelRequestAssertions.thinking("hmm"), ModelRequestAssertions.text(NO_PICKS)),
+                    StopReason.END_TURN));
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("Northumberland", Verdict.GO, 3, 0, 0)), List.of())));
+
+            BriefingBestBetAdvisor.ComparisonRun run = advisor.compareModels(
+                    List.of(EvaluationModel.SONNET_55), List.of(day));
+
+            ArgumentCaptor<MessageCreateParams> captor = ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            ModelRequestAssertions.assertMessage(captor.getValue(), EvaluationModel.SONNET_55,
+                    THINKING_SIZED, java.util.Optional.empty());
+            // thinking-first parsed: the text block was read, and the thinking text captured
+            assertThat(run.results().get(0).rawResponse()).isEqualTo(NO_PICKS);
+            assertThat(run.results().get(0).thinkingText()).isEqualTo("hmm");
+        }
+
+        @Test
+        @DisplayName("comparison: a refusal becomes a failed variant with no response, never parsed picks")
+        void comparison_refusal() throws Exception {
+            when(auroraStateCache.isActive()).thenReturn(false);
+            when(anthropicApiClient.createMessage(any())).thenReturn(
+                    ModelRequestAssertions.message(List.of(), StopReason.REFUSAL));
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            BriefingDay day = new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET, List.of(
+                            region("Northumberland", Verdict.GO, 3, 0, 0)), List.of())));
+
+            BriefingBestBetAdvisor.ComparisonRun run = advisor.compareModels(
+                    List.of(EvaluationModel.SONNET_55), List.of(day));
+
+            assertThat(run.results().get(0).rawResponse()).isNull();
+            assertThat(run.results().get(0).validatedPicks()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("replay: Sonnet 5.5 request has effort LOW, no thinking and the thinking-sized ceiling")
+        void replay_sonnet55() throws Exception {
+            when(anthropicApiClient.createMessage(any())).thenReturn(ModelRequestAssertions.message(
+                    List.of(ModelRequestAssertions.thinking("hmm"), ModelRequestAssertions.text(NO_PICKS)),
+                    StopReason.END_TURN));
+
+            BestBetResult result = advisor.replayWithPrompt(
+                    ReplayHarnessTests.FIXTURE_ROLLUP, "PROMPT", EvaluationModel.SONNET_55);
+
+            ArgumentCaptor<MessageCreateParams> captor = ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            ModelRequestAssertions.assertMessage(captor.getValue(), EvaluationModel.SONNET_55,
+                    THINKING_SIZED, java.util.Optional.empty());
+            assertThat(result.status()).isEqualTo(BestBetStatus.SUCCESS_NO_PICKS);
+        }
+
+        @Test
+        @DisplayName("replay: Haiku 5.5 request has thinking disabled, effort LOW and the configured ceiling")
+        void replay_haiku55() throws Exception {
+            when(anthropicApiClient.createMessage(any())).thenReturn(ModelRequestAssertions.message(
+                    List.of(ModelRequestAssertions.text(NO_PICKS)), StopReason.END_TURN));
+
+            BestBetResult result = advisor.replayWithPrompt(
+                    ReplayHarnessTests.FIXTURE_ROLLUP, "PROMPT", EvaluationModel.HAIKU_55);
+
+            ArgumentCaptor<MessageCreateParams> captor = ArgumentCaptor.forClass(MessageCreateParams.class);
+            verify(anthropicApiClient).createMessage(captor.capture());
+            ModelRequestAssertions.assertMessage(captor.getValue(), EvaluationModel.HAIKU_55,
+                    TEST_MAX_TOKENS, java.util.Optional.empty());
+            assertThat(result.status()).isEqualTo(BestBetStatus.SUCCESS_NO_PICKS);
+        }
+
+        @Test
+        @DisplayName("replay: refusal and truncation both come back FAILED")
+        void replay_refusalAndTruncation_failed() throws Exception {
+            when(anthropicApiClient.createMessage(any())).thenReturn(
+                    ModelRequestAssertions.message(List.of(), StopReason.REFUSAL),
+                    ModelRequestAssertions.message(
+                            List.of(ModelRequestAssertions.text("{\"picks\":[{\"rank\":1")),
+                            StopReason.MAX_TOKENS));
+
+            assertThat(advisor.replayWithPrompt(
+                    ReplayHarnessTests.FIXTURE_ROLLUP, "P", EvaluationModel.SONNET_55).status())
+                    .isEqualTo(BestBetStatus.FAILED);
+            assertThat(advisor.replayWithPrompt(
+                    ReplayHarnessTests.FIXTURE_ROLLUP, "P", EvaluationModel.SONNET_55).status())
+                    .isEqualTo(BestBetStatus.FAILED);
+        }
     }
 }

@@ -2,6 +2,7 @@ import React, { useActionState, useState } from 'react';
 import PropTypes from 'prop-types';
 import { recordOutcome } from '../api/forecastApi.js';
 import Modal from './shared/Modal.jsx';
+import { apiErrorMessage } from '../utils/apiError.js';
 
 /**
  * Modal dialog for recording an actual observed sunrise/sunset outcome.
@@ -47,7 +48,7 @@ export default function OutcomeModal({
       setTimeout(onSaved, 1500);
       return null;
     } catch (err) {
-      return err.response?.data?.message || err.message || 'Failed to save outcome.';
+      return apiErrorMessage(err, err?.message || 'Failed to save outcome.');
     }
   }, null);
 
@@ -144,7 +145,7 @@ export default function OutcomeModal({
               <textarea
                 id="outcome-notes"
                 data-testid="outcome-notes"
-                className="w-full bg-plex-surface-light border border-plex-border rounded-lg p-2 text-sm text-plex-text resize-none focus:outline-none focus:ring-2 focus:ring-plex-gold"
+                className="w-full bg-plex-surface-light border border-plex-border rounded-lg p-2 text-sm text-plex-text resize-none focus:outline-hidden focus:ring-2 focus:ring-plex-gold"
                 rows={3}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}

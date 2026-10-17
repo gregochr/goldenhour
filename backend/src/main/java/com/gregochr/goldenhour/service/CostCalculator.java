@@ -40,7 +40,7 @@ public class CostCalculator {
         }
         long cost = microDollarsForTokens(usage.inputTokens(), getInputRate(model))
                 + microDollarsForTokens(usage.outputTokens(), getOutputRate(model))
-                + microDollarsForTokens(usage.cacheCreationInputTokens(), getCacheWriteRate(model))
+                + cacheWriteMicroDollars(model, usage)
                 + microDollarsForTokens(usage.cacheReadInputTokens(), getCacheReadRate(model));
         return isBatch ? cost / 2 : cost;
     }
@@ -91,6 +91,18 @@ public class CostCalculator {
         return credits * costProperties.getWorldTidesMicroDollarsPerCredit();
     }
 
+    /**
+     * Prices cache writes by lifetime: the 1-hour portion at the 1-hour rate (2x input), the
+     * remainder at the 5-minute rate (1.25x input). The 1-hour portion is clamped into the total
+     * so a malformed breakdown can never price more tokens than were written.
+     */
+    private long cacheWriteMicroDollars(EvaluationModel model, TokenUsage usage) {
+        long total = Math.max(0, usage.cacheCreationInputTokens());
+        long oneHour = Math.max(0, Math.min(usage.cacheCreationOneHourTokens(), total));
+        return microDollarsForTokens(oneHour, getCacheWrite1hRate(model))
+                + microDollarsForTokens(total - oneHour, getCacheWriteRate(model));
+    }
+
     private long microDollarsForTokens(long tokens, double usdPerMTok) {
         return Math.round((double) tokens * usdPerMTok);
     }
@@ -99,6 +111,8 @@ public class CostCalculator {
         return switch (model.pricingTier()) {
             case HAIKU -> costProperties.getHaikuInputUsdPerMtok();
             case SONNET -> costProperties.getSonnetInputUsdPerMtok();
+            case SONNET_55 -> costProperties.getSonnet55InputUsdPerMtok();
+            case HAIKU_55 -> costProperties.getHaiku55InputUsdPerMtok();
             case OPUS -> costProperties.getOpusInputUsdPerMtok();
             case FREE -> 0.0;
         };
@@ -108,6 +122,8 @@ public class CostCalculator {
         return switch (model.pricingTier()) {
             case HAIKU -> costProperties.getHaikuOutputUsdPerMtok();
             case SONNET -> costProperties.getSonnetOutputUsdPerMtok();
+            case SONNET_55 -> costProperties.getSonnet55OutputUsdPerMtok();
+            case HAIKU_55 -> costProperties.getHaiku55OutputUsdPerMtok();
             case OPUS -> costProperties.getOpusOutputUsdPerMtok();
             case FREE -> 0.0;
         };
@@ -117,7 +133,20 @@ public class CostCalculator {
         return switch (model.pricingTier()) {
             case HAIKU -> costProperties.getHaikuCacheWriteUsdPerMtok();
             case SONNET -> costProperties.getSonnetCacheWriteUsdPerMtok();
+            case SONNET_55 -> costProperties.getSonnet55CacheWriteUsdPerMtok();
+            case HAIKU_55 -> costProperties.getHaiku55CacheWriteUsdPerMtok();
             case OPUS -> costProperties.getOpusCacheWriteUsdPerMtok();
+            case FREE -> 0.0;
+        };
+    }
+
+    private double getCacheWrite1hRate(EvaluationModel model) {
+        return switch (model.pricingTier()) {
+            case HAIKU -> costProperties.getHaikuCacheWrite1hUsdPerMtok();
+            case SONNET -> costProperties.getSonnetCacheWrite1hUsdPerMtok();
+            case SONNET_55 -> costProperties.getSonnet55CacheWrite1hUsdPerMtok();
+            case HAIKU_55 -> costProperties.getHaiku55CacheWrite1hUsdPerMtok();
+            case OPUS -> costProperties.getOpusCacheWrite1hUsdPerMtok();
             case FREE -> 0.0;
         };
     }
@@ -126,6 +155,8 @@ public class CostCalculator {
         return switch (model.pricingTier()) {
             case HAIKU -> costProperties.getHaikuCacheReadUsdPerMtok();
             case SONNET -> costProperties.getSonnetCacheReadUsdPerMtok();
+            case SONNET_55 -> costProperties.getSonnet55CacheReadUsdPerMtok();
+            case HAIKU_55 -> costProperties.getHaiku55CacheReadUsdPerMtok();
             case OPUS -> costProperties.getOpusCacheReadUsdPerMtok();
             case FREE -> 0.0;
         };

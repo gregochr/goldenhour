@@ -40,6 +40,26 @@ class RatingValidatorTest {
     }
 
     @Nested
+    class IsInRange {
+
+        @Test
+        void acceptsOneToFiveInclusive() {
+            for (int rating = 1; rating <= 5; rating++) {
+                assertThat(RatingValidator.isInRange(rating)).as("rating " + rating).isTrue();
+            }
+        }
+
+        @Test
+        void refusesNullAndAnythingOutsideTheScale() {
+            assertThat(RatingValidator.isInRange(null)).isFalse();
+            assertThat(RatingValidator.isInRange(0)).isFalse();
+            assertThat(RatingValidator.isInRange(-1)).isFalse();
+            assertThat(RatingValidator.isInRange(6)).isFalse();
+            assertThat(RatingValidator.isInRange(491)).isFalse();
+        }
+    }
+
+    @Nested
     class ValidateRating {
 
         @Test

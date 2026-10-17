@@ -18,11 +18,19 @@ import java.util.List;
  *
  * @param from            start of the scored window (inclusive)
  * @param to              end of the scored window (inclusive)
- * @param outcomesInRange recorded outcomes in the window that carried a rating
- * @param scoredPairs     forecast/outcome pairs actually scored, after per-horizon dedup
+ * @param outcomesInRange recorded outcomes and readers' ratings in the window — every row in both
+ *                        tables, "didn't see it" ratings included
+ * @param scoredPairs     forecast/outcome pairs actually scored, after per-horizon dedup (one per
+ *                        reader's rating, so this counts pairs, not slots)
  * @param overall         metrics across every pair
  * @param byDaysAhead     metrics per forecast horizon, ordered T+0 upward
  * @param byModel         metrics per evaluation model
+ * @param bucketsByBuild  metrics per release ({@code forecast_evaluation.app_build}, the build that
+ *                        scored the forecast); rows written before it was recorded read
+ *                        {@code UNKNOWN}
+ * @param bucketsByPromptHash metrics per system-prompt fingerprint
+ *                        ({@code forecast_evaluation.prompt_hash}); rows with none recorded read
+ *                        {@code UNKNOWN}
  */
 public record CalibrationReport(
         LocalDate from,
@@ -31,7 +39,9 @@ public record CalibrationReport(
         int scoredPairs,
         CalibrationBucket overall,
         List<CalibrationBucket> byDaysAhead,
-        List<CalibrationBucket> byModel) {
+        List<CalibrationBucket> byModel,
+        List<CalibrationBucket> bucketsByBuild,
+        List<CalibrationBucket> bucketsByPromptHash) {
 
     /**
      * Compact constructor — defensive copies to satisfy SpotBugs EI_EXPOSE_REP.
@@ -43,9 +53,13 @@ public record CalibrationReport(
      * @param overall         overall metrics
      * @param byDaysAhead     per-horizon metrics
      * @param byModel         per-model metrics
+     * @param bucketsByBuild  per-release metrics
+     * @param bucketsByPromptHash per-prompt metrics
      */
     public CalibrationReport {
         byDaysAhead = byDaysAhead == null ? List.of() : List.copyOf(byDaysAhead);
         byModel = byModel == null ? List.of() : List.copyOf(byModel);
+        bucketsByBuild = bucketsByBuild == null ? List.of() : List.copyOf(bucketsByBuild);
+        bucketsByPromptHash = bucketsByPromptHash == null ? List.of() : List.copyOf(bucketsByPromptHash);
     }
 }

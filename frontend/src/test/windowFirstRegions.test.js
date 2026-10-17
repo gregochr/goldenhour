@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
-  activeFilterClauses, buildRegionRows, buildRegionSeries, gateSpotsByRegion,
+  activeFilterClauses, buildRegionRows, buildRegionSeries, gateSpotsByRegion, sortRegionsByBestVerdict,
 } from '../utils/windowFirstRegions.js';
+import { pickTopEligibleRegion } from '../utils/windowFirstCards.js';
 
 /**
  * The open row's region derivation — the rail's cells, the band's figures and the six-dot series.
@@ -131,6 +132,43 @@ describe('buildRegionRows — the ranking', () => {
     expect(buildRegionRows(es, [], [], {}).map((r) => r.name)).toEqual(['Coast', 'Dales', 'Lakes']);
   });
 
+  it('ranks a verdict-eligible region above an ineligible one with a HIGHER mean', () => {
+    // ⚠️ The card's top region is chosen eligible-first (`pickTopEligibleRegion`, as the projector
+    // does); a rail ranking on the mean alone listed Thin (4.4, sample gate failed) above Sound
+    // (3.5) while the card in the same popup named Sound. Thin sorts FIRST by name as well, so a
+    // mean-only OR name-tiebreak implementation cannot pass this by accident.
+    const es = {
+      regions: [
+        region({ regionName: 'Thin', meanRating: 4.4, sampleSufficient: false }),
+        region({ regionName: 'Sound', meanRating: 3.5, sampleSufficient: true }),
+      ],
+    };
+    expect(buildRegionRows(es, [], [], {}).map((r) => r.name)).toEqual(['Sound', 'Thin']);
+  });
+
+  it('counts a force-evaluation exemption as eligible, and lets the mean order two eligible regions', () => {
+    const es = {
+      regions: [
+        region({ regionName: 'Thin', meanRating: 4.6 }),
+        region({ regionName: 'Forced', meanRating: 3.2, forcedSample: true }),
+        region({ regionName: 'Sound', meanRating: 3.9, sampleSufficient: true }),
+      ],
+    };
+    expect(buildRegionRows(es, [], [], {}).map((r) => r.name)).toEqual(['Sound', 'Forced', 'Thin']);
+  });
+
+  it('agrees with the card: rank 1 of the rail is the region the card names', () => {
+    // The cross-surface pin — the same record list through both selections.
+    const es = {
+      regions: [
+        region({ regionName: 'Thin', meanRating: 4.4, sampleSufficient: false }),
+        region({ regionName: 'Sound', meanRating: 3.5, sampleSufficient: true }),
+      ],
+    };
+    expect(buildRegionRows(es, [], [], {})[0].name)
+      .toBe(pickTopEligibleRegion(es.regions).regionName);
+  });
+
   it('breaks a tie on the name, so the order is total and the rail cannot flicker', () => {
     const es = {
       regions: [
@@ -206,6 +244,21 @@ describe('buildRegionRows — the served figures', () => {
     expect(rows[0].verdictLabel).toBe('Poor');
     expect(rows[1].verdictLabel).toBe('Not scored');
     expect(rows[1].verdict).toBe('AWAITING');
+  });
+
+  it('words an UNRATED region "Too few rated" on the rail and keeps its served mean (U2)', () => {
+    // The rail cell is a REGION, so the population word; neither the green of Worth it nor the
+    // "Not scored" of a window nothing was said about.
+    const es = {
+      regions: [region({
+        regionName: 'Thin', displayVerdict: 'UNRATED', meanRating: 3.6, sampleSufficient: false,
+      })],
+    };
+    const [row] = buildRegionRows(es, [], [], {});
+    expect(row.verdict).toBe('UNRATED');
+    expect(row.verdictLabel).toBe('Too few rated');
+    expect(row.meanRating).toBe(3.6);
+    expect(row.verdictEligible).toBe(false);
   });
 
   it('⚠️ MAPS a legacy payload\'s triage verdict rather than reading it as Awaiting', () => {
@@ -486,5 +539,27 @@ describe('buildRegionSeries', () => {
 
   it('is empty for a payload with no days', () => {
     expect(buildRegionSeries(EVENTS, null).size).toBe(0);
+  });
+});
+
+describe('sortRegionsByBestVerdict — UNRATED has a rank of its own (unrated-verdict-plan.md U2)', () => {
+  const days = [{
+    date: '2026-08-04',
+    eventSummaries: [{
+      targetType: 'SUNSET',
+      regions: [
+        { regionName: 'Poor', displayVerdict: 'STAND_DOWN' },
+        { regionName: 'Unscored', displayVerdict: 'AWAITING' },
+        { regionName: 'Thin', displayVerdict: 'UNRATED' },
+        { regionName: 'Maybe', displayVerdict: 'MAYBE' },
+        { regionName: 'Good', displayVerdict: 'WORTH_IT' },
+      ],
+    }],
+  }];
+
+  it('orders Worth it, Maybe, Too few rated, Poor, Not scored — an UNRATED region is a better bet than a stood-down one', () => {
+    const events = [{ date: '2026-08-04', targetType: 'SUNSET' }];
+    expect(sortRegionsByBestVerdict(events, days))
+      .toEqual(['Good', 'Maybe', 'Thin', 'Poor', 'Unscored']);
   });
 });

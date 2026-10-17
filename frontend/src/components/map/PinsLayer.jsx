@@ -1,15 +1,23 @@
 import {
-  useCallback, useEffect, useLayoutEffect, useRef, useState,
+  useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
 } from 'react';
 import PropTypes from 'prop-types';
 import { createPortal } from 'react-dom';
 import L from 'leaflet';
 import { useMap } from 'react-leaflet';
 import { seedObstacles } from '../../utils/labelPlacement.js';
-import { homeLabelItems, placeLabelPass, verdictWord } from '../../utils/mapLabels.js';
+import {
+  hasRatedBadge, homeLabelItems, placeLabelPass, verdictWord,
+} from '../../utils/mapLabels.js';
+import { badgeAccessibleClause } from '../../utils/outcomeRatingJoin.js';
+import RatedBadge from './RatedBadge.jsx';
 import { formatDriveDuration } from '../../utils/briefingDisplay.js';
-import { rampHex } from '../../utils/scoreRamp.js';
+import { rampHex as sharedRampHex } from '../../utils/scoreRamp.js';
 import { readableInkOn } from '../../utils/windowFirstSpots.js';
+import { tideAccessibleClause, tideTierHeading } from '../../utils/mapTideFit.js';
+import {
+  isMultiRank, rankBadge, rankOnPress, ranksOf,
+} from '../../utils/askPickChip.js';
 import { NO_DATA_COLOUR, STAND_DOWN_COLOUR } from '../markerUtils.js';
 
 /**
@@ -43,6 +51,12 @@ const OBSTACLE_SELECTOR = [
   '[data-testid="wf-map-chrome-tr"]',
   '[data-testid="wf-map-chrome-bl"]',
   '[data-testid="wf-map-counts-footer"]',
+  // The tide strip (tide-window-plan.md T6/T7) — on desktop it is a plain child of
+  // `.wf-map-chrome-bl` above and needs no entry of its own; on the phone (T7) it is mounted as
+  // that element's SIBLING instead (it has to span `left: 8px; right: 8px` against the frame,
+  // which `.wf-map-chrome-bl`'s own left-anchored-only box cannot give it), so without its own
+  // selector here a label could place itself under an uncovered strip on that one viewport.
+  '[data-testid="wf-tide-strip"]',
   // The empty state's CHIP, centred in the map body — never its `inset: 0` wrapper, which would
   // seed the whole frame and drop every label. Present in the DOM only while the map has no
   // forecast for the window on screen, i.e. only while the rating gate has already removed every
@@ -83,6 +97,9 @@ const NAMED_PIN_PX = 26;
  */
 const UNNAMED_PIN_PX = 13;
 
+/** What a pick pin's z-index counts down from (rank 1 highest): comfortably above any ordinary pin's `auto`. */
+const PICK_Z_BASE = 100;
+
 /** `.wf-maplab-tip`'s own CSS `max-width` — see `MapLabels.jsx`'s identical fallback constant. */
 const TOOLTIP_WIDTH_FALLBACK = 240;
 
@@ -101,6 +118,15 @@ function darkenHex(hex, factor) {
   const g = Math.floor(((n >> 8) & 255) * factor);
   const b = Math.floor((n & 255) * factor);
   return `rgb(${r},${g},${b})`;
+}
+
+/** Rating at or above which a glowing (aurora) pin carries its halo. */
+const GLOW_MIN_RATING = 4;
+
+/** The aurora halo: a 14px glow in the pin's own fill colour (`#rrggbb`), spec Task 1. */
+function glowShadow(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return `0 0 14px rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},.7)`;
 }
 
 /**
@@ -134,13 +160,16 @@ function darkenHex(hex, factor) {
  *
  * @param {object} props
  * @param {Array<{name: string, lat: number, lng: number, rid: string, rating: ?number,
- *   bortleClass: ?number, driveMinutes: ?number, named: ?boolean, isStandDown: ?boolean}>}
+ *   bortleClass: ?number, driveMinutes: ?number, named: ?boolean, isStandDown: ?boolean,
+ *   tideTier: ?('match'|'miss'), tideFitPhrase: ?string}>}
  *   props.spots the filtered pool for the current window — the SAME shape/source `MapView` already
  *   builds for `MapLabels` (`labelSpots`), so admin reveal toggles and every other filter already
  *   apply. `named` defaults to true when absent (map-tab-v2-plan.md §4.7 — every production
  *   location is named today). `isStandDown` distinguishes a triaged location from a plain unrated
  *   one (adversarial review C8) — both carry no `rating`, but only one is painted with the
- *   medallions' own `STAND_DOWN_COLOUR` rather than the shared `NO_DATA_COLOUR`.
+ *   medallions' own `STAND_DOWN_COLOUR` rather than the shared `NO_DATA_COLOUR`. `tideTier` is the
+ *   served preference-axis tier (tide-window-plan.md §3 T4 item 5) — the dot dims for a miss the
+ *   same way the label chip does, with the ramp fill untouched.
  * @param {?{lat: number, lon: number}} [props.homeCoords] the saved home postcode, or null
  * @param {?string} [props.selectedName] the selected location's name, for the tooltip/aria parity
  *   with the chip layer (pins carry no distinct "selected" treatment — `MapCallout`'s own
@@ -148,12 +177,28 @@ function darkenHex(hex, factor) {
  * @param {?Function} [props.onSelect] called with a location's name on pin click — the SAME
  *   handler `MapLabels`' chips call, so a pin click opens the P9 callout exactly as a chip click
  *   does
+ * @param {?Function} [props.onSelectAskPick] called with a pick's RANK when its pin is pressed (Ask
+ *   PhotoCast, F3). A spot is a pick by carrying {@code askPick}: its pin is drawn from the PICK'S
+ *   window (its rating's colour, its rank in place of the star), is first in the DOM (tab order, rank
+ *   order) and on top by z-index, has no tooltip, and every other pin steps back. Without this prop
+ *   it falls back to {@code onSelect}
  * @param {string} [props.eventLabel] the active EV row's label+time, for the hover tooltip
  */
 export default function PinsLayer({
-  spots, homeCoords = null, selectedName = null, onSelect = null, eventLabel = '',
+  spots: allSpots, homeCoords = null, selectedName = null, onSelect = null, onSelectAskPick = null,
+  eventLabel = '', rampHex = sharedRampHex, glow = false, omitUnrated = false,
 }) {
   const map = useMap();
+
+  // Aurora only (aurora-heat-plan.md §4 #8): an unrated spot is not drawn. The aurora 1-star fill
+  // (#384262) is 1.10:1 against the no-data grey, so a poor night and no data would be the same
+  // pixels — the spec's own "no data is not 1 star" rule. A pick is always kept.
+  const spots = useMemo(
+    () => (omitUnrated
+      ? allSpots.filter((spot) => Number.isFinite(spot.rating) || spot.askPick)
+      : allSpots),
+    [allSpots, omitUnrated],
+  );
 
   const [pane] = useState(() => {
     if (!map?.createPane) return null;
@@ -211,8 +256,12 @@ export default function PinsLayer({
     // Weakest first (README §3), so later DOM order — later paint — is what puts the best pin on
     // top with no z-index bookkeeping: two plain, unstacked absolutely-positioned siblings paint in
     // source order. Missing/non-finite ratings sort as the WEAKEST value, never as strongest.
+    // Ask's picks come FIRST in the DOM, in rank order — which is the order a keyboard reader Tabs
+    // through them — and are put on top by a z-index on the pin (best-ranked highest), not by being drawn last.
     const pins = [...spots]
       .sort((a, b) => {
+        if (Boolean(a.askPick) !== Boolean(b.askPick)) return a.askPick ? -1 : 1;
+        if (a.askPick && b.askPick) return a.askPick.rank - b.askPick.rank;
         const ra = Number.isFinite(a.rating) ? a.rating : UNRATED_SORT_VALUE;
         const rb = Number.isFinite(b.rating) ? b.rating : UNRATED_SORT_VALUE;
         return ra - rb;
@@ -329,17 +378,30 @@ export default function PinsLayer({
       y: Math.max(6, event.clientY - wrapRect.top - 10),
     });
   }, [map]);
+  // ⚠️ Only a real mouse hovers. A tap on a touch screen makes the browser emit compatibility mouse
+  // events (iOS Safari and Android Chrome alike) with no matching leave until the next tap elsewhere,
+  // so a mouse-event tooltip opened by a tap stuck on top of the callout the same tap opened. Pointer
+  // events say what the pointer is, so touch never reaches the tooltip at all.
   const showTip = useCallback((name, event) => {
+    if (event.pointerType !== 'mouse') return;
     setHoverName(name);
     positionTip(event);
+  }, [positionTip]);
+  const moveTip = useCallback((event) => {
+    if (event.pointerType === 'mouse') positionTip(event);
   }, [positionTip]);
   const hideTip = useCallback(() => setHoverName(null), []);
 
   // Resolved off the LIVE pool on every render, and forgotten once its location has left it — see
   // `MapLabels.jsx`'s `hover` for the reasoning. The pool alone decides here, where it does not
   // there: every spot is a pin, with no budget to unmount one whose location is still in `spots`.
-  const hover = hoverName == null ? null : (spots.find((spot) => spot.name === hoverName) ?? null);
+  // A pick has no tooltip (it would speak for the window on screen): a pin that BECOMES one under a
+  // resting pointer — an answer landing — is forgotten like one that left the pool.
+  const hoverSpot = hoverName == null ? null : (spots.find((spot) => spot.name === hoverName) ?? null);
+  const hover = hoverSpot?.askPick ? null : hoverSpot;
   if (hoverName != null && hover == null) setHoverName(null);
+  /** An answer's picks are on this map: every pin that is not one steps back. */
+  const askActive = spots.some((spot) => spot.askPick);
 
   if (!pane || !frame) return null;
 
@@ -360,6 +422,56 @@ export default function PinsLayer({
       ))}
 
       {frame.pins.map(({ spot, x, y }) => {
+        const pick = spot.askPick ?? null;
+        if (pick) {
+          // Ask PhotoCast's pick (F3): the PICK'S window's colour, its RANK where the star would be,
+          // the card's own accessible name, no tooltip and no tide cue (both would speak for the
+          // window on screen). The size is the named pin's.
+          const pickHasRating = Number.isFinite(pick.rating);
+          // The SHARED ramp, never the injected one: a pick belongs to its OWN solar window, and an
+          // aurora ramp would colour a solar rating wrongly.
+          const pickFill = pickHasRating ? sharedRampHex(pick.rating) : NO_DATA_COLOUR;
+          // The ink is chosen against the fill either way: the rank is printed whether or not a rating is.
+          const pickInk = readableInkOn(pickFill);
+          return (
+            <button
+              key={spot.name}
+              type="button"
+              className="wf-pin"
+              data-testid="map-pin"
+              data-named="true"
+              data-ask="pick"
+              data-ask-rank={pick.rank}
+              data-ask-ranks={isMultiRank(pick) ? ranksOf(pick).join(',') : undefined}
+              data-ask-selected={pick.selected ? 'true' : undefined}
+              data-selected={selectedName === spot.name ? 'true' : undefined}
+              aria-label={pick.label}
+              aria-current={pick.selected ? 'true' : undefined}
+              style={{
+                left: `${x}px`,
+                top: `${y}px`,
+                width: NAMED_PIN_PX,
+                height: NAMED_PIN_PX,
+                // Above every other pin, the best-ranked highest (an inline value: it is data).
+                zIndex: PICK_Z_BASE - pick.rank,
+                background: pickFill,
+                color: pickInk,
+                boxShadow: `0 2px 0 -1px ${darkenHex(pickFill, 0.5)}, 0 5px 12px rgba(0,0,0,.5)`,
+              }}
+              onClick={(pressEvent) => {
+                // ⚠️ Focuses itself first: macOS and iOS Safari do not focus a tapped <button>, and on
+                // the phone a pick press no longer expands the Ask section (whose `park()` used to
+                // rescue focus), so without this focus is on <body> and the pane's Escape rule never
+                // fires. The `MapCallout` pattern. `preventScroll`: the map frame must not jump.
+                pressEvent.currentTarget.focus({ preventScroll: true });
+                if (onSelectAskPick) onSelectAskPick(rankOnPress(pick));
+                else onSelect?.(spot.name);
+              }}
+            >
+              <span data-multi={isMultiRank(pick) ? 'true' : undefined} aria-hidden="true">{rankBadge(pick)}</span>
+            </button>
+          );
+        }
         const hasRating = Number.isFinite(spot.rating);
         const named = spot.named !== false;
         const size = named ? NAMED_PIN_PX : UNNAMED_PIN_PX;
@@ -379,7 +491,23 @@ export default function PinsLayer({
             data-named={named ? 'true' : 'false'}
             data-stand-down={!hasRating && spot.isStandDown ? 'true' : undefined}
             data-selected={selectedName === spot.name ? 'true' : undefined}
-            aria-label={hasRating ? `${spot.name}, ${spot.rating} star` : spot.name}
+            // The served preference-axis tier (tide-window-plan.md §3 T4 item 5) — the dot dims
+            // the same way the label chip does; the ramp `fill`/`color` set below are UNTOUCHED
+            // by it (§7 check 12's rule, the CSS opacity dims the whole dot rather than re-colours
+            // it).
+            data-tide={spot.tideTier ?? undefined}
+            // While an answer's picks are on the map every OTHER pin steps back (opacity .25, which
+            // beats the tide rule's .72 — see the cascade in index.css).
+            data-ask={askActive ? 'fade' : undefined}
+            // Mirrors the chip's own aria-label extension (`MapLabels.jsx`, T4 item 2) — a pin's
+            // ONLY other statement of the tide fact is the hover tooltip below, and a screen
+            // reader user who never triggers a hover must not be left with nothing (adversarial
+            // review finding: the pin dot's visual dimming otherwise carries no textual
+            // equivalent at all, unlike the chip and the region-panel row).
+            aria-label={[
+              hasRating ? `${spot.name}, ${spot.rating} star` : spot.name,
+              tideAccessibleClause(spot.tideTier, spot.tideShortfall),
+            ].filter(Boolean).join(', ') + (hasRatedBadge(spot) ? badgeAccessibleClause(spot.myRating) : '')}
             style={{
               left: `${x}px`,
               top: `${y}px`,
@@ -387,12 +515,21 @@ export default function PinsLayer({
               height: size,
               background: fill,
               color: ink,
-              boxShadow: `0 2px 0 -1px ${darkenHex(fill, 0.5)}, 0 5px 12px rgba(0,0,0,.5)`,
+              boxShadow: [
+                // Aurora only (`glow`): a 4★+ pin is a lit thing, so it carries a halo in its own fill.
+                glow && hasRating && spot.rating >= GLOW_MIN_RATING ? glowShadow(fill) : null,
+                `0 2px 0 -1px ${darkenHex(fill, 0.5)}`,
+                '0 5px 12px rgba(0,0,0,.5)',
+              ].filter(Boolean).join(', '),
             }}
-            onClick={() => onSelect?.(spot.name)}
-            onMouseEnter={(e) => showTip(spot.name, e)}
-            onMouseMove={positionTip}
-            onMouseLeave={hideTip}
+            onClick={() => {
+              // Belt and braces: a tooltip already showing never sits over the callout this opens.
+              hideTip();
+              onSelect?.(spot.name);
+            }}
+            onPointerEnter={(e) => showTip(spot.name, e)}
+            onPointerMove={moveTip}
+            onPointerLeave={hideTip}
           >
             {named && hasRating && (
               <>
@@ -400,6 +537,7 @@ export default function PinsLayer({
                 <span className="wf-pin-star" aria-hidden="true">&#9733;</span>
               </>
             )}
+            {hasRatedBadge(spot) && <RatedBadge value={spot.myRating} />}
           </button>
         );
       })}
@@ -431,6 +569,17 @@ export default function PinsLayer({
           hover.bortleClass != null ? `sky ${hover.bortleClass}` : null,
         ].filter(Boolean).join(' · ')}
       </div>
+      {hover.tideTier && hover.tideFitPhrase && (
+        // Pins mode's own third line (tide-window-plan.md §3 T4 item 5) — the SAME served phrase,
+        // heading and ink split `MapLabels.jsx`'s chip tooltip carries; see that file's identical
+        // block for why a miss takes no `.wf-maplab-tip-t`.
+        <div
+          className={`wf-maplab-tip-s${hover.tideTier === 'match' ? ' wf-maplab-tip-t' : ''}`}
+          data-testid="map-pin-tip-tide"
+        >
+          {`${tideTierHeading(hover.tideTier, hover.tideAssessed)} — ${hover.tideFitPhrase}`}
+        </div>
+      )}
     </div>,
     chromeRoot,
   );
@@ -454,9 +603,38 @@ PinsLayer.propTypes = {
     driveMinutes: PropTypes.number,
     named: PropTypes.bool,
     isStandDown: PropTypes.bool,
+    /** The served preference-axis tier (tide-window-plan.md §3 T4 item 5) — null for "not a
+     * coastal slot with a served tide state", never a drawn claim either way. */
+    tideTier: PropTypes.oneOf(['match', 'miss']),
+    /** The formatted fit phrase for EITHER tier — the tooltip's third line reads this. */
+    tideFitPhrase: PropTypes.string,
+    /** Whether the light was assessed for this window — see {@code tideTierHeading}. */
+    tideAssessed: PropTypes.bool,
+    /** The reader's own outcome rating for this spot in the PAST window on screen (outcome-rating-plan
+     * .md §2 #6): {@code 1..5}, or {@code 'NOT_SEEN'}. Null/absent on a served window and for a spot
+     * the reader has not rated — the badge is drawn only when this is set. */
+    myRating: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
+    /** Ask PhotoCast's pick (F3) — the answer's own facts for the pick's window. */
+    askPick: PropTypes.shape({
+      rank: PropTypes.number.isRequired,
+      shortWindow: PropTypes.string,
+      rating: PropTypes.number,
+      verdict: PropTypes.string,
+      label: PropTypes.string,
+      selected: PropTypes.bool,
+      ranks: PropTypes.arrayOf(PropTypes.number),
+      selectedRank: PropTypes.number,
+    }),
   })).isRequired,
   homeCoords: PropTypes.shape({ lat: PropTypes.number, lon: PropTypes.number }),
   selectedName: PropTypes.string,
   onSelect: PropTypes.func,
+  onSelectAskPick: PropTypes.func,
   eventLabel: PropTypes.string,
+  /** A `(score) => '#rrggbb'` for the dot fill; defaults to the shared ramp (aurora passes its own). */
+  rampHex: PropTypes.func,
+  /** Aurora only: a 4★+ pin carries a 14px halo in its own fill colour. */
+  glow: PropTypes.bool,
+  /** Aurora only: spots with no rating are not drawn (an Ask pick is always kept). Default false. */
+  omitUnrated: PropTypes.bool,
 };

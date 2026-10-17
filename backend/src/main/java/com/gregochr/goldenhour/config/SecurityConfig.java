@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -41,6 +42,7 @@ public class SecurityConfig {
     private static final Logger LOG = LoggerFactory.getLogger(SecurityConfig.class);
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final RewindFilter rewindFilter;
 
     /** Additional allowed CORS origins (e.g. public production frontend URLs). Comma-separated. */
     @Value("${cors.extra-origins:}")
@@ -78,12 +80,34 @@ public class SecurityConfig {
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().permitAll())
                 .addFilterBefore(jwtAuthenticationFilter,
-                        UsernamePasswordAuthenticationFilter.class);
+                        UsernamePasswordAuthenticationFilter.class)
+                // After JWT authentication so it can read the caller's role: the header is
+                // honoured for admins only, and for GET only.
+                .addFilterAfter(rewindFilter, JwtAuthenticationFilter.class);
 
         // Allow H2 console frames in the local profile
         http.headers(headers -> headers.frameOptions(fo -> fo.sameOrigin()));
 
         return http.build();
+    }
+
+    /**
+     * Keeps {@link RewindFilter} out of the servlet container's own filter chain. Boot registers
+     * every {@code Filter} bean there by default, so a filter that is ALSO added to the security
+     * chain runs twice per request — and the outer run, outside the chain, sees no
+     * {@code SecurityContext}. {@code OncePerRequestFilter} makes whichever run goes first the
+     * only one, which left the rewind's correctness resting on bean ordering (the unordered outer
+     * registration sorting after the chain). Disabling the outer registration removes the
+     * question: the filter runs once, inside the chain, after authentication.
+     *
+     * @param rewindFilter the filter the security chain already holds
+     * @return a registration that is disabled, which is the point
+     */
+    @Bean
+    public FilterRegistrationBean<RewindFilter> rewindFilterRegistration(RewindFilter rewindFilter) {
+        FilterRegistrationBean<RewindFilter> registration = new FilterRegistrationBean<>(rewindFilter);
+        registration.setEnabled(false);
+        return registration;
     }
 
     /**
@@ -109,7 +133,7 @@ public class SecurityConfig {
         }
         config.setAllowedOriginPatterns(patterns);
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        config.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept"));
+        config.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept", RewindFilter.HEADER));
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/api/**", config);
         source.registerCorsConfiguration("/actuator/health", config);

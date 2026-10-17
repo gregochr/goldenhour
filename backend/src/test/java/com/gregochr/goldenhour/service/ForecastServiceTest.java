@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.config.AppBuild;
 import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
@@ -11,8 +12,10 @@ import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.exception.EvaluationFailedException;
 import com.gregochr.goldenhour.exception.WeatherDataFetchException;
+import com.gregochr.goldenhour.exception.RunStoppedException;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudApproachData;
+import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.DirectionalCloudData;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.ForecastRequest;
@@ -53,7 +56,9 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -66,9 +71,11 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -104,8 +111,10 @@ class ForecastServiceTest {
     @Mock
     private TideAlignmentEvaluator tideAlignmentEvaluator;
     @Mock
-    private com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter
-            survivorAtmosphereWriter;
+    private com.gregochr.goldenhour.service.evaluation.SlotAtmosphereWriter
+            slotAtmosphereWriter;
+    @Mock
+    private RunProgressTracker runProgressTracker;
 
     /**
      * 2026-08-11 12:00 UTC — midday, where the UTC and Europe/London dates agree, so the
@@ -118,6 +127,12 @@ class ForecastServiceTest {
      */
     @Spy
     private Clock clock = Clock.fixed(Instant.parse("2026-08-11T12:00:00Z"), java.time.ZoneOffset.UTC);
+
+    /** The release every stamped row is expected to carry (V182). */
+    private static final String BUILD = "v2.28.0";
+
+    @Spy
+    private AppBuild appBuild = new AppBuild(BUILD);
 
     @InjectMocks
     private ForecastService forecastService;
@@ -475,6 +490,9 @@ class ForecastServiceTest {
                 EvaluationModel.SONNET, true, null))
                 .isInstanceOf(WeatherDataFetchException.class)
                 .hasMessageContaining("Weather data fetch failed");
+        // Record conditions for every place (P1 fix, 2026-09-30): a slot whose weather fetch
+        // itself failed never got atmospheric data at all, so there is nothing to record.
+        verifyNoInteractions(slotAtmosphereWriter);
     }
 
     @Test
@@ -492,6 +510,245 @@ class ForecastServiceTest {
                 EvaluationModel.SONNET, true, null))
                 .isInstanceOf(WeatherDataFetchException.class)
                 .hasMessageContaining("Weather service returned null");
+        verifyNoInteractions(slotAtmosphereWriter);
+    }
+
+    @Test
+    @DisplayName("fetchWeatherAndTriage() with an empty prefetch (the weather batch failed) publishes FAILED "
+            + "saying that, instead of the old no-pre-fetched-data text")
+    void fetchWeatherAndTriage_emptyPrefetch_failsSayingWeatherCouldNotBeFetched() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        JobRunEntity jobRun = new JobRunEntity();
+        jobRun.setId(42L);
+        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
+
+        assertThatThrownBy(() -> forecastService.fetchWeatherAndTriage(
+                DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(), EvaluationModel.SONNET, true, jobRun,
+                Map.of(), new CloudPointCache(Map.of())))
+                .isInstanceOf(WeatherDataFetchException.class);
+
+        ArgumentCaptor<LocationTaskEvent> eventCaptor = ArgumentCaptor.forClass(LocationTaskEvent.class);
+        verify(eventPublisher, times(2)).publishEvent(eventCaptor.capture());
+        LocationTaskEvent failed = eventCaptor.getAllValues().get(1);
+        assertThat(failed.getState()).isEqualTo(LocationTaskState.FAILED);
+        assertThat(failed.getFailedStep()).isEqualTo("FETCHING_WEATHER");
+        assertThat(failed.getErrorMessage()).isEqualTo("Weather data fetch failed for " + DURHAM
+                + " SUNSET: Weather data could not be fetched.");
+        verify(openMeteoService, never()).getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any());
+    }
+
+    @Test
+    @DisplayName("runForecasts() also publishes a raw exception message capped at 200 characters, while the "
+            + "thrown exception keeps the whole of it")
+    void runForecasts_longExceptionMessage_publishedTruncated() {
+        LocalDate date = LocalDate.of(2026, 2, 20);
+        LocalDateTime sunrise = LocalDateTime.of(2026, 2, 20, 7, 30);
+        JobRunEntity jobRun = new JobRunEntity();
+        jobRun.setId(42L);
+        String raw = "y".repeat(500);
+        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenThrow(new RuntimeException(raw));
+
+        assertThatThrownBy(() -> forecastService.runForecasts(
+                DURHAM_LOCATION, date, TargetType.SUNRISE, Set.of(), EvaluationModel.SONNET, jobRun))
+                .isInstanceOf(WeatherDataFetchException.class)
+                .hasMessageContaining(raw);
+
+        ArgumentCaptor<LocationTaskEvent> eventCaptor = ArgumentCaptor.forClass(LocationTaskEvent.class);
+        verify(eventPublisher, times(2)).publishEvent(eventCaptor.capture());
+        LocationTaskEvent failed = eventCaptor.getAllValues().get(1);
+        assertThat(failed.getState()).isEqualTo(LocationTaskState.FAILED);
+        assertThat(failed.getErrorMessage()).hasSize(200)
+                .startsWith("Weather data fetch failed for " + DURHAM + " SUNRISE: yyy").endsWith("yyy...");
+    }
+
+    @Test
+    @DisplayName("fetchWeatherAndTriage() publishes a raw exception message capped at 200 characters, "
+            + "while the thrown exception keeps the whole of it")
+    void fetchWeatherAndTriage_longExceptionMessage_publishedTruncated() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        JobRunEntity jobRun = new JobRunEntity();
+        jobRun.setId(42L);
+        String raw = "x".repeat(500);
+        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenThrow(new RuntimeException(raw));
+
+        assertThatThrownBy(() -> forecastService.fetchWeatherAndTriage(
+                DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(), EvaluationModel.SONNET, true, jobRun))
+                .isInstanceOf(WeatherDataFetchException.class)
+                .hasMessageContaining(raw);
+
+        ArgumentCaptor<LocationTaskEvent> eventCaptor = ArgumentCaptor.forClass(LocationTaskEvent.class);
+        verify(eventPublisher, times(2)).publishEvent(eventCaptor.capture());
+        String published = eventCaptor.getAllValues().get(1).getErrorMessage();
+        assertThat(published).hasSize(200).startsWith("Weather data fetch failed for " + DURHAM + " SUNSET: xxx")
+                .endsWith("xxx...");
+    }
+
+    @Test
+    @DisplayName("truncateForPanel() leaves 200 characters alone, shortens 201 to 200 ending '...', "
+            + "and passes null through")
+    void truncateForPanel_boundaries() {
+        assertThat(ForecastService.truncateForPanel("a".repeat(199))).isEqualTo("a".repeat(199));
+        assertThat(ForecastService.truncateForPanel("a".repeat(200))).isEqualTo("a".repeat(200));
+        assertThat(ForecastService.truncateForPanel("a".repeat(201))).isEqualTo("a".repeat(197) + "...");
+        assertThat(ForecastService.truncateForPanel(null)).isNull();
+    }
+
+    // ── Record conditions for every place — the seam (P1 fix, 2026-09-30) ──────────────────────
+    // A Codex review of the first cut (commit 9c01491f) found the write placed at three call
+    // sites (ForecastTaskCollector's scheduled path, ForceSubmitBatchService's two entry points)
+    // while two other real callers of this method — ForecastTaskCollector's
+    // collectRegionFilteredBatches and the synchronous engine's ForecastCommandExecutor
+    // .runTriagePhase — reached fetchWeatherAndTriage and got no write at all. The fix moves the
+    // write inside fetchWeatherAndTriage itself, immediately after the atmospheric data is
+    // assembled and before either triage check, so every caller — present, and any future one —
+    // is covered by the one seam. These tests would FAIL against commit b8fe0fa6, where this
+    // method's body never called slotAtmosphereWriter.write on any branch at all (the write
+    // lived only in evaluateAndPersist, downstream, and at three collector/JFDI call sites a
+    // triaged candidate never reaches).
+
+    @Test
+    @DisplayName("fetchWeatherAndTriage() records the candidate's atmospheric readings when "
+            + "conditions are suitable (non-triaged)")
+    void fetchWeatherAndTriage_nonTriaged_recordsReadings() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
+
+        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
+        when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(data, null));
+        when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
+
+        forecastService.fetchWeatherAndTriage(
+                DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
+                EvaluationModel.SONNET, true, null);
+
+        verify(slotAtmosphereWriter, times(1))
+                .write(DURHAM_LOCATION, date, TargetType.SUNSET, data);
+    }
+
+    @Test
+    @DisplayName("fetchWeatherAndTriage() still records the candidate's atmospheric readings "
+            + "when weather triage stands the slot down — the case a triaged-away candidate "
+            + "never reaches evaluateAndPersist, so the write cannot live there")
+    void fetchWeatherAndTriage_weatherTriaged_stillRecordsReadings() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunrise = LocalDateTime.of(2026, 6, 21, 3, 30);
+        AtmosphericData data = buildAtmosphericData(sunrise, TargetType.SUNRISE);
+        ForecastEvaluationEntity savedEntity = ForecastEvaluationEntity.builder().id(10L).build();
+
+        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
+        when(solarService.sunriseAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(65);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(data, null));
+        when(weatherTriageEvaluator.evaluate(any()))
+                .thenReturn(Optional.of(new TriageResult("Low cloud 85%", TriageRule.HIGH_CLOUD)));
+        when(repository.save(any())).thenReturn(savedEntity);
+
+        ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
+                DURHAM_LOCATION, date, TargetType.SUNRISE, Set.of(),
+                EvaluationModel.SONNET, true, null);
+
+        assertThat(result.triaged()).isTrue();
+        verify(slotAtmosphereWriter, times(1))
+                .write(DURHAM_LOCATION, date, TargetType.SUNRISE, data);
+    }
+
+    @Test
+    @DisplayName("fetchWeatherAndTriage() still records the candidate's atmospheric readings "
+            + "when tide-alignment triage stands a SEASCAPE slot down")
+    void fetchWeatherAndTriage_tideTriaged_stillRecordsReadings() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        LocationEntity seascape = LocationEntity.builder()
+                .id(2L).name("Seaham").lat(DURHAM_LAT).lon(DURHAM_LON)
+                .locationType(Set.of(LocationType.SEASCAPE)).build();
+        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
+        ForecastEvaluationEntity savedEntity = ForecastEvaluationEntity.builder().id(11L).build();
+
+        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
+        when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
+        when(solarService.civilDuskUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset.plusHours(1));
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(data, null));
+        when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
+        when(tideAlignmentEvaluator.evaluate(any(), any(), any(), any()))
+                .thenReturn(Optional.of(new TriageResult("No high tide in window",
+                        TriageRule.TIDE_MISALIGNED)));
+        when(repository.save(any())).thenReturn(savedEntity);
+
+        ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
+                seascape, date, TargetType.SUNSET, Set.of(TideType.HIGH),
+                EvaluationModel.SONNET, true, null);
+
+        assertThat(result.triaged()).isTrue();
+        verify(slotAtmosphereWriter, times(1))
+                .write(seascape, date, TargetType.SUNSET, data);
+    }
+
+    @Test
+    @DisplayName("fetchWeatherAndTriage() isolates a readings-write failure — the fetch/triage "
+            + "still completes and the caller still gets a result")
+    void fetchWeatherAndTriage_readingsWriteFails_fetchStillProceeds() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
+
+        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
+        when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(data, null));
+        when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
+        doThrow(new RuntimeException("DB unavailable"))
+                .when(slotAtmosphereWriter).write(any(), any(), any(), any());
+
+        ForecastPreEvalResult result = forecastService.fetchWeatherAndTriage(
+                DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
+                EvaluationModel.SONNET, true, null);
+
+        assertThat(result.triaged()).isFalse();
+        assertThat(result.atmosphericData()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("fetchWeatherAndTriage() writes no reading when the "
+            + "photocast.slot-atmosphere.write flag is off — the same flag every caller "
+            + "shares through the one seam")
+    void fetchWeatherAndTriage_readingsFlagOff_writesNothing() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        AtmosphericData data = buildAtmosphericData(sunset, TargetType.SUNSET);
+
+        com.gregochr.goldenhour.repository.SlotAtmosphereRepository realRepo =
+                org.mockito.Mockito.mock(
+                        com.gregochr.goldenhour.repository.SlotAtmosphereRepository.class);
+        com.gregochr.goldenhour.service.evaluation.SlotAtmosphereWriter flagOffWriter =
+                new com.gregochr.goldenhour.service.evaluation.SlotAtmosphereWriter(
+                        realRepo, clock, false);
+        ForecastService serviceWithFlagOff = new ForecastService(
+                solarService, openMeteoService, augmentor, evaluationService,
+                engineEvaluationService, repository, notificationDispatcher, eventPublisher,
+                weatherTriageEvaluator, tideAlignmentEvaluator, flagOffWriter, runProgressTracker, clock,
+                new AppBuild(BUILD));
+
+        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
+        when(solarService.sunsetAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(310);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(data, null));
+        when(weatherTriageEvaluator.evaluate(any())).thenReturn(Optional.empty());
+
+        serviceWithFlagOff.fetchWeatherAndTriage(
+                DURHAM_LOCATION, date, TargetType.SUNSET, Set.of(),
+                EvaluationModel.SONNET, true, null);
+
+        verifyNoInteractions(realRepo);
     }
 
     @Test
@@ -569,6 +826,10 @@ class ForecastServiceTest {
         assertThat(saved.getSummary()).isNull();
         assertThat(saved.getTriage().getReason()).isEqualTo(TriageReason.TIDE_MISALIGNED);
         assertThat(saved.getTriage().getMessage()).contains("tide");
+        assertThat(saved.getScoredAt()).as("a tide stand-down is stamped like any triage row")
+                .isEqualTo(STAMP);
+        assertThat(saved.getAppBuild()).as("and carries the build that decided it").isEqualTo(BUILD);
+        assertThat(saved.getPromptHash()).as("a triage row had no prompt").isNull();
     }
 
     @Test
@@ -797,6 +1058,303 @@ class ForecastServiceTest {
         verify(notificationDispatcher, never()).dispatch(any(), any(), any(), any());
     }
 
+    // --- evaluateAndPersist: which layer publishes a failure, and the stop check ---
+    //
+    // These pin ForecastService ITSELF. The executor also publishes FAILED for a task still in progress
+    // (the same phrase), so an executor-level test cannot notice this class ceasing to publish.
+
+    @Nested
+    @DisplayName("evaluateAndPersist() publishes its own failures and honours the run's stop")
+    class EvaluationFailurePublication {
+
+        private static final String KEY_REJECTED = "Claude rejected the API key.";
+        private static final String NOT_ATTEMPTED =
+                "Not attempted: the run stopped because Claude rejected the API key.";
+        private static final long RUN_ID = 77L;
+
+        private final LocalDate date = LocalDate.of(2026, 6, 21);
+        private final LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        private final JobRunEntity jobRun = runWithId(RUN_ID);
+
+        private JobRunEntity runWithId(long id) {
+            JobRunEntity run = new JobRunEntity();
+            run.setId(id);
+            return run;
+        }
+
+        private ForecastPreEvalResult preEval(LocalDate on) {
+            return new ForecastPreEvalResult(
+                    false, null, buildAtmosphericData(sunset, TargetType.SUNSET), DURHAM_LOCATION, on,
+                    TargetType.SUNSET, sunset, 310, 1, EvaluationModel.SONNET, Set.of(),
+                    DURHAM + "|" + on + "|SUNSET", null);
+        }
+
+        private List<LocationTaskEvent> publishedEvents(int expected) {
+            ArgumentCaptor<LocationTaskEvent> captor = ArgumentCaptor.forClass(LocationTaskEvent.class);
+            verify(eventPublisher, times(expected)).publishEvent(captor.capture());
+            return captor.getAllValues();
+        }
+
+        @Test
+        @DisplayName("an Errored 401: exactly one FAILED event with the key phrase at EVALUATING, run stopped")
+        void erroredKeyRejected_publishesFailedOnce_andStopsTheRun() {
+            when(engineEvaluationService.evaluateNow(any(), any()))
+                    .thenReturn(new EvaluationResult.Errored("anthropic_401", "invalid x-api-key"));
+
+            assertThatThrownBy(() -> forecastService.evaluateAndPersist(preEval(date), jobRun))
+                    .isInstanceOf(EvaluationFailedException.class);
+
+            List<LocationTaskEvent> events = publishedEvents(2);
+            assertThat(events.get(0).getState()).isEqualTo(LocationTaskState.EVALUATING);
+            assertThat(events.get(1).getState()).isEqualTo(LocationTaskState.FAILED);
+            assertThat(events.get(1).getErrorMessage()).isEqualTo(KEY_REJECTED);
+            assertThat(events.get(1).getFailedStep()).isEqualTo("EVALUATING");
+            assertThat(events.get(1).getJobRunId()).isEqualTo(RUN_ID);
+            verify(runProgressTracker).stopRun(RUN_ID);
+        }
+
+        @Test
+        @DisplayName("an Errored 529: the overloaded phrase, and the run is NOT stopped")
+        void erroredOverloaded_publishesItsPhrase_doesNotStop() {
+            when(engineEvaluationService.evaluateNow(any(), any()))
+                    .thenReturn(new EvaluationResult.Errored("anthropic_529", "overloaded"));
+
+            assertThatThrownBy(() -> forecastService.evaluateAndPersist(preEval(date), jobRun))
+                    .isInstanceOf(EvaluationFailedException.class);
+
+            List<LocationTaskEvent> events = publishedEvents(2);
+            assertThat(events.get(1).getErrorMessage()).isEqualTo("Claude was overloaded.");
+            assertThat(events.get(1).getFailedStep()).isEqualTo("EVALUATING");
+            verify(runProgressTracker, never()).stopRun(RUN_ID);
+        }
+
+        @Test
+        @DisplayName("an Errored circuit-breaker refusal: its own not-attempted phrase, and the run is NOT stopped")
+        void erroredCircuitOpen_publishesItsPhrase_doesNotStop() {
+            when(engineEvaluationService.evaluateNow(any(), any()))
+                    .thenReturn(new EvaluationResult.Errored("circuit_open", "CircuitBreaker is OPEN"));
+
+            assertThatThrownBy(() -> forecastService.evaluateAndPersist(preEval(date), jobRun))
+                    .isInstanceOf(EvaluationFailedException.class);
+
+            assertThat(publishedEvents(2).get(1).getErrorMessage())
+                    .isEqualTo("Not attempted: Claude calls are paused after repeated failures. "
+                            + "Try again in a minute.");
+            verify(runProgressTracker, never()).stopRun(RUN_ID);
+        }
+
+        @Test
+        @DisplayName("a failure saving the scored result: one FAILED event with the fallback phrase, no COMPLETE")
+        void saveFails_publishesFallbackPhrase() {
+            when(engineEvaluationService.evaluateNow(any(), any()))
+                    .thenReturn(new EvaluationResult.Scored(new SunsetEvaluation(null, 85, 78, "Great.")));
+            when(repository.save(any())).thenThrow(new IllegalStateException("jdbc:postgresql://secret/db"));
+
+            assertThatThrownBy(() -> forecastService.evaluateAndPersist(preEval(date), jobRun))
+                    .isInstanceOf(IllegalStateException.class);
+
+            List<LocationTaskEvent> events = publishedEvents(2);
+            assertThat(events.get(1).getState()).isEqualTo(LocationTaskState.FAILED);
+            assertThat(events.get(1).getErrorMessage()).isEqualTo("Evaluation failed (see server log).");
+            assertThat(events.get(1).getFailedStep()).isEqualTo("EVALUATING");
+            verify(runProgressTracker, never()).stopRun(RUN_ID);
+        }
+
+        @Test
+        @DisplayName("an exception thrown by the evaluation call: one FAILED event with the fallback phrase")
+        void evaluationCallThrows_publishesFallbackPhrase() {
+            when(engineEvaluationService.evaluateNow(any(), any()))
+                    .thenThrow(new IllegalStateException("password=hunter2"));
+
+            assertThatThrownBy(() -> forecastService.evaluateAndPersist(preEval(date), jobRun))
+                    .isInstanceOf(IllegalStateException.class);
+
+            LocationTaskEvent failed = publishedEvents(2).get(1);
+            assertThat(failed.getErrorMessage()).isEqualTo("Evaluation failed (see server log).");
+        }
+
+        @Test
+        @DisplayName("a stopped run: one not-attempted FAILED event, RunStoppedException, engine never called")
+        void stoppedRun_publishesNotAttempted_neverCallsTheEngine() {
+            when(runProgressTracker.isStopped(RUN_ID)).thenReturn(true);
+
+            assertThatThrownBy(() -> forecastService.evaluateAndPersist(preEval(date), jobRun))
+                    .isInstanceOf(RunStoppedException.class);
+
+            List<LocationTaskEvent> events = publishedEvents(1);
+            assertThat(events.get(0).getState()).isEqualTo(LocationTaskState.FAILED);
+            assertThat(events.get(0).getErrorMessage()).isEqualTo(NOT_ATTEMPTED);
+            assertThat(events.get(0).getFailedStep()).isEqualTo("EVALUATING");
+            verifyNoInteractions(engineEvaluationService);
+            verify(repository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("with no run id nothing is published and no stop is consulted (the failure still throws)")
+        void noRun_publishesNothing() {
+            when(engineEvaluationService.evaluateNow(any(), any()))
+                    .thenReturn(new EvaluationResult.Errored("anthropic_401", "invalid x-api-key"));
+
+            assertThatThrownBy(() -> forecastService.evaluateAndPersist(preEval(date), null))
+                    .isInstanceOf(EvaluationFailedException.class);
+
+            verifyNoInteractions(eventPublisher);
+            verifyNoInteractions(runProgressTracker);
+        }
+
+        @Test
+        @DisplayName("the stop check is INSIDE the bulkhead: with one permit and five calls started together, the "
+                + "first answers 401 and the engine is called exactly once, every other call not attempted")
+        void stopCheck_isInsideTheBulkhead_oneEngineCallForFiveWaiters() throws Exception {
+            RunProgressTracker realTracker = new RunProgressTracker(mock(DynamicSchedulerService.class));
+            ForecastService service = new ForecastService(
+                    solarService, openMeteoService, augmentor, evaluationService, engineEvaluationService,
+                    repository, notificationDispatcher, eventPublisher, weatherTriageEvaluator,
+                    tideAlignmentEvaluator, slotAtmosphereWriter, realTracker, clock,
+                    new AppBuild(BUILD));
+            int calls = 5;
+            List<String[]> tasks = new ArrayList<>();
+            List<ForecastPreEvalResult> preEvals = new ArrayList<>();
+            for (int i = 0; i < calls; i++) {
+                ForecastPreEvalResult pre = preEval(date.plusDays(i));
+                preEvals.add(pre);
+                tasks.add(new String[] {pre.taskKey(), DURHAM, pre.date().toString(), "SUNSET"});
+            }
+            realTracker.initRun(RUN_ID, tasks);
+            when(engineEvaluationService.evaluateNow(any(), any()))
+                    .thenReturn(new EvaluationResult.Errored("anthropic_401", "invalid x-api-key"));
+            io.github.resilience4j.bulkhead.Bulkhead bulkhead = io.github.resilience4j.bulkhead.Bulkhead.of(
+                    "claude", io.github.resilience4j.bulkhead.BulkheadConfig.custom()
+                            .maxConcurrentCalls(1).maxWaitDuration(java.time.Duration.ofSeconds(30)).build());
+            java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+            java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(calls);
+            List<java.util.concurrent.Future<?>> futures = new ArrayList<>();
+            try {
+                for (ForecastPreEvalResult pre : preEvals) {
+                    futures.add(pool.submit(() -> {
+                        go.await();
+                        try {
+                            io.github.resilience4j.bulkhead.Bulkhead.decorateSupplier(bulkhead,
+                                    () -> service.evaluateAndPersist(pre, jobRun)).get();
+                        } catch (RuntimeException expected) {
+                            // every call fails: one with the 401, the rest not attempted
+                        }
+                        return null;
+                    }));
+                }
+                go.countDown();
+                for (java.util.concurrent.Future<?> f : futures) {
+                    f.get(30, java.util.concurrent.TimeUnit.SECONDS);
+                }
+            } finally {
+                pool.shutdownNow();
+            }
+
+            ArgumentCaptor<EvaluationTask> taskCaptor = ArgumentCaptor.forClass(EvaluationTask.class);
+            verify(engineEvaluationService, times(1)).evaluateNow(taskCaptor.capture(),
+                    eq(com.gregochr.goldenhour.service.batch.BatchTriggerSource.ADMIN));
+            assertThat(taskCaptor.getValue()).isInstanceOf(EvaluationTask.Forecast.class);
+            ArgumentCaptor<LocationTaskEvent> events = ArgumentCaptor.forClass(LocationTaskEvent.class);
+            verify(eventPublisher, times(calls + 1)).publishEvent(events.capture());
+            List<LocationTaskEvent> failed = events.getAllValues().stream()
+                    .filter(e -> e.getState() == LocationTaskState.FAILED).toList();
+            assertThat(failed).extracting(LocationTaskEvent::getErrorMessage)
+                    .containsExactlyInAnyOrder(KEY_REJECTED, NOT_ATTEMPTED, NOT_ATTEMPTED, NOT_ATTEMPTED,
+                            NOT_ATTEMPTED);
+            assertThat(failed).extracting(LocationTaskEvent::getTaskKey).doesNotHaveDuplicates();
+        }
+    }
+
+    // --- forecast_evaluation.scored_at (V178): the availability stamp's write sites ---
+
+    private static final Instant STAMP = Instant.parse("2026-08-11T12:00:00Z");
+
+    @Test
+    @DisplayName("V178: a synchronous row inserted with a rating is stamped at insert; one without is not")
+    void runForecasts_stampsScoredAtOnlyWhenTheRowHasARating() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunrise = LocalDateTime.of(2026, 6, 21, 3, 30);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        AtmosphericData forecastData = buildAtmosphericData(sunrise, TargetType.SUNRISE);
+        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
+        when(solarService.sunsetUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunset);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(forecastData, null));
+        when(evaluationService.evaluate(eq(forecastData), any(EvaluationModel.class), any()))
+                .thenReturn(new SunsetEvaluation(4, 70, 75, "Rated."))
+                .thenReturn(new SunsetEvaluation(null, 70, 75, "Potentials only, no star."));
+        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        forecastService.runForecasts(DURHAM_LOCATION, date, null, Set.of(), EvaluationModel.SONNET, null);
+
+        ArgumentCaptor<ForecastEvaluationEntity> saved = ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
+        verify(repository, times(2)).save(saved.capture());
+        assertThat(saved.getAllValues().get(0).getRating()).isEqualTo(4);
+        assertThat(saved.getAllValues().get(0).getScoredAt()).isEqualTo(STAMP);
+        assertThat(saved.getAllValues().get(0).getAppBuild()).isEqualTo(BUILD);
+        assertThat(saved.getAllValues().get(0).getPromptHash())
+                .as("the synchronous engine has no batch request, so no prompt fingerprint").isNull();
+        assertThat(saved.getAllValues().get(1).getRating()).isNull();
+        assertThat(saved.getAllValues().get(1).getScoredAt())
+                .as("nothing to say, so no availability instant").isNull();
+        assertThat(saved.getAllValues().get(1).getAppBuild())
+                .as("nothing to say, so no build either").isNull();
+    }
+
+    @Test
+    @DisplayName("V178: a triage stand-down row is stamped at insert — a triage reason is something to say")
+    void fetchWeatherAndTriage_triageRowIsStampedAtInsert() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunrise = LocalDateTime.of(2026, 6, 21, 3, 30);
+        when(solarService.sunriseUtc(DURHAM_LAT, DURHAM_LON, date)).thenReturn(sunrise);
+        when(solarService.sunriseAzimuthDeg(DURHAM_LAT, DURHAM_LON, date)).thenReturn(65);
+        when(openMeteoService.getAtmosphericDataWithResponse(any(ForecastRequest.class), any(), any()))
+                .thenReturn(new WeatherExtractionResult(
+                        buildAtmosphericData(sunrise, TargetType.SUNRISE), null));
+        when(weatherTriageEvaluator.evaluate(any()))
+                .thenReturn(Optional.of(new TriageResult("Low cloud 85%", TriageRule.HIGH_CLOUD)));
+        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        forecastService.fetchWeatherAndTriage(DURHAM_LOCATION, date, TargetType.SUNRISE, Set.of(),
+                EvaluationModel.SONNET, true, null);
+
+        ArgumentCaptor<ForecastEvaluationEntity> saved = ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
+        verify(repository).save(saved.capture());
+        assertThat(saved.getValue().getRating()).isNull();
+        assertThat(saved.getValue().getScoredAt()).isEqualTo(STAMP);
+        assertThat(saved.getValue().getAppBuild()).isEqualTo(BUILD);
+    }
+
+    @Test
+    @DisplayName("V178: a PENDING batch row is inserted unstamped, and abandoning it never stamps it")
+    void pendingRowIsUnstampedAndAbandonedRowStaysUnstamped() {
+        LocalDate date = LocalDate.of(2026, 6, 21);
+        LocalDateTime sunset = LocalDateTime.of(2026, 6, 21, 20, 47);
+        ForecastPreEvalResult preEval = new ForecastPreEvalResult(
+                false, null, buildAtmosphericData(sunset, TargetType.SUNSET), DURHAM_LOCATION, date,
+                TargetType.SUNSET, sunset, 310, 0, EvaluationModel.SONNET, Set.of(),
+                DURHAM + "|" + date + "|SUNSET", null);
+        when(repository.save(any())).thenAnswer(inv -> {
+            ForecastEvaluationEntity e = inv.getArgument(0);
+            e.setId(55L);
+            return e;
+        });
+
+        Long id = forecastService.persistPendingEvaluation(preEval);
+
+        ArgumentCaptor<ForecastEvaluationEntity> saved = ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
+        verify(repository).save(saved.capture());
+        assertThat(id).isEqualTo(55L);
+        assertThat(saved.getValue().getBatchState()).isEqualTo(com.gregochr.goldenhour.entity.BatchState.PENDING);
+        assertThat(saved.getValue().getScoredAt()).isNull();
+        assertThat(saved.getValue().getAppBuild()).as("a PENDING row is not yet scored").isNull();
+
+        when(repository.findById(55L)).thenReturn(Optional.of(saved.getValue()));
+        forecastService.markAbandoned(55L);
+        assertThat(saved.getValue().getBatchState()).isEqualTo(com.gregochr.goldenhour.entity.BatchState.ABANDONED);
+        assertThat(saved.getValue().getScoredAt()).isNull();
+    }
+
     // --- persistCannedResult tests ---
 
     @Test
@@ -830,6 +1388,9 @@ class ForecastServiceTest {
         assertThat(saved.getTriage().getReason()).isEqualTo(
                 com.gregochr.goldenhour.model.TriageReason.GENERIC);
         assertThat(saved.getTriage().getMessage()).contains("Sentinel skip — region poor");
+        assertThat(saved.getScoredAt()).as("a sentinel skip is a stand-down, stamped like a triage row")
+                .isEqualTo(STAMP);
+        assertThat(saved.getAppBuild()).isEqualTo(BUILD);
     }
 
     @Test
@@ -1993,7 +2554,7 @@ class ForecastServiceTest {
                     solarService, openMeteoService, augmentor, evaluationService,
                     engineEvaluationService, repository, notificationDispatcher,
                     eventPublisher, weatherTriageEvaluator, tideAlignmentEvaluator,
-                    survivorAtmosphereWriter, at);
+                    slotAtmosphereWriter, runProgressTracker, at, new AppBuild(BUILD));
 
             service.fetchWeatherAndTriage(DURHAM_LOCATION, date, TargetType.SUNSET,
                     Set.of(), EvaluationModel.SONNET, true, null);
@@ -2023,7 +2584,7 @@ class ForecastServiceTest {
                     solarService, openMeteoService, augmentor, evaluationService,
                     engineEvaluationService, repository, notificationDispatcher,
                     eventPublisher, weatherTriageEvaluator, tideAlignmentEvaluator,
-                    survivorAtmosphereWriter, at);
+                    slotAtmosphereWriter, runProgressTracker, at, new AppBuild(BUILD));
 
             return service.fetchWeatherAndTriage(DURHAM_LOCATION, date, TargetType.SUNSET,
                     Set.of(), EvaluationModel.SONNET, true, null);

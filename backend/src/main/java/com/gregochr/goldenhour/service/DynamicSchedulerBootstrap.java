@@ -1,8 +1,10 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.service.pipeline.PipelineOrchestratorStartup;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.annotation.Profile;
 import org.springframework.context.event.EventListener;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 
 /**
@@ -15,10 +17,17 @@ import org.springframework.stereotype.Component;
  * to all profiles. Without this split, suppressing the listener would have required
  * either a runtime profile check inside the listener (less idiomatic) or removing the
  * scheduler bean entirely (which would break every service that registers a job target).
+ *
+ * <p>Ordered after {@link PipelineOrchestratorStartup}: the scheduler may start a run at once (a
+ * solar job's catch-up), and the pipeline's recovery scan must already have finished with the runs
+ * the previous process left, or it would take that new run for one of them.
  */
 @Component
 @Profile("!integration-test")
 public class DynamicSchedulerBootstrap {
+
+    /** Listener order: after {@link PipelineOrchestratorStartup#ORDER}. */
+    public static final int ORDER = PipelineOrchestratorStartup.ORDER + 10;
 
     private final DynamicSchedulerService schedulerService;
 
@@ -36,6 +45,7 @@ public class DynamicSchedulerBootstrap {
      * Initialises all schedules once the application context is ready.
      */
     @EventListener(ApplicationReadyEvent.class)
+    @Order(ORDER)
     public void onApplicationReady() {
         schedulerService.initSchedules();
     }

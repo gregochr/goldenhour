@@ -57,6 +57,19 @@ synchronously — but the button sits *above* the component's `loading ?` gate, 
 from the first paint and the wait was satisfied before any data arrived. It passed on a quiet
 machine and failed roughly one full-suite run in six. Wait for the thing the response renders.
 
+**And a commit is not its effects.** A `findBy*` resolves on the commit that renders what it waited
+for — but outside `act` (a resolved request, a timer), React leaves that commit's `useEffect`s to a
+later scheduler task, always yielding first because every commit requests a paint. Testing Library
+resumes on a real `setTimeout(0)` that races that task, so anything an effect does — arm a timer,
+subscribe, start a fetch — may not have happened yet, and the assertion passes on a quiet machine
+and fails under load. `ModelSelectionView.test.jsx` waited for its success banner, then counted the
+banner's dismiss timer, and read zero in 41 of 2,700 repetitions under CPU load. Assert an effect's
+work only after settling inside an awaited `act`. On a frozen fake clock that is the only wait there
+is: a `findBy*` hangs there rather than races, because the `setTimeout(0)` that ends every Testing
+Library wait is frozen too (it advances fake timers itself only under Jest) — which is why a file
+on `vi.useFakeTimers()` without `shouldAdvanceTime` settles with an awaited `act`, as that file's
+`pump()` does.
+
 **And never put the click inside the wait.** `waitFor` re-runs its callback every ~50ms, so a
 `fireEvent.click` in there re-fires on every poll: a failing assertion on an expand/collapse toggle
 collapses and re-expands the row twenty times a second instead of failing. That is a hang dressed as
@@ -263,6 +276,21 @@ Two traps specific to this codebase:
   file sits on its pending label with its error state never committing. Hand the test the resolver
   and settle it before the test ends; `OutcomeModal.test.jsx` and `LoginPage.test.jsx` both do, with
   an `afterEach` net so an assertion that throws first cannot poison the rest of the file.
+- Do not let a real timer armed by the code under test outlive the test's `afterEach`. It fires
+  after the hook has put back whatever its callback reaches for. `createEventSource.test.js` drove a
+  reconnect branch on real timers, which arms a 5 s retry, and its hook restored `EventSource` to
+  jsdom's (there is none). Whenever the worker lived five more seconds, the retry threw from its
+  timer. That is an unhandled error, so the run exits 1 with every test passing, attributed only to
+  the last test that ran; the rest of that file takes milliseconds, so it was only ever seen under
+  load. Release what a test opens in `afterEach`, through the handle the code gives for it, so a
+  test that throws releases it too. In that file, closing the mock source could not reach the retry
+  timer the code held. The file now also runs on the fake clock, so a retry left armed cannot fire,
+  and its hook fails a test that leaves a source open or a fake timer pending: two checks, because
+  each misses a leak the other catches. Restore the clock in `afterEach` or a `finally`:
+  `vi.useRealTimers()` on a test's last line is skipped by the first assertion that throws. To
+  reproduce without load, append a top-level test to a scratch copy that awaits past the timer, and
+  the unhandled error arrives on every run. Never commit that probe: it is the sleep the rule above
+  forbids.
 - Do not depend on a mock implementation some other test installed. `vi.clearAllMocks()` clears
   calls, not implementations, so a `mockResolvedValue` is still in force in the next test and in the
   next `describe`. Re-assert every default a suite relies on in its own `beforeEach`, and give every
@@ -273,9 +301,59 @@ Two traps specific to this codebase:
 - Do not assume file order protects you, and do not assume it can hurt you either. `isolate: true`
   gives every test *file* its own process — nothing leaks between files — so a suspected flake is
   either inside one file or is not a flake at all. `--sequence.shuffle.tests --sequence.seed=N`
-  reproduces an intra-file order dependency deterministically; use it before reaching for anything
-  cleverer. ⚠️ **But shuffling cannot find the flake below**, and reading it as an order dependency
-  is the wrong turning — see the next section.
+  reproduces an intra-file order dependency — deterministically, unless it is also a race, as the
+  next bullet's is — so use it before reaching for anything cleverer. ⚠️ **But shuffling cannot find
+  the first-test flake in the next section**, and reading that one as an order dependency is the
+  wrong turning.
+- Do not open a lazy subtree and leave before it has mounted, unless mounting it is inert. A
+  `React.lazy` chunk stays loaded for the rest of the file once any test has loaded it, so such a
+  test runs whatever the tests before it left: the Suspense fallback if nothing had loaded the
+  chunk, the whole subtree — its requests, timers and throws — if something had. Wait for what the
+  subtree renders. `App.test.jsx`'s two aurora-banner tests opened the Plan-tab map overlay
+  (`MapOverlay` framing `MapView`) and did not wait. `MapView`'s chunk is requested only when
+  `MapOverlay` renders, so the real map mounted inside a press only once an earlier banner test had
+  still been mounted when `MapOverlay` loaded, and `MapView` had loaded since. The default order
+  never did that; a shuffle could, and the map then threw on a read the file had never mocked.
+  ⚠️ **A seed reproduces this only some of the time**, because whether the earlier test outlived
+  that load is a race: one seed ran the same order twice and failed once. Importing the two modules
+  in a `beforeAll` — a reproduction, not the warm-up the next section rejects — failed both tests in
+  the default order, 3 runs of 3.
+
+  The wait carries the chunk's first load, the cost the next section is about. With the real map
+  inside, the cold overlay wait — both chunks, Leaflet included, and the first render — took
+  2.8–3.8 s of its 4 s ceiling under that section's load reproduction, and `App.test.jsx` stubs that
+  `MapView`. That is not what this list bans further up ("Do not mock the component under test's own
+  children to make a test pass"), and the conditions are what make it so: no assertion in the file
+  reads the map, `MapView`'s own suites mount it, and keeping it real would have had the file mock
+  the map's reads and fixture its rules. A child that fails any of those stays real, and its wait
+  gets measured under the load reproduction.
+- Do not assert that an action opened nothing across a `React.lazy` boundary until that component
+  has rendered once in the file. This is the mirror image of the bullet above. A lazy component
+  suspends the first time it renders, so an action that did open it commits only the Suspense
+  fallback, and `queryByTestId(...)` is null either way. Once a test has rendered it, it renders in
+  the action's own commit for the rest of the file, which is how a whole-file run hides the defect:
+  `planOriginShell.test.jsx`'s five `/` refusals each failed on its mutant in the whole file, where
+  earlier tests had opened search, and each passed alone with its guard deleted. Two fixes that look
+  right do not work, measured with the tab guard deleted. Importing `PlanSearch.jsx` before the
+  press still left search absent at a synchronous assertion, because the first render still
+  suspends. Pressing inside `await act(async () => …)` found search in 3 runs of 3 when the module
+  had been imported first, and in none of 3 with nothing loaded, so whether it works depends on what
+  ran before: the same order dependency. Three shapes do work, each measured with the guard deleted
+  and the test run alone:
+  - **Render it once first.** Open it through the component, wait for it, close it, then act and
+    assert synchronously: `openAndCloseSearch` in `planOriginShell.test.jsx`, or
+    `WindowFirstShellTabs.test.jsx`'s "opens nothing when the place in the tick line is pressed on
+    Coming up". If the refusal's own condition would refuse that control too (a greyed arm, a
+    foreign dialog), run the control before applying the condition.
+  - **Assert on something already on screen that the action changes in the same commit.**
+    `locationSheetShell.test.jsx`'s THIRD-layer refusals check that the location sheet stays
+    uncovered (no `inert`, still `aria-modal`). With the beyond-line link's guard deleted, the
+    beyond-line test's `plan-search` absence still passed, and its `inert` assertion failed.
+  - **Assert what the handler decides synchronously**, where that is itself the rule.
+    `fireEvent.keyDown` returns `false` when a listener called `preventDefault()`, so deleting a
+    guard in a handler that prevents the default only when it acts fails the test with nothing
+    loaded. That shows the handler stood down, not what rendered, so it fits where the key's own
+    default is the point: a `/` typed into a field, or a browser shortcut.
 - Do not put an assertion inside a raw `requestAnimationFrame` (or `setTimeout`) callback and settle
   a promise after it. A throw there never reaches the `resolve()` on the next line, so the promise
   never settles and the test does not fail — it **hangs to `testTimeout`**. The failure you get is a

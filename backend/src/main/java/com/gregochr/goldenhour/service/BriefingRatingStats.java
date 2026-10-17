@@ -62,6 +62,11 @@ public final class BriefingRatingStats {
     public record Stats(int count, long highRated, long mediumRated, double averageRating,
             int minRating, int maxRating) {
 
+        /**
+         * Statistics for a region with no valid ratings: every count and figure zero.
+         *
+         * @return a zeroed instance, for which {@link #isEmpty()} is true
+         */
         public static Stats empty() {
             return new Stats(0, 0L, 0L, 0.0, 0, 0);
         }
@@ -138,7 +143,20 @@ public final class BriefingRatingStats {
      * <p>When at least one scored location contributed, the average rating drives
      * the verdict: {@code >= 3.5} → WORTH_IT, {@code >= 2.5} → MAYBE, else
      * STAND_DOWN. When no location is scored, the triage {@code verdict} is
-     * mapped through {@link DisplayVerdict#resolve(Integer, Verdict)}.
+     * mapped through {@link DisplayVerdict#resolve(Integer, Verdict)}: a weather STANDDOWN stays
+     * STAND_DOWN, but a GO or MARGINAL is {@link DisplayVerdict#UNRATED} — a weather pre-screen is not
+     * a rating's verdict (2026-10-13, {@code docs/engineering/unrated-verdict-plan.md} U1; it used to
+     * read WORTH_IT / MAYBE).
+     *
+     * <p>⚠️ <b>This method knows nothing about sample size, and that is deliberate — the gate is
+     * the caller's job.</b> {@link com.gregochr.goldenhour.service.BriefingRegionEvaluationRollup}
+     * only calls this when the region's rated sample clears {@link VerdictSampleGate} (or carries a
+     * force-evaluation exemption); otherwise it calls {@link DisplayVerdict#resolve(Integer, Verdict)
+     * DisplayVerdict.resolve(null, triageFallback)} directly — the SAME fallback branch this method
+     * takes when {@code stats} is empty, reused rather than duplicated. A single rated location used
+     * to be enough to drive the average branch below, which is how six force-evaluated ratings in a
+     * 253-location catalogue crowned a window "Worth it" (2026-09-29 production evidence, the rule's
+     * own javadoc has the full account).
      *
      * @param stats           aggregate stats (may be empty)
      * @param triageFallback  triage verdict to use when stats are empty; may be null

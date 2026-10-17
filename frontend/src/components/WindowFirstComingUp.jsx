@@ -41,7 +41,7 @@ const EMPTY_COUNTS = { fixed: 0, forecast: 0, byFamily: {} };
  * and the handoff row — the design of record's own DOM order ({@code Coming Up.html}: header →
  * since-line → chips → conditions → handoff → chronology). It degrades to nothing for an empty or
  * absent list rather than an omission. Its own header sub-line — not this pane's — grows the quiet
- * "scores are provisional" suffix while any visible condition is {@code interim} (plan §7: the
+ * "figures are provisional" suffix while any visible condition is {@code interim} (plan §7: the
  * strip's header, "too frequent to list · open one to see every date"; README's
  * "say so in the UI" clause): the marker is about the STRIP's scoring, not the chronology dates
  * this pane's own sub-line describes.
@@ -82,11 +82,16 @@ const EMPTY_COUNTS = { fixed: 0, forecast: 0, byFamily: {} };
  * @param {(string|null)} [props.comingUpLastSeenDate] the reader's stored `comingUpLastSeenDate`
  *                                     (D3), or null/undefined before it is known — drives NEW flags,
  *                                     the fresh box-shadow, and the since-line (plan §6/P5)
+ * @param {?Array<string>} [props.forecastDates] the dates (`YYYY-MM-DD`) the reader holds a colour
+ *                                     forecast for — a `coastal-spots`/`dark-sky-spots` door onto
+ *                                     any other date is withheld, with its reason printed (plan
+ *                                     §11.24). Three-valued: null/absent is "not known yet" and
+ *                                     withholds nothing; an array, even empty, is known
  * @param {function} props.onMarkSeen  clears the badge and every NEW flag (plan §6/P5)
  */
 export default function WindowFirstComingUp({
   id, labelledBy, hidden, status, events, hotTopics, todayStr, onRetry, onGoToPlan, onShowOnMap,
-  comingUpLastSeenDate, onMarkSeen,
+  comingUpLastSeenDate, onMarkSeen, forecastDates = null,
 }) {
   const [activeFilter, setActiveFilter] = useState('all');
 
@@ -96,8 +101,10 @@ export default function WindowFirstComingUp({
   const chips = useMemo(() => chipCounts(counts), [counts]);
   const activeChipLabel = chips.find((chip) => chip.id === activeFilter)?.label ?? 'active';
   const monthGroups = useMemo(
-    () => buildChronology(events?.entries, todayStr, activeFilter, comingUpLastSeenDate),
-    [events, todayStr, activeFilter, comingUpLastSeenDate],
+    () => buildChronology(
+      events?.entries, todayStr, activeFilter, comingUpLastSeenDate, forecastDates,
+    ),
+    [events, todayStr, activeFilter, comingUpLastSeenDate, forecastDates],
   );
   // The since-line's own two derivations (plan D3/D12) — read straight off the UNFILTERED served
   // entries/bands, never the active chip's filtered subset: the badge and the since-line describe
@@ -180,7 +187,8 @@ export default function WindowFirstComingUp({
         </div>
 
         {/* One always-mounted live region holding whichever of the three notes applies.
-            ALWAYS mounted, and that is the load-bearing half: §5f records that a live region
+            ALWAYS mounted, and that is the load-bearing half:
+            `docs/engineering/window-first-redesign-plan.md` §5f records that a live region
             inserted in the same commit as its content is unreliably announced, which is why
             `WindowSpotSheet` puts `role="status"` on the element that is there whatever happens
             rather than on the conditional paragraph. Selection follows focus on this bar, so a
@@ -370,5 +378,6 @@ WindowFirstComingUp.propTypes = {
   onGoToPlan: PropTypes.func.isRequired,
   onShowOnMap: PropTypes.func.isRequired,
   comingUpLastSeenDate: PropTypes.string,
+  forecastDates: PropTypes.arrayOf(PropTypes.string),
   onMarkSeen: PropTypes.func.isRequired,
 };

@@ -242,6 +242,59 @@ describe('MapView — the dark-sky handoff (D8, plan §6b)', () => {
     expect(visibleCount()).toBe(2);
   });
 
+  it('a coastal-spots handoff followed by an UNFILTERED plan-chip handoff shows every location — '
+      + 'neither the SEASCAPE filter nor the dark-sky toggle is left latched (plan §11.26)', () => {
+    const mixed = [
+      { name: 'Coastal Dark', lat: 55.0, lon: -2.5, forecastsByDate: forecasts(4), locationType: ['SEASCAPE'], bortleClass: 3 },
+      { name: 'Inland Dark', lat: 55.1, lon: -1.6, forecastsByDate: forecasts(4), locationType: ['LANDSCAPE'], bortleClass: 3 },
+      { name: 'Inland Bright', lat: 55.2, lon: -1.7, forecastsByDate: forecasts(4), locationType: ['LANDSCAPE'], bortleClass: 8 },
+    ];
+    const { rerender } = render(
+      <MapView
+        locations={mixed}
+        date={TODAY}
+        autoEventType={null}
+        handoffFilterAction="SEASCAPE"
+        handoffDarkSky={false}
+        handoffNonce={1}
+      />,
+    );
+    expect(visibleCount()).toBe(1); // only the SEASCAPE location
+
+    // A plan chip: filterAction null, darkSky FALSE (an explicit boolean, never null — so the
+    // effect's `handoffDarkSky == null` guard lets it through and it clears the type filter).
+    rerender(
+      <MapView
+        locations={mixed}
+        date={TODAY}
+        autoEventType={null}
+        handoffFilterAction={null}
+        handoffDarkSky={false}
+        handoffNonce={2}
+      />,
+    );
+    // Every location, including the inland bright one that matches neither filter.
+    expect(visibleCount()).toBe(3);
+  });
+
+  it('a dark-sky handoff followed by an unfiltered plan-chip handoff clears the dark-sky toggle too', () => {
+    const { rerender } = render(
+      <MapView locations={LOCATIONS} date={TODAY} autoEventType={null} handoffDarkSky handoffNonce={1} />,
+    );
+    expect(visibleCount()).toBe(1);
+    rerender(
+      <MapView
+        locations={LOCATIONS}
+        date={TODAY}
+        autoEventType={null}
+        handoffFilterAction={null}
+        handoffDarkSky={false}
+        handoffNonce={2}
+      />,
+    );
+    expect(visibleCount()).toBe(3);
+  });
+
   it('re-applies on a repeat tap of the SAME action — the nonce forces the effect to re-run', () => {
     const { rerender } = render(
       <MapView locations={LOCATIONS} date={TODAY} autoEventType={null} handoffDarkSky handoffNonce={1} />,

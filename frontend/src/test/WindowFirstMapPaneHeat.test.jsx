@@ -27,12 +27,23 @@ vi.mock('../components/MapView.jsx', () => ({
     return <div data-testid="stub-map" />;
   },
 }));
+// The pane mounts the reader's outcome-rating hook (outcome-rating-plan.md §2 #5): it reads the role
+// and asks for the range of ratings — never answered here (a read that never lands changes no state, so
+// no act() noise), since this file is about what the pane hands the map, not about ratings
+// (`useOutcomeRatings.test.js` and `WindowFirstMapPaneRatings.test.jsx` are).
+vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: 'PRO_USER' }) }));
+vi.mock('../api/outcomeRatingApi.js', () => ({
+  fetchMyRatings: vi.fn(() => new Promise(() => {})),
+  putRating: vi.fn(),
+}));
 let briefingValue = null;
 vi.mock('../context/WindowFirstBriefingContext.jsx', () => ({
   useWindowFirstBriefing: () => briefingValue,
 }));
 
 import WindowFirstMapPane from '../components/WindowFirstMapPane.jsx';
+import { windowKey } from '../utils/windowKeys.js';
+import { formatTime } from '../utils/briefingDisplay.js';
 
 const TODAY = '2026-08-11';
 
@@ -48,9 +59,17 @@ const REACH = new Map([[1, { driveMinutes: 40 }], [2, { driveMinutes: 120 }], [3
 // `pickKind` is what `buildHeatStripCards` publishes — it narrows the served `Pick` record to its
 // kind alone — so the fixture carries that and never a `pick` object. The map's forwarding is
 // asserted against this shape below.
+// `tide` is the raw served `BriefingWindowTide` `buildHeatStripCards` folds through untouched
+// (tide-window-plan.md T6) — present on the SUNSET card, absent (null) on the away SUNRISE one,
+// mirroring how a real payload has no coastal representative for every window.
+const TIDE = { locationName: 'Bamburgh Beach', state: 'MID', curve: [0, 1] };
 const STRIP_CARDS = [
-  { key: `${TODAY}:SUNSET`, date: TODAY, targetType: 'SUNSET', label: 'Tonight sunset', time: '20:41', bestRating: 4, confidence: 'high', away: false, pickKind: 'best' },
-  { key: '2026-08-14:SUNRISE', date: '2026-08-14', targetType: 'SUNRISE', label: 'Fri sunrise', time: '05:31', bestRating: null, confidence: null, away: true, pickKind: null },
+  {
+    key: `${TODAY}:SUNSET`, date: TODAY, targetType: 'SUNSET', label: 'Tonight sunset', time: '20:41', bestRating: 4, confidence: 'high', away: false, pickKind: 'best', tide: TIDE,
+  },
+  {
+    key: '2026-08-14:SUNRISE', date: '2026-08-14', targetType: 'SUNRISE', label: 'Fri sunrise', time: '05:31', bestRating: null, confidence: null, away: true, pickKind: null, tide: null,
+  },
 ];
 
 function context(overrides = {}) {
@@ -191,6 +210,82 @@ describe('WindowFirstMapPane — the heat prop', () => {
     expect(MapStub.lastProps.heat.windows[1].pickKind).toBeNull();
   });
 
+  it('forwards each window\'s served tide object, and null when there is none', () => {
+    // ⚠️ The identical join, one field over — and the one that actually shipped broken: the pure
+    // builder (`windowFirstCards.test.js`) was tested, the EV row (`mapEvents.test.js`) was
+    // tested, and this fold read no `tide` at all, so `card.tide` never reached `heat.windows`
+    // and the Map tab's tide strip stayed invisible in production with a fully green suite. Found
+    // in browser verification against a live payload, not by any test — this is the test that
+    // would have caught it.
+    renderPane();
+
+    expect(MapStub.lastProps.heat.windows[0].tide).toBe(TIDE);
+    expect(MapStub.lastProps.heat.windows[1].tide).toBeNull();
+  });
+
+  it('hands the map the briefing\'s tide for EVERY window it carries, including ones the strip does not render', () => {
+    // ⚠️ The same join once more, and the one the Sunday-sunrise defect lived in: the tide strip
+    // read only `heat.windows` (the rendered six), so a window the briefing HAD a tide for but the
+    // Plan tab did not draw became a tide-less D-13 filler. The index is built from
+    // `briefing.days`, not from the cards, so it must reach the map even for an unrendered event.
+    const unrenderedTide = { locationName: 'Bamburgh', state: 'LOW' };
+    renderPane(context({
+      briefing: {
+        days: [{
+          date: '2026-08-14',
+          eventSummaries: [{ targetType: 'SUNRISE', window: { tide: unrenderedTide } }],
+        }],
+      },
+    }));
+
+    const entry = MapStub.lastProps.heat.tideByWindow.get(windowKey('2026-08-14', 'SUNRISE'));
+    expect(entry.tide).toBe(unrenderedTide);
+    // No served eventTime: no time is invented for it.
+    expect(entry.eventTime).toBeNull();
+    expect(entry.time).toBeNull();
+  });
+
+  it('formats the lent clock time with the formatter served rows use, from the window\'s eventTime', () => {
+    renderPane(context({
+      briefing: {
+        days: [{
+          date: '2026-08-14',
+          eventSummaries: [{
+            targetType: 'SUNRISE',
+            window: { tide: { locationName: 'B' }, eventTime: '2026-08-14T04:31:00' },
+          }],
+        }],
+      },
+    }));
+    const entry = MapStub.lastProps.heat.tideByWindow.get(windowKey('2026-08-14', 'SUNRISE'));
+    expect(entry.eventTime).toBe('2026-08-14T04:31:00');
+    expect(entry.time).toBe(formatTime('2026-08-14T04:31:00'));
+    // 04:31 UTC is 05:31 in BST: the formatter converts, the pane does no time maths of its own.
+    expect(entry.time).toBe('05:31');
+    expect(entry.time).toBeTruthy();
+  });
+
+  it('rebuilds the tide index when the briefing\'s days change', () => {
+    const day = (name) => [{
+      date: '2026-08-14',
+      eventSummaries: [{ targetType: 'SUNRISE', window: { tide: { locationName: name } } }],
+    }];
+    const { rerender } = renderPane(context({ briefing: { days: day('First') } }));
+    const key = windowKey('2026-08-14', 'SUNRISE');
+    expect(MapStub.lastProps.heat.tideByWindow.get(key).tide.locationName).toBe('First');
+
+    briefingValue = context({ briefing: { days: day('Second') } });
+    rerender(
+      <WindowFirstMapPane
+        locations={[]}
+        dates={[TODAY]}
+        selectedDate={TODAY}
+        onSelectDate={vi.fn()}
+      />,
+    );
+    expect(MapStub.lastProps.heat.tideByWindow.get(key).tide.locationName).toBe('Second');
+  });
+
   it('forwards each window\'s TRAVEL flag — the landing card needs it and the fold dropped it', () => {
     // ⚠️ The same join, one field over. `buildHeatStripCards`' contract is "every window the strip
     // must show, travel days included", so an away day reaches the EV list as an ordinary served
@@ -319,5 +414,199 @@ describe('WindowFirstMapPane — the origin', () => {
     );
 
     expect(MapStub.lastProps.heat.areaSpots.map((s) => s.name)).toEqual(['Wastwater']);
+  });
+});
+
+/**
+ * The heat field for PAST windows (outcome-rating-plan.md §2 #3, O3c).
+ *
+ * <p><b>What breaks if these fail.</b> A past window is listed in `heat.windows` and given a point
+ * set so the Map paints it; both must be built in the PANE (the briefing context's join is shared
+ * with the Plan matrix, which must never learn a past window), from the forecast rows alone (the
+ * scores endpoint serves the latest result, which may postdate the event), and flagged `past: true`
+ * (or `buildMapEvents` reads every one as an unlabelled SERVED row).
+ */
+describe('WindowFirstMapPane — the heat field on a past window', () => {
+  const T1 = '2026-08-10';
+  const T2 = '2026-08-09';
+
+  const loc = (id, name, days, extra = {}) => ({
+    id,
+    name,
+    lat: 55 + id / 10,
+    lon: -1.5,
+    regionName: 'North East',
+    locationType: ['LANDSCAPE'],
+    forecastsByDate: new Map(Object.entries(days)),
+    ...extra,
+  });
+  const sunsetRow = (rating, date) => ({ rating, solarEventTime: `${date}T19:50:00` });
+
+  const past = () => MapStub.lastProps.heat.windows.filter((w) => w.past);
+
+  it('lists a past window in heat.windows, flagged past, with a client max over its painted points', () => {
+    renderPane(context(), {
+      locations: [
+        loc(1, 'Bamburgh', { [T1]: { sunset: sunsetRow(2, T1) } }),
+        loc(2, 'Alnmouth', { [T1]: { sunset: sunsetRow(4, T1) } }),
+      ],
+    });
+
+    expect(past()).toHaveLength(1);
+    expect(past()[0]).toMatchObject({
+      key: `${T1}:SUNSET`, date: T1, targetType: 'SUNSET', past: true, bestRating: 4, confidence: null,
+    });
+    // The served six keep their place and order ahead of it.
+    expect(MapStub.lastProps.heat.windows.slice(0, 2).map((w) => w.key))
+      .toEqual([`${TODAY}:SUNSET`, '2026-08-14:SUNRISE']);
+    expect(MapStub.lastProps.heat.windows.slice(0, 2).some((w) => w.past)).toBe(false);
+  });
+
+  it('gives the past window its own point set, beside the provider\'s and without replacing them', () => {
+    renderPane(context(), {
+      locations: [
+        loc(1, 'Bamburgh', { [T1]: { sunset: sunsetRow(2, T1) } }),
+        loc(2, 'Alnmouth', { [T1]: { sunset: sunsetRow(4, T1) } }),
+      ],
+    });
+
+    const sets = MapStub.lastProps.heat.pointsByKey;
+    expect(sets.get(`${T1}:SUNSET`).map((p) => [p.name, p.r[0]]))
+      .toEqual([['Bamburgh', 2], ['Alnmouth', 4]]);
+    expect(sets.get(`${TODAY}:SUNSET`)).toBe(briefingValue.heatPointSets.get(`${TODAY}:SUNSET`));
+    // The provider's own Map is untouched: the pane built a new one, it did not write into it.
+    expect(briefingValue.heatPointSets.has(`${T1}:SUNSET`)).toBe(false);
+  });
+
+  it('reads the FORECAST row, never the scores endpoint\'s latest result for the slot', () => {
+    // A rating that landed after the event: the latest result says 5, the forecast row (served as
+    // of the event) says 2. The chips and the callout read the row, so the field must too.
+    renderPane(context({
+      scoreRows: [{
+        locationId: 1, locationName: 'Bamburgh', date: T1, targetType: 'SUNSET', rating: 5,
+      }],
+    }), {
+      locations: [loc(1, 'Bamburgh', { [T1]: { sunset: sunsetRow(2, T1) } })],
+    });
+
+    expect(past()[0].bestRating).toBe(2);
+    expect(MapStub.lastProps.heat.pointsByKey.get(`${T1}:SUNSET`)[0].r[0]).toBe(2);
+  });
+
+  it('⚠️ takes the best over the PAINTED points: a wood\'s 5 does not make the key appear', () => {
+    // Codex, #1185 round 8. The raw row maximum is 5; the field paints nothing for a canopy site,
+    // so the window must read unscored and the key be withheld.
+    renderPane(context(), {
+      locations: [loc(1, 'Wood', { [T1]: { sunset: sunsetRow(5, T1) } }, { locationType: ['WOODLAND'] })],
+    });
+
+    expect(past()[0].bestRating).toBeNull();
+    expect(MapStub.lastProps.heat.pointsByKey.get(`${T1}:SUNSET`)).toEqual([]);
+  });
+
+  it('reaches the oldest reachable day (T-4), built from forecast rows with no briefing score behind it', () => {
+    const T4 = '2026-08-07';
+    renderPane(context(), {
+      locations: [loc(1, 'Bamburgh', { [T4]: { sunset: sunsetRow(3, T4) } })],
+    });
+
+    expect(past().map((w) => [w.key, w.bestRating])).toEqual([[`${T4}:SUNSET`, 3]]);
+    expect(MapStub.lastProps.heat.pointsByKey.get(`${T4}:SUNSET`)).toHaveLength(1);
+  });
+
+  it('builds an entry for today\'s UNSERVED window too — the pane cannot follow the clock, MapView gates it', () => {
+    // TODAY's sunrise has rows but no strip card. Whether it has elapsed is the app clock's call,
+    // made per render in MapView (`heatWindow`'s guard), so the entry exists regardless.
+    renderPane(context(), {
+      locations: [loc(1, 'Bamburgh', { [TODAY]: { sunrise: { rating: 4, solarEventTime: `${TODAY}T05:40:00` } } })],
+    });
+
+    expect(past().map((w) => w.key)).toEqual([`${TODAY}:SUNRISE`]);
+  });
+
+  it('reads a row with no rating field at all as unrated, not as a star', () => {
+    renderPane(context(), {
+      locations: [loc(1, 'Bamburgh', { [T1]: { sunset: { solarEventTime: `${T1}T19:50:00` } } })],
+    });
+
+    expect(past()[0].bestRating).toBeNull();
+  });
+
+  it('reads null for a window whose places have a row but no rating', () => {
+    renderPane(context(), {
+      locations: [loc(1, 'Bamburgh', { [T1]: { sunset: { rating: null, solarEventTime: `${T1}T19:50:00` } } })],
+    });
+
+    expect(past()[0].bestRating).toBeNull();
+  });
+
+  it('resolves the inferred confidence cap into the kernel\'s haze, since a past window serves none', () => {
+    renderPane(context(), {
+      locations: [loc(1, 'Bamburgh', { [T1]: { sunset: sunsetRow(3, T1) } })],
+    });
+
+    // `MAX_INFERRED_TIER` is medium: 0.82, the figure the strip's own medium cards carry above.
+    expect(past()[0].conf).toBe(0.82);
+  });
+
+  it('lists every past day and event the roster holds rows for, sunrise before sunset', () => {
+    renderPane(context(), {
+      locations: [loc(1, 'Bamburgh', {
+        [T2]: { sunset: sunsetRow(3, T2) },
+        [T1]: { sunrise: { rating: 4, solarEventTime: `${T1}T05:40:00` }, sunset: sunsetRow(1, T1) },
+      })],
+    });
+
+    expect(past().map((w) => w.key)).toEqual([
+      `${T2}:SUNSET`, `${T1}:SUNRISE`, `${T1}:SUNSET`,
+    ]);
+    expect(past().map((w) => w.bestRating)).toEqual([3, 4, 1]);
+  });
+
+  it('leaves a window the briefing still SERVES to the briefing — no second entry for the key', () => {
+    // Tonight's sunset has rows, and a strip card: the card's entry and the provider's point set
+    // are the ones to read, or two entries for one key could paint the wrong ratings.
+    renderPane(context(), {
+      locations: [loc(1, 'Bamburgh', { [TODAY]: { sunset: sunsetRow(1, TODAY) } })],
+    });
+
+    expect(past()).toEqual([]);
+    expect(MapStub.lastProps.heat.windows.filter((w) => w.key === `${TODAY}:SUNSET`)).toHaveLength(1);
+    expect(MapStub.lastProps.heat.pointsByKey).toBe(briefingValue.heatPointSets);
+  });
+
+  it('hands the provider\'s Map through untouched, identity and all, when there is no past window', () => {
+    renderPane(context(), {
+      locations: [loc(1, 'Bamburgh', { '2026-08-12': { sunset: sunsetRow(4, '2026-08-12') } })],
+    });
+
+    expect(past()).toEqual([]);
+    expect(MapStub.lastProps.heat.pointsByKey).toBe(briefingValue.heatPointSets);
+  });
+
+  it('keeps heat.spots the briefing\'s own catalogue — the past join is a separate one', () => {
+    // The past windows' scores live in a past-only spot set the pane builds and throws away after
+    // reading its points; `heat.spots` (region labels, the dark-sky pool) stays the provider's.
+    renderPane(context(), {
+      locations: [loc(1, 'Bamburgh', { [T1]: { sunset: sunsetRow(4, T1) } })],
+    });
+
+    expect(MapStub.lastProps.heat.spots).toBe(SPOTS);
+  });
+
+  it('keeps ONE heat identity across a re-render that changes nothing', () => {
+    const locations = [loc(1, 'Bamburgh', { [T1]: { sunset: sunsetRow(4, T1) } })];
+    const { rerender } = renderPane(context(), { locations });
+    const first = MapStub.lastProps.heat;
+    rerender(
+      <WindowFirstMapPane
+        locations={locations}
+        dates={[TODAY]}
+        selectedDate={TODAY}
+        onSelectDate={vi.fn()}
+      />,
+    );
+    expect(MapStub.renders).toBeGreaterThan(1);
+    expect(MapStub.lastProps.heat).toBe(first);
   });
 });

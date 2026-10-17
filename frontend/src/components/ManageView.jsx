@@ -14,6 +14,7 @@ import TravelDaysView from './TravelDaysView.jsx';
 import SkyRatingEvalView from './SkyRatingEvalView.jsx';
 import PipelineRunsView from './PipelineRunsView.jsx';
 import HotTopicSimulation from './HotTopicSimulation.jsx';
+import RewindView from './RewindView.jsx';
 import TideManagementView from './TideManagementView.jsx';
 import WaitlistManagementView from './WaitlistManagementView.jsx';
 
@@ -43,6 +44,7 @@ const GROUPS = [
       { value: 'scheduler', label: 'Scheduler' },
       { value: 'traveldays', label: 'Travel Days' },
       { value: 'hottopics', label: 'Hot Topics' },
+      { value: 'rewind', label: 'Rewind' },
     ],
   },
 ];
@@ -72,6 +74,9 @@ export default function ManageView({ onComplete }) {
   const [activeTab, setActiveTabState] = useState(initial.tab);
   const [activeRunId, setActiveRunId] = useState(null);
   const clearActiveRun = useCallback(() => setActiveRunId(null), []);
+  // What the retry that started a run was given ({ runId, text }), held beside `activeRunId` for the
+  // same reason: the Job Runs tab unmounts on a tab switch and the promoted panel must keep it.
+  const [retryNote, setRetryNote] = useState(null);
   const [activePipelineRunId, setActivePipelineRunId] = useState(null);
   const clearActivePipelineRun = useCallback(() => setActivePipelineRunId(null), []);
   const [waitlistCount, setWaitlistCount] = useState(null);
@@ -197,6 +202,8 @@ export default function ManageView({ onComplete }) {
               activeRunId={activeRunId}
               onActiveRunChange={setActiveRunId}
               onActiveRunClear={clearActiveRun}
+              retryNote={retryNote}
+              onRetryNoteChange={setRetryNote}
             />
           </div>
         )}
@@ -251,6 +258,13 @@ export default function ManageView({ onComplete }) {
           <div className="card flex flex-col gap-4">
             <p className="text-sm font-semibold text-plex-text">Hot topic simulation</p>
             <HotTopicSimulation />
+          </div>
+        )}
+
+        {activeTab === 'rewind' && (
+          <div className="card flex flex-col gap-4">
+            <p className="text-sm font-semibold text-plex-text">Rewind</p>
+            <RewindView />
           </div>
         )}
       </div>

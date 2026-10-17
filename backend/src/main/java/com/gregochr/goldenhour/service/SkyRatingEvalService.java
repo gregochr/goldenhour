@@ -48,6 +48,20 @@ public class SkyRatingEvalService {
 
     private static final Logger LOG = LoggerFactory.getLogger(SkyRatingEvalService.class);
 
+    /**
+     * Batch-priced cost of one response for this run's model, as the success path prices it.
+     *
+     * @param run   the run (supplies the model)
+     * @param usage the response's usage, or null when nothing was billed
+     * @return cost in micro-dollars (0 when there is no usage)
+     */
+    long batchCostMicroDollars(SkyRatingEvalRunEntity run, TokenUsage usage) {
+        return usage == null ? 0L : costCalculator.calculateCostMicroDollars(run.getModel(), usage, true);
+    }
+
+    /** Prefix of the {@code summary} on a failed-attempt child row. */
+    static final String FAILED_SUMMARY_PREFIX = "FAILED: ";
+
     /** Default runs per fixture — matches the gated {@code SkyRatingEvalTest} pass^k depth. */
     public static final int DEFAULT_RUNS_PER_FIXTURE = 8;
 
@@ -335,6 +349,33 @@ public class SkyRatingEvalService {
         agg.record(direction, usage, cost);
     }
 
+    /**
+     * Persists a failed attempt (refused, truncated, errored, unreadable or never answered) as a
+     * child row, so per-fixture reads count it as an attempt and a non-pass. The row carries no
+     * rating or band direction (so no average or distribution ever sees a value for it) and
+     * records the failure type in {@code summary} as {@code "FAILED: <TYPE>"}. The run aggregate
+     * is updated separately through {@link Aggregate#recordFailure}.
+     *
+     * @param run      the parent run
+     * @param fixture  the fixture the attempt was for (supplies the expected band)
+     * @param runIndex 1-based repeat index within the fixture
+     * @param type     why the attempt failed (e.g. REFUSAL, MAX_TOKENS, MISSING)
+     * @param billedUsage usage of the billed response, or null when none was billed
+     */
+    void persistFailureRow(SkyRatingEvalRunEntity run, SkyRatingEvalFixture fixture, int runIndex,
+            String type, TokenUsage billedUsage) {
+        resultRepository.save(SkyRatingEvalResultEntity.builder()
+                .inputTokens(billedUsage == null ? null : billedUsage.inputTokens())
+                .outputTokens(billedUsage == null ? null : billedUsage.outputTokens())
+                .runId(run.getId())
+                .fixtureName(fixture.name())
+                .runIndex(runIndex)
+                .expectedMin(fixture.band().min())
+                .expectedMax(fixture.band().max())
+                .summary(FAILED_SUMMARY_PREFIX + (type == null ? "UNKNOWN" : type))
+                .build());
+    }
+
     void finalise(SkyRatingEvalRunEntity run, Aggregate agg, SkyRatingEvalStatus status,
             String errorMessage, long startMs) {
         run.setFixtureCount(SkyRatingEvalFixtures.ALL.size());
@@ -353,8 +394,16 @@ public class SkyRatingEvalService {
         runRepository.save(run);
     }
 
-    /** Mutable per-run accumulator. Package-private so the batched path can drive finalisation. */
+    /**
+     * Mutable per-run accumulator. Package-private so the batched path can drive finalisation.
+     *
+     * <p>{@code totalRuns} is the number of evaluations attempted, so the pass rate means
+     * passes / attempted: an evaluation that was refused, truncated, errored, unreadable or never
+     * answered is recorded through {@link #recordFailure} and counts as a non-pass.
+     */
     static final class Aggregate {
+        private int failed;
+        private final java.util.Map<String, Integer> failuresByType = new java.util.TreeMap<>();
         private int totalRuns;
         private int passes;
         private int below;
@@ -375,6 +424,63 @@ public class SkyRatingEvalService {
             inputTokens += usage.inputTokens();
             outputTokens += usage.outputTokens();
             costMicroDollars += cost;
+        }
+
+        /**
+         * Records an evaluation that produced no usable result as an attempted non-pass.
+         *
+         * @param type why it failed (e.g. REFUSAL, MAX_TOKENS, ERRORED, PARSE_ERROR, MISSING)
+         */
+        void recordFailure(String type) {
+            recordFailure(type, null, 0L);
+        }
+
+        /**
+         * Records a failed attempt and folds in whatever Anthropic billed for it.
+         *
+         * @param type  why it failed
+         * @param usage usage of the billed response, or null when none was billed
+         * @param cost  batch-priced cost of that usage in micro-dollars
+         */
+        void recordFailure(String type, TokenUsage usage, long cost) {
+            totalRuns++;
+            failed++;
+            failuresByType.merge(type == null ? "UNKNOWN" : type, 1, Integer::sum);
+            if (usage != null) {
+                inputTokens += usage.inputTokens();
+                outputTokens += usage.outputTokens();
+                costMicroDollars += cost;
+            }
+        }
+
+        int totalRuns() {
+            return totalRuns;
+        }
+
+        long inputTokens() {
+            return inputTokens;
+        }
+
+        long outputTokens() {
+            return outputTokens;
+        }
+
+        long costMicroDollars() {
+            return costMicroDollars;
+        }
+
+        int failedCount() {
+            return failed;
+        }
+
+        /** Per-type failure counts as {@code "MAX_TOKENS=1, REFUSAL=2"}, or null when none failed. */
+        String failureSummary() {
+            if (failed == 0) {
+                return null;
+            }
+            return failuresByType.entrySet().stream()
+                    .map(e -> e.getKey() + "=" + e.getValue())
+                    .collect(java.util.stream.Collectors.joining(", "));
         }
 
         private double passRate() {

@@ -278,6 +278,116 @@ class ForecastScoreWriterTest {
         assertThat(saved).allSatisfy(row -> assertThat(row.getPipelineRunId()).isNull());
     }
 
+    // ── round 13, "gap 2": an earlier pipeline run's component must not overwrite a later one ──
+
+    private static ForecastScoreEntity storedSkyRow(int score, String summary,
+            Long pipelineRunId) {
+        ForecastScoreEntity row = new ForecastScoreEntity();
+        row.setForecastType(ForecastType.SKY);
+        row.setLocation(location());
+        row.setEvaluationDate(DATE);
+        row.setEventType(SUNSET);
+        row.setScore(score);
+        row.setSummary(summary);
+        row.setPipelineRunId(pipelineRunId);
+        return row;
+    }
+
+    @Test
+    @DisplayName("gap 2: an earlier run's component arriving after a later run's is not written "
+            + "— the stored row is left untouched — must fail if the ordering check is removed")
+    void earlierRunArrivingLate_notWritten() {
+        ForecastScoreEntity stored = storedSkyRow(4, "fresh newer prose", 200L);
+        when(repository.findComponent(eq(ForecastType.SKY), eq(LOCATION_ID), eq(DATE), eq(SUNSET)))
+                .thenReturn(Optional.of(stored));
+        when(repository.findComponent(
+                eq(ForecastType.FIERY_SKY), eq(LOCATION_ID), eq(DATE), eq(SUNSET)))
+                .thenReturn(Optional.empty());
+        when(repository.findComponent(
+                eq(ForecastType.GOLDEN_HOUR), eq(LOCATION_ID), eq(DATE), eq(SUNSET)))
+                .thenReturn(Optional.empty());
+        ForecastScoreWriter writer = writer(true);
+
+        // A delayed batch from an OLDER pipeline run (100 < the stored row's 200) finally arrives.
+        writer.write(location(), DATE, SUNSET, eval(),
+                List.of(new ComponentScore(ForecastType.SKY, 1, "stale prose")), 100L);
+
+        // The SKY row is never saved — the stored newer component stands untouched.
+        verify(repository, org.mockito.Mockito.never()).save(stored);
+        assertThat(stored.getScore()).isEqualTo(4);
+        assertThat(stored.getSummary()).isEqualTo("fresh newer prose");
+        assertThat(stored.getPipelineRunId()).isEqualTo(200L);
+    }
+
+    @Test
+    @DisplayName("gap 2: equal pipeline run ids overwrite as before (the one run's own components, "
+            + "or the same evaluation re-landing)")
+    void equalPipelineRunIds_overwrite() {
+        ForecastScoreEntity stored = storedSkyRow(2, "stale prose", 200L);
+        when(repository.findComponent(eq(ForecastType.SKY), eq(LOCATION_ID), eq(DATE), eq(SUNSET)))
+                .thenReturn(Optional.of(stored));
+        when(repository.findComponent(
+                eq(ForecastType.FIERY_SKY), eq(LOCATION_ID), eq(DATE), eq(SUNSET)))
+                .thenReturn(Optional.empty());
+        when(repository.findComponent(
+                eq(ForecastType.GOLDEN_HOUR), eq(LOCATION_ID), eq(DATE), eq(SUNSET)))
+                .thenReturn(Optional.empty());
+        ForecastScoreWriter writer = writer(true);
+
+        writer.write(location(), DATE, SUNSET, eval(),
+                List.of(new ComponentScore(ForecastType.SKY, 5, "fresh prose")), 200L);
+
+        verify(repository).save(stored);
+        assertThat(stored.getScore()).isEqualTo(5);
+        assertThat(stored.getSummary()).isEqualTo("fresh prose");
+    }
+
+    @Test
+    @DisplayName("gap 2: a null stored run id loses — a legacy row with no provenance is always "
+            + "overwritten by an incoming write with a known pipeline run id")
+    void nullStoredRunId_alwaysLoses() {
+        ForecastScoreEntity stored = storedSkyRow(2, "legacy prose", null);
+        when(repository.findComponent(eq(ForecastType.SKY), eq(LOCATION_ID), eq(DATE), eq(SUNSET)))
+                .thenReturn(Optional.of(stored));
+        when(repository.findComponent(
+                eq(ForecastType.FIERY_SKY), eq(LOCATION_ID), eq(DATE), eq(SUNSET)))
+                .thenReturn(Optional.empty());
+        when(repository.findComponent(
+                eq(ForecastType.GOLDEN_HOUR), eq(LOCATION_ID), eq(DATE), eq(SUNSET)))
+                .thenReturn(Optional.empty());
+        ForecastScoreWriter writer = writer(true);
+
+        writer.write(location(), DATE, SUNSET, eval(),
+                List.of(new ComponentScore(ForecastType.SKY, 3, "fresh prose")), 1L);
+
+        verify(repository).save(stored);
+        assertThat(stored.getScore()).isEqualTo(3);
+        assertThat(stored.getPipelineRunId()).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("gap 2: an incoming write with no pipeline run id (sync/admin) still overwrites — "
+            + "unknown can never be shown to be older, so today's behaviour is unchanged")
+    void nullIncomingRunId_stillOverwritesKnownStoredRunId() {
+        ForecastScoreEntity stored = storedSkyRow(2, "batch prose", 200L);
+        when(repository.findComponent(eq(ForecastType.SKY), eq(LOCATION_ID), eq(DATE), eq(SUNSET)))
+                .thenReturn(Optional.of(stored));
+        when(repository.findComponent(
+                eq(ForecastType.FIERY_SKY), eq(LOCATION_ID), eq(DATE), eq(SUNSET)))
+                .thenReturn(Optional.empty());
+        when(repository.findComponent(
+                eq(ForecastType.GOLDEN_HOUR), eq(LOCATION_ID), eq(DATE), eq(SUNSET)))
+                .thenReturn(Optional.empty());
+        ForecastScoreWriter writer = writer(true);
+
+        writer.write(location(), DATE, SUNSET, eval(),
+                List.of(new ComponentScore(ForecastType.SKY, 5, "admin re-run prose")), null);
+
+        verify(repository).save(stored);
+        assertThat(stored.getScore()).isEqualTo(5);
+        assertThat(stored.getPipelineRunId()).isNull();
+    }
+
     private List<ForecastScoreEntity> captureSaves(int expected) {
         ArgumentCaptor<ForecastScoreEntity> captor =
                 ArgumentCaptor.forClass(ForecastScoreEntity.class);

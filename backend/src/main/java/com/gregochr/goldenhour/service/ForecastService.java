@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.config.AppBuild;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.BatchState;
 import com.gregochr.goldenhour.entity.CloudApproachDetails;
@@ -15,6 +16,7 @@ import com.gregochr.goldenhour.entity.LocationType;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.exception.EvaluationFailedException;
+import com.gregochr.goldenhour.exception.RunStoppedException;
 import com.gregochr.goldenhour.exception.WeatherDataFetchException;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudPointCache;
@@ -42,6 +44,7 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -63,6 +66,12 @@ public class ForecastService {
 
     private static final Logger LOG = LoggerFactory.getLogger(ForecastService.class);
 
+    /** Longest task error message published to the progress panel (the full text stays in the log). */
+    static final int PANEL_MESSAGE_LIMIT = 200;
+
+    /** Marks a published message that was cut to {@link #PANEL_MESSAGE_LIMIT}. */
+    private static final String ELLIPSIS = "...";
+
     private final SolarService solarService;
     private final OpenMeteoService openMeteoService;
     private final ForecastDataAugmentor augmentor;
@@ -73,9 +82,11 @@ public class ForecastService {
     private final ApplicationEventPublisher eventPublisher;
     private final WeatherTriageEvaluator weatherTriageEvaluator;
     private final TideAlignmentEvaluator tideAlignmentEvaluator;
-    private final com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter
-            survivorAtmosphereWriter;
+    private final com.gregochr.goldenhour.service.evaluation.SlotAtmosphereWriter
+            slotAtmosphereWriter;
+    private final RunProgressTracker runProgressTracker;
     private final Clock clock;
+    private final AppBuild appBuild;
 
     /**
      * Constructs a {@code ForecastService} with all required dependencies.
@@ -91,9 +102,17 @@ public class ForecastService {
      * @param eventPublisher          publishes location task state transition events
      * @param weatherTriageEvaluator  heuristic triage evaluator for skipping unsuitable conditions
      * @param tideAlignmentEvaluator  pre-Claude triage evaluator for tide misalignment at SEASCAPE locations
-     * @param survivorAtmosphereWriter writes survivor atmospheric readings to the survivor surface
+     * @param slotAtmosphereWriter records atmospheric readings for every candidate whose
+     *                                 weather is fetched — called from inside
+     *                                 {@link #fetchWeatherAndTriage}, the one seam every caller
+     *                                 of this service shares
+     * @param runProgressTracker      the live-progress tracker: {@link #evaluateAndPersist} asks it whether
+     *                                the run was stopped on a rejected key before each Claude call, and
+     *                                tells it when a call shows the key was rejected
      * @param clock                   supplies "today" for the {@code daysAhead} horizon, resolved in
      *                                {@code Europe/London} by {@link ForecastHorizon}
+     * @param appBuild                the running build, stamped on every row that gets a rating or a
+     *                                triage reason (V182)
      */
     public ForecastService(SolarService solarService, OpenMeteoService openMeteoService,
             ForecastDataAugmentor augmentor, EvaluationService evaluationService,
@@ -102,9 +121,10 @@ public class ForecastService {
             NotificationDispatcher notificationDispatcher,
             ApplicationEventPublisher eventPublisher, WeatherTriageEvaluator weatherTriageEvaluator,
             TideAlignmentEvaluator tideAlignmentEvaluator,
-            com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter
-                    survivorAtmosphereWriter,
-            Clock clock) {
+            com.gregochr.goldenhour.service.evaluation.SlotAtmosphereWriter
+                    slotAtmosphereWriter,
+            RunProgressTracker runProgressTracker,
+            Clock clock, AppBuild appBuild) {
         this.solarService = solarService;
         this.openMeteoService = openMeteoService;
         this.augmentor = augmentor;
@@ -115,8 +135,10 @@ public class ForecastService {
         this.eventPublisher = eventPublisher;
         this.weatherTriageEvaluator = weatherTriageEvaluator;
         this.tideAlignmentEvaluator = tideAlignmentEvaluator;
-        this.survivorAtmosphereWriter = survivorAtmosphereWriter;
+        this.slotAtmosphereWriter = slotAtmosphereWriter;
+        this.runProgressTracker = runProgressTracker;
         this.clock = clock;
+        this.appBuild = appBuild;
     }
 
     /**
@@ -173,7 +195,7 @@ public class ForecastService {
                 String msg = "Weather data fetch failed for " + locationName + " " + type + ": " + e.getMessage();
                 LOG.error(msg);
                 publishEvent(runId, taskKey, locationName, date.toString(), type.name(),
-                        LocationTaskState.FAILED, msg, "FETCHING_WEATHER");
+                        LocationTaskState.FAILED, truncateForPanel(msg), "FETCHING_WEATHER");
                 throw new WeatherDataFetchException(msg, locationName, type.name(), e);
             }
 
@@ -251,7 +273,9 @@ public class ForecastService {
      *
      * <p>If triage determines conditions are unsuitable, a canned entity (rating=1) is persisted
      * and the result is marked as triaged. Otherwise, the atmospheric data is returned ready for
-     * Claude evaluation.
+     * Claude evaluation. Every call records the candidate's atmospheric readings to
+     * {@code slot_atmosphere} before either triage check runs — see the 9-argument
+     * overload's javadoc for why this is the one shared seam.
      *
      * @param location              the location entity
      * @param date                  the forecast date
@@ -271,6 +295,23 @@ public class ForecastService {
 
     /**
      * Fetches weather data and applies triage heuristics, optionally using pre-fetched data.
+     *
+     * <p>⚠️ <b>The one seam every caller of this method shares — the record-conditions-for-
+     * every-place write.</b> Immediately after the atmospheric data is fully assembled and before
+     * either triage check below, this method calls {@code SlotAtmosphereWriter.write} for the
+     * candidate — whatever the triage verdict or any later Gate 4 decision turns out to be. This
+     * method already persists a {@code forecast_evaluation} row as a side effect on the triage
+     * branches (a fact CLAUDE.md records), so adding the readings write at the same point costs
+     * no new call site and reaches every present and future caller in one place: the batch
+     * collector's {@code collectScheduledBatches} and {@code collectRegionFilteredBatches},
+     * {@code ForceSubmitBatchService}'s JFDI and admin force-submit, {@code BatchRetryService}'s
+     * failed-request reconstruction, and the synchronous engine's
+     * {@code ForecastCommandExecutor.runTriagePhase} (whose own triaged-away candidates are
+     * discarded by the caller without ever reaching {@link #evaluateAndPersist}, which is exactly
+     * why the write cannot live there). {@link #evaluateAndPersist} does NOT also write — every
+     * {@code preEval} it is called with was already produced by this method, so a second write
+     * there would be a redundant call for the same fetch. Isolated in its own try/catch so a
+     * carrier write failure never aborts the fetch/triage this method exists to perform.
      *
      * @param location              the location entity
      * @param date                  the target date
@@ -312,7 +353,8 @@ public class ForecastService {
                 extraction = openMeteoService.getAtmosphericDataFromCache(
                         request, eventTime, prefetchedWeather);
                 if (extraction == null) {
-                    throw new RuntimeException("No pre-fetched data for " + locationName);
+                    throw new RuntimeException(
+                            "Weather data could not be fetched.");
                 }
             } else {
                 extraction = openMeteoService.getAtmosphericDataWithResponse(
@@ -323,7 +365,7 @@ public class ForecastService {
                     + ": " + e.getMessage();
             LOG.error(msg);
             publishEvent(runId, taskKey, locationName, date.toString(), targetType.name(),
-                    LocationTaskState.FAILED, msg, "FETCHING_WEATHER");
+                    LocationTaskState.FAILED, truncateForPanel(msg), "FETCHING_WEATHER");
             throw new WeatherDataFetchException(msg, locationName, targetType.name(), e);
         }
 
@@ -368,6 +410,23 @@ public class ForecastService {
         AtmosphericData forecastData = augmentor.augmentWithBluebellConditions(
                 withInversion, location.getLocationType(), location.getBluebellExposure(), date);
 
+        // Record conditions for every place whose weather was fetched — the ONE seam every
+        // caller of fetchWeatherAndTriage shares (the batch collector's scheduled AND
+        // region-filtered paths, ForceSubmitBatchService's JFDI and force-submit,
+        // BatchRetryService's reconstruction, and this method's own synchronous-engine callers
+        // via ForecastCommandExecutor.runTriagePhase), so every present and future caller is
+        // covered by one write rather than one write per call site. Runs here, before either
+        // triage check below, so a triaged-out or later-Gate-4-skipped candidate still gets its
+        // reading — the two-question rule (see SlotAtmosphereWriter's own javadoc) requires
+        // it regardless of what the caller goes on to decide about the verdict. Isolated so a
+        // carrier write failure never aborts the fetch/triage this method exists to perform.
+        try {
+            slotAtmosphereWriter.write(location, date, targetType, forecastData);
+        } catch (Exception e) {
+            LOG.error("slot_atmosphere write FAILED for {} {} {}; fetch/triage proceeds: {}",
+                    locationName, date, targetType, e.getMessage(), e);
+        }
+
         // Apply weather triage heuristic
         Optional<TriageResult> triageResult = weatherTriageEvaluator.evaluate(forecastData);
         if (triageResult.isPresent()) {
@@ -377,7 +436,7 @@ public class ForecastService {
             ForecastEvaluationEntity entity = buildEntity(
                     location, lat, lon, date, targetType, daysAhead, eventTime, azimuth,
                     forecastData, emptyEval, model);
-            entity.setTriage(new TriageDetails(tr.triageReason(), reason));
+            standDown(entity, tr.triageReason(), reason);
             repository.save(entity);
             publishEvent(runId, taskKey, locationName, date.toString(), targetType.name(),
                     LocationTaskState.TRIAGED);
@@ -407,7 +466,7 @@ public class ForecastService {
                 ForecastEvaluationEntity entity = buildEntity(
                         location, lat, lon, date, targetType, daysAhead, eventTime, azimuth,
                         forecastData, emptyEval, model);
-                entity.setTriage(new TriageDetails(tr.triageReason(), reason));
+                standDown(entity, tr.triageReason(), reason);
                 repository.save(entity);
                 publishEvent(runId, taskKey, locationName, date.toString(), targetType.name(),
                         LocationTaskState.TRIAGED);
@@ -427,6 +486,25 @@ public class ForecastService {
     /**
      * Evaluates atmospheric data with Claude and persists the result.
      *
+     * <p>Writes no {@code slot_atmosphere} reading of its own — {@code preEval} was already
+     * produced by {@link #fetchWeatherAndTriage}, which is the one seam that records it, so every
+     * caller of this method reaches the write before ever getting here.
+     *
+     * <p>⚠️ <b>This is where an evaluation's outcome is published, exactly once.</b> A failure of any
+     * kind after the evaluating step — Claude's error answered as an {@code Errored} result, an
+     * exception thrown by the evaluation call, a failure persisting the result — publishes the task
+     * FAILED (step {@code EVALUATING}, a fixed phrase from {@link EvaluationFailure}, never the
+     * exception's message) and then rethrows, so the caller's own bookkeeping is unchanged. Without
+     * this the task stayed in EVALUATING until the completion sweep gave it a placeholder reason.
+     *
+     * <p>⚠️ <b>The stop check is here, inside the {@code claude} bulkhead, on purpose.</b> The
+     * executor starts every evaluation at once and the bulkhead lets six through; a check made before
+     * the call into this method would see no stop for any of them. Made here, a place that waited for a
+     * permit looks at the run after the evaluation that held the permit before it has finished, so a
+     * rejected key stops the run after the first wave rather than after all of it. When the run is
+     * stopped the place is published FAILED ("not attempted"), no Claude call is made, no child
+     * {@code job_run} is created, and {@link RunStoppedException} is thrown.
+     *
      * @param preEval the pre-evaluation result from the triage phase
      * @param jobRun  parent job run for metrics
      * @return the saved evaluation entity
@@ -436,41 +514,47 @@ public class ForecastService {
             JobRunEntity jobRun) {
         Long runId = jobRun != null ? jobRun.getId() : null;
 
+        if (runId != null && runProgressTracker.isStopped(runId)) {
+            publishEvaluationFailed(runId, preEval, EvaluationFailure.REASON_NOT_ATTEMPTED);
+            throw new RunStoppedException("Run " + runId + " was stopped; "
+                    + preEval.taskKey() + " was not attempted");
+        }
+
         publishEvent(runId, preEval.taskKey(), preEval.location().getName(),
                 preEval.date().toString(), preEval.targetType().name(),
                 LocationTaskState.EVALUATING);
 
-        EvaluationTask.Forecast task = new EvaluationTask.Forecast(
-                preEval.location(), preEval.date(), preEval.targetType(),
-                preEval.model(), preEval.atmosphericData(),
-                EvaluationTask.Forecast.WriteTarget.NONE);
-        EvaluationResult outcome = engineEvaluationService.evaluateNow(
-                task, BatchTriggerSource.ADMIN);
-        SunsetEvaluation evaluation = switch (outcome) {
-            case EvaluationResult.Scored s -> (SunsetEvaluation) s.payload();
-            case EvaluationResult.Errored e -> throw new EvaluationFailedException(
-                    e.errorType(), e.message(), preEval.location().getName(),
-                    preEval.targetType(), preEval.date());
-        };
-
-        ForecastEvaluationEntity entity = buildEntity(
-                preEval.location(), preEval.location().getLat(), preEval.location().getLon(),
-                preEval.date(), preEval.targetType(), preEval.daysAhead(), preEval.eventTime(),
-                preEval.azimuth(), preEval.atmosphericData(), evaluation, preEval.model());
-
-        ForecastEvaluationEntity saved = repository.save(entity);
-
-        // Sync-path parity with the batch collector: capture the survivor's atmospheric readings
-        // to the survivor surface so both paths feed one surface and behaviour cannot drift.
-        // Isolated so a carrier write failure never fails the evaluation that just persisted.
+        SunsetEvaluation evaluation;
+        ForecastEvaluationEntity saved;
         try {
-            survivorAtmosphereWriter.write(preEval.location(), preEval.date(),
-                    preEval.targetType(), preEval.atmosphericData());
-        } catch (Exception e) {
-            LOG.error("survivor_atmosphere write FAILED for {} {} {}; evaluation persisted: {}",
-                    preEval.location().getName(), preEval.targetType(), preEval.date(),
-                    e.getMessage(), e);
+            EvaluationTask.Forecast task = new EvaluationTask.Forecast(
+                    preEval.location(), preEval.date(), preEval.targetType(),
+                    preEval.model(), preEval.atmosphericData(),
+                    EvaluationTask.Forecast.WriteTarget.NONE);
+            EvaluationResult outcome = engineEvaluationService.evaluateNow(
+                    task, BatchTriggerSource.ADMIN);
+            evaluation = switch (outcome) {
+                case EvaluationResult.Scored s -> (SunsetEvaluation) s.payload();
+                case EvaluationResult.Errored e -> throw new EvaluationFailedException(
+                        e.errorType(), e.message(), preEval.location().getName(),
+                        preEval.targetType(), preEval.date());
+            };
+
+            ForecastEvaluationEntity entity = buildEntity(
+                    preEval.location(), preEval.location().getLat(), preEval.location().getLon(),
+                    preEval.date(), preEval.targetType(), preEval.daysAhead(), preEval.eventTime(),
+                    preEval.azimuth(), preEval.atmosphericData(), evaluation, preEval.model());
+
+            saved = repository.save(entity);
+        } catch (RuntimeException e) {
+            reportEvaluationFailure(runId, preEval, e);
+            throw e;
         }
+
+        // No slot_atmosphere write here — it already happened inside fetchWeatherAndTriage,
+        // which every preEval this method is called with was produced by. Writing again here
+        // would be a second write for the same fetch (harmless — the writer upserts on the
+        // natural key — but redundant), so the single seam covers this call site for free.
 
         publishEvent(runId, preEval.taskKey(), preEval.location().getName(),
                 preEval.date().toString(), preEval.targetType().name(),
@@ -515,7 +599,7 @@ public class ForecastService {
                 preEval.location(), preEval.location().getLat(), preEval.location().getLon(),
                 preEval.date(), preEval.targetType(), preEval.daysAhead(), preEval.eventTime(),
                 preEval.azimuth(), preEval.atmosphericData(), emptyEval, preEval.model());
-        entity.setTriage(new TriageDetails(TriageReason.GENERIC, reason));
+        standDown(entity, TriageReason.GENERIC, reason);
         ForecastEvaluationEntity saved = repository.save(entity);
 
         Long runId = jobRun != null ? jobRun.getId() : null;
@@ -621,6 +705,49 @@ public class ForecastService {
     }
 
     /**
+     * Publishes the FAILED outcome for an evaluation that threw, and stops the run when the failure
+     * is a rejected key.
+     *
+     * <p>The stop is recorded BEFORE the FAILED event, and before this method returns to the
+     * bulkhead that releases the permit, so the next place to take that permit already sees it.
+     * Logs the failure kind (never the exception's message or class: the evaluation engine's own
+     * WARN line carries the message) and, once per run, that the run stopped.
+     */
+    private void reportEvaluationFailure(Long runId, ForecastPreEvalResult preEval, RuntimeException e) {
+        EvaluationFailure failure = EvaluationFailure.of(e);
+        LOG.warn("Evaluation failed for {} (run {}): {}", preEval.taskKey(), runId, failure);
+        if (runId != null && failure.stopsRun() && runProgressTracker.stopRun(runId)) {
+            LOG.error("Run {} stopped: Claude rejected the API key; the places not yet evaluated "
+                    + "will not be attempted", runId);
+        }
+        publishEvaluationFailed(runId, preEval, failure.reason());
+    }
+
+    /**
+     * Publishes FAILED for a task at the evaluating step with a fixed phrase.
+     */
+    private void publishEvaluationFailed(Long runId, ForecastPreEvalResult preEval, String reason) {
+        publishEvent(runId, preEval.taskKey(), preEval.location().getName(),
+                preEval.date().toString(), preEval.targetType().name(),
+                LocationTaskState.FAILED, reason, LocationTaskState.EVALUATING.name());
+    }
+
+    /**
+     * Caps a task error message at {@link #PANEL_MESSAGE_LIMIT} characters before it is published,
+     * because it can carry a raw exception message (an HTTP client's can run to hundreds of
+     * characters). The full message stays in the server log.
+     *
+     * @param message the full message
+     * @return the message, shortened with a trailing ellipsis if it was over the limit
+     */
+    static String truncateForPanel(String message) {
+        if (message == null || message.length() <= PANEL_MESSAGE_LIMIT) {
+            return message;
+        }
+        return message.substring(0, PANEL_MESSAGE_LIMIT - ELLIPSIS.length()) + ELLIPSIS;
+    }
+
+    /**
      * Publishes a per-location progress event for a task that has not failed.
      *
      * @param runId        the parent job run ID; {@code null} suppresses the event
@@ -666,6 +793,18 @@ public class ForecastService {
     }
 
     /**
+     * Marks an unsaved row as a stand-down: attaches the triage reason and stamps {@code scoredAt}
+     * (V178) and the running build (V182), because a triage reason is something to say — the reader
+     * saw it as the slot's decision — and the row is saved with it, never without. The three triage
+     * sites and the sentinel skip all go through here so none can forget the stamp.
+     */
+    private void standDown(ForecastEvaluationEntity entity, TriageReason reason, String message) {
+        entity.setTriage(new TriageDetails(reason, message));
+        entity.setScoredAt(clock.instant());
+        entity.setAppBuild(appBuild.value());
+    }
+
+    /**
      * Builds an unsaved {@link ForecastEvaluationEntity} from the evaluated forecast data.
      *
      * <p>Sole site at which the durable per-evaluation {@code confidence} is derived, so every
@@ -687,7 +826,10 @@ public class ForecastService {
     private ForecastEvaluationEntity buildEntity(LocationEntity location, double lat, double lon,
             LocalDate date, TargetType type, int daysAhead, LocalDateTime eventTime, Integer azimuth,
             AtmosphericData data, SunsetEvaluation evaluation, EvaluationModel model) {
+        Instant scoredAt = evaluation.rating() != null ? clock.instant() : null;
         return ForecastEvaluationEntity.builder()
+                .scoredAt(scoredAt)
+                .appBuild(scoredAt != null ? appBuild.value() : null)
                 .locationLat(BigDecimal.valueOf(lat))
                 .locationLon(BigDecimal.valueOf(lon))
                 .location(location)

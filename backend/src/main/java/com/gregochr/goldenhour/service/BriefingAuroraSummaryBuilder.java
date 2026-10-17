@@ -115,7 +115,7 @@ public class BriefingAuroraSummaryBuilder {
         // An admin's aurora simulation must never surface as a real tonight summary — not on the
         // (currently write-only) briefing payload, and not to AuroraHotTopicStrategy, which reads
         // this method's cached variant for the Plan cards' clear-location count and moon data.
-        if (!auroraStateCache.isActive() || auroraStateCache.isSimulated()) {
+        if (!auroraStateCache.isActive() || auroraStateCache.getSimulatedData() != null) {
             return null;
         }
         try {

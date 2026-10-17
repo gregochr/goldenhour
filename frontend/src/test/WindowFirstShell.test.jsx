@@ -316,60 +316,116 @@ describe('WindowFirstShell — the strip it hosts', () => {
     expect(tabs.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('⚠️ draws NOTHING between the matrix and the doors', async () => {
+  it('⚠️ draws NOTHING VISIBLE between the matrix and the doors', async () => {
     // The promoted strip stood here until M5 (plan D-1), and the test it replaces was named "draws
     // the strip above the promoted strip, which is a different thing that also stays". Both are now
     // false, so the assertion is about the gap rather than about the thing that filled it: every
     // topic is named on its own card and the doors follow the matrix directly. Written as a DOM
     // adjacency rather than a `queryByTestId(...).toBeNull()`, because a testid check passes just as
     // well against a strip that was renamed as against one that was deleted.
+    //
+    // ⚠️ Since 2026-10-01 the gap is no longer LITERALLY empty: `window-first-pane-status` (the
+    // pending/empty wrapper, mirroring the Coming up pane's own always-mounted status region) now
+    // sits between the strip and the doors permanently, because a live region inserted only once
+    // there is something to announce is not reliably announced at all. So the rule this test
+    // protects is now "nothing VISIBLE", not "nothing in the DOM" — the wrapper itself must render
+    // empty whenever there are cards to show, and its own `wf-pane-status:empty` CSS rule
+    // (index.css, beside `.wf-body`'s `gap: 10px`) cancels the flex gap it would otherwise add on
+    // top of `.wf-body`'s own, so the strip→doors spacing stays the same 10px it measured before
+    // this wrapper existed — see `windowFirstPaneStatusGap.test.js` for the CSS-level pin.
     renderWithBriefing(briefingWithSpots('2026-08-04T12:00:00'));
 
     const heat = await screen.findByTestId('wf-heat-strip');
+    const status = screen.getByTestId('window-first-pane-status');
     const doors = screen.getByTestId('window-first-doors');
     const pane = screen.getByTestId('window-first-pane');
     const children = [...pane.children];
-    // Both must be the pane's OWN children for the adjacency to mean anything — an index of -1
-    // would make the assertion vacuously satisfiable from either end.
+    // All three must be the pane's OWN children for the adjacency to mean anything — an index of
+    // -1 would make the assertion vacuously satisfiable from either end.
     expect(children).toContain(heat);
+    expect(children).toContain(status);
     expect(children).toContain(doors);
-    expect(children[children.indexOf(heat) + 1]).toBe(doors);
-    // ⚠️ Scoped to a pane WITH CARDS, which is the state the strip occupied. The empty-pane line
-    // ("No windows to show.") renders in exactly this slot and is conditional on there being no
-    // pane items at all, so it is not something the strip's deletion could have left behind — and
-    // this fixture, which has cards, is the one where the gap has to be empty.
+    expect(children[children.indexOf(heat) + 1]).toBe(status);
+    expect(children[children.indexOf(status) + 1]).toBe(doors);
+    expect(status).toBeEmptyDOMElement();
+    // ⚠️ Scoped to a pane WITH CARDS, which is the state the strip occupied. The empty-pane and
+    // pending lines render in exactly this wrapper and are conditional on `loading`/pane-item
+    // count, so neither is something the strip's deletion could have left behind — and this
+    // fixture, which is loaded with cards, is the one where both have to be absent.
     expect(screen.queryByTestId('window-first-pane-empty')).toBeNull();
+    expect(screen.queryByTestId('window-first-pane-pending')).toBeNull();
+  });
+
+  it('pins the conflict slot as the pane\'s empty first child', async () => {
+    // The structural fact `.wf-conflict-slot:empty`'s comment in index.css names: this slot
+    // precedes everything else in `.wf-body`, so the gap it adds when empty is the one AFTER it,
+    // which `margin-bottom` cancels. (Which margin PROPERTY does the cancelling is a naming
+    // convention, not something this position requires — a `margin-top` here would produce the
+    // identical layout, since an empty flex item is 0px tall and its next sibling lands at the same
+    // pixel either way. What position DOES determine is which gap exists to cancel at all: if a
+    // future change ever inserted something ahead of the conflict slot, this slot would gain a gap
+    // BEFORE it too, and a single margin would no longer cancel both.)
+    renderWithBriefing(briefingWithSpots('2026-08-04T12:00:00'));
+
+    await screen.findByTestId('wf-heat-strip');
+    const pane = screen.getByTestId('window-first-pane');
+    const slot = screen.getByTestId('window-first-conflict-slot');
+
+    // A mutant that moved the slot deeper into the pane, or inserted a new element ahead of it,
+    // fails this — `firstElementChild` is a structural fact, not a testid lookup.
+    expect(pane.firstElementChild).toBe(slot);
+    // The CSS rule keys on this class; a mutant that dropped it would silence the behaviour this
+    // change exists for while every other assertion here kept passing.
+    expect(slot).toHaveClass('wf-conflict-slot');
+    // No conflict in this fixture, so the slot must render nothing for `:empty` to match at all —
+    // a mutant that rendered stray whitespace-bearing markup here would make the CSS selector miss
+    // silently, with no other test catching it.
+    expect(slot).toBeEmptyDOMElement();
   });
 
   it('states the forecast\'s age, and never the model that produced it', () => {
     // §7: the model name is admin-only today and is not a pilot user's business, so the design's
     // "forecast 52m ago by Sonnet" ships as the age alone.
     vi.setSystemTime(new Date('2026-08-04T12:34:00Z'));
-    renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
+    try {
+      renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
 
-    // M3: beside the change line rather than in the deleted rail footer. This fixture has no
-    // movement basis, so the plain run line is what renders — see the strip's own branch comment
-    // for why the two forms are mutually exclusive.
-    const line = screen.getByTestId('wf-heat-runage');
-    expect(line).toHaveTextContent('Last forecast run 34m ago');
-    expect(line.textContent).not.toMatch(/sonnet|haiku|opus/i);
-    vi.useRealTimers();
+      // M3: beside the change line rather than in the deleted rail footer. This fixture has no
+      // movement basis, so the plain run line is what renders — see the strip's own branch comment
+      // for why the two forms are mutually exclusive.
+      const line = screen.getByTestId('wf-heat-runage');
+      expect(line).toHaveTextContent('Last forecast run 34m ago');
+      expect(line.textContent).not.toMatch(/sonnet|haiku|opus/i);
+    } finally {
+      // Restored here, not on a bare last line: an assertion above that throws must still hand
+      // the real clock back before the next test. This file's `afterEach(() => vi.restoreAllMocks())`
+      // does not reach a clock `setSystemTime` installed — see frontend-test-standards.md,
+      // "What NOT to do".
+      vi.useRealTimers();
+    }
   });
 
   it('reads the age as UTC, which is how the backend writes it', () => {
     // Parsing the zone-less instant as local time made a 34-minute-old forecast read "1h ago"
     // through a British summer. The shared formatter appends the Z; a local copy did not.
     vi.setSystemTime(new Date('2026-08-04T12:05:00Z'));
-    renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
+    try {
+      renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
 
-    expect(screen.getByTestId('wf-heat-runage')).toHaveTextContent('Last forecast run 5m ago');
-    vi.useRealTimers();
+      expect(screen.getByTestId('wf-heat-runage')).toHaveTextContent('Last forecast run 5m ago');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it('says nothing about days while the first fetch is still in flight', () => {
-    // "No windows to show" during a cold load is a claim about the forecast made before anyone has
-    // asked it. Silence until the answer arrives — and the strip is absent too, rather than six
-    // empty coastlines under a header claiming to summarise them.
+  it('says nothing about the FORECAST while the first fetch is still in flight', () => {
+    // "No forecast to show." during a cold load is a claim about the forecast made before anyone
+    // has asked it. Silence about the forecast until the answer arrives — the strip is absent too,
+    // rather than six empty coastlines under a header claiming to summarise them — but the pane
+    // now says something about the REQUEST (`window-first-pane-pending`, below): that line makes
+    // no claim about the sky, only about whether the briefing has arrived yet, which is exactly
+    // what was missing on 2026-09-30, when a `GET /api/briefing` request that never completed in
+    // production (fixed in #957) left this pane rendering nothing at all.
     renderWithBriefing({
       briefing: null,
       loading: true,
@@ -389,6 +445,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
     });
     expect(screen.queryByTestId('wf-heat-strip')).toBeNull();
     expect(screen.queryByTestId('window-first-pane-empty')).toBeNull();
+    expect(screen.getByTestId('window-first-pane-pending')).toHaveTextContent('Loading the forecast…');
   });
 
   it('renders one matrix cell per window in the Plan pane', async () => {
@@ -530,17 +587,17 @@ describe('WindowFirstShell — the strip it hosts', () => {
        * The whole walk, with SEARCH on top — the rung that was wired at M2 and dormant until M3.
        *
        * <p>M2 built `escapeEnabled` on all three lower layers and recorded that the ordering's
-       * first rung could not be reached: `/` was refused while any dialog was open, and
+       * first rung could not be reached: search was refused while any dialog was open, and
        * `PlanSearch` closes itself on every pick, so search could never be open OVER anything. M3
        * anchors search to the masthead — a surface the popup is drawn over rather than inside — so
-       * `/` is now permitted with the popup open, and this is the first test that can walk all
-       * three layers down.
+       * search is now permitted with the popup open, and this is the first test that can walk all
+       * three layers down. ⚠️ Since F2 it is opened by the masthead's ⌕ here: `/` belongs to Ask.
        */
       it('⚠️ walks search → sheet → popup, one layer per press', async () => {
         renderWithBriefing(twoWindows());
         await openPopup(1);
         fireEvent.click(screen.getByTestId('window-sheet-pick'));
-        await act(async () => { fireEvent.keyDown(document, { key: '/' }); });
+        await act(async () => { fireEvent.click(screen.getByTestId('window-first-search')); });
         // Search over a sheet over the popup would be three layers; the guard refuses it, so the
         // stack under test is search over the popup. Close the sheet first, then open search.
         expect(screen.queryByTestId('plan-search')).toBeNull();
@@ -548,7 +605,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
         await act(async () => { fireEvent.keyDown(document, { key: 'Escape' }); });
         expect(screen.queryByTestId('window-pick-dialog')).toBeNull();
 
-        await act(async () => { fireEvent.keyDown(document, { key: '/' }); });
+        await act(async () => { fireEvent.click(screen.getByTestId('window-first-search')); });
         expect(await screen.findByTestId('plan-search')).toBeInTheDocument();
         expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
 
@@ -569,7 +626,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
         await openPopup(1);
         const before = screen.getByTestId('window-sheet-title').textContent;
 
-        await act(async () => { fireEvent.keyDown(document, { key: '/' }); });
+        await act(async () => { fireEvent.click(screen.getByTestId('window-first-search')); });
         await screen.findByTestId('plan-search');
         await act(async () => { fireEvent.keyDown(document, { key: 'ArrowRight' }); });
 
@@ -577,12 +634,12 @@ describe('WindowFirstShell — the strip it hosts', () => {
       });
     });
 
-    describe('the / shortcut against the popup', () => {
+    describe('the search button against the popup', () => {
       it('opens search over an open popup — the stack M3 exists to allow', async () => {
         renderWithBriefing(twoWindows());
         await openPopup(1);
 
-        await act(async () => { fireEvent.keyDown(document, { key: '/' }); });
+        await act(async () => { fireEvent.click(screen.getByTestId('window-first-search')); });
 
         expect(await screen.findByTestId('plan-search')).toBeInTheDocument();
         // The popup stays MOUNTED underneath, which is what makes the Escape order meaningful —
@@ -597,7 +654,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
         await openPopup(1);
         fireEvent.click(screen.getByTestId('window-sheet-pick'));
 
-        await act(async () => { fireEvent.keyDown(document, { key: '/' }); });
+        await act(async () => { fireEvent.click(screen.getByTestId('window-first-search')); });
 
         expect(screen.queryByTestId('plan-search')).toBeNull();
         expect(screen.getByTestId('window-pick-dialog')).toBeInTheDocument();

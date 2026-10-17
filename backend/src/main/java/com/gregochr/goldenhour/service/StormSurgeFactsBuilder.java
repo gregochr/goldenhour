@@ -6,7 +6,7 @@ import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.model.SeaState;
 import com.gregochr.goldenhour.model.SurgeCurve;
 import com.gregochr.goldenhour.model.SurgeRunDay;
-import com.gregochr.goldenhour.model.SurvivorSignals;
+import com.gregochr.goldenhour.model.SlotSignals;
 import com.gregochr.goldenhour.repository.MarineWaveRepository;
 import com.gregochr.goldenhour.service.evaluation.PromptUtils;
 import org.slf4j.Logger;
@@ -22,9 +22,9 @@ import java.util.Objects;
 /**
  * Builds the enriched "science showing" fact line for the STORM_SURGE pill.
  *
- * <p>For a day's high-surge-risk survivors, the strongest surge is chosen as the representative, and
+ * <p>For a day's high-surge-risk rows, the strongest surge is chosen as the representative, and
  * its facts are drawn entirely from data the surge model already computes (now persisted on the
- * survivor surface, V123) plus the shared {@code marine_wave} sea-state sample. Wave height is the
+ * slot surface, V123) plus the shared {@code marine_wave} sea-state sample. Wave height is the
  * genuine drama signal, so it leads when present (anomaly-first, paired with its sea-state band);
  * the surge offset and onshore wind follow.
  */
@@ -67,11 +67,11 @@ public class StormSurgeFactsBuilder {
      * representative. Returns the topic unchanged when no fact can be built.
      *
      * @param topic   the day's base storm-surge topic
-     * @param dayRows the day's high-surge-risk survivor rows
+     * @param dayRows the day's high-surge-risk slot rows
      * @return the topic, enriched with facts when possible
      */
-    public HotTopic attach(HotTopic topic, List<SurvivorSignals> dayRows) {
-        SurvivorSignals rep = dayRows.stream()
+    public HotTopic attach(HotTopic topic, List<SlotSignals> dayRows) {
+        SlotSignals rep = dayRows.stream()
                 .max(Comparator.comparingDouble(StormSurgeFactsBuilder::surgeMetres))
                 .orElse(null);
         if (rep == null) {
@@ -113,7 +113,7 @@ public class StormSurgeFactsBuilder {
             //
             // Qualitative on purpose: "at high water" is true BY CONSTRUCTION (ForecastDataAugmentor
             // samples at nextHighTideTime), whereas the exact clock time is not recoverable —
-            // SurvivorSignals.Readings stores no timestamp, and a day has two high waters, so
+            // SlotSignals.Readings stores no timestamp, and a day has two high waters, so
             // naming one would be a guess dressed as a measurement. Do not "improve" this into a
             // specific time without persisting the instant it was actually taken at.
             facts.add(new HotTopicFact("surge",
@@ -155,11 +155,11 @@ public class StormSurgeFactsBuilder {
      *
      * @param run    the curve about to be attached
      * @param chip   the persisted surge scalar shown as a fact chip, or null
-     * @param rep    the representative survivor row, for logging
+     * @param rep    the representative slot row, for logging
      * @param curve  the carrier, so the next day's series can extend the envelope
      * @return true when the two are compatible, or when there is no chip to contradict
      */
-    private static boolean agreesWithChip(SurgeRunDay run, Double chip, SurvivorSignals rep,
+    private static boolean agreesWithChip(SurgeRunDay run, Double chip, SlotSignals rep,
             SurgeCurve curve) {
         if (chip == null || run.surgeMetres() == null) {
             return true;
@@ -195,7 +195,7 @@ public class StormSurgeFactsBuilder {
         return agrees;
     }
 
-    private static double surgeMetres(SurvivorSignals s) {
+    private static double surgeMetres(SlotSignals s) {
         Double v = s.readings().surgeTotalMetres();
         return v == null ? 0.0 : v;
     }

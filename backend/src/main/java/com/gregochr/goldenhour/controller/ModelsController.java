@@ -40,7 +40,8 @@ public class ModelsController {
     @GetMapping
     public ResponseEntity<Map<String, Object>> getAvailableModels() {
         EvaluationModel[] selectableModels = {
-            EvaluationModel.HAIKU, EvaluationModel.SONNET, EvaluationModel.OPUS
+            EvaluationModel.HAIKU, EvaluationModel.HAIKU_55, EvaluationModel.SONNET,
+            EvaluationModel.SONNET_55, EvaluationModel.OPUS
         };
         List<Map<String, String>> availableWithVersions = Arrays.stream(selectableModels)
                 .map(m -> Map.of("name", m.name(), "version", m.getVersion()))

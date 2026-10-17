@@ -99,6 +99,9 @@ vi.mock('../components/map/MapCallout.jsx', () => ({
     <div data-testid="probe-callout">
       <span data-testid="probe-callout-name">{props.location?.name ?? ''}</span>
       <span data-testid="probe-callout-rating">{JSON.stringify(props.rating ?? null)}</span>
+      <span data-testid="probe-callout-hourly">{JSON.stringify(props.hourlyRows ?? null)}</span>
+      <span data-testid="probe-callout-daymode">{String(Boolean(props.dayMode))}</span>
+      <span data-testid="probe-callout-event">{props.event?.id ?? 'none'}</span>
       {(props.evRows ?? []).map((row) => (
         <button
           key={row.id}
@@ -242,6 +245,148 @@ afterEach(() => {
   localStorage.clear();
   vi.clearAllMocks();
   vi.useRealTimers();
+});
+
+describe('MapView — a forecast of wildlife hides alone (no map event at all)', () => {
+  // `heat.windows` empty and no forecast dates: `buildMapEvents` draws nothing, there is no
+  // `activeMapEvent`, and until this the only selection surface (the callout) was mounted behind it —
+  // a hide could be picked and nothing came of it.
+  const hourly = (date) => [{
+    solarEventTime: `${date}T08:00:00`, temperatureCelsius: 8, apparentTemperatureCelsius: 6,
+    windSpeed: 4, windDirection: 180, precipitationProbabilityPercent: 20,
+  }];
+  const hide = (extra = {}) => ({
+    ...makeLocation(),
+    locationType: ['WILDLIFE'],
+    forecastsByDate: new Map([[TODAY, { sunrise: null, sunset: null, hourly: hourly(TODAY) }]]),
+    ...extra,
+  });
+  const noEvents = () => ({ ...heatProp(), windows: [] });
+
+  it('⚠️ mounts the callout in DAY mode for a selected hide — with no event, and no synthetic one', async () => {
+    await renderMap({ locations: [hide()], heat: noEvents(), forecastDates: [] });
+    await selectTheSpot();
+    expect(screen.getByTestId('probe-callout')).toBeInTheDocument();
+    expect(screen.getByTestId('probe-callout-daymode')).toHaveTextContent('true');
+    expect(screen.getByTestId('probe-callout-event')).toHaveTextContent('none');
+  });
+
+  it('says what is true in place of "No forecast to show." when hides carry a forecast', async () => {
+    await renderMap({ locations: [hide()], heat: noEvents(), forecastDates: [] });
+    expect(screen.getByTestId('wf-map-no-forecast'))
+      .toHaveTextContent('No sunrise or sunset forecast to show. Wildlife hides still carry a comfort forecast.');
+  });
+
+  it('⚠️ the empty-state pill is for the UNSELECTED state: gone while the day card is up, back when it closes', async () => {
+    // The card paints over the pill and leaves its two ends sticking out from behind it.
+    await renderMap({ locations: [hide()], heat: noEvents(), forecastDates: [] });
+    expect(screen.getByTestId('wf-map-no-forecast')).toBeInTheDocument();
+
+    await selectTheSpot();
+    expect(screen.getByTestId('probe-callout')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-map-no-forecast')).toBeNull();
+
+    clickBackground();
+    expect(screen.queryByTestId('probe-callout')).toBeNull();
+    expect(screen.getByTestId('wf-map-no-forecast')).toBeInTheDocument();
+  });
+
+  it('⚠️ a SKY location with no event keeps "No forecast to show." and gets no card', async () => {
+    await renderMap({ locations: [makeLocation()], heat: noEvents(), forecastDates: [] });
+    expect(screen.getByTestId('wf-map-no-forecast')).toHaveTextContent('No forecast to show.');
+    await selectTheSpot();
+    expect(screen.queryByTestId('probe-callout')).toBeNull();
+  });
+
+  it('a hide with NO hourly rows at all keeps "No forecast to show." — nothing true to add', async () => {
+    await renderMap({
+      locations: [hide({ forecastsByDate: new Map() })], heat: noEvents(), forecastDates: [],
+    });
+    expect(screen.getByTestId('wf-map-no-forecast')).toHaveTextContent('No forecast to show.');
+  });
+
+  it('⚠️ a roster WITH an event never takes day mode, for a hide or anything else', async () => {
+    await renderMap({ locations: [hide()] });
+    await selectTheSpot();
+    expect(screen.getByTestId('probe-callout-daymode')).toHaveTextContent('false');
+    expect(screen.getByTestId('probe-callout-event')).not.toHaveTextContent('none');
+    expect(screen.queryByText(/Wildlife hides still carry/)).toBeNull();
+  });
+});
+
+describe('MapView — a selected place\'s hourly comfort rows reach the callout for the ACTIVE window\'s date', () => {
+  // The callout reads them for a pure wildlife hide only; MapView's job is to hand it the rows of
+  // the date on screen, straight off the per-date entry, and null when there are none.
+  const hourly = (date) => [{
+    solarEventTime: `${date}T08:00:00`, temperatureCelsius: 8, apparentTemperatureCelsius: 6,
+    windSpeed: 4, windDirection: 180, precipitationProbabilityPercent: 20,
+  }];
+  const withHourly = (byDate) => ({
+    ...makeLocation(),
+    locationType: ['WILDLIFE'],
+    forecastsByDate: new Map(byDate.map(([date, rows]) => [date, { sunrise: null, sunset: null, hourly: rows }])),
+  });
+
+  it('hands over the rows served for the window\'s own date', async () => {
+    await renderMap({ locations: [withHourly([[TODAY, hourly(TODAY)]])] });
+    await selectTheSpot();
+    expect(JSON.parse(screen.getByTestId('probe-callout-hourly').textContent)).toEqual(hourly(TODAY));
+  });
+
+  it('follows the window: switching the callout to the next day\'s window hands over THAT day\'s rows', async () => {
+    // The parent owns `date` in the app (`App` takes the forwarded date), so the harness does too.
+    const NEXT = '2026-01-16';
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(`${TODAY}T12:00:00Z`));
+    const heat = heatProp();
+    heat.windows = [
+      ...heat.windows,
+      { key: `${NEXT}:SUNSET`, date: NEXT, targetType: 'SUNSET', label: 'Tomorrow sunset', time: '16:14', bestRating: 4, conf: 1 },
+    ];
+    heat.pointsByKey.set(`${NEXT}:SUNSET`, [{
+      id: SPOT.id, name: SPOT.name, lat: SPOT.lat, lng: SPOT.lng, rid: SPOT.rid, r: [4],
+    }]);
+    const locations = [withHourly([[TODAY, hourly(TODAY)], [NEXT, hourly(NEXT)]])];
+    function Harness() {
+      const [d, setD] = React.useState(TODAY);
+      return (
+        <MapView
+          locations={locations} date={d} onSelectDate={setD} forecastDates={[TODAY, NEXT]}
+          autoEventType={null} heat={heat}
+        />
+      );
+    }
+    await act(async () => { render(<Harness />); });
+    await selectTheSpot();
+    expect(JSON.parse(screen.getByTestId('probe-callout-hourly').textContent)).toEqual(hourly(TODAY));
+
+    const solarButtons = await screen.findAllByTestId('probe-callout-select-ev-solar');
+    await act(async () => { fireEvent.click(solarButtons[solarButtons.length - 1]); });
+
+    expect(JSON.parse(screen.getByTestId('probe-callout-hourly').textContent)).toEqual(hourly(NEXT));
+  });
+
+  it('⚠️ hands over null on an astro NIGHT window even though the `date` prop holds daylight rows', async () => {
+    // The night row is kept local, so `date` stays TODAY while the active window is the night. The
+    // rows are a daylight forecast: reading `.get(date)` would hand today's through under a night.
+    astroAvailableDatesResponse = [TODAY];
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(`${TODAY}T12:00:00Z`));
+    await renderMap({ locations: [withHourly([[TODAY, hourly(TODAY)]])] });
+    await selectTheSpot();
+    expect(JSON.parse(screen.getByTestId('probe-callout-hourly').textContent)).toEqual(hourly(TODAY));
+
+    const astroButton = await screenFindProbe('probe-callout-select-ev-astro');
+    await act(async () => { fireEvent.click(astroButton); });
+
+    expect(screen.getByTestId('probe-callout-hourly')).toHaveTextContent('null');
+  });
+
+  it('hands over null, not another day\'s rows, when the window\'s date holds none', async () => {
+    await renderMap({ locations: [withHourly([['2026-01-16', hourly('2026-01-16')]])] });
+    await selectTheSpot();
+    expect(screen.getByTestId('probe-callout-hourly')).toHaveTextContent('null');
+  });
 });
 
 describe('MapView — a background click deselects, and closes no panel (L3)', () => {

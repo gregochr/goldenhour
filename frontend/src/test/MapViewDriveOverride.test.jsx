@@ -399,10 +399,24 @@ describe('MapView — home geography gates on `origin`, not on whether a postcod
     // (`resetToMyArea`) that needs no postcode at all once an origin is in force.
     const onOpenSettings = vi.fn();
     await renderTab({
-      origin: AWAY_ORIGIN, heat: heatProp(new Map()), onOpenSettings,
-    }); // no homeCoords
+      origin: AWAY_ORIGIN, homeCoords: null, heat: heatProp(new Map()), onOpenSettings,
+    }); // null: the server said no postcode is saved
     const button = screen.getByTestId('centre-on-home');
     expect(button).toBeInTheDocument();
+    expect(button).toHaveAccessibleName('Reset to My area');
+    expect(button).not.toHaveAttribute('data-disabled');
+    fireEvent.click(button);
+    expect(onOpenSettings).not.toHaveBeenCalled();
+  });
+
+  it('AWAY with the home NOT KNOWN: still actionable — an unknown home hides the ⌂ only at home', async () => {
+    // `undefined` (the settings read unanswered, or failed) hides the control only where its one
+    // state would be the postcode prompt; under an origin the reset needs no home at all.
+    const onOpenSettings = vi.fn();
+    await renderTab({
+      origin: AWAY_ORIGIN, heat: heatProp(new Map()), onOpenSettings,
+    }); // no homeCoords: not known
+    const button = screen.getByTestId('centre-on-home');
     expect(button).toHaveAccessibleName('Reset to My area');
     expect(button).not.toHaveAttribute('data-disabled');
     fireEvent.click(button);
@@ -421,7 +435,8 @@ describe('MapView — home geography gates on `origin`, not on whether a postcod
 
   it('HOME with NO postcode and no origin: present but NOT actionable — click opens Settings', async () => {
     const onOpenSettings = vi.fn();
-    await renderTab({ heat: heatProp(undefined), onOpenSettings }); // no homeCoords, no origin
+    // null, not omitted: an omitted home is an UNKNOWN one, which hides the control instead.
+    await renderTab({ homeCoords: null, heat: heatProp(undefined), onOpenSettings }); // no origin
     const button = screen.getByTestId('centre-on-home');
     expect(button).toBeInTheDocument();
     expect(button).toHaveAccessibleName('Set your home postcode in Settings');

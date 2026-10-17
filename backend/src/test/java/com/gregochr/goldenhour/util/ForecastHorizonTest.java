@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -28,6 +29,14 @@ class ForecastHorizonTest {
     /** 23:30 UTC on 11 Jan 2026 — GMT, so London and UTC are the same date. */
     private static final Clock GMT_PRE_MIDNIGHT =
             Clock.fixed(Instant.parse("2026-01-11T23:30:00Z"), ZoneOffset.UTC);
+
+    @Test
+    @DisplayName("the one-day read reaches further back than the list: MAX_PAST_DAYS is T-4, beyond "
+            + "SERVE_PAST_DAYS")
+    void maxPastDays_reachesBeyondTheListsPastEdge() {
+        assertThat(ForecastHorizon.MAX_PAST_DAYS).isEqualTo(4);
+        assertThat(ForecastHorizon.MAX_PAST_DAYS).isGreaterThan(ForecastHorizon.SERVE_PAST_DAYS);
+    }
 
     @Test
     @DisplayName("in the BST hour before midnight UTC, today is already the UK's tomorrow-by-UTC")
@@ -106,5 +115,20 @@ class ForecastHorizonTest {
     @DisplayName("a null instant — never opened the tab — reads as null, not a fabricated date")
     void civilDate_nullInstant_returnsNull() {
         assertThat(ForecastHorizon.civilDate(null)).isNull();
+    }
+
+    @Test
+    @DisplayName("ukDayStartUtc: BST, GMT and the two clock-change days")
+    void ukDayStartUtc_isUkMidnightInUtc() {
+        assertThat(ForecastHorizon.ukDayStartUtc(LocalDate.of(2026, 7, 1)))
+                .isEqualTo(LocalDateTime.of(2026, 6, 30, 23, 0));
+        assertThat(ForecastHorizon.ukDayStartUtc(LocalDate.of(2026, 1, 1)))
+                .isEqualTo(LocalDateTime.of(2026, 1, 1, 0, 0));
+        // 2026-03-29: clocks go forward at 01:00 UTC, the day started in GMT.
+        assertThat(ForecastHorizon.ukDayStartUtc(LocalDate.of(2026, 3, 29)))
+                .isEqualTo(LocalDateTime.of(2026, 3, 29, 0, 0));
+        // 2026-10-25: clocks go back at 01:00 UTC, the day started in BST.
+        assertThat(ForecastHorizon.ukDayStartUtc(LocalDate.of(2026, 10, 25)))
+                .isEqualTo(LocalDateTime.of(2026, 10, 24, 23, 0));
     }
 }

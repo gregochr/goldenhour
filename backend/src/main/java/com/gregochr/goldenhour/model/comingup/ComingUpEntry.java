@@ -41,6 +41,11 @@ import java.util.Objects;
  * @param prose         nullable — feature cards only ("say the definition once": the first
  *                      occurrence of a type in the window)
  * @param facts         ordered fact rows; no HTML crosses the wire
+ * @param aside         nullable — a full-width, dashed-top supplementary line rendered after the
+ *                      facts and before the threshold (the design's {@code why2} slot). Generic
+ *                      rather than lunar-specific: the lunar eclipse topic is its first user,
+ *                      carrying the exposure note ("no filter needed"), but any later type may use
+ *                      it rather than growing its own field (lunar-eclipse-plan.md §4 #7)
  * @param threshold     nullable — the bar this occurrence cleared, required on any entry that will
  *                      carry a standing condition (coastal tides at first ship)
  * @param scoreNote     nullable server-authored sentence explaining a high-band score, read by both
@@ -55,10 +60,20 @@ import java.util.Objects;
  *                      entries from clearing a band, however high {@code bits} reads, rather than
  *                      distorting the printed "rarity + magnitude = bits" sum to enforce it
  * @param tide          nullable — tide-run entries only; sparkline data (P3b)
- * @param coincidence   nullable/empty — set when this entry absorbed another topic under D10's max
- *                      rule; each line is the topic that did <b>not</b> carry {@code bits}
+ * @param coincidence   nullable/empty — set when this entry merged two topics under D10; one line
+ *                      per merged topic, host first, each with its own dates
  * @param joinNote      nullable — server-authored joining sentence, present iff {@code coincidence}
  *                      is non-empty
+ * @param dayMarks      the days a merged entry marks for its topics (a supermoon's full-moon nights,
+ *                      a tide run's peak), host's marks before the other's on one date; empty, and
+ *                      absent from the wire, on an unmerged entry
+ * @param dayRanges     a tide run's tidal range per derivable day of its span (metres to 1 dp),
+ *                      ascending, with {@code peak} true on the run's biggest day; carried onto a
+ *                      merged entry whichever topic hosts; empty, and absent from the wire, unless
+ *                      the run has at least two derivable days
+ * @param rangeAverageMetres the mean daily tidal range over the past year at the run's representative
+ *                      (1 dp): the average the day bars' dashed line and {@code tide.delta} share;
+ *                      served only with {@code dayRanges} and a sufficient year sample
  */
 public record ComingUpEntry(
         LocalDate startDate,
@@ -80,6 +95,7 @@ public record ComingUpEntry(
         String prose,
         @JsonInclude(JsonInclude.Include.NON_EMPTY)
         List<ComingUpFact> facts,
+        String aside,
         String threshold,
         String scoreNote,
         ComingUpAction action,
@@ -88,7 +104,13 @@ public record ComingUpEntry(
         ComingUpTide tide,
         @JsonInclude(JsonInclude.Include.NON_EMPTY)
         List<ComingUpCoincidenceLine> coincidence,
-        String joinNote) {
+        String joinNote,
+        @JsonInclude(JsonInclude.Include.NON_EMPTY)
+        List<ComingUpDayMark> dayMarks,
+        @JsonInclude(JsonInclude.Include.NON_EMPTY)
+        List<ComingUpDayRange> dayRanges,
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        Double rangeAverageMetres) {
 
     /**
      * Normalises the collections so a consumer never has to null-check them, and requires the
@@ -105,6 +127,8 @@ public record ComingUpEntry(
         regions = regions == null ? List.of() : List.copyOf(regions);
         facts = facts == null ? List.of() : List.copyOf(facts);
         coincidence = coincidence == null ? List.of() : List.copyOf(coincidence);
+        dayMarks = dayMarks == null ? List.of() : List.copyOf(dayMarks);
+        dayRanges = dayRanges == null ? List.of() : List.copyOf(dayRanges);
     }
 
     /**
@@ -122,9 +146,9 @@ public record ComingUpEntry(
         String id = event.type() + ":" + event.startDate() + ":" + event.endDate();
         return new ComingUpEntry(event.startDate(), event.endDate(), event.kind(), event.type(),
                 event.title(), event.detail(), event.meta(), event.regions(), enteredWindow,
-                id, "night-sky", "Almanac", null, null, null, List.of(), null, null,
+                id, "night-sky", "Almanac", null, null, null, List.of(), null, null, null,
                 new ComingUpAction("See the plan for " + event.startDate() + " →", "plan",
                         event.startDate()),
-                null, true, null, List.of(), null);
+                null, true, null, List.of(), null, List.of(), List.of(), null);
     }
 }

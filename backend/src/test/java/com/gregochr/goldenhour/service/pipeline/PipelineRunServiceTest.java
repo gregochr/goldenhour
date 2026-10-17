@@ -258,4 +258,70 @@ class PipelineRunServiceTest {
 
         assertThat(result).containsExactly(phase);
     }
+
+    @Test
+    @DisplayName("degradeRun sets status DEGRADED and failureReason, clears currentPhase and "
+            + "waitingOn, and stamps completedAt — the same terminal shape as completeRun/failRun, "
+            + "distinguished only by the status value")
+    void degradeRun_setsDegradedStatusAndClearsState() {
+        PipelineRunEntity run = new PipelineRunEntity(CycleType.INTRADAY, T0.minusSeconds(900));
+        run.setId(RUN_ID);
+        run.setCurrentPhase(PipelinePhase.FORECAST_BATCH_WAIT);
+        run.setWaitingOn("forecast batch set (2 of 3 complete)");
+        when(runRepository.findById(RUN_ID)).thenReturn(Optional.of(run));
+
+        service.degradeRun(RUN_ID, "2 of 3 forecast batch submissions failed "
+                + "(340 requests not submitted — near-term inland, far-term coastal)");
+
+        assertThat(run.getStatus()).isEqualTo(PipelineRunStatus.DEGRADED);
+        assertThat(run.getFailureReason()).isEqualTo("2 of 3 forecast batch submissions failed "
+                + "(340 requests not submitted — near-term inland, far-term coastal)");
+        assertThat(run.getCurrentPhase()).isNull();
+        assertThat(run.getWaitingOn()).isNull();
+        assertThat(run.getCompletedAt()).isEqualTo(T0);
+        verify(runRepository).save(run);
+    }
+
+    @Test
+    @DisplayName("findLatestPhase returns the LATEST row when a phase has more than one (e.g. a "
+            + "retry-phase resume left a duplicate-looking entry) — ordered by sequence, not by "
+            + "insertion or id")
+    void findLatestPhase_duplicateRows_returnsTheLatestOne() {
+        PipelineRunPhaseEntity earlierSubmit = new PipelineRunPhaseEntity(
+                RUN_ID, PipelinePhase.FORECAST_BATCH_SUBMIT, 1, T0.minusSeconds(120));
+        earlierSubmit.setStatus(PipelinePhaseStatus.COMPLETED);
+        PipelineRunPhaseEntity wait = new PipelineRunPhaseEntity(
+                RUN_ID, PipelinePhase.FORECAST_BATCH_WAIT, 2, T0.minusSeconds(90));
+        // A second FORECAST_BATCH_SUBMIT row, later in sequence — findLatestPhase must return
+        // THIS one, not the earlier COMPLETED one, since it is the true latest by sequence order.
+        PipelineRunPhaseEntity laterSubmit = new PipelineRunPhaseEntity(
+                RUN_ID, PipelinePhase.FORECAST_BATCH_SUBMIT, 3, T0.minusSeconds(30));
+        laterSubmit.setStatus(PipelinePhaseStatus.FAILED);
+        laterSubmit.setDetail("retry batch submission failed (1 requests)");
+        when(phaseRepository.findByPipelineRunIdOrderBySequenceOrderAsc(RUN_ID))
+                .thenReturn(List.of(earlierSubmit, wait, laterSubmit));
+
+        Optional<PipelineRunPhaseEntity> result =
+                service.findLatestPhase(RUN_ID, PipelinePhase.FORECAST_BATCH_SUBMIT);
+
+        assertThat(result).isPresent();
+        assertThat(result.get()).isSameAs(laterSubmit);
+        assertThat(result.get().getStatus()).isEqualTo(PipelinePhaseStatus.FAILED);
+    }
+
+    @Test
+    @DisplayName("findLatestPhase returns empty (never throws) when the phase never ran for this "
+            + "run — unlike completePhase/failPhase's own private lookup, this is a query, not a "
+            + "lifecycle transition")
+    void findLatestPhase_phaseNeverRan_returnsEmpty() {
+        when(phaseRepository.findByPipelineRunIdOrderBySequenceOrderAsc(RUN_ID))
+                .thenReturn(List.of(
+                        new PipelineRunPhaseEntity(
+                                RUN_ID, PipelinePhase.FORECAST_BATCH_SUBMIT, 1, T0)));
+
+        Optional<PipelineRunPhaseEntity> result =
+                service.findLatestPhase(RUN_ID, PipelinePhase.RETRY_FAILED);
+
+        assertThat(result).isEmpty();
+    }
 }

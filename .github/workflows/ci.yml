@@ -100,11 +100,11 @@ jobs:
       - uses: actions/checkout@v4
         if: needs.changes.outputs.docs_only != 'true'
 
-      - name: Set up JDK 21
+      - name: Set up JDK 25
         if: needs.changes.outputs.docs_only != 'true'
         uses: actions/setup-java@v4
         with:
-          java-version: '21'
+          java-version: '25'
           distribution: 'temurin'
           cache: maven
 
@@ -210,6 +210,31 @@ jobs:
         if: needs.changes.outputs.docs_only != 'true'
         run: cd frontend && npm run build
 
+      # ⚠️ Nothing else checks nginx.conf's syntax before production. deploy.yml writes the file from
+      # the release tag onto the host and recreates the frontend container (`restart: always`), so a
+      # stray brace takes app.photocast.online down until a rollback — and neither this machine nor
+      # any other step here has nginx. `nginx -t` in the pinned image is the check.
+      #
+      # The one edit to the file is the upstream: `goldenhour-backend` only resolves on the compose
+      # network, and an unresolvable upstream fails `-t` by itself, which would say nothing about
+      # the syntax. The sed is guarded on both sides (the name gone, the stub present) so it cannot
+      # quietly do nothing and leave the step proving a different file.
+      #
+      # This step must fail on a broken file. It does so by exit code alone: `nginx -t` exits
+      # non-zero on any syntax or semantic error, and `set -e` carries that out of the step.
+      - name: nginx -t (nginx.conf syntax)
+        if: needs.changes.outputs.docs_only != 'true'
+        run: |
+          set -euo pipefail
+          CHECKED="$RUNNER_TEMP/nginx.checked.conf"
+          sed 's/goldenhour-backend:8082/127.0.0.1:8082/g' nginx.conf > "$CHECKED"
+          if grep -q 'goldenhour-backend' "$CHECKED"; then
+            echo "an upstream name is still unresolved in the copy — the stub did not apply" >&2
+            exit 1
+          fi
+          grep -q '127.0.0.1:8082' "$CHECKED"
+          docker run --rm -v "$CHECKED:/etc/nginx/nginx.conf:ro" nginx:1.27-alpine nginx -t
+
       - name: Documentation-only change — suite skipped
         if: needs.changes.outputs.docs_only == 'true'
         run: |
@@ -231,6 +256,11 @@ jobs:
   # the broken file and would have caught nothing. Verified both ways against the
   # pre-fix version before adding this.
   #
+  # release.sh is linted here too, alongside scripts/*.sh: it is the release path —
+  # the one script that tags and pushes a production deploy — and it sat outside
+  # this job, unchecked, until a silently-swallowed `git fetch` failure in it went
+  # unnoticed for exactly the reason this job exists to prevent.
+  #
   # Step-level `if:` guards, matching every other job here: a job-level `if:` or a
   # paths filter reports "skipped", and a skipped required check blocks a merge
   # under branch protection rather than passing it.
@@ -250,7 +280,7 @@ jobs:
         if: needs.changes.outputs.docs_only != 'true'
         run: |
           docker run --rm -v "$PWD:/mnt" -w /mnt koalaman/shellcheck:v0.11.0 \
-            -o check-unassigned-uppercase scripts/*.sh
+            -o check-unassigned-uppercase scripts/*.sh release.sh
 
       - name: Documentation-only change — suite skipped
         if: needs.changes.outputs.docs_only == 'true'

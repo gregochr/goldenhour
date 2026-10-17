@@ -51,7 +51,17 @@ public enum RunType {
     BATCH_NEAR_TERM,
 
     /** Far-term batch evaluation (T+2, T+3) — only evaluated when weather is SETTLED. */
-    BATCH_FAR_TERM;
+    BATCH_FAR_TERM,
+
+    /**
+     * Ask PhotoCast typed questions and admin dry-runs — one run per UK civil day, so the day's
+     * spend is one Operations row. Its model is the {@code photocast.ask.model} property, never a
+     * {@code model_selection} row.
+     */
+    ASK,
+
+    /** Ask PhotoCast Ready-answer precompute — one run per precompute, user-less. */
+    ASK_READY;
 
     /** Furthest day ahead any run type forecasts (T+5). */
     public static final int FORECAST_HORIZON_DAYS = 5;
@@ -83,7 +93,7 @@ public enum RunType {
             case WEATHER, TIDE, LIGHT_POLLUTION, BRIEFING,
                     BRIEFING_BEST_BET, BRIEFING_GLOSS,
                     AURORA_EVALUATION, AURORA_GLOSS, BLUEBELL_GLOSS,
-                    SCHEDULED_BATCH, BATCH_NEAR_TERM, BATCH_FAR_TERM ->
+                    SCHEDULED_BATCH, BATCH_NEAR_TERM, BATCH_FAR_TERM, ASK, ASK_READY ->
                     java.util.stream.IntStream.rangeClosed(0, FORECAST_HORIZON_DAYS)
                             .mapToObj(today::plusDays)
                             .toList();

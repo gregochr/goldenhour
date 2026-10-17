@@ -7,6 +7,7 @@ import { STAND_DOWN_COLOUR } from '../markerUtils.js';
 import InfoTip from '../InfoTip.jsx';
 import BottomSheet from '../BottomSheet.jsx';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
+import { useFitToFrame } from '../../hooks/useFitToFrame.js';
 
 /**
  * The Map tab's filters popover — map-tab-v2-plan.md §3 P7,
@@ -56,9 +57,15 @@ export default function FiltersPopover({
   showAdminRow, showStandDown, onToggleStandDown, hasStandDown,
   showUnrated, onToggleUnrated, hasUnrated,
   activeCount, filteredCount, scopeCount, onClearAll,
+  chipHidden = false, restoreFallback = null,
 }) {
   const rootRef = useRef(null);
+  const panelRef = useRef(null);
   const isMobile = useIsMobile();
+
+  // The desktop/tablet panel must fit the map frame it opens in (owner report, 2026-10-08) — see
+  // `useFitToFrame`. The phone's `BottomSheet` scrolls its own body, so the hook stands down there.
+  useFitToFrame(panelRef, rootRef, { direction: 'down', open, disabled: isMobile });
 
   // Desktop/tablet only — see the class doc's phone section. `BottomSheet`'s own backdrop is the
   // phone's dismiss surface, and its content is portalled OUTSIDE `rootRef`, so this listener would
@@ -273,28 +280,39 @@ export default function FiltersPopover({
   return (
     // eslint-disable-next-line jsx-a11y/no-static-element-interactions
     <div ref={rootRef} data-testid="wf-filters" className="wf-filters" onKeyDown={onKeyDown}>
-      <button
-        type="button"
-        data-testid="wf-filters-chip"
-        className={`wf-filters-chip${activeCount > 0 ? ' active' : ''}`}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-controls="wf-filters-panel"
-        onClick={() => onOpenChange(!open)}
-      >
-        Filters{activeCount > 0 && ` (${activeCount})`}
-        <span aria-hidden="true" className="wf-win-caret">&#9662;</span>
-      </button>
+      {/* ⚠️ Withheld, not merely hidden, on the phone Layers section's host mount
+          (map-mobile-sheet-plan.md §3 M2 task 6) — see `RegionsJump`'s identical note. */}
+      {!chipHidden && (
+        <button
+          type="button"
+          data-testid="wf-filters-chip"
+          className={`wf-filters-chip${activeCount > 0 ? ' active' : ''}`}
+          aria-haspopup="dialog"
+          aria-expanded={open}
+          aria-controls="wf-filters-panel"
+          onClick={() => onOpenChange(!open)}
+        >
+          Filters{activeCount > 0 && ` (${activeCount})`}
+          <span aria-hidden="true" className="wf-win-caret">&#9662;</span>
+        </button>
+      )}
 
       {isMobile ? (
-        <BottomSheet open={open} onClose={() => onOpenChange(false)} label="Map filters" modal={false} reserveCloseStrip>
+        <BottomSheet
+          open={open}
+          onClose={() => onOpenChange(false)}
+          label="Map filters"
+          modal={false}
+          reserveCloseStrip
+          restoreFallback={restoreFallback}
+        >
           <div id="wf-filters-panel" data-testid="wf-filters-panel" className="wf-filters-sheet">
             {panelBody}
           </div>
         </BottomSheet>
       ) : (
         open && (
-          <div id="wf-filters-panel" data-testid="wf-filters-panel" className="wf-filters-panel" role="dialog" aria-label="Map filters">
+          <div ref={panelRef} id="wf-filters-panel" data-testid="wf-filters-panel" className="wf-filters-panel" role="dialog" aria-label="Map filters">
             {panelBody}
           </div>
         )
@@ -352,4 +370,11 @@ FiltersPopover.propTypes = {
   /** The footer's "of M" — the scope-only pool, before every other filter. */
   scopeCount: PropTypes.number.isRequired,
   onClearAll: PropTypes.func.isRequired,
+  /**
+   * Withholds the standalone trigger chip while still mounting the sheet/popover — the phone
+   * Layers section provides its own trigger row instead (map-mobile-sheet-plan.md §3 M2 task 6).
+   */
+  chipHidden: PropTypes.bool,
+  /** Forwarded to `BottomSheet`'s own prop of the same name (phone only). */
+  restoreFallback: PropTypes.func,
 };

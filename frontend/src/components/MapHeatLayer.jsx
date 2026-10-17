@@ -65,11 +65,16 @@ const MARKER_INTERACTIVE_ALPHA = 0.2;
  * always painted at {@code opacity:0.92*alpha} (docs/design/map-tab-v2/map-tab-v2.js:173), but 0.9
  * was the pre-existing repo value the P4 re-tune above never listed as a deliberate change — an
  * unledgered drift a spec-vs-shipped audit caught. See map-tab-v2-plan.md §4 for the ledger entry.
+ *
+ * <p>{@code RADIUS_MAX_PX} re-tuned 190 → 400 on 2026-10-02 (owner report: field invisible at zoom
+ * ~12 with 4-star chips). At zoom 12 (~22 m/px at lat 55) 7.2 km is ~330 px, so the old cap bit and
+ * shrank the field into blobs around each chip instead of covering the same countryside; it stacked
+ * with the 0.12 floor in `heatHandover.js` (now 0.35).
  */
 const HEAT_OPACITY = 0.92;
 const RADIUS_METRES = 7200;
 const RADIUS_MIN_PX = 30;
-const RADIUS_MAX_PX = 190;
+const RADIUS_MAX_PX = 400;
 const GRID = 6;
 const BLUR = 4;
 
@@ -78,8 +83,10 @@ const BLUR = 4;
  * on a dark ground)" table's "Map tab field" row (3.0/190/2.4). No `bloomFrom`/`bloomA`/`bloomBlur`
  * dial is set here: the kernel's own defaults in `heatField.js` (`field()`'s `bloomFrom`/`bloomA`,
  * `blitField`'s `bloomBlur`) already ARE that row, so this host asks only for the layer to exist.
- * `bloomFrom` must stay at 3.0 on every surface regardless — to tame a small surface, cut
- * `bloomBlur`, never raise the gate.
+ * `bloomFrom` must stay at 3.0 on every surface painted with the shared/temperature ramp,
+ * whose luminance peaks at 3★ — to tame a small surface, cut `bloomBlur`, never raise the gate.
+ * A monotonic ramp injected via `opts.ramp` (aurora, plan §4 #4) may pass its own `bloomFrom`
+ * (3.4), because it has no dead band to leave.
  */
 const FIELD_BLOOM = 1;
 
@@ -88,6 +95,11 @@ const FIELD_BLOOM = 1;
  * coastline's own survey error would show as a visibly false coast. By then the field is already
  * close to `heatHandover.js`'s {@code FADE_TO} floor opacity, so an unclipped wash over water reads less wrong than a
  * hard edge in the wrong place (docs/design/map-tab-v2/README.md, "The heat field").
+ *
+ * <p>Re-checked 2026-10-02 after the floor rose to 0.35: the field now shows above this zoom and
+ * spills softly over the sea at the Northumberland coast. Extending the clip to zoom 14 was tried
+ * and rejected — at zoom 12 around Bamburgh the 1:50m coast cut straight diagonals through the
+ * water and across the headland, a visibly false coast, worse than a graded wash. Left at 11.5.
  */
 const LAND_CLIP_MAX_ZOOM = 11.5;
 
@@ -264,10 +276,11 @@ export function markersAreInteractive(opacity) {
  * <p>⚠️ <b>Scoped by construction, which matters twice.</b> This layer only ever mounts on the MAP
  * TAB (`heat` is passed by `WindowFirstMapPane` alone), so the Plan-tab overlay — where the markers
  * DO carry popups and ARE a real keyboard route — never has {@code inert} applied. And on the tab,
- * an AURORA window unmounts this layer entirely, at which point {@link restoreMarkerPanes} removes
- * the attribute: aurora has no chips and no pins, so the medallions are the location vocabulary
- * there and must stay reachable. Both fall out of "set it while hiding, clear it while restoring"
- * rather than needing a mode test of their own.
+ * whenever this layer unmounts (a tab change, a logout), {@link restoreMarkerPanes} removes the
+ * attribute so the medallions stay reachable. (Until aurora heat A2 an AURORA window was the
+ * routine case: it unmounted this layer and the medallions were its whole location vocabulary.
+ * It now paints the field with chips and pins like any other window.) Both fall out of "set it
+ * while hiding, clear it while restoring" rather than needing a mode test of their own.
  *
  * <p>⚠️ {@code inert} is a silent no-op in jsdom, so the tests assert the ATTRIBUTE rather than
  * focus behaviour. A test trying to prove non-focusability there proves nothing.
@@ -360,10 +373,21 @@ function restoreMarkerPanes(map) {
  *        — `PinsLayer`'s dots here, `MapLabels`' chips in Heat — and one location must render in
  *        one place, not two. See the block above `paint` for the two conditions that used to be on
  *        that hide and why both were wrong.
+ * @param {number}   [props.dim] a factor on the FIELD's fill opacity, 1 by default (no change). Ask
+ *        PhotoCast's picks pass less than 1 so the field steps back behind the numbered chips; it
+ *        reaches the fill inside the draw and nothing else, so the coastline stroke and the reach
+ *        rings that share the canvas keep their own strength. A change repaints (it is a dependency
+ *        of the paint callback, which is what the canvas hook repaints on).
+ * @param {Function} [props.ramp] a `(score) => [r, g, b]` colour function handed to the kernel as
+ *        `opts.ramp` (aurora, `aurora-heat-plan.md` §3 A2); null by default, which leaves the
+ *        kernel on `scoreRamp`'s module state exactly as before.
+ * @param {{rgb: number[], from: number, a: number}} [props.bloom] the bloom colour, gate and
+ *        strength of an injected ramp (`AURORA_BLOOM`). When set it asks for the bloom whatever the
+ *        colour-scale preference is (plan D3); null leaves the temperature-only rule.
  */
 export default function MapHeatLayer({
   points, conf = null, colourMode = null, homeCoords = null, rings = false,
-  fieldEnabled = true,
+  fieldEnabled = true, dim = 1, ramp = null, bloom = null,
 }) {
   const map = useMap();
 
@@ -508,12 +532,20 @@ export default function MapHeatLayer({
         // confidence, which is the honest default for a window the backend declined to qualify —
         // the haze is a qualifier on a claim, not a claim of its own.
         conf,
-        opacity: HEAT_OPACITY * fade.heat,
+        // `dim` steps the FILL back while Ask's picks are on the map (`MapView`'s `ASK_HEAT_DIM`). It
+        // is a factor here, inside the draw, and nowhere else: the coastline stroke and the reach
+        // rings below are drawn on this same canvas, and an opacity on the pane would dim them too.
+        opacity: HEAT_OPACITY * fade.heat * dim,
         // Bloom only in TEMPERATURE mode (map-tab-v2-plan.md §3 P2, decision D-1): the bloom's whole
         // rationale is the temp ramp's luminance inversion, and the verdict ramp has none — an ember
         // glow over a green "go" would be a false signal. In verdict mode this spreads NO keys at
         // all, not a falsy one, so `drawTiles` sees today's exact options object.
-        ...(getMode() === 'temp' ? { bloom: FIELD_BLOOM } : null),
+        // The aurora arm comes FIRST (plan D3): an injected `bloom` asks for the glow with its own
+        // colour, gate and strength whatever the persisted colour scale is.
+        ...(bloom
+          ? { bloom: FIELD_BLOOM, bloomFrom: bloom.from, bloomA: bloom.a, bloomRGB: bloom.rgb }
+          : getMode() === 'temp' ? { bloom: FIELD_BLOOM } : null),
+        ...(ramp ? { ramp } : null),
         // Same rule as the bloom above: below LAND_CLIP_MAX_ZOOM this spreads all five clip keys
         // (clipPath may still be null); at/above it, none at all — absence, not a falsy value.
         ...(clipOpts || null),
@@ -564,11 +596,13 @@ export default function MapHeatLayer({
   // thumbnails and the map bitmap disagreeing with everything around them, and it is a RACE:
   // whether it happens depends on which fetch resolves first. Threading the resolved mode into
   // the dependency array is what makes the repaint happen; its value is never read for colour.
+  // `ramp`/`bloom` are the opposite — REAL inputs, read above — and sit in the same array so that
+  // Aurora -> Sunset -> Aurora repaints with the right ramp each way (aurora-heat-plan.md §6).
     // Referenced so it is a REAL dependency, not a suppressed one: `exhaustive-deps` cannot see
     // that this callback's colours come from `scoreRamp`'s module state, so it reads the entry as
     // unnecessary. `void` makes the dependency honest and keeps the rule on.
     void colourMode;
-  }, [map, points, conf, colourMode, landMask, rings, homeCoords, fieldEnabled]);
+  }, [map, points, conf, colourMode, landMask, rings, homeCoords, fieldEnabled, dim, ramp, bloom]);
 
   const {
     attachFrame, canvasRef, geoFailed, repaint, repaintNow,
@@ -705,7 +739,11 @@ export default function MapHeatLayer({
 }
 
 MapHeatLayer.propTypes = {
-  /** The active scoreRamp mode — a repaint key only; see the paint callback's note. */
+  /**
+   * The active scoreRamp mode — a repaint key only; see the paint callback's note. Aurora is NOT
+   * a colourMode value: in A2 it arrives as separate `ramp`/`bloom` props, and the aurora bloom
+   * arm must precede the `getMode() === 'temp'` check in `paint`.
+   */
   colourMode: PropTypes.oneOf(['temp', 'verdict']),
   points: PropTypes.arrayOf(PropTypes.shape({
     lat: PropTypes.number,
@@ -720,4 +758,14 @@ MapHeatLayer.propTypes = {
    * passes false: the coastline stroke still draws, but `drawTiles`/bloom/rings do not, and the
    * medallion markers are held fully hidden regardless of zoom. */
   fieldEnabled: PropTypes.bool,
+  /** A factor on the field's fill opacity (default 1) — Ask's picks dim the field behind them. */
+  dim: PropTypes.number,
+  /** An injected `(score) => [r, g, b]` ramp (aurora); null keeps the scoreRamp module state. */
+  ramp: PropTypes.func,
+  /** An injected bloom `{rgb, from, a}` (aurora's `AURORA_BLOOM`); null keeps the temp-only rule. */
+  bloom: PropTypes.shape({
+    rgb: PropTypes.arrayOf(PropTypes.number).isRequired,
+    from: PropTypes.number.isRequired,
+    a: PropTypes.number.isRequired,
+  }),
 };

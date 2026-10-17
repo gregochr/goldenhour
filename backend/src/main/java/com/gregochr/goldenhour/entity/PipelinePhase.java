@@ -57,5 +57,25 @@ public enum PipelinePhase {
     RETRY_FAILED,
 
     /** Running BriefingService.refreshBriefing() (which calls gloss + best-bet inline). */
-    BRIEFING
+    BRIEFING;
+
+    /**
+     * The phases in which a run has not yet handed any batch to Anthropic, so a restart cannot
+     * safely resume it. A single definition shared by the startup resume (which fails such a run)
+     * and the solar catch-up (which must not count such a run as "this cycle already ran").
+     * Covers both cycles: nightly records only {@code FORECAST_BATCH_SUBMIT}; intraday records
+     * {@code STABILITY_RECLASSIFY} then {@code FORECAST_BATCH_SUBMIT}.
+     */
+    public static final java.util.Set<PipelinePhase> PRE_SUBMISSION =
+            java.util.EnumSet.of(STABILITY_RECLASSIFY, FORECAST_BATCH_SUBMIT);
+
+    /**
+     * Whether a RUNNING run's recorded phase is one a restart cannot resume.
+     *
+     * @param phase the run's current phase, possibly null (no phase started yet)
+     * @return true for a pre-submission phase or null
+     */
+    public static boolean isPreSubmission(PipelinePhase phase) {
+        return phase == null || PRE_SUBMISSION.contains(phase);
+    }
 }

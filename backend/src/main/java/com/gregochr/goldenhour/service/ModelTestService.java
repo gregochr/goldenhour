@@ -17,6 +17,7 @@ import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.ModelTestResultRepository;
 import com.gregochr.goldenhour.repository.ModelTestRunRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
+import com.gregochr.goldenhour.util.ReplayJson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -91,8 +92,8 @@ public class ModelTestService {
         this.solarService = solarService;
         this.costCalculator = costCalculator;
         this.exchangeRateService = exchangeRateService;
-        this.objectMapper = new ObjectMapper()
-                .registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
+        // Stored rows may carry fields a different build wrote; skip and log them (ReplayJson).
+        this.objectMapper = ReplayJson.replayMapper();
     }
 
     /**

@@ -1,0 +1,322 @@
+# Ask PhotoCast — the thread (follow-up questions)
+
+**Status (2026-10-11): built T1–T5, merged as #1081 #1080 #1082 #1083 #1084.** The feature stays behind
+`photocast.ask.enabled`. Its real-API script is `AskThreadRegressionTest` (`prompt-regression` profile,
+assertions pending the owner's approval); CLAUDE.md's *Ask — the thread* bullet states the feature as built.
+
+Owner ask, 2026-10-10, after the first real session on v2.25.0:
+
+> anything for sunrise with tide alignment this weekend? → *answer*
+> Thanks. Anything closer to home? → *answer*
+> Hmmm… neither of those take my fancy. I've been to both recently. What's the best sunset option? → *answer*
+> Can you rank those options you returned? And I'll decide sunrise or sunset?
+
+Today each typed question stands alone: the model sees the question, the window and scope in
+context, and the five tools — never the previous answer — so "anything closer?" has nothing to be
+closer *than*, and "rank those options" has no options. This plan makes the **session a thread**:
+every question carries the exchanges before it, until the reader clears the answer or the forecast
+moves. It is bounded by size, not by a hop count, because the fourth question above reaches back
+to all three answers.
+
+Two owner decisions taken with the ask (2026-10-10): **yes to a thread**, and **"close to home" means
+the reader's saved local radius** (`app_user.local_radius_miles`, the Close-to-home radius, 10–50
+miles, default `photocast.close-to-home.radius-miles` = 22), never the flat 60 drive minutes #1078
+introduced as a stopgap.
+
+Builds on `ask-photocast-plan.md` (the feature) and the 2026-10-08 refactor series (`AskScope`,
+`AskConversation`, `AskEventType`, `AskReadyServing`, the client reducer in `utils/askConversation.js`).
+Read those "As built" notes first; this plan states only what changes.
+
+---
+
+## §1 Invariants that do not move
+
+1. **The validator decides everything.** A pick is served only if it is pick-eligible against the
+   LIVE snapshot at the moment of the answer (`AskSnapshot.isPickEligible`). The thread adds a second
+   way a pick can be *offered* to the model (below) but no way for a stale one to be served.
+2. **Nothing persisted, nothing in module scope.** The thread lives in `AskContext` (React state) and
+   is sent with each request; a logout, a reload or "New conversation" (once "Clear answer") ends it. `ask_log` keeps one row per
+   answered request as now; it does not store the thread.
+3. **The guards and their order** (`AskService`: rate limit → sanitise → pre-filter → snapshot → Ready
+   match → cache → spend cap → reservation → engine) are unchanged. A follow-up is a typed question
+   costing one allowance unit and one engine call; `engine_calls` is never refunded.
+4. **The budget**: 4 model turns, `max_tokens` 600, 20 s per call, 30 s per conversation, `$0.50`/day.
+   The thread must fit inside it — see §2.4.
+5. **Every card fact is re-joined from the live snapshot**, never trusted from the client. A client-sent
+   thread carries ids and the reader's own words; the server rebuilds the rest.
+6. **Ready answers** are user-less and shared; a Ready answer can START a thread (the reader follows
+   up on it) but is never itself computed with a thread.
+7. `/` refusals, the four surfaces by width, `registerMapContext` as the one map channel, the
+   `--psh` three-valued peek — untouched.
+
+---
+
+## §2 Design
+
+### §2.1 The contract — `POST /api/ask`
+
+`AskRequest` gains one optional field:
+
+```json
+{
+  "question": "Anything closer to home?",
+  "windowId": "2026-10-11_sunrise",
+  "regionIds": [],
+  "view": "map",
+  "thread": [
+    {
+      "question": "anything for sunrise with tide alignment this weekend?",
+      "summary": "Bamburgh and Dunstanburgh both have high water on the light on Saturday …",
+      "picks": [
+        {"locationId": 41, "windowId": "2026-10-11_sunrise"},
+        {"locationId": 57, "windowId": "2026-10-11_sunrise"}
+      ],
+      "events": [{"type": "KING_TIDE", "date": "2026-10-11"}],
+      "generatedAt": "2026-10-10T14:17:40"
+    }
+  ]
+}
+```
+
+- `thread` is the prior exchanges, oldest first, **at most `photocast.ask.thread.max-exchanges`
+  (default 8)**; a longer list is **400 `INVALID`** (the client never sends one — it trims). Absent or
+  empty = a fresh question, byte-identical to today.
+- Each exchange carries the reader's `question` (re-sanitised server-side with the SAME
+  `AskQuestionSanitiser` rules — 200 chars, the allow-list, refused characters → 400), the answer's
+  `summary` (the model's earlier words, now **client-supplied text**: a new
+  `AskQuestionSanitiser.sanitiseThreadSummary` applies NFC, the SAME refused-character classes as a
+  question (control, format, emoji, combining) and a hard **500 code-point cap** (400 `INVALID` over
+  it — the validator's `clean` caps by whitespace-split WORDS, so one 5,000-char "word" would pass it),
+  then the validator's `clean` (60 words, brand sanitiser, URL strip). It is treated as the reader's
+  text, never the server's, and only ever lands inside the quoted "I answered" line), its `picks` as
+  `(locationId, windowId)` pairs only, its `events` as `(type, date)` only, and the briefing
+  `generatedAt` it was answered against.
+- **Only typed and Ready answers that were `answerable` enter the thread.** A can't-answer, a refusal
+  or an error is not an exchange (the client does not append it). An exchange that began as a Ready
+  answer carries `ready: true`: its `generatedAt` is the PRECOMPUTE's snapshot (a Ready answer served
+  after a manual briefing rebuild — which does not re-precompute — is older than the live run while
+  still fresh by the Ready rule, since its picks re-join live), so the §2.2 reset reads **typed
+  exchanges only**; a Ready-origin exchange is kept while its picks still re-join, which IS the Ready
+  freshness rule.
+- The response is unchanged in shape. `kind` keeps its three values; a follow-up that matched a Ready
+  answer cannot happen (the matcher is skipped for follow-ups, §2.3).
+- **Body cap**: `AskBodyLimitFilter` goes from a flat 8 KiB to a limit **derived from the configured cap**:
+  `8 KiB + max-exchanges × 10 KiB` (88 KiB at the default 8, 208 KiB at 20), read per request. The honest
+  arithmetic (corrected after Codex review of T1, whose first cut used a flat 16 KiB): JSON may escape any
+  character as a six-character backslash-u escape, so an astral code point is 12 bytes; one exchange at the contract's
+  maxima (500-code-point summary + 200-code-point question, three picks, ten events, `generatedAt`, keys) is
+  ~9.5 KiB, rounded up to 10; the 8 KiB base covers the live question (its raw cap is 1,000 UTF-16 units, 6,000 bytes escaped) and 20 region ids. **What the limit promises** (third Codex round corrected the wording of the second): the filter protects parsing from oversized bodies; it admits, with margin, every body OUR CLIENT produces (compact JSON, ASCII keys and references unescaped, raw lengths capped by a RAW 200/500 code-point refusal in `AskThreadValidation`; T4's `threadForWire` in `utils/askConversation.js` is the encoder), and makes no promise to admit every JSON encoding of a valid payload. JSON permits six-character escapes for any character, in property names too, and unbounded insignificant whitespace, so no finite limit could; a body that spends its bytes on either is refused like any other oversized body. The client's worst exchange is ~4 KiB (astral text is 4 bytes of UTF-8); 10 KiB also covers the same text escaped. A flat bound could not
+  hold what `max-exchanges` permits and would refuse a legitimate thread before the service applied its cap.
+  The sanitiser's early raw-length refusals still bound the work done.
+- **Cost of the cap**: a follow-up at eight exchanges is ~1.6× a fresh question's input (§2.4), so the
+  `$0.50`/day typed cap buys roughly a third fewer questions for everyone on a day of long threads.
+  Accepted; the cap is not raised.
+
+### §2.2 The thread ends when the forecast moves
+
+Every exchange carries the `generatedAt` it was answered against. The server compares each with the
+live snapshot's `generatedAt`:
+
+- **Same run**: the exchange is context.
+- **Different run** (a typed exchange's `generatedAt` differs — `generatedAt` is the briefing BUILD
+  time, `AskSnapshotBuilder`, which moves on a rebuild, never per serve; ratings re-enrich on every
+  serve, so between builds a star can move while the run stands — the fact lines in §2.3 are re-joined
+  live and stay current, only the earlier prose can lag): the server **drops the whole thread** and answers the question fresh, and the
+  response carries `threadReset: true` with `threadResetReason: "forecast updated"`. The client shows
+  one line above the new answer — *"The forecast has updated since your last question — this is a
+  fresh answer."* — and empties its thread. (Rationale: "closer than the one you gave me" is
+  meaningless against a different run; `generatedAt` is the same invalidation hint the Ready
+  freshness and the typed cache already key on.)
+
+The client also ends the thread on **New conversation** (once "Clear answer") and sign-out (the provider unmounts). Crossing
+1024px releases only the surfaces' OPEN state (`askSheetOpen`/`askDockOpen`); the conversation
+survives today and so does the thread.
+
+### §2.3 What the server does with a thread
+
+1. **Guards.** Rate limit, sanitiser (question AND every thread question), pre-filter (on the new
+   question only — "car park" in a follow-up still refuses), snapshot. **The Ready intent matcher is
+   skipped** for a follow-up (a thread question is by definition not a catalogue question — "anything
+   closer?" must never silently become `BEST_SOON`). **The typed cache is skipped** for a follow-up
+   (its key would have to include the whole thread; a follow-up is unlikely to repeat; simplest is
+   honest). Spend cap, reservation, engine — unchanged.
+2. **Prompt.** `AskPromptBuilder` renders the thread into the user message as prior turns, compactly:
+
+   ```
+   Earlier in this conversation:
+   You asked: "anything for sunrise with tide alignment this weekend?"
+   I answered: "Bamburgh and Dunstanburgh both have high water on the light on Saturday …"
+     Picks: 1. Bamburgh (Northumberland) · Saturday sunrise · 4★ · Worth it · 55 min from home · tide suits
+            2. Dunstanburgh (Northumberland) · Saturday sunrise · 4★ · Worth it · 60 min from home · tide suits
+     Events: King tide · Saturday
+   Now the reader asks: "Anything closer to home?"
+   ```
+
+   Every pick line is **re-joined live** (`AskSnapshot` slot: star, verdict, time, tide; the asker's
+   drive minutes via `DriveTimeResolver`; distance via home lat/lon — §2.6). A pick whose
+   `(locationId, windowId)` no longer exists in the snapshot (its window passed, the place disabled)
+   is rendered as `Dunstanburgh · no longer in the forecast` so the model can say so rather than
+   invent — the NAME comes from the lazy id→(name, lat, lon) map §2.6 loads (`LocationRepository.
+   findAllEnabled`, one query per conversation, mirroring `driveMinutesByLocation`), or `a place no
+   longer listed` when even that is gone. A prior pick that is **outside the follow-up's scope** (the
+   Map's scope segment can move between questions) is rendered as `Bamburgh · outside the area you
+   are now asking about` and is NOT offered to the validator. The system
+   prompt gains one rule: *"Earlier picks are real candidates: you may rank, compare, or exclude them.
+   Resolve 'closer', 'earlier', 'the other one', 'those' against them. Call `rank_spots` again when
+   the reader asks for new places; you do not need to for a question only about the earlier picks."*
+3. **Evidence.** `AskEvidence` gains the thread's picks and events as *offered* candidates
+   (`ThreadFact`), so the validator's "a pick must have been returned by `rank_spots` IN THIS
+   CONVERSATION" rule becomes "returned by `rank_spots` in this conversation **or offered by the
+   thread**" — and in both cases **still pick-eligible live**. The same for an event's type. A pick the
+   thread offered that is no longer eligible is dropped exactly as a stale `rank_spots` pick would be,
+   and the summary rule (*say when something is missing*) applies.
+4. **Validator**. Unchanged rules otherwise: ≤ 3 picks at distinct locations, ranks renumbered,
+   word caps, brand/URL strip, every fact re-joined. The events-question "none while offered" rule
+   (#1043) reads the live snapshot as now, not the thread. **One new outcome**: an answer to a
+   follow-up whose every pick was a thread pick that has since dropped (passed, disabled, out of scope)
+   and that made no tool call is a **CANT** ("those places are no longer in the forecast"), never the
+   FAILED "answerable with no pick, no event and no tool call" — a thread that has gone stale is an
+   honest can't-answer, not an engine fault.
+5. **Logging.** `ask_log` gains nothing; the `[ASK]` INFO lines gain `thread=N`.
+
+### §2.4 Size
+
+A thread exchange renders to roughly 60 (question) + 60 (summary) + 3 × 25 (picks) ≈ 200 tokens.
+Eight exchanges ≈ 1,600 input tokens on top of today's prompt (~2,500 with tools): a follow-up at the
+cap costs about 1.6× a fresh question in input, output unchanged. At Haiku prices that is well under
+2p; the `$0.50`/day cap stands. `photocast.ask.thread.max-exchanges` (1..20, default 8) bounds it;
+the client trims the OLDEST exchange when it would exceed the cap. No token counting on the server —
+the exchange count and the two text caps bound the size deterministically.
+
+### §2.5 The client
+
+`AskContext` already holds one conversation through the reducer (`utils/askConversation.js`). It
+becomes a **list of exchanges plus the live conversation**:
+
+- `thread: [{question, summary, picks: [{locationId, windowId}], events: [{type, date}],
+  generatedAt, ready, answerId}]` — appended by `ANSWERED` when the answer was `answerable`
+  (typed OR Ready, `ready` marking which); never appended by `FAILED`/`REFUSED`/a can't-answer;
+  emptied by `CLEARED`, by a `threadReset` response, and on sign-out (the provider unmounts).
+  ⚠️ Every other action — `ASK_SENT`, `READY_OPENED`, `FAILED`, `REFUSED` (including the `settled`
+  conversation it restores from) — **carries `thread` through unchanged**: today those spread
+  `INITIAL_CONVERSATION`, which would silently drop the thread on a failed or refused follow-up. A
+  reducer test pins each.
+- `send(text, asked)` sends `thread` (trimmed to the cap) with the question; `asked` records
+  `followUp: thread.length` so the chip row can say **"follow-up · 3 so far"**.
+- **Rendering**: the answers stack as a conversation — each prior exchange collapsed to its question
+  and summary (its picks, map chips and "Plan this" belong to the LIVE answer only; an earlier
+  answer's picks are reachable by asking — "rank those" — not by scrolling back into stale cards).
+  The input stays below (on the dock and the sheet; on the phone peek the field sits above the stack, as F4 laid it out). The empty state is unchanged. `Clear answer` becomes **"Clear"** when a
+  thread exists and ends it. On the phone peek the minimised line shows the live answer as now; the
+  expanded sheet scrolls the stack.
+- The reset line (§2.2) is one `AskThreadReset` component above the live answer, dismissed with the
+  next question.
+- The map: picks and the camera follow the LIVE answer only (unchanged).
+
+### §2.6 "Close to home" is the saved radius
+
+`rank_spots` gains **`nearHome: true`** beside `maxDriveMinutes`. The server resolves it:
+
+- the asker's home (`app_user.home_latitude/longitude`) and saved `local_radius_miles`
+  (default `photocast.close-to-home.radius-miles`, 22; Pro-gated in the UI, so a LITE account always
+  has 22) → keep spots whose straight-line distance from home (`GeoUtils.distanceMiles`, via a lazy
+  id→coords map from `LocationRepository.findAllEnabled` on the first `nearHome` — `AskSnapshot.Slot`
+  carries no lat/lon) is within the radius. ⚠️ **Stated divergence, accepted**: the Map's reach lens
+  and `rank_spots.maxDriveMinutes` measure DRIVE time; `nearHome` measures straight-line miles — the
+  measure the "Close to home radius" setting has always named (`CloseToHomeService`, today
+  caller-less). Two measures for "near home" across two tabs is the cost; the benefit is that a
+  straight-line radius needs no ORS, so a LITE account with a home but no drive times gets it. The
+  answer therefore says **"within N miles of home"**, never "within reach" (CLAUDE.md forbids that
+  phrase without a drive time). "Closer" in a follow-up is the model narrowing `maxDriveMinutes`
+  below the earlier picks' drive — the prompt says so — or `nearHome` when it had not been used.
+- No home saved → the tool answers `nearHome is not available: no home postcode is saved`, and the
+  model says so (the existing LITE-without-drive-times shape).
+- The prompt rule from #1078 ("close to home with no time → 60 minutes") is **replaced**: *"'close to
+  home', 'near', 'nearby', 'local' with no number → `nearHome: true`; a number of minutes →
+  `maxDriveMinutes`."* `personal` is set by either argument (server-side, as now).
+- `AskUserContext` gains the home point and radius (read once in `AskService` from the user row; a
+  Ready conversation has neither and refuses `nearHome` as it refuses `maxDriveMinutes`).
+
+### §2.7 What is deliberately not built
+
+- **No server-side conversation store**, no conversation ids, no history across devices.
+- **No tool-trace replay**: prior turns are rendered as facts, never as the raw `rank_spots` JSON.
+- **No follow-up on a Ready answer while it is being precomputed** — Ready answers are computed
+  thread-less; the thread begins when a reader follows one up.
+- **No per-thread summarisation** when the cap is hit — the oldest exchange is dropped.
+- **No "same question" dedupe** inside a thread (the cache is bypassed; asking twice costs twice).
+
+---
+
+## §3 Phases (each a Sonnet agent in a worktree → PR → Codex clean + CI + CodeQL → merge)
+
+| Phase | Scope | Size |
+|---|---|---|
+| **T1 backend — contract and guards** | `AskRequest.thread` + `ThreadExchange` records with validation (cap, sanitiser on each question, `clean` on each summary, ids only); `AskService` skips the Ready matcher and the cache for a follow-up; the `generatedAt` comparison and the `threadReset` response fields; `AskErrorCode` unchanged (400 `INVALID` for a bad thread); `ask_log` unchanged; `[ASK]` lines carry `thread=N`. Tests: `AskTypedControllerTest` (400s, the reset), `AskServiceTest` (matcher/cache skipped only for follow-ups, charged as typed). **As built:** `ThreadExchange(question, summary, picks: [PickRef(locationId, windowId)], events: [EventRef(type, date)], generatedAt, ready)` (`ready` is a `Boolean`, absent reads false: Jackson 3 refuses an absent primitive) on `AskRequest.thread`; `AskThreadValidation` (called from `AskService.validate`, all 400 `INVALID`) plus `AskQuestionSanitiser.sanitiseThreadSummary`; the validated `AskThread` rides `AskRunOptions.thread` (`AskRunOptions.typed(thread)`; a Ready conversation with a thread is refused as a caller bug) and both engines accept and ignore it until T2; the validator strips from every SERVED summary the characters `sanitiseThreadSummary` refuses (one shared predicate, `AskQuestionSanitiser.refusedInProse`; this closes the emoji gap noted here earlier) and bounds it to 500 code points too (word-boundary cut after the 60-word cap; one shared constant `AskAnswerValidator.THREAD_SUMMARY_MAX_CODE_POINTS`) so the server never serves a summary its own thread validation would refuse; `photocast.ask.thread.max-exchanges` (`AskProperties.ThreadSettings`, 1..20, default 8); body cap derived from the cap (8 KiB + 10 KiB per permitted exchange; raw caps of 200/500 code points on a thread question/summary are what bound one exchange; the filter takes `AskProperties`); `AskResponse.threadReset`/`threadResetReason` (`NON_NULL`, set on every response path after a reset: own, cache hit, Ready match, can't); the `thread=N reset=…` INFO line is written for follow-ups only (and the existing failure line gains `thread=N`), so a fresh question's log is unchanged. Two limits to know: a summary is held to the control/format/emoji/combining refusals but NOT the question allow-list (the model's prose carries stars, dashes, ellipses), and the validator's own `clean` does not strip an emoji the model may write, so T4 should not send a summary that would be refused (or T2's prompt should forbid emoji). | M |
+| **T2 backend — prompt, evidence, validator** | `AskPromptBuilder` renders the thread (live re-join of every pick line; "no longer in the forecast"; "outside the area"); the system-prompt rule; `AskEvidence.ThreadFact`; `AskAnswerValidator` accepts a thread-offered pick/event that is still eligible and the stale-thread CANT; `ClaudeAskEngine`/`StubAskEngine` pass the thread through `AskConversation`. Golden prompt files get a thread case. One real-API check at the end (owner-authorised, ≤ 3 runs) against the fixture with an asker that HAS a home, a radius and stubbed coordinates (today's regression `ASKER` has neither, so "closer to home" could only be a CANT): the owner's four-question script, with the **expected outcome per step written down before the runs** — 1 OK with ≥ 2 coastal sunrise picks; 2 OK with picks inside the radius or an honest CANT naming the radius; 3 OK with sunset picks; 4 OK ranking only places from steps 1–3, no new `rank_spots` call required.  **As built:** `AskThreadContext` (built once at `AskConversation.open`) reconciles the thread with the live snapshot: offered picks = in scope and `isPickEligible`, dropped picks the rest (`AskEvidence.ThreadFact`, with `staleOnly` for the validator's new CANT), offered events = the earlier `(type, date)` still a live in-scope hot topic or almanac entry (served label and safety note); `AskPromptBuilder.userMessage` renders the plan's block and the thread rules join the SYSTEM prompt only for a follow-up (so a fresh prompt is byte-identical; golden `src/test/resources/ask/user-message-thread.txt`). Deviations from the plan: pick lines carry `locationId` and `windowId` (the first real run showed the model inventing an id for an earlier pick it could not see one for); a present-but-ineligible earlier pick reads `no longer rated well enough to pick`; the rules gained two sentences beyond the plan's (turned-down places are not picked again, rank requests return the earlier options as picks) after the real runs; the emoji line lives only in the thread rules, so a FRESH answer's summary can still carry an emoji that T1 then refuses on the next follow-up (T4 should not send such a summary, or a later change should forbid emoji in the fresh prompt too); `LocationRepository.findAllByEnabledTrueOrderByNameAsc` stands in for the plan's `findAllEnabled`; the stub ranks the thread's still-eligible picks with `AskTools.RANK` and no tool call. **Real runs** (3 paid runs of the four-question script on the fixture with its dates shifted four days, so Friday 9 Oct is `now` and Saturday has windows; asker with drive times 20-85 min; the last run on the final prompt): 1 OK, Bamburgh 5★ + Whitby 4★ sunrise, both tide-aligned, 3 turns; 2 OK, one pick, Bamburgh again (`rank_spots` only, 2 turns), summary 'no nearer spots have the same tide alignment' - expected picks nearer than step 1's or an honest CANT, so only partly met, and the `maxDriveMinutes`-only narrowing is T3's `nearHome` to fix; 3 OK, Whitby + Saltburn at Saturday sunset, Bamburgh excluded but Whitby (a step 1 place) repeated while the summary said the reader had been to it - the first two runs repeated both, the added rule helped but did not fully hold, model variance; 4 OK, one turn, `submit_answer` only (no `rank_spots`), Bamburgh and Whitby sunrise ranked (the distinct-location rule keeps one pick per place, so four earlier options show as two). `AskPromptRegressionTest` 3/3 on the final prompt. | M–L |
+| **T3 backend — `nearHome`** | `AskUserContext` home point + radius; `rank_spots.nearHome`; the prompt rule replacing #1078's 60 minutes; `personal` on either argument; `AskToolSchemas` + goldens; `AskToolsTest`.  **As built:** `AskUserContext` gained `Home(latitude, longitude, radiusMiles)` (a 3-argument constructor keeps no-home callers; `AskService.homeOf` reads the user row it already holds and applies `photocast.close-to-home.radius-miles` as a new `AskService` constructor argument); `AskLocationNames.byId()` now returns `Place(name, lat, lon)` and `AskLocationNames.memoised` makes `AskConversation.open` hand ONE lookup to both `AskTools` (nearHome) and `AskThreadContext` (names), so a conversation pays at most one query; `RankSpotsArgs` gained `nearHome` (a 6-argument compatibility constructor keeps older callers) and `RankSpotsResult` gained `withinMilesOfHome` (so the model can say "within N miles of home"); the prompt rule is the plan's, with 'closer' narrowing `maxDriveMinutes` or using `nearHome`, and `maxDriveMinutes`' schema description lost its 60-minute default; `AskToolSchemas.tools(withUser, withThread)` — a follow-up's `submit_answer` advertises 4 picks, golden `tool-schemas-with-user-thread.txt` added, `tool-schemas-with-user.txt` regenerated (it gained `nearHome` and the new `maxDriveMinutes` text), `tool-schemas-user-less.txt` unchanged byte for byte. **Ranking follow-ups (plan addition, from T2's real run):** `AskAnswerValidator.MAX_RANKED_PICKS` = 4; a submission where the thread offered picks and every submitted pick is one of them is distinct by (location, window), otherwise (fresh or mixed) the old 3-distinct-locations rule; `AskThreadValidation` accepts 4 picks per exchange (the body limit's 10 KiB per exchange already had the room). Decisions: a mixed answer falls under the fresh rule; the admin dry-run carries no home. **Client finding for T4:** `buildPickCards` and the Ask card list key by rank and join per (location, date, event), so two picks at one place render as two cards; `MapView`'s ask-pick spot builder keeps ONE chip per location (`taken.has(loc.name)`, lowest rank wins, its comment says two picks at a place "cannot be asked of the server" — now false), so the second pick of a place has no chip and selecting it has nothing to select or fly to. **Real-API check (run by the coordinator, not the T3 agent, on `1400fd75`, one paid run of the owner's four-question script on the fixture shifted four days, asker with a home point, radius 25 and drive times) — results as reported:** step 1 OK (Bamburgh 5★, Whitby 4★ sunrise, tide-suited); step 2 OK, `personal=true`, \"Within 25 miles of home, Cheviot Edge offers a 4★ sunrise tomorrow … closer than both earlier picks\" — the owner's want; step 3 (\"neither of those take my fancy. I've been to both recently. What's the best sunset option?\") AGAIN returned Bamburgh and Whitby at sunset — the model called `rank_spots` fresh and ignored the turn-down prompt rule, as in two of T2's three runs, so the owner's own script failed that step on three of four runs; step 4 OK in 1 turn ranking FOUR options (Bamburgh sunrise/sunset, Whitby sunrise/sunset), so the (location, window) rule works. `AskPromptRegressionTest` not run by the T3 agent. **Turn-down rule (second T3 commit)** made step 3 deterministic instead of hoping: `ReadyIntentRules.turnsDownEarlierPlaces` (whole-word phrases `neither`, `not those`, `none of those`, `been to both|those|them|all` (not after `not`/`never`/`haven't`), `don't fancy`, `something else`, `somewhere else`, `other than|apart from|instead of those`; a bare \"those\" or \"I've been to Bamburgh\" does not match) makes `AskThreadContext.of(..., turnedDown)` put the locations of EVERY earlier pick in `ThreadFact.turnedDown`; the validator drops any submitted pick at one of them at every window and reports a count (logged at INFO by `AskConversation.submit`, never names); when that leaves no pick and no event (and a pick was dropped or a tool was called) the answer is a CANT in our words with `missing` = \"the other places are not rated well enough\"; the prompt marks each earlier pick ` · the reader has turned this place down` and adds \"Turned-down places must not be picked again\" to the user message; the stub treats a turn-down as a new-place question and skips turned-down places. | S–M |
+| **T4 frontend — the thread** | Reducer: `thread` list, `ANSWERED` appends when answerable, `CLEARED`/`THREAD_RESET` empty it; `send` carries it (trimmed); `asked.followUp`; the stacked rendering (`AskThreadHistory` collapsed exchanges above the live `AskAnswer`), the chip-row count, "Clear", `AskThreadReset`; the peek sheet's expanded state scrolls the stack. Adversarial review (runtime identity of the fresh-question path, a11y of the stack — one live region, prior exchanges are static text) before merge. | L |
+|  | **As built (T4, 2026-10-11):** `utils/askConversation.js` — `thread` and `resetReason` on the conversation, `THREAD_MAX_EXCHANGES = 8`, `exchangeOf` (the wire fields plus the client's own `answerId`), `threadForWire` (newest 8, summary held to 500 code points, `answerId` dropped), `selectHistory` (the thread without the answer on screen, since the live answer is the thread's last exchange), the `THREAD_RESET` action (busy only; empties the thread, strips `asked.followUp`, records the reason; dispatched BEFORE the `ANSWERED` it belongs to). `ASK_SENT`, `READY_OPENED` and `FAILED` (which rebuild from `INITIAL_CONVERSATION`) name `thread` themselves, and `REFUSED` too as belt and braces (it spreads the settled conversation, which `settledOf` never leaves null, so its thread equals the busy one's by construction), each pinned; `ASK_SENT`/`READY_OPENED`/`FAILED` clear the reset line (it belongs to the answer it came with), `REFUSED` puts it back with the answer. `AskContext.send` posts `thread` only when non-empty (a first question's body is byte-identical to before) and sets `asked.followUp = thread.length` only when above zero, so a first question's `asked` is unchanged too (not `followUp: 0`); a 200 with `threadReset: true` dispatches `THREAD_RESET` (reason `threadResetReason`) then `ANSWERED`. The context exposes `thread`, `history` and `resetReason`. `AskThreadHistory` is a plain `<ol>` of collapsed exchanges (the reader's question as their bubble, the summary as muted text, visually-hidden "You asked" / "Answer" labels, nothing to press) above the live turn and OUTSIDE the one live region; `AskThreadReset` sits INSIDE it with the fresh answer; the chips gain "follow-up · N so far"; `AskClearAnswer` (and the phone peek's ✕) read "Clear" once `history` is non-empty, "Clear answer" otherwise. A follow-up moves the conversation's own scroller (`utils/askScroll.js`, not `scrollIntoView`, which would move the page under a sticky dock) to the new question; focus stays in the field. The surfaces' layouts needed no change: the history scrolls inside the sheet's scroller, the dock's `.wf-ask-dock-scroll` and the peek's body, with the input row outside the first two (the sheet's footer, the dock's sibling); on the phone peek the field sits ABOVE the stack, in the row F4 already put it in, and the body scrolls beneath it. The minimised peek line, the map's picks, chips and camera follow the live answer only. Wire: request `thread: [{question, summary, picks: [{locationId, windowId}], events: [{type, date}], generatedAt, ready}]`; response fields read: `threadReset`, `threadResetReason`. **Follow-up report, 2026-10-11 (the thread "lost" between two questions on the phone Plan sheet, production v2.25.2, 09:26-09:27 UTC; the second request carried no `thread` and the chips said no "follow-up · 1 so far"):** `AskThreadSurvival.test.jsx` drives every route a reader or the browser can take between two questions at 390px, through the real shell, provider, sheet and conversation (sheet ✕, scrim, Escape; Plan → Map → Plan; the peek row mounting, collapsing and unmounting; select a pick then "Show on map ›"; "Plan this ›" and back, and closing in the plan view; `visibilitychange`, `pagehide`/`pageshow`, `blur`/`focus`; a visual-viewport (keyboard) resize; the allowance re-read on a UK day turning; a parent re-render) and **none loses the thread** (a mutant that drops it in `ASK_SENT` fails 14 of the 15). The only `clear()` callers are `AskClearAnswer` and the peek's ✕ on a settled answer, and `AskProvider` is remounted by nothing but `RewindGate`'s key. So the code does not lose it; the likeliest cause is **version skew**: v2.25.1 (10 Oct 21:50) had no client thread, T4 landed 11 Oct 01:06 and v2.25.2 was promoted 09:46 BST, and a standalone PWA page resumed from the background keeps the JS it loaded (the service worker updates on navigation, and no request log line marks a resume) — such a page asks a first question every time, which is exactly the observation. Falsifiable: the phone's page would show the v2.25.1 `index-*.js` hash. The other possibility is an accidental tap on "Clear answer", a text button at the foot of the conversation just above the field, which ended the whole thread and said "answer". It is now **"New conversation"** everywhere (the sheet and dock button, the peek's ✕), with an accessible description ("Ends this conversation. Your earlier questions are kept until then."). Not built, named: a deploy check that makes a running page fetch the new bundle (`registration.update()` on `visibilitychange`, or a version header the client compares).
+| **T5 docs + regression** | A NEW `AskThreadRegressionTest` (same `prompt-regression` profile, header "assertions pending owner approval, 2026-10-11") holding the four-question script with the per-step expectations above — the existing owner-approved `AskPromptRegressionTest` is never edited; CLAUDE.md "Ask — the engine"/"the typed guards"/"the client" bullets; `ask-photocast-plan.md` cross-link; changelog entries per phase. **As built (T5, 2026-10-11):** `AskThreadRegressionTest` (beside, never in place of, `AskPromptRegressionTest`; also in PIT's `excludedTestClasses`) drives the owner's four questions through the real engine with a thread, the fixture shifted four days and an asker with home 54.97,-2.10, radius 25 and drive times 20-85 minutes (the coordinates are the test's own; only inland Cheviot Edge is inside the radius). Step 2 asserts only the invariant, after three real runs produced three honest shapes (new picks inside the radius; no picks; step 1's picks re-offered, all naming the radius): OK (personal) or CANT, the radius named, every pick inside the radius or one of step 1's. No separate reset case: the reset is `AskService` logic, pinned by `AskServiceTest` and `AskTypedControllerTest`. **First passing run, 2026-10-11, on `297dfa82`:** step 1 OK, Bamburgh 5 stars and Whitby at sunrise (list_windows, get_hot_topics, rank_spots, submit_answer); step 2 OK, personal, "Nothing pick-eligible with high tide alignment is within 25 miles of home for tomorrow's sunrise. Bamburgh at 70 minutes remains the best option." (pick: Bamburgh); step 3 OK, Cheviot Edge (today sunset), Saltburn (tomorrow sunset) and Seahouses (today sunset), Bamburgh and Whitby excluded by the turn-down rule; step 4 OK in one turn, submit_answer only, Bamburgh sunrise, Cheviot Edge sunset and Whitby sunrise ranked. | S |
+
+T1 → T2 → T3 sequential (same files); T4 can start after T1 (it needs the contract only); T5 last.
+
+---
+
+## §4 Decisions taken in this plan (challenge in review)
+
+1. **Thread cap = 8 exchanges, by count, not tokens.** Deterministic and testable; §2.4's arithmetic
+   keeps it inside the budget. A token count would need the tokeniser on the server for no gain.
+2. **A rebuild ends the thread** rather than re-joining it across runs. Between builds the pick lines
+   are re-joined live and the earlier summary may lag a re-enriched star by a serve — accepted, the
+   facts beside it are current. Across a rebuild the reader would be comparing against a forecast
+   they never saw; an honest reset beats silent drift.
+3. **Prior answers are rendered as facts, re-joined live**, not as the model's earlier prose about
+   them. The model's `why` strings are not carried at all (the summary is enough context; the
+   per-pick `why` would double the size for little).
+4. **The Ready matcher and the typed cache are skipped for follow-ups.** A follow-up that matched a
+   Ready answer would answer a different question than the one asked.
+5. **An unanswerable or failed step is not an exchange.** The thread is the record of what the
+   reader was told, not of what they typed.
+6. **`nearHome` resolves to the straight-line local radius**, the same measure the Close-to-home
+   radius has always meant, not a drive-time conversion — two measures for one word is the thing
+   the tide axes rule in CLAUDE.md warns against.
+7. **The client trims the oldest exchange**, the server refuses a list over the cap. Belt and braces;
+   the server is the guarantee.
+
+## §5 Open questions — decided without the owner (2026-10-10, autonomous build authorised)
+
+- **Q1** Prior exchanges are NOT tappable: collapsed to question + summary; only the live answer has
+  cards, chips and "Plan this". (Alternative, not taken: re-join them live on render — cheap, but shows
+  a star beside a summary written against another.)
+- **Q2** The cap is 8 exchanges (`photocast.ask.thread.max-exchanges`, 1..20).
+- **Q3** The reset line reads: *"The forecast has updated since your last question — this is a fresh
+  answer."*
+- **Q4** The T5 regression case lives in a new class, assertions marked pending the owner's approval.
+
+## §5a Adversarial review of this plan (2026-10-10)
+
+Five lenses; confirmed and folded in above: the summary channel needed a sanitiser, not just `clean`
+(§2.1); the 8 KiB body cap could 400 a legitimate full thread (§2.1); a Ready-origin exchange's
+`generatedAt` would trip the reset on the first follow-up (§2.1/§2.2); the reset's rationale over-
+claimed across serves (§2.2, §4.2); a scope move between questions could turn a stale thread into a
+FAILED (§2.3 items 2 and 4); the 1024px clause contradicted itself (§2.2); the reducer would drop the
+thread on `FAILED`/`REFUSED` under the current `INITIAL_CONVERSATION` spread (§2.5); `nearHome`'s
+measure diverges from the Map's drive-based reach (§2.6, now stated and accepted); `AskSnapshot.Slot`
+has no coordinates (§2.6); the T2 real-API check and the T5 case were under-defined (§3). Refuted:
+foreign/disabled/out-of-scope ids reaching a card (the validator re-joins against the live pool and
+scope); any guard bypass; `personal` on follow-ups; the BEST-anchor and events rules; module-scope
+and logout; one-answer assumptions in the peek and `selectView`; focus after a follow-up; T4's
+dependency on T2.
+
+## §6 Measured (fill in at T5)
+
+Per-question cost fresh vs at the cap; thread length distribution from the `[ASK] thread=N` lines
+over the first week; how often `threadReset` fires.
+
+Still to be filled in from production once the flag is on. How to read it: every follow-up writes one INFO line,
+`[ASK] User N answered a follow-up: outcome=… thread=N reset=…` (ints only, never the thread's text), so the thread
+length distribution is the histogram of `thread=N` over the first week and how often the forecast moves under a
+session is the share of those lines whose `reset` is set. A fresh question writes no such line, so the follow-up rate is
+those lines over `GET /api/admin/ask/metrics`'s typed-question total. Cost per question, fresh versus at the cap, comes
+from the `api_call_log` rows of the `ASK` runs (the plan's estimate is about 1.6x the input at the cap).

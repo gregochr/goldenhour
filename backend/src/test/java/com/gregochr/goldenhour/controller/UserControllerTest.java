@@ -2,14 +2,18 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.UserRole;
+import com.gregochr.goldenhour.service.DeletedAccount;
 import com.gregochr.goldenhour.service.PasswordResetResult;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.sql.SQLException;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -18,8 +22,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -151,6 +158,73 @@ class UserControllerTest extends AbstractControllerTest {
 
     @Test
     @WithMockUser(roles = "ADMIN")
+    @DisplayName("POST /api/users: a lost race on the email reservation is a 409 'Email already registered', "
+            + "the admin's welcome email is not sent")
+    void createUser_emailReservationViolation_returns409() throws Exception {
+        when(userService.createUser(anyString(), anyString(), any(UserRole.class), anyString()))
+                .thenThrow(new DataIntegrityViolationException("could not execute statement",
+                        new SQLException("duplicate key value violates unique constraint "
+                                + "\"pk_app_user_email_claim\"")));
+
+        mockMvc.perform(post("/api/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"alice\",\"password\":\"pass\","
+                                + "\"role\":\"LITE_USER\",\"email\":\"alice@example.com\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("Email already registered"));
+
+        verify(userEmailService, never()).sendWelcomeEmail(anyString(), anyString(), anyString());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("POST /api/users: a lost race on the username key is a 409 'Username already taken'")
+    void createUser_usernameViolation_returns409() throws Exception {
+        when(userService.createUser(anyString(), anyString(), any(UserRole.class), anyString()))
+                .thenThrow(new DataIntegrityViolationException("could not execute statement",
+                        new SQLException("duplicate key value violates unique constraint "
+                                + "\"app_user_username_key\"")));
+
+        mockMvc.perform(post("/api/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"alice\",\"password\":\"pass\","
+                                + "\"role\":\"LITE_USER\",\"email\":\"alice@example.com\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("Username already taken"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("POST /api/users: any other integrity violation is not dressed up as a 409")
+    void createUser_otherViolation_isNotAConflict() throws Exception {
+        when(userService.createUser(anyString(), anyString(), any(UserRole.class), anyString()))
+                .thenThrow(new DataIntegrityViolationException("could not execute statement",
+                        new SQLException("null value in column \"role\" violates not-null constraint")));
+
+        mockMvc.perform(post("/api/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"alice\",\"password\":\"pass\","
+                                + "\"role\":\"LITE_USER\",\"email\":\"alice@example.com\"}"))
+                .andExpect(status().is5xxServerError());
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/users/{id}/email: an address another account holds (unique violation) is a 409")
+    void setEmail_violation_returns409() throws Exception {
+        doThrow(new DataIntegrityViolationException("could not execute statement",
+                new SQLException("duplicate key value violates unique constraint \"idx_app_user_email\"")))
+                .when(userService).setEmail(eq(1L), anyString());
+
+        mockMvc.perform(put("/api/users/1/email")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"taken@example.com\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("Email already registered"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
     @DisplayName("PUT /api/users/{id}/enabled returns 400 when enabled field is missing")
     void setEnabled_missingField_returns400() throws Exception {
         mockMvc.perform(put("/api/users/1/enabled")
@@ -230,6 +304,69 @@ class UserControllerTest extends AbstractControllerTest {
                         .content("{\"email\":\"new@example.com\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("Updated"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/users/{id}/email on a PENDING registration says its old verification link was "
+            + "voided and the admin must resend")
+    void setEmail_pendingAccount_saysToResend() throws Exception {
+        when(userService.setEmail(1L, "new@example.com")).thenReturn(true);
+
+        mockMvc.perform(put("/api/users/1/email")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"new@example.com\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("Updated. The old verification link no longer works: "
+                        + "resend verification to the new address."));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/users/{id}/email: a case variant another account holds (the claim table's refusal) "
+            + "is a 409 'Email already registered', not a 400")
+    void setEmail_caseVariantOfAnotherAddress_returns409() throws Exception {
+        doThrow(new IllegalArgumentException("Email already registered"))
+                .when(userService).setEmail(eq(1L), anyString());
+
+        mockMvc.perform(put("/api/users/1/email")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"TAKEN@example.com\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("Email already registered"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("PUT /api/users/{id}/email: a non-ASCII address is a 400 with the sentence the service gives")
+    void setEmail_nonAscii_returns400() throws Exception {
+        doThrow(new IllegalArgumentException(
+                "Please use an email address without accented or non-Latin characters"))
+                .when(userService).setEmail(eq(1L), anyString());
+
+        mockMvc.perform(put("/api/users/1/email")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"bob@gmaıl.com\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error")
+                        .value("Please use an email address without accented or non-Latin characters"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("POST /api/users: a non-ASCII address is a 400 with the sentence the service gives")
+    void createUser_nonAsciiEmail_returns400() throws Exception {
+        when(userService.createUser(anyString(), anyString(), any(UserRole.class), anyString()))
+                .thenThrow(new IllegalArgumentException(
+                        "Please use an email address without accented or non-Latin characters"));
+
+        mockMvc.perform(post("/api/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"bobby\",\"password\":\"pass\","
+                                + "\"role\":\"LITE_USER\",\"email\":\"bob@gmaıl.com\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error")
+                        .value("Please use an email address without accented or non-Latin characters"));
     }
 
     @Test
@@ -348,10 +485,26 @@ class UserControllerTest extends AbstractControllerTest {
         user.setEmail("alice@example.com");
         user.setEnabled(false);
         when(userService.listAllUsers()).thenReturn(List.of(user));
+        when(registrationService.adminResendVerification(user)).thenReturn(true);
 
         mockMvc.perform(post("/api/users/1/resend-verification"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("Verification email sent"));
+    }
+
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    @DisplayName("POST /api/users/{id}/resend-verification returns 400 when the account is no longer awaiting "
+            + "verification (activated, or its address moved and the link was voided): the issuer sent nothing")
+    void resendVerification_notPending_returns400() throws Exception {
+        AppUserEntity user = buildUser(1L, "alice", UserRole.LITE_USER);
+        user.setEmail("alice@example.com");
+        when(userService.listAllUsers()).thenReturn(List.of(user));
+        when(registrationService.adminResendVerification(user)).thenReturn(false);
+
+        mockMvc.perform(post("/api/users/1/resend-verification"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Account is not awaiting email verification"));
     }
 
     @Test
@@ -492,11 +645,43 @@ class UserControllerTest extends AbstractControllerTest {
     @WithMockUser(username = "admin", roles = "ADMIN")
     @DisplayName("DELETE /api/users/{id} returns 200 when user is successfully deleted")
     void deleteUser_asAdmin_returns200() throws Exception {
-        doNothing().when(userService).deleteUser(eq(2L), eq("admin"));
+        when(userService.deleteUser(eq(2L), eq("admin")))
+                .thenReturn(new DeletedAccount("bob", "bob@example.com"));
 
         mockMvc.perform(delete("/api/users/2"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.message").value("User deleted"));
+    }
+
+    @Test
+    @WithMockUser(username = "admin", roles = "ADMIN")
+    @DisplayName("DELETE /api/users/{id} sends the 'account removed' email AFTER the service's transaction "
+            + "has returned, to the STORED address the service read under the lock")
+    void deleteUser_sendsTheEmailAfterTheServiceReturns_toTheStoredAddress() throws Exception {
+        when(userService.deleteUser(eq(2L), eq("admin")))
+                .thenReturn(new DeletedAccount("bob", "stored@example.com"));
+
+        mockMvc.perform(delete("/api/users/2")).andExpect(status().isOk());
+
+        InOrder order = inOrder(userService, userEmailService);
+        order.verify(userService).deleteUser(2L, "admin");
+        order.verify(userEmailService).sendAccountDeletedEmail("stored@example.com", "bob");
+    }
+
+    @Test
+    @WithMockUser(username = "admin", roles = "ADMIN")
+    @DisplayName("DELETE /api/users/{id} sends NO email when the delete fails: a refused self-delete and a "
+            + "missing user mail nobody")
+    void deleteUser_failure_sendsNoEmail() throws Exception {
+        doThrow(new IllegalStateException("Cannot delete your own account"))
+                .when(userService).deleteUser(eq(1L), eq("admin"));
+        doThrow(new IllegalArgumentException("User not found: 99"))
+                .when(userService).deleteUser(eq(99L), eq("admin"));
+
+        mockMvc.perform(delete("/api/users/1")).andExpect(status().isConflict());
+        mockMvc.perform(delete("/api/users/99")).andExpect(status().isBadRequest());
+
+        verifyNoInteractions(userEmailService);
     }
 
     @Test

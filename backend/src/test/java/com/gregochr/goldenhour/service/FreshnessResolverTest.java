@@ -16,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class FreshnessResolverTest {
 
     private FreshnessResolver resolver(int settled, int transitional, int unsettled, int floor) {
-        return resolver(settled, transitional, unsettled, floor, 2, 8);
+        return resolver(settled, transitional, unsettled, floor, 2, 6);
     }
 
     private FreshnessResolver resolver(int settled, int transitional, int unsettled, int floor,
@@ -110,14 +110,30 @@ class FreshnessResolverTest {
         }
 
         @Test
-        @DisplayName("T+1 SETTLED takes the 8h cap, not the 36h stability threshold")
+        @DisplayName("T+1 SETTLED takes the 6h cap, not the 36h stability threshold")
         void tomorrowSettledTakesCap() {
             assertThat(resolver.maxAgeFor(1, ForecastStability.SETTLED))
-                    .isEqualTo(Duration.ofHours(8));
+                    .isEqualTo(Duration.ofHours(6));
         }
 
         @Test
-        @DisplayName("T+1 UNSETTLED keeps stability's 4h — tighter than the 8h cap")
+        @DisplayName("default T+1 SETTLED cap: a morning batch that took the whole 3h30 safety "
+                + "budget lands ~3h54 before a midwinter afternoon trigger and must still read stale")
+        void defaultTomorrowSettledCapSurvivesTheSlowestAwaitedMorningBatch() {
+            Duration cap = new FreshnessResolver(new FreshnessProperties())
+                    .maxAgeFor(1, ForecastStability.SETTLED);
+            Duration midwinterGap = Duration.ofHours(7).plusMinutes(24);
+            Duration safetyBudget = Duration.ofHours(3).plusMinutes(30);
+
+            assertThat(midwinterGap.minus(safetyBudget)).isGreaterThan(cap);
+            // and with an ordinary few-minutes batch it is stale by a wide margin
+            assertThat(midwinterGap.minusMinutes(10)).isGreaterThan(cap);
+            // a slot re-checked within a couple of hours of its write is still cached
+            assertThat(Duration.ofHours(2)).isLessThan(cap);
+        }
+
+        @Test
+        @DisplayName("T+1 UNSETTLED keeps stability's 4h — tighter than the 6h cap")
         void tomorrowUnsettledKeepsTighterStability() {
             assertThat(resolver.maxAgeFor(1, ForecastStability.UNSETTLED))
                     .isEqualTo(Duration.ofHours(4));

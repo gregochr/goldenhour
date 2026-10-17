@@ -12,7 +12,9 @@ import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.model.LocationTideFact;
 import com.gregochr.goldenhour.model.PlanRenderedEvent;
+import com.gregochr.goldenhour.service.evaluation.RatingValidator;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -31,7 +33,8 @@ import java.util.Set;
  * <p><b>This must run last, and that is the whole design.</b> It is applied as the outermost step
  * of {@code BriefingService.getCachedBriefingForApi}, after {@code BriefingHonestyFilter}. Anywhere
  * upstream and the projection describes regions the served payload no longer contains: the honesty
- * filter blanks a zero-coverage region to STAND_DOWN with an empty slot list and a null gloss
+ * filter blanks a zero-coverage region (STAND_DOWN, or AWAITING where nothing was attempted or the
+ * run failed) with an empty slot list and a null gloss
  * headline, so a window projected before it would name a Best Bet, a verdict and a rating for a
  * region the same response simultaneously reports as unevaluable. That failure renders perfectly
  * and is visible only by opening the drill-down, which is why the ordering is pinned by a test
@@ -53,7 +56,12 @@ import java.util.Set;
  * <ul>
  *   <li><b>The window verdict is the top region's own {@code displayVerdict}</b> — the region-average
  *       rule ({@link BriefingRatingStats}: mean ≥ 3.5 WORTH_IT, ≥ 2.5 MAYBE, else STAND_DOWN),
- *       already carrying that region's triage fallback for the case where nothing is rated.
+ *       already carrying that region's triage fallback for the case where nothing is rated (or
+ *       the rated sample fails {@code VerdictSampleGate}): a weather GO/MARGINAL reads
+ *       {@code UNRATED}, a STANDDOWN {@code STAND_DOWN} (2026-10-13,
+ *       {@code docs/engineering/unrated-verdict-plan.md} U1). A window whose only regions are
+ *       UNRATED therefore reads UNRATED, and none of them can be a BEST BET / ALSO GOOD pick,
+ *       which need {@link BriefingRegion#verdictEligible()}.
  *       <b>Decided 2026-08-17</b>, replacing the best-rating rule this class shipped with: one 4★
  *       location anywhere in the roster promoted a whole window's badge while every cell beneath it
  *       read Poor, and nothing on screen said the row and the grid were answering different
@@ -71,15 +79,39 @@ import java.util.Set;
  */
 public final class PlanWindowProjector {
 
-    /** Ranks a region above another: better average, then wider scored coverage, then name. */
+    /**
+     * Ranks a region above another: verdict-eligible first (see {@link BriefingRegion
+     * #verdictEligible}), then better average, then wider scored coverage, then name.
+     *
+     * <p><b>The eligibility term is the verdict-minimum-sample rule's ranking half</b>
+     * ({@code docs/engineering/plan-verdict-consolidation-plan.md}, {@code VerdictSampleGate}): a
+     * region whose sample is too small to trust — and which carries no force-evaluation exemption —
+     * must never outrank a region whose sample IS large enough, however its raw average compares.
+     * Before this term a single rated location could out-average, and therefore outrank, a fully
+     * rated region averaging lower — the defect this whole rule exists to close. Every other term
+     * is unchanged, so two regions on the SAME side of the eligibility line are still ordered
+     * exactly as before. ⚠️ The test itself moved onto {@link BriefingRegion#verdictEligible()} in
+     * round 10 (P1-B) so {@code BriefingBestBetAdvisor} could share it rather than recompute its
+     * own copy — see that method's javadoc.
+     */
     private static final Comparator<RankedRegion> BY_RANK =
-            Comparator.comparingDouble((RankedRegion r) -> r.stats().averageRating()).reversed()
+            Comparator.comparing((RankedRegion r) -> r.region().verdictEligible()).reversed()
+                    .thenComparing(
+                            Comparator.comparingDouble(
+                                    (RankedRegion r) -> r.stats().averageRating()).reversed())
                     .thenComparing(Comparator.comparingInt(
                             (RankedRegion r) -> r.stats().count()).reversed())
                     // Content before name: with nothing rated, a blanked region (no slots at all)
                     // and a real one both compute to 0.0/0, and the tie fell through to the region's
                     // display string — so renaming a region flipped the window's verdict.
                     .thenComparing((RankedRegion r) -> r.region().slots().isEmpty())
+                    // Between two blanked regions the honesty filter can word one STAND_DOWN
+                    // (weather really stood it down, or the record cannot say) and another
+                    // AWAITING (not scored, a travel day, a run that did not finish). A region
+                    // with a real stand-down speaks for the window over one with no forecast at
+                    // all, so the verdict never depends on which name sorts first.
+                    .thenComparing((RankedRegion r) -> r.region().slots().isEmpty()
+                            && r.region().displayVerdict() == DisplayVerdict.AWAITING)
                     .thenComparing(r -> r.region().regionName(),
                             Comparator.nullsLast(Comparator.naturalOrder()));
 
@@ -92,9 +124,8 @@ public final class PlanWindowProjector {
     /**
      * How long a window stays pickable after its solar event.
      *
-     * <p>Same value and same reason as {@code CloseToHomeService} — the colour does not stop at the
-     * instant of sunset, and a pick that vanishes while you are still standing in it is worse than
-     * one that lingers half an hour.
+     * <p>The colour does not stop at the instant of sunset, and a pick that vanishes while you are
+     * still standing in it is worse than one that lingers half an hour.
      */
     private static final long AFTERGLOW_MINUTES = 30;
 
@@ -111,10 +142,6 @@ public final class PlanWindowProjector {
                     .thenComparing(d -> d.key().date())
                     .thenComparing(d -> d.key().targetType());
 
-    /** Claude's rating scale, inclusive — anything outside it is a bad row, not a score. */
-    private static final int MIN_RATING = 1;
-    private static final int MAX_RATING = 5;
-
     private static final String EVENT_SUNRISE = "SUNRISE";
     private static final String EVENT_SUNSET = "SUNSET";
     private static final String EVENT_NIGHT = "NIGHT";
@@ -129,10 +156,15 @@ public final class PlanWindowProjector {
      * @param now      the request instant, used to refuse a pick on an elapsed window
      * @param tides    the tide rollup per window; empty when none could be derived, and missing
      *                 individual keys for any window whose date has no drawable tide
+     * @param tideFacts the per-location tide facts per window, built from the unfiltered slots by
+     *                 {@code WindowTideFactProjector}; a window with no entry gets a null
+     *                 {@code tideFacts}, never an empty list. Attached to every window, past and
+     *                 unrendered ones included, because they are facts about stored tide tables
      * @return the same response with windows projected, or null when given null
      */
     public static DailyBriefingResponse apply(DailyBriefingResponse response, LocalDateTime now,
-            Map<WindowKey, BriefingWindowTide> tides) {
+            Map<WindowKey, BriefingWindowTide> tides,
+            Map<WindowKey, List<LocationTideFact>> tideFacts) {
         if (response == null) {
             return null;
         }
@@ -163,7 +195,8 @@ public final class PlanWindowProjector {
             for (BriefingEventSummary summary : day.eventSummaries()) {
                 Draft dr = drafts.get(cursor++);
                 summaries.add(summary.withWindow(
-                        dr.toWindow(picks.get(dr.key()), tides.get(dr.key()))));
+                        dr.toWindow(picks.get(dr.key()), tides.get(dr.key()),
+                                tideFacts.get(dr.key()))));
             }
             projected.add(new BriefingDay(day.date(), summaries)
                     .withPeak(dayPeak(day.date(), summaries, rendered)));
@@ -204,6 +237,14 @@ public final class PlanWindowProjector {
      * window with no card. That scoping is why this is computed here rather than anywhere earlier:
      * the horizon is not known until the drafts are.
      *
+     * <p>An UNRATED or AWAITING region is counted toward no band: the test below is the POSITIVE one
+     * (only WORTH_IT and MAYBE count), so UNRATED, AWAITING, STAND_DOWN and any future value fall out
+     * of it with no arm of their own (unrated-verdict-plan.md U1). That makes the peak mean "no RATED
+     * band", not "poor": a day on which every region is UNRATED peaks {@code STAND_DOWN} with an empty
+     * region list, the same answer a day of stood-down regions gives. {@code BriefingDay.peak} has no
+     * client reader (the day rail it fed was retired at plan-matrix P2), so nothing renders that
+     * as "All poor"; it stays on the wire as the server's own roll-up.
+     *
      * <p>A region reaching WORTH_IT on one of the day's events and MAYBE on the other appears once,
      * at its better band — the tile names a region's best showing that day, not one per event. The
      * region order is the payload's own, which is what the peak-tier chips render in.
@@ -224,10 +265,15 @@ public final class PlanWindowProjector {
                 // that decides the window badge and the grid cell. A null one is skipped rather
                 // than mapped through the region's triage: the window calls that AWAITING, and a
                 // day peak mapping it to a band would put two answers for one region on one screen.
-                // Unreachable on the serve path (enrichment always derives a verdict, and the
-                // honesty filter writes STAND_DOWN), which is why matching the window matters more
-                // than choosing between them.
+                // A null verdict does not occur on the serve path (enrichment always derives one: a
+                // rated word, UNRATED where a gate failed or nothing rated a weather pass, STAND_DOWN
+                // where the weather stood it down, and the honesty filter's STAND_DOWN or AWAITING for a
+                // blanked region), which is why matching the window matters more than choosing
+                // between them. Every value that is not WORTH_IT or MAYBE is skipped below.
                 DisplayVerdict dv = region.displayVerdict();
+                // UNRATED is skipped exactly as AWAITING is (unrated-verdict-plan.md U1): a weather
+                // pre-screen that no rating has called counts toward neither band. Written as the
+                // positive test so a future enum value defaults to "not counted", never to a band.
                 if (dv != DisplayVerdict.WORTH_IT && dv != DisplayVerdict.MAYBE) {
                     continue;
                 }
@@ -327,9 +373,8 @@ public final class PlanWindowProjector {
      * slots, falling back to the summary's own {@code solarEventTime} when no slot carries one.
      *
      * <p>Earliest rather than first-in-list: list order traces to whichever grid cell Open-Meteo
-     * answered first, which is not a fact about the event. The same argument already decides
-     * "is this event past" in {@code CloseToHomeService} — an event belongs to all of its
-     * locations.
+     * answered first, which is not a fact about the event. The same argument decides
+     * "is this event past": an event belongs to all of its locations.
      *
      * <p><b>The fallback is load-bearing since this instant began deciding what is RENDERED.</b>
      * The honesty filter empties a zero-coverage region's slot list while leaving the summary's own
@@ -373,6 +418,24 @@ public final class PlanWindowProjector {
     }
 
     /**
+     * The window's {@link #bestRating} with the neighbour outliers left out: the same population (every
+     * non-canopy regioned slot's usable rating, any region, any rating; the all-canopy fallback) minus
+     * the slots the neighbour guard marked. Ask reports it so that its window list never advertises a
+     * rating its own picks cannot reach. Equal to the served figure when no slot is marked, or when a
+     * marked slot was not the best.
+     *
+     * @param summary the event summary, whose slots may carry the neighbour mark
+     * @return the highest usable rating among unmarked slots, or null
+     */
+    public static Integer bestRatingWithoutOutliers(BriefingEventSummary summary) {
+        boolean canopyCounts = canopyCounts(summary);
+        return maxRating(regionSlots(summary).stream()
+                .filter(s -> canopyCounts || !s.canopy())
+                .filter(s -> !Boolean.TRUE.equals(s.neighbourOutlier()))
+                .toList());
+    }
+
+    /**
      * Whether canopy slots count for this window — true only when the window has no sky slot at
      * all.
      *
@@ -413,8 +476,9 @@ public final class PlanWindowProjector {
      * by the region average and by the ranking could still become the Best Bet's destination.
      */
     private static boolean usableRating(BriefingSlot slot) {
-        Integer rating = slot.claudeRating();
-        return rating != null && rating >= MIN_RATING && rating <= MAX_RATING;
+        // Claude's 1-5 scale, inclusive: anything outside it is a bad row, not a score. The range
+        // test lives in RatingValidator so Ask's pick eligibility applies the identical bound.
+        return RatingValidator.isInRange(slot.claudeRating());
     }
 
     /**
@@ -474,16 +538,18 @@ public final class PlanWindowProjector {
 
     /**
      * This window's candidate for the forecast-wide pick — its top region's narrative — or null when
-     * that region has no usable gloss headline.
+     * that region has no usable gloss headline, or is not {@link BriefingRegion#verdictEligible}
+     * (the verdict-minimum-sample rule: a region whose rated sample is too small to trust, and which
+     * carries no force-evaluation exemption, may not be crowned BEST BET or ALSO GOOD).
      *
      * <p>A candidate is not a recommendation. Most windows have one and publish nothing.
      */
     /**
      * Whether this window's moment has gone.
      *
-     * <p>A window with no time at all counts as <b>current</b>, never as past — the same choice
-     * {@code CloseToHomeService} makes. Reading a missing time as elapsed would silently publish no
-     * picks at all for a briefing whose slots happen to carry no solar time.
+     * <p>A window with no time at all counts as <b>current</b>, never as past. Reading a missing
+     * time as elapsed would silently publish no picks at all for a briefing whose slots happen to
+     * carry no solar time.
      */
     private static boolean isPast(Draft draft, LocalDateTime now) {
         return hasPassed(draft.eventTime(), now);
@@ -500,9 +566,9 @@ public final class PlanWindowProjector {
      *
      * <p>Both halves are deliberate. The <b>afterglow</b> keeps a window current for
      * {@value #AFTERGLOW_MINUTES} minutes past its own time, because the colour outlasts the
-     * geometry. A <b>null time counts as current, never as past</b> — the same choice
-     * {@code CloseToHomeService} makes; reading a missing time as elapsed would silently empty
-     * both surfaces for a briefing whose slots happen to carry no solar time.
+     * geometry. A <b>null time counts as current, never as past</b>; reading a missing time as
+     * elapsed would silently empty both surfaces for a briefing whose slots happen to carry no
+     * solar time.
      *
      * @param eventTime the window's event time in UTC, or null when it has none
      * @param now       the current UTC time
@@ -513,7 +579,8 @@ public final class PlanWindowProjector {
     }
 
     private static BriefingWindow.Pick candidate(RankedRegion ranked, boolean canopyCounts) {
-        if (ranked == null || !usable(ranked.region().glossHeadline())) {
+        if (ranked == null || !usable(ranked.region().glossHeadline())
+                || !ranked.region().verdictEligible()) {
             return null;
         }
         BriefingRegion region = ranked.region();
@@ -543,18 +610,35 @@ public final class PlanWindowProjector {
     }
 
     /**
-     * The region's highest-rated slot, read from the same population the header star was taken
-     * from — returned whole so the Pick's id and name come from one value rather than two lookups.
+     * The region's highest-rated slot that is not a neighbour outlier, read from the same population
+     * the header star was taken from — returned whole so the Pick's id and name come from one value
+     * rather than two lookups.
      *
      * <p>An all-canopy region inside a mixed window resolves to nothing rather than to its wood:
      * the header refused that slot, and a card whose star and destination disagree sends someone
      * to a place chosen by the opposite measure of a good morning.
+     *
+     * <p><b>A neighbour outlier is never named</b> (docs/engineering/neighbour-guard-plan.md §3): a
+     * slot the serve-time guard marked as rated far above the places beside it is skipped, and the
+     * next slot is named instead. If one was skipped, that next slot must itself be rated at least
+     * {@link NeighbourOutlierGuard#NAMED_FLOOR} (a fixed 3, not the guard's configurable floor, so
+     * the client's twin constant can match it), or the result is null and the Pick names the region
+     * only. A region with no outlier is unchanged, so with the guard off this is exactly the
+     * highest-rated slot.
      */
     private static BriefingSlot topSlot(BriefingRegion region, boolean canopyCounts) {
-        return region.slots().stream()
+        boolean skipped = false;
+        for (BriefingSlot slot : region.slots().stream()
                 .filter(s -> (canopyCounts || !s.canopy()) && usableRating(s))
-                .min(BY_SLOT_RATING)
-                .orElse(null);
+                .sorted(BY_SLOT_RATING)
+                .toList()) {
+            if (Boolean.TRUE.equals(slot.neighbourOutlier())) {
+                skipped = true;
+                continue;
+            }
+            return skipped && slot.claudeRating() < NeighbourOutlierGuard.NAMED_FLOOR ? null : slot;
+        }
+        return null;
     }
 
     /**
@@ -754,9 +838,10 @@ public final class PlanWindowProjector {
             List<BriefingWindow.Badge> badges,
             Integer topRarityRank) {
 
-        BriefingWindow toWindow(BriefingWindow.Pick awarded, BriefingWindowTide tide) {
+        BriefingWindow toWindow(BriefingWindow.Pick awarded, BriefingWindowTide tide,
+                List<LocationTideFact> tideFacts) {
             return new BriefingWindow(eventTime, verdict, bestRating, confidence,
-                    awarded, badges, topRarityRank, tide);
+                    awarded, badges, topRarityRank, tide, tideFacts);
         }
     }
 

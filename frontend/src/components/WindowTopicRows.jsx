@@ -53,6 +53,20 @@ import { topicFacts } from '../utils/windowFirstRows.js';
  * warning. It rides the badge rather than the topic, so it survives a missing join; it renders for
  * whichever badge carries one, once per row, and no confidence or scope treatment touches it.
  *
+ * <h2>The aside — {@code badge.note}, generic, not eclipse-only</h2>
+ *
+ * <p>{@code Badge.note} is the topic's editorial "where to look" cue and has been served, unread,
+ * since the promoted strip that used to render it was deleted at M5 — the badge javadoc's own
+ * words. This component is the honest fix: ANY badge carrying a note gets a full-width aside in the
+ * safety note's own shape ({@code .wf-trow-warn}), whichever channel it belongs to. The lunar
+ * eclipse's exposure note is the first one a reader will actually see, but the renderer does not
+ * know or care which topic it is — it is the SOLAR eclipse's note ("a clear low western horizon…")
+ * that this reveals for the first time (`lunar-eclipse-plan.md` §2.7, §4 #8). The leading glyph is
+ * the one channel-specific touch: `◑` for the eclipse channel only, mirroring the design's own mono
+ * text-line glyph for an eclipse fact; every other channel's aside carries no glyph. Not
+ * dismissible and no {@code localStorage} — the app has no per-topic dismissal pattern for a note,
+ * and adding one here would be furniture the spec never asked for (§4 #9).
+ *
  * @param {object}   props
  * @param {Array}    props.rows the rows from {@code windowTopics} — badge, topic, wholeSky,
  *                              regionsInScope
@@ -142,6 +156,12 @@ export default function WindowTopicRows({ rows }) {
                 {badge.safetyNote}
               </span>
             )}
+            {badge.note && (
+              <span data-testid="wf-topic-row-aside" className="wf-trow-warn">
+                {channel === 'eclipse' && <span aria-hidden="true">◑ </span>}
+                {badge.note}
+              </span>
+            )}
           </div>
         );
       })}
@@ -156,6 +176,7 @@ WindowTopicRows.propTypes = {
       label: PropTypes.string.isRequired,
       detail: PropTypes.string,
       safetyNote: PropTypes.string,
+      note: PropTypes.string,
     }).isRequired,
     /** The joined {@code HotTopic}, or null when the badge found none — see the class comment. */
     topic: PropTypes.object,

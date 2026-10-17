@@ -12,7 +12,6 @@ import com.gregochr.goldenhour.model.CandidateDisposition;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.StabilitySummaryResponse;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
-import com.gregochr.goldenhour.service.BriefingGatingPolicy;
 import com.gregochr.goldenhour.service.FreshnessResolver;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
@@ -95,8 +94,8 @@ public final class BriefingCandidateCollector {
      * <p>The returned {@link Result} pairs the surviving candidates with a
      * {@link CandidateDisposition} for every slot the briefing considered, both
      * inclusions (passed to the triage loop) and skips (PAST_DATE, CACHED,
-     * HARD_CONSTRAINT, UNKNOWN_LOCATION). Skips are recorded with
-     * {@code location_id = null} since the verdict/cache/past-date paths never
+     * UNKNOWN_LOCATION). Skips are recorded with
+     * {@code location_id = null} since the cache/past-date paths never
      * look the location up. The inclusion entries are NOT finalised here; the
      * triage loop assigns the final disposition (EVALUATED / SKIPPED_TRIAGED /
      * SKIPPED_STABILITY / SKIPPED_ERROR) once weather + stability data is available.
@@ -110,7 +109,6 @@ public final class BriefingCandidateCollector {
         List<CandidateDisposition> dispositions = new ArrayList<>();
         List<ForecastCandidate> candidates = new ArrayList<>();
         int skippedCache = 0;
-        int skippedVerdict = 0;
         int skippedUnknown = 0;
         int skippedPastDate = 0;
         int skippedTravelDay = 0;
@@ -196,7 +194,7 @@ public final class BriefingCandidateCollector {
                             region, stabilityByLocation);
                     // Horizon-aware: an evaluation for tonight and one for four days out are not
                     // equally allowed to be stale. Passing daysAhead caps T+0 at the safety floor
-                    // and T+1 at 8h, so a SETTLED region evaluated at T+1 can no longer hold its
+                    // and T+1 at 3h, so a SETTLED region evaluated at T+1 can no longer hold its
                     // 36h window across the event it was evaluated for.
                     Duration freshness = freshnessResolver.maxAgeFor(daysAhead, regionStability);
                     int regionSlots = region.slots() != null ? region.slots().size() : 0;
@@ -228,26 +226,6 @@ public final class BriefingCandidateCollector {
                     }
                     for (BriefingSlot slot : region.slots()) {
                         totalSlots++;
-                        if (!BriefingGatingPolicy.isEligibleForEvaluation(slot)) {
-                            String reasonLabel = BriefingGatingPolicy.isHardConstraintSkip(slot)
-                                    ? "HARD_CONSTRAINT"
-                                    : "VERDICT_" + slot.verdict();
-                            LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | "
-                                            + "reason={} ({})",
-                                    slot.locationName(), date, targetType,
-                                    reasonLabel, slot.standdownReason());
-                            // Both hard-constraint tide skips and the (now rare,
-                            // Gate-2-redesigned) VERDICT_* skips are hard physical
-                            // gates — fold them into SKIPPED_HARD_CONSTRAINT with the
-                            // standdown reason as detail.
-                            dispositions.add(new CandidateDisposition(
-                                    null, slot.locationName(), date, targetType, daysAhead,
-                                    DispositionCategory.SKIPPED_HARD_CONSTRAINT,
-                                    slot.standdownReason() != null ? slot.standdownReason()
-                                            : reasonLabel));
-                            skippedVerdict++;
-                            continue;
-                        }
                         LocationEntity location = findLocation(slot.locationName());
                         if (location == null) {
                             LOG.warn("[BATCH DIAG] SKIP {} | date={} event={} | "
@@ -267,9 +245,9 @@ public final class BriefingCandidateCollector {
         }
 
         LOG.warn("[BATCH DIAG] Task collection complete — {} tasks from {} total slots "
-                        + "(pastDate={}, travelDay={}, cached={}, verdict={}, unknownLoc={})",
+                        + "(pastDate={}, travelDay={}, cached={}, unknownLoc={})",
                 candidates.size(), totalSlots, skippedPastDate, skippedTravelDay, skippedCache,
-                skippedVerdict, skippedUnknown);
+                skippedUnknown);
         logStabilityBreakdown(eligibleByStability, cachedByStability);
         return new Result(candidates, dispositions);
     }
@@ -312,9 +290,10 @@ public final class BriefingCandidateCollector {
         }
         long ageHours = java.time.temporal.ChronoUnit.HOURS.between(
                 snapshot.generatedAt(), java.time.Instant.now());
-        String source = ageHours > 12 ? "DB (recovered after restart)" : "in-memory";
-        LOG.info("[BATCH DIAG] Stability snapshot loaded from {}: age={}h, {} grid cells",
-                source, ageHours, snapshot.cells().size());
+        // Log-only: this gates nothing. The age is printed as-is; a sun-relative summer afternoon
+        // cycle is routinely ~17h after the morning snapshot, so age alone does not imply a restart.
+        LOG.info("[BATCH DIAG] Stability snapshot loaded: age={}h, {} grid cells",
+                ageHours, snapshot.cells().size());
         Map<String, ForecastStability> lookup = new HashMap<>();
         for (StabilitySummaryResponse.GridCellDetail cell : snapshot.cells()) {
             for (String locName : cell.locationNames()) {

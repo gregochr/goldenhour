@@ -42,6 +42,18 @@ resilience4j:
   circuitbreaker:
     circuitBreakerAspectOrder: 1
     instances:
+      # Ask PhotoCast's own breaker (AnthropicApiClient.createAskMessage): a reader's questions must
+      # never be able to open the "anthropic" breaker the forecast pipeline shares. No health
+      # indicator, so a breaker that opens on questions cannot flip the application's health.
+      ask:
+        registerHealthIndicator: false
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30s
+        permittedNumberOfCallsInHalfOpenState: 2
+        automaticTransitionFromOpenToHalfOpenEnabled: true
       anthropic:
         registerHealthIndicator: true
         slidingWindowType: COUNT_BASED
@@ -73,12 +85,27 @@ resilience4j:
   retry:
     retryAspectOrder: 2
     instances:
+      # Ask PhotoCast model turns: two attempts, server errors only (AskRetryPredicate).
+      ask:
+        maxAttempts: 2
+        waitDuration: 500ms
       anthropic:
         maxAttempts: 4
         waitDuration: 1s
         enableExponentialBackoff: true
         exponentialBackoffMultiplier: 2
         exponentialMaxWaitDuration: 30s
+      # Second, longer-window retry around Anthropic Batch API creation calls
+      # (AnthropicBatchClient) — deliberately separate from "anthropic" above and much
+      # slower: batch creation is a handful of calls per cycle, hours apart, so ~30s/60s/120s
+      # of backoff (~3.5 min total on top of the SDK's own retries) is cheap insurance against
+      # a transient Anthropic-side 5xx/timeout. See docs on the 2026-09-29 incident.
+      anthropic-batch:
+        maxAttempts: 4
+        waitDuration: 30s
+        enableExponentialBackoff: true
+        exponentialBackoffMultiplier: 2
+        exponentialMaxWaitDuration: 120s
       open-meteo:
         maxAttempts: 3
         waitDuration: 5s
@@ -96,6 +123,11 @@ resilience4j:
   bulkhead:
     bulkheadAspectOrder: 4
     instances:
+      # Ask PhotoCast: at most four conversations talk to Claude at once; a fifth waits two seconds
+      # and is then turned away (counted as load, not as a Claude fault, by the ask breaker).
+      ask:
+        maxConcurrentCalls: 4
+        maxWaitDuration: 2s
       forecast:
         maxConcurrentCalls: 8
         maxWaitDuration: 120s
@@ -123,7 +155,6 @@ management:
 
 anthropic:
   api-key: ${ANTHROPIC_API_KEY}
-  model: claude-sonnet-4-5-20250929
 
 worldtides:
   api-key: ${WORLDTIDES_API_KEY}
@@ -142,6 +173,10 @@ notifications:
     enabled: false
   macos-toast:
     enabled: false
+  admin-alerts:
+    # Emails every enabled ADMIN account when a pipeline run is marked DEGRADED — the one
+    # operational alert this app sends in production (see AdminAlertService).
+    enabled: true
 
 jwt:
   secret: ${JWT_SECRET}
@@ -370,9 +405,6 @@ forecast:
     haiku:
       # Every 12 hours: 6, 18 UTC
       cron: "${FORECAST_HAIKU_CRON:0 0 6,18 * * *}"
-    wildlife:
-      # Every 12 hours: 6, 18 UTC
-      cron: "${FORECAST_WILDLIFE_CRON:0 0 6,18 * * *}"
 
 tide:
   schedule:

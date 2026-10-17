@@ -192,15 +192,4 @@
         </Or>
     </Match>
 
-    <!--
-        AuroraStateCache uses volatile fields for thread-safe publication between the
-        polling thread (writer) and the REST thread (reader). SpotBugs may flag compound
-        read-check-write sequences on volatile fields, but these are intentionally
-        single-writer — only the polling job calls evaluate().
-    -->
-    <Match>
-        <Class name="com.gregochr.goldenhour.service.aurora.AuroraStateCache"/>
-        <Bug pattern="IS2_INCONSISTENT_SYNC"/>
-    </Match>
-
 </FindBugsFilter>

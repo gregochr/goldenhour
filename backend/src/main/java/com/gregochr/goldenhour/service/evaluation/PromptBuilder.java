@@ -54,6 +54,14 @@ public class PromptBuilder {
      * earlier revision of this javadoc cited "16,318 characters", which matches neither prompt nor
      * either byte length — it is not a measurement anything in this tree reproduces.
      *
+     * <p><b>Measured 2026-10-04</b> ({@code SystemPromptTokenCountTest}, {@code count_tokens} on
+     * {@code claude-haiku-4-5-20251001}): the inland prompt is 17,920 characters and 4,726 tokens
+     * (3.79 chars/token), the coastal 18,179 and 4,779 (3.80). At that ratio 15,500 characters is
+     * about 4,090 tokens, i.e. <em>just under</em> the 4,096 floor, so this constant does not by
+     * itself guarantee cacheability; the live prompts clear it with ~15% to spare because they have
+     * grown well past it, not because the constant is tight. The earlier ~3.75 figure above came
+     * from production usage on a shorter prompt.
+     *
      * <p>The floor here is deliberately the <em>cacheability</em> boundary rather than today's
      * length, so ordinary rewording is free and only a real reduction fails. It is a
      * <b>proxy, not an oracle</b>: characters per token vary with content, so a rewrite that is
@@ -449,6 +457,20 @@ public class PromptBuilder {
         return PromptUtils.insertBeforeSuffix(base, getPromptSuffix(), surgeBlock);
     }
 
+    /**
+     * Builds the user message for a single location and solar event from its atmospheric data.
+     *
+     * <p>Always emits the location, cloud, visibility, humidity, dew point, boundary-layer and
+     * aerosol lines. Further blocks are appended only when their data exists or their condition
+     * holds: location orientation, directional cloud (with the thin-strip and far-corridor labels),
+     * cloud approach risk, the mist/visibility trend, Saharan dust context, cloud inversion
+     * forecast and forecast reliability. The fixed prompt suffix always closes the message.
+     * Storm surge is not included here; use the four-argument overload for that.
+     *
+     * @param data the atmospheric forecast data; its cloud, weather, aerosol and comfort
+     *             components must be non-null
+     * @return the formatted user message string
+     */
     public String buildUserMessage(AtmosphericData data) {
         var cloud = data.cloud();
         var w = data.weather();
@@ -665,6 +687,13 @@ public class PromptBuilder {
      * Builds the structured output configuration constraining Claude's response to the
      * evaluation JSON schema.
      *
+     * <p>The property order is fixed: {@code rating, fiery_sky, golden_hour, summary, headline,
+     * basic_fiery_sky, basic_golden_hour, basic_summary, inversion_score, inversion_potential}.
+     * Structured outputs emit fields in the schema's property order, so the order decides whether
+     * the model commits to a rating before or after writing its explanation. The maps are
+     * insertion-ordered because the JDK's immutable maps iterate in an order that changes per
+     * JVM run, which made that choice vary with every backend restart.
+     *
      * @return the output configuration with JSON schema constraint
      */
     public OutputConfig buildOutputConfig() {
@@ -672,18 +701,19 @@ public class PromptBuilder {
                 .format(JsonOutputFormat.builder()
                         .schema(JsonOutputFormat.Schema.builder()
                                 .putAdditionalProperty("type", JsonValue.from("object"))
-                                .putAdditionalProperty("properties", JsonValue.from(Map.ofEntries(
-                                        Map.entry("rating", Map.of(
+                                .putAdditionalProperty("properties", JsonValue.from(
+                                        PromptUtils.orderedEntries(
+                                        Map.entry("rating", PromptUtils.ordered(
                                                 "type", "integer",
                                                 "enum", List.of(1, 2, 3, 4, 5),
                                                 "description",
                                                 "1-5. MAXIMUM 3 when the CLOUD APPROACH RISK "
                                                         + "block shows BOTH a [BUILDING] trend "
                                                         + "AND upwind current >= 60%.")),
-                                        Map.entry("fiery_sky", Map.of(
+                                        Map.entry("fiery_sky", PromptUtils.ordered(
                                                 "type", "integer",
                                                 "description", "0-100 inclusive.")),
-                                        Map.entry("golden_hour", Map.of(
+                                        Map.entry("golden_hour", PromptUtils.ordered(
                                                 "type", "integer",
                                                 "description",
                                                 "0-100 inclusive. 20-30 points LOWER than the "
@@ -691,34 +721,34 @@ public class PromptBuilder {
                                                         + "CLOUD APPROACH RISK block shows BOTH a "
                                                         + "[BUILDING] trend AND upwind current "
                                                         + ">= 60%.")),
-                                        Map.entry("summary", Map.of(
+                                        Map.entry("summary", PromptUtils.ordered(
                                                 "type", "string",
                                                 "description",
                                                 "One sentence in Claude's voice explaining the "
                                                         + "rating from the actual conditions; never "
                                                         + "a placeholder such as 'test', "
                                                         + "'placeholder', or an ellipsis.")),
-                                        Map.entry("basic_fiery_sky", Map.of(
+                                        Map.entry("headline", PromptUtils.ordered(
+                                                "type", "string",
+                                                "description",
+                                                "4-9 word card header in Claude's voice.")),
+                                        Map.entry("basic_fiery_sky", PromptUtils.ordered(
                                                 "type", "integer",
                                                 "description", "0-100 inclusive.")),
-                                        Map.entry("basic_golden_hour", Map.of(
+                                        Map.entry("basic_golden_hour", PromptUtils.ordered(
                                                 "type", "integer",
                                                 "description", "0-100 inclusive.")),
-                                        Map.entry("basic_summary", Map.of(
+                                        Map.entry("basic_summary", PromptUtils.ordered(
                                                 "type", "string",
                                                 "description",
                                                 "One sentence explaining the basic (altitude-only) "
                                                         + "rating; never a placeholder.")),
-                                        Map.entry("inversion_score", Map.of(
+                                        Map.entry("inversion_score", PromptUtils.ordered(
                                                 "type", "integer",
                                                 "description", "0-10 inclusive.")),
-                                        Map.entry("inversion_potential", Map.of(
+                                        Map.entry("inversion_potential", PromptUtils.ordered(
                                                 "type", "string",
-                                                "enum", List.of("NONE", "MODERATE", "STRONG"))),
-                                        Map.entry("headline", Map.of(
-                                                "type", "string",
-                                                "description",
-                                                "4-9 word card header in Claude's voice.")))))
+                                                "enum", List.of("NONE", "MODERATE", "STRONG"))))))
                                 .putAdditionalProperty("required", JsonValue.from(
                                         List.of("rating", "fiery_sky", "golden_hour", "summary")))
                                 .putAdditionalProperty("additionalProperties",

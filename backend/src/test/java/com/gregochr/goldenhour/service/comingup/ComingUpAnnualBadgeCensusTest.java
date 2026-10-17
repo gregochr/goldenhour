@@ -127,8 +127,9 @@ class ComingUpAnnualBadgeCensusTest {
                 new EclipseAlmanacSource(locationRepository));
 
         ComingUpAssembler assembler = new ComingUpAssembler(locationRepository,
-                mock(TideRunBuilder.class), mock(TideRunPeakHistory.class),
-                mock(TideService.class), properties);
+                mock(TideRunBuilder.class), mock(TideRunPeakHistory.class), mock(DailyRangeHistory.class),
+                mock(TideService.class), properties,
+                new com.gregochr.solarutils.MoonriseMoonsetCalculator());
 
         badgeArrivals = new ArrayList<>();
         arrivalsByType = new LinkedHashMap<>();

@@ -136,4 +136,21 @@ class BriefingRegionSerializationTest {
         assertThat(rated.withLightlyEvaluated().bestRating()).isEqualTo(5);
         assertThat(rated.withGloss("Head", "Detail").bestRating()).isEqualTo(5);
     }
+
+    // ── UNRATED: the display verdict a weather pre-screen can no longer fake (U1) ──────────
+
+    @Test
+    void unratedSerialisesByNameAndRoundTrips() throws Exception {
+        // The cache round-trip and the wire both carry the enum by NAME (no @JsonValue on it), so
+        // the client's switch on "UNRATED" and a restart reloading a cached row share one spelling.
+        BriefingRegion unrated = new BriefingRegion("North East", Verdict.GO, "Clear skies",
+                List.of(), List.of(), 10.0, 9.0, 3.0, 1, null, null,
+                DisplayVerdict.UNRATED, 38, null, false, Confidence.LOW);
+
+        String json = mapper.writeValueAsString(unrated);
+
+        assertThat(mapper.readTree(json).get("displayVerdict").asText()).isEqualTo("UNRATED");
+        assertThat(mapper.readValue(json, BriefingRegion.class).displayVerdict())
+                .isEqualTo(DisplayVerdict.UNRATED);
+    }
 }

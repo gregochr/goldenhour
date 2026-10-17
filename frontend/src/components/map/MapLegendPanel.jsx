@@ -2,7 +2,9 @@ import { useRef } from 'react';
 import PropTypes from 'prop-types';
 import { foreignModalOverPaneOf } from '../../utils/mapForeignModal.js';
 import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js';
+import { useFitToFrame } from '../../hooks/useFitToFrame.js';
 import { rampGradientCss } from '../../utils/scoreRamp.js';
+import { AURORA_RAMP } from '../../utils/auroraRamp.js';
 import { RING_TIERS } from '../../utils/reachRings.js';
 import { formatDriveDuration } from '../../utils/briefingDisplay.js';
 
@@ -18,7 +20,7 @@ const HANDOVER_LOCATIONS_MIN = 0.92;
  * <p>⚠️ It used to add "so the indicator can never disagree with what is actually painting", and
  * that safety property is gone: `markers` was the medallion opacity, and nothing paints at it now
  * (`MapHeatLayer` hides those panes unconditionally). The indicator is still HONEST — `fadeAt`'s
- * other half, `heat`, ramps the field 1 → 0.12 across the identical band, so `Field` / `Handing
+ * other half, `heat`, ramps the field 1 → 0.35 across the identical band, so `Field` / `Handing
  * over` / `Locations` does track a real, visible change, and what it hands over TO is `MapLabels`'
  * chips, exactly as the bundle intends. But the two halves are now separate numbers from one
  * function rather than one number with two consumers: a future change to the field's own ramp can
@@ -74,6 +76,12 @@ export function handoverPhase(t) {
  *   homeCoords?.lon != null` — never from `heat.hasHome`, a different roster-level signal that can
  *   be true while `homeCoords` itself has not resolved (adversarial review C4: MapView's first cut
  *   passed `heat.hasHome` here and could show a toggle with nothing for either sibling to draw).
+ * @param {'solar'|'aurora'} [props.variant] which ramp the panel describes (aurora-heat-plan.md §3
+ *   A3). `'aurora'` paints the bar from {@link AURORA_RAMP}`.gradientCss()` — never
+ *   {@link rampGradientCss}, for the reason above — and words the labels and note for an aurora
+ *   night; the handover indicator and the reach-rings toggle are the same in both.
+ * @param {boolean} [props.viewlineShown] whether the viewline overlay is actually mounted; the
+ *   aurora note describes the line only when it is (never describe a line that is not there)
  * @param {boolean} [props.reachMeasured] whether a real drive time gates this reader's reach lens
  *   (§5.2's honesty rule) — the toggle states the ring tiers as a DISTANCE by default and only
  *   upgrades to durations once a measured drive exists, the same rule `MapLabels`' own ring labels
@@ -81,9 +89,14 @@ export function handoverPhase(t) {
  */
 export default function MapLegendPanel({
   open, onOpenChange, handoverFraction, ringsEnabled, onToggleRings,
-  hasHome = false, reachMeasured = false,
+  hasHome = false, reachMeasured = false, variant = 'solar', viewlineShown = false,
 }) {
+  const aurora = variant === 'aurora';
   const rootRef = useRef(null);
+  const panelRef = useRef(null);
+
+  // Opens UP from the bottom-left chip, so it is the frame's TOP edge it can run past.
+  useFitToFrame(panelRef, rootRef, { direction: 'up', open });
 
 
   // A press on the MAP dismisses nothing — `useOutsideDismiss` carries that rule for all four map
@@ -137,16 +150,27 @@ export default function MapLegendPanel({
       </button>
 
       {open && (
-        <div id="wf-legend-panel" data-testid="wf-legend-panel" className="wf-legend-panel" role="dialog" aria-label="Map legend">
+        <div ref={panelRef} id="wf-legend-panel" data-testid="wf-legend-panel" className="wf-legend-panel" role="dialog" aria-label="Map legend">
+          {aurora && <div className="wf-legend-ramp-label">COLOUR = AURORA RATING</div>}
           <div
             data-testid="wf-legend-ramp"
-            className="wf-legend-ramp"
-            style={{ background: rampGradientCss() }}
+            className={aurora ? 'wf-legend-ramp wf-legend-ramp-aurora' : 'wf-legend-ramp'}
+            style={{ background: aurora ? AURORA_RAMP.gradientCss() : rampGradientCss() }}
           />
           <div className="wf-legend-ramp-row">
-            <span>1&#9733; poor</span>
-            <span>3&#9733;</span>
-            <span>5&#9733; worth it</span>
+            {aurora ? (
+              <>
+                <span>1&#9733; dark sky, no show</span>
+                <span>3&#9733;</span>
+                <span>5&#9733; aurora green</span>
+              </>
+            ) : (
+              <>
+                <span>1&#9733; poor</span>
+                <span>3&#9733;</span>
+                <span>5&#9733; worth it</span>
+              </>
+            )}
           </div>
 
           <div data-testid="wf-legend-hand" className="wf-legend-hand">
@@ -172,10 +196,18 @@ export default function MapLegendPanel({
             </button>
           )}
 
-          <div data-testid="wf-legend-note" className="wf-legend-note">
-            Colour appears only near rated locations, and only over land. Later days look
-            hazier &mdash; lower confidence.
-          </div>
+          {aurora ? (
+            <div data-testid="wf-legend-note" className="wf-legend-note">
+              <b>Rating, not Kp.</b> Each location&rsquo;s score already folds in latitude, cloud and
+              sky darkness.
+              {viewlineShown && ' The line is where the aurora clears the northern horizon on camera; dashed amber is the forecast, pale is live.'}
+            </div>
+          ) : (
+            <div data-testid="wf-legend-note" className="wf-legend-note">
+              Colour appears only near rated locations, and only over land. Later days look
+              hazier &mdash; lower confidence.
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -190,4 +222,6 @@ MapLegendPanel.propTypes = {
   onToggleRings: PropTypes.func.isRequired,
   hasHome: PropTypes.bool,
   reachMeasured: PropTypes.bool,
+  variant: PropTypes.oneOf(['solar', 'aurora']),
+  viewlineShown: PropTypes.bool,
 };

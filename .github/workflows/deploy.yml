@@ -65,11 +65,15 @@ jobs:
         uses: appleboy/ssh-action@v1
         env:
           RELEASE_VERSION: ${{ github.ref_name }}
+          # So prod-health.sh's ::error:: lines are parsed as annotations on this
+          # remote run too — appleboy/ssh-action only forwards variables named in
+          # `envs:` below, so without this GITHUB_ACTIONS is unset on the host.
+          GITHUB_ACTIONS: "true"
         with:
           host: 100.76.73.16
           username: gregochr
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: RELEASE_VERSION
+          envs: RELEASE_VERSION,GITHUB_ACTIONS
           script: |
             set -e
             cd ~/goldenhour
@@ -145,8 +149,15 @@ jobs:
 
             docker compose pull goldenhour-backend goldenhour-frontend
             docker compose up -d --no-deps goldenhour-backend goldenhour-frontend
-            sleep 30
-            docker compose ps
+
+            # Verify the release actually came up: compose health, cloudflared,
+            # Tailscale and a real 401 from outside the tunnel. A failure here
+            # fails this job, which notify-failure below turns into an issue and
+            # which release.sh's own watch loop already reports (with its bell) —
+            # so release.sh needs no change for this.
+            git show "${RELEASE_VERSION}:scripts/prod-health.sh" > /tmp/prod-health.sh
+            chmod +x /tmp/prod-health.sh
+            COMPOSE_DIR="$HOME/goldenhour" /tmp/prod-health.sh --deploy
 
             # Record what is now running, while its digest is still readable.
             #

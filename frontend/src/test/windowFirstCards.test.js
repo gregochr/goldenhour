@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { badgeChannel, buildWindowCards } from '../utils/windowFirstCards.js';
+import {
+  badgeChannel, buildWindowCards, formatRegionMean, VERDICT_LABEL, SLOT_VERDICT_LABEL, CONFIDENCE_VERDICTS,
+  VERDICT_LABEL_SHORT, shortVerdictLabel,
+} from '../utils/windowFirstCards.js';
+import { bestReachLine } from '../components/WindowFirstHeatStrip.jsx';
+import { buildHeatStripCards } from '../utils/windowFirstStrip.js';
 import { buildRegionRows } from '../utils/windowFirstRegions.js';
+import { factsOf } from './tideFactsFixture.js';
 
 const TODAY = '2026-08-04';
 const TOMORROW = '2026-08-05';
@@ -117,15 +123,68 @@ describe('buildWindowCards', () => {
     });
   });
 
+  describe('tide (tide-window-plan.md T6)', () => {
+    // This is the ONE hop between the raw served `window.tide` (`GET /api/briefing`) and every
+    // downstream reader that folds this card — `buildHeatStripCards`, `WindowFirstMapPane`'s
+    // `heat.windows`, and ultimately the Map tab's tide strip. A dropped field here breaks that
+    // whole chain silently: found in browser verification against a live payload, because every
+    // other layer's own unit tests feed it a hand-built object that already has `.tide` on it.
+    it('carries the window\'s own served tide object verbatim', () => {
+      const tide = { locationName: 'Bamburgh Beach', state: 'MID', curve: [0, 1] };
+      const [card] = build(oneWindow({ tide }));
+      expect(card.tide).toBe(tide);
+    });
+
+    it('is null when the window carries no tide (inland, or no coastal representative)', () => {
+      const [card] = build(oneWindow());
+      expect(card.tide).toBeNull();
+    });
+  });
+
   describe('the verdict', () => {
     it.each([
       ['WORTH_IT', 'Worth it'],
       ['MAYBE', 'Maybe'],
       ['STAND_DOWN', 'Poor'],
+      ['UNRATED', 'Too few rated'],
       ['AWAITING', 'Not scored'],
     ])('labels %s as "%s"', (verdict, label) => {
       const [card] = build(oneWindow({ verdict }));
       expect(card.verdictLabel).toBe(label);
+    });
+
+    it('speaks UNRATED at window level as "Too few rated" and at slot level as "Not rated" — one differing word', () => {
+      // unrated-verdict-plan.md U2: a REGION is "too few rated" because the SAMPLE is small; a SLOT
+      // is one place nothing has rated. Two maps so a slot reader can never pick up the population
+      // wording; they must agree on every other word.
+      expect(VERDICT_LABEL.UNRATED).toBe('Too few rated');
+      expect(SLOT_VERDICT_LABEL.UNRATED).toBe('Not rated');
+      const without = (map) => Object.fromEntries(Object.entries(map).filter(([key]) => key !== 'UNRATED'));
+      expect(without(SLOT_VERDICT_LABEL)).toEqual(without(VERDICT_LABEL));
+    });
+
+    it('splits the confidence channel for UNRATED: the HAZE follows the server, the BADGE does not (F5)', () => {
+      // The word already says "provisional", so a decayed badge or a provisional mark on top is the
+      // double-qualifier the badge gate exists to prevent — `CONFIDENCE_VERDICTS` (what every badge
+      // consumer tests) still excludes it. But the FIELD haze reads `card.confidence`, and nulling it
+      // sent the haze to the horizon's inferred MEDIUM over the server's LOW (an ineligible region is
+      // floored LOW), drawing a window nothing has called more confidently than the server said.
+      expect(CONFIDENCE_VERDICTS.has('UNRATED')).toBe(false);
+      const [low] = build(oneWindow({ verdict: 'UNRATED', confidence: 'low' }));
+      expect(low.confidence).toBe('low');
+      const [high] = build(oneWindow({ verdict: 'UNRATED', confidence: 'high' }));
+      expect(high.confidence).toBe('high');
+      // …and still null rather than undefined when the payload carried none.
+      const [none] = build(oneWindow({ verdict: 'UNRATED' }));
+      expect(none.confidence).toBeNull();
+    });
+
+    it('prints the SHORT word only where a surface asks for it, and keeps the full word on the descriptor', () => {
+      const [card] = build(oneWindow({ verdict: 'UNRATED' }));
+      expect(card.verdictLabel).toBe('Too few rated');
+      expect(shortVerdictLabel(card.verdict, card.verdictLabel)).toBe('Too few');
+      expect(VERDICT_LABEL_SHORT.UNRATED).toBe('Too few');
+      expect(VERDICT_LABEL_SHORT.WORTH_IT).toBe(VERDICT_LABEL.WORTH_IT);
     });
 
     it('falls back to AWAITING when the window is missing entirely', () => {
@@ -685,6 +744,144 @@ describe('buildWindowCards', () => {
       });
     });
 
+    describe('the tide fit summary (tide-plan-card-plan.md C1)', () => {
+      /** A slot with the served tide facts C0 adds, over `tideFit`'s own pool. */
+      function tideSlot(id, {
+        tideState = 'HIGH', tideAligned = false, tideAlignmentQuality = null,
+      } = {}) {
+        return {
+          locationId: id,
+          locationName: `Spot ${id}`,
+          claudeRating: 3,
+          canopy: false,
+          tideState,
+          tideAligned,
+          tideAlignmentQuality,
+        };
+      }
+
+      /** `coastalCount` coastal slots, the first `matchedCount` of them aligned. */
+      function coastalSlots(coastalCount, matchedCount, quality = null) {
+        return Array.from({ length: coastalCount }, (_, i) => {
+          const aligned = i < matchedCount;
+          return tideSlot(i + 1, {
+            tideAligned: aligned,
+            tideAlignmentQuality: aligned ? quality : null,
+          });
+        });
+      }
+
+      const inlandSlot = (id) => ({
+        locationId: id,
+        locationName: `Inland ${id}`,
+        claudeRating: 3,
+        canopy: false,
+        tideState: null,
+        tideAligned: false,
+        tideAlignmentQuality: null,
+      });
+
+      function buildWithSlots(slots, window = {}) {
+        const days = [day(TODAY, [{
+          targetType: 'SUNSET',
+          regions: [{ regionName: 'Northumberland & Tyneside', slots }],
+          unregioned: [],
+          window: {
+            verdict: 'WORTH_IT', badges: [], tideFacts: factsOf(slots), ...window,
+          },
+        }])];
+        return buildWindowCards(events([TODAY, 'SUNSET']), days, TODAY, TOMORROW, new Set());
+      }
+
+      describe('the gate — coastal >= 4 && matched >= max(3, ceil(coastal * 0.5))', () => {
+        it('is never live below four coastal spots, however many match', () => {
+          const [card] = buildWithSlots(coastalSlots(3, 3));
+          expect(card.tideFit).toMatchObject({ coastal: 3, matched: 3, live: false });
+        });
+
+        it('is not live at four coastal with only two matched — below the floor of three', () => {
+          const [card] = buildWithSlots(coastalSlots(4, 2));
+          expect(card.tideFit).toMatchObject({ coastal: 4, matched: 2, live: false });
+        });
+
+        it('is live at four coastal with three matched — the floor, not the share, governs', () => {
+          // ceil(4 * 0.5) = 2, so the flat floor of three is what fires here — the spec's own
+          // reason for a floor at all (a pure share put a chip on all six cards in the first build).
+          const [card] = buildWithSlots(coastalSlots(4, 3));
+          expect(card.tideFit).toMatchObject({ coastal: 4, matched: 3, live: true });
+        });
+
+        it('is not live at eight coastal with only three matched — the share now governs', () => {
+          // ceil(8 * 0.5) = 4, so three clears the floor but not the share.
+          const [card] = buildWithSlots(coastalSlots(8, 3));
+          expect(card.tideFit).toMatchObject({ coastal: 8, matched: 3, live: false });
+        });
+
+        it('is live at eight coastal with four matched — exactly half', () => {
+          const [card] = buildWithSlots(coastalSlots(8, 4));
+          expect(card.tideFit).toMatchObject({ coastal: 8, matched: 4, live: true });
+        });
+      });
+
+      describe('meanQuality', () => {
+        it('averages only the MATCHED spots\' quality, never the whole coastal pool', () => {
+          const slots = [
+            tideSlot(1, { tideAligned: true, tideAlignmentQuality: 0.4 }),
+            tideSlot(2, { tideAligned: true, tideAlignmentQuality: 0.8 }),
+            tideSlot(3, { tideAligned: false, tideAlignmentQuality: null }),
+          ];
+          const [card] = buildWithSlots(slots);
+          expect(card.tideFit.meanQuality).toBeCloseTo(0.6);
+        });
+
+        it('is null when no matched spot carries a quality at all', () => {
+          const slots = [
+            tideSlot(1, { tideAligned: true, tideAlignmentQuality: null }),
+            tideSlot(2, { tideAligned: true, tideAlignmentQuality: null }),
+          ];
+          const [card] = buildWithSlots(slots);
+          expect(card.tideFit.meanQuality).toBeNull();
+        });
+
+        it('tolerates a mix — C0\'s own documented cache-staleness case', () => {
+          // C0's phase log: a payload written before C0's build reads `tideAligned: true` with a
+          // null `tideAlignmentQuality` until the next briefing build. `meanQuality` must average
+          // over the matched spots that carry a figure, not fail or zero out the missing one.
+          const slots = [
+            tideSlot(1, { tideAligned: true, tideAlignmentQuality: 0.9 }),
+            tideSlot(2, { tideAligned: true, tideAlignmentQuality: null }),
+          ];
+          const [card] = buildWithSlots(slots);
+          expect(card.tideFit.meanQuality).toBeCloseTo(0.9);
+        });
+      });
+
+      it('counts an inland spot in neither coastal nor matched', () => {
+        const slots = coastalSlots(4, 4).concat([inlandSlot(99)]);
+        const [card] = buildWithSlots(slots);
+        expect(card.tideFit.coastal).toBe(4);
+        expect(card.tideFit.matched).toBe(4);
+      });
+
+      it('§7 #9 — coastal plus inland accounts for every spot in the pool', () => {
+        const slots = coastalSlots(4, 3).concat([inlandSlot(99), inlandSlot(100)]);
+        const [card] = buildWithSlots(slots);
+        const inland = card.pool.length - card.tideFit.coastal;
+        expect(inland).toBe(2);
+        expect(card.tideFit.coastal + inland).toBe(card.pool.length);
+      });
+
+      it('§7 #9 — leaves the served window tide (`card.tide`) untouched by this series', () => {
+        // `tideFit` is a new, separate field — `tide` (T6's served `BriefingWindowTide`, forwarded
+        // to the Map tab's strip) must still carry exactly what the window served.
+        const TIDE = { locationName: 'Bamburgh Beach', state: 'MID', curve: [0, 1] };
+        const [card] = buildWithSlots(coastalSlots(4, 3), { tide: TIDE });
+        expect(card.tide).toBe(TIDE);
+        expect(card.tideFit).not.toBe(card.tide);
+        expect(card.tideFit).toMatchObject({ coastal: 4, matched: 3, live: true });
+      });
+    });
+
     describe('the rating floor beside it', () => {
       it('drops a spot below the floor and keeps the one exactly on it', () => {
         const [card] = buildWithLens(THREE_SPOTS, REACH, {
@@ -770,6 +967,7 @@ describe('buildWindowCards', () => {
 describe('badgeChannel', () => {
   it.each([
     ['ECLIPSE', 'eclipse'],
+    ['LUNAR_ECLIPSE', 'eclipse'],
     ['SPRING_TIDE', 'tide'],
     ['KING_TIDE', 'tide'],
     ['STORM_SURGE', 'tide'],
@@ -802,6 +1000,15 @@ describe('badgeChannel', () => {
     // happens to hit, which is the failure mode `badgeChannel`'s own comment warns about.
     expect(badgeChannel('LUNAR_ECLIPSE_TIDE')).toBe('tide');
     expect(badgeChannel('eclipse')).toBe('eclipse');
+  });
+
+  it('matches LUNAR_ECLIPSE exactly too — a fictional LUNAR_ECLIPSE_TIDE stays on the tide channel', () => {
+    // The genuinely-shipped LUNAR_ECLIPSE type shares the eclipse channel by exact match
+    // (lunar-eclipse-plan.md §2.1) — but that must not widen into a substring test, or a
+    // never-shipped compound type would be silently claimed by it instead of falling through to
+    // the TIDE arm the way LUNAR_ECLIPSE_TIDE already does above.
+    expect(badgeChannel('LUNAR_ECLIPSE')).toBe('eclipse');
+    expect(badgeChannel('lunar_eclipse')).toBe('eclipse');
   });
 });
 
@@ -903,6 +1110,221 @@ describe('buildWindowCards — topMeanRating, the Order control\'s ranking key',
     ]));
 
     expect(card.topMeanRating).toBe(4.6);
+  });
+
+  describe('the region behind the verdict word (verdict-honesty H1)', () => {
+    // `PlanWindowProjector.BY_RANK` puts verdict-ELIGIBLE regions first, then the better mean, then
+    // the name — and the window's verdict word is that top region's displayVerdict. The card prints
+    // `topMeanRating` beside the word, so the two must come from one region.
+    it('prefers a verdict-eligible region over a higher-mean INELIGIBLE one, as the projector does', () => {
+      const [card] = build(withRegions([
+        // Thinly sampled: the sample gate withholds its own verdict, so it cannot speak for the window.
+        { regionName: 'Thin', meanRating: 4.4, sampleSufficient: false },
+        { regionName: 'Sound', meanRating: 3.5, sampleSufficient: true },
+      ]));
+
+      expect(card.topMeanRating).toBe(3.5);
+      expect(card.hotRegionName).toBe('Sound');
+      expect(card.movement).toBeNull();
+    });
+
+    it('counts a force-evaluation exemption as eligible', () => {
+      const [card] = build(withRegions([
+        { regionName: 'Thin', meanRating: 4.4, sampleSufficient: false },
+        { regionName: 'Forced', meanRating: 3.9, sampleSufficient: false, forcedSample: true },
+      ]));
+
+      expect(card.topMeanRating).toBe(3.9);
+    });
+
+    it('reads an ABSENT flag as ineligible, the record\'s own safe direction', () => {
+      // A legacy payload has neither field; `verdictEligible()` is false for it, so an explicit
+      // sufficient region wins over a higher-mean legacy one.
+      const [card] = build(withRegions([
+        { regionName: 'Legacy', meanRating: 4.6 },
+        { regionName: 'Sound', meanRating: 3.2, sampleSufficient: true },
+      ]));
+
+      expect(card.topMeanRating).toBe(3.2);
+    });
+
+    it('still ranks by mean, then name, WITHIN the eligible set (and within the ineligible one)', () => {
+      expect(build(withRegions([
+        { regionName: 'A', meanRating: 3.6, sampleSufficient: true },
+        { regionName: 'B', meanRating: 4.1, sampleSufficient: true },
+        { regionName: 'C', meanRating: 4.9, sampleSufficient: false },
+      ]))[0].topMeanRating).toBe(4.1);
+      expect(build(withRegions([
+        { regionName: 'Zed', meanRating: 4.1, sampleSufficient: true },
+        { regionName: 'Alpha', meanRating: 4.1, sampleSufficient: true },
+      ]))[0].hotRegionName).toBe('Alpha');
+      // Nothing eligible anywhere: the projector falls through to the mean, and so does this.
+      expect(build(withRegions([
+        { regionName: 'A', meanRating: 2.1 },
+        { regionName: 'B', meanRating: 3.3, sampleSufficient: false },
+      ]))[0].topMeanRating).toBe(3.3);
+    });
+
+    it('keeps the origin-scoped mean when away: the scoped region speaks, whatever its eligibility', () => {
+      // Away, the card is the ORIGIN region's own record (verdict, mean and all), so eligibility
+      // never reaches it.
+      const cards = buildWindowCards(
+        events([TODAY, 'SUNSET']),
+        [day(TODAY, [{
+          targetType: 'SUNSET',
+          regions: [
+            { regionName: 'Home', meanRating: 4.6, sampleSufficient: true },
+            { regionName: 'Elsewhere', meanRating: 2.8, sampleSufficient: false },
+          ],
+          unregioned: [],
+          window: { verdict: 'WORTH_IT', badges: [] },
+        }])],
+        TODAY, TOMORROW, new Set(), undefined,
+        { limitMinutes: null, defaultLimitMinutes: null, origin: { id: 3, name: 'Elsewhere' } },
+      );
+      expect(cards[0].topMeanRating).toBe(2.8);
+    });
+  });
+
+  describe('verdictMean — the mean the card may PRINT beside its word (review F1)', () => {
+    // An INELIGIBLE region (sample gate failed, no force exemption) still ranks and still carries a
+    // served mean, but its displayVerdict is the weather-triage fallback — "Worth it 2.0★" would
+    // print a figure the word does not come from. `topMeanRating` (the Order key) is unchanged.
+    it('is the top region\'s mean when that region is verdict-eligible', () => {
+      const [card] = build(withRegions([
+        { regionName: 'Sound', meanRating: 3.5, sampleSufficient: true },
+      ]));
+      expect(card.verdictMean).toBe(3.5);
+    });
+
+    it('is the mean for a force-evaluation exemption', () => {
+      const [card] = build(withRegions([
+        { regionName: 'Forced', meanRating: 3.9, forcedSample: true },
+      ]));
+      expect(card.verdictMean).toBe(3.9);
+    });
+
+    it('is null for an ineligible top region, while topMeanRating still carries its mean', () => {
+      // One region, two rated slots at 2★ in a roster of 20, triage GO: the production-shaped input.
+      const [card] = build(withRegions([
+        { regionName: 'Thin', meanRating: 2, sampleSufficient: false, displayVerdict: 'WORTH_IT' },
+      ]));
+      expect(card.topMeanRating).toBe(2);
+      expect(card.verdictMean).toBeNull();
+    });
+
+    it('is null for a legacy region carrying neither flag', () => {
+      const [card] = build(withRegions([{ regionName: 'Legacy', meanRating: 4.2 }]));
+      expect(card.verdictMean).toBeNull();
+    });
+
+    it('is null when away and the scoped region is ineligible, and the mean when it is eligible', () => {
+      const away = (scopedFlags) => buildWindowCards(
+        events([TODAY, 'SUNSET']),
+        [day(TODAY, [{
+          targetType: 'SUNSET',
+          regions: [
+            { regionName: 'Home', meanRating: 4.6, sampleSufficient: true },
+            { regionName: 'Elsewhere', meanRating: 2.8, ...scopedFlags },
+          ],
+          unregioned: [],
+          window: { verdict: 'WORTH_IT', badges: [] },
+        }])],
+        TODAY, TOMORROW, new Set(), undefined,
+        { limitMinutes: null, defaultLimitMinutes: null, origin: { id: 3, name: 'Elsewhere' } },
+      )[0];
+
+      expect(away({ sampleSufficient: false }).verdictMean).toBeNull();
+      expect(away({ sampleSufficient: false }).topMeanRating).toBe(2.8);
+      expect(away({ sampleSufficient: true }).verdictMean).toBe(2.8);
+    });
+  });
+
+  describe('verdictMean for an UNRATED region (unrated-verdict-plan.md U2)', () => {
+    // The production state of 2026-10-13: Northumberland & Tyneside, 38 rated, mean 3.6, sample gate
+    // failed, triage GO. The word was "Worth it" on weather alone; it is now "Too few rated", and the
+    // mean IS printed beside it — it is the evidence the gate withheld a verdict from.
+    const unrated = (extra = {}) => ({
+      regionName: 'Northumberland & Tyneside',
+      meanRating: 3.6,
+      sampleSufficient: false,
+      displayVerdict: 'UNRATED',
+      ...extra,
+    });
+    const unratedWindow = (regions) => ({
+      events: events([TODAY, 'SUNSET']),
+      days: [day(TODAY, [{
+        targetType: 'SUNSET', regions, unregioned: [], window: { verdict: 'UNRATED', badges: [] },
+      }])],
+    });
+
+    it('prints "Too few rated" with the mean 3.6, no confidence and no pick', () => {
+      const [card] = build(unratedWindow([unrated()]));
+
+      expect(card.verdict).toBe('UNRATED');
+      expect(card.verdictLabel).toBe('Too few rated');
+      expect(card.verdictMean).toBe(3.6);
+      expect(card.confidence).toBeNull();
+      expect(card.pick).toBeNull();
+    });
+
+    it('is null for an ineligible region whose word is a triage STAND_DOWN, so "Poor" carries no figure', () => {
+      // A mean beside "Poor" would contradict it: the word is the WEATHER's call, the mean a rating.
+      const [card] = build(unratedWindow([unrated({ displayVerdict: 'STAND_DOWN' })]));
+
+      expect(card.topMeanRating).toBe(3.6);
+      expect(card.verdictMean).toBeNull();
+    });
+
+    it('is null for an ineligible AWAITING region, and for an UNRATED one with no finite mean', () => {
+      expect(build(unratedWindow([unrated({ displayVerdict: 'AWAITING' })]))[0].verdictMean).toBeNull();
+      expect(build(unratedWindow([unrated({ meanRating: null })]))[0].verdictMean).toBeNull();
+      expect(build(unratedWindow([unrated({ meanRating: Number.NaN })]))[0].verdictMean).toBeNull();
+    });
+
+    it('is the SCOPED region\'s mean when away and that region is UNRATED, and null when it is a STAND_DOWN', () => {
+      const away = (scoped) => buildWindowCards(
+        events([TODAY, 'SUNSET']),
+        [day(TODAY, [{
+          targetType: 'SUNSET',
+          regions: [
+            { regionName: 'Home', meanRating: 4.6, sampleSufficient: true, displayVerdict: 'WORTH_IT' },
+            { regionName: 'Elsewhere', meanRating: 2.8, sampleSufficient: false, ...scoped },
+          ],
+          unregioned: [],
+          window: { verdict: 'WORTH_IT', badges: [] },
+        }])],
+        TODAY, TOMORROW, new Set(), undefined,
+        { limitMinutes: null, defaultLimitMinutes: null, origin: { id: 3, name: 'Elsewhere' } },
+      )[0];
+
+      // The word is the SCOPED region's, never the roster's "Worth it".
+      expect(away({ displayVerdict: 'UNRATED' })).toMatchObject({
+        verdict: 'UNRATED', verdictLabel: 'Too few rated', verdictMean: 2.8,
+      });
+      expect(away({ displayVerdict: 'STAND_DOWN' })).toMatchObject({ verdict: 'STAND_DOWN', verdictMean: null });
+    });
+
+    it('does not let an UNRATED region outrank a verdict-eligible one for the card\'s word and figure', () => {
+      // Eligible first, then mean: a sound 3.2 beats a thin 4.4 (the projector's order), so the mean
+      // printed beside the word is the SOUND region\'s even though the unrated one averages higher.
+      const [card] = build(unratedWindow([
+        unrated({ meanRating: 4.4 }),
+        { regionName: 'Sound', meanRating: 3.2, sampleSufficient: true, displayVerdict: 'MAYBE' },
+      ]));
+      expect(card.verdictMean).toBe(3.2);
+    });
+  });
+
+  describe('formatRegionMean', () => {
+    it('always keeps one decimal and returns null for anything that is not a finite number', () => {
+      expect(formatRegionMean(3.53)).toBe('3.5');
+      expect(formatRegionMean(4)).toBe('4.0');
+      expect(formatRegionMean(null)).toBeNull();
+      expect(formatRegionMean(undefined)).toBeNull();
+      expect(formatRegionMean(Number.NaN)).toBeNull();
+      expect(formatRegionMean('3.5')).toBeNull();
+    });
   });
 
   it('is null when no region carries a mean, so an unrated window can rank last', () => {
@@ -1324,5 +1746,138 @@ describe('the scoped card reads its verdict through the shared resolver', () => 
     );
 
     expect(rows[0].verdict).toBe('WORTH_IT');
+  });
+});
+
+describe('buildWindowCards — the reach tier behind "beyond 45 min" (verdict-honesty H2)', () => {
+  // The production shape of 2026-10-13: the window's verdict belongs to ONE region, every rated
+  // spot of which is further than the active tier, while the places the tier DID keep are unrated.
+  const REGION = 'Northumberland & Tyneside';
+  const slots = [
+    { locationId: 1, locationName: 'Nearby Wood', claudeRating: null, canopy: false },
+    { locationId: 2, locationName: 'Far Beach', claudeRating: 4, canopy: false },
+    { locationId: 3, locationName: 'Far Castle', claudeRating: 4, canopy: false },
+  ];
+  const REACH = new Map([
+    [1, { driveMinutes: 20, distanceMiles: 8 }],
+    [2, { driveMinutes: 70, distanceMiles: 50 }],
+    [3, { driveMinutes: 80, distanceMiles: 55 }],
+  ]);
+  const days = [day(TODAY, [{
+    targetType: 'SUNSET',
+    regions: [{ regionName: REGION, meanRating: 3.5, sampleSufficient: true, slots }],
+    unregioned: [],
+    window: { verdict: 'WORTH_IT', badges: [] },
+  }])];
+  const buildWith = (reachById, lens, origin) => buildWindowCards(
+    events([TODAY, 'SUNSET']), days, TODAY, TOMORROW, new Set(), reachById,
+    origin ? { ...lens, origin } : lens,
+  )[0];
+  /** The line as the strip renders it: the card folded through the real descriptor builder. */
+  const lineOf = (card) => bestReachLine(
+    buildHeatStripCards(events([TODAY, 'SUNSET']), [card], new Set(), days, TODAY, TOMORROW)[0],
+  );
+
+  it('carries the active tier\'s minutes, and null under Any', () => {
+    expect(buildWith(REACH, { limitMinutes: 45, defaultLimitMinutes: 45 }).reachLimitMinutes).toBe(45);
+    expect(buildWith(REACH, { limitMinutes: null, defaultLimitMinutes: 45 }).reachLimitMinutes).toBeNull();
+    // No lens at all is "Any" too.
+    expect(buildWindowCards(events([TODAY, 'SUNSET']), days, TODAY, TOMORROW, new Set(), REACH)[0]
+      .reachLimitMinutes).toBeNull();
+  });
+
+  it('names the verdict\'s region and the tier when the tier gated out every rated spot', () => {
+    const card = buildWith(REACH, { limitMinutes: 45, defaultLimitMinutes: 45 });
+
+    // The state exactly: a non-empty pool, nothing rated in it, a rated verdict behind the word.
+    expect(card.pool.map((s) => s.locationName)).toEqual(['Nearby Wood']);
+    expect(card.pool.every((s) => s.rating == null)).toBe(true);
+    expect(card.topMeanRating).toBe(3.5);
+    expect(card.hotRegionName).toBe(REGION);
+    expect(card.reachMeasured).toBe(true);
+
+    expect(lineOf(card)).toMatchObject({
+      label: 'Region', value: `${REGION} · beyond 45 min`, muted: false, beyond: true,
+    });
+  });
+
+  it('says the tier in the lens bar\'s own words: 1h 30min and 2h 30min, not 90 or 1h 30', () => {
+    // The rated spots sit just past each tier, the unrated one well inside.
+    const reachPast = (rated) => new Map([
+      [1, { driveMinutes: 20, distanceMiles: 8 }],
+      [2, { driveMinutes: rated, distanceMiles: 50 }],
+      [3, { driveMinutes: rated + 10, distanceMiles: 55 }],
+    ]);
+    expect(lineOf(buildWith(reachPast(100), { limitMinutes: 90, defaultLimitMinutes: 90 })).value)
+      .toBe(`${REGION} · beyond 1h 30min`);
+    expect(lineOf(buildWith(reachPast(170), { limitMinutes: 150, defaultLimitMinutes: 150 })).value)
+      .toBe(`${REGION} · beyond 2h 30min`);
+  });
+
+  it('cannot arise with no measured drive: nothing is gated, so every rated spot is in the pool', () => {
+    // An unknown drive passes every tier (plan §2.5), so with no drive time anywhere the pool IS
+    // allSpots, a window with a rated verdict has rated spots in it, and the line must not render
+    // even though a tier is nominally active.
+    const card = buildWith(new Map(), { limitMinutes: 45, defaultLimitMinutes: 45 });
+
+    expect(card.reachMeasured).toBe(false);
+    expect(card.reachLimitMinutes).toBe(45);
+    expect(card.pool).toHaveLength(3);
+    expect(card.pool.filter((s) => s.rating != null)).toHaveLength(2);
+    expect(card.topMeanRating).toBe(3.5);
+    expect(lineOf(card)).toMatchObject({ rating: 4, value: 'Far Beach' });
+    expect(lineOf(card).beyond).toBeUndefined();
+  });
+
+  it('cannot arise under Any: the pool is allSpots, so the rated spots are in it', () => {
+    const card = buildWith(REACH, { limitMinutes: null, defaultLimitMinutes: 45 });
+
+    expect(card.reachMeasured).toBe(true);
+    expect(card.pool).toBe(card.allSpots);
+    expect(card.pool.filter((s) => s.rating != null)).toHaveLength(2);
+    expect(lineOf(card).beyond).toBeUndefined();
+    expect(lineOf(card).value).toBe('Far Beach');
+  });
+
+  it('keeps "not scored yet" for a pool with nothing rated when the WINDOW has no mean either', () => {
+    // The far-horizon state: nothing anywhere is rated, so "beyond" would claim a region's verdict
+    // that does not exist.
+    const unrated = [day(TODAY, [{
+      targetType: 'SUNSET',
+      regions: [{
+        regionName: REGION,
+        slots: slots.map((s) => ({ ...s, claudeRating: null })),
+      }],
+      unregioned: [],
+      window: { verdict: 'WORTH_IT', badges: [] },
+    }])];
+    const card = buildWindowCards(
+      events([TODAY, 'SUNSET']), unrated, TODAY, TOMORROW, new Set(), REACH,
+      { limitMinutes: 45, defaultLimitMinutes: 45 },
+    )[0];
+
+    expect(card.topMeanRating).toBeNull();
+    expect(lineOf(card)).toMatchObject({ label: 'Best', value: 'not scored yet', muted: true });
+  });
+
+  it('keeps "nothing in reach" when the tier emptied the pool (a different, already-true sentence)', () => {
+    const card = buildWith(REACH, { limitMinutes: 5, defaultLimitMinutes: 45 });
+
+    expect(card.pool).toHaveLength(0);
+    expect(lineOf(card)).toMatchObject({ label: 'Best', value: 'nothing in reach' });
+  });
+
+  it('holds away, from the origin: the origin region\'s own mean, and "beyond" measured from it', () => {
+    // Away, the page is about the ORIGIN's region; its mean is the word and the pool is that
+    // region's spots gated by reach from the region base — "beyond 45 min" is still true.
+    const card = buildWith(
+      REACH, { limitMinutes: 45, defaultLimitMinutes: 45 }, { id: 3, name: REGION },
+    );
+
+    expect(card.away).toBeUndefined();
+    expect(card.hotRegionName).toBe(REGION);
+    expect(card.topMeanRating).toBe(3.5);
+    expect(card.pool.every((s) => s.rating == null)).toBe(true);
+    expect(lineOf(card).value).toBe(`${REGION} · beyond 45 min`);
   });
 });

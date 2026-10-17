@@ -17,6 +17,7 @@ import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.HotTopicFact;
+import com.gregochr.goldenhour.model.LocationTideFact;
 import com.gregochr.goldenhour.model.PlanRenderedEvent;
 import com.gregochr.goldenhour.model.Verdict;
 import java.time.LocalDate;
@@ -630,7 +631,8 @@ class PlanWindowProjectorTest {
             // copy out of the recommendation slot.
             BriefingRegion r = new BriefingRegion("R", Verdict.GO, "summary", List.of(),
                     ratedSlots(4), 14.0, 13.0, 4.5, 3, HEADLINE, null,
-                    DisplayVerdict.WORTH_IT, 1, null, false, null);
+                    DisplayVerdict.WORTH_IT, 1, null, false, null)
+                    .withSampleSufficient(true);
 
             assertThat(projectOne(r).pick().headline()).isEqualTo(HEADLINE);
             assertThat(projectOne(r).pick().detail()).isNull();
@@ -773,7 +775,8 @@ class PlanWindowProjectorTest {
                             BriefingSlot.TideInfo.NONE, List.of(), null)
                             .withClaudeScores(4, 60, 55, "s")),
                     14.0, 13.0, 4.5, 3, HEADLINE, DETAIL,
-                    DisplayVerdict.WORTH_IT, 1, null, false, null);
+                    DisplayVerdict.WORTH_IT, 1, null, false, null)
+                    .withSampleSufficient(true);
 
             DailyBriefingResponse out = projectAt(List.of(dayOf(TODAY, timeless)), List.of(),
                     LocalDateTime.of(TODAY, LocalTime.of(23, 59)));
@@ -1225,6 +1228,43 @@ class PlanWindowProjectorTest {
         }
 
         @Test
+        @DisplayName("a window past the rendered six still carries its own tide rollup")
+        void anUnrenderedWindowStillCarriesItsTide() {
+            // The Map tab's tide strip reads a tide for every day the briefing carries, including
+            // the events the Plan tab does not draw (the 7th and 8th here). The client relies on
+            // the projector attaching the rollup to EVERY event summary, not only the rendered
+            // ones: cap the tide at the render horizon and the strip vanishes for exactly those
+            // windows, which is how the Sunday sunrise lost it. Each window must also carry its OWN
+            // rollup, not a neighbour's.
+            Map<PlanWindowProjector.WindowKey, BriefingWindowTide> tides = new java.util.HashMap<>();
+            for (int d = 0; d < 4; d++) {
+                for (TargetType type : TargetType.values()) {
+                    if (type == TargetType.SUNRISE || type == TargetType.SUNSET) {
+                        tides.put(new PlanWindowProjector.WindowKey(TODAY.plusDays(d), type),
+                                windowTide("HW", "0" + d + ":00", type.name() + " d" + d));
+                    }
+                }
+            }
+
+            DailyBriefingResponse out = projectWithTides(List.of(
+                    twoEventDayOf(TODAY, region("D0am", 3, 3), region("D0pm", 3, 3)),
+                    twoEventDayOf(TODAY.plusDays(1), region("D1am", 3, 3), region("D1pm", 3, 3)),
+                    twoEventDayOf(TODAY.plusDays(2), region("D2am", 3, 3), region("D2pm", 3, 3)),
+                    twoEventDayOf(TODAY.plusDays(3), region("D3am", 3, 3), region("D3pm", 3, 3))),
+                    List.of(), tides);
+
+            PlanRenderedEvent lastDayRising = new PlanRenderedEvent(
+                    TODAY.plusDays(3), TargetType.SUNRISE);
+            assertThat(out.renderedEvents()).doesNotContain(lastDayRising);
+            BriefingEventSummary unrendered = out.days().get(3).eventSummaries().get(0);
+            assertThat(unrendered.targetType()).isEqualTo(TargetType.SUNRISE);
+            assertThat(unrendered.window().tide()).isNotNull();
+            assertThat(unrendered.window().tide().nearestOffset()).isEqualTo("SUNRISE d3");
+            assertThat(out.days().get(3).eventSummaries().get(1).window().tide().nearestOffset())
+                    .isEqualTo("SUNSET d3");
+        }
+
+        @Test
         @DisplayName("one elapsed event spends no slot, so the horizon reaches one event further")
         void anElapsedEventDoesNotSpendASlot() {
             // Eight events, served at 12:00 — after the 05:00 sunrise plus its 30-minute afterglow
@@ -1469,21 +1509,66 @@ class PlanWindowProjectorTest {
                 "North East", Verdict.GO, "summary", List.of(),
                 List.of(unratedSlot("Bamburgh"), unratedSlot("Alnmouth")),
                 14.0, 13.0, 4.5, 3, HEADLINE, DETAIL,
-                DisplayVerdict.WORTH_IT, 0, null, false, Confidence.HIGH);
+                DisplayVerdict.WORTH_IT, 0, null, false, Confidence.HIGH)
+                .withSampleSufficient(true);
         DailyBriefingResponse raw = response(
                 List.of(new BriefingDay(TODAY, List.of(
                         new BriefingEventSummary(TargetType.SUNSET, List.of(zeroCoverage),
                                 List.of())))),
                 List.of());
 
-        BriefingWindow wrongOrder = PlanWindowProjector.apply(raw, NOW, Map.of())
+        BriefingWindow wrongOrder = PlanWindowProjector.apply(raw, NOW, Map.of(), Map.of())
                 .days().get(0).eventSummaries().get(0).window();
         BriefingWindow rightOrder =
-                PlanWindowProjector.apply(BriefingHonestyFilter.apply(raw), NOW, Map.of())
+                PlanWindowProjector.apply(BriefingHonestyFilter.apply(raw), NOW, Map.of(), Map.of())
                         .days().get(0).eventSummaries().get(0).window();
 
         assertThat(wrongOrder.pick()).isNotNull();
         assertThat(rightOrder.pick()).isNull();
+    }
+
+    @Test
+    @DisplayName("two blanked regions, one STAND_DOWN and one AWAITING: the window is STAND_DOWN "
+            + "whichever name sorts first")
+    void blankedStandDownOutranksBlankedAwaitingWhateverTheNames() {
+        // The honesty filter can now word one blanked region STAND_DOWN (weather stood it down)
+        // and another AWAITING (not scored at this range). Both compute to 0.0 / 0 and have no
+        // slots, so before the AWAITING step the only tie-break left was the region NAME, and
+        // renaming a region flipped the window's verdict.
+        for (String[] names : new String[][] {{"Alpha", "Zulu"}, {"Zulu", "Alpha"}}) {
+            DailyBriefingResponse in = response(
+                    List.of(new BriefingDay(TODAY, List.of(new BriefingEventSummary(
+                            TargetType.SUNSET,
+                            List.of(blankedRegion(names[0], DisplayVerdict.STAND_DOWN),
+                                    blankedRegion(names[1], DisplayVerdict.AWAITING)),
+                            List.of())))),
+                    List.of());
+
+            BriefingWindow window = PlanWindowProjector.apply(in, NOW, Map.of(), Map.of())
+                    .days().get(0).eventSummaries().get(0).window();
+
+            assertThat(window.verdict()).as("names %s/%s", names[0], names[1])
+                    .isEqualTo(DisplayVerdict.STAND_DOWN);
+        }
+        for (String[] names : new String[][] {{"Alpha", "Zulu"}, {"Zulu", "Alpha"}}) {
+            DailyBriefingResponse in = response(
+                    List.of(new BriefingDay(TODAY, List.of(new BriefingEventSummary(
+                            TargetType.SUNSET,
+                            List.of(blankedRegion(names[0], DisplayVerdict.AWAITING),
+                                    blankedRegion(names[1], DisplayVerdict.STAND_DOWN)),
+                            List.of())))),
+                    List.of());
+
+            assertThat(PlanWindowProjector.apply(in, NOW, Map.of(), Map.of())
+                    .days().get(0).eventSummaries().get(0).window().verdict())
+                    .as("names %s/%s, stand-down listed second", names[0], names[1])
+                    .isEqualTo(DisplayVerdict.STAND_DOWN);
+        }
+    }
+
+    private static BriefingRegion blankedRegion(String name, DisplayVerdict verdict) {
+        return new BriefingRegion(name, Verdict.GO, "summary", List.of(), List.of(),
+                14.0, 13.0, 4.5, 3, null, null, verdict, 0);
     }
 
     // ── The tide rollup ──────────────────────────────────────────────────────
@@ -1505,7 +1590,8 @@ class PlanWindowProjectorTest {
             DailyBriefingResponse out = PlanWindowProjector.apply(
                     response(twoWindowDay(), List.of()), NOW,
                     Map.of(new PlanWindowProjector.WindowKey(TODAY, TargetType.SUNRISE), sunrise,
-                            new PlanWindowProjector.WindowKey(TODAY, TargetType.SUNSET), sunset));
+                            new PlanWindowProjector.WindowKey(TODAY, TargetType.SUNSET), sunset),
+                    Map.of());
 
             List<BriefingEventSummary> summaries = out.days().get(0).eventSummaries();
             assertThat(summaries.get(0).targetType()).isEqualTo(TargetType.SUNRISE);
@@ -1536,7 +1622,8 @@ class PlanWindowProjectorTest {
             DailyBriefingResponse out = PlanWindowProjector.apply(
                     response(twoWindowDay(), List.of()), NOW,
                     Map.of(new PlanWindowProjector.WindowKey(TODAY.plusDays(9), TargetType.SUNSET),
-                            tide("LW", "19:28")));
+                            tide("LW", "19:28")),
+                    Map.of());
 
             assertThat(out.days().get(0).eventSummaries())
                     .allSatisfy(es -> assertThat(es.window().tide()).isNull());
@@ -1550,16 +1637,237 @@ class PlanWindowProjectorTest {
         }
     }
 
+    @Nested
+    @DisplayName("per-location tide facts")
+    class TideFacts {
+
+        private LocationTideFact fact(String name) {
+            return new LocationTideFact(7L, name, "HIGH", true, 0.9, true, "1h before",
+                    0.8, "RISING", "4.9 m", null, "fits");
+        }
+
+        private List<BriefingDay> fourDays() {
+            return List.of(
+                    twoEventDayOf(TODAY, region("D0am", 3, 3), region("D0pm", 3, 3)),
+                    twoEventDayOf(TODAY.plusDays(1), region("D1am", 3, 3), region("D1pm", 3, 3)),
+                    twoEventDayOf(TODAY.plusDays(2), region("D2am", 3, 3), region("D2pm", 3, 3)),
+                    twoEventDayOf(TODAY.plusDays(3), region("D3am", 3, 3), region("D3pm", 3, 3)));
+        }
+
+        @Test
+        @DisplayName("facts reach an unrendered window, each window its own")
+        void factsReachAnUnrenderedWindow() {
+            Map<PlanWindowProjector.WindowKey, List<LocationTideFact>> facts =
+                    new java.util.HashMap<>();
+            for (int d = 0; d < 4; d++) {
+                facts.put(new PlanWindowProjector.WindowKey(TODAY.plusDays(d), TargetType.SUNRISE),
+                        List.of(fact("sunrise d" + d)));
+            }
+
+            DailyBriefingResponse out = PlanWindowProjector.apply(response(fourDays(), List.of()),
+                    NOW, Map.of(), facts);
+
+            BriefingEventSummary unrendered = out.days().get(3).eventSummaries().get(0);
+            assertThat(out.renderedEvents()).doesNotContain(
+                    new PlanRenderedEvent(TODAY.plusDays(3), TargetType.SUNRISE));
+            assertThat(unrendered.window().tideFacts()).containsExactly(fact("sunrise d3"));
+            assertThat(out.days().get(0).eventSummaries().get(0).window().tideFacts())
+                    .containsExactly(fact("sunrise d0"));
+        }
+
+        @Test
+        @DisplayName("facts reach a window that has already passed")
+        void factsReachAPastWindow() {
+            Map<PlanWindowProjector.WindowKey, List<LocationTideFact>> facts = Map.of(
+                    new PlanWindowProjector.WindowKey(TODAY, TargetType.SUNRISE),
+                    List.of(fact("gone")));
+            LocalDateTime tomorrowNoon = LocalDateTime.of(TODAY.plusDays(1), LocalTime.NOON);
+
+            DailyBriefingResponse out = PlanWindowProjector.apply(response(fourDays(), List.of()),
+                    tomorrowNoon, Map.of(), facts);
+
+            assertThat(out.renderedEvents()).doesNotContain(
+                    new PlanRenderedEvent(TODAY, TargetType.SUNRISE));
+            assertThat(out.days().get(0).eventSummaries().get(0).window().tideFacts())
+                    .containsExactly(fact("gone"));
+        }
+
+        @Test
+        @DisplayName("a window with no entry carries null, never an empty list")
+        void aWindowWithoutFactsCarriesNull() {
+            DailyBriefingResponse out = PlanWindowProjector.apply(response(fourDays(), List.of()),
+                    NOW, Map.of(), Map.of());
+
+            assertThat(out.days()).allSatisfy(day -> assertThat(day.eventSummaries())
+                    .allSatisfy(es -> assertThat(es.window().tideFacts()).isNull()));
+        }
+    }
+
+    /**
+     * The verdict-minimum-sample rule's effect on THIS class's own logic — ranking and pick
+     * eligibility — with {@code sampleSufficient}/{@code forcedSample} set explicitly on each
+     * fixture rather than through {@link #regionWithSlots}'s sufficient-by-default helper. The
+     * rule's own arithmetic (rated count, examined coverage) is {@code VerdictSampleGateTest}'s and
+     * the sample-to-flag derivation is {@code BriefingRegionEvaluationRollupTest}'s; this class only
+     * has to prove it reads the two flags correctly once they are on the region.
+     */
+    @Nested
+    @DisplayName("verdict-minimum-sample eligibility")
+    class SampleEligibility {
+
+        @Test
+        @DisplayName("a sufficient region with a LOWER average outranks an insufficient region "
+                + "with a higher one")
+        void sufficientRegionOutranksInsufficientDespiteLowerAverage() {
+            BriefingRegion sufficientButLower = region("Sufficient", 3, 3, 3)
+                    .withSampleSufficient(true);
+            BriefingRegion insufficientButHigher = region("Insufficient", 5, 5, 5)
+                    .withSampleSufficient(false);
+
+            BriefingWindow w = projectOne(insufficientButHigher, sufficientButLower);
+
+            assertThat(w.pick().regionName()).isEqualTo("Sufficient");
+        }
+
+        @Test
+        @DisplayName("an insufficient, non-exempt region cannot be a pick candidate")
+        void insufficientRegionCannotBeAPick() {
+            BriefingRegion insufficient = region("Insufficient", 5, 5, 5)
+                    .withSampleSufficient(false);
+
+            BriefingWindow w = projectOne(insufficient);
+
+            assertThat(w.pick()).isNull();
+        }
+
+        @Test
+        @DisplayName("a forced-exempt region (insufficient by the raw test) CAN be a pick "
+                + "candidate and outranks a plain insufficient region")
+        void forcedExemptRegionCanBeAPick() {
+            BriefingRegion forcedExempt = region("Forced", 4, 4, 4)
+                    .withSampleSufficient(false).withForcedSample(true);
+            BriefingRegion plainInsufficient = region("Insufficient", 5, 5, 5)
+                    .withSampleSufficient(false).withForcedSample(false);
+
+            BriefingWindow w = projectOne(plainInsufficient, forcedExempt);
+
+            assertThat(w.pick()).isNotNull();
+            assertThat(w.pick().regionName()).isEqualTo("Forced");
+        }
+
+        @Test
+        @DisplayName("a legacy region with null sampleSufficient/forcedSample cannot be a pick — "
+                + "unknown reads as ineligible, never as sufficient")
+        void legacyNullFlags_cannotBeAPick() {
+            // regionWithSlots's default is deliberately NOT used here: this fixture models a
+            // payload cached before the verdict-minimum-sample rule existed, where the flags
+            // genuinely deserialise to null rather than to an explicit false.
+            BriefingRegion legacy = new BriefingRegion("R", Verdict.GO, "summary", List.of(),
+                    ratedSlots(4, 4, 4), 14.0, 13.0, 4.5, 3, HEADLINE, DETAIL,
+                    DisplayVerdict.WORTH_IT, 3, null, false, null);
+
+            assertThat(legacy.sampleSufficient()).isNull();
+            assertThat(legacy.forcedSample()).isNull();
+
+            BriefingWindow w = projectOne(legacy);
+
+            assertThat(w.pick()).isNull();
+        }
+
+        @Test
+        @DisplayName("among two insufficient regions, the existing average/coverage/name "
+                + "tie-breaks still decide the ranking")
+        void insufficientRegions_stillOrderedByExistingTieBreaks() {
+            // Neither region is pick-eligible (both insufficient), so neither can produce a
+            // candidate — the ranking is instead read off the window's verdict, which is always
+            // the TOP region's own displayVerdict regardless of pick eligibility. Dales averages
+            // 3.0 (MAYBE) and Northumberland 4.0 (WORTH_IT); if the pre-existing average tie-break
+            // still runs inside the insufficient tier, Northumberland ranks top and the window
+            // reads WORTH_IT — the same answer production gave before this rule existed.
+            BriefingRegion dales = region("Dales", 3, 3, 3).withSampleSufficient(false);
+            BriefingRegion northumberland = region("Northumberland", 4, 4, 4)
+                    .withSampleSufficient(false);
+
+            BriefingWindow w = projectOne(dales, northumberland);
+
+            assertThat(w.pick()).isNull();
+            assertThat(w.verdict()).isEqualTo(DisplayVerdict.WORTH_IT);
+        }
+
+        @Test
+        @DisplayName("a window whose only region is UNRATED reads UNRATED, and that region is never "
+                + "a pick — the triage pass is not a verdict (unrated-verdict-plan.md U1)")
+        void aWindowOfOnlyUnratedRegionsReadsUnratedAndHasNoPick() {
+            // 3.6 mean, sample failed the gate: the shape of Northumberland on 2026-10-13.
+            BriefingRegion unrated = regionWithSlots("Gated", ratedSlots(4, 4, 3, 4),
+                    DisplayVerdict.UNRATED, Confidence.LOW, HEADLINE)
+                    .withSampleSufficient(false);
+
+            BriefingWindow w = projectOne(unrated);
+
+            assertThat(w.verdict()).isEqualTo(DisplayVerdict.UNRATED);
+            assertThat(w.pick()).isNull();
+            // The star channel is untouched by the verdict: the best spot is still published.
+            assertThat(w.bestRating()).isEqualTo(4);
+        }
+
+        @Test
+        @DisplayName("an UNRATED region ranks below an eligible one however its average compares, "
+                + "so the window speaks with the eligible region's word")
+        void unratedRegionNeverSpeaksForTheWindowOverAnEligibleOne() {
+            BriefingRegion unratedHigher = regionWithSlots("Unrated", ratedSlots(5, 5, 5),
+                    DisplayVerdict.UNRATED, Confidence.LOW, HEADLINE).withSampleSufficient(false);
+            BriefingRegion eligibleLower = regionWithSlots("Eligible", ratedSlots(3, 3, 3),
+                    DisplayVerdict.MAYBE, Confidence.HIGH, HEADLINE).withSampleSufficient(true);
+
+            BriefingWindow w = projectOne(unratedHigher, eligibleLower);
+
+            assertThat(w.verdict()).isEqualTo(DisplayVerdict.MAYBE);
+            assertThat(w.pick().regionName()).isEqualTo("Eligible");
+        }
+
+        @Test
+        @DisplayName("among ineligible regions the mean still leads, whichever word they wear")
+        void amongIneligibleRegionsTheMeanDecides() {
+            BriefingRegion low = regionWithSlots("Aaa", ratedSlots(2, 2),
+                    DisplayVerdict.UNRATED, Confidence.LOW, HEADLINE).withSampleSufficient(false);
+            BriefingRegion high = regionWithSlots("Zzz", ratedSlots(4, 4),
+                    DisplayVerdict.STAND_DOWN, Confidence.LOW, HEADLINE).withSampleSufficient(false);
+
+            // Both ineligible: the higher mean leads, so the window wears Zzz's own word.
+            assertThat(projectOne(low, high).verdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+        }
+
+        @Test
+        @DisplayName("the day peak counts an UNRATED region toward neither band, exactly as AWAITING")
+        void dayPeakIgnoresUnratedRegions() {
+            BriefingRegion unrated = regionWithSlots("Gated", ratedSlots(4, 4, 4),
+                    DisplayVerdict.UNRATED, Confidence.LOW, HEADLINE).withSampleSufficient(false);
+            BriefingRegion maybe = regionWithSlots("Middling", ratedSlots(3, 3, 3),
+                    DisplayVerdict.MAYBE, Confidence.HIGH, HEADLINE).withSampleSufficient(true);
+
+            BriefingDayPeak both = projectDays(dayOf(TODAY, unrated, maybe)).days().get(0).peak();
+            BriefingDayPeak alone = projectDays(dayOf(TODAY, unrated)).days().get(0).peak();
+
+            assertThat(both.verdict()).isEqualTo(DisplayVerdict.MAYBE);
+            assertThat(both.regions()).extracting(BriefingDayPeak.PeakRegion::regionName)
+                    .containsExactly("Middling");
+            // Nothing in a band: the legacy branch's answer, never an UNRATED peak and never a band.
+            assertThat(alone.verdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
+            assertThat(alone.regions()).isEmpty();
+        }
+    }
+
     @Test
     void aNullResponsePassesThrough() {
-        assertThat(PlanWindowProjector.apply(null, NOW, Map.of())).isNull();
+        assertThat(PlanWindowProjector.apply(null, NOW, Map.of(), Map.of())).isNull();
     }
 
     @Test
     void everyOtherComponentOfTheResponseSurvives() {
         DailyBriefingResponse in = response(twoWindowDay(), List.of(topic("DUST", "SUNSET")));
 
-        DailyBriefingResponse out = PlanWindowProjector.apply(in, NOW, Map.of());
+        DailyBriefingResponse out = PlanWindowProjector.apply(in, NOW, Map.of(), Map.of());
 
         assertThat(out.headline()).isEqualTo(in.headline());
         assertThat(out.generatedAt()).isEqualTo(in.generatedAt());
@@ -1587,13 +1895,13 @@ class PlanWindowProjectorTest {
 
     private static DailyBriefingResponse projectAt(List<BriefingDay> days, List<HotTopic> topics,
             LocalDateTime now) {
-        return PlanWindowProjector.apply(response(days, topics), now, Map.of());
+        return PlanWindowProjector.apply(response(days, topics), now, Map.of(), Map.of());
     }
 
     /** As {@link #project}, with the per-window tide rollups the neutral badge detail reads. */
     private static DailyBriefingResponse projectWithTides(List<BriefingDay> days,
             List<HotTopic> topics, Map<PlanWindowProjector.WindowKey, BriefingWindowTide> tides) {
-        return PlanWindowProjector.apply(response(days, topics), NOW, tides);
+        return PlanWindowProjector.apply(response(days, topics), NOW, tides, Map.of());
     }
 
     /**
@@ -1692,7 +2000,9 @@ class PlanWindowProjectorTest {
                         r.regionWindSpeedMs(), r.regionWeatherCode(), r.glossHeadline(),
                         r.glossDetail(), r.displayVerdict(), r.scoredLocationCount(),
                         r.verdictLabel(), r.lightlyEvaluated(), r.confidence(), r.meanRating())
-                        .withBestRating(r.bestRating()))
+                        .withBestRating(r.bestRating())
+                        .withSampleSufficient(r.sampleSufficient())
+                        .withForcedSample(r.forcedSample()))
                 .toList();
     }
 
@@ -1706,7 +2016,9 @@ class PlanWindowProjectorTest {
                         r.regionWindSpeedMs(), r.regionWeatherCode(), r.glossHeadline(),
                         r.glossDetail(), r.displayVerdict(), r.scoredLocationCount(),
                         r.verdictLabel(), r.lightlyEvaluated(), r.confidence(), r.meanRating())
-                        .withBestRating(r.bestRating()))
+                        .withBestRating(r.bestRating())
+                        .withSampleSufficient(r.sampleSufficient())
+                        .withForcedSample(r.forcedSample()))
                 .toList();
     }
 
@@ -1774,9 +2086,19 @@ class PlanWindowProjectorTest {
 
     private static BriefingRegion regionWithSlots(String name, List<BriefingSlot> slots,
             DisplayVerdict dv, Confidence confidence, String headline) {
+        // sampleSufficient defaults to true here, not to the fixture's own rated count: this class
+        // tests PlanWindowProjector in isolation from BriefingRegionEvaluationRollup, which is
+        // where the verdict-minimum-sample rule (VerdictSampleGate) actually lives — exactly the
+        // same reason displayVerdict/confidence are pre-set arguments rather than derived from a
+        // roster here. A fixture representing "the rollup already judged this sample sufficient"
+        // is what every test in this file not specifically about the eligibility gate needs; the
+        // gate's own effect on ranking and pick eligibility is covered by the dedicated
+        // SampleEligibility nested class below, which builds sampleSufficient(false)/forcedSample
+        // fixtures explicitly.
         return new BriefingRegion(name, Verdict.GO, "summary", List.of(), slots,
                 14.0, 13.0, 4.5, 3, headline, headline == null ? null : DETAIL,
-                dv, slots.size(), null, false, confidence);
+                dv, slots.size(), null, false, confidence)
+                .withSampleSufficient(true);
     }
 
     private static List<BriefingSlot> ratedSlots(int... ratings) {

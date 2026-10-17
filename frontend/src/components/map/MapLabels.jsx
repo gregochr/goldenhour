@@ -1,5 +1,5 @@
 import {
-  useCallback, useEffect, useLayoutEffect, useRef, useState,
+  useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
 } from 'react';
 import PropTypes from 'prop-types';
 import { createPortal } from 'react-dom';
@@ -8,11 +8,18 @@ import { useMap } from 'react-leaflet';
 import { pxPerKmAtHome, RING_MIN_PX, RING_TIERS } from '../../utils/reachRings.js';
 import { seedObstacles } from '../../utils/labelPlacement.js';
 import {
-  chipCandidates, homeLabelItems, placeLabelPass, regionLabelItems, ringLabelItems, verdictWord,
+  chipBoxWithinBadgedBox, chipCandidates, hasRatedBadge, homeLabelItems, placeLabelPass,
+  regionLabelItems, ringLabelItems, verdictWord, withBadgeOverhang,
   REGION_TINY_FRAME_WIDTH,
 } from '../../utils/mapLabels.js';
+import { badgeAccessibleClause } from '../../utils/outcomeRatingJoin.js';
+import RatedBadge from './RatedBadge.jsx';
 import { formatDriveDuration } from '../../utils/briefingDisplay.js';
-import { rampHex } from '../../utils/scoreRamp.js';
+import { rampHex as defaultRampHex } from '../../utils/scoreRamp.js';
+import { tideAccessibleClause, tideTierHeading } from '../../utils/mapTideFit.js';
+import {
+  isMultiRank, rankBadge, rankOnPress, ranksOf,
+} from '../../utils/askPickChip.js';
 import TideWave from './TideWave.jsx';
 
 /**
@@ -85,6 +92,11 @@ const OBSTACLE_SELECTOR = [
   '[data-testid="wf-map-chrome-tr"]',
   '[data-testid="wf-map-chrome-bl"]',
   '[data-testid="wf-map-counts-footer"]',
+  // The tide strip (tide-window-plan.md T6/T7) — see `PinsLayer.jsx`'s identical entry/comment:
+  // on desktop it is a plain child of `.wf-map-chrome-bl` above and needs no entry of its own; on
+  // the phone (T7) it is mounted as that element's SIBLING instead, so without its own selector
+  // here a label could place itself under an uncovered strip on that one viewport.
+  '[data-testid="wf-tide-strip"]',
   // The empty state's CHIP, centred in the map body — never its `inset: 0` wrapper, which would
   // seed the whole frame and drop every label. Present in the DOM only while the map has no
   // forecast for the window on screen, i.e. only while the rating gate has already removed every
@@ -133,6 +145,58 @@ const LEAFLET_CORNER_SELECTOR = '.leaflet-bottom.leaflet-right';
  * it is a per-host DISPLAY concern, not a fact about the tiers — see that module's own note.
  */
 const RING_OFFFRAME_FACTOR = 1.15;
+
+/**
+ * What the phone's peek sheet always leaves clear at the top of the frame, in px — the window pill
+ * ({@code top: 10px; height: 44px}) plus its margins. The sheet's own CSS clamps to
+ * {@code calc(100% - 64px)}; the {@code bottomInset} obstacle is clamped to the same figure.
+ */
+const PEEK_PILL_CLEARANCE = 64;
+
+/**
+ * The side of a pick's BARE rank circle, in px — the 17px circle plus the 4px of plate around it
+ * (`.wf-maplab-pick[data-compact]`). Known rather than measured: the fallback is placed in the same
+ * layout effect that measured the full chip, from a node that is still showing its full width.
+ */
+const PICK_DOT_PX = 25;
+
+/**
+ * The order the chips are put in the DOM — which is the order a keyboard reader Tabs through them. Ask
+ * PhotoCast's picks come first and in RANK order (choosing one does not reorder them, though it moves to the
+ * front of the PLACEMENT order, which is `chipCandidates`'); every other chip follows as offered. Paint order
+ * is the stylesheet's business (`.wf-maplab-pick` carries a z-index), so a pick still sits above the rest.
+ *
+ * @param {Array<{spot: object}>} chips `frame.chips`, in placement order
+ * @returns {Array<{spot: object}>} the same entries, in DOM order
+ */
+function inDomOrder(chips) {
+  if (!chips.some(({ spot }) => spot.askPick)) return chips;
+  const picks = chips.filter(({ spot }) => spot.askPick)
+    .sort((a, b) => a.spot.askPick.rank - b.spot.askPick.rank);
+  return [...picks, ...chips.filter(({ spot }) => !spot.askPick)];
+}
+
+/**
+ * A pick's bare rank circle put on its own point whether or not the air there is clear — the last
+ * rung under the collision ladder, so that a pick is never unmarked. Clamped into the frame; null when
+ * the point itself is outside it.
+ *
+ * @param {number} x the pick's projected x, in frame px
+ * @param {number} y the pick's projected y, in frame px
+ * @param {number} frameWidth
+ * @param {number} frameHeight
+ * @returns {?{x: number, y: number, w: number, h: number}} a top-left box, or null
+ */
+function forcedDot(x, y, frameWidth, frameHeight) {
+  if (!(x > 0 && x < frameWidth && y > 0 && y < frameHeight)) return null;
+  const clampTo = (v, max) => Math.min(Math.max(v, 1), max - 1 - PICK_DOT_PX);
+  return {
+    x: clampTo(x - PICK_DOT_PX / 2, frameWidth),
+    y: clampTo(y - PICK_DOT_PX / 2, frameHeight),
+    w: PICK_DOT_PX,
+    h: PICK_DOT_PX,
+  };
+}
 
 /**
  * The tooltip's own CSS `max-width` (`.wf-maplab-tip` in index.css) — the fallback used to clamp
@@ -196,14 +260,39 @@ const TOOLTIP_WIDTH_FALLBACK = 240;
  * @param {?Function} [props.onSelect] called with a location's name on chip click — the caller
  *   wires this to the SAME path a marker click already takes (today: `setSelectedLocationName` +
  *   the Leaflet popup; P9 replaces the far end with the callout, not this call site)
+ * @param {?Function} [props.onSelectAskPick] called with a pick's RANK when its chip is pressed (Ask
+ *   PhotoCast, F3) — a pick chip chooses the answer's card, never the location itself. (On a phone the
+ *   caller's handler also asks for the pick's callout to open once the window has followed:
+ *   `MapView.handleSelectAskPick`, docs/engineering/phone-pick-callout-plan.md; this layer only reports
+ *   the press.) A spot is a pick by carrying {@code askPick}; without this prop a pick chip falls back
+ *   to {@code onSelect}
  * @param {string}   [props.eventLabel] the active EV row's label+time, for the hover tooltip's
  *   "event" line (e.g. "Sunset · Tonight 19:58")
+ * @param {number}   [props.bottomInset] the height in px of a surface standing over the frame's bottom
+ *   edge that is NOT in the DOM list above — the phone's peek sheet, while an answer's picks are on the
+ *   map (F4). Seeded as one more obstacle, from the sheet's TARGET height rather than its live rect
+ *   (which, mid-transition, is neither where it was nor where it is going), and re-placed when it
+ *   changes. 0 — the default, and what every other caller gets — seeds nothing. The pick the sheet
+ *   would hide is the failure: a numbered card with its marker under a 112px line is worse than one
+ *   shifted a little. Without the answer the sheet stays what it has always been to this layer, a
+ *   thing a label may sit under
  */
 export default function MapLabels({
-  spots, homeCoords = null, rings = false, reachMeasured = false, selectedName = null,
-  onSelect = null, eventLabel = '',
+  spots: allSpots, homeCoords = null, rings = false, reachMeasured = false, selectedName = null,
+  onSelect = null, onSelectAskPick = null, eventLabel = '', bottomInset = 0, rampHex = defaultRampHex,
+  omitUnrated = false,
 }) {
   const map = useMap();
+
+  // Aurora only (aurora-heat-plan.md §4 #8): an unrated spot is not drawn. The aurora 1-star fill
+  // (#384262) is 1.10:1 against the no-data grey, so a poor night and no data would be the same
+  // pixels — the spec's own "no data is not 1 star" rule. A pick is always kept.
+  const spots = useMemo(
+    () => (omitUnrated
+      ? allSpots.filter((spot) => Number.isFinite(spot.rating) || spot.askPick)
+      : allSpots),
+    [allSpots, omitUnrated],
+  );
 
   const [pane] = useState(() => {
     if (!map?.createPane) return null;
@@ -373,7 +462,7 @@ export default function MapLabels({
   // list, above), and `paintRef` is already pointed at the fresh closure by the layout effect
   // above by the time this runs. `repaintNow` rather than a bare call so a frame the throttle
   // already owes is not doubled.
-  useEffect(() => { repaintNow(); }, [paint, repaintNow]);
+  useEffect(() => { repaintNow(); }, [paint, repaintNow, bottomInset]);
 
   /**
    * The measure-then-place pass (see the class doc). Keyed on the `frame` OBJECT's identity, the
@@ -397,19 +486,33 @@ export default function MapLabels({
       const h = node?.offsetHeight ?? 0;
       if (w > 0 && h > 0) items.push({ ...it, w, h });
     }
+    // Ask PhotoCast's picks are placed BEFORE the region names (F3): they are the answer, and a
+    // region name is the first thing the pass may do without. `chipCandidates` already put them first
+    // among the chips; this lifts them over the regions too. Every other order is unchanged.
+    const measuredChip = ({ spot, x, y }) => {
+      const node = chipRefs.current.get(spot.name);
+      const w = node?.offsetWidth ?? 0;
+      const h = node?.offsetHeight ?? 0;
+      if (!(w > 0 && h > 0)) return null;
+      const item = { key: `chip:${spot.name}`, x, y, w, h };
+      // The rated badge hangs 9px right and 7px up outside the chip's own box, which `offsetWidth`
+      // does not count (outcome-rating-plan.md §1 #4): reserve the overhang too, so a neighbour
+      // cannot be placed under it. The chip itself is drawn back at its own place below.
+      return hasRatedBadge(spot) ? withBadgeOverhang(item) : item;
+    };
+    for (const chip of frame.chips) {
+      const item = chip.spot.askPick ? measuredChip(chip) : null;
+      if (item) items.push(item);
+    }
     for (const it of frame.regionItems) {
       const node = regionRefs.current.get(it.key);
       const w = node?.offsetWidth ?? 0;
       const h = node?.offsetHeight ?? 0;
       if (w > 0 && h > 0) items.push({ ...it, w, h });
     }
-    for (const { spot, x, y } of frame.chips) {
-      const node = chipRefs.current.get(spot.name);
-      const w = node?.offsetWidth ?? 0;
-      const h = node?.offsetHeight ?? 0;
-      if (w > 0 && h > 0) items.push({
-        key: `chip:${spot.name}`, x, y, w, h,
-      });
+    for (const chip of frame.chips) {
+      const item = chip.spot.askPick ? null : measuredChip(chip);
+      if (item) items.push(item);
     }
 
     let obstacles = [];
@@ -423,14 +526,54 @@ export default function MapLabels({
         ? [...containerEl.parentElement.querySelectorAll(OBSTACLE_SELECTOR)]
         : [];
       const leafletChrome = [...containerEl.querySelectorAll(LEAFLET_CORNER_SELECTOR)];
-      obstacles = seedObstacles(
-        [...siblingChrome, ...leafletChrome].map((el) => el.getBoundingClientRect()),
-        containerRect,
-        5,
-      );
+      const rects = [...siblingChrome, ...leafletChrome].map((el) => el.getBoundingClientRect());
+      // Clamped as the sheet's own CSS is (`calc(100% - 64px)`): it never covers the window pill.
+      const covered = Math.min(bottomInset, Math.max(containerRect.height - PEEK_PILL_CLEARANCE, 0));
+      if (covered > 0) {
+        // A box standing on the frame's bottom edge, in the page's coordinates like the rects above.
+        rects.push({
+          left: containerRect.left,
+          top: containerRect.top + containerRect.height - covered,
+          width: containerRect.width,
+          height: covered,
+        });
+      }
+      obstacles = seedObstacles(rects, containerRect, 5);
     }
 
     const placed = placeLabelPass(items, frame.width, frame.height, obstacles);
+
+    // ⚠️ No pick is ever unmarked. A pick chip the greedy pass could not fit falls back to its BARE
+    // RANK CIRCLE — the same button, drawn compact — placed against everything already committed; and
+    // if even 25px has no clear air, it is put on its own point regardless (the number matters more
+    // than a tidy overlap). Only a pick whose point is outside the frame has nowhere to be drawn, and
+    // the camera fits the picks, so that is a pick the reader has panned away from.
+    const compact = new Set();
+    for (const { spot, x, y } of frame.chips) {
+      if (!spot.askPick || placed.has(`chip:${spot.name}`)) continue;
+      const taken = [...obstacles, ...placed.values()];
+      const dot = placeLabelPass(
+        [{
+          key: 'dot', x, y, w: PICK_DOT_PX, h: PICK_DOT_PX,
+        }],
+        frame.width,
+        frame.height,
+        taken,
+      ).get('dot') ?? forcedDot(x, y, frame.width, frame.height);
+      if (dot) {
+        placed.set(`chip:${spot.name}`, dot);
+        compact.add(spot.name);
+      }
+    }
+    // A badged chip was placed as its badge-inclusive box (above); the chip is DRAWN inside it. Done
+    // last, so every later pass above saw the whole reserved box and only the style reads this one.
+    for (const { spot } of frame.chips) {
+      const key = `chip:${spot.name}`;
+      const box = placed.get(key);
+      if (box && hasRatedBadge(spot)) {
+        placed.set(key, { ...chipBoxWithinBadgedBox(box) });
+      }
+    }
     // A setState in an effect, and it is the case the rule's own escape hatch is for — the same
     // one `WindowRowFieldMap`'s identical measure-then-place effect documents: this is a
     // MEASUREMENT. A label's box is its text in a font the browser may still be swapping, so it
@@ -438,7 +581,7 @@ export default function MapLabels({
     // idempotent and bounded by the guard above (once per genuinely new `frame`), and it is a
     // LAYOUT effect so the off-screen measuring pass is never painted.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setPlacement({ frame, placed });
+    setPlacement({ frame, placed, compact });
     // `placement` is read only as the guard on its own write (above) — listing it here would make
     // this effect re-run on the write it just made. `frame` is the identity that actually decides
     // whether there is new work, and it IS in the list.
@@ -454,6 +597,8 @@ export default function MapLabels({
   });
 
   const isMeasured = placement?.frame === frame;
+  /** An answer's picks are on this map: everything that is not one steps back. */
+  const askActive = spots.some((spot) => spot.askPick);
   const boxFor = (key) => (isMeasured ? placement.placed.get(key) : undefined);
 
   const styleFor = (key) => {
@@ -490,9 +635,17 @@ export default function MapLabels({
       y: Math.max(6, event.clientY - wrapRect.top - 10),
     });
   }, [map]);
+  // ⚠️ Only a real mouse hovers. A tap on a touch screen makes the browser emit compatibility mouse
+  // events (iOS Safari and Android Chrome alike) with no matching leave until the next tap elsewhere,
+  // so a mouse-event tooltip opened by a tap stuck on top of the callout the same tap opened. Pointer
+  // events say what the pointer is, so touch never reaches the tooltip at all.
   const showTip = useCallback((name, event) => {
+    if (event.pointerType !== 'mouse') return;
     setHoverName(name);
     positionTip(event);
+  }, [positionTip]);
+  const moveTip = useCallback((event) => {
+    if (event.pointerType === 'mouse') positionTip(event);
   }, [positionTip]);
   const hideTip = useCallback(() => setHoverName(null), []);
 
@@ -522,9 +675,12 @@ export default function MapLabels({
    * running or it records a residual a live page does not have. A placement test here would add a
    * trap and nothing else: every chip is unplaced for the measuring render's one commit.
    */
-  const hover = (hoverName != null && frame?.chips.some(({ spot }) => spot.name === hoverName))
+  // A pick has no tooltip (it would speak for the window on screen): a chip that BECOMES one under a
+  // resting pointer — an answer landing — is forgotten like one that unmounted.
+  const hoverSpot = (hoverName != null && frame?.chips.some(({ spot }) => spot.name === hoverName))
     ? (spots.find((spot) => spot.name === hoverName) ?? null)
     : null;
+  const hover = hoverSpot?.askPick ? null : hoverSpot;
   if (hoverName != null && hover == null) setHoverName(null);
 
   if (!pane || !frame) return null;
@@ -579,17 +735,75 @@ export default function MapLabels({
         </span>
       ))}
 
-      {frame.chips.map(({ spot }) => {
+      {inDomOrder(frame.chips).map(({ spot }) => {
         const key = `chip:${spot.name}`;
+        const pick = spot.askPick ?? null;
+        if (pick) {
+          // Ask PhotoCast's pick (F3): built from the PICK'S OWN window — its rank circle, name,
+          // short window and that window's rating in its verdict colour — with no tide glyph and no
+          // tooltip, because both would speak for the window on screen, which is not necessarily this
+          // pick's. The accessible name is the card's own, so a pick is one thing to a screen reader
+          // on the map and in the answer. `data-compact` (set only once placed) is the bare circle.
+          return (
+            <button
+              key={spot.name}
+              type="button"
+              ref={(node) => {
+                if (node) chipRefs.current.set(spot.name, node);
+                else chipRefs.current.delete(spot.name);
+              }}
+              className="wf-maplab-chip wf-maplab-pick"
+              data-testid="map-label-chip"
+              data-ask="pick"
+              data-ask-rank={pick.rank}
+              data-ask-ranks={isMultiRank(pick) ? ranksOf(pick).join(',') : undefined}
+              data-ask-selected={pick.selected ? 'true' : undefined}
+              data-compact={isMeasured && placement.compact?.has(spot.name) ? 'true' : undefined}
+              data-selected={selectedName === spot.name ? 'true' : undefined}
+              style={styleFor(key)}
+              aria-label={pick.label}
+              aria-current={pick.selected ? 'true' : undefined}
+              onClick={(pressEvent) => {
+                // ⚠️ Focuses itself first: macOS and iOS Safari do not focus a tapped <button>, and on
+                // the phone a pick press no longer expands the Ask section (whose `park()` used to
+                // rescue focus), so without this focus is on <body> and the pane's Escape rule never
+                // fires. The `MapCallout` pattern. `preventScroll`: the map frame must not jump.
+                pressEvent.currentTarget.focus({ preventScroll: true });
+                if (onSelectAskPick) onSelectAskPick(rankOnPress(pick));
+                else onSelect?.(spot.name);
+              }}
+            >
+              <span
+                className="wf-maplab-pick-rk"
+                data-multi={isMultiRank(pick) ? 'true' : undefined}
+                aria-hidden="true"
+              >
+                {rankBadge(pick)}
+              </span>
+              <b className="wf-maplab-chip-n wf-maplab-pick-n" aria-hidden="true">{spot.name}</b>
+              <span className="wf-maplab-pick-w" aria-hidden="true">{pick.shortWindow}</span>
+              {Number.isFinite(pick.rating) && (
+                <em className="wf-maplab-pick-r" data-tier={pick.verdict} aria-hidden="true">
+                  {`${pick.rating}★`}
+                </em>
+              )}
+            </button>
+          );
+        }
         const hasRating = Number.isFinite(spot.rating);
-        const onTheLight = Boolean(spot.onTheLight);
+        // The served PREFERENCE-axis tier (tide-window-plan.md §3 T4 item 2) — supersedes bundle
+        // rev 2's `onTheLight`-only glyph. `tideTier` is null for "not a coastal slot with a
+        // served tide state" (inland, or no stored extremes), so this chip carries no tide clause
+        // at all in that case — the on-the-light fact survives only as the offset clause folded
+        // inside the served `tideFitPhrase` (§1 #6), never read directly by this component again.
+        const tideTier = spot.tideTier ?? null;
         // Extends the rating announcement rather than replacing it — an aria-label REPLACES the
         // rendered text entirely, so the glyph's own meaning has to be spelled out here or a
         // screen-reader user never hears it at all.
         const ariaLabel = [
           hasRating ? `${spot.name}, ${spot.rating} star` : spot.name,
-          onTheLight ? 'tide on the light' : null,
-        ].filter(Boolean).join(', ');
+          tideAccessibleClause(tideTier, spot.tideShortfall, spot.tideState),
+        ].filter(Boolean).join(', ') + (hasRatedBadge(spot) ? badgeAccessibleClause(spot.myRating) : '');
         return (
           <button
             key={spot.name}
@@ -601,25 +815,41 @@ export default function MapLabels({
             className="wf-maplab-chip"
             data-testid="map-label-chip"
             data-selected={selectedName === spot.name ? 'true' : undefined}
-            data-tide={onTheLight ? 'true' : undefined}
+            data-tide={tideTier ?? undefined}
+            // While an answer's picks are on the map every OTHER chip steps back (opacity .25, which
+            // beats the tide rule's .72 — see the cascade in index.css).
+            data-ask={askActive ? 'fade' : undefined}
             style={styleFor(key)}
             aria-label={ariaLabel}
-            onClick={() => onSelect?.(spot.name)}
-            onMouseEnter={(e) => showTip(spot.name, e)}
-            onMouseMove={positionTip}
-            onMouseLeave={hideTip}
+            onClick={() => {
+              // Belt and braces: a tooltip already showing never sits over the callout this opens.
+              hideTip();
+              onSelect?.(spot.name);
+            }}
+            onPointerEnter={(e) => showTip(spot.name, e)}
+            onPointerMove={moveTip}
+            onPointerLeave={hideTip}
           >
             <i
               className="wf-maplab-chip-m"
               style={{ background: hasRating ? rampHex(spot.rating) : 'var(--color-plex-border-light)' }}
             />
             <b className="wf-maplab-chip-n">{spot.name}</b>
-            {onTheLight && (
-              // A glyph, not a second number (bundle rev 2's tide-chip tweak) — this window's
-              // tide lands on the light here. The path is the design bundle's TIDEGLYPH verbatim.
-              <TideWave className="wf-maplab-chip-tw" testId="map-label-chip-tide" />
+            {tideTier && (
+              // A glyph, not a second number (bundle rev 2's tide-chip tweak, moved onto the
+              // preference axis by T4) — the path is the design bundle's TIDEGLYPH/`missGlyph`
+              // verbatim. `shortfall` is null for a match, so the plain wave still draws there;
+              // for a miss it is the served `HIGHER`/`LOWER` direction, or null for a straddling
+              // want, which `TideWave` itself draws as the plain wave rather than guessing.
+              <TideWave
+                className="wf-maplab-chip-tw"
+                testId="map-label-chip-tide"
+                shortfall={tideTier === 'miss' ? spot.tideShortfall : null}
+                state={tideTier === 'match' ? spot.tideState : null}
+              />
             )}
             {hasRating && <em className="wf-maplab-chip-r">{spot.rating}★</em>}
+            {hasRatedBadge(spot) && <RatedBadge value={spot.myRating} />}
           </button>
         );
       })}
@@ -659,12 +889,19 @@ export default function MapLabels({
           hover.bortleClass != null ? `sky ${hover.bortleClass}` : null,
         ].filter(Boolean).join(' · ')}
       </div>
-      {hover.onTheLight && hover.nearestSolarOffsetPhrase && (
-        // A third line, teal-inked (`.wf-maplab-tip-t`, `--color-badge-tide` — measured 9.68:1,
-        // never the raw bundle hex nor `--color-tide`, which is for borders/accents) — only when
-        // this window's water actually lands on the light (bundle rev 2's tide-chip tweak).
-        <div className="wf-maplab-tip-s wf-maplab-tip-t" data-testid="map-label-tip-tide">
-          {`Tide lands on the light — ${hover.nearestSolarOffsetPhrase}`}
+      {hover.tideTier && hover.tideFitPhrase && (
+        // A third line reading the served `fitPhrase` for EITHER tier, prefixed by the one
+        // canonical heading per tier (tide-window-plan.md §3 T4 item 4) — supersedes bundle rev
+        // 2's on-the-light-only line. Teal-inked (`.wf-maplab-tip-t`, `--color-badge-tide` —
+        // measured 9.68:1) ONLY for a match, matching the design bundle's own `#tip .tt`/`.tm`
+        // split; a miss takes the base `.wf-maplab-tip-s` ink (`--color-plex-text-secondary`,
+        // the mapped token for the design's own `rgba(242,231,211,.72)` miss-line ink) because the
+        // served phrase already carries the "wants …" clause and needs no teal emphasis of its own.
+        <div
+          className={`wf-maplab-tip-s${hover.tideTier === 'match' ? ' wf-maplab-tip-t' : ''}`}
+          data-testid="map-label-tip-tide"
+        >
+          {`${tideTierHeading(hover.tideTier, hover.tideAssessed)} — ${hover.tideFitPhrase}`}
         </div>
       )}
     </div>,
@@ -680,6 +917,10 @@ export default function MapLabels({
 }
 
 MapLabels.propTypes = {
+  /** A `(score) => '#rrggbb'` for the chip swatch; defaults to the shared ramp (aurora passes its own). */
+  rampHex: PropTypes.func,
+  /** Aurora only: spots with no rating get no chip (an Ask pick is always kept). Default false. */
+  omitUnrated: PropTypes.bool,
   spots: PropTypes.arrayOf(PropTypes.shape({
     name: PropTypes.string.isRequired,
     lat: PropTypes.number.isRequired,
@@ -692,16 +933,55 @@ MapLabels.propTypes = {
      * caller that draws pins alongside chips; untyped until now (`MapView.jsx`'s `spotOf` always
      * sets it). */
     isStandDown: PropTypes.bool,
-    /** Bundle rev 2's tide-chip tweak — true when THIS window's water lands on the light here. */
+    /** Bundle rev 2's tide-chip tweak — true when THIS window's water lands on the light here.
+     * Carried on every spot (`MapView.jsx#spotOf`) but no longer read by THIS component — the
+     * chip's glyph/ring/tiebreak/tooltip all moved onto `tideTier` below (tide-window-plan.md §3
+     * T4 item 2, §5 #3); the fact survives only inside the served `tideFitPhrase`'s offset clause. */
     onTheLight: PropTypes.bool,
-    /** The formatted "HW 19:52 · 36m before sunset" phrase, or null — only meaningful (and only
-     * rendered) alongside `onTheLight: true`. */
+    /** The formatted "HW 19:52 · 36m before sunset" phrase — see `onTheLight`'s own note; unused
+     * here for the same reason. */
     nearestSolarOffsetPhrase: PropTypes.string,
+    /** The served preference-axis tier (tide-window-plan.md §3 T4) — null for "not a coastal slot
+     * with a served tide state" (inland, or no stored extremes near this event), never a drawn
+     * claim either way. */
+    tideTier: PropTypes.oneOf(['match', 'miss']),
+    /** Only meaningful (and only read) alongside `tideTier: 'miss'` — null when a wanted set
+     * straddles the served state, drawing the plain wave rather than guessing a direction. */
+    tideShortfall: PropTypes.oneOf(['HIGHER', 'LOWER']),
+    /** The served state at the light this window (tide-window-plan.md §4 #21) — read only
+     * alongside `tideTier: 'match'`, to letter the glyph with the water it matched. */
+    tideState: PropTypes.oneOf(['HIGH', 'MID', 'LOW']),
+    /** The formatted fit phrase for EITHER tier — the tooltip's third line reads this alongside
+     * `tideTier`, never `nearestSolarOffsetPhrase`. */
+    tideFitPhrase: PropTypes.string,
+    /** Whether the light was assessed for this window (a sky or combined rating exists) — decides
+     * the miss heading's wording; see {@code tideTierHeading}. */
+    tideAssessed: PropTypes.bool,
+    /** The reader's own outcome rating for this spot in the PAST window on screen (outcome-rating-plan
+     * .md §2 #6): {@code 1..5}, or {@code 'NOT_SEEN'}. Null/absent on a served window and for a spot
+     * the reader has not rated — the badge is drawn only when this is set. */
+    myRating: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
+    /** Ask PhotoCast's pick (F3) — the answer's own facts for the pick's window, which the chip
+     * draws instead of the window on screen's. Absent for every ordinary spot. */
+    askPick: PropTypes.shape({
+      rank: PropTypes.number.isRequired,
+      shortWindow: PropTypes.string,
+      rating: PropTypes.number,
+      verdict: PropTypes.string,
+      label: PropTypes.string,
+      selected: PropTypes.bool,
+      /** Every rank the place won, in order — present only when it won more than one pick. */
+      ranks: PropTypes.arrayOf(PropTypes.number),
+      /** With {@code ranks}: which of them is chosen, or null. */
+      selectedRank: PropTypes.number,
+    }),
   })).isRequired,
   homeCoords: PropTypes.shape({ lat: PropTypes.number, lon: PropTypes.number }),
   rings: PropTypes.bool,
   reachMeasured: PropTypes.bool,
   selectedName: PropTypes.string,
   onSelect: PropTypes.func,
+  onSelectAskPick: PropTypes.func,
   eventLabel: PropTypes.string,
+  bottomInset: PropTypes.number,
 };

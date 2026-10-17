@@ -66,6 +66,32 @@ public interface TideExtremeRepository extends JpaRepository<TideExtremeEntity, 
             LocalDateTime from, LocalDateTime to);
 
     /**
+     * Returns the high waters (type {@code HIGH}) for several locations within a time window, as
+     * bare {@code (locationId, eventTime, heightMetres)} triples in chronological order.
+     *
+     * <p>The same rows as {@link #findByLocationIdInAndTypeAndEventTimeBetweenOrderByEventTimeAsc}
+     * called with {@code HIGH}, without hydrating them as entities — for a reader that only takes a
+     * maximum per day. The query plan is unchanged: it is served by
+     * {@code idx_tide_extreme_location_time}. The local-day bucketing stays with the caller on
+     * purpose, because converting a UTC instant to {@code Europe/London} in SQL is
+     * Postgres-specific and the local profile runs on H2.
+     *
+     * @param locationIds the location primary keys
+     * @param from        window start (inclusive)
+     * @param to          window end (inclusive)
+     * @return chronologically ordered high waters across all the given locations
+     */
+    @Query("SELECT new com.gregochr.goldenhour.repository.TideHighWater("
+            + "t.locationId, t.eventTime, t.heightMetres) "
+            + "FROM TideExtremeEntity t WHERE t.locationId IN :locationIds "
+            + "AND t.type = com.gregochr.goldenhour.entity.TideExtremeType.HIGH "
+            + "AND t.eventTime >= :from AND t.eventTime <= :to ORDER BY t.eventTime ASC")
+    List<TideHighWater> findHighWatersInWindow(
+            @Param("locationIds") Collection<Long> locationIds,
+            @Param("from") LocalDateTime from,
+            @Param("to") LocalDateTime to);
+
+    /**
      * Returns {@code true} if any tide extremes are stored for the given location.
      *
      * <p>Used at startup to decide whether a tide fetch is needed for a coastal location.

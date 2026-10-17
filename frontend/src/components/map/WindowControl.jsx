@@ -1,12 +1,18 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { foreignModalOverPaneOf } from '../../utils/mapForeignModal.js';
 import { rampHex } from '../../utils/scoreRamp.js';
 import { calDow } from '../../utils/windowFirstStrip.js';
 import { VERDICT_LABEL, badgeChannel } from '../../utils/windowFirstCards.js';
+import VerdictWord from '../shared/VerdictWord.jsx';
 import { verdictRegionLabel } from '../../utils/mapVerdict.js';
 import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js';
 import { useRowFocusRescue } from '../../hooks/useRowFocusRescue.js';
+import { useFitToFrame } from '../../hooks/useFitToFrame.js';
+import { noStoredForecast } from './outcomeRatingCopy.js';
+
+/** Breathing room kept above/below the active row when the opened menu scrolls it into view. */
+const MENU_SCROLL_PAD_PX = 6;
 
 /**
  * The Map tab's single chronological window control — map-tab-v2-plan.md §3 P6,
@@ -46,7 +52,9 @@ import { useRowFocusRescue } from '../../hooks/useRowFocusRescue.js';
 export default function WindowControl({
   events, activeIndex, onSelect, open: openProp, onOpenChange = null,
   verdicts = null, scopeIsArea = true, landingLabel = '', onReopenLanding = null,
-  onOpenWindowPanel = null, pillRef: pillRefProp = null,
+  onOpenWindowPanel = null, pillRef: pillRefProp = null, pillOverride = null,
+  canLoadOlder = false, olderDayLabel = null, olderDayLoadingLabel = null, onLoadOlderDay = null,
+  emptyOlderDayLabel = null, ratedCounts = null,
 }) {
   const isControlled = openProp !== undefined;
   const [openState, setOpenState] = useState(false);
@@ -62,6 +70,29 @@ export default function WindowControl({
     onOpenChange?.(value);
   }, [open, isControlled, onOpenChange]);
   const rootRef = useRef(null);
+  const menuRef = useRef(null);
+  // Opens down from the pill, so the frame's bottom edge is the one it can run past.
+  useFitToFrame(menuRef, rootRef, { direction: 'down', open });
+  // ⚠️ The window on screen must be in view when the menu opens (outcome-rating-plan.md §2 #2, O3b).
+  // The EARLIER group sits ABOVE the future days, so with a few past days and the Load row the window
+  // the reader is on — usually a future one — would open below the fold of a 420px menu. Scrolls the
+  // MENU only (never an ancestor, which `scrollIntoView` can drag the page by), after
+  // `useFitToFrame`'s own layout effect has set the room it fits in, and only as far as it must: a
+  // menu whose rows all fit, or whose active row is already visible, is left exactly as it was.
+  // jsdom has no layout (every offset is 0), where this is a no-op.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const menu = menuRef.current;
+    const row = menu?.querySelector('[role="option"][aria-selected="true"]');
+    if (!menu || !row) return;
+    const top = row.offsetTop;
+    const bottom = top + row.offsetHeight;
+    if (bottom > menu.scrollTop + menu.clientHeight) {
+      menu.scrollTop = bottom - menu.clientHeight + MENU_SCROLL_PAD_PX;
+    } else if (top < menu.scrollTop) {
+      menu.scrollTop = Math.max(top - MENU_SCROLL_PAD_PX, 0);
+    }
+  }, [open]);
   /** The pill, so the reopen row can hand focus back to the control that opened the menu. */
   /**
    * ⚠️ **The pill is this tab's return address, and `MapView` needs to reach it.** Two routes it
@@ -80,8 +111,18 @@ export default function WindowControl({
   // "a real state and not an error", since `GET /api/forecast` reaches further than the
   // briefing's rendered horizon. Both ends are disabled rather than guessing which direction
   // "next" means.
-  const atStart = !active || activeIndex <= 0;
-  const atEnd = !active || activeIndex >= events.length - 1;
+  //
+  // ⚠️ Three more terms since the older-day fetch (outcome-rating-plan.md §2 #2, O3b). `loadable` is
+  // "one more stored day can be fetched": while it is true the control is NOT at its start even on
+  // the oldest window, because `‹` there fetches rather than stepping. `loading` is the fetch in
+  // flight — the pill says so, and both steppers (and the Load row) are disabled for it (§4 #10: the
+  // prototype's silently swallowed press is replaced by a visible state).
+  const loadable = Boolean(canLoadOlder && onLoadOlderDay && olderDayLabel);
+  const loading = Boolean(olderDayLoadingLabel);
+  const atStart = !active || loading || (activeIndex <= 0 && !loadable);
+  const atEnd = !active || loading || activeIndex >= events.length - 1;
+  /** `‹` on the oldest window fetches the next older day instead of stepping. */
+  const prevLoads = loadable && !loading && Boolean(active) && activeIndex <= 0;
 
   /**
    * One EV row's tier, or null — the stepper ticks' whole source, and the pill's.
@@ -94,9 +135,10 @@ export default function WindowControl({
    */
   function verdictAt(index) {
     const row = index >= 0 && index < events.length ? events[index] : null;
-    return row ? (verdicts?.get(row.id) ?? null) : null;
+    // A PAST row has no verdict whatever the map holds (outcome-rating-plan.md §2 #2): no tint, no tick.
+    return row && !row.past ? (verdicts?.get(row.id) ?? null) : null;
   }
-  const activeVerdict = active ? (verdicts?.get(active.id) ?? null) : null;
+  const activeVerdict = active && !active.past ? (verdicts?.get(active.id) ?? null) : null;
 
   /**
    * A stepper's accessible name, carrying the neighbour's verdict when there is one.
@@ -112,6 +154,17 @@ export default function WindowControl({
     const word = verdict ? VERDICT_LABEL[verdict.tier] : null;
     return word ? `${base}, ${word}` : base;
   }
+  /**
+   * One stepper's accessible name for the neighbour at {@code index}: the bare base when the
+   * stepper is disabled, the neighbour's verdict word when it has one, and "past" when it is a
+   * PAST window — which has no verdict (it is `served: false`) and whose word, on the pill and
+   * here, is the same one (outcome-rating-plan.md §2 #2).
+   */
+  function stepName(base, index, disabled) {
+    if (disabled) return base;
+    const row = index >= 0 && index < events.length ? events[index] : null;
+    return row?.past === true ? `${base}, past` : stepLabel(base, verdictAt(index));
+  }
 
   // A press on the MAP never dismisses — `useOutsideDismiss` carries that rule for all four map
   // panels, so they cannot drift apart. No `enabled` gate here: this dropdown is not a
@@ -126,26 +179,67 @@ export default function WindowControl({
     active: open, rowIds: events.map((row) => row.id), fallbackRef: pillRef,
   });
 
-  /** Grouped by date, in the list's own order — the list is already chronological. */
-  const groups = useMemo(() => {
-    const out = [];
-    let lastDate = null;
-    for (const row of events) {
-      if (row.date !== lastDate) {
-        out.push({ date: row.date, rows: [] });
-        lastDate = row.date;
+  /**
+   * Two sets of day groups, each grouped by date in the list's own order (the list is already
+   * chronological): the EARLIER group (every PAST row) and the future groups (everything else).
+   *
+   * <p>⚠️ <b>One date can be in BOTH, and must not be deduped.</b> At Thu 08:15 today's elapsed
+   * sunrise is a past row (under the EARLIER sub-header {@code Today}) and its sunset is not (under
+   * the future group {@code THU 15 · today}), so a key of {@code group.date} alone would collide;
+   * the keys carry their set. A night row of the SAME date as a past solar row (yesterday's astro
+   * night, kept on screen until dawn) sits in the future set the same way.
+   */
+  const { earlierGroups, laterGroups } = useMemo(() => {
+    const groupByDate = (rows) => {
+      const out = [];
+      let lastDate = null;
+      for (const row of rows) {
+        if (row.date !== lastDate) {
+          out.push({ date: row.date, rows: [] });
+          lastDate = row.date;
+        }
+        out[out.length - 1].rows.push(row);
       }
-      out[out.length - 1].rows.push(row);
-    }
-    return out;
+      return out;
+    };
+    return {
+      earlierGroups: groupByDate(events.filter((row) => row.past === true)),
+      laterGroups: groupByDate(events.filter((row) => row.past !== true)),
+    };
   }, [events]);
+  const earlierDates = new Set(earlierGroups.map((group) => group.date));
+  // The EARLIER header is drawn when there is anything under it: a past row, or a day to fetch.
+  // So does a day that loaded empty: its line is the group's content when nothing else is (the T-4 floor).
+  const noStoredLine = emptyOlderDayLabel ? noStoredForecast(emptyOlderDayLabel) : null;
+  const showEarlier = earlierGroups.length > 0 || loadable || Boolean(noStoredLine);
 
   function selectRow(row) {
     setOpen(false);
     onSelect(row);
   }
 
+  /**
+   * Fetches the next older day, from any of its three routes — `‹`, `←` and the Load row.
+   *
+   * <p>⚠️ Focus goes to the pill HERE, before the state change, and not in an effect. `‹` is about to
+   * be disabled (a focused control that becomes disabled drops focus to {@code <body>}, where this
+   * control's keyboard handler never fires) and the Load row unmounts with the menu; and
+   * `useRowFocusRescue` records only `[data-ev-id]` rows and clears on pointerdown, so it will NOT
+   * rescue the Load row — the same reason the reopen and drilldown rows do this.
+   */
+  function loadOlder() {
+    if (!loadable || loading) return;
+    setOpen(false);
+    pillRef.current?.focus();
+    onLoadOlderDay();
+  }
+
   function step(delta) {
+    if (loading) return;
+    if (delta < 0 && prevLoads) {
+      loadOlder();
+      return;
+    }
     const next = activeIndex + delta;
     if (next < 0 || next >= events.length) return;
     setOpen(false);
@@ -192,11 +286,23 @@ export default function WindowControl({
       className="wf-win-control"
       onKeyDown={onKeyDown}
     >
+      {/* The fetch's one announcement. The pill keeps focus while its text changes to `Loading …`, and a
+          content change under focus is not reliably spoken, so this region (mounted ALWAYS, since a
+          live region must exist before its text changes) says it. It also says an older day that loaded
+          with no rows (`No stored forecast for Fri 16`), the one other thing the press does. */}
+      <span role="status" id="wf-win-status" className="sr-only" data-testid="wf-win-status">
+        {loading ? `Loading ${olderDayLoadingLabel}\u2026` : (noStoredLine ?? '')}
+      </span>
       <button
         type="button"
         data-testid="wf-win-prev"
-        aria-label={stepLabel('Previous event', atStart ? null : verdictAt(activeIndex - 1))}
+        /* On the oldest window with a day to fetch, `‹` does a different thing and says so: the name
+           is what it will fetch, not "Previous event" (outcome-rating-plan.md §2 #2, §4 #17). */
+        aria-label={prevLoads ? `Load ${olderDayLabel}` : stepName('Previous event', activeIndex - 1, atStart)}
         className="wf-win-step"
+        /* At the T-4 floor the disabled `‹` is explained by the status line (the same sentence the menu
+           shows), so a reader who lands on it with the menu closed is told why. */
+        aria-describedby={atStart && noStoredLine && !loading ? 'wf-win-status' : undefined}
         disabled={atStart}
         onClick={() => step(-1)}
       >
@@ -212,18 +318,41 @@ export default function WindowControl({
            an unscored one both carry no tier and so no tint, which is the design's own rule. */
         data-tier={activeVerdict?.tier || undefined}
         className="wf-win-pill"
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        // ⚠️ Names the LISTBOX, not the popup box around it. Since L4 the popup holds the landing
-        // card's reopen row beside the listbox, so `role="listbox"` moved to an inner element — and
-        // a trigger declaring `aria-haspopup="listbox"` while `aria-controls` pointed at a generic
-        // container left JAWS's "move to controlled element" landing on an unnamed div. The id and
-        // the role belong on one element.
-        aria-controls="wf-win-listbox"
         title={active?.rosterNote || undefined}
-        onClick={() => setOpen((v) => !v)}
+        /* The older-day fetch in flight: the pill says so (below) and is the one busy element. */
+        aria-busy={loading || undefined}
+        /* ⚠️ **The phone override carries the pill's popup semantics with it**
+           (map-mobile-sheet-plan.md §3 M2 task 4) — on the phone the pill body opens the peek
+           sheet's Windows section instead of this dropdown, so `aria-haspopup="listbox"`,
+           `aria-controls="wf-win-listbox"` and an `aria-expanded` derived from THIS component's own
+           `open` would all be false claims: there is no listbox to open, nothing here controls
+           `wf-win-listbox`, and `open` never turns true on the phone (nothing sets `openMapMenu` to
+           `'window'` there). `pillOverride` is the small contract that replaces all three at once
+           rather than leaving two of them stale beside a correct third. */
+        {...(pillOverride ? {
+          'aria-expanded': pillOverride.expanded,
+          'aria-controls': pillOverride.controlsId,
+          onClick: pillOverride.onPress,
+        } : {
+          'aria-haspopup': 'listbox',
+          'aria-expanded': open,
+          // ⚠️ Names the LISTBOX, not the popup box around it. Since L4 the popup holds the landing
+          // card's reopen row beside the listbox, so `role="listbox"` moved to an inner element — and
+          // a trigger declaring `aria-haspopup="listbox"` while `aria-controls` pointed at a generic
+          // container left JAWS's "move to controlled element" landing on an unnamed div. The id and
+          // the role belong on one element.
+          'aria-controls': 'wf-win-listbox',
+          onClick: () => setOpen((v) => !v),
+        })}
       >
-        {active ? (
+        {loading ? (
+          // The fetch in flight (§2 #2, §4 #10). Not timed: it lasts as long as the request does.
+          // The label class keeps the pill's flex/overflow behaviour; `wf-win-loading` is the
+          // state's own hook.
+          <span className="wf-win-label wf-win-loading" data-testid="wf-win-loading">
+            {`Loading ${olderDayLoadingLabel}…`}
+          </span>
+        ) : active ? (
           <>
             <KindChip row={active} />
             {' '}
@@ -250,7 +379,13 @@ export default function WindowControl({
             {' '}
             <Medallion kind={active.pickKind} />
             {' '}
-            <VerdictCell verdict={activeVerdict} scopeIsArea={scopeIsArea} />
+            {/* A PAST window (outcome-rating-plan.md §2 #2) wears this tag where a verdict would be:
+                it is `served: false`, so it has no verdict, tint or tick, and the pill states what
+                it IS. The DOM text is "Past" — the stylesheet uppercases it — so the accessible name
+                says "past" in words. */}
+            {active.past
+              ? <span className="wf-win-past" data-testid="wf-win-past">Past</span>
+              : <VerdictCell verdict={activeVerdict} scopeIsArea={scopeIsArea} />}
           </>
         ) : (
           // The map is on a date/event this list has no row for — an ordinary state (the map's
@@ -265,7 +400,7 @@ export default function WindowControl({
       <button
         type="button"
         data-testid="wf-win-next"
-        aria-label={stepLabel('Next event', atEnd ? null : verdictAt(activeIndex + 1))}
+        aria-label={stepName('Next event', activeIndex + 1, atEnd)}
         className="wf-win-step"
         disabled={atEnd}
         onClick={() => step(1)}
@@ -275,7 +410,7 @@ export default function WindowControl({
       </button>
 
       {open && (
-        <div id="wf-win-menu" data-testid="wf-win-menu" className="wf-win-menu">
+        <div ref={menuRef} id="wf-win-menu" data-testid="wf-win-menu" className="wf-win-menu">
           {/* The way back into the landing card, above the windows it compares — dismissing it used
               to be irreversible, which quietly made closing it a risk (README §4 "Recoverable").
               `RegionsJump`'s own `wf-jump-reset` is the precedent: the way back lives in the
@@ -326,6 +461,42 @@ export default function WindowControl({
               </span>
             </button>
           )}
+          {/* The EARLIER group's header and Load row (outcome-rating-plan.md §2 #2, O3b), above the
+              windows they precede. ⚠️ Outside the listbox for the reopen row's reason: the Load row
+              chooses no window, and `role="listbox"` admits only options. It is the first row under
+              the header, so the listbox starts right after it and the menu still reads, and scrolls,
+              as one list: header, Load row, past days, future days. */}
+          {showEarlier && (
+            <div data-testid="wf-win-earlier" className="wf-win-earlier">
+              EARLIER
+              <span className="wf-win-earlier-hint">rate how it went</span>
+            </div>
+          )}
+          {noStoredLine && (
+            <div data-testid="wf-win-none" className="wf-win-none">{noStoredLine}</div>
+          )}
+          {showEarlier && loadable && (
+            <button
+              type="button"
+              data-testid="wf-win-load"
+              className="wf-win-row wf-win-load"
+              disabled={loading}
+              onClick={loadOlder}
+            >
+              {/* The kind-chip slot, `.wf-win-load-chip` (the prototype's `.wk.lo`). The glyph is
+                  decoration; the row's accessible name is its text, which already says what it fetches. */}
+              <span className="wf-hc-sun wf-win-load-chip" aria-hidden="true">&#8593;</span>
+              <span className="wf-win-row-main">
+                <b className="wf-win-load-title">{`Load ${olderDayLabel}`}</b>
+                {/* Defensive, like the pill's separators: the column is flex, so a browser spaces
+                    the two lines itself; jsdom reads them as inline and glued the name otherwise. */}
+                {' '}
+                <span className="wf-win-load-sub">
+                  {`or press ‹ past the oldest window · fetches ${olderDayLabel}`}
+                </span>
+              </span>
+            </button>
+          )}
           {/* ⚠️ The LISTBOX is this inner element, not the popup box above it. `role="listbox"`
               admits only `option` (and `group`) children, and the reopen row is neither — it
               chooses no window, so leaving it inside left one child a listbox-navigating screen
@@ -348,10 +519,38 @@ export default function WindowControl({
             onBlur={rowFocus.onBlur}
             onPointerDown={rowFocus.onPointerDown}
           >
-            {groups.map((group) => (
-              <div key={group.date}>
-                <div data-testid="wf-win-day" className="wf-win-day">
+            {/* The EARLIER group's days: a sub-header per past day, then its rows (sunrise first).
+                ⚠️ Keys carry the set — a date can be in both (see `earlierGroups`). */}
+            {earlierGroups.map((group) => (
+              <div key={`earlier:${group.date}`}>
+                <div data-testid="wf-win-sub" className="wf-win-sub">
+                  {group.rows[0].dayLabel ?? group.date}
+                </div>
+                {group.rows.map((row) => (
+                  <WindowRow
+                    key={row.id}
+                    row={row}
+                    active={row.id === active?.id}
+                    onSelect={() => selectRow(row)}
+                    ratedCount={ratedCounts?.get(row.id) ?? null}
+                  />
+                ))}
+              </div>
+            ))}
+            {laterGroups.map((group, index) => (
+              <div key={`day:${group.date}`}>
+                <div
+                  data-testid="wf-win-day"
+                  // The first future day under an EARLIER group wears the rule the group's own
+                  // `:first-child` would otherwise take off it.
+                  className={`wf-win-day${index === 0 && earlierGroups.length > 0 ? ' wf-win-day-after-earlier' : ''}`}
+                >
                   {dayHeading(group.date)}
+                  {/* The prototype's `· today` — drawn only when the SAME date also heads an EARLIER
+                      sub-header (today's elapsed sunrise), the one place two headings would
+                      otherwise read as two different days. */}
+                  {earlierDates.has(group.date) && group.rows.some((row) => row.dayLabel === 'Today')
+                    ? ' · today' : ''}
                 </div>
                 {group.rows.map((row) => (
                   <WindowRow
@@ -419,6 +618,11 @@ WindowControl.propTypes = {
     time: PropTypes.string,
     bestRating: PropTypes.number,
     scored: PropTypes.bool,
+    /**
+     * A solar window that has gone (outcome-rating-plan.md §2 #2): the pill wears a `Past` tag where
+     * a verdict would be, and the steppers name it "past".
+     */
+    past: PropTypes.bool,
     badges: PropTypes.array,
     rosterNote: PropTypes.string,
     /** `'best'` / `'also'` when this window is one of the forecast's two served picks. */
@@ -455,6 +659,45 @@ WindowControl.propTypes = {
   onOpenWindowPanel: PropTypes.func,
   /** A ref the caller attaches to the pill, to return focus to it from a route it owns. */
   pillRef: PropTypes.object,
+  /**
+   * Whether one more stored past day can be fetched (outcome-rating-plan.md §2 #2, O3b) — derived in
+   * `WindowFirstMapPane` from the dates it holds against the T-4 floor, and false under a rewind.
+   * Turns `‹` on the oldest window into the fetch and draws the Load row.
+   */
+  canLoadOlder: PropTypes.bool,
+  /** The day {@code canLoadOlder} would fetch, as the control names it: {@code Thu 13}. */
+  olderDayLabel: PropTypes.string,
+  /** The day being fetched right now ({@code Thu 13}), or null. Non-null puts the control in its loading state. */
+  olderDayLoadingLabel: PropTypes.string,
+  /**
+   * The most recently loaded older day, as {@code Fri 16}, when it came back with no rows
+   * (outcome-rating-plan.md §4 #15, amended 2026-10-17). Draws the quiet `No stored forecast for …` line
+   * in the Load row's place and has the status region say it. It stays at the T-4 floor, where no Load
+   * row follows, so the disabled `‹` is explained.
+   */
+  emptyOlderDayLabel: PropTypes.string,
+  /** Fetches the next older day. The caller owns the fetch and what selection does when it lands. */
+  onLoadOlderDay: PropTypes.func,
+  /**
+   * Row id to the number of locations the signed-in reader has rated for that PAST window
+   * (outcome-rating-plan.md §2 #6, O4b; built in the pane by {@code utils/outcomeRatingJoin}). A
+   * zero prints {@code Not rated}; an id the map LACKS — and a null map — is unknown (not read yet, a
+   * failed read, a rewind) and prints nothing in the cell.
+   */
+  ratedCounts: PropTypes.instanceOf(Map),
+  /**
+   * Phone-only: replaces the pill body's dropdown-opening behaviour and popup semantics with the
+   * peek sheet's Windows section (map-mobile-sheet-plan.md §3 M2 task 4). Null keeps the original
+   * listbox dropdown, unchanged — every desktop/tablet caller omits this.
+   */
+  pillOverride: PropTypes.shape({
+    /** Called on a pill press instead of toggling the local/controlled dropdown. */
+    onPress: PropTypes.func.isRequired,
+    /** Whether the peek sheet's Windows section is open — replaces the dropdown's own `open`. */
+    expanded: PropTypes.bool.isRequired,
+    /** The element the pill's `aria-controls` should name instead of `wf-win-listbox`. */
+    controlsId: PropTypes.string.isRequired,
+  }),
 };
 
 /**
@@ -517,7 +760,11 @@ function VerdictCell({ verdict, scopeIsArea }) {
   const region = verdictRegionLabel(verdict, { scopeIsArea });
   return (
     <span className="wf-win-verdict" data-tier={verdict.tier} data-testid="wf-win-verdict">
-      <b className="wf-win-verdict-word" data-testid="wf-win-verdict-word">{VERDICT_LABEL[verdict.tier] || VERDICT_LABEL.AWAITING}</b>
+      {/* ⚠️ `mode="swap"`: "TOO FEW RATED" (91px) clipped the day label at 320–430px and itself at
+          640–700px (measured), so the pill swaps to the short form at 811px and below on one media
+          query (`.wf-vw-short` / `.wf-vw-full` in index.css) and the full word stays in the
+          accessible name (unrated-verdict-plan.md U2, review F3). From 812px the full word is drawn. */}
+      <b className="wf-win-verdict-word" data-testid="wf-win-verdict-word"><VerdictWord tier={verdict.tier} mode="swap" /></b>
       {/* Defensive, like the pill's own separators: `.wf-win-verdict` is `display: inline-flex`, so
           the word and the region are flex items and browsers space them themselves (measured
           2026-09-11 by Playwright's accessible-name algorithm over Chromium's, WebKit's and
@@ -572,7 +819,12 @@ function kindClass(row) {
 
 const KIND_TEXT = { SUNRISE: 'Sunrise', SUNSET: 'Sunset', ASTRO: 'Astro', AURORA: 'Aurora' };
 
-function KindChip({ row }) {
+/**
+ * Exported since the map-mobile-sheet increment (§3 M2 task 5): the peek sheet's Windows section
+ * draws the identical roster this dropdown does and must not mint a second kind-chip markup — the
+ * kind-chip dedup rule this file already states for `dayLabel` applies to the chip itself too.
+ */
+export function KindChip({ row }) {
   // Reuses `.wf-hc-sun` — the day rail's own kind-chip class (matrix-axis plan D14) — rather than
   // minting a second chip vocabulary. `.am`/`.pm` already exist there; `.night` is this phase's one
   // addition (index.css), sharing the same `color-mix` idiom against the new astro tokens.
@@ -601,7 +853,7 @@ const CHANNEL_ICON = {
 };
 
 /** One dropdown row — kind chip · label+time · `N★ best` with swatch · topic icons. */
-function WindowRow({ row, active, onSelect }) {
+function WindowRow({ row, active, onSelect, ratedCount = null }) {
   const icons = useMemo(() => {
     const seen = new Set();
     const out = [];
@@ -613,6 +865,10 @@ function WindowRow({ row, active, onSelect }) {
     }
     return out;
   }, [row.badges]);
+
+  if (row.past) {
+    return <PastWindowRow row={row} active={active} onSelect={onSelect} ratedCount={ratedCount} />;
+  }
 
   return (
     <button
@@ -662,6 +918,71 @@ function WindowRow({ row, active, onSelect }) {
   );
 }
 
+/**
+ * What a PAST window says where a verdict would be: {@code Not rated} (ink-3) or {@code {n} rated}
+ * (star gold), n being the number of locations the signed-in reader has rated for it, "didn't see
+ * it" included (outcome-rating-plan.md §2 #2, §2 #6). ⚠️ <b>It cannot say "unknown", so it is not
+ * drawn for unknown</b>: a null {@code ratedCount} (the date's ratings not read yet, a failed read,
+ * a rewind, no ratings source at all) renders NOTHING, never a false {@code Not rated} — the caller's
+ * {@code ratedCounts} map simply lacks the row's id. A zero is a fact and reads {@code Not rated}.
+ * Shared with the phone peek sheet's Windows section.
+ */
+export function RatedCell({ ratedCount = null }) {
+  if (ratedCount == null) return null;
+  return ratedCount > 0
+    ? <span className="wf-win-rated" data-testid="wf-win-rated">{`${ratedCount} rated`}</span>
+    : <span className="wf-win-notrated" data-testid="wf-win-notrated">Not rated</span>;
+}
+
+RatedCell.propTypes = { ratedCount: PropTypes.number };
+
+/**
+ * One PAST row in the EARLIER group (outcome-rating-plan.md §2 #2): kind chip, the time in bold
+ * ink-2 (the prototype's {@code .wr.past .wm b}), and {@code Not rated} / {@code {n} rated} on the
+ * right. The day is the sub-header's, so the row carries it only in words for a screen reader
+ * (an option's name is its content, and the sub-header is not inside it). No pick, no topics, no
+ * score: a past window is `served: false` and states none of those.
+ */
+function PastWindowRow({ row, active, onSelect, ratedCount }) {
+  return (
+    <button
+      type="button"
+      data-testid="wf-win-row"
+      data-ev-id={row.id}
+      data-past="true"
+      role="option"
+      aria-selected={active}
+      className={`wf-win-row wf-win-row-past${active ? ' on' : ''}`}
+      onClick={onSelect}
+    >
+      <KindChip row={row} />
+      {' '}
+      <span className="wf-win-row-main">
+        <b className="wf-win-row-pasttime">
+          <span className="sr-only">{`${row.dayLabel ?? row.label} `}</span>
+          {row.time}
+        </b>
+      </span>
+      <span className="wf-win-row-score">
+        <RatedCell ratedCount={ratedCount} />
+      </span>
+      <span className="wf-win-row-topics" aria-hidden="true" />
+    </button>
+  );
+}
+
+PastWindowRow.propTypes = {
+  row: PropTypes.shape({
+    id: PropTypes.string.isRequired,
+    label: PropTypes.string.isRequired,
+    dayLabel: PropTypes.string,
+    time: PropTypes.string,
+  }).isRequired,
+  active: PropTypes.bool.isRequired,
+  onSelect: PropTypes.func.isRequired,
+  ratedCount: PropTypes.number,
+};
+
 WindowRow.propTypes = {
   row: PropTypes.shape({
     id: PropTypes.string.isRequired,
@@ -671,6 +992,8 @@ WindowRow.propTypes = {
     time: PropTypes.string,
     bestRating: PropTypes.number,
     scored: PropTypes.bool,
+    /** A window that has gone — drawn by {@link PastWindowRow}, in the EARLIER group. */
+    past: PropTypes.bool,
     badges: PropTypes.array,
     rosterNote: PropTypes.string,
     /** `'best'` / `'also'` when this window is one of the forecast's two served picks. */
@@ -678,4 +1001,6 @@ WindowRow.propTypes = {
   }).isRequired,
   active: PropTypes.bool.isRequired,
   onSelect: PropTypes.func.isRequired,
+  /** The count a PAST row's `{n} rated` reads: 0 prints `Not rated`, null (unknown) prints nothing. */
+  ratedCount: PropTypes.number,
 };

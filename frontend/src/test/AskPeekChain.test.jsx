@@ -1,0 +1,822 @@
+/**
+ * Ask PhotoCast's phone peek row on the REAL chain (F4, `docs/engineering/ask-photocast-plan.md` §2.7's
+ * phone paragraph): `AskProvider` → `WindowFirstMapPane` → `MapView` → `MapPeekSheet` / `MapPeekAsk` →
+ * `AskConversation`, with the real conversation on one side and the real chips and pick cards on the
+ * other, and only Leaflet, the heat canvas and the network replaced. `AskPeekStateTable` proves each cell
+ * of the table at the `MapView` level against a stand-in conversation; this file proves the joins — the
+ * Ready list in the expanded sheet, an answer that lands while the sheet is open, a map touch that
+ * minimises it, a chip that opens the pick's callout over the line, a ✕ that clears it — and that the camera is told what the sheet
+ * covers, at each step.
+ */
+import React, { useEffect, useState } from 'react';
+import {
+  describe, it, expect, vi, beforeEach, afterEach,
+} from 'vitest';
+import {
+  act, fireEvent, render, screen, waitFor,
+} from '@testing-library/react';
+
+vi.mock('leaflet', () => {
+  const icon = () => ({});
+  const divIcon = (options) => ({ options });
+  const point = (x, y) => ({ x, y });
+  const STOPPED_EVENTS = ['mousedown', 'touchstart', 'dblclick', 'contextmenu'];
+  const DomEvent = {
+    disableClickPropagation: (el) => {
+      for (const type of STOPPED_EVENTS) el.addEventListener(type, (e) => e.stopPropagation());
+      el._leaflet_disable_click = true;
+    },
+    disableScrollPropagation: () => {},
+  };
+  const DomUtil = { setPosition: () => {} };
+  const latLngBounds = (points) => ({ points });
+  const L = {
+    icon, divIcon, point, DomEvent, DomUtil, latLngBounds,
+  };
+  return { default: L, ...L };
+});
+vi.mock('leaflet/dist/leaflet.css', () => ({}));
+
+let fakeMap;
+
+function makeMap() {
+  const handlers = new Map();
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  Object.defineProperty(container, 'offsetWidth', { value: 800, configurable: true });
+  const panes = {};
+  return {
+    flyToBoundsCalls: [],
+    flyToCalls: [],
+    zoom: 9,
+    container,
+    getZoom() { return this.zoom; },
+    getSize: () => ({ x: 800, y: 500 }),
+    getContainer: () => container,
+    getCenter: () => ({ lat: 55, lng: -2 }),
+    getBounds: () => ({ contains: () => true }),
+    latLngToContainerPoint: ([lat, lng]) => ({ x: (lng + 3) * 100, y: (56 - lat) * 100 }),
+    containerPointToLayerPoint: (p) => ({ x: -40 + p[0], y: -25 + p[1] }),
+    project: ([lat, lng]) => ({ add: ([dx, dy]) => ({ lat: lat + dy, lng: lng + dx }) }),
+    unproject: (p) => p,
+    createPane: (name) => {
+      const el = document.createElement('div');
+      panes[name] = el;
+      container.appendChild(el);
+      return el;
+    },
+    getPane: (name) => panes[name] || null,
+    on(events, fn) { for (const e of events.split(' ')) handlers.set(e, [...(handlers.get(e) || []), fn]); },
+    off(events, fn) {
+      for (const e of events.split(' ')) handlers.set(e, (handlers.get(e) || []).filter((h) => h !== fn));
+    },
+    once: () => {},
+    eachLayer: () => {},
+    fitBounds: () => {},
+    setView: () => {},
+    invalidateSize: () => {},
+    panInside: () => {},
+    flyToBounds(bounds, options) { this.flyToBoundsCalls.push([bounds, options]); },
+    flyTo(latlng, zoom) { this.flyToCalls.push([latlng, zoom]); },
+  };
+}
+
+vi.mock('react-leaflet', () => ({
+  MapContainer: ({ children }) => <div>{children}</div>,
+  TileLayer: () => null,
+  Marker: ({ children }) => <div>{children}</div>,
+  Popup: ({ children }) => <div>{children}</div>,
+  Polyline: () => null,
+  useMapEvents: (handlers) => {
+    React.useEffect(() => {
+      const target = fakeMap.container;
+      const entries = Object.entries(handlers || {}).map(([eventName, handler]) => {
+        if (eventName !== 'click') return [eventName, handler];
+        const gated = (e) => {
+          let el = e.target;
+          while (el && el !== target) {
+            if (el._leaflet_disable_click) return;
+            el = el.parentNode;
+          }
+          handler(e);
+        };
+        return [eventName, gated];
+      });
+      for (const [eventName, handler] of entries) target.addEventListener(eventName, handler);
+      return () => {
+        for (const [eventName, handler] of entries) target.removeEventListener(eventName, handler);
+      };
+    });
+    return fakeMap;
+  },
+  useMap: () => fakeMap,
+}));
+
+vi.mock('../components/MapHeatLayer.jsx', () => ({
+  default: ({ dim }) => <div data-testid="map-heat-layer" data-dim={dim} />,
+}));
+vi.mock('../components/MarkerPopupContent.jsx', () => ({ default: () => <div /> }));
+vi.mock('../components/BottomSheet.jsx', () => ({ default: ({ children }) => <div>{children}</div> }));
+vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
+vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null }));
+vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: 'PRO_USER' }) }));
+let mockIsMobile = true;
+vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => mockIsMobile }));
+vi.mock('../hooks/useAuroraStatus.js', () => ({ useAuroraStatus: () => ({ status: null }) }));
+vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ viewline: null }) }));
+vi.mock('../api/auroraApi.js', () => ({
+  getAuroraLocations: vi.fn().mockResolvedValue([]),
+  getAuroraForecastResults: vi.fn().mockResolvedValue([]),
+  getAuroraForecastAvailableDates: vi.fn().mockResolvedValue([]),
+}));
+vi.mock('../api/settingsApi.js', () => ({ getDriveTimes: vi.fn().mockResolvedValue({}) }));
+vi.mock('../api/astroApi.js', () => ({
+  getAstroConditions: vi.fn().mockResolvedValue([]),
+  getAstroAvailableDates: vi.fn().mockResolvedValue([]),
+}));
+vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn().mockResolvedValue([]) }));
+vi.mock('../api/askApi.js', async (importOriginal) => ({
+  ...(await importOriginal()),
+  getReady: vi.fn(),
+  ask: vi.fn(),
+  getAskSettings: vi.fn(),
+}));
+import { ask, getAskSettings, getReady } from '../api/askApi.js';
+
+let briefingValue = null;
+vi.mock('../context/WindowFirstBriefingContext.jsx', () => ({
+  useWindowFirstBriefing: () => briefingValue,
+}));
+
+import WindowFirstMapPane from '../components/WindowFirstMapPane.jsx';
+import { AskProvider, useAsk } from '../context/AskContext.jsx';
+import {
+  astroRow, briefing, nightPick, NOW, ownResponse, pick, readyResponse, ROSEBERRY, SALTBURN, settings, WHITBY,
+} from './askFixtures.js';
+import { getAstroAvailableDates, getAstroConditions } from '../api/astroApi.js';
+
+const TODAY = '2026-10-05';
+const TOMORROW = '2026-10-06';
+const REGION = 'North York Moors & Coast';
+
+const loc = (id, name, lat, lon, forecasts, regionName = REGION) => ({
+  id,
+  name,
+  lat,
+  lon,
+  regionName,
+  bortleClass: 4,
+  locationType: ['SEASCAPE'],
+  forecastsByDate: new Map(Object.entries(forecasts)),
+});
+const sun = (date, kind, rating) => ({
+  [kind]: {
+    rating,
+    solarEventTime: `${date}T${kind === 'sunset' ? '17:41' : '05:58'}:00`,
+    fierySkyPotential: 70,
+    goldenHourPotential: 60,
+  },
+});
+const LOCATIONS = [
+  loc(WHITBY, 'Whitby', 54.49, -0.61, {
+    [TODAY]: sun(TODAY, 'sunset', 5), [TOMORROW]: sun(TOMORROW, 'sunrise', 4),
+  }),
+  loc(SALTBURN, 'Saltburn', 54.58, -0.97, { [TODAY]: sun(TODAY, 'sunset', 4) }),
+  // A second region, so that planning from the first is a real narrowing.
+  loc(ROSEBERRY, 'Roseberry Topping', 54.5, -1.19, { [TODAY]: sun(TODAY, 'sunset', 3) }, 'Teesside'),
+];
+const HEAT_SPOTS = LOCATIONS.map((l) => ({
+  id: l.id, name: l.name, lat: l.lat, lng: l.lon, regionName: l.regionName, rid: l.regionName, bortleClass: 4, scores: [5],
+}));
+const CARDS = [
+  {
+    key: `${TODAY}:SUNSET`, date: TODAY, targetType: 'SUNSET', label: 'Tonight sunset', time: '17:41', bestRating: 5, confidence: 'high', badges: [],
+  },
+  {
+    key: `${TOMORROW}:SUNRISE`, date: TOMORROW, targetType: 'SUNRISE', label: 'Tomorrow sunrise', time: '05:58', bestRating: 4, confidence: 'high', badges: [],
+  },
+];
+
+function context(over = {}) {
+  return {
+    heatSpots: HEAT_SPOTS,
+    heatPointSets: new Map([[`${TODAY}:SUNSET`, []], [`${TOMORROW}:SUNRISE`, []]]),
+    heatStripCards: CARDS,
+    reachById: new Map([[WHITBY, { driveMinutes: 95, distanceMiles: 60 }]]),
+    effectiveReachById: new Map(),
+    homePlace: null,
+    todayStr: TODAY,
+    origin: null,
+    scoreRows: [],
+    scoresLoaded: true,
+    briefing: briefing(),
+    regions: [{ id: 5, name: REGION, enabled: true }],
+    isPro: false,
+    ...over,
+  };
+}
+
+/** What the conversation holds, so a test can drive it and read what it published. */
+let ask$;
+function Capture() {
+  const value = useAsk();
+  useEffect(() => { ask$ = value; });
+  return null;
+}
+
+let selectedDates;
+/** A parent that owns the date, as `App` does — a pick moves the window only if the parent follows. */
+function Harness({
+  onSelectDate, onOpenLocationSheet, onOpenSettings, freezeDate = false,
+}) {
+  const [date, setDate] = useState(TODAY);
+  return (
+    <AskProvider>
+      <Capture />
+      <WindowFirstMapPane
+        locations={LOCATIONS}
+        dates={[TODAY, TOMORROW]}
+        selectedDate={date}
+        onSelectDate={(d, opts) => {
+          selectedDates.push(d);
+          onSelectDate?.(d, opts);
+          // A parent that does NOT follow (`freezeDate`): the map's own window stays where it was.
+          if (!freezeDate) setDate(d);
+        }}
+        autoEventType="SUNSET"
+        onOpenLocationSheet={onOpenLocationSheet}
+        onOpenSettings={onOpenSettings}
+      />
+    </AskProvider>
+  );
+}
+
+function withMeasuredLayout(width, height) {
+  const w = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth');
+  const h = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight');
+  Object.defineProperty(HTMLElement.prototype, 'offsetWidth', { configurable: true, get: () => width });
+  Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get: () => height });
+  return () => {
+    if (w) Object.defineProperty(HTMLElement.prototype, 'offsetWidth', w);
+    else delete HTMLElement.prototype.offsetWidth;
+    if (h) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', h);
+    else delete HTMLElement.prototype.offsetHeight;
+  };
+}
+
+/** Saltburn tonight at 4★ and Whitby TOMORROW's sunrise at 4★ — the second is another window. */
+const answer = () => ownResponse({
+  picks: [
+    pick({
+      rank: 1, locationId: SALTBURN, locationName: 'Saltburn', why: 'Close, and the sky is open.',
+    }),
+    pick({
+      rank: 2, date: TOMORROW, targetType: 'SUNRISE', windowId: `${TOMORROW}_sunrise`,
+    }),
+  ],
+});
+
+let restoreLayout;
+async function renderMap(props = {}) {
+  briefingValue = context(props.ctx);
+  fakeMap = makeMap();
+  const root = document.createElement('div');
+  document.body.appendChild(root);
+  let result;
+  await act(async () => {
+    result = render(
+      <Harness
+        onSelectDate={props.onSelectDate}
+        onOpenLocationSheet={props.onOpenLocationSheet}
+        onOpenSettings={props.onOpenSettings}
+        freezeDate={props.freezeDate}
+      />,
+      { container: root },
+    );
+  });
+  await waitFor(() => expect(ask$?.availability).toBe(props.availability ?? 'on'));
+  return result;
+}
+const chips = () => [...document.querySelectorAll('[data-testid="map-label-chip"]')];
+const pickChips = () => chips().filter((c) => c.dataset.ask === 'pick');
+
+beforeEach(() => {
+  mockIsMobile = true;
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(NOW);
+  vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+  restoreLayout = withMeasuredLayout(90, 22);
+  localStorage.clear();
+  selectedDates = [];
+  ask$ = undefined;
+  getReady.mockResolvedValue(readyResponse());
+  getAskSettings.mockResolvedValue(settings());
+});
+
+afterEach(() => {
+  restoreLayout();
+  briefingValue = null;
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+  vi.clearAllMocks();
+  fakeMap?.container.remove();
+});
+
+const sheet = () => screen.getByTestId('wf-map-peek');
+const mode = () => sheet().getAttribute('data-ask');
+const psh = () => screen.getByTestId('wf-map-pane').style.getPropertyValue('--psh');
+const buttonsShown = () => screen.queryByTestId('wf-map-peek-btn-win') !== null;
+/** A hand on the map: Leaflet's `dragstart`, which the sheet's own listener answers. */
+const dragMap = () => act(async () => { fakeMap.container.dispatchEvent(new Event('dragstart')); });
+const openAsk = () => act(async () => { fireEvent.click(screen.getByTestId('wf-map-peek-ask-entry')); });
+
+/** Types a question into the sheet's field and sends it; the provider's `ask` answers with the fixture. */
+async function typeQuestion(text = 'Where is good?') {
+  ask.mockResolvedValue(answer());
+  await act(async () => { fireEvent.change(screen.getByTestId('ask-input'), { target: { value: text } }); });
+  await act(async () => { fireEvent.submit(screen.getByTestId('ask-input-row')); });
+  await waitFor(() => expect(pickChips().length).toBe(2));
+}
+
+describe('the row, on the real chain', () => {
+  it('is the Ask row above the three buttons, at 126, when Ask is on', async () => {
+    await renderMap();
+
+    expect(mode()).toBe('collapsed');
+    expect(psh()).toBe('126px');
+    expect(screen.getByTestId('wf-map-peek-ask-entry')).toHaveTextContent('Ask about what’s on the map…');
+    expect(buttonsShown()).toBe(true);
+  });
+
+  it('is not there when the server says Ask is off: the sheet is the sheet it was, at 74', async () => {
+    getAskSettings.mockResolvedValue(settings({ enabled: false }));
+
+    await renderMap({ availability: 'off' });
+
+    expect(mode()).toBe('off');
+    expect(psh()).toBe('74px');
+    expect(screen.queryByTestId('wf-map-peek-ask-entry')).not.toBeInTheDocument();
+    expect(buttonsShown()).toBe(true);
+  });
+
+  it('is exactly the old Map on a tablet or desktop: no sheet, no --psh, Ask on', async () => {
+    mockIsMobile = false;
+
+    await renderMap();
+
+    expect(screen.queryByTestId('wf-map-peek')).not.toBeInTheDocument();
+    expect(screen.getByTestId('wf-map-pane').style.getPropertyValue('--psh')).toBe('');
+  });
+
+  it('opens to the Ready suggestions for the Map, with the cursor in the field', async () => {
+    await renderMap();
+
+    await openAsk();
+
+    expect(mode()).toBe('expanded');
+    expect(buttonsShown()).toBe(false);
+    expect(await screen.findByTestId('ask-ready-list')).toBeInTheDocument();
+    expect(document.activeElement).toBe(screen.getByTestId('ask-input'));
+  });
+});
+
+describe('an answer, from landing to clearing', () => {
+  it('lands in the open sheet and STAYS open; the picks are numbered and the camera fits inside what is left of the frame', async () => {
+    await renderMap();
+    await openAsk();
+
+    await typeQuestion();
+
+    expect(mode()).toBe('expanded');
+    expect(screen.getByTestId('ask-picks')).toBeInTheDocument();
+    expect(pickChips()).toHaveLength(2);
+    // 470 covered, clamped: top + bottom padding never exceed 60% of the 500px frame.
+    expect(fakeMap.flyToBoundsCalls).toHaveLength(1);
+    const options = fakeMap.flyToBoundsCalls[0][1];
+    expect(options.paddingTopLeft[1] + options.paddingBottomRight[1]).toBeLessThanOrEqual(500 * 0.6 + 1e-9);
+    expect(options.paddingBottomRight[1]).toBeGreaterThan(options.paddingTopLeft[1]);
+  });
+
+  it('a map drag minimises it to ONE LINE — rank, spot, time, "2 picks" — and the picks are re-fitted into the room that opens up', async () => {
+    await renderMap();
+    await openAsk();
+    await typeQuestion();
+    const fitBounds = vi.spyOn(fakeMap, 'fitBounds');
+
+    await dragMap();
+
+    expect(mode()).toBe('minimised');
+    expect(psh()).toBe('112px');
+    const line = screen.getByTestId('wf-map-peek-mini');
+    expect(line).toHaveTextContent('Saltburn');
+    expect(line).toHaveTextContent('2 picks');
+    expect(line).toHaveAccessibleName(/^Pick 1, Saltburn, .* 2 picks\. Show the answer$/);
+    // The conversation is kept, not cleared, and the camera was told the sheet came down to 112.
+    expect(ask$.phase).toBe('answer');
+    await waitFor(() => expect(fitBounds).toHaveBeenCalled());
+    expect(fitBounds.mock.calls.at(-1)[1].animate).toBe(false);
+    expect(fitBounds.mock.calls.at(-1)[1].paddingBottomRight[1]).toBe(60 + 112);
+    expect(pickChips()).toHaveLength(2);
+  });
+
+  it('the camera\'s OWN fit does not minimise the answer it was fitting (a zoom is not always a hand)', async () => {
+    await renderMap();
+    await openAsk();
+
+    await typeQuestion();
+    // The camera flew; a real Leaflet would fire `zoomstart` for it. Inside its own move that is not a hand.
+    await act(async () => { fakeMap.container.dispatchEvent(new Event('zoomstart')); });
+
+    expect(mode()).toBe('expanded');
+  });
+
+  it('tapping the line brings the answer back, cards and all', async () => {
+    await renderMap();
+    await openAsk();
+    await typeQuestion();
+    await dragMap();
+
+    await act(async () => { fireEvent.click(screen.getByTestId('wf-map-peek-mini')); });
+
+    expect(mode()).toBe('expanded');
+    expect(screen.getByTestId('ask-pick-1')).toBeInTheDocument();
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask'));
+  });
+
+  // docs/engineering/phone-pick-callout-plan.md §3 P1 (2026-10-17): a pick chip used to EXPAND the answer;
+  // it now opens the pick's own callout and leaves the answer on its line.
+  it('a pick chip pressed while minimised opens that pick\'s callout over the line, the card chosen and the window followed', async () => {
+    await renderMap();
+    await openAsk();
+    await typeQuestion();
+    await dragMap();
+
+    await act(async () => { fireEvent.click(pickChips().find((c) => c.dataset.askRank === '2')); });
+
+    expect(mode()).toBe('minimised');
+    expect(ask$.selectedPick).toBe(2);
+    expect(await screen.findByTestId('map-callout')).toHaveTextContent('Whitby');
+    await waitFor(() => expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/sunrise/i));
+    expect(psh()).toBe('112px');
+  });
+
+  it('a pick chip pressed with the answer EXPANDED minimises it under the pick\'s callout; the card is the chosen one', async () => {
+    await renderMap();
+    await openAsk();
+    await typeQuestion();
+    expect(mode()).toBe('expanded');
+
+    await act(async () => { fireEvent.click(pickChips().find((c) => c.dataset.askRank === '2')); });
+
+    expect(mode()).toBe('minimised');
+    expect(ask$.selectedPick).toBe(2);
+    expect(await screen.findByTestId('map-callout')).toHaveTextContent('Whitby');
+    // Tapping the line brings the cards back with 2 chosen, and the callout goes (an open sheet and a
+    // callout never coexist).
+    await act(async () => { fireEvent.click(screen.getByTestId('wf-map-peek-mini')); });
+    expect(screen.getByTestId('ask-pick-2')).toHaveAttribute('data-selected', 'true');
+    expect(screen.queryByTestId('map-callout')).not.toBeInTheDocument();
+  });
+
+  it('the callout\'s ✕ hands focus back to the pick chip it came from — never <body> — and Escape fired there still reaches the pane', async () => {
+    await renderMap();
+    await openAsk();
+    await typeQuestion();
+    await dragMap();
+    // This file's fake Leaflet container lives on <body>; the real one sits INSIDE the pane, where the
+    // ✕'s focus hand-off looks for the ringed chip. Put it where the real one is.
+    screen.getByTestId('wf-map-pane').appendChild(fakeMap.container);
+    const chip = pickChips().find((c) => c.dataset.askRank === '2');
+    await act(async () => { fireEvent.click(chip); });
+    fireEvent.click(await screen.findByTestId('map-callout-close'));
+
+    expect(screen.queryByTestId('map-callout')).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(pickChips().find((c) => c.dataset.askRank === '2'));
+    // The ladder is alive from there: with the Windows section open, Escape closes it.
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    expect(mode()).toBe('section');
+    fireEvent.keyDown(document.activeElement, { key: 'Escape' });
+    expect(mode()).toBe('minimised');
+  });
+
+  it('a CARD chosen in the expanded answer opens no callout: the chip is the only route that asks for one', async () => {
+    await renderMap();
+    await openAsk();
+    await typeQuestion();
+
+    await act(async () => { fireEvent.click(screen.getByTestId('ask-pick-select-2')); });
+
+    expect(ask$.selectedPick).toBe(2);
+    expect(mode()).toBe('expanded');
+    await waitFor(() => expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/sunrise/i));
+    expect(screen.queryByTestId('map-callout')).not.toBeInTheDocument();
+  });
+
+  it('a callout may stand over the minimised line — and its band is told the sheet is 112', async () => {
+    await renderMap();
+    await openAsk();
+    await typeQuestion();
+    await dragMap();
+
+    await act(async () => { fireEvent.click(chips().find((c) => c.textContent.includes('Roseberry'))); });
+
+    expect(await screen.findByTestId('map-callout')).toHaveTextContent('Roseberry');
+    expect(mode()).toBe('minimised');
+    expect(psh()).toBe('112px');
+  });
+
+  it('the ✕ clears the answer, brings the three buttons back, unnumbers the map — and focus lands on the Ask row, not <body>', async () => {
+    await renderMap();
+    await openAsk();
+    await typeQuestion();
+    expect(buttonsShown()).toBe(false);
+    screen.getByTestId('wf-map-peek-ask-x').focus();
+
+    await act(async () => { fireEvent.click(screen.getByTestId('wf-map-peek-ask-x')); });
+
+    expect(ask$.phase).toBe('empty');
+    expect(mode()).toBe('collapsed');
+    expect(buttonsShown()).toBe(true);
+    expect(psh()).toBe('126px');
+    expect(pickChips()).toHaveLength(0);
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-entry'));
+  });
+
+  it('Escape in the field closes the open section onto the entry — and the pane\'s own Escape is still alive after it', async () => {
+    await renderMap();
+    await openAsk();
+    screen.getByTestId('ask-input').focus();
+
+    await act(async () => { fireEvent.keyDown(screen.getByTestId('ask-input'), { key: 'Escape' }); });
+
+    expect(mode()).toBe('collapsed');
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-entry'));
+    // The pane's rule runs only while focus is inside the pane: an ordinary chip's callout is cleared by
+    // the next Escape, from where focus now is.
+    await act(async () => { fireEvent.click(chips().find((c) => c.textContent.includes('Roseberry'))); });
+    expect(await screen.findByTestId('map-callout')).toBeInTheDocument();
+    screen.getByTestId('wf-map-peek-ask-entry').focus();
+    await act(async () => { fireEvent.keyDown(document.activeElement, { key: 'Escape' }); });
+    await waitFor(() => expect(screen.queryByTestId('map-callout')).toBeNull());
+  });
+});
+
+describe('a tab switch, through the pane\'s own ResizeObserver (the real source of `panelShown`)', () => {
+  let observers;
+  let originalRO;
+  beforeEach(() => {
+    observers = [];
+    originalRO = global.ResizeObserver;
+    global.ResizeObserver = class {
+      constructor(callback) { this.callback = callback; observers.push(this); }
+
+      observe() {}
+
+      unobserve() {}
+
+      disconnect() {}
+    };
+  });
+  afterEach(() => { global.ResizeObserver = originalRO; });
+
+  /** The shell hiding (0 x 0) or showing the Map's panel: the observer fires with the pane's own box. */
+  const paneBox = async (width, height) => {
+    const pane = screen.getByTestId('window-first-map-pane');
+    vi.spyOn(pane, 'getBoundingClientRect').mockReturnValue({
+      width, height, top: 0, left: 0, right: width, bottom: height,
+    });
+    await act(async () => { observers.forEach((o) => o.callback([])); });
+  };
+
+  it('with the suggestions showing: closed on the way back', async () => {
+    await renderMap();
+    await openAsk();
+    expect(mode()).toBe('expanded');
+
+    await paneBox(0, 0);
+    await paneBox(390, 500);
+
+    expect(mode()).toBe('collapsed');
+    expect(buttonsShown()).toBe(true);
+  });
+
+  it('with an answer expanded: kept, minimised — and the camera was not asked to move for the round trip', async () => {
+    await renderMap();
+    await openAsk();
+    await typeQuestion();
+    const flights = fakeMap.flyToBoundsCalls.length;
+
+    await paneBox(0, 0);
+    expect(mode()).toBe('minimised');
+    await paneBox(390, 500);
+
+    expect(mode()).toBe('minimised');
+    expect(screen.getByTestId('wf-map-peek-mini')).toHaveTextContent('Saltburn');
+    expect(ask$.phase).toBe('answer');
+    expect(fakeMap.flyToBoundsCalls).toHaveLength(flights);
+  });
+});
+
+describe('Escape from an expanded answer, from where focus really is', () => {
+  it('minimises it, keeps the answer, and focus lands on the Ask row — whose Escape then clears the selection', async () => {
+    await renderMap();
+    await openAsk();
+    await typeQuestion();
+    screen.getByTestId('ask-input').focus();
+
+    await act(async () => { fireEvent.keyDown(document.activeElement, { key: 'Escape' }); });
+
+    expect(mode()).toBe('minimised');
+    expect(ask$.phase).toBe('answer');
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-entry'));
+    await act(async () => { fireEvent.click(chips().find((c) => c.textContent.includes('Roseberry'))); });
+    expect(await screen.findByTestId('map-callout')).toBeInTheDocument();
+    await act(async () => { fireEvent.keyDown(document.activeElement, { key: 'Escape' }); });
+    await waitFor(() => expect(screen.queryByTestId('map-callout')).toBeNull());
+    expect(mode()).toBe('minimised');
+  });
+});
+
+
+describe('a NIGHT pick in the phone peek (docs/engineering/ask-night-plan.md §2.6)', () => {
+  afterEach(() => {
+    getAstroConditions.mockReset();
+    getAstroConditions.mockResolvedValue([]);
+    getAstroAvailableDates.mockReset();
+    getAstroAvailableDates.mockResolvedValue([]);
+  });
+
+  /** Saltburn's astro night tonight, asked about in the open sheet. */
+  async function askNight() {
+    getAstroAvailableDates.mockResolvedValue([TODAY]);
+    getAstroConditions.mockResolvedValue([astroRow({ locationId: SALTBURN, locationName: 'Saltburn' })]);
+    await renderMap();
+    await openAsk();
+    ask.mockResolvedValue(ownResponse({
+      picks: [nightPick({ locationId: SALTBURN, locationName: 'Saltburn' })],
+      events: [],
+      nightVersion: 'v1',
+    }));
+    await act(async () => { fireEvent.change(screen.getByTestId('ask-input'), { target: { value: 'Clear skies tonight?' } }); });
+    await act(async () => { fireEvent.submit(screen.getByTestId('ask-input-row')); });
+    await screen.findByTestId('ask-pick-1');
+  }
+
+  it('draws the night card in the sheet and numbers the pick on the map', async () => {
+    await askNight();
+
+    expect(screen.getByTestId('ask-pick-score-1-sky')).toHaveTextContent('4★ sky');
+    expect(screen.getByTestId('ask-pick-when-1')).toHaveTextContent('Tonight · 20:40–05:10');
+    await waitFor(() => expect(pickChips()).toHaveLength(1));
+    expect(pickChips()[0]).toHaveAccessibleName('Pick 1, Saltburn, Tonight astro, 4 stars');
+  });
+
+  it('choosing the pick moves the map to the astro night, handed up to the parent as a night', async () => {
+    await askNight();
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/sunset/i);
+
+    await act(async () => { fireEvent.click(screen.getByTestId('ask-pick-select-1')); });
+
+    await waitFor(() => expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/astro/i));
+    expect(selectedDates).toContain(TODAY);
+  });
+
+  it('the minimised line names the night and its start', async () => {
+    await askNight();
+
+    await dragMap();
+
+    expect(screen.getByTestId('wf-map-peek-mini')).toHaveTextContent('Saltburn');
+    expect(screen.getByTestId('wf-map-peek-mini')).toHaveTextContent('Mon night 20:40');
+  });
+});
+
+describe('Plan this, in the expanded Ask section (F5)', () => {
+  /** An answer in the open sheet, then "Plan this ›" on pick 2 — Whitby's sunrise, ANOTHER window from tonight. */
+  async function planPickTwo(props = {}) {
+    await renderMap(props);
+    await openAsk();
+    await typeQuestion();
+    await act(async () => { fireEvent.click(screen.getByTestId('ask-plan-this-2')); });
+  }
+
+  it('replaces the answer in the section body with that pick’s plan, and takes focus to it', async () => {
+    await planPickTwo();
+
+    expect(ask$.phase).toBe('plan');
+    expect(ask$.planPick).toBe(2);
+    expect(mode()).toBe('expanded');
+    expect(screen.getByTestId('ask-plan-name')).toHaveTextContent('Whitby');
+    expect(screen.queryByTestId('ask-picks')).toBeNull();
+    // The unmounted "Plan this ›" took focus with it; the plan view is where it went, never <body>.
+    expect(document.activeElement).toBe(screen.getByTestId('ask-plan'));
+  });
+
+  it('numbers the picks on the map and follows the chosen one to ITS window, as any choice does', async () => {
+    await planPickTwo();
+
+    expect(ask$.selectedPick).toBe(2);
+    expect(pickChips()).toHaveLength(2);
+    expect(selectedDates).toContain(TOMORROW);
+  });
+
+  it('"Open in Plan ›" hands the shell the PICK’s own place and window, with inPlan set', async () => {
+    const onOpenLocationSheet = vi.fn();
+    await planPickTwo({ onOpenLocationSheet });
+
+    await act(async () => { fireEvent.click(screen.getByTestId('ask-plan-open')); });
+
+    expect(onOpenLocationSheet).toHaveBeenCalledTimes(1);
+    expect(onOpenLocationSheet).toHaveBeenCalledWith({
+      id: WHITBY, name: 'Whitby', regionName: 'North York Moors & Coast', inPlan: true,
+      date: TOMORROW, targetType: 'SUNRISE',
+    });
+  });
+
+  it('"Open in Plan ›" names the PICK’s window even when the map is showing another — it never reads the map’s own', async () => {
+    const onOpenLocationSheet = vi.fn();
+    // The parent does not follow the pick's date, so the map stays on tonight while pick 2 is tomorrow's sunrise.
+    await planPickTwo({ onOpenLocationSheet, freezeDate: true });
+
+    await act(async () => { fireEvent.click(screen.getByTestId('ask-plan-open')); });
+
+    expect(onOpenLocationSheet).toHaveBeenCalledWith(expect.objectContaining({
+      id: WHITBY, date: TOMORROW, targetType: 'SUNRISE', inPlan: true,
+    }));
+  });
+
+  it('draws no "Open in Plan ›" when the host gave the pane no door — never a button that does nothing', async () => {
+    await planPickTwo();
+
+    expect(screen.getByTestId('ask-plan')).toBeInTheDocument();
+    expect(screen.queryByTestId('ask-plan-open')).toBeNull();
+  });
+
+  it('with no postcode, offers the tick line’s nudge and it opens settings', async () => {
+    const onOpenSettings = vi.fn();
+    await planPickTwo({ onOpenSettings });
+
+    // The fixture's home has a drive time only to Whitby, so pick 2 has one; pick 1 (Saltburn) has none.
+    expect(screen.queryByTestId('ask-plan-postcode')).toBeNull();
+    await act(async () => { fireEvent.click(screen.getByTestId('ask-plan-back')); });
+    await act(async () => { fireEvent.click(screen.getByTestId('ask-plan-this-1')); });
+
+    expect(screen.getByTestId('ask-plan-leave')).toHaveTextContent('—');
+    fireEvent.click(screen.getByTestId('ask-plan-postcode'));
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('the line the sheet minimises to says it is the plan, for the planned pick', async () => {
+    await planPickTwo();
+
+    await dragMap();
+
+    expect(mode()).toBe('minimised');
+    const line = screen.getByTestId('wf-map-peek-mini');
+    expect(line).toHaveTextContent('Whitby');
+    expect(line).toHaveTextContent('Plan this ▴');
+    expect(line).toHaveAccessibleName(/Pick 2, Whitby.*Plan this\. Show the plan/);
+    // The conversation is still the plan: tapping the line brings it back, not the answer.
+    await act(async () => { fireEvent.click(line); });
+    expect(mode()).toBe('expanded');
+    expect(screen.getByTestId('ask-plan')).toBeInTheDocument();
+  });
+
+  // The plan view is DISCARDED, not hidden (phone-pick-callout-plan.md §3 P1 #6): the chip leaves it for
+  // the answer, which then minimises under the pick's callout.
+  it('a chip pressed on the map leaves the plan for the answer, minimised under that pick\'s callout', async () => {
+    await planPickTwo();
+
+    await act(async () => { fireEvent.click(pickChips().find((c) => c.textContent.includes('Saltburn'))); });
+
+    expect(ask$.phase).toBe('answer');
+    expect(ask$.planPick).toBeNull();
+    expect(ask$.selectedPick).toBe(1);
+    expect(mode()).toBe('minimised');
+    expect(await screen.findByTestId('map-callout')).toHaveTextContent('Saltburn');
+    const line = screen.getByTestId('wf-map-peek-mini');
+    expect(line).toHaveTextContent('2 picks');
+    expect(line).not.toHaveTextContent('Plan this');
+  });
+
+  it('the ✕ clears a plan view like any settled answer, and focus lands on the Ask row', async () => {
+    await planPickTwo();
+
+    await act(async () => { fireEvent.click(screen.getByTestId('wf-map-peek-ask-x')); });
+
+    expect(ask$.phase).toBe('empty');
+    expect(mode()).toBe('collapsed');
+    expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-entry'));
+  });
+
+  it('"Back to the answer" keeps the section open and puts focus on the card that opened the plan', async () => {
+    await planPickTwo();
+
+    await act(async () => { fireEvent.click(screen.getByTestId('ask-plan-back')); });
+
+    expect(mode()).toBe('expanded');
+    expect(ask$.phase).toBe('answer');
+    expect(ask$.selectedPick).toBe(2);
+    expect(document.activeElement).toBe(screen.getByTestId('ask-plan-this-2'));
+  });
+});

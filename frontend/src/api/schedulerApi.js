@@ -27,6 +27,31 @@ export async function updateJobSchedule(jobKey, schedule) {
 }
 
 /**
+ * Switches a forecast cycle job between a fixed cron time and a sun-relative schedule.
+ * ADMIN only. Rejects (400, {@code {error}}) with nothing changed when the body is invalid.
+ *
+ * @param {string} jobKey - the job key (one of the two forecast cycle jobs)
+ * @param {object} body - { scheduleType: 'CRON' } or
+ *   { scheduleType: 'SOLAR_OFFSET', solarEvent, solarOffsetMinutes }
+ * @returns {Promise<object>} the updated job config
+ */
+export async function switchScheduleType(jobKey, body) {
+  const response = await apiClient.put(`${BASE_URL}/jobs/${jobKey}/schedule-type`, body);
+  return response.data;
+}
+
+/**
+ * Fetches the read-only preview of the two forecast cycles' solar rules.
+ * ADMIN only.
+ *
+ * @returns {Promise<object>} { referencePoint, generatedAt, jobs }
+ */
+export async function fetchSolarPreview() {
+  const response = await apiClient.get(`${BASE_URL}/solar-preview`);
+  return response.data;
+}
+
+/**
  * Pauses a scheduled job.
  * ADMIN only.
  *

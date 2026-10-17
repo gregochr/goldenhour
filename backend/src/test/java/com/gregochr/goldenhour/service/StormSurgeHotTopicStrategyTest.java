@@ -4,7 +4,7 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.HotTopic;
-import com.gregochr.goldenhour.model.SurvivorSignals;
+import com.gregochr.goldenhour.model.SlotSignals;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -21,7 +21,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 /**
- * Unit tests for {@link StormSurgeHotTopicStrategy} — reads the survivor surface and fires at
+ * Unit tests for {@link StormSurgeHotTopicStrategy} — reads the slot surface and fires at
  * the HIGH band only.
  */
 @ExtendWith(MockitoExtension.class)
@@ -31,7 +31,7 @@ class StormSurgeHotTopicStrategyTest {
     private static final LocalDate TO = FROM.plusDays(3);
 
     @Mock
-    private SurvivorSignalReader survivorSignalReader;
+    private SlotSignalReader slotSignalReader;
 
     @Mock
     private StormSurgeFactsBuilder stormSurgeFactsBuilder;
@@ -42,25 +42,25 @@ class StormSurgeHotTopicStrategyTest {
     void setUp() {
         lenient().when(stormSurgeFactsBuilder.attach(any(), any()))
                 .thenAnswer(invocation -> invocation.getArgument(0));
-        strategy = new StormSurgeHotTopicStrategy(survivorSignalReader, stormSurgeFactsBuilder);
+        strategy = new StormSurgeHotTopicStrategy(slotSignalReader, stormSurgeFactsBuilder);
     }
 
-    /** A survivor composite carrying only a surge risk-level reading. */
-    private static SurvivorSignals signal(LocalDate date, String regionName, String riskLevel) {
+    /** A slot composite carrying only a surge risk-level reading. */
+    private static SlotSignals signal(LocalDate date, String regionName, String riskLevel) {
         RegionEntity region = new RegionEntity();
         region.setName(regionName);
         LocationEntity location = new LocationEntity();
         location.setRegion(region);
-        SurvivorSignals.Readings readings = new SurvivorSignals.Readings(
-                null, null, null, riskLevel, null, null, null, null, null, null, null);
-        return new SurvivorSignals(location, date, TargetType.SUNSET,
-                SurvivorSignals.Scores.EMPTY, readings);
+        SlotSignals.Readings readings = new SlotSignals.Readings(
+                null, null, null, riskLevel, null, null, null, null, null, null, null, null, false);
+        return new SlotSignals(location, date, TargetType.SUNSET,
+                SlotSignals.Scores.EMPTY, readings);
     }
 
     @Test
-    @DisplayName("high surge-risk survivor fires with priority 1 off the survivor surface")
+    @DisplayName("high surge-risk row fires with priority 1 off the slot surface")
     void detect_highRisk_fires() {
-        when(survivorSignalReader.read(FROM, TO))
+        when(slotSignalReader.read(FROM, TO))
                 .thenReturn(List.of(signal(FROM, "Northumberland", "HIGH")));
 
         List<HotTopic> topics = strategy.detect(FROM, TO);
@@ -74,18 +74,18 @@ class StormSurgeHotTopicStrategyTest {
     }
 
     @Test
-    @DisplayName("boundary: a MODERATE survivor does not fire — HIGH only")
+    @DisplayName("boundary: a MODERATE row does not fire — HIGH only")
     void detect_moderate_doesNotFire() {
-        when(survivorSignalReader.read(FROM, TO))
+        when(slotSignalReader.read(FROM, TO))
                 .thenReturn(List.of(signal(FROM, "Northumberland", "MODERATE")));
 
         assertThat(strategy.detect(FROM, TO)).isEmpty();
     }
 
     @Test
-    @DisplayName("no survivor rows does not fire")
+    @DisplayName("no slot rows does not fire")
     void detect_noRows_doesNotFire() {
-        when(survivorSignalReader.read(FROM, TO)).thenReturn(List.of());
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of());
 
         assertThat(strategy.detect(FROM, TO)).isEmpty();
     }
@@ -94,7 +94,7 @@ class StormSurgeHotTopicStrategyTest {
     @DisplayName("multiple HIGH rows: one card per day, each with that day's regions")
     void detect_multipleRows_onePerDate() {
         LocalDate later = FROM.plusDays(1);
-        when(survivorSignalReader.read(FROM, TO))
+        when(slotSignalReader.read(FROM, TO))
                 .thenReturn(List.of(
                         signal(FROM, "Northumberland", "HIGH"),
                         signal(later, "The North Yorkshire Coast", "HIGH")));

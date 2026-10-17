@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PhotoCast — Lunar eclipse, plan and screens</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#181210;--surface:#221A15;--surface-light:#2A2019;--panel:#1E1712;--border:#3A2C23;--border-light:#4A3A2E;--ink:#F2E7D3;--ink-2:rgba(242,231,211,.66);--ink-3:rgba(242,231,211,.42);--ink-4:rgba(242,231,211,.26);--go:#8AAE72;--marginal:#E0A542;--poor:#C8452F;--tide:#6FA8B0;--home:#C9A24B;--coral:#E8593F;--dawn:#8FA8C4;--ecl:#C4787F;--eclp:#D79AA0;--air:#8FA3B8;--sans:'IBM Plex Sans',system-ui,sans-serif;--serif:'Newsreader',Georgia,serif;--mono:'IBM Plex Mono',monospace}
+html,body{background:#0e0b09;color:var(--ink)}
+body{font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased;padding:26px 20px 80px}
+a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
+.wrap{max-width:1080px;margin:0 auto}
+.hd .m{font-family:var(--mono);font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);margin-bottom:7px}
+.hd h1{font-size:22px;font-weight:700;letter-spacing:-.015em;margin-bottom:10px}
+.hd p{font-size:14px;color:var(--ink-2);line-height:1.64;max-width:820px;text-wrap:pretty}
+.hd p+p{margin-top:9px}
+.hd b{color:var(--ink);font-weight:600}
+.demobar{display:flex;align-items:center;gap:7px;margin-top:16px;font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+.demobar .sp{margin-right:auto}
+.demobar button{font-family:var(--mono);font-size:10.5px;border:1px solid var(--border);background:var(--surface);color:var(--ink-2);border-radius:7px;padding:6px 11px;cursor:pointer}
+.demobar button.on{border-color:rgba(201,162,75,.55);background:rgba(201,162,75,.12);color:#EBD9A8}
+/* lifecycle strip — where the event shows up, and when */
+.life{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:20px}
+.lf{border:1px solid var(--border);border-radius:9px;background:var(--panel);padding:10px 12px}
+.lf .w{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--eclp)}
+.lf .t{font-size:13px;font-weight:600;margin-top:3px}
+.lf .d{font-size:12px;color:var(--ink-2);margin-top:3px;line-height:1.5;text-wrap:pretty}
+.bar{display:flex;align-items:baseline;gap:12px;margin:34px 0 12px}
+.bar .n{font-family:var(--mono);font-size:11px;font-weight:600;color:var(--eclp)}
+.bar .lbl{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.bar .sub{font-size:12px;color:var(--ink-4);font-style:italic}
+.bar .rule{flex:1;height:1px;background:var(--border)}
+.cap{font-size:12px;color:var(--ink-3);line-height:1.6;margin:10px 2px 0;max-width:860px;text-wrap:pretty}
+.cap b{color:var(--ink-2);font-weight:600}
+.cap .new{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.1em;color:#1B1411;background:var(--ecl);border-radius:4px;padding:1px 5px;margin-right:4px}
+/* frame */
+.app{background:var(--bg);border:1px solid var(--border);border-radius:12px;overflow:hidden;container-type:inline-size;margin:0 auto;transition:max-width .2s}
+.wrap.mob .app{max-width:390px;border-radius:24px;box-shadow:0 0 0 7px #241c17}
+.mast{background:linear-gradient(180deg,#241B16,#1B1411);padding:12px 18px 0;border-bottom:1px solid var(--border)}
+.c-top{display:flex;align-items:center;gap:14px}
+.spine{position:relative;padding-left:22px}
+.spine::before{content:'';position:absolute;left:0;top:0;bottom:0;width:10px;background:repeating-linear-gradient(180deg,var(--border-light) 0 7px,transparent 7px 15px);border-right:1px solid var(--border)}
+.c-w{font-family:var(--serif);font-weight:600;font-size:22px;line-height:1;letter-spacing:-.022em;color:#F9F1E2;display:block}
+.c-k{font-family:var(--mono);font-size:8.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--coral);margin-top:4px;display:block}
+.c-times{margin-left:auto;display:flex;gap:14px;font-family:var(--mono);font-size:9px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3);white-space:nowrap}
+.c-times b{color:var(--marginal);font-weight:500}
+.c-rule{margin-top:10px;height:4px;border-radius:2px;background:linear-gradient(90deg,#26313F 0%,#4A3550 9%,#B4553C 19%,#E8593F 25%,#E0A542 33%,#F2E7D3 50%,#E0A542 66%,#E8593F 74%,#7C4A56 84%,#2E3446 93%,#26313F 100%)}
+.tabs{display:flex;gap:6px;padding:10px 0 0}
+.tab{font-size:12.5px;font-weight:500;background:var(--panel);border:1px solid var(--border);border-bottom-width:0;border-radius:8px 8px 0 0;padding:7px 13px;color:var(--ink-2);font-family:var(--sans);display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.tab.on{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:inset 0 2px 0 var(--home)}
+.tab.gate{margin-left:auto;color:var(--ink-3)}
+.bdg{font-family:var(--mono);font-size:9px;font-weight:600;line-height:1;min-width:17px;height:17px;padding:0 5px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;background:var(--coral);color:#1B1411;box-shadow:0 0 0 3px rgba(232,89,63,.16)}
+.pane{padding:14px 18px 18px;display:flex;flex-direction:column;gap:10px}
+@container (max-width:560px){.c-times,.tab.gate{display:none}.mast{padding:9px 14px 0}.pane{padding:12px 14px 16px}.c-w{font-size:19px}}
+
+/* 1 · coming up row */
+.since{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 12px;border:1px solid rgba(232,89,63,.5);background:rgba(232,89,63,.12);border-radius:8px;font-family:var(--mono);font-size:10.5px;color:var(--ink-2)}
+.since b{color:#F0917C;font-weight:600}
+.since .seen{margin-left:auto;color:var(--ink-3);border:1px solid var(--border);border-radius:6px;padding:4px 9px;font-size:10px}
+.mr{display:flex;align-items:center;gap:12px;padding:6px 0 0}
+.mr .mm{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.15em;color:var(--ink-2)}
+.mr .rl{flex:1;height:1px;background:var(--border)}
+.ent{display:grid;grid-template-columns:66px 1fr;gap:12px}
+.dbox{display:block;border:1px solid var(--border);border-radius:7px;background:rgba(0,0,0,.22);padding:4px 0 5px;text-align:center}
+.dow{display:block;font-family:var(--mono);font-size:8.5px;font-weight:600;letter-spacing:.12em;color:var(--ink-3)}
+.dn{display:block;font-size:17px;font-weight:700;line-height:1.1}
+.dn.run{font-size:12.5px;font-family:var(--mono);padding:1px 0}
+.mo{display:block;font-family:var(--mono);font-size:8.5px;font-weight:600;letter-spacing:.12em;color:var(--ink-3)}
+.cd{display:block;font-family:var(--mono);font-size:9px;color:var(--ink-4);text-align:center;margin-top:4px}
+.ccard{border:1px solid var(--border);border-left:2px solid var(--tc);border-radius:9px;background:color-mix(in oklch,var(--tc) 6%,transparent);padding:9px 13px 10px}
+.ccard.fresh{box-shadow:inset 0 0 0 1px rgba(232,89,63,.24)}
+.ccard.faint{opacity:.6}
+.ttl{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
+.gi{font-size:13px;line-height:1;align-self:center}
+.nm{font-size:13.5px;font-weight:600;letter-spacing:-.01em}
+.feat .nm{font-size:15px;font-weight:700}
+.nw{font-family:var(--mono);font-size:8.5px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:#1B1411;background:var(--coral);border-radius:4px;padding:2px 6px}
+.kd{font-family:var(--mono);font-size:8.5px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--tc);opacity:.8;border:1px solid color-mix(in oklch,var(--tc) 34%,transparent);border-radius:4px;padding:1px 5px}
+.pk{font-family:var(--mono);font-size:8.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:#EBD9A8;background:rgba(201,162,75,.14);border-radius:4px;padding:1px 6px}
+.mx{margin-left:auto;font-family:var(--mono);font-size:12px;font-weight:600;color:var(--tc);white-space:nowrap}
+.why{font-family:var(--serif);font-size:13.5px;line-height:1.55;color:var(--ink-2);margin-top:5px;max-width:76ch;text-wrap:pretty}
+.why b{color:var(--ink);font-weight:600}
+.facts{display:flex;flex-wrap:wrap;align-items:center;gap:4px 16px;margin-top:7px}
+.fact{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.fact .k{color:var(--ink-4)}
+.fact b{color:var(--ink);font-weight:600}
+.fact em{color:var(--tc);font-style:normal;font-weight:600}
+.nxt{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:6px}
+.nxt b{color:var(--ink-2);font-weight:600}
+.why2{font-family:var(--mono);font-size:10px;line-height:1.6;color:var(--ink-3);margin-top:7px;padding-top:7px;border-top:1px dashed var(--border);text-wrap:pretty}
+.why2 b{color:var(--tc);font-weight:600}
+.act{font-family:var(--mono);font-size:10.5px;color:var(--tc);margin-top:8px}
+@container (max-width:560px){.ent{grid-template-columns:52px 1fr;gap:9px}.fact{white-space:normal}}
+
+/* 2 · promoted strip, lunar variant */
+.promo{border:1px solid rgba(196,120,127,.4);border-left:3px solid var(--ecl);border-radius:11px;background:linear-gradient(180deg,rgba(196,120,127,.07),transparent 70%),var(--surface);overflow:hidden}
+.ph{display:flex;align-items:center;gap:10px;padding:11px 14px 8px;flex-wrap:wrap}
+.ph .k{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;color:var(--eclp)}
+.ph .t{font-size:14.5px;font-weight:700;letter-spacing:-.01em}
+.ph .rule{flex:1;height:1px;background:var(--border);min-width:12px}
+.ph .rare{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.ph .rare b{color:var(--ink)}
+.pb{display:grid;grid-template-columns:auto auto auto 1fr;gap:20px;align-items:center;padding:0 14px 10px}
+.pb .fig{font-family:var(--mono);font-size:11px;color:var(--ink-2)}
+.pb .fig b{display:block;font-size:15px;color:var(--ink);font-weight:600}
+.pb .why3{font-family:var(--serif);font-style:italic;font-size:12.5px;color:var(--ink-2);text-align:right;max-width:260px;justify-self:end;line-height:1.45}
+.pfoot{display:flex;align-items:center;gap:12px;padding:8px 14px;border-top:1px solid var(--border);background:rgba(0,0,0,.18);font-family:var(--mono);font-size:10.5px;color:var(--ink-3);flex-wrap:wrap}
+.pfoot .go{margin-left:auto;color:var(--tide)}
+.pfoot .note{color:var(--eclp)}
+.pfoot .alarm{color:#EBD9A8}
+@container (max-width:560px){.pb{grid-template-columns:1fr 1fr;gap:10px}.pb .why3{grid-column:1/-1;text-align:left;max-width:none;justify-self:start}.pfoot .go{margin-left:0}}
+
+/* the dawn race — the one new component */
+.race{padding:2px 14px 12px}
+.rc-h{display:flex;align-items:baseline;gap:9px;font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:6px}
+.rc-h .d{letter-spacing:0;text-transform:none;font-weight:400;color:var(--ink-4)}
+.rc{position:relative;height:46px;border-radius:7px;overflow:hidden;border:1px solid var(--border);background:linear-gradient(90deg,#141a26 0%,#161d2b 54%,#26313F 64%,#4A3550 72%,#7C4A56 80%,#B4553C 88%,#E0A542 96%,#E8B866 100%)}
+.rc .ph2{position:absolute;top:0;bottom:0;border-left:1px dashed rgba(242,231,211,.25)}
+.rc .ph2 span{position:absolute;top:4px;left:5px;font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:rgba(242,231,211,.55);white-space:nowrap}
+.rc .umb{position:absolute;left:var(--a);width:calc(var(--b) - var(--a));bottom:6px;height:9px;border-radius:5px 0 0 5px;background:repeating-linear-gradient(90deg,rgba(196,120,127,.85) 0 6px,rgba(196,120,127,.65) 6px 7px)}
+.rc .aft{position:absolute;left:var(--b);right:0;bottom:6px;height:9px;background:repeating-linear-gradient(135deg,rgba(242,231,211,.1) 0 3px,transparent 3px 6px)}
+.rc .mk{position:absolute;top:0;bottom:0;width:0;border-left:1.5px solid var(--c)}
+.rc .mk i{position:absolute;bottom:3px;left:-5px;width:9px;height:9px;border-radius:50%;background:var(--c);box-shadow:0 0 0 2px rgba(14,11,9,.7)}
+.rc .mk.set i{border-radius:2px}
+.rc-l{position:relative;height:30px;font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.rc-l span{position:absolute;top:4px;transform:translateX(-50%);white-space:nowrap;text-align:center;line-height:1.3}
+.rc-l span b{display:block;color:var(--ink);font-weight:600;font-size:10.5px}
+.rc-l span.l{transform:none}
+.rc-l span.r{transform:translateX(-100%);text-align:right}
+.rc-l .mx2 b{color:var(--eclp)}
+.rc-f{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:2px;display:flex;gap:14px;flex-wrap:wrap}
+.rc-f i{display:inline-block;width:14px;height:7px;border-radius:2px;vertical-align:0;margin-right:5px}
+@container (max-width:560px){.rc .ph2 span{display:none}.rc-l .hide{display:none}}
+
+/* 3 · plan cards */
+.sumh{display:flex;align-items:baseline;gap:9px}
+.sumh .k{font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.sumh .rule{flex:1;height:1px;background:var(--border)}
+.cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.hc{border:1px solid var(--border);border-radius:9px;background:var(--panel);padding:6px 6px 8px;display:flex;flex-direction:column;gap:6px;position:relative}
+.hc.vg{background:linear-gradient(rgba(138,174,114,.12),rgba(138,174,114,.12)),var(--panel)}
+.hc.vm{background:linear-gradient(rgba(224,165,66,.1),rgba(224,165,66,.1)),var(--panel)}
+.hc.best{border-color:#8AAE72;box-shadow:inset 0 0 0 1px rgba(138,174,114,.45)}
+.lg{position:absolute;top:-8px;right:13px;padding:0 7px;background:var(--bg);font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;line-height:16px;color:#B6D49F}
+.hc .top{display:flex;align-items:center;gap:6px}
+.hc .dw{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.09em;color:var(--ink-3)}
+.ar{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;padding:3px 6px;border-radius:4px}
+.ar.am{color:var(--dawn);background:color-mix(in srgb,var(--dawn) 15%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--dawn) 30%,transparent)}
+.ar.pm{color:#EE8064;background:color-mix(in srgb,var(--coral) 15%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--coral) 30%,transparent)}
+.thumb{aspect-ratio:16/10;border-radius:5px;background:repeating-linear-gradient(135deg,#1a1411 0 8px,#1e1713 8px 16px);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:9.5px;color:var(--ink-4);border:1px solid rgba(58,44,35,.6)}
+.pls{display:grid;grid-template-columns:auto 1fr;gap:4px 6px;align-items:center}
+.pls .tt{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--ink)}
+.vw{font-family:var(--mono);font-size:11px;font-weight:600;text-align:right}
+.vw.vg{color:#A8C795}.vw.vm{color:#EFC377}
+.pls .k2{font-family:var(--mono);font-size:8.5px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.st1{font-family:var(--mono);font-size:11px;font-weight:600;text-align:right}
+.tps2{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:4px 9px;justify-content:flex-end;min-height:21px;align-items:flex-end;padding-top:2px}
+.tw{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--tc);white-space:nowrap}
+.tw .ic{font-size:10.5px;line-height:1}
+.tw.ecl{padding:1px 8px;margin:-1px -2px;border-radius:999px;background:rgba(196,120,127,.14);box-shadow:inset 0 0 0 1px rgba(196,120,127,.42);color:#E3AEB3}
+.tw.ecl .tm{font-weight:600;color:rgba(227,174,179,.8);padding-left:6px;border-left:1px solid rgba(196,120,127,.45)}
+@container (max-width:560px){.cards{grid-template-columns:1fr 1fr}.cards .hc:first-child{display:none}}
+
+/* 4 · window popup */
+.sheet{border:1px solid var(--border-light);border-radius:13px;background:var(--bg);overflow:hidden;max-width:780px;margin:0 auto;box-shadow:0 26px 60px rgba(0,0,0,.6)}
+.wsh{display:flex;align-items:flex-start;gap:11px;padding:12px 15px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,rgba(201,162,75,.07),transparent),var(--surface)}
+.wsh .dbox{padding:3px 8px 4px}
+.wst h3{font-size:16px;font-weight:700;letter-spacing:-.02em;display:flex;gap:9px;align-items:baseline;flex-wrap:wrap}
+.wst h3 .t2{font-family:var(--mono);font-size:13px;color:var(--ink-2)}
+.wst .l2{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:5px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.pill{font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:999px;border:1px solid var(--border-light);white-space:nowrap}
+.pill.good{border-color:rgba(138,174,114,.5);background:rgba(138,174,114,.14);color:#A8C795;font-weight:600}
+.pill.tp{color:var(--tc);border-color:color-mix(in oklch,var(--tc) 48%,transparent);background:color-mix(in oklch,var(--tc) 14%,transparent);font-weight:600}
+.wsb{padding:12px 0 4px;display:flex;flex-direction:column;gap:10px}
+.rows{display:flex;flex-direction:column;gap:6px;padding:0 15px}
+.trow{display:flex;align-items:center;gap:10px;padding:7px 11px;border:1px solid var(--border);border-left:2px solid var(--tc);border-radius:8px;background:color-mix(in oklch,var(--tc) 6%,transparent)}
+.trow .ic{font-size:13px;line-height:1}
+.trow .lb{font-size:12px;font-weight:600;white-space:nowrap}
+.trow .i{font-family:var(--mono);font-size:9px;font-weight:600;color:var(--tc);border:1px solid color-mix(in oklch,var(--tc) 50%,transparent);border-radius:50%;width:14px;height:14px;display:grid;place-items:center;flex:none;position:relative;cursor:help}
+.trow .i .tip{position:absolute;left:-12px;top:calc(100% + 9px);z-index:5;width:330px;background:var(--surface-light);border:1px solid var(--border-light);border-radius:9px;box-shadow:0 16px 40px rgba(0,0,0,.6);padding:11px 13px;text-align:left;display:none}
+.trow .i:hover .tip,.trow .i.show .tip{display:block}
+.tip .th{display:block;font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px;color:var(--eclp)}
+.tip .tb{display:block;font-family:var(--serif);font-size:12.5px;font-weight:400;line-height:1.52;color:var(--ink-2)}
+.trow .dt{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);flex:1;min-width:0}
+.trow .rg{font-family:var(--mono);font-size:9.5px;color:var(--ink-3);white-space:nowrap}
+.sheet .race{padding:0 15px}
+.rlab{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);padding:0 15px}
+.spots{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding:0 15px 12px}
+.spot{border:1px solid var(--border);border-radius:8px;padding:9px 10px;background:rgba(0,0,0,.16);display:flex;flex-direction:column;gap:4px}
+.spot .top{display:flex;justify-content:space-between;gap:8px}
+.spot .nm2{font-size:12.5px;font-weight:600;line-height:1.25}
+.spot .st{font-family:var(--mono);font-size:10px;font-weight:600;padding:2px 6px;border-radius:5px;background:#8AAE72;color:#16110d;height:fit-content}
+.spot .st.m{background:#C9A24B}
+.spot .rg2{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.spot .hz{font-family:var(--mono);font-size:10.5px;color:#E3AEB3}
+.spot .hz b{font-weight:600}
+.spot .fg{font-family:var(--serif);font-size:12.5px;color:var(--ink-2);line-height:1.45}
+.wsf{display:flex;align-items:center;gap:10px;padding:8px 15px;border-top:1px solid var(--border);background:rgba(0,0,0,.22);font-family:var(--mono);font-size:10.5px;color:var(--ink-3);flex-wrap:wrap}
+.wsf .go{margin-left:auto;color:var(--tide)}
+@container (max-width:560px){.spots{grid-template-columns:1fr}.trow{flex-wrap:wrap}.trow .dt{flex-basis:100%}.trow .i .tip{width:280px}}
+.wrap.mob .sheet{max-width:390px;border-radius:24px}
+.sheet{container-type:inline-size}
+
+/* spec */
+.spec{display:grid;grid-template-columns:170px 1fr;background:var(--panel);border:1px solid var(--border);border-radius:10px;overflow:hidden;font-size:12.5px}
+.spec dt{font-family:var(--mono);font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);padding:10px 14px;border-top:1px solid var(--border)}
+.spec dd{color:var(--ink-2);padding:10px 14px;border-top:1px solid var(--border);line-height:1.6;text-wrap:pretty}
+.spec dt:first-of-type,.spec dd:first-of-type{border-top:none}
+.spec code{font-family:var(--mono);font-size:11px;color:var(--ink)}
+.spec b{color:var(--ink);font-weight:600}
+.cmp{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--border);border-radius:10px;overflow:hidden;font-size:12.5px}
+.cmp th{font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-4);text-align:left;padding:9px 14px;border-bottom:1px solid var(--border)}
+.cmp td{padding:9px 14px;border-top:1px solid rgba(58,44,35,.55);color:var(--ink-2);vertical-align:top;line-height:1.55}
+.cmp td:first-child{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);letter-spacing:.04em;white-space:nowrap}
+.cmp td b{color:var(--ink);font-weight:600}
+.cmp tr:first-child td{border-top:none}
+.foot{margin-top:30px;font-size:12.5px;color:var(--ink-3);line-height:1.65;max-width:860px;text-wrap:pretty}
+.foot b{color:var(--ink-2);font-weight:600}
+.foot ol{margin:8px 0 0 18px}
+.foot li{margin-bottom:6px}
+@media(max-width:760px){.life{grid-template-columns:1fr 1fr}.spec{grid-template-columns:1fr}.spec dd{border-top:none;padding-top:0}.cmp td:first-child{white-space:normal}}
+</style>
+</head>
+<body>
+<div class="wrap" id="wrap">
+<div class="hd">
+<div class="m">PhotoCast · new feature · lunar eclipse</div>
+<h1>Lunar eclipse — plan and screens</h1>
+<p>The solar eclipse added an <b>ECLIPSE</b> almanac type with a promoted strip, an enriched pill and a west-horizon site score. A lunar eclipse fits the same slots, but three things change the design. The shadow's depth is <b>the same from every location</b>, so the only site question is where the moon sits. It happens <b>before dawn</b>, so you have to decide the evening before. And the problem is timing: the moon is racing toward the horizon as the sky brightens behind you, so the new component on these screens is a timeline of that race.</p>
+<p>Worked example: the deep partial lunar eclipse of <b>Friday 28 August 2026</b>. 93% of the moon's diameter enters the umbra at 05:13 BST, and from the North East the moon sets while still in shadow.</p>
+<div class="demobar"><span class="sp">All four screens at one width</span><button class="on" data-w="">Desktop</button><button data-w="mob">Phone</button></div>
+</div>
+
+<div class="life">
+<div class="lf"><div class="w">T−90 → T−4</div><div class="t">Coming up</div><div class="d">A featured row. Enters the window with a solid ◆ badge on the tab.</div></div>
+<div class="lf"><div class="w">T−1 · evening</div><div class="t">Promoted strip on Plan</div><div class="d">Thursday evening, because the alarm has to be set then. Carries the dawn race.</div></div>
+<div class="lf"><div class="w">T−4 → T−0</div><div class="t">Pill on the Plan card</div><div class="d">On Friday sunrise, listed first among that night's topics, with the time of maximum.</div></div>
+<div class="lf"><div class="w">On tap</div><div class="t">Window popup</div><div class="d">Topic row, the race, and locations ranked on the western horizon.</div></div>
+</div>
+
+<!-- 1 -->
+<div class="bar"><span class="n">01</span><span class="lbl">Coming up</span><span class="sub">T−30 · seen Wed 29 July</span><span class="rule"></span></div>
+<div class="app"><div class="mast"><div class="c-top"><span class="spine"><span class="c-w">PhotoCast</span><span class="c-k">Field guide to light</span></span><span class="c-times">05:02 blue<b>05:41 golden</b><b>20:48 golden</b>21:27 blue</span></div><div class="c-rule"></div>
+<div class="tabs"><span class="tab">◉ Plan</span><span class="tab on">Coming up<span class="bdg">◆</span></span><span class="tab">◍ Map</span><span class="tab gate">Operations</span></div></div>
+<div class="pane">
+<div class="since"><span><b>◆ Rare</b> — a deep lunar eclipse entered the window, Fri 28 Aug. The first visible from here since March 2025.</span><span class="seen">Mark seen</span></div>
+<div class="mr"><span class="mm">AUG</span><span class="rl"></span></div>
+<div class="ent"><div><span class="dbox"><span class="dn run">24–29</span><span class="mo">AUG</span></span><span class="cd">in 26 days</span></div>
+<div class="ccard faint" style="--tc:var(--tide)"><div class="ttl"><span class="gi">🌊</span><span class="nm">Spring tide run</span><span class="kd">Almanac</span></div></div></div>
+<div class="ent feat"><div><span class="dbox"><span class="dow">FRI</span><span class="dn">28</span><span class="mo">AUG</span></span><span class="cd">in 30 days</span></div>
+<div class="ccard fresh" style="--tc:var(--ecl)">
+<div class="ttl"><span class="gi">🌘</span><span class="nm">Deep partial lunar eclipse</span><span class="nw">new</span><span class="kd">Almanac</span><span class="pk">sets in shadow</span><span class="mx">93%</span></div>
+<div class="why">Earth's shadow covers all but a sliver of the full moon, and the shadowed part turns copper. Maximum is at 05:13 with the moon <b>7° above the west-south-west horizon</b>, and it sets an hour later still in shadow. A low, clear western view is worth more than a dark site.</div>
+<div class="facts"><span class="fact"><span class="k">max</span><b>05:13</b> · moon <em>WSW 244°</em>, <b>7°</b> up</span><span class="fact"><span class="k">in shadow</span><b>03:34 → sets 06:16</b></span><span class="fact"><span class="k">clear to the west</span><b>28 of 57</b> sites</span></div>
+<div class="nxt">Next from the UK: <b>a total eclipse, Sun 31 Dec 2028</b></div>
+<div class="why2"><b>No filter needed.</b> The shadowed moon is about ten stops darker than the lit edge, so bracket your exposures rather than trust the meter.</div>
+<div class="act">See the plan for 28 Aug →</div></div></div>
+<div class="ent"><div><span class="dbox"><span class="dow">THU</span><span class="dn">3</span><span class="mo">SEP</span></span><span class="cd">in 36 days</span></div>
+<div class="ccard faint" style="--tc:#9B8FD4"><div class="ttl"><span class="gi">🌌</span><span class="nm">Noctilucent season closes</span><span class="kd">Almanac</span></div></div></div>
+</div></div>
+<p class="cap">The existing Coming up row with nothing new except the <b>next</b> line. It replaces the solar eclipse's <em>rare</em> line because a comparable event is 2.3 years away, not 55. The <b>why2</b> slot, which normally holds the reason a row made the list, carries the exposure note, in the position the solar filter warning takes elsewhere. A lunar eclipse visible from the UK comes round only every two to three years, which is rare enough to earn the tab's top alert on its own. The badge goes solid <b>◆</b> rather than showing a count, and the banner above the list says <b>Rare</b>.</p>
+
+<!-- 2 -->
+<div class="bar"><span class="n">02</span><span class="lbl">Top of Plan</span><span class="sub">T−1 · Thursday 27 Aug, 19:00</span><span class="rule"></span></div>
+<div class="app"><div class="mast"><div class="c-top"><span class="spine"><span class="c-w">PhotoCast</span><span class="c-k">Field guide to light</span></span><span class="c-times">05:24 blue<b>06:03 golden</b><b>20:11 golden</b>20:50 blue</span></div><div class="c-rule"></div>
+<div class="tabs"><span class="tab on">◉ Plan</span><span class="tab">Coming up</span><span class="tab">◍ Map</span><span class="tab gate">Operations</span></div></div>
+<div class="pane">
+<div class="promo">
+<div class="ph"><span class="k">🌘 Eclipse × clear west · tomorrow</span><span class="t">The moon sets 93% in shadow, low over a clear western horizon</span><span class="rule"></span><span class="rare">next from the UK <b>Dec 2028</b> · 2h 42 in shadow before it sets</span></div>
+<div class="pb"><div class="fig">in shadow<b>93%</b>same everywhere</div><div class="fig">maximum<b>05:13</b>moon 7° up, WSW</div><div class="fig">clear to the west<b>28 of 57</b>sites evaluated</div><div class="why3">maximum lands just before blue hour, so the sky still frames the copper</div></div>
+<div class="race"><div class="rc-h">The dawn race<span class="d">in shadow against the brightening sky · Dunstanburgh</span></div>
+<div class="rc">
+<span class="ph2" style="left:52.4%"><span>civil dawn</span></span><span class="ph2" style="left:65.7%"><span>blue</span></span><span class="ph2" style="left:84.3%"><span>golden</span></span>
+<span class="umb" style="--a:16.2%;--b:93.3%"></span><span class="aft" style="--b:93.3%"></span>
+<span class="mk" style="left:63.3%;--c:var(--eclp)"><i></i></span>
+<span class="mk" style="left:91%;--c:#E0A542"><i></i></span>
+<span class="mk set" style="left:93.3%;--c:var(--ink)"><i></i></span></div>
+<div class="rc-l"><span class="l hide" style="left:0">03:00</span><span style="left:16.2%"><b>03:34</b>enters shadow</span><span class="mx2" style="left:63.3%"><b>05:13</b>max · 7°</span><span class="hide r" style="left:91%"><b>06:11</b>sunrise</span><span class="r" style="left:100%"><b>06:16</b>moonset</span></div>
+</div>
+<div class="pfoot"><span class="note">◑ No filter needed · bracket, the shadow is ~10 stops under the lit edge</span><span class="alarm">⏰ leave by 04:20 for Dunstanburgh</span><span>Dunstanburgh · Bamburgh · Seaton Sluice</span><span class="go">Plan the drive →</span></div>
+</div>
+</div></div>
+<p class="cap"><span class="new">NEW</span><b>The dawn race.</b> A horizontal timeline from 03:00 to moonset. The twilight gradient is the masthead's light rule, reused. The rose band is the time in the umbra, a hatch shows it continuing below the horizon, and three markers show maximum, sunrise and moonset. It answers the one question the figures above it cannot: how much sky colour is left at maximum, and how long you have between light enough for a foreground and the moon setting. Everything else is the solar strip with different values. The kicker adds <b>tomorrow</b>, because this is the first strip to promote the evening before.</p>
+
+<!-- 3 -->
+<div class="bar"><span class="n">03</span><span class="lbl">Plan cards</span><span class="sub">T−1 → T−0 · the pill</span><span class="rule"></span></div>
+<div class="app"><div class="pane">
+<div class="sumh"><span class="k">The days ahead</span><span class="rule"></span></div>
+<div class="cards">
+<div class="hc vm"><div class="top"><span class="dw">THU 27</span><span class="ar pm">Sunset</span></div><div class="thumb">field thumbnail</div>
+<div class="pls"><span class="tt">20:29</span><span class="vw vm">Maybe</span><span class="k2">Best</span><span class="st1">Roseberry Topping</span><span class="tps2"><span class="tw" style="--tc:#F5991F"><span class="ic">🏜️</span>Dust</span></span></div></div>
+<div class="hc vg best"><span class="lg">Best bet</span><div class="top"><span class="dw">FRI 28</span><span class="ar am">Sunrise</span></div><div class="thumb">field thumbnail</div>
+<div class="pls"><span class="tt">06:11</span><span class="vw vg">Worth it</span><span class="k2">Best</span><span class="st1">Dunstanburgh Castle</span><span class="tps2"><span class="tw ecl" style="--tc:var(--ecl)"><span class="ic">🌘</span>Lunar eclipse<span class="tm">05:13</span></span><span class="tw" style="--tc:var(--air)"><span class="ic">☁️</span>Inversion</span></span></div></div>
+<div class="hc vm"><div class="top"><span class="dw">FRI 28</span><span class="ar pm">Sunset</span></div><div class="thumb">field thumbnail</div>
+<div class="pls"><span class="tt">20:26</span><span class="vw vm">Maybe</span><span class="k2">Best</span><span class="st1">St Mary's Lighthouse</span><span class="tps2"></span></div></div>
+</div></div></div>
+<p class="cap">The existing topics line. The eclipse is listed first because it is the rarest topic of the night. It uses the <b>emphasised chip</b> from the tide work (hairline pill, brighter ink) because it is the only topic with a clock time, and that time sits after a divider. The card's time stays <b>06:11</b>, the sunrise window. The eclipse peaks 58 minutes earlier, and the chip is where that shows.</p>
+
+<!-- 4 -->
+<div class="bar"><span class="n">04</span><span class="lbl">Window popup</span><span class="sub">tap the Friday sunrise card</span><span class="rule"></span></div>
+<div class="sheetwrap"><div class="sheet">
+<div class="wsh"><span class="dbox"><span class="dow">FRI</span><span class="dn">28</span></span>
+<div class="wst"><h3>Friday sunrise<span class="t2">06:11</span></h3><div class="l2"><span class="pill good">◎ Worth it</span><span class="pill tp" style="--tc:var(--ecl)">🌘 Partial lunar eclipse</span><span class="pill tp" style="--tc:var(--air)">☁️ Inversion</span></div></div></div>
+<div class="wsb">
+<div class="rows">
+<div class="trow" style="--tc:var(--ecl)"><span class="ic">🌘</span><span class="lb">Partial lunar eclipse</span><span class="i">i<span class="tip"><span class="th">Why it turns copper, not black</span><span class="tb">Earth's atmosphere bends a little sunlight into its own shadow and filters out the blue on the way, so the shadowed moon glows the colour of every sunrise and sunset on Earth at once. 93% is a fraction of the moon's <em>diameter</em> in shadow, not its area. The lit sliver on the lower-left edge will still be much the brightest thing in the frame.</span></span></span><span class="dt">93% at 05:13 · moon 7° above WSW · sets 06:16, still in shadow</span><span class="rg">all regions</span></div>
+<div class="trow" style="--tc:var(--air)"><span class="ic">☁️</span><span class="lb">Cloud inversion</span><span class="i">i</span><span class="dt">Strong inversion likely at elevated locations</span><span class="rg">2 in scope</span></div>
+</div>
+<div class="race"><div class="rc-h">The dawn race<span class="d">Dunstanburgh · tap a location to redraw</span></div>
+<div class="rc"><span class="ph2" style="left:52.4%"><span>civil dawn</span></span><span class="ph2" style="left:65.7%"><span>blue</span></span><span class="ph2" style="left:84.3%"><span>golden</span></span>
+<span class="umb" style="--a:16.2%;--b:93.3%"></span><span class="aft" style="--b:93.3%"></span>
+<span class="mk" style="left:63.3%;--c:var(--eclp)"><i></i></span><span class="mk" style="left:91%;--c:#E0A542"><i></i></span><span class="mk set" style="left:93.3%;--c:var(--ink)"><i></i></span></div>
+<div class="rc-l"><span class="l hide" style="left:0">03:00</span><span style="left:16.2%"><b>03:34</b>enters shadow</span><span class="mx2" style="left:63.3%"><b>05:13</b>max · 7°</span><span class="hide r" style="left:91%"><b>06:11</b>sunrise</span><span class="r" style="left:100%"><b>06:16</b>moonset</span></div>
+<div class="rc-f"><span><i style="background:rgba(196,120,127,.8)"></i>in the umbra</span><span><i style="background:repeating-linear-gradient(135deg,rgba(242,231,211,.25) 0 2px,transparent 2px 4px)"></i>below the horizon</span></div></div>
+<div class="rlab">Locations · ranked on the western horizon at 244°, 7°</div>
+<div class="spots">
+<div class="spot"><div class="top"><span class="nm2">Dunstanburgh Castle</span><span class="st">5★</span></div><span class="rg2">Northumberland coast · 58 min</span><span class="hz">◑ <b>clear to 1°</b> · WSW over the castle</span><span class="fg">The ruin sits on the eclipse bearing from the south path.</span></div>
+<div class="spot"><div class="top"><span class="nm2">Bamburgh</span><span class="st">5★</span></div><span class="rg2">Northumberland coast · 1h 04</span><span class="hz">◑ <b>clear to 2°</b> · over the dunes</span><span class="fg">Keep facing the moon inland from the beach and the east stays behind you.</span></div>
+<div class="spot"><div class="top"><span class="nm2">Seaton Sluice</span><span class="st m">4★</span></div><span class="rg2">North Tyneside · 26 min</span><span class="hz">◑ <b>clear to 4°</b> · rooftops at 5°</span><span class="fg">Closest option; the moon clears the roofline until about 05:40.</span></div>
+</div></div>
+<div class="wsf"><span>◑ no filter · bracket</span><span>28 of 57 sites clear to the west</span><span class="go">◍ Show on map →</span></div>
+</div></div>
+<p class="cap">The existing popup. The topic row gains the dawn race directly beneath it, drawn for the selected location, and the location list switches to the <b>west-horizon ranking</b> built for the solar eclipse, here on bearing 244° at 7°. The <b>◑ clear to N°</b> line on each location is that score stated as the lowest altitude you can see down to on the bearing. Coastal spots win because the North Sea is in the east and the eclipse is in the west, so the castle or the dunes become the foreground.</p>
+
+<!-- spec -->
+<div class="bar"><span class="n">05</span><span class="lbl">Solar vs lunar</span><span class="sub">what is shared, what changes</span><span class="rule"></span></div>
+<table class="cmp">
+<tr><th></th><th>Solar · 12 Aug 2026</th><th>Lunar · 28 Aug 2026</th></tr>
+<tr><td>Magnitude</td><td>Varies by location, <b>88–96%</b>, so the map shades a gradient</td><td><b>93% everywhere</b>. The map shows pins for clear-west sites, not a gradient</td></tr>
+<tr><td>Timing</td><td>Contacts differ by location, by up to 8 minutes</td><td>Identical instant everywhere. Only moonset and altitude differ</td></tr>
+<tr><td>Site question</td><td>Clear horizon at 11°, WNW</td><td>Clear horizon at <b>7°, WSW 244°</b>. Same scorer, different bearing</td></tr>
+<tr><td>Decision time</td><td>Same afternoon</td><td><b>Evening before</b>, because the alarm is at 03:45</td></tr>
+<tr><td>Safety</td><td>Filter warning, <b>non-dismissible</b></td><td>No hazard. Exposure note instead, which can be dismissed</td></tr>
+<tr><td>Rarity</td><td>returnYears 55 → <em>rare</em> line</td><td>returnYears 2.3 → <em>next</em> line, but still a ◆ on the tab, because once every two to three years is rare enough</td></tr>
+<tr><td>New component</td><td>none</td><td><b>The dawn race</b></td></tr>
+</table>
+
+<div class="bar"><span class="n">06</span><span class="lbl">Catalog and data</span><span class="rule"></span></div>
+<dl class="spec">
+<dt>Type</dt><dd><code>ECLIPSE</code>, source <code>ALMANAC</code>, with a new <code>body: 'sun' | 'moon'</code>. It is one type because both use the same scorer, strip and accent. The <code>body</code> field switches the safety line, the glyph and the dawn race.</dd>
+<dt>Accent</dt><dd><code>--ecl #C4787F</code>, shared with solar. The two eclipses read as one family, and the rose is already close to the copper of an eclipsed moon.</dd>
+<dt>Glyph</dt><dd><code>🌘</code> on card pills and Coming up, matching the emoji set those surfaces use. <code>◑</code> in mono text lines.</dd>
+<dt>Event data</dt><dd>Stored once per event, not per region: <code>umbralMagnitude</code>, <code>kind: partial|total|penumbral</code>, <code>contacts{P1,U1,U2?,max,U3?,U4,P4}</code> in UTC. Seeded from an ephemeris table, never computed at runtime.</dd>
+<dt>Per location</dt><dd><code>moonAltAtMax</code>, <code>moonAzAtMax</code>, <code>moonset</code>, and the existing civil dawn / sunrise. These are cheap and derived at forecast time from coordinates, which is what redraws the dawn race when you pick a location.</dd>
+<dt>Eligibility</dt><dd>The moon must be at least 3° up at maximum, or at least 3° up for 30 minutes in the umbra. Penumbral-only eclipses <b>never</b> raise a topic, because the dimming is too faint to photograph as an event.</dd>
+<dt>Site scoring</dt><dd>Reuses the solar eclipse's horizon-obstruction test on a new bearing. It outputs <code>clearToDeg</code>, shown as <em>clear to N°</em>. That is the second event to use it, and the case for building it once.</dd>
+<dt>Promotion</dt><dd>At <b>T−1, 18:00</b>, for any almanac event whose maximum falls between 00:00 and the next sunrise.</dd>
+<dt>Map</dt><dd>Pins only: sites with <code>clearToDeg ≤ 3</code> on the bearing, with a thin ray drawn at 244° from each. No shading, because magnitude does not vary.</dd>
+<dt>Weather</dt><dd>Cloud is the only uncertainty, and only in the WSW sector below 15°. The verdict uses <b>low-cloud cover on the bearing</b>, not whole-sky cloud. The same cloud rule applies to the solar version.</dd>
+</dl>
+
+<div class="foot"><b>Calls for you</b>
+<ol>
+<li><b>Promotion at T−1.</b> The solar handoff left this open. A pre-dawn eclipse makes it unavoidable, so this plan treats it as decided for night events.</li>
+<li><b>Does the dawn race belong on the strip, or only in the popup?</b> On the strip it makes the promo the tallest thing on Plan the evening before. In the popup only, the strip goes back to the solar layout and the race is one tap away.</li>
+<li><b>Totals.</b> The next UK-visible total is 31 Dec 2028, at moonrise in the evening. The race works the same way reversed (moonrise, then dusk), but the strip needs a <em>totality</em> figure and an extra band for U2 to U3. Design it now, or when it enters the 90-day window?</li>
+<li><b>Can it be the Best bet?</b> The pick system ranks on light. On the mock, Friday sunrise wins anyway. If the light scored poorly, should a clear WSW horizon with an eclipse lift it?</li>
+</ol>
+<p style="margin-top:12px">Figures: umbral magnitude 0.930. U1 02:34, max 04:13, U4 05:52 UTC. Moonset, moon altitude, azimuth, sunrise and twilight times are approximate for Dunstanburgh (55.49°N). Site counts and horizon clearances are illustrative.</p></div>
+</div>
+<script>
+document.querySelector('.demobar').onclick=e=>{const b=e.target.closest('button[data-w]');if(!b)return;
+document.querySelectorAll('.demobar button').forEach(x=>x.classList.toggle('on',x===b));
+document.getElementById('wrap').classList.toggle('mob',b.dataset.w==='mob')};
+</script>
+</body>
+</html>

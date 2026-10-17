@@ -4,8 +4,9 @@ import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AlmanacEvent;
-import com.gregochr.goldenhour.model.SurvivorSignals;
+import com.gregochr.goldenhour.model.SlotSignals;
 import com.gregochr.goldenhour.model.TideStats;
+import com.gregochr.goldenhour.model.comingup.ComingUpCoincidenceLine;
 import com.gregochr.goldenhour.model.comingup.ComingUpCondition;
 import com.gregochr.goldenhour.model.comingup.ComingUpConditionOccurrence;
 import com.gregochr.goldenhour.model.comingup.ComingUpConditionPeak;
@@ -15,7 +16,7 @@ import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.DustHotTopicStrategy;
 import com.gregochr.goldenhour.service.InversionHotTopicStrategy;
 import com.gregochr.goldenhour.service.PlanHorizon;
-import com.gregochr.goldenhour.service.SurvivorSignalReader;
+import com.gregochr.goldenhour.service.SlotSignalReader;
 import com.gregochr.goldenhour.service.TideRunBuilder;
 import com.gregochr.goldenhour.service.TideService;
 import org.slf4j.Logger;
@@ -61,10 +62,19 @@ import java.util.Optional;
  * #getTrailingWindowDays()}-day arrival count, replayed over the <b>complete</b>
  * {@code forecast_evaluation} population — never a survivor surface, which would understate
  * presence and inflate rarity toward over-promotion (plan D4, external-review finding §14 round 3).
- * Inversion rarity stays on the config fallback until P7's {@code topic_daily_log} accrues an
- * unbiased population; the historical occurrences shown for it come from the survivor-only
- * {@code forecast_score} table for DISPLAY only ("nothing is discarded" — README §2.1) and never
- * feed the rarity number.
+ * Inversion rarity stays on the config fallback — by owner decision (2026-10-02), until enough of
+ * an unbiased log exists. ⚠️ <b>That log has started</b>: since 2026-10-02 {@code TopicDailyLogJob}
+ * writes inversion to {@code topic_daily_log} under the topic type {@code INVERSION_CALC}, from
+ * {@code slot_atmosphere.inversion_score} (the calculator's own score, SUNRISE rows, scored rows
+ * only, Claude's echo never read). The older type {@code INVERSION} holds the survivor-biased
+ * Claude-echo rows logged before that and is no longer written. <b>Switching this rarity onto the
+ * log is a separate change, and it must read {@code INVERSION_CALC} alone and ignore
+ * {@code INVERSION}</b> — averaging the two would blend a biased and an unbiased population — and
+ * must say how many logged nights are enough before it trusts the rate. Neither V158 (Phase 2 of
+ * "record conditions for every place", owner decision 2026-09-30) nor
+ * {@link SlotSignals#effectiveInversionScore()}'s calculator-first, echo-fallback rule changes the
+ * RARITY number: they only change which SOURCE a display occurrence's SCORE is drawn from.
+ * {@code inversionRarityNeverUpgrades} still pins the config fallback.
  *
  * <h2>Coastal tides reuses P2's scoring machinery, never a second formula</h2>
  *
@@ -79,13 +89,13 @@ import java.util.Optional;
  *
  * <p>{@code promoted} is derived from membership of the already-built {@code entries[]} list — an
  * exact id match ({@code type:startDate:endDate}) for the common case, plus a fallback for the one
- * case an exact match cannot cover: a run absorbed into a supermoon's coincidence line under D10's
- * max rule keeps its own id at staging time, but the surviving chronology entry's id is the
- * WINNER's — the supermoon's, whenever the supermoon's own score was higher. {@link
- * #matchingEntry} closes that gap by date overlap plus a coincidence line carrying this run's own
- * family ({@code "coastal"}), which is also what makes D10's {@code reason} tag reachable at all:
- * without it, a run that lost a merge could never be found, so the occurrence naming which topic
- * carried the score could never fire on the one branch it exists for.
+ * case an exact match cannot cover: a run merged with a supermoon under D10 keeps its own id at
+ * staging time, but the surviving chronology entry's id is the HOST's (the topic with the longest
+ * span, supermoon-tide-run-plan.md R2/R9) over the UNION of both spans — the run's own id only when
+ * the run hosts and the union adds nothing. {@link #matchingEntry} closes that gap by date overlap
+ * plus a coincidence line carrying this run's own family ({@code "coastal"}), which is also what
+ * makes D10's {@code reason} tag reachable on a supermoon-hosted card: without it the run could
+ * never be found there, so the occurrence naming the other topic could never fire.
  */
 @Component
 public class ComingUpConditionsBuilder {
@@ -108,7 +118,7 @@ public class ComingUpConditionsBuilder {
     private final TideRunPeakHistory tideRunPeakHistory;
     private final TideService tideService;
     private final ForecastEvaluationRepository forecastEvaluationRepository;
-    private final SurvivorSignalReader survivorSignalReader;
+    private final SlotSignalReader slotSignalReader;
     private final ComingUpScoringProperties scoringProperties;
 
     /**
@@ -122,20 +132,20 @@ public class ComingUpConditionsBuilder {
      * @param tideService                    supplies each representative's stored range statistics
      * @param forecastEvaluationRepository the complete-population source for dust's observed
      *                                      arrival rate
-     * @param survivorSignalReader          the survivor surface for both topics' forward (T+0..T+3)
+     * @param slotSignalReader          the slot surface for both topics' forward (T+0..T+3)
      *                                      peak and inversion's display-only historical occurrences
      * @param scoringProperties              every knob the surprise model uses
      */
     public ComingUpConditionsBuilder(LocationRepository locationRepository, TideRunBuilder tideRunBuilder,
             TideRunPeakHistory tideRunPeakHistory, TideService tideService,
             ForecastEvaluationRepository forecastEvaluationRepository,
-            SurvivorSignalReader survivorSignalReader, ComingUpScoringProperties scoringProperties) {
+            SlotSignalReader slotSignalReader, ComingUpScoringProperties scoringProperties) {
         this.locationRepository = locationRepository;
         this.tideRunBuilder = tideRunBuilder;
         this.tideRunPeakHistory = tideRunPeakHistory;
         this.tideService = tideService;
         this.forecastEvaluationRepository = forecastEvaluationRepository;
-        this.survivorSignalReader = survivorSignalReader;
+        this.slotSignalReader = slotSignalReader;
         this.scoringProperties = scoringProperties;
     }
 
@@ -282,16 +292,16 @@ public class ComingUpConditionsBuilder {
             displayBits = matchedEntry.bits();
             if (!matchedEntry.coincidence().isEmpty()) {
                 // D10: "the reason label is mandatory wherever the max was taken" — both
-                // directions, not only when the OTHER topic overrode this run's own score. Which
-                // field names the other topic depends on which one actually won the merge:
-                //   - exact id match  → this run's own entry survived (it won), so its own
-                //     coincidence line names the LOSER — the other topic.
-                //   - fallback match  → the OTHER entry survived (it won), so ITS OWN title names
-                //     the other topic, and its coincidence line would name this run instead.
-                String otherTopic = matchedEntry.id().equals(ownId)
-                        ? matchedEntry.coincidence().getFirst().name()
-                        : matchedEntry.title();
-                reason = "max w/ " + otherTopic.toLowerCase(Locale.UK);
+                // directions. A merged entry carries one line per merged topic, host first, so
+                // whichever topic hosts, the OTHER topic is the first line whose name is not this
+                // run's own title (supermoon-tide-run-plan.md §4.1).
+                String ownTitle = event.title();
+                reason = matchedEntry.coincidence().stream()
+                        .map(ComingUpCoincidenceLine::name)
+                        .filter(name -> !name.equals(ownTitle))
+                        .findFirst()
+                        .map(name -> name.toLowerCase(Locale.UK))
+                        .orElse(null);
             }
         }
 
@@ -322,17 +332,14 @@ public class ComingUpConditionsBuilder {
     }
 
     /**
-     * Finds the chronology entry this run belongs to — either as itself, or as the loser of a D10
-     * coincidence merge.
+     * Finds the chronology entry this run belongs to — either as itself, or as one of the two
+     * topics of a D10 coincidence merge.
      *
-     * <p>An exact id match covers every case except one: a run absorbed into a supermoon's
-     * coincidence line under {@code ComingUpAssembler.mergeEntries}'s max rule keeps its OWN id at
-     * staging time, but the surviving entry's id is the WINNER's — the supermoon's, when the
-     * supermoon's score was higher, which is precisely the case D10's {@code reason} tag exists to
-     * name. Without this fallback, {@code reason} could never fire in production: if the tide run
-     * itself won the merge, {@code matchedEntry.bits()} already equals this run's own score (no
-     * override to name); if the supermoon won, the exact-id lookup misses entirely and the run
-     * silently drops to {@code insidePlan}/{@code heldBack} despite having a real home in the
+     * <p>An exact id match covers every case except one: a run merged with a supermoon keeps its
+     * OWN id at staging time, but the surviving entry's id is the HOST's over the UNION of both
+     * spans — the run's own id only when the run hosts and the union adds nothing. When the
+     * supermoon hosts (or the union is wider), the exact-id lookup misses and the run would
+     * silently drop to {@code insidePlan}/{@code heldBack} despite having a real home in the
      * chronology. The fallback finds that entry by date overlap plus a coincidence line carrying
      * this run's own family ({@code "coastal"}).
      *
@@ -342,17 +349,18 @@ public class ComingUpConditionsBuilder {
      * <ol>
      *   <li>Tide runs in one window are maximal and disjoint — {@code TideAlmanacSource} never
      *       emits two overlapping runs, so date overlap alone identifies at most one candidate.</li>
-     *   <li>A merge's surviving entry keeps the WINNER's own {@code startDate}/{@code endDate} —
-     *       {@code ComingUpAssembler.mergeEntries} never touches the winner's dates, so "this
-     *       run's dates overlap the entry's dates" is a reliable link back to the merge.</li>
+     *   <li>A merged entry's span is a SUPERSET of each merged run's span (the union), so "this
+     *       run's dates overlap the entry's dates" is a reliable link back to the merge; the
+     *       union grows by a day or two past the run, which cannot reach a neighbouring run,
+     *       because neaps separate runs.</li>
      *   <li>The coincidence merge only ever pairs a tide run with a supermoon — matching on the
      *       family {@code "coastal"} alone (rather than also checking the OTHER side is
      *       {@code sun-moon}) is safe only because no other pairing exists to confuse it with.</li>
-     *   <li>A merge only ever involves eligible events — {@code ComingUpAssembler} merges before
-     *       the eligibility filter is even applied to the pre-P4 pipeline's own entries, but by
-     *       the time this class runs, every merge candidate it can observe already cleared it, so
-     *       {@code entries} never contains a merge whose overlap could match an unrelated,
-     *       still-in-Plan tide run by coincidence.</li>
+     *   <li>A merge always contains at least one ELIGIBLE event (a Plan-owned event is only ever a
+     *       merge partner, §4.7, never an entry of its own), so {@code entries} never contains a
+     *       merge standing wholly inside Plan's window. A run wholly inside Plan's window can
+     *       therefore match a merged card through the overlap fallback and report {@code promoted}
+     *       rather than {@code insidePlan} — true, since the card now shows it.</li>
      * </ol>
      * A future phase that widens the merge to another topic pair, or lets two tide runs overlap,
      * must revisit this method rather than assume it still holds.
@@ -375,7 +383,7 @@ public class ComingUpConditionsBuilder {
     }
 
     private static String coastalTideQuantLabel(double rarityBits, int runCount, List<Double> rangeValues) {
-        StringBuilder label = new StringBuilder(rarityWord(rarityBits));
+        StringBuilder label = new StringBuilder(frequencyPhrase(rarityBits, "daily"));
         label.append(" · ").append(runCount).append(runCount == 1 ? " run in 90 days" : " runs in 90 days");
         if (!rangeValues.isEmpty()) {
             List<Double> sorted = rangeValues.stream().sorted().toList();
@@ -386,34 +394,35 @@ public class ComingUpConditionsBuilder {
     }
 
     /**
-     * A plain-English word for a surprisal score in bits — an interim readability pass (not yet
-     * user-tested), so a reader without an information-theory background gets a sense of scale
-     * without the raw log2 unit. The boundaries are chosen so the shipped rows land where they read
-     * naturally (14.8-day tide gap → "occasional"; 4-day inversion fallback → "occasional"), not
-     * derived from any external distribution.
+     * The quant line's leading frequency phrase (lunar-eclipse plan §2.9: "{@code gapWord}
+     * frequency phrase (`about one a week`, `most mornings` …) so {@code quantLabel} reads as the
+     * design's condition lines") — a different sentence shape from {@link SurpriseScore#gapWord},
+     * which completes "once ___" for {@code markScoreNotes}'s rarity-carried sentence. This one
+     * reads as a stand-alone clause opening the quant line, so it needs its own framing: "about
+     * one a week" for a countable gap, or a topic-supplied idiom for a near-daily one ("most
+     * mornings" for a SUNRISE-only condition, "most days" otherwise) — the design's own two named
+     * examples, reachable exactly where they are honest rather than hard-coded regardless of the
+     * actual configured gap.
      *
-     * <p>⚠️ <b>The word ships alone — never {@code word (3.9)}.</b> All three quant labels used to
-     * append the raw figure in brackets, which put back exactly the log2 unit this method exists to
-     * replace: {@code bits} is unbounded surprisal ({@link SurpriseScore}: {@code log2(meanGapDays)}
-     * plus {@code -log2(P(X >= x))}), so a bracketed {@code 3.9} offers a reader no denominator to
-     * reason about — there is no "out of". The number stays on the wire where a consumer can use it
-     * ({@code ComingUpConditionPeak.bits}, {@code ComingUpConditionOccurrence.bits}); it simply does
-     * not belong in a sentence a photographer reads.
+     * @param bits      the rarity component, in bits
+     * @param mostLabel what to say for a near-daily gap (≤1.5 days) instead of the generic
+     *                  "about daily", which would read like a diagnostic rather than a caption
      */
-    private static String rarityWord(double bits) {
-        if (bits < 2.0) {
-            return "common";
+    static String frequencyPhrase(double bits, String mostLabel) {
+        double meanGapDays = Math.pow(2, bits);
+        if (meanGapDays <= 1.5) {
+            return mostLabel;
         }
-        if (bits < 4.0) {
-            return "occasional";
+        if (meanGapDays <= 9.0) {
+            return "about one a week";
         }
-        if (bits < 6.0) {
-            return "uncommon";
+        if (meanGapDays <= 20.0) {
+            return "about one a fortnight";
         }
-        if (bits < 8.0) {
-            return "rare";
+        if (meanGapDays <= 45.0) {
+            return "about one a month";
         }
-        return "very rare";
+        return "about one every " + Math.round(meanGapDays) + " days";
     }
 
     /** Nearest-rank percentile over an already-sorted list. */
@@ -433,6 +442,14 @@ public class ComingUpConditionsBuilder {
     }
 
     // ── Saharan dust (D4, D11) ───────────────────────────────────────────
+    //
+    // The forward-peak read below (slotSignalReader.read(...) filtered by isDustEnhanced) is a
+    // DISPLAY concern, not the rarity computation above it — and since the "record conditions for
+    // every place" change (Phase 1, owner decision 2026-09-30) it now sees slot_atmosphere
+    // readings for every candidate whose weather was fetched, triaged-out and Gate-4-stood-down
+    // candidates included, not only the ones Claude went on to score. That widens the peak cell's
+    // population (a strictly safe direction — more dust readings found, never fewer) but leaves the
+    // rarity number above untouched, since it is deliberately computed from forecast_evaluation.
 
     private ComingUpCondition buildDust(LocalDate builtFor) {
         int windowDays = scoringProperties.getRecurrent().getTrailingWindowDays();
@@ -491,9 +508,9 @@ public class ComingUpConditionsBuilder {
         }
 
         ComingUpConditionPeak peak = null;
-        SurvivorSignals forwardPeak = null;
+        SlotSignals forwardPeak = null;
         try {
-            forwardPeak = survivorSignalReader.read(builtFor, PlanHorizon.lastPlanDate(builtFor)).stream()
+            forwardPeak = slotSignalReader.read(builtFor, PlanHorizon.lastPlanDate(builtFor)).stream()
                     .filter(s -> passesPeakGate(s.eventType()))
                     .filter(s -> DustHotTopicStrategy.isDustEnhanced(s.readings().aerosolOpticalDepth(),
                             s.readings().dust(), s.readings().pm25()))
@@ -513,7 +530,7 @@ public class ComingUpConditionsBuilder {
                     "AOD " + fmt2(aod), null, round1(bits), null, STATUS_INSIDE_PLAN, null));
         }
 
-        String quantLabel = rarityWord(rarityBits)
+        String quantLabel = frequencyPhrase(rarityBits, "most days")
                 + " · counts as a plume above a haze reading of "
                 + fmt2(BigDecimal.valueOf(dustConfig.getMagnitudeThresholdAod())) + " (early threshold)";
         return new ComingUpCondition("DUST", "Saharan dust", scoringProperties.getCadence().getDust(), true,
@@ -528,6 +545,38 @@ public class ComingUpConditionsBuilder {
     }
 
     // ── Valley inversions (D4, D11) ──────────────────────────────────────
+    //
+    // Phase 2 of "record conditions for every place" (owner decision 2026-09-30, V158; unified in
+    // round 3 after a Codex P1 against PR #948): both reads below — the trailing occurrence list
+    // AND the forward peak — use the ONE shared rule, SlotSignals.effectiveInversionScore():
+    // the calculator's slot_atmosphere.inversion_score when present, else Claude's
+    // forecast_score echo. There is no forward/trailing split any more. Round 2 gave the trailing
+    // history a fallback and left the forward peak calculator-only, reasoning that a forward slot
+    // is upserted every cycle and is therefore always current. That reasoning was wrong: a Codex
+    // review found BriefingCandidateCollector skips a region with a fresh cached_evaluation entry
+    // (SKIPPED_CACHED, around lines 204-227) BEFORE fetchWeatherAndTriage ever runs, and
+    // FreshnessProperties.settledHours (36h, uncapped at T+2 and beyond) lets that skip hold for up
+    // to 36 hours on a SETTLED region — so a forward slot can carry a null calculator reading for a
+    // day and a half while Claude's own echo already exists for it. See
+    // SlotSignals.effectiveInversionScore's own javadoc for the full history and why this is
+    // still the owner's "the calculator decides" rule, not a retreat from it: the reading always
+    // wins whenever the calculator has scored the slot, and the echo can never make the topic fire
+    // on a score the calculator would itself have refused.
+    //
+    // Both reads answer the same "what is happening" question InversionHotTopicStrategy asks (see
+    // that class's own javadoc for why this condition and the map's Claude-echoed badge are
+    // allowed to disagree). The RARITY term stays on the config fallback either way (unchanged by
+    // this — see the class javadoc's own note on that).
+    //
+    // Round 4 (a further Codex P1 against effectiveInversionScore() itself): a null reading is not
+    // always "the calculator has not reached this slot yet" — it is also what a FRESH write
+    // produces when InversionScoreCalculator.calculate returns null for missing weather inputs, or
+    // for an ineligible location. V158's second column, inversion_scored, tells the two apart: a
+    // fresh null (inversion_scored = true) is an answer and stays silent in both loops below;
+    // only a PRE-COLUMN row (inversion_scored = false, written before this flag existed) or an
+    // absent key still falls back to Claude's echo. See SlotSignals.effectiveInversionScore's
+    // own javadoc for the full reasoning and why this still never lets the echo overrule a
+    // calculator reading that exists.
 
     private ComingUpCondition buildInversion(LocalDate builtFor) {
         int windowDays = scoringProperties.getRecurrent().getTrailingWindowDays();
@@ -535,19 +584,26 @@ public class ComingUpConditionsBuilder {
         LocalDate windowStart = yesterday.minusDays(windowDays - 1L);
         ComingUpScoringProperties.Inversion inversionConfig = scoringProperties.getRecurrent().getInversion();
 
-        // Rarity NEVER upgrades for inversion — no unbiased population exists until P7's
-        // topic_daily_log matures (plan D4/§1). The historical occurrences below are shown for
-        // display only ("nothing is discarded"); they must not feed this number.
+        // Rarity stays on the config fallback by owner decision (2026-10-02). An unbiased log has
+        // started — TopicDailyLogJob writes topic type INVERSION_CALC (calculator readings only) to
+        // topic_daily_log from 2026-10-02 — but the rarity figure is deliberately not switched onto
+        // it until enough of it exists. A later change must read INVERSION_CALC alone and ignore
+        // the older INVERSION rows (Claude-echo, survivor-biased), never average them. The
+        // historical occurrences below are shown for display only ("nothing is discarded"); they
+        // must not feed this number.
         double rarityBits = SurpriseScore.rarity(inversionConfig.getFallbackMeanGapDays());
 
-        Map<LocalDate, Integer> maxScoreByDate = new LinkedHashMap<>();
+        Map<LocalDate, Double> maxScoreByDate = new LinkedHashMap<>();
         try {
-            for (SurvivorSignals signal : survivorSignalReader.read(windowStart, yesterday)) {
-                if (signal.eventType() != TargetType.SUNRISE || signal.scores().inversion() == null
-                        || signal.scores().inversion() < InversionHotTopicStrategy.STRONG_SCORE_INCLUSIVE) {
+            for (SlotSignals signal : slotSignalReader.read(windowStart, yesterday)) {
+                if (signal.eventType() != TargetType.SUNRISE) {
                     continue;
                 }
-                maxScoreByDate.merge(signal.date(), signal.scores().inversion(), Math::max);
+                Double score = signal.effectiveInversionScore();
+                if (score == null || score < InversionHotTopicStrategy.STRONG_SCORE_INCLUSIVE) {
+                    continue;
+                }
+                maxScoreByDate.merge(signal.date(), score, Math::max);
             }
         } catch (RuntimeException e) {
             LOG.warn("Inversion trailing-window read failed — the condition will show no historical "
@@ -562,40 +618,54 @@ public class ComingUpConditionsBuilder {
 
         List<ComingUpConditionOccurrence> occurrences = new ArrayList<>();
         for (LocalDate date : dates) {
-            int score = maxScoreByDate.get(date);
+            double score = maxScoreByDate.get(date);
             double bits = rarityBits + inversionMagnitude(score, inversionConfig);
-            occurrences.add(new ComingUpConditionOccurrence(date, DATE_LABEL.format(date), score + "/10",
-                    null, round1(bits), null, STATUS_HELD_BACK, null));
+            occurrences.add(new ComingUpConditionOccurrence(date, DATE_LABEL.format(date),
+                    reportedScore(score) + "/10", null, round1(bits), null, STATUS_HELD_BACK, null));
         }
 
         ComingUpConditionPeak peak = null;
-        SurvivorSignals forwardPeak = null;
+        SlotSignals forwardPeak = null;
         try {
-            forwardPeak = survivorSignalReader.read(builtFor, PlanHorizon.lastPlanDate(builtFor)).stream()
+            forwardPeak = slotSignalReader.read(builtFor, PlanHorizon.lastPlanDate(builtFor)).stream()
                     .filter(s -> passesPeakGate(s.eventType()))
-                    .filter(s -> s.eventType() == TargetType.SUNRISE && s.scores().inversion() != null
-                            && s.scores().inversion() >= InversionHotTopicStrategy.STRONG_SCORE_INCLUSIVE)
-                    .max(Comparator.comparingInt(s -> s.scores().inversion()))
+                    .filter(s -> s.eventType() == TargetType.SUNRISE && s.effectiveInversionScore() != null
+                            && s.effectiveInversionScore() >= InversionHotTopicStrategy.STRONG_SCORE_INCLUSIVE)
+                    .max(Comparator.comparingDouble(SlotSignals::effectiveInversionScore))
                     .orElse(null);
         } catch (RuntimeException e) {
             LOG.warn("Inversion forward-peak read failed — the peak cell will say so rather than the "
                     + "whole feed failing: {}", e.toString());
         }
         if (forwardPeak != null) {
-            int score = forwardPeak.scores().inversion();
+            double score = forwardPeak.effectiveInversionScore();
             double bits = rarityBits + inversionMagnitude(score, inversionConfig);
-            peak = new ComingUpConditionPeak(DATE_LABEL.format(forwardPeak.date()), score + "/10", round1(bits));
+            String valueLabel = reportedScore(score) + "/10";
+            peak = new ComingUpConditionPeak(DATE_LABEL.format(forwardPeak.date()), valueLabel, round1(bits));
             occurrences.add(new ComingUpConditionOccurrence(forwardPeak.date(), DATE_LABEL.format(forwardPeak.date()),
-                    score + "/10", null, round1(bits), null, STATUS_INSIDE_PLAN, null));
+                    valueLabel, null, round1(bits), null, STATUS_INSIDE_PLAN, null));
         }
 
-        String quantLabel = rarityWord(rarityBits) + " · counts as strong above "
+        String quantLabel = frequencyPhrase(rarityBits, "most mornings") + " · counts as strong above "
                 + fmt0(inversionConfig.getMagnitudeThresholdScore()) + "/10 (early threshold)";
         return new ComingUpCondition("VALLEY_INVERSIONS", "Valley inversions",
                 scoringProperties.getCadence().getInversion(), true, rateLabel, quantLabel, peak, occurrences);
     }
 
-    private static double inversionMagnitude(int score, ComingUpScoringProperties.Inversion config) {
+    /**
+     * Rounds the calculator's raw score for display — never truncate, matching
+     * {@code PromptBuilder}'s own comment on the identical conversion. The calculator's
+     * components are all whole-number doubles (or exact 6.0/8.0 gate ceilings), so this never
+     * actually changes a value; it exists so a fractional double can never leak into the "N/10"
+     * label. Claude's echoed fallback score ({@link SlotSignals#effectiveInversionScore()}) is
+     * already a whole number (an {@code Integer} widened to {@code double}), so rounding is a
+     * no-op for it too.
+     */
+    private static int reportedScore(double score) {
+        return (int) Math.round(score);
+    }
+
+    private static double inversionMagnitude(double score, ComingUpScoringProperties.Inversion config) {
         return score >= config.getMagnitudeThresholdScore()
                 ? config.getMagnitudeAboveBits() : SurpriseScore.DEFAULT_MAGNITUDE_BITS;
     }
@@ -604,7 +674,7 @@ public class ComingUpConditionsBuilder {
 
     /**
      * Whether a candidate lands within {@link ComingUpScoringProperties#getPeakLightWindowMinutes()}
-     * minutes of a light window — satisfied by construction for every survivor row today, since
+     * minutes of a light window — satisfied by construction for every slot row today, since
      * both are keyed to {@link TargetType#SUNRISE} or {@link TargetType#SUNSET}. The configured
      * minutes bound is not read arithmetically (guarded only as "configured to a positive value"):
      * no forward candidate carries a clock time to compare against a light window's edges yet, so

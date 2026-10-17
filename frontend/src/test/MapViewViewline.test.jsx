@@ -57,8 +57,8 @@ vi.mock('../hooks/useIsMobile.js', () => ({
 
 // Stable references — avoids infinite re-render from useEffect dependency checks.
 const { stableAuroraStatus, stableViewline, viewlineHookCalls } = vi.hoisted(() => ({
-  // Forecast-triggered, so the wiring test below can see both the trigger and its Kp reach the
-  // viewline hook. Nothing else in this file reads either — the hook and the overlay are mocked.
+  // Forecast-triggered with a Kp, so the wiring test below can see that NEITHER reaches the viewline
+  // hook any more: the hook fetches both endpoints itself. Nothing else in this file reads them.
   stableAuroraStatus: { level: 'MODERATE', kpIndex: 5.0, triggerType: 'forecast', forecastKp: 6.67 },
   viewlineHookCalls: [],
   stableViewline: {
@@ -262,12 +262,11 @@ describe('what MapView hands the viewline hook', () => {
   });
   afterEach(() => { localStorage.clear(); });
 
-  it('passes the alert\'s trigger AND its forecast Kp — the forecast line is built from that Kp', async () => {
+  it('hands the hook only whether to poll — it asks both endpoints itself, so no trigger and no Kp', async () => {
     await renderMap();
-    // The latest render's arguments. Without the Kp the hook cannot tell an escalated forecast
-    // alert's line from the one before it, and goes on offering the old Kp's line under an overlay
-    // label quoting the new one.
-    expect(viewlineHookCalls.at(-1)).toEqual([true, 'forecast', 6.67]);
+    // The status is forecast-triggered at Kp 6.67 (see the hoisted fixture). The forecast endpoint
+    // reads NOAA's live forecast per request, so the alert's trigger and Kp are not the hook's input.
+    expect(viewlineHookCalls.at(-1)).toEqual([true]);
   });
 });
 

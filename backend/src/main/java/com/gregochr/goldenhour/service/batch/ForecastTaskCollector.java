@@ -26,7 +26,6 @@ import com.gregochr.goldenhour.service.SolarService;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.TravelDayService;
 import com.gregochr.goldenhour.service.evaluation.EvaluationTask;
-import com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -104,7 +103,6 @@ public class ForecastTaskCollector {
     private final SolarService solarService;
     private final FreshnessResolver freshnessResolver;
     private final StabilitySnapshotProvider stabilitySnapshotProvider;
-    private final SurvivorAtmosphereWriter survivorAtmosphereWriter;
     private final TravelDayService travelDayService;
 
     /** Minimum ratio of successful weather pre-fetches to proceed (scheduled path only). */
@@ -140,7 +138,6 @@ public class ForecastTaskCollector {
      * @param solarService              solar azimuth and event time helpers
      * @param freshnessResolver         per-stability cache freshness thresholds
      * @param stabilitySnapshotProvider provides the latest stability snapshot
-     * @param survivorAtmosphereWriter  captures survivor atmospheric readings at submission time
      * @param travelDayService          gates out candidates whose target date is a travel day
      * @param minPrefetchSuccessRatio   minimum prefetch ratio to proceed (scheduled path)
      * @param forceEvalCap              max force-evaluated headline candidates per cycle
@@ -159,7 +156,6 @@ public class ForecastTaskCollector {
             SolarService solarService,
             FreshnessResolver freshnessResolver,
             StabilitySnapshotProvider stabilitySnapshotProvider,
-            SurvivorAtmosphereWriter survivorAtmosphereWriter,
             TravelDayService travelDayService,
             @Value("${photocast.batch.min-prefetch-success-ratio:0.5}")
             double minPrefetchSuccessRatio,
@@ -177,7 +173,6 @@ public class ForecastTaskCollector {
         this.solarService = solarService;
         this.freshnessResolver = freshnessResolver;
         this.stabilitySnapshotProvider = stabilitySnapshotProvider;
-        this.survivorAtmosphereWriter = survivorAtmosphereWriter;
         this.travelDayService = travelDayService;
         this.minPrefetchSuccessRatio = minPrefetchSuccessRatio;
         this.forceEvalCap = forceEvalCap;
@@ -384,6 +379,16 @@ public class ForecastTaskCollector {
                         candidate.location(), candidate.date(), candidate.targetType(),
                         candidate.location().getTideType(), nearTermModel, false, null,
                         prefetchedWeather, cloudCache);
+                // Record conditions for every place this cycle fetched weather for — no longer a
+                // call made here. `ForecastService.fetchWeatherAndTriage` above now makes this
+                // write itself, immediately after assembling the atmospheric data and before its
+                // own triage checks, so it covers this call site and every other caller of that
+                // method (collectRegionFilteredBatches below, ForceSubmitBatchService,
+                // BatchRetryService, and the synchronous engine's runTriagePhase) with the one
+                // seam — see that method's own javadoc for the full reasoning (owner decision
+                // 2026-09-29 "record conditions for every place", Phase 1, and the P1 fix that
+                // moved the write off this collector's own three call sites and into the seam).
+
                 // Season is tested DIRECTLY against the configured window. It used to be
                 // inferred from a non-null bluebell condition score, which is a three-way
                 // conjunction the augmentor evaluates (in season AND typed BLUEBELL AND exposure
@@ -489,23 +494,10 @@ public class ForecastTaskCollector {
 
                 boolean isNearTerm = daysAhead <= NEAR_TERM_MAX_DAYS;
 
-                // Survivor confirmed (past triage + gating): capture its atmospheric readings to
-                // the survivor surface now, before the async batch boundary discards them. Covers
-                // both the woodland-only and sky branches below. Isolated so a carrier write
-                // failure never aborts batch collection.
-                try {
-                    survivorAtmosphereWriter.write(candidate.location(), candidate.date(),
-                            candidate.targetType(), preEval.atmosphericData());
-                } catch (Exception e) {
-                    LOG.error("survivor_atmosphere write FAILED for {} {} {}; collection proceeds: {}",
-                            candidate.location().getName(), candidate.date(),
-                            candidate.targetType(), e.getMessage(), e);
-                }
-
                 if (woodlandTask) {
                     // Canopy site out of bluebell season: ONE woodland task, no sky task. Its own
                     // homogeneous bucket, so the woodland system prompt caches across the batch.
-                    woodland.add(woodlandTaskFor(candidate, decision, preEval));
+                    woodland.add(woodlandTaskFor(candidate, decision, preEval, forced));
                     includedWoodland++;
                     agg.recordIncluded(daysAhead, stability);
                     if (forced) {
@@ -522,7 +514,7 @@ public class ForecastTaskCollector {
                 if (bluebellWoodInSeason) {
                     // Bluebell-only: ONE bluebell task, no sky task, no colour bucket (the OQ3
                     // exposure rule makes the bluebell score the rating for woodland).
-                    bluebell.add(bluebellTaskFor(candidate, decision, preEval));
+                    bluebell.add(bluebellTaskFor(candidate, decision, preEval, forced));
                     includedBluebell++;
                     agg.recordIncluded(daysAhead, stability);
                     if (forced) {
@@ -540,11 +532,15 @@ public class ForecastTaskCollector {
                 // this preEval's snapshot, and its id rides the batch custom_id (R3) so the
                 // result side can score it in place (R5).
                 Long evalRowId = forecastService.persistPendingEvaluation(preEval);
+                // `forced` rides the canonical nine-arg constructor so the fact reaches the batch
+                // custom id (CustomIdFactory) and survives to result time — see
+                // EvaluationTask.Forecast#forced's own javadoc for why a timestamp comparison at
+                // serve time could not be trusted instead.
                 EvaluationTask.Forecast eval = new EvaluationTask.Forecast(
                         candidate.location(), candidate.date(), candidate.targetType(),
                         decision.model(), preEval.atmosphericData(),
                         EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
-                        EvaluationTask.Forecast.PromptKind.SKY, evalRowId);
+                        EvaluationTask.Forecast.PromptKind.SKY, evalRowId, forced);
                 boolean isCoastal = preEval.atmosphericData().tide() != null;
                 String locationType = isCoastal ? "coastal" : "inland";
 
@@ -588,7 +584,7 @@ public class ForecastTaskCollector {
                         && candidate.location().getBluebellExposure()
                                 == BluebellExposure.OPEN_FELL;
                 if (openFellPaired) {
-                    bluebell.add(bluebellTaskFor(candidate, decision, preEval));
+                    bluebell.add(bluebellTaskFor(candidate, decision, preEval, forced));
                     includedBluebell++;
                 }
 
@@ -657,14 +653,23 @@ public class ForecastTaskCollector {
      * Builds a {@link EvaluationTask.Forecast.PromptKind#BLUEBELL} task for an in-season bluebell
      * candidate, reusing the same atmospheric data (which already carries the bluebell condition
      * score) and the eligibility decision's model as the sky path.
+     *
+     * @param forced whether the eligibility decision for this exact candidate was a {@code
+     *               ForceEvalHeadlineSelector} rescue — the routing to bluebell (WOODLAND exposure,
+     *               or the OPEN_FELL pairing) happens AFTER that decision, so a force-evaluated
+     *               candidate can land here exactly as it can land in the sky lane, and the fact
+     *               must travel with this task the same way (no {@code evalRowId}: R8 scopes
+     *               pending rows to the sky lane alone, but the batch custom id still carries the
+     *               {@code -f} marker via {@link CustomIdFactory#forBluebell(Long, LocalDate,
+     *               TargetType, boolean)})
      */
     private static EvaluationTask.Forecast bluebellTaskFor(ForecastCandidate candidate,
-            EligibilityDecision decision, ForecastPreEvalResult preEval) {
+            EligibilityDecision decision, ForecastPreEvalResult preEval, boolean forced) {
         return new EvaluationTask.Forecast(
                 candidate.location(), candidate.date(), candidate.targetType(),
                 decision.model(), preEval.atmosphericData(),
                 EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
-                EvaluationTask.Forecast.PromptKind.BLUEBELL);
+                EvaluationTask.Forecast.PromptKind.BLUEBELL, null, forced);
     }
 
     /**
@@ -672,14 +677,18 @@ public class ForecastTaskCollector {
      * of bluebell season, reusing the same atmospheric data and eligibility model as the sky path.
      * Needs no augmentor precondition — the woodland builder derives its deterministic hint from
      * the atmospheric data it is handed.
+     *
+     * @param forced whether the eligibility decision for this exact candidate was a {@code
+     *               ForceEvalHeadlineSelector} rescue — see {@link #bluebellTaskFor}'s own javadoc
+     *               for why the woodland lane needs the identical treatment
      */
     private static EvaluationTask.Forecast woodlandTaskFor(ForecastCandidate candidate,
-            EligibilityDecision decision, ForecastPreEvalResult preEval) {
+            EligibilityDecision decision, ForecastPreEvalResult preEval, boolean forced) {
         return new EvaluationTask.Forecast(
                 candidate.location(), candidate.date(), candidate.targetType(),
                 decision.model(), preEval.atmosphericData(),
                 EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
-                EvaluationTask.Forecast.PromptKind.WOODLAND);
+                EvaluationTask.Forecast.PromptKind.WOODLAND, null, forced);
     }
 
     /** Builds the EVALUATED / FORCE_EVALUATED disposition for an included candidate. */
@@ -742,6 +751,20 @@ public class ForecastTaskCollector {
      * region-filtered admin path tolerates partial-prefetch degradation
      * (no ratio threshold) — mirroring legacy behaviour.
      *
+     * <p>⚠️ <b>A canopy candidate reaches {@link ForecastService#fetchWeatherAndTriage} exactly
+     * like every other candidate here, and is excluded only AFTER that call, exactly matching
+     * {@link #collectScheduledBatches} — a Codex review of PR #947 (round 2, against commit
+     * 1f637d56) found this loop used to test {@code isWoodlandOnly()} BEFORE the call, so a
+     * canopy candidate never reached the seam that records its atmospheric readings at all, even
+     * though the scheduled loop (which decides its own woodland lane strictly after the
+     * identical call) did. The exclusion below is unconditional — it does not consult
+     * {@code preEval.triaged()} first — because the scheduled loop's own woodland lane ignores
+     * the sky triage verdict entirely for the same kind of site (a wood wants exactly the
+     * overcast, misty conditions sky triage stands a slot down for); this path has no woodland
+     * bucket to route a canopy candidate to (unlike the scheduled loop's own {@code woodland}
+     * list), so the two paths agree by both excluding it from the sky lane, one into its own
+     * bucket and the other into none.
+     *
      * @param regionIds region IDs to include — null or empty means all regions
      * @return inland/coastal tasks (possibly all-empty)
      */
@@ -798,15 +821,34 @@ public class ForecastTaskCollector {
 
         for (ForecastCandidate candidate : candidates) {
             try {
-                // Canopy sites never belong in the sky lane. Unconditional here, unlike the
-                // scheduled loop's guard: this path has no bluebell bucket to route them to.
-                if (candidate.location().isWoodlandOnly()) {
-                    continue;
-                }
+                // fetchWeatherAndTriage records this candidate's atmospheric readings itself
+                // (the one seam every caller shares — see its own javadoc), including a slot
+                // this admin path is about to triage, Gate-4-skip, or route away below. A
+                // canopy candidate must reach this call too, exactly like the scheduled loop
+                // (collectScheduledBatches above) — excluding it BEFORE this call, as this
+                // method used to, fetches its weather (the prefetch above already covers it)
+                // and then records nothing for it, while the scheduled loop, which decides the
+                // woodland lane strictly AFTER this same call, does.
                 ForecastPreEvalResult preEval = forecastService.fetchWeatherAndTriage(
                         candidate.location(), candidate.date(), candidate.targetType(),
                         candidate.location().getTideType(), model, false, null,
                         prefetchedWeather, cloudCache);
+
+                // Canopy sites never belong in the sky lane, and this path has no woodland
+                // bucket to route them to (unlike the scheduled loop's own `woodland` list) —
+                // so a canopy candidate is now recorded (above) and then excluded here, the
+                // same outcome as before, just after the fetch instead of before it. This
+                // exclusion is UNCONDITIONAL — it must not consult `preEval.triaged()` first.
+                // The scheduled loop's own woodland lane ignores the sky triage verdict
+                // entirely (`woodlandTask` is one of the exemptions on its `preEval.triaged()`
+                // check), because a wood wants exactly the overcast, misty conditions sky
+                // triage stands a slot down for; treating a canopy site's own triage verdict
+                // as meaningful here — e.g. by testing `preEval.triaged()` before this check —
+                // would silently make this path agree with the sky triage the scheduled loop
+                // deliberately disregards for the same kind of site.
+                if (candidate.location().isWoodlandOnly()) {
+                    continue;
+                }
                 if (preEval.triaged()) {
                     continue;
                 }

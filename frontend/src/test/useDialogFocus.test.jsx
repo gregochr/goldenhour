@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, act } from '@testing-library/react';
 import useDialogFocus from '../hooks/useDialogFocus.js';
 
@@ -26,6 +26,11 @@ import useDialogFocus from '../hooks/useDialogFocus.js';
  * the dialog's DOM with them and focus is on `<body>` by the time the cleanup runs — the same path
  * the unmount cases below cover. A consumer that deactivates while keeping its dialog mounted would
  * need its own case here.
+ *
+ * <p>One deactivation case IS covered, because it is not the unmount path: `restoreFallback`'s
+ * lifetime. A component that stays mounted runs its layout effects in the commit that deactivates
+ * it, before this cleanup — an unmounting one does not — so only that shape can overwrite the
+ * fallback before the restore reads it (see "keeps the fallback it had while open", below).
  */
 describe('useDialogFocus', () => {
   let trigger = null;
@@ -228,5 +233,195 @@ describe('useDialogFocus', () => {
     expect(document.activeElement, 'the container must not take it back a frame later')
       .toBe(document.getElementById('inner'));
     expect(document.activeElement).not.toBe(getByTestId('dlg'));
+  });
+
+  /**
+   * `restoreFallback` — the caller's answer to "the opener has gone, where now?".
+   *
+   * <p>The route that needed it: the masthead's "set a postcode" nudge opens the settings dialog,
+   * and on the Map tab a saved home replaces that button with a non-interactive statement. The page
+   * takes the home from the save's own response, so that happens while the dialog is still open: the
+   * recorded opener is detached by the time the dialog closes, and the restore above does nothing —
+   * focus on `<body>`.
+   *
+   * <p>Every case keeps the opt-in's two boundaries in view: the fallback is consulted only when the
+   * opener CANNOT take focus back, and never past the reader's own choice.
+   */
+  describe('restoreFallback', () => {
+    let successor = null;
+    afterEach(() => { successor?.remove(); successor = null; });
+
+    function FallbackDialog({ fallback }) {
+      const ref = useDialogFocus(true, { restoreFallback: fallback });
+      return <div ref={ref} tabIndex={-1} role="dialog" data-testid="dlg"><button id="inner">x</button></div>;
+    }
+
+    it('⚠️ hands focus to the fallback when the opener has left the document', async () => {
+      trigger = button('trigger');
+      successor = button('successor');
+      trigger.focus();
+      const { unmount } = render(<FallbackDialog fallback={() => successor} />);
+      await settle();
+      trigger.remove();           // the nudge, replaced while the dialog was up
+
+      unmount();
+
+      expect(document.activeElement).toBe(successor);
+    });
+
+    it('prefers the opener whenever it can still take focus — the fallback is not even asked', async () => {
+      trigger = button('trigger');
+      successor = button('successor');
+      const fallback = vi.fn(() => successor);
+      trigger.focus();
+      const { unmount } = render(<FallbackDialog fallback={fallback} />);
+      await settle();
+
+      unmount();
+
+      expect(document.activeElement).toBe(trigger);
+      expect(fallback).not.toHaveBeenCalled();
+    });
+
+    it('hands focus to the fallback when the opener is attached but REFUSES it', async () => {
+      // `focus()` is a silent no-op on a disabled control — which is why the restore checks where
+      // focus landed instead of trusting that the call worked.
+      trigger = button('trigger');
+      successor = button('successor');
+      trigger.focus();
+      const { unmount } = render(<FallbackDialog fallback={() => successor} />);
+      await settle();
+      trigger.disabled = true;
+
+      unmount();
+
+      expect(document.activeElement).toBe(successor);
+    });
+
+    it('hands focus to the fallback when the dialog opened with focus NOWHERE', async () => {
+      // macOS Safari does not focus a button on click, so a pointer press can open this dialog with
+      // `<body>` as the recorded opener — a return address that is no address at all.
+      successor = button('successor');
+      expect(document.activeElement, 'precondition: nothing is focused').toBe(document.body);
+      const { unmount } = render(<FallbackDialog fallback={() => successor} />);
+      await settle();
+
+      unmount();
+
+      expect(document.activeElement).toBe(successor);
+    });
+
+    it('⚠️ never takes a reader from a place they chose, fallback or not', async () => {
+      trigger = button('trigger');
+      successor = button('successor');
+      elsewhere = button('elsewhere');
+      trigger.focus();
+      const { unmount } = render(<FallbackDialog fallback={() => successor} />);
+      await settle();
+      trigger.remove();
+      elsewhere.focus();          // the reader Tabbed out and stayed out
+
+      unmount();
+
+      expect(document.activeElement, 'the guard governs the fallback as well').toBe(elsewhere);
+    });
+
+    it('asks the fallback at CLOSE, so it can name an element that did not exist at open', async () => {
+      // The nudge's successor is rendered by the save the dialog exists for — after the open.
+      trigger = button('trigger');
+      trigger.focus();
+      const { rerender, unmount } = render(<FallbackDialog fallback={() => null} />);
+      await settle();
+      successor = button('successor');
+      rerender(<FallbackDialog fallback={() => successor} />);
+      trigger.remove();
+
+      unmount();
+
+      expect(document.activeElement, 'the fallback in force at close, not the one at open')
+        .toBe(successor);
+    });
+
+    it('leaves focus alone, without throwing, when the fallback names nothing it can focus', async () => {
+      trigger = button('trigger');
+      trigger.focus();
+      const detached = document.createElement('button');
+      const { unmount } = render(<FallbackDialog fallback={() => detached} />);
+      await settle();
+      trigger.remove();
+
+      expect(() => unmount()).not.toThrow();
+      expect(document.activeElement).toBe(document.body);
+    });
+
+    it('⚠️ keeps the fallback it had while open when a still-mounted caller clears it on close', async () => {
+      // `BottomSheet`'s shape — the hook's component stays mounted and renders nothing once closed —
+      // with the fallback cleared in the SAME update that closes it, as `App` clears its own. That
+      // component's layout effects run in the closing commit, before this passive cleanup, so a
+      // fallback written unconditionally is read back as null by the restore it was kept for.
+      function StaysMounted({ active, fallback }) {
+        const ref = useDialogFocus(active, { restoreFallback: fallback });
+        if (!active) return null;
+        return <div ref={ref} tabIndex={-1} role="dialog" data-testid="dlg"><button id="inner">x</button></div>;
+      }
+      trigger = button('trigger');
+      successor = button('successor');
+      trigger.focus();
+      const { rerender } = render(<StaysMounted active fallback={() => successor} />);
+      await settle();
+      expect(document.activeElement, 'precondition: the dialog took focus').toHaveAttribute('data-testid', 'dlg');
+      trigger.remove();
+
+      rerender(<StaysMounted active={false} fallback={null} />);
+
+      expect(document.activeElement, 'the fallback in force while open, not the cleared one').toBe(successor);
+    });
+
+    describe('⚠️ and never outside a layer that still claims modality', () => {
+      // A settings dialog opened over a Plan dialog: when it closes, the Plan dialog below still
+      // claims `aria-modal`, and the tick line the fallback names is outside it. Focusing it would
+      // strand the reader outside that layer — the state the stranded guard above recovers them from.
+      // The OPENER is not held to this: "restores INTO it" above restores to a trigger outside the
+      // layer, so a check widened to the opener fails there.
+      let below = null;
+      afterEach(() => { below?.remove(); below = null; });
+
+      const layerBelow = () => {
+        below = document.createElement('div');
+        below.setAttribute('role', 'dialog');
+        below.setAttribute('aria-modal', 'true');
+        document.body.appendChild(below);
+        return below;
+      };
+
+      it('does not use a fallback outside that layer', async () => {
+        layerBelow();
+        trigger = button('trigger');
+        successor = button('successor');
+        trigger.focus();
+        const { unmount } = render(<FallbackDialog fallback={() => successor} />);
+        await settle();
+        trigger.remove();
+
+        unmount();
+
+        expect(document.activeElement, 'not pulled outside the layer below').toBe(document.body);
+      });
+
+      it('uses a fallback inside that layer', async () => {
+        const layer = layerBelow();
+        trigger = button('trigger');
+        successor = document.createElement('button');
+        layer.appendChild(successor);
+        trigger.focus();
+        const { unmount } = render(<FallbackDialog fallback={() => successor} />);
+        await settle();
+        trigger.remove();
+
+        unmount();
+
+        expect(document.activeElement).toBe(successor);
+      });
+    });
   });
 });

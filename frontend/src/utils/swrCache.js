@@ -10,6 +10,8 @@
  * when the payload differs by role.
  */
 
+import { getRewindTo } from './rewind.js';
+
 /** Every key this module has ever owned. Sweeping uses this so old generations stay collectable. */
 const ROOT = 'photocast_swr:';
 
@@ -67,6 +69,11 @@ export function storageKey(key) {
  * @returns {*} the cached value, or null
  */
 export function readSwrCache(key, maxAgeMs) {
+  // Under an admin's rewind (`utils/rewind.js`) the cache is neither read nor written: it holds
+  // the LIVE payload, which a rewound page must not paint first, and a rewound payload must never
+  // be left here for the next live page to paint from. One rule, enforced where the data lives,
+  // rather than a guard at each of the two consumers.
+  if (getRewindTo()) return null;
   try {
     const raw = localStorage.getItem(PREFIX + key);
     if (raw === null) return null;
@@ -149,6 +156,7 @@ function sweepSupersededBy(key) {
  * @returns {boolean} true if the entry was written, false if it was dropped
  */
 export function writeSwrCache(key, value, atGeneration) {
+  if (getRewindTo()) return false; // see readSwrCache
   if (atGeneration != null && atGeneration !== generation) {
     // The cache was cleared while this payload was in flight — it belongs to a session that has
     // ended. Writing it would undo the logout sweep.

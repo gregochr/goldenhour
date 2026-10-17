@@ -3,6 +3,8 @@ package com.gregochr.goldenhour.controller;
 import com.gregochr.goldenhour.entity.ScheduleType;
 import com.gregochr.goldenhour.entity.SchedulerJobConfigEntity;
 import com.gregochr.goldenhour.entity.SchedulerJobStatus;
+import com.gregochr.goldenhour.entity.SolarEvent;
+import com.gregochr.goldenhour.service.SolarSchedulePreviewService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -51,6 +53,26 @@ class SchedulerControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].jobKey").value("tide_refresh"))
                 .andExpect(jsonPath("$[0].status").value("ACTIVE"));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("GET /api/admin/scheduler/jobs lists a row with an unrecognised schedule type")
+    void listJobs_serialisesUnrecognisedScheduleType() throws Exception {
+        SchedulerJobConfigEntity unknown = SchedulerJobConfigEntity.builder()
+                .id(7L).jobKey("future_job").displayName("Future").scheduleTypeRaw("LUNAR_PHASE")
+                .status(SchedulerJobStatus.ACTIVE).build();
+        SchedulerJobConfigEntity known = buildConfig("tide_refresh", ScheduleType.CRON,
+                "0 0 2 * * MON", null, SchedulerJobStatus.ACTIVE);
+        when(schedulerService.getAll()).thenReturn(List.of(known, unknown));
+        when(schedulerService.calculateNextFireTime(any())).thenReturn(null);
+
+        mockMvc.perform(get("/api/admin/scheduler/jobs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].scheduleType").value("CRON"))
+                .andExpect(jsonPath("$[1].scheduleType").value("LUNAR_PHASE"))
+                .andExpect(jsonPath("$[1].jobKey").value("future_job"));
     }
 
     @Test
@@ -217,6 +239,146 @@ class SchedulerControllerTest extends AbstractControllerTest {
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
+
+    // -------------------------------------------------------------------------
+    // Solar-offset schedule type (solar-relative-refresh-plan P2a)
+    // -------------------------------------------------------------------------
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("PUT schedule-type passes the parsed body to the service and returns the DTO "
+            + "with the solar fields")
+    void switchScheduleType_returnsSolarDto() throws Exception {
+        SchedulerJobConfigEntity solar = SchedulerJobConfigEntity.builder().id(3L)
+                .jobKey("near_term_batch_evaluation").displayName("n")
+                .scheduleType(ScheduleType.SOLAR_OFFSET).solarEvent(SolarEvent.SUNRISE)
+                .solarOffsetMinutes(255).cronExpression("0 0 1 * * *")
+                .status(SchedulerJobStatus.ACTIVE).build();
+        when(schedulerService.switchScheduleType("near_term_batch_evaluation",
+                ScheduleType.SOLAR_OFFSET, SolarEvent.SUNRISE, 255)).thenReturn(solar);
+        when(schedulerService.calculateNextFireTime(any())).thenReturn(null);
+
+        mockMvc.perform(put("/api/admin/scheduler/jobs/near_term_batch_evaluation/schedule-type")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"scheduleType\":\"SOLAR_OFFSET\",\"solarEvent\":\"SUNRISE\","
+                                + "\"solarOffsetMinutes\":255}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.scheduleType").value("SOLAR_OFFSET"))
+                .andExpect(jsonPath("$.solarEvent").value("SUNRISE"))
+                .andExpect(jsonPath("$.solarOffsetMinutes").value(255))
+                .andExpect(jsonPath("$.cronExpression").value("0 0 1 * * *"));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("PUT schedule-type to CRON passes null solar fields")
+    void switchScheduleType_toCron() throws Exception {
+        SchedulerJobConfigEntity cron = buildConfig("intraday_forecast_refresh", ScheduleType.CRON,
+                "0 0 14 * * *", null, SchedulerJobStatus.ACTIVE);
+        when(schedulerService.switchScheduleType("intraday_forecast_refresh", ScheduleType.CRON,
+                null, null)).thenReturn(cron);
+        when(schedulerService.calculateNextFireTime(any())).thenReturn(null);
+
+        mockMvc.perform(put("/api/admin/scheduler/jobs/intraday_forecast_refresh/schedule-type")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"scheduleType\":\"CRON\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.solarEvent").value(""))
+                .andExpect(jsonPath("$.solarOffsetMinutes").value(0));
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("PUT schedule-type is 400 for an unknown enum value, a non-string type, and a "
+            + "fractional or non-numeric offset, without calling the service")
+    void switchScheduleType_returns400ForMalformedBody() throws Exception {
+        String url = "/api/admin/scheduler/jobs/near_term_batch_evaluation/schedule-type";
+        List<String> bodies = List.of(
+                "{\"scheduleType\":\"WEEKLY\"}",
+                "{\"scheduleType\":7}",
+                "{\"scheduleType\":\"SOLAR_OFFSET\",\"solarEvent\":\"NOON\",\"solarOffsetMinutes\":10}",
+                "{\"scheduleType\":\"SOLAR_OFFSET\",\"solarEvent\":\"SUNRISE\","
+                        + "\"solarOffsetMinutes\":10.5}",
+                "{\"scheduleType\":\"SOLAR_OFFSET\",\"solarEvent\":\"SUNRISE\","
+                        + "\"solarOffsetMinutes\":\"10\"}");
+        for (String body : bodies) {
+            mockMvc.perform(put(url).contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isBadRequest());
+        }
+
+        verify(schedulerService, org.mockito.Mockito.never()).switchScheduleType(any(), any(), any(), any());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("PUT schedule-type maps the service's refusal to 400 and an unknown job to 404")
+    void switchScheduleType_mapsServiceErrors() throws Exception {
+        when(schedulerService.switchScheduleType(eq("tide_refresh"), eq(ScheduleType.SOLAR_OFFSET),
+                any(), any())).thenThrow(new IllegalArgumentException("may not be switched"));
+        when(schedulerService.switchScheduleType(eq("ghost"), eq(ScheduleType.CRON), any(), any()))
+                .thenThrow(new NoSuchElementException());
+
+        mockMvc.perform(put("/api/admin/scheduler/jobs/tide_refresh/schedule-type")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"scheduleType\":\"SOLAR_OFFSET\",\"solarEvent\":\"SUNRISE\","
+                                + "\"solarOffsetMinutes\":255}"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(put("/api/admin/scheduler/jobs/ghost/schedule-type")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"scheduleType\":\"CRON\"}"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("GET solar-preview returns the preview for ADMIN")
+    void solarPreview_returnsPreviewForAdmin() throws Exception {
+        when(solarSchedulePreviewService.preview()).thenReturn(
+                new SolarSchedulePreviewService.Preview(
+                        new SolarSchedulePreviewService.ReferencePoint(54.776, -1.575),
+                        java.time.Instant.parse("2026-10-13T10:00:00Z"), List.of()));
+
+        mockMvc.perform(get("/api/admin/scheduler/solar-preview"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.referencePoint.lat").value(54.776))
+                .andExpect(jsonPath("$.referencePoint.lon").value(-1.575))
+                .andExpect(jsonPath("$.generatedAt").value("2026-10-13T10:00:00Z"))
+                .andExpect(jsonPath("$.jobs.length()").value(0));
+    }
+
+    @Test
+    @WithMockUser(roles = {"PRO_USER"})
+    @DisplayName("schedule-type and solar-preview are ADMIN only")
+    void solarEndpoints_forbiddenForNonAdmin() throws Exception {
+        mockMvc.perform(put("/api/admin/scheduler/jobs/near_term_batch_evaluation/schedule-type")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"scheduleType\":\"CRON\"}"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/admin/scheduler/solar-preview")).andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("GET jobs carries solarEvent and solarOffsetMinutes: real values for a solar row, "
+            + "'' and 0 (never null) for the rest")
+    void listJobs_solarFieldsDefaultForNonSolarRows() throws Exception {
+        SchedulerJobConfigEntity solar = SchedulerJobConfigEntity.builder().id(3L)
+                .jobKey("near_term_batch_evaluation").displayName("n")
+                .scheduleType(ScheduleType.SOLAR_OFFSET).solarEvent(SolarEvent.SUNSET)
+                .solarOffsetMinutes(240).cronExpression("0 0 1 * * *")
+                .status(SchedulerJobStatus.ACTIVE).build();
+        SchedulerJobConfigEntity cron = buildConfig("tide_refresh", ScheduleType.CRON,
+                "0 0 2 * * MON", null, SchedulerJobStatus.ACTIVE);
+        when(schedulerService.getAll()).thenReturn(List.of(solar, cron));
+        when(schedulerService.calculateNextFireTime(any())).thenReturn(null);
+
+        mockMvc.perform(get("/api/admin/scheduler/jobs"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].solarEvent").value("SUNSET"))
+                .andExpect(jsonPath("$[0].solarOffsetMinutes").value(240))
+                .andExpect(jsonPath("$[1].solarEvent").value(""))
+                .andExpect(jsonPath("$[1].solarOffsetMinutes").value(0));
+    }
 
     private static SchedulerJobConfigEntity buildConfig(String jobKey, ScheduleType type,
             String cron, Long fixedDelayMs, SchedulerJobStatus status) {

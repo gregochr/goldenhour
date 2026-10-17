@@ -94,6 +94,29 @@ public record HotTopic(
         @JsonInclude(JsonInclude.Include.NON_NULL)
         String safetyNote) implements Comparable<HotTopic> {
 
+    /** The served anchor of a topic whose window runs from its date's dusk to the next dawn. */
+    public static final String EVENT_NIGHT = "NIGHT";
+
+    /**
+     * The civil dates this topic's windows fall on — the dates of {@code PlanWindowProjector.keysFor}'s
+     * keys: a {@value #EVENT_NIGHT} topic dated D covers D and D+1 (its evening and the next
+     * morning), every other dated topic covers its own date, and an undated topic covers nothing.
+     *
+     * <p>⚠️ <b>A date test over a topic must read this, never {@link #date()} alone.</b> The aurora
+     * strategy dates its alert topic by the poller's night, which before dawn is YESTERDAY's — its
+     * remaining half is this morning's sunrise, which the Plan card badges. Reading the date alone
+     * left that topic out of the travel-day filter's view and out of Ask's timeline (two Codex
+     * reviews of #1056). The client twin is {@code windowFirstTopics.topicCoveredDates}.
+     *
+     * @return the dates covered, ascending; never null
+     */
+    public List<LocalDate> coveredDates() {
+        if (date == null) {
+            return List.of();
+        }
+        return EVENT_NIGHT.equals(eventType) ? List.of(date, date.plusDays(1)) : List.of(date);
+    }
+
     /**
      * Explicit canonical constructor with Jackson annotations so that cached briefing
      * JSON written before the {@code description}, {@code expandedDetail}, {@code eventType},

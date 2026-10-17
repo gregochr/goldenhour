@@ -31,6 +31,12 @@ import java.time.LocalDate;
  * @param costMicroDollars         cost of this call in micro-dollars
  * @param customId                 Anthropic batch custom ID, or null for SSE calls
  * @param errorType                Anthropic error type, or null on success
+ * @param statusCode               HTTP status the service answered with, or null when the call had none
+ *                                 (a non-HTTP failure, a batch result, or a call that never got an answer)
+ * @param cacheDiagnostics         the Anthropic prompt-cache diagnostics the response carried, as the
+ *                                 compact JSON stored in {@code api_call_log.cache_diagnostics}
+ *                                 ({@code {"status":"MISS","reason":"messages_changed",
+ *                                 "missedInputTokens":1234}}), or null when it carried none
  */
 public record ApiCallLogDto(
         Long id,
@@ -49,7 +55,9 @@ public record ApiCallLogDto(
         Long cacheReadInputTokens,
         Long costMicroDollars,
         String customId,
-        String errorType
+        String errorType,
+        Integer statusCode,
+        String cacheDiagnostics
 ) {
 
     /**
@@ -76,7 +84,9 @@ public record ApiCallLogDto(
                 e.getCacheReadInputTokens(),
                 e.getCostMicroDollars(),
                 e.getCustomId(),
-                e.getErrorType()
+                e.getErrorType(),
+                e.getStatusCode(),
+                e.getCacheDiagnostics()
         );
     }
 }

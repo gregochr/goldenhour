@@ -31,7 +31,8 @@ const MetricsSummary = ({ runs, apiCalls, range, onRangeChange }) => {
   const filteredRuns = useMemo(() => {
     if (!runs || runs.length === 0) return [];
     if (range === 'today') {
-      const today = ukDateStr();
+      // The real clock, like the 7-day cutoff below — Operations never follows an admin's rewind.
+      const today = ukDateStr(new Date());
       return runs.filter((r) => {
         const startedAt = parseUtcInstant(r.startedAt);
         return startedAt && ukDateStr(startedAt) === today;

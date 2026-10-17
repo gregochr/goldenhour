@@ -1,8 +1,11 @@
 package com.gregochr.goldenhour.service.evaluation;
 
+import com.gregochr.goldenhour.config.AppBuild;
 import com.gregochr.goldenhour.entity.BatchState;
+import com.gregochr.goldenhour.entity.BluebellExposure;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
+import com.gregochr.goldenhour.entity.ForecastType;
 import com.gregochr.goldenhour.entity.InversionDetails;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
@@ -15,8 +18,10 @@ import com.gregochr.goldenhour.model.TideContext;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
+import com.gregochr.goldenhour.service.EvaluationFailure;
 import com.gregochr.goldenhour.service.ForecastDataAugmentor;
 import com.gregochr.goldenhour.service.JobRunService;
+import com.gregochr.goldenhour.service.evaluation.visitor.ComponentScore;
 import com.gregochr.goldenhour.service.evaluation.visitor.RatingCombiner;
 import com.gregochr.goldenhour.service.evaluation.visitor.VisitorContext;
 import tools.jackson.databind.ObjectMapper;
@@ -24,8 +29,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -53,6 +61,32 @@ import java.util.Set;
  * {@code BatchResultProcessor} used inline before Pass 3.2. The integration test
  * pyramid (sub-package {@code integration}) is the contract that proves the writes
  * remain byte-identical.
+ *
+ * <p>⚠️ <b>Round 14, "correction 3": {@code forecast_score} is gated per-response, not hoisted to
+ * before the batch is parsed — deliberately, and the reasoning is worth keeping here.</b> A result
+ * superseded by a later cycle's decision must reach no sink at all
+ * ({@code BriefingEvaluationService}'s class javadoc names the rule in full), and
+ * {@code cached_evaluation} already enforces this at the merge step, after a whole batch's responses
+ * have been accumulated by cache key. {@code forecast_score} cannot wait for that same point: it is
+ * written inside {@link #buildResult}/{@link #buildWoodlandResult}/{@link #buildBluebellResult},
+ * which run once PER RESPONSE as {@code BatchResultProcessor} consumes the Anthropic Batch API's
+ * streaming result reader — and that reader only learns a batch's location set as it streams, so
+ * there is no point "before any result of the batch is parsed" at which every location it will
+ * touch is already known. A true batch-wide hoist would need to buffer the entire batch before
+ * writing anything, which this class does not do for any sink today. The accepted, explained
+ * fallback is {@link SupersedingDispositionService#isSuperseded}, called once per response,
+ * immediately before each of the three {@code forecast_score} write sites — see its own class
+ * javadoc for the query-cost accounting (one query in the common case per response, two only when a
+ * later cycle already exists for that one submission). The PENDING {@code forecast_evaluation} row
+ * is untouched by this gate (scored unconditionally, exactly as {@code BriefingEvaluationService}'s
+ * javadoc explains is safe), and {@code api_call_log} is written unconditionally too, via
+ * {@link #persistBatchLog}/{@link #persistSyncLog}, so cost accounting for a superseded response is
+ * complete even though its rating reaches no sink. {@code slot_atmosphere} needs no gate here at
+ * all: {@code SlotAtmosphereWriter.write} is called only from {@code ForecastTaskCollector} (the
+ * batch collection phase, before any batch is even submitted) and {@code ForecastService} (the
+ * synchronous engine's own pre-Claude-call point) — never from this class — so a superseded RESULT
+ * has no bearing on it; it captures measured weather at collection time, not Claude's opinion of it,
+ * and this class's write path never touches it either way.
  */
 @Component
 public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forecast> {
@@ -88,6 +122,9 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
     private final ForecastDataAugmentor forecastDataAugmentor;
     private final ForecastScoreWriter forecastScoreWriter;
     private final ForecastEvaluationRepository forecastEvaluationRepository;
+    private final SupersedingDispositionService supersedingDispositionService;
+    private final Clock clock;
+    private final AppBuild appBuild;
 
     /**
      * Constructs the handler.
@@ -113,6 +150,15 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      * @param forecastEvaluationRepository R5 seam: scores a {@code PENDING} {@code
      *                                  forecast_evaluation} row in place by primary key when a
      *                                  batch result carries a non-null {@code evalRowId}
+     * @param supersedingDispositionService round 14, "correction 3": the per-response fallback gate
+     *                                  in front of the {@code forecast_score} dual write — see this
+     *                                  class's own class javadoc for why a true batch-wide hoist is
+     *                                  not possible with the streaming Batch API reader
+     * @param clock                     stamps {@code forecast_evaluation.scored_at} (V178) when a
+     *                                  {@code PENDING} row is scored in place
+     * @param appBuild                  the running build, stamped as
+     *                                  {@code forecast_evaluation.app_build} (V182) with the same
+     *                                  instant
      */
     public ForecastResultHandler(BriefingEvaluationService briefingEvaluationService,
             JobRunService jobRunService,
@@ -121,7 +167,9 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             ForecastDataAugmentor forecastDataAugmentor,
             ForecastScoreWriter forecastScoreWriter,
             SunsetEvaluationParser parser,
-            ForecastEvaluationRepository forecastEvaluationRepository) {
+            ForecastEvaluationRepository forecastEvaluationRepository,
+            SupersedingDispositionService supersedingDispositionService,
+            Clock clock, AppBuild appBuild) {
         this.briefingEvaluationService = briefingEvaluationService;
         this.parser = parser;
         this.jobRunService = jobRunService;
@@ -130,6 +178,9 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
         this.forecastDataAugmentor = forecastDataAugmentor;
         this.forecastScoreWriter = forecastScoreWriter;
         this.forecastEvaluationRepository = forecastEvaluationRepository;
+        this.supersedingDispositionService = supersedingDispositionService;
+        this.clock = clock;
+        this.appBuild = appBuild;
     }
 
     @Override
@@ -160,9 +211,30 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      * @param evalRowId  primary key of the {@code PENDING} row this result scores in place (R5),
      *                   or {@code null} for every non-{@code fc-} lane and for an {@code fc-} id
      *                   with no embedded row id (pre-deploy format)
+     * @param forced     whether the task carried the {@code ForceEvalHeadlineSelector}
+     *                   force-evaluation marker — {@code false} for every non-{@code fc-} lane
+     *                   and for an {@code fc-} id with no embedded marker (pre-deploy format).
+     *                   The ONLY input {@link #buildResult} uses to stamp {@link
+     *                   com.gregochr.goldenhour.model.BriefingEvaluationResult#forced} — never a
+     *                   timestamp comparison at serve time
      */
     public record ForecastIdentity(Long locationId, LocalDate date, TargetType targetType,
-            Long evalRowId) {
+            Long evalRowId, boolean forced) {
+
+        /**
+         * Convenience constructor for every lane that never carries the force-evaluation marker
+         * (bluebell, woodland, JFDI, force-submit) — the four-arg shape every pre-existing call
+         * site uses.
+         *
+         * @param locationId location id from the custom id
+         * @param date       evaluation date
+         * @param targetType SUNRISE / SUNSET / HOURLY
+         * @param evalRowId  primary key of the pending row, or {@code null}
+         */
+        public ForecastIdentity(Long locationId, LocalDate date, TargetType targetType,
+                Long evalRowId) {
+            this(locationId, date, targetType, evalRowId, false);
+        }
     }
 
     /**
@@ -200,7 +272,8 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             BriefingEvaluationResult result = buildResult(
                     location, eval, parsed.date(), parsed.targetType(), regionName, modelName,
                     context != null ? context.pipelineRunId() : null,
-                    parsed.evalRowId(), outcome.model());
+                    parsed.evalRowId(), outcome.model(), parsed.forced(),
+                    context != null ? context.submissionInstant() : null);
 
             if (parsed0.usedRegexFallback()) {
                 // Strict JSON parse failed and the regex fallback recovered the result (possibly
@@ -270,7 +343,8 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             String modelName = outcome.model() != null ? outcome.model().name() : "UNKNOWN";
             BriefingEvaluationResult result = buildBluebellResult(
                     location, bluebell, parsed.date(), parsed.targetType(), regionName, modelName,
-                    context != null ? context.pipelineRunId() : null);
+                    context != null ? context.pipelineRunId() : null, parsed.forced(),
+                    context != null ? context.submissionInstant() : null);
             persistBatchLog(context, outcome, parsed.date(), parsed.targetType(),
                     outcome.model(), null, outcome.rawText());
             return Optional.of(new BatchSuccess(cacheKey, result));
@@ -324,15 +398,20 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
 
     /**
      * Merges a group of bluebell mini-batch results into the region cache entry, recombining the
-     * rating with a prior sky result for OPEN_FELL sites (C3b). Delegates to
+     * rating with a prior sky result for non-WOODLAND sites (C3b). Delegates to
      * {@link BriefingEvaluationService#mergeBluebellFromBatch}; the processor selects this path
      * for {@code bb-} responses.
      *
-     * @param cacheKey region cache key
-     * @param results  the bluebell results for that cache key
+     * @param cacheKey            region cache key
+     * @param results             the bluebell results for that cache key
+     * @param exposureByLocation  each result's location name mapped to that location's actual
+     *                            {@code BluebellExposure}, resolved by the caller from the same
+     *                            {@code LocationEntity} the batch response was parsed against —
+     *                            see {@link BriefingEvaluationService#mergeBluebellFromBatch}
      */
-    public void mergeBluebellCacheKey(String cacheKey, List<BriefingEvaluationResult> results) {
-        briefingEvaluationService.mergeBluebellFromBatch(cacheKey, results);
+    public void mergeBluebellCacheKey(String cacheKey, List<BriefingEvaluationResult> results,
+            Map<String, BluebellExposure> exposureByLocation) {
+        briefingEvaluationService.mergeBluebellFromBatch(cacheKey, results, exposureByLocation);
     }
 
     /**
@@ -385,7 +464,8 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             String modelName = outcome.model() != null ? outcome.model().name() : "UNKNOWN";
             BriefingEvaluationResult result = buildWoodlandResult(
                     location, woodland, parsed.date(), parsed.targetType(), regionName, modelName,
-                    context != null ? context.pipelineRunId() : null);
+                    context != null ? context.pipelineRunId() : null, parsed.forced(),
+                    context != null ? context.submissionInstant() : null);
             persistBatchLog(context, outcome, parsed.date(), parsed.targetType(),
                     outcome.model(), null, outcome.rawText());
             return Optional.of(new BatchSuccess(cacheKey, result));
@@ -406,31 +486,41 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      *
      * <p>No tide context is derived: {@code isWoodlandOnly()} excludes SEASCAPE, so a canopy site
      * has no tide preference to score and the tide visitor would abstain regardless.
+     *
+     * @param forced whether the task carried the {@code ForceEvalHeadlineSelector} force-
+     *               evaluation marker — see {@link BriefingEvaluationResult#forced}'s javadoc.
+     *               A canopy candidate can be force-evaluated exactly like a sky one; the marker
+     *               is stamped here the same way {@link #buildResult} stamps it for the sky lane
      */
     private BriefingEvaluationResult buildWoodlandResult(LocationEntity location,
             WoodlandEvaluation woodland, LocalDate date, TargetType targetType, String regionName,
-            String modelName, Long pipelineRunId) {
+            String modelName, Long pipelineRunId, boolean forced, Instant submittedAt) {
         RatingCombiner.CombinedRating combined = ratingCombiner.combine(
                 location, new VisitorContext(null, null, null, woodland));
         Integer safeRating = RatingValidator.validateRating(
                 combined.rating(), regionName, date, targetType, location.getName(), modelName);
 
-        try {
-            forecastScoreWriter.writeComponents(
-                    location, date, targetType, combined.components(), pipelineRunId);
-        } catch (Exception e) {
-            LOG.error("forecast_score woodland dual-write FAILED for component key "
-                    + "(location={}, date={}, event={}); the SERVED evaluation is unaffected, but "
-                    + "this slot's forecast_score row is now stale and the API reads bluebell "
-                    + "ratings from it. Repaired only IF this slot is successfully evaluated again — "
-                    + "triage and the T+2/T+3 stability gates can skip every later "
-                    + "attempt, so a stale row can outlive its event: {}",
-                    location.getName(), date, targetType, e.getMessage(), e);
+        if (!supersedingDispositionService.isSuperseded(
+                location.getName(), date, targetType, submittedAt)) {
+            try {
+                forecastScoreWriter.writeComponents(
+                        location, date, targetType, combined.components(), pipelineRunId);
+            } catch (Exception e) {
+                LOG.error("forecast_score woodland dual-write FAILED for component key "
+                        + "(location={}, date={}, event={}); the SERVED evaluation is unaffected, "
+                        + "but this slot's forecast_score row is now stale and the API reads "
+                        + "bluebell ratings from it. Repaired only IF this slot is successfully "
+                        + "evaluated again — triage and the T+2/T+3 stability gates can skip every "
+                        + "later attempt, so a stale row can outlive its event: {}",
+                        location.getName(), date, targetType, e.getMessage(), e);
+            }
         }
 
-        return new BriefingEvaluationResult(
+        BriefingEvaluationResult result = new BriefingEvaluationResult(
                 location.getName(), safeRating, null, null, woodland.summary(),
                 null, null, woodland.headline());
+        BriefingEvaluationResult stamped = result.withSubmittedAt(submittedAt);
+        return forced ? stamped.withForced(true) : stamped;
     }
 
     @Override
@@ -454,16 +544,17 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             LOG.warn("Forecast sync evaluation: parse failed for {}: {}",
                     task.taskKey(), e.getMessage());
             ClaudeSyncOutcome parseFailure = ClaudeSyncOutcome.failure(
-                    "parse_error", e.getMessage(), task.model(), outcome.durationMs());
+                    EvaluationFailure.TYPE_PARSE_ERROR, e.getMessage(), task.model(), outcome.durationMs());
             persistSyncLog(context, parseFailure, task);
-            return new EvaluationResult.Errored("parse_error", e.getMessage());
+            return new EvaluationResult.Errored(EvaluationFailure.TYPE_PARSE_ERROR, e.getMessage());
         }
 
         BriefingEvaluationResult result = buildResult(
                 task.location(), eval, task.date(), task.targetType(),
                 regionName, task.model().name(),
                 context != null ? context.pipelineRunId() : null,
-                task.evalRowId(), task.model());
+                task.evalRowId(), task.model(), task.forced(),
+                context != null ? context.submissionInstant() : null);
 
         persistSyncLog(context, outcome, task);
         if (task.writeTarget() == EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE) {
@@ -513,11 +604,20 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      * @param resolvedModel the model that actually produced this response, persisted on the row
      *                      alongside the rating so the row's {@code evaluation_model} reflects
      *                      what scored it rather than only what was requested
+     * @param forced        whether the task that produced this response carried the {@code
+     *                      ForceEvalHeadlineSelector} force-evaluation marker (decoded from the
+     *                      batch custom id, or {@code task.forced()} on the sync path) — the ONLY
+     *                      input {@link BriefingEvaluationResult#forced} is ever set from; see its
+     *                      own javadoc for why a serve-time timestamp comparison was abandoned
+     * @param submittedAt   round 12: this result's submission instant — see {@link
+     *                      BriefingEvaluationResult#submittedAt}'s own javadoc for how it is
+     *                      resolved on the batch and sync paths
      * @return the result to persist (cache payload element)
      */
     private BriefingEvaluationResult buildResult(LocationEntity location, SunsetEvaluation eval,
             LocalDate date, TargetType targetType, String regionName, String modelName,
-            Long pipelineRunId, Long evalRowId, EvaluationModel resolvedModel) {
+            Long pipelineRunId, Long evalRowId, EvaluationModel resolvedModel, boolean forced,
+            Instant submittedAt) {
         BriefingEvaluationResult result;
         if (eval.rating() == null) {
             // Sky not forecast: Claude omitted the rating. The combiner never runs, so there is
@@ -540,12 +640,40 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             Integer safeRating = RatingValidator.validateRating(
                     combined.rating(), regionName, date, targetType, location.getName(), modelName);
 
-            dualWriteForecastScore(location, date, targetType, eval, combined, pipelineRunId);
+            dualWriteForecastScore(
+                    location, date, targetType, eval, combined, pipelineRunId, submittedAt);
+
+            // The sky visitor's own component, alongside the combined rating: what the map tab's
+            // tide-fit block needs to say "wrong water, not wrong light" beside a tide-dimmed star
+            // (tide gate lift, 2026-09-18, docs/engineering/tide-window-plan.md §6 Q1).
+            //
+            // ⚠️ Validated independently of `safeRating`, not merely alongside it (Codex P1, #896).
+            // `combined.rating()` is an AVERAGE, so a component out of Claude's declared 1-5 range
+            // can still average back into range: sky 7 + a misaligned tide's 1 rounds to a valid
+            // combined 4, which would otherwise cache `skyRating = 7` — a figure `TideFitBlock`
+            // would render as an impossible "sky 7★" beside a perfectly normal 4★. Reusing
+            // `RatingValidator.validateRating` here is the same 1-5 rule `safeRating` was already
+            // built from, just applied to the raw component instead of the average. And when the
+            // COMBINED rating is itself rejected (`safeRating == null`), the sky component is
+            // cleared unconditionally rather than independently re-validated — a rejected star
+            // means the whole evaluation is untrusted, and a stray "· sky N★" surviving beside no
+            // star at all would be its own, subtler version of the same impossible-figure defect.
+            Integer skyRating = safeRating == null ? null
+                    : RatingValidator.validateRating(skyComponentScore(combined),
+                            regionName, date, targetType, location.getName(), modelName);
 
             result = new BriefingEvaluationResult(
                     location.getName(), safeRating,
                     eval.fierySkyPotential(), eval.goldenHourPotential(), eval.summary(),
-                    null, null, eval.headline());
+                    null, null, eval.headline(), null, skyRating);
+        }
+        // The ONE place a result is ever stamped forced — see BriefingEvaluationResult#forced's
+        // javadoc. `withForced` itself is a no-op on a null rating (the substituted
+        // SKY_NOT_FORECAST_RATING above is never null, so a forced sky-not-forecast task is still
+        // exempted, matching the old timestamp-based behaviour's lack of a similar carve-out).
+        result = result.withSubmittedAt(submittedAt);
+        if (forced) {
+            result = result.withForced(true);
         }
         if (evalRowId != null) {
             scoreEvaluationRow(evalRowId, eval, result, resolvedModel);
@@ -591,6 +719,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
         }
         ForecastEvaluationEntity entity = row.get();
         entity.setRating(result.rating());
+        entity.setSkyRating(result.skyRating());
         entity.setFierySkyPotential(result.fierySkyPotential());
         entity.setGoldenHourPotential(result.goldenHourPotential());
         entity.setSummary(result.summary());
@@ -608,6 +737,17 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             entity.setEvaluationModel(resolvedModel);
         }
         entity.setBatchState(BatchState.SCORED);
+        if (result.rating() != null && entity.getScoredAt() == null) {
+            // V178: the AVAILABILITY instant. A result whose star was rejected leaves the row with
+            // nothing to say, so it stays unstamped and the as-of-event resolver never picks it. A row
+            // already stamped keeps its first instant: results processed a second time (a re-polled
+            // batch, a restart's recovery) must not move a row that was available before an event to
+            // after it.
+            entity.setScoredAt(clock.instant());
+            // V182: the build that scored the row, stamped with the same instant and guard so a
+            // re-processed result keeps the build that first made the row available.
+            entity.setAppBuild(appBuild.value());
+        }
         forecastEvaluationRepository.save(entity);
     }
 
@@ -621,15 +761,57 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      * GOLDEN_HOUR rows, since there is no sky evaluation behind a bluebell-only slot.
      *
      * <p>The serving payload carries no 0–100 potentials (both null); the bluebell summary and
-     * headline are the user-facing prose. C3b refines the OPEN_FELL case to recombine the rating
-     * with the sky score at the cache-merge step; until then an open-fell bluebell result lands
-     * its own bluebell-derived rating (never reached in production out of season).
+     * headline are the user-facing prose. C3b recombines the OPEN_FELL case with the sky score
+     * at the cache-merge step ({@code BriefingEvaluationService.recombineBluebell}) — see the
+     * tide handling note below for why this method must not pre-average tide into that case.
+     *
+     * <p><b>Tide is re-derived for an OPEN_FELL site only when there is no sky+tide entry yet
+     * to draw it from.</b> {@code ForecastTaskCollector} always pairs an in-season OPEN_FELL
+     * bluebell task with a sky task for the same slot, and {@code RatingCombiner.selectRatingPeers}
+     * treats OPEN_FELL bluebell as a rating peer (unlike WOODLAND, where bluebell alone is the
+     * rating). Sky and bluebell are submitted as two <em>separate</em> Anthropic batches that
+     * complete and flush into the cache independently — so by the time this method runs, the
+     * paired sky task may already be scored and cached (the common case: {@link #buildResult}
+     * already derived this exact tide context and averaged it into the sky rating, and
+     * {@code recombineBluebell} blends that sky+tide rating with this method's bluebell rating at
+     * merge time), or it may not — because it genuinely has not completed yet (the documented
+     * race in {@code mergeBluebellFromBatch}), or because it failed outright and never will this
+     * cycle. Deriving tide here UNCONDITIONALLY would double-count it in the first case —
+     * {@code round(avg(round(avg(sky, tide)), round(avg(tide, bluebell))))} averages tide in
+     * twice against sky and bluebell's one entry each — but NEVER deriving it would drop tide
+     * entirely from the served rating in the second case, silently overrating a misaligned-tide
+     * coastal slot whenever the sky side is missing. So this method checks
+     * {@link BriefingEvaluationService#getCachedScores} for the same sky-scored-entry signal
+     * {@code recombineBluebell} itself keys on: present → suppress tide here (it will arrive via
+     * the sky side); absent → derive tide as the sole fallback signal for this cycle, exactly as
+     * before this rule existed. The check reads the in-memory cache only (not its DB fallback),
+     * so a bluebell batch landing in the brief window between process start and
+     * {@code rehydrateCacheOnStartup} completing could still double-count in this narrow,
+     * self-correcting edge case — not worth a DB read on every bluebell response to close.
+     * WOODLAND is unaffected either way — {@code selectRatingPeers} excludes TIDAL from a
+     * WOODLAND rating regardless of what this method passes — so WOODLAND always derives tide,
+     * both because it is harmless to the rating and because an in-season WOODLAND site has no
+     * sky call to record a TIDAL {@code forecast_score} component otherwise.
+     *
+     * @param forced whether the task carried the {@code ForceEvalHeadlineSelector} force-
+     *               evaluation marker — see {@link BriefingEvaluationResult#forced}'s javadoc. A
+     *               WOODLAND-exposure or OPEN_FELL-paired bluebell candidate can be force-
+     *               evaluated exactly like a sky one; the marker is stamped here the same way
+     *               {@link #buildResult} stamps it for the sky lane
+     * @param submittedAt round 12: this result's submission instant — see {@link
+     *               BriefingEvaluationResult#submittedAt}'s own javadoc. Read by {@code
+     *               BriefingEvaluationService.recombineBluebell} to decide whether this bluebell
+     *               result belongs to the same cycle as a prior sky entry it might combine with
      */
     private BriefingEvaluationResult buildBluebellResult(LocationEntity location,
             BluebellEvaluation bluebell, LocalDate date, TargetType targetType, String regionName,
-            String modelName, Long pipelineRunId) {
+            String modelName, Long pipelineRunId, boolean forced, Instant submittedAt) {
         Set<TideType> tideTypes = location.getTideType();
-        TideContext tide = (tideTypes != null && !tideTypes.isEmpty())
+        boolean coastal = tideTypes != null && !tideTypes.isEmpty();
+        boolean openFell = location.getBluebellExposure() == BluebellExposure.OPEN_FELL;
+        boolean deriveTide = coastal
+                && (!openFell || !hasSkyScoredEntry(location, regionName, date, targetType));
+        TideContext tide = deriveTide
                 ? forecastDataAugmentor.deriveTideContext(location, date, targetType).orElse(null)
                 : null;
         RatingCombiner.CombinedRating combined =
@@ -637,22 +819,43 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
         Integer safeRating = RatingValidator.validateRating(
                 combined.rating(), regionName, date, targetType, location.getName(), modelName);
 
-        try {
-            forecastScoreWriter.writeComponents(
-                    location, date, targetType, combined.components(), pipelineRunId);
-        } catch (Exception e) {
-            LOG.error("forecast_score bluebell dual-write FAILED for component key "
-                    + "(location={}, date={}, event={}); the SERVED evaluation is unaffected, but "
-                    + "this slot's forecast_score row is now stale and the API reads bluebell "
-                    + "ratings from it. Repaired only IF this slot is successfully evaluated again — "
-                    + "triage and the T+2/T+3 stability gates can skip every later "
-                    + "attempt, so a stale row can outlive its event: {}",
-                    location.getName(), date, targetType, e.getMessage(), e);
+        if (!supersedingDispositionService.isSuperseded(
+                location.getName(), date, targetType, submittedAt)) {
+            try {
+                forecastScoreWriter.writeComponents(
+                        location, date, targetType, combined.components(), pipelineRunId);
+            } catch (Exception e) {
+                LOG.error("forecast_score bluebell dual-write FAILED for component key "
+                        + "(location={}, date={}, event={}); the SERVED evaluation is unaffected, "
+                        + "but this slot's forecast_score row is now stale and the API reads "
+                        + "bluebell ratings from it. Repaired only IF this slot is successfully "
+                        + "evaluated again — triage and the T+2/T+3 stability gates can skip every "
+                        + "later attempt, so a stale row can outlive its event: {}",
+                        location.getName(), date, targetType, e.getMessage(), e);
+            }
         }
 
-        return new BriefingEvaluationResult(
+        BriefingEvaluationResult result = new BriefingEvaluationResult(
                 location.getName(), safeRating, null, null, bluebell.summary(),
                 null, null, bluebell.headline());
+        BriefingEvaluationResult stamped = result.withSubmittedAt(submittedAt);
+        return forced ? stamped.withForced(true) : stamped;
+    }
+
+    /**
+     * Whether the cache already holds a sky-scored entry for this exact location/date/event —
+     * the same signal {@code BriefingEvaluationService.recombineBluebell} keys its OPEN_FELL
+     * recombination on ({@code fierySkyPotential() != null}), checked here in advance so
+     * {@link #buildBluebellResult} knows whether tide will arrive via that recombination or must
+     * be derived here as the sole fallback. In-memory only — see the caller's javadoc for the
+     * narrow post-restart window this leaves unclosed.
+     */
+    private boolean hasSkyScoredEntry(LocationEntity location, String regionName, LocalDate date,
+            TargetType targetType) {
+        BriefingEvaluationResult existing = briefingEvaluationService
+                .getCachedScores(regionName, date, targetType)
+                .get(location.getName());
+        return existing != null && existing.fierySkyPotential() != null;
     }
 
     /**
@@ -669,7 +872,11 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      */
     private void dualWriteForecastScore(LocationEntity location, LocalDate date,
             TargetType targetType, SunsetEvaluation eval, RatingCombiner.CombinedRating combined,
-            Long pipelineRunId) {
+            Long pipelineRunId, Instant submittedAt) {
+        if (supersedingDispositionService.isSuperseded(
+                location.getName(), date, targetType, submittedAt)) {
+            return;
+        }
         try {
             forecastScoreWriter.write(
                     location, date, targetType, eval, combined.components(), pipelineRunId);
@@ -682,6 +889,28 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
                     + "attempt, so a stale row can outlive its event: {}",
                     location.getName(), date, targetType, e.getMessage(), e);
         }
+    }
+
+    /**
+     * The sky visitor's own component score out of the combiner's applied set, or null when no
+     * {@link ForecastType#SKY} component was applied — {@code BriefingEvaluationResult#skyRating}'s
+     * source, RAW.
+     *
+     * <p>⚠️ Unvalidated — {@code SkyVisitor} passes Claude's parsed rating straight through with no
+     * range check of its own (the same reason {@code combined.rating()} itself needs {@link
+     * RatingValidator} downstream). Every caller must validate this value before persisting or
+     * serving it (Codex P1, #896): an average can mask an out-of-range component (sky 7 + tide 1
+     * rounds to a valid combined 4), so this raw figure is never safe to cache as-is.
+     *
+     * @param combined the combiner's result for this slot
+     * @return the sky component's raw, UNVALIDATED score, or null
+     */
+    private static Integer skyComponentScore(RatingCombiner.CombinedRating combined) {
+        return combined.components().stream()
+                .filter(c -> c.type() == ForecastType.SKY)
+                .map(ComponentScore::score)
+                .findFirst()
+                .orElse(null);
     }
 
     private void persistBatchLog(ResultContext context, ClaudeBatchOutcome outcome,
@@ -698,11 +927,11 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
         try {
             jobRunService.logBatchResult(
                     context.jobRunId(), context.batchId(), outcome.customId(),
-                    outcome.succeeded(), outcome.status(),
+                    outcome.succeeded(),
                     errorTypeOverride != null ? errorTypeOverride : outcome.errorType(),
                     outcome.errorMessage(),
                     model, outcome.tokenUsage(),
-                    targetDate, targetType, responseBody);
+                    targetDate, targetType, responseBody, outcome.cacheDiagnostics());
         } catch (Exception e) {
             LOG.warn("Forecast batch: failed to persist api_call_log for customId={}: {}",
                     outcome.customId(), e.getMessage());
@@ -719,12 +948,13 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
                     ? outcome.tokenUsage() : TokenUsage.EMPTY;
             jobRunService.logAnthropicApiCall(
                     context.jobRunId(), outcome.durationMs(),
-                    outcome.succeeded() ? 200 : 500,
+                    outcome.loggedStatusCode(),
                     outcome.succeeded() ? null : outcome.errorMessage(),
                     outcome.succeeded(), outcome.errorMessage(),
                     task.model(), tokens,
                     false,
-                    task.date(), task.targetType());
+                    task.date(), task.targetType(),
+                    outcome.errorType(), outcome.cacheDiagnostics());
         } catch (Exception e) {
             LOG.warn("Forecast sync: failed to persist api_call_log for {}: {}",
                     task.taskKey(), e.getMessage());

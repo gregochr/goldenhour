@@ -71,8 +71,6 @@ class CollectForecastTasksCachedGateTest {
     @Mock private OpenMeteoService openMeteoService;
     @Mock private SolarService solarService;
     @Mock private StabilitySnapshotProvider stabilitySnapshotProvider;
-    @Mock private com.gregochr.goldenhour.service.evaluation.SurvivorAtmosphereWriter
-            survivorAtmosphereWriter;
     @Mock private com.gregochr.goldenhour.service.TravelDayService travelDayService;
 
     private ForecastTaskCollector collector;
@@ -110,7 +108,7 @@ class CollectForecastTasksCachedGateTest {
                 locationService, briefingService,
                 briefingEvaluationService, forecastService, stabilityClassifier,
                 modelSelectionService, openMeteoService, solarService,
-                freshnessResolver, stabilitySnapshotProvider, survivorAtmosphereWriter,
+                freshnessResolver, stabilitySnapshotProvider,
                 travelDayService, 0.5, 0, CLOCK,
                 BLUEBELL_SEASON);
     }

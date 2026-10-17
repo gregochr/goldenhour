@@ -32,9 +32,25 @@ public sealed interface ParsedCustomId {
      *                   pre-deploy id (backward compatibility is mandatory: batches submitted by
      *                   the previous binary are in flight at deploy) or a malformed suffix, which
      *                   {@link CustomIdFactory#parse} rejects rather than silently drops
+     * @param forced     whether this task was submitted by {@code ForceEvalHeadlineSelector} as a
+     *                   stability-gated far-out best-bet headline rescue — {@code false} when the
+     *                   id carries no {@code -f} suffix, including every pre-deploy id
      */
-    record Forecast(Long locationId, LocalDate date, TargetType targetType, Long evalRowId)
-            implements ParsedCustomId {
+    record Forecast(Long locationId, LocalDate date, TargetType targetType, Long evalRowId,
+                     boolean forced) implements ParsedCustomId {
+
+        /**
+         * Convenience constructor defaulting {@code forced} to {@code false} — the four-arg shape
+         * every pre-existing call site and test uses.
+         *
+         * @param locationId database ID of the location
+         * @param date       forecast date
+         * @param targetType SUNRISE, SUNSET, or HOURLY
+         * @param evalRowId  primary key of the pending row, or {@code null}
+         */
+        public Forecast(Long locationId, LocalDate date, TargetType targetType, Long evalRowId) {
+            this(locationId, date, targetType, evalRowId, false);
+        }
     }
 
     /**
@@ -45,9 +61,15 @@ public sealed interface ParsedCustomId {
      * @param locationId database ID of the location
      * @param date       forecast date
      * @param targetType SUNRISE, SUNSET, or HOURLY
+     * @param forced     whether this task was submitted by {@code ForceEvalHeadlineSelector} —
+     *                   see {@link Forecast#forced}'s javadoc; {@code false} when the id carries
+     *                   no {@code -f} suffix, including every pre-deploy id
      */
-    record Bluebell(Long locationId, LocalDate date, TargetType targetType)
+    record Bluebell(Long locationId, LocalDate date, TargetType targetType, boolean forced)
             implements ParsedCustomId {
+        // No pre-existing three-arg convenience constructor: unlike Forecast, nothing ever
+        // constructed a Bluebell directly with no forced argument — CustomIdFactory#parseBluebell
+        // always supplies it, decoded from the id's optional -f suffix.
     }
 
     /**
@@ -59,9 +81,15 @@ public sealed interface ParsedCustomId {
      * @param locationId database ID of the location
      * @param date       forecast date
      * @param targetType SUNRISE, SUNSET, or HOURLY
+     * @param forced     whether this task was submitted by {@code ForceEvalHeadlineSelector} —
+     *                   see {@link Forecast#forced}'s javadoc; {@code false} when the id carries
+     *                   no {@code -f} suffix, including every pre-deploy id
      */
-    record Woodland(Long locationId, LocalDate date, TargetType targetType)
+    record Woodland(Long locationId, LocalDate date, TargetType targetType, boolean forced)
             implements ParsedCustomId {
+        // No pre-existing three-arg convenience constructor: unlike Forecast, nothing ever
+        // constructed a Woodland directly with no forced argument — CustomIdFactory#parseWoodland
+        // always supplies it, decoded from the id's optional -f suffix.
     }
 
     /**

@@ -32,7 +32,7 @@ import { FAMILY_GLYPHS } from '../utils/comingUpGlyphs.js';
  *
  * <h2>The provisional marker is scoped to this header, not the pane's (plan §7)</h2>
  *
- * <p>The strip's own sub-line grows a quiet "scores are provisional" suffix while any visible
+ * <p>The strip's own sub-line grows a quiet "figures are provisional" suffix while any visible
  * condition is {@code interim} (README's "say so in the UI" clause) — it does not live on
  * {@code WindowFirstComingUp}'s pane-level sub-line, which describes the chronology dates, not
  * this strip's scoring.
@@ -66,7 +66,7 @@ export default function WindowComingUpConditions({ conditions, onGoToPlan }) {
           too frequent to list · open one to see every date
           {provisional && (
             <span className="wf-cond-provisional" data-testid="coming-up-provisional">
-              {' '}· scores are provisional
+              {' '}· figures are provisional
             </span>
           )}
         </span>

@@ -1,0 +1,1446 @@
+package com.gregochr.goldenhour.service.ask;
+
+import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.model.BriefingRegion;
+import com.gregochr.goldenhour.model.BriefingSlot;
+import com.gregochr.goldenhour.model.BriefingWindow;
+import com.gregochr.goldenhour.model.DisplayVerdict;
+import com.gregochr.goldenhour.service.EclipseHotTopicStrategy;
+import com.gregochr.goldenhour.service.ask.AskAnswerValidator.BestAnchor;
+import com.gregochr.goldenhour.service.ask.AskAnswerValidator.Raw;
+import com.gregochr.goldenhour.service.ask.AskAnswerValidator.RawEvent;
+import com.gregochr.goldenhour.service.ask.AskAnswerValidator.RawPick;
+import com.gregochr.goldenhour.service.ask.AskAnswerValidator.Result;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
+
+import static com.gregochr.goldenhour.service.ask.AskFixtures.TODAY;
+import static org.assertj.core.api.Assertions.assertThat;
+
+/** Unit tests for {@link AskAnswerValidator}: every rule, a surviving and a dropped case each. */
+class AskAnswerValidatorTest {
+
+    private static final LocalDate TOMORROW = TODAY.plusDays(1);
+    private static final String SUNSET_TODAY = "2026-10-05_sunset";
+    private static final String SUNRISE_TOMORROW = "2026-10-06_sunrise";
+
+    private final AskAnswerValidator validator = new AskAnswerValidator();
+
+    // -- fixtures ---------------------------------------------------------------------------
+
+    private static AskSnapshot snapshot(BriefingWindow.Pick todaysPick, BriefingSlot... slots) {
+        BriefingRegion region = AskFixtures.region("Coast", true, slots);
+        return AskFixtures.snapshotOf(AskFixtures.briefing(
+                List.of(AskFixtures.sunsetDay(TODAY, todaysPick, region)), List.of()));
+    }
+
+    private static AskEvidence evidenceOf(AskEvidence.Pair... pairs) {
+        return new AskEvidence(Set.of(pairs), Set.of(), 1);
+    }
+
+    private static AskEvidence.Pair pair(long id) {
+        return new AskEvidence.Pair(id, SUNSET_TODAY);
+    }
+
+    private static Raw answer(String summary, RawPick... picks) {
+        return new Raw(true, summary, List.of(picks), List.of(), null);
+    }
+
+    private static RawPick rawPick(long id, String why) {
+        return new RawPick(id, SUNSET_TODAY, why);
+    }
+
+    /** The validator for an asker who may not see aurora figures: the solar tests are blind to the flag. */
+    private Result validateAs(Raw raw, AskSnapshot snapshot, AskEvidence evidence, AskScope scope,
+            AskAnswerValidator.BestAnchor anchor, ReadyQuestion eventsQuestion) {
+        return validator.validate(raw, snapshot, evidence, scope, anchor, eventsQuestion, false);
+    }
+
+    private Result validate(Raw raw, AskSnapshot snapshot, AskEvidence evidence) {
+        return validateAs(raw, snapshot, evidence, AskScope.ALL, null, null);
+    }
+
+    // -- picks ------------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("a returned, still-eligible pick survives with every card fact joined from served data")
+    void pick_survivesWithServedFacts() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "Whitby", 4));
+
+        Result result = validate(answer("Whitby tonight.", rawPick(1L, "Clear west")), snapshot,
+                evidenceOf(pair(1L)));
+
+        assertThat(result.accepted()).isTrue();
+        AskPick pick = result.answer().picks().getFirst();
+        assertThat(pick.rank()).isEqualTo(1);
+        assertThat(pick.locationId()).isEqualTo(1L);
+        assertThat(pick.locationName()).isEqualTo("Whitby");
+        assertThat(pick.regionName()).isEqualTo("Coast");
+        assertThat(pick.date()).isEqualTo(TODAY);
+        assertThat(pick.targetType()).isEqualTo(AskWindowKind.SUNSET);
+        assertThat(pick.windowId()).isEqualTo(SUNSET_TODAY);
+        assertThat(pick.why()).isEqualTo("Clear west");
+        assertThat(pick.ratingAtAnswer()).isEqualTo(4);
+        assertThat(pick.verdictAtAnswer()).isEqualTo("WORTH_IT");
+    }
+
+    @Test
+    @DisplayName("a pick no tool returned is dropped, whatever the snapshot says")
+    void pick_notReturnedByATool_isDropped() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "Whitby", 4),
+                AskFixtures.slot(2L, "Staithes", 5));
+
+        Result result = validate(answer("Staithes.", rawPick(2L, "Lovely")), snapshot,
+                evidenceOf(pair(1L)));
+
+        assertThat(result.answer().picks()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a pair returned for another window does not license the same location at this one")
+    void pick_pairMustMatchTheWindow() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "Whitby", 4));
+
+        Result result = validate(answer("Tomorrow.", new RawPick(1L, SUNRISE_TOMORROW, "x")),
+                snapshot, evidenceOf(pair(1L)));
+
+        assertThat(result.answer().picks()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a pick that stopped being eligible since the tool returned it is dropped")
+    void pick_noLongerEligible_isDropped() {
+        AskSnapshot before = snapshot(null, AskFixtures.slot(1L, "Whitby", 4));
+        AskSnapshot after = snapshot(null, AskFixtures.slot(1L, "Whitby", 2));
+        AskEvidence returnedBefore = evidenceOf(pair(1L));
+
+        assertThat(validate(answer("Whitby.", rawPick(1L, "x")), before, returnedBefore)
+                .answer().picks()).hasSize(1);
+        assertThat(validate(answer("Whitby.", rawPick(1L, "x")), after, returnedBefore)
+                .answer().picks()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a pick whose window left the window set is dropped")
+    void pick_windowGone_isDropped() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "Whitby", 4));
+
+        Result result = validate(answer("Gone.", new RawPick(1L, "2026-10-04_sunset", "x")),
+                snapshot, new AskEvidence(Set.of(new AskEvidence.Pair(1L, "2026-10-04_sunset")),
+                        Set.of(), 1));
+
+        assertThat(result.answer().picks()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("at most three picks, distinct locations, ranks renumbered from 1")
+    void picks_capDistinctAndRenumbered() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "A", 4), AskFixtures.slot(2L, "B", 4),
+                AskFixtures.slot(3L, "C", 4), AskFixtures.slot(4L, "D", 4));
+        AskEvidence evidence = evidenceOf(pair(1L), pair(2L), pair(3L), pair(4L));
+
+        Result result = validate(answer("Four.", rawPick(99L, "unknown"), rawPick(1L, "a"),
+                rawPick(1L, "again"), rawPick(2L, "b"), rawPick(3L, "c"), rawPick(4L, "d")),
+                snapshot, evidence);
+
+        assertThat(result.answer().picks()).extracting(AskPick::locationId)
+                .containsExactly(1L, 2L, 3L);
+        assertThat(result.answer().picks()).extracting(AskPick::rank).containsExactly(1, 2, 3);
+        assertThat(result.answer().picks().getFirst().why()).isEqualTo("a");
+    }
+
+    @Test
+    @DisplayName("the reason is capped at 24 words, brand-sanitised and stripped of URLs")
+    void pick_whyIsCleaned() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "A", 4));
+        String why = "Claude says see https://example.com/x now " + "word ".repeat(40);
+
+        Result result = validate(answer("A.", rawPick(1L, why)), snapshot, evidenceOf(pair(1L)));
+
+        String cleaned = result.answer().picks().getFirst().why();
+        assertThat(cleaned.split(" ")).hasSize(AskAnswerValidator.WHY_WORDS);
+        assertThat(cleaned).startsWith("PhotoCast says see now").doesNotContain("Claude")
+                .doesNotContain("http").doesNotContain("example.com");
+    }
+
+    @Test
+    @DisplayName("a null reason becomes an empty one rather than a null card line")
+    void pick_nullWhy() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "A", 4));
+
+        Result result = validate(answer("A.", new RawPick(1L, SUNSET_TODAY, null)), snapshot,
+                evidenceOf(pair(1L)));
+
+        assertThat(result.answer().picks().getFirst().why()).isEmpty();
+    }
+
+    // -- summary, caps and cleaning ---------------------------------------------------------
+
+    @Test
+    @DisplayName("a missing, blank or all-URL summary discards the answer")
+    void summary_isRequired() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "A", 4));
+        AskEvidence evidence = evidenceOf(pair(1L));
+
+        assertThat(validate(answer(null, rawPick(1L, "x")), snapshot, evidence).accepted()).isFalse();
+        assertThat(validate(answer("   ", rawPick(1L, "x")), snapshot, evidence).accepted()).isFalse();
+        Result urlOnly = validate(answer("https://example.com", rawPick(1L, "x")), snapshot, evidence);
+        assertThat(urlOnly.accepted()).isFalse();
+        assertThat(urlOnly.reason()).isEqualTo("no summary");
+    }
+
+    @Test
+    @DisplayName("the summary is capped at 60 words and missing at 8")
+    void summaryAndMissing_areWordCapped() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "A", 4));
+        String longSummary = "word ".repeat(100);
+        String longMissing = "item ".repeat(20);
+
+        Result result = validate(new Raw(false, longSummary, null, null, longMissing), snapshot,
+                evidenceOf());
+
+        assertThat(result.answer().summary().split(" ")).hasSize(AskAnswerValidator.SUMMARY_WORDS);
+        assertThat(result.answer().missing().split(" ")).hasSize(AskAnswerValidator.MISSING_WORDS);
+    }
+
+    /** The summary the validator serves for a raw one. */
+    private String servedSummary(String raw) {
+        return validate(new Raw(false, raw, null, null, null),
+                snapshot(null, AskFixtures.slot(1L, "A", 4)), evidenceOf()).answer().summary();
+    }
+
+    @Test
+    @DisplayName("a 60-word summary of 20-character words is served within 500 code points, cut at a word "
+            + "boundary, and the served text round-trips through the thread validation unchanged")
+    void summary_isBoundedToWhatAThreadMayEcho() {
+        String word = "abcdefghijklmnopqrst";
+        String sixty = String.join(" ", java.util.Collections.nCopies(AskAnswerValidator.SUMMARY_WORDS, word));
+        assertThat(sixty.codePointCount(0, sixty.length())).isEqualTo(1_259);
+
+        String served = servedSummary(sixty);
+
+        assertThat(served.codePointCount(0, served.length())).isLessThanOrEqualTo(500);
+        assertThat(served).isEqualTo(String.join(" ", java.util.Collections.nCopies(23, word)));
+        assertThat(served.split(" ")).allMatch(word::equals);
+        ThreadExchange echoed = new ThreadExchange("Best spot?", served, null, null,
+                java.time.LocalDateTime.of(2026, 10, 5, 12, 0), false);
+        assertThat(AskThreadValidation.validate(List.of(echoed), 8).exchanges().get(0).summary()).isEqualTo(served);
+    }
+
+    @Test
+    @DisplayName("an emoji, a zero-width joiner and a bare combining mark are removed from a served summary, "
+            + "the prose characters stay, and the result round-trips through the thread validation unchanged")
+    void summary_isStrippedOfWhatAFollowUpRefuses() {
+        String raw = "Lovely \uD83C\uDF05 sunrise\u200D at Bamburgh \u2605\u2605\u2605\u2605 \u2014 high water "
+                + "\u2026 \"worth it\" at 4\u00B0C near Caf\u00E9, rain\u2614 later, \u0307ok.\u00A0Go early.";
+
+        String served = servedSummary(raw);
+
+        assertThat(served).isEqualTo("Lovely sunrise at Bamburgh \u2605\u2605\u2605\u2605 \u2014 high water "
+                + "\u2026 \"worth it\" at 4\u00B0C near Caf\u00E9, rain later, ok. Go early.");
+        ThreadExchange echoed = new ThreadExchange("Best spot?", served, null, null,
+                java.time.LocalDateTime.of(2026, 10, 5, 12, 0), false);
+        assertThat(AskThreadValidation.validate(List.of(echoed), 8).exchanges().get(0).summary()).isEqualTo(served);
+    }
+
+    @Test
+    @DisplayName("a decomposed accent is composed, not stripped, and a plain summary is served byte for byte")
+    void summary_plainTextIsUntouched() {
+        String plain = "Bamburgh has high water on the light on Saturday, so go early.";
+
+        assertThat(servedSummary(plain)).isEqualTo(plain);
+        assertThat(servedSummary("Cafe\u0301 by the sea")).isEqualTo("Caf\u00E9 by the sea");
+    }
+
+    @Test
+    @DisplayName("a summary that is only emoji and invisible characters becomes empty, so the answer is discarded "
+            + "as having no summary")
+    void summary_onlyEmojiIsDiscarded() {
+        Result result = validate(new Raw(false, "\uD83C\uDF05\u200D\uD83C\uDF05 \u2614\uFE0F", null, null, null),
+                snapshot(null, AskFixtures.slot(1L, "A", 4)), evidenceOf());
+
+        assertThat(result.answer()).isNull();
+        assertThat(result.reason()).isEqualTo("no summary");
+    }
+
+    @Test
+    @DisplayName("a summary within the bound is served byte for byte, and one long word is cut at the bound")
+    void summary_boundIsOnlyAppliedWhenNeeded() {
+        String normal = "Bamburgh has high water on the light on Saturday, so go early.";
+        String hugeWord = "a".repeat(800);
+
+        assertThat(servedSummary(normal))
+                .isEqualTo(normal);
+        assertThat(servedSummary(hugeWord))
+                .isEqualTo("a".repeat(500));
+    }
+
+    @Test
+    @DisplayName("the bound is counted in code points and never splits a surrogate pair")
+    void boundCodePoints_neverSplitsAPair() {
+        String astral = "\uD83C\uDF05".repeat(600);
+
+        String cut = AskAnswerValidator.boundCodePoints(astral, 500);
+
+        assertThat(cut.codePointCount(0, cut.length())).isEqualTo(500);
+        assertThat(AskAnswerValidator.boundCodePoints(null, 500)).isNull();
+        assertThat(AskAnswerValidator.boundCodePoints("short text", 500)).isEqualTo("short text");
+        assertThat(AskAnswerValidator.THREAD_SUMMARY_MAX_CODE_POINTS)
+                .isEqualTo(AskQuestionSanitiser.MAX_THREAD_SUMMARY_LENGTH);
+    }
+
+    @Test
+    @DisplayName("exactly 60 summary words and 24 reason words are kept whole")
+    void caps_boundaryIsInclusive() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "A", 4));
+        String sixty = "w ".repeat(60).strip();
+        String twentyFour = "v ".repeat(24).strip();
+
+        Result result = validate(answer(sixty, rawPick(1L, twentyFour)), snapshot, evidenceOf(pair(1L)));
+
+        assertThat(result.answer().summary()).isEqualTo(sixty);
+        assertThat(result.answer().picks().getFirst().why()).isEqualTo(twentyFour);
+    }
+
+    @Test
+    @DisplayName("URL-like strings are stripped: schemes, www, bare domains with paths; place names are left alone")
+    void clean_stripsUrlLikeStrings() {
+        assertThat(AskAnswerValidator.clean("See https://a.com/x?y=1 for more", 60))
+                .isEqualTo("See for more");
+        assertThat(AskAnswerValidator.clean("Go to www.example.org today", 60))
+                .isEqualTo("Go to today");
+        assertThat(AskAnswerValidator.clean("Book at foo.co.uk/tickets or mailto:a@b.com now", 60))
+                .isEqualTo("Book at or now");
+        assertThat(AskAnswerValidator.clean("St. Mary's Lighthouse at Whitby, Saturday.", 60))
+                .isEqualTo("St. Mary's Lighthouse at Whitby, Saturday.");
+        assertThat(AskAnswerValidator.clean("Bamburgh. Then Seahouses.", 60))
+                .isEqualTo("Bamburgh. Then Seahouses.");
+        assertThat(AskAnswerValidator.clean(null, 60)).isNull();
+    }
+
+    @Test
+    @DisplayName("the engine's own names are rebranded in the summary")
+    void summary_isRebranded() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "A", 4));
+
+        Result result = validate(answer("Anthropic and Claude agree.", rawPick(1L, "x")), snapshot,
+                evidenceOf(pair(1L)));
+
+        assertThat(result.answer().summary()).isEqualTo("PhotoCast and PhotoCast agree.");
+    }
+
+    // -- answerable -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("answerable with nothing surviving is allowed only when a tool was called")
+    void answerable_withNothingNeedsAToolCall() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "A", 2));
+        Raw nothingWorthIt = answer("Nothing is worth the drive this week.");
+
+        Result withTool = validate(nothingWorthIt, snapshot, new AskEvidence(Set.of(), Set.of(), 1));
+        Result noTool = validate(nothingWorthIt, snapshot, new AskEvidence(Set.of(), Set.of(), 0));
+
+        assertThat(withTool.accepted()).isTrue();
+        assertThat(withTool.answer().answerable()).isTrue();
+        assertThat(withTool.answer().picks()).isEmpty();
+        assertThat(noTool.accepted()).isFalse();
+        assertThat(noTool.reason()).contains("no tool call");
+    }
+
+    @Test
+    @DisplayName("answerable:false keeps the summary and missing and clears picks and events")
+    void unanswerable_clearsPicksAndEvents() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "A", 4));
+        AskEvidence evidence = new AskEvidence(Set.of(pair(1L)),
+                Set.of(new AskEvidence.EventFact("AURORA", "Aurora", TODAY)), 1);
+        Raw raw = new Raw(false, "PhotoCast has no parking data.", List.of(rawPick(1L, "x")),
+                List.of(new RawEvent("AURORA", null, "x")), "  parking  ");
+
+        Result result = validate(raw, snapshot, evidence);
+
+        assertThat(result.answer().answerable()).isFalse();
+        assertThat(result.answer().picks()).isEmpty();
+        assertThat(result.answer().events()).isEmpty();
+        assertThat(result.answer().missing()).isEqualTo("parking");
+    }
+
+    @Test
+    @DisplayName("a blank missing phrase becomes null")
+    void missing_blankBecomesNull() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "A", 4));
+
+        Result result = validate(new Raw(false, "No.", null, null, "https://x.com"), snapshot,
+                evidenceOf());
+
+        assertThat(result.answer().missing()).isNull();
+    }
+
+    // -- events -----------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("an event survives only if its type was returned, and shows the served label and date")
+    void event_survivesWithServedFacts() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "A", 4));
+        AskEvidence evidence = new AskEvidence(Set.of(), Set.of(
+                new AskEvidence.EventFact("AURORA", "Aurora possible", TOMORROW),
+                new AskEvidence.EventFact("SNOW", "Snow on the tops", TODAY)), 2);
+        Raw raw = new Raw(true, "Two things.", null, List.of(
+                new RawEvent("aurora", null, "Kp 6 forecast"),
+                new RawEvent("METEOR", null, "invented"),
+                new RawEvent(null, null, "no type")), null);
+
+        Result result = validate(raw, snapshot, evidence);
+
+        assertThat(result.answer().events()).singleElement().satisfies(e -> {
+            assertThat(e.type()).isEqualTo("AURORA");
+            assertThat(e.label()).isEqualTo("Aurora possible");
+            assertThat(e.date()).isEqualTo(TOMORROW);
+            assertThat(e.why()).isEqualTo("Kp 6 forecast");
+        });
+    }
+
+    private static final String WARNING = "Certified solar filter on the lens — not only over your eye";
+
+    @Test
+    @DisplayName("a served safety note is always on the validated event, whatever the model wrote in its reason")
+    void event_safetyNoteIsRejoinedFromServedData() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "A", 4));
+        AskEvidence evidence = new AskEvidence(Set.of(), Set.of(
+                new AskEvidence.EventFact("ECLIPSE", "Partial solar eclipse", TOMORROW, WARNING)), 1);
+
+        Result silent = validate(new Raw(true, "An eclipse.", null,
+                List.of(new RawEvent("ECLIPSE", null, "Great shots")), null), snapshot, evidence);
+        Result contradicting = validate(new Raw(true, "An eclipse.", null,
+                List.of(new RawEvent("eclipse", TOMORROW, "No filter needed, just look")), null),
+                snapshot, evidence);
+
+        assertThat(silent.answer().events().getFirst().safetyNote()).isEqualTo(WARNING);
+        assertThat(contradicting.answer().events().getFirst().safetyNote()).isEqualTo(WARNING);
+    }
+
+    @Test
+    @DisplayName("a solar eclipse validated from get_coming_up evidence alone carries the note; a lunar one none, "
+            + "and the almanac's lunar-eclipse reaches the card as LUNAR_ECLIPSE, the type the client keys on")
+    void event_fromTheAlmanacAlone_solarCarriesTheNoteLunarNone() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "A", 4));
+        AskSnapshot withAlmanac = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of()), List.of(
+                AskSnapshotBuilderTest.almanacEntry("eclipse", "Partial solar eclipse",
+                        TODAY.plusDays(40), TODAY.plusDays(40), "A partial eclipse"),
+                AskSnapshotBuilderTest.almanacEntry("lunar-eclipse", "Total lunar eclipse",
+                        TODAY.plusDays(50), TODAY.plusDays(50), "Moon in shadow")));
+        AskTools tools = new AskTools(withAlmanac, AskUserContext.userLess(), TestScopes.of(), null,
+                new com.fasterxml.jackson.databind.ObjectMapper());
+        tools.getComingUp(null);
+
+        Result result = validate(new Raw(true, "Two eclipses.", null, List.of(
+                new RawEvent("eclipse", null, "Worth planning"),
+                new RawEvent("LUNAR-ECLIPSE", null, "Easy to watch")), null),
+                snapshot, tools.evidence());
+
+        assertThat(result.answer().events()).extracting(AskEvent::type)
+                .containsExactly("ECLIPSE", "LUNAR_ECLIPSE");
+        assertThat(result.answer().events().get(0).safetyNote())
+                .isEqualTo(EclipseHotTopicStrategy.SAFETY_NOTE);
+        assertThat(result.answer().events().get(1).safetyNote()).isNull();
+    }
+
+    @Test
+    @DisplayName("lunar-eclipse and LUNAR_ECLIPSE are one type here: a model that names either spelling "
+            + "validates against the other's evidence, and the card carries the one folded type")
+    void event_theTwoSpellingsOfOneTypeMatch() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "A", 4));
+        LocalDate day = TODAY.plusDays(50);
+        AskEvidence dashed = new AskEvidence(Set.of(),
+                Set.of(new AskEvidence.EventFact("LUNAR-ECLIPSE", "Total lunar eclipse", day)), 1);
+        AskEvidence underscored = new AskEvidence(Set.of(),
+                Set.of(new AskEvidence.EventFact("LUNAR_ECLIPSE", "Lunar eclipse", day)), 1);
+
+        Result nameUnderscore = validate(new Raw(true, "Eclipse.", null,
+                List.of(new RawEvent("LUNAR_ECLIPSE", null, "Easy")), null), snapshot, dashed);
+        Result nameDash = validate(new Raw(true, "Eclipse.", null,
+                List.of(new RawEvent(" lunar-eclipse ", null, "Easy")), null), snapshot, underscored);
+
+        assertThat(nameUnderscore.answer().events()).extracting(AskEvent::type)
+                .containsExactly("LUNAR_ECLIPSE");
+        assertThat(nameDash.answer().events()).extracting(AskEvent::type)
+                .containsExactly("LUNAR_ECLIPSE");
+    }
+
+    @Test
+    @DisplayName("one eclipse the tools returned under both spellings (the almanac's and the hot topic's) "
+            + "is one card, not two")
+    void event_bothSpellingsOfOneEventAreOneCard() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "A", 4));
+        LocalDate day = TODAY.plusDays(50);
+        AskEvidence both = new AskEvidence(Set.of(), Set.of(
+                new AskEvidence.EventFact("LUNAR-ECLIPSE", "Total lunar eclipse", day),
+                new AskEvidence.EventFact("LUNAR_ECLIPSE", "Lunar eclipse", day)), 2);
+
+        Result result = validate(new Raw(true, "Eclipse.", null, List.of(
+                new RawEvent("LUNAR-ECLIPSE", null, "Easy"),
+                new RawEvent("LUNAR_ECLIPSE", null, "Easy again")), null), snapshot, both);
+
+        assertThat(result.answer().events()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("an events question's offered count reads one eclipse once whichever spelling lists it")
+    void eventsQuestion_offeredCountReadsOneTypeOnce() {
+        LocalDate day = TODAY.plusDays(4);
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(
+                AskFixtures.topic("LUNAR_ECLIPSE", "Lunar eclipse", "d", day, List.of()))),
+                List.of(AskSnapshotBuilderTest.almanacEntry("lunar-eclipse", "Total lunar eclipse", day, day,
+                        "d")));
+
+        Result result = validateAs(new Raw(true, "None.", List.of(), List.of(), null), snapshot,
+                new AskEvidence(Set.of(), Set.of(), 2), AskScope.ALL, null, ReadyQuestion.RARE_EVENTS);
+
+        assertThat(result.reason()).isEqualTo("events question answered \"none\" while 1 events were offered");
+    }
+
+    @Test
+    @DisplayName("of two served facts for one type and date, the one carrying a warning is used")
+    void event_aWarningIsNeverLostToAnEqualFact() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "A", 4));
+        AskEvidence evidence = new AskEvidence(Set.of(),
+                Set.of(new AskEvidence.EventFact("ECLIPSE", "Eclipse", TOMORROW, null),
+                        new AskEvidence.EventFact("ECLIPSE", "Eclipse", TOMORROW, WARNING)), 2);
+
+        Result result = validate(new Raw(true, "An eclipse.", null,
+                List.of(new RawEvent("ECLIPSE", null, "x")), null), snapshot, evidence);
+
+        assertThat(result.answer().events().getFirst().safetyNote()).isEqualTo(WARNING);
+    }
+
+    @Test
+    @DisplayName("an event whose served topic has no safety note carries none, and none is written on the wire")
+    void event_noServedNote_isNullAndOmitted() throws Exception {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "A", 4));
+        AskEvidence evidence = new AskEvidence(Set.of(),
+                Set.of(new AskEvidence.EventFact("AURORA", "Aurora", null)), 1);
+
+        Result result = validate(new Raw(true, "Aurora.", null,
+                List.of(new RawEvent("AURORA", null, "Kp 6")), null), snapshot, evidence);
+
+        AskEvent event = result.answer().events().getFirst();
+        assertThat(event.safetyNote()).isNull();
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        assertThat(mapper.readTree(mapper.writeValueAsString(event)).has("safetyNote")).isFalse();
+        AskEvent withNote = new AskEvent("ECLIPSE", "Eclipse", null, "why", WARNING);
+        assertThat(mapper.readTree(mapper.writeValueAsString(withNote)).path("safetyNote").asText())
+                .isEqualTo(WARNING);
+    }
+
+    @Test
+    @DisplayName("the model's date selects among served dates and a date no tool returned drops the event")
+    void event_dateMustMatchAServedDate() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "A", 4));
+        AskEvidence evidence = new AskEvidence(Set.of(), Set.of(
+                new AskEvidence.EventFact("KING_TIDE", "King tide", TOMORROW.plusDays(2)),
+                new AskEvidence.EventFact("KING_TIDE", "King tide", TOMORROW)), 1);
+        Raw raw = new Raw(true, "Tides.", null, List.of(
+                new RawEvent("KING_TIDE", TOMORROW.plusDays(2), "later"),
+                new RawEvent("KING_TIDE", TOMORROW.plusDays(9), "invented date"),
+                new RawEvent("KING_TIDE", null, "earliest served")), null);
+
+        Result result = validate(raw, snapshot, evidence);
+
+        assertThat(result.answer().events()).extracting(AskEvent::date)
+                .containsExactly(TOMORROW.plusDays(2), TOMORROW);
+        assertThat(result.answer().events()).extracting(AskEvent::why)
+                .containsExactly("later", "earliest served");
+    }
+
+    @Test
+    @DisplayName("the same event named twice appears once")
+    void event_duplicateIsDropped() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "A", 4));
+        AskEvidence evidence = new AskEvidence(Set.of(),
+                Set.of(new AskEvidence.EventFact("AURORA", "Aurora", TODAY)), 1);
+
+        Result result = validate(new Raw(true, "Aurora.", null, List.of(
+                new RawEvent("AURORA", null, "one"), new RawEvent("AURORA", null, "two")), null),
+                snapshot, evidence);
+
+        assertThat(result.answer().events()).hasSize(1);
+        assertThat(result.answer().events().getFirst().why()).isEqualTo("one");
+    }
+
+    @Test
+    @DisplayName("an event-only answer with a tool call is accepted; a null event why becomes empty")
+    void event_onlyAnswer() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "A", 4));
+        AskEvidence evidence = new AskEvidence(Set.of(),
+                Set.of(new AskEvidence.EventFact("AURORA", "Aurora", null)), 1);
+
+        Result result = validate(new Raw(true, "Aurora.", null,
+                List.of(new RawEvent("AURORA", null, null)), null), snapshot, evidence);
+
+        assertThat(result.accepted()).isTrue();
+        assertThat(result.answer().events().getFirst().why()).isEmpty();
+        assertThat(result.answer().events().getFirst().date()).isNull();
+    }
+
+    // -- the BEST anchor --------------------------------------------------------------------
+
+    private static AskSnapshot twoWindowSnapshot() {
+        BriefingWindow.Pick best = AskFixtures.pick(BriefingWindow.PickKind.BEST, "Coast", "Whitby", 1L);
+        BriefingRegion region = AskFixtures.region("Coast", true,
+                AskFixtures.slot(1L, "Whitby", 4), AskFixtures.slot(2L, "Staithes", 5));
+        BriefingWindow tonight = AskFixtures.window(TODAY.atTime(18, 0), DisplayVerdict.WORTH_IT, 5, best);
+        BriefingWindow morning = AskFixtures.window(TOMORROW.atTime(5, 40), DisplayVerdict.WORTH_IT, 5, null);
+        return AskFixtures.snapshotOf(AskFixtures.briefing(List.of(
+                AskFixtures.day(TODAY, AskFixtures.summary(TargetType.SUNSET, tonight, region)),
+                AskFixtures.day(TOMORROW, AskFixtures.summary(TargetType.SUNRISE, morning, region))),
+                List.of()));
+    }
+
+    private static final BestAnchor ANCHOR =
+            new BestAnchor(Set.of(SUNSET_TODAY, SUNRISE_TOMORROW));
+
+    private static final AskEvidence BOTH_WINDOWS = new AskEvidence(Set.of(
+            new AskEvidence.Pair(1L, SUNSET_TODAY), new AskEvidence.Pair(2L, SUNSET_TODAY),
+            new AskEvidence.Pair(2L, SUNRISE_TOMORROW)), Set.of(), 1);
+
+    @Test
+    @DisplayName("BEST_*: pick 1 on the BEST BET window is accepted, whichever location leads there")
+    void bestAnchor_leadingWithTheBestWindowIsAccepted() {
+        Result result = validateAs(answer("Tonight.", rawPick(2L, "Brightest")),
+                twoWindowSnapshot(), BOTH_WINDOWS, AskScope.ALL, ANCHOR, null);
+
+        assertThat(result.accepted()).isTrue();
+    }
+
+    @Test
+    @DisplayName("BEST_*: pick 1 on any other window discards the answer")
+    void bestAnchor_leadingElsewhereIsDiscarded() {
+        Result result = validateAs(
+                answer("Tomorrow.", new RawPick(2L, SUNRISE_TOMORROW, "x"), rawPick(1L, "y")),
+                twoWindowSnapshot(), BOTH_WINDOWS, AskScope.ALL, ANCHOR, null);
+
+        assertThat(result.accepted()).isFalse();
+        assertThat(result.reason()).contains(SUNSET_TODAY);
+    }
+
+    @Test
+    @DisplayName("BEST_*: an answer with no surviving pick at all is discarded when a BEST BET exists")
+    void bestAnchor_noPickIsDiscarded() {
+        Result result = validateAs(answer("Nothing."), twoWindowSnapshot(), BOTH_WINDOWS,
+                AskScope.ALL, ANCHOR, null);
+
+        assertThat(result.accepted()).isFalse();
+    }
+
+    @Test
+    @DisplayName("BEST_*: unanswerable is not an escape from the anchor")
+    void bestAnchor_unanswerableIsDiscarded() {
+        Result result = validateAs(new Raw(false, "No.", null, null, "data"),
+                twoWindowSnapshot(), BOTH_WINDOWS, AskScope.ALL, ANCHOR, null);
+
+        assertThat(result.accepted()).isFalse();
+    }
+
+    @Test
+    @DisplayName("BEST_*: a question whose windows carry no BEST BET is not anchored")
+    void bestAnchor_notAnchoredWithoutABestWindowCovered() {
+        BestAnchor tomorrowOnly = new BestAnchor(Set.of(SUNRISE_TOMORROW));
+
+        Result result = validateAs(
+                answer("Tomorrow.", new RawPick(2L, SUNRISE_TOMORROW, "x")),
+                twoWindowSnapshot(), BOTH_WINDOWS, AskScope.ALL, tomorrowOnly, null);
+
+        assertThat(result.accepted()).isTrue();
+    }
+
+    @Test
+    @DisplayName("BEST_*: a BEST BET outside the question's scope does not anchor it")
+    void bestAnchor_bestBetOutOfScope() {
+        BestAnchor otherScope = new BestAnchor(Set.of(SUNSET_TODAY));
+
+        Result result = validateAs(
+                answer("Tomorrow.", new RawPick(2L, SUNRISE_TOMORROW, "x")),
+                twoWindowSnapshot(), BOTH_WINDOWS, TestScopes.of("Hills"), otherScope, null);
+
+        assertThat(result.accepted()).isTrue();
+    }
+
+    @Test
+    @DisplayName("BEST_*: a BEST BET window with nothing pick-eligible to lead with does not anchor")
+    void bestAnchor_nothingEligibleOnTheBestWindow() {
+        BriefingWindow.Pick best = AskFixtures.pick(BriefingWindow.PickKind.BEST, "Coast", "Whitby", 1L);
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(
+                AskFixtures.sunsetDay(TODAY, best,
+                        AskFixtures.region("Coast", true, AskFixtures.slot(1L, "Whitby", 2)))),
+                List.of()));
+
+        Result result = validateAs(answer("Nothing is worth it tonight."), snapshot,
+                new AskEvidence(Set.of(), Set.of(), 1), AskScope.ALL, new BestAnchor(Set.of(SUNSET_TODAY)), null);
+
+        assertThat(result.accepted()).isTrue();
+    }
+
+    /** The BEST BET names Coast, whose only slot is 2 stars; Hills, outside a Coast scope, has a 4-star slot. */
+    private static AskSnapshot bestRegionHasNothingEligibleSnapshot() {
+        BriefingWindow.Pick best = AskFixtures.pick(BriefingWindow.PickKind.BEST, "Coast", "Whitby", 1L);
+        return AskFixtures.snapshotOf(AskFixtures.briefing(List.of(AskFixtures.sunsetDay(TODAY, best,
+                AskFixtures.region("Coast", true, AskFixtures.slot(1L, "Whitby", 2)),
+                AskFixtures.region("Hills", true, AskFixtures.slot(5L, "Cat Bells", 4)))), List.of()));
+    }
+
+    @Test
+    @DisplayName("BEST_*: scoped to a region with nothing eligible, an eligible slot elsewhere does not anchor it")
+    void bestAnchor_scopedToARegionWithNothingEligible_doesNotApply() {
+        AskSnapshot snapshot = bestRegionHasNothingEligibleSnapshot();
+        BestAnchor coastOnly = new BestAnchor(Set.of(SUNSET_TODAY));
+        AskEvidence toolsCalled = new AskEvidence(Set.of(), Set.of(), 1);
+
+        Result noPicks = validateAs(answer("Nothing is worth it in Coast tonight."),
+                snapshot, toolsCalled, TestScopes.of("coast"), coastOnly, null);
+        Result unanswerable = validateAs(new Raw(false, "No.", null, null, "data"),
+                snapshot, toolsCalled, TestScopes.of("coast"), coastOnly, null);
+
+        assertThat(noPicks.accepted()).isTrue();
+        assertThat(unanswerable.accepted()).isTrue();
+    }
+
+    @Test
+    @DisplayName("BEST_*: the same snapshot with the whole country in scope still anchors on the eligible slot")
+    void bestAnchor_emptyScopeStillAnchors() {
+        AskSnapshot snapshot = bestRegionHasNothingEligibleSnapshot();
+        BestAnchor everywhere = new BestAnchor(Set.of(SUNSET_TODAY));
+        AskEvidence toolsCalled = new AskEvidence(Set.of(), Set.of(), 1);
+
+        Result noPicks = validateAs(answer("Nothing."), snapshot, toolsCalled, TestScopes.of(),
+                everywhere, null);
+
+        assertThat(noPicks.accepted()).isFalse();
+    }
+
+    @Test
+    @DisplayName("BEST_*: a scope that includes an eligible slot, in any letter case, still enforces the anchor")
+    void bestAnchor_scopeWithAnEligibleSlotStillAnchors() {
+        AskSnapshot snapshot = bestRegionHasNothingEligibleSnapshot();
+        BestAnchor hillsOnly = new BestAnchor(Set.of(SUNSET_TODAY));
+        AskEvidence toolsCalled = new AskEvidence(Set.of(), Set.of(), 1);
+
+        Result noPicks = validateAs(answer("Nothing."), snapshot, toolsCalled,
+                TestScopes.of("Coast", "HILLS"), hillsOnly, null);
+
+        assertThat(noPicks.accepted()).isFalse();
+    }
+
+    @Test
+    @DisplayName("the anchor and rank_spots agree: where the anchor does not apply, the scoped tool offers nothing")
+    void bestAnchor_agreesWithRankSpotsUnderTheSameScope() {
+        AskSnapshot snapshot = bestRegionHasNothingEligibleSnapshot();
+        AskTools scoped = new AskTools(snapshot, AskUserContext.userLess(), TestScopes.of("Coast"), null,
+                new com.fasterxml.jackson.databind.ObjectMapper());
+
+        AskTools.RankSpotsResult result = (AskTools.RankSpotsResult) scoped.rankSpots(null).payload();
+
+        assertThat(result.spots()).isEmpty();
+        assertThat(snapshot.candidates(snapshot.windows().getFirst(), TestScopes.of("coast"))).isEmpty();
+        assertThat(snapshot.candidates(snapshot.windows().getFirst(), TestScopes.of("HILLS"))).hasSize(1);
+        assertThat(snapshot.candidates(snapshot.windows().getFirst(), TestScopes.of())).hasSize(1);
+    }
+
+    // -- scope and boundaries ---------------------------------------------------------------
+
+    private static AskSnapshot twoRegionSnapshot() {
+        return AskFixtures.snapshotOf(AskFixtures.briefing(List.of(AskFixtures.sunsetDay(TODAY, null,
+                AskFixtures.region("Coast", true, AskFixtures.slot(1L, "Whitby", 4)),
+                AskFixtures.region("Hills", true, AskFixtures.slot(5L, "Cat Bells", 5)))), List.of()));
+    }
+
+    @Test
+    @DisplayName("scope: a pair for an out-of-scope region in the evidence is dropped, an in-scope one survives")
+    void scope_dropsAnOutOfScopePick() {
+        AskSnapshot snapshot = twoRegionSnapshot();
+        AskEvidence evidence = evidenceOf(pair(1L), pair(5L));
+        Raw raw = answer("Two.", rawPick(5L, "Hills"), rawPick(1L, "Coast"));
+
+        Result result = validateAs(raw, snapshot, evidence, TestScopes.of("coast"), null, null);
+
+        assertThat(result.answer().picks()).singleElement().satisfies(p -> {
+            assertThat(p.locationId()).isEqualTo(1L);
+            assertThat(p.rank()).as("ranks are renumbered after the drop").isEqualTo(1);
+        });
+    }
+
+    @Test
+    @DisplayName("scope: an open scope leaves every pick; a scope naming both keeps both")
+    void scope_openScopeChangesNothing() {
+        AskSnapshot snapshot = twoRegionSnapshot();
+        AskEvidence evidence = evidenceOf(pair(1L), pair(5L));
+        Raw raw = answer("Two.", rawPick(5L, "Hills"), rawPick(1L, "Coast"));
+
+        assertThat(validateAs(raw, snapshot, evidence, TestScopes.of(), null, null).answer().picks())
+                .hasSize(2);
+        assertThat(validateAs(raw, snapshot, evidence, TestScopes.of("COAST", "hills"), null, null)
+                .answer().picks()).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("scope: when every pick is out of scope the answer is a no-pick answer, still accepted")
+    void scope_allPicksOutOfScope() {
+        AskSnapshot snapshot = twoRegionSnapshot();
+
+        Result result = validateAs(answer("Hills.", rawPick(5L, "Hills")), snapshot,
+                evidenceOf(pair(5L)), TestScopes.of("Coast"), null, null);
+
+        assertThat(result.accepted()).isTrue();
+        assertThat(result.answer().picks()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("word caps: 60, 24 and 8 words are kept whole; 61, 25 and 9 are cut to the cap")
+    void wordCaps_exactBoundaries() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "A", 4));
+        AskEvidence evidence = evidenceOf(pair(1L));
+        for (int extra = 0; extra <= 1; extra++) {
+            String summary = "s ".repeat(AskAnswerValidator.SUMMARY_WORDS + extra).strip();
+            String why = "w ".repeat(AskAnswerValidator.WHY_WORDS + extra).strip();
+            String missing = "m ".repeat(AskAnswerValidator.MISSING_WORDS + extra).strip();
+
+            Result answered = validate(answer(summary, rawPick(1L, why)), snapshot, evidence);
+            Result unanswerable = validate(new Raw(false, summary, null, null, missing), snapshot,
+                    evidence);
+
+            assertThat(answered.answer().summary().split(" "))
+                    .hasSize(AskAnswerValidator.SUMMARY_WORDS);
+            assertThat(answered.answer().picks().getFirst().why().split(" "))
+                    .hasSize(AskAnswerValidator.WHY_WORDS);
+            assertThat(unanswerable.answer().missing().split(" "))
+                    .hasSize(AskAnswerValidator.MISSING_WORDS);
+        }
+    }
+
+    @Test
+    @DisplayName("distinct locations: the same location at a second window is dropped, not counted toward three")
+    void picks_sameLocationAtAnotherWindowIsDropped() {
+        AskEvidence evidence = new AskEvidence(Set.of(new AskEvidence.Pair(2L, SUNSET_TODAY),
+                new AskEvidence.Pair(2L, SUNRISE_TOMORROW), new AskEvidence.Pair(1L, SUNSET_TODAY)),
+                Set.of(), 1);
+
+        Result result = validateAs(answer("Two.", rawPick(2L, "a"),
+                new RawPick(2L, SUNRISE_TOMORROW, "b"), rawPick(1L, "c")),
+                twoWindowSnapshot(), evidence, AskScope.ALL, null, null);
+
+        assertThat(result.answer().picks()).extracting(AskPick::locationId).containsExactly(2L, 1L);
+        assertThat(result.answer().picks().getFirst().windowId()).isEqualTo(SUNSET_TODAY);
+    }
+
+    @Test
+    @DisplayName("BEST_*: an anchor with null sets reads as empty")
+    void bestAnchor_nullSets() {
+        BestAnchor anchor = new BestAnchor(null);
+
+        assertThat(anchor.windowIds()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a Raw answer with null lists reads as empty")
+    void raw_nullListsAreEmpty() {
+        Raw raw = new Raw(true, "x", null, null, null);
+
+        assertThat(raw.picks()).isEmpty();
+        assertThat(raw.events()).isEmpty();
+        List<RawPick> noPicks = new ArrayList<>();
+        assertThat(new Raw(true, "x", noPicks, List.of(), null).picks()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("agreement: evidence gathered by the real tools lets the tools' own top pick through")
+    void agreementWithTheTools() {
+        AskSnapshot snapshot = twoWindowSnapshot();
+        AskTools tools = new AskTools(snapshot, AskUserContext.userLess(), TestScopes.of(), null,
+                new com.fasterxml.jackson.databind.ObjectMapper());
+        tools.rankSpots(new AskTools.RankSpotsArgs(null, null, null, null, null, 3));
+        AskTools.SpotInfo top = ((AskTools.RankSpotsResult) tools.rankSpots(
+                new AskTools.RankSpotsArgs(List.of(SUNSET_TODAY), null, null, null, null, 1))
+                .payload()).spots().getFirst();
+
+        Result result = validateAs(
+                answer("Top.", new RawPick(top.locationId(), top.windowId(), "Best")),
+                snapshot, tools.evidence(), AskScope.ALL, null, null);
+
+        assertThat(result.answer().picks()).singleElement()
+                .satisfies(p -> assertThat(p.locationId()).isEqualTo(top.locationId()));
+    }
+
+    // -- events questions answered "none" -----------------------------------------------------
+
+    private static AskSnapshot snapshotWithTopics(com.gregochr.goldenhour.model.HotTopic... topics) {
+        return AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of(topics)));
+    }
+
+    private Result validateEvents(Raw raw, AskSnapshot snapshot, ReadyQuestion question) {
+        return validateAs(raw, snapshot, new AskEvidence(Set.of(), Set.of(), 2), AskScope.ALL, null, question);
+    }
+
+    private static Raw none() {
+        return new Raw(true, "No rare events are forecast.", List.of(), List.of(), null);
+    }
+
+    @Test
+    @DisplayName("an events question answered with no event while the snapshot offers one is discarded, "
+            + "naming how many were offered, however the model came to say none")
+    void eventsQuestion_noneWhileOffered_isDiscarded() {
+        AskSnapshot snapshot = snapshotWithTopics(
+                AskFixtures.topic("ECLIPSE", "Partial solar eclipse", "d", TODAY.plusDays(4), List.of()),
+                AskFixtures.topic("KING_TIDE", "King tide", "d", TOMORROW, List.of("Coast")),
+                AskFixtures.topic("KING_TIDE", "King tide", "d", TOMORROW, List.of("Coast")));
+
+        Result result = validateEvents(none(), snapshot, ReadyQuestion.RARE_EVENTS);
+
+        assertThat(result.accepted()).isFalse();
+        assertThat(result.reason()).isEqualTo("events question answered \"none\" while 2 events were offered");
+    }
+
+    @Test
+    @DisplayName("an unanswerable reply to an events question is no better than 'none' while events are offered")
+    void eventsQuestion_cantWhileOffered_isDiscarded() {
+        AskSnapshot snapshot = snapshotWithTopics(
+                AskFixtures.topic("AURORA", "Aurora", "d", TODAY, List.of()));
+
+        Result result = validateEvents(new Raw(false, "I can't tell.", null, null, "events data"), snapshot,
+                ReadyQuestion.RARE_EVENTS);
+
+        assertThat(result.accepted()).isFalse();
+    }
+
+    @Test
+    @DisplayName("an events question answered with no event while the snapshot offers none is a true 'none': "
+            + "accepted")
+    void eventsQuestion_noneWithNothingOffered_isAccepted() {
+        Result result = validateEvents(none(), snapshotWithTopics(), ReadyQuestion.RARE_EVENTS);
+
+        assertThat(result.accepted()).isTrue();
+        assertThat(result.answer().events()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("an events question that carries an event is accepted, whatever else is on offer")
+    void eventsQuestion_withAnEvent_isAccepted() {
+        AskSnapshot snapshot = snapshotWithTopics(
+                AskFixtures.topic("ECLIPSE", "Partial solar eclipse", "d", TODAY.plusDays(4), List.of()),
+                AskFixtures.topic("KING_TIDE", "King tide", "d", TOMORROW, List.of()));
+        AskEvidence evidence = new AskEvidence(Set.of(), Set.of(
+                new AskEvidence.EventFact("ECLIPSE", "Partial solar eclipse", TODAY.plusDays(4))), 1);
+        Raw raw = new Raw(true, "An eclipse.", List.of(), List.of(new RawEvent("eclipse", null, "Low sun")),
+                null);
+
+        Result result = validateAs(raw, snapshot, evidence, AskScope.ALL, null, ReadyQuestion.RARE_EVENTS);
+
+        assertThat(result.accepted()).isTrue();
+        assertThat(result.answer().events()).extracting(AskEvent::type).containsExactly("ECLIPSE");
+    }
+
+    @Test
+    @DisplayName("an event the model names that no tool returned is dropped, which leaves 'none' while events "
+            + "are offered: discarded")
+    void eventsQuestion_onlyAnUnreturnedEvent_isDiscarded() {
+        AskSnapshot snapshot = snapshotWithTopics(
+                AskFixtures.topic("ECLIPSE", "Partial solar eclipse", "d", TODAY.plusDays(4), List.of()));
+        Raw raw = new Raw(true, "An eclipse.", List.of(), List.of(new RawEvent("ECLIPSE", null, "x")), null);
+
+        Result result = validateAs(raw, snapshot, new AskEvidence(Set.of(), Set.of(), 1), AskScope.ALL, null,
+                ReadyQuestion.RARE_EVENTS);
+
+        assertThat(result.accepted()).isFalse();
+    }
+
+    @Test
+    @DisplayName("a topic outside the question's scope, or of a type the question does not admit, is not on offer")
+    void eventsQuestion_offerRespectsScopeAndType() {
+        AskSnapshot snapshot = snapshotWithTopics(
+                AskFixtures.topic("AURORA", "Aurora", "d", TODAY, List.of("Cornwall")),
+                AskFixtures.topic("KING_TIDE", "King tide", "d", TODAY, List.of("Coast")));
+        AskEvidence evidence = new AskEvidence(Set.of(), Set.of(), 1);
+
+        assertThat(validateAs(none(), snapshot, evidence, TestScopes.of("coast"), null,
+                ReadyQuestion.SNOW_TOPS).accepted())
+                .as("snow question: neither a king tide nor an aurora answers it").isTrue();
+        assertThat(validateAs(none(), snapshot, evidence, TestScopes.of("Hills"), null,
+                ReadyQuestion.RARE_EVENTS).accepted())
+                .as("every offered topic names another region").isTrue();
+        assertThat(validateAs(none(), snapshot, evidence, TestScopes.of("Coast"), null,
+                ReadyQuestion.RARE_EVENTS).accepted())
+                .as("the king tide is in scope").isFalse();
+    }
+
+    @Test
+    @DisplayName("a snow question answered 'none' while a snow topic is on offer is discarded")
+    void eventsQuestion_snowOffered_isDiscarded() {
+        AskSnapshot snapshot = snapshotWithTopics(
+                AskFixtures.topic("SNOW_TOPS", "Snow on the tops", "d", TODAY, List.of()));
+
+        assertThat(validateEvents(none(), snapshot, ReadyQuestion.SNOW_TOPS).accepted()).isFalse();
+    }
+
+    @Test
+    @DisplayName("an almanac entry within 90 days is on offer to a rare-events question; one beyond is not")
+    void eventsQuestion_almanacEntriesAreOffered() {
+        AskSnapshot within = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of()),
+                List.of(AskSnapshotBuilderTest.almanacEntry("meteor", "Geminids", TODAY.plusDays(60),
+                        TODAY.plusDays(60), "d")));
+        AskSnapshot beyond = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(), List.of()),
+                List.of(AskSnapshotBuilderTest.almanacEntry("meteor", "Geminids", TODAY.plusDays(120),
+                        TODAY.plusDays(120), "d")));
+
+        assertThat(validateEvents(none(), within, ReadyQuestion.RARE_EVENTS).accepted()).isFalse();
+        assertThat(validateEvents(none(), beyond, ReadyQuestion.RARE_EVENTS).accepted()).isTrue();
+    }
+
+    @Test
+    @DisplayName("a question that is not an events question is never held to the rule")
+    void notAnEventsQuestion_isUnaffected() {
+        AskSnapshot snapshot = snapshotWithTopics(
+                AskFixtures.topic("ECLIPSE", "Partial solar eclipse", "d", TODAY.plusDays(4), List.of()));
+
+        assertThat(validateEvents(none(), snapshot, null).accepted()).isTrue();
+    }
+
+    @Test
+    @DisplayName("a snow question answered only with an aurora card while snow is on offer is discarded: "
+            + "'none' means no event the question admits")
+    void eventsQuestion_onlyAnEventTheQuestionDoesNotAdmit_isDiscarded() {
+        AskSnapshot snapshot = snapshotWithTopics(
+                AskFixtures.topic("SNOW_TOPS", "Snow on the tops", "d", TODAY, List.of()),
+                AskFixtures.topic("AURORA", "Aurora", "d", TODAY, List.of()));
+        AskEvidence evidence = new AskEvidence(Set.of(), Set.of(
+                new AskEvidence.EventFact("AURORA", "Aurora", TODAY)), 1);
+        Raw raw = new Raw(true, "No snow, but an aurora.", List.of(),
+                List.of(new RawEvent("AURORA", null, "Kp 6")), null);
+
+        Result result = validateAs(raw, snapshot, evidence, AskScope.ALL, null, ReadyQuestion.SNOW_TOPS);
+
+        assertThat(result.accepted()).isFalse();
+        assertThat(result.reason()).isEqualTo("events question answered \"none\" while 1 events were offered");
+    }
+
+    @Test
+    @DisplayName("the mirror: a rare-events question admits the aurora card, so the same answer is accepted")
+    void eventsQuestion_anAdmittedEvent_isAccepted() {
+        AskSnapshot snapshot = snapshotWithTopics(
+                AskFixtures.topic("AURORA", "Aurora", "d", TODAY, List.of()));
+        AskEvidence evidence = new AskEvidence(Set.of(), Set.of(
+                new AskEvidence.EventFact("AURORA", "Aurora", TODAY)), 1);
+        Raw raw = new Raw(true, "An aurora.", List.of(), List.of(new RawEvent("AURORA", null, "Kp 6")), null);
+
+        Result result = validateAs(raw, snapshot, evidence, AskScope.ALL, null, ReadyQuestion.RARE_EVENTS);
+
+        assertThat(result.accepted()).isTrue();
+        assertThat(result.answer().events()).extracting(AskEvent::type).containsExactly("AURORA");
+    }
+
+    // -- the thread ---------------------------------------------------------------------------
+
+    private static AskEvidence threadEvidence(int toolCalls, AskEvidence.ThreadFact fact) {
+        return new AskEvidence(Set.of(), Set.of(), toolCalls).withThread(fact);
+    }
+
+    @Test
+    @DisplayName("a pick the thread offered survives with no tool call, every fact joined from the live "
+            + "snapshot")
+    void thread_offeredPick_survivesWithoutATool() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "Whitby", 4));
+        AskEvidence evidence = threadEvidence(0,
+                new AskEvidence.ThreadFact(Set.of(pair(1L)), Set.of(), Set.of()));
+
+        Result result = validate(answer("Whitby first.", rawPick(1L, "Clear west")), snapshot, evidence);
+
+        assertThat(result.accepted()).isTrue();
+        AskPick pick = result.answer().picks().getFirst();
+        assertThat(pick.locationName()).isEqualTo("Whitby");
+        assertThat(pick.ratingAtAnswer()).isEqualTo(4);
+        assertThat(pick.verdictAtAnswer()).isEqualTo("WORTH_IT");
+    }
+
+    @Test
+    @DisplayName("a thread pick is still held to the live snapshot: rated down since it was offered, it is "
+            + "dropped")
+    void thread_offeredPickRatedDown_isDropped() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "Whitby", 2));
+        AskEvidence evidence = threadEvidence(1,
+                new AskEvidence.ThreadFact(Set.of(pair(1L)), Set.of(), Set.of()));
+
+        Result result = validate(answer("Whitby first.", rawPick(1L, "x")), snapshot, evidence);
+
+        assertThat(result.answer().picks()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a thread pick outside the question's scope is dropped by the validator's own scope check")
+    void thread_offeredPickOutsideScope_isDropped() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "Whitby", 4));
+        AskEvidence evidence = threadEvidence(1,
+                new AskEvidence.ThreadFact(Set.of(pair(1L)), Set.of(), Set.of()));
+
+        Result result = validateAs(answer("Whitby.", rawPick(1L, "x")), snapshot, evidence,
+                TestScopes.of("Hills"), null, null);
+
+        assertThat(result.answer().picks()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a pick neither a tool returned nor the thread offered is dropped, as before")
+    void thread_unofferedPick_isDropped() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "Whitby", 4),
+                AskFixtures.slot(2L, "Staithes", 5));
+        AskEvidence evidence = threadEvidence(1,
+                new AskEvidence.ThreadFact(Set.of(pair(1L)), Set.of(), Set.of()));
+
+        Result result = validate(answer("Staithes.", rawPick(2L, "x")), snapshot, evidence);
+
+        assertThat(result.answer().picks()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("tool-returned and thread-offered picks mix in one answer, ranks renumbered")
+    void thread_mixesWithToolPicks() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "Whitby", 4),
+                AskFixtures.slot(2L, "Staithes", 5));
+        AskEvidence evidence = new AskEvidence(Set.of(pair(2L)), Set.of(), 1).withThread(
+                new AskEvidence.ThreadFact(Set.of(pair(1L)), Set.of(), Set.of()));
+
+        Result result = validate(answer("Both.", rawPick(2L, "a"), rawPick(1L, "b")), snapshot, evidence);
+
+        assertThat(result.answer().picks()).extracting(AskPick::locationName, AskPick::rank)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple("Staithes", 1),
+                        org.assertj.core.groups.Tuple.tuple("Whitby", 2));
+    }
+
+    // -- the two pick rules: fresh (3, distinct locations) and ranking follow-up (4, distinct pairs) --
+
+    private static AskEvidence.Pair at(long id, String windowId) {
+        return new AskEvidence.Pair(id, windowId);
+    }
+
+    private static AskEvidence offeredByThread(int toolCalls, Set<AskEvidence.Pair> toolPairs,
+            AskEvidence.Pair... offered) {
+        return new AskEvidence(toolPairs, Set.of(), toolCalls).withThread(
+                new AskEvidence.ThreadFact(Set.of(offered), Set.of(), Set.of()));
+    }
+
+    @Test
+    @DisplayName("a ranking follow-up over the thread's picks keeps four, one place at two windows, ranks 1-4")
+    void picks_rankingFollowUpKeepsAPlaceAtTwoWindows() {
+        AskEvidence evidence = offeredByThread(0, Set.of(), at(1L, SUNSET_TODAY), at(1L, SUNRISE_TOMORROW),
+                at(2L, SUNSET_TODAY), at(2L, SUNRISE_TOMORROW));
+
+        Result result = validateAs(answer("Ranked.",
+                new RawPick(2L, SUNRISE_TOMORROW, "a"), new RawPick(1L, SUNRISE_TOMORROW, "b"),
+                new RawPick(1L, SUNSET_TODAY, "c"), new RawPick(2L, SUNSET_TODAY, "d")),
+                twoWindowSnapshot(), evidence, AskScope.ALL, null, null);
+
+        assertThat(result.answer().picks()).extracting(AskPick::locationId, AskPick::windowId, AskPick::rank)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(2L, SUNRISE_TOMORROW, 1),
+                        org.assertj.core.groups.Tuple.tuple(1L, SUNRISE_TOMORROW, 2),
+                        org.assertj.core.groups.Tuple.tuple(1L, SUNSET_TODAY, 3),
+                        org.assertj.core.groups.Tuple.tuple(2L, SUNSET_TODAY, 4));
+    }
+
+    @Test
+    @DisplayName("a ranking follow-up drops a repeated (location, window) pair and stops at four")
+    void picks_rankingFollowUpIsDistinctByPairAndCappedAtFour() {
+        BriefingRegion region = AskFixtures.region("Coast", true, AskFixtures.slot(1L, "Whitby", 4),
+                AskFixtures.slot(2L, "Staithes", 5), AskFixtures.slot(3L, "Saltburn", 4));
+        BriefingWindow tonight = AskFixtures.window(TODAY.atTime(18, 0), DisplayVerdict.WORTH_IT, 5, null);
+        BriefingWindow morning = AskFixtures.window(TOMORROW.atTime(5, 40), DisplayVerdict.WORTH_IT, 5, null);
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(
+                AskFixtures.day(TODAY, AskFixtures.summary(TargetType.SUNSET, tonight, region)),
+                AskFixtures.day(TOMORROW, AskFixtures.summary(TargetType.SUNRISE, morning, region))),
+                List.of()));
+        AskEvidence evidence = offeredByThread(0, Set.of(), at(1L, SUNSET_TODAY), at(1L, SUNRISE_TOMORROW),
+                at(2L, SUNSET_TODAY), at(2L, SUNRISE_TOMORROW), at(3L, SUNSET_TODAY), at(3L, SUNRISE_TOMORROW));
+
+        Result result = validateAs(answer("Ranked.",
+                rawPick(1L, "a"), rawPick(1L, "again"), new RawPick(1L, SUNRISE_TOMORROW, "b"),
+                rawPick(2L, "c"), new RawPick(2L, SUNRISE_TOMORROW, "d"), rawPick(3L, "e")),
+                snapshot, evidence, AskScope.ALL, null, null);
+
+        assertThat(result.answer().picks()).hasSize(AskAnswerValidator.MAX_RANKED_PICKS);
+        assertThat(result.answer().picks()).extracting(AskPick::locationId, AskPick::windowId)
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(1L, SUNSET_TODAY),
+                        org.assertj.core.groups.Tuple.tuple(1L, SUNRISE_TOMORROW),
+                        org.assertj.core.groups.Tuple.tuple(2L, SUNSET_TODAY),
+                        org.assertj.core.groups.Tuple.tuple(2L, SUNRISE_TOMORROW));
+        assertThat(result.answer().picks().getFirst().why()).isEqualTo("a");
+    }
+
+    @Test
+    @DisplayName("a fresh answer keeps the old rule: the same four pairs from a tool give two picks, one per place")
+    void picks_freshQuestionStaysDistinctByLocation() {
+        AskEvidence evidence = evidenceOf(at(1L, SUNSET_TODAY), at(1L, SUNRISE_TOMORROW), at(2L, SUNSET_TODAY),
+                at(2L, SUNRISE_TOMORROW));
+
+        Result result = validateAs(answer("Four.",
+                new RawPick(2L, SUNRISE_TOMORROW, "a"), new RawPick(1L, SUNRISE_TOMORROW, "b"),
+                new RawPick(1L, SUNSET_TODAY, "c"), new RawPick(2L, SUNSET_TODAY, "d")),
+                twoWindowSnapshot(), evidence, AskScope.ALL, null, null);
+
+        assertThat(result.answer().picks()).extracting(AskPick::locationId, AskPick::windowId)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple(2L, SUNRISE_TOMORROW),
+                        org.assertj.core.groups.Tuple.tuple(1L, SUNRISE_TOMORROW));
+    }
+
+    @Test
+    @DisplayName("a mixed answer, one pick that is not the thread's, falls under the fresh rule: one pick per place")
+    void picks_mixedAnswerFallsUnderTheFreshRule() {
+        // The thread offered Whitby at both windows; a new rank_spots returned Staithes at sunset.
+        AskEvidence evidence = offeredByThread(1, Set.of(at(2L, SUNSET_TODAY)),
+                at(1L, SUNSET_TODAY), at(1L, SUNRISE_TOMORROW));
+
+        Result result = validateAs(answer("Mixed.",
+                rawPick(1L, "a"), new RawPick(1L, SUNRISE_TOMORROW, "b"), rawPick(2L, "c")),
+                twoWindowSnapshot(), evidence, AskScope.ALL, null, null);
+
+        assertThat(result.answer().picks()).extracting(AskPick::locationId, AskPick::windowId)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple(1L, SUNSET_TODAY),
+                        org.assertj.core.groups.Tuple.tuple(2L, SUNSET_TODAY));
+    }
+
+    @Test
+    @DisplayName("a follow-up submission with no thread picks at all is never a ranking: the fresh rule applies")
+    void picks_noThreadPicksIsNotARanking() {
+        AskEvidence evidence = new AskEvidence(Set.of(at(1L, SUNSET_TODAY), at(1L, SUNRISE_TOMORROW)),
+                Set.of(), 1).withThread(AskEvidence.ThreadFact.NONE);
+
+        Result result = validateAs(answer("Two.", rawPick(1L, "a"),
+                new RawPick(1L, SUNRISE_TOMORROW, "b")), twoWindowSnapshot(), evidence, AskScope.ALL, null, null);
+
+        assertThat(result.answer().picks()).hasSize(1);
+    }
+
+    // -- turned-down places -------------------------------------------------------------------
+
+    private static AskEvidence turnedDownEvidence(int toolCalls, Set<AskEvidence.Pair> toolPairs,
+            Set<AskEvidence.Pair> offered, Set<Long> turnedDown) {
+        return new AskEvidence(toolPairs, Set.of(), toolCalls).withThread(
+                new AskEvidence.ThreadFact(offered, Set.of(), Set.of(), turnedDown));
+    }
+
+    @Test
+    @DisplayName("turned down: a submitted pick at an earlier place is dropped at every window, the others "
+            + "are kept, and the count of dropped picks is reported")
+    void turnedDown_dropsEarlierPlacesAtEveryWindow() {
+        // Whitby (1) was offered at sunset and turned down; a new rank_spots returned both places at both windows.
+        AskEvidence evidence = turnedDownEvidence(1, Set.of(at(1L, SUNSET_TODAY), at(1L, SUNRISE_TOMORROW),
+                at(2L, SUNSET_TODAY)), Set.of(at(1L, SUNSET_TODAY)), Set.of(1L));
+
+        Result result = validateAs(answer("Different places.", rawPick(1L, "a"),
+                new RawPick(1L, SUNRISE_TOMORROW, "b"), rawPick(2L, "c")),
+                twoWindowSnapshot(), evidence, AskScope.ALL, null, null);
+
+        assertThat(result.answer().picks()).extracting(AskPick::locationId).containsExactly(2L);
+        assertThat(result.answer().picks().getFirst().rank()).isEqualTo(1);
+        assertThat(result.turnedDownDropped()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("not turned down: the same submission is unchanged, nothing is dropped or counted")
+    void turnedDown_absent_leavesTheAnswerUnchanged() {
+        AskEvidence evidence = turnedDownEvidence(1, Set.of(at(1L, SUNSET_TODAY), at(1L, SUNRISE_TOMORROW),
+                at(2L, SUNSET_TODAY)), Set.of(at(1L, SUNSET_TODAY)), Set.of());
+
+        Result result = validateAs(answer("Same.", rawPick(1L, "a"),
+                new RawPick(1L, SUNRISE_TOMORROW, "b"), rawPick(2L, "c")),
+                twoWindowSnapshot(), evidence, AskScope.ALL, null, null);
+
+        assertThat(result.answer().picks()).extracting(AskPick::locationId).containsExactly(1L, 2L);
+        assertThat(result.turnedDownDropped()).isZero();
+    }
+
+    @Test
+    @DisplayName("turned down with nothing else surviving: an honest can't-answer in our words, never the "
+            + "model's, not a failed run")
+    void turnedDown_nothingElse_isACant() {
+        AskEvidence evidence = turnedDownEvidence(1, Set.of(at(1L, SUNSET_TODAY)),
+                Set.of(at(1L, SUNSET_TODAY)), Set.of(1L));
+
+        Result result = validateAs(answer("Whitby again, it is the best.", rawPick(1L, "a")),
+                twoWindowSnapshot(), evidence, AskScope.ALL, null, null);
+
+        assertThat(result.accepted()).isTrue();
+        assertThat(result.answer().answerable()).isFalse();
+        assertThat(result.answer().missing()).isEqualTo(AskAnswerValidator.TURNED_DOWN_MISSING)
+                .isEqualTo("the other places are not rated well enough");
+        assertThat(result.answer().summary()).isEqualTo(AskAnswerValidator.TURNED_DOWN_SUMMARY);
+        assertThat(result.answer().picks()).isEmpty();
+        assertThat(result.turnedDownDropped()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("turned down, the model submitted no pick at all after a tool call that returned nothing new: "
+            + "the same honest can't-answer")
+    void turnedDown_emptyAnswerAfterAToolCall_isACant() {
+        AskEvidence evidence = turnedDownEvidence(1, Set.of(), Set.of(at(1L, SUNSET_TODAY)), Set.of(1L));
+
+        Result result = validateAs(answer("Nothing else."), twoWindowSnapshot(), evidence,
+                AskScope.ALL, null, null);
+
+        assertThat(result.answer().answerable()).isFalse();
+        assertThat(result.answer().missing()).isEqualTo(AskAnswerValidator.TURNED_DOWN_MISSING);
+        assertThat(result.turnedDownDropped()).isZero();
+    }
+
+    @Test
+    @DisplayName("turned down with an empty answer and no tool call is still the old model fault, not a can't-answer")
+    void turnedDown_emptyAnswerWithNoToolCall_isStillDiscarded() {
+        AskEvidence evidence = turnedDownEvidence(0, Set.of(), Set.of(at(1L, SUNSET_TODAY)), Set.of(1L));
+
+        Result result = validateAs(answer("Nothing."), twoWindowSnapshot(), evidence, AskScope.ALL,
+                null, null);
+
+        assertThat(result.accepted()).isFalse();
+    }
+
+    @Test
+    @DisplayName("turned down: a pick the model was not offered is still dropped for that reason, and is not "
+            + "counted as a turned-down drop")
+    void turnedDown_countsOnlyTurnedDownPicks() {
+        AskEvidence evidence = turnedDownEvidence(1, Set.of(at(2L, SUNSET_TODAY)), Set.of(at(1L, SUNSET_TODAY)),
+                Set.of(1L));
+
+        Result result = validateAs(answer("One.", rawPick(2L, "a"), rawPick(99L, "unknown")),
+                twoWindowSnapshot(), evidence, AskScope.ALL, null, null);
+
+        assertThat(result.answer().picks()).extracting(AskPick::locationId).containsExactly(2L);
+        assertThat(result.turnedDownDropped()).isZero();
+    }
+
+    @Test
+    @DisplayName("an event the thread offered survives with the served label and safety note, never the model's")
+    void thread_offeredEvent_survives() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "Whitby", 4));
+        AskEvidence evidence = threadEvidence(0, new AskEvidence.ThreadFact(Set.of(), Set.of(),
+                Set.of(new AskEvidence.EventFact("KING_TIDE", "King tide", TOMORROW, "A served note"))));
+        Raw raw = new Raw(true, "The king tide stands.", List.of(),
+                List.of(new RawEvent("king-tide", null, "Big water")), null);
+
+        Result result = validate(raw, snapshot, evidence);
+
+        assertThat(result.accepted()).isTrue();
+        assertThat(result.answer().events()).singleElement().satisfies(event -> {
+            assertThat(event.type()).isEqualTo("KING_TIDE");
+            assertThat(event.label()).isEqualTo("King tide");
+            assertThat(event.date()).isEqualTo(TOMORROW);
+            assertThat(event.safetyNote()).isEqualTo("A served note");
+        });
+    }
+
+    @Test
+    @DisplayName("an event type neither a tool nor the thread offered is dropped")
+    void thread_unofferedEvent_isDropped() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "Whitby", 4));
+        AskEvidence evidence = threadEvidence(1, new AskEvidence.ThreadFact(Set.of(), Set.of(),
+                Set.of(new AskEvidence.EventFact("KING_TIDE", "King tide", TOMORROW))));
+        Raw raw = new Raw(true, "An aurora.", List.of(), List.of(new RawEvent("AURORA", null, "x")), null);
+
+        assertThat(validate(raw, snapshot, evidence).answer().events()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a follow-up whose every pick was an earlier place that has gone, with no tool call, is a "
+            + "can't-answer in the server's words - not the failure a fresh question gets")
+    void thread_everyPickDropped_isACant() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "Whitby", 4));
+        AskEvidence evidence = threadEvidence(0,
+                new AskEvidence.ThreadFact(Set.of(), Set.of(pair(7L), pair(8L)), Set.of()));
+
+        Result result = validate(answer("Dunstanburgh is best.", rawPick(7L, "x"), rawPick(8L, "y")),
+                snapshot, evidence);
+
+        assertThat(result.accepted()).isTrue();
+        assertThat(result.answer().answerable()).isFalse();
+        assertThat(result.answer().summary())
+                .isEqualTo("The places from your earlier answers are no longer in the forecast.");
+        assertThat(result.answer().missing()).isEqualTo("those places are no longer in the forecast");
+        assertThat(result.answer().picks()).isEmpty();
+        assertThat(result.answer().events()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("the can't-answer's missing phrase fits the word cap the model's own does")
+    void thread_staleMissingFitsTheCap() {
+        assertThat(AskAnswerValidator.STALE_THREAD_MISSING.split(" ")).hasSizeLessThanOrEqualTo(
+                AskAnswerValidator.MISSING_WORDS);
+    }
+
+    @Test
+    @DisplayName("a follow-up that names no place but whose earlier places have all gone is the same "
+            + "can't-answer")
+    void thread_noPicksButEverythingGone_isACant() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "Whitby", 4));
+        AskEvidence evidence = threadEvidence(0,
+                new AskEvidence.ThreadFact(Set.of(), Set.of(pair(7L)), Set.of()));
+
+        Result result = validate(answer("They are gone."), snapshot, evidence);
+
+        assertThat(result.accepted()).isTrue();
+        assertThat(result.answer().answerable()).isFalse();
+    }
+
+    @Test
+    @DisplayName("a pick a tool never returned and the thread never named is a failure, not a stale thread")
+    void thread_unrelatedPick_isStillAFailure() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "Whitby", 4));
+        AskEvidence evidence = threadEvidence(0,
+                new AskEvidence.ThreadFact(Set.of(), Set.of(pair(7L)), Set.of()));
+
+        Result result = validate(answer("Whitby.", rawPick(7L, "x"), rawPick(1L, "y")), snapshot, evidence);
+
+        assertThat(result.accepted()).isFalse();
+        assertThat(result.reason()).isEqualTo("answerable with no pick, no event and no tool call");
+    }
+
+    @Test
+    @DisplayName("a tool call means the answer is judged as ever: nothing survived, but the model looked")
+    void thread_afterAToolCall_isNotStale() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "Whitby", 4));
+        AskEvidence evidence = threadEvidence(1,
+                new AskEvidence.ThreadFact(Set.of(), Set.of(pair(7L)), Set.of()));
+
+        Result result = validate(answer("Gone.", rawPick(7L, "x")), snapshot, evidence);
+
+        assertThat(result.accepted()).isTrue();
+        assertThat(result.answer().answerable()).isTrue();
+        assertThat(result.answer().picks()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a fresh question keeps today's rule exactly: answerable with nothing and no tool call is "
+            + "discarded")
+    void fresh_noPickNoEventNoTool_isStillDiscarded() {
+        AskSnapshot snapshot = snapshot(null, AskFixtures.slot(1L, "Whitby", 4));
+
+        Result result = validate(answer("Whitby."), snapshot, new AskEvidence(Set.of(), Set.of(), 0));
+
+        assertThat(result.accepted()).isFalse();
+        assertThat(result.reason()).isEqualTo("answerable with no pick, no event and no tool call");
+    }
+
+    @Test
+    @DisplayName("the events-question rule reads the live snapshot, not the thread: a thread that offers "
+            + "nothing does not make 'none' true")
+    void thread_eventsQuestionStillReadsTheSnapshot() {
+        AskSnapshot snapshot = snapshotWithTopics(
+                AskFixtures.topic("AURORA", "Aurora", "d", TODAY, List.of()));
+        Raw raw = new Raw(true, "Nothing.", List.of(), List.of(), null);
+
+        Result result = validateAs(raw, snapshot, threadEvidence(1,
+                new AskEvidence.ThreadFact(Set.of(), Set.of(), Set.of())), AskScope.ALL, null,
+                ReadyQuestion.RARE_EVENTS);
+
+        assertThat(result.accepted()).isFalse();
+        assertThat(result.reason()).contains("events question answered \"none\"");
+    }
+}

@@ -16,6 +16,7 @@ import tools.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.CacheDiagnosticsFixtures;
 import com.gregochr.goldenhour.model.EvaluationDetail;
 import com.gregochr.goldenhour.model.StormSurgeBreakdown;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
@@ -86,6 +87,23 @@ class ClaudeEvaluationStrategyTest {
     }
 
     @Test
+    @DisplayName("evaluateWithDetails() carries the response's cache diagnostics, EMPTY when it had none")
+    void evaluateWithDetails_carriesCacheDiagnostics() {
+        AtmosphericData data = buildAtmosphericData();
+        String json = "{\"rating\": 4, \"fiery_sky\": 70, \"golden_hour\": 75, \"summary\": \"Promising.\"}";
+
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(CacheDiagnosticsFixtures.message(
+                        Optional.of(CacheDiagnosticsFixtures.MESSAGES_CHANGED), json))
+                .thenReturn(CacheDiagnosticsFixtures.message(Optional.empty(), json));
+
+        assertThat(strategy.evaluateWithDetails(data).cacheDiagnostics())
+                .isEqualTo(CacheDiagnosticsFixtures.MESSAGES_CHANGED_READ);
+        assertThat(strategy.evaluateWithDetails(data).cacheDiagnostics())
+                .isSameAs(com.gregochr.goldenhour.model.CacheDiagnostics.EMPTY);
+    }
+
+    @Test
     @DisplayName("evaluate() throws when Claude returns no text content")
     void evaluate_noTextContent_throwsIllegalStateException() {
         AtmosphericData data = buildAtmosphericData();
@@ -96,12 +114,14 @@ class ClaudeEvaluationStrategyTest {
                 .stopReason(StopReason.END_TURN)
                 .stopSequence(Optional.empty())
                 .stopDetails(Optional.empty())
+                .diagnostics(Optional.empty())
                 .usage(buildUsage(10, 20, 0, 0))
                 .build();
 
         when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
 
         assertThatThrownBy(() -> strategy.evaluate(data))
+                .isInstanceOf(com.gregochr.goldenhour.exception.ClaudeReplyUnreadableException.class)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("no text content");
     }
@@ -116,6 +136,7 @@ class ClaudeEvaluationStrategyTest {
         when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
 
         assertThatThrownBy(() -> strategy.evaluate(data))
+                .isInstanceOf(com.gregochr.goldenhour.exception.ClaudeRefusalException.class)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("refused")
                 .hasMessageContaining("stop_reason=refusal");
@@ -132,6 +153,7 @@ class ClaudeEvaluationStrategyTest {
         when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
 
         assertThatThrownBy(() -> strategy.evaluate(data))
+                .isInstanceOf(com.gregochr.goldenhour.exception.ClaudeReplyUnreadableException.class)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("context window")
                 .hasMessageContaining("stop_reason=model_context_window_exceeded");
@@ -168,6 +190,7 @@ class ClaudeEvaluationStrategyTest {
         when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
 
         assertThatThrownBy(() -> strategy.evaluate(data))
+                .isInstanceOf(com.gregochr.goldenhour.exception.ClaudeReplyUnreadableException.class)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("truncated")
                 .hasMessageContaining("stop_reason=max_tokens");
@@ -611,6 +634,7 @@ class ClaudeEvaluationStrategyTest {
                 .stopReason(StopReason.END_TURN)
                 .stopSequence(Optional.empty())
                 .stopDetails(Optional.empty())
+                .diagnostics(Optional.empty())
                 .usage(buildUsage(inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens))
                 .build();
     }
@@ -628,6 +652,7 @@ class ClaudeEvaluationStrategyTest {
                 .stopReason(stopReason)
                 .stopSequence(Optional.empty())
                 .stopDetails(Optional.empty())
+                .diagnostics(Optional.empty())
                 .usage(buildUsage(10, 20, 0, 0))
                 .build();
     }

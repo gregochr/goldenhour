@@ -486,6 +486,8 @@ Recorded so nobody rediscovers it: if a `CalibrationView.jsx` is ever wanted, it
 
 `useForecasts.js` fetches every outcome over a backward 7-day window (`:118-137`) and attaches the result to each location as `.outcomes` (`:47`). `grep -rn "\.outcomes" frontend/src --include=*.jsx` (excluding tests) returns **zero** consumers. Every page load makes a `GET /api/outcome/all` request whose response is discarded. The comment at `:122-129` even reasons carefully about the window — for data nothing renders.
 
+> **Status (2026-10-16): no longer true.** `useForecasts` stopped fetching `GET /api/outcome/all` and builds no `loc.outcomes` (outcome-rating-plan O4b, #1193); the reader's own ratings come from `useOutcomeRatings` (`GET /api/outcome/ratings`) on the Map tab. The dead `forecastApi.fetchAllOutcomes` was deleted in the series' docs sweep (O6). Break 1 above has a v2 home too: the Map callout's rating block, not `OutcomeModal`.
+
 #### Break 3 — the write path cannot populate the column the gate joins on
 
 This is the decisive one and it is not written down anywhere.

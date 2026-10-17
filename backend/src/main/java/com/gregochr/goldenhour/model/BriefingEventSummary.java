@@ -29,6 +29,11 @@ public record BriefingEventSummary(
         @JsonInclude(JsonInclude.Include.NON_NULL) LocalDateTime solarEventTime,
         @JsonInclude(JsonInclude.Include.NON_NULL) BriefingWindow window) {
 
+    /**
+     * Canonical constructor: takes immutable copies of {@code regions} and {@code unregioned}, so a
+     * caller's later changes to the lists it passed cannot alter this summary. A null list is
+     * rejected with a {@link NullPointerException}.
+     */
     public BriefingEventSummary {
         regions = List.copyOf(regions);
         unregioned = List.copyOf(unregioned);
@@ -85,6 +90,21 @@ public record BriefingEventSummary(
      */
     public BriefingEventSummary withRegions(List<BriefingRegion> newRegions) {
         return new BriefingEventSummary(targetType, newRegions, unregioned, solarEventTime, window);
+    }
+
+    /**
+     * Returns a copy carrying the given unregioned slots, leaving every other component untouched.
+     *
+     * <p>Exists for the same reason as {@link #withRegions}: {@code BriefingService}'s serve-time
+     * simulated-eclipse overlay rewrites only the slot list, and a positional rebuild here would
+     * silently drop {@code solarEventTime}/{@code window} exactly as an earlier positional rebuild
+     * once dropped {@code solarEventTime} from the regioned side.
+     *
+     * @param newUnregioned the replacement unregioned slots
+     * @return a copy carrying them
+     */
+    public BriefingEventSummary withUnregioned(List<BriefingSlot> newUnregioned) {
+        return new BriefingEventSummary(targetType, regions, newUnregioned, solarEventTime, window);
     }
 
     /**

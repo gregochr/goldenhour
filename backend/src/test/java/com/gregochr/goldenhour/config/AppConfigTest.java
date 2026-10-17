@@ -65,32 +65,47 @@ class AppConfigTest {
     }
 
     @Test
-    @DisplayName("anthropicClient returns non-null client")
-    void anthropicClient_returnsNonNull() {
+    @DisplayName("anthropicClient keeps a pool of 10 idle connections for 2 minutes")
+    void anthropicClient_poolIsSizedForParallelRuns() {
+        AnthropicClient client = config.anthropicClient(properties("test-key"));
+        Object sdkTransport = sdkTransportOf(client);
+
+        // The SDK transport records what it was asked for; the OkHttp pool is what enforces it.
+        assertThat(ReflectionTestUtils.getField(sdkTransport, "maxIdleConnections")).isEqualTo(10);
+        assertThat(ReflectionTestUtils.getField(sdkTransport, "keepAliveDuration"))
+                .isEqualTo(Duration.ofMinutes(2));
+        Object pool = ReflectionTestUtils.getField(okHttpOf(sdkTransport).connectionPool(), "delegate");
+        assertThat(ReflectionTestUtils.getField(pool, "maxIdleConnections")).isEqualTo(10);
+        assertThat(ReflectionTestUtils.getField(pool, "keepAliveDurationNs"))
+                .isEqualTo(Duration.ofMinutes(2).toNanos());
+    }
+
+    @Test
+    @DisplayName("anthropicClient does not force HTTP/1.1: the SDK's HTTP/2 default is back")
+    void anthropicClient_doesNotForceHttp11() {
+        // HTTP/1.1 was forced until 2026-10-06 against a Java 21 virtual-thread pinning deadlock;
+        // Java 25 (JEP 491) ended it. If this fails, someone has put the protocol list back.
+        okhttp3.OkHttpClient okHttp = okHttpOf(sdkTransportOf(config.anthropicClient(properties("test-key"))));
+
+        assertThat(okHttp.protocols()).contains(Protocol.HTTP_2, Protocol.HTTP_1_1);
+    }
+
+    private static AnthropicProperties properties(String apiKey) {
         AnthropicProperties properties = new AnthropicProperties();
-        properties.setApiKey("test-key");
-
-        AnthropicClient client = config.anthropicClient(properties);
-
-        assertThat(client).isNotNull();
+        properties.setApiKey(apiKey);
+        return properties;
     }
 
-    @Test
-    @DisplayName("OkHttp client uses HTTP/1.1 only to avoid virtual-thread pinning")
-    void okHttpClient_usesHttp11Only() {
-        okhttp3.OkHttpClient okHttp = config.createOkHttpClient();
-
-        assertThat(okHttp.protocols())
-                .containsExactly(Protocol.HTTP_1_1)
-                .doesNotContain(Protocol.HTTP_2);
+    /** The SDK's own OkHttp-backed transport, reached through its client's internals. */
+    private static Object sdkTransportOf(AnthropicClient client) {
+        Object clientOptions = ReflectionTestUtils.getField(client, "clientOptions");
+        Object closing = ReflectionTestUtils.getField(clientOptions, "originalHttpClient");
+        return ReflectionTestUtils.getField(closing, "httpClient");
     }
 
-    @Test
-    @DisplayName("OkHttp client has 90-second call timeout")
-    void okHttpClient_hasCallTimeout() {
-        okhttp3.OkHttpClient okHttp = config.createOkHttpClient();
-
-        assertThat(okHttp.callTimeoutMillis()).isEqualTo(90_000);
+    /** The OkHttp client underneath the SDK's transport. */
+    private static okhttp3.OkHttpClient okHttpOf(Object sdkTransport) {
+        return (okhttp3.OkHttpClient) ReflectionTestUtils.getField(sdkTransport, "okHttpClient");
     }
 
     @Test

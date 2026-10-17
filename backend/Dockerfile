@@ -1,5 +1,5 @@
 # Multi-stage build for Spring Boot application
-FROM eclipse-temurin:21-jdk-alpine AS builder
+FROM eclipse-temurin:25-jdk-alpine AS builder
 RUN apk add --no-cache maven git
 WORKDIR /app
 
@@ -16,7 +16,7 @@ RUN --mount=type=cache,target=/root/.m2 \
     mvn dependency:go-offline -B
 
 # Layer 2: Copy config files and source code, then build
-COPY backend/checkstyle.xml backend/spotbugs-exclude.xml backend/dependency-check-suppressions.xml ./
+COPY backend/checkstyle.xml backend/checkstyle-suppressions.xml backend/spotbugs-exclude.xml backend/dependency-check-suppressions.xml ./
 COPY backend/src src
 # Note: not using -o (offline). dependency:go-offline above misses some transitives
 # (e.g. org.jetbrains:annotations:13.0 via anthropic-java → kotlin-stdlib), which
@@ -26,7 +26,7 @@ RUN --mount=type=cache,target=/root/.m2 \
     mvn package -DskipTests -Dspring-boot.run.profiles=prod
 
 # Runtime image
-FROM eclipse-temurin:21-jre-alpine
+FROM eclipse-temurin:25-jre-alpine
 RUN apk add --no-cache curl
 
 # Create non-root user for security

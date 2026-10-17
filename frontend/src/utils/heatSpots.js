@@ -30,6 +30,7 @@
  */
 
 import { isSkyPromptCandidate } from './locationTypes.js';
+import { windowKey } from './windowKeys.js';
 
 /** Ratings are 1–5; the backend's {@code RatingValidator} bounds them and so does this. */
 const MIN_RATING = 1;
@@ -48,11 +49,6 @@ const MAX_RATING = 5;
  * here does not exist at the call site.
  */
 export const POINT_SCORE_INDEX = 0;
-
-/** The key both this module and the shell address a window by ({@code card.key}'s format). */
-export function windowKey(date, targetType) {
-  return `${date}:${targetType}`;
-}
 
 /** A rating this join will paint: an integer in [1, 5]. Anything else is "not scored". */
 function validRating(rating) {
@@ -233,4 +229,46 @@ export function buildHeatPointSets(spots, renderedEvents) {
     sets.set(windowKey(event.date, event.targetType), heatPointsFor(spots, index));
   });
   return sets;
+}
+
+/**
+ * Score rows for a set of windows, drawn from the locations' own forecast rows
+ * ({@code forecastsByDate}) and from nothing else — the shape {@link buildHeatSpots} takes, built
+ * for the Map tab's PAST windows (outcome-rating-plan.md §2 #3, O3c).
+ *
+ * <p>The scores endpoint's rows are the LATEST result for a slot, which for a passed slot may be one
+ * that landed after the event; the forecast rows for a passed slot are served as of it (once the
+ * as-of-event resolver, outcome-rating-plan.md §2 #4, lands on the forecast path). The Map's chips
+ * and callout already read the forecast row alone on a past window, so the field must read the same
+ * row or the two would disagree on one place's star. A location with no row for a window
+ * contributes none; a row with no rating contributes one with a null rating (an answer — "looked,
+ * not scored" — as {@link buildHeatSpots} reads it).
+ *
+ * <p>A map/filter over served rows: the already-licensed class, no rating derived.
+ *
+ * @param {Array<{id: *, name: string, forecastsByDate: ?Map<string, object>}>} locations
+ * @param {Array<{date: string, targetType: string}>} windows
+ * @returns {Array<{locationId: *, locationName: string, date: string, targetType: string,
+ *   rating: ?number}>}
+ */
+export function forecastScoreRows(locations, windows) {
+  const rows = [];
+  const wanted = Array.isArray(windows) ? windows : [];
+  for (const loc of Array.isArray(locations) ? locations : []) {
+    const days = loc?.forecastsByDate;
+    if (!(days instanceof Map)) continue;
+    for (const { date, targetType } of wanted) {
+      const slot = targetType === 'SUNRISE' ? 'sunrise' : 'sunset';
+      const row = days.get(date)?.[slot];
+      if (!row) continue;
+      rows.push({
+        locationId: loc.id ?? null,
+        locationName: loc.name ?? '',
+        date,
+        targetType,
+        rating: row.rating ?? null,
+      });
+    }
+  }
+  return rows;
 }

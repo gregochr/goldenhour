@@ -9,6 +9,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -21,6 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -162,5 +164,98 @@ class TideRunPeakHistoryTest {
         assertThat(history.peakRanges(REPRESENTATIVE, ROSTER, null, TODAY)).isEmpty();
         assertThat(history.peakRanges(REPRESENTATIVE, ROSTER, TODAY, null)).isEmpty();
         verify(tideSizeIndex, never()).measure(any(), any(), any());
+    }
+
+    // ── the per-day memo ────────────────────────────────────────────────────
+
+    private void stubOneRunOnJan10() {
+        LocalDate day1 = LocalDate.of(2027, 1, 10);
+        when(tideSizeIndex.measure(any(), any(), any()))
+                .thenReturn(new TideSizeIndex.Sizes(Set.of(day1), Set.of(), true));
+        when(tideRunBuilder.peakRangeAt(eq(REPRESENTATIVE), eq(List.of(day1))))
+                .thenReturn(OptionalDouble.of(4.6));
+    }
+
+    @Test
+    @DisplayName("the same question asked twice scans the roster and reads the runs once — the "
+            + "entry and the conditions strip both ask it for every run in a build")
+    void anIdenticalQuestionIsComputedOnce() {
+        stubOneRunOnJan10();
+
+        List<Double> first = history.peakRanges(REPRESENTATIVE, ROSTER, TODAY, TODAY);
+        List<Double> second = history.peakRanges(REPRESENTATIVE, ROSTER, TODAY, TODAY);
+
+        assertThat(first).containsExactly(4.6);
+        assertThat(second).containsExactly(4.6);
+        verify(tideSizeIndex, times(1)).measure(any(), any(), any());
+        verify(tideRunBuilder, times(1)).peakRangeAt(any(), any());
+    }
+
+    @Test
+    @DisplayName("a different port, a different roster or a different window end is a different "
+            + "question and is computed on its own")
+    void differentQuestionsAreNotConflated() {
+        stubOneRunOnJan10();
+        LocationEntity otherPort = LocationEntity.builder().id(2L).name("Whitby").lat(54.48).lon(-0.61).build();
+        List<LocationEntity> biggerRoster = List.of(REPRESENTATIVE, otherPort);
+
+        history.peakRanges(REPRESENTATIVE, ROSTER, TODAY, TODAY);
+        history.peakRanges(otherPort, ROSTER, TODAY, TODAY);
+        history.peakRanges(REPRESENTATIVE, biggerRoster, TODAY, TODAY);
+        history.peakRanges(REPRESENTATIVE, ROSTER, TODAY, TODAY.minusDays(2));
+
+        verify(tideSizeIndex, times(4)).measure(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("a run's own start decides the window end, so today and an in-progress run's earlier "
+            + "start are different questions, but two runs starting on or after today share one")
+    void runsStartingAfterTodayShareTheTodayWindow() {
+        stubOneRunOnJan10();
+
+        history.peakRanges(REPRESENTATIVE, ROSTER, TODAY, TODAY.plusDays(4));
+        history.peakRanges(REPRESENTATIVE, ROSTER, TODAY, TODAY.plusDays(20));
+
+        // Both end yesterday, so the second is the first's answer: this is what turns a dozen scans
+        // per build into one per distinct window.
+        verify(tideSizeIndex, times(1)).measure(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("evict() makes the next question recompute, so a backfilled history is read back")
+    void evictForcesARecompute() {
+        stubOneRunOnJan10();
+
+        history.peakRanges(REPRESENTATIVE, ROSTER, TODAY, TODAY);
+        history.evict();
+        history.peakRanges(REPRESENTATIVE, ROSTER, TODAY, TODAY);
+
+        verify(tideSizeIndex, times(2)).measure(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("the history registers with the size index and is dropped when the index is — "
+            + "that is how a tide write reaches it")
+    void isDroppedWhenTheSizeIndexIsEvicted() {
+        stubOneRunOnJan10();
+        ArgumentCaptor<Runnable> listener = ArgumentCaptor.forClass(Runnable.class);
+        verify(tideSizeIndex).onEvicted(listener.capture());
+
+        history.peakRanges(REPRESENTATIVE, ROSTER, TODAY, TODAY);
+        listener.getValue().run();
+        history.peakRanges(REPRESENTATIVE, ROSTER, TODAY, TODAY);
+
+        verify(tideSizeIndex, times(2)).measure(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("a cached history cannot be mutated by a caller into someone else's answer")
+    void theMemoisedListIsImmutable() {
+        stubOneRunOnJan10();
+
+        List<Double> first = history.peakRanges(REPRESENTATIVE, ROSTER, TODAY, TODAY);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> first.add(9.9))
+                .isInstanceOf(UnsupportedOperationException.class);
     }
 }

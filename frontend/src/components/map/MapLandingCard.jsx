@@ -33,13 +33,24 @@ import { PICK_TEXT } from './WindowControl.jsx';
  * card invites. ⚠️ <b>Do not reach for {@code useOutsideDismiss} here</b>; that hook carries the map
  * panels' rule, which is a different one, and its own doc names this card as the exception.
  *
- * <h2>The phone keeps this card, inset — it does not become a `BottomSheet`</h2>
+ * <h2>⚠️ It never opens on the phone at all — superseded by the peek sheet series</h2>
  *
- * <p>Plan step 9 left the choice open. A {@code BottomSheet} brings a {@code fixed inset-0}
- * backdrop whose {@code onClick} is {@code onClose} — an outside tap, which is the one dismissal
- * route this card forbids. Keeping the card and insetting it to the frame (index.css's ≤639px rule)
- * makes the dismissal rules identical on every viewport by construction rather than by matching two
- * implementations up.
+ * <p>This heading used to read "The phone keeps this card, inset — it does not become a
+ * `BottomSheet`", reasoning that a {@code BottomSheet}'s {@code fixed inset-0} backdrop would bring
+ * back the outside-tap dismissal this card forbids, and that insetting the card to the frame
+ * (index.css's old ≤639px rule) kept the dismissal rules identical on every viewport. That plan step
+ * was left open and is now decided the other way:
+ * `docs/engineering/map-mobile-sheet-plan.md` §1 #3 (M1) supersedes it — on the phone
+ * {@code MapView}'s own {@code landingOpen} is unconditionally {@code false} (the {@code !isMobile}
+ * term short-circuits it), so this component never mounts there at all, and the phone never writes
+ * {@code mapLandingSeenRun} (§5 D-3) — a reader who later opens the same run on desktop has not seen
+ * the card and should. ⚠️ <b>M1 only removes the auto-open — it does not yet replace it.</b> The
+ * plan's §4 #2 names the peek sheet's future Windows section as this card's eventual phone
+ * successor, but that section does not exist yet: {@code MapPeekSheet.jsx} is M2's own deliverable.
+ * Between the M1 and M2 merges the phone Map tab simply has no equivalent of this card at all —
+ * read §4 #2 as a stated destination, not a present description. Every other section of this doc
+ * comment (dismissal, focus, the two-deep dialog invariant) still describes the desktop/tablet
+ * mount exactly.
  */
 export default function MapLandingCard({
   model, scopeLabel = '', scopeIsArea = true, activeId = null, onSelect, onDismiss,

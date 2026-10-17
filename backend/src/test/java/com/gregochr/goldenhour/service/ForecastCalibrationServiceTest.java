@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.ActualOutcomeEntity;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.CalibrationBucket;
@@ -7,6 +8,7 @@ import com.gregochr.goldenhour.model.CalibrationPair;
 import com.gregochr.goldenhour.model.CalibrationReport;
 import com.gregochr.goldenhour.repository.ActualOutcomeRepository;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
+import com.gregochr.goldenhour.repository.OutcomeRatingRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -38,12 +40,15 @@ class ForecastCalibrationServiceTest {
     @Mock
     private ActualOutcomeRepository actualOutcomeRepository;
 
+    @Mock
+    private OutcomeRatingRepository outcomeRatingRepository;
+
     private ForecastCalibrationService service;
 
     @BeforeEach
     void setUp() {
         service = new ForecastCalibrationService(
-                forecastEvaluationRepository, actualOutcomeRepository);
+                forecastEvaluationRepository, actualOutcomeRepository, outcomeRatingRepository);
     }
 
     @Test
@@ -120,7 +125,7 @@ class ForecastCalibrationServiceTest {
     void report_groupsByModel() {
         CalibrationPair haiku = pair(0, LocalDateTime.of(2026, 5, 10, 1, 0), 3, 3);
         CalibrationPair noModel = new CalibrationPair("Edinburgh", DATE, TargetType.SUNSET, 0,
-                LocalDateTime.of(2026, 5, 10, 1, 0), null, 3, null, null, 3, null, null, true);
+                LocalDateTime.of(2026, 5, 10, 1, 0), null, 3, null, null, 3, null, null, true, 1L, null, null);
         when(forecastEvaluationRepository.findCalibrationPairs(FROM, TO))
                 .thenReturn(List.of(haiku, noModel));
         when(actualOutcomeRepository.findAllByOutcomeDateBetween(FROM, TO)).thenReturn(List.of());
@@ -130,6 +135,70 @@ class ForecastCalibrationServiceTest {
         assertThat(report.byModel()).extracting(CalibrationBucket::key)
                 .containsExactly("HAIKU", "UNKNOWN");
         assertThat(report.scoredPairs()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("V182: report() buckets by the build that scored the forecast, readers' ratings included, "
+            + "and labels a row from before builds were recorded UNKNOWN")
+    void report_groupsByBuild() {
+        when(forecastEvaluationRepository.findCalibrationPairs(FROM, TO)).thenReturn(List.of(
+                stamped(0, 3, 3, 1L, "v2.28.0", null),
+                stamped(1, 5, 1, 2L, "v2.27.0", null),
+                stamped(2, 4, 4, 3L, null, null)));
+        when(forecastEvaluationRepository.findCalibrationPairsFromRatings(FROM, TO)).thenReturn(List.of(
+                new CalibrationPair("Whitby", DATE, TargetType.SUNRISE, 0,
+                        LocalDateTime.of(2026, 5, 10, 1, 0), EvaluationModel.HAIKU, 4, null, null, 2, 7L,
+                        "v2.28.0", null)));
+        when(actualOutcomeRepository.findAllByOutcomeDateBetween(FROM, TO)).thenReturn(List.of());
+
+        CalibrationReport report = service.report(FROM, TO);
+
+        assertThat(report.bucketsByBuild()).extracting(CalibrationBucket::key)
+                .containsExactly("UNKNOWN", "v2.27.0", "v2.28.0");
+        assertThat(report.bucketsByBuild()).extracting(CalibrationBucket::sampleCount)
+                .containsExactly(1, 1, 2);
+        CalibrationBucket current = report.bucketsByBuild().get(2);
+        // The outcome pair (3 vs 3) and the reader's rating (4 vs 2) share a release.
+        assertThat(current.meanRatingError()).isEqualTo(1.0);
+        assertThat(report.bucketsByBuild().get(1).wastedTrips())
+                .as("v2.27.0 told someone to go on a day that was 1 star").isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("V182: report() buckets by prompt fingerprint so an edit to the prompt shows as its own bucket")
+    void report_groupsByPromptHash() {
+        String before = "a".repeat(64);
+        String after = "b".repeat(64);
+        when(forecastEvaluationRepository.findCalibrationPairs(FROM, TO)).thenReturn(List.of(
+                stamped(0, 3, 3, 1L, "v2.28.0", before),
+                stamped(1, 4, 2, 2L, "v2.28.0", before),
+                stamped(2, 4, 4, 3L, "v2.28.0", after),
+                stamped(3, 2, 2, 4L, "v2.28.0", null)));
+        when(actualOutcomeRepository.findAllByOutcomeDateBetween(FROM, TO)).thenReturn(List.of());
+
+        CalibrationReport report = service.report(FROM, TO);
+
+        assertThat(report.bucketsByPromptHash()).extracting(CalibrationBucket::key)
+                .containsExactly("UNKNOWN", before, after);
+        assertThat(report.bucketsByPromptHash()).extracting(CalibrationBucket::sampleCount)
+                .containsExactly(1, 2, 1);
+        assertThat(report.bucketsByBuild()).as("one release, however many prompts").hasSize(1);
+    }
+
+    @Test
+    @DisplayName("V182: a blank build or prompt hash is UNKNOWN, never an empty-named bucket")
+    void report_blankBuildIsUnknown() {
+        when(forecastEvaluationRepository.findCalibrationPairs(FROM, TO)).thenReturn(List.of(
+                stamped(0, 3, 3, 1L, " ", ""),
+                stamped(1, 3, 3, 2L, null, null)));
+        when(actualOutcomeRepository.findAllByOutcomeDateBetween(FROM, TO)).thenReturn(List.of());
+
+        CalibrationReport report = service.report(FROM, TO);
+
+        assertThat(report.bucketsByBuild()).extracting(CalibrationBucket::key).containsExactly("UNKNOWN");
+        assertThat(report.bucketsByBuild().getFirst().sampleCount()).isEqualTo(2);
+        assertThat(report.bucketsByPromptHash()).extracting(CalibrationBucket::key)
+                .containsExactly("UNKNOWN");
     }
 
     @Test
@@ -159,6 +228,82 @@ class ForecastCalibrationServiceTest {
                 .hasMessageContaining("must not be before");
     }
 
+    @Test
+    @DisplayName("report() keeps two readers' ratings of one slot at one horizon as two pairs")
+    void report_twoUsersRatingOneSlot_keepsBoth() {
+        LocalDateTime run = LocalDateTime.of(2026, 5, 10, 1, 0);
+        when(forecastEvaluationRepository.findCalibrationPairs(FROM, TO)).thenReturn(List.of());
+        when(forecastEvaluationRepository.findCalibrationPairsFromRatings(FROM, TO)).thenReturn(List.of(
+                ratingPair(11L, 0, run, 4, 5),
+                ratingPair(12L, 0, run, 4, 2)));
+        when(actualOutcomeRepository.findAllByOutcomeDateBetween(FROM, TO)).thenReturn(List.of());
+
+        CalibrationReport report = service.report(FROM, TO);
+
+        // One forecast, two observations: a calibration sample counts each reader.
+        assertThat(report.scoredPairs()).isEqualTo(2);
+        assertThat(report.overall().sampleCount()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("report() keeps a rating and an old-table outcome for one slot as two pairs")
+    void report_oneRowInEachTable_keepsBoth() {
+        LocalDateTime run = LocalDateTime.of(2026, 5, 10, 1, 0);
+        when(forecastEvaluationRepository.findCalibrationPairs(FROM, TO))
+                .thenReturn(List.of(pairAtDate(DATE, 0, 4, 4, run)));
+        when(forecastEvaluationRepository.findCalibrationPairsFromRatings(FROM, TO))
+                .thenReturn(List.of(ratingPair(11L, 0, run, 4, 3)));
+        when(actualOutcomeRepository.findAllByOutcomeDateBetween(FROM, TO)).thenReturn(List.of());
+
+        assertThat(service.report(FROM, TO).scoredPairs()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("report() still collapses two runs of one forecast for one reader to the newest")
+    void report_twoRunsForOneReader_keepsNewest() {
+        CalibrationPair stale = ratingPair(11L, 0, LocalDateTime.of(2026, 5, 10, 1, 0), 1, 5);
+        CalibrationPair fresh = ratingPair(11L, 0, LocalDateTime.of(2026, 5, 10, 14, 0), 5, 5);
+        when(forecastEvaluationRepository.findCalibrationPairs(FROM, TO)).thenReturn(List.of());
+        when(forecastEvaluationRepository.findCalibrationPairsFromRatings(FROM, TO))
+                .thenReturn(List.of(stale, fresh));
+        when(actualOutcomeRepository.findAllByOutcomeDateBetween(FROM, TO)).thenReturn(List.of());
+
+        CalibrationReport report = service.report(FROM, TO);
+
+        assertThat(report.scoredPairs()).isEqualTo(1);
+        // The newer run said 5 and the reader saw 5; the stale 1-vs-5 miss is gone.
+        assertThat(report.overall().meanRatingError()).isZero();
+        assertThat(report.overall().missedOpportunities()).isZero();
+    }
+
+    @Test
+    @DisplayName("report() counts the rows of both tables in the window, not-seen ratings included")
+    void report_outcomesInRange_countsBothTables() {
+        when(forecastEvaluationRepository.findCalibrationPairs(FROM, TO)).thenReturn(List.of());
+        when(forecastEvaluationRepository.findCalibrationPairsFromRatings(FROM, TO)).thenReturn(List.of());
+        when(actualOutcomeRepository.findAllByOutcomeDateBetween(FROM, TO)).thenReturn(List.of(
+                ActualOutcomeEntity.builder().build(), ActualOutcomeEntity.builder().build()));
+        when(outcomeRatingRepository.countByEventDateBetween(FROM, TO)).thenReturn(3L);
+
+        CalibrationReport report = service.report(FROM, TO);
+
+        assertThat(report.outcomesInRange()).isEqualTo(5);
+        assertThat(report.scoredPairs()).isZero();
+    }
+
+    private CalibrationPair ratingPair(long userId, int daysAhead, LocalDateTime runAt, int predicted,
+            int actual) {
+        return new CalibrationPair("Durham", DATE, TargetType.SUNSET, daysAhead, runAt,
+                EvaluationModel.HAIKU, predicted, null, null, actual, userId, null, null);
+    }
+
+    private CalibrationPair stamped(int daysAhead, int predicted, int actual, long outcomeId,
+            String appBuild, String promptHash) {
+        return new CalibrationPair("Durham", DATE, TargetType.SUNSET, daysAhead,
+                LocalDateTime.of(2026, 5, 9, 1, 0), EvaluationModel.HAIKU, predicted, null, null, actual,
+                null, null, true, outcomeId, appBuild, promptHash);
+    }
+
     private CalibrationBucket bucket(CalibrationReport report, String key) {
         return report.byDaysAhead().stream()
                 .filter(b -> b.key().equals(key))
@@ -178,6 +323,6 @@ class ForecastCalibrationServiceTest {
     private CalibrationPair pairAtDate(LocalDate date, int daysAhead, int predicted, int actual,
             LocalDateTime runAt) {
         return new CalibrationPair("Durham", date, TargetType.SUNSET, daysAhead, runAt,
-                EvaluationModel.HAIKU, predicted, null, null, actual, null, null, true);
+                EvaluationModel.HAIKU, predicted, null, null, actual, null, null, true, 1L, null, null);
     }
 }

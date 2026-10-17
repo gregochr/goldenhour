@@ -2,15 +2,18 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.UserRole;
+import com.gregochr.goldenhour.service.DeletedAccount;
+import com.gregochr.goldenhour.service.EmailClaims;
 import com.gregochr.goldenhour.service.PasswordResetResult;
 import com.gregochr.goldenhour.service.RegistrationService;
 import com.gregochr.goldenhour.service.UserService;
 import com.gregochr.goldenhour.service.notification.UserEmailService;
 import com.gregochr.goldenhour.util.EmailValidator;
-import com.gregochr.goldenhour.util.LogSanitizer;
+import com.gregochr.goldenhour.util.UniqueViolation;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -44,6 +47,10 @@ public class UserController {
 
     private static final Logger LOG = LoggerFactory.getLogger(UserController.class);
 
+    /** What the email edit answers for a pending registration, whose old verification link it voided. */
+    static final String EMAIL_UPDATED_PENDING =
+            "Updated. The old verification link no longer works: resend verification to the new address.";
+
     private final UserService userService;
     private final UserEmailService userEmailService;
     private final RegistrationService registrationService;
@@ -64,8 +71,13 @@ public class UserController {
     /**
      * Creates a new user account.
      *
+     * <p>A lost race on the username key or the email reservation surfaces from the service as a
+     * {@link DataIntegrityViolationException} and is translated here, outside the rolled-back transaction,
+     * to a 409 naming the conflicting field (login-registration plan §5 #6, §2 #14 rule 10).
+     *
      * @param body map containing {@code username}, {@code password}, and {@code role}
-     * @return 201 with the created user summary, or 400 if the username already exists
+     * @return 201 with the created user summary, 400 if the username or email already exists, or 409 for
+     *         a concurrent duplicate
      */
     @PostMapping
     public ResponseEntity<Object> createUser(@RequestBody Map<String, String> body) {
@@ -101,6 +113,8 @@ public class UserController {
             return ResponseEntity.status(HttpStatus.CREATED).body(toSummary(created));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
+        } catch (DataIntegrityViolationException ex) {
+            return conflict(ex);
         }
     }
 
@@ -130,9 +144,14 @@ public class UserController {
     /**
      * Updates the email address of a user.
      *
+     * <p>The edit voids the account's unused password-reset links and every verification link, so a link
+     * mailed to the old mailbox cannot be used after the move; for a pending registration the message
+     * says the admin must resend verification.
+     *
      * @param id   the user's primary key
      * @param body map containing {@code email}
-     * @return 200 on success, or 400 if the email is missing, invalid, or user not found
+     * @return 200 on success, 400 if the email is missing, invalid, not ASCII, or user not found, or 409
+     *         when another account already uses the address under any casing
      */
     @PutMapping("/{id}/email")
     public ResponseEntity<Object> setEmail(
@@ -147,10 +166,15 @@ public class UserController {
                     .body(Map.of("error", "Invalid email address: " + email));
         }
         try {
-            userService.setEmail(id, email.trim());
-            return ResponseEntity.ok(Map.of("message", "Updated"));
+            boolean pending = userService.setEmail(id, email.trim());
+            return ResponseEntity.ok(Map.of("message", pending ? EMAIL_UPDATED_PENDING : "Updated"));
         } catch (IllegalArgumentException ex) {
+            if (EmailClaims.EMAIL_TAKEN.equals(ex.getMessage())) {
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", ex.getMessage()));
+            }
             return ResponseEntity.badRequest().body(Map.of("error", ex.getMessage()));
+        } catch (DataIntegrityViolationException ex) {
+            return conflict(ex);
         }
     }
 
@@ -211,7 +235,9 @@ public class UserController {
     /**
      * Permanently deletes a user account.
      *
-     * <p>The authenticated admin cannot delete their own account.
+     * <p>The authenticated admin cannot delete their own account. The "account removed" email is sent here,
+     * after the service's transaction has committed (login-registration plan §2 #7), to the address read
+     * from the locked row; a delete that fails sends nothing.
      *
      * @param id        the user's primary key
      * @param principal the authenticated admin (used to prevent self-deletion)
@@ -220,7 +246,8 @@ public class UserController {
     @DeleteMapping("/{id}")
     public ResponseEntity<Object> deleteUser(@PathVariable Long id, Principal principal) {
         try {
-            userService.deleteUser(id, principal.getName());
+            DeletedAccount deleted = userService.deleteUser(id, principal.getName());
+            userEmailService.sendAccountDeletedEmail(deleted.email(), deleted.username());
             LOG.info("Admin deleted user id={}", id);
             return ResponseEntity.ok(Map.of("message", "User deleted"));
         } catch (IllegalStateException ex) {
@@ -235,7 +262,7 @@ public class UserController {
      * Resends a verification email for a pending user. Admin action — bypasses rate limiting.
      *
      * @param id the user's primary key
-     * @return 200 on success, 400 if user not found or has no email
+     * @return 200 on success, 400 if user not found, has no email, or is no longer awaiting verification
      */
     @PostMapping("/{id}/resend-verification")
     public ResponseEntity<Object> resendVerification(@PathVariable Long id) {
@@ -252,10 +279,24 @@ public class UserController {
             return ResponseEntity.badRequest().body(Map.of("error", "User has no email address"));
         }
 
-        registrationService.adminResendVerification(user);
-        LOG.info("Admin resent verification email for user id={}, email={}",
-                id, LogSanitizer.sanitize(user.getEmail()));
+        if (!registrationService.adminResendVerification(user)) {
+            return ResponseEntity.badRequest()
+                    .body(Map.of("error", "Account is not awaiting email verification"));
+        }
+        LOG.info("Admin resent verification email for user id={}", id);
         return ResponseEntity.ok(Map.of("message", "Verification email sent"));
+    }
+
+    /**
+     * Translates a unique-key violation to a 409 naming the field; any other violation is a bug and is
+     * rethrown.
+     *
+     * @param ex the violation caught around a service call
+     * @return the 409 response
+     */
+    private static ResponseEntity<Object> conflict(DataIntegrityViolationException ex) {
+        String message = UniqueViolation.conflictMessage(ex).orElseThrow(() -> ex);
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", message));
     }
 
     /**

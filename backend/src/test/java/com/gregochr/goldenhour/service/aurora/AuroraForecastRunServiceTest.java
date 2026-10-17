@@ -177,6 +177,43 @@ class AuroraForecastRunServiceTest {
     }
 
     // -------------------------------------------------------------------------
+    // maxKpRestOfCurrentNight — the poller's own rest-of-tonight figure, for the viewline endpoint
+    // -------------------------------------------------------------------------
+
+    private static KpForecast block(String from, String to, double kp) {
+        return new KpForecast(ZonedDateTime.parse(from), ZonedDateTime.parse(to), kp);
+    }
+
+    @Test
+    @DisplayName("before dawn the rest of the current night counts the running block, not ended ones or after dawn")
+    void maxKpRestOfCurrentNight_beforeDawn_countsRunningAndLaterBlocksBeforeDawn() {
+        // 02:00 on the 11th; the night is 20:35 on the 10th to 03:25 on the 11th.
+        List<KpForecast> forecast = List.of(
+                block("2027-02-10T18:00:00Z", "2027-02-10T21:00:00Z", 9.0),   // ended: not "the rest"
+                block("2027-02-11T00:00:00Z", "2027-02-11T03:00:00Z", 5.67),  // running
+                block("2027-02-11T03:00:00Z", "2027-02-11T06:00:00Z", 4.33),  // starts before dawn
+                block("2027-02-11T06:00:00Z", "2027-02-11T09:00:00Z", 9.0));  // starts after dawn
+
+        assertThat(serviceAt("2027-02-11T02:00:00Z").maxKpRestOfCurrentNight(forecast)).isEqualTo(5.67);
+    }
+
+    @Test
+    @DisplayName("in daylight it reads tonight's window, and follows a revised forecast")
+    void maxKpRestOfCurrentNight_daylight_readsTonightAndFollowsRevision() {
+        AuroraForecastRunService afternoon = serviceAt("2027-02-11T15:00:00Z");
+        List<KpForecast> forecast = List.of(
+                block("2027-02-11T15:00:00Z", "2027-02-11T18:00:00Z", 8.0),   // ends before dusk
+                block("2027-02-11T21:00:00Z", "2027-02-12T00:00:00Z", 5.67),
+                block("2027-02-12T00:00:00Z", "2027-02-12T03:00:00Z", 4.0));
+        List<KpForecast> revised = List.of(
+                block("2027-02-11T21:00:00Z", "2027-02-12T00:00:00Z", 5.67),
+                block("2027-02-12T00:00:00Z", "2027-02-12T03:00:00Z", 7.0));
+
+        assertThat(afternoon.maxKpRestOfCurrentNight(forecast)).isEqualTo(5.67);
+        assertThat(afternoon.maxKpRestOfCurrentNight(revised)).isEqualTo(7.0);
+    }
+
+    // -------------------------------------------------------------------------
     // currentNight — the night in progress, and the instant it stops being current
     // -------------------------------------------------------------------------
 
@@ -868,8 +905,8 @@ class AuroraForecastRunServiceTest {
         AuroraStateCache.SimulatedNoaaData simData =
                 new AuroraStateCache.SimulatedNoaaData(7.0, 45.0, -12.0, "G3");
         when(stateCache.getSimulatedData()).thenReturn(simData);
-        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(anyInt()))
-                .thenReturn(List.of());
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(
+                properties.getBortleThreshold().getModerate())).thenReturn(List.of());
 
         AuroraForecastPreview preview = service.getPreview();
 
@@ -901,11 +938,12 @@ class AuroraForecastRunServiceTest {
         LocationEntity loc = LocationEntity.builder()
                 .id(1L).name("Sim Location").lat(55.0).lon(-1.5).bortleClass(3).build();
 
-        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(anyInt()))
-                .thenReturn(List.of(loc));
+        // Kp 7 is STRONG, so the run asks for the STRONG Bortle roster.
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(
+                properties.getBortleThreshold().getStrong())).thenReturn(List.of(loc));
 
         LocalDate tonight = TODAY;
-        when(weatherTriage.triage(any())).thenReturn(
+        when(weatherTriage.triage(List.of(loc))).thenReturn(
                 new WeatherTriageService.TriageResult(List.of(loc), List.of(), Map.of(loc, 30)));
         when(claudeInterpreter.interpret(any(), any(), any(), any(), any(), any()))
                 .thenReturn(List.of(new AuroraForecastScore(loc, 4, AlertLevel.STRONG, 30,
@@ -962,6 +1000,72 @@ class AuroraForecastRunServiceTest {
         // branches of the entity-building code must carry the marker, not just one.
         assertThat(saved).hasSize(2);
         assertThat(saved).allMatch(AuroraForecastResultEntity::isSimulated);
+    }
+
+    /**
+     * The simulation is read once. Both admin paths below used to read it twice — a flag, then the
+     * data — and an admin's Clear landing between the reads made the second one null: a
+     * {@code NullPointerException} out of the endpoint. The stub answers a first read with the
+     * simulation and any later read with nothing, as that Clear would.
+     */
+    @Test
+    @DisplayName("getPreview answers from its one read of the simulation")
+    void getPreview_simulationClearedAfterItsRead_answersFromTheRead() {
+        when(stateCache.getSimulatedData()).thenReturn(
+                new AuroraStateCache.SimulatedNoaaData(7.0, 45.0, -12.0, "G3"),
+                (AuroraStateCache.SimulatedNoaaData) null);
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(
+                properties.getBortleThreshold().getModerate())).thenReturn(List.of());
+
+        AuroraForecastPreview preview = service.getPreview();
+
+        assertThat(preview.simulated()).isTrue();
+        assertThat(preview.nights()).extracting(AuroraForecastPreview.NightPreview::maxKp)
+                .containsExactly(7.0, 7.0, 7.0);
+    }
+
+    /** As above, for the run — see {@link #getPreview_simulationClearedAfterItsRead_answersFromTheRead}. */
+    @Test
+    @DisplayName("runForecast answers from its one read of the simulation")
+    void runForecast_simulationClearedAfterItsRead_answersFromTheRead() {
+        when(stateCache.getSimulatedData()).thenReturn(
+                new AuroraStateCache.SimulatedNoaaData(7.0, 45.0, -12.0, "G3"),
+                (AuroraStateCache.SimulatedNoaaData) null);
+
+        AuroraForecastRunResponse response =
+                service.runForecast(new AuroraForecastRunRequest(List.of(TODAY)));
+
+        // The simulated Kp 7 reached the night; with no dark-sky locations stubbed it stops there.
+        assertThat(response.nights()).singleElement().satisfies(night -> {
+            assertThat(night.maxForecastKp()).isEqualTo(7.0);
+            assertThat(night.status()).isEqualTo("no_eligible_locations");
+        });
+        verify(noaaClient, never()).fetchAll();
+    }
+
+    @Test
+    @DisplayName("a simulation a real CLEAR has ended leaves the preview on NOAA's own forecast")
+    void getPreview_simulationEndedByARealClear_readsNoaasForecast() {
+        AuroraStateCache machine = new AuroraStateCache();
+        machine.activateSimulation(AlertLevel.STRONG,
+                new AuroraStateCache.SimulatedNoaaData(7.0, 45.0, -12.0, "G3"));
+        machine.evaluate(AlertLevel.QUIET); // the first night-time real-time poll
+        AuroraForecastRunService previewing = new AuroraForecastRunService(noaaClient, weatherTriage,
+                claudeInterpreter, locationRepository, resultRepository, properties, solarCalculator,
+                machine, resultWriter, CLOCK);
+        // A real Kp 4.3 block tonight (dusk 20:35, dawn 03:25), and nothing on the two nights after.
+        when(noaaClient.fetchKpForecast()).thenReturn(List.of(new KpForecast(
+                ZonedDateTime.of(2027, 2, 10, 21, 0, 0, 0, ZoneOffset.UTC),
+                ZonedDateTime.of(2027, 2, 11, 0, 0, 0, 0, ZoneOffset.UTC), 4.3)));
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(
+                properties.getBortleThreshold().getModerate())).thenReturn(List.of());
+
+        AuroraForecastPreview preview = previewing.getPreview();
+
+        // Broken: simulated, and the admin's Kp 7 offered for all three nights.
+        assertThat(preview.simulated()).isFalse();
+        assertThat(preview.nights()).extracting(AuroraForecastPreview.NightPreview::maxKp)
+                .containsExactly(4.3, 0.0, 0.0);
     }
 
     // -------------------------------------------------------------------------

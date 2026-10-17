@@ -4,7 +4,7 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.HotTopicFact;
-import com.gregochr.goldenhour.model.SurvivorSignals;
+import com.gregochr.goldenhour.model.SlotSignals;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -41,13 +41,13 @@ class DustFactsBuilderTest {
         builder = new DustFactsBuilder(solarService);
     }
 
-    private static SurvivorSignals dustRow(String aod) {
+    private static SlotSignals dustRow(String aod) {
         LocationEntity location = LocationEntity.builder().name("Coast").lat(LAT).lon(LON).build();
-        SurvivorSignals.Readings readings = new SurvivorSignals.Readings(
+        SlotSignals.Readings readings = new SlotSignals.Readings(
                 aod == null ? null : new BigDecimal(aod),
-                null, null, null, null, null, null, null, null, null, null);
-        return new SurvivorSignals(location, DATE, TargetType.SUNSET,
-                SurvivorSignals.Scores.EMPTY, readings);
+                null, null, null, null, null, null, null, null, null, null, null, false);
+        return new SlotSignals(location, DATE, TargetType.SUNSET,
+                SlotSignals.Scores.EMPTY, readings);
     }
 
     private static HotTopic baseTopic() {

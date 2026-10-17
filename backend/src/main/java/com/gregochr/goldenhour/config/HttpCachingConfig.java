@@ -62,6 +62,8 @@ public class HttpCachingConfig {
      *   <li>{@code /api/user/settings/map-colours} — write-only (PUT), so it is excluded from this
      *       set by construction, but it lives under the same personal-data prefix and is pinned
      *       alongside its siblings so a later GET added here cannot be missed.</li>
+     *   <li>{@code /api/user/settings/ask} — the caller's own Ask allowance today; and the typed
+     *       {@code POST /api/ask}, which is a write and is skipped by the GET-only rule.</li>
      * </ul>
      * Admin-only and interaction-only reads are omitted too: they pay the response-buffering cost
      * with no repeat-fetch payoff, and every extra entry widens the surface that has to stay in
@@ -85,7 +87,7 @@ public class HttpCachingConfig {
             "/api/nlc/sighting",
             // The almanac feed is ephemeris: identical for every user and stable for a whole day,
             // so it is the strongest revalidation candidate here. Safe to share because it carries
-            // no per-user data — the rule that keeps "Close to home" off this list.
+            // no per-user data — the rule that keeps the home-derived /api/user/settings paths off this list.
             "/api/almanac",
             // The region-base drive-time matrix: how far every location is from each region's base
             // town. Admin-managed geography, identical for every reader, and it changes only when
@@ -94,7 +96,14 @@ public class HttpCachingConfig {
             // reader's own house and stays on the never-revalidated `/api/user/settings/reach` for
             // the reason this list's own comment gives. The exact-match rule is what keeps those
             // two apart: no wildcard here could ever reach a `/api/user/settings*` path.
-            "/api/regions/drive-times");
+            "/api/regions/drive-times",
+            // Ask PhotoCast's Ready answers (docs/engineering/ask-photocast-plan.md §2.4): the same
+            // user-less answer for every reader of a scope, built from the shared briefing and
+            // re-checked against live data on every serve. The scope rides in the query string,
+            // which the filter ignores (it matches getRequestURI()), so the BODY's hash is what keeps
+            // two scopes apart. Emphatically not the typed POST /api/ask, which is a write and
+            // personal; the exact-match rule keeps the two apart.
+            "/api/ask/ready");
 
     /**
      * The lazy popup-detail endpoint, {@code GET /api/forecast/{id}}. Matched by a strict

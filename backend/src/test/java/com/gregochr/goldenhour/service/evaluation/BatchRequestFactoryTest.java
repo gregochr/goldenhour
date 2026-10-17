@@ -1,7 +1,10 @@
 package com.gregochr.goldenhour.service.evaluation;
 
+import com.anthropic.core.ObjectMappers;
 import com.anthropic.models.messages.batches.BatchCreateParams;
+import com.anthropic.models.messages.CacheControlEphemeral;
 import com.gregochr.goldenhour.TestAtmosphericData;
+import com.gregochr.goldenhour.config.BatchCachePrimerProperties;
 import com.gregochr.goldenhour.entity.BluebellExposure;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.LunarTideType;
@@ -18,6 +21,8 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Map;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
@@ -171,6 +176,87 @@ class BatchRequestFactoryTest {
     }
 
     @Test
+    void inlandPromptCaptureIsTheMessageInTheRequest() {
+        AtmosphericData data = TestAtmosphericData.builder().build();
+
+        BatchRequestFactory.ForecastRequest built = factory.buildForecastRequestAndPrompt(
+                "fc-1-2026-04-16-SUNRISE-r5", EvaluationModel.HAIKU, data, 512);
+
+        String sent = built.request().params().messages().get(0).content().asString();
+        assertThat(built.userMessage()).isEqualTo(sent);
+        assertThat(built.userMessage()).isEqualTo(inlandBuilder.buildUserMessage(data));
+        assertThat(built.request().customId()).isEqualTo("fc-1-2026-04-16-SUNRISE-r5");
+    }
+
+    @Test
+    void coastalSurgePromptCaptureIsTheMessageInTheRequest() {
+        StormSurgeBreakdown surge = new StormSurgeBreakdown(
+                0.30, 0.20, 0.50, 985.0, 18.0, 270.0, 0.95,
+                TideRiskLevel.HIGH, "Strong onshore wind plus 985 hPa low");
+        AtmosphericData data = TestAtmosphericData.builder()
+                .tide(coastalTide())
+                .surge(surge)
+                .adjustedRangeMetres(5.20)
+                .astronomicalRangeMetres(4.70)
+                .build();
+
+        BatchRequestFactory.ForecastRequest built = factory.buildForecastRequestAndPrompt(
+                "fc-2-2026-04-16-SUNRISE-r6", EvaluationModel.HAIKU, data, 512);
+
+        String sent = built.request().params().messages().get(0).content().asString();
+        assertThat(built.userMessage()).isEqualTo(sent);
+        assertThat(built.userMessage()).isEqualTo(
+                coastalBuilder.buildUserMessage(data, surge, 5.20, 4.70));
+        assertThat(built.userMessage()).contains("STORM SURGE FORECAST");
+    }
+
+    @Test
+    void promptHashIsTheHashOfTheSystemPromptTheRequestCarries() {
+        AtmosphericData data = TestAtmosphericData.builder().build();
+
+        BatchRequestFactory.ForecastRequest built = factory.buildForecastRequestAndPrompt(
+                "fc-1-2026-04-16-SUNRISE-r5", EvaluationModel.HAIKU, data, 512);
+
+        String sentSystem = built.request().params().system().orElseThrow()
+                .asTextBlockParams().get(0).text();
+        assertThat(sentSystem).isEqualTo(inlandBuilder.getSystemPrompt());
+        assertThat(built.promptHash()).isEqualTo(PromptHash.sha256Hex(sentSystem)).hasSize(64);
+    }
+
+    @Test
+    void promptHashIgnoresTheSlotsWeatherButSeparatesInlandFromCoastal() {
+        AtmosphericData clear = TestAtmosphericData.builder().build();
+        AtmosphericData otherWeather = TestAtmosphericData.builder().lowCloud(91).highCloud(7).build();
+        AtmosphericData coastal = TestAtmosphericData.builder().tide(coastalTide()).build();
+
+        BatchRequestFactory.ForecastRequest first = factory.buildForecastRequestAndPrompt(
+                "fc-1-2026-04-16-SUNRISE-r5", EvaluationModel.HAIKU, clear, 512);
+        BatchRequestFactory.ForecastRequest second = factory.buildForecastRequestAndPrompt(
+                "fc-2-2026-04-17-SUNSET-r6", EvaluationModel.SONNET, otherWeather, 512);
+        BatchRequestFactory.ForecastRequest sea = factory.buildForecastRequestAndPrompt(
+                "fc-3-2026-04-16-SUNRISE-r7", EvaluationModel.HAIKU, coastal, 512);
+
+        assertThat(second.promptHash()).as("same prompt, different slot and model: same hash")
+                .isEqualTo(first.promptHash());
+        assertThat(sea.promptHash()).as("the coastal system prompt is a different prompt")
+                .isNotEqualTo(first.promptHash())
+                .isEqualTo(PromptHash.sha256Hex(coastalBuilder.getSystemPrompt()));
+        assertThat(second.userMessage()).as("the weather IS in the user message, which is why it is "
+                + "not what gets hashed").isNotEqualTo(first.userMessage());
+    }
+
+    @Test
+    void buildForecastRequestDelegatesToTheCapturingBuild() {
+        AtmosphericData data = TestAtmosphericData.builder().build();
+
+        BatchCreateParams.Request plain = factory.buildForecastRequest(
+                "fc-3-2026-04-16-SUNRISE", EvaluationModel.HAIKU, data, 512);
+
+        assertThat(plain.params().messages().get(0).content().asString())
+                .isEqualTo(inlandBuilder.buildUserMessage(data));
+    }
+
+    @Test
     void surgeAbsentDoesNotInsertSurgeBlock() {
         AtmosphericData data = TestAtmosphericData.builder().tide(coastalTide()).build();
 
@@ -295,5 +381,184 @@ class BatchRequestFactoryTest {
                 "First Quarter",
                 false,
                 TideStatisticalSize.EXTRA_HIGH);
+    }
+
+    // ── batch cache primer: one-hour lifetime only for a warmed prefix ───────
+
+    private static CacheControlEphemeral cacheControlOf(BatchCreateParams.Request request) {
+        return request.params().system().get().asTextBlockParams().get(0).cacheControl().get();
+    }
+
+    private static final String HAIKU_INLAND = EvaluationModel.HAIKU.getModelId() + "|inland";
+
+    @Test
+    void plainBatchSkyRequestNeverCarriesTheOneHourLifetime() {
+        AtmosphericData data = TestAtmosphericData.builder().build();
+
+        BatchCreateParams.Request request = factory.buildForecastRequestAndPrompt(
+                "fc-1-2026-04-16-SUNRISE", EvaluationModel.HAIKU, data, 1024).request();
+
+        assertThat(cacheControlOf(request)).isEqualTo(CacheControlEphemeral.builder().build());
+        assertThat(cacheControlOf(request).ttl()).isEmpty();
+    }
+
+    @Test
+    void warmedPrefix_requestCarriesOneHourLifetime() {
+        AtmosphericData data = TestAtmosphericData.builder().build();
+
+        BatchCreateParams.Request request = factory.buildForecastRequestAndPrompt(
+                "fc-1-2026-04-16-SUNRISE", EvaluationModel.HAIKU, data, 1024,
+                Set.of(HAIKU_INLAND)).request();
+
+        assertThat(cacheControlOf(request).ttl()).contains(CacheControlEphemeral.Ttl.TTL_1H);
+    }
+
+    @Test
+    void unwarmedPrefix_requestEqualsThePlainRequest() {
+        AtmosphericData inland = TestAtmosphericData.builder().build();
+        Set<String> otherPrefixesWarmed = Set.of(
+                EvaluationModel.HAIKU.getModelId() + "|coastal", EvaluationModel.SONNET.getModelId() + "|inland");
+
+        BatchCreateParams.Request warmedElsewhere = factory.buildForecastRequestAndPrompt(
+                "fc-1-2026-04-16-SUNRISE", EvaluationModel.HAIKU, inland, 1024,
+                otherPrefixesWarmed).request();
+        BatchCreateParams.Request emptySet = factory.buildForecastRequestAndPrompt(
+                "fc-1-2026-04-16-SUNRISE", EvaluationModel.HAIKU, inland, 1024, Set.of()).request();
+
+        BatchCreateParams.Request plain = factory.buildForecastRequestAndPrompt(
+                "fc-1-2026-04-16-SUNRISE", EvaluationModel.HAIKU, inland, 1024).request();
+        assertThat(warmedElsewhere).isEqualTo(plain);
+        assertThat(emptySet).isEqualTo(plain);
+        assertThat(cacheControlOf(plain).ttl()).isEmpty();
+    }
+
+    @Test
+    void evalHarnessAndNonSkyRequestsKeepTheDefaultLifetime() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .bluebellConditionScore(woodlandConditions()).build();
+
+        assertThat(cacheControlOf(factory.buildForecastRequest(
+                "e_1_0_1", EvaluationModel.HAIKU, data, 1024)).ttl()).isEmpty();
+        assertThat(cacheControlOf(factory.buildWoodlandRequest(
+                "wd-1-2026-11-16-SUNRISE", EvaluationModel.HAIKU, data, 1024)).ttl()).isEmpty();
+        assertThat(cacheControlOf(factory.buildBluebellRequest(
+                "bb-1-2026-04-16-SUNRISE", EvaluationModel.HAIKU, data, 1024)).ttl()).isEmpty();
+    }
+
+    @Test
+    void primerRequest_carriesOneHourLifetime_andMatchesAWarmedRealRequest() {
+        AtmosphericData data = TestAtmosphericData.builder().tide(coastalTide()).build();
+        String key = EvaluationModel.HAIKU.getModelId() + "|coastal";
+
+        BatchCreateParams.Request real = factory.buildForecastRequestAndPrompt(
+                "fc-1-2026-04-16-SUNRISE", EvaluationModel.HAIKU, data, 1024, Set.of(key)).request();
+        BatchCreateParams.Request primer = factory.buildCachePrimerRequest(
+                CustomIdFactory.forCachePrimer(0), EvaluationModel.HAIKU, data, 1024);
+
+        assertThat(cacheControlOf(primer).ttl()).contains(CacheControlEphemeral.Ttl.TTL_1H);
+        assertThat(primer.params().system()).isEqualTo(real.params().system());
+        assertThat(primer.params().outputConfig()).isEqualTo(real.params().outputConfig());
+        assertThat(primer.params().model()).isEqualTo(real.params().model());
+        assertThat(primer.customId()).isEqualTo("pw-0");
+    }
+
+    // ── cache diagnostics: the primer opts in, the requests it warmed name it ──
+
+    private static String wire(BatchCreateParams.Request request) throws Exception {
+        return ObjectMappers.jsonMapper().writeValueAsString(request);
+    }
+
+    private BatchRequestFactory diagnosticsFactory(boolean on, PrimerMessageIds ids) {
+        BatchCachePrimerProperties properties = new BatchCachePrimerProperties();
+        properties.setDiagnostics(on);
+        return new BatchRequestFactory(inlandBuilder, coastalBuilder, bluebellBuilder, woodlandBuilder,
+                properties, ids);
+    }
+
+    @Test
+    void diagnosticsOff_noRequestCarriesADiagnosticsObject() throws Exception {
+        AtmosphericData data = TestAtmosphericData.builder().build();
+        PrimerMessageIds ids = new PrimerMessageIds();
+        ids.replace(Map.of(HAIKU_INLAND, "msg_primer"));
+        BatchRequestFactory off = diagnosticsFactory(false, ids);
+
+        BatchCreateParams.Request primer = off.buildCachePrimerRequest(
+                CustomIdFactory.forCachePrimer(0), EvaluationModel.HAIKU, data, 1024);
+        BatchCreateParams.Request warmed = off.buildForecastRequestAndPrompt(
+                "fc-1-2026-04-16-SUNRISE", EvaluationModel.HAIKU, data, 1024, Set.of(HAIKU_INLAND)).request();
+
+        assertThat(primer.params().diagnostics()).isEmpty();
+        assertThat(warmed.params().diagnostics()).isEmpty();
+        assertThat(wire(primer)).doesNotContain("diagnostics");
+        assertThat(wire(warmed)).doesNotContain("diagnostics");
+        assertThat(primer).isEqualTo(factory.buildCachePrimerRequest(
+                CustomIdFactory.forCachePrimer(0), EvaluationModel.HAIKU, data, 1024));
+    }
+
+    @Test
+    void diagnosticsOn_thePrimerOptsInWithANullPreviousMessage() throws Exception {
+        AtmosphericData data = TestAtmosphericData.builder().build();
+
+        BatchCreateParams.Request primer = diagnosticsFactory(true, new PrimerMessageIds())
+                .buildCachePrimerRequest(CustomIdFactory.forCachePrimer(0), EvaluationModel.HAIKU, data, 1024);
+
+        assertThat(primer.params().diagnostics()).isPresent();
+        assertThat(wire(primer)).contains("\"diagnostics\":{\"previous_message_id\":null}");
+    }
+
+    @Test
+    void diagnosticsOn_aWarmedRequestNamesThePrimerThatWarmedItsPrefix() throws Exception {
+        AtmosphericData data = TestAtmosphericData.builder().build();
+        PrimerMessageIds ids = new PrimerMessageIds();
+        ids.replace(Map.of(HAIKU_INLAND, "msg_primer"));
+
+        BatchCreateParams.Request warmed = diagnosticsFactory(true, ids).buildForecastRequestAndPrompt(
+                "fc-1-2026-04-16-SUNRISE", EvaluationModel.HAIKU, data, 1024, Set.of(HAIKU_INLAND)).request();
+
+        assertThat(wire(warmed)).contains("\"diagnostics\":{\"previous_message_id\":\"msg_primer\"}");
+        assertThat(cacheControlOf(warmed).ttl()).contains(CacheControlEphemeral.Ttl.TTL_1H);
+    }
+
+    @Test
+    void diagnosticsOn_aWarmedRequestWhosePrimerIdWasNotReadCarriesNone() {
+        AtmosphericData data = TestAtmosphericData.builder().build();
+
+        BatchCreateParams.Request warmed = diagnosticsFactory(true, new PrimerMessageIds())
+                .buildForecastRequestAndPrompt("fc-1-2026-04-16-SUNRISE", EvaluationModel.HAIKU, data, 1024,
+                        Set.of(HAIKU_INLAND)).request();
+
+        assertThat(warmed.params().diagnostics()).isEmpty();
+    }
+
+    @Test
+    void diagnosticsOn_anUnwarmedRequestAndEveryOtherRequestCarryNone() {
+        AtmosphericData data = TestAtmosphericData.builder()
+                .bluebellConditionScore(woodlandConditions()).build();
+        PrimerMessageIds ids = new PrimerMessageIds();
+        ids.replace(Map.of(HAIKU_INLAND, "msg_primer"));
+        BatchRequestFactory on = diagnosticsFactory(true, ids);
+
+        assertThat(on.buildForecastRequestAndPrompt("fc-1-2026-04-16-SUNRISE", EvaluationModel.HAIKU, data,
+                1024, Set.of()).request().params().diagnostics()).isEmpty();
+        assertThat(on.buildForecastRequestAndPrompt("fc-1-2026-04-16-SUNRISE", EvaluationModel.HAIKU, data,
+                1024).request().params().diagnostics()).isEmpty();
+        assertThat(on.buildForecastRequest("e_1_0_1", EvaluationModel.HAIKU, data, 1024)
+                .params().diagnostics()).isEmpty();
+        assertThat(on.buildWoodlandRequest("wd-1-2026-11-16-SUNRISE", EvaluationModel.HAIKU, data, 1024)
+                .params().diagnostics()).isEmpty();
+        assertThat(on.buildBluebellRequest("bb-1-2026-04-16-SUNRISE", EvaluationModel.HAIKU, data, 1024)
+                .params().diagnostics()).isEmpty();
+    }
+
+    @Test
+    void cachePrefixKey_separatesModelAndBuilder() {
+        AtmosphericData inland = TestAtmosphericData.builder().build();
+        AtmosphericData coastal = TestAtmosphericData.builder().tide(coastalTide()).build();
+
+        assertThat(factory.cachePrefixKey(EvaluationModel.HAIKU, inland)).isEqualTo(HAIKU_INLAND);
+        assertThat(factory.cachePrefixKey(EvaluationModel.HAIKU, coastal))
+                .isEqualTo(EvaluationModel.HAIKU.getModelId() + "|coastal");
+        assertThat(factory.cachePrefixKey(EvaluationModel.SONNET, inland))
+                .isEqualTo(EvaluationModel.SONNET.getModelId() + "|inland");
     }
 }

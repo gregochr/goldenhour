@@ -183,6 +183,41 @@ describe('buildMapOverlay', () => {
       expect(ov.focus.names).toEqual(['Kielder']);
     });
 
+    it('a plan chip (neither filter) shows every visible location, matching nothing by type or Bortle', () => {
+      // plan §11.26: a plan entry's chip filters nothing. With no `filterAction` the type filter
+      // used to match NOTHING (`includes(null)`), leaving an empty overlay.
+      const locations = [
+        loc('Bamburgh', 'Northumberland', 3, { lat: 55.6, lon: -1.7, types: ['SEASCAPE'] }),
+        loc('Kielder', 'Northumberland', 3, { lat: 55.2, lon: -2.6, types: ['LANDSCAPE'], bortleClass: 3 }),
+        loc('Thick Sky', 'Yorkshire', 3, { lat: 54.3, lon: -0.9, types: ['LANDSCAPE'], bortleClass: 7 }),
+        { ...loc('Switched Off', 'Yorkshire', 3, { lat: 50.0, lon: -5.0, types: ['LANDSCAPE'] }), enabled: false },
+      ];
+      const ov = buildMapOverlay(
+        { kind: 'coming-up', filterAction: null, darkSky: false, label: 'Winter solstice · Sun 21 Dec', date: DATE },
+        ctx(locations),
+      );
+      expect(ov.title).toBe('Winter solstice · Sun 21 Dec');
+      // No `names`: that would make MapView replace its own filtered list with exactly these pins,
+      // bypassing the overlay's rating floor, stand-down and drive filters. Points only — the fit.
+      expect(ov.focus.names).toBeUndefined();
+      expect(ov.focus).not.toHaveProperty('names');
+      // Every enabled location's point, in order; the disabled one (50.0, -5.0) is not in the fit.
+      expect(ov.focus.points).toEqual([[55.6, -1.7], [55.2, -2.6], [54.3, -0.9]]);
+      expect(ov.caption).toContain('3 locations');
+      expect(ov.subLine).toBe('2 regions');
+      expect(ov.handoff.filterAction).toBeNull();
+      expect(ov.handoff.darkSky).toBe(false);
+      expect(ov.handoff.date).toBe(DATE);
+    });
+
+    it('a plan chip with no label falls back to a generic title rather than a type name', () => {
+      const ov = buildMapOverlay(
+        { kind: 'coming-up', filterAction: null, darkSky: false, date: DATE },
+        ctx([loc('Bamburgh', 'Northumberland', 3, { types: ['SEASCAPE'] })]),
+      );
+      expect(ov.title).toBe('Coming up');
+    });
+
     it('carries the trigger date, unlike the aurora branch — no rating is ever claimed for it', () => {
       const ov = buildMapOverlay(
         { kind: 'coming-up', filterAction: 'SEASCAPE', date: '2026-11-26' },

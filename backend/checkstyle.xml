@@ -19,9 +19,30 @@
         <property name="ignorePattern" value="^package.*|^import.*|a href|href|http://|https://|ftp://"/>
     </module>
 
+    <!-- Test sources are exempt from the missing-javadoc checks only (every other check still
+         runs on them). The file is located by maven-checkstyle-plugin's suppressionsLocation in
+         pom.xml, which exposes its resolved path as ${checkstyle.suppressions.file}, so it is found
+         whatever directory Maven is started from. -->
+    <module name="SuppressionFilter">
+        <property name="file" value="${checkstyle.suppressions.file}"/>
+    </module>
+
     <module name="TreeWalker">
 
-        <!-- Javadoc on all public classes and methods -->
+        <!-- Javadoc on all public types, methods and constructors, in src/main:
+             MissingJavadocType / MissingJavadocMethod report a javadoc that is ABSENT;
+             JavadocType / JavadocMethod only validate one that is present, so they alone let
+             a public method go undocumented. Exempt: bean getters/setters
+             (allowMissingPropertyJavadoc) and @Override methods (default allowedAnnotations).
+             Constructors and compact constructors are deliberately in scope. Test sources are
+             exempt from the two Missing* checks via checkstyle-suppressions.xml. -->
+        <module name="MissingJavadocType">
+            <property name="scope" value="public"/>
+        </module>
+        <module name="MissingJavadocMethod">
+            <property name="scope" value="public"/>
+            <property name="allowMissingPropertyJavadoc" value="true"/>
+        </module>
         <module name="JavadocMethod">
             <property name="accessModifiers" value="public"/>
         </module>

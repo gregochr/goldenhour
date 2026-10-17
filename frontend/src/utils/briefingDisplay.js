@@ -1,4 +1,6 @@
 import { formatEventTimeUk } from './conversions.js';
+import { ukDateStr, ukHour } from './mapDates.js';
+import { appNow } from './rewind.js';
 
 /**
  * Shared briefing display vocabulary — the ordering, classification, and
@@ -10,7 +12,18 @@ import { formatEventTimeUk } from './conversions.js';
 export const VERDICT_ORDER = { GO: 0, MARGINAL: 1, STANDDOWN: 2 };
 
 /** Sort order for the unified display signal, used for region rollups. */
-export const DISPLAY_ORDER = { WORTH_IT: 0, MAYBE: 1, STAND_DOWN: 2, AWAITING: 3 };
+export const DISPLAY_ORDER = {
+  WORTH_IT: 0,
+  MAYBE: 1,
+  // UNRATED ranks ABOVE STAND_DOWN (unrated-verdict-plan.md U2): the weather did not rule it out, so
+  // a region the sample gate withheld a verdict from is still a better bet than one the weather
+  // stood down — it ranked there when the triage pass wore "Worth it"/"Maybe", and demoting it
+  // below Poor would be a silent reordering of the regional panel's rows. An absent key would sort
+  // as `undefined`, which the callers' `?? 4` turns into last place.
+  UNRATED: 2,
+  STAND_DOWN: 3,
+  AWAITING: 4,
+};
 
 /**
  * Location type icon lookup.
@@ -35,6 +48,12 @@ export const AFTERGLOW_MS = 30 * 60 * 1000;
  */
 export function isPoorSlot(slot) {
   if (slot.displayVerdict) {
+    // ⚠️ UNRATED is deliberately NOT poor (unrated-verdict-plan.md U2): the weather screen passed it,
+    // it just has no trustworthy rating. The dimmed section is headed "poor · not evaluated" and
+    // each row in it says "Poor" — true of STAND_DOWN, false of a place the weather did not rule out
+    // (the same "an UNRATED window is not poor" rule `mapLanding`'s all-Poor fold applies). It stays
+    // in the main list, as the triage pass it replaced did, with a dash where a star would be.
+    if (slot.displayVerdict === 'UNRATED') return false;
     return slot.displayVerdict === 'STAND_DOWN' || slot.displayVerdict === 'AWAITING';
   }
   return slot.verdict === 'STANDDOWN';
@@ -49,16 +68,18 @@ export function isPoorSlot(slot) {
  *   5. Other MARGINAL
  *   6. STANDDOWN (filtered out by caller)
  *
- * @param {{ verdict?: string, tideAligned?: boolean, flags?: string[] }} slot
+ * @param {{ verdict?: string, flags?: string[] }} slot
+ * @param {boolean} aligned whether this slot's tide suits its spot in this window, from the window's
+ *        served tide facts (never a slot field)
  * @returns {number}
  */
-export function slotSortKey(slot) {
+export function slotSortKey(slot, aligned) {
   const v = VERDICT_ORDER[slot.verdict] ?? 3;
   const hasKing = (slot.flags || []).some((f) => f.toLowerCase().includes('king'));
   if (v === 0 && hasKing) return 0; // GO + king
-  if (v === 0 && slot.tideAligned) return 1; // GO + tide
+  if (v === 0 && aligned) return 1; // GO + tide
   if (v === 0) return 2; // GO plain
-  if (v === 1 && slot.tideAligned) return 3; // MARGINAL + tide
+  if (v === 1 && aligned) return 3; // MARGINAL + tide
   if (v === 1) return 4; // MARGINAL plain
   return 5;
 }
@@ -68,11 +89,12 @@ export function slotSortKey(slot) {
  * then A–Z within each group.
  *
  * @param {Array} slots
+ * @param {function(object): boolean} alignedOf true when the given slot's tide suits it in this window
  * @returns {Array} a new sorted array
  */
-export function sortedSlotsByTidePriority(slots) {
+export function sortedSlotsByTidePriority(slots, alignedOf) {
   return [...slots].sort((a, b) => {
-    const diff = slotSortKey(a) - slotSortKey(b);
+    const diff = slotSortKey(a, alignedOf(a)) - slotSortKey(b, alignedOf(b));
     return diff !== 0 ? diff : a.locationName.localeCompare(b.locationName);
   });
 }
@@ -124,6 +146,26 @@ export function formatDriveDuration(minutes) {
 }
 
 /**
+ * Drive duration in minutes → the COMPACT form: "45m" / "1h30" / "2h30" / "1h". The same hours and
+ * minutes split as {@link formatDriveDuration}, in the width a card's second label line can afford
+ * (the Plan card's Spread row names its reach tier with it — {@code (within 1h30)}).
+ *
+ * <p>Minutes after the hour are zero-padded to two digits so {@code 65} reads "1h05", never "1h5"
+ * — which would be read as an hour and a half. Not for speech: "45m" is voiced as a letter, so a
+ * screen-reader sentence takes the long form ({@link formatDriveDuration}) instead.
+ *
+ * @param {number|null|undefined} minutes
+ * @returns {string|null} null when the duration is unknown, exactly as the long form
+ */
+export function formatDriveDurationCompact(minutes) {
+  if (minutes == null) return null;
+  if (minutes < 60) return `${minutes}m`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m > 0 ? `${h}h${String(m).padStart(2, '0')}` : `${h}h`;
+}
+
+/**
  * Event-time ISO string → UK "HH:mm"; empty string when null.
  *
  * @param {string|null|undefined} isoString
@@ -162,19 +204,6 @@ export function getEventTime(es) {
 /** Local hour at which a sunrise with no resolvable time is assumed to have happened. */
 const SUNRISE_ELAPSED_BY_HOUR = 12;
 
-/** Today's ISO date in the forecast's own timezone. */
-function londonToday() {
-  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date());
-}
-
-/** Current hour (0–23) in the forecast's own timezone. */
-function londonHour() {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Europe/London', hour: '2-digit', hourCycle: 'h23',
-  }).formatToParts(new Date());
-  return Number(parts.find((p) => p.type === 'hour')?.value);
-}
-
 /**
  * Last-resort pastness for an event carrying no time at all, decided from its date.
  *
@@ -195,10 +224,11 @@ function londonHour() {
  */
 function isUndatedEventPast(dateStr, targetType) {
   if (!dateStr) return false;
-  const today = londonToday();
+  // `mapDates`' own UK calendar reads, on the app clock (an admin's rewind included).
+  const today = ukDateStr();
   if (dateStr < today) return true;
   if (dateStr > today) return false;
-  return targetType === 'SUNRISE' && londonHour() >= SUNRISE_ELAPSED_BY_HOUR;
+  return targetType === 'SUNRISE' && ukHour() >= SUNRISE_ELAPSED_BY_HOUR;
 }
 
 /**
@@ -219,5 +249,24 @@ function isUndatedEventPast(dateStr, targetType) {
 export function isEventPast(es, dateStr = null) {
   const t = getEventTime(es);
   if (!t) return isUndatedEventPast(dateStr, es?.targetType);
-  return new Date(t + 'Z').getTime() + AFTERGLOW_MS < Date.now();
+  return isEventTimePast(t);
+}
+
+/**
+ * The elapsed test on a bare event instant: true only when a KNOWN UTC-naive time is more than the
+ * afterglow behind the app clock. Mirrors {@code PlanWindowProjector.hasPassed} exactly — the same
+ * 30-minute allowance, strictly-before comparison, and a null time reading as CURRENT, never past
+ * (unlike {@link isEventPast}, which falls back to a day-and-hour guess for an undated summary; this
+ * one is for callers holding the server's own {@code BriefingWindow.eventTime}).
+ *
+ * <p>The app clock, not {@code Date.now()}: under an admin's rewind ({@code utils/rewind.js}) this is
+ * the instant the page is rendering as of, so a sunrise the server kept because it had not yet
+ * happened THEN is not retired here because it has happened NOW.
+ *
+ * @param {?string} eventTime an ISO UTC-naive instant (no zone suffix), or null
+ * @returns {boolean}
+ */
+export function isEventTimePast(eventTime) {
+  if (!eventTime) return false;
+  return new Date(eventTime + 'Z').getTime() + AFTERGLOW_MS < appNow().getTime();
 }

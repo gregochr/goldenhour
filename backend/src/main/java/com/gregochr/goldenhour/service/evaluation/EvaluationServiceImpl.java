@@ -10,6 +10,8 @@ import com.anthropic.models.messages.batches.BatchCreateParams;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.exception.ClaudeReplyUnreadableException;
+import com.gregochr.goldenhour.model.CacheDiagnostics;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.aurora.ClaudeAuroraInterpreter;
@@ -20,9 +22,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Production {@link EvaluationService}.
@@ -51,6 +56,8 @@ public class EvaluationServiceImpl implements EvaluationService {
     private final AnthropicApiClient anthropicApiClient;
     private final ClaudeAuroraInterpreter claudeAuroraInterpreter;
     private final JobRunService jobRunService;
+    private final Clock clock;
+    private final ForecastPromptStore forecastPromptStore;
     private final Map<Class<? extends EvaluationTask>, ResultHandler<?>> handlersByType;
 
     /**
@@ -63,18 +70,27 @@ public class EvaluationServiceImpl implements EvaluationService {
      * @param jobRunService              creates job runs for the sync path
      * @param resultHandlers             all available {@link ResultHandler} beans;
      *                                   indexed by {@link ResultHandler#taskType}
+     * @param clock                      round 12: injectable clock for the submission instant
+     *                                   stamped on a synchronous forecast result — see {@link
+     *                                   #evaluateNowForecast}
+     * @param forecastPromptStore        records each batch sky request's user message against its
+     *                                   pending {@code forecast_evaluation} row
      */
     public EvaluationServiceImpl(BatchSubmissionService batchSubmissionService,
             BatchRequestFactory batchRequestFactory,
             AnthropicApiClient anthropicApiClient,
             ClaudeAuroraInterpreter claudeAuroraInterpreter,
             JobRunService jobRunService,
-            List<ResultHandler<?>> resultHandlers) {
+            List<ResultHandler<?>> resultHandlers,
+            Clock clock,
+            ForecastPromptStore forecastPromptStore) {
+        this.forecastPromptStore = forecastPromptStore;
         this.batchSubmissionService = batchSubmissionService;
         this.batchRequestFactory = batchRequestFactory;
         this.anthropicApiClient = anthropicApiClient;
         this.claudeAuroraInterpreter = claudeAuroraInterpreter;
         this.jobRunService = jobRunService;
+        this.clock = clock;
         this.handlersByType = new java.util.HashMap<>();
         for (ResultHandler<?> handler : resultHandlers) {
             handlersByType.put(handler.taskType(), handler);
@@ -96,6 +112,18 @@ public class EvaluationServiceImpl implements EvaluationService {
     @Override
     public EvaluationHandle submit(List<? extends EvaluationTask> tasks,
             BatchTriggerSource trigger, Long pipelineRunId, boolean isRetry) {
+        return submitInternal(tasks, trigger, pipelineRunId, isRetry, Set.of());
+    }
+
+    @Override
+    public EvaluationHandle submitWarmed(List<? extends EvaluationTask> tasks,
+            BatchTriggerSource trigger, Long pipelineRunId, Set<String> warmedPrefixes) {
+        return submitInternal(tasks, trigger, pipelineRunId, false, warmedPrefixes);
+    }
+
+    private EvaluationHandle submitInternal(List<? extends EvaluationTask> tasks,
+            BatchTriggerSource trigger, Long pipelineRunId, boolean isRetry,
+            Set<String> warmedPrefixes) {
         if (tasks == null || tasks.isEmpty()) {
             return EvaluationHandle.empty();
         }
@@ -112,7 +140,7 @@ public class EvaluationServiceImpl implements EvaluationService {
 
         if (firstType == EvaluationTask.Forecast.class) {
             return submitForecast(castList(tasks, EvaluationTask.Forecast.class), trigger,
-                    pipelineRunId, isRetry);
+                    pipelineRunId, isRetry, warmedPrefixes);
         }
         if (firstType == EvaluationTask.Aurora.class) {
             if (isRetry) {
@@ -136,27 +164,58 @@ public class EvaluationServiceImpl implements EvaluationService {
     }
 
     private EvaluationHandle submitForecast(List<EvaluationTask.Forecast> tasks,
-            BatchTriggerSource trigger, Long pipelineRunId, boolean isRetry) {
+            BatchTriggerSource trigger, Long pipelineRunId, boolean isRetry,
+            Set<String> warmedPrefixes) {
         List<BatchCreateParams.Request> requests = new ArrayList<>(tasks.size());
+        // evalRowId -> the sky user message that went into that row's request (batch SKY lane only).
+        Map<Long, String> skyPrompts = new java.util.LinkedHashMap<>();
+        // system-prompt hash -> the evalRowIds whose request carried that prompt (V182).
+        Map<String, List<Long>> skyPromptHashes = new java.util.LinkedHashMap<>();
         for (EvaluationTask.Forecast task : tasks) {
             Long locationId = task.location().getId();
             switch (task.promptKind()) {
                 case BLUEBELL -> requests.add(batchRequestFactory.buildBluebellRequest(
-                        CustomIdFactory.forBluebell(locationId, task.date(), task.targetType()),
+                        CustomIdFactory.forBluebell(locationId, task.date(), task.targetType(),
+                                task.forced()),
                         task.model(), task.data(), task.model().getMaxTokens()));
                 case WOODLAND -> requests.add(batchRequestFactory.buildWoodlandRequest(
-                        CustomIdFactory.forWoodland(locationId, task.date(), task.targetType()),
+                        CustomIdFactory.forWoodland(locationId, task.date(), task.targetType(),
+                                task.forced()),
                         task.model(), task.data(), task.model().getMaxTokens()));
-                case SKY -> requests.add(batchRequestFactory.buildForecastRequest(
-                        CustomIdFactory.forForecast(
-                                locationId, task.date(), task.targetType(), task.evalRowId()),
-                        task.model(), task.data(), task.model().getMaxTokens()));
+                case SKY -> {
+                    String customId = CustomIdFactory.forForecast(locationId, task.date(),
+                            task.targetType(), task.evalRowId(), task.forced());
+                    // No warmed prefix (every path but a scheduled cycle whose primer succeeded)
+                    // takes the plain overload, so those requests are untouched by the primer.
+                    BatchRequestFactory.ForecastRequest built = warmedPrefixes.isEmpty()
+                            ? batchRequestFactory.buildForecastRequestAndPrompt(customId,
+                                    task.model(), task.data(), task.model().getMaxTokens())
+                            : batchRequestFactory.buildForecastRequestAndPrompt(customId,
+                                    task.model(), task.data(), task.model().getMaxTokens(),
+                                    warmedPrefixes);
+                    requests.add(built.request());
+                    if (task.evalRowId() != null) {
+                        skyPrompts.put(task.evalRowId(), built.userMessage());
+                        skyPromptHashes.computeIfAbsent(built.promptHash(), k -> new ArrayList<>())
+                                .add(task.evalRowId());
+                    }
+                }
             }
         }
+        // V182: stamped BEFORE the batch exists. submit() publishes its SUBMITTED row before it
+        // returns, so a batch that completes quickly (or an adopted one that already has) can be
+        // polled and its row scored by ForecastResultHandler (a full-entity save) before any
+        // post-submit stamp ran, which would then write the stale null back. A submission that then
+        // fails leaves a hash on rows that were never scored, which no reader looks at.
+        forecastPromptStore.stampPromptHashes(skyPromptHashes);
         BatchSubmitResult result = batchSubmissionService.submit(
                 requests, BatchType.FORECAST, trigger,
                 "EvaluationService forecast (" + trigger + ")",
                 pipelineRunId, isRetry);
+        if (result != null) {
+            // Best-effort and never fails the submission: the store catches its own failures.
+            forecastPromptStore.store(skyPrompts);
+        }
         return result == null
                 ? EvaluationHandle.empty()
                 : new EvaluationHandle(result.jobRunId(), result.batchId(),
@@ -177,11 +236,17 @@ public class EvaluationServiceImpl implements EvaluationService {
                     task.spaceWeather(), task.triggerType(), task.tonightWindow());
             requests.add(BatchCreateParams.Request.builder()
                     .customId(customId)
-                    .params(BatchCreateParams.Request.Params.builder()
+                    .params(ModelRequestSupport.tune(
+                                    BatchCreateParams.Request.Params.builder()
                             .model(task.model().getModelId())
-                            .maxTokens(ClaudeAuroraInterpreter.maxTokensFor(
-                                    task.viableLocations().size()))
-                            .addUserMessage(userMessage)
+                            .maxTokens(ModelRequestSupport.maxTokens(task.model(),
+                                    ClaudeAuroraInterpreter.maxTokensFor(
+                                            task.viableLocations().size())))
+                            // The JSON contract the parser depends on — see
+                            // ClaudeAuroraInterpreter.systemPrompt() for what its absence did.
+                            .systemOfTextBlockParams(List.of(TextBlockParam.builder()
+                                    .text(ClaudeAuroraInterpreter.systemPrompt()).build()))
+                            .addUserMessage(userMessage), task.model())
                             .build())
                     .build());
         }
@@ -202,8 +267,13 @@ public class EvaluationServiceImpl implements EvaluationService {
             throw new IllegalStateException("No ForecastResultHandler registered");
         }
         JobRunEntity jobRun = startSyncJobRun(RunType.SHORT_TERM, task.model());
+        // Round 12: the instant THIS evaluation call started — BriefingEvaluationResult's
+        // staleness rule compares this against a stored result's own submission instant, so it
+        // must be captured before the Claude call, not after (a slow or retried call must not
+        // read as "submitted later" than it actually was).
+        Instant submissionInstant = Instant.now(clock);
         ResultContext context = ResultContext.forSync(
-                jobRun != null ? jobRun.getId() : null, trigger);
+                jobRun != null ? jobRun.getId() : null, submissionInstant, trigger);
 
         long start = System.currentTimeMillis();
         ClaudeSyncOutcome outcome;
@@ -218,7 +288,7 @@ public class EvaluationServiceImpl implements EvaluationService {
                             task.data().astronomicalRangeMetres())
                     : builder.buildUserMessage(task.data());
             Message response = anthropicApiClient.createMessage(
-                    MessageCreateParams.builder()
+                    ModelRequestSupport.withThinkingSetting(MessageCreateParams.builder()
                             .model(task.model().getModelId())
                             .maxTokens(task.model().getMaxTokens())
                             .systemOfTextBlockParams(List.of(
@@ -226,8 +296,9 @@ public class EvaluationServiceImpl implements EvaluationService {
                                             .text(builder.getSystemPrompt())
                                             .cacheControl(CacheControlEphemeral.builder().build())
                                             .build()))
-                            .outputConfig(builder.buildOutputConfig())
-                            .addUserMessage(userMessage)
+                            .outputConfig(ModelRequestSupport.withEffort(
+                                    builder.buildOutputConfig(), task.model()))
+                            .addUserMessage(userMessage), task.model())
                             .build());
             // Shared with the batch/strategy engine's identical check — a max_tokens
             // truncation must not sail through as a "successful" outcome just because this
@@ -239,13 +310,13 @@ public class EvaluationServiceImpl implements EvaluationService {
                     .map(ContentBlock::asText)
                     .map(TextBlock::text)
                     .findFirst()
-                    .orElseThrow(() -> new IllegalStateException("Claude returned no text"));
+                    .orElseThrow(() -> new ClaudeReplyUnreadableException("Claude returned no text"));
             outcome = ClaudeSyncOutcome.success(text, extractTokens(response),
-                    task.model(), System.currentTimeMillis() - start);
+                    task.model(), System.currentTimeMillis() - start,
+                    CacheDiagnostics.from(response));
         } catch (Exception e) {
             LOG.warn("evaluateNow forecast {} failed: {}", task.taskKey(), e.getMessage());
-            outcome = ClaudeSyncOutcome.failure(classifyError(e), e.getMessage(),
-                    task.model(), System.currentTimeMillis() - start);
+            outcome = ClaudeSyncOutcome.failure(e, task.model(), System.currentTimeMillis() - start);
         }
 
         EvaluationResult result = handler.handleSyncResult(task, outcome, context);
@@ -271,24 +342,30 @@ public class EvaluationServiceImpl implements EvaluationService {
                     task.alertLevel(), task.viableLocations(), task.cloudByLocation(),
                     task.spaceWeather(), task.triggerType(), task.tonightWindow());
             Message response = anthropicApiClient.createMessage(
-                    MessageCreateParams.builder()
+                    ModelRequestSupport.tune(MessageCreateParams.builder()
                             .model(task.model().getModelId())
-                            .maxTokens(ClaudeAuroraInterpreter.maxTokensFor(
-                                    task.viableLocations().size()))
-                            .addUserMessage(userMessage)
+                            .maxTokens(ModelRequestSupport.maxTokens(task.model(),
+                                    ClaudeAuroraInterpreter.maxTokensFor(
+                                            task.viableLocations().size())))
+                            // The JSON contract the parser depends on — see
+                            // ClaudeAuroraInterpreter.systemPrompt() for what its absence did.
+                            .systemOfTextBlockParams(List.of(TextBlockParam.builder()
+                                    .text(ClaudeAuroraInterpreter.systemPrompt()).build()))
+                            .addUserMessage(userMessage), task.model())
                             .build());
+            ModelRequestSupport.checkStopReason(response);
             String text = response.content().stream()
                     .filter(ContentBlock::isText)
                     .map(ContentBlock::asText)
                     .map(TextBlock::text)
                     .findFirst()
-                    .orElseThrow(() -> new IllegalStateException("Claude returned no text"));
+                    .orElseThrow(() -> new ClaudeReplyUnreadableException("Claude returned no text"));
             outcome = ClaudeSyncOutcome.success(text, extractTokens(response),
-                    task.model(), System.currentTimeMillis() - start);
+                    task.model(), System.currentTimeMillis() - start,
+                    CacheDiagnostics.from(response));
         } catch (Exception e) {
             LOG.warn("evaluateNow aurora {} failed: {}", task.taskKey(), e.getMessage());
-            outcome = ClaudeSyncOutcome.failure(classifyError(e), e.getMessage(),
-                    task.model(), System.currentTimeMillis() - start);
+            outcome = ClaudeSyncOutcome.failure(e, task.model(), System.currentTimeMillis() - start);
         }
 
         EvaluationResult result = handler.handleSyncResult(task, outcome, context);
@@ -320,18 +397,7 @@ public class EvaluationServiceImpl implements EvaluationService {
 
     private TokenUsage extractTokens(Message response) {
         var u = response.usage();
-        return new TokenUsage(
-                u.inputTokens(),
-                u.outputTokens(),
-                u.cacheCreationInputTokens().orElse(0L),
-                u.cacheReadInputTokens().orElse(0L));
-    }
-
-    private String classifyError(Exception e) {
-        if (e instanceof com.anthropic.errors.AnthropicServiceException svc) {
-            return "anthropic_" + svc.statusCode();
-        }
-        return e.getClass().getSimpleName();
+        return TokenUsage.from(u);
     }
 
     // Narrows a homogeneous task list to its concrete type. submit() has already proven every

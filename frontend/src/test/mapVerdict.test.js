@@ -11,7 +11,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  buildEvVerdicts, buildRegionVerdictIndex, regionNamesOf, windowVerdict,
+  buildEvVerdicts, buildRegionVerdictIndex, regionNamesOf, verdictRegionLabel, windowVerdict,
 } from '../utils/mapVerdict.js';
 import { EVENT_KIND, buildMapEvents } from '../utils/mapEvents.js';
 import { buildWindowCards } from '../utils/windowFirstCards.js';
@@ -33,6 +33,9 @@ function region(regionName, meanRating, displayVerdict, overrides = {}) {
     bestRating: overrides.bestRating ?? null,
     confidence: overrides.confidence ?? null,
     slots: overrides.slots ?? [{ canopy: false }],
+    // The sample-gate booleans, only when a test sets them: absent is the legacy "not eligible".
+    ...(overrides.sampleSufficient === undefined ? {} : { sampleSufficient: overrides.sampleSufficient }),
+    ...(overrides.forcedSample === undefined ? {} : { forcedSample: overrides.forcedSample }),
   };
 }
 
@@ -183,6 +186,47 @@ describe('windowVerdict — the three region label cases', () => {
   });
 });
 
+describe('windowVerdict — an UNRATED tier is first-class (unrated-verdict-plan.md U2)', () => {
+  const call = (index, regionsInScope) => windowVerdict({
+    index, date: DATE, targetType: SUNSET, regionsInScope,
+  });
+
+  it('returns UNRATED as itself, naming the region and tallying the others that share it', () => {
+    const index = buildRegionVerdictIndex(days([
+      region('Northumberland & Tyneside', 3.6, 'UNRATED', { sampleSufficient: false }),
+      region('The Dales', 3.0, 'UNRATED', { sampleSufficient: false }),
+      region('The Peak', 1.8, 'STAND_DOWN', { sampleSufficient: false }),
+    ]));
+
+    const result = call(index, ['Northumberland & Tyneside', 'The Dales', 'The Peak']);
+
+    expect(result).toMatchObject({
+      tier: 'UNRATED', regionName: 'Northumberland & Tyneside', sharingCount: 1, allInScope: false,
+    });
+    expect(verdictRegionLabel(result)).toBe('Northumberland & Tyneside +1');
+  });
+
+  it('puts a verdict-eligible region ahead of a higher-mean UNRATED one, as the projector does', () => {
+    // The thin 3.6 must not name the window while a sound 3.2 exists: the word follows the region
+    // the gate lets decide. This is what keeps the pill, the card and the server agreeing.
+    const index = buildRegionVerdictIndex(days([
+      region('Thin', 3.6, 'UNRATED', { sampleSufficient: false }),
+      region('Sound', 3.2, 'MAYBE', { sampleSufficient: true }),
+    ]));
+    expect(call(index, ['Thin', 'Sound']).tier).toBe('MAYBE');
+  });
+
+  it('names no region when every region in scope is UNRATED', () => {
+    const index = buildRegionVerdictIndex(days([
+      region('A', 3.6, 'UNRATED', { sampleSufficient: false }),
+      region('B', 3.0, 'UNRATED', { sampleSufficient: false }),
+    ]));
+    const result = call(index, ['A', 'B']);
+    expect(result.allInScope).toBe(true);
+    expect(verdictRegionLabel(result, { scopeIsArea: true })).toBe('everywhere in your area');
+  });
+});
+
 describe('windowVerdict — what counts in the denominator', () => {
   const call = (index, regionsInScope) => windowVerdict({
     index, date: DATE, targetType: SUNSET, regionsInScope,
@@ -316,6 +360,20 @@ describe('windowVerdict — ranking and absence', () => {
     ]));
 
     expect(call(index, ['The Peak', 'The Dales']).regionName).toBe('The Dales');
+  });
+
+  it('ranks a verdict-eligible region ahead of an ineligible one with a higher mean', () => {
+    // The projector crowns the window's top region eligible-first (BriefingRegion.verdictEligible);
+    // an ineligible region's displayVerdict is only the weather-triage fallback. The tier the pill
+    // wears must therefore be the ELIGIBLE region's, even though the thin one averages 4.4.
+    const index = buildRegionVerdictIndex(days([
+      region('The Peak', 4.4, 'STAND_DOWN', { sampleSufficient: false }),
+      region('The Dales', 3.5, 'WORTH_IT', { sampleSufficient: true }),
+    ]));
+
+    const verdict = call(index, ['The Peak', 'The Dales']);
+    expect(verdict.regionName).toBe('The Dales');
+    expect(verdict.tier).toBe('WORTH_IT');
   });
 
   it('returns null when nothing in scope carries a mean — an unrated window says nothing', () => {

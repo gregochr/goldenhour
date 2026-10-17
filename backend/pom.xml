@@ -18,8 +18,9 @@
     <description>The Photographer's Golden Hour — sunrise and sunset colour potential forecast</description>
 
     <properties>
-        <java.version>21</java.version>
-        <anthropic-sdk.version>2.60.0</anthropic-sdk.version>
+        <java.version>25</java.version>
+        <!-- built with the SDK's own client since 2026-10-06; see AppConfig#anthropicClient -->
+        <anthropic-sdk.version>2.71.0</anthropic-sdk.version>
         <surefire.excludedGroups>prompt-regression</surefire.excludedGroups>
 
         <!--
@@ -33,20 +34,26 @@
         <postgresql.version>42.7.13</postgresql.version>
 
         <!--
-            Overrides the version Spring Boot 4.1.0 manages (11.0.22) to clear five CVEs:
-            CVE-2026-55276, CVE-2026-53434 and CVE-2026-53404 (fixed in 11.0.23), and
-            CVE-2026-59083 and CVE-2026-59084 (fixed in 11.0.24). Boot's BOM drives all seven
-            tomcat-embed-* artifacts from this one property, so core, el and websocket move
-            together.
+            Overrides the version Spring Boot 4.1.1 manages (11.0.24) to clear nine CVEs with
+            CVSS >= 7.0 — CVE-2026-65183 (8.1), CVE-2026-65905 (9.8), CVE-2026-65927 (7.5),
+            CVE-2026-66422 (8.1), CVE-2026-68763 (7.5), CVE-2026-68525 (9.1), CVE-2026-68569
+            (8.1), CVE-2026-65182 (9.1) and CVE-2026-65637 (9.8) — plus CVE-2026-73180, below
+            the gate. All ten are fixed by 11.0.25 (confirmed against
+            https://tomcat.apache.org/security-11.html, which lists every one of them under its
+            "Fixed in Apache Tomcat 11.0.25" section and none under 11.0.26's). Boot's BOM drives
+            all seven tomcat-embed-* artifacts from this one property, so core, el and websocket
+            move together.
 
-            11.0.24 is the latest published release; 11.0.25 is marked "not yet released" and
-            404s on Central. The sixth CVE, CVE-2026-66299, needs 11.0.25 and is suppressed
-            separately in dependency-check-suppressions.xml — delete that block and raise this
-            property when 11.0.25 lands.
+            11.0.26 (the latest published release) is taken rather than stopping at 11.0.25
+            purely because it is free and already on Central. CVE-2026-66299, previously
+            suppressed in dependency-check-suppressions.xml while 11.0.25 was unpublished, is
+            also fixed by 11.0.25 — that suppression has been removed.
 
-            An override rather than a parent bump because no Spring Boot 4.1.x exists.
+            An override rather than a parent bump because no Spring Boot 4.1.x beyond 4.1.1
+            exists yet. Remove this line and check the managed version when one does:
+            `./mvnw help:evaluate -Dexpression=tomcat.version -DforceStdout`.
         -->
-        <tomcat.version>11.0.24</tomcat.version>
+        <tomcat.version>11.0.26</tomcat.version>
 
         <!--
             Patch bumps for two findings BELOW the dependency-check gate (both CVSS < 7.0, so
@@ -96,6 +103,15 @@
             "Cannot load driver class: org.h2.Driver" and there was no way to reach the app in a
             browser at all. This profile re-adds it at runtime scope for local dev only. Nothing
             activates it by default, so `./mvnw package`, CI and the Docker build are unchanged.
+
+            It also adds the two LOCAL-ONLY source roots (build-helper add-source / add-test-source
+            below): src/local/java holds the tooling that only the `local` Spring profile ever
+            uses (AskLocalFixtureSeeder, LocalH2EnumWidener) and src/local-test/java holds its
+            tests. Outside this profile neither root is compiled, tested, put on the classpath or
+            packaged into the production jar, and none of the quality gates price them. The
+            classes keep their own runtime guards (@Profile, @ConditionalOnProperty, refusals);
+            the source root is defence in depth, not a replacement. The IDE must have this
+            profile active to index the two roots.
         -->
         <profile>
             <id>local-dev</id>
@@ -106,6 +122,41 @@
                     <scope>runtime</scope>
                 </dependency>
             </dependencies>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>build-helper-maven-plugin</artifactId>
+                        <version>3.6.2</version>
+                        <executions>
+                            <execution>
+                                <id>add-local-source</id>
+                                <phase>generate-sources</phase>
+                                <goals>
+                                    <goal>add-source</goal>
+                                </goals>
+                                <configuration>
+                                    <sources>
+                                        <source>src/local/java</source>
+                                    </sources>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>add-local-test-source</id>
+                                <phase>generate-test-sources</phase>
+                                <goals>
+                                    <goal>add-test-source</goal>
+                                </goals>
+                                <configuration>
+                                    <sources>
+                                        <source>src/local-test/java</source>
+                                    </sources>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
         </profile>
     </profiles>
 
@@ -191,11 +242,14 @@
             <version>${anthropic-sdk.version}</version>
         </dependency>
 
-        <!-- OkHttp — explicit compile scope for HTTP/1.1 protocol config (transitive is runtime) -->
+        <!-- OkHttp — the transport under the SDK's own client (no application code touches okhttp3
+             any more). Pinned to the 4.x line the SDK declares: Spring Boot's BOM manages a 5.x
+             that would otherwise replace it. -->
         <dependency>
             <groupId>com.squareup.okhttp3</groupId>
             <artifactId>okhttp</artifactId>
             <version>4.12.0</version>
+            <scope>runtime</scope>
         </dependency>
 
         <!-- ==================== Internal Libraries ==================== -->
@@ -424,11 +478,12 @@
                     <dependency>
                         <groupId>com.google.guava</groupId>
                         <artifactId>guava</artifactId>
-                        <version>33.7.1-jre</version>
+                        <version>33.7.2-jre</version>
                     </dependency>
                 </dependencies>
                 <configuration>
                     <configLocation>checkstyle.xml</configLocation>
+                    <suppressionsLocation>checkstyle-suppressions.xml</suppressionsLocation>
                     <failsOnError>true</failsOnError>
                     <consoleOutput>true</consoleOutput>
                     <includeTestSourceDirectory>true</includeTestSourceDirectory>
@@ -693,7 +748,12 @@
                         <param>com.gregochr.goldenhour.*IT</param>
                         <param>com.gregochr.goldenhour.service.evaluation.BestBetAuroraPromptRegressionTest</param>
                         <param>com.gregochr.goldenhour.service.evaluation.PromptRegressionTest</param>
+                        <param>com.gregochr.goldenhour.service.ask.AskPromptRegressionTest</param>
+                        <param>com.gregochr.goldenhour.service.ask.AskThreadRegressionTest</param>
+                        <param>com.gregochr.goldenhour.service.ask.AskNightRegressionTest</param>
                         <param>com.gregochr.goldenhour.eval.SkyRatingEvalTest</param>
+                        <param>com.gregochr.goldenhour.service.evaluation.SystemPromptTokenCountTest</param>
+                        <param>com.gregochr.goldenhour.service.evaluation.PromptReplayHarnessTest</param>
                     </excludedTestClasses>
                     <excludedGroups>
                         <param>prompt-regression</param>

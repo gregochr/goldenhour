@@ -24,7 +24,7 @@ import java.util.Optional;
  *
  * <p>One Open-Meteo Marine call per coastal location (a small set) returns a 7-day hourly series;
  * from it the significant wave height is sampled at each day's sunrise and sunset (the shootable
- * moments), keyed {@code (location, date, event)} to match the survivor surface. The band the pills
+ * moments), keyed {@code (location, date, event)} to match the slot surface. The band the pills
  * show is derived from the stored Hs at render time, never persisted. HTTP happens outside any
  * database transaction; each row is saved on its own. Fetch failures and land-cell (no-wave) grid
  * points are logged and skipped, never fatal to the briefing.

@@ -1,5 +1,11 @@
 package com.gregochr.goldenhour.service;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import com.gregochr.goldenhour.util.ReplayJson;
+import org.slf4j.LoggerFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.gregochr.goldenhour.TestAtmosphericData;
@@ -417,6 +423,55 @@ class PromptTestServiceTest {
 
         // Verify evaluation was called with parent's model
         verify(evaluationService).evaluateWithDetails(any(), eq(EvaluationModel.SONNET), any());
+    }
+
+    @Test
+    @DisplayName("replayTest replays stored JSON carrying a property this build does not know")
+    void replayTest_skipsUnknownStoredProperty() throws Exception {
+        AtmosphericData data = sampleAtmosphericData();
+        // A row written by a newer build: one extra top-level property.
+        String dataJson = objectMapper.writeValueAsString(data)
+                .replaceFirst("\\{", "{\"aFieldFromANewerBuild\":1,");
+
+        PromptTestRunEntity parentRun = PromptTestRunEntity.builder()
+                .id(10L).targetDate(LocalDate.of(2026, 3, 1))
+                .targetType(TargetType.SUNSET).evaluationModel(EvaluationModel.SONNET)
+                .build();
+        PromptTestResultEntity parentResult = PromptTestResultEntity.builder()
+                .testRunId(10L).locationId(1L).locationName("Durham")
+                .targetDate(LocalDate.of(2026, 3, 1)).targetType(TargetType.SUNSET)
+                .evaluationModel(EvaluationModel.SONNET).succeeded(true)
+                .atmosphericDataJson(dataJson).build();
+
+        stubRunRepository(parentRun);
+        when(testResultRepository.findByTestRunIdOrderByLocationNameAsc(10L))
+                .thenReturn(List.of(parentResult));
+        when(evaluationService.evaluateWithDetails(any(), eq(EvaluationModel.SONNET), any()))
+                .thenReturn(sampleDetail());
+        when(costCalculator.calculateCostMicroDollars(any(), any())).thenReturn(5400L);
+        lenient().when(exchangeRateService.getCurrentRate()).thenReturn(0.79);
+        when(testResultRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        stubGitInfo();
+
+        Logger replayLogger = (Logger) LoggerFactory.getLogger(ReplayJson.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        replayLogger.addAppender(appender);
+        try {
+            PromptTestRunEntity result = service.replayTest(10L);
+
+            assertThat(result.getSucceeded()).isEqualTo(1);
+            assertThat(result.getFailed()).isEqualTo(0);
+            assertThat(appender.list)
+                    .singleElement()
+                    .satisfies(e -> {
+                        assertThat(e.getLevel()).isEqualTo(Level.WARN);
+                        assertThat(e.getFormattedMessage()).contains("aFieldFromANewerBuild");
+                    });
+        } finally {
+            replayLogger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     @Test

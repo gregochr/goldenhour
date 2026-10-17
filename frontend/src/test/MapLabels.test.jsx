@@ -3,7 +3,7 @@ import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
 import {
-  act, fireEvent, render, screen,
+  act, cleanup, fireEvent, render, screen,
 } from '@testing-library/react';
 
 const setPosition = vi.fn();
@@ -157,6 +157,12 @@ function makeFullMap(opts = {}) {
     panes,
   };
 }
+
+// jsdom's PointerEvent honours `pointerType`, which is what the tooltip's guard reads. A real touch
+// tap also emits compatibility mouse events (no leave until the next tap), so TOUCH stands for the
+// pointer half of that sequence.
+const MOUSE = { pointerType: 'mouse' };
+const TOUCH = { pointerType: 'touch' };
 
 describe('MapLabels — mounting', () => {
   it('renders nothing when the map cannot make a pane', async () => {
@@ -376,6 +382,36 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
     expect(square.style.background).toBe(probe.style.background);
   });
 
+  it('omitUnrated gives an unrated spot no chip, and by default it keeps one', async () => {
+    restoreMeasure = withMeasuredLabels(50, 14);
+    currentMap = makeFullMap({ zoom: 13 });
+    const spots = [...SPOTS, {
+      name: 'Zzz Unrated', lat: 55.0, lng: -1.0, rid: 'North East', rating: null,
+    }];
+    const { unmount } = await mount({ spots, omitUnrated: true });
+    await act(async () => { runFrames(); });
+    const has = () => [...document.querySelectorAll('[data-testid="map-label-chip"]')]
+      .some((el) => el.textContent.includes('Zzz Unrated'));
+    expect(has()).toBe(false);
+    unmount();
+    await mount({ spots });
+    await act(async () => { runFrames(); });
+    expect(has()).toBe(true);
+  });
+
+  it('takes its swatch from an injected rampHex (aurora), leaving the numeral and name alone', async () => {
+    restoreMeasure = withMeasuredLabels(50, 14);
+    currentMap = makeFullMap({ zoom: 13 });
+    await mount({ rampHex: () => '#76ffa0' });
+    await act(async () => { runFrames(); });
+    const chip = [...document.querySelectorAll('[data-testid="map-label-chip"]')]
+      .find((el) => el.textContent.includes('Bamburgh'));
+    const probe = document.createElement('div');
+    probe.style.background = '#76ffa0';
+    expect(chip.querySelector('.wf-maplab-chip-m').style.background).toBe(probe.style.background);
+    expect(chip).toHaveAttribute('aria-label', 'Bamburgh, 5 star');
+  });
+
   it('carries a real accessible name — the text equivalent for the aria-hidden canvas beneath it (map-tab-v2-plan.md §3 P12)', async () => {
     // The heat/pins canvas is `aria-hidden` (`MapHeatLayer.test.jsx`'s own pin); a location chip is
     // this layer's own interactive surface, and its `aria-label` — not merely visible text inside
@@ -439,30 +475,148 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
     expect(chip.querySelector('.wf-maplab-chip-r')).toBeNull();
   });
 
-  describe('the tide-alignment glyph (bundle rev 2)', () => {
-    it('renders the glyph, the data-tide ring attribute, and extends the aria-label when this window\'s water is on the light', async () => {
+  describe('the tide-fit glyph (tide-window-plan.md §3 T4) — the chip now answers the preference axis', () => {
+    it('a MATCH renders the plain glyph, data-tide="match", and extends the aria-label', async () => {
       restoreMeasure = withMeasuredLabels(50, 14);
       currentMap = makeFullMap({ zoom: 13 });
       await mount({
         spots: [{
-          name: 'Bamburgh', lat: 55.6, lng: -1.7, rid: 'North East', rating: 5, onTheLight: true,
+          name: 'Bamburgh', lat: 55.6, lng: -1.7, rid: 'North East', rating: 5, tideTier: 'match',
         }],
       });
       await act(async () => { runFrames(); });
       const chip = document.querySelector('[data-testid="map-label-chip"]');
-      expect(chip).toHaveAttribute('data-tide', 'true');
-      expect(chip.querySelector('[data-testid="map-label-chip-tide"]')).toBeTruthy();
+      expect(chip).toHaveAttribute('data-tide', 'match');
+      const glyph = chip.querySelector('[data-testid="map-label-chip-tide"]');
+      expect(glyph).toBeInTheDocument();
+      // The plain wave — no arrow path, no widened box — for a match, same shape as before T4.
+      expect(glyph).not.toHaveAttribute('data-wide');
+      expect(glyph.querySelectorAll('path')).toHaveLength(1);
       // Extends the star announcement rather than replacing it (aria-label REPLACES rendered
       // content, so the glyph's meaning has to be spelled out here for a screen-reader user).
-      expect(chip).toHaveAttribute('aria-label', 'Bamburgh, 5 star, tide on the light');
+      expect(chip).toHaveAttribute('aria-label', 'Bamburgh, 5 star, tide right here');
     });
 
-    it('renders no glyph, no data-tide attribute, when this window\'s water is not on the light', async () => {
+    it('a MATCH with a served state letters the glyph and names the water in the aria-label (tide-window-plan.md §4 #21)', async () => {
       restoreMeasure = withMeasuredLabels(50, 14);
       currentMap = makeFullMap({ zoom: 13 });
       await mount({
         spots: [{
-          name: 'Bamburgh', lat: 55.6, lng: -1.7, rid: 'North East', rating: 5, onTheLight: false,
+          name: 'Bamburgh', lat: 55.6, lng: -1.7, rid: 'North East', rating: 5,
+          tideTier: 'match', tideState: 'MID',
+        }],
+      });
+      await act(async () => { runFrames(); });
+      const chip = document.querySelector('[data-testid="map-label-chip"]');
+      const glyph = chip.querySelector('[data-testid="map-label-chip-tide"]');
+      // The letter widens the box exactly as the arrow does — one wide-box hook for both marks.
+      expect(glyph).toHaveAttribute('data-wide', 'true');
+      expect(glyph.querySelector('text')).toHaveTextContent('M');
+      expect(chip).toHaveAttribute('aria-label', 'Bamburgh, 5 star, mid tide, right here');
+    });
+
+    it('a MISS wanting HIGHER water draws the up-arrow variant and the matching aria clause', async () => {
+      restoreMeasure = withMeasuredLabels(50, 14);
+      currentMap = makeFullMap({ zoom: 13 });
+      await mount({
+        spots: [{
+          name: 'Bamburgh',
+          lat: 55.6,
+          lng: -1.7,
+          rid: 'North East',
+          rating: 5,
+          tideTier: 'miss',
+          tideShortfall: 'HIGHER',
+        }],
+      });
+      await act(async () => { runFrames(); });
+      const chip = document.querySelector('[data-testid="map-label-chip"]');
+      expect(chip).toHaveAttribute('data-tide', 'miss');
+      const glyph = chip.querySelector('[data-testid="map-label-chip-tide"]');
+      expect(glyph).toHaveAttribute('data-wide', 'true');
+      // Wave path + the up-arrow path (`map-tide-v5.js:159`'s `M17.5 6.8V1.2…`).
+      expect(glyph.querySelectorAll('path')).toHaveLength(2);
+      expect(glyph.querySelectorAll('path')[1]).toHaveAttribute('d', expect.stringContaining('M17.5 6.8V1.2'));
+      expect(chip).toHaveAttribute('aria-label', 'Bamburgh, 5 star, wants the water higher');
+    });
+
+    it('a MISS wanting LOWER water draws the down-arrow variant', async () => {
+      restoreMeasure = withMeasuredLabels(50, 14);
+      currentMap = makeFullMap({ zoom: 13 });
+      await mount({
+        spots: [{
+          name: 'Bamburgh',
+          lat: 55.6,
+          lng: -1.7,
+          rid: 'North East',
+          rating: 5,
+          tideTier: 'miss',
+          tideShortfall: 'LOWER',
+        }],
+      });
+      await act(async () => { runFrames(); });
+      const chip = document.querySelector('[data-testid="map-label-chip"]');
+      const glyph = chip.querySelector('[data-testid="map-label-chip-tide"]');
+      expect(glyph.querySelectorAll('path')[1]).toHaveAttribute('d', expect.stringContaining('M17.5 1.2V6.8'));
+      expect(chip).toHaveAttribute('aria-label', 'Bamburgh, 5 star, wants the water lower');
+    });
+
+    it('⚠️ a MISS with no served shortfall (a straddling want) draws the PLAIN wave, never a guessed arrow', async () => {
+      restoreMeasure = withMeasuredLabels(50, 14);
+      currentMap = makeFullMap({ zoom: 13 });
+      await mount({
+        spots: [{
+          name: 'Bamburgh',
+          lat: 55.6,
+          lng: -1.7,
+          rid: 'North East',
+          rating: 5,
+          tideTier: 'miss',
+          tideShortfall: null,
+        }],
+      });
+      await act(async () => { runFrames(); });
+      const chip = document.querySelector('[data-testid="map-label-chip"]');
+      expect(chip).toHaveAttribute('data-tide', 'miss');
+      const glyph = chip.querySelector('[data-testid="map-label-chip-tide"]');
+      expect(glyph).not.toHaveAttribute('data-wide');
+      expect(glyph.querySelectorAll('path')).toHaveLength(1);
+      expect(chip).toHaveAttribute('aria-label', 'Bamburgh, 5 star, wrong water');
+    });
+
+    it('the star numeral is drawn on a miss chip — dimming is a container opacity, never a re-colour (§7 check 12)', async () => {
+      restoreMeasure = withMeasuredLabels(50, 14);
+      currentMap = makeFullMap({ zoom: 13 });
+      await mount({
+        spots: [{
+          name: 'Bamburgh', lat: 55.6, lng: -1.7, rid: 'North East', rating: 3, tideTier: 'miss',
+        }],
+      });
+      await act(async () => { runFrames(); });
+      const chip = document.querySelector('[data-testid="map-label-chip"]');
+      const star = chip.querySelector('.wf-maplab-chip-r');
+      expect(star).toHaveTextContent('3★');
+      // Same assertion `MapLabels.test.jsx`'s own ink test makes for an ordinary chip — the star's
+      // colour comes ONLY from the `.wf-maplab-chip-r` CSS rule, never an inline style, on a miss
+      // exactly as on a match: the rule dims the whole `.wf-maplab-chip[data-tide='miss']` box via
+      // CSS `opacity`, so nothing here re-colours the numeral.
+      expect(star.style.color).toBe('');
+      // The swatch half of §7 check 12 — "the swatch's background equals the ramp's for the same
+      // rating" — not only the star's ink. A mutation that fell back to the unrated
+      // `--color-plex-border-light` fill (or any other tide-keyed swatch colour) for a miss would
+      // pass every OTHER assertion in this describe block while failing only this one.
+      const square = chip.querySelector('.wf-maplab-chip-m');
+      const probe = document.createElement('div');
+      probe.style.background = rampHex(3);
+      expect(square.style.background).toBe(probe.style.background);
+    });
+
+    it('renders no glyph and no data-tide attribute when there is no served tide fact at all (inland, or no stored extremes)', async () => {
+      restoreMeasure = withMeasuredLabels(50, 14);
+      currentMap = makeFullMap({ zoom: 13 });
+      await mount({
+        spots: [{
+          name: 'Bamburgh', lat: 55.6, lng: -1.7, rid: 'North East', rating: 5, tideTier: null,
         }],
       });
       await act(async () => { runFrames(); });
@@ -472,17 +626,45 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
       expect(chip).toHaveAttribute('aria-label', 'Bamburgh, 5 star');
     });
 
-    it('extends an UNRATED chip\'s aria-label with tide-on-the-light too — the two clauses are independent', async () => {
+    it('extends an UNRATED chip\'s aria-label with the tide clause too — the two clauses are independent', async () => {
       restoreMeasure = withMeasuredLabels(50, 14);
       currentMap = makeFullMap({ zoom: 13 });
       await mount({
         spots: [{
-          name: 'Alnmouth', lat: 55.4, lng: -1.6, rid: 'North East', rating: null, onTheLight: true,
+          name: 'Alnmouth', lat: 55.4, lng: -1.6, rid: 'North East', rating: null, tideTier: 'match',
         }],
       });
       await act(async () => { runFrames(); });
       const chip = document.querySelector('[data-testid="map-label-chip"]');
-      expect(chip).toHaveAttribute('aria-label', 'Alnmouth, tide on the light');
+      expect(chip).toHaveAttribute('aria-label', 'Alnmouth, tide right here');
+    });
+
+    it('a GATED miss (no rating at all) still draws the glyph, the dim attribute and the tide clause — the two branches are independent', async () => {
+      // The combination §4 #5/§5 #2 single out: a gated coastal slot has no star for the chip to
+      // draw (`hasRating` false) AND a served miss (`tideTier` true) — `MapLabels.jsx` branches on
+      // each independently, so a coupling bug (e.g. the glyph/aria clause only appearing alongside
+      // a star) would slip past every OTHER test in this file, which always pairs a miss with a
+      // real rating.
+      restoreMeasure = withMeasuredLabels(50, 14);
+      currentMap = makeFullMap({ zoom: 13 });
+      await mount({
+        spots: [{
+          name: 'Bamburgh',
+          lat: 55.6,
+          lng: -1.7,
+          rid: 'North East',
+          rating: null,
+          tideTier: 'miss',
+          tideShortfall: 'LOWER',
+        }],
+      });
+      await act(async () => { runFrames(); });
+      const chip = document.querySelector('[data-testid="map-label-chip"]');
+      expect(chip.querySelector('.wf-maplab-chip-r')).toBeNull();
+      expect(chip).toHaveAttribute('data-tide', 'miss');
+      const glyph = chip.querySelector('[data-testid="map-label-chip-tide"]');
+      expect(glyph).toHaveAttribute('data-wide', 'true');
+      expect(chip).toHaveAttribute('aria-label', 'Bamburgh, wants the water lower');
     });
   });
 
@@ -493,7 +675,7 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
     await act(async () => { runFrames(); });
     const chip = [...document.querySelectorAll('[data-testid="map-label-chip"]')]
       .find((el) => el.textContent.includes('Bamburgh'));
-    fireEvent.mouseEnter(chip);
+    fireEvent.pointerEnter(chip, MOUSE);
     const tip = document.querySelector('[data-testid="map-label-tip"]');
     expect(tip).not.toBeNull();
     expect(tip).toHaveTextContent('Bamburgh');
@@ -502,11 +684,52 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
     expect(tip).toHaveTextContent('North East');
     expect(tip).toHaveTextContent('1h 30min');
     expect(tip).toHaveTextContent('sky 4');
-    fireEvent.mouseLeave(chip);
+    fireEvent.pointerLeave(chip, MOUSE);
     expect(document.querySelector('[data-testid="map-label-tip"]')).toBeNull();
   });
 
-  it('adds a third, teal-inked line — "Tide lands on the light — <phrase>" — only when this window\'s water is on the light', async () => {
+  it('a TOUCH pointerenter never shows the tooltip — a tap must not leave one stuck over the callout it opens', async () => {
+    restoreMeasure = withMeasuredLabels(50, 14);
+    currentMap = makeFullMap({ zoom: 13 });
+    await mount({});
+    await act(async () => { runFrames(); });
+    const chip = [...document.querySelectorAll('[data-testid="map-label-chip"]')]
+      .find((el) => el.textContent.includes('Bamburgh'));
+    fireEvent.pointerEnter(chip, TOUCH);
+    expect(screen.queryByTestId('map-label-tip')).toBeNull();
+    // ...nor does a touch pointermove position-and-reveal one.
+    fireEvent.pointerMove(chip, { ...TOUCH, clientX: 50, clientY: 50 });
+    expect(screen.queryByTestId('map-label-tip')).toBeNull();
+  });
+
+  it('the compatibility mouseenter a tap emits no longer shows the tooltip on its own', async () => {
+    restoreMeasure = withMeasuredLabels(50, 14);
+    currentMap = makeFullMap({ zoom: 13 });
+    await mount({});
+    await act(async () => { runFrames(); });
+    const chip = [...document.querySelectorAll('[data-testid="map-label-chip"]')]
+      .find((el) => el.textContent.includes('Bamburgh'));
+    fireEvent.mouseEnter(chip);
+    fireEvent.mouseMove(chip, { clientX: 50, clientY: 50 });
+    expect(screen.queryByTestId('map-label-tip')).toBeNull();
+  });
+
+  it('a click hides a tooltip that is already showing, and still selects the location', async () => {
+    const onSelect = vi.fn();
+    restoreMeasure = withMeasuredLabels(50, 14);
+    currentMap = makeFullMap({ zoom: 13 });
+    await mount({ onSelect });
+    await act(async () => { runFrames(); });
+    const chip = [...document.querySelectorAll('[data-testid="map-label-chip"]')]
+      .find((el) => el.textContent.includes('Bamburgh'));
+    fireEvent.pointerEnter(chip, MOUSE);
+    expect(screen.getByTestId('map-label-tip')).toBeInTheDocument();
+    fireEvent.click(chip);
+    expect(screen.queryByTestId('map-label-tip')).toBeNull();
+    expect(onSelect).toHaveBeenCalledWith('Bamburgh');
+  });
+
+  it('adds a third, teal-inked line — "Tide lands on the light — <phrase>" — for a MATCH', async () => {
     restoreMeasure = withMeasuredLabels(50, 14);
     currentMap = makeFullMap({ zoom: 13 });
     await mount({
@@ -516,22 +739,25 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
         lng: -1.7,
         rid: 'North East',
         rating: 5,
-        onTheLight: true,
-        nearestSolarOffsetPhrase: 'HW 19:52 · 36m before sunset',
+        tideTier: 'match',
+        tideFitPhrase: 'high water, falling · HW 19:52 · 36m before sunset · 3.9 m',
       }],
     });
     await act(async () => { runFrames(); });
     const chip = document.querySelector('[data-testid="map-label-chip"]');
-    fireEvent.mouseEnter(chip);
+    fireEvent.pointerEnter(chip, MOUSE);
     const tideLine = document.querySelector('[data-testid="map-label-tip-tide"]');
     expect(tideLine).not.toBeNull();
-    expect(tideLine).toHaveTextContent('Tide lands on the light — HW 19:52 · 36m before sunset');
+    expect(tideLine).toHaveTextContent(
+      'Tide lands on the light — high water, falling · HW 19:52 · 36m before sunset · 3.9 m',
+    );
     expect(tideLine).toHaveClass('wf-maplab-tip-t');
   });
 
-  it('adds no tide line when this window\'s water is NOT on the light, even with a phrase carried', async () => {
-    // Defensive: the gate is `onTheLight`, never mere phrase presence — the raw index carries a
-    // phrase whenever any extreme was found nearby, regardless of alignment.
+  it('adds the same third line for a MISS, headed "Wrong water, not wrong light" and with no teal ink', async () => {
+    // ⚠️ No `.wf-maplab-tip-t` here: the served `fitPhrase` already opens with its own "wants …"
+    // clause, so this line takes the tooltip's base `.wf-maplab-tip-s` ink rather than the
+    // match-only teal — see `index.css`'s own note on `.wf-maplab-tip-t`.
     restoreMeasure = withMeasuredLabels(50, 14);
     currentMap = makeFullMap({ zoom: 13 });
     await mount({
@@ -541,13 +767,63 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
         lng: -1.7,
         rid: 'North East',
         rating: 5,
-        onTheLight: false,
-        nearestSolarOffsetPhrase: 'LW 22:10 · 3h18 after sunset',
+        tideTier: 'miss',
+        tideFitPhrase: 'wants low water · mid tide, rising at 05:42 · 2.6 m of 4.3 m',
       }],
     });
     await act(async () => { runFrames(); });
     const chip = document.querySelector('[data-testid="map-label-chip"]');
-    fireEvent.mouseEnter(chip);
+    fireEvent.pointerEnter(chip, MOUSE);
+    const tideLine = document.querySelector('[data-testid="map-label-tip-tide"]');
+    expect(tideLine).not.toBeNull();
+    expect(tideLine).toHaveTextContent(
+      'Wrong water, not wrong light — wants low water · mid tide, rising at 05:42 · 2.6 m of 4.3 m',
+    );
+    expect(tideLine).not.toHaveClass('wf-maplab-tip-t');
+  });
+
+  it('heads an UNASSESSED miss "Tide misses the light here" — no claim that the light was fine', async () => {
+    restoreMeasure = withMeasuredLabels(50, 14);
+    currentMap = makeFullMap({ zoom: 13 });
+    await mount({
+      spots: [{
+        name: 'Bamburgh',
+        lat: 55.6,
+        lng: -1.7,
+        rid: 'North East',
+        rating: null,
+        tideTier: 'miss',
+        tideAssessed: false,
+        tideFitPhrase: 'wants low water · mid tide, rising at 05:42 · 2.6 m of 4.3 m',
+      }],
+    });
+    await act(async () => { runFrames(); });
+    fireEvent.pointerEnter(document.querySelector('[data-testid="map-label-chip"]'), MOUSE);
+    const tideLine = document.querySelector('[data-testid="map-label-tip-tide"]');
+    expect(tideLine).toHaveTextContent(
+      'Tide misses the light here — wants low water · mid tide, rising at 05:42 · 2.6 m of 4.3 m',
+    );
+    expect(tideLine).not.toHaveTextContent('Wrong water');
+  });
+
+  it('adds no tide line when there is no served tide fact at all, even with a phrase carried', async () => {
+    // Defensive: the gate is `tideTier`, never mere phrase presence.
+    restoreMeasure = withMeasuredLabels(50, 14);
+    currentMap = makeFullMap({ zoom: 13 });
+    await mount({
+      spots: [{
+        name: 'Bamburgh',
+        lat: 55.6,
+        lng: -1.7,
+        rid: 'North East',
+        rating: 5,
+        tideTier: null,
+        tideFitPhrase: 'wants low water · mid tide, rising at 05:42 · 2.6 m of 4.3 m',
+      }],
+    });
+    await act(async () => { runFrames(); });
+    const chip = document.querySelector('[data-testid="map-label-chip"]');
+    fireEvent.pointerEnter(chip, MOUSE);
     expect(document.querySelector('[data-testid="map-label-tip-tide"]')).toBeNull();
   });
 
@@ -558,7 +834,7 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
     await act(async () => { runFrames(); });
     const chip = [...document.querySelectorAll('[data-testid="map-label-chip"]')]
       .find((el) => el.textContent.includes('Buttermere'));
-    fireEvent.mouseEnter(chip);
+    fireEvent.pointerEnter(chip, MOUSE);
     const tip = document.querySelector('[data-testid="map-label-tip"]');
     expect(tip.textContent).not.toMatch(/\bmin\b/);
     expect(tip).toHaveTextContent('sky 3');
@@ -576,7 +852,7 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
     await act(async () => { runFrames(); });
     const chip = [...document.querySelectorAll('[data-testid="map-label-chip"]')]
       .find((el) => el.textContent.includes('Bamburgh'));
-    fireEvent.mouseEnter(chip);
+    fireEvent.pointerEnter(chip, MOUSE);
     const tip = document.querySelector('[data-testid="map-label-tip"]');
     expect(tip).not.toBeNull();
     const labelPane = currentMap.panes['wf-labels'];
@@ -601,7 +877,7 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
       .find((el) => el.textContent.includes('Bamburgh'));
     // Hover right at the frame's own right edge — with no clamp, `clientX - left + 13` would push
     // the card's left edge past `width - tipWidth - 8`.
-    fireEvent.mouseEnter(chip, { clientX: 795, clientY: 250 });
+    fireEvent.pointerEnter(chip, { ...MOUSE, clientX: 795, clientY: 250 });
     const tip = document.querySelector('[data-testid="map-label-tip"]');
     // The node has not measured a real `offsetWidth` in jsdom (0), so the clamp falls back to
     // `TOOLTIP_WIDTH_FALLBACK` (240, the CSS `max-width`) — the same fallback a browser's very
@@ -609,7 +885,7 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
     expect(parseFloat(tip.style.left)).toBeCloseTo(800 - 240 - 8, 5);
 
     // And the vertical floor: hovering near the very top must never push the card above y=6.
-    fireEvent.mouseEnter(chip, { clientX: 100, clientY: 2 });
+    fireEvent.pointerEnter(chip, { ...MOUSE, clientX: 100, clientY: 2 });
     const tipAgain = document.querySelector('[data-testid="map-label-tip"]');
     expect(parseFloat(tipAgain.style.top)).toBe(6);
   });
@@ -632,7 +908,7 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
     await act(async () => { runFrames(); });
     const chip = [...document.querySelectorAll('[data-testid="map-label-chip"]')]
       .find((el) => el.textContent.includes('Bamburgh'));
-    fireEvent.mouseEnter(chip, { clientX: 400, clientY: 250 });
+    fireEvent.pointerEnter(chip, { ...MOUSE, clientX: 400, clientY: 250 });
     const tip = document.querySelector('[data-testid="map-label-tip"]');
     const left = parseFloat(tip.style.left);
     // A mid-frame hover with a real 800px-wide container: the raw offset (400 - 0 + 13 = 413) sits
@@ -683,7 +959,7 @@ describe('MapLabels — the hover tooltip answers for the window on screen, not 
     const result = await mount({ spots, eventLabel: SAT });
     await act(async () => { runFrames(); });
     const chip = screen.getByRole('button', { name: /^Bamburgh, 5 star/ });
-    fireEvent.mouseEnter(chip);
+    fireEvent.pointerEnter(chip, MOUSE);
     expect(screen.getByTestId('map-label-tip')).toHaveTextContent(`${SAT} · 5★ Worth it`);
     return { result, chip };
   }
@@ -719,9 +995,9 @@ describe('MapLabels — the hover tooltip answers for the window on screen, not 
     expect(tip).not.toHaveTextContent('★');
   });
 
-  it('drops the tide line when the new window\'s water is not on the light', async () => {
+  it('drops the tide line when the new window has no served tide fact at all', async () => {
     const saturday = SPOTS.map((s) => (s.name === 'Bamburgh'
-      ? { ...s, onTheLight: true, nearestSolarOffsetPhrase: 'HW 19:52 · 36m before sunset' }
+      ? { ...s, tideTier: 'match', tideFitPhrase: 'HW 19:52 · 36m before sunset' }
       : s));
     const { result } = await hoverBamburgh(saturday);
     expect(screen.getByTestId('map-label-tip-tide'))
@@ -796,7 +1072,7 @@ describe('MapLabels — the hover tooltip answers for the window on screen, not 
       const result = await mount({ spots: rateCraster(5), eventLabel: SAT });
       await act(async () => { runFrames(); });
       const chip = screen.getByRole('button', { name: 'Craster, 5 star' });
-      fireEvent.mouseEnter(chip);
+      fireEvent.pointerEnter(chip, MOUSE);
       expect(screen.getByTestId('map-label-tip')).toHaveTextContent(`${SAT} · 5★ Worth it`);
 
       // Sunday: Craster falls to 1★ below six 3★ neighbours — neither the region's best nor one of
@@ -812,7 +1088,7 @@ describe('MapLabels — the hover tooltip answers for the window on screen, not 
       currentMap = makeSpreadMap({ zoom: 8.6 });
       const result = await mount({ spots: rateCraster(5), eventLabel: SAT });
       await act(async () => { runFrames(); });
-      fireEvent.mouseEnter(screen.getByRole('button', { name: 'Craster, 5 star' }));
+      fireEvent.pointerEnter(screen.getByRole('button', { name: 'Craster, 5 star' }), MOUSE);
       await showWindow(result, rateCraster(1), SUN);
       expect(screen.queryByTestId('map-label-tip')).toBeNull();
 
@@ -832,7 +1108,7 @@ describe('MapLabels — the hover tooltip answers for the window on screen, not 
       await mount({ spots: rateCraster(1), eventLabel: SAT });
       await act(async () => { runFrames(); });
       const chip = screen.getByRole('button', { name: 'Craster, 1 star' });
-      fireEvent.mouseEnter(chip);
+      fireEvent.pointerEnter(chip, MOUSE);
       expect(screen.getByTestId('map-label-tip')).toHaveTextContent(`${SAT} · 1★ Poor`);
 
       // A wheel zoom over the chip reaches Leaflet (`disableClickPropagation` stops clicks, not the
@@ -897,6 +1173,9 @@ describe('MapLabels — obstacle seeding from the live chrome', () => {
     ['the landing card', 'wf-land'],
     ['the window panel', 'wf-win-panel'],
     ['the region panel', 'wf-reg-panel'],
+    // tide-window-plan.md T7 — on the phone the strip is a SIBLING of `.wf-map-chrome-bl`, not a
+    // child of it (unlike the desktop mount, already covered via that entry), so it needs its own.
+    ['the tide strip', 'wf-tide-strip'],
   ])('seeds %s as an obstacle', async (_label, testid) => {
     restoreMeasure = withMeasuredLabels(30, 14);
     currentMap = makeFullMap({ zoom: 9 });
@@ -935,6 +1214,58 @@ describe('MapLabels — obstacle seeding from the live chrome', () => {
     await act(async () => { runFrames(); });
     const home = document.querySelector('[data-testid="map-label-home"]');
     expect(home.style.display).toBe('none');
+  });
+});
+
+describe('MapLabels — the peek sheet as an obstacle while an answer\'s picks are on the map (F4 bottomInset)', () => {
+  // The frame is 500px tall; `latLngToContainerPoint` is `y = (56 - lat) * 10`, so these homes sit at
+  // y = 110 and y = 40. The sheet's covered band is the bottom `bottomInset` px, clamped to the frame
+  // less the window pill's 64px: [64, 500] at most.
+  const LOW_HOME = { lat: 45, lon: -1.4 };
+  const HIGH_HOME = { lat: 52, lon: -1.4 };
+
+  async function placed(props) {
+    restoreMeasure = withMeasuredLabels(30, 14);
+    currentMap = makeFullMap({ zoom: 9 });
+    vi.spyOn(currentMap.container, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 800, height: 500,
+    });
+    await mount(props);
+    await act(async () => { runFrames(); });
+    return document.querySelector('[data-testid="map-label-home"]');
+  }
+
+  it('places a label under where the sheet WILL be when no inset is given — the sheet is not one of the chrome rects', async () => {
+    expect((await placed({ homeCoords: LOW_HOME })).style.display).not.toBe('none');
+  });
+
+  it('drops a label whose every rung lands under the sheet\'s target height', async () => {
+    expect((await placed({ homeCoords: LOW_HOME, bottomInset: 470 })).style.display).toBe('none');
+  });
+
+  it('leaves the top of the frame alone: the clamp keeps 64px clear, so a 500px inset does not cover y = 40', async () => {
+    expect((await placed({ homeCoords: HIGH_HOME, bottomInset: 500 })).style.display).not.toBe('none');
+  });
+
+  it('a small inset (the 112px minimised line) covers only its own 112px: a label at y = 110 is clear of it', async () => {
+    // Covered band [388, 500]; the label at y = 110 is nowhere near it.
+    expect((await placed({ homeCoords: LOW_HOME, bottomInset: 112 })).style.display).not.toBe('none');
+  });
+
+  it('re-places when the inset changes — the sheet growing under labels that were already placed', async () => {
+    restoreMeasure = withMeasuredLabels(30, 14);
+    currentMap = makeFullMap({ zoom: 9 });
+    vi.spyOn(currentMap.container, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 800, height: 500,
+    });
+    const { rerender } = await mount({ homeCoords: LOW_HOME, bottomInset: 112 });
+    await act(async () => { runFrames(); });
+    expect(document.querySelector('[data-testid="map-label-home"]').style.display).not.toBe('none');
+
+    await act(async () => { rerender(<MapLabels spots={SPOTS} homeCoords={LOW_HOME} bottomInset={470} />); });
+    await act(async () => { runFrames(); });
+
+    expect(document.querySelector('[data-testid="map-label-home"]').style.display).toBe('none');
   });
 });
 
@@ -986,6 +1317,102 @@ describe('MapLabels — re-paints on the same rAF-guarded cadence as the field',
     await act(async () => { unmount(); });
     // No throw on a post-unmount event is the assertion — the listeners were removed.
     expect(() => currentMap.fire('moveend')).not.toThrow();
+  });
+});
+
+describe('MapLabels — the "you rated this" badge (outcome-rating-plan.md §2 #6, O4b)', () => {
+  // Zoom 12: past the region-name gate (11.2) and the ring gate, so the only things placed are the
+  // chips under test. Every element measures 30x14 (`withMeasuredLabels`), so a chip's box is known.
+  // The stub projection puts A at (30, 40) and B at (65, 40): B's own box starts 5px past A's right
+  // edge (45) plus the placer's 3px collision pad — flush, and free — until A's badge is reserved.
+  const A = {
+    name: 'Aa', lat: 52, lng: 0, rid: 'X', rating: 5,
+  };
+  const B = {
+    name: 'Bb', lat: 52, lng: 3.5, rid: 'X', rating: 3,
+  };
+  const chipNamed = (name) => [...document.querySelectorAll('[data-testid="map-label-chip"]')]
+    .find((el) => el.getAttribute('aria-label').startsWith(name));
+  const leftOf = (el) => Number.parseFloat(el.style.left);
+  const topOf = (el) => Number.parseFloat(el.style.top);
+
+  async function place(spots) {
+    restoreMeasure = withMeasuredLabels(30, 14);
+    currentMap = makeFullMap({ zoom: 12 });
+    await mount({ spots });
+    await act(async () => { runFrames(); });
+  }
+
+  it('draws N★ on a chip carrying the reader\'s rating — aria-hidden, with the spoken clause in the name', async () => {
+    await place([{ ...A, myRating: 3 }, B]);
+    const chip = chipNamed('Aa');
+    expect(chip).toHaveAccessibleName('Aa, 5 star, you rated 3 out of 5');
+    expect(chip.querySelector('.wf-rated-badge')).toHaveTextContent('3★');
+    expect(chip.querySelector('.wf-rated-badge')).toHaveAttribute('aria-hidden', 'true');
+    expect(chipNamed('Bb').querySelector('.wf-rated-badge')).toBeNull();
+    expect(chipNamed('Bb')).toHaveAccessibleName('Bb, 3 star');
+  });
+
+  it('draws an en dash and says "not seen" for a "didn\'t see it" record', async () => {
+    await place([{ ...A, myRating: 'NOT_SEEN' }, B]);
+    expect(chipNamed('Aa')).toHaveAccessibleName('Aa, 5 star, you marked this not seen');
+    expect(chipNamed('Aa').querySelector('.wf-rated-badge')).toHaveTextContent('–');
+  });
+
+  it('places the chip exactly where it would have been without a badge', async () => {
+    await place([A]);
+    const bareAt = [leftOf(chipNamed('Aa')), topOf(chipNamed('Aa'))];
+    cleanup();
+    restoreMeasure();
+    await place([{ ...A, myRating: 4 }]);
+    expect([leftOf(chipNamed('Aa')), topOf(chipNamed('Aa'))]).toEqual(bareAt);
+  });
+
+  it('PLACER RULE: a neighbour that fits flush beside a bare chip is moved clear of its badge', async () => {
+    await place([A, B]);
+    // The premise: bare, B sits flush right of A — exactly where a badge would hang.
+    const bareB = leftOf(chipNamed('Bb'));
+    expect(bareB).toBe(50);
+    expect(bareB).toBeLessThan(leftOf(chipNamed('Aa')) + 30 + 9);
+    cleanup();
+    restoreMeasure();
+
+    await place([{ ...A, myRating: 4 }, B]);
+    const a = chipNamed('Aa');
+    const b = chipNamed('Bb');
+    // The badge's box: 9px past the chip's right edge, 7px above its top, down to the chip's bottom.
+    const badge = {
+      left: leftOf(a) + 30, right: leftOf(a) + 30 + 9, top: topOf(a) - 7, bottom: topOf(a) + 14,
+    };
+    const box = {
+      left: leftOf(b), right: leftOf(b) + 30, top: topOf(b), bottom: topOf(b) + 14,
+    };
+    const overlap = box.left < badge.right && badge.left < box.right
+      && box.top < badge.bottom && badge.top < box.bottom;
+    expect(overlap).toBe(false);
+    expect(leftOf(b)).not.toBe(bareB);
+  });
+
+  it('keeps a badged chip\'s badge on screen: a chip near the top edge is nudged down, never clipped', async () => {
+    restoreMeasure = withMeasuredLabels(30, 14);
+    currentMap = makeFullMap({ zoom: 12 });
+    // y = (56 - 55.2) * 10 = 8: a bare chip's box would start at y = 1, flush with the edge inset;
+    // with a badge 7px more is reserved above it.
+    await mount({ spots: [{ ...A, lat: 55.2, myRating: 4 }] });
+    await act(async () => { runFrames(); });
+    expect(topOf(chipNamed('Aa')) - 7).toBeGreaterThanOrEqual(1);
+  });
+
+  it('an Ask pick chip never wears the badge, and keeps the pick\'s own name', async () => {
+    await place([{
+      ...A,
+      myRating: 4,
+      askPick: {
+        rank: 1, shortWindow: 'Sun', rating: 4, verdict: 'WORTH_IT', label: 'Pick 1', selected: false,
+      },
+    }]);
+    expect(document.querySelector('.wf-rated-badge')).toBeNull();
+    expect(document.querySelector('[data-ask="pick"]')).toHaveAttribute('aria-label', 'Pick 1');
   });
 });
 

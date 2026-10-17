@@ -366,7 +366,7 @@ public class AuroraOrchestrator {
      * @param now      the instant of the poll
      * @return the highest such Kp, or 0 if nothing of tonight is left
      */
-    static double maxKpRestOfTonight(List<KpForecast> forecast, TonightWindow tonight,
+    public static double maxKpRestOfTonight(List<KpForecast> forecast, TonightWindow tonight,
             ZonedDateTime now) {
         if (!now.isBefore(tonight.dawn())) {
             return 0.0;

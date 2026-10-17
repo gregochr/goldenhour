@@ -151,8 +151,14 @@ if [[ "$HEADING_COUNT" -ne 1 ]]; then
     echo "Refusing to write; CHANGELOG.md and changelog.d/ are unchanged." >&2
     exit 1
 fi
-ADDED=$(diff CHANGELOG.md "$PROMOTED" | grep -c '^> ' || true)
-REMOVED=$(diff CHANGELOG.md "$PROMOTED" | grep -c '^< ' || true)
+# -d forces a minimal diff. Without it, BSD/Apple diff's default heuristic can return a
+# larger, non-minimal edit script on a file this size (CHANGELOG.md is 12k+ lines) —
+# e.g. reporting 3 spurious removals alongside 3 spurious extra additions for a rewrite
+# that is actually a clean insertion with nothing removed. That false positive blocked
+# a legitimate v2.20.6 promotion on 2026-09-18. GNU diff is minimal by default but -d is
+# a no-op for it, so this is safe on both.
+ADDED=$(diff -d CHANGELOG.md "$PROMOTED" | grep -c '^> ' || true)
+REMOVED=$(diff -d CHANGELOG.md "$PROMOTED" | grep -c '^< ' || true)
 EXPECTED=$(wc -l < "$BLOCK" | tr -d ' ')
 if [[ "$REMOVED" -ne 0 || "$ADDED" -ne "$EXPECTED" ]]; then
     echo "Error: the rewrite should add exactly the $EXPECTED-line insertion block and remove nothing;" >&2

@@ -15,6 +15,7 @@ import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.repository.PromptTestResultRepository;
 import com.gregochr.goldenhour.repository.PromptTestRunRepository;
+import com.gregochr.goldenhour.util.ReplayJson;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -89,8 +90,8 @@ public class PromptTestService {
         this.costCalculator = costCalculator;
         this.exchangeRateService = exchangeRateService;
         this.gitInfoService = gitInfoService;
-        this.objectMapper = new ObjectMapper()
-                .registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
+        // Stored rows may carry fields a different build wrote; skip and log them (ReplayJson).
+        this.objectMapper = ReplayJson.replayMapper();
     }
 
     /** Run types the prompt-test harness can sweep; everything else is rejected. */

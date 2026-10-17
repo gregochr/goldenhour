@@ -91,6 +91,11 @@ Verified:
    cheaper than it is. A shell-root `inert` would either not cover it (leaving the hole) or would be applied
    somewhere that also covers the settings dialog itself (making it inert while it is the thing the
    reader is using). Bringing it inside the guarded tree is a real refactor of `App`'s structure.
+   ⚠️ **One thing has moved since this was costed (2026-09-16):** `App` now tells the shell when the
+   settings dialog is open (`settingsOpen`), and the shell and `App` close their own dialogs — the
+   shell's, and the map overlay — on its rising edge. So the shell can HEAR of that one sibling now,
+   which a guard keyed on "a dialog is open" could read. Nothing is inside the guarded tree yet, and
+   `MapOverlay` and `BottomSheet` are unchanged.
 2. **`stacked` mount ordering.** Four dialogs pass `stacked={!escapeEnabled}`
    (`WindowSheetDialog`, `LocationFourDaySheet`, `WindowSpotSheet`, `WindowPickDialog`). `stacked`
    currently means "a layer is above me"; under a shell-root guard it would have to mean "a layer
@@ -144,7 +149,7 @@ is not just runner minutes: `ci.yml` records that e2e needs a live Spring Boot b
 
 **(c) Do not adopt it. Leave arms A and B as the accepted posture.** They have been that since
 v1-retirement §4.3, whose three reasons are still live facts (Leaflet mutating its own tab stops,
-the body-portalled bottom sheet, the settings spinner with nothing focusable), and neither arm is
+the body-portalled bottom sheet, the settings spinner with nothing to Tab to), and neither arm is
 reachable without deliberately Tabbing out of a modal.
 
 **Recommendation: (a) if arms A and B are judged worth closing at all; (c) if they are not.** I no

@@ -19,6 +19,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.hibernate.annotations.DynamicUpdate;
 
 import java.time.LocalDateTime;
 import java.util.HashSet;
@@ -29,8 +30,24 @@ import java.util.Set;
  *
  * <p>Locations are managed exclusively via the REST API and persist in the database.
  * Disabled locations are excluded from forecast runs and the map view.
+ *
+ * <p>⚠️ <b>{@code enabled}, {@code consecutive_failures}, {@code last_failure_at} and
+ * {@code disabled_reason} are {@code updatable = false}, and are written only by column-scoped
+ * updates on {@code LocationRepository}</b> ({@code updateEnabled}, {@code recordFailure},
+ * {@code autoDisable}, {@code resetFailureCounts}, {@code clearFailureState}), exactly as
+ * {@code AppUserEntity}'s settings columns are. A {@code setX()} then {@code save()} on an existing
+ * row writes NONE of them (an insert still does, so a new location starts with the value it was
+ * built with). Without this, an entity loaded before a scheduled cycle's settle and saved after it
+ * (an admin's metadata edit, or a job that loads locations outside a transaction, waits on a remote
+ * call and merges its detached snapshot back) rewrote the stale values and silently undid a committed
+ * auto-disable or restored a reset counter. Writers of other columns that run detached likewise use
+ * scoped updates ({@code updateGridCell}, {@code updateSkyBrightness}) so a stale snapshot cannot
+ * rewrite what an admin has edited meanwhile. The entity is also {@code @DynamicUpdate}, so a save
+ * writes only the columns that changed. The admin enable/disable toggle is a deliberate
+ * last-writer-wins on {@code enabled}.
  */
 @Entity
+@DynamicUpdate
 @Table(name = "locations")
 @Getter
 @Setter
@@ -105,8 +122,8 @@ public class LocationEntity {
     @JoinColumn(name = "region_id")
     private RegionEntity region;
 
-    /** Whether this location is enabled for forecast runs. */
-    @Column(nullable = false)
+    /** Whether this location is enabled for forecast runs. Not updatable through the entity. */
+    @Column(nullable = false, updatable = false)
     @Builder.Default
     private boolean enabled = true;
 
@@ -115,19 +132,19 @@ public class LocationEntity {
     private LocalDateTime createdAt;
 
     /** Number of consecutive forecast failures for this location. Used for auto-disabling. */
-    @Column(name = "consecutive_failures")
+    @Column(name = "consecutive_failures", updatable = false)
     @Builder.Default
     private Integer consecutiveFailures = 0;
 
     /** UTC timestamp of the most recent forecast failure, or null if none. */
-    @Column(name = "last_failure_at")
+    @Column(name = "last_failure_at", updatable = false)
     private LocalDateTime lastFailureAt;
 
     /**
      * Reason this location was disabled, or null if enabled.
      * Examples: "Auto-disabled after 3 consecutive failures", or set by admin.
      */
-    @Column(name = "disabled_reason")
+    @Column(name = "disabled_reason", updatable = false)
     private String disabledReason;
 
     /**
@@ -227,6 +244,40 @@ public class LocationEntity {
                 && !locationType.contains(LocationType.WATERFALL);
     }
 
+    /**
+     * True when WILDLIFE is this location's one and only type.
+     *
+     * <p>The rule behind the scheduled hourly comfort forecast ({@code WildlifeComfortRefreshJob}).
+     * It is deliberately <em>narrower</em> than {@code ForecastCommandExecutor.isPureWildlife},
+     * which admits any location carrying WILDLIFE and no colour type — and since
+     * {@link #hasColourTypes()} omits WOODLAND and BLUEBELL on purpose, that older test also
+     * admits WILDLIFE+WOODLAND and WILDLIFE+BLUEBELL. This one does not, for two reasons. The
+     * frontend decides which popup draws the comfort table with
+     * {@code types.every(t => t === 'WILDLIFE')}, so the writer and the only renderer agree on
+     * which places carry the rows; and a WILDLIFE+WOODLAND place is briefed as a canopy site, a
+     * sky-forecast surface in its own right, not a hide.
+     *
+     * <p>An empty or null type set is <em>not</em> wildlife-only: an unclassified place is
+     * assumed to want colour (see {@link #hasColourTypes()}).
+     *
+     * @return true if the type set is non-empty and holds nothing but {@link LocationType#WILDLIFE}
+     */
+    public boolean isWildlifeOnly() {
+        return locationType != null
+                && !locationType.isEmpty()
+                && locationType.stream().allMatch(t -> t == LocationType.WILDLIFE);
+    }
+
+    /**
+     * Whether this location is photographed at the given kind of solar event.
+     *
+     * <p>A location with no solar event types configured, or one carrying {@code ALLDAY}, supports
+     * every target type. Otherwise {@code SUNRISE} and {@code SUNSET} must each be listed, and
+     * {@code HOURLY} (the wildlife/comfort forecast, not tied to one event) is always supported.
+     *
+     * @param targetType the event being asked about
+     * @return true if the location should be evaluated for that event
+     */
     public boolean supportsTargetType(TargetType targetType) {
         if (solarEventType == null || solarEventType.isEmpty()
                 || solarEventType.contains(SolarEventType.ALLDAY)) {

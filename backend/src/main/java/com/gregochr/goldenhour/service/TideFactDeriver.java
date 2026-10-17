@@ -1,16 +1,20 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.TideData;
 import com.gregochr.goldenhour.model.TideDerivation;
 import com.gregochr.goldenhour.model.TideStats;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 import java.util.Set;
 
@@ -32,6 +36,8 @@ import java.util.Set;
  */
 @Component
 public class TideFactDeriver {
+
+    private static final Logger LOG = LoggerFactory.getLogger(TideFactDeriver.class);
 
     /**
      * Minutes by which the tight golden/blue-hour alignment window is extended beyond each edge to
@@ -81,20 +87,61 @@ public class TideFactDeriver {
      */
     public Optional<TideDerivation> derive(Long locationId, LocalDateTime eventTime,
             Set<TideType> tideTypes, double lat, double lon, TargetType targetType) {
+        return derive(locationId, eventTime, tideTypes, lat, lon, targetType, null);
+    }
+
+    /**
+     * As {@link #derive(Long, LocalDateTime, Set, double, double, TargetType)}, reading stored
+     * extremes from a build-scoped snapshot when one is given. With a {@code null} snapshot it calls
+     * exactly the {@code TideService} methods the six-argument form always has.
+     *
+     * @param locationId the location primary key, or {@code null} for inland
+     * @param eventTime  UTC time of the solar event
+     * @param tideTypes  the location's tide preferences (empty/null if inland)
+     * @param lat        observer latitude
+     * @param lon        observer longitude
+     * @param targetType SUNRISE or SUNSET
+     * @param snapshot   the build's tide snapshot, or {@code null} to query
+     * @return the derived tide facts, or empty when inland or the tide could not be derived
+     */
+    public Optional<TideDerivation> derive(Long locationId, LocalDateTime eventTime,
+            Set<TideType> tideTypes, double lat, double lon, TargetType targetType,
+            TideExtremeSnapshot snapshot) {
         boolean isCoastal = locationId != null && tideTypes != null && !tideTypes.isEmpty();
         if (!isCoastal) {
             return Optional.empty();
         }
         long tightWindowMinutes = tightAlignmentWindowMinutes(lat, lon, eventTime, targetType);
         long widenedWindowMinutes = tightWindowMinutes + WIDENED_ALIGNMENT_EXTENSION_MINUTES;
-        Optional<TideService.DualWindowTideData> dualMaybe = tideService.deriveDualWindowTideData(
-                locationId, eventTime, tightWindowMinutes, widenedWindowMinutes);
+        Optional<TideService.DualWindowTideData> dualMaybe = snapshot == null
+                ? tideService.deriveDualWindowTideData(
+                        locationId, eventTime, tightWindowMinutes, widenedWindowMinutes)
+                : tideService.deriveDualWindowTideData(
+                        locationId, eventTime, tightWindowMinutes, widenedWindowMinutes, snapshot);
         if (dualMaybe.isEmpty()) {
             return Optional.empty();
         }
         TideData tideData = dualMaybe.get().tight();
         boolean tideAligned = tideService.calculateTideAligned(tideData, tideTypes);
         boolean widenedAligned = tideService.calculateTideAligned(dualMaybe.get().widened(), tideTypes);
+        Double tideAlignmentQuality = tideAligned
+                ? computeAlignmentQuality(locationId, eventTime, tideData, tideTypes, tightWindowMinutes,
+                        snapshot)
+                : null;
+        if (tideAligned && tideAlignmentQuality == null) {
+            // Should not occur — tideAligned already confirmed at least one want matches — but
+            // the one avenue that COULD disagree is TideType.MID: it re-fetches extremes through
+            // a second, time-separated query (TideService#nearestMidpointOffsetMinutes; only on the
+            // null-snapshot or fallback path, a snapshot gives both reads the same rows) rather
+            // than reading the same tight-window TideData tideAligned was decided from, so a
+            // tide refresh landing between the two calls is a genuine (if narrow) way for them to
+            // part company. Logged rather than silently degrading C1's meanQuality sample, the
+            // same "can't die silently" precedent InversionScoreCalculator sets for its own
+            // gated-but-unexplained case.
+            LOG.warn("tideAligned=true but tideAlignmentQuality computed null for locationId={} "
+                    + "eventTime={} tideTypes={} — a MID want's second extremes fetch likely saw "
+                    + "different rows than the first (live-query path only)", locationId, eventTime, tideTypes);
+        }
 
         // Lunar classification (deterministic, from moon phase + perigee).
         LocalDate eventDate = eventTime.toLocalDate();
@@ -138,7 +185,86 @@ public class TideFactDeriver {
                 heightAboveP95,
                 heightAboveSpringThreshold,
                 springTideThresholdMetres,
-                avgRangeMetres));
+                avgRangeMetres,
+                tideAlignmentQuality));
+    }
+
+    /**
+     * How well-centred the water is in the wanted state at the light, on the same time axis
+     * {@link TideService#calculateTideAligned} decided alignment on — 0.0 at the edge of the
+     * tight alignment window, 1.0 dead centre. Only called once {@code tideAligned} is already
+     * known true, so at least one wanted state is expected to yield a figure; when more than one
+     * is aligned (a {@code {HIGH, LOW}} want, say), the best of them wins.
+     *
+     * <p>Deliberately not derived from {@code nearestSolarOffsetMinutes} (distance to the nearest
+     * extreme of <em>either</em> kind, type-blind): that figure points the wrong way for a MID
+     * want, where a better-centred match sits <em>farther</em> from either extreme, not nearer
+     * one.
+     *
+     * @param locationId         the location primary key (for the MID case's midpoint lookup)
+     * @param eventTime          UTC time of the solar event
+     * @param tideData           the tight-window tide data alignment was decided on
+     * @param tideTypes          the location's wanted tide states
+     * @param tightWindowMinutes the tight alignment window half-width, the quality figure's own
+     *                           denominator
+     * @param snapshot           the build's tide snapshot, or {@code null} to query
+     * @return the best quality across every aligned wanted state, or {@code null} if none yielded
+     *     one (should not occur when {@code tideAligned} is true, but fails soft rather than
+     *     asserting it)
+     */
+    private Double computeAlignmentQuality(Long locationId, LocalDateTime eventTime,
+            TideData tideData, Set<TideType> tideTypes, long tightWindowMinutes,
+            TideExtremeSnapshot snapshot) {
+        Double best = null;
+        for (TideType want : tideTypes) {
+            Long offsetMinutes = offsetMinutesForWant(locationId, eventTime, tideData, want,
+                    snapshot);
+            if (offsetMinutes == null) {
+                continue;
+            }
+            double quality = qualityFromOffset(offsetMinutes, tightWindowMinutes);
+            if (best == null || quality > best) {
+                best = quality;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * Signed minutes from the light to the extreme (or, for MID, the bracketing midpoint) that
+     * satisfies one wanted tide state — or {@code null} when that particular want is not itself
+     * the one behind this slot's alignment.
+     */
+    private Long offsetMinutesForWant(Long locationId, LocalDateTime eventTime, TideData tideData,
+            TideType want, TideExtremeSnapshot snapshot) {
+        return switch (want) {
+            case HIGH -> tideData.tideState() == TideState.HIGH
+                    ? minutesBetween(eventTime, tideData.nearestHighTideTime()) : null;
+            case LOW -> tideData.tideState() == TideState.LOW
+                    ? minutesBetween(eventTime, tideData.nearestLowTideTime()) : null;
+            case MID -> tideData.nearMidPoint()
+                    ? (snapshot == null
+                            ? tideService.nearestMidpointOffsetMinutes(locationId, eventTime)
+                            : tideService.nearestMidpointOffsetMinutes(locationId, eventTime,
+                                    snapshot)).orElse(null)
+                    : null;
+        };
+    }
+
+    private static Long minutesBetween(LocalDateTime eventTime, LocalDateTime extremeTime) {
+        return extremeTime == null ? null : ChronoUnit.MINUTES.between(eventTime, extremeTime);
+    }
+
+    /**
+     * {@code 1 − |offsetMinutes| / tightWindowMinutes}, clamped to [0, 1] — 1.0 dead centre on the
+     * light, ≈0 at the tight window's edge.
+     */
+    private static double qualityFromOffset(long offsetMinutes, long tightWindowMinutes) {
+        if (tightWindowMinutes <= 0) {
+            return 1.0;
+        }
+        double raw = 1.0 - (double) Math.abs(offsetMinutes) / tightWindowMinutes;
+        return Math.max(0.0, Math.min(1.0, raw));
     }
 
     /**

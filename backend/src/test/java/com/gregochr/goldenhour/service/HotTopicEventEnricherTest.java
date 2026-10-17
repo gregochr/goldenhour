@@ -243,7 +243,7 @@ class HotTopicEventEnricherTest {
     // ── Qualifying-location backfill ──────────────────────────────────────────
 
     @Test
-    @DisplayName("survivor-provided locations are preserved, not overwritten by the backfill")
+    @DisplayName("slot-provided locations are preserved, not overwritten by the backfill")
     void existingLocations_preserved() {
         HotTopic pre = topic("INVERSION", null).withLocations(List.of("Malham"));
         HotTopic result = enrichOne(pre);

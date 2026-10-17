@@ -116,4 +116,54 @@ class SurpriseScoreTest {
         // perigee that already inflated the magnitude.
         assertThat(springTideRarity).isLessThan(SurpriseScore.rarity(365.25 / 5.5));
     }
+
+    // ── gapWord (lunar-eclipse plan §2.9: "no more bits") ──────────────────
+
+    @Test
+    @DisplayName("gapWord reads the rarity component back as a plain calendar phrase, matching "
+            + "every mean-gap-days value actually configured for a topic — not merely tuned to "
+            + "hit the four phrases the design bundle happens to name")
+    void gapWordMatchesConfiguredTopics() {
+        // spring/king tide: half the mean synodic month.
+        assertThat(SurpriseScore.gapWord(SurpriseScore.rarity(14.8))).isEqualTo("a fortnight");
+        // supermoon: a full moon within the perigee window.
+        assertThat(SurpriseScore.gapWord(SurpriseScore.rarity(60.0))).isEqualTo("a couple of months");
+        // equinox/solstice: two of each a year.
+        assertThat(SurpriseScore.gapWord(SurpriseScore.rarity(182.625))).isEqualTo("six months");
+        // meteor shower and NLC season: once a year.
+        assertThat(SurpriseScore.gapWord(SurpriseScore.rarity(365.25))).isEqualTo("a year");
+        // lunar eclipse (L1): 900 days ≈ 2.46 years.
+        assertThat(SurpriseScore.gapWord(SurpriseScore.rarity(900.0))).isEqualTo("every two to three years");
+        // solar eclipse: 1500 days ≈ 4.1 years — outside the "two to three" band, so it falls to
+        // the open-ended phrase rather than overclaiming "two to three years" for a 4-year gap.
+        assertThat(SurpriseScore.gapWord(SurpriseScore.rarity(1500.0))).isEqualTo("every 4 years");
+    }
+
+    @Test
+    @DisplayName("gapWord's bucket boundaries — a value just inside a bucket reads that bucket's "
+            + "phrase, a value just past it reads the next one")
+    void gapWordBucketBoundaries() {
+        assertThat(SurpriseScore.gapWord(SurpriseScore.rarity(1.4))).isEqualTo("a day");
+        assertThat(SurpriseScore.gapWord(SurpriseScore.rarity(1.6))).isEqualTo("a week");
+        assertThat(SurpriseScore.gapWord(SurpriseScore.rarity(9.9))).isEqualTo("a week");
+        assertThat(SurpriseScore.gapWord(SurpriseScore.rarity(10.1))).isEqualTo("a fortnight");
+        assertThat(SurpriseScore.gapWord(SurpriseScore.rarity(24.9))).isEqualTo("a fortnight");
+        assertThat(SurpriseScore.gapWord(SurpriseScore.rarity(25.1))).isEqualTo("a month");
+        assertThat(SurpriseScore.gapWord(SurpriseScore.rarity(44.9))).isEqualTo("a month");
+        assertThat(SurpriseScore.gapWord(SurpriseScore.rarity(45.1))).isEqualTo("a couple of months");
+        assertThat(SurpriseScore.gapWord(SurpriseScore.rarity(99.9))).isEqualTo("a couple of months");
+        assertThat(SurpriseScore.gapWord(SurpriseScore.rarity(100.1))).isEqualTo("six months");
+        assertThat(SurpriseScore.gapWord(SurpriseScore.rarity(273.9))).isEqualTo("six months");
+        assertThat(SurpriseScore.gapWord(SurpriseScore.rarity(274.1))).isEqualTo("a year");
+        assertThat(SurpriseScore.gapWord(SurpriseScore.rarity(547.9))).isEqualTo("a year");
+        assertThat(SurpriseScore.gapWord(SurpriseScore.rarity(548.1))).isEqualTo("every two to three years");
+        assertThat(SurpriseScore.gapWord(SurpriseScore.rarity(1199.9))).isEqualTo("every two to three years");
+        assertThat(SurpriseScore.gapWord(SurpriseScore.rarity(1200.1))).isEqualTo("every 3 years");
+    }
+
+    @Test
+    @DisplayName("gapWord never prints the raw bits figure alongside the phrase")
+    void gapWordNeverPrintsTheFigure() {
+        assertThat(SurpriseScore.gapWord(SurpriseScore.rarity(14.8))).doesNotContain("3.9").doesNotContain("(");
+    }
 }

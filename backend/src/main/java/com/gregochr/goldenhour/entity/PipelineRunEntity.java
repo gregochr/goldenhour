@@ -63,6 +63,29 @@ public class PipelineRunEntity {
     @Column(name = "best_bet_status", length = 20)
     private com.gregochr.goldenhour.model.BestBetStatus bestBetStatus;
 
+    /**
+     * The job run this cycle's {@code forecast_run_disposition} rows were persisted onto: the first
+     * submitted batch's job run, or, for a cycle that submitted no batch, a disposition-only anchor
+     * run nothing else links to the pipeline run. Read by the location auto-disable settle to find
+     * the cycle's evidence, durably across a restart. Null until the cycle persists dispositions.
+     *
+     * <p>{@code updatable = false}: written only by {@code PipelineRunRepository
+     * #recordDispositionJobRun}, so a whole-entity save of a stale copy cannot overwrite it.
+     */
+    @Column(name = "disposition_job_run_id", updatable = false)
+    private Long dispositionJobRunId;
+
+    /**
+     * When location failures were settled for this cycle, or null while they have not been. Claimed
+     * by a conditional update ({@code PipelineRunRepository#claimFailureSettle}) in the settle's own
+     * transaction, so a cycle is counted exactly once and a run stopped before it settled is settled
+     * on resume. Its newest settled {@code trigger_time} orders the cycles.
+     *
+     * <p>{@code updatable = false} for the same reason as {@link #dispositionJobRunId}.
+     */
+    @Column(name = "failures_settled_at", updatable = false)
+    private Instant failuresSettledAt;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
@@ -103,6 +126,24 @@ public class PipelineRunEntity {
 
     public Long getId() {
         return id;
+    }
+
+    /**
+     * Returns the job run holding this cycle's dispositions.
+     *
+     * @return the job run id, or null if none has been recorded
+     */
+    public Long getDispositionJobRunId() {
+        return dispositionJobRunId;
+    }
+
+    /**
+     * Returns when this cycle's location failures were settled.
+     *
+     * @return the settle instant, or null if not yet settled
+     */
+    public Instant getFailuresSettledAt() {
+        return failuresSettledAt;
     }
 
     public void setId(Long id) {

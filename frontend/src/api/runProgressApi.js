@@ -1,4 +1,5 @@
 import createEventSource from '../utils/createEventSource.js';
+import apiClient from './axiosClient.js';
 
 const BASE_URL = '/api';
 
@@ -10,9 +11,11 @@ const BASE_URL = '/api';
  * @param {function} onRunSummary - Called with run summary data after each task update.
  * @param {function} onRunComplete - Called with run complete data when the run finishes.
  * @param {function} onError - Called on connection error.
+ * @param {function} [onRunExpired] - Called when the server no longer holds the run (evicted, or
+ *   lost to a restart): the stream ends and nothing more will arrive.
  * @returns {function} Cleanup function to close the EventSource.
  */
-export function subscribeToRunProgress(runId, onTaskUpdate, onRunSummary, onRunComplete, onError) {
+export function subscribeToRunProgress(runId, onTaskUpdate, onRunSummary, onRunComplete, onError, onRunExpired) {
   return createEventSource(
     `${BASE_URL}/forecast/run/${runId}/progress`,
     {},
@@ -20,8 +23,9 @@ export function subscribeToRunProgress(runId, onTaskUpdate, onRunSummary, onRunC
       'task-update': onTaskUpdate,
       'run-summary': onRunSummary,
       'run-complete': onRunComplete,
+      'run-expired': onRunExpired,
     },
-    { onError, closeOn: 'run-complete' },
+    { onError, closeOn: ['run-complete', 'run-expired'] },
   );
 }
 
@@ -43,22 +47,14 @@ export function subscribeToRunNotifications(onRunComplete, onError) {
 }
 
 /**
- * Retries failed tasks from a previous run.
+ * Retries failed tasks from a previous run, through the shared axios client so an expired token is
+ * refreshed on the way and a refusal rejects with the shape {@code utils/apiError.js} reads
+ * ({@code err.response.status}, {@code err.response.data}).
  *
  * @param {number} runId - The job run ID whose failed tasks to retry.
  * @returns {Promise<{status: string, runType: string, jobRunId: number}>} New run response.
  */
 export async function retryFailed(runId) {
-  const token = localStorage.getItem('goldenhour_token');
-  const response = await fetch(`${BASE_URL}/forecast/run/${runId}/retry-failed`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-  });
-  if (!response.ok) {
-    throw new Error('Retry failed');
-  }
-  return response.json();
+  const { data } = await apiClient.post(`${BASE_URL}/forecast/run/${runId}/retry-failed`);
+  return data;
 }

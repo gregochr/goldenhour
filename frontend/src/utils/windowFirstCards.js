@@ -65,6 +65,43 @@ export function dayLabelFor(dateStr, todayStr, tomorrowStr) {
     .toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'UTC' });
 }
 
+/**
+ * A PAST window's day label — {@code Today}, {@code Yesterday}, else {@code Fri 16} (short weekday,
+ * day of month with no leading zero), the outcome-rating design's vocabulary for the Map tab's past
+ * rows (docs/engineering/outcome-rating-plan.md §2 #2). Kept beside {@link dayLabelFor} rather than
+ * widening it: its two Plan-tab callers never see a past date, and a long weekday name is the wrong
+ * word for a day that has gone ("Friday" is ambiguous with next Friday; "Fri 16" is not).
+ *
+ * <p>A lookup over a date string — the already-licensed filter/map/select class (CLAUDE.md
+ * Backend-heavy), deciding nothing. The weekday and day are read in UTC from a noon-pinned instant,
+ * so the answer is the calendar date's own whatever zone the browser is in.
+ *
+ * @param {string} dateStr the window's ISO date
+ * @param {string} todayStr the UK civil today
+ * @returns {string}
+ */
+export function pastDayLabel(dateStr, todayStr) {
+  if (dateStr === todayStr) return 'Today';
+  const d = new Date(`${dateStr}T12:00:00Z`);
+  const t = new Date(`${todayStr}T12:00:00Z`);
+  if (Math.round((t.getTime() - d.getTime()) / 86400000) === 1) return 'Yesterday';
+  return dowDayLabel(dateStr);
+}
+
+/**
+ * {@code Thu 16} for any date, never {@code Today}/{@code Yesterday} — the form a sentence about ONE
+ * calendar day wants ("No stored forecast for Fri 16": "yesterday" would be wrong the next morning).
+ * The same noon-pinned UTC read {@link pastDayLabel} makes, so the answer is the date's own in any zone.
+ *
+ * @param {string} dateStr an ISO date
+ * @returns {string}
+ */
+export function dowDayLabel(dateStr) {
+  const d = new Date(`${dateStr}T12:00:00Z`);
+  const dow = d.toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' });
+  return `${dow} ${d.getUTCDate()}`;
+}
+
 /** 'sunrise' | 'sunset' — the window's own event, lower case for use inside a phrase. Exported
  *  beside {@link dayLabelFor} and for the same reason. */
 export function eventWord(targetType) {
@@ -99,7 +136,72 @@ export const VERDICT_LABEL = {
   WORTH_IT: 'Worth it',
   MAYBE: 'Maybe',
   STAND_DOWN: 'Poor',
+  // ⚠️ UNRATED (unrated-verdict-plan.md U2): the weather screen did not rule the window out and no
+  // trustworthy rating has called it — a region whose rated sample fails the verdict sample gate,
+  // or one with no rating at all, used to wear the triage pass as "Worth it"/"Maybe". It is NOT
+  // AWAITING ("nothing was said") and NOT Poor ("the weather said no"): ratings exist or the
+  // weather passed, and neither is enough to recommend. 'Too few rated' is the WINDOW/REGION word
+  // (card, pill, drilldown rows, rail, grid cell); a SLOT says 'Not rated' (SLOT_VERDICT_LABEL).
+  // 13 characters — wider than any other word here (85.8px at the card's 11px/600; the pill's
+  // 10px/700 uppercase tracked word is 83–91px), so every NARROW surface prints
+  // {@link VERDICT_LABEL_SHORT} and keeps this full word in its accessible name.
+  UNRATED: 'Too few rated',
   AWAITING: 'Not scored',
+};
+
+/**
+ * The per-surface SHORT FORM of each window/region verdict word — the ONE home of the pair
+ * (unrated-verdict-plan.md U2, adversarial-review fix F1–F4).
+ *
+ * <p>Only {@code UNRATED} differs: "Too few" is 7 characters, a truncation that still reads as a count
+ * qualifier ("Too few [rated]"). It is deliberately NOT "Unrated", which would be false of a region
+ * with 38 ratings. A surface that prints it MUST keep {@code VERDICT_LABEL.UNRATED} in its accessible
+ * name — visually-hidden text, or, on the Plan card, the card's own spoken sentence — so the short
+ * form shortens the picture and never the claim. Surfaces: the Plan card's value row (everywhere:
+ * its column is 83–89px at 320, 640 and a docked 1024, measured), the Map drilldown's row (a 62px
+ * grid track), the peek sheet's "Other windows" cell (a 78px flex-none cell) and the window pill
+ * at 811px and below (measured: the full word clips the day label at 320–430px and itself at
+ * 640–700px). Every other surface prints the full word.
+ */
+export const VERDICT_LABEL_SHORT = {
+  ...VERDICT_LABEL,
+  UNRATED: 'Too few',
+};
+
+/**
+ * The word to DRAW for a descriptor's {@code verdict} on a surface that prints short forms: the
+ * short form where one exists, else the descriptor's own {@code label} unchanged (an away window's
+ * "Not forecast", or any word this module does not own).
+ *
+ * @param {?string} verdict the served display verdict, null for an away window
+ * @param {string} label the descriptor's own full label
+ * @returns {string}
+ */
+export function shortVerdictLabel(verdict, label) {
+  const short = verdict ? VERDICT_LABEL_SHORT[verdict] : null;
+  return short && short !== VERDICT_LABEL[verdict] ? short : label;
+}
+
+/**
+ * The slot-level word for a display verdict — one LOCATION's row, not a region or a window.
+ *
+ * <p>Read by exactly three consumers: Ask's pick card ({@code askModel.js}), the location sheet's
+ * window rows and the Map callout's verdict slot — the last two through
+ * {@code locationSheet.unratedSlotWord}, which carries the three-way choice for a slot with no
+ * rating ("Not rated" / "Poor" / "Not scored yet"; the Codex review of #1140 caught that this
+ * comment once named them while they still hardcoded "Not scored yet"). The popup's spot chips are
+ * NOT readers: a chip draws a star badge for a rated spot and nothing at all for an unrated one
+ * (no verdict word is ever printed on it), so there is no word to localise there.
+ *
+ * <p>The two levels share every word but one: a region is "Too few rated" because the SAMPLE is
+ * small, which is a claim about a population; a slot is one place with no rating of its own, and
+ * "Not rated" is the true thing to say of it (unrated-verdict-plan.md U2). Deliberately a separate
+ * map rather than a branch inside {@link VERDICT_LABEL} so a slot-level reader can never pick up
+ * the population wording by accident.
+ */
+export const SLOT_VERDICT_LABEL = {
+  ...VERDICT_LABEL,
+  UNRATED: 'Not rated',
 };
 
 /**
@@ -113,6 +215,107 @@ export const VERDICT_LABEL = {
  * a half-decayed badge would look like a rendering bug.
  */
 export const CONFIDENCE_VERDICTS = new Set(['WORTH_IT', 'MAYBE']);
+
+/**
+ * Which verdicts carry the SERVED confidence tier on the card descriptor, for the field's haze
+ * ({@code confidenceScalar}) — {@link CONFIDENCE_VERDICTS} plus {@code UNRATED}. A superset on
+ * purpose and NOT a second badge gate: every badge decay / provisional mark tests
+ * {@code CONFIDENCE_VERDICTS} itself (see {@code buildWindowCards}).
+ */
+const HAZE_VERDICTS = new Set([...CONFIDENCE_VERDICTS, 'UNRATED']);
+
+/**
+ * The gate's two thresholds (tide-plan-card-plan.md §3 C1 #2, the spec's §2 verbatim).
+ *
+ * <p>A flat floor of three put a chip on all six cards in the prototype's first build — a caption
+ * rather than a signal — so the gate is the SHARE, floored at three: half the coastal pool in reach,
+ * never fewer than three regardless of how small that pool is. Tying it to the share also means it
+ * tightens sensibly as the reach filter does, rather than a constant count that means less at a wide
+ * tier and more at a narrow one.
+ */
+const TIDE_LIVE_MIN_COASTAL = 4;
+const TIDE_LIVE_FLOOR = 3;
+const TIDE_LIVE_SHARE = 0.5;
+
+/**
+ * The least rating the best-reachable line will name once a neighbour outlier was skipped to reach
+ * it (neighbour-guard-plan.md §4 G3). A client twin of the server's
+ * {@code NeighbourOutlierGuard.NAMED_FLOOR} (Java): deliberately a fixed 3 on both sides, not the
+ * guard's configurable {@code min-rating}, so the BEST BET pick and this line cannot disagree about
+ * one window. Change both together.
+ */
+export const NEIGHBOUR_NAMED_FLOOR = 3;
+
+/**
+ * The pool's best-reachable spot, and whether the neighbour guard withheld it.
+ *
+ * <p>The first spot of the pool carrying a rating that is not a served {@code neighbourOutlier}.
+ * The pool arrives ordered by {@code compareSpots} (rating desc, unrated last), so with no outlier
+ * this is exactly the head when the head is rated, and null when it is not. If an outlier was
+ * skipped and that spot is rated below {@link NEIGHBOUR_NAMED_FLOOR} — or no rated spot remains
+ * after the skip — nothing is named and {@code withheld} is true. A filter over a served flag, never
+ * a second ranking.
+ *
+ * @param {Array<object>} pool the reach-gated, pre-floor spots in {@code compareSpots} order
+ * @returns {{bestReach: ?object, withheld: boolean}}
+ */
+export function bestReachOf(pool) {
+  const spots = pool || [];
+  let skipped = false;
+  for (const spot of spots) {
+    if (spot?.rating == null) break;
+    if (spot.neighbourOutlier === true) {
+      skipped = true;
+      continue;
+    }
+    if (skipped && spot.rating < NEIGHBOUR_NAMED_FLOOR) return { bestReach: null, withheld: true };
+    return { bestReach: spot, withheld: false };
+  }
+  return { bestReach: null, withheld: skipped };
+}
+
+/**
+ * The per-window tide-fit summary — is the coast live on this window, and how well served.
+ *
+ * <p><b>One pool, three readers (plan §2).</b> Computed over {@code pool} — the SAME reach-gated,
+ * pre-rating-floor list the spread histogram and the best-reachable line already read
+ * (plan-matrix A10/A11) — so the chip, the histogram and the named spot can never disagree about
+ * which locations exist: they never see different lists. Building a second index in the shell and
+ * looking the head up was rejected for exactly this reason (tide-plan-card-plan.md §1 #3, §5 #2).
+ *
+ * <p><b>A new, licensed member of CLAUDE.md's reach-scoped class</b> (Backend-heavy bullet): the
+ * pool is per-user (reach), so no servable answer exists on the shared, ETag-revalidated
+ * {@code GET /api/briefing} — the identical argument that licensed the histogram and the
+ * best-reachable line. `card.tideFit` and {@code windowFirstTideRun.js}'s `tideRun` are the two new
+ * members, and only those (tide-plan-card-plan.md §5 #1).
+ *
+ * <p>{@code coastal} counts every pool spot with a served {@code tideState} — coastal WITH a
+ * derivable answer, never "coastal by location type" (§4 #8) — {@code matched} counts those that are
+ * {@code tideAligned}, and {@code meanQuality} averages {@code tideQuality} over the matched spots
+ * that carry one. It is deliberately NOT an average over every matched spot with a fallback of zero:
+ * C0's own phase-log records that a cache payload written before C0 can read {@code tideAligned:
+ * true} with a null quality until the next briefing build, and folding that missing figure in as a
+ * zero would understate a window that is, in fact, well served. `null` when no matched spot carries
+ * one at all (an all-legacy-cache pool, or a coastal pool that matched nothing).
+ *
+ * @param {Array} pool the card's reach-gated, pre-floor spot pool
+ * @returns {{coastal: number, matched: number, live: boolean, meanQuality: ?number}}
+ */
+function tideFit(pool) {
+  const coastalSpots = pool.filter((spot) => spot.tideState != null);
+  const matchedSpots = coastalSpots.filter((spot) => spot.tideAligned === true);
+  const coastal = coastalSpots.length;
+  const matched = matchedSpots.length;
+  const live = coastal >= TIDE_LIVE_MIN_COASTAL
+    && matched >= Math.max(TIDE_LIVE_FLOOR, Math.ceil(coastal * TIDE_LIVE_SHARE));
+  const qualities = matchedSpots
+    .map((spot) => spot.tideQuality)
+    .filter((quality) => quality != null);
+  const meanQuality = qualities.length === 0
+    ? null
+    : qualities.reduce((sum, quality) => sum + quality, 0) / qualities.length;
+  return { coastal, matched, live, meanQuality };
+}
 
 /**
  * How many of the drawn spots the header may call "within reach", or null when it may not.
@@ -188,14 +391,13 @@ export function eligibleRegions(es) {
  * beside a rank derived from a different region's mean is two answers to "which region leads this
  * window" — and one scan is the only way that cannot drift.
  *
- * <p><b>Ties break on the NAME, and that is not a local preference — it is
- * {@code buildRegionRows}' rule, copied.</b> That function ranks the open row's region rail with
- * {@code mb === ma ? a.name.localeCompare(b.name) : mb - ma}, so a payload-order tiebreak here
- * would name one region on the thumbnail's chip and put a different one at rank 1 of the rail
- * eight pixels below, each carrying its own delta. Before P6 the divergence was invisible, because
- * this function published only a number and equal means are equal; publishing the region's NAME
- * and its movement is what made the two tiebreaks observable against each other. Keep them
- * identical, or reconverge both on one helper.
+ * <p><b>Ties break on the NAME, and the rail agrees.</b> {@code buildRegionRows} ranks the open
+ * row's region rail with {@link byMeanThenName} (eligible first, then the mean, then the name) and
+ * the Map drilldown ranks with the same comparator, which orders exactly as {@link
+ * pickTopEligibleRegion} does — so the thumbnail's chip, the rail's rank 1 eight pixels below and
+ * the map's first row name one region, each carrying its own delta. A payload-order tiebreak here
+ * would split them. {@code windowFirstRegions.test.js} and {@code mapDrilldown.test.js} pin the
+ * agreement on a thin-4.4-versus-sound-3.5 fixture.
  *
  * @param {?object} es the event summary
  * @returns {?object} the leading eligible region record, or null when none carries a finite mean
@@ -232,6 +434,21 @@ function topRegion(es) {
  * `mb === ma ? a.name.localeCompare(b.name) : mb - ma` — see {@link topRegion}'s note for the
  * defect that rule exists to prevent.
  *
+ * <p><b>Verdict-eligible regions rank first (plan-card-verdict-honesty-plan.md H1).</b>
+ * {@code PlanWindowProjector.BY_RANK} orders {@code verdictEligible()} regions ahead of every
+ * ineligible one BEFORE it compares means, and the window's verdict WORD is its top region's
+ * {@code displayVerdict}. This argmax used to compare means alone, so a thinly-sampled region at 4.4
+ * (the verdict-minimum-sample rule withholds its own verdict) out-ranked a sufficiently-sampled
+ * region at 3.5 here while the projector crowned the 3.5 one — the card would have printed the 3.5
+ * region's word beside the 4.4 region's figure. The wire carries the two booleans the record's
+ * {@code verdictEligible()} reads ({@code sampleSufficient}, {@code forcedSample}; absent = not
+ * eligible, the same safe direction), so this is a selection among served records, never a
+ * threshold. It also tightens {@code mapVerdict}'s scope-limited argmax onto the same order, which
+ * is the agreement that file's own doc claims. The projector's further tiebreak — rated-voter
+ * count — is not on the wire ({@code scoredLocationCount} is canopy-inclusive, a different
+ * population), and needs none here: two regions tied on the served mean print the same figure
+ * whichever one the projector picked.
+ *
  * @param {Array<object>} regions eligible region records; anything without a finite `meanRating`
  *        is skipped rather than ranked, so an unscored region can never win
  * @returns {?object} the leading region record, or null when none carries a finite mean
@@ -241,14 +458,38 @@ export function pickTopEligibleRegion(regions) {
   for (const region of Array.isArray(regions) ? regions : []) {
     const mean = region?.meanRating;
     if (typeof mean !== 'number' || !Number.isFinite(mean)) continue;
-    if (best === null
-        || mean > best.meanRating
-        || (mean === best.meanRating
-            && String(region.regionName ?? '').localeCompare(String(best.regionName ?? '')) < 0)) {
+    if (best === null || outranks(region, best)) {
       best = region;
     }
   }
   return best;
+}
+
+/**
+ * {@code BriefingRegion.verdictEligible()} as the wire carries it — the sample gate passed, or a
+ * force-evaluation exemption. Absent on a legacy payload, which reads as NOT eligible.
+ *
+ * <p>Exported so the region rail and the Map drilldown rank with the SAME test the card's top
+ * region is chosen by, rather than a second copy that could drift (F2 of the H1–H3 review).
+ *
+ * @param {?object} region a served region record, or a rail row carrying {@code sampleSufficient}/
+ *        {@code forcedSample} through
+ * @returns {boolean}
+ */
+export function verdictEligible(region) {
+  return region?.sampleSufficient === true || region?.forcedSample === true;
+}
+
+/**
+ * Whether {@code a} ranks above {@code b} in the projector's order (H1): verdict-eligible first,
+ * then the better served mean, then the NAME. Both arguments carry a finite mean.
+ */
+function outranks(a, b) {
+  const ea = verdictEligible(a);
+  const eb = verdictEligible(b);
+  if (ea !== eb) return ea;
+  if (a.meanRating !== b.meanRating) return a.meanRating > b.meanRating;
+  return String(a.regionName ?? '').localeCompare(String(b.regionName ?? '')) < 0;
 }
 
 /**
@@ -259,6 +500,44 @@ export function pickTopEligibleRegion(regions) {
  */
 function topMeanRating(es) {
   return topRegion(es)?.meanRating ?? null;
+}
+
+/**
+ * The mean a verdict word may be printed beside: the region's served mean when the region is
+ * verdict-eligible or its word is {@code UNRATED}, else null (silence — a triage STAND_DOWN has no
+ * mean standing behind it).
+ *
+ * @param {?object} scoped the origin's region record when away, else null
+ * @param {?object} top the window's top region when not away
+ * @returns {?number}
+ */
+function verdictMeanOf(scoped, top) {
+  const region = scoped ?? top;
+  if (!region) return null;
+  // Two states may print a mean: a verdict-eligible region (the word IS a reading of the mean) and
+  // an UNRATED one (unrated-verdict-plan.md U2) — "Too few rated 3.6★" is the honest card: the
+  // figure is the evidence the gate withheld a verdict from, and the word says so in the same
+  // breath. What stays silent is an ineligible region whose word is a triage STAND_DOWN (or
+  // AWAITING): a figure beside "Poor" would contradict the weather call it rests on.
+  if (!verdictEligible(region) && resolveRegionDisplay(region) !== 'UNRATED') return null;
+  const mean = region.meanRating;
+  return typeof mean === 'number' && Number.isFinite(mean) ? mean : null;
+}
+
+/**
+ * The region mean as the card prints it: always ONE decimal (plan-card-verdict-honesty-plan.md H1).
+ *
+ * <p>{@code BriefingRegion.meanRating} is already rounded to one place server-side, so this adds no
+ * precision — it only keeps the place. Always-one-decimal is the point rather than a default: the
+ * same card carries {@code bestRating} as a whole star ("best spot 4★"), and "4★" beside "4★" would
+ * be two different quantities in one glyph, where "4.0★" is visibly the average. A finite number is
+ * required; anything else is silence (null), never a placeholder.
+ *
+ * @param {?number} mean the served region mean
+ * @returns {?string} e.g. {@code "3.5"} / {@code "4.0"}, or null when there is no mean to show
+ */
+export function formatRegionMean(mean) {
+  return typeof mean === 'number' && Number.isFinite(mean) ? mean.toFixed(1) : null;
 }
 
 /**
@@ -448,6 +727,7 @@ export function buildWindowCards(
     // chose from, so the bar can say "42 of 138" without either number naming a different thing.
     const reached = gateSpotsByReach(allSpots, limitMinutes);
     const spots = gateSpotsByRating(reached, minRating);
+    const reachPick = bestReachOf(reached);
 
     return {
       key: `${date}:${targetType}`,
@@ -477,6 +757,14 @@ export function buildWindowCards(
         ? (typeof scopedRegion.meanRating === 'number' && Number.isFinite(scopedRegion.meanRating)
           ? scopedRegion.meanRating : null)
         : topMeanRating(es),
+      // The mean the card may PRINT beside its verdict word (plan-card-verdict-honesty-plan.md H1,
+      // review F1) — `topMeanRating` only when the region it belongs to is verdict-eligible. An
+      // INELIGIBLE region (sample gate failed, no force-evaluation exemption) is still ranked and
+      // still carries a served mean, but its `displayVerdict` is the weather-triage fallback, not a
+      // reading of that mean — so "Worth it 2.0★" would print a figure the word does not come from.
+      // `topMeanRating` stays untouched for the Order control; this is the honesty channel. The
+      // away arm tests the SCOPED region, which is the one whose word `verdict` above wears.
+      verdictMean: verdictMeanOf(scopedRegion, scopedRegion ? null : topRegion(es)),
       // The same region `topMeanRating` names, carrying how far it has moved since the previous
       // forecast run. Null — never a zero — when there is nothing to compare against; see
       // `topRegionMovement` for why the two must stay distinguishable.
@@ -499,7 +787,15 @@ export function buildWindowCards(
       // Scoped too, and this one is not merely a label: the strip and the row map feed it to the
       // kernel's haze through `confidenceScalar`, so a roster-wide tier would paint a field drawn
       // for one region at another region's certainty — D3's "one number" broken by two.
-      confidence: CONFIDENCE_VERDICTS.has(verdict)
+      //
+      // ⚠️ The HAZE and the BADGE are different channels and gate differently (unrated-verdict-plan.md
+      // U2, review F5). Poor and Awaiting carry null (the haze then falls back to the horizon's
+      // inferred tier, as it always has). UNRATED keeps the server's tier — an ineligible region is
+      // floored LOW there, and a field drawn for a window nothing has called should be the hazy one,
+      // not the horizon's MEDIUM — while the BADGE decay and `ProvisionalMark` stay gated on
+      // `CONFIDENCE_VERDICTS` at their own mounts (the popup's badge, the grid cell, `VerdictPill`),
+      // so "Too few rated" is never also a faded or marked word: it already says the provisional thing.
+      confidence: HAZE_VERDICTS.has(verdict)
         ? ((scopedRegion ? scopedRegion.confidence : win?.confidence) ?? null)
         : null,
       spots,
@@ -529,6 +825,11 @@ export function buildWindowCards(
        * reach"), this one only licenses naming a filter that did something.
        */
       reachMeasured: allSpots.some((spot) => spot?.driveMinutes != null),
+      // The active reach tier's threshold in minutes, null under "Any" (plan-card-verdict-honesty-plan.md
+      // H2). Carried so the Best row can say "beyond 45 min" in the tier's own words when every rated
+      // spot of the verdict's region was gated out: it is the lens's served-to-us input, not a
+      // derivation, and null is what keeps "beyond" unsayable when no tier acted.
+      reachLimitMinutes: limitMinutes,
       // The set the reach gate LEFT, before the rating floor — the matrix's spread histogram and
       // its best-reachable line are both measured over this (plan-matrix A10/A11).
       //
@@ -545,20 +846,31 @@ export function buildWindowCards(
       // The same array `reachedTotal` counts, so a count and a picture of the same set cannot
       // describe two different populations.
       pool: reached,
-      // The pool's HEAD — the best location this reader could actually drive to for this window.
+      // Is the coast live on this window, and how well served — over the SAME `pool` above, never a
+      // second index (§1 #3, §2). Named `tideFit`, never `tide`: that name is taken by the served
+      // `BriefingWindowTide` below, which the Map tab's strip forwards untouched (T6, §1 #3).
+      tideFit: tideFit(reached),
+      // The best location this reader could actually drive to for this window, NAMED.
       //
-      // ⚠️ It is `reached[0]` and nothing else, because the pool arrives ordered by
-      // `compareSpots` (rating desc, then drive, then name) from `buildWindowSpots` and both gates
-      // are order-preserving filters. Writing a second "pick the best" comparator here would be a
-      // second answer to a question the strip, the drill-down and this line all ask, which is
-      // exactly what `compareSpots` was exported to prevent.
+      // ⚠️ It is `bestReachOf(reached)`: the pool's first rated spot that is not a served
+      // `neighbourOutlier` (neighbour-guard-plan.md G3), over the PRE-floor pool `reached`, never
+      // `spots`. The pool arrives ordered by `compareSpots` (rating desc, then drive, then name)
+      // from `buildWindowSpots` and both gates are order-preserving filters, so with no outlier
+      // this is the head and nothing else — there is no second "pick the best" comparator here, only
+      // a skip of the server's flag plus the client twin of the server's named floor
+      // (`NEIGHBOUR_NAMED_FLOOR`), applied only after a skip.
       //
       // Null when the head carries no rating, which is the ordinary state on a far-horizon window
       // (T+4 is never evaluated). `compareSpots` sorts unrated last, so a rated head means every
       // rating in the pool was compared — and an UNRATED head means nothing in the pool is rated
       // at all, and the order that chose it was alphabetical. Naming that spot "the best you could
       // reach" would claim a ranking that never ran, so the caller says "not scored yet" instead.
-      bestReach: reached[0]?.rating != null ? reached[0] : null,
+      bestReach: reachPick.bestReach,
+      // True when a neighbour outlier was skipped and the next rated spot is below the named floor
+      // (or there is none): the card then says "no clear pick" rather than naming a place or
+      // claiming nothing is scored. Absent from the pool's histogram and every count — the outlier
+      // keeps its star everywhere a star is shown.
+      bestReachWithheld: reachPick.withheld,
       // How many the lens chose from. Equal to `spots.length` whenever nothing was gated, which is
       // exactly when the strip footer keeps P6's plain count rather than the design's "N of M".
       reachTotal: allSpots.length,
@@ -574,6 +886,18 @@ export function buildWindowCards(
       // window had no spots at all, which is a card the lens never touched and must not carry a
       // line about it.
       rows,
+      // The raw served `BriefingWindowTide`, carried alongside `rows` above rather than only
+      // inside it — `rows` is `buildWindowRows(win)`'s PRESENTATION form (segments/tones for the
+      // Plan tab's tide fact row), and the Map tab's tide strip (tide-window-plan.md T6) needs the
+      // object itself: its curve, positions and extremes, none of which `rows` carries forward.
+      // Without this, `WindowFirstMapPane`'s `heat.windows` mapper (built from `buildHeatStripCards`,
+      // itself folded from THIS card) has no `tide` field to copy onto the EV row `mapEvents.js`
+      // reads from — `MapView`'s tide strip would receive a served, correct `window.tide` from
+      // `GET /api/briefing` and never see it, since the whole chain between the payload and the map
+      // runs through this card. Found in browser verification: T3's unit tests fed `solarRow` a
+      // hand-built `served` object that already had `.tide`, so the gap in this real pipeline never
+      // surfaced until the strip was actually rendered against a live payload.
+      tide: win?.tide ?? null,
       // ⚠️ ONE badge list now, and the before/after pair is gone with the surface that needed it.
       // Through M1 there was also a `badges` holding the post-promotion remainder — what the card
       // header drew after `buildWindowRows` had turned some of them into snow attribute rows. The
@@ -632,17 +956,22 @@ export function buildWindowCards(
  * being forced into the nearest one, because a badge's colour names its channel and a wrong colour
  * is a wrong claim. New topic types are therefore additive and fail quietly.
  *
- * <p>ECLIPSE is matched FIRST and exactly, ahead of the substring tests below it. Order matters
- * here in a way it does not for the others: the tests are substring matches on the whole type
- * string, so a future kind named for an eclipse of a different body — a lunar eclipse at a
- * coastal spot, say — must not be captured by whichever loose test happens to hit first.
+ * <p>ECLIPSE and LUNAR_ECLIPSE are matched FIRST and exactly, ahead of the substring tests below
+ * them. Order matters here in a way it does not for the others: the tests are substring matches on
+ * the whole type string, so a future kind named for an eclipse of a different body — a lunar
+ * eclipse at a coastal spot, say — must not be captured by whichever loose test happens to hit
+ * first. `LUNAR_ECLIPSE` shares the solar eclipse's channel by design (one channel, two types —
+ * lunar-eclipse-plan.md §2.1, §4 #1): every registry in this codebase is keyed on the type string
+ * already, so a shared `body` field would be more plumbing for the same touch count, and a fake
+ * type such as `LUNAR_ECLIPSE_TIDE` still falls through to the substring arms below because it is
+ * not an exact match — it stays on the `tide` channel, never `eclipse`.
  *
  * @param {string} type the topic type from the payload
  * @returns {'eclipse'|'tide'|'nlc'|'aurora'|'snow'|'plain'} the badge channel
  */
 export function badgeChannel(type) {
   const t = String(type || '').toUpperCase();
-  if (t === 'ECLIPSE') return 'eclipse';
+  if (t === 'ECLIPSE' || t === 'LUNAR_ECLIPSE') return 'eclipse';
   if (t.includes('TIDE') || t.includes('SURGE')) return 'tide';
   if (t.includes('NLC') || t.includes('NOCTILUCENT')) return 'nlc';
   if (t.includes('AURORA')) return 'aurora';

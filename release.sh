@@ -2,27 +2,49 @@
 # Tag a commit on main as a release version and push it,
 # triggering the GitHub Actions deploy pipeline.
 #
-# Prompts for the target commit (default: current main HEAD), so you can
-# release HEAD or a specific earlier commit on main without command-line
-# arguments. Useful when later commits are sitting on top of main but
-# you want to release just the validated subset.
+# Asks ONE question: the version. The commits since the last tag are printed
+# first, so choosing the version is the go-ahead — the CHANGELOG promotion, tag
+# and push then run without further prompts. It offers three versions — the
+# next major, patch and minor — as 1/2/3 (Enter takes the patch).
+#
+# Usage: ./release.sh [VERSION] [--target REF] [-m MESSAGE]
+#   VERSION       skip the question (e.g. ./release.sh 2.21.3)
+#   --target REF  tag an earlier commit on main instead of HEAD
+#   -m MESSAGE    tag message (default: "Release vVERSION")
 #
 # Safety checks:
 #   - must be on main, working tree clean
 #   - syncs with origin/main before tagging, and refuses to run when local main is
 #     ahead (unpushed commits get swept into the CHANGELOG promotion PR)
-#   - prompts for target commit (default HEAD)
+#   - if origin has moved a tag since the last fetch (e.g. a release re-tagged onto a
+#     later commit after a failed deploy), updates the local tag to match instead of
+#     failing silently
+#   - target commit defaults to HEAD (--target to override)
 #   - verifies target is reachable from main
 #   - shows commits between last tag and target for review
 #   - confirms tag doesn't already exist
-#   - offers to promote CHANGELOG's [Unreleased] entries to the version being
-#     tagged, via an auto-merged docs-only PR, and refuses to tag if they are
-#     still unpromoted or if nothing is documented for the version
-#   - prompts for confirmation before pushing
-#
-# Usage: ./release.sh
+#   - promotes CHANGELOG's [Unreleased] entries to the version being tagged,
+#     via an auto-merged docs-only PR, and refuses to tag if they are still
+#     unpromoted or if nothing is documented for the version
+#   - stops to ask only if main gained an unexpected commit during the promotion
+#   - after pushing the tag, watches the Deploy workflow and reports (with a bell
+#     and a macOS notification) when production is deployed or the deploy fails
 
 set -euo pipefail
+
+# 0. Arguments
+VERSION=""
+TARGET="HEAD"
+MESSAGE=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --target) TARGET="${2:?--target needs a commit ref}"; shift 2 ;;
+        -m)       MESSAGE="${2:?-m needs a message}"; shift 2 ;;
+        -h|--help) sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
+        -*)       echo "Error: unknown option $1 (see ./release.sh --help)"; exit 1 ;;
+        *)        VERSION="$1"; shift ;;
+    esac
+done
 
 # 1. Branch check
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
@@ -48,8 +70,56 @@ if [[ -n "$(git status --porcelain)" ]]; then
 fi
 
 # 3. Sync with remote
+#
+# `--quiet` used to hide a real failure here. The owner's local v2.22.2 tag pointed at
+# 325438c9; the first deploy from that commit failed, so the release was re-tagged onto
+# the fixed commit (c545e8d6) and origin's v2.22.2 was force-pushed to point there
+# instead. The next `git fetch origin --tags --quiet` then rejected the tag update with
+# "! [rejected] v2.22.2 -> v2.22.2 (would clobber existing tag)" and exited 1 — a real
+# error `--quiet` swallowed, leaving nothing on screen but "Fetching from origin..."
+# before the script silently exited. Origin is authoritative for tags (the Deploy
+# workflow runs off origin's tags, and this script is the only thing that pushes them),
+# so a clobbered tag is reconciled here rather than left to error: each rejected tag is
+# force-updated individually to match origin, never a blanket --force across every tag,
+# and a local-only tag origin doesn't have is left untouched.
+fetch_tags_from_origin() {
+    local fetch_out clobbered tag local_sha
+    if fetch_out=$(git fetch origin --tags 2>&1); then
+        return 0
+    fi
+
+    clobbered=$(printf '%s\n' "$fetch_out" | awk '/would clobber existing tag/ {print $5}')
+    if [[ -z "$clobbered" ]]; then
+        echo "Error: git fetch origin failed:"
+        echo "$fetch_out"
+        exit 1
+    fi
+
+    while IFS= read -r tag; do
+        [[ -z "$tag" ]] && continue
+        local_sha=$(git rev-parse --verify "$tag" 2>/dev/null || echo "")
+        git fetch origin --force "refs/tags/$tag:refs/tags/$tag"
+        echo ""
+        echo "Notice: origin's tag $tag has moved since it was last fetched here —"
+        echo "updating the local tag to match. Origin is authoritative: the Deploy"
+        echo "workflow runs off origin's tags, and this script is the only thing that"
+        echo "pushes them."
+        [[ -n "$local_sha" ]] && echo "  local (old): $(git log -1 --oneline "$local_sha")"
+        echo "  origin (now local): $(git log -1 --oneline "$tag")"
+    done <<< "$clobbered"
+
+    # Re-run the plain fetch: everything else it brings down (branches, other tags)
+    # still needs fetching, and this also surfaces any OTHER failure that was hiding
+    # behind the clobber (network blip, auth) which the targeted updates above did not fix.
+    if ! fetch_out=$(git fetch origin --tags 2>&1); then
+        echo "Error: git fetch origin failed:"
+        echo "$fetch_out"
+        exit 1
+    fi
+}
+
 echo "Fetching from origin..."
-git fetch origin --tags --quiet
+fetch_tags_from_origin
 
 # "Differs from origin/main" is three states, not one, and only one of them is safe
 # to fast-forward. Behind is the ordinary case. Ahead is fatal: the promotion block
@@ -78,11 +148,7 @@ if [[ "$BEHIND" -gt 0 ]]; then
     git pull --ff-only origin main
 fi
 
-# 4. Prompt for target commit (default: HEAD)
-echo ""
-read -p "Commit to tag (blank or 'HEAD' for current main HEAD, or a SHA/ref): " TARGET_INPUT
-TARGET="${TARGET_INPUT:-HEAD}"
-
+# 4. Target commit (default HEAD; --target to override)
 TARGET_SHA=$(git rev-parse --verify "$TARGET" 2>/dev/null || true)
 if [[ -z "$TARGET_SHA" ]]; then
     echo "Error: '$TARGET' is not a valid commit reference"
@@ -120,8 +186,26 @@ else
 fi
 echo ""
 
-# 6. Prompt for version with validation
-read -p "New tag version (without v, e.g. 2.11.11): " VERSION
+# 6. Version — the one question. Offers major / patch / minor bumps of the latest
+# tag; answer 1-3, Enter for the patch, or type any x.y.z.
+if [[ -z "$VERSION" ]]; then
+    MAJOR_V="" PATCH_V="" MINOR_V=""
+    if [[ "$CURRENT" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+        MAJOR_V="$((BASH_REMATCH[1] + 1)).0.0"
+        PATCH_V="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((BASH_REMATCH[3] + 1))"
+        MINOR_V="${BASH_REMATCH[1]}.$((BASH_REMATCH[2] + 1)).0"
+        echo "Next version:"
+        printf "  1) %-9s major\n" "$MAJOR_V"
+        printf "  2) %-9s patch (default)\n" "$PATCH_V"
+        printf "  3) %-9s minor\n" "$MINOR_V"
+    fi
+    read -r -p "Choose 1-3, Enter for ${PATCH_V:-?}, or type a version (Ctrl-C to stop): " VERSION
+    case "$VERSION" in
+        1) VERSION="$MAJOR_V" ;;
+        2|"") VERSION="$PATCH_V" ;;
+        3) VERSION="$MINOR_V" ;;
+    esac
+fi
 
 if [[ "$VERSION" =~ ^v ]]; then
     echo "Error: don't include the 'v' prefix — just the version number e.g. 2.8.2"
@@ -135,7 +219,7 @@ fi
 
 # 7. Tag-already-exists check
 if git rev-parse "v$VERSION" >/dev/null 2>&1; then
-    echo "Error: tag v$VERSION already exists at $(git rev-parse --short v$VERSION)"
+    echo "Error: tag v$VERSION already exists at $(git rev-parse --short "v$VERSION")"
     echo "Delete it first if you really mean to retag:"
     echo "  git tag -d v$VERSION && git push origin :refs/tags/v$VERSION"
     exit 1
@@ -334,11 +418,6 @@ if [[ -n "$UNRELEASED_BODY" || -n "$PENDING_AT_TARGET" ]]; then
     echo "(deleting the folded files), changes no entry text, and opens a"
     echo "docs-only PR with auto-merge enabled."
     echo ""
-    read -p "Promote ${ENTRY_COUNT:-0} entr(y/ies) to v$VERSION now? (y/N): " DO_PROMOTE
-    if [[ "$DO_PROMOTE" != "y" && "$DO_PROMOTE" != "Y" ]]; then
-        echo "Cancelled — nothing tagged, nothing pushed."
-        exit 1
-    fi
 
     # From here the script owns a branch and a checkout. Any exit before the final
     # cleanup must put the user back on main rather than stranding them mid-promotion.
@@ -428,6 +507,21 @@ if [[ -n "$UNRELEASED_BODY" || -n "$PENDING_AT_TARGET" ]]; then
     # Re-target onto the promotion commit. The tag must point at a commit that actually
     # contains the notes, which the originally-chosen target no longer is.
     TARGET_SHA=$(git rev-parse main)
+
+    # The go-ahead given at the version prompt covered the commits listed then plus
+    # the promotion commit. Anything else that merged during the wait was never shown,
+    # so that case — and only that case — stops to ask.
+    EXTRA=$(git rev-list --count "$MAIN_HEAD".."$TARGET_SHA")
+    if [[ "$EXTRA" -ne 1 ]]; then
+        echo ""
+        echo "Warning: main gained $((EXTRA - 1)) commit(s) besides the promotion while waiting:"
+        git log --oneline --reverse "$MAIN_HEAD".."$TARGET_SHA"
+        read -r -p "Tag v$VERSION including these? (y/N): " CONFIRM_EXTRA
+        if [[ "$CONFIRM_EXTRA" != "y" && "$CONFIRM_EXTRA" != "Y" ]]; then
+            echo "Cancelled — the notes are promoted on main; re-run ./release.sh $VERSION to tag."
+            exit 1
+        fi
+    fi
     CHANGELOG_AT_TARGET=$(git show "$TARGET_SHA:CHANGELOG.md" 2>/dev/null || true)
 
     if [[ -n "$(unreleased_body_at "$TARGET_SHA" || true)" ]]; then
@@ -477,25 +571,126 @@ fi
 
 echo "CHANGELOG: [Unreleased] is empty and v$VERSION is documented."
 
-# 8. Optional tag message
-read -p "Tag message (one-liner, optional, blank for default): " MESSAGE
+# 8. Tag and push (tag message from -m, else the default)
 TAG_MESSAGE="${MESSAGE:-Release v$VERSION}"
-
-# 9. Final confirmation
 echo ""
-echo "About to create annotated tag v$VERSION at:"
-echo "  $(git log -1 --oneline "$TARGET_SHA")"
-echo "  message: $TAG_MESSAGE"
-read -p "Proceed? (y/N): " CONFIRM
-if [[ "$CONFIRM" != "y" && "$CONFIRM" != "Y" ]]; then
-    echo "Cancelled."
-    exit 0
-fi
-
-# 10. Tag and push
+echo "Tagging v$VERSION at $(git log -1 --oneline "$TARGET_SHA")"
 git tag -a "v$VERSION" "$TARGET_SHA" -m "$TAG_MESSAGE"
 git push origin "v$VERSION"
 
 echo ""
 echo "Tag v$VERSION pushed — pipeline deploying to production."
-echo "Watch progress at: https://github.com/gregochr/goldenhour/actions"
+
+# 9. Watch the Deploy workflow until it finishes. The tag is already pushed, so
+# nothing here can change the release — Ctrl-C only stops the watching.
+if ! command -v gh >/dev/null 2>&1 || ! gh auth status >/dev/null 2>&1; then
+    echo "Watch progress at: https://github.com/gregochr/goldenhour/actions"
+    exit 0
+fi
+
+notify() {
+    printf '\a'
+    if command -v osascript >/dev/null 2>&1; then
+        osascript -e "display notification \"$1\" with title \"release.sh\"" 2>/dev/null || true
+    fi
+}
+
+# The Deploy workflow's own "Deploy via SSH" step runs scripts/prod-health.sh --deploy after
+# `docker compose up` and prints one line per check plus a `prod-health: N checks, M failed`
+# summary — but that only ever lived in a job log nobody opens, so the deploy could succeed
+# while the health check quietly failed, or (before #960) run no check at all. The owner's ask
+# was for the health check to be "properly articulated as the very end of the output" — a check
+# nobody reads is not a check — so this pulls those lines back out of the job log and prints them
+# as the last thing release.sh says, on both the success and the failure path. The log can lag
+# the run's own completion by a few seconds, hence the short retry.
+print_deploy_health() {
+    local run_id="$1" run_url="$2"
+    local job_id lines attempt
+
+    job_id=$(gh run view "$run_id" --json jobs \
+        --jq '.jobs[] | select(.name == "Deploy to Production") | .databaseId' 2>/dev/null || true)
+
+    lines=""
+    if [[ -n "$job_id" ]]; then
+        for attempt in 1 2 3; do
+            lines=$(gh run view --job "$job_id" --log 2>/dev/null \
+                | awk -F'\t' '{print $3}' \
+                | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z //' \
+                | grep -E '^(ok  |FAIL |prod-health:)' || true)
+            grep -q '^prod-health:' <<< "$lines" && break
+            [[ "$attempt" -lt 3 ]] && sleep 5
+        done
+    fi
+
+    if [[ -z "$lines" ]]; then
+        echo "   (post-deploy health check output not found in the job log — see $run_url)"
+        return 0
+    fi
+
+    echo ""
+    echo "Post-deploy health check (on dockermacmini):"
+    while IFS= read -r line; do
+        echo "   $line"
+    done <<< "$lines"
+}
+
+echo "Waiting for the Deploy run to start (Ctrl-C stops watching; the deploy carries on)..."
+RUN_ID=""
+for _ in $(seq 1 24); do
+    RUN_ID=$(gh run list --workflow deploy.yml --limit 20 \
+        --json databaseId,headBranch \
+        --jq ".[] | select(.headBranch == \"v$VERSION\") | .databaseId" 2>/dev/null | head -n 1 || true)
+    [[ -n "$RUN_ID" ]] && break
+    sleep 5
+done
+if [[ -z "$RUN_ID" ]]; then
+    echo "No Deploy run for v$VERSION appeared within 2 minutes."
+    echo "Check: https://github.com/gregochr/goldenhour/actions/workflows/deploy.yml"
+    exit 1
+fi
+RUN_URL="https://github.com/gregochr/goldenhour/actions/runs/$RUN_ID"
+echo "Deploy run: $RUN_URL"
+
+START=$(date +%s)
+LAST_JOB=""
+while true; do
+    RUN_JSON=$(gh run view "$RUN_ID" --json status,conclusion,jobs 2>/dev/null || echo '{}')
+    STATUS=$(jq -r '.status // "unknown"' <<< "$RUN_JSON")
+    if [[ "$STATUS" == "completed" ]]; then
+        break
+    fi
+    JOB=$(jq -r '[.jobs[]? | select(.status == "in_progress") | .name] | join(", ")' <<< "$RUN_JSON")
+    ELAPSED=$(( $(date +%s) - START ))
+    if [[ -n "$JOB" && "$JOB" != "$LAST_JOB" ]]; then
+        printf '\n  %dm%02ds  %s' $((ELAPSED / 60)) $((ELAPSED % 60)) "$JOB"
+        LAST_JOB="$JOB"
+    else
+        printf '.'
+    fi
+    if [[ "$ELAPSED" -ge 3600 ]]; then
+        echo ""
+        echo "Still running after an hour — stopped watching. $RUN_URL"
+        exit 1
+    fi
+    sleep 20
+done
+echo ""
+
+CONCLUSION=$(jq -r '.conclusion // "unknown"' <<< "$RUN_JSON")
+ELAPSED=$(( $(date +%s) - START ))
+if [[ "$CONCLUSION" == "success" ]]; then
+    echo ""
+    echo "✅ v$VERSION is deployed to production ($((ELAPSED / 60))m$(printf '%02d' $((ELAPSED % 60)))s)."
+    echo "   https://app.photocast.online"
+    print_deploy_health "$RUN_ID" "$RUN_URL"
+    notify "v$VERSION deployed to production"
+else
+    echo ""
+    echo "❌ Deploy of v$VERSION finished: $CONCLUSION"
+    echo "   $RUN_URL"
+    gh run view "$RUN_ID" --json jobs \
+        --jq '.jobs[] | select(.conclusion != "success" and .conclusion != "skipped") | "   - \(.name): \(.conclusion)"' 2>/dev/null || true
+    print_deploy_health "$RUN_ID" "$RUN_URL"
+    notify "v$VERSION deploy $CONCLUSION"
+    exit 1
+fi

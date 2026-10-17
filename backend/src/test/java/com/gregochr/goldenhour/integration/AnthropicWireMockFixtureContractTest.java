@@ -364,24 +364,40 @@ class AnthropicWireMockFixtureContractTest {
 
     /**
      * The {@code f49959dd} tripwire. {@code ProcessingStatus} is a Kotlin-compiled SDK class,
-     * not a Java enum: the SDK deserialises each response into a fresh instance, so
-     * {@code ==} never matches and "ended" batches were polled forever.
-     * {@code BatchPollingService} compares with {@code equals()} for exactly this reason.
-     * The {@code isNotSameAs} half is what makes the whole class of bug visible rather than
-     * just this instance of it — if a future SDK starts interning, this test says so.
+     * not a Java enum, and {@code BatchPollingService} compares it with {@code equals()}
+     * ({@code processingStatus.equals(MessageBatch.ProcessingStatus.ENDED)}, line 120, and the
+     * IN_PROGRESS/CANCELING test above it). That is the only correct comparison, and the reason
+     * has changed: on SDK 2.62.0 {@code ProcessingStatus.of(String)} always built a new instance, so
+     * {@code ==} never matched and "ended" batches were polled forever; by 2.68.0 it returns the
+     * interned constant for the three known strings, so {@code ==} would pass today. It still must
+     * not be used, because an <em>unknown</em> status (a value the SDK has no constant for) is a
+     * fresh instance, and this test pins that half instead of the old quirk: a known status equals
+     * its constant, and an unknown one equals none of them yet deserialises without throwing, so a
+     * poller that compares by identity or assumes the value is one of the three would silently
+     * misclassify it. Identity is deliberately not asserted either way.
      */
     @Test
-    @DisplayName("f49959dd: deserialised ProcessingStatus equals the constant but is a different instance")
+    @DisplayName("f49959dd: ProcessingStatus is compared with equals; an unknown status equals no constant")
     void deserialisedProcessingStatusMustBeComparedWithEqualsNotReferenceIdentity() {
         MessageBatch ended = readMessageBatch(
                 bodyOf(AnthropicWireMockFixtures.stubBatchRetrieve(BATCH_ID, "ended", COUNTS)));
 
         assertThat(ended.processingStatus()).isEqualTo(MessageBatch.ProcessingStatus.ENDED);
-        assertThat(ended.processingStatus())
-                .as("reference equality is why f49959dd retried ended batches forever")
-                .isNotSameAs(MessageBatch.ProcessingStatus.ENDED);
         assertThat(ended.endedAt()).as("an ended batch carries ended_at").isPresent();
         assertThat(ended.resultsUrl()).as("an ended batch carries results_url").isPresent();
+
+        for (String unknown : List.of("ended ", "finalised")) {
+            String body = bodyOf(AnthropicWireMockFixtures.stubBatchRetrieve(BATCH_ID, unknown, COUNTS));
+            MessageBatch batch = assertDoesNotThrow(() -> MAPPER.readValue(body, MessageBatch.class),
+                    "an unrecognised processing_status must deserialise, not throw");
+
+            assertThat(batch.processingStatus())
+                    .as("'%s' is not a known status, so it must equal none of the constants", unknown)
+                    .isNotEqualTo(MessageBatch.ProcessingStatus.ENDED)
+                    .isNotEqualTo(MessageBatch.ProcessingStatus.IN_PROGRESS)
+                    .isNotEqualTo(MessageBatch.ProcessingStatus.CANCELING);
+            assertThat(batch.processingStatus().asString()).isEqualTo(unknown);
+        }
     }
 
     /**

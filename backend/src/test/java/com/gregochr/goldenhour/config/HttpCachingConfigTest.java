@@ -71,6 +71,8 @@ class HttpCachingConfigTest {
         // reason it may be here at all — its per-user twin, /api/user/settings/reach, is pinned to
         // the exclusion list below.
         "/api/regions/drive-times",
+        // Ask PhotoCast's Ready answers: user-less, identical for every reader of a scope.
+        "/api/ask/ready",
     })
     @DisplayName("Whitelisted read paths are ETag-filtered")
     void whitelistedReadPathsAreFiltered(String path) {
@@ -89,6 +91,9 @@ class HttpCachingConfigTest {
     @ValueSource(strings = {
         "/api/outcome",
         "/api/outcome/all",
+        // Outcome rating: the caller's own ratings, and (admin) every user's for one window.
+        "/api/outcome/ratings",
+        "/api/outcome/ratings/all",
         "/api/travel-days",
         "/api/user/settings",
         "/api/user/settings/drive-times",
@@ -101,14 +106,21 @@ class HttpCachingConfigTest {
         // Map colour preferences (Stage 6). Write-only (PUT) today, so already excluded by the
         // GET-only filter — pinned anyway so a future GET added under this path cannot be missed.
         "/api/user/settings/map-colours",
+        // The Map tab's phone tide mode (map-mobile-sheet-plan.md M4). Same shape and same reason
+        // as map-colours, immediately above: write-only (PUT) today, pinned so a future GET cannot
+        // be missed.
+        "/api/user/settings/map-tide-mode",
         // The Coming up badge's last-seen write (plan D3/P5). Write-only (PUT) today, pinned for
         // the same reason as map-colours: per-user state must never gain a revalidatable GET here.
         "/api/user/settings/coming-up-seen",
-        // Close to home is derived from the caller's home postcode and their own drive times.
-        // It sits UNDER /api/briefing, which IS revalidated — so this entry is the one that
-        // proves the whitelist's exact-match semantics are doing real work here, not just in
-        // principle.
-        "/api/briefing/close-to-home",
+        // Ask PhotoCast's allowance (B4): the caller's own count today. A GET, so unlike the entries
+        // above it is the one that WOULD be filtered if the whitelist ever matched by prefix.
+        "/api/user/settings/ask",
+        // The one-time sign-in postcode prompt (login-registration plan §2 #3, R4a): the dismissal
+        // write and the reverse lookup. Both POST/PUT today, pinned so a future GET under either
+        // path cannot be missed — the reverse body is derived from the caller's own location.
+        "/api/user/settings/postcode-prompt-dismissed",
+        "/api/user/settings/home/reverse",
     })
     @DisplayName("Personal-data reads are never ETag-filtered")
     void personalDataPathsAreNeverFiltered(String path) {
@@ -128,6 +140,33 @@ class HttpCachingConfigTest {
         assertThat(filter.shouldNotFilter(get("/api/regions/7"))).isTrue();
         assertThat(filter.shouldNotFilter(get("/api/regions/7/base"))).isTrue();
         assertThat(filter.shouldNotFilter(get("/api/regions/drive-times/7"))).isTrue();
+    }
+
+    @Test
+    @DisplayName("Only the Ready read is revalidatable under /api/ask, and its scope query is ignored")
+    void askWhitelistIsTheReadyReadAlone() {
+        MockHttpServletRequest scoped = get("/api/ask/ready");
+        scoped.setQueryString("scope=3");
+        assertThat(filter.shouldNotFilter(scoped)).isFalse();
+        // The typed endpoint is a write and personal; the admin lever is a write too.
+        assertThat(filter.shouldNotFilter(new MockHttpServletRequest("POST", "/api/ask"))).isTrue();
+        assertThat(filter.shouldNotFilter(get("/api/ask"))).isTrue();
+        assertThat(filter.shouldNotFilter(get("/api/ask/ready/precompute"))).isTrue();
+        assertThat(filter.shouldNotFilter(get("/api/admin/ask/ready/precompute"))).isTrue();
+    }
+
+    @Test
+    @DisplayName("The typed endpoint is a POST and personal: never filtered, with or without a query string, "
+            + "and the Ready read's entry cannot pull it in")
+    void typedAskPostIsNeverFiltered() {
+        MockHttpServletRequest plain = new MockHttpServletRequest("POST", "/api/ask");
+        MockHttpServletRequest withQuery = new MockHttpServletRequest("POST", "/api/ask");
+        withQuery.setQueryString("scope=3");
+        MockHttpServletRequest readyPath = new MockHttpServletRequest("POST", "/api/ask/ready");
+
+        assertThat(filter.shouldNotFilter(plain)).isTrue();
+        assertThat(filter.shouldNotFilter(withQuery)).isTrue();
+        assertThat(filter.shouldNotFilter(readyPath)).as("even the Ready path, as a POST").isTrue();
     }
 
     @Test

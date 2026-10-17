@@ -1,5 +1,7 @@
 package com.gregochr.goldenhour.service.evaluation;
 
+import java.util.Optional;
+import com.anthropic.models.messages.StopReason;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.MessageCreateParams;
@@ -14,6 +16,8 @@ import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
+import com.gregochr.goldenhour.model.CacheDiagnostics;
+import com.gregochr.goldenhour.model.CacheDiagnosticsFixtures;
 import com.gregochr.goldenhour.model.Confidence;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.model.Verdict;
@@ -128,11 +132,21 @@ class BriefingGlossServiceTest {
     }
 
     @Test
-    @DisplayName("All-TIDE_MISMATCH STANDDOWN region skipped — no Haiku call, gloss stays null")
-    void allTideMismatchStanddownRegion_noCall() {
-        // After the Gate 2 redesign, only hard-constraint STANDDOWN reasons skip the
-        // gloss (the region has no eligible slot for Claude). Tide mismatch is the
-        // only such reason today.
+    @DisplayName("⚠️ All-TIDE_MISMATCH STANDDOWN region IS now glossed — the tide gate lift")
+    void allTideMismatchStanddownRegion_isGlossed() {
+        // Before the tide gate lift (2026-09-18, docs/engineering/tide-window-plan.md §6 Q1),
+        // TIDE_MISMATCH was the one hard-constraint STANDDOWN reason left after the Gate 2
+        // redesign, and a region whose every slot carried it had no eligible slot for
+        // the gloss service to find — no Haiku call, gloss stayed null. The gating policy is
+        // gone, so any region with slots is eligible exactly like the weather-STANDDOWN case
+        // below, and is glossed the same way.
+        stubModelSelection();
+        Message response = mockResponse(
+                "{\"headline\": \"Wrong water for the light\","
+                        + " \"detail\": \"Tide sits at odds with every location's preference.\"}");
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(response);
+
         BriefingRegion tideMismatch = regionWithStanddownReason(
                 "Northumberland", Verdict.STANDDOWN,
                 BriefingVerdictEvaluator.StanddownReason.TIDE_MISMATCH.label());
@@ -140,8 +154,21 @@ class BriefingGlossServiceTest {
         List<BriefingDay> enriched = glossService.generateGlosses(days, 1L);
 
         BriefingRegion r = enriched.getFirst().eventSummaries().getFirst().regions().getFirst();
+        assertThat(r.glossHeadline()).isEqualTo("Wrong water for the light");
+        assertThat(r.glossDetail()).isEqualTo("Tide sits at odds with every location's preference.");
+        verify(anthropicApiClient, times(1)).createMessage(any());
+    }
+
+    @Test
+    @DisplayName("A region with no slots is not glossed — there is nothing for Claude to describe")
+    void regionWithNoSlots_isNotGlossed() {
+        stubModelSelection();
+
+        List<BriefingDay> enriched = glossService.generateGlosses(
+                List.of(dayWith(regionWithSlots("Empty Coast", Verdict.GO, 0))), 1L);
+
+        BriefingRegion r = enriched.getFirst().eventSummaries().getFirst().regions().getFirst();
         assertThat(r.glossHeadline()).isNull();
-        assertThat(r.glossDetail()).isNull();
         verify(anthropicApiClient, never()).createMessage(any());
     }
 
@@ -171,14 +198,29 @@ class BriefingGlossServiceTest {
     }
 
     @Test
-    @DisplayName("Mixed verdicts: GO is glossed, TIDE_MISMATCH STANDDOWN is skipped")
-    void mixedVerdicts_goGlossedTideMismatchSkipped() {
+    @DisplayName("⚠️ Mixed verdicts: GO and TIDE_MISMATCH STANDDOWN are BOTH glossed now")
+    void mixedVerdicts_bothRegionsGlossed() {
+        // Before the tide gate lift (2026-09-18, docs/engineering/tide-window-plan.md §6 Q1) the
+        // tide-mismatched region here had no eligible slot and was excluded from the Claude
+        // call's own prompt payload entirely. The gating policy is gone, so both
+        // regions are eligible and both are glossed, each with its own call.
+        //
+        // ⚠️ Regions gloss IN PARALLEL over virtual threads (ParallelGlossExecutor) — stubbed by
+        // MATCHING each call's own region name, never by sequential `.thenReturn` order, which the
+        // scheduler does not guarantee (found failing intermittently in review).
         stubModelSelection();
-        Message response = mockResponse(
+        Message goResponse = mockResponse(
                 "{\"headline\": \"High cloud with clear horizon\","
                         + " \"detail\": \"Horizon clear for colour.\"}");
-        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
-                .thenReturn(response);
+        Message tideResponse = mockResponse(
+                "{\"headline\": \"Wrong water for the light\","
+                        + " \"detail\": \"Tide sits at odds with every location's preference.\"}");
+        when(anthropicApiClient.createMessage(argThat(
+                params -> requestNamesRegion(params, "Northumberland"))))
+                .thenReturn(goResponse);
+        when(anthropicApiClient.createMessage(argThat(
+                params -> requestNamesRegion(params, "Lake District"))))
+                .thenReturn(tideResponse);
 
         BriefingRegion goRegion = region("Northumberland", Verdict.GO);
         BriefingRegion tideMismatchRegion = regionWithStanddownReason(
@@ -190,15 +232,16 @@ class BriefingGlossServiceTest {
         List<BriefingRegion> regions = enriched.getFirst().eventSummaries()
                 .getFirst().regions();
         assertThat(regions.get(0).glossHeadline()).isEqualTo("High cloud with clear horizon");
-        assertThat(regions.get(1).glossHeadline()).isNull();
-        assertThat(regions.get(1).glossDetail()).isNull();
+        assertThat(regions.get(1).glossHeadline()).isEqualTo("Wrong water for the light");
+        assertThat(regions.get(1).glossDetail())
+                .isEqualTo("Tide sits at odds with every location's preference.");
+        verify(anthropicApiClient, times(2)).createMessage(any(MessageCreateParams.class));
+    }
 
-        ArgumentCaptor<MessageCreateParams> captor =
-                ArgumentCaptor.forClass(MessageCreateParams.class);
-        verify(anthropicApiClient, times(1)).createMessage(captor.capture());
-        String userMsg = captor.getValue().messages().getFirst().content().asString();
-        assertThat(userMsg).contains("\"region\":\"Northumberland\"");
-        assertThat(userMsg).doesNotContain("Lake District");
+    /** Whether a gloss call's user message names the given region — order-independent matching. */
+    private static boolean requestNamesRegion(MessageCreateParams params, String regionName) {
+        return params != null && params.messages().getFirst().content().asString()
+                .contains("\"region\":\"" + regionName + "\"");
     }
 
     // ── Error handling ───────────────────────────────────────────────────────
@@ -262,7 +305,25 @@ class BriefingGlossServiceTest {
                 eq(true),
                 isNull(),
                 eq(EvaluationModel.HAIKU),
-                eq(STUB_USAGE));
+                eq(STUB_USAGE), eq(CacheDiagnostics.EMPTY));
+    }
+
+    @Test
+    @DisplayName("Successful API call logs the response's cache diagnostics beside its token usage")
+    void apiCallLogged_cacheDiagnostics() {
+        stubModelSelection();
+        Message response = mockResponse("Good colour potential");
+        when(response.diagnostics()).thenReturn(java.util.Optional.of(CacheDiagnosticsFixtures.MESSAGES_CHANGED));
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(response);
+
+        glossService.generateGlosses(List.of(dayWith(region("Northumberland", Verdict.GO))), 42L);
+
+        verify(jobRunService).logApiCall(
+                eq(42L), eq(ServiceName.ANTHROPIC), eq("POST"), eq("briefing-gloss"), isNull(),
+                anyLong(), eq(200), eq("Good colour potential"), eq(true), isNull(),
+                eq(EvaluationModel.HAIKU), eq(STUB_USAGE),
+                eq(CacheDiagnosticsFixtures.MESSAGES_CHANGED_READ));
     }
 
     @Test
@@ -655,14 +716,31 @@ class BriefingGlossServiceTest {
     }
 
     @Test
-    @DisplayName("GO glossDetail survives reassembly while TIDE_MISMATCH glossDetail stays null")
+    @DisplayName("⚠️ Both regions' glossDetail survive reassembly at the right position — GO and "
+            + "TIDE_MISMATCH alike, since the tide gate lift")
     void mixedVerdicts_glossDetailSurvivesReassembly() {
+        // Before the tide gate lift (2026-09-18, docs/engineering/tide-window-plan.md §6 Q1) this
+        // test's own title said the tide-mismatched region's glossDetail "stays null" — it had no
+        // eligible slot to gloss. It is eligible now, so this instead proves reassembly keeps each
+        // region's own gloss at its own position rather than the two being swapped or merged.
+        //
+        // ⚠️ Matched by region name, not `.thenReturn` order — regions gloss in PARALLEL over
+        // virtual threads (`ParallelGlossExecutor`), so invocation order is not guaranteed
+        // (found failing intermittently in review, the same lesson `mixedVerdicts_bothRegionsGlossed`
+        // above records).
         stubModelSelection();
-        Message response = mockResponse(
+        Message goResponse = mockResponse(
                 "{\"headline\": \"Clear horizon\","
                         + " \"detail\": \"Low cloud minimal, mid clear.\"}");
-        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
-                .thenReturn(response);
+        Message tideResponse = mockResponse(
+                "{\"headline\": \"Wrong water for the light\","
+                        + " \"detail\": \"Tide sits at odds with every location's preference.\"}");
+        when(anthropicApiClient.createMessage(argThat(
+                params -> requestNamesRegion(params, "Northumberland"))))
+                .thenReturn(goResponse);
+        when(anthropicApiClient.createMessage(argThat(
+                params -> requestNamesRegion(params, "Lake District"))))
+                .thenReturn(tideResponse);
 
         BriefingRegion goRegion = region("Northumberland", Verdict.GO);
         BriefingRegion tideMismatchRegion = regionWithStanddownReason(
@@ -674,7 +752,8 @@ class BriefingGlossServiceTest {
         List<BriefingRegion> regions = enriched.getFirst().eventSummaries()
                 .getFirst().regions();
         assertThat(regions.get(0).glossDetail()).isEqualTo("Low cloud minimal, mid clear.");
-        assertThat(regions.get(1).glossDetail()).isNull();
+        assertThat(regions.get(1).glossDetail())
+                .isEqualTo("Tide sits at odds with every location's preference.");
     }
 
     // ── JSON parsing and fallback ──────────────────────────────────────────
@@ -1169,5 +1248,111 @@ class BriefingGlossServiceTest {
                 .thenReturn(java.util.Optional.of(STUB_USAGE.cacheReadInputTokens()));
         when(message.usage()).thenReturn(usage);
         return message;
+    }
+
+    private static final String OK_JSON = "{\"headline\": \"High cirrus\", \"detail\": \"Canvas.\"}";
+
+    @Test
+    @DisplayName("request shape for HAIKU: literal model id, effort, no thinking, 256 max tokens")
+    void requestShape_haiku() {
+        when(modelSelectionService.getActiveModel(RunType.BRIEFING_GLOSS)).thenReturn(EvaluationModel.HAIKU);
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(ModelRequestAssertions.message(
+                        List.of(ModelRequestAssertions.text(OK_JSON)), StopReason.END_TURN));
+
+        List<BriefingDay> enriched = glossService.generateGlosses(
+                List.of(dayWith(region("Northumberland", Verdict.GO))), 1L);
+        BriefingRegion r = enriched.getFirst().eventSummaries().getFirst().regions().getFirst();
+
+        ArgumentCaptor<MessageCreateParams> captor =
+                ArgumentCaptor.forClass(MessageCreateParams.class);
+        verify(anthropicApiClient).createMessage(captor.capture());
+        ModelRequestAssertions.assertMessage(captor.getValue(), EvaluationModel.HAIKU, 256,
+                Optional.empty());
+    }
+
+    @Test
+    @DisplayName("request shape for SONNET: literal model id, effort, no thinking, 256 max tokens")
+    void requestShape_sonnet() {
+        when(modelSelectionService.getActiveModel(RunType.BRIEFING_GLOSS)).thenReturn(EvaluationModel.SONNET);
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(ModelRequestAssertions.message(
+                        List.of(ModelRequestAssertions.text(OK_JSON)), StopReason.END_TURN));
+
+        List<BriefingDay> enriched = glossService.generateGlosses(
+                List.of(dayWith(region("Northumberland", Verdict.GO))), 1L);
+        BriefingRegion r = enriched.getFirst().eventSummaries().getFirst().regions().getFirst();
+
+        ArgumentCaptor<MessageCreateParams> captor =
+                ArgumentCaptor.forClass(MessageCreateParams.class);
+        verify(anthropicApiClient).createMessage(captor.capture());
+        ModelRequestAssertions.assertMessage(captor.getValue(), EvaluationModel.SONNET, 256,
+                Optional.empty());
+    }
+
+    @Test
+    @DisplayName("request shape for SONNET_55: literal model id, effort, no thinking, 4352 max tokens")
+    void requestShape_sonnet_55() {
+        when(modelSelectionService.getActiveModel(RunType.BRIEFING_GLOSS)).thenReturn(EvaluationModel.SONNET_55);
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(ModelRequestAssertions.message(
+                        List.of(ModelRequestAssertions.text(OK_JSON)), StopReason.END_TURN));
+
+        List<BriefingDay> enriched = glossService.generateGlosses(
+                List.of(dayWith(region("Northumberland", Verdict.GO))), 1L);
+        BriefingRegion r = enriched.getFirst().eventSummaries().getFirst().regions().getFirst();
+
+        ArgumentCaptor<MessageCreateParams> captor =
+                ArgumentCaptor.forClass(MessageCreateParams.class);
+        verify(anthropicApiClient).createMessage(captor.capture());
+        ModelRequestAssertions.assertMessage(captor.getValue(), EvaluationModel.SONNET_55, 4352,
+                Optional.empty());
+    }
+
+    @Test
+    @DisplayName("request shape for HAIKU_55: literal model id, effort, thinking disabled, 256 max tokens")
+    void requestShape_haiku_55() {
+        when(modelSelectionService.getActiveModel(RunType.BRIEFING_GLOSS)).thenReturn(EvaluationModel.HAIKU_55);
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(ModelRequestAssertions.message(
+                        List.of(ModelRequestAssertions.text(OK_JSON)), StopReason.END_TURN));
+
+        List<BriefingDay> enriched = glossService.generateGlosses(
+                List.of(dayWith(region("Northumberland", Verdict.GO))), 1L);
+        BriefingRegion r = enriched.getFirst().eventSummaries().getFirst().regions().getFirst();
+
+        ArgumentCaptor<MessageCreateParams> captor =
+                ArgumentCaptor.forClass(MessageCreateParams.class);
+        verify(anthropicApiClient).createMessage(captor.capture());
+        ModelRequestAssertions.assertMessage(captor.getValue(), EvaluationModel.HAIKU_55, 256,
+                Optional.empty());
+    }
+
+    @Test
+    @DisplayName("a thinking block ahead of the text block does not break the gloss")
+    void thinkingBlockFirst_glossStillParsed() {
+        when(modelSelectionService.getActiveModel(RunType.BRIEFING_GLOSS)).thenReturn(EvaluationModel.SONNET_55);
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(ModelRequestAssertions.message(
+                        List.of(ModelRequestAssertions.thinking("weighing it up"),
+                                ModelRequestAssertions.text(OK_JSON)), StopReason.END_TURN));
+
+        List<BriefingDay> enriched = glossService.generateGlosses(
+                List.of(dayWith(region("Northumberland", Verdict.GO))), 1L);
+        BriefingRegion r = enriched.getFirst().eventSummaries().getFirst().regions().getFirst();
+        assertThat(r.glossHeadline()).isEqualTo("High cirrus");
+    }
+
+    @Test
+    @DisplayName("a refusal fails the gloss cleanly: no gloss text, no exception")
+    void refusal_leavesGlossEmpty() {
+        when(modelSelectionService.getActiveModel(RunType.BRIEFING_GLOSS)).thenReturn(EvaluationModel.SONNET_55);
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class)))
+                .thenReturn(ModelRequestAssertions.message(List.of(), StopReason.REFUSAL));
+
+        List<BriefingDay> enriched = glossService.generateGlosses(
+                List.of(dayWith(region("Northumberland", Verdict.GO))), 1L);
+        BriefingRegion r = enriched.getFirst().eventSummaries().getFirst().regions().getFirst();
+        assertThat(r.glossHeadline()).isNull();
     }
 }

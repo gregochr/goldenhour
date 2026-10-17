@@ -46,7 +46,95 @@ public final class BestBetRanker {
      */
     public static final int MIN_HEADLINE_CLAUDE_COVERAGE = 3;
 
+    /**
+     * The rank a pick must carry to BE the headline. Shared with {@code BriefingHonestyFilter},
+     * which has no other reason to import this class, so that "which rank is the headline" is
+     * answered in exactly one place.
+     */
+    public static final int RANK_TOP = 1;
+
     private BestBetRanker() {
+    }
+
+    /**
+     * The one rule for what a caller must do after removing some picks from an already-ranked
+     * list — shared by {@link #dropUnevaluatedPicks}, {@link #dropIneligiblePicks}, {@code
+     * BestBetFallbackService}'s current-briefing eligibility re-check, and {@code
+     * BriefingHonestyFilter}'s blanked-region withdrawal (round 11 — a Codex review of round 10's
+     * fallback re-check, #943-adjacent, found the fallback promoting an orphaned rank 2 to rank 1
+     * when rank 1 was the one dropped, and asked whether {@link #dropUnevaluatedPicks} — which
+     * already called {@link #rerankWithRecomputedRelationships} the same way — had the identical
+     * defect. It does).
+     *
+     * <p><b>The rule: losing rank 1 withdraws the WHOLE set; losing anything else keeps every
+     * survivor's fields untouched (renumbering the {@code rank} field alone, never {@code
+     * relationship}/{@code differsBy}, and never {@code headline}/{@code detail}/{@code
+     * confidence}).</b> Rank 2's prose and its {@code relationship}/{@code differsBy} fields are
+     * both authored — by Claude on the advisor path, or persisted verbatim on the fallback path —
+     * describing how it differs from rank 1: the prompt (see {@code BestBetPromptText}'s ALSO GOOD
+     * SELECTION RULE) explicitly instructs Claude to "make the temporal distinction obvious" and
+     * phrase Tier-2 prose so "the reader knows immediately this is a different opportunity" — text
+     * that reads correctly only beside the rank 1 it was written against. Promoting rank 2 into
+     * rank 1's place after rank 1 is removed would present that relative prose ("A second strong
+     * window later in the week", "Separate opportunity if skies hold") as the block's own headline,
+     * with nothing to be second to or separate from — the same orphan defect {@code
+     * BriefingHonestyFilter}'s own javadoc already named for the fallback case before round 11
+     * generalised it here. There is no cheap fix for the prose itself (rewriting it needs another
+     * Claude call), so withdrawal is the only honest outcome — matching the rule {@code
+     * BriefingHonestyFilter} already used for exactly this situation.
+     *
+     * <p>When rank 1 survives, nothing about it changed, so a trailing survivor's {@code
+     * relationship}/{@code differsBy} — computed relative to that same, unchanged rank 1 — remain
+     * correct without recomputation; only the {@code rank} field is renumbered to close any gap, a
+     * pure bookkeeping fix that touches no content a reader sees. In this codebase at most two
+     * picks are ever produced (Pick 1 + Pick 2), so a gap can only arise if rank 1 is the one
+     * removed — which this method already withdraws entirely — but the renumbering step is kept
+     * general rather than assuming that ceiling holds forever.
+     *
+     * <p>{@link #rerankWithRecomputedRelationships} is deliberately NOT reused here: that method
+     * promotes a DIFFERENT, already-present pick into rank 1 purely on ranking merit ({@link
+     * #applyCoverageAwareRanking}'s coverage-floor demotion) — every candidate it operates on still
+     * exists in the result, none was REMOVED, so recomputing relationship/differsBy for the new
+     * arrangement is the right question to ask there. This method answers a different question —
+     * what to do when a pick DISAPPEARS — and the honest answer for rank 1 disappearing is
+     * withdrawal, never promotion. (The coverage-floor promotion carries a related, narrower risk of
+     * its own — the promoted pick's prose was equally written as an "Also Good" relative to the
+     * demoted headline — but that mechanism predates this fix, is independently calibrated against
+     * an observed production case, and is out of scope for this round; flagged, not addressed, here.)
+     *
+     * @param original the picks before removal, in rank order
+     * @param kept     the picks that survive removal, in the same relative order (built by
+     *                 filtering {@code original}, never reordering it); may be empty
+     * @return {@code kept}, renumbered, when rank 1 survived (or nothing was removed); an EMPTY
+     *         list when rank 1 was among the removed picks, whatever else survived
+     */
+    public static List<BestBet> afterRemoval(List<BestBet> original, List<BestBet> kept) {
+        if (kept.isEmpty() || kept.size() == original.size()) {
+            return kept;
+        }
+        boolean originalHadHeadline = original.stream().anyMatch(b -> b.rank() == RANK_TOP);
+        boolean headlineSurvived = kept.stream().anyMatch(b -> b.rank() == RANK_TOP);
+        if (originalHadHeadline && !headlineSurvived) {
+            return List.of();
+        }
+        return renumber(kept);
+    }
+
+    /**
+     * Renumbers {@code rank} 1..n to close any gap left by a removal, touching no other field —
+     * never {@code relationship}, {@code differsBy}, or any prose field. See {@link
+     * #afterRemoval}'s javadoc for why recomputing those would be wrong here.
+     */
+    private static List<BestBet> renumber(List<BestBet> kept) {
+        List<BestBet> result = new ArrayList<>();
+        for (int i = 0; i < kept.size(); i++) {
+            BestBet p = kept.get(i);
+            int newRank = i + 1;
+            result.add(p.rank() == newRank ? p : new BestBet(newRank, p.headline(), p.detail(),
+                    p.event(), p.region(), p.confidence(), p.nearestDriveMinutes(), p.dayName(),
+                    p.eventType(), p.eventTime(), p.relationship(), p.differsBy()));
+        }
+        return List.copyOf(result);
     }
 
     /**
@@ -147,13 +235,16 @@ public final class BestBetRanker {
      * Drops picks with zero Claude colour coverage. A best bet's entire premise is Claude's colour
      * evaluation; a region/event with no colour rating at all — only a weather GO count — is not
      * evidence of a good sky, so recommending it (even hedged) is dishonest. Stay-home and aurora
-     * picks are {@link #isColourExempt exempt}. Survivors are renumbered so the highest remaining
-     * pick holds rank 1; an empty result signals "no colour-backed recommendation available", which
-     * the caller maps to {@code SUCCESS_NO_PICKS} (an honest decline), never {@code FAILED}.
+     * picks are {@link #isColourExempt exempt}. Applies the shared {@link #afterRemoval} rule: if
+     * rank 1 is the one dropped, the whole set withdraws rather than promoting rank 2's prose (round
+     * 11 — see {@link #afterRemoval}'s javadoc); otherwise survivors are renumbered only. An empty
+     * result signals "no colour-backed recommendation available", which the caller maps to {@code
+     * SUCCESS_NO_PICKS} (an honest decline), never {@code FAILED}.
      *
      * @param picks    validated picks in ranked order
      * @param coverage per-{@code event|region} Claude coverage from the rollup
-     * @return the picks that carry colour evidence, renumbered; possibly empty
+     * @return the picks that carry colour evidence (renumbered), or empty when rank 1 was dropped
+     *         or nothing survived
      */
     public static List<BestBet> dropUnevaluatedPicks(List<BestBet> picks,
             Map<String, CandidateCoverage> coverage) {
@@ -166,10 +257,64 @@ public final class BestBetRanker {
                         + "evaluation behind it", p.region(), p.event());
             }
         }
-        if (kept.isEmpty() || kept.size() == picks.size()) {
-            return kept;
+        return afterRemoval(picks, kept);
+    }
+
+    /**
+     * Drops picks naming a region the verdict-minimum-sample rule does not trust — insufficient
+     * rating coverage and no force-evaluation exemption ({@link
+     * com.gregochr.goldenhour.model.BriefingRegion#verdictEligible()}). {@link
+     * #dropUnevaluatedPicks} already refuses a pick with <em>zero</em> Claude coverage; this closes
+     * the gap a Codex review found in round 10 (P1-B) one rating short of zero — a region that
+     * cleared {@code ratedCount() &gt; 0} but never reached the sample size (or examined-coverage
+     * fraction) the Plan tab requires before it will show a verdict at all could still be named in
+     * {@code DailyBriefingResponse.bestBets}, because the advisor never consulted the eligibility
+     * flag {@code BriefingRegionEvaluationRollup} had already computed for it.
+     *
+     * <p>Deliberately a second, independent gate rather than a replacement for {@link
+     * #dropUnevaluatedPicks}: the two ask different questions (does a rating exist at all, versus
+     * is the sample behind it large enough to trust) and a region can fail either one without the
+     * other. Stay-home and aurora picks are {@link #isColourExempt exempt}, matching every other
+     * coverage rule in this class — neither carries a region-level sky sample to be insufficient.
+     * A pick whose {@code event|region} key is absent from {@code coverage} is dropped: the rollup
+     * only omits a key for a region it did not send to Claude at all, so there is no eligibility to
+     * have found sufficient.
+     *
+     * <p>Applies the shared {@link #afterRemoval} rule, the same one {@link #dropUnevaluatedPicks}
+     * uses (round 11 — the two must stay consistent, since a region can fail either gate and the
+     * "what happens when a pick disappears" question is identical either way): if rank 1 is the one
+     * dropped, the whole set withdraws — promoting rank 2 would present its prose, written to
+     * describe how it differs from rank 1, as the headline it was never written to be — never merely
+     * renumbering a promoted pick's relationship/differsBy as earlier rounds did. When only rank 2
+     * is ineligible, rank 1 is kept untouched, still rank 1.
+     *
+     * @param picks    validated, colour-evidenced picks in ranked order
+     * @param coverage per-{@code event|region} Claude coverage from the rollup, including each
+     *                 region's {@link CandidateCoverage#verdictEligible()} at build time
+     * @return the picks whose region is verdict-eligible (renumbered), or empty when rank 1 was
+     *         ineligible or nothing survived
+     */
+    public static List<BestBet> dropIneligiblePicks(List<BestBet> picks,
+            Map<String, CandidateCoverage> coverage) {
+        List<BestBet> kept = new ArrayList<>();
+        for (BestBet p : picks) {
+            if (isColourExempt(p) || isVerdictEligible(p, coverage)) {
+                kept.add(p);
+            } else {
+                LOG.info("Best-bet: dropped ineligible pick region='{}' event='{}' — sample too "
+                        + "thin for a trusted verdict and no force-evaluation exemption",
+                        p.region(), p.event());
+            }
         }
-        return rerankWithRecomputedRelationships(kept);
+        return afterRemoval(picks, kept);
+    }
+
+    private static boolean isVerdictEligible(BestBet pick, Map<String, CandidateCoverage> coverage) {
+        if (pick.event() == null || pick.region() == null) {
+            return false;
+        }
+        CandidateCoverage c = coverage.get(coverageKey(pick.event(), pick.region()));
+        return c != null && c.verdictEligible();
     }
 
     private static int ratedCount(BestBet pick, Map<String, CandidateCoverage> coverage) {

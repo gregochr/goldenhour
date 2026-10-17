@@ -74,6 +74,65 @@ class ForecastEvaluationDetailsTest {
         }
 
         @Test
+        @DisplayName("from() maps the five far-point mid/high and dark-hour readings, each to its own field")
+        void from_mapsFarPointCaptureFields() {
+            DirectionalCloudData dc =
+                    new DirectionalCloudData(35, 45, 20, 40, 50, 15, 55, 61, 72, 18, 27, 83);
+
+            DirectionalCloudDetails details = DirectionalCloudDetails.from(dc);
+
+            assertThat(details.getFarSolarLow()).isEqualTo(55);
+            assertThat(details.getFarSolarMid()).isEqualTo(61);
+            assertThat(details.getFarSolarHigh()).isEqualTo(72);
+            assertThat(details.getFarSolarLowDark()).isEqualTo(18);
+            assertThat(details.getFarSolarMidDark()).isEqualTo(27);
+            assertThat(details.getFarSolarHighDark()).isEqualTo(83);
+        }
+
+        @Test
+        @DisplayName("from() maps the six pressure-level readings, each to its own field")
+        void from_mapsPressureLevelFields() {
+            DirectionalCloudData dc = new DirectionalCloudData(
+                    35, 45, 20, 40, 50, 15, 55, 61, 72, 18, 27, 83, 11, 22, 33, 44, 55, 66);
+
+            DirectionalCloudDetails details = DirectionalCloudDetails.from(dc);
+
+            assertThat(details.getFarSolarCloud850()).isEqualTo(11);
+            assertThat(details.getFarSolarCloud700()).isEqualTo(22);
+            assertThat(details.getFarSolarCloud600()).isEqualTo(33);
+            assertThat(details.getFarSolarCloud500()).isEqualTo(44);
+            assertThat(details.getFarSolarCloud400()).isEqualTo(55);
+            assertThat(details.getFarSolarCloud300()).isEqualTo(66);
+        }
+
+        @Test
+        @DisplayName("from() leaves the six pressure levels null for a 12-argument record")
+        void from_twelveArgumentRecord_leavesPressureLevelsNull() {
+            DirectionalCloudDetails details = DirectionalCloudDetails.from(
+                    new DirectionalCloudData(35, 45, 20, 40, 50, 15, 55, 61, 72, 18, 27, 83));
+
+            assertThat(details.getFarSolarCloud850()).isNull();
+            assertThat(details.getFarSolarCloud700()).isNull();
+            assertThat(details.getFarSolarCloud600()).isNull();
+            assertThat(details.getFarSolarCloud500()).isNull();
+            assertThat(details.getFarSolarCloud400()).isNull();
+            assertThat(details.getFarSolarCloud300()).isNull();
+        }
+
+        @Test
+        @DisplayName("from() leaves the five new readings null for a 7-argument record")
+        void from_sevenArgumentRecord_leavesNewFieldsNull() {
+            DirectionalCloudDetails details =
+                    DirectionalCloudDetails.from(new DirectionalCloudData(35, 45, 20, 40, 50, 15, 55));
+
+            assertThat(details.getFarSolarMid()).isNull();
+            assertThat(details.getFarSolarHigh()).isNull();
+            assertThat(details.getFarSolarLowDark()).isNull();
+            assertThat(details.getFarSolarMidDark()).isNull();
+            assertThat(details.getFarSolarHighDark()).isNull();
+        }
+
+        @Test
         @DisplayName("from() maps all seven samples")
         void from_mapsAllFields() {
             DirectionalCloudData dc = new DirectionalCloudData(35, 45, 20, 40, 50, 15, 55);

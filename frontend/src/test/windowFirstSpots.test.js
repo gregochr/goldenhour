@@ -3,6 +3,7 @@ import {
   buildWindowSpots, compareSpots, readableInkOn, spotBadgeStyle, spotOrderStatement,
 } from '../utils/windowFirstSpots.js';
 import { STOPS_VERDICT, rampHex } from '../utils/scoreRamp.js';
+import { factsOf } from './tideFactsFixture.js';
 
 /** A briefing slot as the payload carries one. */
 function slot(overrides = {}) {
@@ -24,12 +25,15 @@ function slot(overrides = {}) {
  * differ by an hour here, which is far more than the tens of minutes real geography produces —
  * a fixture's job is to be unmistakable, not typical.
  */
-function summary(slots, regionName = 'Northumberland & Tyneside') {
+function summary(slots, regionName = 'Northumberland & Tyneside', tideFacts = factsOf(slots)) {
   return {
     targetType: 'SUNSET',
     solarEventTime: '2026-08-14T19:00:00',
     regions: [{ regionName, slots }],
     unregioned: [],
+    // Tide is served per window beside the slots, not on them (window-tide-facts-plan.md). By
+    // default the fixture states a slot's tide once, on the slot, and serves the same facts.
+    window: tideFacts.length > 0 ? { tideFacts } : undefined,
   };
 }
 
@@ -179,6 +183,113 @@ describe('buildWindowSpots', () => {
     it.each([[1], [5]])('keeps a rating of %s, which is inside the bounds', (rating) => {
       expect(buildWindowSpots(summary([slot({ claudeRating: rating })]), new Map())[0].rating)
         .toBe(rating);
+    });
+  });
+
+  describe('the tide facts (tide-plan-card-plan.md C1)', () => {
+    it('copies the three served tide fields onto a coastal, aligned spot', () => {
+      const [s] = buildWindowSpots(summary([
+        slot({ tideState: 'HIGH', tideAligned: true, tideAlignmentQuality: 0.82 }),
+      ]), new Map());
+      expect(s.tideState).toBe('HIGH');
+      expect(s.tideAligned).toBe(true);
+      expect(s.tideQuality).toBe(0.82);
+    });
+
+    it('leaves all three null for an inland spot, which carries no tideState at all', () => {
+      // `TideInfo.tideAligned` is a primitive `boolean` and defaults to `false` when the slot has
+      // no tide facts at all (`TideInfo.NONE`) — so an inland spot with no `tideState` must not
+      // copy that `false` through as a mismatch. Coastal is `tideState != null` (§1 #1, §5 #5).
+      const [s] = buildWindowSpots(summary([
+        slot({ tideState: null, tideAligned: false, tideAlignmentQuality: null }),
+      ]), new Map());
+      expect(s.tideState).toBeNull();
+      expect(s.tideAligned).toBeNull();
+      expect(s.tideQuality).toBeNull();
+    });
+
+    it('reads a coastal miss as tideAligned: false, not null', () => {
+      const [s] = buildWindowSpots(summary([
+        slot({ tideState: 'LOW', tideAligned: false, tideAlignmentQuality: null }),
+      ]), new Map());
+      expect(s.tideState).toBe('LOW');
+      expect(s.tideAligned).toBe(false);
+      expect(s.tideQuality).toBeNull();
+    });
+
+    it('reads a matched slot with a null quality — C0\'s own documented cache-staleness case', () => {
+      // C0's phase log: a `daily_briefing_cache` payload written before C0 can read
+      // `tideAligned: true` with a null `tideAlignmentQuality` until the next build.
+      const [s] = buildWindowSpots(summary([
+        slot({ tideState: 'MID', tideAligned: true, tideAlignmentQuality: null }),
+      ]), new Map());
+      expect(s.tideAligned).toBe(true);
+      expect(s.tideQuality).toBeNull();
+    });
+
+    it('defaults every field absent from the slot to null, never to a falsy primitive', () => {
+      const [s] = buildWindowSpots(summary([slot()]), new Map());
+      expect(s.tideState).toBeNull();
+      expect(s.tideAligned).toBeNull();
+      expect(s.tideQuality).toBeNull();
+    });
+  });
+
+  describe('tide comes from the window\'s served facts, not the slot (window-tide-facts-plan.md)', () => {
+    const FACT = {
+      locationId: 1, locationName: 'Bamburgh Castle', tideState: 'HIGH', tideAligned: true,
+      tideAlignmentQuality: 0.7,
+    };
+
+    it('copies the tide from the fact when the slot carries none', () => {
+      const [s] = buildWindowSpots(summary([slot()], undefined, [FACT]), new Map());
+      expect(s.tideState).toBe('HIGH');
+      expect(s.tideAligned).toBe(true);
+      expect(s.tideQuality).toBe(0.7);
+    });
+
+    it('prefers the fact over a contradicting slot (the slot is not a source)', () => {
+      const [s] = buildWindowSpots(summary(
+        [slot({ tideState: 'LOW', tideAligned: false, tideAlignmentQuality: null })], undefined, [FACT],
+      ), new Map());
+      expect([s.tideState, s.tideAligned, s.tideQuality]).toEqual(['HIGH', true, 0.7]);
+    });
+
+    it('gives a slot with no fact no tide at all, whatever the slot carries', () => {
+      const [s] = buildWindowSpots(summary(
+        [slot({ tideState: 'HIGH', tideAligned: true, tideAlignmentQuality: 0.9 })], undefined, [],
+      ), new Map());
+      expect([s.tideState, s.tideAligned, s.tideQuality]).toEqual([null, null, null]);
+    });
+
+    it('does not make a spot of a fact with no slot: the population still comes from slots', () => {
+      const spots = buildWindowSpots(summary(
+        [slot({ locationId: 5, locationName: 'Elsewhere' })], undefined, [FACT],
+      ), new Map());
+      expect(spots.map((s) => s.locationName)).toEqual(['Elsewhere']);
+      expect(spots[0].tideState).toBeNull();
+    });
+
+    it('mixes per spot: one location has a fact, its neighbour does not', () => {
+      const spots = buildWindowSpots(summary(
+        [slot(), slot({ locationId: 2, locationName: 'Craster' })], undefined, [FACT],
+      ), new Map());
+      const byName = Object.fromEntries(spots.map((s) => [s.locationName, s.tideState]));
+      expect(byName).toEqual({ 'Bamburgh Castle': 'HIGH', Craster: null });
+    });
+
+    it('joins by name when the slot has no id (a legacy slot)', () => {
+      const [s] = buildWindowSpots(summary(
+        [slot({ locationId: undefined })], undefined, [{ ...FACT, locationId: undefined }],
+      ), new Map());
+      expect(s.tideAligned).toBe(true);
+    });
+
+    it('reads a coastal miss fact as tideAligned false, not null', () => {
+      const [s] = buildWindowSpots(summary(
+        [slot()], undefined, [{ ...FACT, tideState: 'LOW', tideAligned: false, tideAlignmentQuality: undefined }],
+      ), new Map());
+      expect([s.tideState, s.tideAligned, s.tideQuality]).toEqual(['LOW', false, null]);
     });
   });
 

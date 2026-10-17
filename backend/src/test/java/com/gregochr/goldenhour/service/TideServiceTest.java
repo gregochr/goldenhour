@@ -242,6 +242,100 @@ class TideServiceTest {
         assertThat(tideService.buildTideData(extremes, event).nearMidPoint()).isFalse();
     }
 
+    // -------------------------------------------------------------------------
+    // computeMidpointOffsetMinutes / nearestMidpointOffsetMinutes (C0)
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("computeMidpointOffsetMinutes: negative when the event falls AFTER the midpoint")
+    void computeMidpointOffsetMinutes_negativeAfterMidpoint() {
+        // HIGH at 06:00, LOW at 12:00 → midpoint at 09:00; event at 09:30, 30 min after it, so
+        // the midpoint is 30 minutes in the event's own past — negative, matching the "positive
+        // when the midpoint falls after eventTime" convention this method documents.
+        LocalDateTime highTime = LocalDateTime.of(2026, 2, 24, 6, 0);
+        LocalDateTime lowTime = LocalDateTime.of(2026, 2, 24, 12, 0);
+        LocalDateTime event = LocalDateTime.of(2026, 2, 24, 9, 30);
+        List<TideExtremeEntity> extremes = List.of(
+                extreme(highTime, TideExtremeType.HIGH, 1.8),
+                extreme(lowTime, TideExtremeType.LOW, 0.2));
+
+        assertThat(TideService.computeMidpointOffsetMinutes(extremes, event)).isEqualTo(-30L);
+    }
+
+    @Test
+    @DisplayName("computeMidpointOffsetMinutes: positive when the event falls BEFORE the midpoint")
+    void computeMidpointOffsetMinutes_positiveBeforeMidpoint() {
+        LocalDateTime highTime = LocalDateTime.of(2026, 2, 24, 6, 0);
+        LocalDateTime lowTime = LocalDateTime.of(2026, 2, 24, 12, 0);
+        LocalDateTime event = LocalDateTime.of(2026, 2, 24, 8, 15); // 45 min before 09:00
+        List<TideExtremeEntity> extremes = List.of(
+                extreme(highTime, TideExtremeType.HIGH, 1.8),
+                extreme(lowTime, TideExtremeType.LOW, 0.2));
+
+        assertThat(TideService.computeMidpointOffsetMinutes(extremes, event)).isEqualTo(45L);
+    }
+
+    @Test
+    @DisplayName("computeMidpointOffsetMinutes: with several consecutive pairs, reports the "
+            + "closest one — the same pair isMidPointAligned would have matched")
+    void computeMidpointOffsetMinutes_picksTheClosestPair() {
+        // Three extremes → two pairs, midpoints at 09:00 and 15:00. The event sits nearer the
+        // second (15:05, 5 min after it) than the first (6h05m after it).
+        LocalDateTime t1 = LocalDateTime.of(2026, 2, 24, 6, 0);
+        LocalDateTime t2 = LocalDateTime.of(2026, 2, 24, 12, 0);
+        LocalDateTime t3 = LocalDateTime.of(2026, 2, 24, 18, 0);
+        LocalDateTime event = LocalDateTime.of(2026, 2, 24, 15, 5);
+        List<TideExtremeEntity> extremes = List.of(
+                extreme(t1, TideExtremeType.HIGH, 1.8),
+                extreme(t2, TideExtremeType.LOW, 0.2),
+                extreme(t3, TideExtremeType.HIGH, 1.9));
+
+        assertThat(TideService.computeMidpointOffsetMinutes(extremes, event)).isEqualTo(-5L);
+    }
+
+    @Test
+    @DisplayName("computeMidpointOffsetMinutes: fewer than two extremes → null")
+    void computeMidpointOffsetMinutes_tooFewExtremes_returnsNull() {
+        LocalDateTime event = LocalDateTime.of(2026, 2, 24, 9, 30);
+        List<TideExtremeEntity> single = List.of(
+                extreme(LocalDateTime.of(2026, 2, 24, 6, 0), TideExtremeType.HIGH, 1.8));
+
+        assertThat(TideService.computeMidpointOffsetMinutes(single, event)).isNull();
+        assertThat(TideService.computeMidpointOffsetMinutes(List.of(), event)).isNull();
+    }
+
+    @Test
+    @DisplayName("nearestMidpointOffsetMinutes: fetches this location's extremes around the "
+            + "event and reports the bracketing midpoint's signed offset")
+    void nearestMidpointOffsetMinutes_fetchesAndComputes() {
+        Long locationId = 42L;
+        LocalDateTime highTime = LocalDateTime.of(2026, 2, 24, 6, 0);
+        LocalDateTime lowTime = LocalDateTime.of(2026, 2, 24, 12, 0);
+        LocalDateTime event = LocalDateTime.of(2026, 2, 24, 9, 30);
+        List<TideExtremeEntity> extremes = List.of(
+                extreme(highTime, TideExtremeType.HIGH, 1.8),
+                extreme(lowTime, TideExtremeType.LOW, 0.2));
+        when(tideExtremeRepository.findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
+                eq(locationId), eq(event.minusDays(2)), eq(event.plusDays(2))))
+                .thenReturn(extremes);
+
+        Optional<Long> offset = tideService.nearestMidpointOffsetMinutes(locationId, event);
+
+        assertThat(offset).contains(-30L);
+    }
+
+    @Test
+    @DisplayName("nearestMidpointOffsetMinutes: no stored extremes around the event → empty")
+    void nearestMidpointOffsetMinutes_noExtremes_returnsEmpty() {
+        Long locationId = 42L;
+        LocalDateTime event = LocalDateTime.of(2026, 2, 24, 9, 30);
+        when(tideExtremeRepository.findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
+                eq(locationId), any(), any()))
+                .thenReturn(List.of());
+
+        assertThat(tideService.nearestMidpointOffsetMinutes(locationId, event)).isEmpty();
+    }
+
     @Test
     @DisplayName("buildTideData() returns null nextHighTideTime when no future HIGH extreme exists")
     void buildTideData_noFutureHigh_nextHighIsNull() {
@@ -879,6 +973,159 @@ class TideServiceTest {
         assertThat(stats.springTideThreshold()).isEqualByComparingTo(BigDecimal.valueOf(1.750));
         assertThat(stats.kingTideThreshold()).isNotNull();
         assertThat(stats.kingTideCount()).isGreaterThanOrEqualTo(0);
+    }
+
+    // -------------------------------------------------------------------------
+    // getTideStats — per-day memo and its eviction on every write path
+    // -------------------------------------------------------------------------
+
+    private void stubSmallSample(long locationId) {
+        for (TideExtremeType type : TideExtremeType.values()) {
+            when(tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
+                    eq(locationId), eq(type), any(LocalDateTime.class)))
+                    .thenReturn(new Object[]{
+                            BigDecimal.valueOf(1.0), BigDecimal.valueOf(1.1), BigDecimal.valueOf(0.9), 2L});
+        }
+    }
+
+    private void verifyStatsReads(long locationId, int times) {
+        verify(tideExtremeRepository, times(times)).findHeightStatsByLocationIdAndTypeBefore(
+                eq(locationId), eq(TideExtremeType.HIGH), any(LocalDateTime.class));
+    }
+
+    @Test
+    @DisplayName("getTideStats() is answered from the day's memo — the second call reads nothing")
+    void getTideStats_secondCallIsServedFromTheMemo() {
+        stubSmallSample(1L);
+
+        Optional<TideStats> first = tideService.getTideStats(1L);
+        Optional<TideStats> second = tideService.getTideStats(1L);
+
+        assertThat(second).isEqualTo(first);
+        verifyStatsReads(1L, 1);
+    }
+
+    @Test
+    @DisplayName("a location with no stored extremes is memoised too — an empty answer is an answer")
+    void getTideStats_emptyAnswerIsMemoised() {
+        for (TideExtremeType type : TideExtremeType.values()) {
+            when(tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
+                    eq(1L), eq(type), any(LocalDateTime.class)))
+                    .thenReturn(new Object[]{null, null, null, 0L});
+        }
+
+        assertThat(tideService.getTideStats(1L)).isEmpty();
+        assertThat(tideService.getTideStats(1L)).isEmpty();
+
+        verifyStatsReads(1L, 1);
+    }
+
+    @Test
+    @DisplayName("evictTideStats() makes the next getTideStats() read again, for that location only")
+    void evictTideStats_dropsOnlyThatLocation() {
+        stubSmallSample(1L);
+        stubSmallSample(2L);
+        tideService.getTideStats(1L);
+        tideService.getTideStats(2L);
+
+        tideService.evictTideStats(1L);
+        tideService.getTideStats(1L);
+        tideService.getTideStats(2L);
+
+        verifyStatsReads(1L, 2);
+        verifyStatsReads(2L, 1);
+    }
+
+    @Test
+    @DisplayName("a forward fetch that writes evicts the stats, and tells the registered derived caches")
+    void fetchAndStore_evictsStatsAndNotifiesListeners() {
+        when(worldTidesProperties.getApiKey()).thenReturn("test-key");
+        RestClient mockClient = mock(RestClient.class);
+        RestClientMocks.stubGet(mockClient, WorldTidesResponse.class, buildWorldTidesResponse());
+        TideService service = new TideService(
+                mockClient, tideExtremeRepository, worldTidesProperties, jobRunService);
+        java.util.concurrent.atomic.AtomicInteger notified = new java.util.concurrent.atomic.AtomicInteger();
+        service.onTideExtremesChanged(notified::incrementAndGet);
+        stubSmallSample(1L);
+        service.getTideStats(1L);
+
+        service.fetchAndStoreTideExtremes(locationEntity());
+        service.getTideStats(1L);
+
+        verifyStatsReads(1L, 2);
+        assertThat(notified).hasValue(1);
+    }
+
+    @Test
+    @DisplayName("a backfill that stores a chunk evicts the stats, so new percentiles are served the "
+            + "same day")
+    void backfill_evictsStats() {
+        when(worldTidesProperties.getApiKey()).thenReturn("test-key");
+        when(tideExtremeRepository.existsByLocationIdAndEventTimeBetween(
+                eq(1L), any(LocalDateTime.class), any(LocalDateTime.class))).thenReturn(false);
+        RestClient mockClient = mock(RestClient.class);
+        RestClientMocks.stubGet(mockClient, WorldTidesResponse.class, buildWorldTidesResponse());
+        TideService service = new TideService(
+                mockClient, tideExtremeRepository, worldTidesProperties, jobRunService);
+        stubSmallSample(1L);
+        service.getTideStats(1L);
+
+        service.backfillTideExtremes(locationEntity(), null);
+        service.getTideStats(1L);
+
+        verifyStatsReads(1L, 2);
+    }
+
+    @Test
+    @DisplayName("a fetch that wrote nothing (non-200) leaves the memo alone")
+    void fetchAndStore_failedFetchDoesNotEvict() {
+        when(worldTidesProperties.getApiKey()).thenReturn("test-key");
+        WorldTidesResponse errorResponse = new WorldTidesResponse();
+        errorResponse.setStatus(400);
+        RestClient mockClient = mock(RestClient.class);
+        RestClientMocks.stubGet(mockClient, WorldTidesResponse.class, errorResponse);
+        TideService service = new TideService(
+                mockClient, tideExtremeRepository, worldTidesProperties, jobRunService);
+        java.util.concurrent.atomic.AtomicInteger notified = new java.util.concurrent.atomic.AtomicInteger();
+        service.onTideExtremesChanged(notified::incrementAndGet);
+        stubSmallSample(1L);
+        service.getTideStats(1L);
+
+        service.fetchAndStoreTideExtremes(locationEntity());
+        service.getTideStats(1L);
+
+        verifyStatsReads(1L, 1);
+        assertThat(notified).hasValue(0);
+    }
+
+    @Test
+    @DisplayName("inside a transaction the eviction waits for it to complete, committed or rolled "
+            + "back — evicting at the write would let a reader re-cache the old rows before the commit")
+    void evictTideStats_insideATransactionWaitsForCompletion() {
+        stubSmallSample(1L);
+        tideService.getTideStats(1L);
+        java.util.concurrent.atomic.AtomicInteger notified = new java.util.concurrent.atomic.AtomicInteger();
+        tideService.onTideExtremesChanged(notified::incrementAndGet);
+        org.springframework.transaction.support.TransactionSynchronizationManager.initSynchronization();
+        try {
+            tideService.evictTideStats(1L);
+
+            // Still inside the transaction: the memo stands and nobody has been told.
+            tideService.getTideStats(1L);
+            verifyStatsReads(1L, 1);
+            assertThat(notified).hasValue(0);
+
+            org.springframework.transaction.support.TransactionSynchronizationManager.getSynchronizations()
+                    .forEach(sync -> sync.afterCompletion(
+                            org.springframework.transaction.support.TransactionSynchronization
+                                    .STATUS_ROLLED_BACK));
+        } finally {
+            org.springframework.transaction.support.TransactionSynchronizationManager.clear();
+        }
+
+        tideService.getTideStats(1L);
+        verifyStatsReads(1L, 2);
+        assertThat(notified).hasValue(1);
     }
 
     @Test

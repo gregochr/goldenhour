@@ -1,6 +1,10 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.client.PostcodeLookupException;
+import com.gregochr.goldenhour.client.PostcodeLookupUnavailableException;
 import com.gregochr.goldenhour.exception.RegistrationClosedException;
+import com.gregochr.goldenhour.exception.StaleCredentialsException;
+import com.gregochr.goldenhour.service.ask.AskRefusal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -15,6 +19,7 @@ import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.Map;
 import java.util.NoSuchElementException;
 
 /**
@@ -49,6 +54,19 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Renders an Ask refusal in the one shape every Ask error shares, {@code {"error","code"}}, with
+     * the status its code fixes (plan §2.9's table). The only place an {@link AskRefusal} becomes a
+     * response.
+     *
+     * @param ex the refusal
+     * @return the status and body its code defines
+     */
+    @ExceptionHandler(AskRefusal.class)
+    public ResponseEntity<Map<String, String>> handleAskRefusal(AskRefusal ex) {
+        return ResponseEntity.status(ex.code().status()).body(ex.body());
+    }
+
+    /**
      * Maps {@link RegistrationClosedException} to HTTP 403 when the early-access cap is reached.
      *
      * @param ex the exception
@@ -58,6 +76,47 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.FORBIDDEN)
     public ErrorResponse handleRegistrationClosed(RegistrationClosedException ex) {
         return new ErrorResponse(ex.getMessage());
+    }
+
+    /**
+     * Maps {@link StaleCredentialsException} to HTTP 401: the caller's session was superseded by a
+     * credential change, so the client's existing session-expired path signs the reader out.
+     *
+     * @param ex the exception
+     * @return an error response body carrying "Your session has changed. Sign in again."
+     */
+    @ExceptionHandler(StaleCredentialsException.class)
+    @ResponseStatus(HttpStatus.UNAUTHORIZED)
+    public ErrorResponse handleStaleCredentials(StaleCredentialsException ex) {
+        return new ErrorResponse(ex.getMessage());
+    }
+
+    /**
+     * Maps {@link PostcodeLookupException} — the postcode lookup worked and found nothing — to
+     * HTTP 400. Until the login-registration series this fell into the catch-all and answered 500.
+     *
+     * @param ex the exception, whose message is fixed text by contract
+     * @return an error response body
+     */
+    @ExceptionHandler(PostcodeLookupException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ErrorResponse handlePostcodeNotFound(PostcodeLookupException ex) {
+        return new ErrorResponse(ex.getMessage());
+    }
+
+    /**
+     * Maps {@link PostcodeLookupUnavailableException} — the postcode service failed or could not be
+     * reached — to HTTP 502 with a fixed message. The upstream's own message is never echoed.
+     *
+     * @param ex the exception
+     * @return an error response body
+     */
+    @ExceptionHandler(PostcodeLookupUnavailableException.class)
+    @ResponseStatus(HttpStatus.BAD_GATEWAY)
+    public ErrorResponse handlePostcodeUnavailable(PostcodeLookupUnavailableException ex) {
+        // The exception's message is the fixed text above by contract, so logging it carries no upstream text.
+        LOG.debug("Postcode lookup unavailable: {}", ex.getMessage());
+        return new ErrorResponse(PostcodeLookupUnavailableException.MESSAGE);
     }
 
     /**
@@ -109,16 +168,6 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * Catch-all for unhandled runtime exceptions — logs the full stack trace and returns 500.
-     *
-     * <p>{@link AccessDeniedException} is re-thrown so Spring Security's filter chain
-     * can convert it to a 403 response.
-     *
-     * @param ex the exception
-     * @return a 500 response with a structured error body
-     * @throws AccessDeniedException if the exception is a security authorisation failure
-     */
-    /**
      * Silently ignores client-disconnect notifications on async/SSE responses.
      *
      * <p>These fire when the browser closes the connection before the response is complete
@@ -145,6 +194,16 @@ public class GlobalExceptionHandler {
                 .body(new ErrorResponse(ex.getReason()));
     }
 
+    /**
+     * Catch-all for unhandled runtime exceptions — logs the full stack trace and returns 500.
+     *
+     * <p>{@link AccessDeniedException} is re-thrown so Spring Security's filter chain
+     * can convert it to a 403 response.
+     *
+     * @param ex the exception
+     * @return a 500 response with a structured error body
+     * @throws AccessDeniedException if the exception is a security authorisation failure
+     */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnexpected(Exception ex) throws AccessDeniedException {
         if (ex instanceof AccessDeniedException ade) {

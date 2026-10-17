@@ -3,11 +3,15 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.entity.TideExtremeEntity;
 import com.gregochr.goldenhour.entity.TideState;
+import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.BriefingSlot;
+import com.gregochr.goldenhour.model.BriefingWindowTide;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.TideDerivation;
 import com.gregochr.goldenhour.model.Verdict;
+import com.gregochr.goldenhour.repository.TideExtremeRepository;
 import com.gregochr.goldenhour.util.TimeSlotUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,8 +22,11 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Builds individual briefing slots by combining weather data, solar event times,
@@ -36,11 +43,22 @@ public class BriefingSlotBuilder {
     /** Scale for decimal weather values. */
     private static final int DECIMAL_SCALE = 2;
 
+    /**
+     * Days either side of the solar event to fetch extremes for the tide-fit curve — the identical
+     * window {@code TideService}'s own extremes fetch for this location and event uses, so this
+     * second fetch (see {@link #curveFacts}) sees the same rows rather than a differently-shaped
+     * one; on the null-snapshot (or snapshot-fallback) path it is still a second query, not a
+     * reuse of the first.
+     */
+    private static final long CURVE_QUERY_WINDOW_DAYS = TideExtremeSnapshot.READ_WINDOW_DAYS;
+
     private final SolarService solarService;
     private final LocationService locationService;
     private final TideFactDeriver tideFactDeriver;
     private final BriefingVerdictEvaluator verdictEvaluator;
     private final WoodlandVerdictEvaluator woodlandVerdictEvaluator;
+    private final TideExtremeRepository tideExtremeRepository;
+    private final EclipseSightAssembler eclipseSightAssembler;
 
     /**
      * Constructs a {@code BriefingSlotBuilder}.
@@ -50,16 +68,30 @@ public class BriefingSlotBuilder {
      * @param tideFactDeriver   the single seam for deriving tide facts
      * @param verdictEvaluator  evaluator for slot verdicts and flag generation
      * @param woodlandVerdictEvaluator evaluator for canopy locations, whose polarity is inverted
+     * @param tideExtremeRepository stored tide extrema for the map tab's tide-fit curve (level,
+     *                              direction, height) — a direct dependency, mirroring {@code
+     *                              WindowTideRollupBuilder}'s own, because the per-slot curve and
+     *                              the per-window curve are two different questions about the same
+     *                              water and neither owns the other's fetch
+     * @param eclipseSightAssembler builds {@link BriefingSlot#eclipse()} at this class's own
+     *                              build-time seam — a direct dependency for the same reason
+     *                              {@code tideExtremeRepository} is: the per-slot eclipse sight is
+     *                              a different question from everything else this class already
+     *                              derives, and nothing else owns it
      */
     public BriefingSlotBuilder(SolarService solarService, LocationService locationService,
             TideFactDeriver tideFactDeriver,
             BriefingVerdictEvaluator verdictEvaluator,
-            WoodlandVerdictEvaluator woodlandVerdictEvaluator) {
+            WoodlandVerdictEvaluator woodlandVerdictEvaluator,
+            TideExtremeRepository tideExtremeRepository,
+            EclipseSightAssembler eclipseSightAssembler) {
         this.solarService = solarService;
         this.locationService = locationService;
         this.tideFactDeriver = tideFactDeriver;
         this.verdictEvaluator = verdictEvaluator;
         this.woodlandVerdictEvaluator = woodlandVerdictEvaluator;
+        this.tideExtremeRepository = tideExtremeRepository;
+        this.eclipseSightAssembler = eclipseSightAssembler;
     }
 
     /**
@@ -86,6 +118,43 @@ public class BriefingSlotBuilder {
      */
     public BriefingSlot buildSlot(LocationWeather lw, LocalDate date, TargetType eventType,
             OpenMeteoForecastResponse horizonForecast) {
+        return buildSlot(lw, date, eventType, horizonForecast, null);
+    }
+
+    /**
+     * Builds the tide snapshot for a briefing build: one query for every coastal location over the
+     * window the dates need.
+     *
+     * @param locations the build's locations (inland ones are skipped)
+     * @param dates     the build's dates, ascending
+     * @return the snapshot, covering no locations when none is coastal or there are no dates
+     */
+    public TideExtremeSnapshot snapshotFor(Collection<LocationEntity> locations,
+            List<LocalDate> dates) {
+        List<Long> ids = dates.isEmpty() ? List.of() : locations.stream()
+                .filter(locationService::isCoastal)
+                .map(LocationEntity::getId)
+                .filter(Objects::nonNull)
+                .toList();
+        TideExtremeSnapshot.Window window = dates.isEmpty()
+                ? new TideExtremeSnapshot.Window(LocalDateTime.MIN, LocalDateTime.MIN)
+                : TideExtremeSnapshot.windowFor(dates);
+        return TideExtremeSnapshot.load(tideExtremeRepository, ids, window);
+    }
+
+    /**
+     * Builds a briefing slot as the four-argument form does, reading tide extremes from a
+     * build-scoped snapshot when one is given.
+     *
+     * @param lw              the location and its fetched forecast data
+     * @param date            the target date
+     * @param eventType       SUNRISE or SUNSET
+     * @param horizonForecast cloud-only forecast at the solar horizon point (nullable)
+     * @param snapshot        the build's tide snapshot, or {@code null} to query per slot
+     * @return the briefing slot, or null if the solar event time cannot be determined
+     */
+    public BriefingSlot buildSlot(LocationWeather lw, LocalDate date, TargetType eventType,
+            OpenMeteoForecastResponse horizonForecast, TideExtremeSnapshot snapshot) {
         LocationEntity loc = lw.location();
         OpenMeteoForecastResponse forecast = lw.forecast();
 
@@ -128,6 +197,11 @@ public class BriefingSlotBuilder {
         // stand-down for a sunset and the ideal under a canopy. Routing here rather than branching
         // inside BriefingVerdictEvaluator keeps one polarity per class — see
         // WoodlandVerdictEvaluator's class javadoc for the four rules that flip.
+        //
+        // This return is also, deliberately, why a canopy slot never carries an eclipse sight: it
+        // exits before the EclipseSightAssembler seam below, the same way BriefingSlot.canopySlot
+        // deliberately builds with TideInfo.NONE rather than deriving tide facts for a wood — a
+        // dawn race is a sky-photography concern, not a woodland one.
         if (loc.isWoodlandOnly()) {
             return buildWoodlandSlot(loc, solarTime, lowCloud, midCloud, highCloud, precip,
                     visibility, humidity, temp, apparentTemp, weatherCode, windSpeed);
@@ -137,7 +211,7 @@ public class BriefingSlotBuilder {
         List<Integer> lowCloudTrend = extractLowCloudTrend(h, idx);
 
         // Tide data from DB (using elevation-based window)
-        TideResult tideResult = calculateTideData(loc, solarTime, eventType);
+        TideResult tideResult = calculateTideData(loc, solarTime, eventType, snapshot);
 
         // Determine weather verdict (base check)
         Verdict verdict = verdictEvaluator.determineVerdict(lowCloud, precip, visibility, humidity);
@@ -168,6 +242,15 @@ public class BriefingSlotBuilder {
         // Coastal tide demotion: if coastal, tide data is present, but tide is not aligned
         // → override to STANDDOWN regardless of weather. If tide data is absent (tideState == null),
         // leave the weather-only verdict intact so missing data does not penalise the location.
+        //
+        // This is a VERDICT label only — since the tide gate lift (2026-09-18,
+        // docs/engineering/tide-window-plan.md §6 Q1) it no longer withholds the slot from
+        // Claude. A weather stand-down already reached Claude and was rated down with
+        // verdict = STANDDOWN (the Gate 2 redesign); a tide-mismatched slot now follows the
+        // identical shape — it reaches Claude, TideVisitor's R1 penalty (score 1) is averaged
+        // into the star by RatingCombiner, and the region roll-up (BriefingVerdictEvaluator
+        // .rollUpVerdict) still counts it as non-viable, which is honest: a 3★ combined rating on
+        // a wrong-water beach should not carry a region to GO the way a 4★ sky-only slot would.
         boolean tidesNotAligned = false;
         if (locationService.isCoastal(loc) && tideResult.tideState() != null
                 && !tideResult.tideAligned() && verdict != Verdict.STANDDOWN) {
@@ -201,11 +284,23 @@ public class BriefingSlotBuilder {
                 tideResult.lunarTideType(), tideResult.lunarPhase(),
                 tideResult.moonAtPerigee(), tideResult.nearestSolarOffsetMinutes(),
                 tideResult.nearestExtremeKind(), tideResult.tideOnTheLight(),
-                tideResult.nearestSolarOffsetPhrase());
+                tideResult.nearestSolarOffsetPhrase(), tideResult.tideLevel(),
+                tideResult.tideDirection(), tideResult.tideHeight(),
+                tideResult.tideShortfall(), tideResult.tideFitPhrase(),
+                tideResult.tideAlignmentQuality());
 
-        return new BriefingSlot(loc.getId(), loc.getName(), solarTime, verdict, weather,
-                tideInfo, flags,
-                standdownReason);
+        BriefingSlot slot = new BriefingSlot(loc.getId(), loc.getName(), solarTime, verdict,
+                weather, tideInfo, flags, standdownReason);
+
+        // The same seam TideInfo rides above: a per-location, per-window fact attached to the
+        // finished slot. Null on every night but a catalogued (or simulated) eclipse's own window
+        // — see EclipseSightAssembler's class javadoc.
+        BriefingSlot.EclipseSight eclipseSight = eclipseSightAssembler.forSlot(loc, date, eventType);
+        if (eclipseSight != null) {
+            slot = slot.withEclipse(eclipseSight);
+        }
+
+        return slot;
     }
 
     /**
@@ -258,17 +353,48 @@ public class BriefingSlotBuilder {
      *                                  sunset"}, built from {@link TideWording} so the map tab never
      *                                  formats a tide clock time itself; null alongside the three
      *                                  fields above
+     * @param tideLevel                 the water level at the light, 0.0–1.0 on the sampled
+     *                                  series' own span — the same normalisation the Plan tab's
+     *                                  window rollup uses; null for inland or no stored extremes
+     * @param tideDirection             {@code "RISING"} or {@code "FALLING"} at the light, null
+     *                                  alongside {@link #tideLevel}
+     * @param tideHeight                the interpolated height at the light, formatted, e.g.
+     *                                  {@code "2.6 m"}; null alongside {@link #tideLevel}
+     * @param tideShortfall             {@code "HIGHER"}/{@code "LOWER"}/null — see {@code
+     *                                  BriefingSlot.TideInfo#tideShortfall}
+     * @param tideFitPhrase             the map tab's tide-fit block body, formatted; null
+     *                                  alongside {@link #tideLevel}
+     * @param tideAlignmentQuality      how well-centred the water is in the wanted state at the
+     *                                  light (C0's served figure) — see {@link
+     *                                  BriefingSlot.TideInfo#tideAlignmentQuality}; relayed
+     *                                  unchanged from {@link com.gregochr.goldenhour.model.TideDerivation}
      */
     record TideResult(String tideState, boolean tideAligned,
             LocalDateTime nearestHighTime, BigDecimal nearestHighHeight,
             boolean heightAboveP95, boolean heightAboveSpringThreshold,
             LunarTideType lunarTideType, String lunarPhase, Boolean moonAtPerigee,
             Integer nearestSolarOffsetMinutes, String nearestExtremeKind, Boolean tideOnTheLight,
-            String nearestSolarOffsetPhrase) {
+            String nearestSolarOffsetPhrase, Double tideLevel, String tideDirection,
+            String tideHeight, String tideShortfall, String tideFitPhrase,
+            Double tideAlignmentQuality) {
 
         static final TideResult NONE =
                 new TideResult(null, false, null, null, false, false, null, null, null,
-                        null, null, null, null);
+                        null, null, null, null, null, null, null, null, null, null);
+    }
+
+    /**
+     * One coastal location's day-shape curve facts at one solar event.
+     *
+     * @param level        the water level at the light, 0.0–1.0 on the sampled series' own span
+     * @param direction    which way the water is moving at the light
+     * @param heightMetres the interpolated height at the light, raw metres, unformatted
+     * @param dayHighMetres the day's own high water — the series max, floored at {@code
+     *                      heightMetres} so the light's own instant can never read above it (see
+     *                      {@link #curveFacts})
+     */
+    private record CurveFacts(double level, BriefingWindowTide.Direction direction,
+            double heightMetres, double dayHighMetres) {
     }
 
     /**
@@ -291,12 +417,13 @@ public class BriefingSlotBuilder {
      * @return tide calculation result
      */
     private TideResult calculateTideData(LocationEntity loc, LocalDateTime solarTime,
-            TargetType eventType) {
+            TargetType eventType, TideExtremeSnapshot snapshot) {
         if (!locationService.isCoastal(loc)) {
             return TideResult.NONE;
         }
         Optional<TideDerivation> derived = tideFactDeriver.derive(
-                loc.getId(), solarTime, loc.getTideType(), loc.getLat(), loc.getLon(), eventType);
+                loc.getId(), solarTime, loc.getTideType(), loc.getLat(), loc.getLon(), eventType,
+                snapshot);
         if (derived.isEmpty()) {
             return TideResult.NONE;
         }
@@ -337,10 +464,127 @@ public class BriefingSlotBuilder {
                     + " · " + TideWording.offsetPhrase(nearestOffsetMinutes, solarWord);
         }
 
+        // Map tab tide-fit block: level, direction and height at the light, the shortfall arrow
+        // and the formatted fit phrase — the display facts the chip, callout and sheet need.
+        // Never a second definition of "aligned": d.tideAligned() (the tight, time-proximity
+        // alignment TideFactDeriver already derived) is the one input the tier and the shortfall
+        // are built from (CLAUDE.md's two-tide-axes rule).
+        CurveFacts curve = curveFacts(loc.getId(), solarTime, snapshot);
+        Double tideLevel = curve == null ? null : curve.level();
+        String tideDirection = curve == null ? null : curve.direction().name();
+        String tideHeight = curve == null ? null : TideWording.metres(curve.heightMetres());
+        String tideShortfall = tideShortfall(d.tideAligned(), d.tideState(), loc.getTideType());
+        String tideFitPhrase = curve == null ? null : TideWording.tideFitPhrase(
+                d.tideAligned(), loc.getTideType(), d.tideState().name(), tideDirection,
+                nearestOffsetPhrase, solarTime, tideHeight,
+                TideWording.metres(curve.dayHighMetres()));
+
         return new TideResult(d.tideState().name(), d.tideAligned(), d.nearestHighTideTime(),
                 d.nextHighTideHeightMetres(), heightAboveP95, heightAboveSpringThreshold,
                 d.lunarTideType(), d.lunarPhase(), d.moonAtPerigee(),
-                nearestOffsetMinutes, nearestKind, tideOnTheLight, nearestOffsetPhrase);
+                nearestOffsetMinutes, nearestKind, tideOnTheLight, nearestOffsetPhrase,
+                tideLevel, tideDirection, tideHeight, tideShortfall, tideFitPhrase,
+                d.tideAlignmentQuality());
+    }
+
+    /**
+     * The day's tide-shape curve facts at a solar event: the water level and direction at the
+     * light (on the same 0–1 normalisation {@code BriefingWindowTide.windowLevel} uses), the
+     * interpolated height, and the day's own high water — or null when no extremes are stored in
+     * the window, or none of them fall close enough to the light to draw a shape from.
+     *
+     * <p>Fetches independently of {@link TideFactDeriver#derive}, through the identical
+     * repository method and an identical ±{@value #CURVE_QUERY_WINDOW_DAYS}-day window to {@code
+     * TideService}'s own extremes fetch for the same location and event — no new query shape, and
+     * since both fetches run against the same location and instant they see the same rows in the
+     * common case. Kept as a second fetch rather than threading the raw extremes through {@code
+     * TideDerivation} because that type is shared with the scoring path, which has no use for a
+     * display curve.
+     *
+     * <p><b>Two empty checks, not one.</b> {@link TideCurveCalculator#seriesAround} narrows the
+     * fetched rows to a one-day-either-side window of the event's own local date, which can drop
+     * every row the ±{@value #CURVE_QUERY_WINDOW_DAYS}-day fetch found (a location's last stored
+     * extreme sitting right at the ingestion horizon, briefed two days past it). An empty {@code
+     * series} is not survivable: {@link TideCurveCalculator#heightAt} demands a non-empty,
+     * bracket-widened series and indexes into it unconditionally, so skipping this second check
+     * would throw {@code IndexOutOfBoundsException} out of the whole briefing build rather than
+     * degrade this one slot's display facts to null.
+     *
+     * <p>{@code dayHighMetres} is floored at the interpolated {@code heightMetres}: the sampled
+     * shape's own max is a max over 30-minute samples, so a light landing between two samples can
+     * read a genuinely higher instantaneous height than any single sample — the same reason {@link
+     * TideCurveCalculator.Shape#levelOf} clamps. Without the floor the miss phrase could print
+     * {@code "4.3 m of 4.2 m"}, a height above the day's own stated high.
+     *
+     * @param locationId the location primary key
+     * @param solarTime  UTC time of the solar event
+     * @param snapshot   the build's tide snapshot, or {@code null} to query
+     * @return the curve facts, or null when no extremes were found close enough to draw from
+     */
+    private CurveFacts curveFacts(Long locationId, LocalDateTime solarTime,
+            TideExtremeSnapshot snapshot) {
+        LocalDateTime from = solarTime.minusDays(CURVE_QUERY_WINDOW_DAYS);
+        LocalDateTime to = solarTime.plusDays(CURVE_QUERY_WINDOW_DAYS);
+        List<TideExtremeEntity> extremes = snapshot == null
+                ? tideExtremeRepository.findByLocationIdAndEventTimeBetweenOrderByEventTimeAsc(
+                        locationId, from, to)
+                : snapshot.between(tideExtremeRepository, locationId, from, to);
+        if (extremes.isEmpty()) {
+            return null;
+        }
+        LocalDate localDate = TideCurveCalculator.localDate(solarTime);
+        List<TideCurveCalculator.Point> series =
+                TideCurveCalculator.seriesAround(extremes, localDate);
+        if (series.isEmpty()) {
+            return null;
+        }
+        TideCurveCalculator.Shape shape = TideCurveCalculator.shape(series);
+        int eventMinutes = TideCurveCalculator.clockMinutesFrom(solarTime, localDate);
+        double heightMetres = TideCurveCalculator.heightAt(series, eventMinutes);
+        double dayHighMetres = Math.max(shape.min() + shape.span(), heightMetres);
+        return new CurveFacts(shape.levelOf(heightMetres),
+                TideCurveCalculator.directionAt(series, eventMinutes), heightMetres, dayHighMetres);
+    }
+
+    /**
+     * Whether the location wants more water than it is getting, less, or neither can be said.
+     *
+     * <p>{@code "HIGHER"} when every wanted state ranks above the served state (LOW &lt; MID &lt;
+     * HIGH), {@code "LOWER"} when every wanted state ranks below it, and null on an aligned slot
+     * or when the wanted set straddles the state — a {@code {HIGH, LOW}} location reading MID
+     * wants both more and less water, so no single arrow applies and the chip draws the plain
+     * miss wave rather than guess (CLAUDE.md's tide-window rule: the server owns this formula,
+     * never re-derived on the client from state and set).
+     *
+     * @param aligned   the served tight alignment
+     * @param tideState the state at the event, or null for inland
+     * @param wanted    the location's acceptable tide states
+     * @return {@code "HIGHER"}, {@code "LOWER"}, or null
+     */
+    private static String tideShortfall(boolean aligned, TideState tideState,
+            Set<TideType> wanted) {
+        if (aligned || tideState == null || wanted == null || wanted.isEmpty()) {
+            return null;
+        }
+        int stateRank = tideRank(tideState.name());
+        boolean allWantedHigher = wanted.stream().allMatch(w -> tideRank(w.name()) > stateRank);
+        boolean allWantedLower = wanted.stream().allMatch(w -> tideRank(w.name()) < stateRank);
+        if (allWantedHigher) {
+            return "HIGHER";
+        }
+        if (allWantedLower) {
+            return "LOWER";
+        }
+        return null;
+    }
+
+    /** {@code LOW = 0}, {@code MID = 1}, {@code HIGH = 2} — the water-level ordering. */
+    private static int tideRank(String state) {
+        return switch (state) {
+            case "LOW" -> 0;
+            case "HIGH" -> 2;
+            default -> 1;
+        };
     }
 
     /**

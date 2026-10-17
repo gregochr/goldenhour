@@ -10,6 +10,9 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within, cleanup } from '@testing-library/react';
 import WindowControl from '../components/map/WindowControl.jsx';
 import { rampHex } from '../utils/scoreRamp.js';
+import { unratedRulesFor, setsVerdictHue } from './unratedStylesheet.js';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 /**
  * jsdom normalises a hex `background` inline style to `rgb(r, g, b)` when read back — the same
@@ -405,6 +408,30 @@ describe('WindowControl — the dropdown', () => {
   });
 });
 
+describe('WindowControl — the row\'s topic icons (lunar-eclipse-plan.md §2.1)', () => {
+  // `CHANNEL_ICON` is keyed by CHANNEL, not by topic type, so LUNAR_ECLIPSE needs no entry of its
+  // own here: `badgeChannel` already routes it onto the same 'eclipse' channel as the solar
+  // ECLIPSE type, and this pins that the row's icon reflects the shared channel rather than
+  // silently falling through to the neutral '•'.
+  it('gives a LUNAR_ECLIPSE badge the same row icon as ECLIPSE — one shared channel', () => {
+    const lunarEvents = [row({ badges: [{ type: 'LUNAR_ECLIPSE', label: 'Lunar eclipse' }] })];
+    const { unmount } = render(
+      <WindowControl events={lunarEvents} activeIndex={0} onSelect={vi.fn()} />,
+    );
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    const lunarIcons = screen.getByTestId('wf-win-row').querySelector('.wf-win-row-topics').textContent;
+    unmount();
+
+    const solarEvents = [row({ badges: [{ type: 'ECLIPSE', label: 'Eclipse' }] })];
+    render(<WindowControl events={solarEvents} activeIndex={0} onSelect={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    const solarIcons = screen.getByTestId('wf-win-row').querySelector('.wf-win-row-topics').textContent;
+
+    expect(lunarIcons).toBe(solarIcons);
+    expect(lunarIcons).toBe('●');
+  });
+});
+
 describe('WindowControl — keyboard, scoped to this control (never document-global)', () => {
   it('ArrowRight on the control steps forward', () => {
     const { onSelect } = renderControl({ activeIndex: 1 });
@@ -677,6 +704,73 @@ describe('WindowControl — the verdict cell, medallion and ticks (map-landing-p
 
       expect(screen.getByTestId('wf-win-pill')).toHaveAttribute('data-tier', 'MAYBE');
       expect(screen.getByTestId('wf-win-verdict')).toHaveAttribute('data-tier', 'MAYBE');
+    });
+
+    it('words an UNRATED window "Too few rated", naming the region, on a tier with no verdict hue (U2)', () => {
+      renderControl({ verdicts: new Map([[SUNRISE, verdict('UNRATED', 'Northumberland & Tyneside', 1)]]) });
+
+      expect(screen.getByTestId('wf-win-verdict-word')).toHaveTextContent('Too few rated');
+      expect(screen.getByTestId('wf-win-verdict-region')).toHaveTextContent('Northumberland & Tyneside +1');
+      expect(screen.getByTestId('wf-win-verdict')).toHaveAttribute('data-tier', 'UNRATED');
+      expect(screen.getByTestId('wf-win-pill')).toHaveAttribute('data-tier', 'UNRATED');
+    });
+
+    it('⚠️ renders the SHORT/FULL pair so the pill can swap at 811px and the full word stays spoken (F3)', () => {
+      // "TOO FEW RATED" clipped the day label at 320 and 360px. The component renders both spans and
+      // the stylesheet swaps them on one media query — no script — so the DOM must carry the pair.
+      renderControl({ verdicts: new Map([[SUNRISE, verdict('UNRATED', 'Northumberland & Tyneside')]]) });
+
+      const word = screen.getByTestId('wf-win-verdict-word');
+      const short = within(word).getByTestId('wf-vw-short');
+      const full = within(word).getByTestId('wf-vw-full');
+      expect(short).toHaveTextContent(/^Too few$/);
+      expect(short).toHaveAttribute('aria-hidden', 'true');
+      expect(short).toHaveClass('wf-vw-short');
+      expect(full).toHaveTextContent(/^Too few rated$/);
+      expect(full).toHaveClass('wf-vw-full');
+      // The pill is a button named from its contents: the full word is in the name, the short form
+      // (aria-hidden) is not, so the shortening never reaches a screen reader.
+      expect(screen.getByTestId('wf-win-pill')).toHaveAccessibleName(/Too few rated/);
+    });
+
+    it('draws a rated word as bare text — no pair to swap', () => {
+      renderControl({ verdicts: new Map([[SUNRISE, verdict('WORTH_IT', 'The Lakes')]]) });
+      const word = screen.getByTestId('wf-win-verdict-word');
+      expect(word.children).toHaveLength(0);
+      expect(word).toHaveTextContent(/^Worth it$/);
+    });
+
+    it('swaps the pair on max-width: 811px in the stylesheet, hides the full word visually only, and gives the pill no hue (F3, F7)', () => {
+      // jsdom applies no stylesheet; these are the rules the swap rests on, read as text.
+      const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+      expect(css).toMatch(/\n\.wf-vw-short \{ display: none; \}/);
+      const at = css.indexOf('@media (max-width: 811px)');
+      expect(at).toBeGreaterThan(-1);
+      const block = css.slice(at, css.indexOf('\n}\n', at));
+      // Not hidden behind the 389px block any more: the first cut swapped there and left 390 clipping.
+      expect(css.slice(css.indexOf('@media (max-width: 389px)'))).not.toMatch(/wf-vw-/);
+      expect(block).toMatch(/\.wf-vw-short \{ display: inline; \}/);
+      const hidden = block.slice(block.indexOf('.wf-win-verdict-word .wf-vw-full'));
+      // Visually hidden, NOT display:none — display:none would drop the spoken full word.
+      expect(hidden).toMatch(/clip-path: inset\(50%\)/);
+      expect(hidden.slice(0, hidden.indexOf('}'))).not.toMatch(/display:\s*none/);
+      // And no rule matching an UNRATED pill or verdict cell sets a hue or a border/background tint.
+      const rules = [...unratedRulesFor('.wf-win-pill'), ...unratedRulesFor('.wf-win-verdict'),
+        ...unratedRulesFor('.wf-land-verdict')];
+      expect(rules.length).toBeGreaterThan(0);
+      rules.forEach(({ selector, body }) => {
+        expect(setsVerdictHue(body), selector).toBe(false);
+        expect(body, selector).not.toMatch(/(?:^|;|\s)(?:border|background|color)[a-z-]*:/);
+      });
+    });
+
+    it('names a neighbouring UNRATED window by its word for a screen reader', () => {
+      renderControl({
+        activeIndex: 0,
+        verdicts: new Map([[EVENTS[1].id, verdict('UNRATED', 'The Dales')]]),
+      });
+
+      expect(screen.getByRole('button', { name: 'Next event, Too few rated' })).toBeInTheDocument();
     });
 
     it('leaves an unscored window untinted rather than tinting it as poor', () => {

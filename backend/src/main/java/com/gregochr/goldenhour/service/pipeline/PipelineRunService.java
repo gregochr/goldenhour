@@ -98,7 +98,7 @@ public class PipelineRunService {
      */
     @Transactional
     public void completePhase(Long runId, PipelinePhase phase, String detail) {
-        PipelineRunPhaseEntity row = findLatestPhase(runId, phase);
+        PipelineRunPhaseEntity row = requireLatestPhase(runId, phase);
         row.setStatus(PipelinePhaseStatus.COMPLETED);
         row.setCompletedAt(clock.instant());
         if (detail != null) {
@@ -117,7 +117,7 @@ public class PipelineRunService {
      */
     @Transactional
     public void failPhase(Long runId, PipelinePhase phase, String detail) {
-        PipelineRunPhaseEntity row = findLatestPhase(runId, phase);
+        PipelineRunPhaseEntity row = requireLatestPhase(runId, phase);
         row.setStatus(PipelinePhaseStatus.FAILED);
         row.setCompletedAt(clock.instant());
         row.setDetail(detail);
@@ -169,6 +169,35 @@ public class PipelineRunService {
         run.setCompletedAt(clock.instant());
         pipelineRunRepository.save(run);
         LOG.warn("Pipeline run {}: FAILED — {}", runId, reason);
+    }
+
+    /**
+     * Marks the entire run {@link PipelineRunStatus#DEGRADED}: the cycle completed every phase —
+     * WAIT and BRIEFING both ran, briefing from whatever cache existed — but one or more forecast
+     * batch submissions failed, so some or all of the served ratings predate this cycle.
+     *
+     * <p>Called instead of {@link #completeRun(Long)} exactly once, at the same point in the
+     * sequence, when the {@code FORECAST_BATCH_SUBMIT} phase row was left {@code FAILED} by
+     * {@link #failPhase}. Never called when the run is already going to be marked {@link #failRun
+     * FAILED} for an unrelated reason — {@code PipelineOrchestrator}'s try/catch structure means
+     * those paths return before reaching this call, so FAILED always outranks DEGRADED by
+     * construction, never by a check here.
+     *
+     * @param runId  pipeline run id
+     * @param reason the same detail recorded on the failed {@code FORECAST_BATCH_SUBMIT} phase
+     *               row — e.g. "3 of 3 forecast batch submissions failed (510 requests not
+     *               submitted)"
+     */
+    @Transactional
+    public void degradeRun(Long runId, String reason) {
+        PipelineRunEntity run = pipelineRunRepository.findById(runId).orElseThrow();
+        run.setStatus(PipelineRunStatus.DEGRADED);
+        run.setFailureReason(reason);
+        run.setCurrentPhase(null);
+        run.setWaitingOn(null);
+        run.setCompletedAt(clock.instant());
+        pipelineRunRepository.save(run);
+        LOG.warn("Pipeline run {}: DEGRADED — {}", runId, reason);
     }
 
     /**
@@ -233,16 +262,31 @@ public class PipelineRunService {
         return pipelineRunPhaseRepository.findByPipelineRunIdOrderBySequenceOrderAsc(runId);
     }
 
-    private PipelineRunPhaseEntity findLatestPhase(Long runId, PipelinePhase phase) {
-        List<PipelineRunPhaseEntity> all = pipelineRunPhaseRepository
-                .findByPipelineRunIdOrderBySequenceOrderAsc(runId);
+    /**
+     * Finds the most recent row for the given phase on this run, or empty if the phase never
+     * started. Unlike {@link #completePhase}/{@link #failPhase}'s own private lookup, this never
+     * throws — it is a query, not a lifecycle transition, so a caller deciding what to do next
+     * (e.g. the orchestrator reading whether {@code FORECAST_BATCH_SUBMIT} was left FAILED before
+     * deciding COMPLETED vs DEGRADED) can call it unconditionally, including after a process
+     * restart where the phase row is the only durable record of what happened.
+     *
+     * @param runId pipeline run id
+     * @param phase phase to look up
+     * @return the latest row for that phase, or empty if none exists
+     */
+    public Optional<PipelineRunPhaseEntity> findLatestPhase(Long runId, PipelinePhase phase) {
+        List<PipelineRunPhaseEntity> all = findPhases(runId);
         for (int i = all.size() - 1; i >= 0; i--) {
             if (all.get(i).getPhase() == phase) {
-                return all.get(i);
+                return Optional.of(all.get(i));
             }
         }
-        throw new IllegalStateException(
+        return Optional.empty();
+    }
+
+    private PipelineRunPhaseEntity requireLatestPhase(Long runId, PipelinePhase phase) {
+        return findLatestPhase(runId, phase).orElseThrow(() -> new IllegalStateException(
                 "No phase row for run " + runId + " phase " + phase
-                        + " — startPhase must be called before completePhase/failPhase");
+                        + " — startPhase must be called before completePhase/failPhase"));
     }
 }

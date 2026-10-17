@@ -8,12 +8,14 @@ import com.gregochr.goldenhour.model.ForecastDtoMapper;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.EvaluationViewService;
+import com.gregochr.goldenhour.service.FailedSlotRetryService;
 import com.gregochr.goldenhour.service.ForecastCommandExecutor;
 import com.gregochr.goldenhour.service.ForecastCommandFactory;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.LocationService;
 import com.gregochr.goldenhour.service.RunProgressTracker;
 import com.gregochr.goldenhour.service.ScheduledForecastService;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -58,7 +60,7 @@ class ForecastWindowAnchorTest {
     private static final LocalDate UK_YESTERDAY = LocalDate.of(2026, 8, 11);
 
     private static final LocalDate EXPECTED_FROM =
-            UK_TODAY.minusDays(ForecastController.PAST_WINDOW_DAYS);
+            UK_TODAY.minusDays(ForecastHorizon.SERVE_PAST_DAYS);
     private static final LocalDate EXPECTED_TO =
             UK_TODAY.plusDays(ForecastCommandFactory.FORECAST_HORIZON_DAYS);
 
@@ -90,6 +92,15 @@ class ForecastWindowAnchorTest {
     private RunProgressTracker progressTracker;
 
     @Mock
+    private FailedSlotRetryService retryService;
+
+    @Mock
+    private com.gregochr.goldenhour.service.AsOfEventResolver asOfEventResolver;
+
+    @Mock
+    private com.gregochr.goldenhour.service.SolarEventFreshness solarEventFreshness;
+
+    @Mock
     private BriefingEvaluationService briefingEvaluationService;
 
     private ForecastController forecastController;
@@ -103,7 +114,8 @@ class ForecastWindowAnchorTest {
     void setUp() {
         forecastController = new ForecastController(repository, locationService, commandFactory,
                 commandExecutor, scheduledForecastService, dtoMapper, evaluationViewService,
-                jobRunService, progressTracker, Runnable::run, LATE_BST_EVENING);
+                jobRunService, progressTracker, Runnable::run, LATE_BST_EVENING,
+                retryService, asOfEventResolver, solarEventFreshness);
         briefingEvaluationController = new BriefingEvaluationController(
                 briefingEvaluationService, evaluationViewService, LATE_BST_EVENING);
     }
@@ -115,7 +127,7 @@ class ForecastWindowAnchorTest {
         when(repository.findLatestRunPerSlotByLocationIds(eq(List.of(1L)), any(), any()))
                 .thenReturn(List.of());
         when(dtoMapper.toListDtoList(List.of(), true)).thenReturn(List.of());
-        when(evaluationViewService.cachedOnlyViewsForDateRange(any(), any(), any(), any()))
+        when(evaluationViewService.cachedOnlyViewsForDateRange(any(), any(), any(), any(), any()))
                 .thenReturn(List.of());
 
         forecastController.getForecasts(null);

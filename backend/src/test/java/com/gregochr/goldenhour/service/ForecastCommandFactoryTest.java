@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.RunType;
+import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.service.evaluation.EvaluationStrategy;
 import com.gregochr.goldenhour.service.evaluation.NoOpEvaluationStrategy;
 import com.gregochr.goldenhour.util.ForecastHorizon;
@@ -237,6 +238,52 @@ class ForecastCommandFactoryTest {
         assertThat(cmd.runType()).isEqualTo(RunType.BRIEFING);
         assertThat(cmd.strategy()).isNull();
         assertThat(cmd.dates()).hasSize(6);
+    }
+
+    private static final ForecastSlot DURHAM_SAT_SUNSET =
+            new ForecastSlot("Durham", LocalDate.of(2026, 10, 3), TargetType.SUNSET);
+    private static final ForecastSlot BAMBURGH_SUN_SUNRISE =
+            new ForecastSlot("Bamburgh", LocalDate.of(2026, 10, 4), TargetType.SUNRISE);
+
+    @Test
+    @DisplayName("createForSlots(VERY_SHORT_TERM) resolves VERY_SHORT_TERM's model, not SHORT_TERM's, "
+            + "and carries the slots, their sorted distinct dates and no exclusions")
+    void createForSlots_veryShortTerm_resolvesItsOwnConfig() {
+        when(modelSelectionService.getActiveModel(RunType.VERY_SHORT_TERM))
+                .thenReturn(EvaluationModel.HAIKU);
+        LocationEntity durham = LocationEntity.builder().id(1L).name("Durham").build();
+
+        ForecastCommand cmd = factory.createForSlots(RunType.VERY_SHORT_TERM, true, List.of(durham),
+                Set.of(BAMBURGH_SUN_SUNRISE, DURHAM_SAT_SUNSET));
+
+        assertThat(cmd.runType()).isEqualTo(RunType.VERY_SHORT_TERM);
+        assertThat(cmd.strategy()).isSameAs(haikuStrategy);
+        assertThat(cmd.triggeredManually()).isTrue();
+        assertThat(cmd.locations()).containsExactly(durham);
+        assertThat(cmd.slots()).containsExactlyInAnyOrder(DURHAM_SAT_SUNSET, BAMBURGH_SUN_SUNRISE);
+        assertThat(cmd.dates()).containsExactly(LocalDate.of(2026, 10, 3), LocalDate.of(2026, 10, 4));
+        assertThat(cmd.excludedSlots()).isEmpty();
+        assertThat(cmd.excludedLocations()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("createForSlots(LONG_TERM) resolves LONG_TERM's model (Opus here), not SHORT_TERM's (Sonnet)")
+    void createForSlots_longTerm_resolvesItsOwnConfig() {
+        when(modelSelectionService.getActiveModel(RunType.LONG_TERM)).thenReturn(EvaluationModel.OPUS);
+
+        ForecastCommand cmd = factory.createForSlots(RunType.LONG_TERM, true, List.of(),
+                Set.of(DURHAM_SAT_SUNSET));
+
+        assertThat(cmd.runType()).isEqualTo(RunType.LONG_TERM);
+        assertThat(cmd.strategy()).isSameAs(opusStrategy);
+    }
+
+    @Test
+    @DisplayName("a command built without slots has an empty slot set: every places-by-dates slot runs")
+    void create_withoutSlots_hasEmptySlotSet() {
+        when(modelSelectionService.getActiveModel(RunType.SHORT_TERM)).thenReturn(EvaluationModel.SONNET);
+
+        assertThat(factory.create(RunType.SHORT_TERM, true).slots()).isEmpty();
     }
 
     /**

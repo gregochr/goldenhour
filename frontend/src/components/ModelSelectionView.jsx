@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react';
+import { modelLabel } from '../utils/modelLabels.js';
 import { getAvailableModels, setActiveModel, setExtendedThinking, updateOptimisationStrategy } from '../api/modelsApi.js';
 import { fetchLocations } from '../api/forecastApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import InfoTip from './InfoTip.jsx';
 import ErrorBanner from './shared/ErrorBanner.jsx';
 import { RUN_TYPE_RANGES } from '../utils/runTypeRanges.js';
+import { isWildlifeOnly } from '../utils/locationTypes.js';
+import { apiErrorMessage } from '../utils/apiError.js';
 
 const CONFIG_TABS = [
   { key: 'VERY_SHORT_TERM', label: 'Very Short-Term (T, T+1)', tip: 'Imminent forecasts — today and tomorrow. Use a high-accuracy model here.' },
@@ -27,23 +30,39 @@ const USD_TO_GBP = 0.79;
 
 const MODEL_INFO = {
   HAIKU: {
-    name: 'Haiku',
+    name: modelLabel('HAIKU'),
     description: 'Fast, cost-efficient model. Returns 1-5 star rating.',
     typicalCostUsd: 0.002,
     tokenRates: '£0.80/MTok in, £4/MTok out',
     speed: 'Fast',
     recommended: true,
   },
+  HAIKU_55: {
+    name: modelLabel('HAIKU_55'),
+    description: 'Newer Haiku. Run here with thinking off at low effort. Returns 1-5 star rating.',
+    typicalCostUsd: 0.0003,
+    tokenRates: '£0.08/MTok in, £0.40/MTok out',
+    speed: 'Fast',
+    recommended: false,
+  },
   SONNET: {
-    name: 'Sonnet',
+    name: modelLabel('SONNET'),
     description: 'Advanced model. Returns detailed 0-100 scores for fiery sky and golden hour potential.',
     typicalCostUsd: 0.005,
     tokenRates: '£2.40/MTok in, £12/MTok out',
     speed: 'Moderate',
     recommended: false,
   },
+  SONNET_55: {
+    name: modelLabel('SONNET_55'),
+    description: 'Newer Sonnet. Always thinks adaptively, run here at low effort. Returns detailed 0-100 scores.',
+    typicalCostUsd: 0.005,
+    tokenRates: '£1.58/MTok in, £7.90/MTok out',
+    speed: 'Moderate',
+    recommended: false,
+  },
   OPUS: {
-    name: 'Opus',
+    name: modelLabel('OPUS'),
     description: 'Highest accuracy model. Returns detailed 0-100 scores with the deepest reasoning.',
     typicalCostUsd: 0.008,
     tokenRates: '£4/MTok in, £20/MTok out',
@@ -60,7 +79,7 @@ function toGbp(usd) {
 }
 
 /** Typical cost per call in USD, used for run cost estimates. */
-const COST_PER_CALL = { HAIKU: 0.002, SONNET: 0.005, OPUS: 0.008 };
+const COST_PER_CALL = { HAIKU: 0.002, HAIKU_55: 0.0003, SONNET: 0.005, SONNET_55: 0.005, OPUS: 0.008 };
 
 /** Number of forecast days per run type. Each day has 2 slots (sunrise + sunset). */
 const DAYS_PER_RUN = {
@@ -79,13 +98,17 @@ const TAB_DESCRIPTIONS = {
 const BATCH_MODEL_DESCRIPTIONS = {
   HAIKU: 'Fast, cost-efficient model for overnight batch runs. Lower quality reasoning on marginal conditions.',
   SONNET: 'Recommended for scheduled batch runs. Strong reasoning at low cost with batch pricing and prompt caching applied.',
+  HAIKU_55: 'Selectable newer Haiku for scheduled batch runs, about a tenth of Haiku 4.5\'s price per token (its tokeniser counts about 30% more tokens). Untested against the prompt-regression suite; not the recommended default.',
+  SONNET_55: 'Selectable newer Sonnet for scheduled batch runs. Costs about the same as Sonnet 4.6 because its tokeniser counts more input tokens; not the recommended default.',
   OPUS: 'Highest accuracy for batch runs. Best reserved for key seasonal events only.',
 };
 
 /** Static cost rows for the Scheduled Batch cost table (batch API 50% discount + caching). */
 const BATCH_COST_ROWS = [
   { model: 'HAIKU',  perRequest: '~£0.0001', typicalRun: '~£0.01 – £0.04' },
+  { model: 'HAIKU_55', perRequest: '~£0.00002', typicalRun: '~£0.001 – £0.005' },
   { model: 'SONNET', perRequest: '~£0.0002', typicalRun: '~£0.02 – £0.08' },
+  { model: 'SONNET_55', perRequest: '~£0.0002', typicalRun: '~£0.02 – £0.08' },
   { model: 'OPUS',   perRequest: '~£0.0004', typicalRun: '~£0.04 – £0.16' },
 ];
 
@@ -192,7 +215,7 @@ export default function ModelSelectionView() {
         setStrategies(data.optimisationStrategies || {});
         // Count enabled non-wildlife locations (wildlife doesn't use Claude)
         const evalLocations = (locations || []).filter(
-          (l) => l.enabled !== false && !(l.locationType?.length === 1 && l.locationType[0] === 'WILDLIFE')
+          (l) => l.enabled !== false && !isWildlifeOnly(l.locationType)
         );
         setLocationCount(evalLocations.length);
       } catch (err) {
@@ -215,7 +238,7 @@ export default function ModelSelectionView() {
       const result = await setActiveModel(runType, model);
       setConfigs((prev) => ({ ...prev, [runType]: result.active }));
       const tabLabel = CONFIG_TABS.find((t) => t.key === runType)?.label || runType;
-      setSuccess(`${tabLabel} model switched to ${MODEL_INFO[result.active]?.name || result.active}`);
+      setSuccess(`${tabLabel} model switched to ${modelLabel(result.active)}`);
     } catch (err) {
       setError(`Failed to switch model for ${runType}`);
       console.error(err);
@@ -243,8 +266,7 @@ export default function ModelSelectionView() {
       const info = STRATEGY_INFO[strategyType];
       setSuccess(`${info?.label || strategyType} ${newEnabled ? 'enabled' : 'disabled'}`);
     } catch (err) {
-      const msg = err.response?.data?.message || err.response?.data || `Failed to update ${strategyType}`;
-      setError(typeof msg === 'string' ? msg : `Failed to update ${strategyType}`);
+      setError(apiErrorMessage(err, `Failed to update ${strategyType}`));
       console.error(err);
     }
   };
@@ -328,7 +350,7 @@ export default function ModelSelectionView() {
             >
               {tab.label}
               <span className="ml-2 text-xs opacity-60">
-                ({MODEL_INFO[configs[tab.key]]?.name || configs[tab.key] || 'Haiku'})
+                ({modelLabel(configs[tab.key]) || modelLabel('HAIKU')})
               </span>
             </button>
             <InfoTip text={tab.tip} />
@@ -424,13 +446,24 @@ export default function ModelSelectionView() {
                 (budgets up to 10 000 thinking tokens per call).
                 {extendedThinkingConfig['BRIEFING_BEST_BET'] && activeModelForTab === 'HAIKU' && (
                   <span className="text-yellow-400 ml-1">
-                    ⚠ Haiku does not support extended thinking — switch to Sonnet or Opus.
+                    ⚠ Haiku 4.5 does not support extended thinking — switch to Sonnet or Opus.
                   </span>
                 )}
               </p>
-              {extendedThinkingConfig['BRIEFING_BEST_BET'] && activeModelForTab !== 'HAIKU' && (
+              {extendedThinkingConfig['BRIEFING_BEST_BET'] && activeModelForTab === 'HAIKU_55' && (
+                <p className="text-xs text-yellow-400 mt-1" data-testid="extended-thinking-haiku-55-note">
+                  Haiku 5.5 runs with thinking disabled, so this switch has no effect on it.
+                </p>
+              )}
+              {extendedThinkingConfig['BRIEFING_BEST_BET'] && activeModelForTab === 'SONNET_55' && (
+                <p className="text-xs text-yellow-400 mt-1" data-testid="extended-thinking-sonnet-55-note">
+                  Sonnet 5.5 always thinks adaptively at low effort, so this switch has no effect on it.
+                </p>
+              )}
+              {extendedThinkingConfig['BRIEFING_BEST_BET'] && activeModelForTab !== 'HAIKU'
+                && activeModelForTab !== 'SONNET_55' && activeModelForTab !== 'HAIKU_55' && (
                 <p className="text-xs text-violet-400 mt-1">
-                  Active — adds ~10 000 thinking tokens per call (Sonnet: +~£0.12, Opus: +~£0.40).
+                  Active — adds ~10 000 thinking tokens per call (Sonnet 4.6: +~£0.12, Opus: +~£0.40).
                 </p>
               )}
             </div>
@@ -590,7 +623,7 @@ export default function ModelSelectionView() {
                   </tr>
                 </thead>
                 <tbody>
-                  {['HAIKU', 'SONNET', 'OPUS'].map((model) => {
+                  {['HAIKU', 'HAIKU_55', 'SONNET', 'SONNET_55', 'OPUS'].map((model) => {
                     const total = (COST_PER_CALL[model] * calls).toFixed(2);
                     const isActive = model === activeModelForTab;
                     return (

@@ -341,13 +341,34 @@ class AuroraAdminControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @DisplayName("POST /api/aurora/admin/simulate/clear returns 200 for ADMIN and resets state")
+    @DisplayName("POST /api/aurora/admin/simulate/clear ends a running simulation for ADMIN")
     @WithMockUser(roles = {"ADMIN"})
-    void simulateClear_admin_returns200() throws Exception {
+    void simulateClear_admin_endsTheSimulation() throws Exception {
+        when(stateCache.endSimulation()).thenReturn(true);
+
         mockMvc.perform(post("/api/aurora/admin/simulate/clear"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("Aurora simulation cleared"));
 
-        verify(stateCache).reset();
+        verify(stateCache).endSimulation();
+        verify(stateCache, never()).reset();
+    }
+
+    /**
+     * The admin's screen can show a simulation that a real reading has already ended — with a real
+     * alert, if the reading was one. Clear must then leave the machine alone: a reset here would wipe
+     * that real alert for every Pro user.
+     */
+    @Test
+    @DisplayName("POST /api/aurora/admin/simulate/clear with no simulation running clears nothing")
+    @WithMockUser(roles = {"ADMIN"})
+    void simulateClear_noSimulationRunning_clearsNothing() throws Exception {
+        when(stateCache.endSimulation()).thenReturn(false);
+
+        mockMvc.perform(post("/api/aurora/admin/simulate/clear"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("No aurora simulation was running — nothing cleared"));
+
+        verify(stateCache, never()).reset();
     }
 }

@@ -16,13 +16,28 @@ public class CloudPointCache {
 
     private final Map<String, OpenMeteoForecastResponse> cache;
 
+    private final Map<String, OpenMeteoForecastResponse> pressureLevels;
+
     /**
      * Constructs a cache from a map of grid key to forecast response.
      *
      * @param cache grid key to cloud-only forecast response
      */
     public CloudPointCache(Map<String, OpenMeteoForecastResponse> cache) {
+        this(cache, Map.of());
+    }
+
+    /**
+     * Constructs a cache from cloud responses plus an optional second map of pressure-level
+     * cloud responses, keyed by the same grid key ({@link #gridKey(double, double)}).
+     *
+     * @param cache          grid key to cloud-only forecast response
+     * @param pressureLevels grid key to pressure-level cloud response (far points only)
+     */
+    public CloudPointCache(Map<String, OpenMeteoForecastResponse> cache,
+            Map<String, OpenMeteoForecastResponse> pressureLevels) {
         this.cache = Map.copyOf(cache);
+        this.pressureLevels = Map.copyOf(pressureLevels);
     }
 
     /**
@@ -37,7 +52,18 @@ public class CloudPointCache {
     }
 
     /**
-     * Returns the number of unique grid cells in the cache.
+     * Looks up the pressure-level cloud response for a coordinate, snapped to grid resolution.
+     *
+     * @param lat latitude
+     * @param lon longitude
+     * @return the pressure-level response, or {@code null} if none was fetched for that cell
+     */
+    public OpenMeteoForecastResponse getPressureLevels(double lat, double lon) {
+        return pressureLevels.get(gridKey(lat, lon));
+    }
+
+    /**
+     * Returns the number of unique grid cells in the cloud map (pressure levels not counted).
      *
      * @return cache size
      */

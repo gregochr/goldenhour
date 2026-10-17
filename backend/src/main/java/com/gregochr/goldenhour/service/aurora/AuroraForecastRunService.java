@@ -199,6 +199,21 @@ public class AuroraForecastRunService {
     }
 
     /**
+     * The highest Kp NOAA forecasts for the rest of the night {@link #currentNight()} names — the
+     * figure the poller itself reads tonight through, {@link AuroraOrchestrator#maxKpRestOfTonight},
+     * handed this class's own window for that night and one read of the clock, so the viewline
+     * endpoint and the state machine cannot disagree about what "tonight" or "the rest of it" is.
+     *
+     * @param forecast NOAA's Kp product: observed, estimated and predicted blocks alike
+     * @return the highest Kp of the blocks still ahead in the current or next dark window, or 0 if none
+     */
+    public double maxKpRestOfCurrentNight(List<KpForecast> forecast) {
+        ZonedDateTime now = ZonedDateTime.now(clock);
+        TonightWindow window = computeWindowForDate(currentNight().date());
+        return AuroraOrchestrator.maxKpRestOfTonight(forecast, window, now);
+    }
+
+    /**
      * Nautical dawn on {@code date} at the reference point, as {@link #computeWindowForDate} places
      * the end of the window named the day before.
      *
@@ -217,16 +232,10 @@ public class AuroraForecastRunService {
      * <p>This is cheap to produce — it reads cached NOAA forecast data and queries the
      * locations table. No Claude API calls are made.
      *
-     * @return preview of the next three nights
-     */
-    /**
-     * Returns a 3-night Kp preview (tonight, T+1, T+2) for the night selector popup.
-     *
-     * <p>This is cheap to produce — it reads cached NOAA forecast data and queries the
-     * locations table. No Claude API calls are made.
-     *
      * <p>When simulation mode is active, the simulated Kp value is substituted for all
-     * three nights so the night selector shows realistic data for an admin test run.
+     * three nights so the night selector shows realistic data for an admin test run. The
+     * simulation is read once, and its presence is the answer to "simulated?" — see
+     * {@link AuroraStateCache#getSimulatedData()}.
      *
      * @return preview of the next three nights
      */

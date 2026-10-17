@@ -241,4 +241,71 @@ class LocationEntityTest {
                     .build();
         }
     }
+
+    @Nested
+    @DisplayName("isWildlifeOnly")
+    class IsWildlifeOnly {
+
+        @Test
+        @DisplayName("WILDLIFE as the only type is wildlife-only")
+        void wildlifeAlone_returnsTrue() {
+            assertThat(typed(Set.of(LocationType.WILDLIFE)).isWildlifeOnly()).isTrue();
+        }
+
+        @Test
+        @DisplayName("an unclassified (empty) location is not wildlife-only")
+        void empty_returnsFalse() {
+            assertThat(typed(Set.of()).isWildlifeOnly()).isFalse();
+        }
+
+        @Test
+        @DisplayName("a null type set is not wildlife-only")
+        void nullTypes_returnsFalse() {
+            LocationEntity loc = typed(Set.of());
+            loc.setLocationType(null);
+
+            assertThat(loc.isWildlifeOnly()).isFalse();
+        }
+
+        @Test
+        @DisplayName("WILDLIFE + WOODLAND is not wildlife-only, though isPureWildlife admits it")
+        void wildlifeAndWoodland_returnsFalse() {
+            LocationEntity loc = typed(Set.of(LocationType.WILDLIFE, LocationType.WOODLAND));
+
+            assertThat(loc.isWildlifeOnly()).isFalse();
+            // The older, wider rule: WILDLIFE present and no colour type. The two must differ.
+            assertThat(loc.getLocationType().contains(LocationType.WILDLIFE) && !loc.hasColourTypes())
+                    .isTrue();
+        }
+
+        @Test
+        @DisplayName("WILDLIFE + BLUEBELL is not wildlife-only")
+        void wildlifeAndBluebell_returnsFalse() {
+            assertThat(typed(Set.of(LocationType.WILDLIFE, LocationType.BLUEBELL)).isWildlifeOnly())
+                    .isFalse();
+        }
+
+        @Test
+        @DisplayName("WILDLIFE + LANDSCAPE is not wildlife-only")
+        void wildlifeAndLandscape_returnsFalse() {
+            assertThat(typed(Set.of(LocationType.WILDLIFE, LocationType.LANDSCAPE)).isWildlifeOnly())
+                    .isFalse();
+        }
+
+        @Test
+        @DisplayName("LANDSCAPE alone and WATERFALL alone are not wildlife-only")
+        void colourOnly_returnsFalse() {
+            assertThat(typed(Set.of(LocationType.LANDSCAPE)).isWildlifeOnly()).isFalse();
+            assertThat(typed(Set.of(LocationType.WATERFALL)).isWildlifeOnly()).isFalse();
+        }
+
+        private LocationEntity typed(Set<LocationType> types) {
+            return LocationEntity.builder()
+                    .name("Low Barns")
+                    .lat(54.65)
+                    .lon(-1.7)
+                    .locationType(new HashSet<>(types))
+                    .build();
+        }
+    }
 }

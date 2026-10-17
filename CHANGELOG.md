@@ -5,6 +5,10883 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.29.0] - 2026-10-17
+
+### Docs — valley mist plan: the morning PhotoCast cannot see
+
+`docs/engineering/valley-mist-plan.md` records why a riverside radiation-mist sunrise under a clear sky is
+stood down by weather triage's 5 km visibility rule before Claude ever sees it, and why no surface names
+it the night before: mist is modelled from above (the inversion calculator), from inside a wood (the canopy
+lane) and as a haze modifier in the sky prompt, never as a subject from beside it. The plan proposes a
+`mist_prone` location attribute, a `ValleyMistCalculator` recorded on `slot_atmosphere` with a `MIST` hot
+topic and Coming up condition (M1, no Claude cost), a triage routing exemption plus a prompt block and
+Claude echo for flagged sites (M2), a `seen` tag on the outcome rating and an ERA5 saturation proxy for
+verification (M3), and a UKV 2 km side-fetch only if the measurement phase justifies it (M4). The
+measurement SQL is `docs/engineering/valley-mist-phase0.sql`. Six owner decisions are listed; nothing is
+built.
+
+### Fixed — a row-served slot now carries its sky rating
+
+When a `forecast_evaluation` row won the precedence over the briefing cache,
+`EvaluationViewService.toEnrichmentResult` built the enrichment result without the row's
+`sky_rating` (V164), so that slot's `skyRating` was null although the column held it. The row's
+`sky_rating` is now passed through. A row-served slot shows the tide-fit block's "· sky N★" clause
+where it applies, exactly as a cache-served slot already did, and the briefing build persists that
+`skyRating` into `daily_briefing_cache`. A rated row with no `sky_rating` (written before V164, or by
+the synchronous engine) still serves null, and a triage row still carries none. No migration. This
+is phase G1a of `docs/engineering/neighbour-guard-plan.md`: the guard compares sky ratings, so a
+row-served slot must carry one.
+
+### Changed — phone Map: tapping an Ask pick opens its callout and leaves the answer minimised
+
+On a phone, tapping a numbered pick chip (or its pin) on the Map now opens that place's normal callout,
+for the pick's own window, and leaves the Ask answer on its one-line strip. Before, it expanded the answer
+to full height and opened no callout. An expanded answer is minimised by the tap (a callout and an expanded
+sheet never show together); tap the strip to get the cards back. An open Windows, Tide or Layers section
+closes the same way, while an open region drilldown stays, as it does under an ordinary chip. Choosing a
+pick from its card in the answer is unchanged, and so is everything on tablet and desktop.
+
+### Docs — phone Map: a pick opens its callout, and a Layers door — the plan
+
+`docs/engineering/phone-pick-callout-plan.md` plans two owner-requested phone changes on the Map tab.
+Tapping an Ask pick on the map opens that place's callout for the pick's own window and leaves the
+Ask answer minimised, instead of expanding it. The minimised answer line gains a LAYERS door that
+opens the sheet's Layers section (and so the filters) with the answer kept. Tablet and desktop are
+unchanged. The plan was reviewed adversarially before merge; §8 lists what that changed.
+
+### Changed — phone Map: a Layers door on the minimised Ask answer
+
+On a phone, with an Ask answer on its one-line strip, the strip now has a small `LAYERS ☰` button beside it.
+It opens the Layers section (Heat or Pins, Regions, Filters, Tide mode) with the answer kept; closing Layers
+puts you back on the strip. Before, an answer replaced the Other windows, Tide and Layers buttons, so the map
+filters were reachable only through the window pill. On phones under 400px wide (most iPhones) the strip drops
+the spot's time to give its name the room. Tablet and desktop are unchanged.
+
+### Fixed — Map: windows scored before the last release can be rated again
+
+Wednesday's and Thursday's sunrises and sunsets could not be rated, and stepping back with `‹` stopped at
+Friday. The release that added "How was it?" records when each forecast row became available, and treated every
+row scored before that release as unknown, so those passed windows had no forecast to show and no row to rate.
+One migration now gives those rows (the ones with a rating or a stand-down reason) the time they were
+submitted as that availability time. For a forecast that came back from the batch service after its sunrise or
+sunset, the submission time is earlier than the true one, so an older window can occasionally show a forecast
+slightly earlier than the one the reader actually saw. Only about a week of rows is affected, and they leave the
+rating window by mid-November. Rows scored after the release are untouched.
+
+### Fixed — Map: an earlier day with no stored forecast now says so
+
+Stepping back past the oldest window loads the day before it. When that day had no stored forecast, nothing
+happened: the menu showed no sign of it, and after three such days `‹` went grey with no explanation. The
+window list (and the phone sheet's Windows section) now shows a quiet line, "No stored forecast for Thu 15",
+where that day's Load row was, announces it to screen readers, and keeps it at the four-day limit so the
+disabled `‹` is explained. The Load row for the next older day still follows it.
+
+### Changed — the neighbour guard is on by default
+
+A sky rating that stands two or more stars above every place within 5 km, when at least two of those places are at a similar height, is no longer named as a destination. Ask no longer offers it as a pick, the BEST BET / ALSO GOOD window pick no longer names it, and the Plan card's best-reachable line and popup header skip it (naming the region only when nothing else is rated 3 or better). Its star is unchanged everywhere it appears: the map, the location sheet and the window's best figure still show it.
+
+Production uses the code default, so no host config change is needed. To roll back, set `photocast.neighbour-guard.enabled: false` and restart; nothing is then flagged and no location coordinates are read.
+
+### Changed — the Plan card no longer names a lone high sky rating as the best place within reach
+
+The neighbour guard's server flag (`neighbourOutlier` on a served slot) now reaches the Plan tab.
+A card's "Best" line, the popup header's "best N★ within reach" and the search box's figure skip a
+flagged place and name the next rated one; if that place is rated below 3 stars, or nothing else is
+rated, the line reads a muted "no clear pick" (its tooltip and its spoken form say no place is
+named because the top rating is well above the places around it, and say "within reach" only when
+a drive time was measured). The lunar-eclipse dawn-race caption skips a flagged place too, and the
+"nothing at N★+ this week" message keeps its best-rating figure but names no flagged place. The flagged place keeps its star everywhere a
+star is shown: the spread histogram, the pool counts, the ranked spot strip and the map. With the
+guard off on the server (the default until its final phase) nothing changes.
+
+### Added — the neighbour guard: a lone high sky rating is no longer named as the pick (off by default)
+
+A sky rating far above several places that see the same sky is far more likely model noise than a
+real local difference, and the harm is when the Plan tab names that one place as where to go (Caw
+Gap's lone 4★ over Cawfields 1★ and Steel Rigg 2★, 2.3 km away). `NeighbourOutlierGuard` now marks
+such a slot at serve time: a regioned sky slot whose `skyRating` is at least 3 and which no other
+sky slot in the same window within 5 km rates within one star of, while at least two nearby places
+at a similar height (or both without an elevation) sit two stars or more below it. A nearby place
+that agrees clears the slot at any height, so a fell top above an inversion is not outvoted by the
+valley. The mark rides the served slot as `neighbourOutlier: true`, never `false`, and is never
+written to `daily_briefing_cache`; the slot keeps its star on every surface.
+
+Its one effect in this release is `PlanWindowProjector.topSlot`: a marked slot is never the BEST
+BET / ALSO GOOD destination, and after one is skipped the next slot must be rated at least 3 or the
+pick names the region only. Coordinates come from `LocationPointProvider` (one projection query a
+minute at most); a failed read serves the briefing unmarked. `NeighbourGuardLog` writes one INFO
+line per first-flagged place and one summary per briefing. Everything is behind
+`photocast.neighbour-guard.enabled`, which defaults to **false** until Ask and the Plan card follow
+(documented with its bounds in `application-example.yml`); with it off nothing is marked and no
+coordinates are read.
+
+### Changed — Ask no longer offers a place the neighbour guard marked as an outlier
+
+When `photocast.neighbour-guard.enabled` is on, a slot marked `neighbourOutlier` (a rating far above
+every nearby place that sees the same sky) keeps its star but is no longer a pick in Ask:
+`AskSnapshot.isPickEligible` refuses it, so `rank_spots`, the answer validator, the thread re-join, the
+Ready and typed-cache freshness re-check (a stored answer naming it is withheld whole), the Ready anchors
+and the stub all leave it out. `list_windows` no longer reports it in a window's `bestRating` (the
+existing maximum with only the outliers left out, so a verdict-ineligible region's star, a sub-3★ best
+and an all-canopy window are unchanged).
+
+`rank_spots` now adds a note, only when the guard withheld places from the windows and regions it
+searched, saying how many ("1 place in these windows is rated well above the places beside it and is not
+offered.") and never which, so a question about a withheld place is not answered as if it were missing
+from the forecast. A follow-up whose earlier pick became an outlier is told it is "held back: rated well
+above the places beside it" rather than that its rating fell; the thread rules allow the answer to say
+only that such a place is not being suggested because its rating is out of line with the places beside
+it, and never to call it low, poor or unreliable or quote its star. A follow-up resting only on
+held-back places answers "PhotoCast doesn't have: a trustworthy rating for those places" (or "those
+places as suggestions" when the reasons are mixed). Nothing changes while the guard is off, which is its
+default.
+
+### Docs — the login and registration series is written up, and the privacy documents say what the code does
+
+New `docs/app-store-privacy.md` inventories every kind of personal data the server and web client hold (email, username,
+the optional home postcode and its coordinates, ratings, Ask questions, usage), which third parties receive what (postcodes.io,
+OpenRouteService, Cloudflare Turnstile, the mail provider, Esri, Anthropic), what in-app account deletion removes and what it
+keeps (the Ask question log survives unlinked for up to 90 days; server logs for 30), and the retention periods that exist in
+code. `landing/privacy.html` is brought into line — it named SendGrid, omitted OpenRouteService and said nothing about deleting
+an account — and `landing/faq.html` stops describing the postcode as a drive-time feature alone. The landing site is redeployed
+by hand (`landing/README.md`), so neither page is live until then. `CLAUDE.md` (Auth, endpoints, roles, nine settings columns,
+V179–V181, the integration-test count, the nginx check and the AASA path) and `docs/engineering/login-registration-plan.md`
+(the status table, the build phases' deliberate disagreements, the Codex review log and the owner questions answered by what
+shipped) are updated from the merged PRs.
+
+### Fixed — the postcode-unavailable handler no longer ignores its exception
+
+`GlobalExceptionHandler`'s 502 handler for `PostcodeLookupUnavailableException` took its exception and used nothing from it
+(CodeQL alert 233, "useless parameter"). It now logs the exception's fixed message at DEBUG through the class's logger; the
+response is unchanged — a 502 with the fixed "Postcode lookup is unavailable right now" sentence — and no upstream text reaches
+the log or the body.
+
+### Added — delete your account from Settings
+
+A "Danger zone" at the foot of the Settings dialog lets any signed-in account delete itself, as the App Store requires. "Delete account" opens a confirmation inside the dialog (not a second dialog): it says what goes — your account, your home postcode and drive times, your Ask history and your ratings — and that it cannot be undone, asks for your password and takes focus to it. The red Delete button is disabled until a password is typed and refuses a second press while the request is out; Cancel closes the region and returns focus to the button that opened it. A wrong password, an administrator account or too many attempts is answered in the server's words inside the region, which stays open; on success you are signed out and returned to the sign-in page. Calls `DELETE /api/user/account`.
+
+### Added — `DELETE /api/user/account`: a signed-in reader can delete their own account (backend only)
+
+`DELETE /api/user/account` with `{"password": "…"}` deletes the caller's own account, for every role. It answers
+400 `Password is required` for a missing or empty password, 403 `Password is incorrect` for a mismatch, 409
+`Admin accounts are deleted by another admin` for an administrator (the existing self-delete refusal, extended:
+it keeps the sole admin from locking the instance out — another admin deletes an admin), 429 once five attempts
+in fifteen minutes have been counted on `AuthAttemptLimiter` under `delete:<username>` (counted before the
+password is compared), 401 `Your session has changed. Sign in again.` when the account's credentials moved while
+the password was being checked, and 204 on success. The password is checked by BCrypt outside any transaction;
+`UserService.deleteOwnAccount` then locks the user row FIRST, reads the account as a scalar projection under the
+lock (never the entity the request's persistence context holds from before the hash — Open Session In View is
+on), refuses unless the stored hash is still the one that was verified, the credential version still equals the
+session's `cv` (or, for a token with none, is still 0) and the role is still not ADMIN, purges the account's
+drive times, and deletes by a compare-and-set whose row count must be one — zero rolls the purge back. A stolen
+session that finished its BCrypt just before the owner's password change committed therefore deletes nothing,
+and an administrator who promoted the account meanwhile wins. The account's email claim is released if no other
+account still uses the address, and the access token dies with the row (the JWT filter authenticates only live
+rows). No Settings control yet: that is the next phase.
+
+`AccountDeletionIntegrationTest` (CI-only, Postgres + Flyway) deletes a user holding a row in every table that
+references `app_user` and shows that a delete without the purge is refused by the foreign key, that with it the
+cascades fire, and that the `ask_log` row survives with a null user.
+
+### Fixed — an admin could not delete a user who had drive times; the "account removed" email went out before the delete committed
+
+`user_drive_time.user_id` (V67) has no `ON DELETE` rule, so on Postgres `DELETE /api/users/{id}` of any user who
+had calculated drive times violated the foreign key and failed (H2, which the tests run on, has no such key, so it
+never showed). Both deletion paths — the admin one and the new self-service one — now purge the account's drive
+times in the deleting transaction, after the user row is locked and before it is deleted, through one
+`purgeUserRows` step. The admin delete also locks the row first and reads the name and stored address from the
+locked row, releases the account's email claim, and no longer sends the confirmation email from inside the
+transaction: `UserService.deleteUser` returns the name and address and the controller sends the email after the
+transaction has committed, so a delete that fails at commit no longer mails "your account was removed".
+
+### Added — "Use my location" under the Settings postcode field
+
+The home postcode field in Settings gains the same "Use my location" link as registration and the sign-in prompt, for every role. It asks the browser for a position, then the server for the postcode there, and lands the answer in the field and the confirmation row exactly as a typed lookup does (nothing is saved until Save). A refused permission, a position the browser cannot give, a place with no UK postcode and an unreachable lookup each say so in the same line a typed "Invalid postcode" uses; a newer typed lookup wins over a location request still out. The link is hidden where the browser has no geolocation.
+
+### Changed — Settings postcode field: shared input style, mobile attributes, status tokens, Pro copy
+
+The Settings postcode input takes the shared `.field` style (16px text below 640px, so iOS Safari no longer zooms into it on focus) and the mobile attributes the sign-in screens have (postal-code autofill, upper-case keyboard, no autocorrect or spellcheck, a Search key). Its error, the drive-time and radius and colour errors and the "failed to load" line move from raw red to the error token, and the two saved-place dots from raw green to the ok token. The line shown to a Lite account now reads "Your postcode sets your light times. Pro accounts also get drive times from home." instead of pointing at an upgrade, which the App Store does not allow.
+
+### Added — home postcode asked at registration and once at sign-in, with "Use my location"
+
+Registration gains a "Where's home?" step between Set password and Welcome (look up a postcode or use the device's location, confirm the place, Save and continue or Skip for now), and an account with no postcode and no dismissal on record sees a one-time "Set your home postcode" prompt over the app (Save or Not now; it waits for any other open dialog and makes the app inert while it shows). Skipping either one records the dismissal on the server, so it is asked once across devices. The Welcome step now ends by mounting the app on the session already stored, with no page reload.
+
+### Fixed — an unknown postcode answered 500, and a looked-up postcode never carried its place name
+
+`POST /api/user/settings/home/lookup` answered **500** for a postcode postcodes.io does not know (the
+exception fell through to the catch-all). It now answers 400 for "no such postcode" and 502 with a fixed
+"Postcode lookup is unavailable right now" for a transport failure, a 5xx or a rate limit, never echoing
+the upstream's message; the client tells the two apart from the upstream status (only a 400 or 404 is
+"not found"). The Settings dialog still shows "Invalid postcode" for any failure, as before.
+
+postcodes.io's `admin_district` and `admin_ward` fields were never bound to the client's camelCase
+record, so every place name fell back to the bare postcode ("DH1 3LE" where "Durham, County Durham"
+was meant) in the Settings dialog and the masthead's place line; the fields are now annotated and a
+contract test builds the name from the real wire shape.
+
+### Added — the one-time sign-in postcode prompt's server side, and "Use my location"'s reverse lookup
+
+`GET /api/user/settings` now carries `postcodePromptDismissedAt` and a server-computed
+`postcodePromptDue` — true exactly when the account has no home postcode and has never dismissed the
+prompt — on every response the settings service builds (V181 `app_user.postcode_prompt_dismissed_at`,
+nullable, no backfill, so an existing account without a postcode is asked once). `PUT
+/api/user/settings/postcode-prompt-dismissed` (no body, any role, idempotent) records "Not now" with
+the server's clock through a column-scoped update and answers the settings with the flag false.
+`POST /api/user/settings/home/reverse` `{latitude, longitude}` finds the nearest UK postcode within
+postcodes.io's 2000 m maximum radius (its default of 100 m misses most rural homes): 400 for a missing,
+non-finite or out-of-range value and for a point with no postcode near it, 502 when postcodes.io is
+down, any role, never cached. No client uses either endpoint yet; the prompt and the button follow.
+
+### Docs — same-cell rating spread: measurement and guard options
+
+`scripts/measurements/same-cell-rating-spread/` measures how often the batch pipeline gives places
+that see the same sky stars two or more apart in the same run, by model and horizon, over
+production's `forecast_evaluation` (read-only SQL, run over ssh; results of 2026-10-16 in its
+`results.md`). Haiku 4.5 disagrees on 3–8% of inland same-cell groups and 6–11% of near-twin pairs;
+Sonnet 5.5 on about 0.3%. `docs/engineering/same-cell-rating-spread-plan.md` costs three responses
+(the FAR bucket on Sonnet 5.5 at about $0.36 a day more, a serve-time neighbour guard, one prompt per
+grid cell) and recommends the first. No prompt or pipeline behaviour changed.
+
+### Docs — login and registration enhancements: the port plan
+
+`docs/engineering/login-registration-plan.md` plans the owner's "PhotoCast Registration" design
+bundle (vendored verbatim at `docs/design/login-registration/`): a `HOME` postcode step in
+registration and a one-time sign-in prompt for accounts with no postcode, both with "Use my
+location"; the auth screens made to work on phones and to match the rest of the app; marketing
+consent opt-in; "Confirm email" and the second Turnstile removed; sign-in by username or email, a
+forgot-password flow and a backend fallback for a Turnstile that cannot load; in-app account
+deletion; and the native-app prep (`apple-app-site-association`, clean `/verify` and `/reset`
+links, a privacy inventory). §1 answers the bundle's five "check first" questions (no reset flow
+exists; deletion is admin-only and `user_drive_time` has no cascade; set-password verifies
+Turnstile; the login fallback has no backend at all; emails are unique but case-sensitive) and §3
+cuts the work into thirteen Sonnet phases; §5a records the plan-time review (four lenses, 60 charges) and what it changed. No code.
+
+### Changed — nginx: geolocation for the page itself, the Apple association file, and a syntax check in CI
+
+`nginx.conf` now sends `Permissions-Policy: geolocation=(self), …` on every response that sets it
+(it read `geolocation=()`, under which `navigator.geolocation` rejects in the document, so the
+registration and sign-in prompt's "Use my location" could never work), and serves
+`/.well-known/apple-app-site-association` as `application/json` from an exact-match location that
+repeats the security headers. The file itself (`frontend/public/.well-known/`) names the four
+`/verify` and `/reset` link shapes with the literal `TEAMID.BUNDLEID` placeholder until the owner
+has the Apple team and bundle ids. The frontend CI job gains an `nginx -t` step (pinned
+`nginx:1.27-alpine`, the compose-only upstream stubbed to `127.0.0.1:8082`), because until now
+nothing checked the file's syntax before a deploy recreated the container with it. Two Vitest files
+pin the AASA content and the nginx directives. An installed PWA picks the header up with its next
+`index.html` revision.
+
+### Added — a password change, reset, disable or deletion now ends the account's access tokens at their next request
+
+Access tokens used to authenticate from their own claims alone, so a deleted or disabled account's token kept
+working for up to 24 hours, a password reset signed other devices out only when their token expired, and a
+demoted admin's old token kept admin rights. Each account now has a credential version (`credentials_version`,
+with `credentials_changed_at` beside it; V180), a counter bumped by every credential change, and every access
+token carries the account's id (`uid`) and the version it was issued at (`cv`). The JWT filter loads the
+account once per request and authenticates a token only when the row exists and is enabled, the `uid` is the
+row's id and the `cv` equals the row's current version; the authority comes from the ROW's role, so a demotion
+takes effect at the next request. A token issued before this release (no `uid`/`cv`) is accepted by name for
+its remaining lifetime unless it predates the account's last credential change. Changing a password through
+`POST /api/auth/change-password` now answers with fresh tokens for the device that made the change (the same
+body as `/login` plus `message`), so that device stays signed in while every other session is signed out; a
+request from a session that was superseded while the new password was being hashed is refused with 401 "Your
+session has changed. Sign in again." and changes nothing. One transactional writer
+(`CredentialChangeWriter`) now applies every credential change — change-password, a redeemed reset link, an
+admin's temporary password, activation, an admin's disable — so the password, the version bump, the first-login
+flag, the enabled flag, the revocation of every refresh token and the deletion of the account's unused reset
+links commit together or not at all.
+
+### Fixed — the response to a replayed refresh token rolled back with the refusal; a rotation could deadlock a credential change
+
+When a revoked (or concurrently consumed) refresh token was presented, `refresh` revoked the user's whole token
+family and then threw its 401 from the same transaction, so Spring rolled the revocation back with the
+exception and the replacement token stayed usable. `refresh` is now a non-transactional orchestrator over a
+transactional rotation that returns an outcome; the family revocation runs in its own transaction after the
+rotation has ended and commits before the refusal is thrown. A refresh token that a credential change revoked is
+now told apart from a replayed one (its issue instant is older than the account's last credential change) and is
+refused without revoking the family: otherwise another device presenting its dead token after you changed your
+password would sign out the device you just changed it on. The rotation also takes the account row lock before
+the compare-and-set on the refresh row, the order every credential path uses; the reverse deadlocked against a
+concurrent password change. Token issuance re-reads the stored password hash, credential version and enabled
+flag under the same lock, so a login whose BCrypt check straddled a password change or a disable issues nothing
+instead of a token for the new credentials or a refresh row after the revocation.
+
+### Changed — admin disable, email edit, resend and create now void what they should; credential columns are written only by scoped updates
+
+An admin's disable now ends every session at once (version bump, refresh tokens revoked, unused reset links and
+every verification link deleted) and re-enabling revives none of it. An admin's email edit now locks the
+account row, claims the new address in the reservation table (a case variant of another account's address is
+a 409 "Email already registered"), releases the old reservation if no account still uses it, and deletes the
+account's unused reset links and verification links, so a link mailed to the old mailbox cannot be used after
+the move; for a pending registration the response says to resend verification. Both resend-verification routes
+(the reader's and the admin's) now go through one issuer (the admin's route answers 400 "Account is not awaiting
+email verification" for an account that is no longer pending, where it used to send a link to anyone) that locks the account row and mails the STORED
+address, so a resend that raced an email edit can no longer mail the old mailbox. The admin's temporary-password
+reset is mailed to the address read under the lock after the change. Admin user creation and email edit now
+refuse a non-ASCII address, as registration does (the reservation key is lower-cased in Java, the database's
+`LOWER()` may fold such characters differently). Registration's activation hashes the password before the one
+transaction that consumes the token and activates the account, re-checking under the row lock that the account
+is still pending, so two verification links cannot overwrite each other's password. The `password`, `enabled`,
+`passwordChangeRequired` and `role` columns, and the two new credential columns, are no longer written by a
+whole-entity `save()`: login's and the JWT filter's last-active stamps, the marketing opt-in, the admin role
+and enabled changes are now column-scoped updates, so a stale copy of the row can no longer write an old hash,
+flag or role back over a change that committed meanwhile.
+
+### Added — forgot-password and reset-password pages, sign-in by username or email
+
+The sign-in page now reads "Username or email", with a "Forgot password?" link on the password label's row.
+The link opens a "Reset your password" page: an email field, the Turnstile check (with the same
+"Security check unavailable" fallback as sign-in when the script cannot load) and, for every accepted
+request, the one sentence "If that email has an account, we've sent a reset link." The link in the email
+opens `/reset?token=` on a "Set a new password" page — signed in or not, so a link opened on the phone the
+account is already signed in on still works — which shows the password checklist, sends nothing until the
+reader submits, signs them in on success and leaves the address bar at `/`. A used, expired or unrecognised
+link shows the server's sentence and a "Request a new link" button. The reset token is held apart from the
+email-verification token, whose cleanup would otherwise remove the page before it could be submitted, and a
+verification link on any other path (`/verify?token=`, or the older `/?token=`) still opens registration.
+`AuthContext` gains `signInWithTokens`, `registrationPending` and `finishRegistration` (the flag is set by
+`completeRegistration`, cleared by sign-out and session expiry; nothing reads it yet), and `changePassword`
+now stores the fresh tokens when the response carries them. The password field's show/hide eye takes an
+`eyeLabel` so the reset page's two eyes are told apart ("Show new password" / "Show password confirmation").
+
+### Added — "forgot my password": an emailed one-hour reset link, redeemed for a new password
+
+`POST /api/auth/forgot-password` takes `{email, turnstileToken?}` through the same Turnstile gate and bounded
+fallback as sign-in, and answers the identical 200 "If that email has an account, we've sent a reset link."
+for every well-formed address — known, unknown, rate-limited or failing inside — because any difference
+would say the account exists. A known, active account (enabled, holding a password, exactly one match for
+the address) is issued a link under its row lock: its earlier unused links are deleted, a token is stored
+as a SHA-256 hash in the new `password_reset_token` table (V179) and expires in one hour, and the mail
+(`password-reset-link-email`, subject "Reset your PhotoCast password") goes to the account's STORED address,
+never the request's text. Each account gets three requests per 15 minutes; a fourth is dropped silently.
+`POST /api/auth/reset-password` takes `{token, password}`, runs the password complexity check, and then, in
+one transaction after the password has been hashed, locks the account, refuses a disabled or pending one,
+consumes the token by compare-and-set, sets the password, clears the first-login gate and revokes every
+active refresh token; the caller is signed in on the device that reset, with the same body as `/login`.
+An unknown, used or expired link is a 400 with its own sentence; three bounds (a global hourly ceiling, the
+client address, the token) answer 429 like set-password. Other devices' access tokens still run out at
+their 24 hours until token invalidation (R3c) lands. The older admin temporary-password reset is untouched.
+
+### Fixed — the verification-resend limit could never trip; emails differing only by case could both register
+
+`resendVerification` counted the user's recent tokens and then deleted every unverified one before inserting
+a new one, so the count was never above one and the "3 in 5 minutes" limit never fired. Resend now also
+takes three per pending account per 15 minutes from the in-memory attempt limiter (the database count stays
+as a second check), and finds the pending account with an indexed lookup instead of loading every user and
+comparing with Java `equalsIgnoreCase` — which folded `ı` to `I` and then mailed the TYPED address, so a
+confusable address could receive another person's verification link; the mail now goes to the stored
+address. Email uniqueness was case-sensitive (`Foo@x` and `foo@x` could both register through sign-up or admin create): a new
+`app_user_email_claim` reservation table (V179, backfilled from the existing addresses, one reservation for
+a legacy case-duplicate pair) is claimed in the same transaction as every new account, so the database
+refuses the second claimant (an admin's email EDIT does not claim yet — that joins in a later phase). A retried sign-up for an abandoned pending registration now locks the old row
+and deletes it only if it is still pending, so it can no longer erase an account that was activated in the
+meantime.
+
+### Changed — sign-in accepts an email address; the verification link is /verify; sign-ups refuse non-ASCII addresses
+
+`POST /api/auth/login` still takes the field as `username`, but an identifier containing `@` is now matched
+against both the account of that username and the active account whose email it is (exact match first, then
+an ASCII case-insensitive match that must find exactly one), the password is checked against the username
+account first and then the email account, and the first that verifies signs in. A comparison against a fixed
+dummy hash runs when nothing matches, so the response time does not say whether an address exists. An
+account on the Turnstile fallback spends its five-attempt budget whichever of its names was typed. The
+verification email now links to `/verify?token=` on the app origin (the bare `?token=` form keeps working in
+the app for links already sent). `POST /api/auth/register` refuses an email address with non-ASCII characters
+("Please use an email address without accented or non-Latin characters"): a confusable address is the one
+input the recovery flows cannot make safe by comparison alone; existing accounts that registered one keep
+signing in and recovering by typing it exactly as registered, and admin-created accounts are unchanged. Admin
+user creation refuses a username containing `@`. A lost race on a username or an email address now answers
+409 ("Username already taken" / "Email already registered") on register, admin create and admin email change
+instead of a 500.
+
+### Changed — the registration form: email first, no "Confirm email", marketing opt-in, one security check
+
+Create account now asks for Email first (hint "We'll send a link to confirm it.") and then Username
+(hint "3–30 letters, numbers, - or _"); the "Confirm email" field, its state and its mismatch error are
+gone, since the verification link already proves the address. The marketing-emails box is unticked by
+default, so consent is an active opt-in (UK PECR/GDPR) — the register request now sends
+`marketingEmailOptIn: "false"` unless the reader ticks it. While the terms box is unticked the disabled
+button says why, in 12px secondary ink under it: "Agree to the terms to continue". The Set password step
+no longer mounts a second Turnstile widget and `setPasswordForNewUser(token, password)` sends no
+`turnstileToken` — the single-use emailed token is the proof of a real person, and the backend stopped
+verifying one in R2a. If the Turnstile script cannot load, the register form unmounts the widget and says
+"Security check couldn't load. Try another browser, or turn off your ad-blocker for this page." with
+Create account still disabled: registration has no server-side fallback by design.
+
+### Fixed — the first-login password change no longer dead-ends when Turnstile cannot load
+
+`ChangePasswordPage` mounted a `TurnstileWidget` with no load-failure handler, so a browser that blocks
+the script left "Set new password" disabled for ever — and a user whose `passwordChangeRequired` flag is
+set cannot reach the app until they pass that screen. It now takes sign-in's pattern: on a load failure
+the widget unmounts, the page says "Security check unavailable — we'll verify your sign-in another way."
+and submit is enabled with an empty token, which the server's bounded fallback (R2a) accepts. A refused
+fallback answers 429 and the server's own sentence ("Too many attempts. Please wait a few minutes and try
+again.") appears in the form's error slot.
+
+### Added — a bounded fallback when Turnstile cannot load, on sign-in and change-password
+
+Sign-in and the first-login password change used to answer 400 "CAPTCHA verification failed" to a
+browser where the Turnstile script never loaded, although the sign-in page promised "we'll verify your
+sign-in another way" — nothing did. `TurnstileGate` now decides: a token that verifies proceeds as
+before; a token that fails is still a 400 and is never a fallback; a request with no token at all is
+admitted only inside three in-memory bounds (`AuthAttemptLimiter`, Caffeine, fixed windows from the first
+attempt), checked outermost first — an hourly ceiling per endpoint (sign-in 60, change-password 20), the
+client address (20 per 15 minutes, read as `CF-Connecting-IP`, else the first `X-Forwarded-For` hop, else
+the connection address) and the identifier (5 per 15 minutes) — plus the account's own five attempts per
+15 minutes once the username resolves to a user. Any bound reached answers 429 "Too many attempts. Please
+wait a few minutes and try again." Registration deliberately has no fallback: it cannot tell a blocked
+browser from a bot that omits the token, and each sign-up counts against the early-access cap. With no
+Turnstile secret configured (local development) nothing changes and no counter is touched. Counters
+live in memory, so a restart forgets them.
+
+### Fixed — an unauthenticated call is no longer the user "anonymousUser" on the password and marketing endpoints
+
+`/api/auth/**` is public and anonymous authentication is on, so an unauthenticated call to
+`POST /api/auth/change-password` or `PUT /api/auth/marketing-emails` arrived with a principal named
+`anonymousUser` and ran as a user of that name. Both now answer 401 for the anonymous principal, and
+`POST /api/auth/register` refuses the username `anonymousUser` (any case) with 409 "Username already
+exists", so registration can no longer create an account that answers to that name.
+
+### Changed — setting a first password takes no CAPTCHA; marketing email is opt-in on the server
+
+`POST /api/auth/set-password` no longer verifies a Turnstile token (the verification token it is
+called with is a 122-bit random value, so the CAPTCHA protected nothing, and it was the one step a
+blocked browser could not complete). A `turnstileToken` still sent by an older page is ignored. In its
+place the endpoint takes three bounds, outermost first, any one of which answers 429 with the same
+sentence as sign-in: 200 requests an hour across everyone, 20 per 15 minutes per client address, and 10
+per 15 minutes per token (keyed on the first 16 characters of its hash, never the token). Separately,
+`POST /api/auth/register` now reads an absent or unrecognised `marketingEmailOptIn` as "no": consent is
+only ever an explicit `"true"`, which matters because the iOS app will call this endpoint too.
+
+### Changed — sign-in, registration and first-login screens: phone-safe layout, one input style, status tokens
+
+The three full-page auth screens now share one wrapper, one heading, one password field and one
+checklist (`components/auth/`), and read as part of the app instead of beside it. Inputs are 16px
+below 640px (iOS Safari stopped zooming into them) through a single `.field` class that replaces
+the three hand-written class strings; the page uses the dynamic viewport height, sits at the top
+with 3rem of air on a phone so the keyboard does not cover the buttons, centres from 640px, and
+resolves its padding against the safe-area vars with `max()`. Card headings are Newsreader 22px
+`<h2>`s under the lockup's `<h1>`; errors and met rules use two new tokens, `--color-plex-error`
+(`#F07A62`) and `--color-plex-ok` (`#8AAE72`), declared in the `@theme static` block and measured
+at 6.25:1 and 6.83:1 on the card; an unmet password rule is a hollow ○ in secondary ink rather than
+a ✗ in muted ink; hints and text buttons use secondary ink for 4.5:1; the session-expired line and
+the Turnstile fallback line move out of amber into secondary ink, the former inside the card above
+the heading; and the Check your email, Verify, Waitlist and Success cards are left-aligned like
+the logo. No field, order, copy or test id changed, and the Settings dialog is untouched (it takes
+`.field` in a later phase).
+
+The Plan-tab overlay's two `Upgrade to Pro` anchors (`/upgrade` is not a route, and the App Store
+forbids a link to a web purchase) are now plain text — "Pro accounts get Fiery Sky & Golden Hour
+scores, storm surge analysis, and full AI analysis" — in the secondary ink the sentence needs.
+
+### Added — build and prompt provenance on forecasts and ratings, and per-build and per-prompt calibration
+
+The calibration gate could pin a drift in how readers' ratings compare with the forecast to a model, but not to a
+release or to a prompt edit: the model is recorded per forecast row, the app build was recorded nowhere on one, and nothing
+identified the prompt a row was sent with. V182 adds three nullable columns, with no backfill: `forecast_evaluation.app_build`,
+`forecast_evaluation.prompt_hash` and `outcome_rating.app_build`.
+
+`app_build` is the release the deploy workflow bakes in from the git tag (the same value `job_run.app_version` already records),
+stamped where a forecast row gets its rating or triage reason and where a reader's rating is written. `prompt_hash` is the
+SHA-256 of the sky system prompt a batch request carried, stamped when the batch is submitted. It is the system prompt and not
+the user message because the user message holds each slot's weather and would differ on every row.
+
+`GET /api/admin/calibration` gains `bucketsByBuild` and `bucketsByPromptHash` beside the existing per-horizon and per-model
+buckets. A forecast row from before V182 reads `UNKNOWN`. A reader's rating is bucketed by the build and prompt of the forecast
+it was shown.
+
+## [v2.28.0] - 2026-10-16
+
+### Docs — the outcome-rating series is written down, and a dead export goes
+
+`CLAUDE.md` now describes what the series built, replacing the sentences it made false. The overview no
+longer says outcome recording is API-only; the Roles table and its note say the Map's per-reader rating
+(`PUT /api/outcome/ratings`) is Pro and Admin while `POST /api/outcome` stays open to every role. The
+endpoints section gains `GET /api/forecast?date=` (T-4 to T-1, stored rows only), the rule that a passed
+slot is served as of its event through `AsOfEventResolver`, the three `/api/outcome/ratings` routes with
+their gates, the 24-day `MAX_RATING_AGE_DAYS` and the "not seen is `rating: null`" rule. The calibration
+gate paragraph describes its second source (readers' ratings joined on `forecast_evaluation_id`, the
+captured star as the prediction, the outcome's identity in the dedup key so counts are pairs, and
+`outcomesInRange` counting both tables), and the "starves the calibration gate" bullet is scoped to the
+old source. `outcome_rating` (V177) and `forecast_evaluation.scored_at` (V178) are in the migrations table
+and in "Where a rating lives". Two new Map-tab bullets cover past windows (the `selectedIsPast`
+provenance flag, the PAST pill, the EARLIER group and Load row, the older-day fetch, past windows read
+from the forecast rows alone) and the rating block (its mount conditions, the Admin list, the counts and
+the badge, and the pin badge that does not reserve space in the placer). The Backend-heavy bullet's
+per-user-join class grows from three members to five, the Map-tab client-max class from two to three, and
+a sentence names the series' filter/map helpers; the Role-gating section assesses the block (every role
+sees it, LITE's stars dim, the controls are `aria-disabled` rather than `disabled`); the Rewind paragraph
+lists what is hidden; the `IntegrationTestBase` count is corrected to fifteen.
+
+`v1-retirement-plan.md` §8 item 7 and `all-in/serve-surfaces.md` record that the outcome UI has a v2 home;
+`map-tab-v2-plan.md` §4 gains the past-windows entry; the outcome-rating plan is marked complete with
+every owner question closed, ten more deviations numbered (§4 #23–#32) and the measured figures in §7;
+the bundle's `VENDORING.md` gets its final count.
+
+Removed: `fetchAllOutcomes` in `forecastApi.js`, which nothing has called since the Map stopped fetching
+`GET /api/outcome/all`, and the nine test mocks that stubbed it. `OutcomeModal`, `recordOutcome` and
+`fetchOutcomes` stay. No behaviour changes.
+
+### Added — Map tab: an Admin's "All ratings" list under "How was it?" (O5a)
+
+An Admin who selects a place on a past window now sees a collapsed `All ratings` box under their own
+rating block. Opening it fetches that one window's ratings from every reader and lists them — the
+Admin's own row first, then the rest newest first: each reader's name, their stars (or `Not seen`) and
+when it was recorded (`HH:MM` for today, `Sun 19:30` for another day, on the UK clock). The header
+counts every row once it has loaded (`All ratings · 3`). A footer says which forecast run the ratings
+were recorded against and how long before the event it was made — `Rated against the run at Sat 17 Oct,
+16:05 · 2h before sunset`, in whole hours from an hour up and minutes (`40 min`) below it — or `No
+forecast run recorded before this sunset` when none was. An empty window says `No ratings yet.`, and a
+list that could not be fetched says `Couldn't load ratings.` in one quiet line and can be opened again to
+retry.
+
+The list is fetched on its first open, not with the reader's own ratings; it is fetched again once the
+Admin's own save lands (not for a save that finishes after they have moved to another place or window),
+and it closes and forgets its rows whenever the place or the window changes. It is never drawn, and the
+endpoint never asked, for a Pro or Lite reader. Frontend only: `OutcomeAdminList`, `useSlotRatings` and
+`fetchAllRatingsForSlot`; `MapCallout` now holds the list's rows and loading state (so the card
+re-measures when the box opens or its rows arrive). Three strings are the plan's, not the design's:
+the no-run footer, `Couldn't load ratings.` and `Loading …`.
+
+### Changed — The map's load no longer fetches every recorded outcome
+
+Loading the forecast data made three requests, one of which (`GET /api/outcome/all`, over the last
+seven days) fed nothing: the outcome screens it served were retired in February, and nothing reads
+`outcomes` on a location. It is gone, so the load is two requests (forecasts and locations), and a
+location no longer carries an empty `outcomes` list. The instant-paint cache no longer stores the
+field, and a payload cached by an earlier build, which still has one, loads as it did. The API
+bindings and `OutcomeModal` stay, unused, as before.
+
+### Added — Map tab: how many places you rated on each past window, and a badge on the ones you did
+
+A past window in the Map's window control now says `{n} rated` in star gold, or `Not rated`, where a
+verdict would be: n is the number of places the signed-in reader has rated for it, "didn't see it"
+included. The phone's Windows section shows the same words in place of `Past`. A window whose
+ratings have not been read yet (an older day that has only just landed) or whose read failed prints
+nothing in the dropdown, and keeps `Past` on the phone, rather than a false `Not rated`; under an
+admin rewind there are no counts at all.
+
+On a past window, every pin and every heat-view chip for a place you rated wears a small badge at its
+top-right corner: `4★`, or `–` where you marked it "didn't see it". The badge is hidden from
+assistive technology and its meaning is added to the pin's or chip's name (`, you rated 4 out of 5`
+or `, you marked this not seen`). The label placer now reserves the badge's overhang (7px above, 9px
+beside the chip), so a neighbouring name is moved clear of it rather than drawn under it. Nothing
+changes on a window the forecast served, and an Ask pick never wears a badge, since a pick belongs to
+its own window.
+
+### Added — Map tab: step back through the last few days from the window control
+
+The Map tab's window control now reaches the stored days before the two the forecast list carries.
+Pressing `‹` on the oldest window (or `←`, or the new Load row) fetches one more stored day, back to
+four days ago; the pill reads `Loading Tue 13…` while the request is out, with both steppers and
+the Load row disabled, and when the day lands the map moves to that day's sunset, so the next `‹`
+steps to its sunrise. A day that comes back empty moves nothing and says nothing, and still counts
+toward the four, so the control offers the day before it. At the oldest reachable window `‹` is
+disabled. Nothing older than four days is ever requested, and the fetch stands down under an admin
+rewind.
+
+The dropdown gains an EARLIER group above the day groups: an `EARLIER` header with `rate how it
+went` beside it, the Load row (`Load Tue 13`, `or press ‹ past the oldest window · fetches Tue 13`),
+then a sub-header per past day with its rows, sunrise first, each showing the time and `Not rated`.
+Today can appear in both groups (this morning's sunrise under EARLIER, tonight's sunset under
+`FRI 16 · today`) and is not merged. The phone's Windows section gets the same header, Load row and
+sub-headers, with `Past` where a verdict would be. When the menu opens it now scrolls itself just far
+enough to show the window you are on, which the new group would otherwise push below the fold.
+
+A fetched day is kept in memory only (never in the instant-paint cache) and survives a forecast
+refresh, which rebuilds the list payload: the day, and its date in the Map's forecast domain, stay.
+The count beside a past window (`{n} rated`) and the rating itself come in later steps.
+
+### Docs — Plan card Spread row: plan closed out, plan-matrix A28, CLAUDE.md
+
+Closes `docs/engineering/spread-row-plan.md`: status complete, the S1 and S2 commits recorded, the
+measured card widths corrected (the stacked histogram line is 112px at a 320px viewport, not 116),
+three more deliberate departures from the design bundle written into §4 (the half-up tenths in
+`formatSpreadCount`, silence for an undefined reach threshold, the 205px stacking threshold kept) and
+every owner question marked decided or closed. Adds `plan-matrix-plan.md` §4 A28 (the pool label,
+the visible counts, the stacked state and the wording of the spoken sentence, amending A27's bar
+dimensions), a sentence pair in CLAUDE.md's spread-histogram paragraph, and the final-count note in
+the vendored bundle's `VENDORING.md`. No code change.
+
+### Changed — Plan card Spread row: names its pool and prints its counts (S2)
+
+The Spread row on every Plan card now says which pool it counted over — a second label line, `(within
+45m)` / `(within 1h30)` / `(within 2h30)` / `(any drive)`, silent when the pool holds a place with no
+measured drive under a finite tier — and prints the count of each band (and of the hatched "not yet
+rated" bar) under its bar, in a column sized per card (`1.2k` for a thousand). The card's accessible
+sentence says the same: the tier in the lens bar's own words ("within 45 min", "any drive"), the
+non-zero band counts, and "no locations within 45 min" for an empty pool beside the Best row's own
+words. The hover tooltip is unchanged. Below the minimum-sample gate the row keeps its `N/M rated`
+text with the label line above it.
+
+Layout: the row is one wrapper spanning both grid columns, so the longer label cannot widen the
+rating pill's column; on a card narrower than 205px (every phone and tablet width, and a docked Ask
+panel) the label takes one line and the histogram its own right-aligned line below, by a container
+query on the card. Cross-card alignment holds: the label and the well reserve their heights whether or
+not a qualifier or bars are drawn. A zero count is quietened by weight, not ink (the muted ink is
+under AA on the well). Frontend only; no backend, API or migration change.
+
+### Changed — Plan card Spread row: count, width and qualifier helpers (S1, no visible change)
+
+First phase of `docs/engineering/spread-row-plan.md`. Adds the pure maths the Spread row's pool label
+and visible band counts will use, with no component or CSS change: `formatDriveDurationCompact`
+("45m", "1h30") beside `formatDriveDuration`, a derived `shortLabel` on every `REACH_TIERS` entry
+(`null` for Any), and in `windowFirstSpread.js` `formatSpreadCount`, `spreadColumnWidthPx`,
+`spreadCountLayout` (the hatched bar's count takes part in the column width), `spreadQualifier`
+(silent under a finite tier unless every drive in the pool is measured), `spokenPoolPhrase` and
+`spreadBandsSpoken`. All are filter/map/select over the existing A10/A27 pool, in the class the
+module header already licenses.
+
+### Docs — Plan card Spread row: the pool label and visible counts, port plan
+
+`docs/engineering/spread-row-plan.md` is the port plan for the owner's Spread-row design bundle
+(vendored verbatim at `docs/design/spread-row/`): a second label line naming the pool the
+histogram was counted over (`(within 45m)` / `(within 1h30)` / `(within 2h30)` / `(any drive)`,
+derived from the reach tier's own threshold, silent when no drive time was measured) and a count
+printed under every bar, the hatched unrated bar's included, with one clamped column width per
+card and a compact `1.2k` format. Three phases (S1 helpers, S2 the row, S3 docs); the dark well,
+the sixth hatched bar and the minimum-sample gate the prototype lacks are all kept, and the
+card's spoken sentence gains the non-zero band counts so the visible figures have an accessible
+equivalent. No code in this change.
+
+### Docs — Spread row: the stacked-state comment counts the geometries S2 measured
+
+The stylesheet's note on the Spread row's stacked state said the card grid stacks at "eight of
+its nine measured shell geometries"; S2's §7 fixture measured ten, and the plan, plan-matrix A28
+and CLAUDE.md all say eight of ten. One word in a comment; no rule changed.
+
+### Docs — "How was it?": the port plan for rating a past sunrise or sunset
+
+`docs/engineering/outcome-rating-plan.md` plans the Map tab's outcome rating: Pro and Admin readers
+record, with one tap in the location callout, how a sunrise or sunset that has passed actually
+looked (1–5★ or "Didn't see it"), per user, against the last forecast run before the event; the
+window control steps backwards through elapsed windows and the two served past days, then fetches
+one more stored day at a time back to T-4. Six phases (a new `outcome_rating` table and its three
+endpoints; a one-day `GET /api/forecast?date=` read; past windows in the window control; the rating
+block, counts and pin badge; the admin list and the calibration gate reading the new ratings; a docs
+sweep). The design bundle is vendored verbatim at `docs/design/outcome-rating/`. No code in this
+change.
+
+### Changed — the calibration gate also scores forecasts against readers' ratings
+
+`GET /api/admin/calibration` now reads two sources of "how did it actually look": the old
+`actual_outcome` records, as before, and the new per-user ratings of past sunrises and sunsets. Each
+rating is paired with the one forecast row it was recorded against — the forecast available by the
+event and not withdrawn at it — never with a forecast that landed after the event, and the predicted
+rating is the star the reader saw when they rated (for a place with a woodland or bluebell lane that
+is the combined star, not the sky lane's alone). A rating with no recoverable star, or an "I didn't
+see it", is not a pair. Several readers rating one slot give several pairs, because each is an
+observation; the gate's keep-the-newest-run rule now collapses only repeated runs of one forecast for
+one outcome, so two outcomes of a slot (two readers, or a rating beside an old `actual_outcome` row)
+no longer overwrite each other, and the report's counts are of pairs, not slots. The report's
+outcomes-in-range figure now also counts every rating row in the window, "didn't see it" included.
+No API shape changes. Also corrects the `UserRole` javadoc, which implied Lite may record outcomes
+generally: only the old `POST /api/outcome` is open to Lite; rating a past sunrise or sunset is Pro
+and Admin.
+
+### Added — Map tab: "How was it?" — rate a sunrise or sunset that has already happened (O4a)
+
+Select a place on a past window and the location callout now asks how the sky actually turned out:
+five stars and "Didn't see it", one tap. Pro and Admin readers save it (upsert, one record per
+person, place and window); a Lite reader sees the block locked — the stars dimmed, a Pro pill, and
+"Rating is part of Pro." on a tap. Once saved the block reads "You rated ★★★☆☆ 3★" (or "You marked
+this not seen") with a Change button, which brings the grid back with the current choice marked; a
+failed save puts the previous value back and says "Not saved. Tap a star again." until the next save
+lands. Nothing says whether the forecast was right, and the forecast star stays in the callout's
+verdict strip where it was.
+
+The block shows only for a place whose OWN sunrise or sunset has passed (the window turning past on
+the pill is decided on the earliest place, so along a coastline the callout can wait a few minutes
+behind it), never for a wildlife hide, never for a place with no forecast row for the window, and
+never while an admin rewind is in force. The callout's "Not scored yet" reads "Not scored" on a past
+window. The ratings come from a new `GET /api/outcome/ratings` read over the days the map holds and are
+kept in page state only — nothing is cached or stored in the browser.
+
+Frontend only: `OutcomeRatingBlock`, `useOutcomeRatings` (optimistic write, per-slot rollback, an
+overtaken response dropped whole, a re-read that cannot overwrite a save in flight), the
+`outcomeRatingApi` bindings and `outcomeRatingCopy`. The callout owns the block's `changing` state and
+names it in its repaint dependencies so the card re-anchors when the 44px grid becomes the 40px row.
+Counts in the window menu, the pin badge and the admin's all-ratings list come in later phases.
+
+### Added — Map tab: the heat field paints a window that has gone
+
+A past window on the Map tab (today's elapsed sunrise, yesterday's and the day before's) used to be
+a row with no picture behind it: the field is keyed on the briefing's rendered windows, and the
+briefing withdraws a window once it is over, so the Heat view was empty and the Heat|Pins toggle had
+nothing to toggle. The Map pane now builds a field for each past window from the locations' own
+forecast rows and hands it to the map beside the briefing's. A past window shows the same heat
+field, colour key and rated counts as a served one; a window nobody rated paints nothing and drops
+the key, as a served one does.
+
+The field reads the forecast row alone, the same rating the chips and the callout star already show
+on a past window, never the scores endpoint (which serves the latest result and, for a passed slot,
+may be one that landed after the event). The key is drawn only when a place the field actually paints
+holds a rating: a past window whose only rated rows are a wood's or an unregioned place's has no key
+over an empty field. The kernel's haze reads the inferred confidence (medium), since a past window
+carries no served confidence. The Plan matrix is untouched: past windows are added in the Map pane,
+never in the briefing context the Plan tab reads.
+
+### Added — Map tab: windows that have gone are rows of the window control, tagged Past
+
+The forecast list has served the last two days for a while, and the Map tab hid every one of them:
+the briefing withdraws a window once its sunrise or sunset is over, and the tab's own list only kept
+windows from today forward. A solar window the briefing no longer serves, that has forecast rows and
+whose earliest event time has passed (the same instant and thirty minutes the briefing retires it
+on, so the Map and the Plan tab retire a window at the same minute) is now a row: today's elapsed
+sunrise, yesterday's two windows and the day before's. The pill wears a `PAST` tag where a verdict
+word would sit, labelled `Today`, `Yesterday` or `Fri 16`, with the window's time narrowed to the
+places in your scope like any other. Stepping onto one forwards it to `App` with a provenance flag
+(`selectedDateIsPast`, beside the night one), because the map-date clamp refuses a date before today
+without it; a stale past pick without the flag still falls through to today.
+
+On a past window the chips, pins and the callout's star read the forecast row alone, never the
+briefing score index (which serves the latest result and, for a passed slot, may be one that landed
+after the event). The callout hides Drive and Leave by, keeps Dark sky and withholds "Open in Plan"
+(the location sheet it opens holds only upcoming windows); the collapsed "Other windows" summary
+never names a window that has gone. Nothing is rated or recorded yet and the window menu has no
+Earlier group: those, and the older-day fetch, are the next phases of the outcome-rating series
+(`docs/engineering/outcome-rating-plan.md`).
+
+### Changed — a sunrise or sunset that has already happened is served as the forecast stood at the event
+
+`GET /api/forecast` (its two past days, and today's elapsed sunrise) and the new `?date=` read now
+serve a passed slot — judged per place on its own event time plus the 30-minute afterglow — as of
+that event, using the same resolution an outcome rating is recorded against, instead of its latest
+row. A batch that lands after the event, or a stability skip recorded after it, can no longer repaint
+a window you have already seen. For Pro and Admin accounts the star on a passed slot is the star
+that was captured as served at the event; a woodland or bluebell place whose combined star cannot be
+recovered reads unscored (no star, no scores) rather than showing its sky-only star, and a place with
+nothing available by the event shows no row for that window. A Lite account's row is served as the
+list has always served it to Lite (the row's own rating and basic scores).
+Windows that are in the future, and today's event before it happens, are served exactly as before.
+
+Because the resolution needs the scoring time recorded since V178, for the first days after this
+deploys the windows that passed before it show fewer stars (a slot scored before V178 has nothing to
+resolve to and reads unscored); every window scored afterwards is served in full.
+
+### Added — `GET /api/forecast?date=`: one stored past day (backend only, nothing calls it yet)
+
+`GET /api/forecast?date=YYYY-MM-DD` returns that one day's stored forecast rows in the list's own
+shape, for the days the list does not carry — the Map tab's older-day fetch for rating how a past
+sunrise or sunset turned out. The day must be between four days ago and yesterday on the UK calendar
+(`ForecastHorizon.MAX_PAST_DAYS`, new); today, tomorrow, five days ago or a malformed date is a 400
+with `{"error": "date must be between T-4 and yesterday"}`. It reads stored rows only — it can never
+start a run, a batch or a model call — and LITE accounts get the same basic-score selection as the
+list.
+
+### Changed — `forecast_evaluation` rows now carry the instant they got their rating
+
+`forecast_evaluation` gains a nullable `scored_at` (V178): when a row acquired something to say. The
+synchronous engine and the triage and sentinel-skip paths stamp it at insert, from the clock, when the
+row carries a rating or a triage reason; a batch's `PENDING` row is stamped when its result scores it
+in place, and only when the star survived validation. A row still `PENDING`, an `ABANDONED` row, a
+wildlife comfort row and every row written before this deploy keep it null — no backfill, no guess.
+`forecast_run_at` is untouched: it is a submission instant (a batch row is stamped before its batch
+is even submitted, and the Batch API may land the result a day later), so it cannot say what existed
+at a given moment; `scored_at` can. Nothing reads it for serving yet; the outcome rating's provenance
+uses it as the availability bound, and a row without it is never taken as the forecast a reader saw.
+`ForecastResultHandler` now takes the application `Clock`.
+
+### Added — the outcome rating record and its three endpoints (backend only, nothing draws it yet)
+
+Pro and Admin readers can now record, per user and per location, how a sunrise or sunset that has
+already happened actually looked: 1–5 stars, or "didn't see it". `PUT /api/outcome/ratings`
+(`{locationId, eventDate, eventType, rating}`, an absent rating meaning not seen) replaces the user's
+earlier answer for the slot; `GET /api/outcome/ratings?from=&to=` returns the caller's own rows
+(any role — a Lite account simply has none — and at most 31 days); `GET /api/outcome/ratings/all`
+returns every user's row for one window, newest first, with the caller's own marked, for Admin. A
+Lite account's PUT is refused with 403, and a PUT for an event that has not yet happened (this
+place's own event time plus the 30-minute afterglow, on the real clock) or is more than 24 days old
+is a 400 with a plain sentence. The new `outcome_rating` table (V177) is separate from the old
+`actual_outcome`, whose API is untouched.
+
+Each rating is recorded against the forecast the reader actually saw, not the newest cycle before
+the event: the new `AsOfEventResolver` takes the result the Plan tab and the map serve for the slot
+if it had arrived by the event (a canopy-bearing place needs its cached entry last written by then
+as well), and otherwise the latest `forecast_evaluation` row that was scored by the event and not
+withdrawn by a stability skip recorded before it. The rating stores that forecast's age
+(`forecast_run_at`), the cycle whose trigger instant matches it exactly, the row it was paired with
+and the predicted star the reader saw — null when that star cannot be recovered, as for a
+bluebell-bearing place whose combined star the cache has since replaced. Nothing here reads a
+roster-wide "latest cycle", so a cycle that failed, skipped the slot or landed late is never named.
+A reader who changes their mind keeps the forecast record made the first time, since the event is
+fixed and a second resolution after a restart could only be poorer. The resolver also has a batch form so the forecast serve path can use the same answer for a whole
+roster in a handful of queries. The upsert is a find-or-insert in its own store class with no
+surrounding transaction, the one shape that survives a Postgres unique violation, and is raced by a
+12-thread test (and, in CI, on Postgres).
+
+The migrations and the Postgres race are proven by CI only; the H2 slice tests, the resolver's
+provenance cases and the endpoint role matrix run locally.
+
+### Docs — far-cloud P1: where the Part D working files live, and the JDK 23 flags
+
+- Plan §12 step 1 records that the replay set, its split with the 150-prompt control and the R1 system prompt
+  were made on 2026-10-15 and live under `~/goldenhour-p1/` on the owner's Mac, outside the repository.
+- The runbook's prerequisites say which three Maven flags a JDK 23 machine needs for the harness commands.
+
+### Docs — far-cloud P1: Part D results (2026-10-15)
+
+- `far-cloud-p1-plan.md` gains §13, the Part D replay results: five arms, about $6.28 at batch prices (primers not counted), zero failed attempts, with a 150-prompt same-model control giving a noise floor of 6.0% moved.
+- D-1: R1 (fiery_sky cap 55) passes the training cases (Angel 3★ in 20 of 20, Low Hauxley 4★ in 20 of 20) but fails the cost cap, demoting 179 of 658 gos (27.2%, +22.9 pp net of the control) against 15%, concentrated on sunsets; it is a blanket downgrade as drafted.
+- D-2: item 1 is not met (about 5 points against 8, and one-sided by selection) but item 2 is met (Angel 4★ 20 of 20 on Sonnet 5.5, 3★ 20 of 20 on Sonnet 4.6), so the plan's rule recommends the switch; Sonnet 4.6 withdrew 127 of 513 Sonnet 5.5 gos (24.8%).
+- §9 records the spend as approved and run, and adds item 6 (a narrower Angel-shape R1 arm, about $4, open). Docs only.
+
+### Docs — far-cloud P1: Batch Near-Term stays on Sonnet 5.5 (owner decision, 2026-10-15)
+
+- Plan §9 item 1 records the decision: no interim switch to Sonnet 4.6 until the Part B re-run over the
+  verified Sonnet 5.5 era, or Part E outcomes, resolves which model's gos are right.
+
+## [v2.27.4] - 2026-10-15
+
+### Docs — far-cloud P1: where the Part D working files live, and the JDK 23 flags
+
+- Plan §12 step 1 records that the replay set, its split with the 150-prompt control and the R1 system prompt
+  were made on 2026-10-15 and live under `~/goldenhour-p1/` on the owner's Mac, outside the repository.
+- The runbook's prerequisites say which three Maven flags a JDK 23 machine needs for the harness commands.
+
+### Added — far-cloud P1: a script that runs the trimmed Option A replay arms
+
+- `scripts/far-cloud-p1/run_option_a.sh` runs the five Part D replay arms (`need-sonnet`, `need-sonnet55`, `r1-gos`,
+  `control-sonnet55`, `training-r1`) through the batch-mode `PromptReplayHarnessTest`: a plan run that spends nothing,
+  the request count and cost estimate, a per-arm confirmation (or `--yes`), the confirmed run (retried once with
+  `REPLAY_BATCH_RESUME=true`), and the three result files copied to `$P1_HOME/arms/<arm>/`.
+- `--max-usd X` aborts before submitting when an arm's printed ceiling estimate is above X; `--only <arm>` runs one arm;
+  `--dry-run` prints a fake plan and runs no Maven; an arm whose `runs.csv` already exists is skipped.
+- The API key is only inherited from the environment, never printed or put on a command line; a log that somehow contains it is deleted.
+
+## [v2.27.3] - 2026-10-15
+
+### Docs — far-cloud P1: D-1/D-2 thresholds decided, plan from 2026-10-15
+
+- `docs/engineering/far-cloud-p1-plan.md` §6 now carries the owner's numeric thresholds (2026-10-14) for
+  D-1 (a rule's readiness: Angel ≤ 3★ in 15 of 20 replays, Low Hauxley 4★ in 18 of 20, at most 15% of gos
+  demoted, Part B interval above 0, cost side ≤ 25%) and D-2 (the Sonnet 4.6 switch: an 8-point gap on the
+  three-star sample, or the Angel at 4★ in over half of Sonnet 5.5's runs and not 4.6's).
+- §9 records the thresholds as decided and the Part D spend as not yet approved; the status line records the
+  exports, Part B, the Part D set and the probe.
+- New §12, the dated plan from 2026-10-15: Option A in batch mode this week, Part E starting now, ERA5
+  verification catching up with Sonnet 5.5 in two to three weeks before Part B is re-run, Part C in the
+  background, outcomes over months.
+
+### Changed — far-cloud P1 Part D replay trimmed to about half by using stored ratings as one arm
+
+`scripts/far-cloud-p1/replay_set.py` gains `split`, which copies the Part D prompt set into `need-sonnet/` (prompts
+SONNET_55 rated, to replay on SONNET 4.6), `need-sonnet55/` (prompts HAIKU rated, to replay on SONNET_55), `r1-gos/`
+(the go group only, for the R1 arm) and `training/`, with a per-directory `manifest.csv`, an `arms.json`, an optional
+seeded `--three-sample N`, and a printed call count and batch-price cost estimate. `compare` stands the stored rating
+in for the model that was not replayed, as a distinct `stored/<model> [production]` arm that is never presented as a
+replay, prints the D-2 and D-1 part 2 figures as one line each with numerator, denominator and stored-vs-replayed
+sides, and takes `--arms-json` to refuse runs that do not match the split. A stored rating is one sample, and a stored
+3-star is 3 by selection, so the trimmed D-2 is a ONE-SIDED line with no gap figure (it cannot confirm D-2.1); the
+README says so and names the control run. Python standard library only, no
+Maven run, no Anthropic call.
+
+### Added — far-cloud P1 replay: a same-model control to price the stored rating's selection drift
+
+`scripts/far-cloud-p1/replay_set.py split --control-sample N` (default 0, off; 150 recommended) writes a fourth
+directory, `control-sonnet55/`: a seeded random N of the SONNET_55-stored prompts, go and 3-star drawn in
+proportion, to replay on SONNET_55 with the production prompt, recorded in `arms.json` with role `control`, and
+printed as a cost line in the split plan (about $0.8 to $1.2 at 150). A stored rating is selected on its own value
+(the `three` group is 3 by construction, the `go` group 4 or more), so any replay compared with it regresses toward
+the mean with no real difference; `compare` could not tell that from an effect. With the control loaded it prints
+the noise floor (the share that moved off the stored rating, the control gos that fell below 4 and the control
+3-stars that rose to 4, each with numerator and denominator), the D-1 part 2 line net of the control gos' own
+below-4 share, and the one-sided D-2 line beside the control 3-stars' rise-to-4 share. The control is never an arm
+and is not counted in any decision line; `compare` refuses (exit 2) a control run on another model or prompt.
+Python standard library only, no Maven run, no Anthropic call.
+
+### Added — prompt replay harness gains a Batch API mode (half price)
+
+`PromptReplayHarnessTest` (far-cloud P1 Part D, test-only, tagged `prompt-regression`, never run by CI) takes
+`REPLAY_BATCH=true` to submit the same request bodies as one Message Batch per model at 50% of standard prices.
+A one-request primer batch per system prefix is submitted first so the real requests can read a 1-hour cache
+(`REPLAY_PRIMER_WAIT_SECONDS`, fail-open). Batch ids are written to `target/p0-replay/batches.json` as they are
+created and `REPLAY_BATCH_RESUME=true` re-polls them instead of resubmitting. The run prints the request count and
+an estimated cost first and refuses to submit unless `REPLAY_CONFIRM_COST` equals the printed request total.
+`runs.csv` keeps its columns and gains `mode`, `batch_id` and token columns at the end, so
+`scripts/far-cloud-p1/replay_set.py` reads direct and batch runs alike. No production code changed; the batch
+path is covered by a WireMock-backed `PromptReplayBatchTest`.
+
+### Fixed — far-cloud P1 tools rest on what Open-Meteo actually serves
+
+The first live run of the P1 probe failed four checks. Previous Runs documents `_previous_dayN` for
+total cloud cover only, so low, mid and high "as issued the day before" never existed; `case.py` and
+`size.py` now read each model's day-0 layers from the Historical Forecast API (identical values for the
+same model) and report no day-before column. The 20-coordinate archive "order" failure was a sea point
+answered from the neighbouring land cell, so the probe now tolerates one cell and tests for a point
+nearer a different request, `Client.get` refuses a batch answered more than 0.55 degrees from its
+requests, and a new check pins that coordinates sharing a 0.25 degree cell are not merged. The plan
+records the findings (section 11) and the T+1 limit this puts on H1–H4 before V175.
+
+### Added — Coming up tide runs rank each day against the year
+
+A tide-run entry's `dayRanges` now carry `rangePercentile` (how that day's range ranks among the past year's daily
+ranges at the run's port, "top N%") and the entry carries `rangeAverageMetres` (the year's mean daily range), both
+served only from a sample of at least 300 derivable days. The tide sparkline's delta is now measured against that
+same average when it is served (a different statistic from the all-history figure it used, so deltas shrink), and a
+merged supermoon-on-tide-run card's coincidence line reads "top N% of the year" in place of the metres on the
+run's true-peak day. Backend only; the range bars draw them in the next change
+(`docs/engineering/tide-range-rank-plan.md`, R1).
+
+### Added — Coming up tide-run bars rank each day against the year
+
+Each day of a tide run now shows `top N%` above its bar (where that day's range ranks among the past year's at the same port), the range in metres under the day chip, and a dashed line at the year's average range across the bars; from 640px a small axis names the line `AVG` and the metres row `range`, and a key sentence under the row explains both. The biggest day wears a filled pill and a glow, days in the top 5% a brighter bar, and a day that has gone or has no forecast yet mutes its label and metres (a biggest day shows an outline pill, with no glow). The percentile and average are served by the backend; the page only scales them. Covered by tests; not yet seen in the live app.
+
+## [v2.27.2] - 2026-10-14
+
+### Added — P1 analysis tools for wasted trips, the canvas rule and far cloud decks
+
+`scripts/far-cloud-p1/` holds the owner-run tools for `docs/engineering/far-cloud-p1-plan.md`: read-only
+production exports, a premise check of recent go ratings against ERA5 (Part B), a stored-prompt replay set
+and comparison across models and a canvas-rule prompt variant (Part D), a reconstruction of the Angel of the
+North 13 Oct sun line (Part A) and the H1–H5 far-deck sizing (Part C), with an Open-Meteo probe, cache and
+budget. `PromptReplayHarnessTest` gains a test-only `REPLAY_SYSTEM_PROMPT_FILE` override; with it unset the
+replay sends the production system prompt unchanged. No production code changes.
+
+### Added — Coming up range bars on tide-run day chips
+A tide run on Coming up now draws each day's tidal range as a small bar above its day chip, the biggest day solid, from the ranges the server already serves. The chip's accessible name gains the range ("4.9 metre range"). Entries with fewer than two served ranges look as before.
+
+Tested in jsdom; a reviewer measured the layout in a headless Chromium harness at 320, 390, 768 and 1280px. Not seen in the live app.
+
+### Changed — a supermoon on a tide run is one card over the whole run, not a single day
+
+When a spring or king tide run overlapped a supermoon, the "Coming up" feed merged them but let
+whichever topic scored higher take the whole shape: with the supermoon winning (26 Oct 2026) the
+card read `MON 26 OCT` over a six-day run, offered one day chip, opened the dark-sky map for a
+coastal event, and printed a bare `peaks 26 Oct` beside a tide line dated the 27th. The merge now
+follows one rule: bits decide ranking, span decides shape. The card spans the union of both topics'
+dates and is hosted by the topic with the longest span (so a run on a supermoon opens the coastal
+spots for the run's peak day); its title reads `Spring tide run, on a supermoon`; it carries one
+line per topic with that topic's own dates (`Sun 25 – Fri 30 Oct · biggest Tue 27 · 4.9 m · HW 15:48`
+and `Mon 26 Oct · moonrise 17:22`), and its join note names each topic's own date ("The moon is full
+on the 26th and the tide peaks a day later, on the 27th"). The score is unchanged: the higher of the
+two, with the winner's provisional flag and arrival date. The feed also gains `dayMarks` (the days a
+merged card marks for each topic) and a `type` on each coincidence line; no chip draws the marks yet,
+so this should not be released on its own before the chip work that follows.
+
+Accepted behaviour changes. A merged card's title, door and family follow its host, and the family
+filter and the filter chips' counts now find it under both of its families (the All chip is the
+feed's fixed plus forecast count, so a merged card is not counted twice). A supermoon inside Plan's
+four days is now still paired with the longer run that overlaps it. Ask offers a merged
+card once, as its host's event over the union span (a merged-in topic is no longer offered as an event
+of its own, as was already so when the run won), and a live supermoon of the same dates is no longer
+listed a second time beside it; a stored Ready answer or follow-up thread event that names either topic
+whose dates moved is withheld whole until the next precompute. The coincidence line's facts now wrap
+rather than overflow the card on a phone, breaking only around the separators, and the supermoon line
+wears the moon glyph. A merged card sorts and takes the "say the definition once" prose by its union
+start, and a "biggest until" superlative names the date the later card actually shows.
+
+### Added — "Coming up" tide-run entries serve a tidal range per day
+
+Every spring or king tide run in the "Coming up" feed whose stored tide data covers at least two of its days now carries `dayRanges`: one entry per derivable day (date, range in metres to one decimal, and a `peak` flag true only on the run's own peak day), measured at the same representative port as the run's headline range. A merged supermoon-on-a-tide-run card carries the run's ranges whichever topic hosts it. A day with no stored tide data is left out rather than guessed, a run straddling the stored tide window marks its largest measured day as the peak, and a run known for only one day gets no bars at all. Range figures are rounded exactly as the headline figure is, so the tallest bar never disagrees with it by 0.1 m. Backend only: the day chips and bars that draw them follow.
+
+### Added — "Coming up" day chips mark the supermoon night and the tide peak on a merged card
+
+When a supermoon falls on a spring or king tide run the merged card's day chips now carry the served marks: a `full moon` line on each moon night and a `peak` line on the run's true peak day, each coloured by its own topic family, and named in the chip's accessible name (`Show coastal spots for Tue 27 Oct, peak day, full moon`). On a merged card the word "peak" appears only where the server marked a true peak, so a run with partial tide coverage no longer shows a peak it does not have. The peak chip is drawn only where the server marked a true peak, in the tide's own teal rather than gold (whichever topic hosts the card), so it is never drawn in the moon's gold beside a gold `full moon`, and a merged run of up to 14 days gets its chip row (other cards keep 10). Unmerged cards are unchanged. Phone widths also line a wrapped tide line's facts up under its name, like the moon line's, and keyboard focus rings follow the system colour in forced-colours mode. Tested, not seen in a browser.
+
+## [v2.27.1] - 2026-10-14
+
+### Changed — prompt-test and model-test replays skip fields a different build wrote
+
+The Prompt Test and Model Test replays read stored atmospheric data JSON with a mapper that now skips a property it does not know, and logs each skipped property at WARN each time it is met, instead of failing the whole replay. Rows written by a newer build (for example with the far-point cloud fields) can then still be replayed after a rollback. A renamed field shows up in the log rather than quietly replaying a different prompt.
+
+### Fix — `POST /api/outcome` can record the 1–5 star rating the calibration gate needs
+
+`ActualOutcome` gained an optional `actualRating` (1–5, validated; out of range answers 400) which `OutcomeService.record` now writes to `actual_outcome.actual_rating`. The calibration report pairs forecasts only with outcomes that have this rating, and the API previously had no way to supply it, so no outcome recorded through the API could ever be calibrated. No migration: the column already existed.
+
+### Fixed — the Map tab's window time follows the scope
+
+The Map tab's window pill showed the earliest sunset or sunrise anywhere in the catalogue, so on a
+"My area" map it could name a north-coast minute (18:09) while every place in view, and the
+masthead's own light rule, said 18:14. Every place the Map tab prints a window's time (the pill and
+its menu, the phone peek sheet, the landing card, the drilldown, the callout, the tooltips and the
+tide strip's labels) now shows the earliest time among the places in the current scope — "My area" or
+"Everywhere", the same places the pill's verdict is taken over. When to retire a passed window is
+unchanged: it still reads the served window time, so the Map and Plan tabs agree on it.
+
+### Changed — the afternoon forecast job's description no longer says "mid-afternoon"
+
+V174 rewords the `intraday_forecast_refresh` row on Operations › Scheduler: it now runs "ahead of
+tonight's sunset (a set time before it on the sun-relative schedule, else at its cron time)", naming
+no time of day. On the sun-relative schedule the cycle runs as early as about 11:40 UK in December,
+so "mid-afternoon" (or any "afternoon") read wrong. The update applies only while the row still holds the wording V141 wrote,
+so a description edited by hand is left alone, and it changes nothing but the description.
+
+### Added — Claude Haiku 5.5 as a selectable evaluation model
+
+`EvaluationModel.HAIKU_55` (`claude-haiku-5-5`) can now be chosen on the Models screen for any run
+type, and on the Prompt Test, Sky-Rating Eval and best-bet advisor replay harnesses. It is not the
+default or active model anywhere, and it is left out of the scheduled sky-rating eval, the Model
+Test and Briefing Model Test comparison lists and Ask PhotoCast's model setting.
+
+Haiku 5.5 thinks by default, but unlike Sonnet 5.5 it accepts `thinking: disabled`, so every
+request path (synchronous, batch, cache primer, aurora, glosses, best-bet advisor) sends thinking
+disabled with effort low and keeps the Haiku answer budgets. Costs are configured as `cost.haiku55-*`
+($0.10 in / $0.50 out per million tokens for prompts up to 100K tokens; every prompt here is far
+smaller), roughly a tenth of Haiku 4.5 even though its tokeniser counts about 30% more tokens. No
+migration: the model columns hold the 8-character name `HAIKU_55`.
+
+Not yet run against the prompt-regression suite or the sky-rating eval; do that before switching any
+run type to it.
+
+The existing Haiku model is now labelled "Haiku 4.5" everywhere a model name is shown, so the two Haikus are told apart.
+
+### Added — pressure-level cloud at the far point is recorded (data only)
+
+V176 adds six nullable columns to `forecast_evaluation` holding cloud cover at 850, 700, 600, 500, 400 and 300 hPa at the 226 km far-solar point, at the event's hour. They come from one extra best-effort Open-Meteo request per prefetch (the far cells, deduplicated) and one per live evaluation that has no cache. The request is separate and best-effort: it shares only the open-meteo rate limiter (so it uses quota and permits), has no retry and no circuit breaker (so it cannot open the breaker the rating-affecting fetches use), stops at its first failed chunk, and the prefetch's level fetch is capped at 90 s. When the cloud prefetch itself fails no level request is made. A failure leaves the six values null; the prompt, triage and ratings do not read them. Cost is one extra request per prefetch (deduplicated far cells) and one per live evaluation without a cache (sync fallback, JFDI, force-submit, batch retry reconstruction). Existing rows stay null and nothing is backfilled. Nothing user-visible changes.
+
+### Added — far-point mid/high and dark-hour cloud are recorded (data only)
+
+V175 adds five nullable columns to `forecast_evaluation` (mid and high cloud at the 226 km far-solar point at the event's hour, and low, mid and high at the far point's dark-side hour) and the five matching ERA5 columns to `cloud_verification`. The forecast side is persisted through `DirectionalCloudDetails`; the verification backfill now fills the ERA5 columns for newly verified rows. Existing rows stay null and nothing is backfilled. Nothing user-visible changes: the prompt, triage, ratings, API responses and the frontend are untouched.
+
+### Docs — a delegation plan for recording far mid and high cloud
+
+`docs/engineering/far-cloud-capture-plan.md` breaks the far-cloud-lid plan's P2 (record mid and high
+cloud at the 226 km far point, and pressure-level cloud if Open-Meteo serves it, without changing the
+prompt) into task cards for subagents, with the facts each task relies on and the order to run them.
+No code changes.
+
+### Fixed — the aurora strip's glow paints, and the card tells a screen reader how far south the aurora reaches (aurora banner, B4)
+
+On a phone the aurora strip's lit bottom edge is no longer clipped: it was cut with `clip-path`, which
+also clipped its own `box-shadow`, so the glow could not show. The lit fraction is now the edge's width
+(62% Moderate, 92% Strong, unchanged), with the colour ramp still stretched across the whole strip.
+
+On the desktop card, the southern viewline stays decorative on the thumbnail, but once the line is drawn
+the alert carries one visually hidden sentence built from the server's own wording ("Visible as far
+south as the Midlands.", with a full stop added), so a screen reader hears how far south the aurora
+reaches. Nothing is spoken while the thumbnail has not drawn the line.
+
+The plan records two earlier choices as owner decisions: the brighter secondary ink on the small labels
+(the spec's muted ink fails AA) and breathing on a Strong, live, south-Bz alert only.
+
+### Fixed — an Ask follow-up keeps the ★ in an earlier answer's summary
+
+When a follow-up question sent the earlier answers back, the client stripped emoji from each summary
+using the browser's Unicode tables. Some engines count ★ (U+2605) as a pictograph, so "4★" went back
+to the server as "4". The star is now kept on every engine; the server never refused it.
+
+## [v2.27.0] - 2026-10-13
+
+### Changed — "Too few rated" replaces a weather-only "Worth it" on every Plan and Map surface
+
+The client now speaks the server's new `UNRATED` display verdict
+(`docs/engineering/unrated-verdict-plan.md`, U2). At window and region level the word is **"Too few
+rated"** — the Plan card, the popup badge and region rail, the Map's window pill, landing card,
+drilldown rows and peek sheet, the regional-planner grid cell and its pill; at slot level (an Ask
+pick) it is **"Not rated"**. It takes the neutral treatment: no verdict tint or bloom, grid tier 5, no
+◎ before the word, no confidence decay or provisional mark on the badge (the word already says it),
+and the Map's all-Poor fold counts `STAND_DOWN` only, so "neither is worth the drive" is never said
+over a window nothing has called. The field's haze, by contrast, follows the server's tier for an
+UNRATED window (an ineligible region is floored LOW there), so the picture is as hazy as the server
+says; only the badge channel stays off. The card prints the region's mean beside the new word —
+"Too few 3.6★" is the honest card, since the gate withheld a verdict from exactly those ratings — and
+stays silent beside a triage "Poor".
+
+**One short form, `Too few`, for the cells that cannot hold seven more characters.** "Too few rated" is
+85.8px at the card's 11px type and 91px in the window pill's tracked capitals. Measured in headless
+Chromium against the built stylesheet and the real faces, in the shell's own geometry: the Plan
+card's value column is 70.3 / 90.3 / 97.8px at a 320 / 360 / 375px viewport, 79.3 / 111.3px at 640 /
+768 and 85.3px at a docked 1024, and "Too few rated 3.6★" needs 113.8px — so no single breakpoint fits
+the full word on the card, and an earlier cut that wrapped the mean onto a second line made the row
+31.5px against 20.0px and pushed that card's Spread and Best rows 11.5px below its neighbours'. The
+card now prints "Too few 3.6★" (74.2px) on ONE line at every width (rows 20.0px; Spread and Best at the
+same offsets as a "Worth it" card's; only the 320px viewport's 70.3px column ellipsises the word, by
+3.7px, as "Worth it" already does there). The same short form is drawn in the Map drilldown's region
+row (a 62px grid track that the full word overprinted onto the region name at 320, 360 and 640–700px;
+now 48px with 23px to spare), in the peek sheet's flex-none "Other windows" cell (the day label had been
+crushed to 12px at 320px; now 48px, wider than a "Worth it" row's 42px) and in the window pill at 811px
+and below (the full word clipped the day label at 320–430px and itself at 640–700px — the pill's day
+label is now whole at 340px and up — at 320px it is 7px short, a residual the control already carried
+for a rated word — and the word fits at every width above 650px). Every one of them
+keeps "Too few rated" in its accessible name; the badge, the landing card, the drilldown header and the
+grid cell keep the full word. One home for the pair: `VERDICT_LABEL_SHORT` / `VerdictWord`.
+
+Smaller fixes from the same review: an all-UNRATED region is no longer filed under "+N regions · all
+poor" in the regional planner's grid (which sorts an UNRATED cell with a stood-down one, both tier 5,
+alphabetically between them; the popup's region rail does rank it above a stood-down one); the
+peek sheet's two UNRATED words take an explicit secondary ink instead of falling through to primary;
+the drilldown's note for a lone UNRATED region no longer opens "Verdict is the strongest region's
+average", and the card's Region line says "Too few rated in X to call it" rather than "The verdict is
+X's".
+
+The location sheet's window rows and the Map callout now name a slot with no rating by its own served
+verdict — "Not rated" for an `UNRATED` slot, "Poor" for a weather stand-down, "Not scored yet" only
+when nothing was served — where both used to print "Not scored yet" for all three (Codex review of
+#1140: the slot-level words reached Ask's pick cards alone). Where the scores endpoint has no row for a slot (a weather GO/MARGINAL slot with no Claude result, which it never emits), that word falls back to the briefing slot's own served verdict, so "Not rated" is reachable there; the score row wins when both speak.
+
+### Changed — a weather-triage pass is no longer served as "Worth it"
+
+`DisplayVerdict` gains `UNRATED` ("the weather screen did not rule it out, and no trustworthy rating
+has called it"). With no rating, a weather-triage `GO` or `MARGINAL` now resolves to `UNRATED` instead
+of `WORTH_IT` / `MAYBE`; a triage `STANDDOWN` still reads `STAND_DOWN` (a decision against the slot)
+and no triage at all still reads `AWAITING`. A rating still decides exactly as before. Since the
+verdict sample gate (2026-09-29) that fallback was the common case at T+2 and T+3: on 2026-10-13
+Northumberland & Tyneside's Friday sunrise read "Worth it" on weather alone over 38 ratings the gate
+had withheld (mean 3.6), and its sunset read "Maybe" over a withheld 2.1 mean, while a region with no
+ratings at all was blanked to "Not scored at this range" — more evidence buying a bigger claim. A
+gate-failing region, an unrated slot and a window whose only regions are unrated now all read
+`UNRATED`; none can be a BEST BET or ALSO GOOD pick (`verdictEligible()` is unchanged), the honesty
+filter still words a blanked region `AWAITING` or `STAND_DOWN` by reason, and stars, `meanRating`,
+`sampleSufficient` and `forcedSample` are untouched. No migration (no column holds a
+`DisplayVerdict`; `briefing_region_snapshot.display_verdict` is a free-text `VARCHAR(20)`), and the
+serve path re-derives every region's verdict, so the API is right from the first request after
+deploy. Ask's tools serialise the verdict by name, so the model can see `UNRATED` on `list_windows`;
+the system prompt lists no verdict words, so nothing was added to it. A stored Ready answer is
+unaffected: `AskReadyFreshness` compares each PICK's slot verdict, which cannot be `UNRATED` (a pick is
+rated at 3★ or better), so no stored answer is withheld by this change. The client wording and
+treatment are a separate change.
+
+### Changed — T+1 evaluation cache cap drops from 8 h to 3 h (solar refresh P3 prep)
+
+`photocast.freshness.horizon.t1-hours` now defaults to 3 (was 8). A cached entry's age runs from
+when its results arrived, not from when its cycle fired, so the cap must sit below the shortest gap
+between cycles minus the slowest batch the pipeline still waits for. With sun-relative cycles the
+shortest gap is midwinter morning to afternoon (~7 h 24 min at Durham), and a cycle waits up to its
+3 h 30 min safety budget, so a morning batch can land ~3 h 54 min before the afternoon trigger; 3 h
+stays under that. (A first cut at 6 h, caught in review, would have let any morning batch slower
+than ~1 h 24 min hold its T+1 regions through the afternoon as cached.) The cap is applied to both
+cycles by the shared CACHED gate in `BriefingCandidateCollector`, before eligibility.
+
+Behaviour-changing today as well, but only in principle: under the current 01:00 / 14:00 schedule
+the gaps between cycles are 13 h and 11 h, so a T+1 entry written by one cycle is always older than
+8 h (hence also 3 h) at the next, and the cap cannot bite between scheduled cycles. It can only bite
+for a manual or restart-recovery run within 3-8 h of the previous cycle, which now re-evaluates
+instead of reading the cache. A hand-edited `t1-hours` override on the production host is not
+changed by this; remove or lower it there before switching the afternoon job to SOLAR_OFFSET.
+
+Text-only: rationale in `IntradayEligibilityPolicy`, `AstroConditionsRefreshJob`,
+`PipelineOrchestrator` and `application-example.yml` no longer hard-codes 01:00 / 14:00; the
+stability-snapshot log line no longer labels a >12 h age as "recovered after restart" (log only).
+
+### Changed — the stability snapshot read back after a restart is good for 30 hours, not 24
+
+`StabilitySnapshotProvider` treated a persisted grid-cell stability snapshot older than exactly 24 hours as missing. Under a sun-relative morning cycle the gap between two morning snapshots drifts a few minutes a day, so a restart just before the next cycle would have read yesterday's snapshot as absent and treated every region as UNSETTLED (the 4-hour freshness threshold, so more Claude spend). The window is now 30 hours; the worst case it admits is a classification from a missed morning cycle, six hours older than before. No behaviour changes until the morning cycle is switched to a solar schedule.
+
+### Added — a `SOLAR_OFFSET` schedule type, its trigger, a switch endpoint and a preview (no job uses it yet)
+
+Solar-relative refresh plan, P2a. The scheduler can now time a job a fixed number of minutes before sunrise or
+sunset at a reference point (Durham by default, `photocast.scheduler.solar-reference.lat|lon`; a bad value logs
+ERROR and uses Durham, it never stops startup). **No production row is switched by this change**: migration V171
+adds the nullable `solar_event` and `solar_offset_minutes` columns (with CHECKs) and touches no row.
+
+`SolarOffsetTrigger` computes in instants (event minus offset, so DST cannot create a missing or doubled hour),
+never fires before 00:05 UK of the day it serves, never returns null (a throwing or NaN calculator, the
+midnight sentinel for an event that does not occur, or a fire outside 00:05-06:00 UK for sunrise or 10:00-20:00
+UK for sunset all fall back to the job's stored cron, and as a last resort to a time a day on), fires strictly
+after both now and the last scheduled execution, and logs one INFO line per fire. Only `near_term_batch_evaluation`
+and `intraday_forecast_refresh` may become solar.
+
+`PUT /api/admin/scheduler/jobs/{jobKey}/schedule-type` (ADMIN) switches a job between `CRON` and `SOLAR_OFFSET`
+(`{scheduleType, solarEvent?, solarOffsetMinutes?}`). It validates and builds the new trigger before anything is
+written or cancelled, writes the three columns in one column-scoped update, and installs the new schedule before
+cancelling the old one; the stored cron is kept unchanged so the switch is its own rollback. The job list DTO gains
+`solarEvent` and `solarOffsetMinutes`. `GET /api/admin/scheduler/solar-preview` (ADMIN) shows, for both cycles,
+today's and tomorrow's event and fire instants, the year's earliest and latest fire time of day, the reference
+point and the median cycle duration, all from the trigger's own arithmetic.
+
+On startup a solar job that missed today's fire runs once immediately if no run of its cycle has got past
+submission since the fire (a run the restart killed before submitting does not count) and useful lead remains
+(before 05:00 UK for the morning cycle, at least 90 minutes before sunset for the afternoon one). The pipeline's
+startup recovery scan is now ordered to finish before the scheduler starts, so it can never take a catch-up run
+that has just begun for one the previous process left behind. The existing admin screen still treats a solar row like a fixed-delay one (P2c).
+
+### Added — the Scheduler screen understands sun-relative forecast cycles
+
+The Operations tab's Scheduler screen now shows each schedule type in its own form: a fixed cron
+time, a fixed delay, and a sun-relative rule ("4 h 15 min before sunrise") with its next fire time in
+UK time. A schedule type the screen does not recognise is labelled as such and cannot be edited, and
+editing a sun-relative job no longer sends a zero fixed delay. The two forecast cycle jobs (nightly
+and intraday) get a switch between a fixed time and a sun-relative one, behind a confirmation that
+states the job's next fire time before and after, pre-fills the plan's rule from the server and
+checks the offset (0 to 720 minutes) before anything is sent. A new read-only panel, fed only by the
+solar preview endpoint, shows each cycle's rule (proposed or current), today's and tomorrow's event
+and trigger times, the expected finish, the year's earliest and latest trigger, the reference point,
+and notes on catch-up and the safety budget. No schedule is changed by this release; switching a
+job is a deliberate click by an admin.
+
+Review fixes: switching back to a fixed time is described as dropping the sun-relative rule (the
+backend clears it), a failed preview refresh keeps the older figures under a notice and blocks the
+switch to sun-relative until it recovers, a day that falls back to the stored cron is quoted as such,
+a partial save says the fallback cron was saved, a blank fallback cron is refused, slower earlier
+responses no longer overwrite newer ones, and the editor moves focus in and back to the Edit button.
+
+### Fixed — one job's schedule configuration can no longer stop the other jobs being scheduled
+
+`DynamicSchedulerService` is hardened ahead of any new schedule type (solar-relative-refresh plan, P1).
+`initSchedules` isolates each `scheduler_job_config` row: a row with a null or unparseable cron, a null or
+non-positive delay, a schedule type this build does not know, or a scheduler that throws for it is logged at
+ERROR with its job key and left unscheduled, and every other job is still scheduled. `scheduleJob` switches
+explicitly on the type instead of treating everything that is not CRON as FIXED_DELAY. `updateSchedule` builds
+and validates the replacement first, installs it, and only then cancels the old future, so a bad request is a 400
+that changes nothing and a failure to install never leaves the job unscheduled; it also refuses a job whose
+stored type is unrecognised. `resume` of such a job logs ERROR, leaves its status as it was and schedules nothing.
+
+`scheduler_job_config.schedule_type` is now read as a plain string (`updatable = false`, so no save of a loaded
+row can write over it) instead of an `@Enumerated`, so a value this version does not know no longer fails the
+load of the whole table or `GET /api/admin/scheduler/jobs`; the endpoint reports the raw string. This makes a
+later schedule type rollback-safe. No migration: the column is unchanged.
+
+Cron triggers are pinned to UTC (they used the JVM default zone). Production's JVM already runs in UTC, so
+nothing changes there; on a London-zoned machine the trigger and the displayed next fire time now agree.
+
+### Changed — one 3 h 30 min safety budget per forecast cycle, and a briefing rebuild when a batch lands late
+
+Solar-relative refresh plan, P2b (D3, B1). The pipeline's wait used to take a fresh `photocast.pipeline.safety-timeout`
+(4 h) for the batch wait and again for the retry wait, and a restart restarted the clock, so one cycle could stay
+RUNNING for 8 h or more, longer than the shortest gap between two cycles. The deadline is now the cycle's **first
+batch submit** (`min(forecast_batch.submitted_at)` for the run) plus the timeout, read from the database on every
+poll, so WAIT and RETRY_FAILED share one budget and a restart cannot extend it. The default is now **PT3H30M**
+(`application-example.yml` updated; the slowest of 49 observed cycles took 181 min). A run with no batch that has a
+submit instant keeps the old now-plus-timeout.
+
+A retry is no longer submitted when under ten minutes of the budget remain: the RETRY_FAILED phase is completed with
+the reason and the run carries on to the briefing with those locations left failed, rather than submitting a batch it
+cannot wait for and failing a cycle whose original batches all landed.
+
+When a FORECAST batch ends after its pipeline cycle has already finished with it (the run is COMPLETED, DEGRADED or
+FAILED, for instance on the safety budget) and no other FORECAST batch of that run is still outstanding,
+`LateBatchBriefingRebuild` asks for `BriefingService.refreshBriefingIfIdle()` on a background executor, so the gloss
+prose and best-bet picks follow the late ratings. It never persists the cycle's picks, never dispatches the Ask Ready
+or almanac refresh, never touches `pipeline_run`, and a rebuild refused because one is already running is logged and
+not retried. An ad-hoc batch (no `pipeline_run_id`) and an aurora batch trigger nothing.
+
+**Operator note:** the production host's config is hand-edited. `application-prod.yml` does not set
+`photocast.pipeline.safety-timeout`, so the new default applies unless the host's own file overrides it.
+
+### Fixed — the four-day location sheet and the map legend scroll instead of squeezing their contents
+
+A place's window rows in the location sheet (opened from the Plan popup, Plan search, the Map
+callout's "Four days here" and Ask's "Open in Plan") were shrunk to fit the sheet, so an open
+row's prose was cut off at its bottom edge and closed rows lost half their second line. Rows now
+keep their full height and the list scrolls. The map legend had the same fault on a short map:
+its colour ramp was squeezed to a 2px line; it now keeps its 9px and the legend scrolls. CSS only
+(`.wf-loc-row` gains `flex-shrink: 0`, `.wf-legend-ramp` gains `flex: none`), pinned by a
+stylesheet test and measured in headless Chromium.
+
+### Added — a forecast-cycle watchdog that mails the admins when a cycle does not start or has not finished
+
+Solar-relative refresh plan, P2b (B2). A new scheduled job, `forecast_cycle_watchdog` (migration V172 seeds one
+ACTIVE row, every 10 minutes, first check 10 minutes after startup; no existing schedule is touched), checks the two
+forecast cycle jobs and emails the admins once per occurrence:
+
+- **Did not start:** the job is ACTIVE, its most recent scheduled fire (a CRON job's last fire in UTC, or a
+  SOLAR_OFFSET job's own fire for today or yesterday) was more than 30 minutes and no more than 6 hours ago, and no
+  pipeline run of its cycle type has been triggered since.
+- **Did not finish:** a run of the cycle triggered today is still RUNNING, or has a forecast batch still outstanding,
+  from 20 minutes before until 60 minutes after the event it serves (nightly: today's sunrise; intraday: today's
+  sunset, at the scheduler's reference point).
+
+Each alert names the job, the fire or run, the event in UK local time and what is missing, and is latched in memory
+per (job, fire) or (job, run), so a still-true condition is not mailed again every ten minutes. The watchdog only
+reads: it never starts, stops or retries a run, and any failure inside it is logged and swallowed. It needs
+`notifications.admin-alerts.enabled` and working mail, like Ask's spend-cap alert. It works with today's CRON
+schedules unchanged.
+
+### Changed — the daily briefing model comparison moves from 05:00 to 06:30 UTC
+
+The comparison reads the briefing the morning forecast cycle built. A sun-relative morning cycle can start as late as 04:15 UTC in midwinter, which left about 45 minutes. V173 moves the `briefing_model_comparison` schedule to `0 30 6 * * *`, only if it still holds the seeded `0 0 5 * * *`; a hand-edited schedule is left alone, and no other job changes.
+
+### Fixed — the batch summary in admin views dates its horizon by the UK day
+
+`BatchSummaryDeriver` measured a batch run's horizon from the UTC date of `job_run.started_at`. A midsummer morning run starting at 23:13 UTC is already the next UK day, so it would have shown T+1 to T+4 instead of T to T+3. It now uses the UK civil date through `ForecastHorizon`; runs started at 01:00 UTC are unchanged.
+
+## [v2.26.6] - 2026-10-13
+
+### Changed — the Plan card shows the region mean behind its verdict word
+
+A window card wore the same word, tint and bloom for a region averaging 3.5 as for one averaging 4.6,
+so "Worth it" said nothing about how worth it. The value grid now prints the served region mean, one
+decimal, in quiet ink beside the word (`Worth it  3.5★`; always one decimal, so it cannot be read as
+the whole-star best-spot chip on the same card), and the card's spoken sentence carries it as
+"3.5 star average" straight after the verdict. A window with no mean behind its word — a weather
+stand-down, an unrated window, an away night — prints nothing at all rather than a dash, and so
+does a region the verdict-minimum-sample rule withheld its own verdict from (its word is then the
+weather fallback, not a reading of its mean, so the card prints no figure beside it and voices no
+average). The figure comes from the same region as the word: the client's top-region selection now ranks
+verdict-eligible regions ahead of ineligible ones before comparing means, as
+`PlanWindowProjector` does, so a thinly-sampled region at a higher mean can no longer lend its
+figure to a sufficiently-sampled region's verdict (the Map tab's window verdict shares that
+selection and follows). The popup's region rail and the Map tab's window panel now rank the same
+way, verdict-eligible regions first, so rank 1 there is the region the card and the map pill name
+(the panel's note says so). Plan card
+verdict honesty plan, H1; frontend only.
+
+### Changed — the Plan card names whose verdict it is when nothing in reach is rated
+
+When the reach tier gated out every rated place of the region a window's verdict belongs to, the
+card read "Worth it" over a Spread of "none rated yet" and a Best of "not scored yet" — false of the
+window, true only of the places you could drive to. In exactly that state the third row now reads
+`Region` / `Northumberland & Tyneside · beyond 45 min` (the tier as the lens bar prints it), in
+primary ink, with a tooltip saying the verdict is that region's and its rated places are all further
+away, and the card's spoken sentence carries the same clause where it used to drop the Best clause.
+It is silent when the verdict word is only the weather fallback of a thinly-sampled region (no
+rated places stand behind it to be "beyond" anything). It only ever appears with a measured drive time and an active tier: with no postcode, or under
+"Any", nothing was gated, so the wording is not claimed. Frontend only (plan-card-verdict-honesty
+plan, H2).
+
+### Fixed — the map no longer says "not scored yet" over a window that has ratings
+
+On the Map tab, stepping to a date past the six windows the Plan tab renders (a Friday sunset seen
+from Tuesday, say) drew "This event is not scored yet" in the top-right while the chips showed real
+stars and the counts footer read "14 rated". The line took its answer from the Plan tab's served
+window, which those later dates do not have, so it read the missing window as "nothing rated". On
+such a date it now asks the same scores the chips and the footer read, and stays silent when any
+place is rated for that date and event. A window the Plan tab does serve keeps its own rule, and
+the colour key still stays down on the later dates, because no heat field is painted there (the
+field is built per rendered window; painting it for the later dates is a follow-up). Frontend only.
+
+### Fixed — windows that were never scored no longer read "Too unsettled to forecast"
+
+The Plan tab's honesty filter blanked every region with no per-location forecast and called it "Too unsettled to forecast", which is only true when weather triage stood the region down. It was also stamped on every window the scoring policy never attempts (all of T+4, and T+3 unless the pattern is settled), on travel days, and on cycles whose forecast run did not finish, so an unscored T+3 card read "Poor". The filter now words a blank by why, from the pipeline's own record of what it did with each slot plus the horizon: a travel day reads "Not forecast", a window never attempted at this range reads "Not scored at this range", a run that did not finish reads "Forecast unavailable", each as the neutral "Not scored" card with no red tint. A window skipped by a mix of weather triage and the stability policy (the usual case at T+2 and T+3, since triage runs first) reads by whichever is the majority, a tie going to "not scored". A real weather stand-down, and any case the record cannot settle, keep the old wording. The serve reads the dispositions once (one extra small query, only when some slot's latest record is a submission, to tell a batch still in flight from one that never produced a result), and a window whose regions are blanked for different reasons now takes the real stand-down over the unscored one, so its verdict no longer depends on region names.
+
+### Docs — plan for the aurora alert banner redesign (aurora banner, B0)
+
+`docs/engineering/aurora-banner-plan.md` is the port plan for the owner's aurora alert banner
+design bundle (vendored at `docs/design/aurora-banner/`): severity moves from amber/red onto the
+aurora ramp, the banner gains a 96×118 thumbnail of tonight's aurora field (Kp and a nine-step
+meter in the same slot until per-location scores exist), and on a phone it collapses to a 56px
+glow strip. The plan records where the spec's picture of the code is out of date, the decisions
+taken for an unattended build, and three phases for Sonnet sessions. Frontend only; nothing moves
+in the backend.
+
+### Added — the aurora banner's thumbnail carries the southern viewline (aurora banner, B3)
+
+When tonight's aurora field is on the banner's thumbnail, a dashed amber line now marks how far south
+the aurora is expected to be visible, with a small label (`Kp 6 line`). It uses the live line when the
+live data has one and NOAA's forecast line otherwise, the same order as the Map tab. If the limit is
+south of the picture the line sits on the bottom edge and reads `Kp 8 · all ↓` (your whole area is
+inside it); if it is north of the picture the line sits at the top and reads `Kp 3 · line ↑` (your
+whole area is south of it). The line is only asked for while the field is drawn, so a banner showing the
+Kp meter, a simulated alert, a dismissed banner or the phone strip makes no viewline request. Frontend
+only; the line is on for everyone who sees the field (owner decision, 2026-10-12).
+
+### Added — the aurora banner shows tonight's aurora field and the best location once per-location scores exist (aurora banner, B2)
+
+While an aurora alert is up, the banner now asks for tonight's per-location ratings (the live scoring
+when it has any, else the stored run for the night in progress; a simulated alert asks for nothing).
+Once your planning area has a rated site, the 96×118 slot at the card's left swaps the Kp meter for
+the aurora field itself, clipped to the coastline and framed to the area, and the body line reads
+`Best: Kielder 4★ · 147 sites clear` (plus the live Bz); on a phone the strip's second line reads
+`Kp 8 · best Hackfall Wood 5★`. The best site is the most stars among the rated sites inside your
+planning area, ties going to the shorter drive from home and then the name, so the banner never names
+a site beyond the area it draws; an alert whose only rated sites are outside it stays on the Kp meter.
+A failed score request leaves the banner as it was, and the field loads as its own chunk with a
+fallback to the Kp meter if that chunk cannot be fetched, so a decorative picture can never take the
+page down. To reach the planning area the banner now sits inside the briefing provider: the error
+boundary and the provider wrap the banner block as well as the page, without adding any element, so
+the Map tab's layout is unchanged; a crash in the Plan now also takes the notices above it away
+behind the fallback, which has its own Sign out. Frontend only.
+
+### Changed — the aurora alert banner escalates on the aurora ramp, shows Kp on a nine-step meter, and collapses to a glow strip on a phone (aurora banner, B1)
+
+The aurora alert banner used to escalate from amber to red, colours that mean "marginal" and "stand
+down" everywhere else in PhotoCast, for an event a photographer wants. Severity now follows the
+alert's `level` onto the aurora ramp (Moderate in `#3AC884`, Strong in `#76FFA0`); the API's own
+`hexColour` is no longer read. From 640px up the banner is a card with a 96×118 slot at its left
+holding tonight's Kp and a nine-step meter (the meter's bars come from the aurora ramp module, so
+they carry its AA-checked teal) until per-location scores can fill the slot with the field itself;
+below 640px it is a single 56px glow strip with the ramp lit along its bottom edge to 62% (Moderate)
+or 92% (Strong). The card keeps the overcast gate and its copy, per-level dismissal with re-show on
+escalation, `role="alert"` and the simulated hatch. A Strong alert now breathes (a slow glow, off
+under reduced motion) instead of pulsing while it is live and Bz is southward; a Moderate one stays
+still. The Bz sentence, the Kp meta line and the live-viewline sentence are gone from the banner,
+and with them its viewline request. The small grey lines on the card and strip are set in the
+stronger secondary ink so they clear WCAG AA. A key pressed on the dismiss button no longer also
+opens the Map tab. Frontend only.
+
+## [v2.26.5] - 2026-10-12
+
+### Removed — the callerless Close-to-home endpoint and its second assembly path
+
+`GET /api/briefing/close-to-home`, `CloseToHomeService`, `CloseToHomeResponse` and
+`BriefingService.getServedBriefing()` are deleted, with their tests. Nothing has called them since
+the Close-to-home panel died in v1 retirement D2. The Plan payload is unchanged: slot tide is now
+stripped on every API-path accessor, and `ServedBriefingAssembler.assembleWithoutPlan` survives only
+as the package-private first stage of `assembleForPlan`. The `photocast.close-to-home.radius-miles`
+property keeps its name (Ask's `nearHome` still reads it), as do `getHomeLocation` and the local
+radius setting. Comments that pointed at the deleted code were reworded.
+
+### Removed — the client's readers of the inert `evaluationGate`
+
+Since the tide gate lift (2026-09-18) the pipeline has served no `evaluationGate`, yet the Map callout, the location
+sheet and the tide index still read it and carried a "Not scored" arm, a gate row and their CSS. All of that is gone:
+`buildEvaluationGateIndex`, the `evaluationGate` and `gated` index fields, the sheet row's `gate`, the callout and
+sheet gate lines and `.wf-loc-gate` / `.wf-callout-gate`. An unscored window reads exactly as it did in production
+("Not scored yet", "Loading…" or the retry line); no visible change.
+
+### Removed — the inert `evaluationGate` seam on the backend
+
+`BriefingSlot.evaluationGate` and `BriefingGatingPolicy` are deleted. Both have been inert since the
+tide gate lift (2026-09-18): the policy's hard-constraint set was empty, so every slot was eligible
+and the field was null on every slot production built. `couldCarryRating` is now simply "has a
+rating, or is not a canopy slot", the candidate collector no longer carries its dead stand-down
+branch, and the region gloss runs for any region that has slots. Briefings already stored in
+`daily_briefing_cache` that still carry an `evaluationGate` key deserialise as before (pinned by a
+test), and `DispositionCategory.SKIPPED_HARD_CONSTRAINT` stays for historical rows. No behaviour
+change.
+
+### Changed — the briefing build reads the tide table once, not about 1,300 times
+
+Each coastal slot used to read its location's `tide_extreme` rows two or three times (the tide derivation, the
+tide-fit curve and a MID want's midpoint lookup), roughly 1,220 to 1,400 queries per build. The build now loads every
+coastal location's rows for its date span in one query (`TideExtremeSnapshot`) and answers those reads from memory; a
+location or range the snapshot does not cover falls back to the old per-location query rather than reading as "no
+tide". The three reads of one slot also now see the same rows, which closes the narrow window in which a tide refresh
+landing between them could make a MID slot's alignment and its quality part company. No served value changes, and every
+other caller of the tide service is untouched.
+
+## [v2.26.4] - 2026-10-11
+
+### Fixed — the Ask "holds a Ready answer for 400 ms" test no longer races the wall clock
+
+`AskAnswer.test.jsx`'s hold test failed once in each of two unrelated full-suite runs on 2026-10-11 and passed alone every time. The harness fakes timers with `shouldAdvanceTime`, so the fake clock also moves with real time, every 20 ms by however much has passed; under a loaded full-suite run the 400 ms the press arms could elapse before the test's explicit 399 ms advance, and the summary was already on screen at the "still held" check. Stalling 30 ms of real time between the press and the advance made it fail 5 of 5. The test now freezes the clock (`vi.useFakeTimers({ shouldAdvanceTime: false })`, the re-install `App.test.jsx`'s night-end test already uses, which carries the frozen instant) after finding the Ready button and before pressing it, so the only time that passes is the time the test advances. No timeout was widened; 20 of 20 file runs pass before and after, the after runs under a load average above 300.
+
+### Fixed — the aurora viewline drew over North Yorkshire through a G3 storm seen from the south coast
+
+On the night of 10 October the map's aurora line sat at about 54°N while the storm was being photographed from
+the south coast. Four faults compounded. The forecast line came from a hard-coded table whose rows were NOAA's
+*geomagnetic* latitudes read as geographic, about 2° too far north over the UK. It truncated Kp to an integer
+(6.9 read as 6). It was drawn for the Kp stored when the alert fired, which only changed when the alert level
+escalated, so a revised forecast never moved it. And the same table clamped the live OVATION line as well, so it
+could only ever move the line north.
+
+The forecast line is now a rule, `AuroraViewlineRule`: NOAA's oval edge at 66 − 2×Kp geomagnetic latitude,
+converted to geographic latitude per longitude with a centred dipole, then 4° further south for what a camera
+sees low on the horizon. It is continuous in Kp, and it dips further south to the west (Kp 6.67 is about 46.5°N
+at 2°W). The forecast endpoint reads NOAA's Kp forecast on every request, with the poller's own rest-of-tonight
+figure, so the line follows NOAA's revisions without waiting for an alert to escalate; it falls back to the
+alert's Kp if the forecast is unavailable. The live line is the OVATION 5% contour, no longer clamped.
+
+The map now polls both lines and draws one: the live line when OVATION has one, else the forecast. Live is solid
+pale cream (the aurora field is green, so a green line disappeared on it), the forecast dashed amber. The line
+is labelled with its source, the forecast's Kp and the UK time ("Forecast · Kp 6.7 · 19:40", "Live · 22:40"), and
+the legend says what it means. Each served line is logged at INFO. The old Kp-to-latitude pins in
+`NoaaSwpcClientTest` are deleted with the table: they pinned the defect.
+
+### Changed — the aurora ramp's 3★ stop clears AA for the pin numeral
+
+White ink on the aurora ramp's 3★ teal (`#22867E`) was 4.39:1, just under WCAG AA's 4.5:1 for the 11px bold pin
+numeral. The stop is now `#1F7F78` (4.81:1), the same teal to the eye, with luminance still rising monotonically
+from 1★ to 5★. The legend bar and the Heat toggle swatch follow, since they read the same stops.
+
+### Added — Ask PhotoCast's Ready "Anything for the night sky tonight?" (N2 of the Ask night series)
+
+A new Ready question, `NIGHT_SKY`, answered ahead of time like the others and free to tap. It is offered
+for a scope (every region, and everywhere) only when tonight's astro night holds at least one 4-star
+spot in that scope, never merely because astro rows exist, so a scope with nothing to say costs no model
+call. It is astro only: a Ready answer is shared by every reader, so no aurora pick or figure is ever
+stored (the aurora hot-topic card, which every role already sees on the Plan tab, may sit beside the
+picks). The typed matcher learns its words conservatively: "tonight" plus the night sky, stars,
+stargazing, the Milky Way, dark skies or clear skies, with nothing left over but asking words. A
+question with no time, another night, a place, a drive word, "aurora" or "Bortle" still goes to the
+model.
+
+The answer rests on the night's astro run, so it carries a version (the night's date and the latest
+`run_timestamp`, kept in the stored answer's JSON, no migration) and is withheld whole when the astro job
+re-runs the night, when a pick's star moves or stops being eligible, or when the night has passed. The
+version is served on the Ready question as `nightVersion`, the same string a typed night answer carries,
+so a Ready-origin exchange resets the follow-up thread by the rule a typed one does.
+
+The 15:30 UTC astro job now dispatches a night-only Ready precompute after a run that scored at least
+one location-date, on a background executor with the precompute's own 5-minute deadline, so nothing it
+does can fail the run. Without it the 14:00 answer would be withheld from 15:30 until the 18:00 cycle
+rewrote it. `AskReadyPrecompute` takes an optional set of questions (every existing caller still runs
+all of them) and the job passes only `NIGHT_SKY`, so no other stored answer is touched and the cost
+after an astro run is at most regions + 1 Haiku conversations. A scheduled run counts against
+`photocast.ask.ready.max-cycles-per-day`; an administrator's "Run now" takes the on-demand route and
+does not.
+
+Also fixed on the way: the Ready freshness check's "every window has passed" rule asked only for solar
+windows, so a night window id would always have read as passed.
+
+### Docs — Ask's night tool: the real-API regression class, and the docs reconciled with what shipped (N4)
+
+Phase N4 of the Ask night series (`docs/engineering/ask-night-plan.md`). `AskNightRegressionTest` joins the
+thread class as a second real-API script (`prompt-regression` profile, excluded from the default run, assertions
+pending the owner's approval, written without an API key and not yet run). Over a two-night fixture with a
+canopy-only wood that must never be picked, it asks the owner's own question ("are there clear skies on the
+Durham coast tonight?"), the aurora question as a PRO asker and as a LITE asker, "is tomorrow night any good?",
+and "anything closer to home?" with a live and with a stale `nightVersion`, asserting invariants only (which kinds,
+which stars, which words must or must not appear, never wording).
+
+CLAUDE.md's night bullets (the astro schedule, the night tool, the client's night card) now agree with each other
+and with the code. The Roles note and the role-gating assessment say how an aurora rating is withheld from a LITE
+asker (one role test, handed to the tool, `list_windows`, the validator, the thread re-join and the Ready
+freshness re-check), the engine bullet counts six tools, the typed-cache and thread bullets name the night
+exceptions, and the API section lists `nightVersion` and the second thread-reset reason. The plan gains an "As built"
+note per phase and a reconciled not-built list; the Ready `NIGHT_SKY` question (N2) is still not built.
+
+## [v2.26.3] - 2026-10-11
+
+### Docs — the 10 Oct aurora viewline night reconstructed, and the fix decided
+
+`docs/engineering/aurora-viewline-investigation.md` §5 reconstructs the night of 10 Oct 2026 from
+the host log: a MODERATE alert at 16:14 UTC on a 5.67 forecast (line at 56°N), escalation to
+STRONG at 18:47 on a live Kp 7.0 (the live line, capped by the table at 52°N), and — after the
+v2.25.1 deploy restarted the backend at 21:21 — a fresh MODERATE alert on a 6.67 forecast,
+truncated to the Kp 6 row, at 54°N: the dashed amber line in the 22:43 screenshot. §6 records the
+owner's nine decisions (camera visibility; NOAA's geomagnetic rule converted per longitude plus a
+4° horizon allowance; no truncation; the live OVATION line no longer capped; the forecast line
+computed per request from the rest-of-tonight maximum; always live with forecast as fallback;
+forecast dashed amber, live solid ink) and §7 is the A6 specification.
+
+### Added — Ask PhotoCast answers night questions: clear skies, stars and the northern lights (N1, backend)
+
+Ask had five tools and all of them read the sunrise and sunset forecast, so "are there clear skies on the
+Durham coast tonight?" could only ever be a can't-answer. It now has a sixth, `rank_night_spots`, over the
+rows the Map's night rows already read: the astro conditions forecast (cloud, visibility, moon, with the
+location's Bortle class) and, for PRO and ADMIN accounts only, the aurora forecast results and the aurora
+alert state. `list_windows` gains the night windows (`yyyy-MM-dd_astro` and `_aurora`, tonight and tomorrow
+night; an aurora window only for an asker who may see aurora), the system prompt gains the night rules, and
+the stub engine answers a night question from the same tool.
+
+"Tonight" is the poller's night (`AuroraForecastRunService.currentNightDate()`), never the civil date, so
+before nautical dawn it is the night still running. A night spot is an enabled, Bortle-enriched, regioned,
+non-canopy place; for astro only the night's latest generation counts (a run that failed for some places
+leaves their rows from the previous afternoon, which a date filter alone would rank beside today's). The
+snapshot reads astro rows through a new fetch-joining query, because the Ready precompute builds it outside a
+transaction. A night pick must be 4 stars or better for astro (the template's base is 3) or 3 for aurora, and
+an aurora pick is never offered, served or re-served to an asker without aurora access: the role is derived
+once and handed to the tool, the validator, the thread re-join and the Ready freshness re-check. A pick's
+`targetType` is now an Ask-local `AskWindowKind` (`SUNRISE`, `SUNSET`, `ASTRO`, `AURORA`), not a new
+`TargetType`; a solar pick reads exactly as before.
+
+A night answer is never stored in the typed cache (the key carries no role, and the aurora state and the
+afternoon astro refresh move under the TTL), and it carries an opaque `nightVersion` which the client echoes
+on the exchange: any earlier exchange, typed or Ready, whose night forecast has since moved ends the whole
+thread (`threadReset`, `"night forecast updated"`), and a night answer's summary is never shown to the model
+verbatim in a follow-up. The three tool-schema golden files move once (a new tool). No frontend change and no
+Ready `NIGHT_SKY` question yet (N2, N3).
+
+### Added — the Ask thread carries the night version
+
+A 200 that names a night carries an opaque `nightVersion`, which the client echoes on that exchange in
+`thread[]` exactly as it echoes `generatedAt` (and only on an exchange that has one, so a solar thread is
+unchanged on the wire). A thread the server ends because the night forecast moved
+(`threadResetReason: "night forecast updated"`) tells the reader so: "The night forecast has updated since
+your last question — this is a fresh answer."
+
+### Fixed — the Map follows an Ask pick on a night window
+
+`MapView`'s Ask window-follow effect told the app a night pick was a solar date (`isNight: false`), which
+`App` refuses once it is past — every pick of the night in progress before nautical dawn, when that night is
+yesterday's. It now passes the row's own provenance and keeps a night `App` would refuse local, as the
+window control does. And it no longer spends the choice before the night's row exists: a freshly mounted Map
+loads its astro and aurora rows from fetches still in flight when "Show on map ›" fires, so the choice used
+to be consumed with nothing to apply it to. It now waits for the row and applies it the moment it appears.
+In the other direction, a question asked while the Map shows an astro or aurora row now carries that night's
+window id ("is this any good?" on tomorrow's night row means that night).
+
+### Added — Ask PhotoCast's night pick card (N3 of the Ask night series)
+
+The client half of `docs/engineering/ask-night-plan.md`: an Ask pick on a night window (`ASTRO` or
+`AURORA`, window ids `YYYY-MM-DD_astro` / `_aurora`) now draws a card. It reads the place with
+"4★ sky" and, for a PRO or ADMIN reader whose answer also named an aurora night, "aurora 3★", then the
+kind, "Tonight · 20:40–05:10", "Bortle 3" and the home drive; a night has no verdict word and no tide, so
+neither is drawn. The card is joined by (date, kind) to the night payloads, never to the briefing, and a
+pick with no row in them is dropped rather than half-drawn (`buildPickCards` used to gate on the AM/PM word
+and dropped every non-solar pick). The payloads are fetched once per answer for the DATES its picks name —
+`GET /api/astro/conditions?date=` per astro date and `GET /api/aurora/forecast/results?date=` per aurora
+date for PRO and ADMIN only — never for "tonight": the running night is yesterday before nautical dawn, and
+only the PRO/ADMIN aurora status says so. A LITE client never calls the aurora endpoint. Nothing is kept in
+`swrCache`, `localStorage` or module scope.
+
+"Plan this ›" for a night pick shows "Leave home" counted back from the night's start, the drive, the served
+dark window and the served Bortle class and moon, with the served astro summary as the note. It offers no
+"Open in Plan ›": that door opens the location sheet, whose windows are all solar. "Show on map ›" is the
+night's door.
+
+## [v2.26.2] - 2026-10-11
+
+### Added — the aurora best-location card can be dismissed (aurora heat, A4)
+
+The Map tab's "best aurora location" card now has a ✕ (44×44) after `Centre map`. Dismissing hides the card for the session; it returns when a different location takes the top spot or the night on screen changes (keyed on the night, not the viewed date). Focus moves to the window pill, or the first other control in the pane, so it never drops to the page body. Session-only React state; nothing is stored.
+
+### Changed — the heat legend and ramp key describe the aurora ramp in aurora mode (aurora heat, A3)
+
+On an aurora night the Map tab's Legend panel is back and now describes the aurora scale: the bar
+runs night slate to aurora green with a soft green glow, the ends read "1 star dark sky, no show"
+and "5 star aurora green", and the note says the colour is the rating, not Kp. The sentence about
+the dashed viewline appears only while that line is actually drawn. On a phone, the window list's
+aurora night row colours its best-rating swatch in the aurora ramp (astro nights keep the shared
+one). The solar legend, the reach-rings toggle and the star-floor swatches are unchanged.
+
+### Changed — the Map tab paints an aurora night as a heat field, aurora green (aurora heat, A2)
+
+An aurora window on the Map tab now draws the same heat field every other window does, in the aurora
+ramp (night slate, teal, aurora green) with a green glow, instead of one star disc per location.
+The field is painted from each location's own aurora rating (the live stars on the night in
+progress, that night's stored results on any other), a location with no rating is left out rather
+than drawn as one star, and it fades with the forecast horizon like the astro field. The Heat and
+Pins toggle and the toolbar are now offered in aurora mode, location chips and pins take the aurora
+colours, and a 4 star or better pin carries a green halo. Switching to a sunrise or sunset and back
+swaps the ramp each way and never touches the saved colour-scale preference. The legend and the
+ramp key still describe the solar scale in aurora mode until the next phase.
+
+### Added — the heat kernel takes a ramp and a bloom colour (aurora heat, A1)
+
+The first step of painting an aurora night as a heat field in aurora green. The shared kernel
+(`heatField.js`) now accepts an optional `ramp` (a score-to-colour function) and `bloomRGB` (the
+glow colour); left out, it uses the active colour scale and the ember orange exactly as before, and
+a test pins the two renderings byte for byte. A new `utils/auroraRamp.js` carries the aurora ramp
+(night slate, teal, aurora green), its bloom settings, its legend gradient and its toggle swatch,
+kept apart from the persisted colour-scale preference on purpose: an aurora night overrides the
+scale, it is not a third choice the reader makes. Nothing on screen changes yet; the Map tab picks
+these up in the next phase.
+
+## [v2.26.1] - 2026-10-11
+
+### Docs — aurora heat: the design bundle, its port plan, and the viewline findings
+
+Vendors the owner's `PhotoCast Aurora Heat` design handoff at `docs/design/aurora-heat/` and
+adds `docs/engineering/aurora-heat-plan.md` (the port plan — six phases, A1–A6, with the spec's
+six stale claims about the code corrected, seven deliberate disagreements and the plan-time
+decisions recorded) and `docs/engineering/aurora-heat-prompts.md` (one kickoff prompt per phase
+for Sonnet sessions). `docs/engineering/aurora-viewline-investigation.md` holds Task 3's findings:
+the southern viewline is a geographic Kp→latitude table whose rows are NOAA's *geomagnetic*
+boundary figures (about 2° too far north over the UK), read with the Kp truncated to an integer,
+fed from the Kp frozen at the alert's first NOTIFY, and applied as a cap on the live OVATION line
+too — which is why it drew at 54°N through the 10 Oct 2026 G3 storm. The 10 Oct log
+reconstruction and nine owner questions are left open; no viewline code changes until they are
+answered.
+
+### Added — a scheduled job keeps the astro conditions forecast fresh
+
+`astro_conditions` had no row in production since 2026-07-31: the only caller of `AstroConditionsService.evaluateAndPersist` was the hand-started synchronous engine, which the scheduled pipeline never reaches, so the night forecast was missing on almost every night. `AstroConditionsRefreshJob` (`astro_conditions_refresh`, seeded by V170, 15:30 UTC daily, runnable from the Scheduler screen's Run now) scores tonight and tomorrow night for every enabled location with a Bortle class. Before nautical dawn a manual run skips the night in progress, because the batch forecast starts at 00:00 UTC and would score it on its post-midnight hours alone, overwriting the complete row. Open-Meteo only, no Claude call; the run is recorded as a `WEATHER` job run. Rows are upserted per location and night and never deleted, so a place disabled after a run keeps its old row. A failed Open-Meteo fetch writes nothing and the run completes as zero scored, leaving the previous rows in place.
+
+### Changed — Ask pick cards write the rating as 4★ like every other surface
+
+An Ask pick's score pill read `WORTH IT · 4`, a bare figure, where the Plan cards, the map callout and Claude's own summaries all write `4★`. The pill (on the pick card and in the "Plan this" view, which share `PickScore`) now reads `WORTH IT · 4★`. The star is inside the `aria-hidden` visible span; the spoken sentence is unchanged (", 4 stars"), so a screen reader does not say "star" twice. The pill was already `white-space: nowrap`, so the extra character cannot wrap it.
+
+### Fixed — Ask no longer fails when the model explores for all its turns: the last turn must submit an answer
+
+A question the tools cannot answer directly ("are there clear skies on the durham coast?") sent the model exploring: it spent all four turns calling tools and never called `submit_answer`, so the question failed with "Couldn't answer just now" (502, no question used) although every model call had succeeded. Every turn was already forced to be a tool call, but nothing forced the conversation to end. The last permitted turn now forces `submit_answer` (`tool_choice` `tool`) and its tool-result message ends with "This is your last turn: call submit_answer now with what you have, or with answerable:false and what is missing." The model either answers from what it has or declines honestly. Earlier turns and the system prompt are unchanged; with a one-turn budget the single turn is the forced submit. The "no submit_answer within N turns" failure remains as the defence behind it, reachable only if the forced call is malformed or cut off.
+
+## [v2.26.0] - 2026-10-11
+
+### Fixed — Ask: the conversation survives every route but "New conversation"
+
+A second question on the phone's Plan sheet went out with no thread in production (v2.25.2): no
+`thread` in the request, no "follow-up · 1 so far" chip, the first answer not drawn above the second.
+`AskThreadSurvival.test.jsx` now walks every route between two questions at 390px through the real shell
+and provider (the sheet's ✕, scrim and Escape, Plan → Map → Plan, the peek row, "Show on map ›", "Plan
+this ›", backgrounding, the keyboard, the allowance re-read, a parent re-render) and none loses the thread,
+so the conversation is provider state that only the button, a sign-out or a server reset ends. The likeliest
+cause of the report is a phone page that was loaded before v2.25.2 deployed and kept running the v2.25.1
+bundle, which has no client thread. The other way to lose it was a stray tap on "Clear answer", which sat
+above the question field and read as housekeeping on one answer while it ended the whole thread; the
+button is now **"New conversation"** on the sheet, the dock and the phone peek's ✕, with an accessible
+description saying it ends the conversation and keeps the earlier questions only until then.
+
+## [v2.25.2] - 2026-10-11
+
+### Added — Ask: follow-up questions (the thread) — docs and the regression script
+
+Ask's follow-up questions (the four entries above: the contract and guards, the prompt and validator, "close to home" as the
+saved radius with the turn-down rule, and the stacked client) are now written up as one feature in CLAUDE.md and the thread
+plan, and the owner's four-question script is a regression case of its own: `AskThreadRegressionTest` drives the real engine
+through "anything for sunrise with tide alignment this weekend?", "anything closer to home?", "neither of those take my
+fancy, what's the best sunset option?" and "rank those options", asserting what a good answer to each must still be. It runs
+only on demand (the `prompt-regression` profile, a real API key, a few pence) and its assertions are pending the owner's
+approval; the four entries can be folded under this one at release. Still behind `photocast.ask.enabled`.
+
+### Added — Ask: follow-up questions — the answers stack and each question carries the session (T4: client)
+
+Ask's conversation is now a thread on the client (`docs/engineering/ask-thread-plan.md` §2.5; the server half is T1–T3). Every
+answered exchange of the session, typed or Ready, is kept (the last eight), and the next typed question sends them with it as
+`thread` — a first question's request is exactly what it was. The answers stack: each earlier exchange is drawn collapsed above
+the live answer (the reader's question and the answer's summary, plain text, nothing to press), the chips say "follow-up · N so
+far", and "Clear answer" reads "Clear" once there is a thread to lose. A failed, refused or can't-answer step never ends the
+thread. When the server answers a follow-up against a newer forecast it drops the thread (`threadReset`); the client empties its
+own first and shows one line above the fresh answer: "The forecast has updated since your last question — this is a fresh
+answer." The map's picks and camera, and the phone peek's minimised line, follow the live answer alone, and the conversation
+keeps one live region (earlier exchanges are static text and are not announced again). A follow-up scrolls the conversation to its
+new question, leaving the field focused. Still behind `photocast.ask.enabled`.
+
+### Changed — Ask: "close to home" means the saved local radius; a ranking follow-up may return the same place at two windows (T3)
+
+"Close to home", "near", "nearby" and "local" in an Ask question now resolve on the server to the reader's own saved local radius (the Close-to-home setting, 22 miles when none is saved), measured in straight-line miles from the saved home postcode, through a new `rank_spots.nearHome` argument; the answer says "within N miles of home". This replaces the stopgap that read "close to home" as 60 minutes' drive. It needs no drive times, so an account with a home and no drive times gets it; with no home saved the answer says so. A number of minutes is still a drive limit, and "closer" in a follow-up narrows the earlier picks' drive or uses the radius.
+
+A follow-up that asks to rank the options already given (up to four picks, the same place at two windows allowed) is no longer cut to one pick per place; a fresh question and any answer mixing in a new place keep three picks at three different places.
+
+A follow-up that turns the earlier places down ("neither of those take my fancy", "I've been to both", "something else") now excludes those places in code rather than only in the prompt: the earlier picks' locations are dropped from the answer at every window, the prompt marks them as turned down, and if nothing else is rated well enough the answer says so honestly.
+
+### Added — Ask: a follow-up sees the session's earlier answers, re-joined live, and may rank or exclude them (T2)
+
+A typed follow-up (a request carrying a `thread`) now reaches Claude with the earlier exchanges in its user message: each earlier pick is re-joined from the live forecast (name, region, window, rating, verdict, the asker's drive minutes, tide, and the `locationId`/`windowId` the model needs to name it again), a pick that has left the forecast says so, and one outside the area now asked about says that and is not offered. The system prompt gains the thread rules only for a follow-up, so a fresh question's prompt is unchanged byte for byte. The validator accepts an earlier pick or event the thread offered, still held to the live snapshot and scope, and a follow-up about places that have all since gone is a can't-answer ("those places are no longer in the forecast") rather than a failed run. The stub engine ranks the thread's still-eligible picks so local rehearsal works without a key. Nothing is persisted and the endpoint's contract is unchanged since T1.
+
+### Added — Ask: a question can carry the session's earlier exchanges (T1: contract and guards)
+
+`POST /api/ask` now accepts an optional `thread`: the earlier exchanges of the session, oldest first, each as the reader's question,
+the answer's summary, the answer's picks and events as ids only, the briefing `generatedAt` it was answered against and a `ready` flag.
+The server validates all of it before anything is spent (at most `photocast.ask.thread.max-exchanges`, default 8; each question through
+the live question's sanitiser, each summary through a new `sanitiseThreadSummary`; ids and times checked), and answers a bad thread as
+`400 INVALID`. A thread whose typed exchanges were answered against an older briefing run is dropped whole and the answer is fresh,
+marked `threadReset: true` / `threadResetReason: "forecast updated"`. A follow-up skips the Ready matcher and the typed cache and is
+otherwise charged, capped and reserved like any typed question. The request body cap is no longer a flat 8 KiB: it is derived from the thread cap (8 KiB plus 10 KiB per permitted exchange, 88 KiB at the default of 8; an earlier question over 200 raw code points or summary over 500 is refused before any collapse, which is what keeps every exchange under its share), so a full thread fits.
+Nothing reads the thread yet: the engines accept it and ignore it, so answers are unchanged until the prompt phase lands.
+A served summary is now also bounded to 500 code points (a word-boundary cut after the existing 60-word cap), and stripped of control, format, emoji and combining characters, so a summary the server serves is always accepted back as part of a thread.
+A question with no thread behaves exactly as before.
+
+### Added — an Ask chip carries every rank its place won in a ranking follow-up
+
+A ranking follow-up ("rank those") can return one place at two windows — Bamburgh sunrise is pick 1, Bamburgh sunset pick 2. The
+map has one position per place, and its chip used to keep only the lowest rank, so the second pick had nothing to highlight or fly
+to. The place is still one chip (and one pin), but its badge now reads every rank it won in order (`1·2`) and its accessible name
+says "Ask picks 1 and 2" followed by both cards' names. It is selected when either pick is, shows the chosen pick's window and
+rating, and a press steps through its picks (the lowest, the next, round to the first). A place with a single pick is exactly what
+it was. The camera keys on the choice and the place, never on a rank, so choosing either pick flies to the one chip.
+
+### Fixed — Ask no longer fails when the model answers in prose: every turn must be a tool call
+
+Asking "What's the best location close to home for Tuesday's sunset?" on the phone Map failed every time with "Couldn't answer
+just now". The model had replied in plain text, asking how far the reader was willing to travel, and the engine treats a turn
+with no tool call as a failed run. Every Ask turn is now sent with `tool_choice` `any`, so a prose reply cannot happen, and the
+prompt and the `rank_spots` description now say that "close to home" or "nearby" without a time is a drive-time filter the model
+applies itself (60 minutes), that it never needs to know where home is, and that it may not ask the reader anything. A failed run
+still refunds the question.
+
+## [v2.25.1] - 2026-10-10
+
+### Fixed — live aurora scoring sent Claude the data without the instructions, so every location was 1★
+
+The aurora poller's scoring call — the one that runs on every NOTIFY, through
+`EvaluationServiceImpl`'s synchronous aurora path — built its request from the user message
+alone and never attached `ClaudeAuroraInterpreter`'s system prompt, which is where the "output
+ONLY a JSON array, `stars` 1–5, STRONG is base 4★" contract lives. The batch twin
+(`submitAurora`) had the same omission. Without the contract Claude answered in prose, the JSON
+parse failed, and every viable location fell to the 1★ "conditions could not be assessed"
+fallback — so on 2026-10-10, a G3 storm (Kp 7) with 222 dark-sky locations clear, the Map drew
+247 one-star pins. Only the admin preview/run (`AuroraForecastRunService`, which calls
+`interpret()` directly) ever carried the prompt. The omission dates from the `evaluateNow`
+refactor of April 2026.
+
+Both requests now attach `ClaudeAuroraInterpreter.systemPrompt()` — one accessor, read by all
+three call sites — and two tests pin the prompt onto each transport.
+
+## [v2.25.0] - 2026-10-08
+
+### Refactor — API slots stop carrying tide; window.tideFacts is the one source (window tide facts, P5)
+
+`GET /api/briefing` slots no longer carry per-location tide: `ServedBriefingAssembler.assembleForPlan` ends with a serve-time strip that sets every regioned and unregioned slot's `tide` to null (never an empty `TideInfo`), after the window projection, so `window.tideFacts` is the only per-location tide on the wire. The persisted cache, the build path, the hot-topic strategies and `getServedBriefing` (Close-to-home) still see slot tide. On a production-shaped synthetic briefing the payload ends 22% smaller than before the series (1.92 MB to 1.50 MB raw, 61.8 KB to 52.7 KB gzipped). Adds `BriefingSlot.withTide` and brings `BriefingSlot` under the record-wither guard. See `docs/engineering/window-tide-facts-plan.md`.
+
+### Refactor — Ask reads tide from the window's facts (window tide facts, P4)
+
+`AskSnapshotBuilder` now joins each slot's `tideState`, `tideAligned` and `tideFitPhrase` from the summary's `window.tideFacts` (by location id, then name; the lookup is built once per window) instead of from `slot.tide()`, which it no longer reads. A slot with no fact reads as an inland one did before. No behaviour change while slots still carry tide; it makes Ask survive P5 stripping tide from API slots. See `docs/engineering/window-tide-facts-plan.md`.
+
+### Changed — the Plan tab's pool and grid read tide from `window.tideFacts`
+
+`buildWindowSpots` now copies each spot's `tideState`, `tideAligned` and `tideQuality` from the
+window's served tide facts (by location id, then name) instead of from the slot; the spot population
+still comes from slots, so every Plan card counts the same pool as before. `HeatmapGrid` builds the
+tide index once and hands an `alignedOf(slot, date, targetType)` lookup to its cells and drill-down:
+the cell's "N tide aligned" count, `computeCellTier(region, alignedOf)` and the drill-down's
+`slotSortKey(slot, aligned)` / `sortedSlotsByTidePriority(slots, alignedOf)` ordering no longer read
+`slot.tideAligned`. The lookup has no default, and a window or location with no fact is not aligned.
+No visible change on a scored window. After this, no frontend code reads tide off a slot, which is
+what lets the series stop serving it there.
+
+### Fixed — the Map tab keeps its coast, tide strip and tide cues on windows nothing scored
+
+The Map tab's per-location tide index (`buildTideAlignmentIndex`) now reads `window.tideFacts`
+instead of walking slots. A window the honesty filter blanked (T+3 except SETTLED, all of T+4, travel
+days) has no slots but still has its facts, so coastal locations pass the rating floor through their
+tide fact, the tide strip shows with its dimmed count, chips carry their tier and the callout and
+four-day sheet show the tide block, on a coast-only, unrated map ("1 of N shown · 0 rated"). A payload
+with no `tideFacts` (a pre-deploy cache) gives an empty index; there is no fallback to slots. The
+index's `skyRating` and `gated` fields are joined from that window's slot when one exists.
+
+A tide miss on a window the light was not assessed for now reads "Tide misses the light here"
+instead of "Wrong water, not wrong light" (a match is unchanged).
+
+### Changed — one window walk and one key helper per format on the client
+
+`locationSheet.js` gains `windowsOf` and `indexByWindow`, and its slot, evaluation-gate, eclipse and
+tide indexes are built over them with unchanged output. `mapEvents.solarWindowKey` and
+`heatSpots.windowKey` (both `date:targetType`) are one `windowKey`, and `locationSheet.tailOf` and
+`solarEventTimes.keyFor` (both `date|targetType`) are one `windowTail`, both in the new
+`utils/windowKeys.js`. The two formats are deliberately not merged. A stale "the tide gate" comment
+is corrected.
+
+### Added — `GET /api/briefing` serves per-location tide on each window (`window.tideFacts`)
+
+Each `BriefingWindow` gains a nullable `tideFacts` list: one `LocationTideFact` per coastal
+location that has a tide state in that window, omitted when there is none. It is built by the new
+`WindowTideFactProjector` from the unfiltered cached slots, before `BriefingHonestyFilter` empties a
+zero-coverage region's slots, so the facts survive on every window Claude did not score (T+3 except
+SETTLED, all of T+4, travel days). Nothing reads it yet: this is the additive backend half of the
+fix for the Map tab showing no tide strip and no coastal locations on those windows (the 2026-10-08
+Sunday-sunrise defect); the client and the removal of slot tide follow in later phases.
+`PlanWindowProjector.apply` takes the facts as a new argument. Measured on a production-shaped
+synthetic briefing (five days, 225/182 slots a sunrise/sunset with 59/27 coastal): about 150 KB raw
+(7.8%) and 14 KB gzipped extra, and the projector takes under 1 ms. The comments claiming
+`BriefingHonestyFilter`'s zero-coverage cases are rare, and that the tide gate is live, are
+corrected.
+
+### Changed — Rewind: the debt it introduced, paid
+
+Four pieces of the admin Rewind (#998) were written beside code that already did the same job,
+and one of its rules lived in the wrong place. The forecast serve window's past edge is now one
+constant, `ForecastHorizon.SERVE_PAST_DAYS`, read by `GET /api/forecast`, the scores endpoint and
+the Rewind menu alike (it was `ForecastController.PAST_WINDOW_DAYS` with a second copy on
+`RewindEventService`, a service reading a controller's constant). The `ROLE_` authority test the
+JWT filter's convention implies is one helper, `Authorities.hasRole`, shared by the Rewind filter's
+ADMIN check and `ForecastController`'s LITE check. `RewindFilter` is registered once, inside the
+security chain, with its servlet-container registration disabled outright rather than kept second
+by bean ordering, and a test pins it. The `ROLE_` prefix itself is one constant,
+`Authorities.ROLE_PREFIX`, where the JWT filter, `AppUserEntity` and the status endpoint each
+spelt it out. The three-day bound on a rewind is `Rewind.MAX_AGE` and is served to the Rewind view
+as `maxAgeDays`; the view's own `3` survives only as the fallback while the events are loading or
+after a failed load. On the client, the "never read or write the SWR cache while rewound" rule moved
+into `swrCache` itself, where the data lives, instead of a guard at each consumer; the rewind's UK
+formatters became `conversions.formatDayClockUk` beside the other UK formatters (the clock was
+already `formatEventTimeUk`); `briefingDisplay`'s private London calendar reads became
+`mapDates.ukDateStr`/`ukHour`; and the Operations Rewind view no longer repeats the bar the page
+already shows above it. No behaviour changes.
+
+### Fixed — the Map tab's window, Regions and legend panels fit the map frame too
+
+The Filters fix above left three siblings with the same fixed 420px cap: the window menu (opens
+down from the top-left), the Regions menu (opens down from the top-right cluster) and the colour
+key's legend panel (opens up from the bottom-left). On a short map frame each ran past the frame
+edge it grows toward — the bottom for the first two, the top for the legend — and was clipped with
+its last rows unreachable. All four now share one hook, `useFitToFrame`, which measures the room
+to that edge (bounded by the viewport) while the panel is open, caps the height there and scrolls
+inside it. An open Regions or window menu also lifts its corner above the rest of the chrome, as
+the Filters popover already did, so the tide strip and counts footer no longer paint over it.
+Phone sheets are unchanged.
+
+### Fixed — the Map tab's Filters popover fits the map frame and scrolls
+
+On desktop and tablet the Filters popover had a fixed maximum height of 420px and drops from the
+bottom of the top-right cluster, so on a short map frame (a ~1000px window was enough) it ran past
+the frame's bottom edge. The frame clipped it, and the Sky row (dark-sky toggle) and the Scope row
+below it could not be reached at all. The popover now measures the room between its own top and the
+bottom of the map frame (or the viewport, if that comes first), caps its height there, and scrolls
+inside it by wheel, scroll bar and Tab; a control Tabbed to at its edge is brought in far enough to
+show its focus ring. While it is open the top-right cluster also takes the menus' place in the
+stacking order, so the bottom-left chrome (the tide strip, the counts footer) no longer paints over
+its last rows on a narrow frame. The phone's Filters sheet in the peek sheet's Layers section is
+unchanged; it already scrolled.
+
+### Changed — local-only tooling leaves the production jar
+
+`AskLocalFixtureSeeder` and `LocalH2EnumWidener`, the two classes only the `local` Spring profile ever uses, moved out of `backend/src/main` into `backend/src/local/java`, with their five test classes (46 tests) in `backend/src/local-test/java`. Both roots are added only by the existing `local-dev` Maven profile (`build-helper-maven-plugin` `add-source` / `add-test-source`), so the production jar, CI's plain `./mvnw clean verify` and the Docker build no longer compile, test or ship them, and Checkstyle, SpotBugs and JaCoCo no longer price them. Their runtime guards (profile, conditional property, refusals) are unchanged. The `./mvnw -Plocal-dev spring-boot:run -Dspring-boot.run.profiles=local` recipe still finds both beans; an IDE needs the `local-dev` profile active to index the two roots.
+
+### Changed — briefing record copies can no longer silently drop a component
+
+`DailyBriefingResponse` gains `withBestBets(bestBets, bestBetsWithdrawn)` and
+`withLiveOverlays(auroraTonight, auroraTomorrow, hotTopics)`, and the three places that rebuilt a
+response positionally (`BriefingHonestyFilter`, `ServedBriefingAssembler.applyBestBetFallback`,
+`BriefingService.getCachedBriefing`) now use withers, so none of them can forget
+`renderedEvents`, `previousGeneratedAt` or `bestBetsWithdrawn` when a component is added. A new
+reflection test (`RecordWitherPreservationTest`) fills every component of `DailyBriefingResponse`,
+`BriefingRegion`, `BriefingEventSummary` and `BriefingWindow.Pick` with a sentinel and fails if any
+`with*` method loses a component it does not name. No behaviour change: the three rebuilds carried
+nothing in those components before.
+
+### Changed — Ask services split at their seams; relevance and day words have one home each
+
+A behaviour-preserving refactor of Ask PhotoCast's backend. `AskJobRunService` no longer holds two
+unrelated jobs under one lock: the daily `ASK` run, the cost increments and the typed-spend sum stay
+there, and the unrecorded-turn holder with its accounting latch is `UnrecordedTurnHolder` (the lock
+still covers the spend memo, so a held turn and its persisted row are still never counted twice).
+`AskReadyService` is split into `AskReadyPrecompute` (the pipeline dispatch, the admin endpoint and the
+per-day ceiling) and `AskReadyServing` (what `GET /api/ask/ready`, the typed intent match and the `try`
+suggestions read), so the code that only serves no longer constructs the ten-argument precompute bean.
+What a Ready question may carry is `ReadyRelevance`, one code path for store, serve and the validator,
+and `ReadyQuestion` keeps the catalogue. The relative-day words in three places are built on the shared
+`DayLabels.relative`, the London `HH:mm` clock has one home (`AskClock`), and a new test round-trips the
+stored Ready question text through the typed-question matcher for every weekday and both events. Nothing
+on the wire moves; the prompt and tool-schema golden files are byte-identical.
+
+### Changed — Ask resolves a question's region scope once, as a value
+
+Ask PhotoCast carried a question's regions as a bare list of names that seven call sites re-lower-cased and re-compared in
+four different ways, and it read the region ids from the database up to four times per typed question (the guard, the
+scope, the engine, and the answer cache). The scope is now one immutable `AskScope` value, resolved once where the question
+is validated and carried on the question, so the tools, the validator, the prompt, the Ready freshness check, both engines
+and the typed cache all ask the same `contains` question of the same object. An unknown or disabled region id still fails
+the request with the same 400 `INVALID` rather than widening it, and nothing on the wire, in `ask_log`, `ask_usage` or
+`ask_ready_answer`, or in the prompt sent to Claude changes. The admin dry-run and the Ready precompute now take their
+normalised question form from the sanitiser like the typed endpoint instead of lower-casing it themselves.
+
+### Changed — Ask client: one request-context hook, shared pick facts, dead branches removed
+
+A behaviour-preserving refactor of the Ask PhotoCast front end; the rendered DOM, text, test-ids,
+accessible names and classes of every Ask surface are unchanged. `AskConversation` now reads the
+request context (scope, window, regions, view chip) from `useAskRequestContext` itself, so the sheet,
+the dock and the phone peek pass it `view` and `viewLabel` only instead of copying five fields onto
+it; the hook's `windowId` is `null`, never `undefined`. The pick card and the "Plan this" view draw
+their verdict-and-star, tide and day-and-time facts from one `AskPickFacts` (the card still says
+"Tide: …" and the plan view the bare clause: unifying that copy is left to the owner), with the
+prop-type shapes in `askShapes.js` and one `starsWord`. The two lists of "settled" conversation
+phases are now the single `SETTLED_PHASES`, a pick card carries its `windowKey` so the shell stops
+recomputing it, and the shell writes the dock-opening body once for both the field and the `/` key.
+Removed as dead: `AskConversation`'s `hidden` prop, `AskContext`'s `contextWindow` and an unreachable
+error fallback in the phone peek.
+
+### Changed — Ask engines share one conversation frame; one event-type key; the validator no longer logs
+
+The Claude and stub Ask engines each carried their own copy of the conversation's opening (options
+check, blank question, tools, which events question it is) and closing (validate, discard, OK or
+CANT); both now go through `AskConversation`, so they cannot drift (the stub's FAILED runs now
+report `personal` as the tools saw it, as Claude's did; visible only in the admin dry-run). An
+event's type had five spellings of "the same type"; `AskEventType.key` is the one (strip, upper-case,
+`-` read as `_`), so the almanac's `lunar-eclipse` and a hot topic's `LUNAR_ECLIPSE` are one type in
+the validator, the Ready freshness check and a Ready question's admitted types, as the timeline's
+dedupe already read them. The type an event card carries on the wire is unchanged. The
+`get_coming_up` timeline and its 90-day horizon moved from `AskTools` to `AskSnapshot`, and
+`AskToolResult` is now generic. A failed typed question's reason was logged nowhere (only two of the
+validator's six discard reasons reached a WARN); `AskService` now logs it once at INFO and the
+validator, which was meant to be pure, logs nothing. Nothing on the wire, in the prompt or in the tool
+schemas moved.
+
+### Changed — Ask edges: thin controllers, one flag-off interceptor, B5 scaffolding removed, a lunar-eclipse card's type fixed
+
+A behaviour-preserving pass over Ask PhotoCast's backend edges, plus one wire fix. The admin dry-run's
+logic moved out of `AskAdminController` into `AskDryRunService`, and the Ready `scope` parameter's
+parsing into `AskScopes.fromParameter`, so both controllers only parse and delegate; the two
+"region ids" error sentences are now one. "Ask is off, so 404" was decided in eleven places across six
+files; it is now one `AskFlagInterceptor` registered in `AskWebConfig` over `/api/ask/**` and
+`/api/admin/ask/**`, ahead of the admission interceptor (so the rate limit still runs before the body
+is read). The order stays 401, then 403, then 404: the admin routes are guarded by `@PreAuthorize`,
+which runs after any interceptor, so the interceptor's admin instance stands down for a caller who is
+not an admin. The four `NoOp*` fallback beans, their test and the unread `seedLocalFixture` property
+are gone and every "until B5" comment is present tense. `PipelineOrchestrator`'s two identical
+dispatch methods share one, the UK-day-start arithmetic lives in `ForecastHorizon.ukDayStartUtc`, and
+`AskUsageEntity`'s counters follow the repo's scoped-update rule (`updatable = false`, no setters).
+
+Fixed: an almanac lunar-eclipse event card was served with type `LUNAR-ECLIPSE` while the client keys
+its kicker and colour channel on `LUNAR_ECLIPSE`, so that card read wrongly. Event cards now carry the
+folded type; stored Ready answers still match and are served folded.
+
+### Changed — Ask client: the conversation is a reducer; no re-read of the allowance after an answer; "Tide:" on every pick
+
+Ask PhotoCast's conversation state moved out of `AskContext` into a pure reducer
+(`utils/askConversation.js`): nine named actions replace thirteen `setConv` writes, the
+last-settled conversation a refusal restores is a reducer field rather than a ref mirrored by an
+effect, `retryWith` is gone (a retry re-asks the conversation's own question and context), the
+"Plan this" view is derived from an answer with a plan pick instead of being stored as a second
+phase, and one `normaliseAnswer` replaces the typed and Ready normalisers. The Map pane's channel
+is its own hook, `useAskMapContext`, on the same `useAsk()` value. `AskConversation` is split into
+`AskEmptyState`, `AskAnswer`, `AskCantAnswer` and `AskErrorState` (DOM, text, test-ids and classes
+unchanged), and its 1,500-line test into one file per state over a shared harness; the reducer is
+tested with plain objects.
+
+Two owner decisions ride along. An answer that states `allowanceLeft` and `allowanceLimit` no
+longer triggers a second `GET /api/user/settings/ask`: the response is the server's word and is
+applied as it stands. Every path whose body carries no figure still re-reads it (an answer missing
+either figure, a lost connection, a failed engine, any other failure, a refusal that can have moved
+the count, a response a newer ask overtook). And the pick card's spoken tide clause reads
+"Tide: …", as the plan view's cell label already did visibly (the plan view's own clause stays bare, so a
+screen reader says Tide once).
+
+A review of the first cut found that dropping the re-read leaned on a backend assumption: when the
+usage read failed after an answer was paid for, the server served `allowanceLeft: 0` and left the true
+figure to the next settings read, which no longer happens. `AskResponse.allowanceLeft` is now a
+nullable value, written as an explicit `null` only in that failure case (every normal answer is
+unchanged), and the client treats it as unknown and re-reads instead of switching typed questions
+off.
+
+A second review finding followed from the same decision: a settings read still in flight when an
+answer's figure was applied (one started by an earlier failure, refusal or overtaken response) could
+resolve afterwards and put the older count back over the fresher one, leaving the field enabled until
+the server turned a question away. Reads in `useAskAllowance` now take a ticket when they start, and
+applying a served figure takes one too, so a read is applied only if nothing newer has happened.
+
+## [v2.24.2] - 2026-10-08
+
+### Added — ten more northern bluebell woods
+
+Migration V169 adds the rest of the spring list that V84 started: Newton Wood (at the foot of
+Roseberry Topping, a row of its own), Nidd Gorge, Letah Wood, Irthing Gorge, Jesmond Dene Woods,
+Denton Dene, Ragpath Wood, Lands Wood, Washingwell Wood and Dorothy Farrer's Spring Wood. Each is
+an enclosed wood typed BLUEBELL + WOODLAND with a WOODLAND exposure, like V84's woods after
+V132/V134, so they join the woodland product now and the bluebell lane from next April. The four
+Lancashire / Greater Manchester sites on the same list are left out by owner decision, because no
+region covers them. Grid cells and drive times fill in from the existing nightly jobs.
+
+### Fixed — the Map tab's tide strip no longer vanishes for windows the Plan tab does not draw
+
+The briefing serves a tide rollup, and a slot-level tide fact for every coastal spot, for every
+sunrise and sunset of its four owned days, but the Map tab built its window list from the six
+events the Plan tab renders. The rest became unscored "beyond the briefing" filler rows with no
+tide and no clock time, so the strip disappeared for them — the Sunday sunrise, seen on a Thursday
+morning, is the seventh event. Tides and light times do not depend on the forecast being scored, so
+a filler row now borrows the briefing's own served tide and event time for its window
+(`mapTideFit.buildWindowTideIndex`, lent in `mapEvents.solarRow`, the time formatted by the same
+formatter served rows use). No tide, height or clock time is computed on the client — the tide and
+event time are the briefing's own, forwarded as served — and a window the server drew no tide for
+still shows none. The window menu now shows the briefing's clock time for those windows too. A filler whose window has already elapsed borrows nothing, by a test that
+mirrors `PlanWindowProjector.hasPassed` (30-minute afterglow) and runs on the app clock, so a Rewind
+behaves. The strip's per-spot fit is unchanged where spots carry a served tier for the window. Where none
+does, on a window the pane's rendered list does not carry, it now says there is no per-spot tide fit
+for the window instead of claiming no coastal spot has the water it wants (a served window keeps its
+old wording). The strip's "next high water" line now names the earliest window that fits, as the
+callout does: a button only when the strip can show that window, plain text when it cannot, and
+"beyond" only when nothing fits. The strip still needs a coastal spot in view after the reader's
+filters. A backend test pins that an unrendered window carries its own tide rollup.
+
+### Fixed — the Plan's aurora topic now names the night the alert is about
+
+The aurora banner and the Plan tab read the same alert level, but before dawn they talked about
+different nights. The poller judges the dark window in progress — before nautical dawn, the night
+whose dusk fell on yesterday's date — and the banner's "Kp 5 forecast tonight" meant that one. The
+Plan's hot topic dated the same alert from today's civil date, which as a `NIGHT` topic put it on
+this evening's sunset and tomorrow's sunrise: the following night. On 8 October a MODERATE alert
+for the small hours showed on the banner and on no Plan card at all, while Friday and Saturday
+carried the forecast topic for a night the alert had never mentioned.
+
+`AuroraHotTopicStrategy` now dates its alert-level topic from `AuroraForecastRunService
+.currentNight()`, the twin of the poller's own window rule, so a pre-dawn alert lands on this
+morning's sunrise. The Kp-forecast topic covers the night after the poller's, so before dawn the
+coming night is covered too. Both detail lines word the night relative to the civil day — "Kp 5
+forecast until dawn", "Kp 4 forecast tonight — worth watching", "Kp 4 forecast tomorrow night —
+worth watching" — rather than by which of the two topics emitted them.
+
+Three readers tested a topic's date alone and would have mishandled exactly that pre-dawn topic
+while the first Plan card badged it (two Codex reviews of #1056). `HotTopic.coveredDates()` and
+its client twin `topicCoveredDates` are now the one rule for which dates a topic's windows fall on.
+The Coming up tab's handoff row reads it, so the running night's aurora counts for today. The
+aggregator's travel-day filter reads the covered dates still ahead, so a travel day yesterday no
+longer silences this morning's sunrise and a travel day today does, whatever yesterday was. Ask's
+`get_coming_up` timeline keeps a `NIGHT` topic whose morning half is today, on its own date — the
+date `get_hot_topics` and the freshness check know it by, so an answer built from it stays live.
+
+## [v2.24.1] - 2026-10-07
+
+### Changed — every dated Coming up entry gets the day-box row, one box for a single day
+
+The tide-run day boxes made a single-day entry (Orionids, the Supermoon, Geminids, Quadrantids)
+look inconsistent beside them: it still printed "Dark-sky spots: no forecast for 21 Oct" as a line
+of text. Every dated entry now draws the same row, with one box for a single day, so a day with a
+forecast is a button that opens the map on that date and a day without one is dimmed. The Plan
+links on solstice, eclipse and similar cards become the same row, opening the map for the chosen
+day with every location shown rather than switching to the Plan tab (which is one tap away); the
+map overlay now shows all locations when no subject filter is set, and its own rating and drive
+filters still apply. Only the months-long NLC season, an over-length entry and an entry with no
+date keep their single line.
+
+## [v2.24.0] - 2026-10-07
+
+### Fixed — the startup resume of pipeline cycles now really skips the `integration-test` profile
+
+`PipelineOrchestrator.resumeRunningCyclesOnStartup()` carried `@Profile("!integration-test")` on an
+`@EventListener` method. Spring evaluates `@Profile` (a `@Conditional`) only when registering bean
+definitions, so the annotation did nothing and the listener ran under every profile, integration
+tests included. The listener now lives on `PipelineOrchestratorStartup`, a small component guarded
+at class level exactly as `DynamicSchedulerBootstrap` is, and the orchestrator method is a plain
+public method with no listener annotation. A test publishes a real `ApplicationReadyEvent` into a
+context per profile and fails if the guard is removed, or if an `@EventListener` returns to the
+orchestrator. Behaviour under `local`, `dev` and `prod` is unchanged.
+
+### Fixed — the Coming up feed is built before anyone asks for it, and no longer takes a minute to build
+
+The Coming up tab was slow on the first request of each UK day and after every restart, and stayed as it was at that first request until midnight, so the dust and valley-inversion conditions never picked up the 06:00 and 18:00 UTC forecast runs. Three things made the build slow: every spring or king tide run re-read three years of tide history twice (a roster-wide scan plus one query per past run, roughly nine hundred queries a build), `TideService.getTideStats` re-read every stored high water for a place on each of hundreds of calls, and the size index loaded each high water as a full entity just to take a daily maximum. The run history, the size measurements and the per-place tide statistics are now each worked out once per UTC day and dropped when `tide_extreme` is written (the weekly refresh and the 12-month backfill, after the transaction completes); the size index reads three columns instead of the entity; and `AlmanacService.refresh()` rebuilds the default feed and swaps it in whole, at the tail of every pipeline cycle (after the run is finished, on the background executor, where nothing it throws can reach the run) and once at startup. The response for a given set of stored data is unchanged. Not done here: a midnight warm (a new scheduler job and its seed migration) — with the work above the first reader after midnight should pay little, and it is the follow-up if they do not. The 60-day dust and inversion trailing reads are also untouched.
+
+## [v2.23.5] - 2026-10-07
+
+### Fixed — the masthead no longer jumps 24px when switching to or from the Map tab
+
+On the Map tab `<main>` dropped all of its vertical padding, so the wordmark, the gradient band, the tick line and the tab row sat 24px higher there than on Plan and Coming up, and moved every time you switched. The Map tab now keeps the same 24px top padding as every other tab; the map pane gives up that 24px from its own flex-distributed height (the root is `overflow-hidden`, so page scroll is not reopened), and its bottom padding stays zero so the map still bleeds to the bottom edge.
+
+### Changed — Coming up shows a door for each day of a short run
+
+A multi-day Coming up card for a map door (a tide run, a multi-night supermoon) used to carry one door that named only the run's peak day, so on 7 Oct the Spring tide run read "Coastal spots: no forecast for 11 Oct" even though 9 and 10 Oct are inside the forecast window. The card now shows a row of small day boxes, one per day of a run of up to ten days, in the date rail's vocabulary: a day with a forecast is a button that opens the map on that date (coastal or dark-sky spots, as before), a day without one is dimmed and disabled, a day that has already gone reads "gone" and is disabled too, today reads "Today", the peak day wears a gold border, and a short caption ("dimmed · no forecast yet") appears while a future day is dimmed. Single-day entries, the months-long NLC season and the Plan links keep their single action line, and while the forecast is still loading every box is left live. The row wraps rather than overflowing a phone.
+
+## [v2.23.4] - 2026-10-07
+
+### Fixed — Coming up no longer opens the map on a date with no forecast
+
+A Coming up card dated days ahead offered "Show coastal spots for 11 Oct" (or the dark-sky equivalent) and opened the map on a date the app holds no colour forecast for, so every pin was unscored and the map read as greyed out. The feed covers 90 days but forecasts reach only a few, so those two doors are now withheld when the card's date is not among the forecast dates: the card is inert (no pointer, no button) and its action line says "Coastal spots: no forecast for 11 Oct" (or "Dark-sky spots: …") in place of the promise. While the forecast is still loading the door is left as it was, since an empty list then means unknown rather than none. The `plan` doors and every card whose date is covered are unchanged.
+
+## [v2.23.3] - 2026-10-07
+
+### Fixed — Ask answered "no rare events" while the forecast was flagging an eclipse
+
+The first real run of the Ask prompt regression found a rare-events question answered "none" after the model consulted only `get_coming_up` (the 90-day almanac, which need not list what the forecast is flagging this week) and never `get_hot_topics`. `get_coming_up` now also returns the live hot topics dated within its horizon (once, deduped against the almanac), the two tools' descriptions and the system prompt tell the model to consult both for any events question, and the validator discards an answer to a rare-events or snow question that carries no event while the forecast offers one (a refund for a typed question, nothing stored for a Ready one). A narrow rule on purpose: a time-bound phrasing such as "any rare events this weekend?" is not held to it.
+
+## [v2.23.2] - 2026-10-07
+
+### Changed — Claude model ids come from the SDK's typed constants
+
+`EvaluationModel` no longer types its model ids by hand: each is derived from the SDK's `Model`
+constant (`CLAUDE_HAIKU_4_5_20251001`, `CLAUDE_SONNET_4_6`, `CLAUDE_SONNET_5_5`, `CLAUDE_OPUS_4_6`), so a
+typo is a compile error and the SDK's own deprecation markers are visible at the point of use. The
+strings sent to Anthropic are unchanged, and a test pins every one to the literal it replaced. A second
+test fails the build if any id the app sends is marked `@Deprecated` in the SDK, so the next retirement
+(Claude Sonnet 4.5 was marked in SDK 2.68) is caught by CI rather than by an outage.
+
+The unread `anthropic.model` key (which still named the now-deprecated `claude-sonnet-4-5-20250929` in
+prod and example config) is removed, along with `AnthropicProperties.model`; the model is chosen per run
+type in `model_selection`/`EvaluationModel`. A leftover `anthropic.model` line in a hand-edited config is
+ignored, not an error.
+
+### Added — Anthropic prompt-cache diagnostics on every logged call
+
+Every Claude call written to `api_call_log` now keeps the response's `diagnostics` beside its token
+counts (V168, `cache_diagnostics TEXT`, compact JSON, null when the response carried none), so a
+batch cache miss can be explained per request instead of inferred from `cache_read_input_tokens`
+dropping to zero. The batch result processor, the synchronous engine, the glosses, the best-bet
+advisor and the Ask engine all pass it through; the token and cost maths are untouched. Operations →
+Job Runs shows a "Prompt-cache diagnostics" tally and a per-call badge for any run that has them.
+
+The API only reports a diagnostic for a request that names a previous message to compare with, so
+the request side is a switch, off by default (`photocast.batch.cache-primer.diagnostics`): when on,
+the cache primer opts in and every warmed sky batch request names its primer as the previous message.
+Whatever the switch says, the primer now reads its own result once and its per-cycle INFO line gains
+what it wrote to the cache (total and one-hour tokens), what it read and its diagnostics. CLAUDE.md's
+*Batch cache primer* bullet carries the query that answers the 2026-10-04 read-versus-write question.
+
+## [v2.23.1] - 2026-10-06
+
+### Changed — Java 21 → 25 (the LTS that carries JEP 491)
+
+The backend now builds and runs on Java 25. On Java 21 a held `synchronized` monitor pins a
+virtual thread to its carrier, which is why `AppConfig.anthropicClient` forces HTTP/1.1 (OkHttp's
+HTTP/2 frame writer deadlocked batches of 200+) and why the Anthropic SDK is stuck at 2.62.0. JEP 491
+(Java 24) removed that pinning and Java 25 is the LTS that ships it, so this is the runtime half of
+lifting both.
+
+What moved: `<java.version>` (which also drives `maven.compiler.release`) in `backend/pom.xml`; both
+stages of `backend/Dockerfile` (`eclipse-temurin:25-jdk-alpine` builder, `25-jre-alpine` runtime) and
+the root `Dockerfile`; `java-version` in `ci.yml`, `codeql.yml`, `security-scan.yml`, `pitest.yml` and
+`real-api-smoke.yml`; the README prerequisite; CLAUDE.md's Dev Setup, Deployment and Virtual threads
+lines. No Maven plugin needed a bump: JaCoCo 0.8.15 (Java 25 supported from 0.8.14), SpotBugs plugin
+4.10.4.1 over SpotBugs 4.10.4, FindSecBugs 1.14.0, PIT 1.30.0, Lombok 1.18.46 and
+maven-compiler-plugin 3.15.0 already handle class-file version 69. No source change was needed.
+
+What did NOT move, deliberately: the HTTP/1.1 OkHttp client, the `anthropic-java` pin at 2.62.0 and
+the Dependabot ignore rule keep their code and comments (each gained one sentence saying the runtime
+is now Java 25 and the pin can be lifted). Moving the runtime and removing the workaround are separate
+changes, so a Java 25 problem can be reverted without also reverting the HTTP client.
+
+One new runtime warning, not suppressed: `sun.misc.Unsafe::objectFieldOffset` called by
+`lombok.permit.Permit` during compilation (JEP 498, Java 24+; a Lombok matter, harmless today). The
+test JVM's dynamic-agent warning from Mockito's self-attaching inline mock maker is the JEP 451
+warning Java 21 already printed, not a new one.
+
+### Changed — Anthropic SDK 2.62.0 → 2.68.0: the HTTP/1.1 client is gone
+
+`AppConfig.anthropicClient` is now built with the SDK's own `AnthropicOkHttpClient.builder()` instead of
+a hand-assembled, HTTP/1.1-only OkHttp client. That client existed because, on Java 21, OkHttp's HTTP/2
+frame writer pinned virtual threads under `synchronized` and deadlocked batches of 200+; it is what held
+the SDK at 2.62.0 (2.63.0 removed the constructor it needed) and what the Dependabot ignore rule for
+`com.anthropic:anthropic-java` was guarding. The runtime is Java 25 now (JEP 491), so all three go: the
+pin, the HTTP/1.1 forcing and the ignore rule. The SDK's default protocols (HTTP/2 with an HTTP/1.1
+fallback) are back.
+
+The pool sizing carries over (`maxIdleConnections` 10, `keepAliveDuration` 2 minutes). The old client's
+OkHttp timeouts (10 s connect/read/write, 90 s call) are not carried over, because none of them was ever in
+force: the SDK overwrites all four on a per-request client from the request's own `Timeout`, identically in
+2.62.0 and 2.68.0, so every call ran, and still runs, with connect 60 s, read and write and call 600 s unless
+it passes its own `RequestOptions`. That 10-minute ceiling (a silent connection can hold a thread about 30
+minutes across the SDK's two retries) is unchanged; setting a short client-wide timeout would also cut off
+the batch-results downloads. The Ask door still makes one HTTP attempt per call (`maxRetries(0)` on its
+derived client), now pinned against the real SDK rather than a mock.
+
+SDK 2.68.0 made `Message.diagnostics` a required field, which only the tests that build a `Message` by
+hand needed to learn about. `WireMockAnthropicClientTestConfiguration` now builds from the production
+builder (`AppConfig.anthropicClientBuilder`), so the integration tests' client can no longer drift from
+production's options. The explicit `okhttp` dependency stays, runtime-scoped and pinned to 4.12.0.
+
+`AnthropicWireMockFixtureContractTest` no longer pins an SDK quirk that 2.68.0 removed: on 2.62.0
+`MessageBatch.ProcessingStatus.of(String)` always built a new instance (so `==` never matched an ended batch,
+the `f49959dd` bug), but 2.68.0 returns the interned constant for the three known strings, so its
+`isNotSameAs` assertion became false. The test keeps the lesson instead: a known status equals its constant,
+and an unknown one (`"ended "`, `"finalised"`) deserialises without throwing and equals none of them, which is
+why `BatchPollingService` must keep comparing with `equals`. The production comparisons already do.
+
+## [v2.23.0] - 2026-10-06
+
+### Fixed — the backend CI job no longer spends three minutes waiting for a cache primer that can never finish
+
+`OrchestratedDispositionWriteIntegrationTest` took 197 s per CI run since #999 landed on 4 Oct (18–30 s
+before), and as the last class to finish it put every one of those seconds on the job's critical path.
+The batch cache primer is on by default with a 180 s wait, and that class's WireMock batch-status stub
+answers `in_progress` to every poll, so the primer waited the full three minutes before the submission
+under test ran at all. The shared test configuration now sets `photocast.batch.cache-primer.wait-seconds`
+to 0 ("do not prime"), which is the pre-#999 request shape every integration test asserts on. The primer's
+own tests (`BatchCachePrimerTest`, `ScheduledBatchEvaluationServiceTest`) run against a fake clock and do
+not read the property, so nothing they cover changes.
+
+### Fixed — shutdown no longer waits 30 s for cron jobs that are hours away
+
+The dynamic scheduler's pool waits up to 30 s on shutdown so a job that is running can finish. It
+also, until now, waited for every cron job merely pending: Spring keeps the JDK default of executing
+already-scheduled delayed tasks after `shutdown()`, and a cron trigger is a delayed task (its next
+firing), so the await had nothing to do but run out in full. Every production restart paid that wait
+(Docker's 10 s stop budget killed the JVM first, mid-shutdown), and every CI fork whose test context
+had scheduled a cron hung 30 s at exit until Surefire killed it — the 30 Sep run's whole test phase
+ended on that hang. The pool now drops pending delayed tasks at shutdown; a running job still gets
+its 30 s. `DynamicSchedulerServiceIntegrationTest`'s lifecycle test also cancels the cron it resumes.
+
+### Fixed — frontend `npm audit`: source-map-js 1.2.1 → 1.2.2
+
+A new high-severity advisory (GHSA-68fv-2mgg-jv7q, event-loop denial of service through indexed
+source-map section offsets) against the transitive dev dependency `source-map-js` was failing the
+Frontend CI job's audit step on every pull request. The lockfile's three lines (version, resolved,
+integrity) are edited by hand, never `npm audit fix`; `rm -rf node_modules && npm ci` leaves the
+lockfile unchanged and the audit reports 0 vulnerabilities.
+
+### Changed — the backend container gets 40 s to stop instead of Docker's default 10 s
+
+The dynamic scheduler waits up to 30 s on shutdown for a job that is running to finish, so a deploy
+that landed mid-job had the JVM killed at 10 s, before that wait, Hikari or the entity manager
+finished. `stop_grace_period: 40s` on `goldenhour-backend` covers the scheduler's full budget with a
+margin. A restart with nothing running still stops in a second or two, since pending cron firings no
+longer hold the await (#1026). Boot's graceful HTTP drain (up to 30 s, run first) is not
+covered on top of that; a slow request still in flight and a running job together could need 60 s,
+a coincidence this was deliberately not sized for.
+
+### Docs — Ask PhotoCast sweep: CLAUDE.md, the prompt-regression class, measured checks and the production enable checklist
+
+Phase Z of the Ask PhotoCast series. CLAUDE.md now records the feature (the two doors, the horizon-aware Ready catalogue, the
+validator-decides engine and its accounting latch, the guards in order, the client's four surfaces and where open/closed state
+lives), the three reader endpoints and three admin endpoints with the error table, migrations V165–V167, the `photocast.ask.*`
+keys, the local recipe and the suite sizes, and corrects every sentence the series made false: `/` is Ask's from 1024px (search
+keeps its buttons), the dialog-stack and settings-route counts, the peek sheet's 74px height and the "a callout never stands over
+it" rule (now `--psh` 74 / 126 / 112, with one deliberate exception), and the integration-class count. `backend/AGENTS.md` lists
+the Ask guards that look like gaps and are not. `application-example.yml` lists every `photocast.ask.*` key with its range.
+
+`AskPromptRegressionTest` (tagged `prompt-regression`, excluded from the default run and from PIT, skipped without an API key)
+puts three questions through the real engine against a fixed forecast and asserts structure only: a where question leads with
+the BEST BET and offers only eligible spots, a rare-events question carries the eclipse's lens-filter warning, and a question the
+forecast cannot answer is "not in the forecast" with nothing offered. The plan's §7 gained the figures that could be measured
+without a real Claude call (the rest are marked as the owner's run), and §11 and §12 are the owner's browser checklist and the
+production enable checklist.
+
+### Fixed — Ask PhotoCast's snapshot memo is bypassed while a rewind is active
+
+The 30-second memo of the Ask read model treated a negative age (a memo built at a later real instant than the
+rewound "now") as younger than 30 seconds, so an admin's rewound `GET /api/ask/ready` was freshness-checked against
+the live snapshot and its cards could contradict the rewound Plan view, and kept reusing it. A request under a
+rewind now builds a snapshot for the rewound clock and neither reads nor writes the memo, the same rule
+`AlmanacService` follows for its day cache, and a memo whose age is negative is rebuilt rather than reused.
+
+### Added — Ask PhotoCast: "Plan this", "Open in Plan ›" and the Plan-card highlight
+
+Every pick card in an Ask answer now has a **Plan this ›** button, on the docked column, the tablet and phone sheets and the
+phone Map's Ask section. It swaps the answer for that pick's own view: **Leave home** (when to set off, with the day if the
+drive crosses midnight), **Drive** (from home), **Best light** (golden and blue hour, in the order they happen) and **Tide**
+(the water at the light, with the wave glyph that says whether it is the water the spot wants), then the spot's own one-line
+reading as a note — only when the forecast has one, never an invented tip about parking or access. These are the four-day
+location sheet's own functions over the same forecast, so the two never disagree; the drive is always from home, whatever
+the Plan origin is. With no drive time the two cells read a dash, and a reader who has no postcode saved is offered the
+masthead's "Set a postcode" button. "‹ Back to the answer" returns to the answer with the pick still chosen and focus back
+on the button that opened the plan.
+
+**Open in Plan ›** is the only action there ("Add to Coming up" was removed). It moves to the Plan tab and opens the pick's
+four-day sheet at the pick's own window. On the tablet and phone sheets Ask closes first, so the location sheet is the only
+dialog; on the docked column Ask stays open beside it (and is inactive while the sheet is up). Closing the sheet puts focus
+back where you were: the dock's button, or the Ask bar or field you opened the sheet from — never the top of the page.
+
+On the Plan tab the selected pick's window card is now highlighted: a gold edge with a second inset pixel and the pick's
+number on the card's corner, scrolled into view, and "Ask pick N" in its accessible name. It is a different mark from the
+open card and the two can sit on one card; it does not open the popup. It is live while the dock is open, and applied when a
+sheet closes. A pick whose window has no card highlights nothing.
+
+"Clear answer" now works from the plan view too, and choosing another pick (a chip on the map, say) leaves the plan for the
+answer. `lightWindows` and a new `departureWithDay` are exported from `utils/locationSheet.js` for the plan view; the sheet's
+own rows read the same functions.
+
+### Added — Ask PhotoCast on the phone Map: the Ask row in the peek sheet
+
+On a phone the Map's bottom sheet now has an Ask row above its three buttons — "ASK · Ask about what's on the map… ↑" —
+which takes the sheet from 74px to 126px (with Ask off, or unreachable, the sheet is exactly what it was). Pressing it opens
+the Ask section at 470px: the question field and a ✕ in the row, the Ready suggestions, and the answer with its pick cards
+beneath, which replace the three buttons while they are open. Another section opened from the pill (Windows, Tide, Layers)
+now stands at 408px under the Ask row.
+
+Touching, dragging or zooming the map closes the suggestions, and minimises an answer to one 112px line — rank, spot, time,
+"3 picks ▴" — which stays on screen while you look at the map, across a switch to another tab and back, and is opened again
+by pressing it or by pressing one of the numbered picks on the map. The ✕ in the open row clears the answer and brings the
+three buttons back. A question still being fetched is left open by a map touch. Escape, the window pill and a pressed chip
+each do what the plan's table says for the state the sheet is in, and a spot's callout may now stand over the 112px line.
+The camera fits the picks into what the sheet leaves uncovered and fits again when the answer is minimised; the label
+placer treats the sheet as an obstacle while picks are numbered. A refusal ("Slow down a moment.") that arrives while the
+row is closed is shown in the row until it has been read.
+
+Under the hood the sheet's resting height is now state-driven: `--psh` is written on the Map pane (74 with no Ask row, 126
+with one, 112 under a minimised answer) and the Leaflet corner, the bottom-left chrome and the callout's placement band all
+follow it, the callout repainting when it changes. Focus is parked and handed on whenever a control that held it is replaced
+by the answer, so Escape keeps working. Desktop and tablet are unchanged.
+
+### Added — Ask PhotoCast on the Map: numbered picks, the field dimmed, the camera and the window follow the answer
+
+An answer's picks are now on the Map tab (from 640px; the phone Map is the next phase). Each pick is a numbered chip — or a
+numbered dot in Pins view — drawn from the pick's OWN window (its short window, "Sat AM", and that window's rating in its
+verdict colour, with no tide cue and no tooltip borrowed from the window on screen), placed before every other label; one
+the label placer cannot fit becomes a bare rank circle, so no pick is ever unmarked, and one the reader's rating floor or scope
+would have hidden is still drawn. Every other chip and pin steps back to a quarter strength (over the tide-miss dimming), and
+the heat field's fill steps back behind them — a factor inside the draw, so the coastline and the reach rings keep their own
+strength. The camera fits the picks once per answer (no closer than zoom 10), flies to a chosen pick at 10.5, holds while the
+tablet's Ask sheet stands over the map and fits when it closes, fits again once a docked column has finished opening or
+closing, and jumps instead of flying under reduced motion. Its padding is clamped to 60% of the frame on each axis: an
+over-large pad on a short window does not raise an error, it quietly puts the picks outside the frame.
+
+Choosing a pick — its card, or its chip on the map — selects the card, clears the map's selected location (no callout for
+another window) and moves the map's window to the pick's, on a channel of its own that touches no filter, scope or
+breadcrumb. "Show on map ›" now also appears on the tablet's Ask sheet over the Map, where it closes the sheet.
+
+The Map now tells Ask what a question asked from it carries: the region you jumped to, or "My area" (the regions in your
+planning area), or "Everywhere" — never the viewport — and the solar window on the pill, as the removable chip. A question
+typed in the dock or the sheet on the Map is sent with them; Plan and Coming up still send every region, and the Ready
+suggestions on the Map are fetched for the one region in scope. An answer now remembers the context it was asked in: its chips
+keep saying what was sent after a tab switch (the window chip is a plain label once answered), and "Try again" sends the
+original question with its original region and window. Because the next question is sent with what the Map shows at that
+moment — and choosing a pick moves the Map's window — a "Next question" row above the field says what it will carry and
+lets you take the window out. A pick on the map is first in the keyboard order, in rank order, and keeps a visible focus ring.
+
+### Added — Ask PhotoCast on a desktop: the field in the tab row, the `/` key and the docked column
+
+From 1024px the Ask field sits beside the tab row on Plan, Coming up and Map (not Operations) — 340px with a `/` key cap
+from 1180px, 260px from 1024 to 1179px — and opens a docked column on the right instead of a sheet: 380px from 1180px,
+360px below it. The dock is a sibling of the whole shell column (masthead, tab row and panel), so the three narrow
+together and keep one width; on Plan and Coming up it sticks to the viewport with the question field at its foot, and on
+the Map it is the frame's own height while the map pane reports its new width to Leaflet. It is a landmark, not a dialog:
+the page beside it stays live, it survives a switch between Plan, Coming up and Map with the conversation in it, and it
+closes with Operations. While a window popup, the drill-down, the four-day sheet, search or settings is open — or the
+backend is down — the dock is `inert`, the field is disabled, and nothing else is. Escape closes it only while focus is inside it
+(and returns focus to the field), and a press in it dismisses no map panel, so choosing a pick card does not close the
+drilldown beside it. "Show on map ›" moves to the Map with the dock still open. Closing keeps the answer; "Clear answer"
+ends it.
+
+`/` now opens that dock and focuses its question field, at 1024px and up, on Plan, Coming up and Map; it keeps every
+refusal the search shortcut had (a field, a modifier, any dialog including the window popup, a dead backend) and acts only
+while Ask is live. It no longer opens Plan search, which is reached by the ⌕ and the origin button alone, and below 1024px
+it does nothing. The ⌕ lost its `/` key cap with the key. The four-tab "Ask" button collapse is now a container query on
+the tab row, since the dock narrows the column and not the window.
+
+### Added — Ask PhotoCast on a phone and a tablet: the ask bar, the field and the tall sheet
+
+Ask is now mounted. Below 640px a 48px bar sits above the bottom of Plan and Coming up ("Ask about this weekend…" /
+"Ask about rare events…"); from 640 to 1023px a 260px field sits beside the tab row on Plan, Coming up and Map. Both open
+one tall bottom sheet (the visual viewport minus 24px, over the app's dialog scrim) holding the conversation and, at its
+foot, the question field — 16px so iOS does not zoom, and kept above the on-screen keyboard by following
+`window.visualViewport`. Closing the sheet (the ✕, the scrim or Escape) keeps the answer; a "Clear answer" button ends it
+and brings the Ready suggestions back. The sheet is the one modal while it is up: the whole app container (banners and
+footer included) is `inert`, a tab change closes it from any route, and opening it is refused — the bar is disabled and
+nothing is closed — while a window popup, the drill-down, the four-day sheet, search or settings is open. "Show on map ›"
+on a pick selects it, closes the sheet, moves to the Map tab and keeps the answer; the numbered markers arrive with the
+Map linkage. Nothing appears while the server has Ask off or has not yet said, the bar is drawn disabled when the first
+settings read failed, and under an admin's rewind the provider is not mounted at all, so no settings request is made.
+On a phone the page reserves the bar's 58px at its end and keeps the viewport 58px clear of it for keyboard focus.
+`BottomSheet` gains `size="tall"`, `closeOnEscape` and a `footer` slot; its defaults — heights, scroller budget, class
+strings, keys — are pinned by value, and the only additions to the default markup are two test-id attributes.
+
+### Added — Ask PhotoCast's client core (nothing mounted yet)
+
+The frontend half of Ask PhotoCast's conversation, built and tested but not yet wired into any tab: `api/askApi.js`
+(the three endpoints, every refusal surfaced as `{status, code, error}`), `useAskAllowance` and `useAskReady`, an
+`AskProvider` holding the conversation (empty, busy, answer, not-in-the-forecast, error; a Ready tap makes no request,
+a late response is dropped when it lands, a refused question puts the conversation back), `utils/askModel.js` (a served
+pick joined to the briefing for its name, star, verdict, UK event time and tide, and to the reader's HOME drive time — a
+pick with no slot in the client's briefing is dropped), and the conversation with its pick, event and "Asking about"
+cards. An event's safety note (the solar eclipse's lens-filter warning) is always rendered, outside every role gate and
+every width. Nothing is stored in the browser: no `swrCache`, no `localStorage`, no module state. `locationSheet.js`
+now exports `slotsOf`, which every index in that file already used. The Ready busy line says "this evening's" over an
+evening run, where the design's copy would have said "this morning's" over every run.
+
+### Added — Ask PhotoCast's free answers: the can't-answer pre-filter, the Ready match, the typed cache, the question log and the metrics
+
+A typed question now costs nothing in four more cases, and the owner can see how the box is used. A question about
+car parks, crowds, opening times, toilets, cafés, shops, pubs or restaurants is turned away free as a whole-word
+phrase (so "open horizon", "national park" and "busy skies" are still answered), before the Ready match, so "is the car
+park busy this weekend" is a can't-answer and never the weekend answer. A question that is exactly a Ready question
+("where's good this weekend?", "sunrise or sunset tomorrow?", "any rare events coming up?") is served that Ready answer
+as `kind: ready`, uncharged, only while the answer is available and fresh against live data and the question carries
+nothing the answer ignores (a named place, a drive or distance, another day or time of day). An answer already paid
+for is served again to the next reader who asks the same question (a Caffeine cache of 2,000 entries for 30 minutes,
+keyed on scope, UK date, briefing build, normalised question, window and, for an answer that used the asker's own drive
+times, the user), re-checked against the live forecast on every hit with the same all-or-nothing test a Ready answer
+passes, and never stored while a simulation is active. `ask_log` (V167, user `ON DELETE SET NULL`) records one row per
+answered request, keeping the normalised question only when the engine answered it, capped at 200 characters; denied
+requests write no row and are counted in memory and logged once per user per hour. A nightly job (`ask_log_cleanup`,
+03:55 UTC) prunes the log at `photocast.ask.log.retention-days` (90). `GET /api/admin/ask/metrics?days=` (admin) reports
+the outcome counts, the cache-hit, Ready-match and can't-answer rates, the most common things readers asked for that
+PhotoCast does not hold, and typed and Ready spend, and never returns a question.
+
+### Added — Ask PhotoCast B4: the typed endpoint and its guards
+
+`POST /api/ask` (every role, 404 while `photocast.ask.enabled` is false) answers a typed question, and `GET /api/user/settings/ask`
+(always 200; `enabled:false` and zeros while Ask is off) reports the caller's allowance and whether typed questions are available.
+The guards run cheapest first: a 5-a-minute sliding-window rate limit applied by an interceptor before the request body is even converted (so a malformed or oversized body counts too; the body is capped at 8 KiB); a strict
+sanitiser that refuses (never strips) invisible, control, emoji and symbol characters and anything outside letters, digits, spaces and
+`? ! ' ’ , . - : / & ( )`, caps at 200 characters and derives the normalised cache key; the daily spend cap ($0.50 by default, one admin
+email per UK day) and the accounting latch, both 503 `TYPED_UNAVAILABLE`; then one atomic reservation of the allowance (LITE 3, PRO and
+ADMIN 30 a UK day) and of a never-refunded engine-call ceiling (3 times the allowance), so "refund an unanswerable question" cannot
+become free Claude calls. An answer is charged; an honest "not in the forecast" and a failure are refunded on the date they were
+reserved, never below zero. Every error is `{"error","code"}` with the codes of the plan's table (`INVALID`, `RATE_LIMITED`,
+`ALLOWANCE_EXHAUSTED`, `DAILY_LIMIT`, `ENGINE_FAILED`, `TYPED_UNAVAILABLE`). Migration V166 adds `ask_usage` with `ON DELETE CASCADE`.
+The pre-filter, Ready intent match, typed cache and question log are wired as no-op `@Fallback` seams for B5.
+
+### Fixed — Ask PhotoCast Ready answers carry only what their question is about
+
+A Ready answer is the model's, held to what the tools returned, but nothing checked that an event or a pick was
+relevant to the question asked: a "snow on the tops" answer could carry an aurora, because the validator only proves
+an event came from a tool. Each `ReadyQuestion` now says which event types it keeps (`RARE_EVENTS` any; `SNOW_TOPS`
+only `SNOW_TOPS`, `SNOW_FRESH` and `SNOW_MIST`; every pick question none) and which picks (the question's own
+windows, in scope, and for `COASTAL_HIGH` a coastal slot at high water; an events question none), from one predicate
+used both when an answer is stored and when it is served. At store time irrelevant events are removed, an answer
+with nothing relevant left, or one that would lose an event carrying a safety warning, is not stored; at serve time a
+row written under an older rule is withheld rather than served. Nothing reads these answers yet.
+
+### Changed — Anthropic Java SDK 2.60.0 → 2.62.0, and why not 2.68.0
+
+Dependabot's bump to 2.68.0 (#1012) does not compile: 2.63.0 removed the
+`OkHttpClient(okhttp3.OkHttpClient, Backend)` constructor `AppConfig.anthropicClient` uses to
+force HTTP/1.1, which exists because OkHttp's HTTP/2 frame writer pins virtual threads under
+`synchronized` on Java 21 and deadlocked batches of 200+. The SDK's own builder offers no protocol
+control, so taking the bump would silently reintroduce HTTP/2. The version moves to 2.62.0, the
+last release with the constructor; the pin and its two exits (JDK 24+ via JEP 491, or an in-house
+`com.anthropic.core.http.HttpClient`) are recorded in the pom, the AppConfig javadoc and
+CLAUDE.md, and Dependabot now ignores `>= 2.63.0` for this artifact.
+
+### Docs — Ask PhotoCast: the design bundle, the implementation plan and the per-phase prompts
+
+Vendors the Claude Design bundle for Ask PhotoCast (`docs/design/ask-photocast/`) and adds
+`docs/engineering/ask-photocast-plan.md` and `ask-photocast-prompts.md`. The plan records 24 places
+where the bundle and the codebase disagree, the design that resolves them, literal wire contracts,
+fourteen sequential phases and the owner decisions with their binding defaults. It was revised
+after a four-lens adversarial review; §10 lists what changed. No code.
+
+### Docs — Ask PhotoCast plan: the owner's decisions recorded
+
+"Add to Coming up" is removed from the Ask PhotoCast plan outright (Coming up is for weather-type
+events, not a schedule), so phase S1 and its storage are gone; the typed-question spend cap is
+$0.50 a day; the `/` key, the deferred floating card and the drive-question rule are confirmed as
+planned.
+
+### Added — Ask PhotoCast: Ready answers, precomputed after each pipeline cycle
+
+Phase B3 of the Ask PhotoCast plan (`docs/engineering/ask-photocast-plan.md` §2.4). A seven-question catalogue
+(`ReadyQuestion`: best spot this weekend, in the next few days, tonight or tomorrow morning, best coastal spot at
+high tide, sunrise or sunset on a day, rare events, snow on the tops) is answered once per scope (every enabled
+region, and all of them) for every reader, with no user, no home and no drive time in the conversation, and stored
+in `ask_ready_answer` (V165, unique on scope and question, so a precompute replaces the row). Which questions exist
+depends on the forecast: a Monday offers no weekend question, and the text a question is asked under ("tonight",
+"on Saturday") is fixed from the UK civil date when it is written.
+
+`PipelineOrchestrator` hands the precompute to its background executor only after `finishRun` has marked the cycle's
+run COMPLETED or DEGRADED, so a precompute never holds a run open and nothing it throws or takes too long over can
+reach the run. It stops between questions after five minutes, refuses to run when Ask is off, a simulation is
+active, the briefing is missing or last-known-good, another precompute is running, or
+`photocast.ask.ready.max-cycles-per-day` scheduled precomputes have already started today (a count of `job_run`
+rows since UK midnight). One question failing does not stop the rest. A `BEST_*` answer that does not lead with the
+Plan tab's own BEST BET window is not stored, and neither is one that names a window outside what the question was
+asked about. `POST /api/admin/ask/ready/precompute` (ADMIN) runs it on demand, which is how to get Ready answers
+locally on the stub.
+
+`GET /api/ask/ready?scope=all|<regionId>` (Bearer, every role, ETag-revalidated) serves them. Freshness is checked
+against live data on every read and is all or nothing: a question is withheld whole when any pick's window has
+passed, any pick's rating, verdict or eligibility has changed, any event's topic is no longer live, the BEST BET has
+moved, or the question would now be asked differently. What is served has its names, dates, event labels and safety
+notes re-joined from the live forecast, never from the model's text, and each question carries its own `generatedAt`
+and `runLabel`. Nothing reads it yet: the endpoint is off until `photocast.ask.enabled` is turned on.
+
+### Added — Ask PhotoCast B2b: the stub engine, a local fixture, the admin dry-run and a fix for old local databases
+
+Third backend phase of Ask PhotoCast (`docs/engineering/ask-photocast-plan.md`). No migration, and
+nothing a reader can reach: the one new endpoint is admin-only and answers 404 while
+`photocast.ask.enabled` is false.
+
+`StubAskEngine` answers from the same B1 tools with templated text and makes no Anthropic call and no
+cost row (it has no client and no job-run service to make one with). A where-or-when question gets the
+top three spots at different locations (narrowed to the coast or a tide state when the question says so,
+to the context window when there is one, and to the question's scope); an events question is answered
+from the hot topics and the Coming up feed; nothing eligible is an honest answer with no picks. Its
+answer goes through `AskAnswerValidator` exactly as a real one does, and it leads a Ready `BEST_*`
+question with the forecast's BEST BET window. Exactly one `AskEngine` bean exists for any value of
+`photocast.ask.stub` (`AskEngineSelection`: one conversion, each condition the other's negation; a
+non-boolean value fails startup), and `stub=true` under the `prod` profile fails startup rather than
+serving templates to readers or silently billing the key.
+
+`POST /api/admin/ask/dry-run` (ADMIN) runs a question through whichever engine is active as the calling
+admin and returns the outcome, the validated answer and the tool trace. With the Claude engine it spends
+real money and counts toward typed spend. The question is cleaned by the new `AskQuestionSanitiser`
+(strip control and format characters, collapse whitespace, 200 characters), which the typed endpoint will
+extend rather than replace.
+
+`AskLocalFixtureSeeder` gives a local app a rich, rated Ask state with no Claude call and no forecast
+run: three `Fixture …` regions and 22 `… (fixture)` locations, rated entries for the next four solar
+windows written through `BriefingEvaluationService` (the pipeline's own path), synthetic tide extremes
+for three coastal spots, then a briefing build. Two regions meet the verdict sample gate; the third has a
+4★ slot the gate refuses; the wood is canopy. It is idempotent, deletes nothing, recognises its own rows
+by name, and cannot run in production: the bean needs the `local` profile (never with `prod`) and
+`photocast.ask.seed-local-fixture=true`, and at run time it refuses unless that profile is active and the
+database really is H2. It is off by default in `application-local.yml` (which now enables Ask with the
+stub): the briefing build it triggers makes the usual gloss and best-bet Claude calls with whatever
+`ANTHROPIC_API_KEY` is set. Locally no window carries a BEST BET, because that needs a Claude-written
+gloss.
+
+Fixed: a developer's **existing** local H2 file refused `ASK` and `ASK_READY` job runs (Hibernate maps an
+enum column to a native H2 `ENUM` fixed at table creation and `ddl-auto: update` never alters it), until
+the file was deleted. The claim B2a reported is reproduced by a test; `LocalH2EnumWidener` (local profile,
+H2 only) now widens `job_run.run_type` at startup, keeping every value and the `NOT NULL`. Production
+(`VARCHAR`) was never affected.
+
+### Added — Ask PhotoCast B2a: the Claude tool loop, its own resilience, and cost recording
+
+Second backend phase of Ask PhotoCast (`docs/engineering/ask-photocast-plan.md`). Nothing here is
+reachable from an HTTP endpoint and there is no migration. `ClaudeAskEngine` runs at most
+`photocast.ask.max-turns` model turns with `tool_choice` auto over the B1 tools; the reply is the
+input of the model's `submit_answer` call, read defensively by `AskAnswerParser` and then held to what
+the tools returned by `AskAnswerValidator`. A refusal, `max_tokens`, a turn with no tool call, a
+malformed or discarded answer, or a last turn without `submit_answer` is a FAILED outcome, never an
+exception; a bad tool call is fed back as an error `tool_result`. The question reaches Claude only as
+the user message. `AskProperties` (`photocast.ask.*`) declares every setting with bounds that fail
+startup, and the model is limited to Haiku or Sonnet 4.6 (never Sonnet 5.5, and never a
+`model_selection` row).
+
+`AnthropicApiClient.createAskMessage` has its own Resilience4j `ask` retry (two attempts, server
+errors only, no content-filter retry), circuit breaker (blind to a rejected key and to a full
+bulkhead, no health indicator) and bulkhead (four concurrent, two seconds' wait), declared in the
+local, example, prod and test YAML, so a reader's questions cannot open the breaker the forecast
+pipeline shares. The SDK's own retries are switched off for this door: left on they gave three HTTP
+attempts per call, each with the full timeout. The per-call timeout is the shorter of 20 seconds and
+the time left to a 30-second deadline, and the engine stops waiting at the deadline itself, because a
+retry would otherwise start its second attempt with a fresh timeout.
+
+Spend is recorded as the plan describes: new run types `ASK` and `ASK_READY`, one `ASK` job run per
+UK civil day found or created under a lock before the first model turn (so a database that cannot
+record the money stops the call), a column-scoped cost and question-count increment after each
+logged call so Operations shows the day's Ask spend, every model turn (failed ones too) logged with
+its tokens, and a typed-spend sum over `ASK` runs since UK midnight, memoised for 30 seconds, that
+ignores `ASK_READY`.
+
+### Added — Ask PhotoCast B1: the read model, the tools, the answer contract and the validator
+
+First backend phase of Ask PhotoCast (`docs/engineering/ask-photocast-plan.md`), with no Claude call,
+no endpoint and no migration. `AskSnapshotBuilder` reads the Plan tab's own assembly
+(`BriefingService.getCachedBriefingForApi()`) into an `AskSnapshot`, memoised for 30 seconds. Its
+window set is the solar events that carry a served `window()`, have not passed by the shared
+`PlanWindowProjector.hasPassed`, and are not travel days; the served briefing does not mark a travel
+day, so the builder asks `TravelDayService.isTravelDay`, the same test the best-bet advisor applies.
+
+A slot is pick-eligible only when it has a location id, is not a wood, is rated 3★ or better and
+sits in a region `BriefingRegion.verdictEligible()` would let carry a verdict — no rating exempts an
+ineligible region, so a handful of hand-run 4★ ratings can never crown one. `AskTools` implements
+`list_windows`, `rank_spots`, `get_hot_topics` and `get_coming_up` over it (BEST BET first among equal
+ratings, the served tide state and the location's own tide preference as two separate fields, a
+6,000-character cap per conversation, errors as results rather than exceptions), and
+`AskAnswerValidator` holds a submitted answer to the pairs and events the tools actually returned,
+joining every card fact from served data and requiring a Ready `BEST_*` answer to lead with the
+forecast's BEST BET window. The window-id format `yyyy-MM-dd_sunrise|sunset` now has one codec,
+`AskWindowId`, which `BriefingRollupBuilder` uses in place of its two inline copies.
+
+### Added — Low Hauxley sunrise (4 Oct 2026) as a prompt regression case
+
+A new prompt regression case from an observed sunrise: a clean sea horizon with streaked high cloud lit orange and salmon, which the owner rated a 4 ("worth going"). It is the first case built from a stored production prompt — the exact user message production sent for record 86677 lives in a test resource, and an untagged unit test (`LowHauxleyPromptFidelityTest`) pins the fixture's output to that text in the normal build, so the regression case provably sends what production sent.
+
+## [v2.22.15] - 2026-10-04
+
+### Docs — the batch system prompts measured against the Haiku caching floor
+
+A new on-demand `prompt-regression` test (`SystemPromptTokenCountTest`, free `count_tokens` calls)
+measured the system prompts on `claude-haiku-4-5-20251001`: inland 4,726 tokens, coastal 4,779
+(floor 4,096, margin about 15%), woodland 1,190, bluebell 968 (1,416 and 1,194 with the output
+config attached). The estimates in `BatchRequestFactory`'s javadoc are replaced with these numbers.
+At the measured 3.79 characters per token the 15,500-character offline guard is about 4,090 tokens,
+just under the floor, so it is a proxy and not a guarantee. Bluebell is 56 tokens under Sonnet's
+1,024 floor on system text alone, so its caching stays unproven.
+
+### Added — Claude Sonnet 5.5 is a selectable evaluation model
+
+`claude-sonnet-5-5` can now be chosen as `SONNET_55` on the Models screen (every run type, including
+the scheduled-batch tabs), in the Prompt Test and Sky-Rating Eval harnesses, and in the advisor replay.
+It is not the default or active model for any run type, and no data changed (no migration: every
+column that stores a model name is VARCHAR(10), and `SONNET_55` fits). It is deliberately **not** added
+to the fixed lists that run on their own: `SkyRatingEvalService.SCHEDULED_MODELS` (the weekly eval), the
+Model Test screen's three-way Haiku/Sonnet/Opus run, and the Briefing Model Test's fixed five variants
+are unchanged, so no scheduled or comparison spend moved.
+
+The model rejects `thinking: disabled`, so it is sent no `thinking` parameter (adaptive thinking is its
+default) and instead `output_config.effort = low` alongside the existing JSON-schema format. The sky
+prompt gets a 4096 ceiling; aurora and the glosses get their usual answer budget plus a 4096 thinking
+allowance (thinking tokens count against `max_tokens`); the best-bet advisor gets the thinking-sized
+16000 ceiling and ignores the run type's extended-thinking switch for this model. Every other model's
+request is unchanged and pinned by tests. Priced at $2.00 in, $10.00 out, $0.20 cache read, $2.50
+5-minute and $4.00 1-hour cache write per million tokens.
+
+A refusal (`stop_reason: refusal`) or a `max_tokens` truncation now fails cleanly, for every model, on
+the aurora interpreter, the synchronous aurora and sky calls, the batch results (forecast and aurora)
+and the sky-rating eval harness, instead of reaching a parser that could salvage a cut-off answer; the
+best-bet advisor logs either as a failed `api_call_log` row and returns FAILED. Refused and truncated
+batch responses are now costed (their tokens reach the batch totals and the failed row), and the batch
+refusal error type is the same `refusal` the synchronous path writes. A refusal counts as a failed
+result for `LocationFailureService`, like any other failure.
+
+On 2026-10-04 measurements (10 runs, 3 prompts) it cost about the same as Sonnet 4.6 because its
+tokeniser counts roughly 45% more input, and it failed one regression case that Sonnet 4.6 passes.
+Model names now come from one front-end table (`utils/modelLabels.js`), so the Models screen labels the
+existing Sonnet "Sonnet 4.6" and the Plan popup footer no longer prints "Sonnet_55".
+
+A failed batch now completes its job run with the cost it accrued (a refused or truncated aurora
+response, an aurora handler failure and a forecast stream that died after billed responses were all
+recorded as free before). The sky-rating eval's pass rate now means passes / evaluations attempted: a
+refused, truncated, errored, unreadable or never-answered evaluation counts as a non-pass (before this,
+errored fixtures were silently left out of the denominator). The run's error message carries the failed
+count and per-type reasons (no new column), the Sky Eval table marks such a run with an asterisk, and a
+run in which every evaluation failed is FAILED rather than COMPLETED.
+
+Each failed or unanswered sky-eval attempt is also kept as its own child row (no rating, no band, the
+reason in `summary` as `FAILED: <TYPE>`; no migration), so the per-fixture trend reports runs =
+attempts and passes = passes, an entirely failed fixture still appears with 0 passes, rating and
+sub-score averages ignore the failure rows, and the per-fixture sums equal the run's totals.
+
+Failed sky-eval attempts that Anthropic billed (a refusal, a truncation, a reply with no text, an
+unreadable reply) now keep their usage: the batch-priced cost and tokens are added to the run's totals
+and stored on the failure row, so mixed and all-failed runs report their real spend. Results that were
+never billed (errored, expired, cancelled) and evaluations the batch never answered add nothing.
+
+### Fixed — 1-hour prompt-cache writes are priced at the 1-hour rate
+
+Since the batch cache primer, warmed scheduled SKY requests carry a 1-hour cache lifetime, billed at
+2x the input rate rather than the 1.25x of a 5-minute write, but `CostCalculator` priced every
+cache-creation token at the 5-minute rate, under-recording those writes. `TokenUsage` now carries
+the 1-hour portion (`cacheCreationOneHourTokens`, a subset of the total, clamped to it) read from
+the API's `usage.cache_creation.ephemeral_1h_input_tokens` at every site that builds one from an SDK
+response, and `CostProperties` gains per-tier `*-cache-write-1h-usd-per-mtok` rates (Haiku 2.00,
+Sonnet 6.00, Opus 10.00). The 1-hour portion is priced at that rate and the rest at the existing
+rate; a usage with no 1-hour portion costs exactly what it did. No migration: only
+`cost_micro_dollars` on new rows changes.
+
+## [v2.22.14] - 2026-10-04
+
+### Changed — scheduled batches prime the prompt cache before they submit
+
+Every request in a scheduled sky bucket shares one cached system prompt, but when a batch's requests
+start together none finds the cache already written, so each writes it at 1.25x the input price
+instead of reading it at 0.1x: over 14 days of near-term sky, 23% of calls wrote the cache and those
+writes were 46% of the bill. Before submitting its buckets the cycle now submits a one-request primer
+batch per distinct cache prefix (model plus coastal-or-inland prompt) and waits for them to end, at
+most `photocast.batch.cache-primer.wait-seconds` (default 180; 0 disables priming). Measured against
+the live API: a cold batch of 12 gave 1 read and 11 writes; with a primer first, 12 reads and none.
+
+The one-hour cache lifetime (a 1-hour write costs 2x input, against 1.25x) follows the primer's
+result, not the flag: a real request carries it only in the scheduled cycle and only when the primer
+for its own prefix ended with a succeeded request. In every other case (flag off, primer failed or
+timed out, interrupt, force-submit, JFDI, region-filtered, retry) the request is byte-identical to
+what was sent before. The primer is fail-open (every call is deadline-checked and timeout-bounded, an
+unreadable status read keeps waiting) and adds up to `wait-seconds` to the submit phase.
+
+Primers are invisible to the batch tables and pollers, so their own cost (one full request per prefix
+per cycle) is not recorded in `api_call_log` or `job_run`, and `CostProperties` prices cache writes at
+the 5-minute rate, so a rare 1-hour write by a real request is under-recorded. Out-of-range settings
+fail startup. `photocast.batch.cache-primer.enabled: false` restores the previous behaviour exactly.
+
+## [v2.22.13] - 2026-10-04
+
+### Added — Rewind: render the app as it stood before a solar event that has passed (admin)
+
+You went out for this morning's sunrise on PhotoCast's say-so, and now you want to post the photo
+beside the forecast that sent you there — but by the time you are back the Plan tab says "this
+morning has gone" and the Map tab has moved on to tonight. The new **Rewind** sub-tab under
+Operations lists the last three days' sunrises and sunsets, timed across the whole sky roster, and
+one press rewinds the app to an hour before the roster's earliest event time — offered only while the current briefing still holds that day, since the briefing is rebuilt for today onward every cycle and the Plan tab cannot show a day the last build dropped: the whole app
+remounts on that moment, that window is live again on the Plan matrix and the Map tab opens on it,
+with its verdict, stars and best bet in place, for the screenshot. A small pill in the bottom-left
+corner names the moment and is the way back to live; so is a reload or a sign-out.
+
+A rewind turns the clock back, never the data. Every serve-time "now" on the backend already came
+from one injected `Clock` bean; it is now a `RewindAwareClock`, which answers with the instant an
+admin's GET carries in a new `X-Rewind-To` header (`RewindFilter`, after JWT authentication,
+honoured for admins only, on GET only, never under `/api/admin/`, cleared in a `finally`). Nothing
+is set on the server, so one admin's rewind can never reach another user's page. On the client,
+every clock read that decides whether a window has passed, what today is, which event is next or
+how old the forecast is goes through one `appNow()`, and the two stale-while-revalidate caches are
+neither read nor written while rewound, so a rewound payload never paints a live page. What you see
+is today's forecast cache rendered as of that moment: ratings for a passed window are not
+re-scored, so it normally matches what was shown, and hot topics are recomputed from today's
+readings. `GET /api/admin/rewind/events` (ADMIN) supplies the menu, including when the briefing was
+last built so the view can say when that was after the moment chosen.
+
+## [v2.22.12] - 2026-10-03
+
+### Added — store the batch forecast prompt and Claude's own sky rating
+
+Haiku sometimes flips a forecast rating by two stars on identical inputs, and production kept neither
+half of what is needed to study it. Every batch sky forecast request now has its exact user message
+stored in a new `forecast_evaluation_prompt` table (keyed by the pending `forecast_evaluation` row, kept
+30 days and pruned nightly by the `forecast_prompt_cleanup` job at 03:50 UTC,
+`photocast.forecast-prompt.retention-days`), and `forecast_evaluation.sky_rating` records Claude's sky
+rating before the tide score is averaged into the combined star. A failure to store a prompt never
+affects the submission. Neither value is exposed on any API response; the synchronous engine, woodland
+and bluebell requests are not covered.
+
+### Docs — plan to stop two-star rating flips on identical inputs
+
+`docs/engineering/rating-band-plan.md` records the 2026-10-03 investigation into forecast ratings
+that flip by two stars between neighbouring locations with identical cloud inputs (Haiku, batch
+pipeline), the adversarial review of the first draft, and the phased plan that came out of it:
+pin the field order of the answer, store the prompt sent and the sky rating before tide, run a
+replay experiment across seven options, and only then decide whether code-computed rating bounds
+are needed. No code changes.
+
+### Fixed — the order of fields in Claude's forecast answers no longer changes with each restart
+
+The structured-output schema sent with every forecast request listed its fields in an order that
+changed each time the backend started, and Claude writes its fields in that order. So on some days
+the model committed to a star rating before explaining it, and on others after. The order is now
+fixed (rating, scores, summary, headline, then the optional fields) for the sky, woodland and
+bluebell evaluations, and a test pins it.
+
+## [v2.22.11] - 2026-10-03
+
+### Fixed — tapping a place on the Map tab no longer leaves its tooltip over the card
+
+Tapping a place name (or a dot, in Pins mode) on the Map tab on a phone or tablet opened the place's
+card and also the hover tooltip, which then stayed stuck on top of the card until you tapped
+elsewhere. Touch screens send mouse-style events on a tap but never the matching "pointer left"
+event. The tooltip now appears only for a real mouse pointer, and pressing a place closes any
+tooltip that is showing. Hovering with a mouse on desktop is unchanged.
+
+## [v2.22.10] - 2026-10-03
+
+### Fixed — a run that finished with failures is not shown as a success
+
+A run that finished with some places updated or triaged and some failed (PARTIAL, no run-level reason)
+showed the green *Forecast run completed* banner, the panel header "(Complete)", and, in the map
+popup's Run Forecast, "Forecast run failed" with no refresh although part of it had been written. They
+now agree, through one rule (`completedWithFailures` in `utils/runOutcome.js`): the banner is amber,
+*Forecast run completed with failures — N locations updated, T triaged, M failed.* with Refresh; the
+panel header reads "(Completed with failures)"; and the popup refreshes once and says "Part of this
+forecast failed." The triaged count is shown (and omitted when zero) in this banner and in the
+stopped-early banner, so a run in which triage stood many places down no longer reads "0 locations
+updated". A clean run stays green; a failed or stopped-early run is unchanged.
+
+### Fixed — a long run no longer loses its progress entry
+
+`RunProgressTracker` evicted every run 30 minutes after it STARTED. A run still going after that lost
+its entry mid-run: later task events were dropped, `completeRun` found nothing and never sent
+`run-complete`, and any panel attached was left waiting. Now only a COMPLETED run is evicted (also one
+failed by `failRun`), 30 minutes after it COMPLETED, so the Retry window runs from when the run
+finished, not from when it started. A run that has not completed is never evicted, however long it has
+been silent: the weather and cloud prefetch records no progress and can wait a minute on each
+rate-limited Open-Meteo chunk, so any idle deadline could discard a live run. There is no leak to
+bound: every hand-started run reaches `completeRun` or `failRun`, and if the JVM dies the in-memory
+tracker dies with it. A subscriber that arrives after an evicted run is told `run-expired` once the
+grace period passes. The tracker takes an injected clock, so none of this is tested with a sleep.
+
+No migration. The `run_progress_cleanup` job's description in `scheduler_job_config` (seed data from
+V68) still says "older than 30 minutes".
+
+### Fixed — "Retry failed" re-runs exactly the slots that failed, under the run's own type
+
+`POST /api/forecast/run/{id}/retry-failed` took the failed *places*, the failed *dates* and ran every
+combination of them, both events, as a Short-Term run. A run in which one place's Saturday sunset and
+another's Sunday sunrise failed re-evaluated eight slots instead of two, re-billing the ones that had
+succeeded, and a Very-Short-Term, Long-Term or single-place run was retried under Short-Term's model
+and strategy settings. A light-pollution run's failed tasks carry the date "–", which the endpoint
+tried to parse as a date and answered 500; and a run stopped on a rejected API key could still be
+retried by calling the endpoint directly.
+
+- **Exact slots.** `ForecastCommand` gains an explicit `slots` set of (location, date, sunrise or
+  sunset) triples. The executor builds a task only for a triple in that set, so the retry run's
+  progress holds exactly the slots that were FAILED in the original run's tracker entry (a slot named
+  twice is run once). A slot whose event has passed since is dropped by the executor's existing
+  already-past gate and shows as *skipped* in the retry's panel; weather triage still applies, so a
+  slot the weather now rules out is *triaged*, not evaluated.
+- **The original run type.** `FailedSlotRetryService` reads the original run's type from its
+  `job_run` row and starts the retry under it, so the model and strategies are Very-Short-Term's,
+  Short-Term's or Long-Term's as the case may be. ⚠️ "Original settings" can only mean the **current**
+  configuration of that run type: a hand-started run stores no `active_strategies` snapshot and a null
+  `evaluation_model`, so what it ran under is not recoverable, and a model or strategy changed on the
+  Run Config screen since the original run is picked up by the retry. Stability filtering stays
+  bypassed (a manual run); there are no exclusions to carry, since an excluded slot was never a task.
+- **Sentinel sampling does not apply to a retry of named slots.** Sentinel sampling evaluates a
+  region's sentinel places and, when they all rate low, writes a canned low result for the region's
+  other slots without calling Claude. Over a handful of named slots that would pick a sentinel from
+  among them and answer for the rest, which is a guess recorded as a result, not a retry. Each named
+  slot is evaluated. The other strategy, tide alignment, is a per-slot check and still applies.
+- **A failed slot that cannot be run again is left out and said so.** If its place has been disabled or
+  deleted, or is no longer a sky location, the 202 lists it under `skipped` with a reason and the new
+  run's panel shows it after "Retrying N slots."; when nothing is left the answer is the existing 404
+  ("Nothing to retry"). The 202 also carries `slots` (how many the new run holds) and the original run
+  type in `runType` (it used to say `SHORT_TERM` always).
+- **Refused, with a plain `{error}` and nothing started (409).** A run stopped on a rejected key:
+  *This run was stopped because Claude rejected the API key. Fix the key, then start the run again.*
+  A light-pollution run: *Light-pollution failures are retried by pressing Refresh Light Pollution
+  again.* (any other run whose failed tasks are not forecast slots gets a generic sentence).
+- **The panel knows why.** The `run-complete` payload gains `retryBlockedReason` (`API_KEY_REJECTED`,
+  `LIGHT_POLLUTION`, `NOT_FORECAST_SLOTS`, null when retryable) beside #985's `retryable`, both read from
+  the one `RunProgress.getRetryBlock()` the endpoint also uses, so the panel never offers a retry the
+  server would refuse. A light-pollution run with failures shows *Retry is not offered: press Refresh
+  Light Pollution again.* in place of the button; the rejected-key line is unchanged.
+
+No migration, and the stop-on-rejected-key logic, failure classification, `job_run` counts, circuit
+breaker, eviction and the batch pipeline are untouched.
+
+### Fixed — a finished run's panel no longer leaves rows on "Pending"; a retry leaves out yesterday's slots
+
+- **Rows left unfinished in a run that had finished.** In a very fast run (every place failing at weather
+  within ~100 ms) a few rows of the progress panel stayed on "Pending" or "Weather" although the summary
+  said all of them had failed. Cause, in `RunProgressTracker.subscribe`: it registered the emitter and
+  then replayed from a copy of the tasks frozen at that moment, while `onTaskEvent` took no lock, so a
+  worker could send a task's live FAILED while the replay still held that task's older copy, which was
+  then sent AFTER it, and the panel keeps the last event it receives. Each run now has one stream lock
+  (`RunProgress.streamLock()`) held by `onTaskEvent` (update and broadcast), `setPhase` (its re-send)
+  and `subscribe` (copy and replay), so a subscriber sees each task's states in order. Lock order: the
+  global `completionLock` first, then the run's stream lock, never the reverse (`subscribe`,
+  `completeRun` and `failRun` take both in that order; `onTaskEvent` and `setPhase` take only the stream
+  lock; the expiry check only the completion lock). The panel also refuses an update that would move a
+  finished row (complete, failed, skipped, triaged) back to an unfinished state.
+- **A retry leaves out slots dated before today.** The executor's already-past gate guards only today, so
+  a retry pressed just after midnight sent yesterday's failed slots to triage and Claude. They are now
+  left out and listed in `skipped` ("The event has already happened."), by the UK civil date; when every
+  failed slot is past the answer is the existing 404. A renamed place is reported as "The place is
+  disabled, renamed or no longer exists."
+- **The note on a retry's panel** ("Retrying N slots. Left out: ...") now survives a switch of Operations
+  tab (it is held beside the active run id), names at most three left-out slots then "and N more", and
+  never prints "null" for a missing date.
+
+### Fixed — "Retry failed" cannot be started twice, or on a run that is still going
+
+Two quick presses, or two admins, each started a retry of the same slots, and Retry could be called
+while the original run was running. `retry-failed` now answers 409 `{error}`: *This run is still going.
+Retry is offered when it has finished.*; and, for a second retry of one run, *This run has already been
+retried as run N. Retry that run's failures instead.* A retry of the retry run still works, so retries
+chain. The check, the start and the record happen under one per-run lock, so concurrent requests start
+exactly one run. The record is held on the tracker's in-memory entry: it does not survive a restart and
+is forgotten when the entry is evicted.
+
+A retry that never ran does not block: if run N completed holding no task at all (it failed before it
+registered its tasks), or its tracker entry has been gone for 5 minutes, the original can be retried
+again; a run N that ran, even with failures of its own, still takes the retry. The panel already shows
+the server's 409 sentence through its existing error line, which a second admin's panel now uses.
+
+### Fixed — a weather prefetch refused by the Open-Meteo circuit breaker says so
+
+A weather prefetch refused by the Open-Meteo circuit breaker used to read "Forecast run failed - The
+run stopped unexpectedly. See the server log.", because the refusal (Resilience4j's
+`CallNotPermittedException`) is not a weather fetch failure as far as `RunCompletion.reasonForForecastRun`
+knew. A refusal is now recognised by the breaker's name (`open-meteo`, or the briefing's
+`open-meteo-briefing`), anywhere in the cause chain, and reads "Weather data (Open-Meteo) calls are
+paused after repeated failures; nothing was updated. Try again in a minute." A refusal by any other
+breaker keeps the generic reason, and each place keeps its own "Weather data could not be fetched."
+line, which does not contradict the run-level one.
+
+### Added — a place that keeps failing its scheduled runs is auto-disabled, and the admin is told
+
+CLAUDE.md has long said "per-location failure tracking, auto-disable after 3 failures", but the
+counting code was never written: `consecutive_failures`, `last_failure_at` and `disabled_reason`
+were only ever reset, never set. `LocationFailureService` now counts, under rules chosen so that one
+bad night, a fault confined to one lane, or a night when everything failed, can never empty the
+roster.
+
+- **Which runs.** Pipeline cycles (nightly and intraday). `PipelineOrchestrator` settles each cycle
+  once, inside its BRIEFING phase, after the batch results and the retry have landed and before the
+  briefing is built. The Operations-tab forecast buttons and the map's Run Forecast never reach the
+  service. The scheduler's "Run now" on the nightly or intraday job runs the identical cycle and
+  nothing records the trigger, so it counts like a scheduled one: three presses in a day could
+  disable a place (an accepted trade-off). A cycle whose safety timeout fired is not settled, since
+  its results are unknown.
+- **What a cycle records about a place**, per lane: a scored result or a triage is "got through"; a
+  collection error (`SKIPPED_ERROR`, the collector's catch-all, so worded "data could not be
+  collected") or an errored result with no success for the place is "failed"; everything else
+  (cached, past date, travel day, hard constraint, stability skip, submission failure, no result
+  recorded) is nothing. Any success in the cycle, in any lane or in the retry batch, makes the place
+  "got through". A retry that finds the slot now triaged records a `SKIPPED_TRIAGED` disposition,
+  so the place counts as answered; that write is not best-effort: if it fails the exception escapes
+  the retry phase, the run is failed before its tail settle, and the sweep settles the cycle later
+  RESETS_ONLY, so the place is not counted failed on its precursor's failed row alone.
+- **When a failure is counted.** Once per place per cycle, and only if at least half of the LIKE
+  places got through. For a failed Claude result that means the other places with a result in the
+  same lane (sky, woodland or bluebell), where triage-only places are not evidence; for a collection
+  error, the other places whose collection ran. So a woodland parser regression that fails every
+  `wd-` result while 200 sky places score counts nobody, and so does a cycle that fails everything
+  (2026-09-29: all 510 candidates failed at once). A place that got through is reset to 0; a place
+  with nothing recorded keeps its count.
+- **At 3 consecutive counted failures** the place is disabled (`enabled = false`, a fixed-shape
+  `disabled_reason` such as "Auto-disabled after 3 consecutive failed scheduled runs (last
+  2026-10-02: data could not be collected)." and `last_failure_at`), and the admins get one email
+  per cycle through `AdminAlertService`, sent after the settle transaction commits. If more than 5
+  places qualify in a single cycle (`MAX_DISABLED_PER_CYCLE`) none is disabled, an ERROR is logged
+  and the admins are told that something systemic is wrong; the counters still advance.
+- **Settled once per cycle, one at a time, in trigger order, durably.** Settles run under one in-JVM
+  lock (commit included; this is a single-instance app) and the failure count is incremented by the
+  database and read back. Each settle claims its cycle with a conditional update of the new
+  `pipeline_run.failures_settled_at` column in the same transaction as its counter writes, so a
+  cycle is counted exactly once, a run the process stopped before it settled is settled when it
+  resumes (the orchestrator settles every run on its way to the briefing), and a run already
+  settled is refused.
+- **Two settle modes, and a durable retry.** A settle is FULL (counts failures and applies resets)
+  only when it runs at the cycle's own tail and the cycle's trigger time is newer than the newest
+  already-settled cycle. Any cycle settled later than that (an older cycle after a newer one, e.g.
+  an admin's Run now while an older cycle was still waiting; a replay; one recovered at startup)
+  is settled RESETS_ONLY: its successes and triage still reset counters, but nothing is counted and
+  nothing disabled, because counting it after the newer cycle's success could restart a streak
+  that success had broken. A settle that fails (its claim rolls back with it, so the cycle stays
+  unclaimed) is logged at ERROR while the run still completes, and a sweep settles it later: at
+  startup after the running cycles are resumed, and at the start of every tail settle, it finds
+  pipeline runs with no claim triggered in the last 7 days and not still RUNNING, and settles each
+  RESETS_ONLY in trigger order. The first deploy of V163 leaves every recent run unclaimed; the
+  first sweep over them only zeroes counters that are already zero. A run is never claimed, by the
+  sweep or by a tail settle, while any of its forecast batches is still being polled (not COMPLETED,
+  FAILED, EXPIRED or CANCELLED): a run restarted mid-submission is marked FAILED but its persisted
+  batches keep landing results, so it is deferred (logged at INFO, naming the batch) until they are
+  terminal and a later sweep settles it. A tail settle is FULL only when there is no older
+  unsettled cycle within the sweep window at all, whatever its status (deferred, failed to settle,
+  still RUNNING, or an unlistable run set); otherwise it settles RESETS_ONLY and logs "older cycle N
+  (STATUS) still unresolved", because a newer failure could
+  otherwise disable a place before the older cycle's success arrives, and a later reset cannot
+  undo a disable. That newer cycle is then never counted, which under-counts, the safe direction.
+- **A cycle that submitted no batch** (everything cached, skipped or triaged away, or every
+  submission failed) keeps its dispositions on an anchor job run that nothing else ties to the
+  pipeline run, so the pipeline run now records it (`pipeline_run.disposition_job_run_id`), in the
+  same transaction as the disposition rows themselves: a link that cannot be written rolls the rows
+  back with it (and fails the submission step visibly) instead of leaving rows with no link, which
+  would settle with no evidence and be claimed for good. A cycle
+  that legitimately triaged candidates away therefore resets those places, even across a restart; a
+  cycle whose submissions all failed (the 2026-09-29 shape) holds only `SUBMISSION_FAILED` rows and
+  still counts nobody.
+- **Migration V163** adds those two nullable columns to `pipeline_run`. It is proven before merge
+  only by CI's Backend job (Testcontainers), since the development machine has no Docker.
+- **Known gap.** A bluebell or woodland request that failed is never retried, so such a failure
+  stands for the cycle.
+- **Success evidence** is read from `forecast_score` rows stamped with the cycle's pipeline run as
+  well as from `api_call_log`, because the audit rows are best-effort (a batch whose job-run
+  bookkeeping failed logs nothing) and a place that really scored must still be reset. A failure
+  still needs positive failure evidence, so a gap can only under-count.
+  A cycle whose audit evidence is incomplete (a forecast batch with a null job run, whose results
+  were never logged) counts no failures, since a failed row cannot then be shown to be the place's
+  last word; its successes still reset.
+- **The failure columns are written only by column-scoped updates.** `consecutive_failures`,
+  `last_failure_at` and `disabled_reason` are `updatable = false` on `LocationEntity` (as the
+  `app_user` settings columns are) and `LocationEntity` is `@DynamicUpdate`, so an admin's
+  metadata edit loaded before a settle and saved after it can no longer undo a committed
+  disable or restore a reset counter. `enabled` is `updatable = false` too (the admin toggle writes
+  it through `updateEnabled` and remains last-writer-wins), because `@DynamicUpdate` alone does not
+  stop a detached entity, merged after a settle by a job that loaded it outside a transaction, from
+  writing a stale `enabled` back. Those detached jobs (grid-cell backfill, the briefing's grid-cell
+  capture, Bortle enrichment) now write only their own columns with scoped updates. No migration.
+
+### Fixed — "Re-enable" on the Location Issues alert now actually re-enables the place
+
+The alert's Re-enable button called `PUT /api/locations/reset-failures`, which cleared the failure
+counter and the disabled reason but never touched `enabled`, so a place switched off by the
+auto-disable would have stayed off after the admin pressed it. `LocationService.resetFailures` now
+also sets `enabled = true` when the place carries a disabled reason (only the auto-disable writes
+one), and leaves a place an admin disabled by hand (no reason) disabled, clearing only its counters.
+
+A Re-enable that the server refuses used to fail silently (the error went only to the console). The
+row now shows the server's sentence in an alert line, the button is disabled while the request is in
+flight, and it is enabled again after a failure so the admin can retry.
+
+On the Locations screen, the alert list now includes any place with a disabled reason even when its
+counter is 0, printing the reason and the time of the last failure, and an auto-disabled place's row
+carries an "auto-disabled" badge with the reason in its tooltip.
+
+### Fixed — a hand-started run always reports that it has finished
+
+A forecast run started from the Operations tab or a map popup ran on a thread whose result nobody
+read, so any exception escaping the run was silent: `job_run.completed_at` stayed null, the progress
+panel sat at "running" and the map popup's spinner never stopped. On 2026-10-02, with Open-Meteo
+unreachable, the log said "Open-Meteo batch prefetch failed" and then nothing. A task whose Claude
+evaluation failed was also left in `EVALUATING` for good, so even a "completed" run reported
+`RUNNING`.
+
+`ForecastCommandExecutor.execute` is now the one guard for all five run endpoints. Whatever
+escapes the pipeline, unfinished tasks are published FAILED (one event each, naming the step they
+were stuck in), the tracker emits `run-complete` exactly once, and the `job_run` is closed, each
+step in its own try; the exception is logged once at ERROR. An `Error` gets the same completion and
+is rethrown. A run that fails before it registered with the tracker is registered and completed as
+FAILED rather than left to the panel's "no longer available" path. A normal completion also fails
+any task still in progress, so a run never completes while a place is still "evaluating". Closing
+the `job_run` is tried twice (the in-memory `completedAt` is set before the save that can fail, so it
+is not taken as proof the row was closed), a second failure is logged at ERROR, and the tracker is
+told the run is over regardless. Bortle enrichment, which shared the same unguarded thread, gets the
+same guard. The legacy wildlife engine now registers its tasks before submitting them and reports each
+one COMPLETE or FAILED, and on a non-manual run the places the stability filter drops are published
+SKIPPED, so neither can be swept to FAILED on a run that went well.
+
+A failed batch weather prefetch no longer aborts the run: every place fails individually with
+"Weather data fetch failed for Aira Force SUNSET: Weather data could not be fetched.", the run
+completes and Retry failed has places to retry. The run-level reason carries the cause (the Open-Meteo
+phrase when the failure is a weather fetch, the generic one otherwise), and the `job_run` is closed
+with the failed-task count instead of 0 succeeded / 0 failed, with the log saying weather could not be
+fetched rather than that every task was triaged. Task error messages published to the panel are capped
+at 200 characters (the full text stays in the server log).
+
+The `run-complete` payload gains a nullable `reason` (a fixed phrase, never an exception message).
+The panel shows it, keeps a run that failed with no tasks at all (with Dismiss) instead of clearing it
+as clean, reads "(Failed)" in its header for a FAILED run and omits the meaningless "0/0" count of a
+zero-task run. The map popup's Run Forecast shows the reason (or a fixed sentence) instead of refreshing
+as if something had updated, and the app-wide banner is a red "Forecast run failed" line rather than
+a green "completed — 0 locations updated". A run in which every non-skipped place failed now reads
+FAILED rather than PARTIAL when other slots were merely skipped. Classifying Claude failures and
+aligning `job_run` counts with the tracker are separate follow-ups.
+
+A run that is cut short after some places had already completed (status PARTIAL with a reason) is
+not treated as an outright failure: the banner reads "Forecast run stopped early — N locations
+updated, M failed." with the reason and keeps Refresh, and the map popup refreshes what did update
+while still showing the reason. A FAILED run with no reason now reads "Forecast run failed." (with the
+failed-place count when there is one) instead of repeating the fixed fallback sentence.
+
+### Fixed — a hand-started run reports Claude failures as they happen, and stops when the API key is rejected
+
+A place whose Claude evaluation failed was only caught by the completion sweep, which gave it the
+placeholder "Evaluation failed (see server log).", so the admin could not tell a rate limit from an
+overload from a bad key. And when the key was rejected the run carried on and called Claude for
+every remaining place, each failing the same way (65 places over 47 seconds against an invalid key
+on 2026-10-02).
+
+`ForecastService.evaluateAndPersist` now publishes FAILED, once, at the moment an evaluation fails,
+on every path: an error answered by Claude, an exception thrown by the evaluation call, and a
+failure persisting the result. The step is `EVALUATING` and the reason is a fixed phrase from one
+mapping, `EvaluationFailure`: *Claude rejected the API key.* (401, 403), *Claude's rate limit was
+reached.* (429), *Claude was overloaded.* (529), *Claude returned a server error.* (other 5xx),
+*Claude could not be reached.* (the SDK's I/O exception, which does not tell a timeout from a dropped
+connection), *Claude's reply could not be read.* (a reply the parser rejected, a truncated reply, a
+reply with no text), *Claude declined to evaluate this place.* (a refusal stop reason, or the
+content-filter 400), and *Evaluation failed (see server log).* for anything else. Never an exception's
+message or class name. The completion sweep stays as the floor. Two refusals where no request was made
+get their own phrases and do not stop the run: *Not attempted: Claude calls are paused after repeated
+failures. Try again in a minute.* when the circuit breaker refuses a call (it opens after the first
+wave of rejected calls and stays open for 60 s, so a rerun inside that minute meets it), and *Not
+attempted: too many Claude calls were already waiting.* when the `claude` bulkhead gives up after its
+wait.
+
+The engine's `errorType` vocabulary changed, and this is stated plainly: a content-filter 400 is now
+`content_filter` (it was `anthropic_400`), a refusal is `refusal` and a truncated, empty or no-text reply
+is `reply_unreadable` (all three were `IllegalStateException`), a call the circuit breaker refuses is
+`circuit_open` (it was `CallNotPermittedException`) and a bulkhead refusal is `bulkhead_full`. Refusal
+and unreadable replies are their own exception types (still `IllegalStateException`s), and the aurora
+and strategy engines' "no text" failures use the same type as the forecast engine's. The string is not
+persisted for a synchronous call (`api_call_log.error_type` is written only by the batch path, from the
+batch outcome) and nothing outside `EvaluationFailure` reads it, so no stored value or reader changes.
+
+A 401 or 403 from Claude stops that run (and only that run): the failure is recorded on the run's
+progress inside the `claude` bulkhead, before the permit is released, so each place that was waiting
+for a permit sees it and is published FAILED as "Not attempted: the run stopped because Claude
+rejected the API key." without calling Claude and without creating a child `job_run`. Calls already in
+flight finish and report the key reason. The `run-complete` payload carries "Claude rejected the API
+key. The run was stopped; no further places were attempted." and a new `retryable: false`; a run that
+had completed places reads as stopped early, one that had not as failed. A rate limit, an overload or a
+server error does not stop the run. A later run is unaffected. (`ClaudeRetryPredicate` already did not
+retry a 401 or 403.)
+
+The `job_run` row now closes with the tracker's completed and failed task counts on every completion
+path, so the Job Runs grid and the progress panel cannot disagree. Before, a place that failed at
+weather was never counted unless the weather prefetch itself failed (an all-triaged-or-failed run
+closed 0/0), and a wildlife run counted rows rather than places. A triaged or skipped place is neither
+succeeded nor failed. The run-level reason is written to the row's existing `notes` column, which the
+Job Runs grid already shows.
+
+`RunProgressTracker` now broadcasts the task an event changed, not "the task with the newest
+timestamp". Events arrive from many threads at once, and two that each stored a task and then looked
+for the newest both found the later one, so the earlier task's update was never sent: a finished run's
+panel could show a place frozen on "Cloud". It showed up the moment the evaluation phase began
+publishing FAILED from parallel threads.
+
+A finished run's panel header reads "(Stopped early)" for a PARTIAL run that carries a reason (a real
+rejected-key run is PARTIAL, because triaged places count as an outcome, and used to read "(Complete)"
+above a red "the run was stopped" line); FAILED still reads "(Failed)". A stopped run ends in phase
+`EARLY_STOP` whichever exit the pipeline took.
+
+The legacy wildlife path (no trigger reaches it) now closes its `job_run` with tasks, not hourly rows,
+as its succeeded count.
+
+The progress panel does not offer Retry when `retryable` is false (re-running the failed places would
+fail them the same way) and says so in one line: "Retry is not offered: fix the API key, then start the
+run again." (only on a run that has failed places; where Retry would have been). A payload without
+the field keeps the button.
+
+### Docs — resilience annotations and the progress tracker's mapper
+
+`CLAUDE.md` described the Claude and Open-Meteo retry as Spring `@Retryable` with `MethodRetryPredicate`
+and `@ConcurrencyLimit(8)`; the code uses Resilience4j `@Retry` and `@CircuitBreaker` (plus
+`@RateLimiter` on Open-Meteo) with plain predicates, and `@Bulkhead`. It now also names the second
+Open-Meteo instance, `open-meteo-briefing`, and points to the profile YAML for figures that differ by
+profile rather than quoting them. It listed `RunProgressTracker` among the services injected with the
+Jackson 2 `ObjectMapper` bean; it, `ModelTestService` and `PromptTestService` build their own.
+
+### Fixed — failed synchronous Claude calls are logged with their real status and an error type
+
+A failed synchronous Claude call (the forecast run, the aurora evaluation, and the legacy evaluation
+decorator) was written to `api_call_log` with a hard-coded status 500 and no `error_type`. It now
+records the HTTP status Anthropic actually answered with (401, 403, 429, 529, 5xx, 400) and the
+`error_type` the run panel already uses (`anthropic_401`, `content_filter`, `refusal`,
+`reply_unreadable`, `circuit_open`, ...). A failure with no HTTP status of its own (a connection
+failure, an unreadable reply, a refusal, an open breaker) records a null status, the same as the batch
+path and the weather clients; every reader decides failure from `succeeded`, never from the status.
+
+Rows written before this change keep their placeholder 500 and no error type; that 500 is not the real
+status. The Job Runs detail therefore shows no status for a Claude row without an error type: its Failed
+Calls heading reads `ANTHROPIC · anthropic_401` for a new row (the type already carries the status),
+`ANTHROPIC` for an old one, and `OPEN_METEO · 503` for a weather row, whose status is always real. The
+metrics endpoint now serves `statusCode`.
+
+### Fixed — a rejected Claude API key no longer opens the circuit breaker
+
+With a rejected key, the first wave of Claude calls answered 401 and the run stopped correctly, but
+those 401s also counted as failures toward the `anthropic` circuit breaker (10-call window, opens at
+50% once 5 calls are in it), which then opened for a minute. A run started inside that minute never
+reached Claude: every place read "Not attempted: Claude calls are paused after repeated failures.",
+the run was not stopped, and Retry was offered although the key was still wrong. A rejected key is
+a configuration fault, not an outage. HTTP 401 and 403 from Anthropic are now ignored by the breaker
+(neither a failure nor a success, and a half-open probe that is rejected returns its permit), through
+`ClaudeBreakerIgnorePredicate` wired by `ResilienceConfig.anthropicCircuitBreakerCustomizer()`, so no
+per-host `application.yml` needs editing. The definition of "rejected key" is shared with the run's
+stop-on-rejected-key rule, so the two cannot drift. Every other failure (400, 404, 429, 5xx, 529,
+connection failures) still counts.
+
+Two consequences. The status page no longer shows a rejected key: its overall DEGRADED/DOWN comes
+from the circuit-breaker health, which stays CLOSED, and its Claude entry is the `claudeApi` probe,
+which counts any HTTP answer (401 and 403 included) as reachable. A rejected key is visible where it
+is reported: the stopped run's reason ("Claude rejected the API key."), the server log, and the failed
+call's row in the Job Runs detail (`ANTHROPIC · anthropic_401`). And the briefing's gloss and best-bet
+calls, which have no stop-on-rejected-key rule, used to be cut off by the open breaker after about ten
+calls: with a rejected key one briefing refresh now attempts every call (up to about 60 gloss calls, five
+days by two events by the regions, plus one best-bet call), on each of the two scheduled pipeline cycles
+a day (nightly and 14:00 UTC intraday, plus any admin briefing run); each is rejected unbilled, and each
+gloss call leaves one `api_call_log` row (a failed best-bet call logs none).
+
+## [v2.22.9] - 2026-10-02
+
+### Fixed — wildlife hides have an hourly comfort forecast again
+
+The hourly comfort table (temperature, feels-like, wind and rain between sunrise and sunset) for
+wildlife hides had no data source since 2026-02-27, when its scheduled trigger was commented out
+by accident in an unrelated commit and never replaced: production held no `HOURLY` rows at all, so
+every hide read "No hourly forecast available". A new job, `WildlifeComfortRefreshJob`
+(`wildlife_comfort_refresh`, seeded by V161), runs at 05:30 and 17:30 UTC for every enabled
+location whose only type is WILDLIFE, for today and the next five days. It makes one batched
+Open-Meteo forecast request for all hides, no air-quality request and no Claude call, and reads
+only the six comfort fields, so a missing cloud or visibility hour no longer costs a hide its
+table; an hour with no temperature is skipped on its own.
+
+Each run replaces the previous `HOURLY` rows for the place and date inside one transaction, so
+storage stays flat rather than growing about 230 rows a run. A failed fetch, a hide missing from
+the response or an empty extraction leaves the previous rows in place. This makes `HOURLY` rows the
+one exception to `forecast_evaluation` being insert-only; the delete is scoped to `HOURLY` in the
+query itself and cannot reach a scored sunrise or sunset row. Waterfalls are not included — the
+backend has never written waterfall hourly rows, and CLAUDE.md's claim that it did is corrected.
+
+The table is served by `GET /api/forecast` as before; drawing it on the Map tab is a separate
+change, so until that lands it appears only in the Plan-tab overlay popup. The old `RunType.WEATHER`
+engine is left in place, untriggered, for a follow-up to remove. The unbound
+`forecast.schedule.wildlife` keys are removed from `application-prod.yml` and `application-dev.yml`.
+
+### Added — a wildlife hide's hourly comfort forecast on the Map tab and in the location sheet
+
+A wildlife hide is never scored for sky colour, yet its Map tab card said "Not scored yet", and its
+hourly comfort forecast showed only on the Plan tab's map overlay. On the Map tab (desktop, tablet
+and phone) a hide's card now says "Comfort only" and "Wildlife hide: never scored for sky colour",
+with a short summary of the selected day: the temperature and feels-like range, the strongest wind
+and the highest rain chance with the hour each occurs, and the daylight hours covered. For today it
+covers only the hours still to come, and says so. On an astro or aurora night the card is as it was,
+with a line pointing at the daylight forecast. When no sunrise or sunset forecast exists at all (a forecast of hides alone), a selected hide still gets its card, for today while it has hours left and otherwise the next day with a forecast, and the map says so plainly instead of "No forecast to show.". The summary opens the location sheet (`Hour by hour
+›`), which for a hide now shows an hour-by-hour table for every day in place of its six empty
+windows. That sheet is the same one Plan search reaches, so the table appears there too. The rows
+are visible to every role.
+
+Also: a wind speed with no direction no longer prints "undefined" in the map popup, and a missing
+"feels like" is no longer shown as the air temperature.
+
+### Added — slot_atmosphere keeps 180 days and is pruned nightly
+
+The per-slot atmospheric readings table (`slot_atmosphere`: dust, AOD, PM2.5, surge, snow depth,
+freezing level, humidity, temperature and the inversion score) was never pruned, and since the
+"record conditions for every place" change it has taken a row for every candidate slot, roughly 500
+a day. A new job, `SlotAtmosphereCleanupJob` (`slot_atmosphere_cleanup`, seeded by V162, daily at
+03:45 UTC), deletes every row whose own slot date is more than `photocast.slot-atmosphere.retention-days`
+(default 180, documented in `application-example.yml`) before today's UK date. A row exactly 180 days
+old is kept. The longest reader looks back 60 days (the Coming up valley-inversions history), so no
+reader loses anything; the application refuses to start if the retention is set below that window,
+so shortening it can never silently delete history a reader depends on. No other table is pruned and
+the writer is unchanged.
+
+### Fix — a run that finishes with failures keeps its progress panel, so "Retry failed" can be pressed
+
+On Operations, Data, Job Runs, the run-progress panel was removed in the very tick its run completed,
+so the "Retry failed" button (shown only for a finished run with failures) was never on screen and
+the retry feature was unreachable from the UI. The panel now decides from the completion payload's own
+`failed` count: a run with none clears exactly as before; a run with failures stays, with its failed
+places, the Retry button and a "Dismiss" button, and the runs list still reloads. Starting another run
+replaces the kept panel, and none of the run buttons is blocked by it. A retry the server accepts
+becomes the active run: the panel follows it by id, it survives a tab switch like any run, and if it
+ends with failures it is kept with its own Retry and Dismiss. Dismissing puts focus on the "Forecast
+Runs" heading.
+
+Leaving the Job Runs tab and coming back no longer strands the panel: `RunProgressTracker.subscribe()`
+now replays the same `run-complete` event (kept until the run is evicted after 30 minutes) to a
+subscriber that arrives after the run finished, so a remounted panel completes exactly as a live one
+does (a clean run that finished while you were away clears itself; one with failures is kept). A
+subscriber to a run the tracker does not hold (evicted, or lost to a restart) is sent a terminal
+`run-expired` event after a 5-second grace period (long enough for a run that is only about to be
+registered) and sees "This run's progress is no longer available." with Dismiss. The panel's stream
+no longer re-opens on every parent render.
+
+### Fix — "Retry failed" now says why it did nothing
+
+On the admin run-progress panel, pressing "Retry failed" did nothing visible when the backend refused
+it (since #977 it answers 404 with an empty body when none of a run's failed places can be run again,
+for example because they are no longer sky locations). The panel now shows one plain line under the
+buttons: "Nothing to retry: this run's failed places can no longer be run again." for that 404, the
+server's own sentence for any other refusal that carries one, otherwise "Could not start the retry.".
+The line is announced once (`role="alert"`) and clears when the button is pressed again or a retry
+starts. The request now goes through the shared axios client, so an expired token is refreshed on the
+way (a kept panel can sit open for a long time) and a refusal is read the same way every other
+admin action's is. While a retry is out the Retry and Dismiss buttons are `aria-disabled` rather than
+`disabled`, so focus is not dropped, and a visually hidden "Starting retry…" status is announced; an
+accepted retry whose answer names no run says "Retry started." and offers no second press.
+
+### Documentation — which places `slot_atmosphere` records, and why some never are
+
+"Record conditions for every place" overclaimed. It means every candidate slot whose weather the
+pipeline fetches through `ForecastService.fetchWeatherAndTriage`, not every row in `locations`.
+WILDLIFE-only places, BLUEBELL-only places out of season, unregioned locations and disabled
+locations are never candidates and so never recorded. The owner decided on 2026-10-02 that this
+is deliberate: production has three WILDLIFE-only places, all in regions with many sky locations
+and none with an elevation, and every topic that reads these rows is shown per region, so their
+readings would change nothing a reader sees. The hand-started `POST /api/forecast/run` and
+`ForceSubmitBatchService.forceSubmit` apply no location-type filter, so a place named there is
+recorded whatever its type; that is recorded as known behaviour, not changed.
+
+CLAUDE.md, `SlotAtmosphereWriter`'s class javadoc and `BriefingService.isColourLocation`'s javadoc
+now say so. Documentation only, no code change.
+
+### Fixed — a day with only a wildlife hide's hourly forecast no longer adds an empty window to the Map tab
+
+Since the hourly comfort job was restored, wildlife hides carry forecast rows one day further than
+the sunrise and sunset forecasts do. The Map tab treated every day with any forecast row as a day
+to draw a Sunrise and Sunset window for, so the window control gained an empty pair for a day
+nothing rates. A day now gets windows only when a sunrise or sunset forecast stands behind it. The
+Map tab itself is still offered whenever any forecast exists, so a forecast made up of hides alone
+keeps its map.
+
+### Changed — the nightly topic log records inversions from the calculator, not Claude's echo
+
+`TopicDailyLogJob` used to log inversions from `forecast_score`, which only holds slots that reached
+Claude, so it could never become the unbiased history the Coming up tab's rarity figure needs. Since
+V158 `slot_atmosphere` carries the inversion calculator's own 0–10 score for every inversion-eligible
+place the pipeline fetched weather for, triaged or not, so the job now reads that: SUNRISE slots whose
+reading was written with `inversion_scored` true and a non-null score, present at 9 or above, intensity
+the region's highest score. Claude's echo is never consulted. A night with no readings logs nothing
+(unmeasured, not "no inversion"), as SNOW already did.
+
+The new series is written under the topic type `INVERSION_CALC`. The rows the job wrote before
+(`INVERSION`) came from the survivor-biased population, stay in the table untouched and are no longer
+written; the table has no source column and a migration was not needed, because the topic type is part
+of the unique key and keeps the two populations apart by name. A later rarity computation must read
+`INVERSION_CALC` alone. Nothing reads the table yet, and the inversion rarity on the Coming up tab stays
+on its config fallback by decision until enough of the new log has accumulated; no user-visible change.
+
+### Fixed — the Map tab's heat field stays visible at street-level zoom
+
+Zoomed in to about zoom 12 in Heat mode, the shading looked gone even where every chip read 3-4 stars.
+Two settings stacked: the field faded to a 12% floor across the handover band, and the kernel
+radius cap (190 px) shrank it into blobs around each chip instead of covering the countryside the
+7.2 km radius means. The floor is now 35% and the cap 400 px; the band itself is unchanged.
+
+### Fixed — hand-started runs no longer send hides, woods and bluebell woods to the sky prompt
+
+Two admin routes evaluated places that are not sky subjects with Claude's SKY prompt, spending
+real money and writing a meaningless rating that `GET /api/forecast` then served.
+`POST /api/forecast/run` (and `retry-failed`) always hands the engine an explicit location list,
+and the engine's `hasColourTypes` filter only ran on a defaulted one; `ForceSubmitBatchService
+.forceSubmit` filtered by region alone. Both now keep only places `LocationEntity.hasColourTypes()`
+admits, in one place per engine, before any fetch — the same rule the three term endpoints and the
+JFDI batch already applied. Neither route has a woodland or bluebell lane, so nothing that worked
+is lost.
+
+What the caller sees: a "run for all locations" offers only the sky places (so `maxLocations`
+counts sky places, not the whole roster) and the executor drops any other, logging how many;
+naming one non-sky place on `POST /api/forecast/run` answers 400 (`'<name>' is not a sky location:
+it has no sunrise or sunset forecast`), and so does "all locations" when no sky location is
+enabled (`No enabled sky locations: there is nothing to run`), neither starting a run or `job_run`
+row; `retry-failed` answers 404 when none of its failed places is a sky subject any more;
+`forceSubmit` on a region with no enabled sky location (empty, or only hides and woods) answers
+`No enabled sky locations found in region: <name>`. A hide named on these routes no longer gets a `slot_atmosphere`
+reading there, which closes the "known wrinkle" recorded in CLAUDE.md on 2026-10-02.
+
+### Changed — Checkstyle now fails a public type, method or constructor with no Javadoc
+
+`checkstyle.xml` said "Javadoc on all public classes and methods", but `JavadocMethod` and
+`JavadocType` only validate a Javadoc that exists, so nothing reported a missing one — which is how
+`BriefingSlot.withEvaluationGate` went two weeks undocumented. `MissingJavadocType` and
+`MissingJavadocMethod` (scope public; constructors and compact constructors included; bean
+getters/setters and `@Override` methods exempt) now enforce it in `src/main`. Test sources are
+exempt from those two checks only, through a new `backend/checkstyle-suppressions.xml` located by
+the pom's `suppressionsLocation` (and copied by `backend/Dockerfile`, whose build runs Checkstyle).
+The 18 existing gaps in 14 files are documented, and `GlobalExceptionHandler.handleUnexpected`'s
+Javadoc, which had drifted above the wrong method, now sits on it.
+
+### Fixed — withEvaluationGate's javadoc is back on its own method
+
+The javadoc for `BriefingSlot.withEvaluationGate` had been left stacked above `couldCarryRating()`'s
+own javadoc, so the javadoc tool silently discarded it and the wither was undocumented. A fix was
+written on 2026-09-17 but never left a local branch and no longer applied once the surrounding code
+moved. This moves the block, text unchanged, onto the method it describes; a comment move only, no
+code change.
+
+### Docs — `withEvaluationGate`'s javadoc says what is true today
+
+#971 put the method's javadoc back on it, in its 2026-09-17 wording. That wording predates the tide
+gate lift: it reads as though slots are still withheld. The block now says that `BriefingSlotBuilder`
+is the one production caller and never fires, since `HARD_CONSTRAINT_REASONS` has been empty since
+2026-09-18, that the method stays for the next hard physical constraint, that tests use it to
+fabricate a gated slot, and that `eclipse` is carried through by the canonical constructor. No
+behaviour change.
+
+### Fixed — a refused request shows the server's sentence, not "Request failed with status code 400"
+
+The backend answers every refusal with a JSON body whose key is `error`, but a dozen admin and map
+surfaces read `message` (or only axios's generic `err.message`), so the sentence the server wrote
+never reached the reader. The overlay popup's Run Forecast was the one that surfaced it: a 400 from
+`POST /api/forecast/run` for a wildlife hide ("'…' is not a sky location: it has no sunrise or
+sunset forecast") read as a bare "Request failed with status code 400". One helper,
+`apiErrorMessage(err, fallback)` in `utils/apiError.js`, now names the key in a single place: the
+server's `error` string, then `message`, then the caller's fallback. It tolerates a missing
+response and a non-object body (a proxy's HTML page is never shown). Moved onto it: the popup's Run
+Forecast, the forecast-data load, the outcome form, the drive-time refresh's 429 line, the
+optimisation-strategy toggle, the model, prompt, briefing-model and sky-rating test views, and the
+job-run, pipeline-run and API-call loads. Sites that already read `error` (login, registration,
+user, region and location management) and the status-keyed run-button lines are unchanged.
+
+## [v2.22.8] - 2026-10-01
+
+### Changed — release.sh ends with the post-deploy health check's own verdict
+
+Since #960 the `Deploy to Production` job runs `scripts/prod-health.sh --deploy` over SSH right
+after `docker compose up`, but its one-line-per-check output and `prod-health: N checks, M failed`
+summary only ever lived in the job log — `release.sh` itself still ended on its own `✅ deployed`
+line with no mention of whether the check passed. `release.sh`'s step 9 now fetches the Deploy
+job's log after the run completes (retrying briefly, since the log can lag the run by a few
+seconds) and prints the extracted `ok `/`FAIL `/`prod-health:` lines as the very last thing on
+screen, under a `Post-deploy health check (on dockermacmini):` heading — on both the success and
+the failure path, since the health check is often the most useful diagnosis when the deploy itself
+fails. A check nobody reads is not a check; this is the owner's own description of what was
+missing. If the log can't be read (an older tag whose `deploy.yml` predates the check, a renamed
+job, a transient `gh` failure), one line says so with the run URL — this never changes `release.sh`'s
+own exit status, since the release has already succeeded or failed on its own terms by that point.
+
+### Fixed — the morning health check no longer fails on apt updates Ubuntu has deferred by phasing
+
+The first live run of `scripts/prod-health.sh`'s daily apt-updates check (#960) failed on exactly
+one package, `thermald`, and opened #962. The owner then ran `sudo apt upgrade` on dockermacmini
+twice and got the same answer both times: `The following upgrades have been deferred due to
+phasing: thermald` — `0 upgraded, 0 newly installed, 0 to remove and 1 not upgraded.` Ubuntu's
+phased rollout can list a package as upgradable via `apt list --upgradable` for days before `apt
+upgrade` will actually install it, and the owner cannot act on that — `sudo apt upgrade` already
+refuses the package by design, and forcing it with `sudo apt install thermald` is a deliberate
+owner call, not something a health check should demand on its behalf. `check_apt_updates` now
+counts the FAIL, and names the packages, entirely from apt's own installable-now simulation
+(`apt-get -s upgrade`, run without sudo) — parsing its summary line for what apt would actually
+install, its "will be upgraded" block for which packages those are, and its "deferred due to
+phasing" block for which packages it is holding back instead. `apt list --upgradable` is no longer
+called by this check at all: it cannot tell a real upgrade apart from one phasing is holding back,
+so using it for package names printed a phased package as installable even while the FAIL count
+itself, correctly, excluded it. A host with nothing installable but packages held by phasing now
+reports `ok` and names them, instead of failing a run the owner has no lever to clear; apt's "N not
+upgraded" count also covers packages "kept back" for dependency reasons, which `apt upgrade` cannot
+install but `sudo apt full-upgrade` can, so those are parsed into their own block and still FAIL the
+run (naming them and pointing at `sudo apt full-upgrade --dry-run`), distinct from a phasing
+deferral — and anything held back that names itself in neither block still FAILs as unrecognised
+rather than being silently waved through.
+
+## [v2.22.7] - 2026-10-01
+
+### Fixed — the Plan pane's conflict slot no longer adds a 10px gap when empty
+
+The page-level conflict slot (`window-first-conflict-slot`) has been an always-mounted
+`role="status"` live region since it was built — the pane's whole-plan conflict message cannot wait
+for content to arrive before it is announceable, the same reasoning the pending/empty status
+wrapper's own fix (#964, v2.22.6) already applied one phase later. Nobody had cancelled its own flex
+gap: it is the pane's FIRST flex child inside `.wf-body` (`gap: 10px`), so an empty slot pushed every
+reader's first visible content — the safety line, the heat strip, or the pending/empty status line —
+down by the 10px flex gap on top of the pane's 13px padding. Verified live against a local build:
+23px from the pane's top to its first visible child before this fix, 13px after, with the conflict
+slot's computed `margin-bottom` reading `-10px` once empty. On a phone, where `.wf-body`'s own
+padding-top is 12px, the same measurement reads 12px.
+
+The fix mirrors `.wf-pane-status:empty`'s mechanism exactly: `.wf-conflict-slot:empty` cancels the
+one gap this slot, being first, can ever add — the one AFTER it. It declares `margin-bottom` rather
+than the status wrapper's `margin-top`, but that side is a naming convention, not a structural
+requirement: an empty flex item is 0px tall and flex margins never collapse, so the next sibling
+lands at the same pixel whichever side carries the cancelling margin (confirmed live by swapping the
+rule's property to `margin-top` and re-measuring — unchanged at 13px, then restored). What matters
+is declaring exactly one cancelling margin, never both.
+
+## [v2.22.6] - 2026-10-01
+
+### Security — Tomcat 11.0.26 clears nine high-severity CVEs on tomcat-embed-core
+
+The weekly `OWASP Dependency Check` workflow has failed every run since at least 2026-09-13 against
+the `tomcat.version` property's pin at 11.0.24 (#702): nine CVEs with CVSS >= 7.0
+(CVE-2026-65183 8.1, CVE-2026-65905 9.8, CVE-2026-65927 7.5, CVE-2026-66422 8.1, CVE-2026-68763 7.5,
+CVE-2026-68525 9.1, CVE-2026-68569 8.1, CVE-2026-65182 9.1, CVE-2026-65637 9.8), plus
+CVE-2026-73180 below the gate — all ten fixed by 11.0.25, which had not yet been published when the
+pin was written. `backend/pom.xml` now overrides to 11.0.26 (the latest release on Central; Boot
+4.1.1 still manages 11.0.24), driving all seven `tomcat-embed-*` artifacts from the one property as
+before. The standing suppression for CVE-2026-66299 (the Tomcat WebSocket chat-example buffer,
+never shipped by an embedded Boot app) is removed, since 11.0.25 fixes that one too and the
+suppression's own notes said to delete it rather than renew it once a fix landed.
+
+### Added — production health check, every morning and after every deploy
+
+On 2026-10-01 the owner logged into dockermacmini by hand, saw Ubuntu's "26 updates can be applied"
+banner, applied them, hit "*** System restart required ***", rebooted, and then checked production
+came back the only way available: running `docker compose ps`, `systemctl status cloudflared`,
+`tailscale status` and a `curl` at `https://app.photocast.online/api/briefing` by eye. The 26 updates
+had sat unapplied until someone happened to log in and notice a banner — nothing had been watching
+for that.
+
+`scripts/prod-health.sh` is that four-command check, automated. It runs in two modes: `--deploy`
+(compose service health, cloudflared, Tailscale, and a real 401 from the app from outside the
+tunnel, retried up to 3 times 10s apart to ride out a momentary Cloudflare blip) and `--daily`,
+which adds a pending-reboot check and a pending-apt-updates count. The new `Production Health`
+scheduled workflow runs `--daily` on the self-hosted runner at 07:00 UTC, plus a second,
+deliberately `ubuntu-latest` job that probes `app.photocast.online` from outside — if the host is
+down entirely, the self-hosted job never starts and never fails, so nothing would otherwise fire.
+The two jobs are notified by **two independent** notifier jobs rather than one shared one, because
+`needs: [a, b]` waits for every listed job to finish — if the host were down, the external probe
+would fail in seconds while the self-hosted job sat queued for a runner that will never appear, so
+one notifier would not fire until GitHub eventually cancelled that queued job hours later. The
+external job also carries a watchdog step that polls the run's own job list for up to 10 minutes,
+because an Actions runner that fails to restart after a reboot leaves the on-host job permanently
+queued rather than failed — invisible to both the host's own checks and the external probe's 401 —
+so without it the runner itself could die silently and nothing would ever notice. The on-host job
+also carries `timeout-minutes: 15` (three times the script's own worst-case run) so a check that
+hangs against a wedged daemon reaches a terminal state instead of sitting `in_progress` forever and
+passing the watchdog, and its notifier fires on `needs.on-host.result != 'success'` rather than
+`failure()` alone, since a timed-out job's conclusion is not reliably reported as `failure` on every
+surface. The `deploy` job in `deploy.yml` now runs `--deploy` immediately after bringing the new
+containers up, in place of the old fixed `sleep 30; docker compose ps`.
+
+Owner decision: a pending reboot or pending apt updates **fail** the morning run — a warning on an
+otherwise-green run is invisible, which is exactly how the 26 updates went unnoticed — but they must
+**never** fail a deploy. A release must not be blocked because the host wants a reboot, so `--deploy`
+deliberately omits both checks.
+
+### Fixed — the Plan tab says the forecast is loading instead of rendering an empty pane
+
+On 2026-09-30, before #957's fix landed, a `GET /api/briefing` request never completed in
+production — it timed out against Cloudflare's 100s limit (36s was a lab measurement on
+production-sized data, not a production observation). For the whole of that wait the Plan pane
+below the lens bar rendered nothing at all: no matrix, no doors, no lens count line, not even the existing
+"No forecast to show." sentence, which is gated on the fetch having already finished. Diagnosing
+the slow backend from the phone meant inferring it from an absence, because the pane had no
+pending state of its own to point at.
+
+`WindowFirstShell` now renders a pending line — `Loading the forecast…` — whenever the briefing
+fetch is still in flight and nothing has arrived yet, in the same quiet style as the sibling empty
+line (both now ink `text-plex-text-secondary` rather than the lower-contrast `text-plex-text-muted`
+the empty line used before, since this text now shows on every cold load and carries meaning — the
+project has corrected the same muted-at-this-size contrast failure several times already). If the
+fetch is still running after ten seconds the same line switches to `Still loading the forecast —
+taking longer than usual.`, naming no cause the client cannot actually know (there is no request
+timeout on this call, so a slow connection would show the same line indefinitely) rather than
+repeating a sentence that increasingly reads as broken. Both lines, and the existing empty-pane
+sentence, now live inside one always-mounted `role="status"` wrapper, mirroring the Coming up
+pane's own status region (`docs/engineering/window-first-redesign-plan.md` §5f): a live region
+inserted in the same commit as the content it then CHANGES TO is unreliably announced, so the
+wrapper has to already be on screen before the pending→slow and pending→settled transitions it
+exists to announce.
+
+Because that wrapper is an always-mounted flex child of `.wf-body` (which carries its own
+`gap: 10px`), it added a second 10px gap between the heat strip and the doors in the
+loaded-with-cards state — the state nearly every reader sees — even while rendering nothing itself.
+`.wf-pane-status:empty { margin-top: -10px }` (index.css, beside `.wf-body`'s own gap) cancels one
+of the two gaps the wrapper would otherwise add; verified live, the computed `margin-top` reads
+`-10px` with the wrapper emptied and `0px` once it holds text. The wrapper stays mounted and in the
+accessibility tree either way — a display change was deliberately not used.
+
+A request that ultimately fails, as the real incident's did, still ends on "No forecast to show.":
+`loading` is cleared in `fetchBriefing`'s `finally` regardless of outcome, and that pre-existing,
+outcome-blind meaning of `loading` is unchanged here — a distinct "could not load" state is a
+product call this change does not make.
+
+The Map tab's window pill is deliberately untouched. Its verdict cell already renders empty for a
+night row by design (map-landing-plan.md §6 Q1) and for a filler row (§4 #38, `utils/mapVerdict.js`)
+that the briefing served no window for; a client-synthesised "loading" word there would make an
+empty cell ambiguous between those two existing meanings and a third, new one.
+
+### Fixed — the OWASP scan now keeps its NVD database between runs, including failing ones
+
+The weekly `OWASP Dependency Check` workflow has re-downloaded the full NVD database from scratch
+on every run since at least 2026-09-13, because `actions/cache@v4`'s post-step skips the save when
+the job has already failed — and a failing scan is this job's *normal* case, not an error to avoid
+(`failBuildOnCVSS=7` is a gate, armed on purpose). `gh cache list --key owasp-db` has never returned
+a single entry. The one run that worked (2026-09-27, run 36316518451) downloaded clean only because
+the NVD API happened to answer at ~3,000 records/s that day; on 2026-10-01 it answered at ~45
+records/s and the job was cancelled by its own 60-minute timeout at 160,000 of 400,203 records. The
+cache step is now split into `actions/cache/restore@v4` before the scan and
+`actions/cache/save@v4` with `if: always()` after it, so a refreshed DB is saved whether or not the
+scan passes, and `timeout-minutes` is raised from 60 to 240 to survive a slow NVD day until the
+cache has had a chance to warm up. Refs #702.
+
+### Fixed — backup verification can no longer stop silently when the Actions runner is down
+
+`backup-verify.yml`'s `verify` job runs on `self-hosted`, which is dockermacmini — the production
+host. If the Actions runner service on that box fails to come back after a reboot (it does not
+restart itself, as `codeql.yml` already documents for the same runner), a job targeting it does not
+fail, it queues forever, and `notify-failure` (`needs: verify`, `if: failure()`) never fires because
+a queued job never reaches `failure()`. The nightly restore test would then stop running with nothing
+louder than "queued" in the Actions UI — the same silent-failure shape this workflow was built to
+catch for the backup script itself, one layer further out.
+
+A new `runner-watchdog` job runs off-box on `ubuntu-latest`, mirroring the identical watchdog added
+to Production Health's `external` job in today's companion PR: it polls the run's own job list via
+`gh api` for up to 10 minutes and fails if the `verify` job is still `queued`, so it reports even when
+dockermacmini is completely unreachable. It gets its own notifier, `notify-watchdog-failure`, rather
+than being folded into `notify-failure` via `needs: [verify, runner-watchdog]` — `needs` waits for
+every listed job to reach a terminal state, so a queued `verify` would hold the watchdog's own issue
+back for hours, the exact defect being fixed.
+
+Two related fixes land alongside it. `verify` now carries `timeout-minutes: 30`, several times the
+slowest honest run, so a hung `docker` call can no longer leave the job `in_progress` forever — the
+watchdog accepts `in_progress` as proof the runner is alive, so without a timeout `notify-failure`
+could still never fire. And `notify-failure`'s condition moved from `if: failure()` to
+`if: ${{ always() && needs.verify.result != 'success' }}`, because a job killed by `timeout-minutes`
+can report `cancelled` rather than `failure`, which `failure()` alone would miss.
+
+## [v2.22.5] - 2026-10-01
+
+### Removed — the legacy `photocast.survivor-atmosphere.write` config key
+
+`SlotAtmosphereWriter` no longer reads the old `photocast.survivor-atmosphere.write` key as a
+legacy alias for the renamed `photocast.slot-atmosphere.write` (V159, 2026-09-30). Production's
+config carries neither key, so the default (`true`) applies either way; the alias existed only to
+protect a deployment that had not yet picked up the new key name, and is dropped now that none
+does. `photocast.slot-atmosphere.write` is read alone from this change on.
+
+## [v2.22.4] - 2026-10-01
+
+### Fixed — `release.sh` no longer exits silently when origin has moved a tag
+
+Step 3 ran `git fetch origin --tags --quiet` under `set -euo pipefail`. When the owner's local
+`v2.22.2` tag pointed at 325438c9 and origin's `v2.22.2` had since been force-moved to c545e8d6 (the
+first deploy from 325438c9 failed, so the release was re-tagged onto the fixed commit), git rejected
+the update with `! [rejected] v2.22.2 -> v2.22.2 (would clobber existing tag)` and exited 1 —
+`--quiet` suppressed that line, so the script printed "Fetching from origin..." and stopped with no
+explanation.
+
+The fetch now runs without `--quiet`, capturing its combined output instead. A plain failure prints
+"Error: git fetch origin failed:" followed by git's full message and exits 1, same as before but
+visible. A failure whose only complaint is one or more clobbered tags is handled rather than treated
+as fatal: origin is authoritative for tags here (the Deploy workflow runs off origin's tags, and this
+script is the only thing that pushes them), so each rejected tag is force-updated individually —
+`git fetch origin --force refs/tags/<tag>:refs/tags/<tag>`, never a blanket `--force` across every
+tag — with a notice naming the tag, the old local commit and the new one from origin. A local-only
+tag origin doesn't have is left untouched. The plain fetch is re-run afterwards to pick up everything
+else and to catch any other failure that might have been hiding behind the clobber. A clean fetch is
+unchanged: silent, exit 0.
+
+CI's ShellCheck job now lints `release.sh` alongside `scripts/*.sh` (previously unchecked), which
+also caught and fixed three pre-existing findings in it: two `read -p` calls without `-r` (SC2162)
+and one unquoted tag ref in a `git rev-parse --short` call (SC2086).
+
+### Fixed — `GET /api/briefing` took tens of seconds per request, so the Plan tab rendered nothing and the map drew no heat field
+
+Since #943 (2026-09-29, the verdict-minimum-sample rule's "examined" evidence, P1-A round 2) every
+`GET /api/briefing` and `GET /api/briefing/digest` serve — and every briefing build — ran
+`ForecastRunDispositionRepository#findLatestNonCachedDispositions`, a correlated scalar subquery
+(`created_at = (SELECT MAX(created_at) … WHERE <same slot>)`) over `forecast_run_disposition`.
+V101's only indexes on that table are `(job_run_id)` and `(disposition, created_at)`, neither of
+which serves the slot correlation, and Postgres cannot decorrelate a scalar subquery in `WHERE`: it
+ran the subplan once per outer row as a full scan of the whole 30-day retention window. Measured on
+a Postgres 16 with the table sized to production's own rate (13,120 rows per five days of
+`evaluation_date`, ~78k rows at retention): **36 s per request** — and every open client re-issued
+it on focus and every 10 minutes while the previous request still held a pool connection.
+
+On the phone this looked like two unrelated defects, and both were this one: the briefing never
+arrived before Cloudflare's 100 s limit, so `WindowFirstShell` had no window cards (no matrix, no
+Regional planner door, no lens count line, and no "No forecast to show" line either, since the
+request was still loading), and the Map tab fell back to filler window rows — no verdict word on
+the pill, no served windows to build heat point sets from, hence no field — while its chips still
+showed stars, because those come from `GET /api/briefing/evaluate/scores`, which never ran this
+query.
+
+**The query is rewritten as a `NOT EXISTS` anti-join** ("no non-cached row for the same slot is
+strictly later"), which Postgres decorrelates into a hash anti join: 34 ms on the same data with no
+new index at all, returning the identical rows — the tie rule is unchanged, since two rows at the
+same max instant have no strictly-later row and both survive, and `SKIPPED_CACHED` is still
+excluded on both sides. **V160 adds `idx_forecast_run_disposition_slot`** on
+`(location_name, evaluation_date, event_type, created_at)` as belt and braces, so a future per-slot
+"latest" read on this table cannot reintroduce the scan whichever shape it takes.
+
+Tests: `ForecastRunDispositionRepositoryTest` gains an H2 nest pinning the rewritten query's
+answers (latest wins in both orders, cached excluded on both sides, cached-only slot absent,
+`SUBMISSION_FAILED` supersedes an older triage, a tie returns both rows, slots independent and
+range-bounded) — until now those semantics were proven only by the CI-only
+`DispositionWriteIntegrationTest`, which still runs unchanged against Postgres.
+`DispositionSlotIndexMigrationTest` (CI-only, Testcontainers) proves V160's index and its column
+order.
+
+## [v2.22.3] - 2026-09-30
+
+### Changed — `survivor_atmosphere` and every class built around it are renamed to `slot_atmosphere`/`Slot*`
+
+Since #947/#948 (2026-09-30, "record conditions for every place", Phases 1–2) this table holds a
+row for EVERY candidate slot the pipeline fetched weather for that cycle — triaged-out and
+Gate-4-stood-down candidates included — not only the ones that survived triage and Gate 4
+("survivors"). "Survivor" was already a false name on the table, and on every class built around it,
+the day those two PRs shipped; both said so and deliberately left the rename for its own change so
+the behaviour change was not buried under a mechanical diff. This change is that rename, and it
+changes no behaviour.
+
+This repository's word for `(location, date, event_type)` is "slot" (`BriefingSlot`, "slot"
+throughout CLAUDE.md), so the new names use it:
+
+| Old | New |
+|---|---|
+| table `survivor_atmosphere` | `slot_atmosphere` |
+| `SurvivorAtmosphereEntity` | `SlotAtmosphereEntity` |
+| `SurvivorAtmosphereRepository` | `SlotAtmosphereRepository` |
+| `SurvivorAtmosphereWriter` | `SlotAtmosphereWriter` |
+| `SurvivorSignals` (+ nested `Readings`, `Scores`) | `SlotSignals` |
+| `SurvivorSignalReader` | `SlotSignalReader` |
+
+**Migration V159** renames the table and, separately, its primary key, its foreign key
+(`fk_survivor_atmosphere_location` → `fk_slot_atmosphere_location`), its unique constraint
+(`uq_survivor_atmosphere` → `uq_slot_atmosphere`) and its index
+(`idx_survivor_atmosphere_date` → `idx_slot_atmosphere_date`) — Postgres does not rename a table's
+dependent objects when the table itself is renamed, so each needed its own `RENAME CONSTRAINT`/
+`RENAME TO`, including the primary key, which V115's `CREATE TABLE` never named explicitly and so
+was auto-named `survivor_atmosphere_pkey`. A new Testcontainers migration test
+(`SlotAtmosphereRenameMigrationTest`, CI-only) seeds a row under the old table name at V158, applies
+V159, and asserts all five old names are gone, all five new names exist, and the row's data survived
+untouched.
+
+**The config flag is renamed too, with the old key still read.** `photocast.survivor-atmosphere.write`
+is now `photocast.slot-atmosphere.write` (default `true`, unchanged). Production's `application.yml`
+is not in this repository and may still set the old key, so `SlotAtmosphereWriter` binds both — the
+old key wins when it is set, so a deployment that has not yet picked up the new key name keeps
+behaving exactly as before. Once every deployment is updated, the legacy parameter can be deleted.
+
+**Everywhere the old identifiers appeared as literal names — class references, `{@link}`/`{@code}`
+javadoc, log lines, the entity's `@Table`/`@UniqueConstraint`/`@Index` annotations, and test fixture/
+method names — is renamed to match.** A new unit test, `SlotAtmosphereEntityTest`, pins the entity's
+`@Table` name and its constraint/index names to the `slot_atmosphere` spelling so a later refactor
+cannot silently split the entity from the migration that creates the table it maps to.
+
+**What is deliberately left alone.** Every migration file through V158, and both 2026-09-30
+changelog entries from #947/#948, are immutable history and still say "survivor" — that is what the
+table and classes were called on that date, and rewriting history would make an old log line or an
+old changelog entry unreadable against the code as it stood then. CLAUDE.md's "Where a rating
+lives" section and the "record conditions for every place" bullets now read the new names, with one
+sentence noting the table was called `survivor_atmosphere` until this migration. A handful of
+generic English uses of the word "survivor" — describing candidates that survived triage in
+`ForecastCommandExecutor`, remaining best-bet picks in `BestBetRanker`/`BriefingBestBetAdvisor`, and
+similar unrelated ranking/filtering code — are untouched, since they never named the renamed table or
+classes in the first place. The frontend has no reference to any of these identifiers (confirmed by
+search) and is untouched.
+
+### Changed — atmospheric conditions are now recorded for every place the pipeline looks at, not only the ones it goes on to rate
+
+Hot topics and the Coming up feed answer "what is happening?" — knowing there is Saharan dust,
+lying snow or a storm surge at a place is interesting on its own terms. Stars, verdicts and picks
+answer the separate question "where is worth going?" Through 2026-09-29 the two questions shared
+one gate by accident: `SurvivorAtmosphereWriter.write` (`survivor_atmosphere` — dust, snow,
+freezing level, humidity, storm surge) was called only for a candidate that survived weather triage
+*and* the Gate 4 stability policy, so a place forecast to be cloudy or stability-gated had no dust,
+snow or surge chip at all, even when the condition was genuinely there.
+
+The write happens immediately after `fetchWeatherAndTriage` assembles the atmospheric data — before
+the triage verdict and before the Gate 4 decision — so a `SKIPPED_TRIAGED` or `SKIPPED_STABILITY`
+candidate now carries a reading exactly like an `EVALUATED` one. A candidate that never had its
+weather fetched this cycle (`SKIPPED_PAST_DATE`, `SKIPPED_CACHED`, `SKIPPED_TRAVEL_DAY`,
+`SKIPPED_UNKNOWN_LOCATION`, `SKIPPED_HARD_CONSTRAINT` — all decided before the candidate loop from
+an earlier cycle's own cached verdict — or a `SKIPPED_ERROR` where the fetch itself failed) still
+writes nothing, since there is no reading to record. No feature switch — every place is recorded
+from the first deploy, matching the existing `photocast.survivor-atmosphere.write` all-or-nothing
+flag.
+
+**Round 2: the write moved to a single seam, after a Codex review of the first cut found two more
+gaps.** The first cut of this change (commit 9c01491f) put the write directly at three call
+sites — `ForecastTaskCollector`'s scheduled batch path, and both of `ForceSubmitBatchService`'s
+entry points (JFDI and admin force-submit). A Codex review of the resulting PR found this missed
+two OTHER real callers of `ForecastService.fetchWeatherAndTriage`: the batch collector's own admin
+`collectRegionFilteredBatches`, and the synchronous engine's `ForecastCommandExecutor
+.runTriagePhase` — both fetch weather and triage/Gate-4-skip candidates exactly like the scheduled
+path, but neither had a write at all, so a triaged-out slot on an admin region-filtered run or a
+hand-started `/api/forecast/run*` call still had no reading recorded. Rather than add two more call
+sites, the write moved inside `ForecastService.fetchWeatherAndTriage` itself — the one place every
+caller already shares, and the same method that CLAUDE.md already documents as saving a
+`forecast_evaluation` row as a side effect. This covers all six current callers (the two batch
+collector paths, both `ForceSubmitBatchService` entry points, `BatchRetryService`'s failed-request
+reconstruction, and the synchronous engine) and any future one, with exactly one write per fetch.
+The three call-site writes added in the first cut, and `evaluateAndPersist`'s own write (which a
+triaged candidate never reached anyway, since its caller discards triaged results before calling
+it), were removed — a caller that already writes would otherwise write the same fetch twice.
+`ForecastTaskCollector` and `ForceSubmitBatchService` no longer depend on `SurvivorAtmosphereWriter`
+at all, since neither calls it directly any more.
+
+**Round 3: a woodland-only candidate on the admin region-filtered path was still excluded BEFORE
+reaching the seam, because it never went through the collector's canopy check at all until this
+round.** A Codex review of PR #947 (round 3, against commit 1f637d56) found
+`ForecastTaskCollector.collectRegionFilteredBatches` tested `candidate.location().isWoodlandOnly()`
+and skipped the candidate before ever calling `fetchWeatherAndTriage` — so a wood-only location on
+an admin region-filtered run fetched weather (the batch prefetch upstream already covers every
+candidate) but never reached the one seam that records it, while the scheduled path
+(`collectScheduledBatches`), which decides its own woodland lane strictly AFTER the identical call,
+recorded it correctly. The canopy check moved to after the call, matching the scheduled loop's
+shape exactly: every candidate on this path now reaches `fetchWeatherAndTriage` unconditionally, and
+a canopy candidate is excluded from the inland/coastal buckets afterward, regardless of what colour
+triage said about it — this path has no woodland bucket of its own to route a canopy candidate
+into (unlike the scheduled loop's `woodland` list), so the two paths agree on the one thing that
+matters here: a canopy site never lands in the sky lane, and its reading is recorded either way.
+
+**Bluebell stays the named exception.** It and cloud inversion read `forecast_score`, not
+`survivor_atmosphere` — a genuinely Claude-scored component, unaffected by this change, since it is
+written only from a completed evaluation. Bluebell has no deterministic substitute for the display
+rating and stays scored-only by design; cloud inversion's own deterministic substitute (the
+calculator's score for every place, without Claude) is planned separately as a Phase 2 with its own
+migration.
+
+The "survivor" name on the table and every class built around it (`SurvivorAtmosphereWriter`,
+`SurvivorAtmosphereEntity`, `SurvivorAtmosphereRepository`, `SurvivorSignalReader`,
+`SurvivorSignals`) is now historical — every javadoc that claimed the rows were survivor-only has
+been corrected, and each class carries a note that a rename is pending, deliberately not folded
+into this change (a rename needs its own migration and would otherwise bury the behaviour change
+under a mechanical diff).
+
+CLAUDE.md's Almanac section is corrected: the four `survivor_atmosphere`-backed hot-topic
+strategies (dust, fresh snow, snow on the tops, storm surge) now see readings out to the batch's
+full 5-day candidate window, not only the slots that reached Claude — the "record conditions for
+every place" bullet in the Backend-heavy notes records the rule.
+
+**Dust copy updated to match.** `DustHotTopicStrategy`'s chip and its science-tooltip description
+both promised colour outright — "vivid colour potential", "producing unusually vivid orange and red
+skies" — which was accurate when the topic could only ever fire on a slot Claude had already rated
+GO-adjacent. Now that the chip shows at a place whose sky is forecast blocked (a triaged-out or
+Gate-4-stood-down slot), that promise is no longer true by construction, so the copy now states the
+condition and makes the colour conditional on a clear sky rather than promising it: the chip reads
+"Elevated dust aloft — colour potential where the sky is clear", and the tooltip reads "Saharan dust
+carried north by upper winds can scatter light into unusually vivid orange and red skies at sunrise
+and sunset — when the sky is clear enough to show it." The identical description string duplicated
+inside `HotTopicSimulationService`'s admin DUST demo template is updated the same way, so the
+simulated topic an admin previews matches the live one.
+
+### Security — Frontend dependency audit fixes (brace-expansion 5.0.12, fast-uri 3.1.8)
+
+- **The v2.22.2 release failed at the frontend `npm audit` gate, on both the tag's Deploy run and
+  the same commit's CI run on `main`** — the promotion PR (#945) had passed minutes earlier, so this
+  was time-triggered by the advisory database, not by anything in the release. Three high
+  advisories in `brace-expansion` 4.0.0–5.0.11 (GHSA-q2hr-2g5m-vwhr, GHSA-qhr7-859c-m2p7,
+  GHSA-6j4f-fj2g-mc7p — quadratic-time expansion and two stack-exhaustion recursions, all DoS),
+  and one moderate in `fast-uri` 3.0.0–3.1.7 (GHSA-hrr3-gc8f-f4qj). The moderate one does not
+  trip the `high` gate on its own and is fixed here because it is the same two-line shape.
+- **The `overrides` pin was itself the vulnerable version, again.** `package.json` pins
+  `brace-expansion` to force every `minimatch` (3.x, 5.x and 10.x) onto one 5.x node; #421 set it
+  to `5.0.9` for the previous advisory in this package, and that is exactly the version now inside
+  the vulnerable range. Bumped to `5.0.12`, the first release outside it. Editing the lockfile
+  alone is not enough here — `npm ci` refuses the tree with `Missing: brace-expansion@5.0.9` five
+  times over, once per `minimatch`, because the override still names the old version.
+- **Transitive and dev-only**: `minimatch` reaches the tree through `eslint`,
+  `@eslint/config-array`, `glob` and `filelist`; `fast-uri` through `ajv`. Both lockfile nodes are
+  `"dev": true`; nothing shipped to users was affected. `ajv`'s `^3.0.1` range already permits
+  `3.1.8`, so that one is lockfile-only.
+- **Seven lines, deliberately not `npm audit fix`** (the same reasoning as #421 — it rewrites
+  lockfile metadata the CI runner's older npm does not, including the `libc` field on the optional
+  rollup binaries). Proven the way CI will read it: `rm -rf node_modules && npm ci` exits 0 with
+  0 vulnerabilities and leaves the lockfile byte-identical, `scripts/npm-audit.sh frontend high`
+  reports 0 under npm 11, and lint, 6,849 Vitest tests and the production build are green.
+- **Deploy fires only on a tag push**, so this PR alone does not re-run the release: once it is on
+  `main` the tag needs re-cutting (owner-run, as ever).
+
+### Fixed — the inversion signal needed one shared fallback rule, not a forward/trailing split, and then a way to tell an authoritative null from an absent one
+
+**Round 2** — A Codex review of PR #948 (against commit `3e688862`, the first V158 cut) found a P1:
+after V158 added `survivor_atmosphere.inversion_score`, every row written before that migration
+carries a null value there forever, because a past date is never re-evaluated by a later pipeline
+cycle — there is no later look that could ever fill it in. `ComingUpConditionsBuilder.buildInversion`'s
+trailing-window occurrence list had moved to reading that column alone, so it reported "none in the
+last 60 days" even on dates where a strong `forecast_score` INVERSION row (Claude's echo of the
+identical 0–10 scale) genuinely existed. That false history would have stood until the entire 60-day
+window aged past every pre-migration date — weeks of a silently wrong "Valley inversions" card. The
+round-2 fix split the condition's two reads by window direction: the forward peak stayed
+calculator-only (reasoning that a forward slot is upserted every cycle, so it is always current),
+while the trailing history alone fell back to Claude's echo via a new
+`ComingUpConditionsBuilder.trailingInversionScore` helper.
+
+**Round 3 (this fix) found the round-2 split itself wrong, not just incomplete.** A second Codex
+review of PR #948 established that a forward slot is NOT guaranteed to carry a fresh calculator
+reading every cycle: `BriefingCandidateCollector` skips a region with a fresh `cached_evaluation`
+entry — `SKIPPED_CACHED`, around lines 204–227 — *before* `fetchWeatherAndTriage` (and therefore the
+calculator) ever runs for it, and `FreshnessProperties.settledHours` defaults to 36 with no horizon
+cap at T+2 and beyond (`FreshnessResolver.horizonCap` returns null there), so a SETTLED forward slot
+can go up to 36 hours with a null `survivor_atmosphere.inversion_score` while Claude's own
+`forecast_score` echo for that exact slot already exists. Under the round-2 design, both the
+inversion hot topic and the Coming up condition's forward-peak cell would wrongly suppress an
+imminent, already-known inversion for up to a day and a half.
+
+**The fix drops the forward/trailing distinction entirely.** There is now ONE rule, used everywhere
+the inversion signal is read: `SurvivorSignals.effectiveInversionScore()` — the calculator's
+`Readings.inversionScore()` when present, else Claude's `Scores.inversion()` echo (the identical
+0–10 scale, the identical STRONG cut of 9). `InversionHotTopicStrategy.detect`/`attachFacts` and
+BOTH of `ComingUpConditionsBuilder.buildInversion`'s reads (trailing history and forward peak alike)
+call this one shared helper; `ComingUpConditionsBuilder.trailingInversionScore` (round 2's
+now-superseded helper) is deleted.
+
+**This is not a retreat from the owner's "the calculator decides" rule — it is the same rule, made
+consistent.** Where the calculator HAS scored a slot, the calculator decides, full stop: the reading
+always wins when both are present, even when it disagrees with (including when it is LOWER than) the
+echo. The echo is never anything more than a stand-in for a slot the calculator has not reached yet,
+on the identical scale and threshold, so this can never make the topic fire on a score the calculator
+itself would have refused — it only ever fills a gap the calculator has not had the chance to fill.
+
+**The fallback remains permanent, not a transition hack**, and now covers a third population beyond
+the two round 2 named: every pre-V158 `survivor_atmosphere` row (a past date's null reading is never
+retroactively filled in), any `forecast_score` INVERSION row with no matching `survivor_atmosphere`
+row at all (a key fetched only by a pre-#947 code path that predates the writer being called), and —
+newly — any forward slot a `SKIPPED_CACHED` gate has not yet let the calculator re-score this cycle.
+None of the three will ever be filled in by waiting; a read-time rule is the only design that covers
+all three, since the third population proves even "wait for the next cycle" is not a reliable fix for
+a forward slot. **Still no backfill migration** — a backfill could write today's calculator score
+into old rows, but it cannot reach the second or third population above (no row was ever written, or
+the write simply has not happened yet this cycle), so the read-time rule is needed regardless, and
+once it exists it already covers everything a backfill could have fixed.
+
+**A consequence worth naming precisely, corrected from round 2's own claim**: `SurvivorSignals
+.Scores.inversion()`/`inversionBand()` were described in the same-day Phase 2 changelog entry as
+unread by any production code and a candidate for future removal. That was already wrong by the end
+of round 2 (which gave the trailing history a genuine reader) and remains wrong now: `effectiveInversionScore()`
+is a permanent, live production reader of both fields, for both windows. `SurvivorSignals.java`,
+`SurvivorSignalReader.java`, `InversionHotTopicStrategy.java`, `ComingUpConditionsBuilder.java` and
+`CLAUDE.md` all name the single shared helper now.
+
+**Round 2's "silent until the next cycle" claim is also corrected — it is no longer true.** Because
+the echo now stands in for BOTH windows, a slot with a `forecast_score` echo and no calculator
+reading fires from the very first request after this deploys, not only after the next scheduled
+cycle. Only a slot with genuinely no evidence on EITHER surface — no calculator reading and no
+Claude echo — stays silent, and that silence ends whenever either surface first gets a value, not on
+a fixed clock. The two scheduled cycles that write fresh calculator readings remain the nightly run
+(~01:00 UTC) and the intraday refresh (~14:00 UTC), for reference, but they are no longer the only
+thing that can end the silence for a slot Claude has already evaluated.
+
+Tests: `SurvivorSignalsTest` (new) pins `effectiveInversionScore()` directly at the helper level —
+reading-only, echo-only, both-null, agreeing, and both present with the echo higher OR lower than
+the reading (the reading always wins either way) — the one place this decision is made, so the
+strategy and the builder can never disagree about it. `InversionHotTopicStrategyTest` REVERSES its
+own round-2 test (`detect_silentWhenReadingNull_evenIfScoresInversionIsTen` renamed and flipped to
+`detect_nullReadingWithStrongEcho_fires`) and adds: a lower reading beating a higher echo stays
+silent; a reading with no echo still fires (named explicitly); both null stays silent.
+`ComingUpConditionsBuilderTest` REVERSES its own round-2 forward-peak test
+(`buildInversion_forwardPeak_nullReadingWithStrongEcho_notShown` renamed and flipped to
+`buildInversion_forwardPeak_nullReadingWithStrongEcho_isShown`) and adds a forward-peak
+reading-wins-over-disagreeing-echo case, mirroring the trailing-history one already there;
+`inversionRarityNeverUpgrades` and the round-2 trailing-history tests are unaffected and still pass.
+
+**Round 4 — a further Codex P1 found `effectiveInversionScore()` itself still wrong: it treated
+EVERY null `Readings.inversionScore()` as "the calculator has not reached this slot yet", but a
+null reading is also exactly what a FRESH write produces.** Two causes, both legitimate: (1)
+`InversionScoreCalculator.calculate` returns null for an otherwise-ELIGIBLE location when required
+weather inputs (a null dew point or surface temperature) are missing; (2) `ForecastDataAugmentor
+.augmentWithInversionScore` returns the base `AtmosphericData` unchanged — the score staying null —
+for an INELIGIBLE location. Both leave `survivor_atmosphere.inversion_score` null on a row written
+THIS cycle, indistinguishable from a row the calculator simply has not reached at all. Since
+`ForecastScoreWriter.write` only upserts the `forecast_score` INVERSION component when
+`eval.inversionScore() != null`, any earlier component for that slot is left in place indefinitely
+whenever a later evaluation scores nothing — so round 3's blanket "null reading → fall back to the
+echo" rule could revive a STRONG rating from a stale evaluation days after the calculator itself
+had legitimately found nothing to report, on the exact slot the deterministic scoring was meant to
+correct.
+
+**The fix distinguishes an authoritative null from an absent one with data, not with timestamps.**
+`V158__add_survivor_inversion_score.sql` (amended in place — this PR was never merged, confirmed by
+an empty `git log origin/main -- backend/src/main/resources/db/migration/V158*`) gains a second
+column, `inversion_scored BOOLEAN NOT NULL DEFAULT FALSE`. `SurvivorAtmosphereWriter.write` now sets
+`inversionScored = true` on every write it makes — with a real score or with a null one alike —
+because a fresh write always ran the calculator's own eligibility check this cycle, whatever it
+found. `SurvivorSignals.Readings` gains the thirteenth component `inversionScored` (`false` in
+`EMPTY`), mapped by `SurvivorSignalReader` straight off the entity's own flag.
+`effectiveInversionScore()` now checks `readings.inversionScored()` FIRST: when `true`, it returns
+`readings.inversionScore()` exactly as stored, null included, and never consults the echo at all;
+only when `false` — a row written before this column existed — does it fall back to Claude's echo,
+or null if neither surface has anything to say. The calculator still decides whenever it has
+scored a slot, full stop; this round narrows *what counts as* the calculator having scored a slot,
+it does not touch the precedence rule itself.
+
+**The permanent fallback population shrinks by exactly the case this round fixes.** Round 3 named
+three populations that only ever have the echo; the "any forward slot a `SKIPPED_CACHED` gate has
+not yet let the calculator re-score this cycle" population is now split in two by this round: a
+slot with NO `survivor_atmosphere` row at all for that key still falls back (nothing to mark
+scored), but a slot the calculator DID score this cycle — even to a null result — no longer does.
+The two populations that remain permanent are unchanged in kind: every pre-round-4
+`survivor_atmosphere` row (`inversion_scored = false` by the migration's default, and a past date is
+never re-evaluated so the flag is never retroactively set) and any `forecast_score` INVERSION row
+with no matching `survivor_atmosphere` row at all. **Still no backfill migration** — the read-time
+flag already tells the two cases apart; a backfill could not populate `inversion_scored` for a
+historical row with any confidence it reflects that row's own cycle.
+
+Tests: `SurvivorSignalsTest.effectiveInversionScore` gains the scored/unscored cross product —
+scored=true with a null reading and a strong echo (10) now returns null (silent), reversing round
+3's own `detect_nullReadingWithStrongEcho_fires`-shaped expectation at the helper level; scored=true
+with a real reading (9) returns 9 regardless of the echo; scored=false with an echo (10) returns 10
+(the pre-column shape, unchanged); scored=false with no echo returns null.
+`SurvivorAtmosphereWriterTest` gains two cases: a write with a calculator score sets
+`inversionScored = true`, and a write with a null score sets it `true` too.
+`SurvivorSignalReaderTest` gains a mapping test (scored=true, with and without a reading survives
+the join) and confirms `Readings.EMPTY.inversionScored()` is `false`. `InversionHotTopicStrategyTest`
+renames `detect_nullReadingWithStrongEcho_fires` to `detect_preColumnRowWithStrongEcho_fires`
+(unchanged assertion — a pre-column row still fires) and adds
+`detect_freshNullWithStrongEcho_silent`, its direct reversal for a scored row. Every remaining
+signal-carrying fixture across `DustFactsBuilderTest`, `DustHotTopicStrategyTest`,
+`SnowFreshHotTopicStrategyTest`, `StormSurgeFactsBuilderTest`, `StormSurgeHotTopicStrategyTest`,
+`SnowTopsHotTopicStrategyTest`, `HotTopicAggregatorTest` and
+`RecordConditionsForEveryPlaceIntegrationTest` was audited and given an explicit `scored` value
+(`false` where the fixture is unrelated to inversion; `true` where an existing fixture asserts on a
+real inversion reading, since leaving it at the record's default `false` would have silently
+switched that fixture onto the echo path instead of the reading it was written to test).
+`ComingUpConditionsBuilderTest` renames its own `buildInversion_nullReadingWithStrongEcho
+_isListedWithEchoScore`/`buildInversion_forwardPeak_nullReadingWithStrongEcho_isShown` to
+`_preColumnRowWithStrongEcho_*` (unchanged assertions) and adds their direct reversals,
+`buildInversion_freshNullReadingWithStrongEcho_notListed` and
+`buildInversion_forwardPeak_freshNullReadingWithStrongEcho_noPeak`, using two new helpers
+(`scoredNullReading`, `preColumnReading`) that make each fixture's intent explicit rather than
+relying on a bare `new SurvivorAtmosphereEntity()`'s default field values.
+
+### Changed — the cloud inversion hot topic now scores every eligible place, not only the ones Claude rated
+
+Phase 1 of "record conditions for every place" (`changelog.d/20260930-record-conditions-every-place.md`)
+made dust, snow and storm-surge readings survive weather triage and the Gate 4 stability policy, but
+named cloud inversion as a deliberate exception: `InversionHotTopicStrategy` and the Coming up
+"Valley inversions" condition both read `forecast_score`'s INVERSION component, which is written
+only from a completed Claude evaluation, so a triaged-out or Gate-4-stood-down inversion-eligible
+location still had no inversion topic at all.
+
+This phase closes that gap. `InversionScoreCalculator` already ran a deterministic 0–10 likelihood
+score for every candidate with elevation ≥ 200 m and `overlooksWater` — inside
+`ForecastService.fetchWeatherAndTriage`, before either triage check runs — but that score lived only
+on the in-memory `AtmosphericData` and was discarded for anything that did not go on to a completed
+Claude evaluation. Migration `V158__add_survivor_inversion_score.sql` adds a nullable
+`inversion_score DOUBLE PRECISION` column to `survivor_atmosphere`; `SurvivorAtmosphereWriter.write`
+now sets it from `data.inversionScore()` at the same collection-time seam as every other reading on
+that row, so it is populated (or left null for an ineligible location) whatever the triage verdict
+or Gate 4 decision that follows. ⚠️ **V158 gained a second column, `inversion_scored`, in round 4**
+(`changelog.d/20260930-inversion-trailing-history-fallback.md`) — a null `inversion_score` turned
+out to be ambiguous between "not scored yet" and "scored, nothing to report", and that entry has the
+fix; this one is left describing the single-column shape it originally shipped for historical
+accuracy.
+
+`SurvivorSignals.Readings` gains `inversionScore` (kept in `Readings`, a derived input, not
+`Scores`, which is Claude's judgement) and `SurvivorSignalReader` carries the new column through
+unchanged. `InversionHotTopicStrategy` and `ComingUpConditionsBuilder.buildInversion`'s forward-peak
+cell read `readings().inversionScore()` instead of `scores().inversion()` — same STRONG threshold
+(score ≥ 9), same SUNRISE-only filter, same freshness rule. ⚠️ **Corrected twice in follow-up commits
+the same day** (`changelog.d/20260930-inversion-trailing-history-fallback.md`, two Codex P1s against
+this commit): first, the trailing-history occurrence list could not move to
+`readings().inversionScore()` alone the way the forward peak did, because a past date's reading is
+populated only going forward from this migration and is never retroactively filled in; then a SECOND
+finding showed the forward peak's own "always current" assumption was itself wrong, and the two
+reads were unified onto one shared rule. That entry has the full, current design. Coming up's
+rarity term is untouched by either fix: it still reads the config fallback, and
+`inversionRarityNeverUpgrades` still pins that.
+
+**The band label is now derived, not stored.** The calculator produces no NONE/MODERATE/STRONG
+string of its own (only Claude's echo used to carry one, in the `forecast_score` INVERSION row's
+`summary` column). The fact line's band now comes from `PromptBuilder.InversionPotential.fromScore`
+— the identical score-to-band mapping the prompt already applies to the same calculator score — so
+the hot topic's "9/10 · strong" can never disagree with the threshold that gated it firing at all.
+`InversionHotTopicStrategy.bandLabel` is now a pure function of the score rather than a fallback for
+a possibly-absent stored classification.
+
+**Two surfaces, two questions — and they may disagree, deliberately.** The map popup's inversion
+badge (`ForecastDtoMapper` → `forecast_evaluation.inversion_score`/`inversion_potential`) is
+unaffected by this change and stays on Claude's own echo: it answers "is this place worth going to",
+where Claude has narrow, evidence-checked discretion to disagree with the calculator on the measured
+reversal. The hot topic and Coming up answer "what is happening" and always follow the deterministic
+calculator. A location can therefore show a strong-inversion chip while its own map badge reads a
+different band that morning, or vice versa for a location Claude never evaluated — the intended
+split the two-question rule (2026-09-29) already established for dust, snow and surge, now applied
+to the one condition Phase 1 named as its exception.
+
+`SurvivorSignals.Scores.inversion()`/`inversionBand()` (Claude's `forecast_score` echo) are left in
+place — nothing in this change removes them, since they are still populated from `forecast_score`
+and still exercised by test coverage that pins the composite's join behaviour. ⚠️ As it turned out
+these accessors were not headed for cleanup at all: the same-day follow-up commit gives
+`Scores.inversion()` a genuine, permanent production reader (the trailing-history fallback) — see
+that entry.
+
+**No backfill migration** — this holds, but not for the reason first stated here (every slot being
+upserted every cycle does not make a *past* date's gap one cycle wide; the follow-up entry explains
+why a read-time fallback rather than a backfill is the correct permanent design, not a temporary one
+this note originally implied).
+
+### Fixed — batch submission now survives a transient Anthropic 5xx, and the diagnostics stop lying when it doesn't
+
+- **2026-09-29 incident, pipeline run 249 (INTRADAY 14:00 UTC): all three Anthropic Batch API
+  submissions failed with HTTP 500, one per bucket, and the cycle evaluated nothing** — the SDK
+  client's own retry (`ClientOptions.maxRetries = 2`, so 3 attempts within a few seconds) had
+  already run and given up before `BatchSubmissionService.submit` ever saw the failure; its
+  catch-all logged ERROR and returned `null`, and the afternoon kept serving 01:00's ratings.
+- **`AnthropicBatchClient`** is a new, separate `@Service` bean — separate so Resilience4j's
+  `@Retry`-style AOP actually intercepts it, though the retry itself is driven programmatically
+  via an injected `RetryRegistry` (the class javadoc explains why: the duplicate-batch guard below
+  needs per-call state — which attempt this is, and when the first one started — that an
+  annotated method has no clean way to carry). It wraps `messages().batches().create(...)` with a
+  second, much longer-window retry (`"anthropic-batch"` instance: 4 attempts, 30s → 60s → 120s
+  exponential backoff, no circuit breaker of its own — it must not share tripped state with the
+  per-location synchronous `"anthropic"` instance) governed by a new `BatchSubmitRetryPredicate`
+  (retries `AnthropicServiceException` status ≥ 500 and `AnthropicIoException`/`IOException`
+  anywhere in the cause chain, plus 429 — see the P1-B round below for why 429 is retried here).
+- **Batch creation is not idempotent and carries no idempotency key, so a retry after a failure
+  that actually succeeded remotely (a read timeout after acceptance, say) would pay for and
+  orphan a second batch nothing tracks.** Before every retry attempt (never the first),
+  `AnthropicBatchClient` lists the 20 most recent batches and adopts one instead of creating a
+  duplicate when it finds exactly one whose `createdAt` is at or after the first attempt's start
+  and whose total request count matches.
+- **Round 2 (a Codex review of PR #949, two P1s), before this shipped:**
+  - **P1-A — the size+timing match alone could adopt a SIBLING bucket's batch id.** Two buckets of
+    the same size, submitted seconds apart in the same cycle, satisfied the original match test
+    equally well, and adopting the wrong one would hit `forecast_batch`'s unique
+    `anthropic_batch_id` constraint (or, worse under concurrent callers, attach a batch under the
+    wrong custom ids). Fixed two ways: (1) a new `ForecastBatchRepository.existsByAnthropicBatchId`
+    excludes any candidate already tracked — `BatchSubmissionService` persists a bucket's row
+    immediately after `create()` returns, before the next bucket is even built, so every
+    genuinely-succeeded sibling is already tracked by the time a later bucket's retry runs this
+    check; (2) if MORE THAN ONE untracked candidate still matches, `AnthropicBatchClient` no
+    longer guesses — it logs every candidate id at ERROR as a possible orphan needing manual
+    recovery and throws a new, deliberately non-retryable `AmbiguousBatchAdoptionException`
+    (wrapped in the usual `BatchRetryExhaustedException`), rather than adopting one or creating
+    another. The previous 5-second negative clock-skew tolerance was also dropped outright — the
+    cutoff is now exactly `firstAttemptStart` (inclusive) — since once tracked siblings are
+    excluded, a tolerance's only remaining job was absorbing clock skew, at the cost of reopening
+    the same false-match risk in miniature against an unrelated untracked batch.
+  - **P1-B — the shared client's own transport-level retry (408/409/429/5xx, up to 3 attempts)
+    could fire multiple non-idempotent `create()` calls inside ONE attempt this class's own retry
+    loop counted as one**, before the duplicate-batch guard ever ran. `AnthropicBatchClient` now
+    derives a client with transport retries disabled (`anthropicClient.withOptions(o ->
+    o.maxRetries(0))`) once in the constructor and uses it for every `create()` and `list()` call,
+    so every actual HTTP attempt is one this class's own retry (and guard) can see. Consequence:
+    with the transport layer no longer retrying 429 for this call, `BatchSubmitRetryPredicate` now
+    retries 429 itself — the one 4xx exception, safe specifically because a 429 means the batch was
+    never created, so retrying carries none of the duplicate-batch risk the guard exists for. Every
+    other 4xx (400/401/403/404/408/409/413) stays non-retryable.
+  - The list call itself is best-effort — a failure there just proceeds to create, rather than
+    blocking the retry on a diagnostic-only check.
+- **Round 3 (a further Codex review, after round 2 shipped as 8b8ed0dd): two DIFFERENT submitters
+  in the same process — forecast and aurora batches guard separately, and the weekly sky-rating
+  batch has no guard at all — could still race and adopt each other's batch id, since neither the
+  `forecast_batch` check nor sky-rating's total lack of tracking can see a sibling's batch before
+  its own caller has had a chance to persist (or, for sky-rating, ever will).** Fixed by serializing
+  every `AnthropicBatchClient.createBatch` call in the process behind one `ReentrantLock` (held for
+  the whole call, including retry waits) plus a bounded, in-memory record of every id this client
+  has ever handed out (created or adopted), written before the lock is released and checked
+  alongside the `forecast_batch` exclusion — closing the gap the lock alone leaves between one
+  call returning and its caller persisting.
+- **`BatchSubmissionService`'s contract is unchanged** (empty list → `null`; a persistence failure
+  after a successful create still throws `OrphanedBatchException`; any other exhausted failure logs
+  ERROR and returns `null`) but the ERROR line now says how many attempts were made
+  (`BatchRetryExhaustedException.getAttempts()`), and its constructor now takes the new
+  `AnthropicBatchClient` in place of the raw `AnthropicClient`. Every production caller — scheduled
+  buckets, admin, force-submit, JFDI, aurora, and `BatchRetryService`'s RETRY_FAILED phase — already
+  goes through this one seam and gets the retry for free; the weekly sky-rating eval harness
+  (`SkyRatingEvalBatchClient`, previously calling the SDK directly) was moved onto the same seam too.
+- **The `[BATCH DIAG] Submitted N ... requests` line was untrue on failure** — `submitBuckets` logged
+  it unconditionally regardless of whether `evaluationService.submit` actually reached Anthropic, so
+  the incident's three failed buckets each logged "Submitted" anyway. `logBatchBreakdown` now takes
+  the submission's `EvaluationHandle` and logs WARN with the batch id on success or ERROR
+  `"[BATCH DIAG] NOT submitted N ... requests (submission failed)"` on failure, and the trailing
+  `"Forecast batch split: ..."` INFO line now appends `"submitted K/B buckets"` rather than implying
+  every bucket landed. The admin region-filtered `"[BATCH DIAG] Admin batch split"` line no longer
+  reports `"(empty)"` for a bucket that had tasks but failed to submit — that reading was
+  indistinguishable from a bucket with no tasks at all — and now says `"(failed)"` instead.
+- Dispositions and pipeline-run status are unchanged by this change — a failed bucket still records
+  `EVALUATED` dispositions and the run still completes normally; fixing that is a separate,
+  owner-decision-gated follow-up.
+
+### Fixed — a fully-failed forecast batch submission no longer reads as a normal night
+
+- **A new disposition, `SUBMISSION_FAILED`**: `ScheduledBatchEvaluationService.submitBuckets`
+  now rewrites a candidate's `EVALUATED`/`FORCE_EVALUATED` disposition to `SUBMISSION_FAILED`
+  after submission, for every candidate whose task(s) landed only in bucket(s) whose Anthropic
+  submission failed — naming the bucket(s) and, for a forced candidate, preserving that fact in
+  the detail string. A candidate whose tasks span two buckets (an OPEN_FELL sky+bluebell pair)
+  where only one bucket fails keeps its original category — a real request DID reach Claude for
+  it — with the partial loss recorded in `detail` instead. The category is excluded, exactly like
+  `SKIPPED_CACHED`, from both sides of `findLatestNonCachedDispositions`' correlated subquery (so
+  it can never shadow an earlier `SKIPPED_TRIAGED` decision) and from `SupersedingDispositionService`'s
+  two-value allow-list (it is not a decision against a slot's existing rating). The frontend
+  Disposition Breakdown section shows it right after `EVALUATED`.
+- **A new pipeline run status, `DEGRADED`**: the orchestrator still completes WAIT and BRIEFING
+  exactly as before — briefing from whatever cache exists is the correct fallback — but when one
+  or more forecast batch submissions failed, the `FORECAST_BATCH_SUBMIT` phase is recorded FAILED
+  with a detail naming which buckets failed and how many requests were lost, and the run is
+  marked `DEGRADED` (never `COMPLETED`) with that same detail as its `failureReason`. `FAILED`
+  still outranks `DEGRADED`: a run that fails for an unrelated reason (safety timeout, a briefing
+  exception) is unaffected. The Pipeline Runs admin UI shows an amber `DEGRADED` pill and its
+  failure reason, distinct from a red `FAILED` one.
+- **Every enabled ADMIN with an email is emailed once per degraded run.** A new
+  `AdminAlertService` reuses the same `JavaMailSender`/from-address `UserEmailService` already
+  sends transactional mail with in production — not the disabled `NotificationChannel`/
+  `NotificationDispatcher` machinery, which carries forecast results to end users and was never
+  meant to spend budget on an operational alert. The email names the run id, cycle type, trigger
+  time (UTC), the per-bucket failure detail, and states plainly that the app is still serving
+  ratings from the previous successful run. Best-effort throughout: no mail sender configured, no
+  enabled admin with an email, or the send itself failing are all caught and logged, never
+  allowed to change the run's status or escape into the orchestrator.
+- Born from the 2026-09-29 incident (pipeline run 249): every one of that cycle's three forecast
+  batch submissions failed, but the run completed and was recorded `COMPLETED` — indistinguishable
+  from a night where every rating was fresh, with nobody told.
+
+### Fixed — admin "Submit scheduled batch" no longer reports failure when only the coastal bucket landed
+
+The admin region-filtered batch submission (`POST /api/admin/batches/submit-scheduled`) splits its
+tasks into an inland and a coastal bucket and submits each separately. When the inland bucket had
+tasks but its own Anthropic submission failed, and the coastal bucket's submission succeeded, the
+endpoint answered 422 "failed" — hiding a live coastal batch. The bug was in the result selection: a
+failed submission returns a non-null `EvaluationHandle.empty()` (`batchId() == null`), not `null`,
+so `inlandHandle != null ? inlandHandle : coastalHandle` picked the failed inland handle over the
+genuinely submitted coastal one. `doSubmitForecastBatchForRegions` now returns the first bucket
+Anthropic actually accepted, inland preferred, via a `batchId() != null` check on each handle rather
+than a bare null check.
+
+Beyond the misleading failure response, the next press of "Submit scheduled batch" would have hit
+409 "already in progress" from the hidden coastal batch that was, in fact, still running.
+
+## [v2.22.2] - 2026-09-30
+
+### Changed — a region's ratings need a large enough sample before they may set its verdict
+
+A single rated location, however it got its rating, was enough to set a fifty-location region's
+verdict, crown it a BEST BET or ALSO GOOD pick, and outrank a region every one of whose locations
+was actually scored. Production evidence, 2026-09-29: for Fri 2 Oct sunrise the whole 253-location
+catalogue held six ratings, all 4★, all force-evaluated far-horizon headline candidates — and that
+window read "Worth it" and took ALSO GOOD. The owner's words: a single good rating "isn't really in
+the spirit" of the app — a good sunrise needs a statistically significant number of 3/4/5★
+forecasts, not a blip.
+
+`VerdictSampleGate` now gates a region's rated `displayVerdict`, pick eligibility and ranking on
+whether its sample is large enough: at least 5 rated voting slots, and at least half the voting
+roster *examined* — rated, or a resolved weather stand-down the pipeline actually triaged; an
+unrated, un-triaged slot beyond Gate 4's horizon is no evidence at all. A region that clears both
+tests behaves exactly as before. On a poor-weather near window, where most of the region is triaged
+and only the viable remainder is rated, the region has been examined in full and its ratings keep
+deciding its verdict unchanged — the gate bites only the far-horizon, stability-gated shape the
+production example above shows. Below the gate a region falls back to the same triage-derived
+verdict an unrated region already gets, cannot be a pick, ranks below every region that clears the
+gate, and is floored at `Confidence.LOW`. The star is never touched: `meanRating` and `bestRating`
+keep serving the rated average and maximum exactly as before, whatever the sample size — only the
+verdict word, the pick and the ranking change.
+
+**The exemption — an owner decision dated 2026-09-29, the same day, added once the interaction was raised:**
+`ForceEvalHeadlineSelector` force-evaluates a capped handful of far-out headline candidates a night
+specifically so a clear far-out day can be crowned with real Claude evidence — a handful of forced
+ratings can never reach the sample gate's own threshold, so a gate with no exemption would have left
+that spend buying stars no verdict could use. A region with at least one voting slot whose CURRENT
+rating was written by a force evaluation is exempt from the sample gate outright: its verdict, pick
+eligibility, ranking and confidence follow the rated average exactly as they did before this change.
+"Current" is answered per slot by the new `EvaluationViewService.loadForcedFlags` — one bulk query
+per serve, bounded to the served window, reading each slot's most recent `EVALUATED`/
+`FORCE_EVALUATED` `forecast_run_disposition` row — so a later ordinary evaluation ends the exemption
+for that slot, and the parent stability-skip retraction clears a forced rating outright the next
+time a nightly cycle declines to re-look at it. A failed or empty disposition lookup reads as not
+forced; unknown never grants the exemption.
+
+Two nullable `BriefingRegion` fields ride the existing `daily_briefing_cache` JSON with no
+migration: `sampleSufficient` (the raw sample-size test, independent of forcing) and `forcedSample`
+(whether the exemption applies) — together they let a client eventually tell "crowned on a
+sufficient sample" apart from "crowned on forced headline ratings", though nothing reads them yet.
+Both are `null`, read as unknown/ineligible, on a payload cached before this change. Computed fresh
+on both the build and serve paths by `BriefingRegionEvaluationRollup`, the same place the region's
+mean, best rating and confidence already are.
+
+### Fixed — the verdict sample gate's "examined" count and force-evaluation exemption both trusted the wrong signal
+
+A Codex review of #943 raised two P1s against `VerdictSampleGate` (2026-09-29), both confirmed and
+fixed here.
+
+**`examinedCount` read the briefing's own weather verdict instead of what the batch actually did.**
+A voting slot counted as "triaged" whenever its `BriefingSlot.verdict()` was `STANDDOWN` — but that
+verdict is the briefing's own, independently-computed weather call, spanning the whole horizon, and
+can disagree with the batch's latest decision for that exact slot. Worse: an unrated slot the
+briefing still marks STANDDOWN from an older evaluation, which Gate 4 then `SKIPPED_STABILITY`
+without fetching fresh weather this cycle, was wrongly counted as examined — letting a region's
+ratings cross the 50% coverage threshold on slots nobody looked at this cycle.
+`VerdictSampleGate.examinedCount` now takes a `Set<String>` of slots the batch's own latest
+disposition named `SKIPPED_TRIAGED`, sourced from a new `EvaluationViewService.loadTriagedByBatch`
+bulk read of `ForecastRunDispositionRepository.findLatestNonCachedDispositions` — nothing else
+counts: not `SKIPPED_STABILITY`, `SKIPPED_CACHED`, `SKIPPED_ERROR`, `SKIPPED_PAST_DATE`,
+`SKIPPED_NO_REFRESH_NEEDED`, an absent disposition, nor the briefing's own verdict.
+`SKIPPED_CACHED` is deliberately excluded from both sides of the query's own "latest" comparison
+(not merely filtered from the result), so a slot triaged last night and reported cached tonight
+still counts as examined — the underlying triage decision stays visible rather than hidden behind
+the newer cache-reuse row. `VerdictSampleGate` stays pure (it takes the set as a parameter and
+issues no query of its own); the flag rides into the rollup as a synthetic, `@JsonIgnore`d
+`BriefingEvaluationResult.triagedByBatch(name)` marker inserted into the resolver map only when a
+slot has no rating or triage result of its own — the only place such a slot's disposition can attach
+to anything the rollup already reads.
+
+**The force-evaluation exemption was granted on the disposition's existence, not on the rating that
+landed.** `ScheduledBatchEvaluationService.persistCycleDispositions` writes a `FORCE_EVALUATED`
+disposition at *submission* time, before any Claude result is processed — so while a forced batch is
+pending, or if it later fails, an older cached rating from a completely different evaluation was
+wrongly stamped `forced` merely because a forced run had been requested for the same slot.
+`EvaluationViewService.loadForceEvaluatedAt` now returns each slot's `FORCE_EVALUATED` disposition's
+own `created_at` (an `Instant`, not a bare boolean), and the winning result is stamped forced only
+when its own evaluation instant — a cached result's `evaluatedAt`, or a forecast row's
+`forecastRunInstant`, both already-existing helpers — is at or after that instant, and no newer
+`EVALUATED` disposition exists for the slot (the existing tie-at-same-instant-reads-as-not-forced
+rule is unchanged). A result with no evaluation instant at all (a legacy row) is never forced. A
+`PENDING`/`ABANDONED` row with no rating can never become the winning source in the first place —
+`hasSomethingToSay` is false for it, so `cachedWins`'s second clause always prefers whatever the
+cache still says — so it can never make an older cached rating look forced either; traced, not
+newly guarded, and pinned by a test.
+
+Both fixes are covered by tests with fixed clocks and literal expectations, including two scenarios
+proven (via a non-destructive `git worktree` checkout of the pre-fix commit) to fail against the
+code these fixes replace:
+`BriefingRegionEvaluationRollupTest.farWindow_standdownVerdictButBatchStabilitySkipped_insufficient`
+and `EvaluationViewServiceTest.ForcedEvaluationFlag.forceEvaluatedDispositionButWinningRatingPredatesIt_readsNotForced`.
+
+Query cost: two more bulk reads join the existing `loadStabilitySkips` (`loadForceEvaluatedAt`,
+`loadTriagedByBatch`), kept separate rather than folded into one flattened fetch because the three
+answer genuinely different questions and a shared aggregation risks exactly the kind of subtlety
+both P1s were about — one `GET /api/briefing` serve now issues 5 queries for
+scores+stability+forced+triaged (was 4); one briefing build issues 10 (was 8), from the two
+independent bulk-load call sites (`BriefingService.bulkScoreResolver`,
+`BriefingRollupBuilder.loadLiveScores`), each loading both new reads exactly once, never once per
+region.
+
+### Fixed — a delayed batch could overwrite a newer rating, not just a newer force-evaluation mark
+
+A Codex review of 9761f365 found that round 10's `forced`-provenance fix (P1-A) rested on an
+incomplete premise: recording `BriefingEvaluationResult.forced` at write time assumes write order
+matches evaluation order, and it does not. `BatchPollingService` polls every still-`SUBMITTED`
+batch independently, and the Anthropic Batch API allows up to 24 hours to complete, so a batch can
+outlive its pipeline's internal safety timeout and finish AFTER a newer cycle's batch for the same
+slot has already written it. The delayed, older batch's `forced = true` would then land on top of a
+rating a newer, ordinary evaluation should have ended the exemption for.
+
+Investigating the class of bug (not just the one instance) confirmed it is real and general: every
+write into `cached_evaluation` — `mergeFromBatch`, `mergeWoodlandFromBatch`, and the OPEN_FELL
+recombination in `recombineBluebell` — compared nothing about submission order before writing or
+combining. Arrival order, which `evaluatedAt` records, is not evaluation order; the delayed batch's
+RATING, not only its forced mark, could silently overwrite a newer one. `forecast_score` and
+`survivor_atmosphere` share the identical weakness (both upsert unconditionally on their natural
+key) and are left unaddressed as a named follow-up, out of this commit's scope; the PENDING
+`forecast_evaluation` row-scoring seam is not exposed the same way, since it scores a row by primary
+key rather than by natural-key overwrite.
+
+The fix required no schema migration. `ForecastBatchEntity.pipelineRunId` and
+`PipelineRunEntity.triggerTime` already existed — a cycle's own trigger time, set once at cycle
+start and shared identically by every batch (including a retry) the cycle submits, is the reliable
+submission-order key; a batch outside any orchestrated cycle falls back to its own `submittedAt`.
+`BriefingEvaluationResult.submittedAt` (nullable `Instant`, `@JsonInclude(NON_NULL)`, rides
+`results_json` exactly as `forced` does) carries this instant onto every result.
+`BatchResultProcessor.resolveSubmissionInstant` resolves it once per batch and threads it through
+the (also new) `ResultContext.submissionInstant`, down to `ForecastResultHandler`'s three
+`buildXxx` methods and the synchronous path (`EvaluationServiceImpl.evaluateNowForecast`, which now
+takes an injected `Clock`). `BriefingEvaluationService`'s three live merge methods compare the
+incoming result's `submittedAt` against the stored result's for that location before writing: an
+incoming result strictly OLDER is rejected as stale and logged once at INFO; a `null` on either
+side (a legacy row, or a result with no instant to report) is never stale, matching every other
+"unknown is safe" convention `forced` already established.
+
+A second, more subtle finding fell out of writing the tests for this: sky and bluebell are
+submitted as genuinely separate Anthropic batches, so their own `ForecastBatchEntity.submittedAt`
+values almost never coincide even within one cycle — comparing those directly would have broken
+OPEN_FELL recombination almost every time. Stamping every result with the shared CYCLE instant
+instead of the individual batch's own timestamp is what makes a same-cycle pair's two sides carry
+an EQUAL `submittedAt` by construction, so `recombineBluebell` now requires that equality (not
+merely "not stale") before averaging; a bluebell newer than a stored sky entry but from a different
+cycle is written but stands alone, the same "sky hasn't arrived yet" race the class already
+tolerated.
+
+With the ordering fixed generally, `forced` needed no combination-specific reasoning left at all —
+except that writing the round-12 tests exposed a genuine bug in round 10's own combination method.
+`BriefingEvaluationResult.withForcedFromCombination` used to take one argument (the "newly-arrived"
+side) and read only its flag, reasoning that a same-cycle OPEN_FELL pair's two tasks always agree
+on `forced` by construction (`ForecastTaskCollector` submits both from one loop iteration reading
+one local variable) — true in production, but a synthetic same-cycle pair with the two flags
+genuinely differing exposed that the method itself never enforced that invariant, and produced the
+wrong answer for it. Both `withForcedFromCombination` and the new `withSubmittedAtFromCombination`
+now take two explicit arguments and compute a genuine, commutative result — a plain OR for forced,
+"prefer the newer side, fall back to the other" for the instant — removing the arrival-order
+reasoning the coordinator asked to see gone.
+
+New and updated tests: `BriefingEvaluationServiceTest` gained a `SubmissionOrderStaleness` nested
+class covering Codex's case and its mirror (both pinned to fail against 9761f365), same-cycle
+combination in both force-holding configurations, a cross-cycle bluebell standing alone rather than
+combining, the wider defect pinned generally for sky/woodland/bluebell-only sites, a synchronous-
+vs-slow-batch race, and both legacy/unknown-instant fallback directions; two pre-existing round-10
+tests were given real, differing submission instants so their "cycle N vs cycle N+1" names describe
+what they actually exercise, rather than relying on argument position with no timestamps at all — a
+gap round 12 closed. `BriefingEvaluationResultTest` was rewritten for the two-argument combination
+methods, including the exact case (only the older side forced) that exposed the original one-argument
+shape's bug. `BatchResultProcessorTest` gained three tests pinning the pipeline-run lookup, the
+retry-shares-precursor's-instant behaviour, and the ad-hoc fallback (all three confirmed to fail
+when the lookup is disabled). `CachePayloadGoldenMasterTest` gained the byte-identical/round-trip/
+legacy-null coverage for the new field, mirroring `forced`'s own three tests exactly.
+
+## Round 13 — the comparison still missed a DECISION with no competing result, and a second sink
+
+A further Codex review found round 12's fix incomplete on two fronts, both closed here without a
+schema migration.
+
+**Gap 1.** Round 12 only ever compares an incoming result against whatever is currently STORED in
+`cached_evaluation`. But a later cycle's Gate 4 stability skip or weather-triage stand-down writes
+NO cache entry to compare against — only a `forecast_run_disposition` row — so a batch delayed past
+that later decision had nothing to lose a staleness comparison against at all, and its
+chronologically stale rating went straight into the cache: exactly the arrival-order bug the
+serve-time stability-skip retraction (`EvaluationViewService`) already exists to guard against,
+reopened through a door round 12 did not close.
+
+The obvious-looking fix — compare a disposition's own `created_at` against the incoming result's
+`submittedAt` — was checked and rejected before writing any code, because it is actively wrong: a
+disposition is always written a short time AFTER its own cycle starts, so a cycle's own
+`EVALUATED`/`FORCE_EVALUATED`/`SKIPPED_STABILITY` record of the very slot it just decided would
+always postdate that SAME cycle's trigger time (which, for an orchestrated batch, IS the result's
+own `submittedAt`) — every forced T+3 rating would be retracted by its own cycle's own paperwork.
+The fix instead identifies each disposition's OWNING CYCLE and compares that cycle's `trigger_time`
+against the incoming result's `submittedAt`; a same-cycle disposition then compares as simultaneous
+(excluded by a strict `isAfter`), never later. `ForecastRunDispositionEntity` carries no pipeline run
+id of its own, but one is recoverable without a migration: every cycle's dispositions are anchored
+to that cycle's FIRST job run, and exactly one `ForecastBatchEntity` row (the first bucket submitted
+that cycle) shares that same `job_run_id` and already carries the real `pipeline_run_id` — a new
+three-entity JPQL join (`ForecastRunDispositionRepository#findSupersedingCycleTriggerTimes`)
+recovers it. Cost is two-phase: `PipelineRunRepository#existsByTriggerTimeAfter` is a cheap
+existence check that answers the common case (no later cycle exists yet) with one query and no
+further interaction; only when it says yes does the disposition join run, once per batch call, never
+once per location. `BriefingEvaluationService.supersededByLaterRun` is the new gate, consulted first
+in `mergeFromBatch`, `mergeWoodlandFromBatch` and `mergeBluebellFromBatch`, ahead of the existing
+staleness/combination logic — a superseded result is written to no sink and logged once at INFO. The
+PENDING `forecast_evaluation` row is untouched by this and needs no change: `scoreEvaluationRow` runs
+earlier, inside `ForecastResultHandler#buildResult`, before the orchestrator ever reaches the merge
+methods this gate lives in, and `forecast_run_at` is stamped at collection time (never bumped at
+score time), so a genuinely later cycle's own row already wins `loadLatestForecasts`' per-slot MAX
+comparison regardless of when an older cycle's Claude result happens to arrive.
+
+**Gap 2.** `forecast_score` was named as an unaddressed follow-up in round 12 and turned out to be
+fixable in this same commit after all: `ForecastScoreEntity` already stores the producing run's own
+`pipeline_run_id` directly, so no disposition join is needed there — `ForecastScoreWriter#upsert` now
+rejects an incoming write whose `pipelineRunId` is strictly smaller than the stored row's (logged
+once at INFO), comparing ids directly rather than trigger times, because `PipelineRunEntity.id` is an
+autoincrement key assigned in strict cycle-trigger order and so already IS that ordering. Equal ids
+overwrite as before; a `null` on either side (a legacy row, or a sync/admin write, which this
+writer's own class javadoc already documents as always `null`) proceeds exactly as before —
+"unknown" can never be shown to be older. `survivor_atmosphere` remains the one genuinely
+unaddressed member of round 12's follow-up list: it has no stored run id of any kind to compare
+against, so closing it needs its own schema change and review, out of scope here.
+
+New and updated tests: `BriefingEvaluationServiceTest` gained a `SupersededByLaterRun` nested class —
+Codex's case and its `SKIPPED_TRIAGED` sibling (both confirmed to fail when the Phase 1 check is
+short-circuited to always proceed), the same case with a forced rating (no exemption survives a
+superseded write, because nothing is written), a same-cycle disposition that must NOT supersede its
+own result (the regression guard for the hazard named above), a later cycle that recorded only
+`SKIPPED_CACHED` (write proceeds), a retry batch sharing its precursor's cycle (write proceeds), and
+a "no later run exists" case asserting the disposition repository is never touched at all
+(`verifyNoInteractions`, no `any()` in the `verify()` call). `ForecastScoreWriterTest` gained four
+tests for gap 2 — an earlier run rejected after a later one already landed (confirmed to fail when
+the ordering check is stubbed out), equal ids overwriting, a null stored id always losing, and a null
+incoming id still overwriting a known stored id. Every test from rounds 1 through 12 still passes
+(9077 total after this round, up from 9059).
+
+## Round 14 — round 13's own fix was wrong, tested against production, and corrected
+
+A further Codex review tested round 13's discriminator against production (read-only) and found it
+does not hold, on two counts.
+
+**The evidence.** Pipeline run 249 (INTRADAY, 2026-09-29, trigger 14:00:00 UTC): all three Anthropic
+batch submissions failed with HTTP 500. `ScheduledBatchEvaluationService#persistCycleDispositions`
+anchored the cycle's 589 dispositions — 510 `EVALUATED`, 76 `SKIPPED_TRIAGED`, 3
+`SKIPPED_UNKNOWN_LOCATION` — to a disposition-only "anchor run" job_run with **no `forecast_batch`
+row at all**: `forecast_batch` holds zero rows for that job_run_id, and over five days, 589 of 13,120
+disposition rows join to no batch at all. Two consequences, both wrong in round 13:
+
+1. Round 13's three-entity join through `forecast_batch` (`d.jobRunId = b.jobRunId AND
+   b.pipelineRunId = p.id`) cannot see ANY disposition from an anchor run, in either direction — a
+   genuine `SKIPPED_TRIAGED` decision from a failed cycle was invisible to it, exactly the shape
+   this whole feature exists to catch.
+2. Round 13's disposition filter (`d.disposition <> 'SKIPPED_CACHED'`) let `EVALUATED`/
+   `FORCE_EVALUATED` supersede a result. Both categories record only that a candidate was INCLUDED
+   for submission, never that a result was produced — the 510 `EVALUATED` rows on the failed cycle
+   above produced exactly zero results. Had a `forecast_batch` row existed for them (the ordinary,
+   non-anchor case), round 13 would have rejected a perfectly good older rating in favour of
+   nothing, leaving the slot with no rating at all where, before this whole PR, the stale-but-real
+   prior rating would have kept serving.
+
+**Correction 1 — the disposition allow-list is now explicit, not "everything except".** Every
+`DispositionCategory` value was individually re-argued: `SKIPPED_STABILITY` (the original #940
+retraction category — a positive decision to decline re-scoring) and `SKIPPED_TRIAGED` (the weather
+stand-down — a positive decision the slot was looked at and rejected) are IN; `EVALUATED` and
+`FORCE_EVALUATED` (inclusion records, not results — the production proof above) are OUT;
+`SKIPPED_CACHED` (a region-level reuse, not a per-slot decision), `SKIPPED_PAST_DATE`,
+`SKIPPED_TRAVEL_DAY`, `SKIPPED_UNKNOWN_LOCATION`, `SKIPPED_ERROR` and `SKIPPED_NO_REFRESH_NEEDED`
+("a later look is already guaranteed" — the opposite of a decision against) are all OUT; and
+`SKIPPED_HARD_CONSTRAINT`/`SKIPPED_NO_PROMPT` are OUT too, per the explicit two-item allow-list,
+though the former is arguably a candidate for a future round since it IS a genuine stand-down. The
+new JPQL queries (`ForecastRunDispositionRepository#findSupersedingDispositions`/
+`#existsSupersedingDisposition`) filter `disposition IN ('SKIPPED_STABILITY', 'SKIPPED_TRIAGED')`
+literally — an allow-list, never a NOT-IN exclusion.
+
+**Correction 2 — the discriminator needs no `forecast_batch` join at all.** A disposition supersedes
+a result when its `created_at` is at or after the trigger time of the FIRST pipeline run triggered
+after the result's own `submittedAt`. `PipelineRunRepository#findTriggerTimesAfter` answers this
+purely from the `pipeline_run` table, which exists for every triggered cycle regardless of whether
+that cycle ever produced a batch — so the anchor-run case is no longer a blind spot. This cannot
+misclassify a same-cycle row: a cycle's own dispositions are always written minutes after its own
+trigger and hours before the next cycle's, so a same-cycle disposition's `created_at` always falls
+strictly before "the first trigger after this result's own submittedAt" and reads as simultaneous,
+never later. Checked and confirmed: two pipeline runs cannot both be in their SUBMIT phase at once —
+`PipelineOrchestrator.submitPhase`'s own javadoc documents a single `AtomicBoolean` submission guard
+shared by every trigger (scheduled and admin-fired); the losing trigger's run is failed outright
+("Forecast batch submission dropped — another pipeline run already holds the submission guard"), so
+this rule never has to reason about two overlapping submissions for the same cycle. Results in one
+merge call may carry different `submittedAt` values (the brief's own hazard to check): the trigger
+list is loaded ONCE from the EARLIEST submission among them, and each result's own "next trigger" is
+resolved from that one in-memory list — one bulk disposition query still covers every location in
+the call. Query cost, corrected and now stated precisely: ONE query in the common case per MERGE
+CALL for the cache-side check (`SupersedingDispositionService#supersededLocations`), two when a
+later cycle exists at all; the forecast_score-side check (`#isSuperseded`) is necessarily per
+RESPONSE, not per batch — see correction 3.
+
+**Correction 3 — `forecast_score` was still reachable by a superseded response, because "written to
+no sink" was false until this round.** `ForecastResultHandler` writes `forecast_score` inside
+`buildResult`/`buildWoodlandResult`/`buildBluebellResult`, which run once PER ANTHROPIC RESPONSE as
+`BatchResultProcessor` consumes the Batch API's streaming result reader. That reader only learns a
+batch's location set as it streams, so there is no point "before any result of the batch is parsed"
+at which every location it will touch is already known — a true batch-wide hoist would need to
+buffer an entire batch before writing anything, which this class does not do for any sink today.
+The accepted, explained fallback: `SupersedingDispositionService#isSuperseded` runs once per
+response, immediately before each of the three `forecast_score` write sites, and the synchronous
+path (`handleSyncResult`) carries the identical check before its own write. Cost: one query in the
+common case per response, two only when a later cycle already exists for that one submission — a
+real but rare per-response cost, traded for genuine correctness over a hoist that is not achievable
+with the current streaming reader. The PENDING `forecast_evaluation` row is scored unconditionally
+regardless (confirmed safe, unchanged from round 13's own finding), and `api_call_log` is written
+unconditionally too, so cost accounting stays complete even though a superseded response's rating
+reaches no sink. `survivor_atmosphere` needed no change at all: `SurvivorAtmosphereWriter.write` is
+called only from `ForecastTaskCollector` (batch collection, before any batch is even submitted) and
+`ForecastService` (the synchronous engine's pre-Claude-call point) — never from
+`ForecastResultHandler` — so a superseded RESULT has no bearing on it.
+
+**New shared component**: `SupersedingDispositionService` (new class,
+`service/evaluation`) — both `BriefingEvaluationService.supersededByLaterRun` (bulk, merge-level)
+and `ForecastResultHandler`'s three `forecast_score` sites (single-location, per-response) delegate
+to it, so the discriminator and the allow-list are defined exactly once. Round 13's
+`PipelineRunRepository#existsByTriggerTimeAfter` and
+`ForecastRunDispositionRepository#findSupersedingCycleTriggerTimes` (the three-entity join) are
+both replaced — `PipelineRunRepository#findTriggerTimesAfter` returns every later trigger ascending
+(not merely whether one exists), and the disposition queries are two new allow-listed,
+`forecast_batch`-free queries (`findSupersedingDispositions` bulk, `existsSupersedingDisposition`
+single-location).
+
+New and changed tests: `SupersedingDispositionServiceTest` (new, 23 tests) — the production case and
+its bulk-form sibling (both must fail against 20922233's design, confirmed by direct comparison
+against that commit's actual JPQL, which allowed `EVALUATED` through and required the
+`forecast_batch` join), the anchor-run shape with no `forecast_batch` row for either
+`SKIPPED_TRIAGED` or `SKIPPED_STABILITY` (must fail against 20922233's join), one test per excluded
+disposition category (ten, all confirmed passing against the real allow-list), same-cycle safety (no
+later run exists at all, so the disposition repository is never even consulted), a retry batch
+sharing its precursor's cycle, two results in one call with different `submittedAt` values (one
+superseded, one not, from a single shared trigger-time load), query-count tests with precise literal
+`verify()` arguments (no `any()`) for both the common and later-run-exists cases, and null-
+submittedAt handling (no repository interaction at all). `PipelineRunRepositoryTest` and
+`ForecastRunDispositionRepositoryTest` (both new, `@DataJpaTest` on H2, no Docker) prove the actual
+JPQL at the SQL level — including a literal repeat of the production case, which fails when the
+allow-list is reverted to round 13's `<> 'SKIPPED_CACHED'` filter (confirmed by temporarily reverting
+the query and re-running: exactly the production-case test and the ten-excluded-categories test
+fail). `BriefingEvaluationServiceTest`'s `SupersededByLaterRun` nested class was rewritten to test
+ONLY the wiring (does `mergeFromBatch`/`mergeWoodlandFromBatch`/`mergeBluebellFromBatch` correctly
+skip whatever `SupersedingDispositionService` reports) — the algorithm itself moved to
+`SupersedingDispositionServiceTest`, so the class it used to mock
+(`PipelineRunRepository`/`ForecastRunDispositionRepository` directly) is now mocked one level up
+(`SupersedingDispositionService`). `ForecastResultHandlerTest` gained three tests for correction 3 —
+a superseded response writes no `forecast_score` row but still scores its PENDING row and still
+writes `api_call_log` (confirmed to fail when the gate is removed), a non-superseded response writes
+normally, and the synchronous path carries the identical gate. Every test from rounds 1 through 13
+still passes (9115 total after this round, up from 9077).
+
+### Fixed — dropping a best-bet pick could leave an orphaned runner-up standing in as the headline
+
+A Codex review of d930d028 (round 4's fixes) found a P1 in that same commit's own fallback
+eligibility re-check: when a prior successful run's rank 1 pick had since gone verdict-ineligible
+but rank 2 was still eligible, `BestBetFallbackService.findFreshFallback` served rank 2 ALONE — a
+stored "Also Good" whose headline, detail and `relationship`/`differsBy` fields were all written (or
+persisted) to describe how it differs from rank 1, now rendered as the block's only pick, with
+nothing left to be second to or separate from.
+
+Checking the question against `BestBetRanker.dropUnevaluatedPicks` — which round 4's
+`dropIneligiblePicks` was modelled on — found the identical defect already latent there: both
+methods called `rerankWithRecomputedRelationships` whenever any pick was dropped, which correctly
+recomputes `relationship`/`differsBy` for a promoted survivor but never touches its `headline`/
+`detail`/`confidence`, all Claude-authored prose composed relative to the ORIGINAL rank 1 (see
+`BestBetPromptText`'s ALSO GOOD SELECTION RULE: "make the temporal distinction obvious... the reader
+knows immediately this is a different opportunity, not a backup for the same outing"). Promoting
+that prose into rank 1's place presents it as the headline it was never written to be. This is the
+same orphan defect `BriefingHonestyFilter.withdrawUnsupportedBets` was already written to refuse for
+its own case (`losingRankOneWithdraws RankTwo`'s own javadoc), just not yet generalised.
+
+The fix: `BestBetRanker.afterRemoval(original, kept)` is now the one rule every removal site uses —
+losing rank 1 withdraws the whole set (no promotion, no rewritten prose, matching
+`BriefingHonestyFilter`'s established behaviour); losing anything else renumbers the `rank` field of
+the survivors alone, touching no other field, since a still-standing rank 1 makes every trailing
+survivor's `relationship`/`differsBy` (computed relative to that same, unchanged rank 1) still
+correct without recomputation. `dropUnevaluatedPicks` and `dropIneligiblePicks` both now delegate to
+it; `BriefingHonestyFilter.withdrawUnsupportedBets` is refactored onto the same shared method with
+no behaviour change (all 32 of its existing tests pass unchanged); `BestBetFallbackService
+.findFreshFallback` now builds the run's full original pick list before filtering so it can ask
+`afterRemoval` the same question, rather than filtering with a bare `continue` that could not tell
+"rank 1 was dropped" apart from "rank 2 was dropped".
+
+`BestBetRanker.applyCoverageAwareRanking`'s own promotion (the pre-existing, independently
+calibrated headline-coverage-floor demotion) is explicitly OUT of scope here: it promotes a
+different, already-present pick on ranking merit rather than removing anything, so
+`rerankWithRecomputedRelationships`'s recomputation is the right operation there. It carries a
+related, narrower risk of its own — a promoted pick's prose was equally written as an "Also Good"
+relative to the demoted headline — noted but not addressed this round.
+
+New tests: `BestBetRankerTest` (new file) pins `afterRemoval`'s exact field-level behaviour for
+rank-1-removed (withdraws), rank-2-removed (rank 1 unchanged, every field asserted), nothing-removed,
+everything-removed, and a middle-pick-removed renumbering case, plus direct
+`dropUnevaluatedPicks`/`dropIneligiblePicks` parity tests. `BestBetFallbackServiceTest` gained four
+two-pick scenarios (rank 1 ineligible/rank 2 eligible → withdrawn; rank 1 eligible/rank 2
+ineligible → rank 1 alone; both ineligible → empty; both eligible → both unchanged, the pre-existing
+behaviour). `CloseToHomeServiceTest` gained a belt-and-braces confirmation that
+`matchingBestBet` never treats a rank-2-only list as a match (it already couldn't, via its existing
+`rank() == 1` filter — this pins that explicitly rather than leaving it implicit).
+
+### Fixed — a recombined rating could silently lose its force-evaluation mark, and the best-bet advisor could still crown an insufficient region
+
+A Codex review of the #943/round-3 work (72e7b612/26044705) found two more P1s.
+
+**Forced provenance dropped on recombination.** `BriefingEvaluationResult.forced` is stamped once,
+at write time, by `ForecastResultHandler#buildResult` — but that is only the FIRST write. An
+OPEN_FELL candidate's paired bluebell task can arrive and be averaged into a prior sky rating by
+`BriefingEvaluationService.recombineBluebell`, and the averaged result was being built through a
+10-arg compatibility constructor that defaults `forced = false` unconditionally, silently ending an
+exemption either source actually carried. An audit of every `new BriefingEvaluationResult(` and
+`with…` call site in `backend/src/main/java` classified each as fresh-from-evaluation (carries its
+own task's `forced` already — `ForecastResultHandler`, `writeFromBatch`, `mergeFromBatch`,
+`mergeWoodlandFromBatch`), a rebuild-or-combine site (must carry the mark explicitly —
+`recombineBluebell` was the only one that didn't), or not-a-rating (retraction, triage — `forced`
+stays `false` by construction). `BriefingEvaluationResult.withForcedFromCombination(newlyArrived)`
+is the one combination rule every rebuild-or-combine site now uses: the combined result takes the
+newly-arrived side's own mark. That single formula is provably correct for both cases a combination
+can face — within one cycle's OPEN_FELL pair, sky and bluebell always carry an identical `forced`
+flag by construction (`ForecastTaskCollector` submits both from the same loop iteration reading the
+same local variable), so reading either side already equals "either forced"; across cycles, the
+side passed in is always the one that was just produced, so reading its flag alone is "the newer
+write's mark wins" — a later ordinary evaluation correctly ends an earlier forced exemption, and a
+later forced evaluation correctly grants one an earlier ordinary rating never had.
+
+**The best-bet advisor could still crown a region the Plan tab would refuse a verdict.**
+`BriefingRegionEvaluationRollup` computes `sampleSufficient`/`forcedSample` for every region, and
+`PlanWindowProjector` already withholds a rating-derived verdict from an insufficient, non-exempt
+region — but `BriefingBestBetAdvisor`'s rollup builder and `BestBetRanker` recomputed rating
+coverage independently and never consulted that flag, so such a region could still be named in
+`bestBets`, `pipeline_run_pick`, and the advisor's model-comparison surfaces. The eligibility test
+moved onto the record itself as `BriefingRegion.verdictEligible()` (moved out of
+`PlanWindowProjector`'s private static, which now calls the shared method), and
+`BestBetRanker.dropIneligiblePicks` validates Claude's OWN returned picks against it — after the
+existing zero-coverage drop, before the coverage-aware ranking — reading `CandidateCoverage`'s new
+`verdictEligible` field, which `BriefingRollupBuilder.appendRegionNode` now populates from the
+region it already holds a reference to. This is deliberately model-OUTPUT validation, never prompt
+shaping: the rollup JSON sent to Claude carries no new field, so no `BestBetAuroraPromptRegressionTest`
+fixture moved. An all-ineligible response degrades to `SUCCESS_NO_PICKS`, the same honest decline the
+zero-coverage drop already produces. `BestBetFallbackService.findFreshFallback` now takes the current
+briefing's days and re-checks a stored pick's region against the same test before resurrecting it as
+a stale fallback — a region eligible when the pick was persisted can go ineligible by the time a
+later FAILED cycle serves it back, and `BriefingHonestyFilter`'s own withdrawal only catches a
+zero-coverage ("blanked") region, not this narrower insufficient-but-nonzero case. The reconstructed
+`CandidateCoverage` the advisor's replay harness builds from a stored rollup JSON carries
+`verdictEligible = false` as a documented placeholder — that field was never part of the JSON schema
+sent to Claude, and neither `replayWithPrompt` nor the model-comparison path calls the new drop at
+all, so the placeholder is provably never consulted on that path.
+
+New and updated tests: `BriefingEvaluationResultTest` (new — `withRating`/`withEvaluatedAt` preserve
+or clear `forced` correctly, `retracted()` never carries it, `withForcedFromCombination`'s own
+behaviour including the null-input and unrated-combined-result guards),
+`BriefingEvaluationServiceTest` (`recombineBluebell` forced/forced, forced-bluebell/ordinary-sky,
+ordinary/ordinary, and both cross-cycle exemption-ends/exemption-granted orderings),
+`BriefingBestBetAdvisorTest` (a new `advise drops picks naming a verdict-ineligible region` nested
+class: an insufficient non-exempt region is dropped even when Claude names it, a forced-sample
+region is allowed, a sufficient region is allowed, a legacy null-eligibility payload is not eligible,
+and an all-dropped response matches the existing `SUCCESS_NO_PICKS` outcome — the shared `region()`
+test fixture now defaults `sampleSufficient = true` so every pre-existing happy-path test is
+unaffected by the new gate), and `BestBetFallbackServiceTest` (a stored pick whose region has since
+gone ineligible is dropped, a still-eligible one is served, and a region no longer present in the
+current briefing at all is treated as unknown rather than ineligible).
+
+### Fixed — the verdict sample gate's force-evaluation exemption was granted by timestamp inference, and inference was provably wrong
+
+A second Codex review of the #943 P1-B fix (72e7b612/26044705) found the force-evaluation exemption
+still unsafe, in a different way from the first finding. The fix compared a `FORCE_EVALUATED`
+disposition's `created_at` against the winning result's own evaluation instant, on the theory that a
+rating no earlier than the disposition must have come from it. That theory does not hold:
+`ScheduledBatchEvaluationService.persistCycleDispositions` anchors **every** disposition in a cycle
+to the cycle's first submitted bucket's job run, not the specific far-term bucket that actually
+force-evaluated a slot — and dispositions are written at submission, before any Claude result lands.
+So a forced batch submitted and left pending or failed, followed by an entirely unrelated ordinary
+rating for the same slot (a hand-started synchronous admin run, in the reported case) landing after
+the disposition's timestamp, satisfied the comparison and was wrongly granted the exemption a
+region's verdict, pick eligibility and ranking depend on.
+
+The fix replaces inference with provenance. `BriefingEvaluationResult.forced` is now stamped exactly
+once, by `ForecastResultHandler#buildResult`, from the task that actually produced the rating —
+never re-derived at serve time from any disposition. The fact travels from `ForecastTaskCollector`'s
+scheduled loop (the one place `forced` is decided, at the same moment a candidate is chosen as a
+`ForceEvalHeadlineSelector` rescue) across the async Anthropic Batch API round trip via a new `-f`
+suffix on the batch `custom_id` (`CustomIdFactory#forForecast`/`forBluebell`/`forWoodland`,
+`EvaluationTask.Forecast#forced`) — the same mechanism the pending-row `-r{evalRowId}` suffix already
+uses. `EvaluationViewService` no longer loads or compares any disposition for this at all: it simply
+reads `forced()` off whichever source (cache or `forecast_evaluation` row) wins the existing
+precedence rule. A `forecast_evaluation`-row-only winner is always `forced = false` (that entity
+carries no such marker, and none is added — unknown never grants the exemption); a legacy or
+out-of-roster cached entry with no field deserialises to `false`. `loadForceEvaluatedAt`,
+`isCurrentlyForced` and `stampForced` are deleted, along with the now-unused
+`ForecastRunDispositionRepository#findLatestEvaluatingDispositions` query and its six CI-only
+`DispositionWriteIntegrationTest` cases — nothing else used them.
+
+The force-evaluation marker travels for every task kind the FORCE-EVAL branch can produce, not only
+the sky lane: a WOODLAND-exposure or OPEN_FELL-paired bluebell candidate can be force-evaluated
+exactly like a sky one, since `ForecastTaskCollector` decides eligibility before it routes to a lane
+— `bluebellTaskFor`/`woodlandTaskFor` and the bluebell/woodland custom-id builders all carry it now.
+`BatchRetryService` carries a precursor's own `forced` marker onto its reconstructed retry task
+(`RetrySelection.RetryFailure` gained the field) — a retry of a force-evaluated slot's failed request
+is still that same slot's force-evaluation attempt, not a fresh ordinary one.
+
+Backward and forward compatibility for the custom-id change are both proven by test: every id shape
+the previous binary could produce still parses identically with `forced=false` (the Anthropic Batch
+API can take up to 24 hours, so batches already in flight at deploy must round-trip unchanged), and
+the worst-case id (`Long.MAX_VALUE` location id, `Long.MAX_VALUE` eval-row id, `SUNRISE`, forced)
+lands at exactly 64 characters — the Anthropic `custom_id` limit, not merely under it. The reverse
+direction — a deploy rolled back while a `-f`-suffixed batch is still in flight — is not safe and is
+not patched: the previous binary's parser reads the trailing `f` as an invalid `TargetType` and the
+response is logged as malformed, costing one wasted Claude call per in-flight forced task rather than
+corrupting anything. This is accepted as a narrow, low-probability window in the same fail-safe
+direction every other malformed-id case in `CustomIdFactory` already takes.
+
+New and corrected tests: `CustomIdFactoryTest` (worst-case length, forced round trips for all three
+lanes, the full backward-compatibility table), `ForecastResultHandlerTest` (batch and sync paths
+stamp `forced` only from the task/identity's own flag, never a timestamp — including the sync
+engine's ordinary hand-started run, which now structurally cannot be exempted), `CachePayloadGoldenMasterTest`
+(a non-forced result's JSON is byte-identical to before this change; a forced result's JSON round-trips;
+a legacy row with no field reads `forced=false`), `ForecastTaskCollectorForceEvalTest` (the sky-lane
+task carries `forced`; a new WOODLAND-candidate case proves the same for the canopy lane),
+`BatchRetryServiceTest` (a forced precursor's retry task is forced too), and `EvaluationViewServiceTest`'s
+force-evaluation nested class was rewritten to seed the exemption through stamped results rather than
+mocked dispositions.
+
+### Fixed — the verdict sample gate's "examined" count still missed the production shape it exists to protect
+
+A Codex review of 72e7b612 (the first #943 P1-A/P1-B fix) found one P1: the round-1 fix made the
+rule wrong in the MAIN case it was built to protect.
+
+`VerdictSampleGate.examinedCount` was fixed to stop reading the briefing's own weather-triage
+`Verdict` and instead read a `triagedByBatch` marker synthesised onto the score resolver's map — but
+that marker was only attached when the resolver had NOTHING else to return for a slot. In
+production, a batch triage always ALSO writes a real `forecast_evaluation` triage row alongside its
+`SKIPPED_TRIAGED` disposition (`ForecastService#fetchWeatherAndTriage`), so `resolveForEnrichment`
+resolves a genuine triage result instead — the marker's one branch almost never fired, and
+`examinedCount` silently collapsed to rated-only. A region with 35 batch-triaged and 15 rated
+voting slots out of 50 — the poor-weather near-window case the original brief explicitly said must
+keep today's verdict — read 15-of-50, under half, and lost it.
+
+The fix removes the flag from `BriefingEvaluationResult` entirely (it had already been attached
+wrongly once) and hands `BriefingRegionEvaluationRollup` the disposition-sourced evidence through a
+genuinely separate channel: a new `TriagedByBatchResolver` functional interface, resolved for the
+same region/date/event key as the existing `RegionScoreResolver` but answering independently —
+`EvaluationViewService.getTriagedByBatchLocationNames`/`getTriagedByBatchLocationNamesBulk`, sourced
+from the same `loadTriagedByBatch` disposition read as before. `BriefingScoreEnricher.enrich` grew
+a third parameter for it, with a default 2-arg overload so every caller that has no triaged evidence
+to supply keeps compiling and reads as not-examined-by-triage (safe under-counting).
+
+A slot can be examined via triage through EITHER of two independent channels, unioned by the
+rollup: the disposition table (a batch triage), or a resolved `triageReason() != null` read directly
+off whatever the score resolver already returned for the slot — needed because a hand-started or
+synchronous-engine run can triage a slot (a real `forecast_evaluation` row) without ever writing a
+`forecast_run_disposition` row at all. `VerdictSampleGate.examinedCount`'s own
+`claudeRating() == null` guard, unchanged, still prevents double-counting a slot that is both rated
+and named by either channel. A stability-skipped slot is excluded from both channels: its latest
+disposition is `SKIPPED_STABILITY`, not `SKIPPED_TRIAGED`, and a recorded stability skip retracts
+whatever the score resolver would otherwise return to a `retracted()` marker with a null
+`triageReason`.
+
+A false comment from the round-1 fix (`EvaluationViewService.java`, both the single-key and bulk
+enrichment methods) claiming "`SKIPPED_TRIAGED` writes only a disposition row, no
+`forecast_evaluation` row" is corrected — it does not, and the round-1 tests' own fixtures never
+modelled the real row, which is why the bug survived a green suite once already.
+
+New and corrected tests, all exercising real production shapes: `BriefingRegionEvaluationRollupTest`
+gained a real-triage-result variant of the near-window case, a channel-B (hand-started, no
+disposition) case, and a rated-and-triaged double-count guard; `EvaluationViewServiceTest` gained an
+end-to-end nested class driving the real `EvaluationViewService` (mocked repositories) through a
+real `BriefingRegionEvaluationRollup`, proving the bulk and single-key resolver shapes agree and
+that the near-window and far-window cases resolve correctly. Two tests are mechanically proven (via
+a non-destructive `git worktree` checkout of 72e7b612) to fail against the code they replace.
+
+### Fixed — a nightly stability skip now retracts the rating it superseded
+
+A slot the overnight batch declined to re-score — its grid cell too unsettled for its horizon —
+kept serving whatever rating an earlier, more eligible cycle had left behind, indefinitely: the
+skip writes no row to `cached_evaluation` or `forecast_evaluation`, so nothing on the serve path
+ever saw a reason to reconsider. `EvaluationViewService` now bulk-loads each slot's most recent
+`SKIPPED_STABILITY` disposition and retracts whichever of the cached result and the
+`forecast_evaluation` row predates it, before either reaches precedence — so the slot reads exactly
+like any other never-rated one (no star, no verdict word, no prose), never as a weather stand-down.
+A later real evaluation, eligible or forced, simply outdates the skip and restores a rating in the
+normal way. The rule is applied once and reused by every serve surface that resolves "cached result
+vs newer evidence" — the Plan payload, `GET /api/briefing/evaluate/scores`, and the map's
+`GET /api/forecast` — so they cannot disagree about the same slot. Only a nightly Gate 4 stability
+skip counts: a region-level cache reuse, a past-date or travel-day skip, a triage stand-down, a row
+with neither a rating nor a triage reason, and the intraday cycle's "a later look is already
+guaranteed" skip are all excluded by construction, and a legacy cached row with no known write time
+keeps serving as it always has.
+
+The Plan payload needed a second piece: a persisted `BriefingSlot` already carries whatever rating
+the last build gave it, so a resolver that simply had nothing new to say for a slot used to leave
+that embedded rating untouched — indistinguishable, to `BriefingRegionEvaluationRollup`, from a slot
+it was never asked about. `EvaluationViewService` now returns a distinct retraction marker rather
+than a bare absent entry when a skip is the reason nothing survived, and the rollup clears the
+slot's rating, sky rating, both potentials, summary and headline on it — never by setting a triage
+reason, so the slot's verdict and stand-down text read exactly as a never-rated slot's, not a
+weather stand-down.
+
+**Follow-up fix, same day (Codex review of #940):** the rule above compares a forecast row's
+`forecast_run_at` against a disposition's true `Instant`, and that comparison was silently wrong.
+`EvaluationViewService.forecastRunInstant` zoned the naive `forecast_run_at` column as
+`Europe/London`, but the column has only ever been written as a naive UTC wall clock
+(`ForecastService.buildEntity`, unchanged since the column's introduction on 2026-02-24). Through
+British Summer Time this read every forecast row as one hour OLDER than it actually was, which both
+skewed the pre-existing freshness gate (a cached rating written up to an hour before a later triage
+row could wrongly outrank it) and could wrongly retract a row written shortly AFTER a stability skip
+because it read as shortly before it. Fixed by zoning as UTC — the zone the column is actually
+written in — and correcting the method's javadoc, which had asserted the opposite. No other site in
+the codebase converts `forecast_run_at` to an `Instant`; the two DTO mappers that serialise it
+untouched, and the two direct `LocalDateTime`-to-`LocalDateTime` comparisons in
+`ForecastCalibrationService`/`EvaluationViewService.loadLatestForecasts`, are correct as they stand
+and were left alone.
+
+**Second follow-up fix, same day (Codex re-review of #940):** two readers still went around all of
+the above by reading the raw `BriefingEvaluationService` cache directly instead of through
+`EvaluationViewService` — `BriefingRollupBuilder.computeRegionStats` (the best-bet advisor's
+`claudeAverageRating`/coverage figures) and `PipelineRunPickService.lookupAverageRating` (the
+`pipeline_run_pick.claude_average_rating` cross-run comparison snapshot). Reading before retraction
+meant a rating the Plan card and the map had already stopped showing — because a nightly stability
+skip superseded it — still counted toward the advisor's pick and toward the run-to-run comparison,
+the very "every surface must agree" property this fix exists for, broken one layer further in. The
+same gap is older than the stability-skip feature: a rating superseded by a newer *triage* row was
+equally still in the raw cache and uncounted nowhere else. Both close together, because both are
+instances of one rule: neither caller should ever see a rating the rest of the product has stopped
+serving. New sibling accessor `EvaluationViewService.getLiveScoresForEnrichment` applies the same
+precedence and stability-skip retraction `getScoresForEnrichment` already does, then filters out
+every retraction marker before returning — a caller of this method never has to remember to check
+for one, because it never receives one. `BriefingRollupBuilder` and `PipelineRunPickService` now
+depend on `EvaluationViewService` instead of `BriefingEvaluationService` directly; no circular
+dependency resulted. A deliberate side effect: a location whose only evidence is a scored or triaged
+`forecast_evaluation` row (no cache entry at all) is now counted too, since that is what the
+precedence-aware read already does for every other surface — narrowing an existing divergence
+between what the advisor saw and what the Plan tab and map already served, not only retracting stale
+ratings. The pre-existing fail-open roster-hygiene residual on this lookup (a renamed, disabled or
+moved location still answering under a name no slot claims) is unchanged by this move, not fixed —
+`getScoresForEnrichment` carries the same cache-outlives-the-roster behaviour forward for the
+identical, already-documented reason.
+
+**Third follow-up fix, same day (a second Codex re-review of #940):** the retraction-aware read the
+previous fix introduced was itself a performance regression, caught before merge. Routing
+`BriefingRollupBuilder.computeRegionStats` and `logCacheCoverage` through
+`getLiveScoresForEnrichment` meant calling it once per region **and** event — up to 6 events × the
+region count × 2 call sites, each call costing three queries — roughly 216 queries per best-bet
+rollup against production's roster, where the in-memory cache read it replaced cost none. New
+`EvaluationViewService.getLiveScoresForEnrichmentBulk(start, end, types)` closes it: the bulk sibling
+of `getScoresForEnrichmentBulk`, filtering out retraction markers the identical way
+`getLiveScoresForEnrichment` does. `BriefingRollupBuilder.loadLiveScores` now loads it exactly ONCE
+per rollup, and `computeRegionStats`/`logCacheCoverage` both read that one pre-loaded map by key —
+never calling `EvaluationViewService` themselves. Single-key `getLiveScoresForEnrichment` keeps
+exactly one caller, `PipelineRunPickService.lookupAverageRating`, which persists at most a handful of
+picks per run — the right shape for a single-key read, not a bulk one. The build path for the Plan
+payload itself carried the same shape of bug, one query narrower: `BriefingService` used to hand its
+enrichment rollup the single-key `getScoresForEnrichment` as a resolver, once per region/event — two
+queries each until the stability-skip fix above added a third. `BriefingService.bulkScoreResolver`
+now loads the (marker-preserving) `getScoresForEnrichmentBulk` once per build instead, mirroring the
+shape `ServedBriefingAssembler.reEnrichVerdicts` already used on the serve path. Per-request paths
+(`GET /api/briefing`, `GET /api/briefing/evaluate/scores`, `GET /api/forecast`) were untouched by
+either fix and still issue one stability-skip query each.
+
+**Fourth follow-up fix, same day (a second Codex re-review of #940):** retraction was still being
+decided by asking, per source, "is the evidence I can see stale relative to the skip" — and that
+question has a blind spot. `forecast_evaluation` is insert-only, and the "latest row per slot" query
+every reader here relies on can legitimately return a newer, EMPTY row (an `ABANDONED` batch attempt,
+or any other `PENDING`-then-closed-out row with neither a rating nor a triage reason) sitting on top
+of an older RATED row from an earlier cycle — the query correctly hides the older row, because a
+newer one exists. That empty row genuinely postdates the skip, so asking "is it stale" answers "no" —
+the wrong answer, because the only reason anything postdates the skip is a row saying nothing at all.
+A slot in exactly this shape (a forecast-only rating superseded by a skip, then hidden behind a later
+empty row) read as plain absence rather than retraction, and on the Plan payload — the one surface
+that starts from a persisted tree rather than building one fresh — an absence leaves an EMBEDDED
+rating from an earlier build untouched, so the stale star survived there while the map, built fresh
+each time, correctly showed nothing.
+
+New `EvaluationViewService.isSlotRetracted(cachedResult, cachedEvaluatedAt, forecastRow,
+latestStabilitySkipAt)` is the fix, and the ONE place every path now decides retraction: a slot with
+a recorded skip is retracted when NO live evidence survives it at all — neither a cached result
+written after it, nor a forecast row that both postdates it AND has something to say — regardless of
+whether the caller can see the stale evidence that skip superseded, a newer empty row hiding it, or
+nothing at all. `resolveForEnrichmentRetractionAware` (used by both `getScoresForEnrichment` and a
+restructured `getScoresForEnrichmentBulk`, which now resolves every slot through the same method the
+single-key read uses rather than a separate two-phase cache-then-forecast reconciliation),
+`mergeToView`, and `ForecastController`'s raw-row filter all call it, so the three cannot disagree.
+`ForecastController` has no cache lookup of its own and calls `isSlotRetracted` with a null cached
+side — correctly meaning "no live cache evidence available here" — which also closes a narrow,
+genuine behaviour gap on that endpoint: an otherwise-unscored row with a skip against it and nothing
+else live is now dropped rather than served with a null rating, agreeing with `mergeToView`'s
+`Source.NONE`. An ordinary unscored row with no skip recorded — the overwhelming majority of
+`forecast_evaluation`'s null-rating rows — is completely unaffected, since `isSlotRetracted` returns
+false immediately whenever there is no skip to apply. Canopy (woodland) and bluebell slots need no
+carve-out: `ForecastTaskCollector` runs the Gate 4 eligibility decision for every candidate before
+branching on which prompt to build, so a canopy or bluebell slot can carry a `SKIPPED_STABILITY`
+disposition exactly like a sky slot, and both mini-batches write their ratings into
+`cached_evaluation` via `mergeWoodlandFromBatch`/`mergeBluebellFromBatch` — the same store the
+resolver already reads, so no rating source is invisible to the new rule.
+
+**Fifth follow-up fix, next day (a third Codex re-review of #940):** the rule above covered two of
+the three stores a rating can live in and stopped short of the one it named but never touched —
+`forecast_score` (V108), the normalised INVERSION/BLUEBELL component rows read by
+`SurvivorSignalReader` (all six survivor-signal hot-topic strategies) and `ForecastDtoMapper` (the
+API DTO's Claude BLUEBELL rating). A component score is evidence exactly like a rating, and a
+nightly Gate 4 stability skip left it exactly as un-retracted as the original bug left
+`cached_evaluation`/`forecast_evaluation`: `forecast_score` UPSERTs only when a Claude call actually
+happens, so a slot the pipeline later declines to re-score leaves its old row standing as "the
+latest" with nothing to mark it stale. A withdrawn Plan-card rating could still carry a bluebell
+hot-topic chip, or a withdrawn map popup could still show the BLUEBELL DTO field, both citing a
+score the pipeline had moved past.
+
+`forecast_score` has no sibling store the way the other two do — a component row is written ONLY on
+an actual Claude call, never a placeholder — so its retraction question is simpler than
+`EvaluationViewService.isSlotRetracted`'s: not "does any live evidence survive across two stores",
+just "is this one row's own `evaluated_at` older than the slot's latest skip". Both readers call the
+existing `EvaluationViewService.isRetractedByStabilitySkip` primitive directly against the
+component's own timestamp — never a second, hand-written condition — keyed by
+`EvaluationViewService.stabilitySkipKey` (now `public`, for exactly this reuse) against a
+`loadStabilitySkips` map each loads itself. `survivor_atmosphere` readings (dust, surge, snow,
+humidity) are untouched: they are measured or forecast atmospheric INPUT, never Claude's opinion, so
+a skip — which retracts an evaluation the pipeline declined to redo — has nothing to say about them.
+
+**Cost.** Six hot-topic strategies each call `SurvivorSignalReader.read()` independently for the
+same window already (18 queries per aggregation, unchanged, a pre-existing shape this fix did not
+touch) — loading the skip map inside `read()` on every call would have added one skip query per
+strategy, which the design explicitly rules out. `SurvivorSignalReader.withStabilityWindow` is the
+fix: `HotTopicAggregator` opens ONE window around its whole strategies pass (a `ThreadLocal`,
+cleared in a `finally` block the instant the pass ends — call-scoped sharing with a hard boundary,
+never a time-based cache with a staleness window of its own), and every `read()` call made from
+inside it shares that one loaded map. Net cost: one additional query per hot-topic aggregation, not
+six. `ForecastDtoMapper` mirrors its own existing `preloadWaves` shape — one `loadStabilitySkips`
+call per `toDtoList` (bulk) and one per single-row `toDto`, each a new query on an endpoint that
+previously issued none, and each already paying several other per-row queries for the one or few
+rows it serves.
+
+**Known, unaddressed, narrower gap.** Unlike `forecast_evaluation`, no fresh `forecast_score` row is
+ever written for a TRIAGE stand-down — only for an actual Claude call — so a component superseded by
+a newer *triage* decision (as opposed to a stability skip) has no mechanism to detect it at all. This
+is not the bug the stability-skip rule fixes and is out of scope here; recorded so it reads as a
+known limit rather than a surprise later.
+
+### Fixed — the spread row's compact rating count was reaching screen readers as a fraction
+
+The compact `N/M rated` text the Spread row shows below the minimum-sample gate (needed to fit a
+realistic pool size into the value column at 320px) had leaked into the card's own accessible
+sentence, so a screen reader voiced a partial-sample card's `1/4` as a fraction or a date-like
+string rather than as the two counts it visually is. `spreadRowState` now returns two strings for
+that state — `text` (the compact form the row shows) and `spoken` (the same fact in words, `N of M
+rated`, for the accessible sentence) — equal only for "none rated yet", which carries no count to
+mis-voice. The tooltip is unaffected; it already built its own fuller sentence independently.
+
+### Changed — the Plan card's spread histogram needs a real sample before it draws a shape
+
+A single rated 4★ location in a 31-place pool used to draw a full-height bar, reading as "this
+sunrise looks good" when the truth was "this sunrise is almost entirely unlooked-at". The histogram
+now draws its five bars only when the rated sample clears both a floor (`rated >= 5`) and a
+coverage half (`rated >= total · 0.5`, mirroring the backend's own thin-coverage confidence rule) —
+below that gate the row prints `none rated yet` or the compact `N/M rated` instead (never "N of M
+rated", which measured too wide for the value column at a realistic pool size), one narrow, dated
+exception to the ban on "N of M scored" copy (plan-matrix-plan.md §4 A27), because here the count
+discloses that the picture is missing rather than standing in for one. An empty pool is not a gate
+failure and keeps its pre-existing five-hairline picture and tooltip sentences unchanged.
+
+Once bars are drawn, the pool's unrated remainder is now a sixth bar of its own — hatched, in the
+same bone ink family the map's unscored plate already uses and at the same diagonal, never a ramp
+colour — sharing the five bands' own scale and sitting to the left of 1★ with a wider gap than the
+2px between bands. The tooltip and the visible row read one shared decision function
+(`spreadRowState` in `utils/windowFirstSpread.js`); the tooltip deliberately says MORE than the row
+below the gate (the pool size, and for a partial sample the rated count), never the row's text
+verbatim. A footer clause names the hatch in words while it is on screen, at every width — it is
+conditional and, in practice, close to permanent once a catalogue has any sparsely-rated windows,
+not a rare or phone-only note.
+
+A follow-up commit the same day corrected an adversarial review's findings against this one: the
+hatch's angle was mirrored against the map's own canvas hatch, an empty pool had picked up new text
+it should not have, the row's text could overflow its column at a realistic pool size, and the
+accessible sentence had dropped the pool count and the "within reach" claim below the gate.
+
+### Changed — hot topics and Coming up report conditions, never a rating's retraction
+
+The owner drew a line between two questions this product answers separately: "what is
+happening" (hot topics, the "Coming up" panel) and "where is worth going" (stars, verdicts,
+picks — `cached_evaluation`, `forecast_evaluation`, `GET /api/briefing`,
+`GET /api/briefing/evaluate/scores`, the map's forecast rows). A nightly Gate 4 stability skip
+or a weather-triage stand-down is a decision against the second question, so it must retract a
+rating — but it has nothing to say about the first. Knowing there is snow, Saharan dust or a
+likely valley inversion is interesting on its own terms, independent of whether the pipeline
+currently judges anywhere worth the drive to photograph it.
+
+This reverses part of #940 (commit c6e14cc8, landed the previous day), which made
+`SurvivorSignalReader` — the read path for all six survivor-signal hot-topic strategies
+(bluebell, inversion, dust, fresh snow, snow on the tops, storm surge) and the "Coming up"
+panel's dust/inversion standing conditions — drop an INVERSION or BLUEBELL `forecast_score`
+component whose own `evaluated_at` predated its slot's most recent nightly stability skip, on
+the reasoning that "a component is evidence exactly like a rating". The owner's decision is that
+this was the wrong analogy for a panel that reports conditions rather than verdicts: a slot the
+pipeline has since declined to re-score is not a reason to stop telling a reader there was strong
+inversion potential, or dust in the air, on that morning.
+
+`SurvivorSignalReader.read` now applies **no retraction of any kind** — it returns every
+`forecast_score` component and every `survivor_atmosphere` reading in the requested window
+exactly as stored. Its `withStabilityWindow`/`resolveStabilitySkips`/`isComponentRetracted`
+machinery, its `ThreadLocal` stability-skip window, and its dependency on `EvaluationViewService`
+are all removed; `HotTopicAggregator` no longer opens a shared window around the strategies pass
+and no longer holds a `SurvivorSignalReader` reference at all, so a hot-topic aggregation issues
+zero stability-skip or disposition queries (previously one, shared across all six strategies;
+before that, briefly, one per strategy). `ComingUpConditionsBuilder`'s three reads through
+`SurvivorSignalReader` (the trailing inversion history and both forward-peak reads) needed no
+code change — they simply stopped being filtered.
+
+`ForecastDtoMapper` is unaffected and deliberately different: it serves the same BLUEBELL
+component as the forecast DTO's *rating*, the second question, so it keeps its stability-skip
+retraction exactly as #940 shipped it. A consequence, stated so it is not later filed as an
+inconsistency: after a stability skip, a slot's bluebell hot-topic chip can now show while the
+same slot's DTO bluebell rating reads null — the chip says bluebells are (or were) out, the
+rating says whether the pipeline currently judges that place worth the drive. Two different
+questions, deliberately answered from the same underlying component by two different rules.
+
+`EvaluationViewService`'s rating-side retraction (`isSlotRetracted`, `isRetractedByStabilitySkip`,
+`stabilitySkipKey`) is unchanged; its javadoc is updated to say only `ForecastDtoMapper` reaches
+those primitives directly now, and to record that `SurvivorSignalReader` deliberately does not.
+
+Tests: `SurvivorSignalReaderTest`, `HotTopicAggregatorTest`, `BluebellHotTopicStrategyTest` and
+`ComingUpConditionsBuilderTest` are updated to pin the new contract with literal expectations — a
+component evaluated long before any later pipeline decision is still returned and still emits its
+topic, through real (not mocked) readers/strategies where the original tests did the same.
+`ForecastDtoMapperTest`'s two retraction tests, and every rating-side test in
+`EvaluationViewServiceTest`, `BriefingRegionEvaluationRollupTest` and `ForecastControllerTest`,
+pass unchanged.
+
+### Changed — the nightly drive-time refresh only re-measures a user who needs it
+
+`drive_time_refresh` used to re-measure every enabled user with a saved home, every night, one
+OpenRouteService matrix call per user against the whole location roster — whether or not anything
+had changed. On a free ORS plan that cost grows with the user count for no benefit on most nights,
+since most answers are identical to the night before.
+
+A scheduled fire now measures a user only when they are due: their `driveTimesCalculatedAt` stamp
+is null (never measured, or a postcode change discarded it — see `UserSettingsService.saveHome`),
+or the location roster has grown since that stamp, so a location added after everyone's last
+refresh does not stay unmeasured forever. Everyone else is skipped with no ORS call at all, decided
+from one query for the roster's newest `created_at` rather than one query per user. A quiet night —
+nobody's postcode moved and nothing was added — now makes zero OpenRouteService calls.
+
+The admin "Run now" trigger (`DynamicSchedulerService.triggerNow`) is unchanged: it still measures
+every enabled user with a home, exactly as before, because it is the deliberate override for the
+one thing the stamp cannot detect on its own — a location's coordinates being corrected in place.
+`DynamicSchedulerService` now tells a manually-triggered job target from a scheduled one via a new
+`registerJobTarget(String, Consumer<Boolean>)` overload; every job that does not care about the
+distinction keeps using the existing `Runnable` overload and behaves exactly as it always has on
+both routes.
+
+The manual Settings-dialog refresh button, its cooldown and its 409 behaviour are untouched.
+
+A follow-up migration (V156) corrects the job's admin-facing `scheduler_job_config.description`,
+seeded by V133 with the old "recalculates every user's" wording, to describe the new skip logic and
+say that "Run now" always re-measures everyone.
+
+A P1 fix (review of PR #942): both the scheduled job and the manual Settings refresh now stamp
+`driveTimesCalculatedAt` with the instant the location roster was READ, captured immediately before
+`measureForUser`, rather than an instant taken once the answer was back — the earlier version could
+silently leave a location unmeasured indefinitely if it was created while routing was in flight;
+`rosterGrewSince`'s boundary is now inclusive (`created_at` equal to the stamp counts as grown too),
+so a tie can never be missed.
+
+Two more P1s (second review of PR #942), both rooted in the same mistake: `driveTimesCalculatedAt`
+was being read as proof that the roster had been covered, when it was not always true.
+
+First, the manual Settings refresh could advance that stamp for an attempt that stored no rows.
+When OpenRouteService gave no answer at all, `UserSettingsService.refreshDriveTimes` used to write
+the stamp anyway (through a now-deleted `UserDriveTimeWriter.stampIfHomeUnchanged`) purely so the
+30-minute cooldown still caught a repeated press. On the one realistic sequence that reaches this —
+a postcode change, whose save has already cleared the stamp, is the only way this button is enabled
+— that left a non-null stamp newer than the roster with zero rows behind it, and the scheduled job
+skipped that user every night thereafter. The stamp now moves only together with stored rows, on
+both routes; an attempt that measures nothing leaves it exactly as it was (`null` on that sequence),
+and the response reports the user's own unchanged stamp rather than "now", so the Settings dialog
+cannot print "Last calculated: Just now" for a refresh that stored nothing. The 30-minute cooldown
+for a *failed* attempt is now tracked separately, in an in-memory `ConcurrentHashMap<Long, Instant>`
+on `UserSettingsService` keyed by user id, consulted alongside the persisted stamp and cleared on a
+successful store, a 409 (home moved mid-measurement), or `saveHome` moving the home — an in-memory
+limiter resets on an app restart, which is accepted for a rate limit on a single-instance app.
+
+Second, `LocationEntity.createdAt` is assigned by the application before the row is saved, so there
+is a gap — however small — between that reading and the row becoming visible to another
+connection's query. A roster read landing inside that gap sees the table one location short, while
+the row it missed still carries a `created_at` earlier than the stamp this class goes on to store —
+which the Round-2 inclusive-tie fix does not catch, since the two instants are not equal, only
+close. `DriveTimeRefreshJob.ROSTER_VISIBILITY_MARGIN` (one hour) widens `rosterGrewSince` further in
+the same direction: a location counts as "added since" a stamp when its `created_at` is at or after
+`stamp minus ROSTER_VISIBILITY_MARGIN`, not only at or after the stamp itself. The real gap this
+covers is bounded by one `JpaRepository.save()` call (`LocationService.add` is not
+`@Transactional`, and the tide fetch that follows `save()` runs after the row is already committed)
+— milliseconds, not the hour chosen; the margin is deliberately generous rather than tight. The
+bounded cost: a user whose stamp lands within the margin after such a location is measured once
+more on the very next scheduled run and never again for that location, because the fresh stamp that
+run stores is then a full day clear of it — the common trigger being an admin adding a location and
+pressing "Run now" within the hour. The residual is stated rather than hidden: an `INSERT` whose own
+transaction stays open longer than the margin would still be missed, and an admin's "Run now"
+remains the remedy for that case, exactly as for a location's coordinates being corrected in place.
+
+One more P1 (third review of PR #942): the second fix above stopped a NEW stamp-without-rows state
+from being written, but did nothing about one an earlier build had already left in the database.
+`DriveDurationService.measureForUser` documents two different kinds of "nothing": no answer from ORS
+at all (an empty `Optional`), and ORS answering with no valid duration to *any* location (a present
+but empty list) — the javadoc's own words are "ORS answered, and storing it clears the stored ones".
+`UserSettingsService.refreshDriveTimes` only closed the first kind; the second still called
+`UserDriveTimeWriter.storeIfHomeUnchanged` with an empty list, which clears a user's stored rows and
+stamps in the very same compare-and-set — recreating the exact stamp-without-rows state the previous
+fix exists to prevent. Both kinds of nothing are now handled identically on the manual path: no
+writer call, rows and stamp both left exactly as they were, matching what the scheduled job's own
+`run` method has always done for an empty measurement regardless of cause.
+
+A new migration, V157, reconciles the state an earlier build could already have left behind: it
+clears `drive_times_calculated_at` for every user who has a stamp and zero `user_drive_time` rows,
+using `NOT EXISTS` so it is a safe no-op on re-run. Production, checked read-only before this
+migration was written, holds zero affected rows today (4 users, 2 with a home, 2 stamped, none
+stamped without rows) — the migration is precautionary for other environments and the window before
+deploy, not a repair for a live incident. `DriveTimeRefreshJob.needsRefresh`'s javadoc now states the
+one cost this rule accepts on purpose: a user whose home can never be routed to anywhere gets no
+rows, ever, so their stamp stays null and every scheduled run measures them again, one ORS call each
+— exactly this job's pre-skip-logic behaviour, now confined to the users it actually applies to.
+Local H2 dev databases run no migrations at all (see this file's own "no Docker" section), so a
+local database holding a legacy stamp-without-rows row — reachable only by having exercised the old
+buggy code path before pulling this fix — keeps it; no startup repair was added for that case, since
+it is narrow, self-inflicted, and already covered by this project's documented local-reset procedure
+(delete `backend/data/goldenhour.mv.db` and `.lock.db`).
+
+One more P1 (fourth review of PR #942), against the previous fix's own decision: merging the two
+kinds of nothing on the manual path went too far. `DriveDurationService.measureForUser`'s
+confirmed-unreachable answer (ORS answered; no destination has a valid duration) is not "nothing
+learned" — ORS has just told us the stored drive times are stale, and the previous fix's merge left
+them in place, so the reach lens and a leave-by time went on using journeys ORS had just
+invalidated. The decision: a confirmed-unreachable manual refresh CLEARS the user's rows and sets
+the stamp to `null` together — a new guarded `UserDriveTimeWriter.clearIfHomeUnchanged`, using the
+same compare-and-set shape `storeIfHomeUnchanged` uses, on its own dedicated repository method
+(`AppUserRepository.clearDriveTimesCalculatedAtIfHomeIs` — a literal `SET ... = NULL`, added after
+review rather than calling `stampDriveTimesIfHomeIs` with a `null` instant, so the write never
+depends on how a bound null binds on a given JDBC driver) and `clearForUser`'s row delete — no third
+way to delete rows. That leaves the EXACT state
+a home move already produces (rows gone, stamp `null`), which the rest of the product already
+handles honestly: no "Last calculated" line, the reach lens reads the location as unknown, and the
+scheduled job measures the user again on its very next run because the stamp is null. The no-answer
+case (ORS gave no answer at all) is unchanged from the previous fix: rows and stamp both left
+exactly as they were.
+
+The scheduled job's own behaviour is unchanged and now stated as a deliberate decision, not merely
+inherited: it treats both kinds of nothing identically, as a failure that stores nothing, because it
+runs unattended overnight and a transient ORS wobble returning zero valid durations must not
+silently wipe a user's drive times before anyone is looking. `UserDriveTimeWriter`'s class javadoc
+now carries the full outcome table — {rows stored, no answer, confirmed unreachable, home moved} ×
+{manual, scheduled} — as the single source of truth for which route does what to the rows and the
+stamp on each outcome.
+
+The 30-minute manual-refresh cooldown for a confirmed-unreachable attempt is enforced entirely by
+the in-memory `pendingDriveTimeAttempts` map now, deliberately left in place (not cleared) after a
+successful clear: the persisted stamp that attempt leaves behind is `null`, so unlike a successful
+store it cannot cover the cooldown on its own. A home move during a confirmed-unreachable
+measurement still answers 409 with nothing written, clearing the pending-attempt entry exactly as
+the stored path's 409 already did, and `saveHome` moving the home clears a confirmed-unreachable
+attempt's pending entry too, releasing the cooldown for an immediate retry from the new home.
+
+V157 is unaffected: the invariant it repairs — no non-null stamp with zero rows — still holds after
+this change, since `clearIfHomeUnchanged` sets rows and stamp together, atomically, guarded by the
+same compare-and-set `storeIfHomeUnchanged` uses.
+
+A CI failure surfaced a defect in `ClearDriveTimeStampWithoutRowsMigrationTest`'s own seeding,
+unrelated to V157 itself: the test hard-coded primary keys (`app_user.id = 1`, `locations.id = 1`)
+that collided with rows Flyway migrations seed on every fresh database (V10's admin user, V84's
+bluebell locations) — a defect the local gate cannot catch, since local dev runs no migrations and
+this class only runs in CI. Fixed by reading every id back via `INSERT ... RETURNING id` instead of
+assuming one, and by reusing a location Flyway had already seeded rather than inserting a new one.
+Every assertion now selects by the ids the test itself created, so the seeded admin row (no stamp,
+no rows) cannot affect a result even incidentally. The container field was already non-static
+(a fresh container, and therefore a fresh schema, per test method), so the two test methods were
+never able to see each other's rows regardless of run order — the collision was each method against
+Flyway's own seed data, not the two methods against each other.
+
+A further review pointed out that `clearIfHomeUnchanged`'s compare-and-set had only ever been
+exercised through mocks — no test had run the actual `SET ... = NULL` statement against a real
+database, so a null bind that a JDBC driver could not type would only fail at runtime, on a rare
+path. `AppUserRepository` gained its own dedicated `clearDriveTimesCalculatedAtIfHomeIs` method (a
+literal `SET u.driveTimesCalculatedAt = NULL ...`, not `stampDriveTimesIfHomeIs` called with a
+`null` instant), removing the question rather than relying on an untested answer, and
+`clearIfHomeUnchanged` now calls it. Two real-database tests were added either way, because they
+prove the method's whole behaviour (the delete, the atomicity, the guard), not only the null-bind
+question the repository change already settles: `UserSettingsRaceSequenceTest` (H2, runs locally)
+and `UserSettingsRowLockIntegrationTest` (Postgres, CI-only) each gained a pair proving the rows are
+deleted and the stamp nulled when the home matches, and that both survive untouched when it does not.
+
+One more P1 (fifth review of PR #942), on `DriveDurationService.measureForUser`'s OTHER kind of
+partial result: a successful ORS answer that omits one or more destinations (a null or negative
+duration for that destination specifically) while storing valid durations for the rest. `run` was
+already advancing the stamp on such an answer, so an omitted destination was never retried on the
+schedule alone. Verified before deciding: `OpenRouteServiceClient.fetchDurations` makes one
+un-chunked call per measurement, and a transient failure (unconfigured, rate-limited, malformed or
+empty response) fails that whole call rather than returning a partial list — so a null or negative
+entry can only come from ORS's own per-destination answer within an otherwise successful response, a
+definitive "no route exists" result, never a transient one. Decision: **keep the behaviour.**
+Refusing to advance the stamp until every destination succeeds would make every user due every
+night for as long as one location in the roster is unroutable from anywhere — not hypothetical,
+since production held exactly such a location (a latitude typo placing it in the sea) until this
+date, undetected. That is a data problem an admin fixes by correcting the coordinates, and the
+admin's "Run now" (which bypasses this predicate) re-measures everyone the moment they do; nightly
+retries cannot fix coordinates, and the location renders honestly meanwhile (no drive time is
+"unknown," passing every reach tier). `DriveTimeRefreshJob.needsRefresh`'s javadoc now records this
+as a decision taken in review, dated 2026-09-29, and the scheduled route logs one aggregated WARN per run
+(never one per user) naming every location a successful measurement omitted that run, so an
+unroutable location is visible to an operator the first night it appears — a manual "Run now" skips
+this query and its WARN, since it already hands its result straight to the admin who pressed it.
+
+One more P1 (sixth review of PR #942), on the in-memory `pendingDriveTimeAttempts` map itself:
+it was keyed only by user id, so it could throttle a refresh reading a DIFFERENT home from the one
+the pending entry was actually about. Sequence: a manual refresh reads home A; before it records
+its attempt, `saveHome` commits a move to home B and removes that user's pending entry — finding
+nothing, since the refresh has not recorded it yet; the refresh then records its attempt (still
+against A, the home it read) and ORS gives no answer or throws. The entry left behind carried no
+origin, so an immediate refresh reading the new home B was refused with 429 for up to 30 minutes,
+even though a home move is documented to release the cooldown.
+
+Each entry now carries the home coordinates the refresh read alongside the attempt instant
+(`UserSettingsService.PendingAttempt`, a package-private record: `attemptedAt`, `originLat`,
+`originLon`). The 30-minute cooldown only counts a pending entry when its origin matches the
+caller's CURRENT home, read fresh at the top of the same refresh; a mismatched entry is ignored
+exactly as if it were absent, and `refreshDriveTimes` unconditionally overwrites whatever was there
+with a fresh entry for the origin it just read — "ignored and replaced," never merely ignored.
+Origin comparison is exact `==` on both coordinates, the same equality
+`AppUserRepository.stampDriveTimesIfHomeIs`'s JPQL already uses on the same `DOUBLE PRECISION`
+columns — no tolerance introduced that the persisted compare-and-set does not already have.
+
+An attempt that THROWS is handled by the same rule, not a separate one: nothing in
+`refreshDriveTimes` catches `measureForUser`'s exception, so the entry recorded a moment earlier
+(against the origin that call was reading) survives it exactly as it survives a no-answer response.
+A retry from that SAME origin within the cooldown is still throttled; a retry from a DIFFERENT
+origin is not, for the identical reason a no-answer entry releases on a different origin.
+
+`saveHome`'s own removal of the pending entry is kept, unconditionally, on every move — but it is
+now a tidy-up rather than the thing correctness depends on, since the origin check already makes a
+stale entry harmless even where this removal's own race finds nothing yet to remove. A move away
+and back to the same coordinates within the cooldown (A to B and back to A) does not resurrect the
+earlier A-scoped entry: `saveHome` clears the pending entry on EVERY move, including the one back to
+A, with no memory of what the home used to be — consistent with the persisted stamp and rows, which
+`saveHome` also clears unconditionally on every move and never restores merely because the
+coordinates recur.
+
+Every read-then-write on the map that removes an entry it wrote itself now uses the value-conditional
+`remove(key, value)` rather than a bare `remove(key)` — after a successful store, on the 409 path,
+and on the confirmed-unreachable-but-home-moved 409 — so a concurrent refresh for the same user
+cannot have its own fresh entry clobbered by a stale one finishing late. Two simultaneous refreshes
+for the same user and the same origin: the second is refused with 429 if its own throttle check runs
+after the first has recorded its attempt (the ordinary case, since the entry is written before the
+ORS call); a genuine race where both read the map before either writes is unchanged from before this
+fix and remains out of scope here, as it was before.
+
+New tests in `UserSettingsServiceTest`'s `ManualAttemptCooldown` nested class reproduce Codex's
+exact interleaving for both a no-answer attempt and one where ORS throws — both fail against the
+prior commit, whose map carried no origin at all — plus a same-origin-after-exception throttle test
+and an A-to-B-and-back-to-A test pinning that a move-away-and-back does not resurrect an earlier
+attempt.
+
+### Docs — CLAUDE.md records the suite sizes, dated
+
+Measured on 2026-09-28 at `f849f13d`: 8,690 backend tests with the 11 CI-only integration classes excluded (53 more `@Test` methods there), 6,807 frontend tests in 266 files. A dated line under *Test Standards*, so a reader can tell a healthy run from a starved one; re-measure rather than trust it.
+
+## [v2.22.1] - 2026-09-26
+
+### Fixed — the map tide-mode save no longer takes part in the settings answers' order
+
+A tide-mode save that landed before the mount-time settings read made that read fail its own
+ordering claim and be dropped whole — home, colour and last-seen date with it — and an older
+choice landing or failing after a newer press put the older mode back on screen for the newer
+save's whole flight. Two Codex findings on the merged M4 change. The tide mode now keeps an order
+of its own, apart from the answers' order, and only the newest press moves what is shown; the
+mount read applies its tide mode only while nothing has been chosen and sets the rollback
+baseline only while nothing has landed.
+
+### Docs — Map tab on a phone: the peek sheet, planned
+
+The owner's `design_handoff_map_mobile_sheet` bundle is vendored at `docs/design/map-mobile-sheet/`
+(spec, prototype, six screenshots, `VENDORING.md`), and `docs/engineering/map-mobile-sheet-plan.md`
+is the port plan: sixteen places the codebase already differs from the spec (`BottomSheet.jsx`
+cannot be the sheet; the phone "bottom bar" is CSS on `.wf-map-chrome-tr`; the toast has no
+timer; every tide cue already keys off one `tideTier` field), six single-session phases M1–M6, the
+deliberate disagreements, the decisions taken, and the README's Verify list mapped to measurements.
+`docs/engineering/map-mobile-sheet-prompts.md` carries one kickoff prompt per phase. No code.
+
+### Docs — map peek sheet series complete
+
+`docs/engineering/map-mobile-sheet-plan.md`'s M6 sweep closes out the phone peek-sheet series
+(M1–M6, all six phases now landed): §1's line-number citations re-verified against the tree
+(`MapView.jsx` grew to 6,729 lines) and corrected, with the handful that had been semantically
+overtaken by M1/M2/M3/M5 themselves flagged rather than silently renumbered; the §0 phase log gains
+a measured M6 row (collapsed sheet 74px exactly, open 356px clamped to `calc(100% - 64px)`, the
+map's own visible height above the collapsed sheet measured 591px against the spec's ~440px
+estimate) at both 390×844 and 1280×900, plus a tablet spot-check; the §0 table's `commit` column
+now carries every phase's PR (M1 #924, M2 #927, M4 #925/#929, M3 #928, M5 #930); §6's six owner
+questions answered against what shipped; M3's one-off `outerHTML` golden-string pin deleted from
+`MapTideStrip.test.jsx` now that the split it proved has stood. CLAUDE.md gains a new **Map tab on
+a phone — the peek sheet** bullet, the Backend-heavy bullet's three new client reads join the
+existing filter/map/select licence rather than opening an eighth numbered class, the stale "Phone
+layout moves Regions/Heat-Pins/Filters into a bottom bar" and tide-strip-phone-mount sentences are
+corrected, and a stale API-doc parenthetical on `PUT /api/user/settings/map-tide-mode` (still
+claiming "no frontend caller" after M5 wired it up) is fixed. `map-tab-v2-plan.md`, `tide-window-
+plan.md` and `map-landing-plan.md` each gain a short cross-reference note recording what this
+series retired or superseded in their own territory. No user-visible behaviour change.
+
+### Added — the phone tide rule: Auto/Always/Off, one gate, a one-shot pulse
+
+Phase M5 of `docs/engineering/map-mobile-sheet-plan.md`. `utils/mapPeek.js#tideVisible({ mode,
+tideAvailable, hasCoastalInView, tier })` is the pure Auto/Always/Off rule: `off` is always false;
+`always` reads only `tideAvailable` (a served solar tide, ignoring the coast-in-view test and the
+verdict — a night row still shows nothing); `auto` requires all three — a served tide, a named
+coastal spot in the padded viewport, and the window's own served verdict at `WORTH_IT` or `MAYBE`
+(a `null`/`AWAITING` verdict reads as "not Maybe or better", never as a pass). `mapTideFit.js` gains
+`coastalInView(spots, bounds)`, the `bounds.pad(0.12).contains(...)` filter `stripModel` already ran
+internally, lifted to its own export so there is one definition — `stripModel` now calls it too, and
+`tideVisible`'s caller calls it a second time on the map's UNDECORATED spot list, before `tideTier`
+exists, taking care to pass `.length > 0` rather than the array itself (an empty array is truthy).
+
+`MapView` computes the three inputs from data available BEFORE the spot-build site — the block
+computing `mapEvents`/`evVerdicts`/`activeMapEvent` moved earlier in the render for exactly this
+reason, since the rule needs the active window's own verdict tier before `labelSpots` decorates
+anything — and the single `tideTier` null at that site (§1 #6) now reads `tideCuesOn ? tierOf(tide)
+: null`, with `tideShortfall`/`tideFitPhrase` following it; every consumer (`MapLabels`,
+`PinsLayer`, both tooltips, the dimming CSS) is unchanged, because they all already keyed off that
+one field. `tideCuesOn` is `!isMobile || tideVisible(...)`, so desktop/tablet are provably
+untouched. The Tide peek button and its section now render exactly `iff tideVisible`, reusing M3's
+close-and-rescue mechanism unchanged in shape — only the gate's source moved from
+`stripModel.visible` to `tideCuesOn`.
+
+A one-shot pulse (`.wf-map-peek-btn-pulse`, a `box-shadow` sweep, 1.2s, removed on its own
+`animationend` rather than a timer) plays on a false → true transition of `tideCuesOn`, armed only
+after the FIRST bounds-backed evaluation (`tideViewBounds` is `null` until `BoundsTracker`'s mount
+effect reports the real viewport, so a coastal Worth-it window's first resolved visibility is itself
+a post-mount transition that must not pulse). Dropped under `prefers-reduced-motion: reduce`.
+
+The Layers section gains a Tide row — a `.wf-seg` Auto/Always/Off segment plus a fixed hint line —
+wired to `useReaderSettings`' existing `mapTideMode`/`saveTideMode` (M4), which already serialises
+saves and reverts to the last persisted mode on failure; `MapView` only reacts to the outcome,
+announcing a failure through the pane's one `role="status"` region and clearing that message the
+instant a fresh press is made.
+
+**Two Codex retrospective findings on #927/#928, fixed here** (both land in code this phase already
+edits):
+
+- **#927 — the Layers Show (Heat | Pins) row rendered unconditionally on phone.** When
+  `heatOffered` is false (no served heat data, or an astro/aurora window on screen), both `heatOn`
+  and `heatPinsOn` are forced false and neither `MapLabels` nor `PinsLayer` mounts — the desktop
+  toolbar cluster was already correctly gated on `heatOffered`; the phone Layers row now matches it.
+- **#928 — the close-and-focus-rescue effect could never actually rescue focus.** It compared
+  `document.activeElement === tidePeekBtnRef.current` from inside a `useEffect`, which runs strictly
+  after the commit that unmounts the Tide button when its own gate turns false — by then the
+  browser has already reset focus to `<body>` and React has already nulled the ref (proven with a
+  plain jsdom `removeChild` call). M3's own close scenarios never happened to land on a
+  focused-and-unmounting button in a real browser pass, so this stayed latent until M5's Auto rule
+  made it routine. Fixed by tracking focus independently: `focus`/`blur` handlers on the Tide button
+  itself maintain a `tideButtonHadFocusRef` (a `blur` event is not fired when a focused element is
+  simply removed, so the ref's `true` survives the unmount intact), and the rescue effect reads and
+  resets that ref instead of comparing `document.activeElement` after the fact.
+
+A third finding surfaced by this phase's own adversarial review (not from Codex): **Always mode can
+open the Tide section with NOTHING coastal in the padded viewport** (Always deliberately ignores the
+coast-in-view test), which made `MapPeekTideSection` fall through to `footerModel`'s "no coastal
+spot here has its water on this light" sentence — a sentence that, on the desktop strip, can only
+mean "spots are in view but none carry a served alignment fact" (the desktop strip's own mount is
+gated on `stripModel.visible`, so an empty viewport was structurally impossible there). The phone
+section now checks `model.visible` itself and states the honest, distinct reason ("No coastal spot
+in view — pan the map to see one.") rather than printing the ambiguous shared sentence for a case
+the desktop strip can never reach.
+
+**Tests**: `tideVisible`'s full 3×2×2×5 truth table (`mapPeek.test.js`); `coastalInView`'s own unit
+tests including the empty-array-is-truthy trap (`mapTideFit.test.js`); new `MapPeekSheet`-level
+pulse-class-present/absent tests; two new `MapPeekTideSection` tests for the `model.visible` fix; a
+new `MapViewMobileTideRule.test.jsx` proving the WIRING a unit test cannot reach — a coastal spot in
+view on a Poor window carries no `data-tide` on any chip or pin though its tide is served and
+aligned, Off/Always invert that on the same fixture, panning the spot out of view hides it on an
+otherwise Worth-it window, the pulse fires only on a genuine post-seed transition, the
+close-and-rescue actually lands focus on Other windows (and does NOT steal it when the button never
+held it — the `#928` fix's own negative case), the Layers segment calls `saveTideMode` and surfaces
+a failure, and desktop/tablet carry `data-tide` on a Poor window regardless of the saved mode; two
+new tests in `MapViewMobilePeekSheet.test.jsx` for the `#927` fix (Show row present/absent on
+`heatOffered`); a cascade test reads the pulse keyframes and its reduced-motion override off the
+real stylesheet.
+
+⚠️ One test was written and removed: `fireEvent.animationEnd` reliably invoking a React
+`onAnimationEnd` handler proved non-deterministically flaky the moment ANY other test file shares
+its vitest worker — reproduced with a trivial `<div onAnimationEnd>` canary paired against
+already-merged, unrelated files (`MapLabels.test.jsx`, `MapViewMobilePeekSheet.test.jsx`), with the
+identical file combination passing on some runs and failing on others, in both directions. This is
+a pre-existing jsdom/React event-delegation quirk in the suite, not a defect in the wiring it was
+testing (a source read confirms `onAnimationEnd={onTidePulseEnd}`/`onTidePulseEnd={clearTidePulse}`
+are both wired, and the pulse-class tests already exercise the class itself appearing/disappearing
+with state); recorded here so the missing coverage reads as a decision.
+
+**Browser (390 × 844, the seeded fixture with today's Worth-it sunset and tomorrow's Poor sunrise,
+real coastal `tide_extreme` data, SEEN AND MEASURED)**: stepping the pill to the Poor window removes
+the Tide button and every `data-tide` glyph on the coastal chips shown; zooming into an inland view
+removes the button on the still-Worth-it window (Dunstanburgh Castle's dim count drops from 4 to 2
+to 0 as the padded viewport narrows); zooming back out restores it; the Layers section's Tide row
+renders with Auto pre-selected and the exact hint copy. Desktop (browser default width) is
+unchanged: the landing card, the standing tide strip and its own footer render exactly as before, no
+`.wf-map-peek` in the DOM. NOT independently confirmed this session: a mid-flight screenshot of the
+pulse animation itself (the tool's round-trip latency exceeds the 1.2s window; the class's
+appear/clear behaviour is TESTED, not photographed) and the Always/Off segment's live visual effect
+or its persistence across reload — pressing Off/Always against the shared local backend on :8083
+returned `500` from `PUT /api/user/settings/map-tide-mode` (confirmed directly with `curl`, and via
+H2 introspection: `app_user` has no `map_tide_mode` column on that running instance's database,
+though the source's V155 migration and `AppUserEntity` both declare it — the shared backend process
+needs restarting to pick up schema changes made since it was last started, which this session's
+rules withhold permission for). The FAILURE path was genuinely exercised and behaved correctly: the
+segment stayed on Auto (never got stuck showing the failed choice) and the pane's `role="status"`
+region read "Could not save tide mode — kept the last saved choice." — a real, unscripted proof of
+`saveTideMode`'s own revert-on-failure rule, for what that is worth. The success/persistence path
+is TESTED (`MapViewMobileTideRule.test.jsx`'s Layers-segment describe block, `useReaderSettings`'s
+own M4 tests) but not SEEN live this session.
+
+### Added — user settings: persisted map tide mode (auto / always / off)
+
+A new per-user preference, `map_tide_mode` (V155), copying the map-colour preference's shape
+exactly: nullable with no default (null = never chosen = Auto on the client), written only through
+a column-scoped repository update, never a whole-entity save. `PUT /api/user/settings/map-tide-mode`
+validates against `auto`/`always`/`off`, `UserSettingsResponse.mapTideMode` rides the existing
+settings payload, and `hooks/useReaderSettings.js` exposes `mapTideMode` (defaulting to `'auto'`)
+and a `saveTideMode(mode)` action serialised through its own line of saves — one save in flight at a
+time, a newer choice queued behind an older one supersedes it, and a failed save reverts to the last
+mode the server is known to hold rather than to a discarded queued choice or the pre-session value
+(reusing `colourSaveQueue.js`'s mechanics, which already generalise over the save function).
+
+This is Phase M4 of the map mobile sheet plan (`docs/engineering/map-mobile-sheet-plan.md`): no UI
+ships in this phase. `mapTideMode`/`saveTideMode` are threaded through `App.jsx` →
+`WindowFirstMapPane` → `MapView` on the same route as `mapColourScale`, wired and tested here so
+Phase M5 (the Auto rule and the Tide mode control) needs no new plumbing of its own.
+
+### Added — the phone tide strip becomes the peek sheet's Tide section
+
+Phase M3 of `docs/engineering/map-mobile-sheet-plan.md`. `components/map/MapTideStrip.jsx` is
+split into three exported pieces the desktop/tablet strip keeps composing unchanged —
+`TideStripHeader`, `TideDayChart` (the served curve, night shading, dashed HIGH/MID/LOW rules, the
+light marker and its height) and `TideStripFooter` (the dimmed-count sentence and the next-fit
+jump/denial) — a refactor pinned by a one-off `outerHTML` golden-string test (captured from the
+pre-split component, deleted at M6) so the desktop strip's own rendered DOM is provably untouched.
+`TideDayChart` gains a `tall` projection (viewBox height 92 instead of 32, algebraically identical
+at the default via a `× (32/32)` no-op) that the new `components/map/MapPeekTideSection.jsx` reuses
+for the sheet, alongside `TideStripFooter` unchanged — the section's own header line (key, phase,
+height/time) is new layout, but the chart and footer read the identical served facts the desktop
+strip already prints, so the two can never disagree.
+
+The peek sheet gains its third button — `MapPeekSheet` mounts `Tide` (fixed key
+`TIDE AT THIS LIGHT`, never swapping to `CLOSE` the way `Other windows` does) gated on
+`stripModel.visible`, with a value line from a new `utils/mapPeek.js#tideSummary` (the served tide
+state as one word, an arrow only when `MID`, and the strip's own licensed dimmed count — omitted
+entirely at zero rather than printed as "0 dim"). `MapView` owns the close-and-rescue this button
+needs: the `‹ ›` steppers can land on a window with no served tide (a night row, or a solar window
+with no coastal spot in view) while the Tide section is open, unmounting its own trigger — the
+section then closes in the same render and, if the vanishing button held focus, hands it to Other
+windows. Because this component's early "no forecast data" return sits between where every hook
+must run and where the tide state is actually computed, the close-and-rescue is a `useRef` hand-off:
+an effect declared ahead of that return reads a `{active, tideVisible}` pair a plain (non-hook)
+assignment further down writes fresh every render — the ref read always sees the render that just
+committed, never a stale one. M5 replaces only the gate's source (`stripModel.visible` →
+`tideVisible(...)`), reusing this mechanism unchanged.
+
+The phone `MapTideStrip` mount and its `--tsh`-driven phone CSS
+(`.wf-map-tab .wf-map-tide-strip`, `.wf-map-tab.wf-tide-strip-on .wf-map-chrome-bl`) are retired
+outright — `--tsh`/`wf-tide-strip-on` are desktop/tablet-only from here, and the phone's
+`.wf-map-chrome-bl` bottom is the plain M2 literal in every state.
+
+**Tests**: the `outerHTML` pin; `MapPeekTideSection.test.jsx` (every line from one `stripModel`
+fixture, the zero-dimmed sentence, the jump calling `onSelectEv` with the scanned row and focusing
+the stable target *before* that call, the disappearing-link keyboard path, the beyond denial);
+`tideSummary`'s five named cases; `MapPeekSheet.test.jsx`'s new Tide-button describe (the AND-gate,
+the fixed key, ref attachment, one-body-at-a-time); `mapPhoneChromeCascade.test.jsx`'s phone
+tide-strip describe rewritten to assert the retired rules' absence and the unconditional
+`calc(74px + 27px + 8px)` literal; `MapViewTideStripCalloutWiring.test.jsx` re-pointed to assert no
+`MapTideStrip` mounts on the phone at all (not merely that it's unreachable) and that
+`tideStripHeight` therefore never leaves the `null` `MapCallout`'s `--psh`-based band reads instead.
+
+**Adversarial review (three read-only lenses)**: no findings survived. One lens re-derived the
+`yForAt`/`32÷32` floating-point identity by hand and confirmed the desktop strip's `outerHTML`,
+CSS and focus-order are provably unchanged; one lens read every new computation
+(`tideSummary`, the section's height/time join, the `tall` viewBox) against CLAUDE.md's
+Backend-heavy rule and found each one a licensed filter/map/select over already-served facts, never
+a new derivation; one lens verified the `useRef`/no-dep-array close-and-rescue effect is race- and
+loop-safe, every prop MapView passes matches `MapPeekSheet`'s PropTypes, the chart stays
+`aria-hidden` as a whole, and `eslint --max-warnings 0` passes clean.
+
+**Browser (390 × 844 and 1280 wide, seeded with real coastal tide extremes, SEEN AND MEASURED)**:
+phone — the Tide button shows `~Mid ↑ · 4 dim` on tonight's Worth-it sunset; opening it renders the
+section against screenshot 03's structure (key, phase line, height/time, chart with HW/LW labels
+and the light dot, dimmed sentence, next-fit line); stepping the pill to tomorrow's Poor sunrise
+updates the section in place without hiding the button (M5's own rule, not this phase's); a map
+touch collapses the open section back to 74px. Desktop at 1280 wide — the strip renders unchanged
+(`TIDE AT THIS LIGHT`, the state/direction phrase, the chart, the same dimmed-count/beyond footer
+text), no `.wf-map-peek` present. TESTED, not merely seen: the served fixture's tide never produces
+a "jump" (only "beyond") case within its 4-day horizon, an artifact of the synthetic seed's phase —
+the jump path itself is exercised at the unit level (`MapPeekTideSection.test.jsx`,
+`MapTideStrip.test.jsx`), not in the browser this session.
+
+### Added — one collapsed peek sheet replaces the phone's floating map controls
+
+Phase M2 of `docs/engineering/map-mobile-sheet-plan.md`. On a phone (`hooks/useIsMobile.js`) the
+Map tab's window pill dropdown, the Regions/Heat-Pins/Filters bar and the standing tide strip are
+replaced by one new `components/map/MapPeekSheet.jsx` — an in-frame, backdrop-free section (never
+`components/BottomSheet.jsx`, which has no collapsed state, portals behind a map-blocking backdrop
+and reads as a foreign modal to every Escape rule on the tab) that starts collapsed at 74px with
+two summary buttons (Other windows · Layers — the Tide button and section arrive at M3) and opens
+to 356px on one section at a time, clamped to the frame (`max-height: calc(100% - 64px)`).
+
+The pill body opens the sheet's Windows section on the phone instead of the desktop listbox
+(`WindowControl`'s new `pillOverride` prop swaps its popup semantics along with it — no
+`aria-haspopup="listbox"`, `aria-controls` pointed at the sheet's own body, `aria-expanded` read
+from whether the section is open). The Windows section heading is the served-derived
+`landingCardModel().header`, never a fixed string; its rows are the pill's own roster, with night
+rows showing the licensed `{bestRating}★ best` figure in place of a verdict word; its last row is
+the only phone entry to the region drilldown, which collapses the sheet by `openMapMenu`
+exclusivity alone. The Layers section carries Show (Heat/Pins), Regions and Filters trigger rows
+and the ramp legend; `RegionsJump`/`FiltersPopover` gain a `chipHidden` prop and stay mounted
+outside the sheet's body so their `BottomSheet` stays reachable once the row that opened it
+unmounts, with a new `restoreFallback` prop (threaded through to `useDialogFocus`) returning focus
+to the Layers button on close.
+
+The sheet collapses on any Leaflet `mousedown`/`touchstart`/`dragstart`/`zoomstart`
+(`SheetDismissOnMapTouch`, deliberately not `useOutsideDismiss`, whose whole rule is the opposite —
+panels persist through a map touch) and whenever a selection installs by any route (a new effect
+keyed on `selectedLocationName`, since chips/pins/handoffs all write it directly and stop click
+propagation before the map listener ever sees them); a peek press clears the selection first, so
+the callout and an open section never coexist in either order. The phone's lifted stack (attribution,
+the LITE viewline-upsell chip) is rebuilt against the sheet's own collapsed height instead of the
+retired bar, and the counts footer — with no phone home left at all — is unconditionally
+`sr-only`-clipped rather than lifted; `MapCallout`'s phone band now reads a fixed `--psh: 74px`
+custom property instead of measuring a live rect, since the callout and an open sheet never
+coexist. `mapPhoneChromeCascade.test.jsx` is rewritten (not deleted) for the new two-row stack.
+
+**Adversarial review (four read-only lenses): all real findings fixed before the commit landed** —
+a stale doc comment claiming the phone tide strip sat at its own `z-index: 1120` rung (it is
+chrome-tier, 1100, unchanged by the phone media query) corrected; a `MapPeekWindowsSection` test
+asserted only that the active row carried the `.on` class, never that its sibling did not; no test
+proved the Tide button is absent in M2 (task 2's explicit "never render an empty panel" rule); no
+test proved `aria-expanded` tracks the same pill through a real open→close cycle rather than two
+separate mounts; and no test exercised D-7's reverse-order clause (a peek press clearing an
+existing selection before growing the sheet) — all five closed. The accessibility lens measured the
+peek row's 8.5px key labels at `~7.1:1` contrast against the sheet's own background — comfortably
+clears WCAG AA for small text.
+
+**Browser (390 × 844 and 1280 wide, SEEN AND MEASURED)**: phone — sheet exactly 74px collapsed,
+356px open; the pill's `aria-haspopup` absent and `aria-controls="wf-map-peek-body"`; the Windows
+section shows the served header and per-tier verdict colours; the Layers section's Regions row
+opens the real `BottomSheet` with the peek sheet gone, and both a real Escape press and the ✕
+button return focus to the Layers peek button; a real mouse drag on the map collapses an open
+section; the verdict span in the "Other windows" button computed `flex: none`. Desktop — the
+landing card, the Regions/Heat-Pins/Filters bar, the Legend chip and the counts footer render
+exactly as before, no `.wf-map-peek` anywhere.
+
+### Changed — on a phone the Map tab now opens quiet: no landing card, and the scored-locations toast fades
+
+Phase M1 of `docs/engineering/map-mobile-sheet-plan.md`. On a phone (`hooks/useIsMobile.js`) the
+"Tonight, or tomorrow?" landing card no longer auto-opens — `MapView`'s own `landingOpen` is
+unconditionally `false` there, so the phone never writes `localStorage.mapLandingSeenRun` either (a
+reader who dismisses nothing on the phone still meets the card fresh on a desktop later), and the
+window pill's `↺ Back to …` reopen row is withheld rather than left pointing at a card that can
+never be reopened. The "★ PhotoCast-scored locations shown" toast (the Map tab's own copy — the
+frozen Plan-tab overlay's copy is untouched) moves from the bottom lifted stack to a fixed, centred
+`top: 62px` and fades out (`wf-map-scored-legend-gone`, `aria-hidden="true"`) 3,000 ms after its
+`|date|eventType|` key last changes — a window change or a re-mount restarts the clock — with the
+fade dropped under `prefers-reduced-motion: reduce`. Desktop and tablet are unchanged on both
+counts. A conflicting tide-strip-displaced `bottom` override for the toast, which would otherwise
+have out-specificity'd the new fixed `top` rule and over-constrained the box, is retired the same
+way its own arithmetic is retired for the rest of the phone chrome in a later phase.
+
+### Changed — the map's match tide glyph now carries its matched water as a letter
+
+Two neighbouring coastal spots could show different tide glyphs for the same window purely because
+their wanted tide types differed — a plain wave here, an arrow two kilometres away — over one
+identical served tide state, which read as a contradiction rather than as two questions answered
+correctly. The match glyph now spends the same wide slot the miss arrow already used on a direction
+to state the water it matched instead: H, M or L, drawn beside the wave on the map label chip, the
+region-panel row, the callout/sheet tide-fit block, and the Plan tab's best-reachable line. No new
+backend field — the letter reads the tide state each of those surfaces already carried. The
+accessible clause changes to match ("mid tide, right here" rather than the state-blind "tide right
+here").
+
+## [v2.22.0] - 2026-09-25
+
+### Added — Plan/Map: the per-location eclipse spot line, and the lunar eclipse docs sweep (L7)
+
+Phase L7 (final) of `docs/engineering/lunar-eclipse-plan.md`: a new shared component,
+`components/map/EclipseSpotLine.jsx`, mounted as a sibling block right after `TideFitBlock` in both
+`LocationFourDaySheet` (the location sheet, one row per solar window) and `MapCallout` (the Map
+tab's selection callout) — the same "one look, two hosts" pattern `TideFitBlock` already
+established. It prints one location's own moon geometry at maximum and whether it sets or rises
+still in shadow: `◑ moon 7° up WSW at max · sets 06:16 in shadow`, or `· rises 15:36 in shadow`, or
+`· above the horizon throughout` — no horizon-clearance claim (the dropped `clearToDeg`, §4 #3).
+
+Fed by a new pure formatter, `utils/dawnRace.js#eclipseSpotLine` — a third filter/map/select over
+the already-served `EclipseSight` alongside `raceModel`/`raceSentence`, not a fourth derivation
+class — through the SAME `buildEclipseIndex`/`lookupForWindow` join L4 built for the popup's
+`DawnRace`. `LocationFourDaySheet` takes a new `eclipseIndex` prop (built in `WindowFirstShell.jsx`
+as `sheetEclipseIndex`, gated on `sheetSpot` exactly like `sheetTideAlignmentIndex`, and suppressed
+on an away row exactly like the tide-fit block); `MapCallout` takes a new `eclipseSight` prop (one
+resolved sight, computed in `MapView.jsx`'s `getEclipseForLocation`, gated on a solar window on
+screen exactly like `getTideOnLightForLocation`, fed by a new `eclipseIndex` built in
+`WindowFirstMapPane.jsx`).
+
+Tests: `dawnRace.test.js` gains the formatter's own boundary cases (null sight, missing
+altitude/bearing, all three tail shapes, the fallback when a flag has no instant behind it, the
+unworded negative-altitude print, and a sight with no served `race` at all — a high-moon eclipse
+still has an altitude and a set/rise answer); a new `EclipseSpotLine.test.jsx` covers the
+component's own render/omit contract; a new describe block in each of
+`LocationFourDaySheet.test.jsx` and `MapCallout.test.jsx` proves the HOST wires the resolved sight
+through, including the away-row suppression pinned against a fixture that deliberately DOES index
+the away date (the tautology guard this codebase's own test standards doc names). Frontend gate
+green: 6651/6651 tests, 0 vulnerabilities, build succeeds.
+
+Three read-only adversarial review lenses (runtime behaviour, CSS/tokens + accessibility, test
+quality + docs accuracy) ran against the working-tree diff.
+
+Browser verification: with the admin `LUNAR_ECLIPSE` hot-topic simulation active on this branch's
+own local backend (port 8083, H2, a seeded 21-location roster, one `cached_evaluation` row for
+Bamburgh Beach/Dunstanburgh Castle), `POST /api/briefing/run` served a real `BriefingSlot.eclipse`
+sight on 2026-09-25's SUNRISE window — **seen** on the wire (`GET /api/briefing`) for six locations,
+matching the plan's own worked-example figures (8° up WSW, sets 06:18 in shadow) to the minute.
+**Not seen rendered as pixels**: today's own sunrise had already elapsed in real wall-clock time
+when this phase ran, so the Plan tab correctly showed "this morning has gone" (a `div`, never a
+button, per plan-matrix's own rule) and the Map tab's window control offered only Tonight/Tomorrow —
+neither surface opens an elapsed window's sheet or callout, so `EclipseSpotLine` could not be
+screenshotted live this session. A `Clock.fixed` override on the backend (the L5 phase's own
+precedent) did not help, because the elapsed check the Plan matrix renders against reads real
+wall-clock time on the client, not the injected server clock; the override was reverted before
+committing (confirmed by `git diff` on `AppConfig.java` being empty). Verified instead by a
+second, independent proof: the EXACT `BriefingSlot.eclipse` JSON captured from the live local
+backend above was fed straight into the shipped `eclipseSpotLine()`, in a scratch, never-committed
+test file, and it printed the correct line verbatim — closing the gap between "the backend serves
+the right shape" and "the shipped formatter reads it correctly" without needing a live pixel.
+
+Docs: `docs/engineering/lunar-eclipse-plan.md` — §0 status table (L5 → merged, L7 → built, in
+review; Status line → COMPLETE), a new §4a ("Found only during the phases") with items 17–23
+closing out every disagreement surfaced but not recorded during L0–L6, and §6's nine owner
+decisions each marked taken or still open against what actually shipped. `CLAUDE.md` — the Almanac
+section's "six implementations" → seven, naming `LunarEclipseAlmanacSource`; a new **Lunar
+eclipse** bullet under What's Built; the Backend-heavy bullet gains a note that `dawnRace.js` is
+the same already-licensed filter/map/select class `comingUpSparkline.js`/`comingUpFeed.js` are, not
+an eighth licensed class of its own.
+
+### Added — Coming up: the dashed-top aside slot (lunar eclipse L5)
+
+Phase L5 of `docs/engineering/lunar-eclipse-plan.md` §2.8: the Coming up entry renders the served
+`aside` — the design's `why2` slot — as a dashed-top serif line after the facts and before the
+threshold. It is a generic passthrough (`buildEntryView` in `utils/comingUpFeed.js` copies
+`entry.aside`, defaulting to null), not a lunar branch: the lunar eclipse topic is its first
+server-side writer, carrying the exposure note ("No filter needed — bracket, the shadow is ~10
+stops under the lit edge"), but any later type may use it. `WindowComingUpEntry.jsx` renders it as
+a new `<span className="wf-cu-aside">` (`.wf-cu-aside` in `index.css`: `font-family:
+var(--font-serif)`, 13.5px/1.55, `color: var(--color-plex-text-secondary)`, its own `border-top: 1px
+dashed var(--color-plex-border)`) — an entry with no `aside` renders no slot. The `Next from the UK`
+line and the `SETS IN SHADOW` pick tag needed no client change — they arrive as the accent facts row
+and the `superlative` L1 already serves, and `TYPE_GLYPHS`'s 🌘 was L3's.
+
+A bare `{' '}` text-node sibling follows the new section, so the button's computed accessible name
+does not glue the aside onto its neighbours (the P3a lesson, `CHANGELOG.md`'s "Coming up P3a" entry).
+
+Tests: `comingUpFeed.test.js` (the `aside` passthrough, defaulting to null when absent);
+`WindowComingUpEntry.test.jsx` (no slot when the server sends none; the slot renders between the
+facts block and the threshold block, proven by DOM order, not just presence; the accessible-name
+separator holds with `aside` in the mix; and an integration-shaped fixture built from the real
+served shape `LunarEclipseAlmanacSourceTest` proves for the worked example — Bamburgh, 28 Aug 2026 —
+covering the glyph, NEW flag, kind tag, pick tag, headline metric, all four fact rows including the
+accent `next` row, the aside and the action together). Frontend gate green twice (after the review
+fixes below): 6557/6557 tests, 0 vulnerabilities, build succeeds.
+
+Five read-only adversarial review lenses (runtime, CSS/tokens, test quality, accessibility,
+conventions/scope) ran against the diff. Four found nothing; test quality found one real defect — a
+test titled "renders the three fact rows…" whose fixture and assertion both used four — fixed by
+renaming it to "renders the four fact rows…" rather than trimming the fixture, since the fourth row
+(the `figures for Bamburgh` attribution line) is real, server-sent coverage worth keeping.
+
+Browser verification — **seen**: with a temporary, never-committed local `Clock.fixed(2026-06-01T12:00:00Z)`
+override on `AppConfig.clock()` (reverted before commit; production stays `Clock.systemUTC()`) on
+this branch's own backend (port 8083, H2, zero seeded locations) and frontend, `GET /api/almanac`
+served the real `lunar-eclipse` entry with `aside` populated even with an empty location roster
+(the topic's aside is unconditional in `ComingUpAssembler.enrichLunarEclipse`); the Coming up tab
+rendered the "Deep partial lunar eclipse" card with the aside line directly under the `Next from the
+UK` fact and above `See the plan for 28 Aug →`, confirmed both at desktop width and at 390px.
+`getComputedStyle` on the live `[data-testid="coming-up-aside"]` node confirmed the exact rendered
+values (`Newsreader, Georgia, ui-serif, serif` / 13.5px / `rgba(242,231,211,.66)` / `1px dashed
+rgb(58,44,35)`) and DOM order (`coming-up-facts` → `coming-up-fact` → `coming-up-aside` →
+`coming-up-action`, with no `coming-up-threshold` sibling on this served entry) — matching the spec
+and ruling out token pruning. **Not tested in the browser**: an entry that carries both `aside` and
+a served `threshold` together (no such wire fixture exists locally); covered instead by the
+component-level DOM-order test using a hand-built fixture with both fields set.
+
+### Changed — Coming up drops the last "bits" leaks for plain-language copy
+
+Phase L6 of `docs/engineering/lunar-eclipse-plan.md` (independent of the lunar eclipse work
+itself): every user-facing surprisal-score string on the Coming up tab is now plain language,
+backend and frontend.
+
+`ComingUpAssembler.markScoreNotes`'s server-authored sentence now reads back the rarity component
+as a calendar phrase (`SurpriseScore.gapWord`, e.g. "a fortnight", "a year", "every two to three
+years") — `"It comes round about once a year, which is rare enough to flag on its own."` — or, when
+magnitude carried the score, names the entry's own figure against the usual one from its history
+(`"An unusually big one — 6.0 m against the usual 2.5 m."`, falling back to a figure-free sentence
+under cold start). `mergeEntries`'s coincidence `joinNote` reads `"One perigee causes both. Counted
+as one event, not two — the <title> carries it."` `ComingUpConditionsBuilder`'s standing-conditions
+quant line leads with an idiomatic frequency phrase (`frequencyPhrase`, "about one a week", "most
+mornings" for a genuinely near-daily gap) rather than an adjective bucketed straight from bits, and
+a promoted tide-run occurrence's `reason` tag drops its "max w/ " prefix.
+
+On the frontend, `WindowComingUpSinceLine`'s two banner shapes read `"◆ Rare — the <title> entered
+the window, <date>. <scoreNote>"` and `"<N> announced — the <title> entered the window, <date>.
+<scoreNote>"` — the interrupt headline is now the fixed word "Rare" rather than a figure bucketed
+from `entry.bits`, since that band is binary (README §6: "above 9.5 bits there is only ever one
+thing in play"). `bitsWord` (peak/occurrence rows) moves to the design's three-word scale —
+`exceptional` (≥7) / `above usual` (≥4.5) / `typical` — and "scores are provisional" becomes
+"figures are provisional" throughout.
+
+Scoring logic is unchanged: every `bits` **value** assertion in `ComingUpAssemblerTest` and
+`ComingUpAnnualBadgeCensusTest` stays green untouched (the census re-run confirms 11 badge
+arrivals/year, 1 interrupt, unmoved) — only strings and their tests moved. `grep -rn "bits"` over
+`frontend/src/components` and the two backend classes now finds only field names, PropTypes and
+engineering comments, never a rendered sentence. The design's dust-row "heaviest of N since
+&lt;month&gt;" fact is deliberately not built — it is a new comparison, not a copy change, and
+dust has no chronology-entry shape to attach it to (plan §4 #16).
+
+### Added — The dawn race, and the popup's topic-note aside (frontend, L4)
+
+Phase L4 of `docs/engineering/lunar-eclipse-plan.md` §2.7, §3: the window popup's dawn/dusk race
+timeline, the generic `badge.note` aside renderer, and the `LUNAR_ECLIPSE` plumbing that mounts
+the race for the chosen spot's served sight.
+
+**`utils/dawnRace.js`** (new): `raceModel(sight)` — pure filter/map/select over the served
+`BriefingSlot.EclipseSight` (floor a track start, clip a track end, decide the umbra/hatch bands
+from the already-served `setsInShadow`/`risesInShadow` booleans, turn instants into `[0,1]`
+positions and a CSS gradient via `MastheadLight.buildRuleGradient`); `raceSentence(sight)` builds
+the one accessible sentence from the same model; `formatRaceTime(ms)` is the display formatter.
+DAWN and DUSK are handled as genuine mirrors (DUSK ceils the track's far edge and clips the near
+one toward moonrise, rather than re-deriving DAWN's rule blind).
+
+**`components/DawnRace.jsx`** (new): the track (`aria-hidden`), the umbra/hatch bands, three
+line-and-dot marks (maximum, the race event, the horizon transition), the phase ticks, the label
+row, the legend, and the one visible accessible sentence. Renders nothing when there is no race to
+draw. Phone (< 560px) hides the track-start and race-event labels and every phase tick.
+
+**`components/WindowTopicRows.jsx`**: a new full-width aside renders `badge.note` for *any* badge
+that carries one, in the safety-note's own shape (`.wf-trow-warn`), prefixed `◑` for the eclipse
+channel only. `badge.note` has been served and unread since the promoted strip was deleted at M5 —
+this is the honest fix, and it reveals the **solar** eclipse's own note too, not only the lunar
+one, since the renderer is channel-agnostic by design (plan §4 #8).
+
+**`components/WindowSheetDialog.jsx`**: mounts `DawnRace` between the topic rows and the tide row,
+gated on both a `LUNAR_ECLIPSE` topic row being present on the window *and* the chosen spot's slot
+carrying a served `eclipse.race`. The spot is the window's `bestReach`, else the first ranked spot
+(`card.spots[0]`) — `WindowSpotStrip` exposes no per-card selection callback, so the race is drawn
+for one fixed spot and captioned with its name (plan §4 #11).
+
+**`utils/locationSheet.js`**: new `buildEclipseIndex(days)`, structurally identical to
+`buildTideAlignmentIndex` — `{byId, byName}`, id-first lookup through the shared `lookupForWindow`,
+a slot with no `eclipse` simply skipped (never indexed as an absence).
+
+**`components/WindowFirstShell.jsx`**: builds `eclipseIndex` via `buildEclipseIndex(briefing?.days)`,
+gated on `openCard` (the popup being open) — the same "nothing reads it while closed" gate
+`slotIndex`/`sheetTideAlignmentIndex` use for their own dialog.
+
+**`index.css`**: a new `.wf-race*` block for the track, bands, marks, labels, legend and sentence.
+
+#### ⚠️ A real timezone bug, found by adversarial review and fixed before commit
+
+Two independent review lenses (and a live check against a running backend) found that the first
+cut ran every `EclipseSight` instant through `formatTime` — the formatter `BriefingSlot.solarEventTime`
+genuinely needs, because that field is a bare-serialised UTC instant. `EclipseSight`'s own instants
+are a **different** convention: `EclipseSightAssembler` passes every one of them through
+`LunarEclipseWording.toLondonLocal` before serialising, so the served digits are already
+Europe/London wall-clock time. Running them through `formatTime` applied that conversion a second
+time, printing every eclipse label and the accessible sentence an hour late for the seven months of
+BST — invisible in GMT, where the two conventions coincide, and invisible to the first draft's own
+tests, which compared `raceSentence`'s output against `formatTime(sight.X)` — the same wrong
+conversion on both sides of the assertion. Confirmed against a live local backend (2026-09-24, BST):
+a served `eclipse.stops[SUNRISE].time` of `06:54:56` sits exactly one hour ahead of that window's
+`solarEventTime` of `05:55:25` for the identical real sunrise — the gap *is* the already-applied
+offset. Fixed: `formatRaceTime` now reads the served digits back on the **UTC** calendar (the exact
+instant `toMs` parsed them onto), which is a lossless round trip to what the backend sent, never a
+second Europe/London conversion. `raceSentence`'s tests now assert **literal** `HH:mm` strings
+copied off each fixture's own digits, not the formatter under test, so the regression cannot hide
+behind a self-fulfilling assertion again — and a component-level test renders `DawnRace` and asserts
+the same literal label text in the DOM.
+
+#### A second real defect, found by algebraic proof against the formulas
+
+The hatch band's outer edge used the **track's own boundary** (`trackEnd`/`trackStart`) rather than
+the eclipse's true umbra boundary (`umbraEnd`/`umbraStart`). The track boundary's own `+15 min`/
+`-15 min` pad can, in a narrow but physically plausible timing window (moonset, the race stop and
+`umbraEnd` landing close together), overshoot the true end by several minutes — the hatch would then
+claim the moon is still below the horizon, in shadow, after the eclipse had actually finished (and
+the DUSK mirror, understating the start symmetrically). Fixed by clamping each hatch band to
+`Math.min(trackEnd, umbraEnd)` / `Math.max(trackStart, umbraStart)` — a change that can only ever
+shorten the band, never lengthen it past what the track already allows. Pinned by two new regression
+tests reproducing the exact counterexample in both directions.
+
+#### Review findings addressed without a functional change
+
+- The class doc's "the sentence is the entire accessible answer" claim was scoped too broadly — the
+  sentence covers the plan's own five-item label row (minus the bare track-start time, which names
+  no event); the three phase ticks are the design's own secondary annotation layer and were never
+  meant to be spoken. Corrected the doc rather than stuffing three extra clock times into an already
+  dense sentence.
+- `.wf-race-cap`'s extra `opacity: 0.75` stacked multiplicatively on `--color-plex-text-secondary`'s
+  own 0.66 alpha, landing at ≈4.43:1 against the panel — just under the 4.5:1 AA floor for this 9px
+  text. Removed; the inherited token's own alpha already reads as quiet against the title beside it.
+
+#### Accepted, not fixed
+
+- `raceSpot = card.bestReach || card.spots[0]` can caption a location the rating floor has since
+  excluded from the visible spot strip below it. This mirrors an existing precedent elsewhere on the
+  same card (the matrix's own best-reachable line reads `bestReach` independent of the floor, per
+  CLAUDE.md's Backend-heavy bullet) and the plan's own §2.7 text does not license a different rule
+  for this one popup-local case — left as-is rather than inventing a narrower selection the plan
+  never asked for.
+- A negative `moonAltAtMax` (the moon below the horizon at maximum, which `EclipseSight` does not
+  gate against) prints as `"the moon -3° up"` — a plausible but unhandled phrasing for an edge case
+  the seeded catalogue's eligibility rule (3° for 30 min, or 3° at maximum) makes rare.
+- The phone media query hides a whole `.wf-race-tick` (dashed line plus its label) rather than only
+  its label text, a literal deviation from the plan's exact phrasing — kept as the defensible reading
+  (an orphaned dashed line with no label serves no purpose).
+
+Tests: `dawnRace.test.js` (geometry to the boundary — track-start floor, track-end clip, the hatch
+clamp regression in both directions, DUSK mirror, positions monotone in `[0,1]`, literal-string
+`raceSentence` assertions), `DawnRace.test.jsx` (mount conditions, the track's `aria-hidden`,
+literal clock labels regression, phone-hidden roles, a full DUSK render pass — labels, hatch
+direction, the "leaves shadow" wording, the sentence's "Rises" opening), `WindowTopicRows.test.jsx`
+(the aside for lunar and solar badges, the channel-gated glyph, both notes coexisting with the
+pre-existing safety note), `WindowSheetDialog.test.jsx` (the race's two-part mount gate, the
+best-reach/first-ranked spot fallback, DOM ordering between the topic rows and the tide row, the
+real join from raw `days` through `buildEclipseIndex`, and the `(i)` click leaving the dialog open —
+the plan's own named exit criterion), `locationSheet.test.js` (`buildEclipseIndex`'s id-first
+lookup, the name-keyed fallback, the "no eclipse on this slot" skip, and that an eclipse lands on
+its own window only). Frontend gate: `npm run lint` clean, all Vitest tests pass, `npm audit`
+reports 0 vulnerabilities, `npm run build` succeeds.
+
+Adversarial review: three read-only agents (general runtime/CSS/test/accessibility/conventions
+sweep; an independent DUSK-geometry-and-backend-contract pass; a focused accessibility pass) found
+the timezone double-conversion (two lenses, independently), the hatch-overshoot defect (algebraic
+proof plus a constructed counterexample), the accessible-sentence scope overclaim, and the
+`.wf-race-cap` contrast shortfall. All four fixed and re-tested; the two accepted findings above are
+recorded rather than silently dropped.
+
+Browser verification: **seen** — a real local backend (2026-09-24, BST) with the `LUNAR_ECLIPSE`
+admin simulation active, seeded locations and cached ratings for Northumberland & Tyneside's
+SUNRISE window, served a genuine `BriefingSlot.eclipse` payload for Dunstanburgh Castle. Today's
+own Plan-tab cell reads "this morning has gone" (the sunrise window has already elapsed) and cannot
+be opened — the known limitation the plan's §7 names. Per that section's own fallback, the captured
+served payload was mounted directly (`DawnRace` and `WindowTopicRows`, a temporary, never-committed
+dev entry) at desktop and 390px: the track renders with the correct twilight gradient, `aria-hidden`
+confirmed via `getComputedStyle` in a real browser (not jsdom), the umbra/hatch bands and all three
+line-and-dot marks draw correctly, the accessible sentence reads
+"In shadow from 03:33, maximum 05:12 with the moon 8° up, sunrise 06:54, sets 06:18 still in
+shadow." — the **served digits verbatim**, confirming the timezone fix in a real browser rather
+than only in jsdom; the phone width correctly hides the track-start/sunrise labels and every phase
+tick; both the lunar and solar eclipse asides render with the `◑` glyph and coexist with the solar
+badge's pre-existing safety warning; the `(i)` tip opens on click without navigating or closing
+anything. `.wf-race-cap`'s computed opacity confirmed `1` (the contrast fix took effect) via
+`getComputedStyle`. **Not seen**: the race mounted inside the live `WindowSheetDialog` popup itself
+(today's own window is unopenable, per the limitation above) — substituted by the direct-render
+check above plus full Vitest component coverage of the dialog's mount gate.
+
+### Added — Plan-tab type registries and the clocked topic chip (frontend, L3)
+
+Phase L3 of `docs/engineering/lunar-eclipse-plan.md` §2.1 and §2.6: `LUNAR_ECLIPSE` joins every
+client-side registry the solar `ECLIPSE` type already sits in, one channel shared by two types.
+
+`utils/windowFirstCards.js`'s `badgeChannel` gains an exact-match arm for `LUNAR_ECLIPSE` beside the
+existing `ECLIPSE` one, ahead of the substring arms, so a served `LUNAR_ECLIPSE` badge takes the
+same `eclipse` channel colour, ring and swatch every existing channel-keyed rule already applies —
+and a never-shipped compound type such as `LUNAR_ECLIPSE_TIDE` still falls through to the `tide`
+substring arm exactly as before, unaffected by the new exact match. `utils/windowFirstTopics.js`'s
+`WHOLE_SKY_TOPIC_TYPES` gains `LUNAR_ECLIPSE` (its `regions` names visibility coverage, not an
+eligibility roster, for the same reason `ECLIPSE`'s does). `utils/comingUpHandoff.js`'s
+`SWATCH_COLOR` and `utils/comingUpGlyphs.js`'s `TYPE_GLYPHS` (`'lunar-eclipse': '🌘'`, a waning-
+crescent override distinct from the shared `◐` eclipse-family glyph, mirroring the existing
+`supermoon` override) each gain their own entry, since both are keyed by type rather than by
+channel. `components/map/WindowControl.jsx`'s `CHANNEL_ICON` needed no change — it is keyed by
+channel, and `LUNAR_ECLIPSE` already resolves to the existing `eclipse` entry through the shared
+`badgeChannel` — pinned by a new test proving a `LUNAR_ECLIPSE` badge draws the identical row icon
+as `ECLIPSE`.
+
+New `CLOCKED_TOPIC_TYPES` (`ECLIPSE`, `LUNAR_ECLIPSE`) and `chipClock(badge)` in
+`windowFirstTopics.js`: a listed badge's own `eventTime` — a genuinely different instant from the
+window's own solar event, since an eclipse's maximum can fall hours from sunrise or sunset —
+prints after a divider in `WindowFirstHeatStrip`'s topics line, in the tide chip's existing
+emphasised pill shape (`.wf-hc-tw.wf-hc-clocked[data-channel="eclipse"]`: `padding: 1px 8px;
+border-radius: 999px; background: rgba(196,120,127,.14); box-shadow: inset 0 0 0 1px
+rgba(196,120,127,.42); color: #E3AEB3`, with `.wf-hc-clocked-time` carrying the
+`border-left: 1px solid rgba(196,120,127,.45); padding-left: 6px` divider) — literal colour values,
+not Tailwind theme tokens, so there is no `@theme static` pruning risk. Every other badge is
+unaffected: the chip renders its plain `wf-hc-tw` shape exactly as before whenever `chipClock`
+returns null (an unlisted type, or a listed type with no served `eventTime`). The card's hidden
+`sr-only` accessible-name sentence appends the same clause ("Lunar eclipse at 05:13") from the same
+`chipClock` read that builds the visible chip, so the two can never drift; a `SUPERMOON` badge
+carrying an `eventTime` prints no clock anywhere, visible or accessible.
+
+Backend: amended the `Badge` javadoc on `BriefingWindow.java` — the existing "render one or the
+other, never both side by side" rule for a badge's own clock vs. its window's is scoped to a badge
+whose clock names the *same* solar event as the window's; a `CLOCKED_TOPIC_TYPES` member's clock is
+a wholly different event (the eclipse's own maximum), so stating both is not the duplication the
+original rule forbids.
+
+Tests: `windowFirstCards.test.js` (`badgeChannel('LUNAR_ECLIPSE')` routing, the exact-vs-substring
+distinction), `windowFirstTopics.test.js` (`WHOLE_SKY_TOPIC_TYPES` membership, the 17-type shipped
+roster now matching `TopicRarity.RANK_BY_TYPE`, and a new `chipClock` describe block covering both
+listed types, case-insensitivity, an unlisted type, a listed type with no `eventTime`, and a missing
+badge), `WindowFirstHeatStrip.test.jsx` (a `LUNAR_ECLIPSE` chip's divider and text, the solar
+`ECLIPSE` chip gaining the identical treatment, a `SUPERMOON` badge with an `eventTime` rendering no
+clock anywhere, a listed type with no `eventTime` rendering no clock, and the accessible name's "at
+HH:mm" clause), `comingUpGlyphs.test.js` and `comingUpHandoff.test.js` (the new glyph and swatch
+entries), `WindowControl.test.jsx` (the shared channel icon). 6547/6547 frontend tests pass; `npm
+audit` reports 0 vulnerabilities; `npm run build` succeeds.
+
+Adversarial review (five lenses — runtime behaviour, CSS/tokens, test quality, accessibility,
+conventions/scope — all read-only against the working tree) found no defects requiring a fix; one
+non-blocking test-quality note (a redundant assertion re-covering an already-pinned case) was left
+as harmless, additional coverage.
+
+Browser verification: seen — the Plan tab, Coming up tab and general layout render without error at
+desktop and 390px with this branch's own frontend and backend running locally; the served
+`GET /api/briefing` payload carries the simulated `LUNAR_ECLIPSE` badge with the expected shape
+(`eventTime: "05:12"`, `rarityRank: 2`, facts, note, rarityNote). Tested via a real browser
+`getComputedStyle` probe (not jsdom) on an injected `.wf-hc-tw.wf-hc-clocked[data-channel="eclipse"]`
+node against this branch's own compiled stylesheet: every literal value (padding, border-radius,
+background, box-shadow, `#E3AEB3`, the divider) resolved exactly as specified, confirming no CSS
+pruning. **Not seen**: the chip actually painted on a live card with real data. The
+`HotTopicSimulationService` template anchors the badge to *today's* sunrise only, and this
+verification ran in the afternoon after that morning's sunrise had already elapsed — the Plan
+matrix's pre-existing, unrelated "this morning has gone" empty-cell behaviour (confirmed against the
+served payload and the window-sheet popup's own 6-window carousel, which also excludes it) hid the
+only window this simulation ever populates. Component-level Vitest coverage renders the real chip
+with real fixture data and is the substitute evidence for that one gap.
+
+### Fixed — the clocked chip's time no longer clips with a long label (frontend, L3)
+
+Codex review of #915 (P1) on `WindowFirstHeatStrip.jsx`: `.wf-hc-tw`'s base rule clips its
+content as one `nowrap`/`ellipsis` run, so at the supported ~137px card width a label such as
+"Deep partial eclipse" or "Slight partial eclipse" already filled the chip and the newly added
+clock time was clipped away with it — invisible to every Vitest test, since jsdom does no layout
+and never measures an actual card width.
+
+The clocked chip is now a flex row: the label is its own `.wf-hc-clocked-label` span (`flex: 1 1
+auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap`) and the clock
+is a separate, non-shrinking `.wf-hc-clocked-time` (`flex: none`) — the label gives way, the clock
+never does. The chip element itself gets `min-width: 0` too, since it is a flex item of the
+wrapping `.wf-hc-tps` row and would otherwise carry its own default content-based minimum ahead of
+the label's. An unclocked chip's rendering and CSS are completely unchanged.
+
+Tests: `WindowFirstHeatStrip.test.jsx` gains three new cases pinning the DOM shape the fix
+depends on (the clock is a separate node from the label, distinguishable by testid and tag; the
+label alone carries `wf-hc-clocked-label`, the chip itself does not; an unclocked chip keeps its
+old single-node shape with neither testid present). Real-browser verification (not jsdom):
+injected the actual `.wf-hc-tps` / `.wf-hc-tw.wf-hc-clocked` / `.wf-hc-clocked-label` /
+`.wf-hc-clocked-time` markup into a 137px-wide container against this branch's own compiled
+stylesheet, with the label text "Deep partial eclipse" — confirmed `label.scrollWidth (131) >
+label.clientWidth (80)` (the label is genuinely truncating) while the clock's
+`getBoundingClientRect()` (`right: 127`) stays fully inside both the chip (`right: 135`) and the
+137px wrapper, with `flex-shrink: 0` confirmed computed.
+
+Frontend gate: `npm run lint && npm test -- --reporter=dot && npm audit --audit-level=high && npm
+run build` — exit 0, 6550/6550 tests, 0 vulnerabilities, build succeeds.
+
+### Added — per-location lunar eclipse dawn/dusk race sight (backend, L2)
+
+Phase L2 of `docs/engineering/lunar-eclipse-plan.md`: `BriefingSlot.eclipse` — a nullable,
+`@JsonInclude(NON_NULL)` `EclipseSight` record (deliberately **not** `@JsonUnwrapped`, unlike
+`TideInfo`, so it nests as its own JSON object rather than flattening eleven more keys onto an
+already-large slot) carrying the moon's altitude and bearing at maximum, the eclipse's own
+unclipped umbral span (`umbraStart`/`umbraEnd` — the eclipse's `u1`/`u4`, never the per-location
+`LunarEclipseSight.visibleUmbraStart/End`, so the popup's race geometry can still derive its own
+umbra and hatch bands from the full span in a later phase), moonset/moonrise,
+`setsInShadow`/`risesInShadow`, a `race` field (`"DAWN"`/`"DUSK"`/null) and four `LightStop`s keyed
+with the frontend's `MastheadLight.RULE_COLOURS` strings. All times are London-local
+`LocalDateTime`, the slot's `solarEventTime` convention.
+
+A new `EclipseSightAssembler` (@Component, mirroring `TideExtremeRepository`'s own direct-dependency
+shape in `BriefingSlotBuilder`) attaches the sight at the same build-time seam `TideInfo` rides,
+only when the built date carries a catalogued `LunarEclipseCatalog` entry **and** that eclipse's own
+window matches the slot's `TargetType` — the identical rule `LunarEclipseHotTopicStrategy` uses for
+the topic pill, now extracted to a shared `LunarEclipseWording.eventType` so the topic and the
+per-location sight can never disagree about which of a day's two windows an eclipse belongs to.
+`race` is `DAWN` when the eclipse is a SUNRISE one and its umbral end falls after nautical dawn
+minus an hour (the sky brightening while the Moon is still in shadow), `DUSK` for the SUNSET
+mirror, else null — a high, leisurely eclipse races nothing.
+
+**Simulation parity**: when `HotTopicSimulationService` has `LUNAR_ECLIPSE` active, every location's
+SUNRISE slot on "today" (`ForecastHorizon.today`, gated like the aurora admin simulation) carries
+the real 2026-08-28 Dunstanburgh reduction re-dated onto that day — the only way the dawn race can
+be seen in a browser before the next live eclipse enters a forecast window, documented in
+`EclipseSightAssembler`'s own javadoc as a verification affordance, never a product path. A real
+catalogued eclipse always wins over simulation (the real branch short-circuits before the
+simulation service is ever consulted).
+
+`BriefingSlot` gains a legacy 17-argument constructor so every existing call site (production and
+~100 test call sites) keeps compiling with `eclipse` defaulted to null; `withEvaluationGate` and the
+6-argument `withClaudeScores` were updated to thread the field through explicitly rather than
+through that legacy form, so a slot that already carries an eclipse sight cannot silently lose it
+the next time Claude's rating or the evaluation gate is attached later in the pipeline — the same
+"a wither is where a field quietly goes missing" defect class this file's own comments already
+document for `evaluationGate`.
+
+Tests: `EclipseSightAssemblerTest` (attachment gating on the eclipse's own window vs the day's other
+event type; the unclipped umbra span; the four light-stop keys for both SUNRISE and SUNSET; the
+DAWN/DUSK/null race boundary pinned at the exact 60-minute edge on **both** sides; simulation parity
+including that a real eclipse wins without ever touching `HotTopicSimulationService`), new
+`BriefingSlotTest.EclipseTests` (withers preserve/clear the field in isolation), a new
+`BriefingSlotBuilderTest` nested class proving the seam wiring end to end (plus a woodland-routing
+test proving a canopy slot never even reaches the seam), new `LunarEclipseWordingTest` coverage for
+the extracted `eventType`/`toLondonLocal` helpers (including a BST-vs-UTC-hour boundary case), and a
+legacy-cache-row deserialisation test plus a real Jackson-3 `JsonDateFormatContractTest` wire-format
+check (`GET /api/briefing`, reaching into the nested `eclipse.stops[]` array) — the hand-built
+Jackson 2 mapper in `DailyBriefingResponseJsonTest` deliberately asserts no raw date strings,
+consistent with CLAUDE.md's two-Jackson-graphs warning.
+
+Adversarial review of this diff found four real issues, all fixed before landing: (1) simulation
+could have fired a fabricated sight on a date that already carries a real catalogued eclipse, on
+whichever of that day's two windows the real eclipse itself does *not* claim — `forSlot` now
+requires no real entry on the date at all, not merely a window mismatch, before considering
+simulation; (2) the simulated path's `retime()` re-dates a fixed template by time-of-day alone, with
+no next-day carry — safe only because 2026-08-28's whole contact chain is same-day, so a defensive
+ordering check now fails loudly rather than silently misordering a sight if a future phase ever
+repoints the template at a date that crosses midnight; (3) the hot-topic type string
+`"LUNAR_ECLIPSE"` was three independent literals across `EclipseSightAssembler`,
+`LunarEclipseHotTopicStrategy` and `HotTopicSimulationService` with no compile-time link — the
+first now reads `LunarEclipseHotTopicStrategy.TYPE` (newly extracted) instead of its own copy, and a
+new `HotTopicSimulationServiceTest` case bridges the third; (4) the DUSK side of the race boundary
+had no boundary test at all (only DAWN's two edges were pinned) — three more tests now cover DUSK's
+exact edge, one minute inside it, and its own null case.
+
+Frontend: none this phase (L4 mounts the popup's dawn race component against this data).
+
+### Fixed — lunar eclipse simulation moved from build time to serve time (backend, L2)
+
+Codex review of #914 (P1): the admin `LUNAR_ECLIPSE` simulation was sampled only while
+`BriefingSlotBuilder` rebuilds slots, but `BriefingService.getCachedBriefing()` serves a
+persisted/cached `DailyBriefingResponse` on every request and only overlays a few fields live
+(aurora, hot topics) — it does not re-run the slot builder. So toggling the simulation on produced
+no visible race until the next scheduled refresh, and toggling it off — or restarting the app —
+left a fabricated eclipse sight visible and reloadable from `daily_briefing_cache` indefinitely.
+
+`EclipseSightAssembler.forSlot` (the only method `BriefingSlotBuilder` calls) now attaches REAL
+sights only; nothing simulated can reach the persisted cache from any path. Simulation moved to a
+new `simulatedSightFor(date, eventType)`, called from `BriefingService.getCachedBriefing()`'s
+live-overlay step — the same serve-time seam the aurora and hot-topic overlays already use, and
+which now runs unconditionally on every call rather than only when those two happened to change.
+Because a serve-time overlay has no per-location `LocationEntity` to hand (only the already-built
+`BriefingSlot`s, keyed by name/id), the simulated sight's light stops are now Dunstanburgh's own
+too, re-dated exactly like its moon geometry, computed once per (date, event type) and reused
+across every slot on that window rather than per-location.
+
+New withers `BriefingRegion.withSlots` and `BriefingEventSummary.withUnregioned` support the
+overlay's tree rewrite, following the same "never rebuild positionally — a later field goes missing
+silently" discipline this file's other withers already document. The "never on a date a real
+eclipse already owns" rule moved inside `isSimulatedFor` itself (a `LunarEclipseCatalog.on(date)
+.isEmpty()` check), so `simulatedSightFor` is self-contained rather than depending on its caller to
+compute that separately.
+
+Enabling the simulation now shows the race on the very next request; disabling it removes it on the
+next request after that; a restart with it off serves the persisted, real-sights-only cache
+untouched. Tests: `EclipseSightAssemblerTest` splits into `ForSlotNeverSimulates` (the build path
+never even asks `HotTopicSimulationService` a question) and `SimulatedSightForTests` (the full
+simulation-gating matrix, now against the serve-time method); a new
+`BriefingServiceTest.GetCachedBriefingSimulatedEclipseTests` pins the persisted-cache round trip
+(refreshing never calls `simulatedSightFor`), the on/off toggle taking effect on the very next
+request each way, and the overlay running independently of the aurora/hot-topic short-circuit.
+
+### Added — lunar eclipse hot topic, almanac entry and Coming-up scoring (backend, L1)
+
+Phase L1 of `docs/engineering/lunar-eclipse-plan.md`: `LunarEclipseHotTopicStrategy` and
+`LunarEclipseAlmanacSource` mirror the solar `EclipseHotTopicStrategy`/`EclipseAlmanacSource`
+structurally, built on L0's `LunarEclipseCatalog`/`LunarEclipseCalculator`. A lunar eclipse's depth
+is the same everywhere it is visible at all — unlike the solar eclipse, the Plan-tab label is the
+constant "Lunar eclipse" on every surface (the kind still reaches the Coming-up card's title) — so
+the roster's representative location is chosen by the longest *visible* umbral span rather than by
+magnitude. The pill's exposure cue ("No filter needed — bracket, the shadow is ~10 stops under the
+lit edge") rides `note`, never `safetyNote`: nothing about photographing an eclipsed Moon is
+hazardous. The topic withdraws once the umbral phase (`u4`) has passed.
+
+`TopicRarity` gains `LUNAR_ECLIPSE` at rank 2 (SUPERMOON and everything below shift by one — a
+lunar eclipse recurs far more often than a deep solar one but still well ahead of a supermoon).
+`ComingUpScoringProperties.Rarity.lunarEclipseMeanGapDays = 900.0` is a documented long-run
+estimate — deliberately **not** the six real gaps between the catalogue's seven seeded entries
+(177/355/502/354/177/177 days, averaging ~290, an unusually dense run that would land under the
+announce band rather than interrupt) — giving `log2(900) + 1 ≈ 10.8` bits, which clears the
+interrupt band; the census year holds three penumbral eclipses (never seeded), so
+`ComingUpAnnualBadgeCensusTest`'s pinned result is unchanged — confirmed by running it, not
+assumed.
+
+`ComingUpAssembler.enrichLunarEclipse` shares the `eclipse` family with the solar entry, derives
+`superlative` ("sets in shadow") from the almanac source's own composed `shadow` fact rather than
+re-deriving geometry, and writes a server-authored `scoreNote` ("The first visible from here since
+<Month YYYY>.") from the almanac's catalogue-derived `since` fact — which now takes precedence over
+`markScoreNotes`' generic rarity/magnitude phrasing (that method's skip guard was extended from
+"has a `joinNote`" to "has a `joinNote` **or** a `scoreNote`"), falling through to the generic
+phrasing only for the catalogue's very first entry, which has nothing earlier to name. The new
+nullable `ComingUpEntry.aside` carries the exposure note as a generic dashed-top slot any later
+type may reuse.
+
+`HotTopicSimulationService` gains a `LUNAR_ECLIPSE` template using Dunstanburgh's own reduction of
+the 2026-08-28 eclipse (verified against `LunarEclipseCatalog`'s class javadoc), carrying no
+safety note — `HotTopicSimulationServiceTest` keeps pinning that only `ECLIPSE` warns. Both eclipse
+strategies are now covered by `HotTopicStrategyRegistrationTest` (the solar one had never been
+added, a pre-existing gap).
+
+Frontend: none this phase (L3 wires the client registries and the clocked chip).
+
+### Fixed — lunar eclipse "in shadow" span starts when the Moon is actually visible
+
+Codex's third pass on PR #913 found a real defect: for a rises-in-shadow eclipse, the "in shadow"
+span on both the Plan fact chip and the Coming-up "shadow" meta line always printed the eclipse's
+own `u1` contact as the start time, even though the representative location cannot see the Moon
+until it actually rises. The real 2028-12-31 UK-centre sight rises around 15:36 while `u1` is
+15:07, so both surfaces claimed nearly half an hour of unavailable viewing.
+
+`LunarEclipseWording.shadowSpan(sight)` is the new shared span builder — both
+`LunarEclipseHotTopicStrategy`'s fact chip and `LunarEclipseAlmanacSource`'s `shadow` meta now
+clip the start to `LunarEclipseSight.visibleUmbraStart()` (already correct: moonrise when the Moon
+rises in shadow, `u1` otherwise) exactly as the end was already clipped to `visibleUmbraEnd()`. A
+rises-in-shadow eclipse now reads "rises HH:mm → …", mirroring the existing "… → sets HH:mm"
+wording for a sets-in-shadow one.
+
+Tests: both strategy and almanac-source test files pin the real 2028-12-31 UK-centre case (start
+≈ 15:36, never 15:07). `LunarEclipseMagnitudeAgreementTest` gains a third test driving both
+classes from the real calculator across the whole catalogue and asserting the fact chip's span and
+the meta's span agree for every eclipse.
+
+### Fixed — memoise the lunar eclipse per-location reduction
+
+Codex review of #913 (PR for the lunar eclipse hot topic, L1) flagged a P1: on every live Plan-tab
+serve, `LunarEclipseHotTopicStrategy` and `LunarEclipseAlmanacSource` each re-ran the full
+`LunarEclipseCalculator.sight()` reduction — several moonrise/moonset lookups plus, when altitude at
+maximum did not already clear the eligibility bar, a once-a-minute altitude scan across the whole
+umbral span — for every enabled location, because `BriefingService.getCachedBriefing()` recomputes
+hot topics on every request. Cost scaled with roster size and eclipse duration on every serve, and
+kept paying after the eclipse had finished because freshness was checked only after the roster loop.
+
+`LunarEclipseCalculator.sight()` is now memoised per `(eclipse date, latitude, longitude)` in an
+in-memory `ConcurrentHashMap` carrier on the shared `@Component` bean (never the briefing payload) —
+the reduction is a pure function of the catalogue and coordinates, so no TTL is needed and a restart
+simply empties it, defensively bounded to 5,000 entries. `LunarEclipseHotTopicStrategy` now checks
+`freshness.isAhead(u4)` before reducing the roster at all, so a finished eclipse costs nothing.
+
+### Fixed — cap lunar eclipse magnitude at 100%, band the shadow prose correctly
+
+Codex review of PR #913 (L1 of the lunar eclipse topic) found two real defects. A total eclipse's
+umbral magnitude is the fraction of the Moon's *diameter* inside the umbra, which runs past `1.0`
+once the Moon is fully swallowed (1.24785 on 2028-12-31, 1.8452 on 2029-06-26); both
+`LunarEclipseHotTopicStrategy` and `LunarEclipseAlmanacSource` independently rounded that raw
+figure into a percentage, printing impossible copy like "125% in shadow" and "185% in shadow"
+across the Plan detail line, the fact chip and the Coming-up card. Separately, the almanac source's
+Coming-up "why" paragraph hard-coded the design's deep-partial copy ("Earth's shadow covers all but
+a sliver…") for every entry, which is false for the 2028-01-12 eclipse (magnitude 0.0679, ~7% of
+the Moon's diameter) — the opposite of what actually happens.
+
+Both were the same root cause: two classes independently deriving copy from one number. New
+`LunarEclipseWording` is the one place magnitude becomes words — `depthOf()` (TOTAL/DEEP/PARTIAL/
+SLIGHT, at 1.0/0.80/0.40), `coveragePct()` (capped at 100, defensively, though every current caller
+reads `"total"` instead of a percentage for TOTAL), `coverageWord()` and `shadowClause()` (the
+band-specific opening sentence shared by the topic's tooltip and the Coming-up prose) — and both
+`LunarEclipseHotTopicStrategy` and `LunarEclipseAlmanacSource` now route every magnitude-derived
+word through it: a TOTAL eclipse reads "totally eclipsed"/"total", never a percentage; SLIGHT reads
+"Earth's shadow clips N% of the moon's edge — a darkened bite rather than a copper disc.", never
+the deep-partial sentence. `LunarEclipseAlmanacSource.title()` also now uses the shared band, adding
+a "Slight partial lunar eclipse" title the old 3-tier logic never produced.
+
+Tests: `LunarEclipseWordingTest` pins every band boundary and the capping rule directly.
+`LunarEclipseHotTopicStrategyTest`/`LunarEclipseAlmanacSourceTest` each pin the three affected real
+catalogue entries (2028-12-31 total, 2028-01-12 "7% in shadow", 2026-08-28 "93%" unaffected). New
+`LunarEclipseMagnitudeAgreementTest` drives both classes from the same real `LunarEclipseCalculator`
+reduction (no mocks) for every catalogued eclipse and asserts no percentage figure ever exceeds 100
+on either surface, and that the strategy's fact-chip figure and the almanac source's meta figure
+agree for every eclipse the UK-centre reference point can see.
+
+### Fixed — lunar eclipse L0: moonset/moonrise pairing and a CodeQL null-guard
+
+Two review findings against the L0 catalogue/calculator (PR #911), fixed in place.
+
+**`LunarEclipseCalculator`** picked moonrise and moonset as two independent "nearest to the umbral
+window" lookups, each querying only the window's own London civil date(s). For a same-day evening
+eclipse (2028-12-31: rises in shadow at 15:36 GMT) that civil date's only moonset candidate was a
+leftover ~08:34 GMT set from the *previous* arc — hours *before* the rise, not after it — producing
+a chronologically impossible sight. Moonrise and moonset are now derived as one paired arc: the
+calculator queries a full day of margin either side of the umbral span (up to four civil dates),
+picks the operative moonrise as the most recent rise at or before U4, then derives moonset as the
+earliest set strictly after that specific moonrise — which makes `moonset > moonrise` true by
+construction rather than a fact to remember to check. `LunarEclipseSight` also validates the
+invariant defensively in its own compact constructor, so a future regression fails at construction
+rather than shipping.
+
+**`LunarEclipseCatalog.LunarEclipse`**'s compact constructor had a CodeQL-flagged possible-null
+dereference of `u2`/`u3` in the TOTAL contact-ordering check: the presence guard
+(`kind == TOTAL implies u2/u3 non-null`) lived in one `if` block and the dereference in another,
+which a static analyser cannot connect. The presence guard and the ordering check that depends on
+it now live in a single per-kind block, so the null check immediately precedes the dereference it
+protects.
+
+### Added — lunar eclipse catalogue and per-location sight (backend, L0)
+
+Phase L0 of `docs/engineering/lunar-eclipse-plan.md`: a static `LunarEclipseCatalog`
+(`service/LunarEclipseCatalog.java`, the same static-table pattern as the solar `EclipseCatalog`)
+seeding every umbral lunar eclipse from March 2025 through 2030 whose umbral phase is above the
+horizon somewhere in the British Isles — seven entries, verified row by row against NASA's decade
+lunar eclipse tables and eclipsewise.com's per-eclipse detail pages (the class javadoc records the
+sources and the verification method). Three umbral eclipses in range (2026-03-03, 2028-07-06,
+2030-06-15) were checked and excluded because the Moon never clears the astronomical horizon
+anywhere in Britain during their umbral phase, and every penumbral eclipse is excluded outright.
+The record's compact constructor enforces contact ordering and kind/magnitude agreement structurally,
+so a transcription error fails at class-load time rather than shipping.
+
+`util/LunarEclipseCalculator.java` (a `@Component`, following `SupermoonHotTopicStrategy`'s call
+pattern for solar-utils' `LunarCalculator`/`MoonriseMoonsetCalculator`) computes the per-location
+`LunarEclipseSight` — altitude/bearing at greatest eclipse, moonrise/moonset interaction with the
+umbral span, and the 3°/30-minute visibility eligibility rule, sampling the Moon's altitude once a
+minute across the span. A midnight-crossing umbral span is resolved by checking both the London
+civil date of U1 and (when it differs) of U4.
+
+No wiring into any live path this phase — the catalogue and calculator are unused outside their own
+tests, per the plan's L0 scope.
+
+### Changed — `release.sh` asks one question: the version
+
+The release script used to ask five questions: the commit to tag, the version, whether to promote
+the changelog, the tag message, and a final "Proceed?". It now asks only for the version. It
+offers the next major, patch and minor versions as `1`/`2`/`3` (Enter takes the patch) or takes
+any `x.y.z` typed in, and that answer is the go-ahead. The commits since the last tag are printed
+before the question, then the changelog promotion, tag and push run unattended. The old questions
+are now flags: `./release.sh 2.21.3` skips the version question, `--target <ref>` tags an earlier
+commit on main, and `-m "<message>"` sets the tag message. Every refusal guard is unchanged. It
+stops to ask again only if main gained a commit other than the promotion while that PR was
+merging, because the reader never saw that commit in the list they approved.
+
+After pushing the tag it now watches the Deploy workflow. It prints each job as it starts, then
+reports `✅ vX.Y.Z is deployed to production` or `❌` with the failed jobs, and rings the terminal
+bell and posts a macOS notification either way. The watching stops on its own after an hour.
+Ctrl-C stops the watching only, not the deploy.
+
+### Docs — the lunar eclipse port plan and its design bundle
+
+`docs/engineering/lunar-eclipse-plan.md` plans the extension of the `ECLIPSE` almanac topic to
+lunar eclipses, against the design handoff now vendored at `docs/design/lunar-eclipse/` (design of
+record `Lunar Eclipse.html`; `VENDORING.md` records what was copied). Eight single-session Sonnet
+phases with paste-ready prompts in `docs/engineering/lunar-eclipse-prompts.md`: a seeded
+`LunarEclipseCatalog` of UTC contacts, a per-location sight from solar-utils' moon geometry, the
+topic and almanac source under a distinct `LUNAR_ECLIPSE` type sharing the solar channel, the
+sight on `BriefingSlot`, a clocked Plan-card chip, the popup's one new component (the dawn race),
+the Coming up row, and an independent plain-language copy sweep that retires every user-facing
+"bits" string.
+
+The plan's §1 records where the spec is stale against this repo, and the defaults it takes in
+consequence: the promoted strip the spec builds on was retired at plan-matrix M5 and is not
+rebuilt (the evening-before need is met by the card and the popup); the `clearToDeg` horizon score
+it reuses has never existed, so every clear-to-the-west surface is dropped as the solar handoff
+dropped it, not faked; and the worked example (28 Aug 2026) is already past, so verification runs
+on the simulation template. Nine owner decisions are listed in §6 with their costs. Documentation
+only; no behaviour change.
+
+## [v2.21.2] - 2026-09-23
+
+### Changed — open on Map on iPad and desktop, Plan on phone
+
+The app opened on the Plan tab everywhere. It now opens on **Map** on a tablet or desktop and on
+**Plan** on a phone — the owner's read of the two surfaces: the map needs room for the heat field,
+callout and chrome, and the matrix of six cards is what reads well at 375px.
+
+`frontend/src/utils/initialTab.js` is a pure viewport read: `PHONE_OPENING_QUERY` mirrors
+`useIsMobile`'s own `(max-width: 639px)` boundary plus a landscape-phone arm
+(`(pointer: coarse) and (max-height: 499px)`, so an iPhone held sideways still opens on Plan). `App`
+resolves it once at mount via a `useState` initialiser and hands it to `WindowFirstShell` as
+`initialTab`; the shell stays device-agnostic and never reads a media query itself.
+
+Decided once, never persisted (no `localStorage`, recomputed on every visit), and never re-decided
+after mount — rotating or resizing the window does not move the reader to another tab. The
+trickiest part: the Map pane does not exist at the very first render (`App` withholds it until
+`GET /api/forecast` has returned rows), so a desktop/iPad preference for Map has to survive from
+first paint to the moment the pane actually arrives. `WindowFirstShell` models the opening tab as a
+*preference* (`activeTab` starts `null`, meaning "not yet chosen") rather than a one-shot selection,
+and commits it — pinning whichever tab is in force — the instant the reader does anything at all
+with the page: a click, a keypress, a wheel scroll, or any lens-bar interaction, caught at the
+shell root in the capture phase rather than as an enumerated list of dialog states (an earlier draft
+enumerated them and a review found the Drive/Rating lens bar slipping past it, since it never calls
+the tab-selection function at all). A 1500 ms grace timer commits the preference on its own if the
+reader has touched nothing by then, so a switch never lands mid-interaction. Focus is not moved by
+the preference-driven switch — only an explicit tab request does that, unchanged.
+
+No new endpoint, no migration, no persisted setting — see
+`docs/engineering/default-tab-by-device-plan.md` for the full design and the test brief.
+
+### Changed — lift the tide gate: a mismatched coast now scores, it does not disappear
+
+A coastal slot whose tide missed the light used to be withheld from Claude entirely
+(`BriefingGatingPolicy.HARD_CONSTRAINT_REASONS = {TIDE_MISMATCH}`) and served with no rating at
+all — the one hard constraint left standing after the Gate 2 redesign. `TideVisitor`'s R1 penalty
+(5 king/spring-aligned · 4 tight-aligned · 3 widened-aligned · 1 misaligned), written for exactly
+this case, has been dead behind that gate since the day it shipped. The owner decided (Q1 of
+`docs/engineering/tide-window-plan.md` §6, option 3): **lift the gate and let the existing visitor
+score the shot** — "the star is the whole shot". A coastal slot's sky rating now reaches Claude
+regardless of tide alignment and combines with `TideVisitor`'s score exactly as `RatingCombiner`
+already did (half-up average): a 4★ sky at wrong water now returns 4★ for the light and combines
+to `round((4+1)/2) = 3★`; an aligned coast is unchanged (4★ sky + aligned 4 → 4★; + spring/king 5 →
+5★).
+
+Measured before deciding, over the fortnight to 18 Sep 2026: **1,066** gated skips against
+**7,051** evaluated — lifting the gate costs roughly **+15%** more evaluations at the fortnight's
+upper bound. Accepted: the cost buys a served rating for every formerly-gated slot.
+
+**Backend**: `BriefingGatingPolicy.HARD_CONSTRAINT_REASONS` is now empty — the mechanism (the set,
+the label round-trip, `BriefingSlotBuilder`'s `evaluationGate` wording) stays wired for a future
+hard constraint rather than being deleted. `TideWording.tideGatePhrase` (its one producer) is
+removed with its tests, since no gate fires to word any more. The STANDDOWN verdict override for a
+tide mismatch in `BriefingSlotBuilder` stays — it is now a triage *label* only (feeding the region
+roll-up, like any weather stand-down), never a Claude-eligibility gate. `TideVisitor` and
+`RatingCombiner` are untouched; the fix was entirely upstream, in what reaches them.
+
+**New**: `BriefingSlot.skyRating` / `BriefingEvaluationResult.skyRating` — the sky visitor's own
+component score alone, with no tide contribution averaged in, riding the same `cached_evaluation`
+results entry the combined `claudeRating` already does (no migration). The map tab's `TideFitBlock`
+states it beside a tide-dimmed star (`· sky 4★`) on every miss, and on a match only when it differs
+from the combined figure (a spring-aligned tide lifting a 4★ sky to 5★) — so a reader can tell "the
+water cost me a star" from "the light itself was mediocre" without a second visit to the sky score.
+
+**Prompt**: `BestBetPromptText`'s tide language was re-read and found to instruct Claude to
+re-weight tide alignment on top of the combined rating (`claudeAverageRating` now already includes
+tide) — flagged for the owner rather than edited; prompt changes and regression-test assertions
+stay the owner's call per CLAUDE.md.
+
+See `docs/engineering/tide-window-plan.md` §4 #20 and §6 Q1 for the full reasoning, including why
+this deviates from the vendored design's own `OPEN 5` warning against representing a tide mismatch
+twice (the gate lift removes the double-representation rather than adding to it).
+
+## [v2.21.1] - 2026-09-18
+
+### Added — the window popup's tide row states the water's height at the light
+
+Owner-requested follow-up to the tide-plan-card series (Q7, `docs/engineering/tide-plan-card-plan.md`
+§6, decided): the Plan/Map tab's window popup tide row gains a fifth fact, `"<height> at the light"`
+(e.g. `"2.6 m at the light"`), reading the already-served `BriefingWindowTide.heightAtWindow` — no
+backend change, since the field has been served since T2 (#876). It sits directly after the existing
+state/direction fact, ahead of the nearest-extreme fact, and is dropped (never approximated) on a
+payload from before that field existed.
+
+Measured at 390×844 (a real-browser fixture built from this branch's own compiled CSS and fonts,
+reproducing `WindowSheetDialog.jsx`'s exact DOM chain — jsdom cannot render text wrap): the row's
+three visible facts wrap to 2 lines without the new fact, four to 3 lines with it. Sea state stays
+the row's one phone-droppable fact, as before; the new fact is never dropped.
+
+See `docs/engineering/tide-plan-card-plan.md` §4 #9/#11 and §6 Q7.
+
+### Fixed — Map tab phone: the counts footer stays in the accessibility tree while the tide strip is up
+
+T7 (#882) hid the Map tab's bottom-centre count line (`.wf-map-counts-footer`) with
+`display: none` on the phone whenever the tide strip is showing, per the design's own reasoning
+that stacking both lines pushes the map to nothing. `display: none` also pulls an element out of
+the accessibility tree, which the design's screen-space reasoning never considered — a
+screen-reader user on the phone lost the count/rated/filtered figures for as long as the strip was
+on, with no equivalent anywhere else on the tab (flagged as an owner item, §6 Q8, in T7's own
+adversarial review).
+
+Resolves Q8 with option 2: the footer is now visually hidden with an `sr-only`-shaped clip
+(`position: absolute; width/height: 1px; overflow: hidden; clip-path: inset(50%)`) instead of
+`display: none`, written out because the rule lives inside a media query rather than on a class.
+A sighted reader sees exactly the same layout as before; a screen-reader user can still reach the
+count. No visual or layout change — confirmed against `mapPhoneChromeCascade.test.jsx`'s
+arithmetic that the rest of the phone's lifted chrome stack is untouched, and the footer already
+carries `pointer-events: none` so the clipped box can never intercept a tap.
+
+Adversarial review (CSS-cascade lens) caught a real second-order effect: `MapCallout.jsx`'s
+placement-band logic (`utils/mapCallout.js#calloutBand`) skips a bar with a zero-size rect, which
+is what had excluded the counts footer while it was a genuine `display: none` `0×0`. The new `1×1`
+clipped box clears that bare `> 0` test, so — combined with the footer's pre-existing `always: true`
+width-test opt-out — it would have started counting as a real, invisible floor/ceiling bar for the
+callout's placement band on the phone. Currently harmless by coincidence of the two bars' `bottom`
+values, not by any enforced invariant, so fixed alongside: `calloutBand`'s zero-size skip now reads
+`> 1` rather than `> 0` (any real chrome bar is always many pixels in both dimensions; only a
+clipped, invisible element is ever `1×1`), with a new test (`mapCallout.test.js`) and a corrected
+`MapCallout.jsx` doc comment that had attributed the footer's zero-size rect to `display: none`
+specifically.
+
+See `docs/engineering/tide-window-plan.md` §6 Q8 and §4 #19.
+
+### Fixed — coastal OPEN_FELL bluebell locations no longer double-count tide in their rating
+
+A coastal, OPEN_FELL-exposure bluebell site's served rating averaged in its tide score twice: once
+via the sky task's own sky+tide combine, and a second time via the bluebell task's own tide+bluebell
+combine, before the two were blended together at cache-merge time. The net effect was
+`avg(avg(sky, tide), avg(tide, bluebell))` — tide entered the composite twice while sky and bluebell
+each entered once, over-weighting a tide mismatch and under-weighting sky and bluebell for exactly
+the locations that combine both features.
+
+`ForecastResultHandler.buildBluebellResult` now re-derives a tide context for an OPEN_FELL bluebell
+combine only when the paired sky task has not already been cached this cycle. Sky and bluebell are
+separate Anthropic batches that complete independently, so the common case — sky already scored and
+cached — suppresses tide here and lets the merge-time recombination
+(`BriefingEvaluationService.recombineBluebell`) fold it in from the sky side instead, so tide
+contributes exactly once. When no sky entry is cached yet (the sky task is still in flight, or
+failed outright this cycle), tide is still derived here as the sole available signal, so a
+misaligned tide is never silently dropped from the rating. WOODLAND bluebell sites are unaffected
+(their rating was never a tide peer) and still always derive tide for the `forecast_score` audit
+trail, since an in-season WOODLAND site has no sky call to record it otherwise.
+
+### Fixed — bluebell rating recombination now keys on the location's actual exposure, not the shape of the cache
+
+`BriefingEvaluationService.recombineBluebell` decided whether an incoming bluebell rating should
+average onto a prior sky rating (OPEN_FELL) or stand alone (WOODLAND) by checking whether the
+prior cache entry for that location *looked* sky-scored (non-null `fierySkyPotential`), rather
+than by reading the location's own `BluebellExposure`. Currently unreachable in production — all
+15 real canopy sites are WOODLAND+BLUEBELL only, with no sky `LocationType`, so no prior sky entry
+can exist for them — but latent: a WOODLAND-exposure bluebell site that also carries a sky-eligible
+`LocationType` (so it is not `isWoodlandOnly()` and is still sky-scored off-season) would have a
+stale, months-old sky entry averaged into its rating the moment bluebell season starts, the same
+"averaged across the wrong axis" defect class as the OPEN_FELL tide double-count fixed earlier.
+
+`recombineBluebell` and `mergeBluebellFromBatch` now take the location's real `BluebellExposure`
+and only withhold the sky peer when it is explicitly `WOODLAND` — mirroring
+`RatingCombiner.selectRatingPeers`'s own rule. The exposure is captured in `BatchResultProcessor`
+at the one point in the pipeline where the real `LocationEntity` is still in hand, threaded through
+`ForecastResultHandler.mergeBluebellCacheKey` alongside the existing per-cache-key result grouping.
+A location missing from the map (or carrying a `null` exposure) defaults to not-WOODLAND, matching
+`RatingCombiner`'s own default.
+
+## [v2.21.0] - 2026-09-18
+
+### Docs — Map tab "tide on the window": close out the series (T8)
+
+`docs/engineering/tide-window-plan.md`'s T8 (the final phase of eight) sweeps the port plan and
+its vendored spec now that T1–T7 have all merged (#876–#882): §0 flips to complete with every
+phase-log commit column filled in from `git log` (including T3's pre-merge Codex fix, `1507aa3c`,
+named separately since the squash-merge hides it from `main`'s own history), §1 #12's licensed
+client-derivation count is corrected from five members to six (T6 added `siblingEventTime` without
+updating the count), and §4's 18 numbered disagreements-with-the-spec were re-verified directly
+against the shipped code — `TideRepresentativeSelector`, the gate's `HARD_CONSTRAINT_REASONS`, the
+strip's mount point and tokens, the absent `'near'` tier, the rating-stage bypass — and found
+accurate; no renumbering was needed.
+
+§6 gains a preamble mapping the design spec's five `OPEN` items onto what shipped, and a new **Q9**
+recording an accepted, narrow risk T5's own review found: the callout/sheet block's jump and denial
+text read the location's *live* wanted-water set while the served fit phrase's own "wants" clause
+is frozen inside the cached forecast row, so the two can drift apart between an admin's edit and
+the next pipeline cycle. §7 gains a `§7b` table transcribing the phase log's own measured numbers
+(chip contrast, strip geometry at desktop and phone widths) rather than leaving them buried in
+prose.
+
+CLAUDE.md now documents the shipped increment: the Map tab (v2) bullet describes the tide strip,
+the dimmed-not-dropped chip and the rule that the map asks one tide question (the preference one);
+the Locations bullet notes the map reads `TideType` as the wanted water; a new seventh Backend-heavy
+licensed client-derivation class names the six tide-fit helpers (`stripModel`, `dominantWantCount`,
+`nextAlignedRow`, `tierOf`, `wantPhrase`, `siblingEventTime`); and the "Two tide axes" bullet notes
+that the same "neither axis may answer for the other" rule now also separates the map's preference
+question (`tideAligned`) from the pre-existing on-the-light fact (`tideOnTheLight`).
+
+`docs/design/tide-window/VENDORING.md` records the plan's final §4 count (18). No code changes.
+
+### Docs — the tide-plan-card sweep (C4)
+
+Closes out `docs/engineering/tide-plan-card-plan.md`: flips §0 to complete, fills the phase log's
+commit column with the four PR numbers (C0 #888, C1 #889, C2 #891, C3 #890 — kept in phase order,
+noted as not the merge order), and reconciles §4 against the shipped code — two entries added
+(C3's declined `heightAtWindow` popup fact; C2's chip tooltip states the served window tide's
+state and direction only, never a height or a clock time) that the phases recorded but the plan
+had not yet numbered.
+
+Answers the design spec's four `OPEN` items in §6 with what shipped (fully reach-bound marks; no
+run vocabulary to share, since Hot Topics' `SPRING RUN n/N` chip no longer exists; the location
+`TideType` set already expresses "both extremes"; the phone measurement's actual numbers), and adds
+§7b, transcribing the phase log's measured-versus-tested figures into one table rather than
+re-deriving them.
+
+CLAUDE.md: the Backend-heavy bullet's Plan-tab reach-scoped class gains `card.tideFit` and the
+strip's `tideRun`, and nothing else; the Plan tab (day × event matrix) bullet gains one note on the
+wave glyph, the `N on tide` chip and the silence rule below its gate; the "Two tide axes" bullet
+notes the Plan card's glyph and chip read the same preference axis (`tideAligned`) as the Map tab's
+own chip. None of the tide-window series' own T8 additions to these bullets are touched.
+
+Docs only — no code changed.
+
+### Added — the tide-fit fact on the Plan tab window popup (C3)
+
+The window popup's existing tide row gains one trailing fact, read from C1's `card.tideFit`: how
+many of the reach-gated coastal pool get the water they want on this window — `"9 of 14 coastal
+locations in reach on tide"`, or `"… coastal locations on tide"` when the account has no drive
+times to have gated on. Omitted entirely when the pool holds no coastal spot at all, rather than
+printing a claim about a roster of zero.
+
+Built by `WindowSheetDialog.jsx`, never inside `utils/windowFirstRows.js#tideFacts` — that module
+maps served window facts only, and this count is reach-scoped client data, the same class the
+spread histogram and the best-reachable line already belong to. It reaches the row through
+`WindowAttributeRow`'s new `extraFacts` prop, appended after the row's served facts in the same
+`{segments, optional}` shape, so the served and client facts can never be confused for one another
+by a later reader of either file.
+
+No score, verdict, chart or existing fact is touched.
+
+### Added — two tide marks on the Plan tab window card (C2)
+
+`WindowFirstHeatStrip.jsx`'s card gains the two marks `docs/engineering/tide-plan-card-plan.md`
+§3 C2 specifies, both reusing C0/C1's served/derived data — nothing is re-scored, re-coloured, or
+computed here beyond formatting.
+
+A wave glyph (`components/map/TideWave.jsx`, no `shortfall`) sits before the best-reachable spot's
+name whenever `card.bestReach.tideAligned === true` — the preference axis, never the timing phrase
+"on the light". Its claim reaches a screen reader only through a new clause on
+`bestReachLine`'s `spoken` string ("the tide is right here"), since the card's whole value grid is
+`aria-hidden`; a miss or an inland spot draws and says nothing.
+
+A `N on tide` topic chip is the first element of the topics line whenever `card.tideFit.live`,
+carrying a tooltip naming the matched/coastal count (qualified "in reach" only when
+`card.reachMeasured`), the served window tide's state and direction, and — only when more than one
+window in the strip is live (`utils/windowFirstTideRun.js#tideRun`, C1) — a run-size clause and,
+on the ranked best, `best of N` in a heavier, pilled emphasis on the same `--color-badge-tide` ink
+(never a third tide hue). The chip's own accessible-name clause mirrors the served topic badges'
+own construction.
+
+CSS: four new rules beside the existing `.wf-hc-tw[data-channel="tide"]` block — `.wf-hc-tide`,
+`.wf-hc-tide[data-best]`, `.wf-hc-tide-best`, `.wf-hc-best-tw` — all plain rgba tints of the
+existing `--color-tide`/`--color-badge-tide` tokens. `.wf-hc-best-tw` carries `display:
+inline-block`, found missing by adversarial review and matching the established `.wf-reg-tide`
+precedent: without it, Tailwind's `svg { display: block }` preflight drops the glyph onto its own
+line instead of sitting before the name.
+
+Browser-verified against a live local stack (four seeded coastal locations, a served
+`tideAlignmentQuality` pattern reproducing a live/live/miss/single-match run across four sunsets):
+the glyph renders inline at 1280/834/390px; the emphasised chip measures 7.90:1 ink-on-pill and the
+plain chip 10.01:1 against the card, both clearing AA; no chip's visible box exceeds its card's
+edge at any of the three widths (a benign ~2px "logical" overflow of `.wf-hc-tps`'s own content box
+— the pill's own literal `margin: -1px -2px` — never breaches the card, which has `overflow:
+visible` and 6px of padding to spare); the accessible name carries both new clauses exactly as
+specified and neither on a miss.
+
+### Added — tide data on the Plan tab window card's pool, per-window summary and run (C1)
+
+`utils/windowFirstSpots.js#buildWindowSpots` copies three tide facts flat onto each spot
+descriptor — `tideState`, `tideAligned` (null unless `tideState` is served, never a stray `false`
+for an inland spot), and `tideQuality` (C0's served `tideAlignmentQuality`) — so the card's
+reach-gated pool, spread histogram and best-reachable line all read one population, never a second
+index. `utils/windowFirstCards.js#buildWindowCards` derives a new per-window summary,
+`card.tideFit` — deliberately never `tide`, which already names the served `BriefingWindowTide` the
+tide-window series forwards to the Map tab's strip — `{coastal, matched, live, meanQuality}` over
+that same pool: `live` at half the coastal pool in reach, floored at three
+(`TIDE_LIVE_MIN_COASTAL`/`TIDE_LIVE_FLOOR`/`TIDE_LIVE_SHARE`), `meanQuality` averaged over the
+matched spots that carry a served quality. `utils/windowFirstStrip.js` forwards `tideFit` beside
+`tide`. New `utils/windowFirstTideRun.js#tideRun(cards)` ranks the live windows in one forecast —
+`matched` first, then the served mean quality (nulls last), then strip order — and names the one
+window to take only where more than one is live.
+
+No visible change — nothing renders this data yet (C2). `card.tideFit` and `tideRun` are new,
+named members of CLAUDE.md's reach-scoped Backend-heavy licensed class ("and only those"): the pool
+is per-user, so no servable answer exists on the shared `GET /api/briefing`, the same reasoning
+that already licenses the spread histogram and the best-reachable line.
+
+### Added — a served tide alignment quality figure (Plan tab tide card, C0)
+
+`BriefingSlot.TideInfo` and `TideDerivation` gain `Double tideAlignmentQuality`
+(`@JsonInclude(NON_NULL)`, 0..1, null unless `tideAligned`): how well-centred a coastal location's
+water is in its wanted state at the light, on the same time axis `tideAligned` is decided on — for
+a HIGH or LOW want, distance to that extreme; for a MID want, distance to the midpoint between the
+bracketing extremes (`TideService.isMidPointAligned`'s own geometry, now exposed via
+`TideService.nearestMidpointOffsetMinutes`); the best of them when more than one want is aligned.
+Computed in `TideFactDeriver.derive()` and relayed by `BriefingSlotBuilder` unchanged.
+
+No visible change and no migration — this is the served figure Phase C1 of
+`docs/engineering/tide-plan-card-plan.md` needs to rank a run of live tide windows by *how well*
+each is matched, not just whether it is. Both `BriefingSlot.TideInfo` legacy constructors and a new
+16-field legacy `TideDerivation` constructor keep every predating call site compiling. A WARN logs
+the one avenue the two fields can disagree on (a MID want's second extremes fetch racing a tide
+refresh) rather than letting the degraded case pass silently.
+
+## [v2.20.6] - 2026-09-18
+
+### Fixed — the release promotion no longer false-positives on a large CHANGELOG
+
+`scripts/promote-changelog.sh` proves its rewrite added exactly its insertion block and removed
+nothing by diffing the old and new `CHANGELOG.md`. It called plain `diff`, whose Apple/BSD
+implementation uses a non-minimal heuristic on large files by default — inserting the v2.20.6
+block (4283 lines into a 12k+ line file) produced a larger, non-minimal edit script (4286 added /
+3 removed) instead of the true minimal one, and the guard refused a legitimate promotion. The
+`diff` calls now pass `-d` to force a minimal diff; a no-op for GNU diff, which is already minimal
+by default.
+
+### Docs — `clearForUser`'s javadoc names the nightly refresh as well as the button
+
+`UserDriveTimeWriter.clearForUser` discards a user's drive times when `UserSettingsService.saveHome`
+sees the home move. Its javadoc said they stay unknown "until the next refresh", then "The user
+refreshes when they are ready", as if that press were the only way back. It never was: the sentence
+arrived with #423 on 2026-08-04, a week after #345 had added `DriveTimeRefreshJob`, the nightly
+`drive_time_refresh` job that V133 seeds ACTIVE at 02:40. It was incomplete on the day it was
+written, not stale later.
+
+The javadoc now says the gap ends at whichever refresh first measures from the new home: the nightly
+run, or the user's own **Refresh drive times** in the Settings dialog. It also records that the
+dialog enables that button for Pro and admin accounts only, so a LITE account waits for the nightly
+run. The "unknown is safe; wrong is not" paragraph is unchanged, because V145's migration comment and
+`RegionDriveTimeWriter` both cite it.
+
+A sweep of the whole tree (backend, frontend, `CLAUDE.md`, `docs/`, the changelogs) found no other
+present-tense copy of the claim. The past-tense history in V133, in `DriveTimeRefreshJob`'s class
+javadoc and in `UserSettingsModal`'s stamp comment is accurate and stays.
+
+Javadoc only; no behaviour changes.
+
+### Fixed — a postcode saved while drive times recalculate is no longer put back to the old one
+
+A reader could save a new postcode and press **Refresh drive times** before the save had
+committed; the settings dialog allows it. The refresh read the old home, routed from it for
+several seconds, stored those drive times over the save's discard, and then saved the whole user
+row it had loaded, writing the old postcode and coordinates back over the new ones. The server
+ended on the old home, with drive times measured from it, while the page showed the new one. The
+same shape lost other writes: a colour or home save made while the nightly drive-time job routed
+that user was reverted by the job's save, and a home save and a colour save in two tabs could lose
+one of the two. `AppUserEntity` has neither `@Version` nor `@DynamicUpdate`, so every one of those
+saves wrote every column from its own copy.
+
+**The fix.**
+- **Every settings write is column-scoped**, following `updateComingUpLastSeenAtByUsername`:
+  `updateHome` writes the postcode, coordinates and radius together, `updateMapColourScaleByUsername`
+  writes the colour alone, and the drive-time stamp has its own two statements. A null radius keeps
+  the stored one (`coalesce`), as the in-memory save did.
+- **The seven settings columns are `updatable = false`.** Column-scoping protects a column only
+  if no whole-entity save still writes it, and several do: the JWT filter's last-active save (at
+  most hourly, from whichever authenticated request comes first), login, a password change, the
+  marketing opt-in and the admin paths. None of those can now write a home, colour, radius, stamp or
+  Coming-up instant. ⚠️ So `setX()` then `save()` on an existing user writes none of these columns;
+  inserts are unaffected.
+- **A refresh stores only while the home is still the one it measured from.**
+  `DriveDurationService` now only measures (`measureForUser`). `UserDriveTimeWriter.storeIfHomeUnchanged`
+  compare-and-sets the stamp on the measured coordinates FIRST, then replaces the rows in the same
+  transaction, and writes nothing when that matched no row. The coordinates are compared because they
+  are the measurement's whole input, and `DOUBLE PRECISION` round-trips a Java `double` exactly.
+- **`POST /api/user/settings/drive-times/refresh` answers 409** when the home moved while it measured,
+  having written nothing. It does not re-measure: a retry re-runs every precondition against the row as
+  it stands, including the cooldown, which answers 429 if another refresh already measured from the
+  new home. The retry is always allowed after a move, because the save released the cooldown.
+- **The nightly job stores through the same guard** and counts a moved user as superseded, not failed.
+- **`saveHome` decides whether the home moved from a `SELECT … FOR UPDATE` read**
+  (`findByUsernameForUpdate`), so nothing can change the row between that decision and the commit.
+  Both it and the store take the user row before the drive-time rows, so they cannot deadlock.
+
+**Why not `@Version` or `@DynamicUpdate`.**
+- `@DynamicUpdate` narrows the save of a *managed* entity to the columns that changed. With
+  open-in-view on (Boot's default, not overridden here), the manual refresh held a managed entity, so
+  it would have stopped that refresh writing the old postcode back. It cannot help a save that merges a
+  detached copy, as the nightly job and the JWT filter's last-active write do: a merge counts every
+  stale value as a change. And it does nothing about the drive-time rows, which the refresh stored for
+  the old home either way.
+- `@Version` would catch every stale write, at two costs. It turns independent writes into conflicts
+  whenever they overlap: a colour save, a home save, the hourly last-active bump. And it needs a
+  migration plus a conflict response at every writer. The one real conflict is narrower than "the row
+  changed": drive times measured from a home that has since moved. A compare-and-set on the
+  coordinates answers exactly that.
+
+**Behaviour changes to know.**
+- The nightly job no longer clears a user's drive times when ORS answers with no valid duration to any
+  location. It stores nothing then, as it already did for an empty response, so the stored drive times
+  keep matching their stamp. The manual refresh still clears in that case.
+- The cooldown and both stamps read the injected `Clock` rather than `Instant.now()`.
+
+**The frontend contract is unchanged.** The refresh's response is still
+`{locationsUpdated, calculatedAt}`, and `useReaderSettings` still compares stamps as instants. The
+dialog renders a 409 as "Something went wrong — please try again", and focus goes back to the Refresh
+button; pressing it again is the remedy. The reason reaches the client in the error body's `error`
+field.
+
+**Tests.**
+- **Mocked unit tests** pin each write to its column-scoped method with explicit arguments, and pin
+  that none calls `save()`. They also cover both branches of the guard, the 409, the cooldown at
+  1799/1800/1801 s on a fixed clock, that the locked read comes before every write, and the job's
+  branches.
+- **`AppUserRepositoryTest` (H2)** proves each update writes its own columns and no others, covers
+  both compare-and-set branches (latitude and longitude varied alone), and shows the `coalesce`. It
+  also reproduces the lost update itself: a stale copy saved back now emits an `UPDATE` without the
+  settings columns, and a positive control proves that save really wrote.
+- **`UserSettingsRaceSequenceTest` (H2)** replays each failure through the real services and
+  transactions, driving the interleaving from inside the stubbed routing call: a postcode saved
+  mid-refresh (409, the new home kept, nothing stored, the retry measuring from the new home), a
+  colour saved mid-refresh (kept, and no conflict), a home saved while the nightly job routes, a move
+  releasing the cooldown, and a radius-only save keeping drive times. A second connection proves the
+  locked read really holds the row.
+- **`UserSettingsRowLockIntegrationTest` (Postgres, CI only; not run locally, since there is no
+  Docker here)** proves that a store waits on a save holding the row and then matches the home that
+  save committed. It also replays the postcode failure against the production engine.
+
+**Proved by mutation**, in a scratch copy of `backend/`, running only the classes each mutant
+concerns. After every run the file was restored and checked byte for byte. All 31 were caught locally:
+30 by an assertion, and one by an error from the product itself.
+
+| mutant | caught by |
+|---|---|
+| `updatable = false` removed from each of the 7 settings columns (7 mutants) | the stale whole-entity save test, each on its own column |
+| compare-and-set ignores latitude / longitude / the whole home (3) | the matching compare-and-set test; the whole-home one also by the postcode sequence (no 409) |
+| `updateHome` resets a null radius | the `coalesce` test and the radius-only sequence |
+| `updateHome` also clears the stamp | the column-scoping test and the radius-only sequence |
+| `@Lock` removed from `findByUsernameForUpdate` | the second-connection lock test |
+| the store ignores the compare-and-set's result | the writer test, and both the refresh and nightly sequences |
+| the store deletes rows before the compare-and-set | the writer's order and no-write tests |
+| the no-answer stamp always reports success | the writer test |
+| `saveHome` decides from an unlocked read | `readsUnderTheLockBeforeWriting`, among others |
+| a move keeps the stamp / keeps the rows (2) | the unit tests; the stamp one also by the cooldown sequence (429) |
+| every save / no save counts as a move (2) | the unit tests and the radius-only sequence / the cooldown sequence |
+| the refresh reports success when nothing was stored | both 409 tests and the postcode sequence |
+| the cooldown reads the wall clock | the 429 tests |
+| the cooldown boundary made inclusive | the 1800 s case errors on the mutant's own 429 |
+| the no-answer stamp skips the guard | the no-answer and 409 tests |
+| the colour saved through the whole entity | the unit test and the colour sequence (`verdict` written back) |
+| the radius no longer clamped | the clamp tests |
+| the job stores an empty measurement / saves the user row back / stamps from the wall clock (3) | the job tests; the wall-clock one also by the nightly sequence |
+| an answer with no valid duration collapses to no answer | the measurement test |
+
+**Not proved here.** The Postgres-only properties — the compare-and-set re-checking its condition
+after a lock wait, and the absence of a deadlock between a save and a store — rest on
+`UserSettingsRowLockIntegrationTest`, which runs only in CI. Nothing was checked in the running app.
+
+**Found on the way, not fixed here.** The shared region matrix has the same race: its nightly job
+routes from a region's base and stores unconditionally, so an admin moving the base during that run
+gets the old base's drive times. The account columns still left updatable (enabled, role, password
+and the rest) are still written back whole by the JWT filter's last-active save, so an admin's
+change landing in that gap can be undone.
+
+### Docs — Map tab "tide on the window": port plan and session prompts
+
+`docs/engineering/tide-window-plan.md` is the port plan for the owner's `design_handoff_tide_window`
+bundle (vendored verbatim at `docs/design/tide-window/`, with a `VENDORING.md` saying what was and was
+not copied), and `docs/engineering/tide-window-prompts.md` is one paste-ready kickoff prompt per phase
+for fresh Sonnet sessions. Eight phases (T1–T8): two backend (the per-slot tide facts, the strip's
+window facts), one data-plumbing, then the chip, the callout and sheet block, the strip, the phone
+layout, and the sweep.
+
+The plan's §1 records where the codebase already answers the spec's open questions, and three of
+those corrections change what gets built:
+
+- the location's "want" already exists as a multi-select `TideType` (HIGH/MID/LOW) edited on the
+  Locations screen, so the spec's one new column, API field and editor (`OPEN 1`) are not built;
+- this app's tide axis is **time-based** (`classifyTideState`, the gate, `TideVisitor`), not the
+  spec's level-based `1 − |level − target|`, and `TideSurfaceAgreementTest` exists to stop a second
+  definition — so the chip's tiers read the served `tideAligned` and the level is a display fact;
+- a tide-mismatched coastal slot is not rated low, it is **withheld from Claude** and served unrated
+  (`BriefingGatingPolicy`, `evaluationGate`), which with the map's default "hide unknown" is the
+  exact mechanism behind the spec's "the coast disappears". The plan keeps the gate and the score
+  untouched this series (§5 #1) and draws the gated location dimmed without a star; lifting the gate
+  is an owner decision with a measurement query attached (§6 Q1).
+
+No code changes.
+
+### Added — the Map tab's tide strip reaches the phone (T7 of the tide-window increment)
+
+T6 gated the strip on `!isMobile`; this phase lifts that gate. On the phone the strip takes the
+count footer's own row of the lifted chrome stack rather than sharing space with it — "the tide
+sentence is the more useful line at that width" (design §6) — so the footer is hidden outright
+while the strip is on, not merely lifted alongside it the way every other row in that stack is.
+Everything above the strip (the scored-locations chip, the LITE viewline-upsell chip) now clears
+its *real* published height (`--tsh`, T6) instead of the footer's assumed ~28px one: open and
+collapsed are roughly 4x apart (T6's own measurement, 167px vs 38px), so a fixed offset would be
+wrong for one of the two states by construction — the same argument that put `--tsh` on the strip
+in the first place.
+
+The strip is mounted as a plain **sibling** of `.wf-map-chrome-bl` on the phone rather than nested
+inside it the way the desktop mount is (T6, §4 #6): it has to span `left: 8px; right: 8px` against
+the frame itself, the same containing block the count footer and the scored-legend chip already
+use, and `.wf-map-chrome-bl` is only ever left-anchored (no `right`), so a descendant of it could
+never stretch edge to edge. `MapView.jsx` renders the same `<MapTideStrip>` a second time, gated on
+`isMobile` alongside the existing `!isMobile`-gated desktop mount; the component itself needed no
+change — it already returns `null` unless `model.visible`, on either mount.
+
+Two knock-on fixes, both because the phone strip is no longer covered by `.wf-map-chrome-bl`'s own
+existing obstacle/band seeding:
+
+- `MapLabels.jsx`/`PinsLayer.jsx`'s `OBSTACLE_SELECTOR` gained `[data-testid="wf-tide-strip"]` — on
+  desktop the strip is already covered as a descendant of the seeded `.wf-map-chrome-bl`, but on the
+  phone it is a sibling with no obstacle entry of its own, so a label or pin could place itself
+  underneath an uncovered strip on that one viewport.
+- `MapCallout.jsx`'s `BAND_BAR_SELECTOR` gained the same testid. The phone query *hides* the count
+  footer outright (rather than lifting it) while the strip is on, so `getBoundingClientRect` on a
+  `display: none` footer returns a zero-size rect `calloutBand` already skips — with nothing else
+  naming the strip's own floor, the callout card was free to grow down over it.
+
+`frontend/src/test/mapPhoneChromeCascade.test.jsx` gains the strip's row: its own static geometry
+(`position: absolute; left: 8px; right: 8px; bottom: 112px; width: auto; max-width: none`, and that
+it reverts to the desktop flex-column placement without the `.wf-map-tab` ancestor); the count
+footer hidden while `wf-tide-strip-on` and shown otherwise; and — since `calc(var(--tsh))` is
+exactly what this suite's jsdom environment cannot resolve numerically (the same constraint
+`mapChromeZLadderCascade.test.jsx`'s own `--tsh` test already documents) — a raw-rule-text
+extraction of the scored-legend/chrome-bl lift formulas, replayed as arithmetic in JS with T6's own
+measured heights (167px open, 38px collapsed) standing in for `--tsh`, proving every pairwise
+boundary clears by at least 8px in both states. `MapLabels.test.jsx`/`PinsLayer.test.jsx` each gain
+a case in their existing obstacle-seeding `it.each` table for the new selector.
+
+**Adversarial review (5 lenses: runtime behaviour, CSS/tokens, test quality, accessibility, project
+conventions) found and fixed three real issues:** a pre-existing, unconditional (no media query)
+`.wf-map-tab.wf-tide-strip-on .wf-map-counts-footer { bottom: calc(...) }` rule still fires on the
+phone, where the new `display: none` for the same selector already wins visually — harmless, but
+dead arithmetic on that one viewport; fixed with a comment rather than a second media-query split.
+`mapPhoneChromeCascade.test.jsx`'s new pairwise-clearance check hardcoded the bar's `bottom` as a
+bare literal, unlike every other check in that file, which reads it live off the real CSS; fixed to
+match. And no test anywhere exercised `MapCallout.jsx`'s `BAND_BAR_SELECTOR` at all — not even for
+the pre-existing entries, a gap this phase inherited rather than introduced — closed with two new
+`MapCallout.test.jsx` cases proving the callout's placement band clamps above a real `wf-tide-strip`
+DOM sibling (and is a no-op without one); both passed on the first run. One accessibility finding
+recorded as an owner item rather than fixed: hiding the counts footer outright removes its count/
+rated/filtered figures from the accessibility tree while the strip shows, with no substitute
+anywhere else on the tab — faithful to the design's own screen-space reasoning, never evaluated for
+a non-visual reader; recorded as `tide-window-plan.md` §6 Q8.
+
+`npm run lint && npm test && npm audit --audit-level=high && npm run build` all green — 251 files,
+6413 tests, 0 vulnerabilities, build succeeded.
+
+**Browser-verified at 390×844**, headless Chromium via `playwright-core` (`chromium-1208`'s own
+binary, since the worktree's `playwright-core` resolved a revision the local cache did not have),
+against a freshly seeded local backend and Vite dev server — the same three coastal locations/wants
+as T5/T6 (Bamburgh Beach LOW, Dunstanburgh Castle HIGH, Tynemouth Priory HIGH+LOW) — with real
+`boundingBox()`/`getComputedStyle` reads, no numbers assumed:
+
+| check | open | collapsed |
+|---|---|---|
+| strip bottom edge vs bar top edge | 47.5px clear | 47.5px clear (strip `bottom` is a fixed anchor) |
+| scored-legend bottom edge vs strip top edge | 12.47px clear | 12.5px clear |
+| callout card bottom edge vs strip top edge | — | 8.0px clear, exactly `calloutBand`'s `BAND_EDGE_PAD` |
+| counts footer `display` while the strip is on | `none` | `none` |
+
+Strip's own real height: **166.53px open, 63.5px collapsed** — confirming a review-flagged risk was
+real: the collapsed row's phone-width height (63.5px) is *not* T6's desktop 38px (open, 166.53px,
+does match closely). The geometry held regardless, because everything above the strip is anchored
+off its real `--tsh` rather than an assumed constant — proof by measurement of the reason that
+mechanism exists. The callout (Bamburgh Beach, Pins mode) rendered fully above the collapsed strip
+with no overlap; the strip itself rendered its full content correctly at this width, footer reading
+"2 of 3 coastal spots are dimmed — they want low water" with the "beyond these four days" denial.
+
+### Added — the Map tab's tide strip (T6 of the tide-window increment)
+
+Bottom-left of the Map tab, mounted as the last child of `.wf-map-chrome-bl` so the legend and
+viewline-upsell chips clear it by flex order — the day's tide curve with HIGH/MID/LOW ruled across
+it, night shaded, sunrise and sunset marked, the light on the curve with its height, and a footer
+naming what is dimmed and jumping to the next window that fits. Visible only when the window on
+screen is solar, the briefing served a window tide fact, and at least one coastal location sits in
+the viewport padded 12% — never a mode, never a toggle; the only control is collapse, held in
+`MapView` state so it survives a window change. Publishes its own real height as `--tsh` on the
+`.wf-map-tab` root so the bottom-centre counts footer clears it (`calc(var(--tsh, 120px) + 16px)`);
+the legend and upsell chips above it need no such arithmetic, since flex order already clears them.
+
+**A real wiring gap between the served payload and the map was found and fixed.** T3's own
+`mapEvents.js#solarRow` already read `served.tide`, but nothing between `GET /api/briefing`'s real
+`window.tide` and that `served` object ever copied it forward: `buildWindowCards` (Plan tab
+matrix), `buildHeatStripCards` (the heat strip's thumbnails) and `WindowFirstMapPane`'s own
+`heat.windows` mapper each build their own reduced shape of a window, and none of the three carried
+`tide` through. Every layer's own unit tests fed the next one a hand-built fixture that already had
+`.tide` on it, so the gap was invisible to a fully green suite and only surfaced once the strip was
+rendered against a live payload in browser verification. Fixed by threading `tide: win?.tide ?? null`
+through all three folds, with a targeted test at each hop (`windowFirstCards.test.js`,
+`windowFirstStrip.test.js`, `WindowFirstMapPaneHeat.test.jsx`) — the last named for exactly this
+failure mode, mirroring the file's own precedent test for a prior instance of the same defect class
+(`pickKind`).
+
+New `components/map/MapTideStrip.jsx`; `utils/mapTideFit.js` gains `dominantWantCount` (the
+footer's "N of them want" population, computed once and shared with the next-fit scan so the two
+can never disagree) and `siblingEventTime` (a lookup, not a formula, for the chart's sunrise/sunset
+clock labels — `BriefingWindowTide` states where the sun rises/sets on the tide axis but not the
+clock time itself, and the sibling solar EV row already carries it, served). `windowFirstRows.js`
+exports its existing `STATE_WORD`/`DIRECTION_WORD` tables for reuse rather than a second copy.
+`MapView.jsx` gains the mount, a `tideStripCollapsed` state, a second `BoundsTracker` for the tab's
+own Leaflet viewport (the overlay's own stays plain-array; the strip needs a real `pad`/`contains`
+pair), and the `stripModel`/sibling-time wiring. New CSS block in `index.css`, tokens throughout
+(`--color-tide` for the curve stroke, `--color-badge-tide` for the state word/dot/band-hit label,
+`--color-verdict-marginal` for the sunrise/sunset rules, `--color-plex-text-muted`, `--color-plex-border`,
+`--font-mono`) — no bare hex.
+
+**Adversarial review (6 lenses: runtime behaviour, CSS/tokens, test quality, accessibility, project
+conventions, impact on the next phone phase) found and fixed:**
+
+- The curve stroke and the sunrise/sunset rules hardcoded their hex values instead of referencing
+  `--color-tide`/`--color-verdict-marginal` (the values happened to match, so nothing looked wrong
+  on screen) — fixed to reference the tokens (the marginal rule via `stroke-opacity`, since the
+  design's alpha isn't baked into that token).
+- **The chart's `aria-hidden` was on the `<svg>` alone, not the whole overlay.** The sunrise/sunset,
+  extrema and light-height labels are real HTML text siblings of the svg, so a screen reader
+  landing on that block by linear navigation read disconnected fragments ("↑ 05:44", "HW 08:47",
+  "2.6 m") with none of the sentence structure the header and footer already state them in — exactly
+  what "the whole chart is aria-hidden" (the design's own rule, and this file's own header doc) was
+  supposed to prevent. Fixed by moving `aria-hidden` onto the chart's wrapping div.
+- The collapsed row's "Open ▴" button had no accessible-name treatment for its glyph, unlike the
+  open state's "Collapse" and unlike `MapCallout`'s identical ▾/▴ toggle, which wraps the caret in
+  its own `aria-hidden` span. Fixed to match that precedent.
+- No focus management on the next-fit jump: activating it commonly resolves the very fact the
+  button existed for, so it unmounts on the next render with nothing to catch focus, silently
+  dropping a keyboard/screen-reader user to `<body>`. Fixed by giving the strip's root a
+  programmatic `tabIndex={-1}` and moving focus onto it after the jump, and by adding
+  `role="group" aria-label="Tide"` so the strip is a landmark a screen reader can jump to as one
+  unit in the first place.
+- A tautological test: the dot-on-curve self-consistency check built its fixture's `windowLevel`
+  by calling the exact same interpolation function the test then used to verify it, so two calls to
+  one deterministic function could never disagree regardless of a real bug. Fixed by deriving the
+  fixture's `windowLevel` from an independent continuous formula and sampling the discrete `curve`
+  against it — mirroring `TideSurfaceAgreementTest`'s own two-independent-computations shape.
+- An `offsetHeight` stub was restored inline at the end of each test body rather than in `afterEach`,
+  so a failed assertion earlier in any of those three tests would leave
+  `HTMLElement.prototype.offsetHeight` pinned globally for every later test in the file. Fixed.
+- A `siblingEventTime` guard test used a night row whose own `time` field was already empty, so
+  removing the `kind === SOLAR` filter it existed to prove would have passed anyway (the `|| null`
+  fallback coerces empty strings regardless). Fixed by giving that row a real time.
+- Missing coverage the phase's own task list named directly: a night-rect-widths test, a rendered
+  (not just pure-function) assertion of the footer's leading count sentence, and the
+  `windowLevel`-not-finite half of the dot-placement guard. Added.
+- One `container.querySelector('svg')` reach-into-DOM-structure, against this project's own test
+  standards — swapped for a `data-testid` on the element.
+
+`npm run lint && npm test && npm audit --audit-level=high && npm run build` all green (6355 tests,
+0 vulnerabilities, build succeeded).
+
+**Browser-verified, not merely asserted** — headless Chromium via `playwright-core` (the Browser
+pane would not composite in this session), against a locally seeded fixture: three SEASCAPE
+locations with real `tide_extreme` rows and distinct wants (Bamburgh Beach HIGH, Dunstanburgh
+Castle LOW, Tynemouth Priory HIGH+LOW, reaching the null-shortfall arrow case), a built briefing.
+Measured at 1280×800: strip height 167px open / 38px collapsed; `--tsh` and the counts footer's
+computed `bottom` agreed exactly in both states (167+16=183px; 38+16=54px); the light dot's
+`left`/`top` matched `windowPosition·100`/`TY(windowLevel)` to the pixel, and the night rects'
+`x`/`width` matched the served `sunrisePosition`/`sunsetPosition` exactly; every text node's
+contrast against the actual rendered (blurred, composited) background ranged 7.13:1–15.42:1, clear
+of the 4.5:1 floor. Panned to the Lake District and zoomed in tight on it: the strip disappeared,
+`--tsh` and the `wf-tide-strip-on` class were removed, and the counts footer's `bottom` returned to
+exactly `8px`. **Not seen live**: a night/astro row hiding the strip — the seeded fixture offered no
+astro or aurora EV rows to pick without additional dark-sky seeding outside this phase's scope; that
+branch is covered by the automated suite (`mapTideFit.test.js`'s `stripModel` visibility tests, and
+`MapTideStrip.test.jsx`'s own visibility suite) rather than observed on screen.
+
+### Added — the tide-fit block on the map callout and the location sheet (T5 of the tide-window increment)
+
+A coastal location's tide fact now reads as a sentence, not a wave with no words: a new shared
+`TideFitBlock` component renders **Tide lands on the light** over the served match phrase, or
+**Wrong water, not wrong light** over the served miss phrase — carrying either a text-button jump to
+the next window this spot fits, or an honest denial when nothing in the forecast horizon does. It
+mounts in two places that used to say less about the same fact: the map callout's tide row (which
+used to say only whether an extreme landed on the light, a different question) and every solar row
+of the location sheet (which had no per-window tide fact at all). Both surfaces read the same served
+alignment index, so the sentence never disagrees between the card that opened a sheet and the sheet
+itself.
+
+The evaluation gate row is untouched and sits beside the block rather than under it: the gate states
+why there is no score (the offset clause — "HW 09:19 · 2h35 after sunrise"), the block states what
+the water is and what it would need to be — no fact prints twice on a gated card.
+
+Frontend only, no backend or migration change. `TideFitBlock.jsx` is new; `MapCallout.jsx` and
+`LocationFourDaySheet.jsx` (via a new `tideAlignmentIndex` prop, threaded from `WindowFirstShell.jsx`)
+both mount it. A new `mapTideFit.wantPhrase` joins a location's wanted tide states into words for the
+jump/denial line, mirroring the backend's own wording exactly. `.wf-callout-tide*` CSS is renamed to
+a shared `.wf-tide-fit*` namespace with a new miss-tier tint built from this app's existing tokens.
+
+Adversarial review (5 read-only lenses) found and fixed two P1s before this landed: the callout's
+jump had no focus rescue, so activating it (which always lands on a matched window) unmounted the
+very button under the reader's finger and dropped keyboard focus to the top of the document — fixed
+by focusing the card's own close button first. And the block's client-read "wants" wording can
+briefly disagree with the server-frozen phrase beside it if a location's tide preference is edited
+between pipeline cycles — a narrow, accepted edge recorded in the component's own documentation
+rather than closed here, since closing it needs a backend field outside this phase's scope. Also
+fixed: a contrast failure on the denial's ink (reused a token this file has already corrected for
+the same reason elsewhere), a scan that could jump a reader to a travel day with no guard against it,
+an aria-expanded race on the sheet's own focus move, and two test-quality gaps (a tautological "away
+row" test, and zero coverage of the three-way "wants" join). `npm run lint && npm test && npm audit
+--audit-level=high && npm run build` all green.
+
+### Added — the map's tide chip dims, not drops (T4 of the tide-window increment)
+
+A coastal location whose tide misses now stays on the map, at reduced emphasis, instead of
+vanishing behind the "unknown" toggle. `visibleLocations` (`MapView.jsx`) lets a location with a
+served tide fact past the rating stage whatever its rating — it is withheld for a stated reason or
+rated, never "nothing scored yet" — while type, drive, dark-sky, scope and `focus` still narrow it
+as before; `hasUnrated` excludes the same locations so the admin "unknown" toggle is never made to
+look actionable by a location that already has a reason.
+
+The label chip's glyph, ring and label-budget tiebreak all move from the on-the-light axis onto the
+served preference axis: `data-tide` is now `'match'` or `'miss'`, a miss dims to `opacity: .72`
+(restored on hover/selection), and `TideWave` grows a `shortfall` prop drawing the design bundle's
+21×8 arrow (↑ wants higher, ↓ wants lower, the plain wave for a straddling want with no served
+direction). The star and the ramp swatch are never touched — dimming is a container `opacity`, never
+a re-colour. The tiebreak in `utils/mapLabels.js` promotes a match and never demotes a miss below an
+inland spot of equal score. The chip's tooltip, the Pins mode dot (`PinsLayer.jsx`, gaining tide data
+for the first time) and the region panel's location row (`MapRegionPanel.jsx`/`mapDrilldown.js`) all
+move onto the same tier, reading the served `fitPhrase` behind one of two canonical headings ("Tide
+lands on the light" / "Wrong water, not wrong light") via two small shared helpers in the new
+`mapTideFit.tideTierHeading`/`tideAccessibleClause`.
+
+Frontend only. New/changed tests across `MapLabels.test.jsx`, `mapLabels.test.js`,
+`MapRegionPanel.test.jsx`, `mapRegionDrilldown.test.js`, `PinsLayer.test.jsx` and
+`MapViewHeat.test.jsx` cover every tier/shortfall combination (including the gated-miss and
+straddling-want cases), the promote-not-demote comparator (both directions, with a fixture built to
+distinguish it from a demotion mutant), and the plan's own §7 checks 1 (heat untouched across
+HIGH/MID/LOW), 2 (nothing dropped, every coastal slot flipped at once), 12 (star/swatch never
+re-coloured) and 13 (a gated coastal location renders and the "unknown" toggle is unaffected by it).
+`npm run lint && npm test && npm audit --audit-level=high && npm run build` all green (6323
+pre-existing tests plus 428 in the eight touched/added files, re-confirmed after review fixes).
+
+Adversarial review (6 read-only lenses: runtime behaviour, CSS/tokens, test quality, accessibility,
+project conventions, impact on T5/T6) found and fixed: `PinsLayer`'s pin carried no accessible-name
+statement of the tide fact at all — only a mouse-hover tooltip — unlike the chip's aria-label and the
+region panel's `sr-only` span, so a keyboard/screen-reader user in Pins mode had no way to learn a
+dot's tide state; fixed by extending the pin's aria-label with the same `tideAccessibleClause` the
+chip uses. A CSS comment overclaimed that `--color-plex-text-secondary` (.66) was "the mapped token
+for" the design's bespoke `.72` miss-tooltip ink; corrected to state it as the closest existing
+token and name the ~0.06 gap honestly. The tooltip's miss heading ("Wrong water, not wrong light")
+diverges from the plan text's literal quoted example ("Wants high water —", copied from the design
+bundle's own want-specific tooltip composition); recorded as a deliberate choice in
+`mapTideFit.tideTierHeading`'s own doc, reusing the canonical miss heading T5's callout block will
+also use rather than inventing a client-side want-formatter the codebase's "every string is
+server-formatted" rule would forbid. `visibleLocations`' bypass predicate is broader than "tide-gated"
+— it lets through any coastal slot with a served tide fact and a null rating, matching this phase's
+own literal worked example (`if (tideFact) return true`) rather than §5 #9's narrower prose; recorded
+inline rather than narrowed, since narrowing it to `.gated` would reopen the "coast disappears" defect
+for a miss that is rated null for an unrelated reason. Five test-quality gaps were closed: a banned
+`toBeTruthy()` on a new assertion, a missing swatch-fill-unchanged assertion for a miss chip
+(§7 check 12's other half), a missing gated-miss (no rating + `tideTier: 'miss'`) combination test at
+the chip level, a heat-untouched check that only compared HIGH vs LOW (now also MID, the design's own
+"straddling want" case), and a nothing-dropped check that only flipped one location instead of every
+coastal slot in the pool at once. No confirmed runtime-behaviour or project-convention defects.
+
+**Follow-up, browser-verified against a real seeded backend once the shared machine's load eased.**
+Three real `tide_extreme` cycles seeded (Bamburgh Beach → LOW, Dunstanburgh Castle → HIGH, Tynemouth
+Priory → HIGH+LOW), phased so today's sunset gave a match, a directional miss and a straddling-want
+miss in one fixture — unplanned but welcome, since it covers every tier and the null-shortfall case
+at once. `GET /api/briefing` served exactly the designed triple, `evaluationGate` included for the
+gated one. On the live Map tab, `getComputedStyle` read directly off the DOM confirmed: Bamburgh
+`data-tide="match"`, `opacity:1`, plain wave, `"Bamburgh Beach, 5 star, tide right here"`; Dunstanburgh
+`data-tide="miss"`, `opacity:0.72`, the design's up-arrow path byte-identical, swatch colour unchanged
+from `rampHex(2)`, `"Dunstanburgh Castle, 2 star, wants the water higher"`; Tynemouth `data-tide="miss"`,
+`opacity:0.72`, plain wave (no shortfall), `"Tynemouth Priory, wrong water"`. Pins mode showed the same
+triple. The chip's hover tooltip, screenshotted, read the served `fitPhrase` behind the canonical
+heading exactly as coded. Not seen: the pin's own hover tooltip (a synthetic event failed to trigger
+it, and the browser pane went unavailable before a real hover could be tried) — inferred sound from
+the identical, already-seen chip code path, not independently observed.
+
+**The `.72` vs `.8` contrast measurement is answered analytically, not by a live pixel sample** — the
+Esri tile is cross-origin (a canvas read throws `SecurityError`, confirmed live), and the browser pane
+became unavailable before a screenshot-based workaround could be tried. Computed from the real CSS
+values against two representative basemaps: ≈8.5:1 (this app's own "darkest sampled tile" figure) and
+≈6.2:1 (an eyeballed light-land tone), both clearing AA with room to spare — the chip's own near-opaque
+plate absorbs most of the outer opacity's effect on local contrast, unlike `.wf-loc-row`'s translucent
+card, so `.8` bought nothing `.72` did not already clear. `.72` is what shipped; the working is recorded
+in `index.css`'s own comment on the rule.
+
+### Added — the map tab's tide-fit plumbing (T3 of the tide-window increment)
+
+Every fact T1 and T2 put on `GET /api/briefing` now reaches the frontend structures the chip, the
+callout/sheet block and the tide strip will draw from in the phases that follow — still no
+browser-visible change this phase.
+
+`utils/locationSheet.js#buildTideAlignmentIndex` now indexes every coastal slot carrying a served
+`tideState`, not only one with a derivable on-the-light fact, and each entry carries the full
+tide-fit family (`aligned`, `onTheLight`, `phrase`, `level`, `direction`, `height`, `shortfall`,
+`fitPhrase`, `gated`) rather than the two on-the-light-only fields it held before. Reading
+`tideAligned` here does not revive the two-tide-axes conflation CLAUDE.md warns against — the
+index's readers ask the preference question on purpose, and the on-the-light fact survives
+unchanged for the offset clause alone.
+
+`MapView.jsx`'s `spotOf` copies each location's own id (load-bearing for `mapTideFit`'s id-first
+lookup — without it, two coastal locations sharing a display name would silently conflate), its
+tide want (`tideTypes`), whether it is coastal-and-tidal at all (`coastal`, reusing
+`mapCallout.js#isCoastalTidalLocation`), this window's served tier (`tideTier`, via the new
+`mapTideFit.tierOf`), its shortfall arrow, its fit-block body text (`tideFitPhrase`, which T4's
+tooltip needs for both tiers), and whether it is tide-gated onto `labelSpots` — the pool both the
+label chips and the Pins layer read.
+
+`utils/mapEvents.js#solarRow` forwards the served `BriefingWindowTide` verbatim as `tide` on a
+served solar row, and `null` on a D-13 filler or a night row.
+
+A new pure module, `utils/mapTideFit.js`, holds the increment's licensed client derivations
+(CLAUDE.md's Backend-heavy bullet): `tierOf` (a served-boolean read), `nextAlignedRow` (a forward
+scan over the served per-window alignment index — a lookup, never a formula over a single anchor's
+curve), and `stripModel` (the strip's own per-render shape — the coastal-and-in-view viewport
+filter via `bounds.pad(0.12)`, the dimmed/matched split, the dominant unmet want tallied across the
+dimmed pool with a stated HIGH > LOW > MID tie-break, and the earliest next-fit window across every
+currently-dimmed spot wanting that want).
+
+Frontend only. `mapTideFit.test.js` is new (every branch, both tie-break directions, `pad` proven
+against points either side of the exact 12% edge); `locationSheet.test.js` gains coverage for the
+index entry the old skip used to drop (a served miss with no derivable on-the-light fact) and the
+gated field; `mapEvents.test.js` gains a `tide`-forwarding suite (served, filler, night, and the
+chronological interleave unchanged). Three existing test fixtures (`MapViewHeat.test.jsx`,
+`mapRegionDrilldown.test.js`) gained a `tideState` field their slots were missing, now required by
+the narrower index skip. `npm run lint && npm test && npm audit --audit-level=high && npm run
+build` all green (6302 tests).
+
+Adversarial review (4 read-only lenses: runtime behaviour, project conventions including the
+Backend-heavy licence and the two-tide-axes rule, test quality, what it makes harder for T4–T6)
+found and fixed: `spotOf` never set an `id` on label spots, leaving `nextAlignedRow`'s id-first
+lookup unreachable in production (two lenses found this independently); `spotOf` was missing
+`tideFitPhrase`, which T4's own tooltip requirement needs; `mapTideFit.js`'s tide-index parameter
+was named `index`, colliding in meaning with the unrelated `evIndex` array position beside it in
+the same call (renamed to `idx`, matching `lookupForWindow`'s own convention); the pad-boundary
+tests bounded the ratio to a wide range rather than pinning the documented `0.12` figure (tightened
+to bracket the exact edge); a redundant interleave test duplicated an existing ordering test's exact
+fixture and re-asserted values already proven elsewhere (trimmed); `buildTideAlignmentIndex`'s doc
+comment sat above a different function's declaration (moved to its own); and `MapCallout.jsx`'s
+stale `tideOnLight` prop doc still said "never `tideAligned`", now factually wrong about the shape
+flowing into it (corrected). Browser-verified against a locally seeded coastal fixture (three
+locations, one with a two-value want to reach the null-shortfall case): `GET /api/briefing` served
+every T1/T2/T3 field correctly, including the null-shortfall arrow for the two-value want; the Map
+tab, its callout, its location sheet and Pins mode all rendered with zero console errors and zero
+failed network requests. Not seen: a `match`-tier chip on screen (the seeded tide cycles happened to
+miss every window in the fixture) — the served `aligned: true` case is covered by the automated
+suite instead.
+
+### Added — the map tab tide strip's window facts (T2)
+
+`BriefingWindowTide` (the Plan tab's per-window tide rollup, served on `GET /api/briefing`) gains
+four additive fields the tide-window increment's strip chart needs and the existing sparkline did
+not: `sunrisePosition`/`sunsetPosition` (where the representative coastal location's own sunrise and
+sunset fall through the local day, 0.0–1.0 on the same axis as `windowPosition` — computed for both
+events regardless of which one this window itself is, and null when `SolarService` reports no
+sunrise or sunset for that day, the same defensive read `NlcTwilightWindowCalculator` already gives
+the identical call), `extremes` (every high and low water in the representative's local day, each
+positioned on that axis and timed on the Europe/London clock — real stored extremes only, never a
+bracketed or gap-filled shape point), and `heightAtWindow` (the interpolated height at the window's
+own instant, in metres — `windowLevel` restated as a real measurement rather than a normalised
+position, for the chart's height label).
+
+All four are `@JsonInclude(NON_NULL)` and computed at serve time inside `WindowTideRollupBuilder`
+from data `rollup` already fetches — no new query, no migration, no client fetch (every curve in
+this app is a Europe/London day; the client must never draw one from the UTC-day `/api/tides`
+endpoint). A new legacy twelve-field constructor keeps every existing `BriefingWindowTide` call site
+compiling unchanged, the same "unknown, not synthesised" convention `BriefingSlot.TideInfo`'s own
+legacy constructor already uses.
+
+No browser-visible change — nothing yet renders these fields; a later phase draws the strip itself.
+
+Backend only. `WindowTideRollupBuilderTest` gains a nested `WindowFacts` suite (positions monotone
+with clock time; an extreme at 23:59 never crosses 1.0; a spring-forward day still yields the
+class's own 1440-unit axis; `heightAtWindow` at a genuinely interior point, not just a value that
+happens to coincide with the nearest extreme; both solar-null guards independently); every
+pre-existing assertion in that file is unchanged. `DailyBriefingResponseJsonTest` gains a full
+`DailyBriefingResponse` round-trip and a legacy-shape deserialisation test for the four new fields.
+
+### Added — the map tab's per-slot tide-fit facts (T1 of the tide-window increment)
+
+Every coastal `BriefingSlot` now carries five display facts for the map tab's tide-fit chip,
+tooltip, callout and location sheet — none of it wired to the frontend yet (T3+), and none of it
+browser-visible this phase. `BriefingSlot.TideInfo` gains `tideLevel` (0.0–1.0, the same
+normalisation the Plan tab's window rollup uses), `tideDirection` (`RISING`/`FALLING`),
+`tideHeight` (formatted metres at the light), `tideShortfall` (`HIGHER`/`LOWER`/null — null when
+aligned, or when the location's wanted tide states straddle the served one and no single arrow
+applies), and `tideFitPhrase` (the served block body, one wording for a match and a different one
+for a miss — the miss form states the light's own clock and the day's high water, and deliberately
+never repeats the nearest-extreme offset the gate sentence beside it already carries). All five ride
+`daily_briefing_cache`'s JSON — no migration, and a payload written before this shipped
+deserialises every one of them to null.
+
+The one cosine interpolation the app has — previously private to `WindowTideRollupBuilder` — is
+lifted into a new package-private `TideCurveCalculator`, with `WindowTideRollupBuilder` delegating
+to it; its own extensive test suite passes with zero assertion changes, proving the lift changed
+nothing about what the Plan tab's tide row already draws. `BriefingSlotBuilder` fetches the same
+coastal location's extremes a second time, through the identical repository method and window
+`TideService` already uses, to build the new per-slot facts from the same curve.
+
+The served alignment stays the *tight* one — `TideFactDeriver`'s existing gate input — never the
+widened scoring-only band, confirmed against the tree and pinned by a dedicated test.
+
+### Docs — Plan tab "tide alignment on the window card": port plan and session prompts
+
+`docs/engineering/tide-plan-card-plan.md` is the port plan for the owner's `design_handoff_tide_plan`
+bundle (vendored verbatim at `docs/design/tide-plan/`, with a `VENDORING.md`), and
+`docs/engineering/tide-plan-card-prompts.md` is one paste-ready kickoff prompt per phase for Sonnet
+sessions. Five phases (C0–C4): a served per-slot alignment quality (the one backend change — the
+nearest-extreme offset orders a mid-tide match the wrong way), the data on the card's pool, the two
+marks on the card, the popup fact and the phone check, the sweep.
+
+The plan's §1 records where the codebase already answers the spec: the fit model the spec names as a
+prerequisite was never built as a level formula (the app's tide axis is time-based and served), so
+`match` reads the served `tideAligned` and the run ranking's tiebreak is a served alignment
+quality (C0); the card's spread histogram and best-reachable line already share one reach-gated pool, and
+the new chip counts that same pool; and the counts are reach-scoped, so they join CLAUDE.md's named
+reach-scoped client class with `reachMeasured` gating the words "in reach". The summary lives on
+`card.tideFit`, never `card.tide`, which the Map tab's strip already reads.
+
+No code changes.
+
+### Fixed — the `/` shortcut's refusal tests now fail when their guard is deleted, whichever test runs first
+
+`planOriginShell.test.jsx`'s "the / shortcut" block has five tests asserting that `/` does *not*
+open search: while the reader types in a field, with a modifier held, over a dialog the shell does
+not own, on an arm greyed for a dead backend, and on another tab. Each passed when run alone with its
+guard deleted from `WindowFirstShell.jsx`'s keydown effect. In the whole file each failed as it
+should, but only because earlier tests had already opened search. Test-only: no product code
+changes.
+
+**Why.** `PlanSearch` is `lazy()`, and the first time the shell renders it, it suspends. A press
+the guard failed to refuse therefore commits only the `Suspense` fallback, which draws nothing, so
+`queryByTestId('plan-search')` is null whether or not the press opened search. Importing
+`PlanSearch.jsx` before the press does not help. Measured with the tab guard deleted, search is
+still absent at the synchronous assertion and arrives later. Once search has opened through the
+shell, the next opening renders in that press's own commit.
+
+**The fix** follows #860's "⚠️ opens nothing when the place in the tick line is pressed on Coming
+up" in `WindowFirstShellTabs.test.jsx`. Each refusal now starts with a positive control,
+`openAndCloseSearch`: it presses `/`, waits for search, closes it with Escape and asserts it has
+gone. Then it presses the key under test and asserts synchronously that `plan-search` is absent and
+no dialog is open (over a foreign dialog, that the foreign dialog is the only one). The greyed-arm
+test now renders a live shell, runs the control, then re-renders with `contentDisabled`. A greyed
+arm refuses the control too, and this is also the app's order: health status starts unknown, so
+the shell first mounts live and greys only once the status reads DOWN.
+
+**Proved by mutation**, in a scratch copy of `frontend/`, restored and compared with `cmp` after
+every run:
+
+| deleted from the `/` effect | test alone, before | test alone, after | whole file, after |
+|---|---|---|---|
+| `if (effectiveTab !== 'plan') return undefined;` | passed | failed | failed |
+| the field guard (`INPUT`/`TEXTAREA`/`SELECT`/contenteditable) | passed | failed | failed |
+| `event.metaKey` | passed | failed | failed |
+| `if (foreign) return;` | passed | failed | failed |
+| `if (contentDisabled) return;` | passed | failed | failed |
+| `effectiveTab` from the dependency array | — | failed | failed |
+| `contentDisabled` from the dependency array | — | failed | failed |
+
+Each mutant fails only its own test, at the absence asserted after the press rather than at the
+control. With those five post-press `plan-search` assertions removed, the new dialog assertions
+still fail all five guard mutants on their own.
+
+**Found on the way, not fixed here.** No test in the three files that press `/` (this one,
+`WindowFirstShell.test.jsx` and `locationSheetShell.test.jsx`) pins the field guard's `TEXTAREA`,
+`SELECT` or contenteditable clauses, the `ctrlKey` or `altKey` clauses, or the
+`searchSeed != null` return: deleting any one of them fails nothing. `WindowFirstShell.test.jsx`'s
+"⚠️ still refuses it over a layer stacked ON the popup" does not share this defect, and fails alone
+with its guard deleted.
+
+### Added — tests for the six `/` shortcut guard clauses that nothing pinned, and for a `/` typed with Shift
+
+`WindowFirstShell.jsx`'s `/` keydown effect refuses the press in a field (an input, a textarea, a
+select or anything contenteditable), with a modifier held (`metaKey`, `ctrlKey`, `altKey`), and
+while search is already open. Only the input and `metaKey` clauses had tests. Deleting any one of
+the other six (`tag === 'TEXTAREA'`, `tag === 'SELECT'`, `el?.isContentEditable`, `event.ctrlKey`,
+`event.altKey`, or the whole `if (searchSeed != null) return;` line) failed none of the 120 tests in
+the three files that press `/`: `planOriginShell.test.jsx`, `WindowFirstShell.test.jsx` and
+`locationSheetShell.test.jsx`. Nothing pinned that Shift is *not* refused either: adding
+`event.shiftKey` to the modifier check failed none of those tests. Test-only: no product code
+changes.
+
+**What was added**, in `planOriginShell.test.jsx`'s "the / shortcut" block:
+
+- The field refusal is now one case per kind of field: an input, a textarea, a select and a
+  contenteditable element. jsdom 30.0.1 implements neither `isContentEditable` nor
+  `contentEditable`, so an element carrying only the attribute is not a field there, and the
+  unchanged guard opens search over it (measured). The test element is given the `true` a browser
+  computes, and keeps the attribute.
+- The modifier refusal is now one case each for `metaKey`, `ctrlKey` and `altKey`.
+- A new test presses `/` with Shift held and expects search to open. On a German layout `/` is
+  Shift+7, so the press arrives with `shiftKey` set. The shell's arrow-key rule does refuse Shift,
+  so a modifier check shared by the two would take the shortcut away from those readers.
+- A new test opens search from the strip's beyond line, which pre-fills the box with a region name.
+  It then edits the query, moves focus to the dialog root and presses `/`. Search is keyed on its
+  pre-filled text, so with the guard deleted the press resets that text to `''` and remounts the
+  box empty. Opening search with `/` instead would show nothing, because that box already starts
+  from `''`. Focus goes to the dialog root because that is where a click on the panel away from its
+  controls leaves it in Chromium 151, WebKit 26.5 and Firefox 153 (measured on a static page with
+  the same structure).
+- The field and modifier cases also assert that the press keeps its default: `defaultPrevented`
+  must be false. In a field, the `/` is the reader's own character, and with a modifier held the
+  press belongs to the browser. Nothing in the three files checked this before: moving
+  `preventDefault()` ahead of the guards failed none of their tests.
+
+Each field and modifier case runs the `openAndCloseSearch` control from #864 before its press, so
+its absence assertions cannot pass on an unresolved lazy boundary. The search-open and Shift tests
+need no such control: each asserts that a box is on screen, which an unresolved lazy boundary
+cannot fake.
+
+**Proved by mutation**, in a scratch copy of `frontend/`. Each mutation was anchored inside the `/`
+effect, because the field guard's line also appears in the arrow-key effect below it. After every
+run the file was restored and compared with `cmp`.
+
+| deleted or changed in the `/` effect | three files, before | its test alone, after | three files, after |
+|---|---|---|---|
+| `tag === 'TEXTAREA'` | passed | failed | failed, that test only |
+| `tag === 'SELECT'` | passed | failed | failed, that test only |
+| `el?.isContentEditable` | passed | failed | failed, that test only |
+| `event.ctrlKey` | passed | failed | failed, that test only |
+| `event.altKey` | passed | failed | failed, that test only |
+| `if (searchSeed != null) return;` | passed | failed | failed, that test only |
+| `searchSeed` from the dependency array | passed | failed | failed, that test only |
+| `event.shiftKey` added to the modifier check | passed | failed | failed, that test only |
+| `preventDefault()` moved to just after the key and modifier check | passed | the four field cases failed | failed, those four only |
+| `preventDefault()` moved ahead of every check | passed | all seven cases failed | failed, those seven only |
+| `tag === 'INPUT'` (already pinned) | failed | failed | failed, that test only |
+| `event.metaKey` (already pinned) | failed | failed | failed, that test only |
+
+Under the first of the two `preventDefault()` mutants the modifier cases pass, because the modifier
+check still comes before the moved call. Every clause mutant fails at an assertion made after the
+press, never at the control. Two more runs showed that each kind of assertion is enough alone. With
+the `defaultPrevented` assertions removed, the absence assertions still fail all seven field and
+modifier mutants when each test runs alone. With `openAndCloseSearch` removed instead, the absence
+assertions pass without testing anything, and `defaultPrevented` fails all seven.
+
+**Left unpinned on purpose.** Replacing `searchSeed != null` with a truthiness test
+(`if (searchSeed) return;`) fails nothing. The two differ only for a box opened with `/`, which
+starts from `''`. For that box, the only difference is that the press's default is prevented, and
+nothing on screen changes.
+
+### Fixed — the settings dialog's radius label reads as words in its own text, not "Local radiusHow"
+
+#861 gave the radius slider its own name, "Local radius", but the label's text was left as it was.
+Anything that reads that text rather than the slider's name still got
+`Local radiusHow far counts as close to home.` That includes a screen reader's reading mode, copy
+and paste, and `innerText`. The only gap between the two words was the hint's margin, which is not
+text.
+
+**The fix.** A real space now separates the label from its hint. It sits in a fixed 0.5rem
+inline-block, which replaces the hint's 0.5rem margin, so the hint does not move. The box needs
+`whitespace-pre`. Without it, a lone space at the start of the box collapses, and the text stays
+glued in all three engines (measured). The slider's name and description are unchanged.
+
+**Two simpler fixes were measured and rejected:**
+- A bare space moves the hint 3.3 px (IBM Plex Sans at 14 px).
+- A space plus a halved margin moves it −0.7 px.
+
+**What was measured.** These readings are from the dialog's rendered DOM under the built stylesheet,
+with the web fonts loaded. Main and this change were each served their own CSS, and every reading
+was taken in Chromium, WebKit and Firefox, with and without a saved home, at 64 widths from 240 to
+1440 px.
+
+- **`innerText`:** was `Local radiusHow far counts as close to home.` in every engine, and is now
+  `Local radius How far counts as close to home.`
+- **Layout:** every text box and control box is identical to main at every width. A positive
+  control confirmed the comparison can see a change: main's own layout differs at all 64 widths,
+  and the bare-space variant differed from main at all 64 widths in each engine.
+- **Chromium's native accessibility tree:** there is now a whitespace text node between the label's
+  two text nodes, where before there was none. The field is still named `HOME LOCATION`, and the
+  slider still `Local radius` with its hint as the description.
+- **CSS:** the bundle gains one rule, `.whitespace-pre{white-space:pre}`, and loses none.
+- **Not measured:** any screen reader's reading mode itself. The claim rests on the engines' text
+  extraction and Chromium's accessibility tree. The running app was not seen either, because it sits
+  behind sign-in.
+
+**Tests.** One test pins that the label's own text reads as words. jsdom has no layout, so a second
+pins the classes the browser measurement relies on:
+- the space's box is `inline-block w-2 whitespace-pre`;
+- it is not hidden from assistive tech;
+- the hint no longer carries `ml-2`.
+
+8 mutants were run, and all 8 were killed, each by the test that names its rule. Main's own
+component fails both tests.
+
+### Fixed — the Map's "Couldn't load" announcement goes quiet behind a dialog, not just behind a tab
+
+Closes the residual `changelog.d/20260915-map-status-document-hidden.md` (#850) named and left open:
+a dialog foreign to the Map pane — the four-day sheet opened as a peek from the callout's
+"Four days here ›" or the region panel's location rows, or settings opened from the map's own ⌂ —
+opens without leaving the Map tab and is not `inert` behind it (O-20 stands on arms A and B). Until
+now the status region counted the pane as on screen through all of that: a night's request failing
+while such a dialog was open filled the region while the reader was looking at the dialog instead of
+the map, and closing the dialog revealed it already full, unannounced.
+
+- `WindowFirstMapPane`'s `paneVisible` — the signal `MapView`'s live status region gates on — now
+  also requires that no dialog foreign to the pane is open anywhere in the document, read through
+  the same `foreignModalOver` predicate every Escape rule and the outside-press channel on this tab
+  already use (`utils/mapForeignModal.js`), so the live region can never disagree with them about
+  what counts as foreign. It is read against the pane's own wrapper rather than `MapView`'s
+  `mapPaneRef`, so the check needs no new plumbing across the shell/pane boundary and exists whether
+  or not `MapView` has mounted anything yet.
+- Kept reactive with a `MutationObserver` on the whole document, not a React-state-and-effect pair —
+  the same reasoning that made the document/focus layer (#850) one — so a dialog that mounts as a
+  portal or as a plain sibling of the shell, wherever in the tree it lands, is caught the moment it
+  actually lands rather than on whichever render React gets to next. The observer watches for a
+  dialog mounting or unmounting AND for `aria-modal` toggling on an existing node, because `Modal`'s
+  `stacked` prop drops a covered dialog's `aria-modal` without unmounting it when another dialog
+  stacks over it.
+
+Measured rather than assumed (Playwright 1.62.1, Chromium/WebKit/Firefox, `MutationObserver` config
+identical to the one shipped here): the callback fires within ~0–1 ms of the mutation in every
+engine, for a dialog mounting, unmounting, or an `aria-modal` attribute-only toggle alike — the "gap
+between the modal mounting and the observer firing" is not a meaningful delay in practice. Separately
+measured and reported as a limit, not a confirmation: Playwright's own cross-engine `ariaSnapshot()`
+— a tree computed from the DOM by the ARIA computation algorithm, not each engine's native platform
+accessibility bridge — shows no pruning of a sibling live region in any of the three engines while an
+`aria-modal="true"` dialog is present. That does not confirm or rule out the platform-level behaviour
+WebKit is understood to apply for a real screen reader (`AccessibilityObject::ignoredFromModalPresence`),
+which needs real Safari and VoiceOver to observe and was not run here. The fix does not depend on
+that question either way: whether or not the region is also pruned from the tree, a reader attending
+to an open dialog should not hear the map behind it announce a failure meant for the map.
+
+Pinned by seven new tests in `WindowFirstMapPane.test.jsx`, added to the existing panel/document/focus
+block: the layer alone (opens off screen, closes back on); against the panel and against the page,
+each in both orders, matching the "one flag every layer writes, the last write winning" trap already
+guarded against for the other three layers; mounting behind an already-open dialog; a dialog rendered
+*inside* the pane's own wrapper does **not** count as foreign (containment, not "is any modal open
+anywhere" — mirrors `mapForeignModal.js`'s own rule rather than re-deciding it); degrading to the
+pane's pre-existing on-screen answer where there is no `MutationObserver` at all; and disconnecting
+the observer when the pane unmounts. Eight mutants of the new lines were run one at a time
+(`cp`-backed, restored and diffed byte-identical against the original after every run): removing the
+`MutationObserver`-absent guard, dropping the new term's negation, dropping the term outright, no-op'ing
+the disconnect, and hardcoding the containment root to `null` — all five killed, the last one only
+after the containment test above was added to catch it; it survived against every earlier test in the
+file, which is itself the reason that test exists rather than being assumed unnecessary.
+
+`MapView.jsx`'s own doc on `statusLine`/`paneVisible` and `utils/mapForeignModal.js`'s "who reads
+this" note are updated to record the new consumer; neither file's behaviour changes; `MapView`
+continues to consume `paneVisible` as a single boolean exactly as before.
+
+### Fixed — pressing `clear` on the Map breadcrumb no longer drops a keyboard reader on `<body>`
+
+A door from the Plan tab lands on the map with a strip above it that says what it carried
+("carrying 4★+ · within 2h 30"), and `clear` resets all of it. That usually ends every clause, so
+`clear` removed itself while it held focus. Focus fell to `<body>` in Chromium 151, WebKit 26.5 and
+Firefox 153, with Enter and with Space (measured on development React, StrictMode active). That put
+it outside the map pane's own key handler, so Escape stopped reaching the pane, and no ring showed
+where the reader was. Tab itself was spared: each engine went on from where the button had been.
+
+The strip is now a place focus can be put (`tabIndex={-1}`, never a Tab stop), and a `clear` that
+leaves while holding focus hands that focus to it, in the same commit. The record is made in
+`clear`'s ref cleanup by `watchDeparture`, the mechanism the tick line's ⌂ uses. It moves out of
+`MastheadTickLine.jsx` into `utils/watchDeparture.js` now that it has a second owner, unchanged in
+behaviour, with the rules an owner must keep now written into its doc. The strip draws its own ring
+on `:focus-visible`, in the bone its two buttons' rings use (`--color-plex-gold`). The ring is
+inset, because `.wf-body--map` clips overflow and the strip spans it edge to edge. It is an outline
+rather than a box-shadow, so forced-colours mode keeps it: all four sides in Chromium and Firefox.
+
+**Focus goes to the strip, not to `← Plan`, the one control that survives.** Measured with the
+handoff aimed at `← Plan` instead, on a harness where `← Plan` only counts presses: a held Enter
+pressed it on every key repeat, and a second Enter pressed it once, in all three engines. In the
+app the first such press leaves the Map tab. Landing on the strip, neither pressed anything. The
+price is one Tab stop in all three engines (WebKit reaching buttons with Option+Tab): from the
+strip, Tab goes to `← Plan` and Shift+Tab to what precedes the strip. A narrower landing on the
+window span ("Tonight sunset") avoids that stop, and was measured and passed over: it is announced
+without the landmark's name, it needs a fallback when there is no row, and it adds a departure of
+its own when the row retires.
+
+The edges:
+- **A clause can survive the press.** `clear` resets the floor to the map's own 3★ default, so a
+  door that carried 3★+ still matches. The same button stays, and so does the reader.
+- **Position is never taken.** A reader on another control when `clear` goes keeps their place, and
+  so does focus another component placed in the same commit. The record is spent either way, so no
+  later render pulls anyone onto the strip.
+- **No gate on how the press arrived.** The signals a gate could read report a screen-reader or
+  voice-control press as a mouse press (`detail` and `pointerType` in Chromium's source, `detail`
+  in Firefox's, and likely `:focus-visible`), so a gate would strand exactly those readers.
+  Chromium and Firefox focus a clicked button, so a mouse press hands off too. No ring shows at the
+  press; a later key draws it in Chromium and WebKit, not Firefox, and it stays until focus moves,
+  much as Leaflet's own map container does after a click. WebKit focuses the strip itself on the
+  click, since it does not mouse-focus buttons. A click on the strip's own text now focuses the
+  strip as well; before, in all three engines, it sent focus to `<body>`. After a pointer lands on
+  the strip, Tab restarts at `← Plan` in Chromium and Firefox.
+- **No guard for the four-day sheet over the map, unlike `useRowFocusRescue`.** That hook keeps its
+  record after focus has gone; this one exists only for a `clear` that held focus as it left. With
+  the sheet open, a keyboard reader who has Tabbed back onto `clear` and pressed it lands on the
+  strip. Escape then closes the sheet, the pane standing down for it, and they stay on the strip.
+  Before, the sheet's restore sent them back to the control that opened it. In WebKit that held
+  only for a sheet opened from the keyboard; after a click, which focuses no button there, it sent
+  them to `<body>`.
+- **The confirmation is visual.** The strip's text loses the cleared clauses, but focus lands on a
+  node named "Where you came from" before and after, with no live region.
+
+An adversarial review (six lenses, then nine refuters) changed no design decision. It corrected the
+WebKit Tab claims, the mouse route's ring, and the tick line's "jsdom never matches
+`:focus-visible`": jsdom's `:focus-visible` is its selector engine's heuristic over the events it
+has recorded. It also found test gaps where a broken handoff shipped green: the refused
+foreign-modal guard, the record spent on a stand-down, clauses other than the floor, and overrides
+of the ring.
+The browser results come from a harness using the real breadcrumb and the real `Modal` inside the
+map's real ancestor classes, in all three engines. They were not seen in the running app, which
+needs a sign-in, and no screen reader was driven.
+
+Tests: fifteen on the breadcrumb, four through the real `MapView` (Leaflet and the map's other
+children mocked), and six on `watchDeparture` directly. The ring's rule is pinned as text: a jsdom
+cascade test of it does not hold, because jsdom decides `:focus-visible` from the events it has
+recorded, and a focus change clears neither its selector-match cache nor its computed-style cache.
+Mutation-tested: twenty-nine mutants, twenty-seven killed. The two survivors are equivalent: a ref
+callback recreated every render, whose re-attached node clears its own record before the handoff
+reads it, and dropping `<html>` from the "focus is nowhere" check, where no route leaves focus.
+
+### Fixed — a fresh local H2 database boots more than once
+
+On the local profile (H2 file database, no Flyway, `ddl-auto: update`) the app started once and then
+failed on every later start with `Value not permitted for column "('SENTINEL_SAMPLING',
+'TIDE_ALIGNMENT')": "SKIP_LOW_RATED"` from `OptimisationStrategyService.seedDefaults`. Hibernate 7
+generates an `@Enumerated(STRING)` column on H2 as a native `ENUM(...)` of the enum's current
+constants, and H2 refuses to compare that column with any other value — and the startup prune, by
+design, names only the seven types V153 retired. The first boot got through because the table was
+still empty: H2 converts the bound value to the column's type only when it compares it against a
+row, so the first boot's seed rows are what made every later boot fail. Production runs Flyway,
+whose column is a plain `VARCHAR(30)` (V41), and was never affected.
+
+**The fix** is one clause: `OptimisationStrategyRepository.deleteByStrategyTypeIn` now compares
+`CAST(strategy_type AS VARCHAR)`, which makes the comparison a string one on H2 and changes nothing
+on Postgres. Mapping the column as VARCHAR so H2's schema matched V41 was tried first and rejected:
+Hibernate then adds a `CHECK (strategy_type IN (...))` of the current constants that neither a
+`columnDefinition` nor an `AttributeConverter` removes, and H2 2.4.240 stops evaluating such a
+check once the connection that created the table closes (`Check constraint invalid ... The database
+has been closed`), so every write to the table would have failed as soon as Hikari retired
+Hibernate's schema-update connection — a worse defect than the one being fixed.
+`OptimisationStrategyRepositoryTest` gains the second boot as a test: the prune's own seven-name
+list against the ENUM column exactly as Hibernate generates it, and it fails with the production
+error when the cast is deleted. Its pre-V153 fixtures moved out of `@BeforeEach` so that test runs
+on the untouched schema.
+
+Still true, and unchanged: a local database built before an enum gained a constant refuses the
+`INSERT` seeding it, because `ddl-auto: update` never widens an existing column. That is every H2
+enum column's rule — reset the local database after adding a constant — not this table's.
+
+### Docs — the test standards say an absence across a lazy boundary needs a control
+
+`frontend-test-standards.md`'s "What NOT to do" list gains a bullet for the trap #864 fixed in
+`planOriginShell.test.jsx`: asserting that an action opened nothing across a `React.lazy` boundary
+before that component has rendered once in the file. A lazy component suspends the first time it
+renders, so the absence holds whether or not the action opened it, and a whole-file run hides that
+whenever an earlier test has already rendered the component. Until now the doc had only the mirror
+rule ("do not open a lazy subtree and leave before it has mounted"), and this one lived in test
+comments.
+
+The bullet names two fixes that look right and do not work, and three that do. Each was measured in
+a scratch copy of main at `f6da8965`, with a guard deleted and the test run alone:
+
+- **Importing the module first** still left `PlanSearch` absent at a synchronous assertion.
+- **Pressing inside `await act(async () => …)`** found it in 3 runs of 3 when the module had been
+  imported first, and in none of 3 with nothing loaded.
+- **Rendering it once first** (open, wait, close) is what #864 did, and it makes each of the five
+  `/` guard mutants fail its test.
+- **Asserting on a layer that is already mounted**: with the beyond-line search link's guard deleted,
+  `locationSheetShell.test.jsx`'s THIRD-layer test still passed its `plan-search` absence, and failed
+  on the location sheet's `inert` attribute. Deleting the masthead button's guard failed the other
+  THIRD-layer test on the same attribute.
+- **Reading what the handler decided**: with the tab guard deleted and nothing loaded,
+  `fireEvent.keyDown` returned `false` (`preventDefault()` had been called); unmutated it returned
+  `true`.
+
+Docs only: no code or test changes.
+
+### Fixed — pressing ⌂ in the masthead no longer drops a keyboard reader on `<body>`
+
+⌂ ("Plan from home again") exists only while the plan's origin is away, so pressing it removes
+it. The focused button was destroyed and focus fell to `<body>` on every tab, where nothing on the
+page shows focus and a screen reader can lose its place (not measured). The fall to `<body>` was
+measured before the fix, with Enter and Space, in Chromium 151, WebKit 26.5 and Firefox 153. It
+also reproduces in jsdom on the Plan tab, on the Map tab, with no home saved, and under StrictMode.
+
+⌂ now hands focus to the tick line's origin slot, reusing the handoff #859 built for the slot's own
+element swaps. ⌂'s ref cleanup runs while React still has the node attached, and records the
+departure only if ⌂ held focus. The same layout effect then focuses whatever the slot holds once
+home:
+- on the Plan tab, the origin button ("Home · Durham");
+- on every other tab (Map, Coming up, Operations), the statement, which can take focus but is
+  never a tab stop;
+- with no home saved, the "set a postcode" nudge.
+
+It acts only while nothing has focus, so focus placed earlier in the same commit is left alone.
+The departure record and #859's StrictMode guard now live in one helper, `watchDeparture`, which
+the slot and ⌂ share.
+
+**One route now lands somewhere different, by owner decision.** The shell's `onGoHome` also closes
+the window popup, and ⌂ is reachable from inside the popup by Tab. On that route, focus used to go
+back to the card that opened the popup, restored by the popup's `useDialogFocus` cleanup (a passive
+effect). The handoff is a layout effect, so it now runs first. The restore then finds focus
+somewhere real and no modal layer left, and stands down, so this route ends on the origin control
+too. A test through the real shell pins this order: moving the handoff to a passive effect fails it.
+The exception is unchanged: if `App`'s map overlay or the settings dialog is still open as well,
+the restore treats the origin control as stranded and returns the reader to the card, as before.
+
+A mouse press hands focus on the same way wherever the browser focuses a button on click (Chromium
+and Firefox), with no focus ring drawn. A Space or Enter straight after it then opens search, or
+settings from the nudge, where it used to scroll the page or do nothing; holding Enter does the
+same by key repeat in every engine. That is a class the app already ships (a popup closed by a mouse
+click returns focus to its card, and Space reopens it), and it is left alone on purpose: the signals
+a gate could read also report a screen-reader or voice-control press as a mouse press (`detail` and
+`pointerType` in Chromium's source, `detail` in Firefox's, and likely `:focus-visible`), so a gate
+would strand exactly the readers this fix is for. WebKit does not focus a button on click, and
+nothing changes there.
+
+The browser results come from a harness built on development React with StrictMode active, using
+the real tick line and the real `Modal`, in all three engines. They were not seen in the running
+app, which needs a sign-in. Mutation-tested: eight mutants, each killed by the test that targets
+it, one of them only after an adversarial review extended the placed-focus tests to catch a record
+left standing. The Map breadcrumb's `clear` has the same defect and is tracked separately.
+
+### Fixed — settings no longer opens over a Plan dialog or the map overlay, whichever control opened it
+
+The settings dialog is a sibling of the Plan shell in `App`, so it cannot be stacked against one of
+the shell's dialogs. It can only open with none of them up; otherwise two elements claim
+`aria-modal="true"`, and the lower dialog's Escape listener, still armed, closes the dialog the
+reader cannot see. M5 made the ⚙ cog take every Plan dialog down first. Three other routes did not
+hold:
+
+- **The tick line's "set a postcode" nudge** was wired straight to `App`'s handler. With a window
+  popup open the tick line keeps its tab stops, and the popup is not a focus trap, so a keyboard
+  reader could Tab out of it onto the nudge and open settings over the popup.
+- **The Map tab's ⌂** in its no-postcode state reaches `App` through the map pane, never through the
+  shell. The four-day sheet that `Four days here ›` opens over the map leaves the map behind it
+  reachable by Tab (O-20 arm A), so the same thing happened over the sheet.
+- **App's map overlay** — opened by the aurora banner, a Plan door, a pick or Coming up — is
+  `aria-modal`, no trap, and painted at `zIndex: 200`. A reader who Tabbed out of it and pressed ⚙,
+  the nudge or the ⌂ got settings underneath it, holding focus in a dialog they could not see.
+
+The cog's own close had a gap too: it took down the popup and the layers stacked over it, but not
+search, and the cog is reachable from an open search box. `selectTab` had the same gap, so **search
+now closes on a tab switch** — before, a reader who Tabbed out of the box onto the tab bar could
+arrow to another tab with search still open, and over the map the four-day peek then opened `inert`
+beneath it.
+
+**The fix.** The shell has one close list, `selectTab`, which now carries search. Called with the
+tab already in force it moves nothing, the form the map's peek already used. The cog and the nudge
+call it before opening settings, and the nudge forwards its handler's arguments untouched. `App`
+tells the shell when settings is open (`settingsOpen`, the value the dialog mounts on). On the rising
+edge the shell calls the same `selectTab` during render, so the close lands in the commit that mounts
+settings; that covers the ⌂ and any later route. On that edge `App` also closes its own map overlay.
+Neither closes on the level, and neither moves the tab — the peek's back-track (O-18) still works.
+
+Where focus lands when settings closes: if a dialog was open, its cleanup runs in the commit that
+mounts settings and restores focus to that dialog's own recorded opener, which settings then records
+as its own. So closing settings returns focus wherever the covered dialog would have: the matrix card
+a popup was opened from, the ⌕ button for search or a popup picked from it, the map's peek control
+(the callout's `Four days here ›`, or the window pill when the region panel opened it), or the aurora
+banner for the overlay it opened. With nothing open, a keyboard press returns to the control pressed.
+The cog has landed this way since M5. If that opener has gone by the time settings closes — a window
+that passed meanwhile — focus is left where the browser put it.
+
+**Tested, not seen.** `AppSettingsRoutes.test.jsx` drives the routes through the real `App` and
+counts `aria-modal` dialogs against the real settings dialog. On the parent commit the nudge and ⌂
+cases counted two; now each counts one, including a second opening. It also pins where focus lands,
+that no tab moves, and that the Plan has not crashed behind settings. `WindowFirstShellSheet.test.jsx`
+pins the shell's half without `App`: the nudge's and cog's own closes, the arguments, and the
+`settingsOpen` edge (including its re-arm). `WindowFirstShellTabs.test.jsx` pins search closing on a
+tab switch. A mutation sweep of 22 mutants over the fix killed all 22; three needed tests added after
+the first run (a cog or nudge that moved the tab, and `App`'s overlay close latching). Nothing was
+checked in a browser — the routes sit behind sign-in — and the ⌂'s Tab-reachability from the peek comes
+from O-20's record, not a new measurement.
+
+An adversarial review (six lenses, nine refuters) ran on the first cut. It found the overlay route,
+search surviving a tab switch, a second close list beside `selectTab`, an untested second opening,
+tests that a crashed Plan would pass, and several overclaiming docs. All of those are fixed here.
+
+Not addressed, and traced rather than tested:
+
+- **The map overlay opened OVER a Plan dialog.** The regional planner's 🗺 and the aurora banner
+  still open it without closing the dialog under it — unguarded keyboard routes that
+  `v1-retirement-plan.md` §8 item 9 already records.
+- **An Operations-tab admin `Modal` under settings.** It is left open on purpose, because it can hold
+  data a close would lose (a generated password).
+- **The reverse route.** Tab out of the open settings dialog and open a Plan dialog or the overlay
+  behind it.
+- **Search from the Coming up tab.** The ⌕ still works there, and a window picked from it opens a Plan
+  popup over Coming up.
+- **Phone sheets.** At ≤639px the Map tab's Filters and Regions sheets (non-modal, `z-index: 10000`)
+  paint over settings opened from ⚙ or the nudge.
+
+### Fixed — the settings dialog's postcode field and radius slider are named by the words they show
+
+**The postcode field had no name of its own.** It has no `<label>`, `aria-label` or
+`aria-labelledby`, so its accessible name came from its placeholder, "Enter UK postcode". HTML-AAM
+uses a placeholder only when nothing else names a field. The text is an instruction rather than a
+name, and it is out of sight whenever the field holds a value, which it does whenever a home is
+saved. This is the field that the masthead's "set a postcode" nudge and the Map tab's ⌂ both open
+settings onto (`focusField="postcode"`). Landing a reader there is those routes' whole purpose.
+
+**The radius slider had a label, but its hint ran into it.** Chromium named it
+`Local radiusHow far counts as close to home.` (measured, native). No text separates the label from
+its hint span. The gap a sighted reader sees is the span's margin, and a margin is not text.
+
+**The fix.** Nothing on screen moves.
+
+- The postcode field is `aria-labelledby` the section's "Home location" heading, the text directly
+  above it. The name and the visible words are then one string by construction (WCAG 2.5.3). The
+  placeholder stays as it was.
+- The slider's label is split into two spans. The first ("Local radius") names the slider through
+  `aria-labelledby`. The second (the hint) describes it through `aria-describedby`. The
+  `<label for>` relationship is unchanged.
+- The other controls were checked and needed nothing. The two colour radios are named by the labels
+  that wrap them, and every button's name is its text or its `aria-label` ("Close" on the ×).
+
+⚠️ **The postcode field's name is a decision, and it can be read the other way.** W3C's
+Understanding document for 2.5.3 says a heading is not normally a control's label. It also says a
+placeholder can count as the label when no other text sits in the label position. A strict reading
+would therefore want "Enter UK postcode" inside the name, on the empty field. The placeholder is
+deliberately not folded in, because HTML-AAM exposes it through its own hint property whatever the
+name is (`AXPlaceholderValue`, UIA `HelpText`, IA2/ATK `placeholder-text`). A name that also carried
+"Enter UK postcode" would say it twice, on the empty field that both routes land on. That rests on
+the specification; no screen reader was run. If the owner prefers the strict reading, the change is
+one more id in `aria-labelledby`, and the cost is that repetition.
+
+**What was measured.** Readings were taken on the dialog's own rendered DOM, captured from the
+component with and without a saved home, under the built stylesheet.
+
+- **Chromium, native accessibility tree (CDP).** Before: `Enter UK postcode`, taken from the
+  placeholder, and the run-together slider name above. After: `HOME LOCATION`, taken from
+  `aria-labelledby`, and `Local radius` with the description `How far counts as close to home.`.
+  Chromium applies the heading's `uppercase` to the name, which is also how it reads the heading
+  itself.
+- **WebKit and Firefox.** These readings come from Playwright's own accessible-name algorithm, not
+  the engines' native trees (this Playwright has no native API for either). They agree:
+  `Home location` and `Local radius`.
+- **Layout.** Every text node's box and every control's box is identical before and after. That was
+  checked in Chromium, WebKit and Firefox, at 1280 and 375 px, with and without a saved home. As a
+  positive control, one inserted space moved the hint 3.8–3.9 px in all three, so the comparison can
+  see a change that small. The built CSS is byte-identical to `main`'s.
+- **Not measured:** any screen reader or speech-input product, and the running app. The dialog sits
+  behind sign-in, which this session cannot do.
+
+**Tests.** No focus code changed. Two parts of the landing had no test, and now do:
+
+- The field's `select()` on landing had no test (deleting it failed nothing). A test now pins it.
+- Only the nudge's landing on the field was tested. The ⌂'s is now pinned too, through the real
+  `App` in `AppSettingsRoutes.test.jsx`.
+
+The existing autofocus test now finds the field by its name. It also no longer depends on a
+`getSettings` answer left behind by the test before it. `AppSettingsRoutes.test.jsx`'s
+`settingsSettled` now waits on the named field rather than a test id, so the route tests fail if the
+name regresses: all 19 in that file did when `aria-labelledby` was removed.
+
+**Mutation testing.** 12 mutants were run on a scratch copy, and 11 were killed.
+
+- With the component reverted to `main`, exactly the five name-bearing tests in
+  `UserSettingsModal.test.jsx` fail, and its other 103 pass.
+- Removing the slider's `aria-describedby`, or the field's `select()`, fails only the test that pins
+  it. So does dropping the focus field from the ⌂'s handler in `App`, or from the nudge's.
+- The survivor is an `aria-label` repeating the heading's text, which gives the same name today.
+  What `aria-labelledby` adds is that the name cannot drift from the heading, and no rendered test
+  can see drift that has not happened yet.
+
+### Fixed — search opens from the Plan tab only, so a pick can no longer open a Plan dialog over Coming up
+
+On Coming up and Operations the masthead still offered two ways into search: the ⌕, and the origin
+button beside it, which opens search too. Search finds only Plan things (the six windows, regions to
+plan from, places), and its picks act on the Plan. A window picked on Coming up opened the window
+popup over the almanac feed, and a place opened the four-day sheet there, with the tab left on Coming
+up. That is the state the shell's tab switch closes every one of its dialogs to prevent. The `/`
+shortcut had refused off the Plan tab since M3, and the ⌕ draws `/` as its keyboard hint, so on Coming
+up the button advertised a key that did nothing there. Reproduced in jsdom through both buttons.
+
+**Two ways to fix it, and why this one.**
+
+- **Search on the Plan tab only** (this change): withhold both buttons on every other tab, as the Map
+  tab already did.
+- **Search from any tab, with every pick moving to Plan.** Rejected. The ⌕'s `/` hint would still name
+  a key that does nothing off Plan, unless that recorded decision were reversed too. The box would
+  search nothing on the tab it opens over. And each kind of pick would become a tab change with focus
+  handling of its own. The Map tab's design already calls choosing an origin a Plan question, and the
+  Coming up design draws no search in its masthead.
+
+The cost is one press: a reader on Coming up selects Plan before searching.
+
+**The fix.** The shell hands the tick line its search handler on the Plan tab only. With no handler
+the tick line withholds both search controls rather than drawing buttons that do nothing, which
+plan-matrix §3 rule 14 bans. The origin becomes the plain statement the Map tab already draws, and the
+⌕ and its separator go. The Map's "drive times from here" caption stays on the Map alone, since Coming
+up and Operations show no drive time. The Map keeps its own rule as well — `isMapTab` withholds search
+whatever a caller hands over — so the Map's decision does not come to depend on the shell's. The
+postcode nudge and the away ⌂ stay on every tab: one opens settings and the other moves the origin,
+and neither searches. The Plan tab is unchanged.
+
+**Tested, and seen only in a harness.** `WindowFirstShellTabs.test.jsx` drives the real shell across
+tabs. It pins the masthead's exact controls on Coming up (at home, away, and with no postcode saved),
+on Operations, and on Map with its caption. It checks that pressing the drawn place on Coming up opens
+nothing, after a control press on Plan has loaded search's lazy chunk, and that both buttons come back
+on Plan. `MastheadTickLine.test.jsx` pins the handler rule, the Map's own rule and the caption rule.
+Six of the new shell tests failed before the fix. The signed-in app was not checked, because the tabs
+sit behind sign-in. Instead the real shell's masthead for each tab was rendered in jsdom and
+screenshotted in headless Chromium with the built stylesheet, at 1280px and 390px. There the tick line
+keeps its height on every tab, and the pill looks the same as the Map tab's, without the caption.
+
+### Fixed — three tests that could leave a fake clock running for whatever test came after them
+
+Three tests across two files restored the clock on their own last line rather than in `afterEach` or
+a `finally`, so a failing assertion above that line skipped the restore and left the clock installed
+for later tests in the same file — which then failed for the wrong reason, or passed against a frozen
+date, pointing at the wrong test.
+
+`SchedulerView.test.jsx`'s "polls for job updates at the configured interval" called
+`vi.useFakeTimers({ shouldAdvanceTime: true })` and called `vi.useRealTimers()` only after its final
+`vi.waitFor`; its `describe` has no hook that restores timers. `WindowFirstShell.test.jsx`'s "states
+the forecast's age, and never the model that produced it" and "reads the age as UTC, which is how the
+backend writes it" both called `vi.setSystemTime(...)` with no prior `vi.useFakeTimers()` — which
+installs a clock faking only `Date`/`Temporal` — and each called `vi.useRealTimers()` on its own last
+line; the file's `afterEach(() => vi.restoreAllMocks())` clears mock call state, not a clock.
+
+All three now restore the clock in a `try`/`finally` around the test body, matching the convention
+`SchedulerView.test.jsx`'s own "Run Now confirmation" tests already use. No behaviour changes when a
+test passes — only what happens after one throws.
+
+Proved with scratch copies of both files (built, exercised, then deleted — never committed). Each
+copy captured a real-time or real-timer reference before any test ran, broke one assertion inside the
+affected test so it threw before reaching its own restore line, and added a probe test immediately
+after it: for `WindowFirstShell`, one asserting `Date.now()` stays near that captured reference; for
+`SchedulerView`, one asserting `vi.isFakeTimers()` is `false` (its test installs full fake timers, so
+`isFakeTimers()` reflects the leak directly; `setSystemTime` alone does not flip that flag even while
+`Date` stays frozen — the drift check is what catches that case). Against the unmodified files, both
+probes failed alongside the deliberately-broken test, on a fake clock frozen at `2026-08-04`. With the
+`try`/`finally` in place and the same deliberate failure still forced, the broken test still failed
+(as intended) but every probe passed.
+
+This is the same defect class documented in `docs/engineering/frontend-test-standards.md`'s "What NOT
+to do" (landing with `fix/create-event-source-timer-leak`): a real resource armed by a test outlives
+that test whenever its release sits on a line an earlier throw can skip.
+
+### Fixed — an alert ending no longer empties the map's rating floor, or deletes the one you saved
+
+When aurora mode stops being available under a reader — an alert ends while they are in it, and the
+map's list of stored aurora nights is empty — the map goes back to Sunset. On the way it set the
+rating floor to `null`, a value the floor has not otherwise held since June's filter-bar tidy
+(7618a02c), and cleared the saved floor. On the Plan-tab overlay the context bar showed an empty chip
+(React logged a missing key for it) and the drawer's hint read "showing ★ and above". On both surfaces
+every star button read pressed, the floor counted as a filter — the overlay offered a Clear, the Map
+tab's chip read "Filters (1)" — and every rated pin was drawn whatever the floor. The next visit
+opened on 3★+, whatever floor the reader had saved.
+
+No reader asks for that change of event, so it now leaves what the reader set alone. That is an owner
+decision, taken over this change's first cut, which reset the floor to the 3★+ default the way the
+explicit kind changes do. The rating floor and the stand-down lens keep their values and their saved
+copies, the subject, drive-time and dark-sky filters stand, and only the admin "unknown" lens and a
+kept-local night reset, as before. Entering aurora mode through a handoff already kept the floor, so
+leaving it now matches. The explicit kind changes — a window picked on the Map tab, an event picked in
+the overlay's drawer — still reset the floor and clear it; `map-landing-plan.md` §4 #21(a) records
+the Map tab's (`selectEvRow`) as inherited, not chosen.
+
+`setMinStars(null)` came in with a5a23f2e (March), when a null floor meant "no floor" and a cleared
+key read back as null too. 7618a02c made the floor always hold a value and moved the event selector's
+reset and the drawer's Clear to the default, but not this effect; b51af333 (#731) created
+`selectEvRow` on the default and added a line to this effect without touching the null. It survived
+because no test checked what this reset does: the tests that meet it arrange a live alert or a stored
+night to avoid it, and #814 recorded "nulling the rating floor on the way out" as a side effect.
+
+Pinned in `MapViewAuroraUnavailableFloor.test.jsx`, sixteen tests through the real
+`AuroraStatusProvider` and a window focus, on the overlay and the Map tab. A saved 4★+ stays on the
+context bar, pressed in the drawer and in the popover, in the drawer's hint, in the Clear and the
+chip's count, in the pins, and in storage, where a fresh map mounted afterwards reads it back. A
+reader with no saved floor stays on 3★+, with no Clear and nothing saved. A saved stand-down lens and
+a drive-time filter chosen in aurora mode stand too, and an admin's "unknown" lens goes. The pressed
+state is read from the two buttons either side of the floor, so it holds whichever pressed contract
+that group settles on (below). The tests run on an afternoon clock, so the Sunset the map lands on is
+still to come. Three explicit resets gain page-level tests: the Map tab's window control (whose test
+read only storage), and the overlay drawer's event change and Clear (which had none). Each now reads
+the page as well as storage, including the chip's count or the Clear: the context bar alone cannot
+tell a floor of the wrong type, such as the string `'3'`, from 3.
+
+Twenty-three mutants, all killed, each by the tests that name what it breaks, and none by a file
+failing to load. At the bounce: main's own `null` and cleared storage (twelve of the sixteen tests
+fail); the first cut's reset to the default, with and without its clear; the clear alone (only the
+fresh-mount test); `null`, `undefined`, 1, 5 and the string `'3'`; three stand-down resets (only the
+stand-down tests); a drive-time reset (only the drive-time test); and the "unknown" lens left on
+(only its test). At each of the window control's, the drawer event selector's and the drawer Clear's
+resets: a `null`, the string `'3'`, and a missing storage clear. Before these tests, a `null` at any
+of those three resets passed all 706 tests in the 34 `MapView*`, `WindowFirstMapPane*` and `App*`
+test files, which include every file that renders the real map.
+
+Reviewed by six adversarial lenses (38 charges, many overlapping) and six refutation agents, then a
+second round of three self-refuting lenses over the reworked change (five charges). Every upheld
+charge on this change is fixed above, including history and route facts corrected from the refuters'
+reading. Found on the same route, pre-existing, and left as named follow-ups:
+
+- **A map mounted into aurora mode after an alert has ended leaves it before its stored-nights list
+  answers**, even when a stored night exists — the first visit to the Map tab through the overlay's
+  hatch, say. The fix that works waits for the list to answer, success or failure, and exempts LITE,
+  which never asks. A Map tab whose list answered before a night was stored leaves too, and waiting
+  for the answer does not reach that case: the tab's map asks once and stays mounted.
+- **At night the overlay lands on a sunset already over**, under its "Aurora tonight" title. The
+  auto-selection cannot fix it, because the overlay cannot change its date; it is a design question.
+- **Focus falls to `<body>` when an alert ends** and removes the aurora card's "Centre map" button — on
+  every alert end, bounce or not — and when the change of event re-keys an open popup; and the
+  drawer's Aurora button turns `disabled` under focus.
+- **The rating-floor buttons announce every star at or above the floor as pressed**, where the app's
+  other toggle groups press one; and **the overlay's event selector exposes no selected state**.
+- Nothing announces that an alert has ended. An owner call, closer to an enhancement than a defect.
+
+Tested, not seen in a browser: the map sits behind sign-in.
+
+### Fixed — text inputs, selects and textareas show focus in Windows High Contrast again
+
+The 28 remaining call sites the button focus fix (`.btn`/`.btn-primary`/`.btn-secondary`, see the
+neighbouring entry) left open: every text input, `<select>` and `<textarea>` that pairs
+`focus:ring-1`/`focus:ring-2` (a `box-shadow`) or `focus:border-indigo-500` with `focus:outline-none`
+— the sign-in and registration pages, change password, the settings postcode field, the admin user,
+region and location management views, `SortableHeader`'s per-column filter, the Plan-overlay
+drive-time `<select>`, and the aurora simulation form. Forced-colours mode (Windows High Contrast)
+removes every `box-shadow` and repaints border colours regardless of what a `focus:border-*` utility
+specified, and `focus:outline-none` — Tailwind 4's `outline-style: none`, the name the v3→v4 migration
+(`3e45d18b`, 2026-03-01) kept for what v4 renamed `outline-hidden` — left nothing standing in for
+either. All 28 now use `focus:outline-hidden`, unconditionally invisible outside forced colours and a
+transparent 2px outline at a 2px offset inside it, which the mode repaints in a system colour.
+
+**The variant stays `focus:`, not `focus-visible:`.** These fields already ring on `focus:` — any
+focus, mouse included — and that is existing, intended behaviour, not the defect the shared buttons
+had (a ring drawn by a mouse press and left standing through a busy state). Measured before choosing:
+a `<select>` does not universally get `:focus-visible` on a mouse click. Chromium's does; Firefox's
+does not. Scoping the new outline to `focus-visible:` would have shipped a `<select>` whose forced-
+colours outline works by keyboard and silently does nothing on a mouse click in Firefox — invisibly,
+since the only page this project measures live (sign-in) has no `<select>`. `focus:outline-hidden`
+shows it either way, and changes nothing else: `focus:ring-*`/`focus:border-*` already fire on any
+focus, so the fix rides the same trigger they already use.
+
+**Measured**, headless Chromium 151 and Firefox 153 (Playwright 1.62.1), `forced-colors: active`,
+pixel-diffing a 14px frame round each field, blurred vs focused, both keyboard (a real Tab press) and
+mouse (a real click):
+
+- *The built sign-in page's username field*, before this fix: Chromium already repaints the field's
+  own 1px border on focus — a native behaviour, independent of any authored CSS — so it degrades
+  (806 of 24,948 pixels) rather than vanishing outright; Firefox changes not one pixel (0/24,948) and
+  is left with only the caret. After: Chromium rises to 2,422 (the native repaint plus a real
+  outline), Firefox from 0 to 1,617. Normal, non-forced rendering is pixel-identical before and after
+  in both engines (0/24,948) — `outline-hidden` is `outline-style: none` outside forced colours, the
+  same as `outline-none`.
+- *A `<select>` and a `<textarea>` carrying the exact class lists above*, against Tailwind's own
+  compiler output for the project's real theme (not the sign-in page, which has neither): before,
+  Chromium already shows a small native repaint (526–585/15,624–21,328) on both inputs and selects;
+  Firefox shows none on either (0). After, both rise by roughly the same amount in both engines
+  (+1,085 to +1,777) for keyboard focus, and the `focus:` choice above is what keeps that true for a
+  *mouse-clicked* `<select>` in Firefox too — the `focus-visible:` alternative measured 0 there.
+
+WebKit renders no forced colours in either state (the emulated media query matches, but the mode's
+colour substitution never fires) — moot in practice, since Safari does not run on Windows.
+
+**Tests.** `formFieldFocusRules.test.js` pins the same three places `buttonFocusRules.test.js` does,
+adapted for plain `className` utilities rather than a shared `@apply`'d class: every call site
+carrying an outline utility (found both in inline `className=` values and in the six
+`const someClass = '…'` definitions three of these views build once and apply at several call sites)
+uses `outline-hidden` under `focus:`, never `focus-visible:`, except the three dialog roots
+`useDialogFocus` focuses programmatically (`shared/Modal.jsx`, `MapOverlay.jsx`, `BottomSheet.jsx`,
+excluded by name); and what Tailwind's own compiler makes of the bare `focus:outline-hidden` and
+`focus-visible:outline-hidden` utilities against the real theme (`compile().build([...])`, no full
+source scan needed), guarding the same "a Tailwind release renames what a utility means" risk the
+button test does. Five hand-run mutants were killed: reverting a plain `className=` site and a
+`const xClass=` site back to `outline-none`, reverting a `focus:border-indigo-500` (Aurora) site, and
+switching either the input or the `<select>` site to `focus-visible:`.
+
+Not addressed: `PlanErrorBoundary.jsx`'s programmatically-focused heading has a bare, unprefixed
+`outline-none` with no ring or border-colour utility beside it — a different declaration (always no
+outline, not "no outline standing in for a focus ring") and outside this task's scope. A comment on
+that class now says so directly, because a targeted adversarial review (below) found the obvious
+"complete the fix" edit — swapping it to a bare `outline-hidden` — would draw a *permanent*
+forced-colours box round the heading, not a focus-only one; `formFieldFocusRules.test.js` pins that
+it never happens silently.
+
+**A four-agent targeted review** (not the full sweep — the diff is one token swapped identically 28
+times, already measured pixel-identical outside forced colours) found two things worth fixing and
+confirmed two decisions sound:
+
+- **The scanner had no comment-awareness — fixed with `blankComments`.** Neither
+  `classNameAttributeValues` nor `classVariableDefinitions` stripped comments before scanning, so a
+  comment merely *narrating* old `className="...focus:outline-none..."` syntax would read as a real
+  call site. Worse: a comment nested inside a template literal's `${…}` interpolation — the real
+  shape at `ModelTestView.jsx:654`'s row-selection ternary, which already carries a `//` comment
+  there — could have its own apostrophe misread as opening a string, desyncing the whole walk and
+  failing every test in the file's first `describe` at once. Reproduced against that real,
+  currently-shipping file by changing four characters of its prose; confirmed fixed by re-running the
+  exact same mutation against the real file post-fix (14/14 green, no crash). `blankComments` blanks
+  `//` and `/* */` comments to spaces (offsets preserved) while leaving every string and template's
+  own text untouched, mirroring — for JS — what this file's `stripComments` already did for CSS.
+- **The "three dialog roots" exemption comment undersold the mechanism — corrected.**
+  `useDialogFocus.js`'s own docblock names a *fourth* consumer, `RegionsJump.jsx`; it simply carries
+  no outline utility at all today, so it has nothing to exempt, but the test's comment now says so
+  explicitly rather than implying three is the complete count of `useDialogFocus` call sites.
+- **Confirmed sound, no change**: keeping the outline on `focus:` rather than `focus-visible:` — an
+  independent re-verification, live in a real Chromium instance, found the mechanism is type- and
+  engine-agnostic by construction (`:focus` fires unconditionally, inheriting exactly the pre-existing
+  ring/border trigger) — and the three named dialog-root exemptions, each independently re-traced to
+  confirm `useDialogFocus`'s ref and the `outline-none` class sit on the same literal element.
+
+### Fixed — the event-source tests no longer fail a run in which every test passed
+
+`createEventSource.test.js` could make the whole Vitest run exit 1 with nothing failing: `Vitest
+caught 1 unhandled error`, a `TypeError: EventSource is not a constructor` thrown from a timer in
+`createEventSource.js`. Seen on 2026-09-16 in two of three full-suite runs made concurrently under a
+16-process CPU load, each passing 242 of 242 files and 6,004 of 6,004 tests. The utility's code is
+untouched; one stale line of its JSDoc is corrected.
+
+**A test left a real timer armed, and its globals were put back underneath it.** "calls onError even
+when readyState is CLOSED" ran on real timers and drove the CLOSED branch, which arms a 5 s
+reconnect, but never called the cleanup `createEventSource` returns. `afterEach` then restored
+`EventSource` to jsdom's, which has none. If the file's worker was still alive five seconds later,
+the retry fired, `connect()` ran `new EventSource(url)`, and Vitest could attribute the throw only
+to the last test that had run. The rest of the file takes milliseconds, so this was only ever seen
+under load.
+
+The test is older than the retry. `45f00dcd` wrote it as "skips onError when readyState is CLOSED",
+when the handler returned early for a CLOSED source. `1d6f7f0a` removed that guard, so `onError`
+fired whatever the state, and gave the test its current name. `13e270c7` then added a CLOSED branch
+with a real 5 s timer and tested the retry on fake timers, leaving the older test on real ones.
+
+**The fix has three parts: every connection is released after every test, the whole file runs on
+the fake clock, and the hook checks for both kinds of leak.**
+
+- **Release.** Each test opens its connections through a small wrapper that records the cleanup
+  `createEventSource` returns. `afterEach` calls every one, whether the test passed or threw. The
+  cleanup is the only handle on a connection's retry timer and its visibility listeners; closing
+  the mock source reaches neither. The import is renamed, so the natural call in a test is the
+  tracked one.
+- **Fake clock.** `beforeEach` installs the fake clock for every test, so no retry a test arms can
+  fire after it, and `afterEach` restores the real one. Five tests used to restore the real clock
+  on their last line, which a failing assertion never reached.
+- **Check.** The hook fails the test on either of two leaks, and each check sees one the other
+  cannot:
+  - a mock source still open (`connections left open`, with its URL) is a connection nothing
+    released, with or without a retry;
+  - a fake timer still pending (`retries left armed`) is a retry nothing cancelled, even behind a
+    source the test closed itself.
+
+One test is added: cleanup cancels a retry that is already pending. Deleting the `clearTimeout` from
+the cleanup failed nothing before, measured against two suites:
+
+- the old suite, where no test called cleanup while a retry was pending;
+- this fix on the real clock without the new test, where the hook did call it, but `closed` turned
+  that retry into a no-op.
+
+The new test counts pending timers and fails that deletion; the hook's own count now fails the
+CLOSED test too.
+
+The JSDoc correction: `createEventSource` still documented `onError` as called only "when readyState
+!== CLOSED", which has not been true since `1d6f7f0a`. The production build is byte-identical across
+the edit.
+
+**How the design got here.** This fix first kept the file on the real clock and checked only for
+open sources. An adversarial review then found a test that check passes: it bypasses the wrapper and
+reaches the CLOSED branch through the mock's own `close()`, which leaves a live 5 s retry behind a
+source marked closed.
+
+- Under that version, the test passed on a quiet run and brought the original TypeError back under
+  the probe below.
+- Under this one, the count fails it on every run. With the count deleted it passes, and the fake
+  clock still stops it firing.
+
+The same review's first proposal, the fake clock with only the count, misses the opposite case: a
+test that opens a connection outside the wrapper and arms no retry passes under it, while the
+open-source check fails that test. Moving only the leaking test onto fake timers would have fixed
+that one test and none written later.
+
+**Proved with a probe that makes the original failure deterministic.** A scratch copy of the file
+had one test appended at top level that outlives the retry:
+`await new Promise((r) => { setTimeout(r, 5600); })`, with a 10 s budget. Results with the probe:
+
+- The original exits 1 with the TypeError, and all 20 of its tests pass, the probe included.
+- Filtered to the CLOSED test plus the probe, the original still exits 1.
+- Filtered to the not-CLOSED test plus the probe (the control), it exits 0.
+- The fixed file exits 0 under all three.
+
+Mutation-checked, each on a scratch copy, on a quiet run without the probe unless stated:
+
+- Deleting the hook's cleanup call, or dropping the wrapper's record, fails 15 tests with
+  `connections left open`. On the fake clock the leftover retry cannot fire, so the probe shows no
+  unhandled error. On the real-clock version of this fix, the same deletion brought the TypeError
+  back.
+- Calling the untracked import from the CLOSED test, or from "constructs URL with base, path,
+  params, and token", which arms no retry, fails exactly that test with `connections left open`.
+  From a test that calls the cleanup itself, as "returns cleanup function that closes source" does,
+  it leaves nothing behind, and passes.
+- The review's bypass through the mock's `close()` fails that test with `retries left armed`.
+- Deleting the fake clock from `beforeEach` fails all 20 tests: the timer APIs are not mocked.
+- Deleting the hook's `vi.useRealTimers()` passes, but the fake clock outlives the file's last test,
+  so the probe times out.
+- A deliberately wrong assertion in "cancels the pending throttled retry and reconnects at once on
+  visibility" is that test's only failure.
+
+Against a copy of the utility:
+
+- A cleanup without `clearTimeout` fails the new test, and the CLOSED test on the hook's count.
+- A cleanup without `closed = true` fails only "does not reconnect after cleanup is called".
+- A cleanup that never closes its source fails 19 tests.
+
+The concurrent load reproduction was not re-run, because the probe produces its condition, a worker
+alive past the retry, on every run.
+
+### Fixed — a focused button shows in Windows High Contrast again, and a click no longer leaves a ring on it
+
+Every `.btn`, `.btn-primary` and `.btn-secondary` in the app lost its focus indicator in forced
+colours, and `.btn` and `.btn-primary` also drew their ring on a mouse press. They are in the admin
+views, the sign-in, registration and change-password pages, the settings dialog, `ConfirmDialog` and
+the Plan's error boundary, among others. Both defects are fixed in the three `@apply` rules in
+`index.css`.
+
+**No focus indicator in forced-colours mode.** The focus ring is a Tailwind `ring`, which is a
+`box-shadow`, and forced-colours mode (Windows High Contrast) removes every box-shadow. Beside it
+the classes said `focus:outline-none`, which Tailwind 4 compiles to `outline-style: none`, so a
+focused button showed nothing at all. It was not always so: Tailwind 3's `outline-none` was a
+transparent outline that the mode repaints, Tailwind 4 renamed that utility `outline-hidden`, and
+the v4 migration (`3e45d18b`, 2026-03-01) kept the old name. The classes now use `outline-hidden`,
+which is `outline-style: none` everywhere except under `forced-colors: active`. There it is a
+transparent 2px outline at a 2px offset, repainted by the mode in a system colour, in the band the
+ring draws in (`ring-offset-2`, then `ring-2`).
+
+**A ring on every mouse press.** `.btn-primary` and `.btn` keyed their ring on `focus:`. Chromium and
+Firefox focus a button when it is pressed (Safari does not), so every click drew the ring, and it
+stayed until focus moved on. `.btn-secondary` moved to `focus-visible:` in #431; the other two now
+match. The new outline is on `focus-visible:` as well. Tailwind's upgrade guide suggests
+`focus:outline-hidden`, which would have drawn the forced-colours outline on a mouse press.
+
+**Measured before and after**, in headless Chromium 151, Firefox 153 and WebKit 26.5 (Playwright),
+against the built stylesheet: six call-site class lists, plus `.btn-primary` at a busy button's 40%
+opacity, inside `Modal`'s own element chain, each focused by keyboard and by mouse, with forced
+colours off and on (dark and light), compared pixel by pixel in a 5px frame round each button. Of 126
+states, the 38 that changed are exactly the intended ones:
+
+- *Forced colours, keyboard:* before, not one pixel round the button changed on focus. Now a 2px
+  outline stands 2px off the button's edge: cyan on black in Chromium's dark palette (8.7:1),
+  indigo on white in its light one (11.3:1), and black on white in Firefox (21:1), 2px clear of
+  the grey button face. At 40% opacity the outline dims with the button, to 2.1–2.9:1. The
+  settings dialog's Save and Look up are in that state while busy, since #859 keeps them focused
+  with `aria-disabled`.
+- *Mouse press, forced colours off:* `.btn-primary` and `.btn` drew the ring in Chromium and Firefox,
+  and now draw nothing.
+
+Keyboard focus with forced colours off is pixel-identical before and after in all three engines.
+WebKit changed nowhere: it renders no forced colours (the emulated media query matches and the ring
+still paints), and it does not focus a pressed button. The built app's real sign-in page shows the
+same in Chromium and Firefox, without a backend. Against its base at the time (`86b70436`), the
+built CSS differed only in the three rules, and the JS bundles only in their hashes.
+
+**Tests.** jsdom renders no CSS, so `buttonFocusRules.test.js` pins the rules as text, in three
+places:
+
+- *The `@apply` lists as written.* No `focus:` utility. `focus-visible:outline-hidden` is the only
+  outline utility. The ring is on `focus-visible:` at `ring-2`/`ring-offset-2`, and gold on primary
+  and secondary. No other rule in `index.css` gives these classes an outline or a box-shadow.
+- *What Tailwind's own compiler makes of the real stylesheet.* The only outline declarations per
+  class are `outline-style: none` on `:focus-visible`, plus the transparent outline and its offset
+  under `forced-colors: active`. This guards against a Tailwind release that changes a utility under
+  an unchanged name, which is how the first defect arrived.
+- *Every `className=` in `src/` carrying a `.btn*` class.* None may add an outline or ring utility,
+  because utilities sit in a later cascade layer and would beat the class.
+
+A mutation sweep killed all 21 mutants: the old rules, each utility moved back or dropped, a plain
+`outline: none` inside a rule, two override rules, three call-site overrides, two blinded call-site
+scanners, and a Tailwind whose `outline-hidden` had lost its forced-colours outline.
+
+**#859's entry is superseded on two points.** `20260915-settings-dialog-focus-targets.md` says the
+settings dialog's button landings have no forced-colours indicator, and that `.btn-primary`'s ring
+is a `focus:` rule that stays drawn after a mouse press. Neither holds after this change. The two
+`UserSettingsModal.jsx` comments that said so now describe the classes' own treatment.
+
+Not addressed: 28 class lists on text inputs, selects and textareas pair `focus:outline-none` with a
+`focus:ring-1` or a focus border colour — the auth pages, the admin forms, the settings postcode
+field, `SortableHeader`, the map overlay's drive-time filter. Measured on the sign-in username field
+only: in forced colours Chromium still marks focus by repainting the field's 1px border in its focus
+colour, while in Firefox nothing round the field changes and the caret is the only sign. Selects and
+textareas were not measured.
+
+### Fixed — two App tests that could pass or fail on when they happened to run
+
+`App.test.jsx`'s "the date handed to the Map pane" block (six tests, on top of
+`fix/app-test-aurora-overlay-order`'s reordering fix) had two wall-clock dependences an adversarial
+review found rather than a failing run — neither has been observed to fail here. Test-only: no
+product code changes.
+
+**A fixture computed once could go stale mid-run.** `TOMORROW` and `YESTERDAY` were computed by
+calling `ukDateStrOffset` when the file loaded, but `App.jsx` reads `ukDateStr()` fresh on every
+render. A run whose module load and whose execution of this block straddle a UK midnight leaves the
+fixture's `YESTERDAY` a day behind `App`'s own live "today" — and `mapDates.isNightOver` then
+measures a night that is still genuinely in progress against a `todayStr` that has moved on,
+refusing it. Reproduced directly against the real `isNightOver`/`ukDateStr`/`ukDateStrOffset`: a
+`YESTERDAY` fixed at 23:50 BST on the 13th, checked against a live `ukDateStr()` read at 00:10 BST
+on the 14th (the same 20-minute crossing a slow suite could straddle for real), comes back
+`isNightOver === true` — wrongly over. The same check with both reads pinned to one frozen instant
+comes back `false`.
+
+**A control that read the clock immediately was paired with a wait that didn't.** The last test's
+control assertion — selectedDate still honours the night immediately after a status with
+`currentNightEndsAt: now + 1.5s` lands — is genuinely safe, since nothing can make a 1.5s
+real `setTimeout` fire in the same microtask turn. The `waitFor` two lines later that then waits for
+the night to clear is not: `AuroraStatusContext`'s re-check loop schedules a real 1.5s timer, and
+under CPU contention a real timer can fire late enough to miss Testing Library's 4s ceiling.
+Reproduced by exaggerating the same shape: a required real delay of 4.5s against the OLD
+`waitFor(..., { timeout: 4000 })` pattern threw after genuinely spending 4188ms finding out, while
+the fixed pattern's deterministic clock jump handled the identical 4.5s requirement in 12ms.
+
+**The fix.** The whole block now freezes `Date` (`vi.useFakeTimers({ shouldAdvanceTime: true })` +
+`vi.setSystemTime`, matching `WindowFirstBriefingContext.test.jsx`'s established shape) at
+`mapDates.js`'s own documented example — 00:30 BST on 2026-08-14, where the UK and UTC calendars
+already disagree — so every read of "now", fixture and app-side alike, answers from one instant
+regardless of when the suite runs; `YESTERDAY`/`TODAY`/`LATER` are literals derived from it rather
+than a second `ukDateStrOffset` call, and the local `pastAndFutureForecasts` no longer reaches for
+the file's module-level `FORECASTS`/`TOMORROW`, which are still real-wall-clock-derived and would
+otherwise mix a real calendar date into a block pinned to a fictional one. The last test switches to
+a fully fake, manually driven clock (`shouldAdvanceTime: false`) once its setup no longer needs
+`findBy*` to resolve, and replaces the `waitFor` with one deliberate `vi.advanceTimersByTimeAsync`
+jump past the end — the night-in-progress case itself stays real, in the small hours, as asked.
+
+**Proved.** Default order and ten shuffle seeds (1, 2, 3, 7, 8, 9, 42, 123456, 424242, 999999) each
+pass all 45 tests. The simulated-crossing and forced-delay reproductions above each fail on the OLD
+pattern and pass on the fixed one. Mutation-checked: dropping the aurora banner route's night
+provenance in `App.jsx` (`{ isNight: trigger.kind === 'aurora' }` → `{ isNight: false }`) fails
+"honours the NIGHT in progress" and "clears the night licence" on the date
+(`expected '2026-08-21' to be '2026-08-13'`), leaving the other five green; disabling
+`AuroraStatusContext`'s re-render-at-end (`setNightEnded`) fails "moves the map off the night" on
+its own assertion, confirming the rewritten wait still exercises the real mechanism rather than
+passing by construction.
+
+### Fixed — the App tests that press the aurora banner no longer depend on the tests before them
+
+`App.test.jsx`'s "honours the NIGHT in progress when the aurora banner asks for it" failed under
+`--sequence.shuffle.tests --sequence.seed=424242` at 48e8aa2a — `No "getAuroraLocations" export is
+defined on the "../api/auroraApi.js" mock`, thrown from `MapView`'s aurora-scores effect — and
+passed in the default order. Test-only: no product code changes.
+
+**What an earlier test left behind was a loaded chunk, not a mock.** The banner opens the Plan-tab
+map overlay — `MapOverlay` framing a real `MapView`, both behind `React.lazy` in `App.jsx` — and a
+lazy chunk stays loaded for the rest of the file once any test has loaded it, which no `beforeEach`,
+`mockReset` or `vi.restoreAllMocks` can undo. Neither banner test waited for the overlay it opened,
+and `MapView`'s chunk is requested only when `MapOverlay` renders, so the real map could mount
+inside a press only if an earlier banner test had still been mounted when `MapOverlay` loaded, and
+`MapView` had loaded since. Instrumented under that seed, that is what happened: "clears the night
+licence" ran first, and `MapOverlay` loaded 5 ms before it ended and asked for `MapView` 3 ms
+before; `MapView` finished loading during the next test, the one that waits out a 1.5 s night end;
+and "honours the NIGHT" then mounted the real map inside its press, where the first of the map's
+reads the file had never mocked threw. In the default order neither test ever mounted the map.
+Importing the two modules in a throwaway `beforeAll` failed BOTH banner tests in the default order,
+3 runs of 3.
+
+**It is a race as well as an order.** By 04386b5c — #842 had added 23 tests and changed `App.jsx`
+and `MapView.jsx`, and #850 had changed `MapView.jsx` — the failure was no longer repeatable:
+seed 10 ran the same order twice and failed once. A 31-seed sweep left running overnight also failed
+eight other tests, in runs spread over hours while the machine slept, and each of those seeds passed
+when run awake, with this fix and without it. Named in case one of them turns out to be flaky after
+all: "picks up a change on every opening of the dialog, not just the first", "does NOT let a stale
+solar pick borrow the night licence (Codex, #803)", "lets the mount read land after the dialog has
+answered without changing anything", "reads them once and hands one home to both the provider and
+the Map pane", "does not take one drive-time stamp, read back at the database's precision, for a
+change", "does not take a recalculation for a move — a save that lands under its spinner stands",
+"moves the map off the night when its end passes with no new status — the provider re-renders App"
+and "accepts a night the pane asks for with provenance, whatever asked for it".
+
+**The fix: wait for the overlay, and stub the map inside it.** Both tests press the banner through
+one helper, `pressAuroraBanner`, which waits for the overlay's dialog and for the map stub inside
+it, so every order runs the same code. `MapView` is stubbed rather than kept real with its reads
+mocked: no assertion in the file reads that map, `MapView`'s own suites mount it with Leaflet
+stubbed, and keeping it real meant mocking the four reads it makes on this route
+(`getAuroraLocations`, `getAuroraForecastResults`, `getAuroraForecastAvailableDates`,
+`getAstroAvailableDates`) and fixturing its aurora rules — a status without `active: true` dropped
+it out of aurora mode as it mounted. The first cut did keep it real, and under the load reproduction
+in `frontend-test-standards.md` (the whole suite three times at once under 16 busy loops) the cold
+overlay wait — both chunks, Leaflet included, and the first render — took 2.8–3.8 s against Testing
+Library's 4 s ceiling. A harsher variant, twelve copies of this file at once under the same busy
+loops, failed 17 tests, every one of them at that wait; the same variant with the stub failed none,
+and neither did 24 copies. `frontend-test-standards.md` gains the rule (**Do not open a lazy subtree
+and leave before it has mounted, unless mounting it is inert**), says when a stub like this one is
+not the child-mocking it bans, and no longer says a seed always reproduces an order dependency.
+
+**Proved.** The default order and 42 seeds (1–40, 424242, 7777777) each pass all 45 tests, with no
+console output beyond the provider-crash test's own `Error: boom`, and so does the `beforeAll`
+variant in the default order and three seeds. Mutation-checked: removing the `MapView` stub fails
+both banner tests in the default order and three seeds, naming `getAuroraLocations`, so the real map
+cannot come back unnoticed or in only some orders; dropping the banner route's night provenance in
+`App.jsx` fails both on the date (`expected '2026-09-17' to be '2026-09-15'`); dropping the overlay
+fails both at the wait. Removing the wait alone fails nothing, and the helper's comment says why it
+stays. The whole suite, three runs at once under 16 busy loops, passed all 242 files and 6,004 tests
+in each run with this change. Two of those runs, with the load average peaking at 713, also caught
+one unhandled error each from `createEventSource.test.js`: a real 5 s reconnect timer that one of
+its tests leaves armed. That leak predates this change, which does not touch it.
+
+### Fixed — the settings dialog no longer drops a keyboard reader on `<body>`
+
+An accessibility review of #842 found places around the settings dialog where focus fell to
+`<body>`. From there the next Tab starts at the top of the document, behind the dialog's
+backdrop, and a screen reader loses its place. On the Map tab `<body>` is also outside `MapView`'s
+pane-scoped `onKeyDown`. The review listed four; Look up, which fails for the same reason as Save,
+made five. Each now has a deliberate focus target:
+
+- **The masthead's "set a postcode" nudge, on the Map tab.** A known home swaps that `<button>`
+  for the statement's `<span>` ("Home · Keswick — drive times from here"). That is a different
+  element, so the node the dialog recorded as its opener is destroyed. On other tabs React reuses
+  the button node and focus rides it. The statement is now a programmatic focus target
+  (`tabIndex={-1}`: focusable, never a tab stop). Since #842 the swap happens in two orders, each
+  held by its own mechanism:
+  - *Before the close — the ordinary save.* The page takes the new home from the save's own
+    response, so the nudge is replaced while the dialog is still open. The nudge hands `App` a
+    resolver for the slot's current element, and `App` passes it to the dialog as
+    `restoreFocusFallback`, a new **caller opt-in** on `Modal`/`useDialogFocus`. It is consulted
+    only when the recorded opener cannot take focus back (detached, disabled, or `<body>` to begin
+    with), only under the same "the reader has not chosen somewhere else" guard as the ordinary
+    restore, and never for an element outside a dialog that still claims `aria-modal` beneath.
+    The hook keeps the fallback it held while the dialog was open, so a caller that stays mounted
+    and clears it in the closing update still gets it. `App` clears its own on close, so a later
+    opening from the cog cannot inherit it. The other three render sites (`BottomSheet`,
+    `MapOverlay`, `RegionsJump`) and every other `Modal` pass nothing and behave exactly as before.
+  - *After the close — the dialog's own settings read answering late.* The dialog has already
+    handed focus back to the nudge when the answer names a home saved elsewhere. The tick line
+    hands focus from the departing element to its replacement, but only when the departing one
+    held focus. That is read in the ref's cleanup, which React runs while the old node is still
+    attached and focused (measured on React 19.3). StrictMode's development-only re-run of a ref
+    runs that cleanup and then the setup again on the same, still-focused node, so the setup now
+    clears a record naming its own node. Left in place, that record pulled a reader who had
+    clicked away back onto the statement at the line's next render, and onto the new tab's slot
+    after a tab switch that does not move focus, as a click on a tab does in Safari (both
+    reproduced under `StrictMode` in the tests). A looser "focus is nowhere after a swap" rule was
+    rejected: a tab switch swaps this slot too, and the shell's `tabRequest` handoff moves focus
+    itself. Focus-event tracking was rejected too: Chromium fires `blur` on a node as it is
+    removed, WebKit and Firefox fire nothing.
+
+  Every route into settings closes the dialogs it would open over (#858), and a closing dialog
+  hands focus back to its own opener, which settings then records as its opener. So on a covered
+  route the close restores to that control, and the fallback is asked only if the control has gone
+  by then — a window that passed meanwhile, which #858 left on `<body>`. From the nudge, that now
+  lands on the origin slot. The cog and the ⌂ pass no fallback, so they still leave it there.
+- **Save, and Look up.** A successful save removed its own button, and focus now lands on the
+  line naming the new home. The field is the fallback, and the dialog root the last resort. Both
+  buttons were also `disabled` while busy. Measured in Chromium, WebKit and Firefox: a focused
+  control that becomes `disabled` loses focus, at once in Chromium and within one to four frames
+  in the other two. A failed save therefore left the reader on `<body>` too. Both now say they
+  are busy with `aria-disabled`, styled with `.btn-primary`'s own `disabled:` treatment, and
+  refuse a second press. That also stops repeated Enters in the postcode field from racing two
+  lookups for one result. It does not look identical in two cases. Forced-colours mode repaints a
+  `disabled` button's text and border in GrayText and leaves an `aria-disabled` one alone
+  (measured in Chromium), so there the busy state shows only as the dimming. And a button pressed
+  with the mouse now keeps its focus through the request, so in Chromium, which focuses a pressed
+  button, `.btn-primary`'s `focus:` ring stays drawn.
+- **The drive-time refresh**, which replaces the whole dialog body three times. Focus now moves
+  spinner status line → "Back to settings" (described by the count it reports) → the "Last
+  calculated" line the refresh changed. On a failure it returns to "Refresh drive times",
+  described by the error. Each view's first element is now keyed. Without the keys, React
+  reconciled the spinner's focused status `<p>` into the result's `<p>` by position, stripping
+  its `tabindex`. jsdom left focus on it; the browsers do not (measured: removing `tabindex` from
+  a focused element sends focus to `<body>`).
+- **The map-colour radios** sat in a `<fieldset disabled>` while saving. They stay enabled now,
+  as the radius slider does, with "Saving…" in the existing live status. The fieldset had also
+  kept saves from overlapping, so every choice now joins **one line of saves for the page**
+  (`utils/colourSaveQueue.js`), which `App` owns and hands to every opening of the dialog. The
+  line sends one save at a time, in the order chosen, and skips a choice a newer one has overtaken
+  when its turn comes, so the newest choice is always the last one written. It is the page's
+  rather than the dialog's because the dialog's saves outlive it: review found that a line per
+  opening let a closed dialog's waiting choice go out after a newer one made in the reopened
+  dialog, leaving the server and the map on the older scale. Every save that lands still reports
+  its scale to the page (`onColourSaved`), in the order the choices were made. A dialog opened
+  while a choice is still in the line opens on that choice and follows it ("Saving…", then the
+  error if it fails) until the reader chooses again. One whose read answers after a save has
+  landed shows the save, not the read's older scale. On the base, a reopen that overlapped a save
+  showed the scale that save had just replaced whenever the server took the read before the save
+  committed (driven that way in all three engines). The line ends with the page. Signing out
+  unmounts `App`, but a choice still waiting in the line used to go out anyway when its turn
+  came, under whichever token was stored by then. If another account had signed in meanwhile, the
+  signed-out reader's choice overwrote that account's colour (found by Codex on #859, reproduced
+  in a test). Once the line has ended, no waiting choice is sent, and a save already out reports
+  nothing to the next page's ramp.
+
+Each landing moves the reader only when focus has actually been orphaned (`<body>`, the document
+or the dialog's own root). A reader who has moved on is left alone: a Tab away during a save, or
+out of the dialog during a refresh.
+
+The text landings (the new home, the refresh's status line, "Last calculated" and the refresh
+error) draw an **outline**, not the buttons' `ring`, for two measured reasons. Forced-colours mode
+(Windows High Contrast) removes every `box-shadow`, so a ring left no focus indicator at all. And
+the ring's 2px offset stood 4px proud, exactly the gap between "Last calculated" and the Refresh
+button, so it sat on the button's edge. The two button landings, "Back to settings" and Refresh,
+keep their `.btn-*` ring, so in forced colours they still land with no indicator. That is true of
+every `.btn-*` in the app and is left to its own change. The tick line's shared focus rule gained a
+transparent inset outline for the same forced-colours reason, with ⌂'s inset a pixel further to
+clear its own 1px border. The outline paints nothing outside forced colours. Inside it the
+statement now shows focus (measured), and the nudge, the origin button, ⌕ and ⌂ take the same
+outline from the same rule (not separately measured).
+
+**Verified:**
+- **Tests.** 91 more tests than the base, across `useDialogFocus`, `Modal`, `MastheadTickLine`,
+  `UserSettingsModal`, `App`, `AppSettingsRoutes` and the new `colourSaveQueue`. The `App` tests
+  drive #842's real routes: a save from the Map-tab nudge, the dialog's read answering after the
+  close, a later opening from the cog, and colour choices across a close and a reopen. Two more
+  drive #858's covered routes where the covered dialog's opener can no longer take focus at the
+  close: from the nudge the reader lands on the nudge, and from the cog they are left on
+  `<body>`. #858's shell test that pinned the nudge's argument as a click event now pins it as
+  the tick line's resolver. The forced-colours outline rules are pinned by reading `index.css`,
+  since jsdom renders no CSS. That the landing runs in a layout effect, in the commit that removes
+  the pressed control, is pinned too: a page's own layout effect in that commit already sees the
+  landing.
+- **Mutation sweep.** 77 mutants against the final tree, all killed, each by the tests written for
+  it; the ones touching `App` were run again after rebasing onto #858. They cover the fallback's
+  consultation and its guards, the handoff and its StrictMode record, every landing and whether its
+  target can take focus, the busy buttons, the colour line's order, skipping, `pending` and
+  landings, the carried choice, `App`'s wiring, and the forced-colours rules. The
+  layout-to-passive mutant, which the first sweep could not kill, now fails the same-commit test.
+  One candidate was left out as equivalent: reporting the handler's own choice instead of the
+  scale the line passes back, which is the same value now that each choice has its own reporter.
+- **Real browsers.** A harness mounted the real components on development React under
+  `StrictMode`, with a faked settings API and the page's settings wiring as `App` has it
+  (including #842's reports). It was driven with real key events in Chromium 151, WebKit 26.5 and
+  Firefox 153, against main before this change (#858 changed none of the components it mounts) and
+  with it. Before, every landing left the reader on `<body>`, except "Back to settings" in WebKit,
+  which left them on the dialog root. With this change every landing reached its target in all
+  three engines. That covers both nudge orders, a colour choice waiting in a closed dialog behind a
+  newer one made after reopening, and a reopen whose read answered after a save had landed.
+- **Forced colours.** Chromium's forced-colours emulation measured no indicator before and an
+  outline after, for both the "Last calculated" landing and the statement.
+- **Not seen:** the app itself (sign-in required), any screen reader, and a real Windows High
+  Contrast theme. Not driven in a browser, and tested in jsdom only: #858's covered routes, a
+  fallback declined beneath a dialog still claiming `aria-modal`, a still-mounted caller clearing
+  its fallback on close, and the cog after the nudge. Busy buttons now keep focus at
+  `.btn-primary`'s 40% opacity: the ring then composites to about 3.3:1, computed, not measured.
+
+Not announced, and left to their own change: a lookup's result or error, a failed postcode save
+(which still shows no message), and a change a reader who has moved away from it misses. A polite
+status region shared by the dialog's three views is the likely shape.
+
+### Fixed — one record of your settings: the tick line's home and the map's come from one answer, and a saved home or colour shows as the save lands
+
+The reader's own settings reached the page through two reads of `GET /api/user/settings`: the Plan
+provider's, for the tick line's home and the Coming up latch, and `App`'s own (`loadHomeCoords`),
+for the map's HOME marker, reach rings and ⌂ control and for the colour ramp — each on mount and
+again on every close of the settings dialog, both unguarded. Either could fail or land out of order
+on its own, and the two split: the tick line on the new home beside a map on the old one, or one of
+them on none. `App`'s, landing late, could put the old home back on the map; the provider's could
+put a pre-save "Set a postcode" back on the tick line, or an older Coming up date back and the badge
+with it. Traced in the code; not seen in a browser.
+
+`App`'s `useReaderSettings` now holds one record of them. It reads once, on mount, and after that
+takes the settings dialog's own answers, never a read of its own:
+
+- **the dialog's read on opening** — so a home, or its drive times, changed elsewhere (on another
+  device, by the nightly drive-time job, or by a save whose response was lost) reaches the page when
+  the dialog opens. Closing it used to do that by re-reading everything, whether or not anything had
+  changed;
+- **a saved home's response**, named from the postcode lookup because the save itself does not
+  geocode — so the new home is on the tick line and the map the moment the save lands, with no
+  follow-up read to fail. The dialog now names it that way too, where it showed the bare postcode;
+- **a recalculation's new drive-time stamp**, and only the stamp, set on the home on record: the
+  server measures from the home it has stored, where the dialog's own copy of the home can be older
+  than a postcode save that landed under the recalculation's spinner;
+- **a saved colour's response** — so the ramp changes when the save lands. It used to wait for the
+  dialog to close, and a read that failed there left the old scale on every surface.
+
+**The newest answer asked wins, whichever lands last.** Each read is numbered as it is made — the
+page's own, and each opening of the dialog — and each save as it lands, since its answer is the
+server's state from then; an answer numbered below the newest one applied is dropped. The server
+geocodes the postcode on every read, so a read can be slow, and a dialog closed before its read
+answered still reports it. Without the order, that answer, landing after a save made in a later
+opening, would put the old home back on the tick line and the map while the light and reach, asked
+again of a server holding the new home, answered for it — or put the old ramp back on every surface.
+The same rule keeps the mount read from overwriting anything the dialog has said, and settles a
+StrictMode remount's two mount reads.
+
+The provider takes the tick line's home and the Coming up latch as props and reads no settings
+itself, so the tick line's home, the map's and the Plan tab's home dot come from one answer. (The
+tick line's light row names the home from `GET /api/user/settings/light`, which is asked again when
+the home changes, so for that round trip it can still name the old one.) The dialog's read fills the
+Coming up date only while it is unknown, which also closes the old race in which a settings read
+made before `Mark seen` landed brought an older date, and the badge, back. The two counters the
+reach fetch and the light key on move only when an answer changes the home or its drive times (a
+companion entry). The drive-time stamp is compared as an instant, not as a string: the server hands
+a recalculation's stamp back from its clock — nanoseconds on its Linux host — and stores it to the
+microsecond, so every later answer spells the same instant differently. A millisecond of slack
+covers the database rounding it into the next one; Chromium 151, WebKit 26.5 and Firefox 153 all
+read a six- or nine-digit fraction to the millisecond.
+
+**"Not known" stays apart from "no postcode", all the way to the map.** The home is `undefined`
+until the mount read answers, and after a failed one until the dialog does; `null` only when the
+server says no postcode is saved. The map's ⌂ control answers `null` with "Set your home postcode in
+Settings", so `WindowFirstMapPane` and `MapView` lose their `homeCoords = null` defaults, and the
+control renders nothing while the home is unknown and no origin is in force. It used to show the
+prompt to a reader who reached the Map tab before the settings answered, and after a read that
+failed, until the settings dialog was next closed or the page reloaded. Its empty Leaflet container
+keeps its box without painting it (`visibility: hidden`): its content is sized like the button, as a
+content box, inside the same 1px border, so the two boxes match wherever that border lands —
+including where WebKit snaps it to a device pixel at a fractional ratio. So the zoom bar above it
+stays put, and a press there reaches the map; the phone layout still hides the control outright.
+Measured on the built CSS in the same three engines at device-pixel ratios from 1 to 3 in quarter
+steps: the empty box the size of the filled one to a thousandth of a pixel in every case (WebKit
+drawing the border at 0.57 to 1px, and the empty box following it), the zoom bar not moving, a press
+at the empty box's centre landing on the map, and `display: none` at 390px. (Collapsed, the box
+would drop the zoom bar 50px and raise it again when the ⌂ came back, putting the ⌂ where "−" had
+just been.)
+
+Pinned in `useReaderSettings.test.jsx` — twenty-two tests on the record's rules, a pure reducer,
+among them a recalculation's own action and the stamp compared as an instant at three precisions. In
+`App.test.jsx`, twenty-three, through the hook's one consumer with the real dialog and the real
+provider: one read on mount, feeding one home to both the provider and the Map pane, named by its
+postcode when no place resolved; an unknown home handed down as unknown, never as "no postcode"; a
+saved postcode taken from its response and named from the lookup, with no read after it; a re-save,
+an opening on the same settings and a close asking for nothing; a recalculation asking for reach and
+not the light, keeping the coordinates object, and not taken for a move when a save lands under its
+spinner; one stamp read back at the database's precision not taken for a change; a remote change
+picked up on every opening of the dialog, a move in longitude alone included; a closed dialog's read
+dropped after a newer answer — a later opening's save, a save still out as it reopened, a colour save
+still out as it reopened, and a newer read; a saved colour reaching the ramp from its response; the
+mount read landing after the dialog's answer and changing nothing; a failed mount read leaving the
+home unknown and the ramp alone, and retried by opening the dialog; the Coming up date filled from
+the dialog only while unknown, and the tab's own write handed back; and a StrictMode remount's first
+read dropped. In `UserSettingsModal.test.jsx`, nineteen, on the dialog's four reports: its read
+started as it is asked and reported once it lands, and each save's report once, when its answer
+lands, carrying it — none for a close or a failed save. In `WindowFirstBriefingContext.test.jsx`,
+three on the provider's pass-through. For the ⌂, `MapViewCentreOnHome.test.jsx` stubs Leaflet as
+1.9.4 behaves — a container per corner, and a re-added bottom-corner control above the zoom bar —
+and `mapHomeControlCascade.test.jsx` resolves the kept box against the button's own rule, with
+Tailwind's preflight in force so that the override is weighed. Every late answer a negative names is
+settled by hand inside an awaited `act`, beside a control showing it landed.
+
+Eighty-seven mutants: eighty-four killed, each by the tests that name what it breaks, and none by a
+file that failed to load; three equivalent, named below.
+- **the record's rules (twenty-one)** — an answer with nothing on record not counting as a change;
+  the postcode, the latitude or the longitude left out of the comparison; the place name not carried
+  for the same home, carried to a moved one, or not taken on its own; the stamp never a change, or
+  not one from nothing; a new record for an identical answer; either counter set rather than
+  counted; the mount read moving the counters; stamps compared as strings, or without the
+  millisecond of slack; a recalculation moving its counter for the stamp on record, putting no stamp
+  on record, moving the home counter, inventing a home while nothing is on record, setting its
+  counter rather than counting it, or comparing its stamp as a string;
+- **the order and the hook (twenty-one)** — the order never refusing an answer, or never recording
+  one; the mount read not numbered; the dialog's read numbered as it lands; a saved home or colour
+  taking no place in the order; a dropped read still reaching the ramp, or the mount read's still
+  writing the date; the dialog's read overwriting a known last-seen date, not filling an unknown one,
+  or not reaching the ramp; a saved colour not reaching it; the defaulted flag stuck at false; no
+  postcode fallback for the place; an unknown home handed down as null; a failed mount read recorded
+  as no home, or reaching the ramp; the coordinates not memoised, or memoised without the longitude.
+  One is equivalent: a recalculation taking no place in the order, since no read can be out to lose
+  to it while the dialog cannot be closed under its spinner;
+- **the dialog (fifteen)** — its read unreported, or started as it lands; a saved home not named from
+  the lookup, or reported on the press; a recalculation unreported, reported without its stamp,
+  reported as the dialog's copy of the home, or reported on the press; a saved colour unreported,
+  reported as a home too, or reported on the click; a radius save reported; a postcode save reported
+  as a recalculation. Two are equivalent: the read started through the prop rather than its ref, or
+  the ref never kept current — the read is made once, at mount, when the two are the same function;
+- **the provider (seven)** — reach not keyed on the drive-time counter; its catch unguarded or
+  writing nothing; its answer unguarded; no cleanup; the home, or the latch setter, it is handed
+  dropped;
+- **`App` (nine)** — the light keyed on the drive-time counter; the provider not handed the
+  drive-time counter, the home or the latch setter; the pane handed null for an unknown home; each
+  of the dialog's four reports left unwired;
+- **the kept box (five)** — painted, collapsed, sized as a border box, wider than the button, or the
+  button resized alone;
+- **the ⌂ (nine)** — a `= null` default in the control, in `MapView` or in the pane; unknown ignoring
+  an origin; the button rendered while unknown; null treated as unknown; the control re-added when
+  the home becomes known; the control, or the zoom bar, in another corner.
+
+### Fixed — the Models screen's unmount-timer test no longer fails under load
+
+`ModelSelectionView.test.jsx`'s "cancels its pending dismiss timer when it unmounts" failed
+intermittently in full-suite runs on a heavily loaded machine — `expected 0 to be greater than 0` —
+and passed when its file ran alone. Test-only: the component is untouched.
+
+**The wait was satisfied before the thing it counted existed.** The test waited for the banner with
+`findByText`, which resolves on the commit that renders it, but the dismiss timer the next line
+counts is armed by a passive effect. Outside `act`, the commit a resolved request makes leaves its
+passive effects to a later scheduler task, and React always yields between the two, because every
+commit requests a paint. Testing Library resumes the test on a real `setTimeout(0)`, which races
+that next `setImmediate` slice: if Node's millisecond clock ticks over before the event loop comes
+back round — heavy load makes that likely — the timer wins and the test counts before the effect
+has armed anything. The test did wait for what the response renders, as `frontend-test-standards.md`
+asks; what it then counted is not rendered at all. The doc now says so (**And a commit is not its
+effects**), including that a `findBy*` on a frozen fake clock hangs rather than races.
+
+**The fix** puts the test on the fake clock and settles it with the file's own `pump()` — an awaited
+`act` — as its three sibling fake-clock banner tests already do. An awaited `act` keeps flushing
+until React's queue is empty, passive effects included, so the count no longer depends on which
+macrotask wins, and on a frozen clock the 3 s dismiss cannot fire before the unmount however slow
+the run. The original assertions are unchanged: a 3000 ms timer must be pending, and the unmount
+must clear the last one scheduled. One is added, which the frozen clock makes free: nothing may be
+left pending after the unmount (`vi.getTimerCount()` is zero). The dismiss is the only timer this
+tree arms, and a cleanup that cleared it but armed a replacement at any other delay passed the
+original test, because its `ms === 3000` filter cannot see one. The spies now wrap the fake clock's
+functions and come off *before* the clock is uninstalled — restored after it, they put the fake
+`setTimeout` back on the global (measured).
+
+**Proved before and after, under load.** The original and the fixed test bodies, each repeated in a
+scratch file and both run in the same Vitest invocation so they shared the load (16–24 busy-loop
+processes on 8 logical CPUs — 4 physical cores — at load averages of 42–223): the original failed
+41 of 2,700 repetitions, every one with `expected 0 to be greater than 0`; the fixed body failed 0
+of 2,700, the last 1,350 of them with the added count in place. With the race forced — a 2 ms spin
+right after Testing Library schedules its drain timer — the original failed 20 of 20.
+Mutation-checked against the component: deleting the effect's cleanup, or moving the timer back
+into the handler (the pre-#809 shape), fails the fixed test at its unmount assertion, as it failed
+the original; a component with no dismiss timer fails at the precondition; a cleanup that arms a
+2999 ms replacement fails only the new count, and passes the original; the idle null→null timer an
+earlier version over-rejected still passes; and a handler-armed timer with an unmount cleanup still
+passes here and fails the sibling "does not arm a dismiss timer when the request settles after it
+unmounts" test, whose job that is.
+
+### Fixed — the Map's "Couldn’t load" announcement waits for the reader to be looking at the page
+
+The status region #848 added to the Map tab announces "Couldn’t load — trying again" to a
+screen-reader user when the line appears. It has to be empty whenever the reader cannot perceive
+it, and fill — a change, which is what a live region announces — when they can. #848 gated it on the
+app's own tab panel; Codex's post-merge review found the layer above that, and this change's own
+review the one beside it. With the whole browser tab in the background, or with another app in front
+of a still-visible window (side by side, a second monitor), the Map panel keeps its box, so the pane
+still counted as on screen: a night's request that failed then filled the region while the screen
+reader was presenting something else, and the reader's return found it already full, announced to
+nobody. That return fires `focus` for the window case, not `visibilitychange`, so it could not even
+be noticed.
+
+- `WindowFirstMapPane` now counts itself on screen only while its panel is shown AND the page is in
+  front of the reader — the document visible and the window focused — and hands `MapView` the two
+  together as `paneVisible`. A failure while the reader is elsewhere leaves the region empty and
+  fills it on the return, which is announced.
+- The page's state is a `useSyncExternalStore` on `visibilitychange`, `focus` and `blur`, not a
+  value read at render plus a listener added afterwards: the pane is `lazy()` behind a Suspense
+  fallback whose commit React can hold back, and a change in that gap reached no listener. The store
+  reads the page again once it has subscribed. A map mounted with the reader elsewhere starts off
+  screen.
+
+The layers that can hide the region, listed rather than left for review to find one at a time: the
+callout (the region's first home, mounted by the selection — fixed in #848), the app's tab panel
+(#848), the document and the window's focus (here). Not addressed, and stated rather than implied:
+
+- **A modal dialog over the Map tab** — the four-day sheet opened as a peek from the callout, or
+  search, or settings, each `aria-modal="true"`, over a pane that is not `inert` behind them (O-20).
+  WebKit is understood to drop everything outside a visible `aria-modal` dialog from the
+  accessibility tree, so in Safari with VoiceOver a failure while the sheet is open would fill the
+  region out of the screen reader's reach, and closing the sheet would reveal it already full —
+  unverified here, and other engines may simply announce it over the sheet. Gating on it needs a
+  live "a modal is over the pane" signal, which the pane has no route to (its `sheetSpot`
+  plumbing is the residual its own docs already name). If O-20's shell-root `inert` is ever adopted
+  (`docs/engineering/o20-shell-inert-plan.md`), this becomes a hiding layer in every browser, and
+  will need that signal.
+- **A return that races its own early re-ask.** Coming back sends a waiting retry at once, in the
+  same moment the region fills, so the reader hears "Couldn’t load — trying again" while that
+  request is in flight; if it succeeds a moment later, the rating that replaces the line is not
+  announced — no rating is. The line is true when it is spoken (the last request failed and it is
+  being asked again), and holding it through a re-ask is #848's deliberate rule; delaying the
+  announcement until the re-ask settles would need timing this does not add.
+- **The browser's own chrome.** A trip to the address bar blurs the window, so a failure still on
+  screen is announced again on the way back. Accepted as the cost of the focus layer.
+
+Pinned by nine tests in `WindowFirstMapPane.test.jsx`, grouped as their own block: each layer alone —
+the panel (#848's test, moved here), the document, the window's focus — and each against the
+others, since one flag that every layer wrote to, the last write winning, passed every single-layer
+test (the panel hidden while the page comes and goes; the page away while the box changes); a mount
+with the reader elsewhere, both ways; the page read again after subscribing; and every listener
+removed with the arguments it was added with. Page state is faked through spies on jsdom's own
+getters, `visibilityState` and `hidden` together. Nine mutants were run one at a time against the
+new lines — each half of `paneVisible` and of the page test dropped, each subscription removed, one
+removal left out, and the first cut's read-once-then-listen shape in place of the store — and all
+nine are killed, each by the test written for it (the last by the re-read test alone), none by a
+timeout. Two lenses reviewed the first cut, runtime and test quality; every charge is fixed above or
+stated as a limit. `MapView` is unchanged but for its
+`statusLine` and `paneVisible` docs. Tested, not seen in a browser: the Map tab sits behind sign-in,
+and no screen reader was run.
+
+### Fixed — `MapCallout`'s one import was defeating the Map tab's `d3-geo` lazy boundaries
+
+`MapView.jsx`'s comment above its `lazy()` calls claimed the selection callout (`MapCallout.jsx`)
+"imports no `d3-geo`-carrying module" and so needed no lazy boundary of its own. That was false:
+`MapCallout.jsx` statically imported `verdictWord` from `utils/mapLabels.js`, and `mapLabels.js`
+is not a leaf — it statically imports `centroid` from `utils/heatField.js`, which statically
+imports `d3-geo` and `topojson-client`. "MapCallout only reads `verdictWord`, which never touches
+`centroid`" is true and irrelevant: a source-level `import` names a module, not the one export a
+caller happens to use, and Rollup's chunk-splitting did not cleanly separate the two.
+
+Measured on the pre-fix build, the eager `MapView` chunk's full transitive closure was 18 chunks /
+842,323 bytes raw. Two of those chunks were the `geo` chunk (`d3-geo` + `d3-array`, forced into
+its own chunk by `vite.config.js`'s `manualChunks`) and a second, Rollup-merged chunk holding
+`centroid`, the heat-field canvas kernel and topojson's feature decoder — `regionLabelItems`/
+`hottestRegion`, dead code on this path since `MapCallout` calls neither, were duplicated straight
+into the `MapView` chunk alongside `verdictWord`, and pulled that merged chunk in with them. Net
+effect: ~32.3 KB raw / ~12.75 KB gzip of `d3-geo`/topojson/heat-kernel code was loading eagerly
+for every Map tab open **and** every Plan-tab overlay mount (`WindowFirstMapPane.jsx`, which
+mounts `MapView` before a reader has chosen Heat or Pins, or opened the callout at all) — precisely
+the weight the `lazy()` boundaries around `MapHeatLayer`/`MapLabels`/`PinsLayer` exist to keep off
+that network path, for the two sessions (Pins-only, and the overlay) that never render any of them.
+
+Fixed by extracting `verdictWord` (and its two threshold constants) out of `mapLabels.js` into its
+own leaf module, `utils/verdictWord.js`, with nothing else in it for a future addition to
+accidentally import `heatField.js` next to. `MapCallout.jsx` now imports directly from there;
+`mapLabels.js` re-exports the same three bindings (pinned by a test) so `MapLabels.jsx`/
+`PinsLayer.jsx` need no import-path change. Verified two ways rather than reasoned:
+`MapCallout.jsx`'s full source-level transitive import closure (21 files) no longer reaches
+`mapLabels.js`, `heatField.js`, `d3-geo` or `topojson-client` at all — a structural absence of the
+edge, not Rollup tree-shaking one away — and the built `MapView` chunk's own transitive closure
+dropped to 17 chunks / 809,126 bytes raw, with neither the `geo` chunk nor any heat-field/topojson
+code present.
+
+`MapView.jsx`'s comment now names `MapCallout`'s real leaf-module imports (`utils/mapCallout.js`,
+`utils/verdictWord.js`, `utils/scoreRamp.js`, `utils/locationSheet.js`, `utils/locationTypes.js`,
+`utils/windowFirstSpots.js`) and records the measurement, so the next audit has the numbers rather
+than another one-hop claim to re-verify from scratch.
+
+### Changed — reach and the light are asked again when your home changes, and reach alone when its drive times do — not on every close of the settings dialog
+
+`App` moved `homeSettingsVersion` — the counter behind the Plan provider's reach fetch and the
+masthead's light — on every close of the settings dialog, saved or not, and re-read the reader's
+settings each time. With the reach fetch now dropping any request a newer move supersedes (the
+companion fetch-order fix), a move that is not a real change would throw away a correct answer: a
+reader who saved a postcode, then reopened and dismissed the dialog before the save's answer landed,
+would have had it dropped, and the pre-save state would have stood until the dismissal's own request
+answered — longest in Chrome, where requests to one URL queue behind each other. The adversarial
+review of the fetch-order fix found it.
+
+There are two counters now, and `App`'s record of the reader's settings (`useReaderSettings`, a
+companion entry) moves each only when an answer from the settings dialog changes what it counts:
+`homeSettingsVersion` when the home's postcode or coordinates differ from the record — the exact test
+the server's `originMoved` makes — and `driveTimesVersion` when the drive-time stamp names a
+different instant. Reach keys on both, the light on the first (which is also asked again when the UK
+day turns). So:
+
+- re-saving the same postcode moves neither; the close after it used to move the counter, saved or
+  not;
+- a recalculation asks for reach again, and not for the light, which it cannot change;
+- a close moves nothing;
+- a home, or its drive times, changed elsewhere moves them when the dialog's own read finds it (the
+  record entry).
+
+The price, taken knowingly: a close no longer retries a reach or light request that failed at page
+load; the next real change or a reload does. Opening the dialog retries them only when the page has
+no record of the settings at all — its own read then counts as a change.
+
+Pinned in `useReaderSettings.test.jsx`, among the tests on the record's rules: a re-saved postcode
+keeping the record object itself; the postcode, the latitude and the longitude each counting on
+their own; a new stamp moving only the drive-time counter, and the same instant at another precision
+moving nothing; and every change counting, not just the first. In `App.test.jsx`, through the real
+dialog and the real provider: a re-save asks for nothing, a recalculation asks for reach and not the
+light, and a close asks for nothing. In `UserSettingsModal.test.jsx`, each report arrives once, when
+its save lands, and not for a close, a radius save or a failed save.
+
+### Changed — a failed drive-time refetch empties the drive times rather than leaving the old home's standing
+
+When the Plan provider's `GET /api/user/settings/reach` failed after the reader's home or its drive
+times changed, it kept the figures from before: after a move, the old house's drive times and
+leave-by lines on every spot, beside a tick line naming the new home. The owner's decision
+(2026-09-15) is to empty them instead: unknown claims nothing, and the old figures claimed a drive
+and a leave-by time the reader no longer had. Traced in the code; not seen in a browser.
+
+The `.catch` now sets the empty map — the state of a reader with no postcode — and is guarded by the
+effect's cleanup like the answer, so a superseded request's failure cannot empty a map the newest
+request has filled, and one landing first cannot empty it while the newest is still out. It lasts
+until the next change to the home or its drive times, or a reload.
+
+What the empty map looks like: the strip loses its reach lines and the footer stops naming drive
+time; the map callout drops its drive and leave-by lines, and the ring labels fall back to miles. On
+the Map tab, "My area" widens to the whole catalogue and its scope row goes, the camera refits to it
+(in My area, with no region jump in force), and the window pill's verdict and the landing card answer
+for everywhere — the same state every move already gives until the drive times are recalculated,
+because a move clears the stored drive times. Now that re-saving the same postcode moves nothing (a
+companion entry), no save that changed nothing can end here.
+
+⚠️ **Not fixed here, and named so it reads as known:** the Map tab's drive filter hides a spot with no
+measured drive time, where the Plan tab's reach lens lets it through (`reachLens.js`), so a tier
+carried onto the map through a Plan→Map door shows none of the spots once the map is empty — "0 of N
+shown · carrying within 45 min". That predates this change — a PRO reader with a postcode and no
+drive times yet meets it already — and is filed separately.
+
+Pinned in `WindowFirstBriefingHomeSettingsFetchOrder.test.jsx`: the newest request failing empties an
+answer on screen, a superseded failure landing first leaves it, and one landing after the newest
+answer leaves that — each settled inside an awaited `act`, each beside a control showing the answer
+landed. Mutation-checked with the rest of the change (see the settings-record entry).
+
+### Fixed — two review findings against the aurora simulation-isolation fix
+
+Two P1 findings from an automated review, both confirmed real:
+
+**A simulated forecast run could delete a night's real results.** `AuroraForecastResultWriter
+.replaceNightResults` unconditionally called the unfiltered `deleteByForecastDateIn` before
+inserting, real run or simulated. An admin simulating a night that already had stored real,
+user-facing results would delete those real rows and replace them with simulated ones every
+read method excludes — the night would read as never forecast at all. The writer now takes an
+explicit `simulated` flag from the caller (an empty result list carries no signal of its own) and
+picks the delete accordingly: a real run still clears real and simulated rows alike (an earlier
+admin test run must not survive a real one), but a simulated run now calls a new,
+`simulated`-scoped delete that only ever touches rows an earlier simulated run left behind.
+
+**A lingering simulation could suppress a later real alert indefinitely.**
+`AuroraStateCache.evaluate()` — the real NOAA polling path — never touched `simulated`/
+`simulatedData`, only `activateSimulation()` and `reset()` did. If an admin activated a simulation
+and never explicitly cleared it, a real quiet reading would CLEAR the machine back to IDLE as
+normal, but leave the simulation flag standing; a later genuine alert would then reactivate the
+machine while `isSimulated()` still read `true`, silently suppressed by every gate this PR just
+added (hot topics, the best-bet prompt) until an admin manually reset or cleared the simulation.
+The CLEAR transition now clears the simulation fields too, since `evaluate()` is exclusively the
+real-data path — any real reading superseding an active state means an earlier simulation is
+stale, whatever produced it.
+
+### Fixed — an admin's aurora simulation reached signed-in users as a real alert
+
+`POST /api/aurora/admin/simulate` is documented as admin UI testing: it injects a fake Kp/storm
+reading into `AuroraStateCache` so an admin can preview the banner and run the Claude scoring
+pipeline against invented severe-weather data without waiting for a real geomagnetic storm. Nothing
+downstream of the cache checked `isSimulated()`, so the fake reading was indistinguishable from a
+real one everywhere else it was read:
+
+- **Hot topics.** `AuroraHotTopicStrategy.detectTonight` read `getCurrentLevel()`/`getLastTriggerKp()`
+  unconditionally, so a daytime STRONG simulation put "Aurora possible · Kp 7 forecast tonight" on
+  every signed-in user's Plan cards, lasting until dusk.
+- **The best-bet advisor's prompt.** `BriefingRollupBuilder` fed the same simulated level/Kp into the
+  Claude rollup JSON, and `BriefingAuroraSummaryBuilder.buildAuroraTonight` (which
+  `AuroraHotTopicStrategy` also reads, for the clear-location count and moon data) built a summary
+  from it the moment the state machine read ACTIVE — which `activateSimulation` always sets.
+- **Forecast-run persistence.** `POST /api/aurora/forecast/run`, while a simulation is active, makes
+  a real Claude call against real weather triage and the fake Kp/storm data, and persisted the
+  result identically to a real run. `AuroraForecastResultEntity` carried no simulation marker, so
+  `GET /api/aurora/forecast/results` served it to every PRO/ADMIN user on the map, until the run was
+  re-run or the results aged out — long after the admin cleared the simulation.
+
+All three now check `AuroraStateCache.isSimulated()` and refuse to surface anything while it is
+true. The third also gets a durable marker: `aurora_forecast_result.simulated` (V154), stamped from
+`isSimulated()` at write time. `AuroraForecastResultRepository`'s read methods
+(`findByForecastDateAndSimulatedFalse`, its location-fetching sibling, and
+`findDistinctForecastDatesExcludingSimulated`) all exclude `simulated = true` rows — for the map
+read path and for `TopicDailyLogJob`'s nightly AURORA presence log, which would otherwise have
+logged a false presence for a night nothing real was ever measured on. `deleteByForecastDateIn`
+stays unfiltered on purpose, so a real re-run of a night still clears out an earlier simulated test
+run for that same night. The admin who ran a simulated forecast still sees exactly what Claude
+scored, in the synchronous response `POST /api/aurora/forecast/run` already returns — nothing here
+removes that.
+
+All three gates are tested against a real `AuroraStateCache` driven through `activateSimulation()`,
+not a mocked `isSimulated()` answer, since `activateSimulation` always sets ACTIVE alongside the
+simulation flag and a mock could let the two disagree in a way production never can.
+
+### Fixed — a CLEAR landing mid-briefing no longer fails that cycle's best bet
+
+`BriefingRollupBuilder.buildRollupJson` checked whether an aurora alert was active and
+alert-worthy, made a DB call (`TravelDayService.isTravelDay`) to decide whether tonight is excluded
+as a travel day, and only then wrote the alert into the rollup — re-reading
+`AuroraStateCache.getCurrentLevel()` a second time inside `appendAuroraEvent`. The cache's getters
+are independent unlocked volatiles with no lock spanning the two reads, so a real alert clearing or
+an admin's reset landing during that DB round trip nulled the level in between: the second read
+threw a `NullPointerException`, which `BriefingBestBetAdvisor.advise` catches and reports as that
+cycle's best bet FAILED, in place of the mechanical headline fallback the class exists to guarantee.
+The two `getCurrentLevel()` calls inside the eligibility check itself are nanoseconds apart with
+nothing between them and were never the exploitable window — the DB read is.
+
+The alert level, trigger Kp, dark-sky count and clear count are now read once, before the
+travel-day check, and passed into `appendAuroraEvent` rather than it re-reading the cache. A CLEAR
+landing mid-check now either excludes the alert (when it lands before the snapshot) or writes it as
+the alert that was running when the decision to include it was made (when it lands after) — one
+coherent state either way, never a crash and never a level from one moment paired with counts from
+another.
+
+Pinned in a new `BriefingRollupBuilderAuroraSnapshotTest`, a plain unit test with a real
+`AuroraStateCache` whose CLEAR is made from inside the stubbed `isTravelDay` call — the same
+"transition inside the stub" technique `AuroraControllerStatusSnapshotTest` used for the sibling
+bug in `AuroraController.getStatus`. Against the old code the race test fails with exactly this
+`NullPointerException`; a second, non-racing test pins the ordinary case unchanged.
+
+### Fixed — a cleared aurora simulation could NPE a Kp preview or forecast run
+
+`AuroraForecastRunService.getPreview` and `.runForecast` each read
+`AuroraStateCache.isSimulated()`, then — separately — `getSimulatedData()`. Between the two reads,
+an admin clearing the simulation (`POST /api/aurora/admin/simulate/clear`) or a real geomagnetic
+event overriding it could null the data out from under a flag that had already read `true`, and the
+second read's `.kp()` (preview) or `buildSimulatedSpaceWeather(...)` (run) threw a
+`NullPointerException` on a still-true flag with no data behind it. Both call sites now read
+`getSimulatedData()` exactly once and derive "simulated" from `!= null`, reusing that one reference
+for everything downstream — closing the gap outright rather than narrowing it, since a single
+`volatile` field read of an immutable record can never observe a half-written state.
+
+Found while coordinating with a sibling branch fixing the same class of bug elsewhere in
+`AuroraStateCache`'s own callers (`fix/aurora-simulation-lifecycle`); this project's two call sites
+were pre-existing and outside that branch's scope.
+
+### Fixed — POST /api/aurora/forecast/run and GET /preview are ADMIN-only
+
+Both were gated `hasAnyRole('ADMIN', 'PRO_USER')`, the same class-level annotation that legitimately
+covers the two read endpoints on this controller (`/results`, `/results/available-dates` — the map's
+normal PRO read path). But `/run` spends real Claude API cost the same way every other forecast-run
+endpoint in this app does (all ADMIN-gated), `AuroraForecastRunService`'s own javadoc says it "runs
+on demand from the Admin UI", and the only frontend caller of either endpoint is
+`AuroraForecastModal`, mounted only inside the Operations tab, itself gated on `isAdmin` in
+`App.jsx`. A PRO_USER had no UI path to either endpoint, only a direct API call — the same shape as
+two previously-fixed gates on this project (`POST /api/locations`, `GET /api/forecast/history` and
+`/compare`): the code was more permissive than the product ever intended, with nothing depending on
+the gap. Both endpoints now carry `@PreAuthorize("hasRole('ADMIN')")`, overriding the class-level
+gate; `/results` and `/results/available-dates` are unchanged.
+
+### Added — a test for #814's stored-aurora late-failure guard, which shipped unpinned
+
+#814 gave the map's stored-aurora fetch a `cancelled` flag guarding both its `.then` and its
+`.catch`, but only the `.then` half had a test. The late-response test never reaches a `.catch`, so
+deleting that guard left `MapViewAuroraLiveNight.test.jsx` green, all eleven tests — measured before
+this change. Unguarded, a failure for a night the reader had already left cleared the results of the
+night on screen; off the night in progress, where no live score stands behind them, that left nothing
+rated for a night that had a stored run, until the next selection.
+
+A late-*failure* test now sits beside the late-response one: night A's request fails after night B's
+has answered, and B's marker must still be drawn. Mutation-checked: deleting the `.catch` guard fails
+only this test; deleting the `.then` guard fails only the existing late-response test; deleting
+`cancelled = true` from the cleanup fails both. The rejection settles inside an **awaited** `act` —
+measured: left un-awaited, this test passes with the guard deleted, because the unguarded clear is
+never committed before the marker count is read.
+
+Two things the adversarial review found in the file itself are fixed with it:
+
+- **The stored-results block has no live scores any more.** The file-level fixture rates the test
+  location 5★ live. That is withheld off the night in progress, but a marker count of one could not
+  tell B's stored 3 from a leaked live 5 — a double mutant that made every night read as live *and*
+  deleted the `.catch` guard survived the new test. It is killed now.
+- **The API mocks' call history is cleared per test.** Nothing cleared it, so #814's own
+  `toHaveBeenCalled()` waits, which stand as proof that a test's own fetch ran, were met by the first
+  test's call in every test after it.
+
+### Fixed — the masthead's light-times gap is 16px on desktop again, and a test holds every tier
+
+The plan-matrix prototype spaces the tick line's light times at 16px on desktop, 12px on iPad and
+9px on a phone. The base `.wf-tick-times` rule had drifted to 12px — the iPad value — so desktop was
+drawing iPad spacing. It is 16px again.
+
+⚠️ **That was not a one-line change, and the reason is the useful part.** The base rule is the one
+every width inherits unless overridden, and the iPad band had no rule of its own: it was right only
+by inheriting the drifted 12px. Raising the base to 16px alone would have silently taken every iPad
+up to the desktop gap. So the iPad block now states 12px explicitly, and the phone rule keeps its
+9px — which already matched the prototype exactly, text size and tracking included.
+
+**Measured in real headless Chromium against the compiled stylesheet:** 9px at 390px, 12px across
+the whole iPad band (640, 767, 834, 1023), 16px from 1024 up. And the wider desktop gap moves
+nothing else: with a deliberately long away label (`The Lake District · from Keswick`) the times
+stay on the origin's line at every width from 834 up, before and after, and the pre-existing wrap at
+390 and 640px is unchanged. ⚠️ The first same-line check compared the two groups' `top` edges and
+read "wrapped" at every width including 1280 with 460px to spare — under `align-items: center` two
+items of different heights on one line have different tops. It was replaced by a vertical-overlap
+test, which reports a wrap where there genuinely is one and none where there is not.
+
+**A cascade test now pins all three tiers** (`tickTimesGapCascade.test.jsx`). For each width it
+keeps only the rules whose media condition holds there, injects them in source order, and reads what
+the cascade resolves — both edges of every band, so a breakpoint moved by a pixel or an override
+that stops winning fails the case that names it. Mutation-tested three ways, each caught: deleting
+the iPad override (5 failures), the desktop base back at 12px (3), and **the iPad override moved
+ahead of the base in source order (4)** — the exact way this drifted. ⚠️ It reads `gap`, not
+`columnGap`: jsdom does not expand the `gap` shorthand, so a rule declaring `gap: 16px` reports
+`columnGap: 'normal'` — measured, and a test reading it would see `'normal'` at every tier.
+
+**Which prototype, stated.** Every design bundle carries a copy of the Plan-tab prototype (16/12/9),
+but the tabs' own pages — `Map Tab v2.html`, `Map Landing.html`, `Coming Up.html` — specify 15px,
+and the map pages an 8px phone gap. The masthead is one component on all four tabs
+(`map-tab-v2-plan.md`: "a per-tab state of `MastheadTickLine`, not a fork"), so one value serves
+every tab; 16px is the Plan tab's, 1px from the others' 15px where 12px was 3px away. An adversarial
+review caught the first draft's comment calling it simply "the prototype" — the unqualified-bundle
+claim this series has now made three times.
+
+This also closes what #821's iPad entry recorded as "the tick-times gap is right for iPad; the
+desktop drifted onto it", which is no longer true. Not seen in the populated masthead: it renders
+only behind sign-in, which carries a Cloudflare Turnstile challenge that was not worked around.
+
+### Docs — the Plan popup's desktop region rail keeps 128px, and the spec records why
+
+An audit flagged the desktop rail's 128px minimum as drift: the prototype's rule for a rail in the
+popup's side column is `.wside .rrail` at **112px**, and since the rail only ever renders there,
+that is the value the prototype shows. The README's 128px is the bare `.rrail` rule it loses to.
+
+Measured in real headless Chromium before anything was changed, loading the built stylesheet and
+building the popup's actual desktop chain:
+
+| | 128px (kept) | 112px (prototype) |
+|---|---|---|
+| with the field map | 3 × 143px | 3 × 143px — identical |
+| without it | 5 × 145px, meta on one line | 6 × 120px, **meta wraps on every card** |
+
+With the map — the only layout the prototype ever draws — the popup is capped at 780px, the rail is
+442px wide, and both minimums fit exactly three tracks, so the two render the same. Without it —
+the full-width rail shown while the heat catalogue loads or has failed, which the prototype never
+draws — 112px fits a sixth column and every card's `best 5★ · 10 in reach` breaks onto two lines,
+growing the cards from 63–76px to 90px. **The value has no visible effect where it was designed and
+a visible cost where it was not**, so 128px stays (owner decision, 2026-09-14).
+
+The rule now carries that reason in its own comment, so the next audit does not "fix" it back, and
+`docs/design/plan-matrix/README.md` records it beside the region-card spec. That line also said
+**iPad `150px`**, which has been wrong since #821 shipped 130px — the prototype's `.wside .rrail`
+again beating its bare rule — and is corrected here. With this the three tiers read, in both the
+spec and the code: 128px desktop (deliberate), 130px iPad, two up on phone.
+
+⚠️ This also corrects an earlier claim: the rail was described as matching the prototype "on iPad
+and phone only". Visually it already matched on desktop too — in the only layout the prototype
+draws, both values render 3 × 143px. The 128/112 difference was in the rule's text, not on screen.
+
+Documentation and a comment only; no rendered value changes.
+
+### Fixed — the Plan popup's region rail is two columns on every phone again
+
+The design's phone rail is two up, with the "All regions" cell on its own row. It rendered three or
+four columns on the wider phones. The phone rule, `.wf-rrail { grid-template-columns: 1fr 1fr }`,
+was 0,1,0 and never once won: the rail is only ever mounted inside the popup, where the unscoped
+`.wf-wsh .wf-rrail { repeat(auto-fit, minmax(128px, 1fr)) }` is 0,2,0 — so on a phone the desktop
+auto-fit decided the columns. The prototype had the matching rule all along
+(`.wrap.mob .wside .rrail`); the port kept only its unscoped twin.
+
+The fix writes `.wf-wsh .wf-rrail { 1fr 1fr }` into the popup's own phone block, after the desktop
+rule — equal specificity, later source order — and retires the dead line with a pointer, so it is
+not re-added at the specificity that cannot win.
+
+**Measured in real headless Chromium, inside the popup's actual chain** (the modal root the phone
+rule targets by `data-testid="window-sheet"`, `.wf-wsh-b`'s 12px padding, `.wf-wsh-side`), with the
+old rule re-imposed for the "before" column rather than computed:
+
+| phone width | 375 | 390 | 414 | 430 | 500 | 600 | 639 |
+|---|---|---|---|---|---|---|---|
+| rail width | 351 | 366 | 390 | 406 | 476 | 576 | 615 |
+| before | 2 | 2 | 2 | **3** | **3** | **4** | **4** |
+| after | 2 | 2 | 2 | 2 | 2 | 2 | 2 |
+
+iPad (640, 834) and desktop (1024) are identical before and after, and the rail's margins stay 0 at
+every width.
+
+⚠️ **This corrects the record in #821's entry**, which said the rail "renders 3 columns where the
+spec says 2" and — in its PR and commit — "3 columns at 390px". That was measured in a probe box
+forced to 398px wide. On a real 375–414px phone the broken rule happens to give two columns,
+because the rail is too narrow for a third 128px track; the defect only shows from 430px (an iPhone
+Pro Max) upward. The fix is the same; the reach was narrower than stated.
+
+**Deliberately NOT changed:** the phone block's two MARGIN rules beside it are dead too, and on
+purpose. `.wf-wsh .wf-rrail { margin: 0 }` and `.wf-wsh .wf-rlab { margin: 0 0 5px }` override them
+inside the dialog, where the body already owns the inset — reviving them would indent the rail
+twice. Only the columns were an accident, so only the columns moved.
+
+An adversarial review (read-only, one lens) refuted all six charges it was set: the rail has no
+renderer outside the popup, so the retired line was never live anywhere; the phone and iPad ranges
+meet without overlapping; the All cell still spans; no margin was revived; the arithmetic
+reproduces from the rail's 6px gap; and no test pins the old line. It also re-derived the table
+above independently.
+
+**Found in passing, and decided rather than fixed:** the desktop rail has the same README-versus-
+prototype split the iPad block settled — the prototype's rendered value is `.wside .rrail` at 112px,
+where the code has 128px. Measured before changing it, it is not a difference anyone can see in the
+layout the prototype draws, and 112px would break card text in the one it does not; the owner kept
+128px. See `20260914-plan-rail-desktop-128.md`.
+
+### Fixed — the drive times answer the newest request, not the last to land
+
+`WindowFirstBriefingProvider` asks `GET /api/user/settings/reach` on mount and again whenever the
+reader's home or its drive times change, and published whichever answer landed. With two requests
+out at once (the mount's and a change's, or two changes' — a move, then a recalculation — on a
+connection slow enough) the older one answers a question that has since changed, and it was
+published anyway: landing last, it stayed; landing first, it stood in until the newer one arrived.
+Drive times measured before the latest change came back on every spot — from the old house after a
+move, or, from before a first postcode was saved, no figures at all, so every reach line went absent
+again: the "setting appeared to do nothing" the refetch exists to cure. Traced in the code rather
+than seen in a browser.
+
+**Which engines — measured, not assumed.** A throwaway local server sent this path's real headers
+(Spring Security's default `no-store`, no ETag), held a first request, and a second, sent later by
+XHR with an `Authorization` header, went to the same URL. WebKit 26.5 and Firefox 153 sent both at
+once and the second overtook the first, so there the older answer can land last and stay. Chromium
+151 held the second request back until the first was answered, cold or warm — its HTTP cache lock,
+which the same probe also reproduced on an ETag'd path — but for 20 s at most: with the first held
+21, 25 or 30 s, the second went to the network 20 s after it was sent and landed first, and the
+older answer landed last there too. With the cache disabled through the DevTools protocol, Chrome
+sent both at once. So in Chrome the older answer lands first and stands in for a round trip when it
+answers within 20 s of the newer request, and can land last after that. Playwright's engines are
+not an iPhone, and the production service worker's effect on the lock was not probed.
+
+The effect now carries a cleanup — `let cancelled = false; … return () => { cancelled = true; }` —
+that drops the request a newer one supersedes, guarding its `.then` and its `.catch` (which writes:
+a failed refetch empties the map — a companion entry). It is the shape `useTodaysLight` already had,
+and the owner's call over a request-number guard, which suits a poll: a poll re-asks the same
+question, so an older answer landing on its own is still the freshest there is, where here the
+older request answers a question a change has made stale. The two rules part company in three places
+— a superseded answer landing first, one landing after the newest request failed, and a superseded
+failure landing first — and a request-number guard would let each through. Nothing is cleared when
+the refetch is asked: the previous answer stands until the newest replaces it.
+
+⚠️ **The cleanup is only right while every refetch follows a real change.** It did not: the review
+found the refetch keyed on a counter `App` moved on every close of the settings dialog, saved or not,
+so a close could supersede — and drop — a save's own correct answer. A companion entry moves the
+counters onto real changes alone. The provider also read `GET /api/user/settings` itself, on the same
+counter, for the tick line's home and the Coming up latch, with the same race, beside a second read
+of that endpoint in `App` for the map's home; both are now one record in `App` (a third companion
+entry), and the provider reads no settings of its own.
+
+Pinned in `WindowFirstBriefingHomeSettingsFetchOrder.test.jsx`: the real provider under a probe of
+the reach map, the API module mocked, the out-of-order answers held by hand, the home and drive-time
+counters moved through `rerender` as `App` moves them, and every late settle inside an awaited
+`act`. Ten tests: the two late answers — the mount's landing after a saved postcode's, and a move's
+after the recalculation's — one for each place the two rules part company, the newest failure
+emptying an answer on screen, a superseded failure landing after the newest answer, a recalculation
+asking again on its own counter, no request on a re-render that moves neither, and no settings read
+at all. The
+tests where the rules part company move house, Morpeth to Keswick, so the harm shows on screen — a
+first-run answer has only null figures, which every consumer draws as nothing. Mutation-checked with
+the rest of the change (see the settings-record entry).
+
+### Fixed — the Plan tab's briefing and ratings are applied in the order they were asked for, not the order they land
+
+`WindowFirstBriefingProvider` asks `GET /api/briefing` and `GET /api/briefing/evaluate/scores` on
+mount, on a 10-minute poll and on every window focus, and published whatever answered — so with two
+requests out at once (a poll and a focus, or two focuses) the answer that *landed* last won, not the
+one *asked* last. Two requests finish in whatever order their server work does, and the briefing's is
+real work (assembled at serve time: hot topics recomputed live, the cached ratings re-enriched), so the
+older one can land second; how often requests overlap and cross is not measured. Both ways it showed
+are traced in the code rather than seen in a browser:
+
+- **An older briefing** put the older windows back on every surface the provider feeds — a "Worth
+  it" the forecast had since withdrawn, or a "Poor" it had since lifted — until the next poll or
+  focus. And it was **written to the SWR cache**, so the next cold start painted it first.
+- **Older ratings** put the older rows back under the heat field and the map handoff: a re-scored
+  window back at its old rating, or a window the batch had just rated blank again — the same symptom,
+  "best spot 5★" over a blank thumbnail, that the provider's comment records from production for a
+  different cause (the ratings fetch once ran on mount only).
+
+Each fetch now numbers its requests and drops an answer older than the one already applied, and the
+briefing's check sits before its cache write, so a dropped briefing is never cached. The request's own
+number is what counts, not the briefing's `generatedAt`, which two serves of one build share while
+differing in content. It composes with the provider's two existing rules rather than replacing either:
+the cache generation is still taken *before* the await, so a briefing in flight across a logout is
+still refused by the sweep; and a null (204) is still ignored — which also means it moves nothing, so
+it cannot block an older real briefing that lands after it. An empty ratings response is treated the
+same way for the same reason: it withdraws no rows, so it blocks none.
+
+⚠️ **Two numberings, not one.** The two requests go out together on every refresh and land in either
+order; numbered as one, the ratings landing first would count as newer than the briefing asked for
+beside them, and that briefing would be dropped. Nor are the ratings ordered *through* the briefing —
+they are separate fetches, each ordered on its own. As for the NLC banner beside it, only an *applied*
+answer moves a mark, and to that answer's own number — not `useComingUpFeed`'s latest-issued-wins, and
+not the newest request made. The counters are refs, so the numbering spans StrictMode's two runs of the
+effect. The provider's comment also says why an effect-cleanup flag cannot do this job — every poll and
+focus request is made inside one run of the effect — and which of its fetches such a flag does fit.
+
+Pinned in a new `WindowFirstBriefingFetchOrder.test.jsx`: the real provider under a probe — it has no
+single natural consumer, so the probe prints the slices the ordering guards protect — with the API
+modules mocked, the real SWR cache, the out-of-order answers held by hand and every late settle inside
+an awaited `act`. Against the unfixed provider eight of its twenty tests fail (both directions for each
+fetch, the cache write, a same-build serve, and StrictMode's two runs for each), while the in-order,
+failed-newer, null-or-empty-newer, three-request, failed-refresh, logout and two-numberings tests pass,
+as they should. Twenty-six mutants: twenty-two killed, each by the tests that name what it breaks —
+among them the cache write moved above the check, the generation taken after the await, a null or
+empty answer moving the mark, the mark moved to the newest request made, ordering by `generatedAt`,
+one count shared by both fetches, counters held per run of the effect, and a `catch` that clears what
+is on screen. Four survive: `<=` for `<` in each guard, equivalent because request numbers are unique;
+and two that differ from the shipped refs only if the role-scoped cache key changed while the provider
+is mounted — counter objects rebuilt every render, and the ratings counters reset on each run of the
+effect — which cannot happen, since `AuthGate` renders the provider only while signed in and every
+change of role is a sign-in or a sign-out. With the settle helper's `await` removed, all twenty tests
+fail.
+
+The same provider's reach and settings fetches, keyed on `homeSettingsVersion`, have the other shape of
+this race: a newer request there follows a settings change, so the older one answers a superseded
+question. That wants the effect-cleanup kind of fix, not this one, and is a change of its own.
+
+### Fixed — the NLC sighting banner applies answers in the order they were asked for, not the order they land
+
+`useNlcSighting` asks `GET /api/nlc/sighting` on mount, on a 10-minute poll and on every window
+focus, and published whatever answered — so with two requests out at once (a poll and a focus, or two
+focuses) the answer that *landed* last won, not the one *asked* last. Two requests finish in whatever
+order their server work does, and a sighting request that finds the backend's NLCNET cache stale
+scrapes the page before it answers, so the older one can land second; how often requests overlap and
+cross is not measured. Three ways it showed, all traced in the code rather than seen in a browser:
+
+- **A report taken before it aged out, landing after the newer "nothing to show"**, put the banner
+  back up until the next poll or focus.
+- **The same late report, landing after a newer one the reader had dismissed**, put it back up too.
+  The dismissal is keyed by `reportedAt` so that a newer report re-shows the banner — and an older
+  report has a different key as well, so it read as one the reader had not seen.
+- **A "nothing to show" taken before a report arrived, landing after it**, took the banner down.
+
+Each request is now numbered, and an answer older than the one already applied is dropped. A failed
+fetch still writes nothing and leaves the banner as it was. A null — what the API module answers for a
+reader the banner is not for (401/403) — is an answer like any other here: applied, and it moves the
+mark, unlike the Plan briefing's 204. It is the same race as `AuroraStatusProvider`'s, the provider
+this hook is shaped after.
+
+⚠️ **Deliberately not `useComingUpFeed`'s shape**, where only the most recently *made* request may
+write: under that rule a failed newer request would have an older answer dropped too, leaving the
+banner older than it needs to be until the next poll. Here only an *applied* answer moves the mark,
+and to that answer's own number — not to the newest request made, or an older answer landing while two
+newer requests are out would drop the one in between. The two counters are refs rather than locals in
+the effect, so the numbering spans StrictMode's two runs of it — two sighting requests at once on
+every dev load.
+
+**Residual, accepted:** request order stands in for data order, and not perfectly. A newer request
+whose scrape fails fast answers from the backend's cache as it stood, so it can land first and drop an
+older request's slower, successful scrape until the next poll or focus. It needs a fast failure to race
+a slow success, and its cure is one scrape at a time on the backend, not a rule in this hook.
+
+Pinned in a new `useNlcSighting.test.jsx`: the real hook under its only consumer, the real
+`NlcSightingBanner`, with the API module mocked, the out-of-order answers held by hand and every late
+settle inside an awaited `act`. Against the unfixed hook five of its nine tests fail — a report after
+"nothing to show", a report after a dismissed newer one, "nothing to show" after a report, an older
+report after a newer null, and StrictMode's two runs — while the in-order, failed-newer, three-request
+and failed-refresh tests pass, as they should. Eleven mutants of the guard: ten killed, each by the
+tests that name what it breaks — deleting the check, deleting the mark, latest-issued-wins, moving the
+mark on a failure, when the request is made, or to the newest request made, counters as effect
+locals, the Plan briefing's null rule ported here, a null applied without moving the mark, and a
+`catch` that clears the banner — and one equivalent (`<=` for `<`: request numbers are unique). With
+the settle helper's `await` removed, all nine tests fail rather than letting a negative pass.
+
+### Fixed — the map says "Couldn’t load — trying again" once a night's own request has failed
+
+The gap the night-scores loading-state entry left open, and named: through a long outage the map
+went on saying "Loading…" between the ten-minute asks, when nothing was in flight. A failed astro or
+aurora night request is asked again (2s, 10s, a minute, then every ten minutes, and at once when the
+reader comes back to the page), and from its first failure the tab now says "Couldn’t load — trying
+again". "Loading…" claims a load under way; "trying again" claims only that the asking goes on — a
+retry waiting or one in flight — which is true for as long as the night is on screen, so the line
+does not flicker back to "Loading…" as each retry goes out.
+
+- **Where it shows.** The callout's null-rating headline on an astro or aurora night; and Heat
+  view's key slot on an astro night with nothing to draw, which said "This event is not scored yet"
+  — a claim about the forecast that a failed request is no evidence for — beside the callout's
+  failure line, the two contradicting each other on one screen. Both print one shared string.
+- **Whose failure, and for how long.** It belongs to the night on screen, for this visit: a failure
+  that arms a retry records it against that night, and leaving the night takes it back, so a
+  return reads "Loading…" while the fresh request goes, until that fails in turn. The first cut
+  kept it until the night's own next answer, which was false twice over: an answer that lands after
+  the reader has left is dropped like any late response, so a night whose last request loaded read
+  "Couldn’t load" on the return; and another night's failure overwrote it anyway. The record is
+  tagged with its night because a step renders the new night before the old one's cleanup runs, and
+  on a step React does not flush synchronously that frame is painted.
+- **What outranks it.** A rating — the night's answer, the window control's preview rows, the live
+  aurora state — shows as before; so does a night's answer still in hand through a failed refresh,
+  "Not scored yet" included, because a failure takes nothing away. The strip's cell for the window
+  on screen reads "…" for both still-to-come lines, never "—".
+- **Heard, not only seen.** A status region, mounted with the tab, announces the failure line
+  whenever it is on screen — in the callout or in the key slot — and nothing else, so stepping
+  between windows does not chatter. It sat in the callout at first, where the selection mounted it:
+  a night that failed before a place was picked arrived there already holding the sentence, and a
+  live region announces changes, not what it is mounted with — so in the commonest order a
+  screen-reader user heard nothing (Codex). For the same reason it speaks only while the Map pane is
+  on screen: the shell keeps the map mounted under a hidden tab panel, where it goes on retrying, and
+  a failure there filled the region outside the accessibility tree, to be revealed already full —
+  unannounced — on the return. Now it fills on the return instead (the pane reports the reveal from
+  the ResizeObserver it already had), and a failure on another tab is not read out on that tab.
+- **The card follows its headline.** The callout re-measures and re-places itself when its headline
+  changes in place — a night's answer landing, or its request failing — not only on a new window or
+  selection. The failure line (≈207px) can never share the verdict row with the kind chip, so it
+  always adds a line, ≈24px, and a card placed above its point grew down over the ring and the dot,
+  or one clamped to the band's floor into the chrome below, until an unrelated pan or zoom.
+  "Loading…" → "Not scored yet" could already do the same.
+- **Enlarged text wraps.** The unscored headline lines may now wrap (the rated pill still may not).
+  Under text enlarged on its own — a minimum font size, or Zoom Text Only — the unwrappable line
+  overran the phone card's 220px row from about 111% and was clipped.
+- The words are the ones asked for, set with the typographic apostrophe the Map tab's other copy
+  uses. Also corrects a `MapView` comment that still said `useEffectEvent` cannot work in a memo
+  component: react-dom 19.3.0 (#832) swaps an Effect Event in for memo and forwardRef fibers too.
+
+Not addressed, and stated rather than implied:
+
+- While an astro night's FIRST request is in flight with no preview rows to draw, Heat view's key
+  slot still says "This event is not scored yet" beside the callout's "Loading…" — the
+  loading-state entry's limit, unchanged: holding it back needs a third, loading state for the
+  colour key.
+- A sunrise or sunset whose scores fetch fails still reads "Loading…" until the briefing's next poll
+  answers: that fetch exposes no failure (its `.catch` keeps what is on screen), so there is nothing
+  to say one with. Giving it one is a change to the briefing context.
+- The frozen Plan-tab overlay asks once and never again, so it has nothing to be "trying"; it
+  renders no callout, and its popups are unchanged.
+- The widths above are reasoned from the stylesheet (IBM Plex Mono at 11.5px, a 0.6em advance) and
+  not measured in a browser: the Map tab sits behind sign-in.
+
+Pinned by twenty-six new tests in `MapViewNightScoresLoading.test.jsx` (78 → 104), through a real
+`MapView` and the real callout, every shared rule run for astro and for aurora: the line walked
+through the backoff into the ten-minute beat on fake timers; the status region, including the order
+Codex found; and the three rules that live only in the frame before a cleanup runs — whose night the
+record speaks for, a left night's late failure, and a night's record on a sunrise or sunset — read
+commit by commit through a `React.Profiler`, since `act` has run the cleanup by the time it returns.
+Nine more in `MapCallout.test.jsx` (64 → 73), the precedence and the re-measure among them; three in
+`MapViewHeat.test.jsx` for the key slot; two in a new `mapCalloutVerdictWrap.test.js` for the
+stylesheet. Four existing assertions that read "Loading…" straight after a failure now read the new
+line. Seventy-four mutants were run one at a time: every new rule; the four gaps a reviewer found by
+reasoning — a record keyed to `date`, the live aurora night, drawn rows hiding a failure — which
+survived the first cut and are killed now; the 27 older mutants on code this touched; the status
+region's six, run after it moved out of the callout; and six more on the pane's visibility, run
+after that (the other 62 ran before either move, which touched neither their code nor the tests that
+kill them). Seventy-three are killed, each by the test written for it and none by a timeout. The
+survivor keeps a repeating
+failure's record the same object; without it each failed retry re-renders the map once more, which
+nothing on screen shows. Three read-only review lenses ran on the first cut — runtime, test quality,
+and copy, accessibility and docs — and every charge is fixed above or answered: a copy lens asked for
+other words ("will retry", or naming what failed), and the ones asked for stand, with the claims
+made about them now exact. Tested, not seen in a browser: the Map tab sits behind sign-in.
+
+### Fixed — the map callout says "Loading…" while a night's own scores load, never "Not scored yet"
+
+The follow-up the astro night-fetch race fix named, for its own path and for the same gap #814
+left on the aurora side. Those fixes drew nothing for a night on every night step until its own
+request answered, so one night's stars could no longer stand in for another's — and for that round
+trip the callout said "Not scored yet" in the definitive voice. A null rating reads "Loading…" only
+while the flag it is handed is false, and it was handed `scoresKnown`, the SOLAR scores fetch's
+flag, true on every night step once the solar scores had landed. It could sit directly above a strip
+cell already showing that night's star, because the strip reads the window control's preview.
+
+- **A night-aware flag.** `MapView` derives `ratingKnown` beside the rating accessor: the solar flag
+  for a sunrise or sunset and, for a night, whether that night's own request has answered —
+  `nightDate`, never `date`, since the two part company whenever the window control keeps a night
+  row local. A night's answer is set by a successful response and by nothing else: not by a preview
+  row, and not by a failure, which is not evidence that nothing was rated.
+- **The preview's rows in the meantime, derived at render.** Each night kind now holds its last
+  answer tagged with the night it answers for, and every reader draws `nightScoresFor`: that answer
+  when it names the night on screen, otherwise the window control's preview rows for that night,
+  otherwise nothing. So the pins, the labels, the counts, the astro field and the callout keep
+  drawing a night through its round trip; a preview that lands after the step, or after the night's
+  own request has failed, fills it in; stepping back to a night whose answer is still held shows it
+  at once while the request goes out again; and no frame is left in which the old night's rows
+  answer for the new one. The preview is never a dependency of the fetch, so its arrival re-renders
+  the night and never re-requests it. A failed request writes nothing: it is asked again instead
+  (below).
+- **The strip.** A night cell asks whether its own night's preview has answered
+  (`pendingNightRowIds`, built from the same list of nights the preview fetches), never the solar
+  flag. The note there claimed that flag could only err towards "…"; with the solar scores in and a
+  preview in flight, the cell printed "—". The cell for the window on screen now restates the
+  headline, so the card cannot print two answers for one place and one window. Strip cells also
+  carry `data-ev-id`, as the window control's rows do.
+- **The preview's own failures.** Each run is merged into what the preview already had: a night
+  whose request fails keeps its earlier rows, and one that never answered stays out of the map rather
+  than posing as `[]`, the endpoint's own "nothing is rated".
+- **A failed night request is asked again** (`askNightUntilAnswered`, which both single-night
+  fetches share): 2s, 10s and a minute after the first three failures, then every ten minutes — the
+  same interval as the briefing's poll, though on its own timer — until it answers or the night
+  changes, including while the Map tab is hidden (its pane is never unmounted); and at once,
+  whenever a retry is waiting and the reader comes back to the page (window focus, or the tab
+  becoming visible), the way `createEventSource` reconnects. The retry timer is armed after an
+  await, which is safe here only because the effect's cleanup stops it first or clears it after —
+  `SchedulerView`'s timer fix, #818, records the version of that timer that leaked (the hole #809
+  closed in `ModelSelectionView`). The frozen Plan-tab overlay still asks once, as it always has.
+
+⚠️ **Not `useEffectEvent`, which was the first cut.** In react-dom 19.2.8 an Effect Event's
+implementation is swapped in during the commit only for a plain function-component fiber, and
+`React.memo(MapView)` renders as a simple-memo fiber, so the event kept its mount-time closure and
+never saw a preview at all. The tests caught it; the derived shape needs neither it nor the ref that
+briefly replaced it.
+
+Not addressed, and stated rather than implied:
+
+- While a night with no preview rows waits on its own request — in flight, or failed and waiting to
+  be asked again — Heat view's "This event is not scored yet" (astro only) sits beside the callout's
+  "Loading…", because that line reads the empty field; holding it back needs a third, loading state
+  for the colour key it toggles against.
+- Through a long outage the callout keeps saying "Loading…" between the ten-minute asks, when
+  nothing is in flight. A failure wording of its own ("couldn't load — trying again") would say what
+  is true; it is a product decision, and not made here.
+- A night the preview never asks about — outside its solar horizon, which includes every past night
+  and, after midnight, the night still in progress — reads "—" in the strip unless it is the window
+  on screen. Nothing is loading for it, so "…" would be the false claim, but "—" still claims more
+  than anything here knows.
+- The window control's own `N★ best` and the Regions jump list read "—" for a night whose preview is
+  still in flight, or has failed with no earlier rows to keep, where the strip now reads "…".
+- On the aurora night in progress, while the live-state fetch itself is in flight, a place the
+  stored run did not rate reads "Not scored yet" a moment early: the flag asks the stored request
+  alone.
+- The frozen Plan-tab overlay fetches no preview, so a night there still draws nothing through its
+  round trip, and its popups meanwhile still say "No astro conditions data for this date" or "Not
+  suitable for aurora photography" — unchanged.
+
+Pinned by `MapViewNightScoresLoading.test.jsx` — 78 tests through a real `MapView` and the real
+callout, every shared rule run for astro and for aurora off one table, the retry walked on fake
+timers to the millisecond — and by fifteen new or rewritten cases in `MapCallout.test.jsx`, which
+goes from 55 tests to 64. Fifty-three mutants were run one at a time — the derivation's three rules
+and its night key, the late-answer guard and the failure path, the retry's arming, stop and
+schedule (a cap, and a failure count outliving its night, among them), the early re-ask on return
+and its listeners, both overlay gates, the fetch-dependency rule, every arm of `ratingKnown` (a
+`date`-for-`nightDate` swap and a live-state shortcut among them), the pending set's scope, the
+preview's merge and failure handling, the nameless-row guard and the callout's six rules — and all
+fifty-three are killed. Six adversarial review lenses ran on the first cut, and three more on the
+retry; their charges are fixed here or stated above, and the pull request lists the rest. Tested,
+not seen in a browser: the Map tab sits behind sign-in.
+
+### Fixed — the Map tab's hover tooltip answers for the window on screen, not the one it opened on
+
+Hovering a label chip (Heat view) or a pin (Pins view) opens a tooltip whose second line pairs the
+window's name with that place's star — *Saturday night · 3★ Maybe*. The hover handler stored a
+**snapshot** of the spot object, while the window's name was read live from props. Rest the pointer
+on a chip and step the window with the keyboard, and the tooltip read *Sunday night · 3★ Maybe* —
+Saturday's star, and Saturday's tide line, under Sunday's name — until the pointer moved: a chip
+that stays mounted under a still pointer gets no `mouseleave`. When the chip unmounted instead (its
+location leaving the pool while a night's scores load), the tooltip hung over nothing and outlived
+the new answer landing, because a removed node gets no `mouseleave` either. Pre-existing, and the
+same for solar and night windows.
+
+Both layers now store only the hovered **name** and resolve it on every render against the live
+pool, so the card reads the same figures as the chip or pin beneath it. A hover whose place has gone
+is forgotten, not merely hidden, so the place's return cannot reopen a card at a pointer position
+the reader may since have left; when the pointer really is still there, the browser's own
+`mouseenter` reopens it.
+
+**The label layer needed one condition more than the pool.** `chipCandidates` ranks the zoom budget
+by rating, so a window step — or a wheel zoom-out over a chip, since `disableClickPropagation` stops
+clicks but not the wheel — can unmount a chip whose location never left `spots`. Checked against
+the pool alone, that tooltip stayed up over nothing, carrying the new window's figures. `MapLabels`
+therefore also requires the name's chip to be one it mounts (`frame.chips`). `PinsLayer` needs no
+such rule: every spot is a pin.
+
+**Sixteen tests**, each hovering once and then firing no mouse event at all — that silence is the
+scenario. Twelve fail against `main`. Ten print the reported defect verbatim
+(`Sunday night · 5★ Worth it`); the tide test prints Saturday's tide line under Sunday's name, and
+the zoom-out test a card still standing over a chip that is gone:
+
+- the star following a step, in both layers
+- no star when the new window has none, or stood the place down
+- the tide line following a step
+- closing when the location leaves the pool, and not reopening when it returns, in both layers
+- closing when a window step or a zoom-out drops the chip from the budget, and not reopening when a
+  step back returns it
+
+The other four pin what `main` already did right and the fix could have broken: the card survives a
+repaint, and a fresh pool that keeps its place (found by name, not object identity), in both layers.
+
+**Mutated four ways, all killed.** Restoring the snapshot fails the twelve. Resolving against the
+pool alone fails exactly the three budget tests. Hiding without forgetting fails exactly the three
+no-reopen tests. Forgetting only when the place leaves the pool — merely hiding a chip the budget
+dropped — fails exactly the budget no-reopen test, which review added after finding that this
+mutant passed everything else.
+
+**Browser behaviour was measured rather than assumed** (headless Playwright: Chromium 151, WebKit
+26.5, Firefox 153; pointer held still; frames rendering). A node *removed* under the pointer gets no
+`mouseleave` in any of them, which is why unmounting is the case this change handles itself. A chip
+that stays mounted and is hidden or moved by the placer gets one within ~30 ms in Chromium and
+~240 ms at worst in the other two, closing its card through the ordinary path. A node appearing under
+the pointer gets `mouseenter` in all three. ⚠️ An idle page renders no frame, and there Chromium and
+Firefox hold those events until the pointer moves. The first draft of this change measured that way
+and recorded a Chromium "residual" that review showed a live page does not have.
+
+**The astro half was fixed separately.** Review found that on a step from one astro night to the
+next, `MapView` kept the previous night's scores until the new night's request landed, so the chips,
+pins and field went stale together — not a tooltip defect, but one the card would faithfully repeat.
+#822 fixed it in `MapView` while this was in review. With both in place, a step between astro nights
+shows the new night's figures or none at all, and the card follows the chip beneath it.
+
+**Tested, not seen.** No in-app browser check was made: the local app sits behind a sign-in, and a
+local database with no evaluation run has no stars to step between.
+
+### Fixed — keyboard focus survives a row leaving the Map tab's open window menu or callout strip
+
+The Map tab's window menu and the selection callout's *Every event here* strip both draw the event
+list, which is rebuilt against the clock: yesterday's filler solar rows leave at UK midnight, and since
+D-14 last night's rows leave at dawn (at UK midnight for LITE). A row removed that way took keyboard
+focus with it. Focus fell to `<body>` with the menu or strip still open, and Escape and ←/→ — handled
+on the control's own wrapper — stopped reaching anything until the reader found the control again. The
+drilldown already had a recovery for the same shape; these two lists had none.
+
+A new `useRowFocusRescue` hook hands that focus to the control that stays mounted: the window pill
+for the menu, the strip's toggle for the strip. It acts only on the transition a removal causes —
+the row that last took focus has gone and focus is now on `<body>` — and never on `<body>` focus
+alone, which is ordinary on these surfaces (a click on text that cannot take focus, a WebKit button
+click) and would otherwise steal focus on an unrelated render. Focus moving to a real element, a
+press elsewhere in the list, or the list closing all end its record of the row, and it stands down
+behind a dialog from outside the map pane, as the drilldown's recovery does.
+
+**Eight new tests**, six on the menu and two on the strip, each firing its follow-up key at
+`document.activeElement` — a key fired at the control passes while focus is lost. Seven mutants, each
+killed: no focus move, a blur or a press that never ends the record, no closed-list gate, a
+state-triggered version, and either list left unwired. Closing a menu from inside it still drops focus
+as it always has; that is a separate residual this does not reach into. Not seen in a browser.
+
+### Fixed — the Map tab's window list no longer carries every past astro and aurora night
+
+The Map tab's window control built a night row for every date the astro and aurora available-date
+endpoints returned. Both endpoints are a `SELECT DISTINCT forecastDate` over tables that nothing
+prunes, so they answer with every night ever stored, and the list opened on that history. Each past
+night appeared under a bare weekday — *Thursday night* beside a *THU 13* heading, with no month to
+tell April from next week — read "—" because the preview fetch never covered it, and could be walked
+into with the `‹` stepper. The selection callout's *Every event here* strip carried a cell for each
+one too. Solar rows were never affected: the briefing withdraws an elapsed window, and D-13's filler
+rows were already clipped to the UK today.
+
+A night row is now offered only while its night is not over: tonight and later, plus the night in
+progress, which between UK midnight and dawn is still yesterday's date. The night in progress comes
+from the backend's `currentNightDate`. The status provider keeps the last status when a later fetch
+fails, so a status can outlive its night — Codex found the case that matters, a status taken before
+dawn naming yesterday's night all day. So `GET /api/aurora/status` now also sends
+`currentNightEndsAt`, the instant that night ends, from the same read of the backend's clock as the
+date, and `resolveAuroraNight` believes the date only until then. The provider re-renders the page
+once that instant has passed, because while the polls fail the status never changes and the
+memoised map would not ask again. It looks at the wall clock at least once a minute, so a device
+asleep at dawn catches up within a minute of waking. A status without the field is still believed
+only as yesterday. `mapDates.isNightOver` is now the one answer to "is this night over", read by the
+list, by `App`'s `resolveMapDate`, and by a new `mapEvents.isForwardableRow`, which decides which
+picked rows the pane hands to `App`: exactly the ones `App` will take. That moved one behaviour. The
+night in progress used to be kept in the pane when it was picked after UK midnight, so it stayed on
+screen past dawn, while the same night picked before midnight was moved on by `App`'s clamp at dawn.
+It is now handed over like any other night, and every night ends at dawn the same way. The
+past-dated rows the list keeps are in the preview fetch as well, so they show a best and a time.
+Recorded as owner decision D-14 in `map-tab-v2-plan.md` §5. The comments that called the unclipped
+list deliberate had been describing the code; no decision existed.
+
+**One exception: the night the map is already showing** keeps its row after it ends, until the map
+leaves it, so the pill never reads *No forecast* over stars still painted for that night (#803's
+shape). For a night `App` holds it is only a bridge — one render at dawn, or until `App`'s next render
+after UK midnight for LITE, about 30 seconds while its health stream is connected. It lasts longer
+only for a night the pane kept local, and picking that one again keeps it local, since `App` would
+refuse it.
+
+**Two costs, both accepted by the owner.** LITE cannot read aurora status, so for LITE yesterday's
+astro night now drops off at UK midnight rather than dawn: a LITE reader can no longer reach the
+night still running over them, which the old list offered. The exit, a night-in-progress signal LITE
+can read, is §6 O-21. And astro rows are written only by hand-started colour runs, so on a day past the
+last run's horizon the tab offers no astro row at all; a scheduled producer is §6 O-22.
+
+**63 new frontend tests and nine backend cases**, counting each `it.each` row: eight for
+`isNightOver` and `resolveMapDate`'s stale-status case, four for `resolveAuroraNight`'s end,
+twenty-nine in `mapEvents.test.js` — including agreement checks that drive the list and
+`isForwardableRow` against `resolveMapDate` from one set of inputs, over every kind of row the list
+can build — sixteen in `MapViewPastNights.test.jsx`, which moves the map's date through a parent
+running the real `resolveMapDate` so the dawn cases go through the real clamp, one new #803 case in
+`MapViewAuroraNight.test.jsx`, which computes `App`'s refusal in the test rather than asserting it
+in a comment, three in `AuroraStatusContext.test.jsx` — every poll failing across the end of a
+night, a device asleep through it, and a night ending between the render and the provider's first
+look — and two in `App.test.jsx` that take the real `App` and provider past a night's end. The
+backend cases pin that the end is the instant `currentNightDate` moves on and the dawn of the
+night's own window, with dawn moving by the day, and that the controller reads the night before its
+NOAA calls. Thirty-nine mutants of this change, each killed on the final code: dropping the clip,
+ignoring the night in progress or believing a stale one, ignoring the night's end or misjudging it
+at the boundary, a provider that never looks at a status's end, looks without re-rendering, trusts
+one long timer, re-renders before the end or skips an end that already looks past, `App` reading the
+night without its end or once per status, an end or a window taken from the wrong morning, a
+controller that reads the date and its end with two calls, after its NOAA calls, or drops the end,
+dropping the on-screen exception or widening it to a range or to either kind, keying it on the
+parent's date, reverting the forwarding rule to the calendar or letting it forward any night, an
+off-by-one boundary, and each way of leaving a past row out of the preview, among them.
+
+**Eight existing frontend tests failed against the change, each because it used a past night as a
+convenient fixture**, and each is re-anchored rather than loosened. Three are #829's, in
+`MapViewNightScoresLoading.test.jsx`, each run for astro and aurora: they named a past night as the
+one the preview never asks about, and now name a night beyond the forecast's dates — the case D-14
+leaves — still failing if the headline restatement, the pending set's preview check or the
+night-date split is removed. In `MapViewAuroraNight.test.jsx` the kept-local pair now uses a night
+beyond the forecast dates, the stepper-ticks case uses tonight — which brackets its aurora row with a
+solar window on both sides for the first time — and the #803 case is split in two: the night in
+progress is now forwarded (`App` takes it), and an ended night picked again is kept local (`App`
+refuses it). `MapViewSelectionOrdering`'s strip-switch case ran a fixed January date against the real
+clock, and now pins it. `MapViewAstro.test.jsx` read the wall clock on the runner's UTC calendar:
+measured in the hour after UK midnight under BST, three of its nine tests already failed there and
+this change made it four, so it now pins its clock too. One backend test changed with the API:
+`AuroraControllerTest`'s status case stubbed `currentNightDate()`, which the controller no longer
+calls, and now stubs `currentNight()` and checks the date and its end. Not seen in a browser;
+covered by tests only.
+
+### Docs — the frontend test standards say how to pin a late response
+
+`docs/engineering/frontend-test-standards.md` gains a section, "A late response is only 'dropped'
+once it has landed", recording five rules that four fetch-race test files on the map each learned
+from a test that passed, or would have passed, with the behaviour it names broken: settle hand-held
+requests inside an **awaited** `act`; route a positive control through the same settle helper; give a
+`.catch` its own late-failure test; count markers rather than `markerLabelAndColour` calls; and, where
+the claim is "never offered", log every render rather than reading only `result.current`.
+
+The first had lived only in test-file comments and changelog entries — nowhere a new test author is
+sent. ⚠️ **It was also stated wrongly.** The astro fix's own entry (#822) and its test's comment
+blamed a "synchronous `act`", and so did this branch's first drafts; the variable that matters is
+the `await`. Measured with each file's guard deleted: an un-awaited `act(() => …)` let the late test
+pass in all four files, and an un-awaited async callback did too where that was tried, while
+`await act(() => …)` — a plain callback, awaited — failed it in each of the three files where it was
+tried. The astro test's comment is corrected here; #822's own entry file is another change's, and
+`changelog.d/README.md` has those left as written.
+
+### Fixed — a briefing build or a tide refresh can no longer run twice at once
+
+Neither job had a guard of its own, and the scheduler's `wrapTarget` has none either. The batch
+submissions and the cloud-verification backfill already refuse an overlapping run; these two now do
+as well.
+
+**The tide refresh** could be started by three routes at once:
+
+- the Monday `tide_refresh` schedule;
+- the Scheduler screen's Run Now;
+- the Job Runs screen's "Refresh Tide Data", which answers 202 immediately, so it could be pressed
+  again straight away.
+
+Two refreshes that reached a location before either had committed it both paid WorldTides for the
+same window. Each then deleted and re-inserted that window in its own transaction under
+`uq_tide_extreme (location_id, event_time)`. The slower one's inserts could collide with the rows
+the faster one had written, and its run logged a failure for a location that had in fact been
+refreshed.
+
+**The briefing** could be built by the batch pipeline's BRIEFING phase and the admin
+`POST /api/briefing/run` at once. Two builds each fetch the whole roster's weather and each pay for
+the gloss and best-bet Claude calls. Both then race to write the in-memory cache, the last-known-good
+copy and `daily_briefing_cache`, where the last writer wins — and the last writer can be the build
+that started first and read older evaluations.
+
+**The two guards differ, on purpose.**
+
+- **Tide:** one `AtomicBoolean` in `ScheduledForecastService`, shared by every route. The admin
+  route now takes the guard on the request thread, *before* handing the refresh to the executor,
+  and the task releases it when it ends. So there is no accepted-but-not-started gap in which a
+  second press could also be accepted. A lock could not do this, because a lock is owned by the
+  thread that took it. A refused admin press gets **409**. A refused schedule fire or Run Now is
+  logged and skipped.
+- **Briefing:** a `ReentrantLock` in `BriefingService` with two entry points.
+  - `refreshBriefingIfIdle()` refuses when a build is running. The admin endpoint uses it, and
+    answers **409**. So does the dormant `daily_briefing` scheduler target.
+  - `refreshBriefing()` **waits** for the running build and then runs its own. This is the
+    pipeline's entry point, and it must not refuse. Its build is the first to see its own cycle's
+    batch results, and `PipelineOrchestrator` persists this cycle's picks from the cache straight
+    afterwards. Had it refused, it would have persisted whichever build the cache held — possibly
+    one that read the evaluations from before this cycle's batches landed.
+  - ⚠️ **The wait is not short.** It lasts as long as the running build, and the gloss and best-bet
+    Claude calls run under the Anthropic SDK's per-request timeout and retries, not the 30-second
+    REST read timeout. So in the worst case a BRIEFING phase now takes two builds' time rather than
+    one. It logs when it starts waiting, so a phase queued behind an admin build does not read as a
+    hung one.
+  - A `ReentrantLock` rather than `synchronized`, because a held monitor pins a virtual thread on
+    Java 21.
+
+The Job Runs screen now shows a 409 as "… is already in progress. Wait for it to complete.",
+matching the batch buttons' existing wording, instead of "… failed. Check the logs." There is
+nothing in the logs to check.
+
+**Two corrections to the entry below**, *a double-click on the Scheduler's Run Now queues one run,
+not two*:
+
+- It says the daily briefing and the tide refresh have no guard, "so one double-click ran them
+  twice". For the briefing it could not have. V103 deleted the `daily_briefing` scheduler row, so
+  the Scheduler screen has no Run Now for the briefing; the briefing is built at the tail of each
+  pipeline cycle. The tide half stands.
+- Its "giving the briefing and the tide refresh the same guard is an owner decision, and it is not
+  built here" is superseded: this entry builds it.
+
+**Still open.**
+
+- The Scheduler's Run Now still shows "Triggered ✓" for a tide refresh the guard then skips,
+  because `triggerNow` queues the run before the guard is consulted.
+- `wrapTarget` records a skipped fire as the job's last run.
+- The tide guard covers the roster-wide refresh only. It does not cover the 12-month backfill, or
+  the single-location fetch `LocationService` makes when a coastal location is added or edited. A
+  refresh that picks up a location in the moment between its save and that fetch can still collide
+  with it.
+- An admin tide refresh that throws outside its per-location loop is still not logged, because the
+  `CompletableFuture` is discarded. This predates the change; the scheduler route does log.
+- The guards are per JVM. Production runs one.
+
+**Tests.** 16 new backend tests and 4 frontend ones.
+
+- **Tide:** the guard is an `AtomicBoolean`, owned by no thread, so its tests stay single-threaded:
+  an executor that queues without running, and a re-entrant call from inside a running refresh.
+  Each refusal is followed by a second probe, so a refusal that released the guard it never took
+  is caught.
+- **Briefing:** the lock is owned by the thread that holds it and is re-entrant, so its tests hold a
+  build open on a real second thread, with every wait bounded. The build is held through *each*
+  entry point in turn, so an admin entry that only looked at the lock is caught too. The "a throwing
+  build releases the lock" test retries on another thread for the same reason: on the thread whose
+  build threw, a missing unlock would go unnoticed.
+- **Frontend:** each 409 test is paired with the sharpest input that must NOT read as "in
+  progress" — an adjacent 400, and a network error with no response.
+
+**Mutated 22 ways, all killed.** Four of them survived the first cut and were found by review.
+
+- **Tide guard, seven:**
+  - unguarded scheduler target;
+  - unguarded admin route;
+  - admin task never releases;
+  - rejected executor never releases;
+  - release only on success;
+  - a skip that releases the guard it never took;
+  - an admin refusal that does the same.
+- **Briefing lock, five:**
+  - the pipeline entry refusing instead of waiting;
+  - the pipeline entry unlocked;
+  - the admin entry unlocked;
+  - the admin entry checking `isLocked()` without taking the lock;
+  - unlock only on success.
+- **Callers, four:**
+  - the dormant scheduler target taking the waiting entry point;
+  - the briefing endpoint taking the waiting entry point;
+  - the briefing endpoint building twice per press;
+  - the tide endpoint ignoring the refusal.
+- **Frontend, six:** each 409 branch dropped; each made to swallow every error; a dropped optional
+  chain; any 4xx read as a 409.
+
+**Tested, not seen.** No browser check was made. The Job Runs screen is behind the admin sign-in.
+
+### Fixed — the aurora viewline offers only the line it was fetched as
+
+`useAuroraViewline` — behind the map's aurora boundary and the aurora banner's "visible as far south
+as" line — fetches one of two different lines: the live OVATION nowcast, polled every five minutes, or
+the forecast line, a lookup the backend builds from the Kp the alert was triggered on. Nothing tied
+the line on hand to what it had been fetched as:
+
+- **a late live response replaced the forecast line** — a live request still out when the alert
+  turned forecast-triggered could land after the forecast line, and the forecast mode, which asked
+  once and never again, never put it back;
+- **a stale window** — nothing withheld the previous line on a trigger change or when a later alert
+  began, so it was offered as the new one's until its first request landed, and kept for good if that
+  request failed in forecast mode;
+- **a changed Kp** — an escalation inside a forecast-triggered alert re-sets the Kp the forecast line
+  is built from (`AuroraController.getForecastViewline` reads `lastTriggerKp`, which the status serves
+  as `forecastKp`) without moving `enabled` or the mode, so nothing re-asked, and the pre-escalation
+  line stood for the rest of the alert beneath an overlay label quoting the new Kp. ⚠️ The adversarial
+  review found this one — five of its six lenses, independently — after the first cut of this change
+  had claimed the class closed while keying on `enabled` and the mode alone.
+
+Each answer is now held with the key it was fetched as — the live line, or the forecast line for one
+Kp — and handed out only while that key is still in force, so a trigger flip or a changed Kp withholds
+the old line in the very render that makes the change, not a commit later after an effect. `MapView`
+now passes the status's `forecastKp`. A `cancelled` flag set in the cleanup drops any answer from a
+superseded run. And the held line is cleared whenever the hook is disabled, because a later alert may
+want the very same key and must start with no line rather than the ended alert's; the banner, which
+always asks for the live line, gains exactly that — it no longer repeats the previous alert's summary
+until the new alert's first answer lands.
+
+⚠️ **The forecast mode now retries a failed fetch.** It used to ask exactly once. Now that a change
+withholds the line it had, one failed request would otherwise leave the map with no line for the rest
+of the alert, so it re-asks on the five-minute cadence until an answer lands, then stops, since the
+line changes only with its Kp. A failed live poll still keeps the previous poll's line — only ever the
+same key's.
+
+⚠️ **`null` and `'realtime'` are one key.** Both mean the live line, whose endpoint reads no trigger
+state, so a flip between them neither withholds the line nor re-asks for it (it used to refetch,
+invisibly). The live line ignores the forecast Kp for the same reason.
+
+Pinned in `useAuroraViewline.test.js`, which now logs every render as well as reading
+`result.current`: `rerender` flushes effects inside `act`, so `result.current` cannot see a line handed
+out by the render that made a change, before any effect ran. The review showed that blind spot was
+real — clearing on the way *in* rather than on the way out left every test green while the first
+re-enabled render handed out the ended alert's line — and the new-alert test now fails on it. Against
+`main`'s hook, seven of the new and changed tests fail, each at the assertion that names its defect;
+the other two pass there by construction (`main` never took the Kp, and already had the `enabled`
+derivation). Every part was then mutated alone and killed by the tests aimed at it: the key match (the
+mode-change, failed-fetch and Kp tests), the Kp in the forecast key, the Kp kept out of the live key,
+the mode keying, the disable clear and its mirror image, the `enabled` derivation (the strengthened
+disable test), the write guard and `cancelled = true` (the late-answer test), and the retry, both
+ways. A new test in `MapViewViewline.test.jsx` pins what `MapView` hands the hook, which no consumer
+test did — each mocks the hook and ignores its arguments — and it fails against `main`'s wiring. ⚠️
+**Measured here as on the map:** with the guard deleted, an un-awaited `act(() => settle())` lets the
+late-answer test pass, and the same callback awaited fails it.
+
+**Residual — an owner call, not an oversight:** the banner asks for the live line even during a
+forecast-triggered alert, so it can quote the live nowcast's extent beside a "Kp 7 forecast" headline
+while the map draws the forecast line. Pre-existing — the banner has never taken the trigger — and
+possibly intended as a nowcast.
+
+### Fixed — an aurora status response no longer straddles its own NOAA calls
+
+`GET /api/aurora/status` read the alert level — and whether the machine was simulated, to choose its
+branch — before its live NOAA calls, and `active`, the scored, dark-sky and clear counts,
+`detectedAt`, the trigger and its Kp, and the simulated flag again after them. Those calls can wait
+on NOAA for as long as a cache refresh takes (the solar-wind cache lasts only a minute, and
+refreshing it is two HTTP requests), and the polling job can move the state machine meanwhile, so a
+single response could answer for two states at once:
+
+- across a **CLEAR**, `MODERATE` with `active: false`, no counts and no detection time — a level the
+  banner shows an alert for, beside a flag the map's aurora availability had already dropped;
+- across a **NOTIFY** and the trigger recorded after it, `QUIET` with `active: true`, a detection
+  time, a trigger and a `G1` storm scale;
+- across an admin's **simulation**, the live readings marked `simulated: true`, active and carrying
+  the simulation's forecast trigger, with no storm scale.
+
+Every state-machine field is now read once, up front, before the NOAA calls. The frontend fix beside
+this entry orders whole responses; this one makes each response agree with itself, which no ordering
+on the client can. The two also compose: a response's state-machine fields now describe the moment
+its request arrived, so the order the client applies answers in — the order they were asked — is
+also the order of the states they describe, for requests that reach the controller in the order they
+were sent. Nothing guarantees that last part (the JWT filter's user lookup, the proxy hops and the
+401 refresh-and-retry can each swap two requests), but a swap is normally milliseconds wide, against
+the NOAA round trips the ordering exists for; and in Chromium, whose HTTP cache held a second request
+to this URL back until the first was answered (measured — see the frontend entry), overlapping
+requests did not reach it together at all. The live NOAA readings and `currentNightDate` are still
+taken as the request finishes: the readings are whatever that request's own fetches returned, and
+moving the clock-derived night date up front was weighed and left — across dawn it changes which of
+two overlapping answers carries the newer night, not what a reader ends up seeing.
+
+⚠️ **Narrowed, not closed — and one part cannot be closed here.** Two residuals, stated so that
+neither is read as fixed:
+
+- **The orchestrator writes one NOTIFY in several steps, with I/O between them.** On the forecast
+  lookahead, `AuroraOrchestrator` moves the level and the flag, then fetches from NOAA, then records
+  the trigger; the counts land after an Open-Meteo triage and the scores after a Claude call. (The
+  real-time path records the trigger straight after the NOTIFY.) CLEAR never resets the trigger, so
+  for that whole fetch the machine itself holds the new level beside the previous alert's trigger and
+  storm scale — and this endpoint now serves exactly that, faithfully, from one read. Only the
+  orchestrator handing over level and trigger together would close it; a snapshot inside
+  `AuroraStateCache` would not.
+- **The fields are separate volatiles, read one after another.** A writer part-way through its writes
+  can still be caught between two of the reads: during an admin simulation, the simulated level and
+  trigger beside `simulated: false`, or `simulated: true` with no data yet — a 500 the client ignores,
+  unchanged from before. The window is a few adjacent field writes rather than NOAA round trips;
+  closing it needs the reads to be atomic with a writer's writes — one published snapshot, a lock or
+  a version check.
+
+A trade-off, named rather than hidden: the trigger is now read up to one NOAA wait earlier, so
+`GET /api/aurora/viewline/forecast` — which reads the trigger Kp again, on its own request — can
+disagree with the status for that much longer. A trigger write in the gap draws the new Kp's line
+under the old Kp's label, or a forecast line after a flip to a real-time trigger, until the next
+status poll or focus. Cosmetic and brief; passing the Kp to that endpoint would close it, but would
+change an API contract, so it is not done here.
+
+Pinned in a new `AuroraControllerStatusSnapshotTest`, a plain unit test with a real
+`AuroraStateCache` whose transitions — a CLEAR, a NOTIFY with its trigger, a simulation — are made
+from inside the first NOAA stub, `fetchKp`, mid-request. Against the old controller all three fail.
+Twelve mutants: eleven each moving one read back after the NOAA calls, and one reading the trigger
+Kp between two of the calls — all killed. The adversarial review found that last one alive in the
+first version, which moved the machine only during the last NOAA call; and one of the eleven (the
+simulated flag read late by the storm-scale guard) died only once the simulation test was given a
+live Kp.
+
+### Fixed — the aurora status on screen never steps back to an older answer
+
+`AuroraStatusProvider` asks `GET /api/aurora/status` on mount, on a 5-minute poll and on every window
+focus, and published whatever answered — so with two requests out at once (a poll and a focus, or
+two focuses) the answer that *landed* last won, not the one *asked* last. Nothing in the app kept
+them in order: each status request can wait on up to three live NOAA fetches of its own (four HTTP
+requests — solar wind is two), which the backend caches separately for 1, 5 and 15 minutes and does
+not share with a request already in flight. Two directions, both traced in the code rather than seen
+in a browser:
+
+- **A status from before an alert ended, landing after the all-clear**, put the banner back up and
+  switched the viewline back on — `GET /api/aurora/viewline` does not check the alert state, and the
+  map draws the line wherever it is still in aurora mode — until the next poll or focus. The
+  live-scores refetch it also set off came back empty, because the backend empties its scores on
+  CLEAR.
+- **A status from before an alert began, landing after the alert**, took the banner down mid-alert,
+  cleared the map's live scores and, on a Map tab showing aurora with no stored aurora run to keep
+  the mode available, bounced it to Sunset, clearing the saved rating floor as it went.
+
+**Which browsers it reaches was measured, and Chrome is not one of them.** A throwaway server set
+this endpoint's caching headers (a body-derived ETag, `Cache-Control: private, no-cache`) and held
+the first of two requests sent 50 ms apart, with an `Authorization` header as axios sends one.
+Chromium's HTTP cache kept the second request back until the first was answered — for the whole
+1.5 s hold — so on Chrome and Edge the two arrived, and landed, in order. WebKit and Firefox sent
+both at once, and in both the second overtook the first. WebKit here is Playwright's, not an iPhone;
+how long Chromium would hold a request back, and how often two overlap in real use, were not
+measured.
+
+Each request is now numbered, and an answer older than the one already applied is dropped. A failed
+fetch still writes nothing and leaves the status on screen. A 401 or 403, which `getAuroraStatus`
+answers as null, is an answer like any other: it applies, and it outranks anything asked before it.
+This closes the residual #827's entry named for this provider — statuses published out of order,
+"one level up" from the live-scores fetch that change fixed.
+
+⚠️ **Deliberately not `useComingUpFeed`'s shape**, where only the most recently *made* request may
+write — and that shape is right there, for a reason to check before copying either one. Its requests
+can ask different questions (two overlap only across a date roll, so the older one asks for
+yesterday's feed and its answer is wrong, not merely older). Every status request asks the same
+question, so an older answer is only older, and dropping it while a newer request is out would leave
+the status older than it needs to be if that request then failed. Here only an *applied* answer
+moves the mark, so a failed request blocks nothing — pinned by its own test. Both rules rest on the
+effect having no dependencies and the catch writing nothing, and the provider's comment says so: an
+effect keyed on anything would need a per-run cancel as well, because its cleanup cancels nothing.
+
+The two counters are refs rather than locals in the effect, because StrictMode runs the effect twice
+on mount in development — two status requests at once on every dev load — and the numbering has to
+span both runs. Also pinned.
+
+Pinned in a new `AuroraStatusContext.test.jsx`: the real provider, with the real `AuroraBanner` — and
+its real viewline hook — as the consumer, the API module mocked, the out-of-order answers held by hand
+and every late settle inside an awaited `act`. Against the unfixed provider the five ordering tests
+fail (an alert after an all-clear, an all-clear after an alert, an alert after a "no access" answer,
+two stale answers after the newest, and StrictMode's two runs), while the in-order, failed-newer and
+failed-refresh tests pass, as they should. Twelve mutants of the guard: eleven killed, each by the
+test that names what it breaks, and one equivalent (`<=` for `<` — request numbers are unique, so the
+two never differ). With the settle helper's `await` removed, every test in the file fails rather than
+letting a negative pass.
+
+⚠️ **Two adversarial reviews of the first version found three holes in that file, all real.** With no
+test holding more than two requests out, a mutant setting the mark to the newest request *made*
+instead of the landed answer's own number passed every test, and so did one where a dropped answer
+lowered the mark to its own number — which lets the second of two stale answers back in, the very
+defect this fixes, one answer late. A third mutant, ignoring null answers, passed every file that
+reaches the real provider, because nothing resolved one. There are now three-request tests landing
+in order and newest-first, and one ordering a "no access" answer; each fails under its mutant. The
+reviews also found that a request no test expected was answered `undefined` — which the provider
+*applies*, taking the banner down, the very state several negatives assert. It is now refused, and
+a refused request writes nothing.
+
+Also corrects two comments #827 left behind, in `MapView.jsx` and `MapViewAuroraLiveFetch.test.jsx`,
+which still said the provider publishes whatever answers. The `cancelled` guard they explain stays:
+both races it stops are between locations requests, which no order of statuses prevents.
+
+⚠️ **Not fixed here, and named so it reads as known:** `useNlcSighting` has the identical race — it
+names `useAuroraStatus` as its model, though it already differed in cadence and in being a hook per
+consumer rather than a shared provider — and `WindowFirstBriefingContext`'s briefing and scores
+fetches have the same shape, where an older briefing landing last is also written to the SWR cache.
+Both are being fixed separately.
+
+### Fixed — an aurora simulation ends at the next real reading, instead of outliving the alert it faked
+
+An admin's aurora simulation (`POST /api/aurora/admin/simulate`) outlived the alert it faked. The
+state machine held it in two fields, `simulated` and `simulatedData`, and only `activateSimulation`
+and `reset()` wrote them. The CLEAR branch of `evaluate` reset the level, the state, `activeSince`,
+the scores and the counts, and left the simulation where it was. So when the admin did not press
+Clear:
+
+1. The first night-time real-time poll read a quiet sky and CLEARed. The banner went away, so the
+   simulation looked finished. The flag stayed set.
+2. From then on `GET /api/aurora/status` took its simulated branch. It never called NOAA, and it
+   served the simulation's frozen Kp, OVATION, Bz and G-scale.
+3. When a real alert later NOTIFYed, every Pro user's banner said "(SIMULATED)", with the
+   simulation's G-scale — and its Kp, until the new alert recorded a trigger of its own. It skipped
+   the all-overcast gate, and it offered "Generate scores →", a hash write that does nothing. The
+   admin forecast preview and runs used the fake data too.
+4. While the simulation was still ACTIVE, a real alert at or below its level was SUPPRESSed. It was
+   measured against the fake storm, and never scored.
+
+The javadocs claimed the opposite. `AuroraStateCache` said the polling job "will override this state
+once a real geomagnetic event is detected", and `AuroraAdminController` said much the same.
+
+**What a simulation does now.** The next real reading the machine evaluates ends it.
+
+- A quiet reading CLEARs it, as it would any alert.
+- An alert reading is a new alert at the real level, answered as it would be from IDLE: it starts
+  clean, with no previous level and nothing of the simulation, and it is scored. A simulated alert
+  was never a real one, so there is nothing to suppress a real alert against or escalate it from.
+- After dark the real-time path evaluates a reading on every poll, whether or not NOAA answers — its
+  client fails open, to its cache or to an empty reading, which derives QUIET. So a night-time
+  simulation lasts until the next poll: five minutes at most by default. On a quiet night it already
+  vanished from the banner in that time; now the flag goes with it.
+- By day only the forecast lookahead evaluates, and only when tonight's forecast reaches the alert
+  threshold. So a daytime simulation still lasts until dusk unless a real alert arrives first.
+- With `aurora.enabled=false` or the `aurora_polling` job paused, nothing evaluates, and a
+  simulation lasts until it is cleared, as before.
+
+The admin Job Runs screen's "🧪 Simulated" button now goes back to "🧪 Simulate" once a real reading
+has ended a simulation, at the screen's next status fetch. The forecast modal's simulated badges
+follow from its next opening.
+
+**Clear clears only a simulation.** `POST /api/aurora/admin/simulate/clear` used to reset the
+machine whatever it held. The admin screen polls its status, so it can go on showing a simulation
+for minutes after a real reading has ended it. If that reading was an alert, a Clear pressed there
+wiped the real alert, scores and all, for every Pro user until the next poll paid to score it again.
+The stuck flag used to put a real alert under that button indefinitely, so the exposure was worse
+before. Now Clear ends a simulation only if one is running, and otherwise answers 200 saying nothing
+was cleared. The modal still shows its own "Simulation cleared." either way.
+
+**Every transition writes a whole state.** CLEAR, `reset()` and a simulation ended by a real reading
+return every field to the value a fresh machine starts with. The start of a new alert or a simulation
+writes every field too. All of them go through one private `become(…)`. Each route used to write only
+the fields its author remembered, which is how CLEAR came to leave the simulation behind. Three
+consequences reach beyond the simulation. The first two bring the code into line with its own
+javadoc:
+
+- **A CLEAR drops the trigger type and Kp.** `getLastTriggerType()` and `getLastTriggerKp()` have
+  always said "`null` when IDLE", and no CLEAR ever made them so. A simulation plants a trigger — a
+  forecast trigger, with its fake Kp — and a forecast-lookahead NOTIFY records its own trigger only
+  after a further NOAA fetch. For that fetch the leftover trigger stood in: the simulation's, or the
+  last real event's, in the new alert's banner Kp and G-scale, its forecast viewline, the aurora hot
+  topic and the briefing. Nothing shows the trigger while the machine is idle. The status still
+  serves it, but the banner and the viewline wait for an alert level, and the hot topic and the
+  briefing wait for the level or `active`.
+- **A simulation keeps nothing of what it replaces** — a real alert or another simulation — its
+  scores and counts included. The clear count's javadoc already said it is `null` "during
+  simulation".
+- **A new alert starts clean**, so a scoring that landed after the previous alert ended no longer
+  carries into it.
+
+**A simulation cleared mid-request no longer throws.** `AuroraController.getStatus` read
+`isSimulated()` and then `getSimulatedData()`, as two separate volatile reads. `activateSimulation`
+wrote the flag before the data, and `reset()` cleared the flag before the data. So a request could
+find the flag set and no data in two ways: its two reads fell between an activation's two writes,
+or a Clear's two writes fell between its two reads. Either way it hit a `NullPointerException` at
+`simData.kp()`, served as a 500. `AuroraForecastRunService.getPreview` and `runForecast` read the
+pair the same way.
+
+- The simulation is now one reference. Its presence is the flag.
+- `isSimulated()` is gone, so the pairing cannot be written again.
+- Each reader reads the simulation once.
+
+The status also reads it **first**, before the level, and `become` writes it on the side that serves
+such a reader: a new simulation is set before the level, an ending one cleared after it. So a
+request that finds no simulation cannot then find a simulated level that is only now ending and serve
+it as a real alert. That torn read would otherwise have been new with this change, on every CLEAR
+after a simulation. A switch from one simulation to another never shows none.
+
+**The thread-safety javadoc was wrong.** It said the machine was written "from a single background
+thread", and that `evaluate` needed no guard because "only the polling job calls it". In fact the
+machine is written from four places:
+
+- the scheduler's threads — a scheduled poll and a Scheduler Run Now can overlap;
+- the admin `run` endpoint, which calls the orchestrator's real-time path, `evaluate` included;
+- the admin `simulate`, `simulate/clear` and `reset` endpoints, on request threads;
+- the batch result path (`AuroraResultHandler`).
+
+Every write now holds one `ReentrantLock` for the whole of its transition. It is a lock rather than
+`synchronized` because the request threads are virtual, and a held monitor pins a virtual thread on
+Java 21. This change needs the lock. A CLEAR now writes the simulation, so a simulation starting while
+a CLEAR ran could have kept the simulated level and lost the simulation: a fake alert served as a real
+one, by day until dusk. It also closes an older race: two evaluations at once — a poll and an admin
+`run`, or a scheduled poll and a Run Now — could both find the machine IDLE, both NOTIFY, and pay for
+scoring twice.
+
+A SpotBugs exclusion for the class gave the same single-writer reason. It is deleted: SpotBugs'
+inconsistent-synchronisation detector skips volatile fields, and every field here is volatile or
+final, so it never matched anything.
+
+**Reconciled with #849**, which landed on `main` first and rewrote the polling paths around this
+same class while this branch was in review. Neither fix changed the other's reason for existing —
+#849 stops one poll evaluating the machine twice in a night; this stops a simulation outliving the
+alert it faked — but both touch `evaluate`, so landing second meant merging behaviour, not just text:
+
+- **#849 added `wouldNotify`/`wouldClear`**, a peek a poll asks before fetching the data a scoring
+  needs, backed by static `notifies`/`clears` predicates shared with `evaluate`. The takeover this
+  fix adds had to become part of that shared logic, or a poll's peek could disagree with what
+  `evaluate` decided a moment later. `notifies` now takes a third argument, whether a simulation is
+  running, and answers NOTIFY for any alert-worthy reading while one is — never measured against the
+  simulated level, so a real reading at exactly that level now NOTIFIES where it used to read false.
+  Two rows of #849's own truth table (`SIM_MODERATE, MODERATE` and `SIM_STRONG, STRONG`) flip from
+  `false, false` to `true, false` for exactly that reason, and both `wouldNotify`/`wouldClear` now
+  take the transition lock too, so a poll's peek can never straddle an admin write mid-read.
+- **#849 removed the lock** (there wasn't one to remove — this branch is the one that adds it) and
+  instead reads `state`, `currentLevel` (and now, on this branch, whether a simulation is running)
+  into locals at the top of `evaluate`, deciding every branch from those locals rather than the
+  fields again. That shape is kept, now inside the lock: belt-and-suspenders once locked, and it
+  matches the class's existing style.
+- **#849's own class javadoc claimed single-writer-via-polling-cycle**, true of its own change but
+  never of this branch's admin/batch writes; rewritten to describe the lock, what it does and does
+  not serialise (a poll's peek and its own evaluate are still two separate lock acquisitions, so an
+  admin write between them can still move what the peek answered for — #849's own callers already
+  re-fetch on that mismatch rather than trust the peek).
+- **#849's "a CLEAR does not reset it" trigger-getter javadocs are now false**, superseded by this
+  branch's CLEAR-drops-the-trigger rule; corrected in place rather than left standing, since they
+  describe the method these tests now pin the opposite of.
+- **#849's own status-endpoint javadoc already narrowed the "NOTIFY in several steps" residual**:
+  both polls fetch NOAA before the state machine moves, so the gap this branch's own first cut
+  described as "a new alert's level with no trigger yet" now lasts only a few field writes, not a
+  whole NOAA round trip — folded into this entry's own residual below rather than left overstated.
+- **`AuroraSimulationLifecycleTest` was ported**, not merely fixed to compile: #849 made
+  `AuroraOrchestrator.runForecastLookahead`/`runNightPoll` package-private, reachable only through
+  the new `AuroraPollingJob.runCycleIfIdle()`, so the reported sequence is now driven through the
+  real polling job rather than the orchestrator directly. Its scenarios moved to night polls (dusk
+  already passed) with an empty `kpForecast`, so the level comes from `recentKp` alone and #849's
+  hold-for-a-late-reading behaviour (`pendingHold`, `readingDue`) never engages — a deliberate
+  simplification, since that machinery belongs to #849's fix, not this one, and is untouched here.
+- **Left alone, on purpose**: #849's `pendingHold` — a night poll's alert held open across the
+  dawn boundary while its Kp block's reading is still due — can be handed a hold that started under
+  a simulation, or under a real alert an admin then reset or re-simulated over; #849's own PR lists
+  this as an open follow-up. `become()` does not reach into `AuroraOrchestrator`, and fixing it means
+  deciding what a hold *for* a state that no longer exists should do, which is `AuroraOrchestrator`'s
+  call, not this class's.
+
+**Reconciled with #841**, which landed after the #849 reconciliation above and, separately, added
+`currentNightDate`/`currentNightEndsAt` to this same status response and a `CurrentNight` read to
+this same method — the map's window list needed to stop offering nights that are already over. No
+behavioural overlap: #841 never reads or writes the simulation, and this fix never touches the night
+fields, so the two diffs collided only textually, both inserting new reads immediately after
+`activeSince` in `getStatus()`. Resolved by keeping this fix's reordering (the simulation read first,
+before `cachedLevel`) and folding #841's `CurrentNight` block in after it, dropping the now-redundant
+`isSimulated()`/`getSimulatedData()` re-read #841's diff carried from the pre-fix code it branched
+from. `AuroraControllerStatusSnapshotTest` gained #841's own
+`dawnDuringNoaaCalls_answersWithTheNightTheRequestBeganIn` case in the same fold — unrelated to this
+fix, listed here only because it now lives in a file this entry also changes. The full local gate
+(8056 backend tests, Checkstyle, JaCoCo, SpotBugs) re-ran clean after this fold.
+
+**Reconciled with #847**, which landed after the #841 reconciliation above. #847's own title is "an
+admin's simulation stops at the admin, never reaches real users": it gates three call sites
+(`AuroraHotTopicStrategy`, `BriefingAuroraSummaryBuilder`, `BriefingRollupBuilder`) on
+`AuroraStateCache.isSimulated()`, so a running simulation cannot reach a real user's Plan cards, the
+best-bet prompt, or a persisted tonight summary; and it adds a durable `simulated` marker
+(`aurora_forecast_result.simulated`, V154) so a forecast run made against fake data is never served
+back as real. `isSimulated()` is exactly the flag this fix deletes, so **all three call sites needed
+the straight substitution** — `getSimulatedData() != null` — agreed with the peer session that built
+#847 before either branch landed (see [[aurora-simulation-leak]]).
+
+That part was mechanical. Two parts were not, and are worth recording precisely:
+
+- **#847 independently found and partly fixed the exact bug this whole entry is about.** A later
+  commit on #847 (a Codex-review fix) added `simulated = false; simulatedData = null;` to
+  `evaluate()`'s CLEAR branch, with a comment describing the identical scenario as this entry's
+  opening section: a lingering simulation surviving a real CLEAR and silently suppressing the next
+  real alert from every `isSimulated()`-gated reader. Its fix is a strict subset of this branch's
+  `become()` unification — same two fields cleared, but not the trigger (this branch's own,
+  separately-decided CLEAR-drops-the-trigger rule), and by a direct field write rather than through
+  one shared path — so on rebase this branch's `become(State.IDLE, …)` call simply superseded #847's
+  two lines outright: same outcome for the fields #847 touches, plus everything else `become()`
+  already did. Nothing of #847's intent was lost; there was nothing left for its patch to do once
+  `become()` ran first.
+- **#847 also independently fixed the identical two-read NPE this entry fixes**, in
+  `AuroraForecastRunService.getPreview()` and `.runForecast()` — the same `isSimulated()`-then-
+  `getSimulatedData()` pattern, the same single-read cure. Unlike the CLEAR-branch case, #847's
+  version was the one kept: its `simulated`/`isSimulated` locals feed straight into the new
+  `.simulated(...)` marker it stamps on every persisted row and the `replaceNightResults(date, …,
+  simulated)` calls beside them, code this branch never had reason to write. Adopting #847's version
+  of both methods outright (rather than this branch's differently-named equivalent) kept that
+  plumbing intact without re-deriving it. `AuroraForecastRunServiceTest` gained #847's own
+  `runForecast_simulated_marksPersistedResultsAsSimulated` and this branch's three NPE/real-CLEAR
+  tests side by side — different questions about the same two methods, not a real conflict.
+  `AuroraStateCacheTest` auto-merged without a marked conflict, but silently kept two of #847's own
+  new cases calling the now-deleted `isSimulated()`; fixed to `getSimulatedData()` semantics, no
+  behavioural change.
+
+The full local gate re-ran clean again after this fold: **8074 tests, 0 failures**, Checkstyle 0
+violations, SpotBugs "BugInstance size is 0", JaCoCo "All coverage checks have been met".
+
+**Still open.**
+
+- **Readers take no lock**, so a reader that reads several fields can still straddle a transition.
+  That is the second residual of *an aurora status response no longer straddles its own NOAA calls*.
+  Of the two simulation cases that entry names:
+  - the 500 is gone: `simulated: true` with no data can no longer be read;
+  - a simulation starting mid-read can still be read as its level beside `simulated: false`. It now
+    takes a request whose two reads straddle both of the start's writes.
+
+  There is also a new case, the reverse: a request that found the simulation just before a real alert
+  ended it can serve that alert's level beside the simulation's data. Each is one response, which a
+  client can go on showing until its next status fetch. One immutable snapshot published per
+  transition would close all of them.
+- **The orchestrator still writes a NOTIFY in several steps.** That is the same entry's first
+  residual, and #849 already narrowed it: both polls fetch their NOAA snapshot before the state
+  machine moves, so the gap between a NOTIFY and its trigger being recorded is a few field writes,
+  not a NOAA round trip. Its "CLEAR never resets the trigger" no longer holds under this branch's
+  rule, so what stands in that gap has changed: a new alert now shows no trigger for those few
+  writes, where it used to show the leftover one — the simulation's, or the last real event's. An
+  escalation still shows the previous NOTIFY's trigger, for the same few writes. The banner reads a
+  missing trigger as real-time, so for that gap a forecast-triggered alert can say "Aurora active
+  now"; that was already so after every restart, reset or Clear, and is now also so after a CLEAR.
+  Only a poll's own NOAA-outage fallback (an admin write it missed) still fetches after the state has
+  moved, which is the residual #849's own status javadoc names. The orchestrator handing over level
+  and trigger in one write would close both. The same split lets a scoring's writes land after a
+  later transition has moved past the alert they were computed for: a CLEAR, a reset, a simulation,
+  or a later NOTIFY whose trigger, counts and scores they overwrite.
+- **At night an admin has five minutes at most between Simulate and a forecast run** meant to use the
+  simulated values. The forecast modal fetches its preview once, when it opens. A run started after
+  the next poll uses real NOAA data while the modal still says "Using simulated geomagnetic data",
+  and the result does not say which data it used. The stuck flag used to keep the preview and the
+  run simulated for as long as it stood.
+- **The order inside `become` is not pinned by a test.** A mutant that sets or clears the simulation
+  on the other side of the level survives, because the order matters only to a reader racing the
+  writes themselves, and no deterministic test can place one there. The rule is written at `become`
+  and in the class comment instead.
+- **The lock test cannot see a write that waits for the lock and then writes after releasing it.**
+  It catches a write that takes no lock, or never lets it go. Telling the two apart needs a hook
+  inside the transition.
+
+**Tests.** 47 new backend test cases against #849's `main`, counting each parameterised case, and the
+existing simulation tests moved off `isSimulated()`:
+
+- **`AuroraStateCacheTest`** (37), on the real machine:
+  - a real CLEAR ends a simulation and everything it planted, for QUIET and MINOR;
+  - a real alert during a simulation is a new alert, starting clean, for all eight pairings of a
+    simulated QUIET, MINOR, MODERATE or STRONG with a real MODERATE or STRONG, with a scoring landed
+    under the simulation first. Every one used to keep the simulation, and three were SUPPRESSed;
+  - after a CLEAR ends a simulation, the machine is idle and unsimulated before the next alert;
+  - CLEAR drops the trigger;
+  - a simulation keeps nothing of a scored real alert or of another simulation;
+  - every route to IDLE — five, including a Clear — lands on a fresh machine's state;
+  - `endSimulation` ends a running simulation, and leaves alone a real alert that took one over;
+  - an evaluation queued behind a simulation's start ends that simulation, and two evaluations of
+    one alert from IDLE notify once;
+  - `wouldNotify` and `wouldClear` each wait for a transition in progress too, answering for the
+    state a queued admin write left behind, not the one they were called against;
+  - every write, including every branch of `evaluate`, waits for a transition in progress, then goes
+    through and lets go. The lock is held on the test thread and each write runs on a second one,
+    because the lock is re-entrant. Every wait is bounded.
+
+  Two of #849's own truth-table rows (a real MODERATE or STRONG reading at exactly a simulated
+  MODERATE or STRONG) flip from `false, false` to `true, false` — the takeover, not an escalation,
+  so it fires even at equal severity.
+- **`AuroraSimulationLifecycleTest`** (3) drives the real admin controller, the real
+  `AuroraPollingJob` and orchestrator, and the real status controller, through
+  `AuroraPollingJob.runCycleIfIdle()` — the only entry point left once #849 made the orchestrator's
+  poll methods package-private. Only NOAA, weather triage, the roster and twilight are faked, as
+  night polls with an empty Kp forecast, so the level comes from the latest reading alone and #849's
+  hold-for-a-late-reading behaviour never engages. It runs the reported sequence end to end: simulate,
+  a quiet poll (asserting the state between), a real storm, then the status. It also shows a real
+  alert below the simulated level being scored, where it used to be suppressed, and a Clear pressed
+  after such a takeover leaving the real alert alone.
+- **`AuroraControllerStatusSnapshotTest`** (2) lands a Clear, and then a real CLEAR, between the
+  request's own state reads, through a getter overridden on the real machine. The simulation's
+  G-scale is one its Kp would never derive, so a response that derived one cannot pass for it.
+- **`AuroraForecastRunServiceTest`** (3) has a preview on a real machine whose simulation a real CLEAR
+  ended. Its preview and run tests answer a second read of the simulation with nothing.
+- **`AuroraAdminControllerTest`** (2) pins that Clear ends a running simulation and calls
+  `endSimulation()`, never `reset()`, and that Clear with no simulation running resets nothing.
+
+334 aurora tests pass together, #849's own included: `AuroraPollingCycleTest` (774 lines, replaying
+whole nights) and `AuroraNightRuleAgreementTest` neither regressed.
+
+Most of these were written first and failed against the pre-fix code, one as a
+`NullPointerException` itself and the rest on their assertions; a handful passed as they should,
+pinning behaviour the fix keeps (a simulation starts; `reset()` already cleared everything). The
+adversarial review then asked for more: `endSimulation()`'s own tests and the two lock-ordering
+tests (`evaluationThatWaitedBehindASimulationsStart_endsIt`,
+`twoEvaluationsOfOneAlertFromIdle_notifyOnce`) exercise API the pre-fix code has no equivalent
+of — `AuroraStateCache` had neither a lock nor a way to end just a simulation — so they were never
+run red; they are pinned by the mutants under "Mutated" below instead. The torn-read tests moved
+from overriding `isSimulated()` to overriding `getSimulatedData()`, because the flag no longer
+exists.
+
+**Mutated in two rounds.**
+
+- **The first round: 19 mutants, 18 killed.**
+  - Lifecycle, seven: CLEAR keeping the simulation; IDLE keeping the trigger; no takeover; a takeover
+    that drops only the data; one that keeps the trigger; a simulation inheriting the counts; and
+    clearing the simulation first, the order survivor.
+  - Lock, seven: each of the six writes taking no lock, and `evaluate` never releasing.
+  - Readers, five: the status reading the simulation twice, or the level first; the preview reading
+    it twice, for its Kp or for its flag; the run reading it twice.
+- **A six-lens adversarial review of the diff found gaps the first round's tests could not see, and
+  seven mutants built from those findings — all killed once the tests above were added:**
+  - `evaluate`'s CLEAR branch written outside the lock. The first round's lock test drove only the
+    NOTIFY-from-IDLE branch, so a CLEAR (or a takeover) hoisted above `lock()` — the exact race the
+    lock exists for — passed every test. Killed by the new per-branch `Write` cases.
+  - the takeover branch, same shape, same fix.
+  - the takeover's `simulatedData != null` check decided before waiting on the lock, so a poll
+    queued behind an admin's simulate call judged the alert against no simulation instead of the one
+    that had just started. Killed by `evaluationThatWaitedBehindASimulationsStart_endsIt`, which
+    queues an evaluation, starts a simulation on the holding thread, then releases.
+  - the same shape for the IDLE check, which would let two queued evaluations both NOTIFY. Killed
+    by `twoEvaluationsOfOneAlertFromIdle_notifyOnce`.
+  - a simulation keeping the scores of a real alert it replaces (only counts were pinned).
+  - a takeover keeping a simulation's scores and counts (same gap, the other direction).
+  - the storm-scale guard re-reading `getSimulatedData()` instead of the value already in hand,
+    reopening the two-read defect for one derived field. Killed by giving the fixture a G-scale its
+    Kp would never derive.
+- **A second set of seven, aimed at the new behaviour directly rather than at review findings:**
+  `become()` never clearing a stale simulation; no takeover at all; `activateSimulation` writing its
+  fields piecemeal instead of through `become()`; `endSimulation()` resetting unconditionally, or
+  returning `true` without having cleared anything; the Clear endpoint calling `reset()` regardless
+  of `endSimulation()`'s answer; and `endSimulation()` itself missing the lock. All seven killed,
+  mostly by `AuroraSimulationLifecycleTest.clearAfterARealAlertTookTheSimulationOver_leavesTheRealAlert`
+  and its `AuroraStateCacheTest` counterpart — the pair written for the review's most serious finding.
+
+**33 mutants run across both passes; 32 killed, one documented survivor** (the `become()` write-order
+mutant above).
+
+**Correction to an earlier entry.** `changelog.d/20260914-aurora-status-one-state.md:37` ("CLEAR
+never resets the trigger, so...") describes `AuroraStateCache` as it stood when that entry was
+written. This entry's CLEAR-drops-the-trigger rule supersedes it; per `changelog.d/README.md` that
+file is left as-is rather than rewritten.
+
+**Tested, not seen.** No browser check was made. The banner needs an aurora alert and a Pro or admin
+sign-in. The sequence is proven through the real controllers instead.
+
+### Fixed — aurora alerts no longer pay for themselves every five minutes after dark
+
+After dark, each five-minute aurora poll could evaluate the one state machine twice: first a forecast
+lookahead (whenever tonight's forecast reached the MODERATE threshold), then a real-time path. The two
+read tonight differently. The lookahead took the highest Kp of every 3-hour block that overlapped
+tonight's dark window, including blocks that were already over, because NOAA's product keeps its
+observed blocks for a week. The real-time path looked only six hours ahead of now.
+
+The flap happened whenever the lookahead reached an alert level and the real-time path did not —
+after a storm that peaked earlier in the night, or with a peak forecast more than six hours ahead.
+Every poll then went:
+
+1. The lookahead NOTIFIED.
+2. That paid for weather triage and, if any location was clear, a synchronous Claude call, with a
+   `job_run` and an `api_call_log` row.
+3. The real-time path CLEARED the scores it had just bought.
+4. The next poll started from IDLE and paid again.
+
+That is up to about twelve times an hour. Meanwhile `GET /api/aurora/status` almost never showed the
+alert. When the real-time path came out *higher*, the poll that raised the alert NOTIFIED twice and
+threw the first scoring away. NOTIFY never sent email or push; it only scores. A test of two
+consecutive polls reproduced the flap against the old code, and whole-night replays now pin the fix;
+it has not been confirmed in the production logs.
+
+**Every poll now evaluates the state machine at most once.**
+
+- **In daylight** it reads the forecast for tonight.
+- **After dark** it takes the higher of the forecast for the rest of tonight — the blocks still ahead
+  before dawn, the running one included and finished ones never — and the conditions now.
+- **The alert is attributed to the forecast**, with planning wording and tonight's window, when the
+  forecast alone reaches that level. It is real-time ("act now") only when the conditions now go
+  beyond it.
+
+So a heads-up for a small-hours peak now stays up through the evening, and is paid for once.
+
+- **The Kp for now is NOAA's figure for the most recently completed block**: its published reading
+  once it is out, and NOAA's estimate for the block until then. A reading appears only after its
+  block ends and then sits in the client's 15-minute cache, so without the estimate the level would
+  dip at the end of an isolated storm block. The running block, whose value is a forecast, is never
+  reported as "now".
+- **A night poll does not end an alert on the estimate for the block just ended while that block's
+  reading is due.** An estimate can be revised when its reading is published (the 09:00-12:00 block
+  on 2026-09-14 was estimated at Kp 3 and published at 2). So for up to an hour after a block ends,
+  while its reading is not out, a night poll that would CLEAR holds the alert instead, whatever
+  raised it. Otherwise a block NOAA under-estimated would CLEAR at the boundary, then NOTIFY and pay
+  again when its reading landed. The hold has three limits, all deliberate:
+  - A reading more than an hour late means a late or stale feed, and the estimate ends the alert.
+  - A hold lasts no longer than the night. If dawn comes first, the first daylight poll makes the
+    CLEAR the night deferred, as its one evaluation, reading nothing. After dawn no poll acts on the
+    Kp for now, so the reading could decide nothing, and no daylight poll ends an alert on its own
+    reading of tonight, so otherwise the night's alert and scores would stand until the next dusk.
+  - It covers only the block that has ended. An alert that falls mid-block, on NOAA's low estimate
+    for the block still running, is still cleared, and bought again if that block is published
+    higher.
+- **A night poll decides on one NOAA snapshot and one clock reading.** The daylight poll now fetches
+  the full snapshot before the state machine moves, and still only when it is about to NOTIFY
+  (`AuroraStateCache.wouldNotify`), so an unexpected error from that fetch leaves the state machine
+  untouched. The client fails open, so this guards the unexpected, not an outage. At nautical dawn
+  itself the night is now over, on both of the app's night rules.
+- **The daylight poll records the trigger straight after its NOTIFY**, as the night poll always has.
+  Part of the residual recorded under *an aurora status response no longer straddles its own NOAA
+  calls* was a new level served beside the previous alert's trigger for the length of a NOAA fetch.
+  That part now lasts a few field writes, unless an admin reset or simulation lands mid-poll. The
+  counts and scores still land after the triage and the Claude call.
+- **A lowered `aurora.triggers.kp-threshold` now applies in daylight too.** The lookahead used to map
+  Kp through a fixed 5, so at 4.5 it would have cleared what the real-time path raised.
+- **`POST /api/aurora/admin/run` now runs the scheduled cycle itself, through the same guard.** It
+  answers 409 while a cycle is running, and still runs on the request thread. Before, it called the
+  real-time path directly, with that path's own horizon and no guard, so it could clear a heads-up the
+  next poll would pay to raise again, or run alongside a scheduled cycle. In daylight it no longer
+  ends an alert on its own reading: the one exception is the first cycle after a night that ended on
+  a hold, which makes that deferred CLEAR. `POST /api/aurora/admin/reset` clears anything else. Its
+  response is now
+  `{status, dark, level, action, trigger, held}` rather than `{status, action}`, where `held` says a
+  night poll held the alert, so its level below MODERATE and action NONE do not read as a quiet
+  night. No screen calls it.
+- **The same guard absorbs the scheduler's own overlap.** Saving an edited schedule, Resume and Run
+  Now on the Scheduler screen can each start a poll while one is still running; the guard skips it.
+
+`AuroraNightRuleAgreementTest` now pins the polling job's night rule to `AuroraForecastRunService`'s
+across a year of instants. That comparison could not be written while the job read the wall clock.
+`poll-interval-minutes`, `kp-clear-threshold` and `ovation-clear-threshold` are now documented as
+unread.
+
+### Fixed — the map's live aurora scores answer for the latest alert state
+
+The live aurora scores (`getAuroraLocations()`, the NOAA-triggered state for the night in progress)
+are fetched by an effect keyed on the shared aurora status — and that status is a fresh object on
+every successful 5-minute poll and every successful window focus, because `AuroraStatusProvider`
+publishes whatever the status endpoint answers. So the effect re-requested on each, with no
+cancellation, and a superseded request could still write:
+
+- **after the alert ended** — a poll saying the alert was over cleared the scores, and a request the
+  previous poll had made, landing after that, wrote the ended alert's stars straight back into every
+  live reader: the rating's live fallback, the aurora medallions, the overlay popup and the "🏆 best
+  location" card, until the next poll or focus;
+- **out of order** — two refreshes close together each made a request, and the older one landing
+  last replaced the newer answer with its own.
+
+The effect now carries the cancellation half of the fetch shape #814 gave the stored-results fetch
+beside it: a `cancelled` flag set in the cleanup drops any response whose status has been superseded.
+"Latest" means the latest status *published* — the provider does not order its own responses, a
+separate and pre-existing race named below.
+
+⚠️ **Only that half, on purpose — no clear before the request, and a failure writes nothing.** The
+stored-results fetch clears on every change because it answers for a night the reader selected. This
+is the backend's live cache, and nothing on the status marks a change in it that a clear could key
+on: `detectedAt` moves on an escalation while the backend still holds the pre-escalation list (it
+re-scores after the NOTIFY), so a clear keyed on it would blank the map and redraw the same list; the
+night can roll while the backend holds last night's list, so a clear keyed on the night gains
+nothing; and a clear on every re-poll would blank every reader of the live scores for a round trip
+every five minutes. Any clear would also turn a place kept on the map by tonight's stored result into
+a denial in the overlay's popup, which reads a missing live score as "Not suitable for aurora
+photography" — the false negative #814 refused. The adversarial review challenged the decision twice,
+proposing clears keyed on `detectedAt` and on the night; a refuter traced both through the backend and
+the decision stood. Both halves of it are pinned by their own tests, so a tidy-up that "completes" the
+shape fails loudly.
+
+**Residuals, named so they read as known rather than overlooked:**
+
+- A device that missed the gap between two alerts — asleep, offline, a throttled tab — and whose
+  first refetch after it then fails, shows the earlier alert's answer until the next poll or focus.
+- When the newer of two overlapping requests fails and the older succeeded, the older answer is still
+  dropped, and what was on screen before both stays until the next poll or focus.
+- The commit that brings the alert-ended status still renders the ended alert's stars once, before the
+  effect clears them — the same one-commit window the per-night fetches have.
+- On an alert's first request nothing is held yet, and the overlay's popup reads that as "Not suitable
+  for aurora photography" until the answer lands. The popup has no "not known yet" state, which is a
+  change to `MarkerPopupContent`, not to this fetch. Pre-existing.
+- `AuroraStatusProvider` can publish statuses out of order: a poll and a focus in flight together land
+  in either order, and whichever lands last is published. Pre-existing, one level up.
+
+Pinned in a new `MapViewAuroraLiveFetch.test.jsx`, which drives the status through the real
+`AuroraStatusProvider` and a window `focus` — the production trigger. The sibling files' ref-backed
+status stub is read only when the memoised `MapView` happens to re-render for some other reason, so a
+"re-poll" through it is whatever render the harness causes, not the route production uses. Both race
+tests failed against the unfixed effect, each at its final negative. Each part was then mutated
+alone: deleting the `.then` guard, or `cancelled = true` from the cleanup, fails the two race tests;
+adding a clear before the request fails the two decision tests; clearing in the `.catch` fails only
+the failed-refresh test. ⚠️ **The late requests settle inside an *awaited* `act`, and the `await` is
+load-bearing — measured:** with the guard deleted, an un-awaited `act` — plain callback or async —
+lets the alert-ended test pass, while `await act(() => …)` fails it.
+
+Also corrects `utils/mapEvents.js`, whose note still said the live cache could answer for a night the
+reader was not looking at — #814 closed that in `MapView` — and has the astro fetch's comment name the
+stored-aurora fetch it refers to, since the live fetch above both now takes a different shape.
+
+### Docs — the accessible-name notes say what measured them
+
+`#825`'s reviewer stalled and was only resumed after the merge. Its late review, and a second
+review of this change, found the accessible-name notes still overstating their evidence, and
+`#825`'s own entry miscounting. Nothing about *which* spaces matter was wrong: every separator the
+harness found changing a name carries a note, and every note's conclusion holds. Comments only:
+the production build is byte-identical.
+
+- **Eighteen comments credited a reading to Chromium, WebKit and Firefox, "every engine",
+  "browsers" or "a screen reader".** Those readings came from Playwright's accessible-name
+  algorithm run over each engine's layout. The only native reading is Chromium's own accessibility
+  tree: the Coming up handoff and entry card on 2026-09-05, and all 4,167 separators on 2026-09-14.
+  Each comment now says which instrument read what, or states the rule and points to the class doc
+  that does.
+- **Ten comments stated JSX's whitespace rule too broadly.** Seven said, in one wording or another,
+  that JSX drops whitespace-only text between tags. `#825`'s three reflow warnings said "JSX drops
+  whitespace that contains a line break". In fact JSX drops whitespace-only text that contains a
+  line break. A space on the same line as its neighbours is kept, and a line break inside text
+  collapses to one space.
+- **Three notes said a name *reads* the glued pair.** In fact the name only contains it, among the
+  rest of the row or card: `PromptTestView`, `ComingUpTideSparkline` and `WindowComingUpEntry`.
+- **`MapRegionPanel`'s test blamed its `5stars` on the polyfill gluing any adjacent
+  contributions.** The polyfill also trims the leading space inside the `sr-only` " stars" span,
+  which browsers keep.
+- **Two notes claimed less than was measured.** All three of `RegisterPage`'s terms separators
+  were measured on 2026-09-14, as was the Coming up conditions' `peak` / date separator.
+- **The canonical class doc now says what its runs bear on.** They cover the rule's first two
+  items, except the browse-mode clause, which no run read. They also cover the fifth, through the
+  space inside `SlotLocationName`'s icon span. The third and fourth items rest on earlier targeted
+  probes.
+- **Three corrections to `#825`'s entry**, which this directory's rules do not allow rewriting:
+  - The 119 name-changing separators sit at `#825`'s four sites or at *three* places `#819` had
+    annotated, not at "four" places with "both" of `RegisterPage`'s separators. The three places
+    are all *three* of `RegisterPage`'s terms separators (which the harness grouped as two shapes),
+    `WindowComingUpConditions`' name and cadence, and the Coming up tide chart.
+  - The other 906 change no accessible name, but they do change the layout. Where one sits in
+    plain inline text, the rule says browse mode reads the two words glued as well. That was never
+    measured, so "change only what is drawn" claimed more than was known.
+  - JSX deletes whitespace-only text that contains a line break, not "any whitespace" that does.
+
+### Fixed — the four separators an accessible name really depends on now say so
+
+A rebuilt measurement harness found four spaces that an accessible name genuinely depends on, and
+none of them carried a note — while the separators that do nothing were the ones with warnings on
+them. Each now states what it holds up. Comments only: no rendered or runtime change.
+
+| where | without the space, the name reads |
+|---|---|
+| `MapView` subject filter chips | "🏔️Landscape" |
+| `SlotLocationName` (Plan grid) | "🏔️Angel of the North" |
+| `WindowControl`'s "Back to" row | "Back toThis morning — sunrise or sunset?" |
+| `PromptTestView` run progress | "⟳2/5" |
+
+Three of the four — `MapView`, `SlotLocationName` and `PromptTestView` — are **literal spaces written
+straight into the JSX**, not `{' '}` expressions, and JSX deletes any whitespace that contains a line
+break, so reflowing one of those lines would remove the space with no other sign. Their notes say
+so. (`WindowControl`'s is an explicit `{' '}`.) `SlotLocationName`'s also sits *inside* its element
+(`<span>{icon} </span>`) — a position browsers keep, and only jsdom's polyfill trims.
+
+**How it was found.** Every whitespace-only text node in the DOMs the test suite renders — 4,167
+across 921 distinct DOMs, captured at the end of each test and after every `fireEvent` — was
+removed one at a time against the production-built stylesheet, at widths drawn from that
+stylesheet's own breakpoints. Names were read by Playwright's accessible-name algorithm over each
+of Chromium's, WebKit's and Firefox's own layout, and by Chromium's native accessibility tree,
+which agreed with Playwright on all 4,167. 119 change an accessible name; every one belongs to the
+four sites above or to the four `#819` already annotated (both `RegisterPage` terms separators,
+`WindowComingUpConditions`' name and cadence, the Coming up tide chart). 906 change only what is
+drawn — ordinary visible spaces, left unannotated, since removing one would show on screen.
+
+It also confirmed by measurement two claims `#819` had made from the rule: `MapBreadcrumb`'s window
+label renders glued without its space ("Tonightsunset") yet changes no name — its `<nav>` is named
+by `aria-label` — and the Coming up `peak`/date separator is inert.
+
+**The canonical doc's evidence is now stated correctly.** `WindowFirstComingUpHandoff` said the rule
+was "measured in Chromium, WebKit and Firefox". Those readings were Playwright's own algorithm run
+over each engine's styles — not three native implementations. It now says what was measured and by
+what, and that native readings exist for Chromium alone.
+
+### Added — the Plan tab has an iPad tier, 640px to 1023px
+
+The plan-matrix handoff specifies three tiers — desktop, iPad, phone — and the Plan arm had two, so
+every iPad value in the spec resolved to the desktop one. This adds the third, as one unlayered
+`@media (min-width: 640px) and (max-width: 1023px)` block at the end of `index.css`.
+
+**Why that range.** Not invented: `BrandLockup`'s masthead wordmark has carried a tablet tier on
+exactly this band all along (Tailwind's `sm` 640 and `lg` 1024). It sits flush against the phone
+query (`max-width: 639px`, also `useIsMobile`). An iPad in portrait (820–834px) lands inside it; in
+landscape (1180–1194px) it lands on desktop, matching the handoff's own 1180px desktop frame.
+
+**What it changes** — values from the prototype's `.wrap.pad` rules, which is what renders: the
+masthead's top padding to 13px; the legend's desktop-only clause hidden; the popup's region rail to
+a 130px minimum; the "All regions" cell onto its own full row, as on phone; the prose slot to 112px;
+the ranked spot strip to 2.6 across. The strip's own note had deferred exactly this ("widening it is
+the responsive pass's call").
+
+**Two places the README and the prototype disagree, settled by the prototype:**
+- Region cards: the README says 150px. The prototype has 150px on `.rrail` *and* 130px on
+  `.wside .rrail`, and `regionRail()` is only ever called inside `.wside`, so 130px renders.
+- The masthead: the prototype pads it `13px 20px 0` but gives the tab bar, lens bar and body no iPad
+  rule, so they keep 22px. That would put the masthead 2px in from everything below it on this band
+  alone, which is exactly what the shared `--wf-gutter` exists to prevent. The masthead takes the
+  13px top and **stays on the 22px gutter** — the one deliberate departure, and one value to change.
+
+⚠️ **A defect the first cut shipped to itself, and caught by measuring.** It set the popup to
+`max-width: none`. Measured inside a real `Modal`, the popup then filled the viewport — 968px at
+1000, 991px at 1023 — and snapped to the desktop cap of 780px at 1024: widening the window one pixel
+shrank the popup by 211px. The spec only ever drew an iPad popup on an 834px frame (834 − 28 =
+806px), so that is the cap now: 802px at 834, 806px across the rest of the band, and a 26px step to
+780 at the desktop edge instead of 211.
+
+**Not changed, and recorded:** the wordmark (already on this band, at sizes 2px above the spec at
+*every* tier — a brand decision, not an iPad gap); the tick-times gap (already right for iPad —
+it is the desktop that drifted onto the iPad value). And a **phone** defect found in passing: the
+popup's region rail renders 3 columns where the spec says 2, because the phone rule's `.wf-rrail`
+(0,1,0) loses to the unscoped desktop `.wf-wsh .wf-rrail` (0,2,0). This block writes its rail rule
+at the higher specificity so it cannot fall into the same trap; the phone is left for its own fix.
+
+**Verified in real headless Chromium**, reading computed styles at 639 / 640 / 834 / 1023 / 1024 /
+1180px: every rule applies inside the band and not outside it. The rail's 130px is proven by track
+count in a 398px box — 2 tracks at iPad, 3 at desktop — after a first probe at 384px turned out to
+be **blind**, giving 2 tracks at both because it ignored the rail's 6px gap. Blast radius checked by
+tracing every selector to its component: all popup-only except the shared masthead, and the
+drill-down's cards are kept out by the child combinator.
+
+⚠️ **What was not seen:** the popup rendered with real data. It needs a signed-in session with
+forecast ratings, and the login carries a Cloudflare Turnstile challenge that a fresh browser cannot
+pass and that was not worked around. The two automated review agents also stalled out on a machine
+running at a load of 60–86 on 8 cores, so the adversarial checks were done by hand instead.
+
+### Fixed — a double-click on the Scheduler's Run Now queues one run, not two
+
+`SchedulerView`'s `RunNowButton` disabled itself only once `triggerJob` had *resolved*
+(`disabled={disabled || triggered}`), and `main`'s button had the same rule. So the second press of
+a double-click landed on a button that was still enabled and sent a second
+`POST /api/admin/scheduler/jobs/{jobKey}/trigger`. `DynamicSchedulerService.triggerNow` queues an
+immediate run for every call it receives, and `wrapTarget` has no overlap guard. The daily briefing
+and the tide refresh have none of their own either, so one double-click ran them twice, possibly at
+the same moment on the five-thread scheduler pool. The batch pipeline jobs refuse a concurrent
+submission through a shared lock. There the second run could lose that lock and be recorded as a
+failed pipeline run for nothing.
+
+This supersedes two passages in the entry just below it, *the Scheduler screen's "Triggered ✓"
+confirmation no longer arms a timer nobody owns*:
+
+- its present-tense "the button is disabled only once a call resolves, so a double-click sends two
+  calls";
+- its bullet calling the in-flight guard "a plausible follow-up rather than a bug".
+
+It was a bug: two runs of a job from one intended press.
+
+**The button is now disabled from the click until the call settles.** A `pending` state is set
+before the await and cleared in a `finally`, and `disabled` reads `disabled || pending || triggered`.
+React flushes a click's state update before the browser dispatches the next input event, and a
+browser dispatches no click to a disabled button. So a press while the call is in flight never
+reaches the handler. The label stays "Run Now" while the call is in flight, because "Triggered ✓"
+would claim a run the server has not yet accepted. The `finally` hands the button back after a
+failure too, so the retry the error banner asks for goes through.
+
+The dismiss timer stays in the effect keyed on `triggered`, where the earlier entry put it. It has
+not moved back into the handler, and there is no `isMounted` ref.
+
+**This guards the button's own round trip and nothing more.** `triggerNow` returns as soon as the
+run is queued, so the button is free again two seconds after the confirmation appears, while the job
+may still be running. A second run can still be queued by any of these:
+
+- a press after the confirmation clears;
+- a second browser tab;
+- switching tab and back while the call is in flight;
+- a retry after a failed response that the server had in fact acted on.
+
+Some targets already refuse an overlapping run: the batch submissions (`forecastBatchRunning`,
+`auroraBatchRunning`) and the cloud-verification backfill. Giving the briefing and the tide refresh
+the same guard is an owner decision, and it is not built here.
+
+**Two costs this accepts.**
+
+- **Keyboard focus.** A keyboard user who presses Run Now loses focus to `<body>` when the button
+  disables. It already did that on success, when `triggered` disabled it. On a failed call it is
+  new: focus used to stay on the button. This is the same pattern as the app's other in-flight
+  buttons.
+- **No timeout.** The API client sets no timeout, so a stalled request leaves the button disabled
+  until the connection gives up. The alternative was a duplicate run.
+
+**Tests.** The earlier entry's two double-click tests are replaced. They sent two calls on purpose,
+and the in-flight guard makes that impossible. Measured against the new component:
+
+- the orphan test fails at `toHaveBeenCalledTimes(2)`, receiving 1;
+- the fresh-window test fails at `toHaveBeenCalledTimes(3)`, receiving 2.
+
+Two tests take their place:
+
+- **A second press while the call is in flight sends no second call.** The button is found by role
+  and name, asserted disabled while the call is pending, and confirms once when it settles.
+- **The retry after a failed call actually sends.** The existing error test pins only that the
+  button is enabled after a failure. On its own that would pass a guard that latched once per
+  mount.
+
+The unmount-mid-call timer test is kept unchanged.
+
+**Mutated five ways, all killed.**
+
+- Dropping `pending` from `disabled` fails the in-flight test.
+- Never setting `pending` fails the in-flight test.
+- Clearing `pending` only on success fails the retry test and the error test.
+- Never clearing `pending` fails those two and the confirmation-window test.
+- A ref that latches on the first press, beside `pending`, fails only the retry test.
+
+**Tested, not seen.** No browser check was made. The Scheduler screen is behind the admin sign-in.
+
+### Fixed — the Scheduler screen's "Triggered ✓" confirmation no longer arms a timer nobody owns
+
+`SchedulerView`'s Run Now handler armed its dismiss timer *after* awaiting `triggerJob`, and its
+unmount cleanup cleared only the timers that already existed. `ManageView` renders the screen behind
+`activeTab === 'scheduler'`, so switching tab while the call was in flight unmounted it before any
+timer existed. The cleanup had nothing to cancel, and the continuation then armed a timer with no
+owner. This is the arm-after-await hole #809 closed in `ModelSelectionView`. #809 found this second
+instance too and left it for its own change. In jsdom such a callback can fire after teardown, and
+vitest fails the run on that unhandled error while still reporting every test as passing.
+
+A second leak lived in the same slot. The button is disabled only once a call resolves, so a
+double-click sends two calls. Each response armed a timer into the one
+`timerRefs.current[jobKey]` slot without clearing the previous id, and the cost was visible. The
+first response's timer ended the confirmation at 2 s, which re-enabled the button. The second
+response's timer was still pending, due at 2.5 s. A fresh Run Now pressed in that half-second had
+its confirmation wiped by it, well short of its own two seconds. The first timer, meanwhile, was out
+of the unmount cleanup's reach.
+
+**The fix is the repo's existing idiom, adapted per job.** Each job's button is now a small
+`RunNowButton` that owns its own `triggered` state and dismisses it from an effect keyed on that
+state — the shape of #809's success banner and `RegisterPage`'s cooldown. An effect never
+runs after unmount, so the arm-after-await window is gone and no `isMounted` guard is needed. #809's
+review rejected that guard as a pattern React discourages. A second response while the confirmation
+is showing sets `triggered` to the value it already holds. The effect's deps then compare equal, so
+it does not re-run, and there is only ever one timer per button. The `timerRefs` and
+`triggeredJobs` maps are both gone.
+
+**Seven tests.** Three fail against `main`'s component, each for the reason it names:
+
+- a timer still pending after an unmount mid-call
+- an orphan still pending after a double-click
+- a fresh confirmation wiped at 2.5 s
+
+The other four pin behaviour `main` already had right, so the new structure cannot regress it:
+
+- the delay: still showing at 1999 ms, gone at 2000 ms
+- the unmount cancelling a dismiss that is really pending
+- the error path
+- the confirmation staying on the job that was triggered
+
+**Mutated eleven ways, and ten are killed.**
+
+- Dropping the effect's cleanup.
+- A shorter delay and a longer one.
+- Empty deps.
+- An effect that never arms the dismiss.
+- Moving the timer back into the handler with no cleanup: four tests reject it. `main`'s own shape, which adds the unmount cleanup, fails the three above.
+- Dropping the disable-while-triggered.
+- Swallowing the error.
+- Dropping the poll interval's `clearInterval`, which the "nothing left on the clock" assertions also count.
+- Disabling the button while a call is in flight. This is a plausible follow-up rather than a bug, and it fails only the two double-click tests, whose premise it removes.
+
+The eleventh, dropping the effect's `!triggered` guard, **survives, correctly**. It only arms an
+idle timer that sets `false` to `false`, which the unmount then cancels, so it is an equivalent
+mutant.
+
+The timer tests run on a frozen fake clock rather than `shouldAdvanceTime`, which would charge real
+elapsed time against the window under test. Review found that a queued `mockReturnValueOnce`
+survives `vi.clearAllMocks()`, so a test that failed before consuming its deferred call handed that
+never-settling promise to the next test's click. The in-flight-guard mutant showed it: the
+unrelated error test failed. The block now resets the mock in `beforeEach` and releases any
+outstanding call in `afterEach`.
+
+**Tested, not seen.** No browser check was made for this change. Everything above is tested. The
+`RunNowButton` markup is unchanged from `main`'s button: the same classes, `data-testid`, text and
+`disabled` rule.
+
+### Removed — six optimisation strategies unable to act since v2.7.2, and the claims made for them
+
+The Run Config screen's **Cost Optimisation** panel listed eight toggles. A deliberate trace found
+that six of them had been unable to affect any run for five months, and that the panel never
+touched the scheduled batches at all.
+
+**What was dead, and how it got that way.** `SKIP_LOW_RATED`, `SKIP_EXISTING`, `FORCE_IMMINENT`,
+`FORCE_STALE`, `EVALUATE_ALL` and `NEXT_EVENT_ONLY` were evaluated only inside
+`OptimisationSkipEvaluator.shouldSkip`. They did act at first (V41, 2026-03-03), skipping slots on
+hand-started runs. v2.7.2 (2026-04-06) put that call behind `!triggeredManually`, deliberately:
+`SKIP_LOW_RATED` was dropping locations from an explicit Run Forecast. Every caller of that engine —
+the five `ForecastController` endpoints that reach it — passes `manual = true`, and its scheduled
+triggers had been retired on 2026-02-27, before the strategies existed. So from v2.7.2 none of the six
+could act on any path. They are removed, along with the evaluator, the never-built `BATCH_API`
+placeholder and every mutual-exclusion rule (the two survivors are independent). **V153** deletes
+their rows; because the enum values go in the same change and `strategy_type` maps through
+`@Enumerated(STRING)`, a row left behind would make Hibernate throw on read.
+
+**What stays, and what it actually does.** `SENTINEL_SAMPLING` and `TIDE_ALIGNMENT` are read straight
+from the enabled set, outside that guard, so they do act — on hand-started runs only: the
+Very-Short-Term, Short-Term and Long-Term runs on Job Runs, and Run Forecast on a map location.
+Scheduled batches, overnight and intraday, read neither: all five of their calls into
+`fetchWeatherAndTriage` pass `tideAlignmentEnabled = false`, and they have no sentinel phase. A
+hand-started run's rows are still served by `GET /api/forecast`, so what these toggles change can reach
+readers. The panel now says all of this on screen.
+
+**Claims corrected.**
+- `TIDE_ALIGNMENT` was labelled "Weather/Tide Triage", described as applying four checks, and said to
+  give a slot "a canned 1★ result". Weather triage runs unconditionally, the switch only adds the tide
+  check, and a tide-triaged slot is stood down with no rating at all. It is now "Tide Triage", and its
+  help text says each of those things.
+- The run confirmation dialog warned that "JFDI (Always Evaluate Today)" or "Next Event Only" would
+  override the reader's slot selection. That was never true: a deselected slot is excluded before any
+  strategy is consulted (`excludedSlots.contains(...) || … || shouldSkip(...)`), so no strategy could
+  bring one back — and after v2.7.2 none was consulted on these runs at all. The warning had no test.
+  It is gone. (It also named `FORCE_IMMINENT` "JFDI", which was `EVALUATE_ALL`'s label.)
+- CLAUDE.md's "active strategies snapshot on each job_run" is never written on a current path: all
+  five endpoints pre-create the run with a null snapshot, so the job_run holds no record of which
+  strategies a run used (the executor still logs them at INFO). CLAUDE.md now says so; the snapshot
+  itself is left as it is.
+
+**Fixed along the way.**
+- **A request body the server cannot read now returns 400, not 500 — app-wide.**
+  `GlobalExceptionHandler`'s catch-all turned `HttpMessageNotReadableException` into a 500 for any
+  malformed body, the same gap it had already closed for missing parameters. Retiring the enum values
+  made it reachable a new way: a stale client naming one sends a body that cannot be read. The
+  response message is fixed and nothing is logged, so caller-supplied content is neither echoed nor
+  written to the logs. Outbound read failures and server-side converter errors stay 500 — Spring wraps
+  them in other exception types.
+- **The sentinel threshold's buttons** fell back to 3 when no value was stored — Skip Low-Rated's
+  default. The sentinel's is 2, so the panel highlighted a threshold the run was not using. They also
+  now expose `aria-pressed`, and each strategy toggle has an accessible name and the scope note as
+  its description; before, a screen reader heard only "ON" or "OFF".
+- **Local dev no longer breaks on the retired rows.** It runs no migrations, so V153 never reaches a
+  local H2 database. `OptimisationStrategyService` now deletes the same explicit list at startup, then
+  fills any missing default row — so an existing local database also gains the `TIDE_ALIGNMENT` rows
+  the old seed never wrote.
+- ⚠️ **The startup delete is an explicit list, deliberately.** An earlier cut deleted "every type the
+  enum does not know". That runs on every start in every profile, and production sets
+  `validate-on-migrate: false`, so an older image redeployed against a database that had since gained
+  a newer type would boot and silently, permanently delete that type's rows. Review caught it before it
+  was pushed. Naming the retired types leaves an unknown one to fail loudly on read instead.
+
+**Verification.** V153 is proven against Postgres 17 by a Flyway-driven migration test (stop at V152,
+change a surviving row the way an admin would, apply V153, check every remaining row loads); that needs
+Docker, so it runs in CI only. The startup delete's SQL has its own test against H2, including the
+rollback case. Behaviours pinned by new tests were mutated out during development to confirm each
+test fails without them.
+
+### Changed — the Plan card's BEST BET / ALSO GOOD legend takes the handoff's own greens
+
+The matrix card's border legend now reads `#B6D49F` for BEST BET and `#8CA87A` at 600 for ALSO GOOD
+— the values every bundle from plan-matrix through map-tab-v2 that draws the Plan card specifies
+(`.lg.wb` / `.lg.wa`). It had shipped as `--color-badge-go` (`#A8C795`) and `--color-verdict-go`
+(`#8AAE72`) with no reason recorded anywhere; the pixel audit marked it open and the owner chose the
+handoff. ⚠️ "Every bundle" needs its qualifier: `temperature-scale` falls inside that range and
+draws no card — the second time that bundle has falsified an unqualified claim in this series.
+
+**Measured on the grounds a pick can actually occupy** — the legend inherits the card's verdict
+tint, resting, hovered and open, and ALSO never sits on a Poor card because the runner-up is
+suppressed there:
+
+| | before | after |
+|---|---|---|
+| BEST | 6.84–8.79:1 | 7.84–10.07:1 — up on every ground |
+| ALSO | 5.09–5.93:1 | 4.86–5.66:1 — ⚠️ down on every ground |
+| BEST vs ALSO | 1.34:1 | 1.61:1 — further apart |
+
+ALSO still clears AA, but its margin over 4.5:1 shrinks from 0.59 to 0.36 at a hovered Worth-it
+card. The first draft of this change gave BEST a before-and-after and ALSO only its floor, which
+presented the trade favourably by omission; an adversarial review caught it.
+
+**What it costs, and why it may be worth revisiting.** BEST BET used to read `#A8C795`
+*identically* on four surfaces — this legend, the popup's pick badge, `WindowPickDialog`'s kind
+label and the Map medallion. This moves the legend alone, so BEST now differs from the other
+three. The handoff specifies exactly that (its popup badge is `#A8C795`, and map-landing gives the
+medallion the same), so it is the design rather than drift — but it breaks a match the code had.
+And the codebase has turned this shade down once before: `.wf-seg-rating .wf-seg-btn.on` declines
+the handoff's `#B5CFA3` as "a difference nobody can see", and `#B6D49F` is 6.5 RGB units from it.
+ALSO GOOD was never one colour — its popup badge and dialog are `--color-badge-also` (`#B3BEEA`,
+blue) — and that split is unchanged.
+
+Verified in real headless Chromium, with the legend built inside real card ancestry so
+`background: inherit` resolved against a genuine verdict tint: BEST computes to
+`rgb(182, 212, 159)` at 700, ALSO to `rgb(140, 168, 122)` at 600, and the tint gradient is
+confirmed inherited (not just the base colour). The Map medallion and landing pick were probed as
+controls and are unchanged at `#A8C795` / `#8AAE72`. No test pins any of these colours; the
+legend's tests assert tag, text and `data-pick` only.
+
+### Docs — `PAST_WINDOW_DAYS`'s javadoc states the reasons it actually has
+
+The javadoc on `ForecastController.PAST_WINDOW_DAYS` justified keeping the list endpoint's two-day
+past window with two claims that had both stopped being true. "The strip keeps two dimmed chips"
+described the DateStrip, which has been retired. And "not zero, for a timezone reason" rested on
+`computeAutoSelection` picking the browser's *local* date, so a reader west of the UK could ask for
+T-1 — but it has read the UK calendar (`ukDateStr`) for some time, so both sides of that comparison
+are `Europe/London`. That left the javadoc's only "not zero" argument false, and a reader following
+it could reasonably have set the value to 0.
+
+⚠️ **That would have broken two things the frontend now depends on, neither visible from the
+backend.** The aurora night in progress is *yesterday's* date before dawn, and #803's
+`resolveMapDate` honours a selection naming that night only if the date is in the set this endpoint
+returns — so at zero the Map tab would silently fall through to today and lose its aurora viewline on
+the night the alert is about. And during a forecast outage, the past rows are what keep the client's
+date set non-empty, which is what keeps the Map tab reachable at all rather than withheld.
+
+⚠️ **The two need different depths, and the first cut of this javadoc said they didn't.** The aurora
+night needs exactly one day — the night in progress began at most yesterday. The outage case scales:
+the Map tab stays reachable for exactly `PAST_WINDOW_DAYS` days after the last forecast date passes,
+so each past day buys a reader who has been away one more day of the empty state instead of a missing
+tab. The first revision claimed both needed one day and called a reduction to 1 "a payload decision
+rather than a correctness one"; Codex caught it on #816 before it merged, pointing out that
+`allDates.length` is itself a reader that depends on the second day in a multi-day gap. The javadoc
+now says reducing the value is **not** correctness-neutral. It also records that
+`BriefingEvaluationController` shares the constant, so changing it moves both endpoints, and that
+`/history` is the ADMIN-only backtesting endpoint.
+
+No value changed.
+
+### Docs — the matrix-axis plan says it shipped
+
+`docs/engineering/matrix-axis-plan.md` still opened with **"Status: planned, not started"** twelve
+days after both of its phases merged. It now records that the series completed on 2026-08-30, the
+same day the plan itself landed (#707): Phase 1, the sunrise/sunset card chips, as #708
+(`37cc964f`), and Phase 2, the row rails and sticky headings, as #710 (`e540680d`).
+
+The same stale status was also held in the project's working notes, which is how it surfaced: a
+"what's next" survey nearly listed Phase 2 as outstanding work. A plan header is read as a
+statement about the code, so a wrong one is worse than a missing one — it invites a session to
+rebuild something that already exists. Checked against `gh` rather than against the prose.
+
+No other plan in `docs/engineering/` opens with a "planned, not started" header.
+
+### Fixed — the map's live aurora state no longer answers for a night it doesn't describe
+
+Two aurora sources feed the map and they are not the same kind of thing. Stored results are fetched
+per night, so they always describe the night on screen. The live scores come from
+`getAuroraLocations()`, which takes **no date parameter at all** — it is the NOAA-triggered state for
+the night in progress, fetched only while an alert is running. Read unconditionally, that live cache
+answered for whichever night the reader was looking at.
+
+Browse to a future night with no stored run during an alert, and four places carried *tonight's* live
+stars and narrative as though they were that night's: the rating (which falls back to the live cache
+after stored results), the aurora medallions, the "🏆 best location" card — naming tonight's best,
+with its star count and a "Centre map" button — and the Plan-tab overlay's aurora popup. The same
+class of defect as #803's stale-window ratings: a rating answering for a window it does not belong
+to, through a source with no date to check. Recorded as a known open item in #803's own entry.
+
+One named predicate, `liveAuroraOnScreen` (`nightDate === auroraNight`), now gates every read of the
+live cache, and the aurora viewline — the same live NOAA state, which was already gated on exactly
+this comparison — reads it too, so the scores and the viewline cannot come to disagree about which
+night is live. On any other night the medallions and the overlay's popup show that night's own
+**stored** result, and the card is withheld.
+
+⚠️ **The first cut withheld the popup's score instead, and Codex caught it.** `MarkerPopupContent`
+reads a null aurora score as "Not suitable for aurora photography", so on a non-live night a
+medallion wearing that night's stored 4★ opened a popup denying the night outright — swapping wrong
+data for a false negative. The popup now takes exactly the answer the medallion does, so the two
+agree on every night. The stored record carries no `cloudPercent`, which the popup's PropTypes marked
+required despite never rendering it; that contract was relaxed — a documentation fix only, since
+React 19 does not run propTypes at runtime (measured: an omitted required prop warns nothing).
+
+⚠️ **And a second Codex pass found stored results could answer for the wrong night too.** The
+stored-results fetch had no cancellation and never cleared on a night change, so two things could
+put one night's stars on another: a **stale window** (switch A → B and, until B's request resolved,
+A's results were still on hand) and a **late response** (A's request finishing after B's wrote A's
+stars in as B's, where they stayed until the next selection). Both predate this change, but it newly
+surfaced them — the medallions and popup now read stored results on every non-live night. The effect
+now clears on every change and drops any response whose night is no longer on screen, the same
+fetch-cancel shape the file's multi-date preview effects already use. Each half is pinned by its own
+test and fails on its own when reverted. ⚠️ The stale-window test's first form asserted on
+`markerLabelAndColour` and passed with the fix deleted: `makeMarkerIcon`'s module-level cache is keyed
+on the rating, so night B showing A's stale 4 reused A's cached icon and the spy was never called. It
+asserts the marker **count** instead, which that cache cannot fool.
+
+⚠️ **The astro twin is NOT fixed here.** The single-night astro fetch is structurally identical and
+has the same race. It is outside this change's scope — nothing here touches the astro path — and is
+named so it reads as a known open item rather than something overlooked.
+
+⚠️ **Tonight is untouched at every reader.** Where the night on screen *is* the night in progress,
+each reader keeps the precedence it had — the rating stored-first, the medallions and popups
+live-only. That those differ on tonight is pre-existing and a separate question (which source is
+authoritative while both exist); this change only stops the live cache answering for a night it was
+never about.
+
+⚠️ **The overlay is gated too**, unlike #803's solar gate, and deliberately. That exemption rested on
+structure — the overlay builds no EV list for a solar-row predicate to consult. Nothing comparable
+applies here: `nightDate` and `auroraNight` are both fully defined on the overlay, and showing
+tonight's aurora for another night is wrong on any surface. It changes nothing on the night the
+overlay's aurora is normally reached, via the banner, which is the night in progress.
+
+⚠️ **The first test harness made the whole suite meaningless, and the controls are what caught it.**
+Aurora mode requires a live alert (`active: true`) or a stored run; without either, `MapView` enters
+aurora mode and immediately bounces back to SUNSET. The harness omitted `active`, so every aurora
+surface rendered nothing on *any* night — the three "withheld on another night" tests passed
+trivially while all four "shown tonight" controls failed. Mutation testing then found three more
+blind spots: a second guard on the medallions that could never fire (inlined rather than kept); a
+popup negative that was vacuous, because a popup renders only inside a visible marker and there was
+none; and a predicate keyed on `date` rather than `nightDate` that passed everything, because every
+case had the two equal. A test now reaches the one case that separates them — a night the window
+control keeps local — and pins the viewline there too, whose own comment records `date ===
+auroraNight` as a real shipped bug that no test had ever distinguished. Ten mutants, all killed.
+
+### Fixed — the map's astro scores answer for the night they were fetched for
+
+The single-night astro fetch had the race #814 fixed in the stored-aurora fetch beside it — the
+"astro twin" that #814's own entry named as a known open item. Its scores answer for one night, and
+every astro reader takes them as the night on screen's: the rating accessor (and through it the
+tab's pins, labels, callout and counts), the astro heat field, and both overlay popups. One night's
+stars could stand in for another's two ways: a **stale window** (switch night A → B and, until B's
+request resolved, A's scores were drawn as B's) and a **late response** (A's request finishing after
+B's wrote A's stars in as B's, where they stayed until the next selection).
+
+The effect now takes #814's shape exactly: it clears on every night or mode change, before the new
+request is made, and a `cancelled` flag drops any response — or failure — whose night is no longer
+the one on screen.
+
+⚠️ **While B loads, the tab says nothing is rated for it — and one surface says so too firmly.** It
+is what first entry into astro mode already showed, until B's answer lands: in Heat view the "This
+event is not scored yet" line and, with a location selected, the callout's "Not scored yet" — which
+can sit beside a strip cell already showing B's star from the window control's preview. The
+callout's own rule is "Loading…" while a fetch is in flight, but its flag follows the solar fetch
+alone, so an astro night step now reads "unscored" for one round trip where it used to show the
+previous night's star. #814 left the same gap on the aurora side. A night-aware loading state for
+both is a follow-up, not part of this change.
+
+Pinned by three tests in `MapViewAstroNightFetch.test.jsx`, each asserting a marker count rather
+than a `markerLabelAndColour` spy — `makeMarkerIcon`'s module-level cache is keyed on the location
+and its rating among other things, so a stale 4★ can reuse a cached icon and never reach the spy.
+⚠️ **The third goes past #814's pair on purpose.** A late *failure* for night A ran the unguarded
+`.catch`, which cleared night B's scores after B had answered, and neither of the other two tests
+reaches that branch. Mutation-checked: reverting the clear fails only the stale-window test;
+reverting the cancellation fails the late-response and late-failure tests; dropping the `.then`
+guard alone fails only the late-response test, the `.catch` guard alone only the late-failure test,
+and the cleanup both; and the pre-fix effect fails all three. ⚠️ **Each test settles its late
+request inside an *async* `act`, and that is load-bearing — measured:** with a synchronous `act`,
+both late tests pass with their guard deleted, because the late write lands after `act` has returned
+and is never committed before the assertion.
+
+### Fixed — the codebase's accessible-name comments now say what browsers actually do
+
+An audit of the frontend's `{' '}` separators found the comments explaining them mostly wrong, in
+three distinct ways — and found my own v2.20.4 correction wrong about its mechanism. Comments only:
+the production bundle is byte-identical to `main`'s.
+
+**The rule**, measured in Chromium, WebKit and Firefox at 1280px and 375px against the real
+stylesheet, by removing separators one at a time from DOMs captured from the components' own
+tests, with positive controls that had to glue and no disagreement between engines or widths: a
+separator matters only between plain `display: inline` content — inline elements or text runs.
+There it changes the accessible name, or the text a screen reader reads aloud where the element
+has no name. Next to a block, a flex or grid item, an atomic inline (`inline-block`/`-flex`/
+`-grid`) or an absolutely positioned element such as `sr-only`, the engine supplies the space
+itself. Text, an `aria-hidden` element, then text, inside a block parent, also glues.
+
+**Limits, stated because both bit.** A separator in a state no test renders was not measured, and
+nor was any separator followed directly by text — the capture could not isolate one, because the
+two merge when a DOM is re-parsed. Review found a site of the second kind: `MapBreadcrumb`'s
+window label ("Tonightsunset"), which the rule predicts and this change now marks load-bearing.
+
+**Three false beliefs, corrected where they were stated:**
+
+- *"Load-bearing"* on separators the engines space anyway — between flex, grid or `inline-flex`
+  items in `WindowControl` (twice, and its test), `MapBreadcrumb` and `WindowComingUpConditions`'
+  cells, and beside an absolutely positioned `sr-only` span in `MapCallout`.
+  `WindowControl`'s worry that breakpoint rules make these volatile was checked: three rules do
+  hide or reposition parts of the control, but none changes `.wf-win-pill`'s own `display: flex`.
+- *"Accname trims each element's contribution"* — true of jsdom's `dom-accessibility-api`, false of
+  every browser: `<span>Plan </span><span>Map</span>` reads "Plan Map". Corrected in
+  `WindowControl`, `MapCallout`, `MapBreadcrumb`, `MapLandingCard`, `LocationFourDaySheet`,
+  `WindowRowFieldMap` and the handoff row.
+- *"A pseudo-element is not in the accessibility tree"* (`MapCallout`, `MapBreadcrumb`) — generated
+  content is in the name; even `content: " "` separates words.
+
+`WindowFirstHeatStrip` held the inverse error — that name-from-contents over its flex and grid
+spans would glue in a browser. Its visible spans carry no separators and read "SUNSET 21:11 Worth
+it Spread Best nothing in reach" in all three engines. Its `sr-only` sentence is still right, and
+its comment now gives the real reason: a day word, pauses, and no stray chart label. A test in
+`jobRunSlotDatesAbroad` called jsdom's "🌅 Sunrise(past)" how the label "really reads"; a browser
+reads "🌅 Sunrise (past)".
+
+**Why the suite disagrees with browsers — corrected for the second time.** The polyfill applies the
+browsers' own `display` rule, but reads `display` from jsdom, which has no layout engine: it never
+blockifies a flex or grid item or an absolutely positioned element, so those read as `inline` even
+with a stylesheet loaded, and this suite loads none (`css: false`). v2.20.4 said the polyfill
+glues regardless of layout, which is wrong — and the difference is not simply the missing
+stylesheet either, since loading one would not blockify a single flex item. v2.20.4 also said the
+Coming up card blockifies everything that carries text — false whenever a tide chart renders.
+
+**The load-bearing separators were the uncommented ones.** `WindowComingUpConditions`' name and
+cadence ("Coastal tidesdeterministic"), the tide chart label ("5.2 m+1.9 vs avg"), `RegisterPage`'s
+terms checkbox ("…Conditions andPrivacy Policy") and `MapBreadcrumb`'s window label carried no note,
+while the warnings sat on inert separators — so the comments pointed the wrong way for anyone
+deciding which ones matter. Each now says so, and `WindowFirstComingUpHandoff`'s class doc carries
+the rule in full. No separator was removed.
+
+### Fixed — a tide-gated window now says why it has no score, instead of wearing its region's prose
+
+Seaham Chemical Beach, Saturday 19 September sunrise: every neighbour rated 4★, Seaham "Not
+scored yet", and under it a Claude paragraph about high cirrus and "the evaluated 53 spots". The
+paragraph was the **region's** sky gloss, which the location sheet and the map callout both use to
+fill any unscored window, unlabelled — so it read as a narrative about Seaham with no score to go
+with it. The disposition trail had the answer on both cycles: `SKIPPED_HARD_CONSTRAINT · Tide
+mismatch`. Seaham wants low water, sunrise fell at mid tide (HW 09:19, 2h35 after), and the tide
+gate is the one hard constraint that still withholds a slot from Claude. Nothing on screen said so.
+
+- **Backend** — `BriefingSlot.evaluationGate`: the pipeline's own reason a slot was withheld, in
+  words, built by `TideWording.tideGatePhrase` from the location's tide preference, the derived
+  state and the slot's existing nearest-extreme phrase: `Tide not right at sunrise · needs low
+  water, mid tide instead · HW 09:19 · 2h35 after sunrise`. Set in `BriefingSlotBuilder` by asking
+  `BriefingGatingPolicy` about the finished slot (new `hardConstraintReason`, decoded, so a future
+  second constraint is never served in the tide's words), never by re-deriving the rule. Nullable,
+  `NON_NULL`-serialised, rides `daily_briefing_cache` with no migration; a pre-field payload reads
+  as null, which the client treats as "unknown", never "eligible". `withClaudeScores` carries it.
+- **Coverage** — a withheld slot never expected a rating, so it no longer counts in the coverage
+  denominator: `BriefingSlot.couldCarryRating` is now the one predicate behind both
+  `BriefingHonestyFilter` and the confidence roster. Before this, an all-tide-mismatched coastal
+  region was blanked as a batch *failure* — slots emptied, every served gate discarded, "too
+  unsettled to evaluate" printed for a tide — and a region at mid tide read low-confidence for a
+  shortfall no cycle could close.
+- **Location sheet** — a gated row says "Not scored" (no "yet": nothing is coming), then the gate
+  sentence in mono with a tide-coloured `≈`, then the region's gloss labelled "Northumberland &
+  Tyneside sky ·" — so the reading is "the sky could be good, shame about the tide" rather than a
+  contradiction. A borrowed gloss is labelled on every unscored window, gated or not. A cached
+  rating outranks the gate on the same slot: the rating is evidence, the gate a later build's
+  decision.
+- **Map callout** — the same sentence above the reason prose, the same "Not scored" header, the
+  same owner label inside the reason button's accessible name (which is why that label is the
+  first kicker in the app *not* CSS-uppercased: a transformed "SKY" reads as an initialism). Fed by
+  a new `buildEvaluationGateIndex` over the same `briefing.days` as the pane's other indexes, and
+  listed in the callout's repaint dependencies so a briefing landing after a cold-load tap
+  re-measures the card.
+- **Script** — `scripts/diagnose-stale-forecast.sh` no longer passes `-i` to `docker exec`; it
+  swallowed the rest of the script when piped over `ssh host 'bash -s'`, so the documented
+  invocation stopped after Q1 with no error.
+
+Adversarial review before commit: four lenses, thirteen findings, ten fixed (the honesty-filter
+blanking, the callout's "yet", the dim-list omission, the flex-gap margin, the repaint dependency,
+the uppercase kicker, the copy register, the tide-only wording under a generic name, the untested
+`&&` halves and `withClaudeScores` path, the night-row test that passed for the wrong reason). Not
+fixed, recorded: the callout header's rating can come from the synchronous engine where the sheet
+reads only the batch scores, so on a slot only that engine rated the two surfaces can still differ
+about the gate — the dual-engine gap, not this change's to close.
+
+
 ## [v2.20.5] - 2026-09-11
 
 ### Fixed — the Plan search row's selected fill now takes the design's gold

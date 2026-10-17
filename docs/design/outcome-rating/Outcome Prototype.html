@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PhotoCast — rate a forecast · prototype v2 (map window control)</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#181210;--surface:#221A15;--surface-light:#2A2019;--panel:#1E1712;--border:#3A2C23;--border-light:#4A3A2E;--ink:#F2E7D3;--ink-2:rgba(242,231,211,.66);--ink-3:rgba(242,231,211,.42);--go:#8AAE72;--marginal:#E0A542;--poor:#C8452F;--tide:#6FA8B0;--home:#C9A24B;--coral:#E8593F;--dawn:#8FA8C4;--star:#E5A00D;--off:#4A3A2E;--sel:rgba(229,160,13,.12);--sans:'IBM Plex Sans',system-ui,sans-serif;--serif:'Newsreader',Georgia,serif;--mono:'IBM Plex Mono',monospace}
+html,body{background:#0e0b09;color:var(--ink)}
+body{font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased;padding:20px 16px 60px}
+a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+.demobar{max-width:1240px;margin:0 auto 10px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+.demobar .grp{display:flex;gap:4px;align-items:center}
+.demobar .grp>span{margin-right:4px;letter-spacing:.08em;text-transform:uppercase}
+.demobar button{border:1px solid var(--border);background:var(--surface);color:var(--ink-2);border-radius:7px;padding:6px 10px;font-family:var(--mono);font-size:10.5px}
+.demobar button:hover{border-color:var(--border-light);color:var(--ink)}
+.demobar button.on{border-color:rgba(201,162,75,.55);background:rgba(201,162,75,.12);color:#EBD9A8}
+.demobar .sp{margin-left:auto}
+.hint{max-width:1240px;margin:0 auto 14px;font-size:13px;color:var(--ink-2);text-wrap:pretty}
+.hint b{color:var(--ink);font-weight:600}
+.wrap{max-width:1240px;margin:0 auto}
+.wrap.mob{max-width:390px}
+.frame{position:relative;display:flex;flex-direction:column;height:760px;overflow:hidden;background:var(--bg);border:1px solid var(--border);border-radius:12px}
+.wrap.mob .frame{height:812px;border:none;border-radius:26px;box-shadow:0 0 0 8px #241c17,0 24px 56px rgba(0,0,0,.6)}
+.status{display:none;justify-content:space-between;padding:9px 18px 3px;font-family:var(--mono);font-size:9.5px;color:var(--ink-3);flex:none}
+.wrap.mob .status{display:flex}
+.mast{background:linear-gradient(180deg,#241B16,#1B1411);padding:10px 20px 0;border-bottom:1px solid var(--border);flex:none}
+.wrap.mob .mast{padding:6px 13px 0}
+.c-w{font-family:var(--serif);font-weight:600;font-size:22px;line-height:1;letter-spacing:-.022em;color:#F9F1E2}
+.wrap.mob .c-w{font-size:18px}
+.c-rule{margin-top:9px;height:4px;border-radius:2px;background:linear-gradient(90deg,#26313F 0%,#4A3550 9%,#B4553C 19%,#E8593F 25%,#E0A542 33%,#F2E7D3 50%,#E0A542 66%,#E8593F 74%,#7C4A56 84%,#2E3446 93%,#26313F 100%)}
+.tabs{display:flex;gap:6px;padding:8px 0 0}
+.tab{font-size:12.5px;font-weight:500;color:var(--ink-2);border:1px solid var(--border);border-bottom-width:0;background:var(--panel);border-radius:8px 8px 0 0;padding:7px 13px}
+.tab.on{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:inset 0 2px 0 var(--home)}
+/* map */
+.mapwrap{position:relative;flex:1;overflow:hidden;background:repeating-linear-gradient(135deg,#1a1512 0 14px,#1d1714 14px 28px)}
+.mapwrap .ml{position:absolute;right:12px;bottom:10px;font-family:var(--mono);font-size:9.5px;color:var(--ink-3)}
+.pin{position:absolute;transform:translate(-50%,-50%);width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-weight:700;font-size:11px;color:#1a1209;box-shadow:0 0 0 2px rgba(0,0,0,.55),0 3px 10px rgba(0,0,0,.5);z-index:2}
+.pin .st{font-size:.62em;margin-left:1px;opacity:.85}
+.pin.go{background:var(--go)}.pin.mid{background:var(--marginal)}.pin.poor{background:var(--poor);color:#F9F1E2}
+.pin.on{box-shadow:0 0 0 2px #0e0b09,0 0 0 4px var(--home),0 3px 10px rgba(0,0,0,.5)}
+.pin .mine{position:absolute;top:-7px;right:-9px;font-size:9px;font-weight:700;background:#0e0b09;color:var(--star);border:1px solid var(--border-light);border-radius:6px;padding:0 3px;line-height:14px}
+.loc{position:absolute;transform:translate(18px,-50%);font-size:11px;font-weight:600;color:var(--ink);background:rgba(20,15,12,.82);border:1px solid var(--border);border-radius:5px;padding:2px 6px;white-space:nowrap;pointer-events:none;z-index:1}
+.wrap.mob .loc{font-size:10px;padding:2px 5px}
+.loc.lf{transform:translate(calc(-100% - 18px),-50%)}
+/* window control */
+.bar{position:absolute;z-index:20;display:flex;gap:6px;align-items:center}
+#gwin{top:12px;left:12px}
+.wrap.mob #gwin{left:10px;right:10px}
+.pill{display:flex;align-items:center;gap:9px;background:rgba(24,18,15,.92);border:1px solid var(--border);border-radius:9px;padding:6px 10px;font-family:var(--mono);font-size:11.5px;color:var(--ink-2);white-space:nowrap;backdrop-filter:blur(7px);min-height:36px}
+.pill:hover{border-color:var(--border-light);color:var(--ink)}
+.pill.open{border-color:rgba(201,162,75,.55);color:#EBD9A8}
+.wrap.mob .pill{flex:1;min-width:0;min-height:40px;justify-content:center;overflow:hidden}
+.step{font-family:var(--mono);font-size:15px;line-height:1;color:var(--ink-2);background:rgba(24,18,15,.92);border:1px solid var(--border);border-radius:9px;width:32px;min-height:36px;backdrop-filter:blur(7px);flex:none;position:relative}
+.step:hover:not(:disabled){border-color:var(--border-light);color:var(--ink)}
+.step:disabled{opacity:.3;cursor:default}
+.wrap.mob .step{width:40px;min-height:40px}
+.wk{font-family:var(--mono);font-size:8.5px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;padding:3px 5px;border-radius:4px;flex:none}
+.wk.am{color:var(--dawn);background:color-mix(in srgb,var(--dawn) 16%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--dawn) 30%,transparent)}
+.wk.pm{color:#EE8064;background:color-mix(in srgb,var(--coral) 16%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--coral) 30%,transparent)}
+.wl{font-size:12.5px;font-weight:600;color:var(--ink);font-family:var(--sans);letter-spacing:-.01em;flex:none}
+.wt{font-family:var(--mono);font-size:11.5px;color:var(--ink-2)}
+.wv{font-family:var(--mono);font-size:10.5px;font-weight:600}
+.wv.go{color:var(--go)}.wv.mid{color:var(--marginal)}.wv.poor{color:#E07A66}
+.wpast{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);border:1px solid var(--border-light);border-radius:4px;padding:1px 5px}
+.cv{font-size:9px;color:var(--ink-3)}
+.wrap.mob .pill .wv{display:none}
+.menu{position:absolute;z-index:30;background:rgba(22,17,13,.97);border:1px solid var(--border-light);border-radius:11px;box-shadow:0 24px 56px rgba(0,0,0,.7);display:none;overflow:hidden}
+.menu.on{display:block}
+#wmenu{top:56px;left:52px;width:334px;max-height:calc(100% - 80px);overflow-y:auto}
+.wrap.mob #wmenu{left:10px;right:10px;top:58px;width:auto}
+.wday{font-family:var(--mono);font-size:8.5px;font-weight:600;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3);padding:8px 11px 3px;border-top:1px solid var(--border)}
+.wday:first-child{border-top:none}
+.wday.ear{display:flex;justify-content:space-between}
+.wday.ear span{letter-spacing:0;text-transform:none;font-weight:400}
+.wr{display:grid;grid-template-columns:auto 1fr auto;gap:9px;align-items:center;width:100%;padding:7px 18px 7px 11px;border-left:2px solid transparent;text-align:left;min-height:44px}
+.wr:hover{background:rgba(255,255,255,.045)}
+.wr.on{background:rgba(201,162,75,.13);border-left-color:var(--home)}
+.wr.past .wm b{color:var(--ink-2)}
+.wm b{font-size:12.5px;font-weight:600;letter-spacing:-.01em;display:block}
+.wt2{font-family:var(--mono);font-size:9.5px;color:var(--ink-3)}
+.wsc{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);display:flex;align-items:center;gap:6px;white-space:nowrap}
+.wsc .r{color:var(--star)}
+.wsub{font-family:var(--mono);font-size:9.5px;font-weight:600;color:var(--ink-2);padding:6px 11px 0 13px}
+.wr.more .wm b{color:var(--tide)}
+.wk.lo{color:var(--tide);border:1px solid rgba(111,168,176,.35)}
+/* callout */
+#cal{position:absolute;z-index:25;width:286px;display:none;background:rgba(20,15,12,.965);border:1px solid var(--border-light);border-radius:11px;box-shadow:0 22px 50px rgba(0,0,0,.7)}
+#cal.on{display:block}
+.wrap.mob #cal{width:296px}
+#cal .tail{position:absolute;width:11px;height:11px;background:rgba(20,15,12,.965);border-right:1px solid var(--border-light);border-bottom:1px solid var(--border-light);transform:rotate(45deg)}
+#cal .tail.up{transform:rotate(225deg)}
+.ch{display:flex;align-items:flex-start;gap:8px;padding:9px 10px 8px;border-bottom:1px solid var(--border)}
+.ch .cn b{display:block;font-size:13.5px;font-weight:700;letter-spacing:-.01em;line-height:1.25}
+.ch .cn span{display:block;font-family:var(--mono);font-size:9px;letter-spacing:.05em;color:var(--ink-2);margin-top:3px}
+.cx{margin-left:auto;flex:none;font-family:var(--mono);font-size:11px;color:var(--ink-2);border:1px solid var(--border);border-radius:6px;width:28px;height:28px}
+.wrap.mob .cx{width:36px;height:36px}
+.cb{padding:9px 10px 10px;display:flex;flex-direction:column;gap:8px}
+.cv2{display:flex;align-items:center;gap:7px;border:1px solid;border-radius:8px;padding:6px 8px}
+.cv2.go{border-color:rgba(138,174,114,.5);background:rgba(138,174,114,.1)}
+.cv2.mid{border-color:rgba(224,165,66,.5);background:rgba(224,165,66,.1)}
+.cv2.poor{border-color:rgba(200,69,47,.5);background:rgba(200,69,47,.1)}
+.cvl{font-family:var(--mono);font-size:9.5px;color:var(--ink-2);min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cvs{margin-left:auto;font-family:var(--mono);font-size:12px;font-weight:600;white-space:nowrap;padding:2px 7px;border-radius:5px;color:#1a1209}
+.cvs.go{background:var(--go)}.cvs.mid{background:var(--marginal)}.cvs.poor{background:var(--poor);color:#F9F1E2}
+.cw{font-family:var(--serif);font-size:12.5px;line-height:1.45;color:var(--ink-2);text-wrap:pretty}
+.cwmore{display:block;font-family:var(--mono);font-size:9.5px;color:var(--tide);margin-top:3px}
+.cfacts{display:flex;flex-wrap:wrap;gap:4px 14px;font-family:var(--mono);font-size:10px;color:var(--ink)}
+.cfacts i{display:block;font-style:normal;font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2);margin-bottom:1px}
+.cacts{display:flex;gap:7px}
+.cacts button{flex:1;font-family:var(--mono);font-size:10px;color:var(--tide);background:rgba(111,168,176,.09);border:1px solid rgba(111,168,176,.32);border-radius:7px;padding:6px 8px;min-height:32px}
+.cacts button.pri{color:#EBD9A8;background:rgba(201,162,75,.14);border-color:rgba(201,162,75,.42);font-weight:600}
+.wrap.mob .cacts button{min-height:40px}
+/* rating block */
+.rb{border-top:1px solid var(--border);padding-top:9px;display:flex;flex-direction:column;gap:7px}
+.rq{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.rq b{font-size:13px;font-weight:600}
+.rq span{font-family:var(--mono);font-size:9.5px;color:var(--ink-3);text-align:right}
+.stars{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px}
+.stars button{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:44px;border:1px solid var(--border-light);border-radius:9px;background:var(--panel);line-height:1.05}
+.stars button:hover{border-color:var(--ink-3)}
+.stars .g{font-size:16px;color:var(--ink-3)}
+.stars .d{font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--ink-2)}
+.stars button.cur{border-color:var(--star);background:var(--sel)}
+.stars button.cur .g{color:var(--star)}
+.stars.lock button{opacity:.45}
+.nsb{min-height:40px;border:1px solid var(--border);border-radius:9px;font-size:12.5px;font-weight:500;color:var(--ink-2)}
+.nsb:hover{border-color:var(--border-light);color:var(--ink)}
+.nsb.cur{border-color:var(--star);background:var(--sel);color:var(--ink)}
+.saving{opacity:.55;pointer-events:none}
+.done{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:40px}
+.done .y{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--ink-2)}
+.done .y .g{font-size:15px;letter-spacing:1px}
+.done .y b{color:var(--ink);font-weight:600;font-family:var(--mono);font-size:12px}
+.on-s{color:var(--star)}.of-s{color:var(--off)}
+.chg{min-height:40px;padding:0 12px;border:1px solid var(--border-light);border-radius:8px;font-size:12.5px;font-weight:500;color:var(--ink-2)}
+.chg:hover{color:var(--ink)}
+.err{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-2)}
+.err i{width:8px;height:8px;border-radius:50%;background:var(--marginal);flex:none}
+.wait{font-size:12px;color:var(--ink-3)}
+.pro{font-size:11px;background:var(--surface-light);color:var(--ink-2);padding:1px 8px;border-radius:6px;font-family:var(--sans)}
+.adm{border:1px solid var(--border);border-radius:9px;background:var(--panel)}
+.adm .h{width:100%;display:flex;justify-content:space-between;align-items:center;min-height:36px;padding:0 10px;font-size:12px;color:var(--ink-2)}
+.adm .h span{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.adm .r{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:6px 10px;border-top:1px solid var(--border);font-size:12px}
+.adm .r .g{font-size:12px;letter-spacing:1px}
+.adm .r .t{font-family:var(--mono);font-size:10px;color:var(--ink-3);min-width:64px;text-align:right}
+.adm .r .nsv{font-size:11.5px;color:var(--ink-3)}
+.adm .run{padding:6px 10px;border-top:1px solid var(--border);font-family:var(--mono);font-size:9.5px;color:var(--ink-3)}
+</style>
+</head>
+<body>
+<div class="demobar">
+<div class="grp"><span>View</span><button data-k="view" data-v="mob">Phone</button><button data-k="view" data-v="dt">Desktop</button></div>
+<div class="grp"><span>Role</span><button data-k="role" data-v="PRO">Pro</button><button data-k="role" data-v="ADMIN">Admin</button><button data-k="role" data-v="LITE">Lite</button></div>
+<div class="grp"><span>Now</span><button data-k="now" data-v="thu">Thu 08:15</button><button data-k="now" data-v="sun">Sun 19:30</button></div>
+<div class="grp"><span>Next save</span><button data-k="fail" data-v="0">Succeeds</button><button data-k="fail" data-v="1">Fails</button></div>
+<button class="sp" id="reset">Clear my demo ratings</button>
+</div>
+<p class="hint"><span id="hintx"></span> The app loads <b>today plus two days of history</b>. The map opens on the next window; press <b>‹</b> or open the window menu to step back, then tap a pin. Keep pressing <b>‹</b> past the oldest loaded window to fetch one more day (back to T-4) from the backend.</p>
+<div class="wrap" id="wrap"><div class="frame">
+<div class="status"><span id="clock">08:15</span><span>•••</span></div>
+<div class="mast"><div class="c-w">PhotoCast</div><div class="c-rule"></div><div class="tabs"><span class="tab">Plan</span><span class="tab on">Map</span></div></div>
+<div class="mapwrap" id="map"></div>
+</div></div>
+<script>
+const KEY='pc-outcome-proto3';
+const ui=JSON.parse(localStorage.getItem(KEY+'-ui')||'{}');
+let fetching=false;
+const S={view:ui.view||'mob',role:ui.role||'PRO',now:ui.now||'sun',fail:'0',ei:null,spot:null,menu:false,changing:false,err:false,saving:false,admOpen:false};
+let R=JSON.parse(localStorage.getItem(KEY)||'{}');
+const SCEN={
+ thu:{clock:'08:15',at:'08:15',days:[['tue','TUE',13],['wed','WED',14],['thu','THU',15],['fri','FRI',16],['sat','SAT',17]],today:2,pastEnd:'r',older:[['mon','MON',12],['sun','SUN',11]],hint:'Thursday 08:15. This morning\'s sunrise has passed; tonight\'s sunset hasn\'t.'},
+ sun:{clock:'19:30',at:'19:30',days:[['fri','FRI',16],['sat','SAT',17],['sun','SUN',18],['mon','MON',19],['tue','TUE',20]],today:2,pastEnd:'s',older:[['thu','THU',15],['wed','WED',14]],hint:'Sunday 19:30. All three loaded sunsets (Fri, Sat, Sun) have passed and can be rated.'}};
+let DAYS,EV,extra=0;
+const FULL={MON:'Monday',TUE:'Tuesday',WED:'Wednesday',THU:'Thursday',FRI:'Friday',SAT:'Saturday',SUN:'Sunday'};
+function build(keepEv){
+ const sc=SCEN[S.now],list=[...sc.older.slice(0,extra).reverse(),...sc.days],ti=sc.today+extra;
+ DAYS=list.map(([id,dow,dn],i)=>({id,dow,dn,lbl:i===ti?'Today':i===ti-1?'Yesterday':i===ti+1?'Tomorrow':i>ti?FULL[dow]:dow.charAt(0)+dow.slice(1).toLowerCase()+' '+dn,loaded:i>=extra}));
+ EV=[];DAYS.forEach(d=>{EV.push({d,am:true,name:'Sunrise',time:'07:'+String(d.dn+7).padStart(2,'0')});EV.push({d,am:false,name:'Sunset',time:'18:'+String(28-d.dn).padStart(2,'0')})});
+ const now=ti*2+(sc.pastEnd==='s'?1:0);
+ EV.forEach((e,i)=>e.past=i<=now);
+ if(keepEv==null)S.ei=now+1<EV.length?now+1:now;else S.ei=keepEv;
+}
+build();
+const OTHERS={'bam|thu|r':[['mhart',2,'08:40'],['dlowe',null,'08:52']],'stm|wed|s':[['mhart',4,'Wed 18:31']],'sim|tue|r':[['dlowe',3,'Tue 09:02']],'bam|sat|s':[['mhart',4,'Sat 18:40']],'stm|fri|s':[['dlowe',2,'Fri 19:05'],['mhart',3,'Sat 07:50']]};
+const SP=[
+{id:'bam',n:'Bamburgh Castle',r:'North Northumberland',x:.62,y:.16,dr:62},
+{id:'dun',n:'Dunstanburgh Castle',r:'North Northumberland',x:.7,y:.3,dr:55},
+{id:'sim',n:'Simonside',r:'Coquetdale',x:.3,y:.36,dr:44},
+{id:'stm',n:"St Mary's Lighthouse",r:'Tyneside coast',x:.6,y:.55,dr:18},
+{id:'sal',n:'Saltburn Pier',r:'Teesside coast',x:.66,y:.78,dr:58},
+{id:'ros',n:'Roseberry Topping',r:'North York Moors',x:.34,y:.84,dr:61}];
+const WHY=['Thick low cloud sits on the horizon all window; little light gets under it.','Broken mid cloud, but the horizon is blocked, so colour is unlikely to reach the base.','Patchy high cloud over a mostly clear horizon. Some colour if the gap holds.','High cloud breaking from the west, with low cloud clear of the coast at the key time.','Clear horizon under a broad deck of mid cloud. Strong colour likely.'];
+const sc=(s,e)=>((s.id.charCodeAt(0)*7+s.id.charCodeAt(2)*3+e.d.dn*5+(e.am?0:3))%5)+1;
+const tier=v=>v>=4?'go':v>=3?'mid':'poor';
+const vWord=v=>v>=3.7?'Worth it':v>=2.8?'Maybe':'Poor';
+const STARS=n=>{let h='';for(let i=1;i<=5;i++)h+=`<span class="${i<=n?'on-s':'of-s'}">★</span>`;return h};
+const ev=()=>EV[S.ei];
+const sp=()=>SP.find(s=>s.id===S.spot);
+const rk=(id,e)=>`${id}|${e.d.id}|${e.am?'r':'s'}`;
+const kind=e=>e.am?'am':'pm';
+const save=()=>{localStorage.setItem(KEY,JSON.stringify(R));localStorage.setItem(KEY+'-ui',JSON.stringify({view:S.view,role:S.role,now:S.now}))};
+const mean=e=>SP.reduce((a,s)=>a+sc(s,e),0)/SP.length;
+const best=e=>Math.max(...SP.map(s=>sc(s,e)));
+const myCount=e=>SP.filter(s=>R[rk(s.id,e)]).length;
+function rateBlock(s){
+ const e=ev(),k=rk(s.id,e),r=R[k];
+ if(!e.past)return '';
+ const meta=`${e.name} was ${e.d.lbl==='Today'||e.d.lbl==='Yesterday'?e.d.lbl.toLowerCase()+' ':e.d.lbl+', '}${e.time}`;
+ const btns=(cur,lock)=>`<div class="stars ${lock?'lock':''} ${S.saving?'saving':''}">${[1,2,3,4,5].map(i=>`<button data-rate="${i}" class="${cur===i?'cur':''}" aria-label="Rate the ${e.name.toLowerCase()} ${i} out of 5"><span class="g">★</span><span class="d">${i}</span></button>`).join('')}</div><button class="nsb ${cur==='ns'?'cur':''} ${S.saving?'saving':''}" data-rate="ns">Didn't see it</button>`;
+ if(S.role==='LITE')return `<div class="rb"><div class="rq"><b>How was it?</b><span class="pro">Pro</span></div>${btns(0,1)}<p class="wait">${S.err?'Rating is part of Pro.':'Rate how the sky turned out.'}</p></div>`;
+ let h='<div class="rb">';
+ if(r&&!S.changing){
+  h+=`<div class="done">${r.v==='ns'?'<span class="y">You marked this not seen</span>':`<span class="y">You rated <span class="g">${STARS(r.v)}</span><b>${r.v}★</b></span>`}<button class="chg" data-act="change">Change</button></div>`;
+ }else{
+  const sub=S.changing&&r?(r.v==='ns'?'Tap to replace "not seen"':`Tap to replace your ${r.v}★`):meta;
+  h+=`<div class="rq"><b>How was it?</b><span>${sub}</span></div>${btns(S.changing&&r?r.v:0)}`;
+  if(S.err)h+=`<div class="err"><i></i>Not saved. Tap a star again.</div>`;
+ }
+ if(S.role==='ADMIN'){
+  const list=[...(r?[['jgregory',r.v==='ns'?null:r.v,r.at]]:[]),...(OTHERS[k]||[])];
+  h+=`<div class="adm"><button class="h" data-act="adm">All ratings · ${list.length}<span>${S.admOpen?'▴':'▾'}</span></button>`;
+  if(S.admOpen){h+=list.length?list.map(([u,v,t])=>`<div class="r"><span>${u}</span>${v==null?'<span class="nsv">Not seen</span>':`<span class="g">${STARS(v)}</span>`}<span class="t">${t}</span></div>`).join(''):'<div class="r"><span class="nsv">No ratings yet.</span><span></span><span></span></div>';
+   h+=`<div class="run">Rated against the run at ${e.d.dow.charAt(0)+e.d.dow.slice(1).toLowerCase()} ${e.d.dn} Oct, ${e.am?'05:10 · 2h before sunrise':'16:05 · 2h before sunset'}</div>`}
+  h+='</div>';
+ }
+ return h+'</div>';
+}
+function fetchOlder(step){
+ if(fetching)return;const o=SCEN[S.now].older[extra];if(!o)return;
+ fetching=o[1].charAt(0)+o[1].slice(1).toLowerCase()+' '+o[2];S.menu=false;render();
+ setTimeout(()=>{fetching=false;extra++;build(step?1:S.ei+2);S.changing=false;S.err=false;render()},600);
+}
+function hm(t,d){let [h,m]=t.split(':').map(Number);m=h*60+m-d;return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0')}
+function render(){
+ document.getElementById('wrap').className='wrap '+(S.view==='mob'?'mob':'');
+ document.querySelectorAll('.demobar [data-k]').forEach(b=>b.classList.toggle('on',String(S[b.dataset.k])===b.dataset.v));
+ document.getElementById('clock').textContent=SCEN[S.now].clock;
+ document.getElementById('hintx').textContent=SCEN[S.now].hint;
+ const e=ev(),m=mean(e),mob=S.view==='mob';
+ let h='';
+ SP.forEach(s=>{const v=sc(s,e),mine=R[rk(s.id,e)];
+  h+=`<button class="pin ${tier(v)} ${S.spot===s.id?'on':''}" data-spot="${s.id}" style="left:${s.x*100}%;top:${s.y*100}%" aria-label="${s.n}, ${v} stars">${v}<span class="st">★</span>${mine?`<span class="mine">${mine.v==='ns'?'–':mine.v+'★'}</span>`:''}</button>`;
+  if(!mob||s.id!==S.spot)h+=`<span class="loc ${s.x>.55?'lf':''}" style="left:${s.x*100}%;top:${s.y*100}%">${s.n}</span>`;
+ });
+ const moreOlder=SCEN[S.now].older.length-extra>0,pv=EV[S.ei-1]||moreOlder,nv=EV[S.ei+1];
+ h+=`<div class="bar" id="gwin"><button class="step" data-step="-1" ${pv?'':'disabled'} aria-label="Previous window">‹</button><button class="pill ${S.menu?'open':''}" data-act="menu">${fetching?`<span class="wl">Loading ${fetching}…</span>`:`<span class="wk ${kind(e)}">${e.name}</span><span class="wl">${e.d.lbl}</span><span class="wt">${e.time}</span>${e.past?'<span class="wpast">Past</span>':`<span class="wv ${tier(m)}">${vWord(m)}</span>`}`}<span class="cv">▾</span></button><button class="step" data-step="1" ${nv?'':'disabled'} aria-label="Next window">›</button></div>`;
+ let mh='',day='',inPast=true;
+ const moreLeft=SCEN[S.now].older.length-extra;
+ mh+=`<div class="wday ear">Earlier<span>rate how it went</span></div>`;
+ if(moreLeft>0)mh+=`<button class="wr more" data-act="older"><span class="wk lo">↑</span><span class="wm"><b>Load ${SCEN[S.now].older[extra][1].charAt(0)+SCEN[S.now].older[extra][1].slice(1).toLowerCase()} ${SCEN[S.now].older[extra][2]}</b><span class="wt2">or press ‹ past the oldest window · fetches ${SCEN[S.now].older[extra][1].charAt(0)+SCEN[S.now].older[extra][1].slice(1).toLowerCase()} ${SCEN[S.now].older[extra][2]}</span></span><span class="wsc"></span></button>`;
+ EV.forEach((x,i)=>{
+  if(x.past&&x.d.id!==day){day=x.d.id;mh+=`<div class="wsub">${x.d.lbl}</div>`}
+  if(!x.past&&inPast){inPast=false;day=''}
+  if(!x.past&&x.d.id!==day){day=x.d.id;mh+=`<div class="wday">${x.d.dow} ${x.d.dn}${x.d.lbl==='Today'?' · today':''}</div>`}
+  const mc=myCount(x);
+  const right=x.past?(mc?`<span class="r">${mc} rated</span>`:'<span>Not rated</span>'):`<span class="wv ${tier(mean(x))}">${vWord(mean(x))}</span>${best(x)}★`;
+  mh+=`<button class="wr ${i===S.ei?'on':''} ${x.past?'past':''}" data-ei="${i}"><span class="wk ${kind(x)}">${x.name}</span><span class="wm"><b>${x.past?x.time:x.d.lbl}</b>${x.past?'':`<span class="wt2">${x.time}</span>`}</span><span class="wsc">${right}</span></button>`;
+ });
+ h+=`<div class="menu ${S.menu?'on':''}" id="wmenu">${mh}</div>`;
+ if(S.spot){const s=sp(),v=sc(s,e);
+  h+=`<div id="cal" class="on"><div class="tail"></div><div class="ch"><div class="cn"><b>${s.n}</b><span>${s.r} · Seascape</span></div><button class="cx" data-act="close" aria-label="Close">✕</button></div><div class="cb"><div class="cv2 ${tier(v)}"><span class="wk ${kind(e)}">${e.name}</span><span class="cvl">${e.d.lbl} · ${e.time}</span><span class="cvs ${tier(v)}">${v}★ ${vWord(v)}</span></div><div class="cw">${WHY[v-1]}<span class="cwmore">Four days here ›</span></div>${e.past?'':`<div class="cfacts"><span><i>Drive</i>${s.dr} min</span><span><i>Leave by</i>${hm(e.time,s.dr+20)}</span></div>`}${rateBlock(s)}<div class="cacts"><button class="pri">Four days here</button><button>Zoom to it</button></div></div></div>`;
+ }
+ h+=`<span class="ml">map</span>`;
+ document.getElementById('map').innerHTML=h;
+ if(S.spot)place();
+}
+function place(){
+ const map=document.getElementById('map'),cal=document.getElementById('cal'),s=sp(),W=map.clientWidth,H=map.clientHeight;
+ const px=s.x*W,py=s.y*H,cw=cal.offsetWidth,ch=cal.offsetHeight;
+ let left=Math.min(Math.max(px-cw/2,10),W-cw-10),below=py<H*0.45,top=below?py+24:py-ch-24;
+ top=Math.min(Math.max(top,60),H-ch-10);
+ cal.style.left=left+'px';cal.style.top=top+'px';
+ const t=cal.querySelector('.tail'),tx=Math.min(Math.max(px-left-6,14),cw-26);
+ t.style.left=tx+'px';
+ if(below&&top>py){t.classList.add('up');t.style.top='-6px';t.style.bottom=''}else if(!below&&top+ch<py){t.classList.remove('up');t.style.bottom='-6px';t.style.top=''}else t.style.display='none';
+}
+document.addEventListener('click',ev2=>{
+ const t=ev2.target.closest('button');
+ if(!t){if(ev2.target.closest('#map')&&!ev2.target.closest('#cal,#wmenu')){S.spot=null;S.menu=false;render()}return}
+ if(t.dataset.k){const was=S.now;S[t.dataset.k]=t.dataset.v;S.err=false;if(t.dataset.k==='now'&&was!==S.now){extra=0;S.spot=null;build()}save();return render()}
+ if(t.id==='reset'){R={};save();S.changing=false;return render()}
+ if(t.dataset.act==='older'){fetchOlder(false);return}
+ if(t.dataset.step==='-1'&&S.ei===0){fetchOlder(true);return}
+ if(t.dataset.step){S.ei=Math.min(Math.max(S.ei+ +t.dataset.step,0),EV.length-1);S.changing=false;S.err=false;S.menu=false;return render()}
+ if(t.dataset.act==='menu'){S.menu=!S.menu;return render()}
+ if(t.dataset.ei){S.ei=+t.dataset.ei;S.menu=false;S.changing=false;S.err=false;return render()}
+ if(t.dataset.spot){S.spot=t.dataset.spot;S.menu=false;S.changing=false;S.err=false;S.admOpen=false;return render()}
+ if(t.dataset.act==='close'){S.spot=null;return render()}
+ if(t.dataset.act==='change'){S.changing=true;S.err=false;return render()}
+ if(t.dataset.act==='adm'){S.admOpen=!S.admOpen;return render()}
+ if(t.dataset.rate){
+  if(S.role==='LITE'){S.err=true;return render()}
+  const e=ev(),v=t.dataset.rate==='ns'?'ns':+t.dataset.rate,k=rk(S.spot,e),prev=R[k];
+  S.saving=true;render();
+  setTimeout(()=>{S.saving=false;
+   if(S.fail==='1'){S.err=true;S.fail='0';if(prev)S.changing=true;return render()}
+   R[k]={v,at:e.d.lbl==='Today'?SCEN[S.now].at:SCEN[S.now].days[SCEN[S.now].today][1].charAt(0)+SCEN[S.now].days[SCEN[S.now].today][1].slice(1).toLowerCase()+' '+SCEN[S.now].at};S.changing=false;S.err=false;save();render()},350);
+ }
+});
+addEventListener('keydown',e=>{if(e.key==='ArrowLeft'){if(S.ei>0){S.ei--;render()}else fetchOlder(true)}if(e.key==='ArrowRight'&&S.ei<EV.length-1){S.ei++;render()}});
+addEventListener('resize',()=>S.spot&&place());
+render();
+</script>
+</body>
+</html>

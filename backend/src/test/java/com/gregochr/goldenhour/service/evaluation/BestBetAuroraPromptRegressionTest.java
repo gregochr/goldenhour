@@ -20,7 +20,7 @@ import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.RollupResult;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.entity.RunType;
-import com.gregochr.goldenhour.service.BriefingEvaluationService;
+import com.gregochr.goldenhour.service.EvaluationViewService;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
@@ -111,7 +111,7 @@ class BestBetAuroraPromptRegressionTest {
         BriefingBestBetAdvisor advisor = new BriefingBestBetAdvisor(
                 apiClient, objectMapper, mock(JobRunService.class), mss, cache,
                 mock(StabilitySnapshotProvider.class),
-                mock(BriefingEvaluationService.class), mock(TravelDayService.class), 4096, java.time.Clock.systemUTC());
+                mock(EvaluationViewService.class), mock(TravelDayService.class), 4096, java.time.Clock.systemUTC());
 
         RollupResult rollup =
                 advisor.buildRollupJson(List.of(day), now);
@@ -175,7 +175,7 @@ class BestBetAuroraPromptRegressionTest {
         BriefingBestBetAdvisor advisor = new BriefingBestBetAdvisor(
                 apiClient, objectMapper, mock(JobRunService.class), mss, cache,
                 mock(StabilitySnapshotProvider.class),
-                mock(BriefingEvaluationService.class), mock(TravelDayService.class), 4096, java.time.Clock.systemUTC());
+                mock(EvaluationViewService.class), mock(TravelDayService.class), 4096, java.time.Clock.systemUTC());
 
         RollupResult rollup =
                 advisor.buildRollupJson(List.of(day), now);
@@ -219,7 +219,7 @@ class BestBetAuroraPromptRegressionTest {
         BriefingBestBetAdvisor advisor = new BriefingBestBetAdvisor(
                 apiClient, objectMapper, mock(JobRunService.class), mss, cache,
                 mock(StabilitySnapshotProvider.class),
-                mock(BriefingEvaluationService.class), mock(TravelDayService.class), 4096, java.time.Clock.systemUTC());
+                mock(EvaluationViewService.class), mock(TravelDayService.class), 4096, java.time.Clock.systemUTC());
 
         RollupResult rollup =
                 advisor.buildRollupJson(List.of(day), now);

@@ -1,0 +1,749 @@
+/**
+ * Tests for `utils/mapTideFit.js` — the Map tab's tide-fit derivations
+ * (`docs/engineering/tide-window-plan.md` T3, §1 #12, §5 #7/#8, T5's `wantPhrase` and T6's
+ * `siblingEventTime`).
+ *
+ * Covers: the tier read (`tierOf`), the served-facts scan for the next window a location fits
+ * (`nextAlignedRow`), the strip's per-render model (`stripModel`) — visibility, the
+ * coastal-and-in-view narrowing via `bounds.pad(0.12)`, the dimmed/matched split, the dominant-want
+ * tally's tie-break in both directions and its own count (`dominantWantCount`), and the
+ * earliest-next-fit scan across every currently dimmed spot wanting that want; `wantPhrase`'s own
+ * join, including the three-item Oxford-comma branch (`"a, b or c"`) no fixture elsewhere in the T5
+ * diff happens to exercise, since every `TideFitBlock`/`MapCallout`/`LocationFourDaySheet` test
+ * fixture wants 0, 1 or 2 tide types; `siblingEventTime`'s lookup over the served EV list for the
+ * strip's sunrise/sunset chart labels; and `tideAccessibleClause`'s fixed per-tier strings,
+ * including the match-side state clause added by the glyph's own state letter
+ * (tide-window-plan.md §4 #21).
+ */
+import { describe, it, expect } from 'vitest';
+import {
+  tierOf, nextAlignedRow, stripModel, wantPhrase, siblingEventTime, tideAccessibleClause, tideTierHeading,
+  coastalInView, buildWindowTideIndex,
+} from '../utils/mapTideFit.js';
+import { windowKey } from '../utils/windowKeys.js';
+import { EVENT_KIND } from '../utils/mapEvents.js';
+
+const DATE_1 = '2026-09-10';
+const DATE_2 = '2026-09-11';
+const DATE_3 = '2026-09-12';
+
+/** One EV row, in the shape `buildMapEvents` returns. */
+function solarRow(date, eventType, tide = null) {
+  return { kind: EVENT_KIND.SOLAR, date, eventType, tide };
+}
+
+function nightRow(date) {
+  return { kind: EVENT_KIND.ASTRO, date, eventType: 'ASTRO', tide: null };
+}
+
+/** A `buildTideAlignmentIndex`-shaped index built from a flat list of `{id, name, date, eventType, aligned, state?}`. */
+function tideIndex(entries) {
+  const byId = new Map();
+  const byName = new Map();
+  for (const e of entries) {
+    const tail = `${e.date}|${e.eventType}`;
+    const value = { aligned: e.aligned, state: e.state ?? null };
+    if (e.id != null) byId.set(`${e.id}|${tail}`, value);
+    if (e.name != null) byName.set(`${e.name}|${tail}`, value);
+  }
+  return { byId, byName };
+}
+
+/** A map-tab label spot, in the shape `MapView.spotOf` builds since T3. */
+function spot(name, {
+  lat, lng, id = undefined, coastal = true, tideTier = null, tideTypes = [],
+} = {}) {
+  return {
+    name, lat, lng, coastal, tideTier, tideTypes, ...(id === undefined ? {} : { id }),
+  };
+}
+
+/**
+ * A rectangular Leaflet-`LatLngBounds`-shaped stand-in: `pad(ratio)` grows each edge by `ratio`
+ * times that dimension's span, `contains([lat, lng])` is a plain box test — enough to prove
+ * `stripModel`'s own `bounds.pad(0.12)` call without pulling in Leaflet.
+ */
+function rectBounds(south, west, north, east) {
+  return {
+    pad(ratio) {
+      const latPad = (north - south) * ratio;
+      const lngPad = (east - west) * ratio;
+      return rectBounds(south - latPad, west - lngPad, north + latPad, east + lngPad);
+    },
+    contains([lat, lng]) {
+      return lat >= south && lat <= north && lng >= west && lng <= east;
+    },
+  };
+}
+
+describe('coastalInView (map-mobile-sheet-plan.md §3 M5 task 1)', () => {
+  it('returns the coastal spots inside the padded viewport, and excludes an inland one', () => {
+    const bounds = rectBounds(50, -2, 51, -1);
+    const spots = [
+      spot('Coastal In View', { lat: 50.5, lng: -1.5, coastal: true }),
+      spot('Inland In View', { lat: 50.5, lng: -1.5, coastal: false }),
+      spot('Coastal Far Away', { lat: 60, lng: -1.5, coastal: true }),
+    ];
+    const result = coastalInView(spots, bounds);
+    expect(result.map((s) => s.name)).toEqual(['Coastal In View']);
+  });
+
+  it('returns the empty array with no bounds report yet (null), never throws', () => {
+    const spots = [spot('A', { lat: 50.5, lng: -1.5, coastal: true })];
+    expect(coastalInView(spots, null)).toEqual([]);
+    expect(coastalInView(spots, undefined)).toEqual([]);
+  });
+
+  it('is defensive against a non-array spot list', () => {
+    const bounds = rectBounds(50, -2, 51, -1);
+    expect(coastalInView(null, bounds)).toEqual([]);
+    expect(coastalInView(undefined, bounds)).toEqual([]);
+  });
+
+  it('an empty result is a real empty array, never a falsy value — the caller must test .length', () => {
+    const bounds = rectBounds(50, -2, 51, -1);
+    const result = coastalInView([], bounds);
+    expect(Array.isArray(result)).toBe(true);
+    expect(result).toHaveLength(0);
+    // The array itself is truthy even when empty — this is exactly why `tideVisible`'s caller must
+    // pass `.length > 0`, never the array itself (a Codex finding on the plan's M0).
+    expect(Boolean(result)).toBe(true);
+  });
+});
+
+describe('tierOf', () => {
+  it('reads match off an aligned fact', () => {
+    expect(tierOf({ aligned: true })).toBe('match');
+  });
+
+  it('reads miss off a served, non-aligned fact', () => {
+    expect(tierOf({ aligned: false })).toBe('miss');
+  });
+
+  it('reads null for no fact — not a coastal slot with a served tide state, never a guessed miss', () => {
+    expect(tierOf(null)).toBeNull();
+    expect(tierOf(undefined)).toBeNull();
+  });
+});
+
+describe('nextAlignedRow — requireTide (opt-in)', () => {
+  const idx = tideIndex([
+    { id: 1, name: 'A', date: DATE_2, eventType: 'SUNRISE', state: 'HIGH', aligned: true },
+    { id: 1, name: 'A', date: DATE_2, eventType: 'SUNSET', state: 'HIGH', aligned: true },
+  ]);
+  const tideless = solarRow(DATE_2, 'SUNRISE', null);
+  const withTide = solarRow(DATE_2, 'SUNSET', { locationName: 'B' });
+
+  it('by default (the callout and the location sheet) a tideless row is a legitimate answer', () => {
+    expect(nextAlignedRow([solarRow(DATE_1, 'SUNSET'), tideless, withTide], idx, { id: 1, name: 'A' }, 0))
+      .toBe(tideless);
+  });
+
+  it('with requireTide it skips rows the strip would refuse to show', () => {
+    expect(nextAlignedRow(
+      [solarRow(DATE_1, 'SUNSET'), tideless, withTide], idx, { id: 1, name: 'A' }, 0, null, true,
+    )).toBe(withTide);
+  });
+
+  it('with requireTide and nothing but tideless rows it answers -1', () => {
+    expect(nextAlignedRow(
+      [solarRow(DATE_1, 'SUNSET'), tideless], idx, { id: 1, name: 'A' }, 0, null, true,
+    )).toBe(-1);
+  });
+});
+
+describe('nextAlignedRow', () => {
+  it('finds the first later solar row where the location is served aligned', () => {
+    const evRows = [
+      solarRow(DATE_1, 'SUNSET'),
+      solarRow(DATE_2, 'SUNRISE'),
+      solarRow(DATE_2, 'SUNSET'),
+      solarRow(DATE_3, 'SUNRISE'),
+    ];
+    const idx = tideIndex([
+      { name: 'Bamburgh', date: DATE_2, eventType: 'SUNRISE', aligned: false },
+      { name: 'Bamburgh', date: DATE_2, eventType: 'SUNSET', aligned: true },
+      { name: 'Bamburgh', date: DATE_3, eventType: 'SUNRISE', aligned: true },
+    ]);
+    const found = nextAlignedRow(evRows, idx, { id: null, name: 'Bamburgh' }, 0);
+    expect(found).toBe(evRows[2]);
+  });
+
+  it('skips a night row in between, and returns -1 when nothing later fits', () => {
+    const evRows = [
+      solarRow(DATE_1, 'SUNSET'),
+      nightRow(DATE_1),
+      solarRow(DATE_2, 'SUNRISE'),
+    ];
+    const idx = tideIndex([
+      { name: 'Bamburgh', date: DATE_2, eventType: 'SUNRISE', aligned: false },
+    ]);
+    expect(nextAlignedRow(evRows, idx, { id: null, name: 'Bamburgh' }, 0)).toBe(-1);
+  });
+
+  it('never returns the row at fromIndex itself, even if it is aligned', () => {
+    const evRows = [solarRow(DATE_1, 'SUNSET')];
+    const idx = tideIndex([{ name: 'Bamburgh', date: DATE_1, eventType: 'SUNSET', aligned: true }]);
+    expect(nextAlignedRow(evRows, idx, { id: null, name: 'Bamburgh' }, 0)).toBe(-1);
+  });
+
+  it('looks up id-first, falling back to name exactly like lookupForWindow', () => {
+    const evRows = [solarRow(DATE_1, 'SUNSET'), solarRow(DATE_2, 'SUNSET')];
+    const idx = tideIndex([{ id: 7, date: DATE_2, eventType: 'SUNSET', aligned: true }]);
+    expect(nextAlignedRow(evRows, idx, { id: 7, name: 'Anything' }, 0)).toBe(evRows[1]);
+    expect(nextAlignedRow(evRows, idx, { id: null, name: 'Anything' }, 0)).toBe(-1);
+  });
+
+  it('with a want, requires the alignment to be to THAT water, not to any of the spot\'s wants', () => {
+    const evRows = [
+      solarRow(DATE_1, 'SUNSET'),
+      solarRow(DATE_2, 'SUNRISE'),
+      solarRow(DATE_2, 'SUNSET'),
+    ];
+    // Aligned in both later rows — via LOW first, via HIGH second.
+    const idx = tideIndex([
+      { name: 'Both', date: DATE_2, eventType: 'SUNRISE', aligned: true, state: 'LOW' },
+      { name: 'Both', date: DATE_2, eventType: 'SUNSET', aligned: true, state: 'HIGH' },
+    ]);
+    expect(nextAlignedRow(evRows, idx, { name: 'Both' }, 0, 'HIGH')).toBe(evRows[2]);
+    expect(nextAlignedRow(evRows, idx, { name: 'Both' }, 0, 'LOW')).toBe(evRows[1]);
+    // No want: the any-want reading the callout's own jump uses — the first aligned row wins.
+    expect(nextAlignedRow(evRows, idx, { name: 'Both' }, 0)).toBe(evRows[1]);
+    // A want nothing later satisfies is -1, never a fall-back to the bare flag.
+    expect(nextAlignedRow(evRows, idx, { name: 'Both' }, 0, 'MID')).toBe(-1);
+  });
+
+  it('returns -1 for a non-array evRows rather than throwing', () => {
+    expect(nextAlignedRow(null, tideIndex([]), { id: null, name: 'X' }, 0)).toBe(-1);
+  });
+});
+
+describe('stripModel — visibility', () => {
+  const bounds = rectBounds(0, 0, 1, 1);
+  const spots = [spot('Bamburgh', { lat: 0.5, lng: 0.5, tideTier: 'miss', tideTypes: ['HIGH'] })];
+
+  it('is visible on a solar row carrying served tide with a coastal spot in view', () => {
+    const row = solarRow(DATE_1, 'SUNSET', { locationName: 'Bamburgh' });
+    expect(stripModel({ row, spots, bounds }).visible).toBe(true);
+  });
+
+  it('is NOT visible on a night row, even with a served tide fact and a coastal spot in view', () => {
+    const row = { ...nightRow(DATE_1), tide: { locationName: 'Bamburgh' } };
+    expect(stripModel({ row, spots, bounds }).visible).toBe(false);
+  });
+
+  it('is NOT visible on a solar row with no served window tide', () => {
+    const row = solarRow(DATE_1, 'SUNSET', null);
+    expect(stripModel({ row, spots, bounds }).visible).toBe(false);
+  });
+
+  it('is NOT visible with no coastal spot in the padded viewport', () => {
+    const row = solarRow(DATE_1, 'SUNSET', { locationName: 'Bamburgh' });
+    const inland = [spot('Keswick', { lat: 0.5, lng: 0.5, coastal: false })];
+    expect(stripModel({ row, spots: inland, bounds }).visible).toBe(false);
+  });
+
+  it('returns the all-empty shape when not visible, never a partially-filled one', () => {
+    const row = solarRow(DATE_1, 'SUNSET', null);
+    expect(stripModel({ row, spots, bounds })).toEqual({
+      visible: false,
+      fitKnown: false,
+      unserved: false,
+      representative: null,
+      namedCoastal: [],
+      dimmed: [],
+      matched: [],
+      dominantWant: null,
+      dominantWantCount: 0,
+      nextFitRow: -1,
+      nextFitAny: -1,
+    });
+  });
+});
+
+describe('stripModel — fitKnown (D-13 filler rows and unscored windows)', () => {
+  const bounds = rectBounds(0, 0, 1, 1);
+  const tide = { locationName: 'Bamburgh' };
+  const filler = { ...solarRow(DATE_1, 'SUNRISE', tide), served: false };
+
+  it('is visible on a filler row that borrowed a served tide, with the fit unknown when no spot has a tier', () => {
+    const spots = [spot('Bamburgh', { lat: 0.5, lng: 0.5, tideTier: null, tideTypes: ['HIGH'] })];
+    const model = stripModel({ row: filler, spots, bounds });
+    expect(model.visible).toBe(true);
+    expect(model.fitKnown).toBe(false);
+    expect(model.representative).toBe('Bamburgh');
+  });
+
+  it('a served:false row with a miss spot reports it dimmed and the fit known (unrendered windows have real slot facts)', () => {
+    const spots = [spot('Miss', { lat: 0.5, lng: 0.5, tideTier: 'miss', tideTypes: ['HIGH'] })];
+    const model = stripModel({ row: filler, spots, bounds });
+    expect(model.fitKnown).toBe(true);
+    expect(model.dimmed.map((s) => s.name)).toEqual(['Miss']);
+    expect(model.dominantWant).toBe('HIGH');
+  });
+
+  it('a match spot alone also makes the fit known', () => {
+    const spots = [spot('Match', { lat: 0.5, lng: 0.5, tideTier: 'match', tideTypes: ['HIGH'] })];
+    const model = stripModel({ row: filler, spots, bounds });
+    expect(model.fitKnown).toBe(true);
+    expect(model.matched).toHaveLength(1);
+  });
+
+  it('keeps the next-fit jump on an unrendered window', () => {
+    const spots = [spot('Miss', { lat: 0.5, lng: 0.5, id: 7, tideTier: 'miss', tideTypes: ['HIGH'] })];
+    const later = { ...solarRow(DATE_2, 'SUNRISE', tide), served: true };
+    const idx = tideIndex([{ id: 7, name: 'Miss', date: DATE_2, eventType: 'SUNRISE', state: 'HIGH', aligned: true }]);
+    const model = stripModel({
+      row: filler, spots, bounds, evRows: [filler, later], evIndex: 0, idx,
+    });
+    expect(model.nextFitRow).toBe(later);
+  });
+
+  it('an unserved row with a tiered spot is not flagged unserved-and-unknown', () => {
+    const spots = [spot('Miss', { lat: 0.5, lng: 0.5, tideTier: 'miss', tideTypes: ['HIGH'] })];
+    const model = stripModel({ row: filler, spots, bounds });
+    expect(model.unserved).toBe(true);
+    expect(model.fitKnown).toBe(true);
+  });
+
+  it('a SERVED row with no tiered spot reports fitKnown false but unserved false (HEAD wording)', () => {
+    const served = { ...solarRow(DATE_1, 'SUNRISE', tide), served: true };
+    const spots = [spot('Untiered', { lat: 0.5, lng: 0.5, tideTier: null })];
+    const model = stripModel({ row: served, spots, bounds });
+    expect(model.fitKnown).toBe(false);
+    expect(model.unserved).toBe(false);
+  });
+
+  it('skips a later row with no tide when the strip scans, so it never offers a jump it would refuse', () => {
+    const spots = [spot('Miss', { lat: 0.5, lng: 0.5, id: 7, tideTier: 'miss', tideTypes: ['HIGH'] })];
+    const tideless = solarRow(DATE_2, 'SUNRISE', null);
+    const withTide = solarRow(DATE_2, 'SUNSET', tide);
+    const idx = tideIndex([
+      { id: 7, name: 'Miss', date: DATE_2, eventType: 'SUNRISE', state: 'HIGH', aligned: true },
+      { id: 7, name: 'Miss', date: DATE_2, eventType: 'SUNSET', state: 'HIGH', aligned: true },
+    ]);
+    const model = stripModel({
+      row: filler, spots, bounds, evRows: [filler, tideless, withTide], evIndex: 0, idx,
+    });
+    expect(model.nextFitRow).toBe(withTide);
+  });
+
+  it('a fitting later row with NO tide is reported as nextFitAny, not nextFitRow (no false denial)', () => {
+    const spots = [spot('Miss', { lat: 0.5, lng: 0.5, id: 7, tideTier: 'miss', tideTypes: ['HIGH'] })];
+    const tideless = { ...solarRow(DATE_2, 'SUNRISE', null), served: true };
+    const idx = tideIndex([
+      { id: 7, name: 'Miss', date: DATE_2, eventType: 'SUNRISE', state: 'HIGH', aligned: true },
+    ]);
+    const model = stripModel({
+      row: filler, spots, bounds, evRows: [filler, tideless], evIndex: 0, idx,
+    });
+    expect(model.nextFitRow).toBe(-1);
+    expect(model.nextFitAny).toBe(tideless);
+  });
+
+  it('a tideless EARLIER fit and a tide-bearing LATER one: nextFitAny is the earlier, nextFitRow the later', () => {
+    const spots = [spot('Miss', { lat: 0.5, lng: 0.5, id: 7, tideTier: 'miss', tideTypes: ['HIGH'] })];
+    const earlier = { ...solarRow(DATE_2, 'SUNRISE', null), served: false };
+    const later = solarRow(DATE_2, 'SUNSET', tide);
+    const idx = tideIndex([
+      { id: 7, name: 'Miss', date: DATE_2, eventType: 'SUNRISE', state: 'HIGH', aligned: true },
+      { id: 7, name: 'Miss', date: DATE_2, eventType: 'SUNSET', state: 'HIGH', aligned: true },
+    ]);
+    const model = stripModel({
+      row: filler, spots, bounds, evRows: [filler, earlier, later], evIndex: 0, idx,
+    });
+    expect(model.nextFitRow).toBe(later);
+    expect(model.nextFitAny).toBe(earlier);
+  });
+
+  it('nextFitAny equals nextFitRow when the earliest fit has a tide, and is -1 when nothing fits', () => {
+    const spots = [spot('Miss', { lat: 0.5, lng: 0.5, id: 7, tideTier: 'miss', tideTypes: ['HIGH'] })];
+    const withTide = solarRow(DATE_2, 'SUNSET', tide);
+    const idx = tideIndex([
+      { id: 7, name: 'Miss', date: DATE_2, eventType: 'SUNSET', state: 'HIGH', aligned: true },
+    ]);
+    const shown = stripModel({
+      row: filler, spots, bounds, evRows: [filler, withTide], evIndex: 0, idx,
+    });
+    expect(shown.nextFitRow).toBe(withTide);
+    expect(shown.nextFitAny).toBe(withTide);
+    const none = stripModel({
+      row: filler, spots, bounds, evRows: [filler, withTide], evIndex: 0, idx: tideIndex([]),
+    });
+    expect(none.nextFitRow).toBe(-1);
+    expect(none.nextFitAny).toBe(-1);
+  });
+
+  it('stays hidden when the filler row found no tide — nothing is synthesised', () => {
+    const none = { ...solarRow(DATE_1, 'SUNRISE', null), served: false };
+    const spots = [spot('Bamburgh', { lat: 0.5, lng: 0.5 })];
+    expect(stripModel({ row: none, spots, bounds }).visible).toBe(false);
+  });
+});
+
+describe('buildWindowTideIndex', () => {
+  const tide = (name) => ({ locationName: name });
+
+  it('keys every event summary that carries a tide, rendered or not, with its event time', () => {
+    const days = [
+      { date: '2026-10-10', eventSummaries: [
+        { targetType: 'SUNRISE', window: { tide: tide('A'), eventTime: '2026-10-10T05:44:00' } },
+        { targetType: 'SUNSET', window: { tide: tide('B') } },
+      ] },
+      { date: '2026-10-11', eventSummaries: [{ targetType: 'SUNRISE', window: { tide: tide('C') } }] },
+    ];
+    const index = buildWindowTideIndex(days, (iso) => `fmt(${iso})`);
+    expect(index.get(windowKey('2026-10-10', 'SUNRISE'))).toEqual({
+      tide: tide('A'), eventTime: '2026-10-10T05:44:00', time: 'fmt(2026-10-10T05:44:00)',
+    });
+    // No served eventTime: null, never a synthesised time, and the formatter is not even asked.
+    expect(index.get(windowKey('2026-10-10', 'SUNSET'))).toEqual({
+      tide: tide('B'), eventTime: null, time: null,
+    });
+    expect(index.size).toBe(3);
+  });
+
+  it('has no entry for a window without a tide, and tolerates missing or malformed days', () => {
+    const days = [
+      { date: '2026-10-10', eventSummaries: [
+        { targetType: 'SUNRISE', window: {} },
+        { targetType: 'SUNSET' },
+        { window: { tide: tide('X') } },
+      ] },
+      { eventSummaries: [] },
+      null,
+    ];
+    expect(buildWindowTideIndex(days).size).toBe(0);
+    expect(buildWindowTideIndex(undefined).size).toBe(0);
+  });
+});
+
+describe('stripModel — bounds.pad(0.12)', () => {
+  // A raw viewport of [0,1]x[0,1]: pad(ratio) grows each edge by `ratio` times that span. The two
+  // boundary tests below are placed either side of the EXACT 0.12 edge (north = 1 + 0.12 = 1.12)
+  // rather than deep inside a wide margin, so together they bound the ratio `stripModel` actually
+  // uses to [0.10, 0.14) — tight enough that a mutation of the `0.12` literal to any other value in
+  // common use (0.05, 0.1, 0.15, 0.2, 0.5, 1.0) fails at least one of the pair (a loose pair using,
+  // say, lat 1.05/2 would still pass for any ratio in (0.05, 1.0), which proves padding happens at
+  // all but not that it is specifically 12%).
+  const bounds = rectBounds(0, 0, 1, 1);
+  const row = solarRow(DATE_1, 'SUNSET', { locationName: 'Bamburgh' });
+
+  it('includes a coastal spot just inside the true 0.12 edge (north 1.12) but outside the raw bounds', () => {
+    const spots = [spot('JustInside', { lat: 1.10, lng: 0.5, tideTier: 'match' })];
+    const model = stripModel({ row, spots, bounds });
+    expect(model.visible).toBe(true);
+    expect(model.namedCoastal.map((s) => s.name)).toEqual(['JustInside']);
+  });
+
+  it('excludes a coastal spot just outside the true 0.12 edge', () => {
+    const spots = [spot('JustOutside', { lat: 1.14, lng: 0.5, tideTier: 'match' })];
+    expect(stripModel({ row, spots, bounds }).visible).toBe(false);
+  });
+
+  it('excludes a coastal spot outside even a generously padded viewport', () => {
+    const spots = [spot('WayOutside', { lat: 2, lng: 0.5, tideTier: 'match' })];
+    expect(stripModel({ row, spots, bounds }).visible).toBe(false);
+  });
+
+  it('excludes an in-view spot that is not coastal', () => {
+    const spots = [
+      spot('Bamburgh', { lat: 0.5, lng: 0.5, coastal: true, tideTier: 'match' }),
+      spot('Keswick', { lat: 0.5, lng: 0.6, coastal: false }),
+    ];
+    const model = stripModel({ row, spots, bounds });
+    expect(model.namedCoastal.map((s) => s.name)).toEqual(['Bamburgh']);
+  });
+});
+
+describe('stripModel — dimmed/matched split and representative', () => {
+  const bounds = rectBounds(0, 0, 1, 1);
+  const row = solarRow(DATE_1, 'SUNSET', { locationName: 'Bamburgh' });
+
+  it('splits the in-view coastal pool by tier, and states the served window tide\'s own location', () => {
+    const spots = [
+      spot('MatchOne', { lat: 0.1, lng: 0.1, tideTier: 'match', tideTypes: ['HIGH'] }),
+      spot('MissOne', { lat: 0.2, lng: 0.2, tideTier: 'miss', tideTypes: ['LOW'] }),
+      spot('MissTwo', { lat: 0.3, lng: 0.3, tideTier: 'miss', tideTypes: ['LOW'] }),
+    ];
+    const model = stripModel({ row, spots, bounds });
+    expect(model.representative).toBe('Bamburgh');
+    expect(model.matched.map((s) => s.name)).toEqual(['MatchOne']);
+    expect(model.dimmed.map((s) => s.name)).toEqual(['MissOne', 'MissTwo']);
+  });
+
+  it('states null when the served window tide carries no representative name', () => {
+    const spots = [spot('MissOne', { lat: 0.2, lng: 0.2, tideTier: 'miss', tideTypes: ['LOW'] })];
+    const noName = solarRow(DATE_1, 'SUNSET', {});
+    expect(stripModel({ row: noName, spots, bounds }).representative).toBeNull();
+  });
+});
+
+describe('stripModel — dominant want tie-break', () => {
+  const bounds = rectBounds(0, 0, 1, 1);
+  const row = solarRow(DATE_1, 'SUNSET', { locationName: 'Bamburgh' });
+
+  it('breaks a HIGH/LOW tie toward HIGH', () => {
+    const spots = [
+      spot('A', { lat: 0.1, lng: 0.1, tideTier: 'miss', tideTypes: ['HIGH'] }),
+      spot('B', { lat: 0.2, lng: 0.2, tideTier: 'miss', tideTypes: ['HIGH'] }),
+      spot('C', { lat: 0.3, lng: 0.3, tideTier: 'miss', tideTypes: ['LOW'] }),
+      spot('D', { lat: 0.4, lng: 0.4, tideTier: 'miss', tideTypes: ['LOW'] }),
+    ];
+    expect(stripModel({ row, spots, bounds }).dominantWant).toBe('HIGH');
+  });
+
+  it('breaks a LOW/MID tie toward LOW — a second direction, so the order cannot be read off one test', () => {
+    const spots = [
+      spot('A', { lat: 0.1, lng: 0.1, tideTier: 'miss', tideTypes: ['LOW'] }),
+      spot('B', { lat: 0.2, lng: 0.2, tideTier: 'miss', tideTypes: ['LOW'] }),
+      spot('C', { lat: 0.3, lng: 0.3, tideTier: 'miss', tideTypes: ['MID'] }),
+      spot('D', { lat: 0.4, lng: 0.4, tideTier: 'miss', tideTypes: ['MID'] }),
+    ];
+    expect(stripModel({ row, spots, bounds }).dominantWant).toBe('LOW');
+  });
+
+  it('takes the outright majority when there is no tie', () => {
+    const spots = [
+      spot('A', { lat: 0.1, lng: 0.1, tideTier: 'miss', tideTypes: ['LOW'] }),
+      spot('B', { lat: 0.2, lng: 0.2, tideTier: 'miss', tideTypes: ['LOW'] }),
+      spot('C', { lat: 0.3, lng: 0.3, tideTier: 'miss', tideTypes: ['LOW'] }),
+      spot('D', { lat: 0.4, lng: 0.4, tideTier: 'miss', tideTypes: ['HIGH'] }),
+    ];
+    expect(stripModel({ row, spots, bounds }).dominantWant).toBe('LOW');
+  });
+
+  // `dominantWantCount` (T6, tide-window-plan.md §3 T6 #4) — the footer's "N of them want" clause
+  // reads this figure, so it must count only the spots actually wanting the WINNING water, not
+  // every dimmed spot.
+  it('dominantWantCount is the size of the wanting population, not the whole dimmed pool', () => {
+    const spots = [
+      spot('A', { lat: 0.1, lng: 0.1, tideTier: 'miss', tideTypes: ['LOW'] }),
+      spot('B', { lat: 0.2, lng: 0.2, tideTier: 'miss', tideTypes: ['LOW'] }),
+      spot('C', { lat: 0.3, lng: 0.3, tideTier: 'miss', tideTypes: ['LOW'] }),
+      spot('D', { lat: 0.4, lng: 0.4, tideTier: 'miss', tideTypes: ['HIGH'] }),
+    ];
+    const model = stripModel({ row, spots, bounds });
+    expect(model.dominantWant).toBe('LOW');
+    expect(model.dominantWantCount).toBe(3);
+    expect(model.dimmed.length).toBe(4);
+  });
+
+  it('dominantWantCount equals dimmed.length when every miss shares the one want', () => {
+    const spots = [
+      spot('A', { lat: 0.1, lng: 0.1, tideTier: 'miss', tideTypes: ['HIGH'] }),
+      spot('B', { lat: 0.2, lng: 0.2, tideTier: 'miss', tideTypes: ['HIGH'] }),
+    ];
+    const model = stripModel({ row, spots, bounds });
+    expect(model.dominantWantCount).toBe(model.dimmed.length);
+  });
+
+  it('dominantWantCount is 0 when nothing is dimmed', () => {
+    const spots = [spot('MatchOnly', { lat: 0.1, lng: 0.1, tideTier: 'match', tideTypes: ['HIGH'] })];
+    expect(stripModel({ row, spots, bounds }).dominantWantCount).toBe(0);
+  });
+
+  it('counts a two-value want once in each of its own buckets', () => {
+    const spots = [
+      spot('A', { lat: 0.1, lng: 0.1, tideTier: 'miss', tideTypes: ['HIGH', 'LOW'] }),
+    ];
+    // One dimmed spot wanting {HIGH, LOW}: each bucket reads 1, so HIGH wins the tie.
+    expect(stripModel({ row, spots, bounds }).dominantWant).toBe('HIGH');
+  });
+
+  it('is null when nothing is dimmed', () => {
+    const spots = [spot('MatchOnly', { lat: 0.1, lng: 0.1, tideTier: 'match', tideTypes: ['HIGH'] })];
+    expect(stripModel({ row, spots, bounds }).dominantWant).toBeNull();
+  });
+});
+
+describe('stripModel — nextFitRow', () => {
+  const bounds = rectBounds(0, 0, 1, 1);
+  // The strip only scans rows it could itself show, so later rows carry a served tide.
+  const tided = (d, t) => solarRow(d, t, { locationName: 'Bamburgh' });
+
+  it('is the earliest later row where ANY currently-dimmed spot wanting the dominant want is aligned', () => {
+    const row = solarRow(DATE_1, 'SUNSET', { locationName: 'Bamburgh' });
+    const evRows = [
+      row,
+      tided(DATE_2, 'SUNRISE'),
+      tided(DATE_2, 'SUNSET'),
+      tided(DATE_3, 'SUNRISE'),
+    ];
+    const spots = [
+      spot('First', { lat: 0.1, lng: 0.1, tideTier: 'miss', tideTypes: ['HIGH'] }),
+      spot('Second', { lat: 0.2, lng: 0.2, tideTier: 'miss', tideTypes: ['HIGH'] }),
+    ];
+    // Second fits sooner (DATE_2 SUNRISE) than First (DATE_3 SUNRISE) — the earlier one wins.
+    // Both alignments are to HIGH water — the dominant want — so both are real candidates.
+    const idx = tideIndex([
+      { name: 'First', date: DATE_3, eventType: 'SUNRISE', aligned: true, state: 'HIGH' },
+      { name: 'Second', date: DATE_2, eventType: 'SUNRISE', aligned: true, state: 'HIGH' },
+    ]);
+    const model = stripModel({ row, spots, bounds, evRows, evIndex: 0, idx });
+    expect(model.nextFitRow).toBe(evRows[1]);
+  });
+
+  it('is -1 when no currently-dimmed spot wanting the dominant want ever fits again', () => {
+    const row = solarRow(DATE_1, 'SUNSET', { locationName: 'Bamburgh' });
+    const evRows = [row, tided(DATE_2, 'SUNRISE')];
+    const spots = [spot('First', { lat: 0.1, lng: 0.1, tideTier: 'miss', tideTypes: ['HIGH'] })];
+    const idx = tideIndex([{ name: 'First', date: DATE_2, eventType: 'SUNRISE', aligned: false }]);
+    const model = stripModel({ row, spots, bounds, evRows, evIndex: 0, idx });
+    expect(model.nextFitRow).toBe(-1);
+  });
+
+  it('is -1 with no evRows/evIndex supplied, even with a dominant want in hand', () => {
+    const row = solarRow(DATE_1, 'SUNSET', { locationName: 'Bamburgh' });
+    const spots = [spot('First', { lat: 0.1, lng: 0.1, tideTier: 'miss', tideTypes: ['HIGH'] })];
+    expect(stripModel({ row, spots, bounds }).nextFitRow).toBe(-1);
+  });
+
+  it('a {HIGH, LOW} spot aligned via LOW does not answer "next high water" — the scan fits the dominant want itself', () => {
+    const row = solarRow(DATE_1, 'SUNSET', { locationName: 'Bamburgh' });
+    const evRows = [row, tided(DATE_2, 'SUNRISE'), tided(DATE_2, 'SUNSET')];
+    // Two HIGH-only wanters make HIGH dominant; the two-value spot enters the scan because it
+    // wants HIGH too — but its sooner alignment is to LOW water, and must not surface.
+    const spots = [
+      spot('HighOne', { lat: 0.1, lng: 0.1, tideTier: 'miss', tideTypes: ['HIGH'] }),
+      spot('HighTwo', { lat: 0.2, lng: 0.2, tideTier: 'miss', tideTypes: ['HIGH'] }),
+      spot('Both', { lat: 0.3, lng: 0.3, tideTier: 'miss', tideTypes: ['HIGH', 'LOW'] }),
+    ];
+    const idx = tideIndex([
+      { name: 'Both', date: DATE_2, eventType: 'SUNRISE', aligned: true, state: 'LOW' },
+      { name: 'Both', date: DATE_2, eventType: 'SUNSET', aligned: true, state: 'HIGH' },
+    ]);
+    const model = stripModel({ row, spots, bounds, evRows, evIndex: 0, idx });
+    expect(model.dominantWant).toBe('HIGH');
+    expect(model.nextFitRow).toBe(evRows[2]);
+  });
+
+  it('a spot NOT wanting the dominant want is never consulted for the scan', () => {
+    const row = solarRow(DATE_1, 'SUNSET', { locationName: 'Bamburgh' });
+    const evRows = [row, tided(DATE_2, 'SUNRISE')];
+    // Two HIGH wanters make HIGH dominant; the one LOW wanter's own (sooner!) fit must not surface.
+    const spots = [
+      spot('HighOne', { lat: 0.1, lng: 0.1, tideTier: 'miss', tideTypes: ['HIGH'] }),
+      spot('HighTwo', { lat: 0.2, lng: 0.2, tideTier: 'miss', tideTypes: ['HIGH'] }),
+      spot('LowOne', { lat: 0.3, lng: 0.3, tideTier: 'miss', tideTypes: ['LOW'] }),
+    ];
+    const idx = tideIndex([
+      { name: 'LowOne', date: DATE_2, eventType: 'SUNRISE', aligned: true, state: 'LOW' },
+    ]);
+    const model = stripModel({ row, spots, bounds, evRows, evIndex: 0, idx });
+    expect(model.dominantWant).toBe('HIGH');
+    expect(model.nextFitRow).toBe(-1);
+  });
+});
+
+describe('siblingEventTime', () => {
+  const evRows = [
+    { kind: EVENT_KIND.SOLAR, date: DATE_1, eventType: 'SUNRISE', time: '05:44' },
+    { kind: EVENT_KIND.SOLAR, date: DATE_1, eventType: 'SUNSET', time: '20:27' },
+    // A NON-empty time, deliberately — an empty one would make the SOLAR-kind guard below
+    // untestable, since `sibling?.time || null` would coerce an empty string to null on its own
+    // and the test would pass whether or not the `kind === EVENT_KIND.SOLAR` filter still ran.
+    { kind: EVENT_KIND.ASTRO, date: DATE_1, eventType: 'ASTRO', time: '23:58' },
+    { kind: EVENT_KIND.SOLAR, date: DATE_2, eventType: 'SUNRISE', time: '' },
+  ];
+
+  it('reads the served time off the sibling solar row sharing the date', () => {
+    expect(siblingEventTime(evRows, DATE_1, 'SUNRISE')).toBe('05:44');
+    expect(siblingEventTime(evRows, DATE_1, 'SUNSET')).toBe('20:27');
+  });
+
+  it('returns null for a D-13 filler row whose time is the empty string', () => {
+    expect(siblingEventTime(evRows, DATE_2, 'SUNRISE')).toBeNull();
+  });
+
+  it('returns null when no row exists for the date at all', () => {
+    expect(siblingEventTime(evRows, DATE_3, 'SUNRISE')).toBeNull();
+  });
+
+  it('never matches a night row, even one sharing the date', () => {
+    expect(siblingEventTime(evRows, DATE_1, 'ASTRO')).toBeNull();
+  });
+
+  it('returns null for a non-array evRows or a null date, rather than throwing', () => {
+    expect(siblingEventTime(null, DATE_1, 'SUNRISE')).toBeNull();
+    expect(siblingEventTime(evRows, null, 'SUNRISE')).toBeNull();
+  });
+});
+
+/**
+ * `wantPhrase` (T5) — the location's wanted tide-types joined with "or", mirroring the backend's
+ * `TideWording#joinOr` exactly. Direct unit coverage rather than relying on the two-item cases
+ * `TideFitBlock`/`MapCallout`/`LocationFourDaySheet` fixtures happen to exercise (adversarial
+ * review: no fixture anywhere in the T5 diff wants all three `TideType`s, so the Oxford-comma
+ * three-item branch — `.slice(0, -1).join(', ')` between two non-last words — had zero coverage).
+ */
+describe('wantPhrase', () => {
+  it('states a single want with no join at all', () => {
+    expect(wantPhrase(['HIGH'])).toBe('high water');
+    expect(wantPhrase(['MID'])).toBe('mid tide');
+    expect(wantPhrase(['LOW'])).toBe('low water');
+  });
+
+  it('joins two wants with "or", in HIGH/MID/LOW order regardless of the array\'s own order', () => {
+    expect(wantPhrase(['LOW', 'HIGH'])).toBe('high water or low water');
+    expect(wantPhrase(['HIGH', 'MID'])).toBe('high water or mid tide');
+    expect(wantPhrase(['LOW', 'MID'])).toBe('mid tide or low water');
+  });
+
+  it('joins all three with an Oxford comma before "or" — the branch no two-item fixture reaches', () => {
+    expect(wantPhrase(['LOW', 'HIGH', 'MID'])).toBe('high water, mid tide or low water');
+  });
+
+  it('returns null for an empty or missing set — never guesses a want that was not served', () => {
+    expect(wantPhrase([])).toBeNull();
+    expect(wantPhrase(null)).toBeNull();
+    expect(wantPhrase(undefined)).toBeNull();
+  });
+
+  it('ignores an unrecognised entry rather than throwing', () => {
+    expect(wantPhrase(['HIGH', 'SPRING_TIDE'])).toBe('high water');
+  });
+});
+
+describe('tideAccessibleClause — the match state clause (tide-window-plan.md §4 #21)', () => {
+  it('names the matched water for each served state, mirroring the glyph\'s own letter', () => {
+    expect(tideAccessibleClause('match', null, 'HIGH')).toBe('high water, right here');
+    expect(tideAccessibleClause('match', null, 'MID')).toBe('mid tide, right here');
+    expect(tideAccessibleClause('match', null, 'LOW')).toBe('low water, right here');
+  });
+
+  it('falls back to the old state-free clause on a match with no state — should not happen for a served match, but this stays defensive', () => {
+    expect(tideAccessibleClause('match', null, null)).toBe('tide right here');
+    expect(tideAccessibleClause('match')).toBe('tide right here');
+  });
+
+  it('ignores a state passed alongside a miss — the miss clauses are unchanged', () => {
+    expect(tideAccessibleClause('miss', 'HIGHER', 'HIGH')).toBe('wants the water higher');
+    expect(tideAccessibleClause('miss', 'LOWER', 'LOW')).toBe('wants the water lower');
+    expect(tideAccessibleClause('miss', null, 'HIGH')).toBe('wrong water');
+  });
+
+  it('returns null when there is no served tide fact at all, regardless of state', () => {
+    expect(tideAccessibleClause(null, null, 'HIGH')).toBeNull();
+  });
+});
+
+describe('tideTierHeading — the honest miss heading (window-tide-facts-plan §4.2)', () => {
+  it('a match is unchanged, assessed or not', () => {
+    expect(tideTierHeading('match')).toBe('Tide lands on the light');
+    expect(tideTierHeading('match', false)).toBe('Tide lands on the light');
+  });
+
+  it('an assessed miss keeps "Wrong water, not wrong light"; that is also the default', () => {
+    expect(tideTierHeading('miss', true)).toBe('Wrong water, not wrong light');
+    expect(tideTierHeading('miss')).toBe('Wrong water, not wrong light');
+  });
+
+  it('an unassessed miss makes no claim about the light', () => {
+    expect(tideTierHeading('miss', false)).toBe('Tide misses the light here');
+  });
+
+  it('no tier, no heading', () => {
+    expect(tideTierHeading(null, false)).toBeNull();
+  });
+});

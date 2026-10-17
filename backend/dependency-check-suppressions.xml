@@ -33,21 +33,4 @@
         <packageUrl regex="true">^pkg:maven/org\.jetbrains\.kotlin/kotlin\-(stdlib.*|reflect)@.*$</packageUrl>
         <cve>CVE-2026-53914</cve>
     </suppress>
-    <suppress until="2026-11-30Z">
-        <notes>CVE-2026-66299: an unbounded undelivered-message buffer in the Tomcat WebSocket CHAT
-            EXAMPLE application. That code ships in the `examples` webapp of the full Tomcat
-            distribution and is not present in the tomcat-embed-* jars at all — an embedded Spring
-            Boot application deploys no webapps. GHSA-rpf9-hrjr-88fv lists "No package listed" and
-            gives "remove the examples web application" as the mitigation, which is a no-op here.
-
-            Independently of that, this application declares no WebSocket endpoints: no
-            @ServerEndpoint, no STOMP and no SockJS anywhere in backend/src.
-
-            Apache rates it Low; the 7.5 that trips the gate is CISA-ADP enrichment. Secondary fact,
-            not the argument: the fix is Tomcat 11.0.25, which is marked "not yet released" and 404s
-            on Maven Central. When it is published, delete this block and raise tomcat.version —
-            do not renew it.</notes>
-        <packageUrl regex="true">^pkg:maven/org\.apache\.tomcat\.embed/tomcat\-embed\-.*@.*$</packageUrl>
-        <cve>CVE-2026-66299</cve>
-    </suppress>
 </suppressions>

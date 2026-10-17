@@ -242,6 +242,8 @@ The fix for the founding complaint ("heat sits in the sea"), in `MapHeatLayer.js
 - Re-tune the field constants: radius **7200 m / 30–190 px** (from 8500/34–240), fade band
   **10.4 → 12.0**, floor **0.12** (from 10.6→12.2/0.17). One commit, because radius and clip were
   co-tuned — the old radius is part of why the field swam offshore.
+  *(2026-10-02 note: floor later raised 0.12 → 0.35 and the radius cap 190 → 400 px — owner report,
+  field invisible at zoom ~12 with 4★ chips; the two stacked. Band and 7200 m unchanged.)*
 - **Verification #1 (measured, not by eye)**: sample the heat canvas alpha at every location's own
   lat/lng at the regional glance and at county zoom; **none near zero** (bundle's floor: min 173 /
   154). Script it in the browser console via the exposed canvas; paste the min into the PR. This
@@ -514,6 +516,14 @@ you just asked about").
   `searchOpen → tabIndex=-1` machinery must survive on the other tabs (extend
   `MastheadTickLine.test.jsx` for the per-tab variant, and mind WCAG 2.5.3 accname rules already
   enforced there).
+  ⚠️ **The statement is not the Map tab's alone since 2026-09-16.** The "other tabs" above kept the
+  ⌕ and the origin button, and on Coming up and Operations both opened search. Search finds only
+  Plan objects, so a pick there opened the window popup or the four-day sheet over that tab with the
+  tab unmoved. The shell now hands the tick line `onOpenSearch` on the Plan tab only, and with no
+  handler the tick line draws this statement and withholds the ⌕, on every tab but Plan.
+  `isMapTab` keeps the Map's own rule (no search, whatever a caller hands over) and the caption,
+  which the other tabs do not draw: no drive time is on screen there. This bullet's rule that search's anchoring and `searchOpen` machinery survive "on the
+  other tabs" now applies to the Plan tab alone, the only tab search opens on.
 - `⌂` resets scope to My area and refits (does not clear filters — matches prototype).
 - Tests: sort/threshold/scope-flip; masthead variant incl. accname; ⌂ semantics.
 
@@ -601,13 +611,24 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
 9. **The Plan-tab overlay keeps the old map wholesale** — popup, medallions,
    ForecastTypeSelector. The bundle redesigns "the Map tab"; the overlay is a different surface
    with a different job. Convergence is O-6. ⚠️ **Clustering was struck from this list on
-   2026-09-04 (item 20) — the one place the overlay's freeze has been deliberately broken.**
+   2026-09-04 (item 20) — the first place the overlay's freeze has been deliberately broken.** ⚠️ **It was broken a SECOND time on 2026-10-02** (the hourly comfort forecast): the frozen popup's pure-wildlife block was rewritten as the shared `HourlyComfortTable` — a real `<table>`, the column headers kept for assistive technology only (`sr-only` text, so the popup's look is what it was), a missing figure a dash plus a hidden "not forecast", no "feels" invented from the air temperature, no "undefined" compass word, the inline icon styles moved to `.wf-wx-icon` and the icons extracted to `WeatherIcons.jsx` — and the dead waterfall comfort block was removed. Its visible look is intended to be unchanged.
 10. **Keyboard shortcuts are pane-scoped**, not document-global — the prototype had no other
     focusable surfaces; the app does.
 11. **The callout carries a reduced fact set by design**; the full forecast detail (tide
     indicator, comfort rows, score bars, inversion/dust badges) stays one step away in the Plan
     popup/location sheet and the overlay popup. Anything later judged missing is added to the
-    callout deliberately, not by porting `MarkerPopupContent` across.
+    callout deliberately, not by porting `MarkerPopupContent` across. ⚠️ **"Comfort rows … one step
+    away in the Plan popup/location sheet" was false until 2026-10-02.** The only renderer of a
+    hide's hourly comfort rows was `MarkerPopupContent`'s pure-wildlife branch, mounted only in the
+    frozen overlay; the location sheet had none, and the Map tab callout said "Not scored yet" for a
+    place that never will be. It is true now, by two deliberate additions rather than a port: a
+    pure wildlife hide's callout (`isWildlifeOnly`) shows "Comfort only" and a short summary of the
+    selected window's day — filter/min/max over the served rows (`utils/hourlyComfort.js`), no rule
+    about what is comfortable — as the press-to-peek route into the sheet, and the sheet shows the
+    full hourly table for every day in place of its window rows. Both mount the one shared
+    `HourlyComfortTable` the overlay popup uses. The phone shows the same 266px callout (the peek
+    sheet holds no selected-place facts), so nothing was added to the peek sheet. A waterfall has
+    never had hourly rows; the dead `showComfortRows` branch that implied it did was removed.
 12. **`m2hm`'s silent midnight wrap is not ported** — a leave-by that crosses midnight is either
     marked or suppressed.
 13. **Menu/jump swatches sample at whole stars of the labelled best**, replacing the prototype's
@@ -692,8 +713,9 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
     point count**") was considered and rejected: the chips carry those same stars from the same
     accessor, so it would restore a duplicate vocabulary to no one's benefit.
     **What ships**: `applyMarkerFade(map, 0)` on every paint while the layer is mounted;
-    `restoreMarkerPanes` is reached only by the unmount cleanup, which is what keeps aurora (where
-    `heatOffered` is false and the layer never mounts), an unscored *catalogue*, a tab change and a
+    `restoreMarkerPanes` is reached only by the unmount cleanup, which is what keeps the Plan overlay
+    (no field; aurora was the other case until aurora heat A2 mounted the layer there — see the
+    ⚠️ below), an unscored *catalogue*, a tab change and a
     logout honest. `fadeAt().markers` survives as the Legend indicator's progress fraction, painting
     nothing. `markersLocked` is gone — its premise was the overlay's Leaflet popup leader tip, and
     the tab's selection is `MapCallout`, which anchors on the location's own coordinates and draws
@@ -907,6 +929,12 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
     `restoreMarkerPanes` clears the attribute: aurora has no chips and no pins, so the medallions
     are the whole location vocabulary there and must stay reachable. Both fall out of "set while
     hiding, clear while restoring".
+    ⚠️ **2026-10-11, aurora heat A2 (`docs/engineering/aurora-heat-plan.md`): the aurora half of
+    that no longer holds.** An aurora window now MOUNTS the layer (`heatOffered` is no longer
+    `!isAuroraMode`) and paints the field in the aurora ramp; chips and pins draw there, and the
+    marker panes are hidden like any other window's. The unmount cleanup is still what hands the
+    panes back, and it still matters for a tab change, a logout and the Plan overlay (which shares
+    the pane and has no field). The aurora `<Marker>` loop is left in place for exactly that reason.
     ⚠️ **jsdom implements no `inert` behaviour**, so the tests assert the ATTRIBUTE; a test there
     trying to prove non-focusability would pass against a no-op. Both new pins were verified to fail
     without the fix. The `visibility`-vs-`display` half of the original decision is still pinned, and
@@ -1084,6 +1112,18 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
     only the flip the jump itself caused, carried forward across a second jump; a reader who chose
     Everywhere *before* jumping stays there.
 
+33. **The window control reaches the past, and carries a `selectedIsPast` provenance flag (2026-10-15 to
+    2026-10-16).** The bundle's window control lists only windows the briefing still serves, so a sunrise
+    or sunset that has gone vanished from the map. The outcome-rating series
+    (`docs/engineering/outcome-rating-plan.md`) adds **past solar windows**: rows the control draws with
+    `past: true` and `served: false` (no verdict, tint or tick; a `PAST` tag where the verdict sits), an
+    EARLIER group above the future days and a Load row that fetches one stored day at a time back to T-4.
+    `App` and `resolveMapDate` take a `selectedIsPast` flag beside `selectedIsNight`: provenance set only
+    by the routes that name a past row, never inferred from the value, because a stale past date must not
+    stay "usable" once the list no longer holds it. The heat field, the callout, the chips and pins read a
+    past window from the forecast rows alone, and "Open in Plan" is withheld on one.
+    CLAUDE.md's *Map tab — past windows* and *Map tab — rating a past window* bullets are the maintained description.
+
 ## §5 Decisions taken in this plan (challenge in review, not in code)
 
 - **D-1** Bloom gated on temp mode (§4.1). Alternative — retiring verdict mode — is O-1.
@@ -1142,7 +1182,7 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
   is the never-cached per-user endpoint, which is the exit for CLAUDE.md's licensed client classes
   (including the Map tab's own, added at map-landing L7). Two plans, two O-4s, unrelated.
 - **O-5** Azimuth lines on the redesigned tab.
-- **O-6** Overlay convergence onto the callout (and `MarkerPopupContent`'s long-term home). One
+- **O-6** Overlay convergence onto the callout (and `MarkerPopupContent`'s long-term home). ⚠️ What in `HourlyComfortTable` exists only for the frozen popup: the default hidden-header mode (`headersVisible` false, the `.wf-hourly-head-off` rule and its `sr-only` header text), and the popup's `label`/`popup-hourly-table` test id; when the overlay converges, delete that mode. One
   producer has already moved off the overlay: the location sheet's `Show on map` footer button now
   opens the Map tab directly (`plan-to-map-doors-plan.md` doors D3, #764), landing on the sheet's
   own window with the location's callout up. Every other producer (`WindowPickDialog`'s two
@@ -1272,6 +1312,29 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
   is the follow-on" was never blocked on testability — only its EFFECT is browser-only. This item
   stays open
   for them.
+
+  ⚠️ **A consequence this item did not list, and it reached a dialog outside the shell: settings.
+  FIXED 2026-09-16.** With no postcode saved and no origin, the map's ⌂ opens `App`'s settings
+  dialog through the map pane's `onOpenSettings`, which never passes through the shell. A reader who
+  Tabbed out of the peek onto it (arm A) got settings over the still-open sheet: two
+  `aria-modal="true"` elements, and the sheet's Escape listener still armed underneath. The cure is
+  the cog's own rule, not a guard on the pane. `App` passes the shell `settingsOpen`, and its rising
+  edge calls `selectTab` naming the tab in force, during render, in the commit settings mounts in.
+  The tab does not move, so the peek's back-track (O-18) survives: when settings closes, the reader
+  lands on the sheet's recorded opener, where its own cleanup sends focus in that commit — the
+  callout's `Four days here ›`, or the window pill when the peek came from the region panel or the
+  drilldown was open (`handleOpenLocationSheet` focuses the pill before the handoff).
+  `AppSettingsRoutes.test.jsx`. Reachability is taken from arm A's record here, not re-measured in a
+  browser.
+  ⚠️ **`map-mobile-sheet-plan.md`'s `MapPeekSheet` (M1–M6; "peek sheet" there, and not the O-18 four-day *peek* this item's arm B is about) is NOT a fourth arm of this item.** It is a
+  new in-frame `section`, not a `BottomSheet` — no portal, no backdrop, `role="region"` rather than
+  `role="dialog"` — so it never registers as a foreign modal in the first place and paints inside
+  `map-container`'s own stacking context like the rest of the in-frame chrome this item already
+  distinguishes from a phone `BottomSheet`. Arm B's `z-index: 10000` phone-`BottomSheet`-over-the-
+  peek-sheet case is therefore **unchanged by this series, neither better nor worse**: `RegionsJump`
+  and `FiltersPopover` still open a real `BottomSheet` from the phone (the peek sheet's own Layers
+  section triggers it, swapping rather than stacking), so the same portal-over-`z-50` geometry this
+  item records still applies whenever one of those opens over the peek.
 - **O-19** Whether the reason button should keep the spec's whole-prose target (a 399-character
   accessible name) or move to caption-as-button with a four-word one (§4 #26).
 - **O-16** The exit for §4 #15 / CLAUDE.md's Backend-heavy fifth class: a served, RATED

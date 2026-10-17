@@ -9,10 +9,12 @@ import WindowProseSlot from './WindowProseSlot.jsx';
 import WindowTopicRows from './WindowTopicRows.jsx';
 import WindowAttributeRow from './WindowAttributeRow.jsx';
 import WindowSpotStrip from './WindowSpotStrip.jsx';
+import DawnRace from './DawnRace.jsx';
 import {
   activeFilterClauses, buildRegionRows, gateSpotsByRegion,
 } from '../utils/windowFirstRegions.js';
 import { windowTopics } from '../utils/windowFirstTopics.js';
+import { lookupForWindow } from '../utils/locationSheet.js';
 import { badgeChannel, CONFIDENCE_VERDICTS, eventWord } from '../utils/windowFirstCards.js';
 import {
   confidenceTreatment, daysOut, resolveConfidence, scaleRgbaAlpha,
@@ -38,7 +40,7 @@ import { dayNumber } from '../utils/windowFirstMatrix.js';
  * returns a non-{@code rgba()} string untouched, so it IS the mechanism that keeps the word at full
  * strength while its fill decays with confidence.
  */
-const VERDICT_TREATMENT = {
+export const VERDICT_TREATMENT = {
   WORTH_IT: { fill: 'rgba(138,174,114,0.14)', border: 'rgba(138,174,114,0.5)', text: 'var(--color-badge-go)', weight: 600 },
   MAYBE: { fill: 'rgba(224,165,66,0.14)', border: 'rgba(224,165,66,0.5)', text: 'var(--color-badge-maybe)', weight: 600 },
   STAND_DOWN: { fill: 'rgba(200,69,47,0.12)', border: 'rgba(200,69,47,0.4)', text: 'var(--color-badge-poor)', weight: 400 },
@@ -47,7 +49,19 @@ const VERDICT_TREATMENT = {
   // it never decays so no tier softens it. Secondary measures 6.46:1 and is what `VerdictPill` and
   // the neutral topic badge already use for exactly this state — do not reintroduce a token for it.
   AWAITING: { fill: 'rgba(255,255,255,0.04)', border: 'rgba(255,255,255,0.10)', text: 'var(--color-plex-text-secondary)', weight: 400 },
+  // UNRATED (unrated-verdict-plan.md U2) — "Too few rated": the weather passed it and no trustworthy
+  // rating has called it. The AWAITING neutral, as its OWN entry rather than a lookup miss that
+  // lands there: it is a different claim ("nothing was said" vs "something was said, too thinly"),
+  // so a later divergence is one edit, and the fall-through below must never be what picks it.
+  UNRATED: { fill: 'rgba(255,255,255,0.04)', border: 'rgba(255,255,255,0.10)', text: 'var(--color-plex-text-secondary)', weight: 400 },
 };
+
+/**
+ * Which verdicts earn the ◎ glyph before their word — the RECOMMENDING ones only. An explicit set
+ * rather than "not STAND_DOWN and not AWAITING": that negative list is how UNRATED would have
+ * inherited a recommendation mark it has not earned (unrated-verdict-plan.md U2).
+ */
+const RECOMMENDING_VERDICTS = new Set(['WORTH_IT', 'MAYBE']);
 
 /**
  * A field chip's tooltip — region, drive, leave-by (plan-matrix §5, deferred from M2 to M4).
@@ -119,6 +133,11 @@ function chipTitle(spot) {
  * @param {number}   props.total      how many windows the nav can step through
  * @param {object}   props.field      the shell's region-layer inputs for this card
  * @param {Map}      props.topicIndex the served topics, indexed by window key
+ * @param {?object}  props.eclipseIndex the dawn race's source, from {@code buildEclipseIndex} —
+ *                   each location's served {@code EclipseSight} per window ({@code {byId, byName}}
+ *                   — lunar-eclipse-plan.md §2.7). Null-until-open like {@code topicIndex}'s
+ *                   siblings in the shell; the dialog reads it through the same
+ *                   {@code lookupForWindow} every other per-location fact here goes through.
  * @param {string[]} props.scopeNames the region names the page is scoped to
  * @param {string}   props.todayStr   today's ISO date in Europe/London
  * @param {boolean}  [props.escapeEnabled] whether Escape closes THIS layer — false while something
@@ -131,7 +150,7 @@ function chipTitle(spot) {
  *                   Absent renders no button, the same withholding rule {@code onOpenLocation} has.
  */
 export default function WindowSheetDialog({
-  card, index, total, field, topicIndex, scopeNames, todayStr,
+  card, index, total, field, topicIndex, eclipseIndex = null, scopeNames, todayStr,
   escapeEnabled = true, peeksSuppressed = false,
   onClose, onStep, onOpenSpot, onOpenLocation, onOpenInMap, onSeeAllSpots, onOpenPick, scoreIndex,
   colourMode = null,
@@ -217,6 +236,55 @@ export default function WindowSheetDialog({
    * nothing draws. The `find` remains because `rows` is a list by contract.
    */
   const tideRow = (card.rows || []).find((row) => row.channel === 'tide') || null;
+
+  /**
+   * The dawn race's chosen spot and sight — the window's best-reachable spot, else the first
+   * ranked one, per `lunar-eclipse-plan.md` §2.7. `WindowSpotStrip` exposes no per-card selection
+   * callback today, so the race is drawn for one fixed spot and captioned with its name rather than
+   * redrawing on a tap — §4 #11 records the deferral; adding one here would be a new interaction on
+   * a strip that has none.
+   *
+   * <p>Gated on BOTH a `LUNAR_ECLIPSE` topic row being present on this window AND that spot's own
+   * slot carrying a served `race` (a high, leisurely eclipse has a sight with no race at all, and
+   * the popup then shows facts only, per the backend's own contract).
+   */
+  const hasLunarEclipseRow = topicRows.some((row) => row.badge?.type === 'LUNAR_ECLIPSE');
+  const raceSpot = hasLunarEclipseRow
+    ? (card.bestReach || (card.spots && card.spots.find((spot) => !spot.neighbourOutlier)) || null)
+    : null;
+  const raceSight = raceSpot && eclipseIndex
+    ? lookupForWindow(eclipseIndex, raceSpot.locationId, raceSpot.locationName, card.date, card.targetType)
+    : null;
+  const showRace = Boolean(raceSight?.race);
+
+  /**
+   * The tide row's one client fact — how many of the reachable coastal pool get the water they
+   * want on this window, from {@code card.tideFit} (`{coastal, matched, live, meanQuality}`,
+   * `utils/windowFirstCards.js`; tide-plan-card-plan.md §3 C3).
+   *
+   * <p>⚠️ <b>Built HERE, never inside {@code windowFirstRows.js#tideFacts}.</b> That module maps
+   * served window facts only (§5 #6) — this count is reach-scoped client data, a member of
+   * CLAUDE.md's reach-scoped class the same way the histogram and the best-reachable line are. It
+   * reaches the row through {@code WindowAttributeRow}'s own {@code extraFacts} prop rather than
+   * riding {@code tideRow.facts}, so the served facts and this one client fact can never be
+   * confused for the same kind of data by a later reader of either file.
+   *
+   * <p>Omitted entirely when the pool holds no coastal spot at all ({@code coastal === 0}) — a
+   * zero is not a fact about tonight, it is a fact about the roster. "In reach" only when
+   * {@code reachMeasured} says a drive time exists to have gated on (§1 #11, §4 #7); otherwise the
+   * same sentence without that clause, never a claim the account cannot back.
+   */
+  const tideFitFacts = useMemo(() => {
+    const fit = card.tideFit;
+    if (!fit || fit.coastal === 0) return [];
+    const reachClause = reachMeasured ? ' in reach' : '';
+    return [{
+      segments: [{
+        text: `${fit.matched} of ${fit.coastal} coastal locations${reachClause} on tide`,
+        tone: 'base',
+      }],
+    }];
+  }, [card.tideFit, reachMeasured]);
 
   /**
    * The locations the field may name, in the order they deserve the space.
@@ -374,7 +442,11 @@ export default function WindowSheetDialog({
               )}
               <span
                 data-testid="window-sheet-verdict"
-                data-confidence={card.confidence || undefined}
+                // The badge's tier hook follows the BADGE gate, not the card's field: an UNRATED card
+                // now carries the server's tier for the field's haze (unrated-verdict-plan.md U2,
+                // review F5), and a "Too few rated" badge must not advertise a confidence it does not
+                // wear.
+                data-confidence={(qualifies && card.confidence) || undefined}
                 className="wf-wsh-bdg font-mono"
                 style={{
                   border: `1px solid ${scaleRgbaAlpha(treatment.border, scale)}`,
@@ -383,7 +455,7 @@ export default function WindowSheetDialog({
                   fontWeight: treatment.weight,
                 }}
               >
-                {card.verdict !== 'STAND_DOWN' && card.verdict !== 'AWAITING' && (
+                {RECOMMENDING_VERDICTS.has(card.verdict) && (
                   <span aria-hidden="true">◎ </span>
                 )}
                 {card.verdictLabel}
@@ -435,6 +507,16 @@ export default function WindowSheetDialog({
                     <span aria-hidden="true">★</span>
                     <span className="sr-only">{bestReach.rating === 1 ? ' star' : ' stars'}</span>
                     {reachMeasured ? ' within reach' : ''}
+                  </>
+                ) : card.bestReachWithheld === true ? (
+                  // The neighbour guard declined to name a place (neighbour-guard-plan.md §4 G3):
+                  // rated spots exist, so "nothing rated yet" would be false. "Within reach" only
+                  // with a measured drive, like every other sentence here.
+                  <>
+                    {`no clear pick${reachMeasured ? ' within reach' : ''}`}
+                    <span className="sr-only">
+                      {`: the top rating ${reachMeasured ? 'within reach' : 'here'} is well above the places around it`}
+                    </span>
                   </>
                 ) : (
                   // Two different absences and two different sentences — the card face draws the
@@ -578,9 +660,11 @@ export default function WindowSheetDialog({
 
           <WindowTopicRows rows={topicRows} />
 
+          {showRace && <DawnRace sight={raceSight} spotName={raceSpot?.locationName ?? null} />}
+
           {tideRow && (
             <div className="wf-rows">
-              <WindowAttributeRow row={tideRow} />
+              <WindowAttributeRow row={tideRow} extraFacts={tideFitFacts} />
             </div>
           )}
 
@@ -683,8 +767,17 @@ WindowSheetDialog.propTypes = {
      * field's own note for why it is a claim about the reader rather than about the survivors.
      */
     reachMeasured: PropTypes.bool,
+    // The per-window tide-fit summary this dialog reads for the tide row's trailing fact
+    // (tide-plan-card-plan.md §3 C3) — `{coastal, matched, live, meanQuality}`, `windowFirstCards.js`.
+    tideFit: PropTypes.shape({
+      coastal: PropTypes.number.isRequired,
+      matched: PropTypes.number.isRequired,
+      live: PropTypes.bool.isRequired,
+      meanQuality: PropTypes.number,
+    }),
     pool: PropTypes.array,
     bestReach: PropTypes.object,
+    bestReachWithheld: PropTypes.bool,
     reachTotal: PropTypes.number,
     withinReachCount: PropTypes.number,
     rows: PropTypes.array,
@@ -694,6 +787,11 @@ WindowSheetDialog.propTypes = {
   total: PropTypes.number.isRequired,
   field: PropTypes.object.isRequired,
   topicIndex: PropTypes.instanceOf(Map),
+  /** The dawn race's source — `{byId, byName}` from `buildEclipseIndex`, or null until built. */
+  eclipseIndex: PropTypes.shape({
+    byId: PropTypes.instanceOf(Map),
+    byName: PropTypes.instanceOf(Map),
+  }),
   scopeNames: PropTypes.arrayOf(PropTypes.string),
   todayStr: PropTypes.string.isRequired,
   escapeEnabled: PropTypes.bool,

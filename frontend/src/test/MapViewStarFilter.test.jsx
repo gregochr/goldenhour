@@ -6,7 +6,7 @@
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 
 // ── Leaflet / react-leaflet stubs ────────────────────────────────────────────
 
@@ -401,12 +401,37 @@ describe('MapView star filter — localStorage persistence', () => {
   });
 
   describe('event type change clears star filter', () => {
-    it('clears localStorage when ForecastTypeSelector changes event type', () => {
+    it('clears localStorage when the window control changes the event type', () => {
       localStorage.setItem('mapFilterMinStars', '4');
       renderMap();
-      // ForecastTypeSelector stub calls onChange('SUNRISE') on click
+      // The SUNRISE row is a different kind from the SUNSET the map opened on (`selectEvRow`).
       switchToSunrise();
       expect(localStorage.getItem('mapFilterMinStars')).toBeNull();
+    });
+
+    it('puts the page on the 3★+ default too, not only the saved value', () => {
+      // ⚠️ A storage check passes for a floor with no value as well, so this one reads the page. The
+      // reset that ran when aurora became unavailable wrote a null floor, and no test read the floor
+      // it left (`MapViewAuroraUnavailableFloor.test.jsx` covers that route now). What this pins — an
+      // explicit kind change resets the floor and clears the saved one — is inherited behaviour that
+      // map-landing-plan.md §4 #21(a) records rather than chooses; it is here to catch a floor with
+      // no value, and moves with that decision.
+      localStorage.setItem('mapFilterMinStars', '4');
+      renderMap({ openFilters: false });
+      expect(screen.getByRole('button', { name: 'Filters (1)' })).toBeInTheDocument();
+
+      switchToSunrise();
+      // The chip's count is what catches a floor of the wrong type: the string '3' presses the right
+      // buttons below, but it is not the default, so it still counts as a filter.
+      const chip = screen.getByTestId('wf-filters-chip');
+      expect(chip).toHaveAccessibleName('Filters');
+      fireEvent.click(chip);
+
+      // The buttons either side of the floor, so this holds whichever pressed contract the group
+      // settles on: every star at or above the floor, or the floor's own star alone.
+      const floor = within(screen.getByRole('group', { name: 'Minimum rating' }));
+      expect(floor.getByRole('button', { name: '2★+' })).toHaveAttribute('aria-pressed', 'false');
+      expect(floor.getByRole('button', { name: '3★+' })).toHaveAttribute('aria-pressed', 'true');
     });
   });
 });

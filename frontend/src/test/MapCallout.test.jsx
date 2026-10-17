@@ -15,7 +15,7 @@ import {
 import {
   act, fireEvent, render, screen, within,
 } from '@testing-library/react';
-import { buildScoreIndex } from '../utils/locationSheet.js';
+import { buildScoreIndex, buildSlotIndex } from '../utils/locationSheet.js';
 import { buildRegionGlossIndex } from '../utils/mapCallout.js';
 
 let currentMap = null;
@@ -240,6 +240,128 @@ describe('MapCallout — header and verdict', () => {
     expect(score).not.toHaveTextContent('Not scored yet');
   });
 
+  /**
+   * unrated-verdict-plan.md U2, Codex review of #1140 (P1): the slot's own served `displayVerdict`
+   * (on the `scoreIndex` row the card already reads for its prose) names an unrated window. What
+   * breaks if these fail: the callout says "Not scored yet" over a window the server called UNRATED
+   * or STAND_DOWN, while the pill and the Plan card above it say otherwise.
+   */
+  describe('names an unrated slot by its own served verdict', () => {
+    const indexOf = (displayVerdict) => buildScoreIndex([
+      scoreRow({ rating: null, displayVerdict }),
+    ]);
+
+    it('says "Not rated" for UNRATED and "Poor" for STAND_DOWN once the source has answered', async () => {
+      const { unmount } = await mount({
+        rating: null, ratingKnown: true, scoresKnown: true, scoreIndex: indexOf('UNRATED'),
+      });
+      expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Not rated');
+      unmount();
+      await mount({
+        rating: null, ratingKnown: true, scoresKnown: true, scoreIndex: indexOf('STAND_DOWN'),
+      });
+      expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Poor');
+    });
+
+    it('keeps "Not scored yet" for AWAITING, a legacy row and no row at all', async () => {
+      for (const scoreIndex of [
+        indexOf('AWAITING'),
+        buildScoreIndex([scoreRow({ rating: null })]),
+        null,
+      ]) {
+        const { unmount } = await mount({
+          rating: null, ratingKnown: true, scoresKnown: true, scoreIndex,
+        });
+        expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Not scored yet');
+        unmount();
+      }
+    });
+
+    it('⚠️ still says "Loading…" until the rating\'s own source has answered, verdict in hand or not', async () => {
+      await mount({
+        rating: null, ratingKnown: false, scoresKnown: true, scoreIndex: indexOf('UNRATED'),
+      });
+      const score = screen.getByTestId('map-callout-score');
+      expect(score).toHaveTextContent('Loading…');
+      expect(score).not.toHaveTextContent('Not rated');
+    });
+
+    it('speaks for a SOLAR window only — a night has no verdict word', async () => {
+      await mount({
+        event: ASTRO_EVENT, rating: null, ratingKnown: true, scoresKnown: true,
+        scoreIndex: indexOf('UNRATED'),
+      });
+      expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Not scored yet');
+    });
+
+    // Codex review of #1140, round 2 (P1): the scores endpoint has NO row for a weather GO/MARGINAL
+    // slot with no Claude result, so the word has to come from the briefing slot (`slotIndex`).
+    describe('where the scores endpoint has no row, from the briefing slot', () => {
+      const slotIndexOf = (displayVerdict, over = {}) => buildSlotIndex([{
+        date: TODAY,
+        eventSummaries: [{
+          targetType: 'SUNSET',
+          regions: [{ slots: [{
+            locationId: LOCATION.id,
+            locationName: LOCATION.name,
+            solarEventTime: `${TODAY}T20:10:00`,
+            ...(displayVerdict === undefined ? {} : { displayVerdict }),
+            ...over,
+          }] }],
+        }],
+      }]);
+      const known = { rating: null, ratingKnown: true, scoresKnown: true };
+
+      it('says "Not rated" for a briefing UNRATED slot and "Poor" for a briefing STAND_DOWN one', async () => {
+        const { unmount } = await mount({ ...known, scoreIndex: null, slotIndex: slotIndexOf('UNRATED') });
+        expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Not rated');
+        unmount();
+        await mount({ ...known, scoreIndex: buildScoreIndex([]), slotIndex: slotIndexOf('STAND_DOWN') });
+        expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Poor');
+      });
+
+      it('⚠️ the score row wins when both speak: STAND_DOWN beside a briefing UNRATED is "Poor"', async () => {
+        await mount({
+          ...known,
+          scoreIndex: buildScoreIndex([scoreRow({ rating: null, displayVerdict: 'STAND_DOWN' })]),
+          slotIndex: slotIndexOf('UNRATED'),
+        });
+        expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Poor');
+      });
+
+      it('keeps "Not scored yet" with no verdict on either side', async () => {
+        for (const slotIndex of [slotIndexOf(undefined), slotIndexOf(null), null]) {
+          const { unmount } = await mount({ ...known, scoreIndex: null, slotIndex });
+          expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Not scored yet');
+          unmount();
+        }
+      });
+
+      it('⚠️ still says "Loading…" until the rating\'s own source has answered, briefing verdict in hand', async () => {
+        await mount({
+          rating: null, ratingKnown: false, scoresKnown: false, scoreIndex: null,
+          slotIndex: slotIndexOf('UNRATED'),
+        });
+        expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Loading…');
+      });
+
+      it('speaks for a SOLAR window only — a night reads no briefing slot', async () => {
+        await mount({
+          event: ASTRO_EVENT, ...known, scoreIndex: null, slotIndex: slotIndexOf('UNRATED'),
+        });
+        expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Not scored yet');
+      });
+    });
+
+    it('leaves a rated slot on its star', async () => {
+      await mount({
+        rating: 4, ratingKnown: true, scoresKnown: true,
+        scoreIndex: buildScoreIndex([scoreRow({ rating: 4, displayVerdict: 'WORTH_IT' })]),
+      });
+      expect(screen.getByTestId('map-callout-score')).toHaveTextContent('4★ Worth it');
+    });
+  });
+
   it('lets an answer in hand outrank a failure — "Not scored yet" while ratingRetrying is also true', async () => {
     // A night still holding its answer while a refresh of it fails: a failure takes nothing away, so
     // the answer is what the headline says — and all it says.
@@ -415,34 +537,173 @@ describe('MapCallout — facts row (reachMeasured discipline)', () => {
   });
 });
 
-describe('MapCallout — the tide-alignment row (bundle rev 2\'s tide-chip tweak)', () => {
+/**
+ * The tide-fit block (T5, `docs/engineering/tide-window-plan.md`) — keyed on a served tide FACT
+ * existing at all (`tideOnLight != null` with a `fitPhrase`), never on `onTheLight` (bundle rev
+ * 2's different, on-the-light question). `TideFitBlock.test.jsx` covers the block's own rendering
+ * exhaustively; this file proves the HOST wires it correctly — the right fact, the right `want`,
+ * the resolved jump target, and the interaction with the evaluation gate row beside it.
+ */
+describe('MapCallout — the tide-fit block (T5)', () => {
   let restore;
   beforeEach(() => { currentMap = makeMap(); restore = withMeasuredCard(286, 260); });
   afterEach(() => restore());
 
-  const ALIGNED = { onTheLight: true, phrase: 'HW 19:52 · 36m before sunset' };
+  const MATCH = {
+    aligned: true, state: 'HIGH', onTheLight: true, phrase: 'HW 19:52 · 36m before sunset',
+    fitPhrase: 'high water, falling · HW 19:52 · 36m before sunset · 3.9 m',
+  };
+  const MISS = {
+    aligned: false, state: 'LOW', onTheLight: false, phrase: null, shortfall: 'HIGHER',
+    fitPhrase: 'wants high water · low tide, rising at 05:42 · 1.2 m of 4.3 m',
+  };
 
-  it('renders the row — glyph, bold heading, and the phrase — only when onTheLight is true', async () => {
-    await mount({ tideOnLight: ALIGNED });
-    const row = screen.getByTestId('map-callout-tide');
-    expect(row).toHaveTextContent('Tide lands on the light');
-    expect(row).toHaveTextContent('HW 19:52 · 36m before sunset');
-    expect(row.querySelector('svg')).toBeTruthy();
+  it('renders the match tier — glyph, the match heading, and the fit phrase', async () => {
+    await mount({ tideOnLight: MATCH });
+    const block = screen.getByTestId('tide-fit-block');
+    expect(block).toHaveAttribute('data-tier', 'match');
+    expect(block).toHaveTextContent('Tide lands on the light');
+    expect(block).toHaveTextContent('high water, falling · HW 19:52 · 36m before sunset · 3.9 m');
+    expect(block.querySelector('svg')).toBeInTheDocument();
   });
 
-  it('omits the row entirely when the tide is not on the light — never a "no alignment" line', async () => {
-    await mount({ tideOnLight: { onTheLight: false, phrase: 'LW 22:10 · 3h18 after sunset' } });
-    expect(screen.queryByTestId('map-callout-tide')).toBeNull();
+  it('renders the miss tier — the miss heading and the fit phrase, no jump with no index supplied', async () => {
+    await mount({ tideOnLight: MISS });
+    const block = screen.getByTestId('tide-fit-block');
+    expect(block).toHaveAttribute('data-tier', 'miss');
+    expect(block).toHaveTextContent('Wrong water, not wrong light');
+    expect(block).toHaveTextContent('wants high water · low tide, rising at 05:42 · 1.2 m of 4.3 m');
+    // `location.tideType` is `['HIGH']` — the wanted set — so the denial names it even with no
+    // `tideAlignmentIndex` at all (the scan finds nothing to jump to, which reads as a denial).
+    expect(screen.getByTestId('tide-fit-denial'))
+      .toHaveTextContent('Nothing in these four days puts high water on the light here.');
   });
 
-  it('omits the row when no tideOnLight fact is supplied at all (an inland location)', async () => {
+  it('omits the block entirely when no tideOnLight fact is supplied at all (an inland location)', async () => {
     await mount({ tideOnLight: null });
-    expect(screen.queryByTestId('map-callout-tide')).toBeNull();
+    expect(screen.queryByTestId('tide-fit-block')).toBeNull();
   });
 
-  it('omits the row when onTheLight is true but no phrase exists — never a heading with nothing under it', async () => {
-    await mount({ tideOnLight: { onTheLight: true, phrase: null } });
-    expect(screen.queryByTestId('map-callout-tide')).toBeNull();
+  // The sky component (tide gate lift, 2026-09-18, docs/engineering/tide-window-plan.md §6 Q1):
+  // TideFitBlock.test.jsx covers the rendering rule exhaustively; this proves the HOST wires the
+  // right combined figure — MapCallout's own `ratingRounded` (from the `rating` prop) — through as
+  // `combinedRating`, not a re-derivation of its own.
+  it('a miss states the served skyRating beside the header\'s own combined star', async () => {
+    await mount({ tideOnLight: { ...MISS, skyRating: 4 }, rating: 3 });
+    expect(screen.getByTestId('map-callout-score')).toHaveTextContent('3★');
+    expect(screen.getByTestId('tide-fit-sky')).toHaveTextContent('sky 4★');
+  });
+
+  it('a match whose sky score agrees with the header\'s combined star states nothing new', async () => {
+    await mount({ tideOnLight: { ...MATCH, skyRating: 4 }, rating: 4 });
+    expect(screen.queryByTestId('tide-fit-sky')).toBeNull();
+  });
+
+  it('a match whose sky score differs from the header\'s combined star states it', async () => {
+    await mount({ tideOnLight: { ...MATCH, skyRating: 4 }, rating: 5 });
+    expect(screen.getByTestId('tide-fit-sky')).toHaveTextContent('sky 4★');
+  });
+
+  it('omits the block when a fact exists but carries no fitPhrase — never a heading with nothing under it', async () => {
+    await mount({ tideOnLight: { aligned: true, onTheLight: true, phrase: 'x', fitPhrase: null } });
+    expect(screen.queryByTestId('tide-fit-block')).toBeNull();
+  });
+
+  it('the jump calls onSelectEv with the resolved ROW OBJECT, found by scanning the served evRows', async () => {
+    const onSelectEv = vi.fn();
+    const LATER_EVENT = {
+      ...SUNSET_EVENT, id: 'solar:2026-06-17:SUNSET', date: '2026-06-17', dayLabel: 'Tomorrow', time: '20:25',
+    };
+    const tideAlignmentIndex = {
+      byId: new Map([[`${LOCATION.id}|2026-06-17|SUNSET`, { aligned: true, state: 'HIGH' }]]),
+      byName: new Map(),
+    };
+    await mount({
+      tideOnLight: MISS,
+      tideAlignmentIndex,
+      evRows: [SUNSET_EVENT, LATER_EVENT],
+      onSelectEv,
+    });
+    const jump = screen.getByRole('button', { name: /Next high water on the light · Tomorrow sunset 20:25/ });
+    fireEvent.click(jump);
+    expect(onSelectEv).toHaveBeenCalledTimes(1);
+    expect(onSelectEv).toHaveBeenCalledWith(LATER_EVENT);
+  });
+
+  it('says "beyond" (the denial) when the index carries no later fit for this location', async () => {
+    const tideAlignmentIndex = { byId: new Map(), byName: new Map() };
+    await mount({
+      tideOnLight: MISS, tideAlignmentIndex, evRows: [SUNSET_EVENT],
+    });
+    expect(screen.getByTestId('tide-fit-denial')).toHaveTextContent('Nothing in these four days');
+    expect(screen.queryByRole('button', { name: /Next/ })).toBeNull();
+  });
+});
+
+describe('MapCallout — whose prose the reason is', () => {
+  let restore;
+  beforeEach(() => { currentMap = makeMap(); restore = withMeasuredCard(286, 260); });
+  afterEach(() => restore());
+
+  const regionGlossIndex = buildRegionGlossIndex([{
+    date: TODAY,
+    eventSummaries: [{
+      targetType: 'SUNSET',
+      regions: [{
+        regionName: 'North East',
+        glossHeadline: null,
+        glossDetail: 'A settled coastal evening across the region.',
+      }],
+    }],
+  }]);
+
+  it('labels a borrowed region gloss on an unscored window as the region\'s', async () => {
+    await mount({ rating: null, scoreIndex: null, regionGlossIndex });
+    expect(screen.getByTestId('map-callout-reason'))
+      .toHaveTextContent('A settled coastal evening across the region.');
+    expect(screen.getByTestId('map-callout-reason-region')).toHaveTextContent('North East sky');
+  });
+
+  it('announces the prose\'s owner first — the reason button\'s name opens with the region kicker', async () => {
+    await mount({ rating: null, scoreIndex: null, regionGlossIndex });
+    // `\s*` because the jsdom name polyfill trims each element's text at the span boundary — in a
+    // browser the space survives. The claim is the ORDER: owner, then prose, then the place.
+    expect(screen.getByRole('button', { name: /^North East sky ·\s*A settled coastal evening/ }))
+      .toBe(screen.getByTestId('map-callout-reason'));
+  });
+
+  it('a rated window shows its own prose and no region label', async () => {
+    await mount({ rating: 4, scoreIndex: buildScoreIndex([scoreRow()]), regionGlossIndex });
+    expect(screen.getByTestId('map-callout-reason')).toHaveTextContent('A warm, layered sky');
+    expect(screen.queryByTestId('map-callout-reason-region')).toBeNull();
+  });
+});
+
+/**
+ * The eclipse spot line (L7, `docs/engineering/lunar-eclipse-plan.md` §3 L7) — a sibling block
+ * right after the tide-fit block, mounted from the SAME `buildEclipseIndex`/`lookupForWindow` join
+ * (L4) the popup's `DawnRace` reads. `EclipseSpotLine.test.jsx` covers the component's own
+ * rendering exhaustively; this file proves the HOST passes the resolved per-location sight through.
+ */
+describe('MapCallout — the eclipse spot line (L7)', () => {
+  let restore;
+  beforeEach(() => { currentMap = makeMap(); restore = withMeasuredCard(286, 260); });
+  afterEach(() => restore());
+
+  const SIGHT = {
+    moonAltAtMax: 7, moonAzCardinal: 'WSW', moonset: `${TODAY}T06:16:00`, moonrise: null,
+    setsInShadow: true, risesInShadow: false,
+  };
+
+  it('renders the line when a served sight is supplied', async () => {
+    await mount({ eclipseSight: SIGHT });
+    expect(screen.getByTestId('eclipse-spot-line'))
+      .toHaveTextContent('moon 7° up WSW at max · sets 06:16 in shadow');
+  });
+
+  it('omits the block entirely with no eclipseSight at all', async () => {
+    await mount({ eclipseSight: null });
+    expect(screen.queryByTestId('eclipse-spot-line')).toBeNull();
   });
 });
 
@@ -863,18 +1124,16 @@ describe('MapCallout — anchoring lifecycle', () => {
   });
 
   it('re-measures the anchor when the ACTIVE EVENT changes, even though location/map do not (regression: adversarial review on the tide-chip PR)', async () => {
-    // The bug this pins: switching between an unaligned and an aligned window toggles the tide
-    // row's presence, changing the card's own rendered height — but `location` and `map` are
-    // unchanged, so neither `paint`'s identity nor `stripOpen` moved, and the anchor box stayed
-    // sized for the PREVIOUS window until an unrelated pan/zoom forced a re-measure. The fix keys
-    // the repaint effect on `event?.id` too, the same way it already keys on `stripOpen` — proven
-    // here by counting calls to the one `map.*` read `paint()` always makes,
-    // `latLngToContainerPoint`, since jsdom's faked `offsetHeight` (from `withMeasuredCard`) is a
-    // constant and cannot itself show the resulting box move.
+    // The bug this pins: switching between a window with no tide fact and one with a served fact
+    // toggles the tide-fit block's presence, changing the card's own rendered height — but
+    // `location` and `map` are unchanged, so neither `paint`'s identity nor `stripOpen` moved, and
+    // the anchor box stayed sized for the PREVIOUS window until an unrelated pan/zoom forced a
+    // re-measure. The fix keys the repaint effect on `event?.id` too, the same way it already keys
+    // on `stripOpen` — proven here by counting calls to the one `map.*` read `paint()` always
+    // makes, `latLngToContainerPoint`, since jsdom's faked `offsetHeight` (from
+    // `withMeasuredCard`) is a constant and cannot itself show the resulting box move.
     const OTHER_EVENT = { ...SUNSET_EVENT, id: 'solar:2026-06-16:SUNSET', date: '2026-06-16' };
-    const { rerender } = await mount({
-      event: SUNSET_EVENT, tideOnLight: { onTheLight: false, phrase: null },
-    });
+    const { rerender } = await mount({ event: SUNSET_EVENT, tideOnLight: null });
     const paintSpy = vi.spyOn(currentMap, 'latLngToContainerPoint');
     const callsBeforeSwitch = paintSpy.mock.calls.length;
 
@@ -884,7 +1143,10 @@ describe('MapCallout — anchoring lifecycle', () => {
           location={LOCATION}
           event={OTHER_EVENT}
           rating={4}
-          tideOnLight={{ onTheLight: true, phrase: 'HW 19:52 · 36m before sunset' }}
+          tideOnLight={{
+            aligned: true, onTheLight: true, phrase: 'HW 19:52 · 36m before sunset',
+            fitPhrase: 'high water, falling · HW 19:52 · 36m before sunset · 3.9 m',
+          }}
         />,
       );
     });
@@ -911,6 +1173,83 @@ describe('MapCallout — anchoring lifecycle', () => {
     await act(async () => { rerender(<MapCallout {...base} {...next} />); });
 
     expect(paintSpy.mock.calls.length).toBeGreaterThan(callsBeforeChange);
+  });
+
+  it('re-measures the anchor when tideStripHeight changes — the strip toggling open/collapsed underneath the card (T7 follow-up, Codex P1)', async () => {
+    // The bug this pins: `MapCallout`'s own placement band treats the tide strip as one of its
+    // floor/ceiling bars (`BAND_BAR_SELECTOR`, T7), but nothing in this component's own repaint
+    // triggers ever fired when the STRIP's own rect changed — a reader who selected a location
+    // while the strip was collapsed, then opened it, kept the collapsed band boundary while the
+    // strip's real rect grew underneath the card, until an unrelated pan/zoom forced a re-measure.
+    // Counted the same way as the two tests above: jsdom's faked height cannot show the box move,
+    // but `paint()` always reads `latLngToContainerPoint` once per run, so a rising call count is
+    // proof the repaint fired.
+    const { rerender } = await mount({ tideStripHeight: 34 });
+    const paintSpy = vi.spyOn(currentMap, 'latLngToContainerPoint');
+    const callsBeforeResize = paintSpy.mock.calls.length;
+
+    await act(async () => {
+      rerender(<MapCallout location={LOCATION} event={SUNSET_EVENT} rating={4} tideStripHeight={166} />);
+    });
+
+    expect(paintSpy.mock.calls.length).toBeGreaterThan(callsBeforeResize);
+  });
+
+  it('re-measures the anchor when the strip appears/disappears underneath the card, not only when it resizes', async () => {
+    // The `null` half of the same contract — `MapTideStrip` reports `null` on unmount (the strip
+    // going from visible to invisible, or vice versa), which must retrigger a repaint exactly like
+    // a real resize does, since the strip stops or starts being one of `paint()`'s bars either way.
+    const { rerender } = await mount({ tideStripHeight: null });
+    const paintSpy = vi.spyOn(currentMap, 'latLngToContainerPoint');
+    const callsBeforeAppear = paintSpy.mock.calls.length;
+
+    await act(async () => {
+      rerender(<MapCallout location={LOCATION} event={SUNSET_EVENT} rating={4} tideStripHeight={166} />);
+    });
+
+    expect(paintSpy.mock.calls.length).toBeGreaterThan(callsBeforeAppear);
+  });
+});
+
+describe('MapCallout — the tide strip is a band floor too (tide-window-plan.md T7)', () => {
+  beforeEach(() => { currentMap = makeMap(); });
+
+  // The strip is no longer covered transitively via `.wf-map-chrome-bl` once it moves to its own
+  // phone-only mount (T7) — `BAND_BAR_SELECTOR` in `MapCallout.jsx` carries its own
+  // `[data-testid="wf-tide-strip"]` entry for exactly that reason. `card.style.maxHeight` is the
+  // one rendered value that exposes `frame.band` (`{band.bot - band.top}px`, set unconditionally
+  // from `frame`, never from the measured `box`/`placement` — see the component's own comment on
+  // that style), so a real chrome sibling with that testid moving the band is observable without
+  // needing `withMeasuredCard` at all.
+  it('clamps the placement band above a real strip element, not merely above the counts footer', async () => {
+    vi.spyOn(currentMap.container, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 800, height: 500,
+    });
+    const strip = document.createElement('div');
+    strip.setAttribute('data-testid', 'wf-tide-strip');
+    currentMap.container.parentElement.appendChild(strip);
+    // Lower half of the 500px-tall frame, comfortably over `calloutBand`'s own ≥50%-frame-width
+    // floor/ceiling test (780/800 ≈ 97.5%) — the phone strip's real `left:8px; right:8px` shape.
+    vi.spyOn(strip, 'getBoundingClientRect').mockReturnValue({
+      left: 10, right: 790, top: 400, bottom: 450, width: 780, height: 50,
+    });
+
+    await mount();
+
+    // No other chrome bar is present, so `band.top` stays the default 8px floor; `band.bot` is
+    // `min(frameHeight - 8, strip.top - 8)` = `min(492, 392)` = 392 → maxHeight 384px. Without the
+    // strip counted at all it would be `492 - 8` = 484px (the sibling "no strip" test below).
+    const card = screen.getByTestId('map-callout');
+    expect(card.style.maxHeight).toBe('384px');
+  });
+
+  it('is a no-op with no strip in the DOM — the band falls back to the frame\'s own floor', async () => {
+    vi.spyOn(currentMap.container, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 800, height: 500,
+    });
+    await mount();
+    const card = screen.getByTestId('map-callout');
+    expect(card.style.maxHeight).toBe('484px');
   });
 });
 
@@ -946,6 +1285,67 @@ describe('MapCallout — phone width (map-tab-v2-plan.md §3 P12, README §7: "2
     await mount();
     fireEvent.click(screen.getByTestId('map-callout-strip-toggle'));
     expect(screen.getByTestId('map-callout-strip')).toBeInTheDocument();
+  });
+});
+
+/**
+ * The peek sheet's RESTING height is state-driven since Ask (F4): `MapView` writes `--psh` inline on the
+ * pane — 74 (no Ask row), 126 (the Ask row), 112 (an answer minimised to its line) — and the callout's
+ * band reads it when it paints. A callout may now stand over the 112px line, so the height under a card
+ * that is already placed really changes, and `bandKey` is what repaints it. `card.style.maxHeight` is the
+ * one rendered value that exposes the band (`bot - top`), so it is what is read. The frame is 500px tall:
+ * `bot = 500 - psh - 8`, `top = 8`.
+ */
+describe('MapCallout — the phone band follows the sheet\'s resting height (Ask, F4)', () => {
+  let restore;
+  beforeEach(() => {
+    mockIsMobile = true;
+    currentMap = makeMap();
+    restore = withMeasuredCard(266, 200);
+    currentMap.container.parentElement.className = 'wf-map-tab';
+  });
+  afterEach(() => restore());
+
+  const setPsh = (px) => currentMap.container.parentElement.style.setProperty('--psh', px === null ? '' : `${px}px`);
+
+  it.each([[74, '410px'], [126, '358px'], [112, '372px']])(
+    'reads --psh %ipx off the pane: the band is %s tall',
+    async (psh, maxHeight) => {
+      setPsh(psh);
+      await mount();
+      expect(screen.getByTestId('map-callout').style.maxHeight).toBe(maxHeight);
+    },
+  );
+
+  it('falls back to the no-Ask 74px when the property cannot be read (a stylesheet-less harness)', async () => {
+    setPsh(null);
+    await mount();
+    expect(screen.getByTestId('map-callout').style.maxHeight).toBe('410px');
+  });
+
+  it('repaints its band when `bandKey` changes under a card that is already placed — and not otherwise', async () => {
+    setPsh(126);
+    const { rerender } = await mount({ bandKey: 126 });
+    expect(screen.getByTestId('map-callout').style.maxHeight).toBe('358px');
+
+    // The sheet comes down to the minimised line: only `--psh` and `bandKey` move.
+    setPsh(112);
+    await act(async () => {
+      rerender(<MapCallout location={LOCATION} event={SUNSET_EVENT} rating={4} bandKey={112} />);
+    });
+    expect(screen.getByTestId('map-callout').style.maxHeight).toBe('372px');
+  });
+
+  it('is stale WITHOUT the key — a changed `--psh` alone repaints nothing (the defect `bandKey` exists for)', async () => {
+    setPsh(126);
+    const { rerender } = await mount({ bandKey: 126 });
+
+    setPsh(112);
+    await act(async () => {
+      rerender(<MapCallout location={LOCATION} event={SUNSET_EVENT} rating={4} bandKey={126} />);
+    });
+
+    expect(screen.getByTestId('map-callout').style.maxHeight).toBe('358px');
   });
 });
 
@@ -1020,4 +1420,440 @@ describe('MapCallout — the reason routes into the location sheet (increment §
   });
 });
 
+/**
+ * A pure wildlife hide on the callout — its comfort forecast in place of "Not scored yet".
+ *
+ * <p><b>What breaks if these fail:</b> a hide's card goes back to saying "Not scored yet" for a
+ * place that never will be; the comfort figures printed are not the served rows' (a different
+ * hour's wind, a different tie-break); a hide loses its way into the four-day sheet that holds the
+ * full table; or — the half that matters most — a SKY location's card changes, which this change
+ * must not touch.
+ */
+describe('MapCallout — a wildlife hide shows its comfort forecast, not "Not scored yet"', () => {
+  let restore;
+  beforeEach(() => { currentMap = makeMap(); restore = withMeasuredCard(286, 260); });
+  afterEach(() => restore());
 
+  // The callout's clock, injected. The window under test is 2026-06-15, so this makes it TOMORROW and
+  // every figure below is a whole-day figure; the "rest of today" tests inject a clock ON the day.
+  const DAY_BEFORE = new Date('2026-06-14T12:00:00Z');
+
+  const HIDE = {
+    id: 21,
+    name: 'Gosforth Nature Reserve',
+    lat: 55.0,
+    lon: -1.62,
+    regionName: 'Northumberland',
+    tideType: [],
+    locationType: ['WILDLIFE'],
+  };
+
+  // UTC instants on a BST date: the card prints the UK clock, one hour on.
+  const hourlyRow = (time, t, feels, windSpeed, windDirection, rain) => ({
+    solarEventTime: `${TODAY}T${time}:00`,
+    temperatureCelsius: t,
+    apparentTemperatureCelsius: feels,
+    windSpeed,
+    windDirection,
+    precipitationProbabilityPercent: rain,
+  });
+  // Wind peaks at 6 m/s twice (08:00 and 09:00 UTC) and rain at 40 % twice (09:00 and 10:00 UTC):
+  // the card must name the EARLIER hour in each case.
+  const HOURS = [
+    hourlyRow('07:00', 2.4, -0.6, 3, 270, 10),
+    hourlyRow('08:00', 4.0, 1.2, 6, 250, 10),
+    hourlyRow('09:00', 6.6, 4.4, 6, 240, 40),
+    hourlyRow('10:00', 7.1, 5.0, 4, 240, 40),
+  ];
+
+  const lines = () => screen.getAllByTestId('map-callout-comfort-line').map((el) => el.textContent.trim());
+
+  it('says what it is and what it carries, in place of "Not scored yet"', async () => {
+    // `ratingKnown: true` is the state in which a sky location with no rating reads "Not scored
+    // yet" — the very line a hide must not get.
+    await mount({ now: DAY_BEFORE, location: HIDE, rating: null, ratingKnown: true, hourlyRows: HOURS });
+    expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Comfort only');
+    expect(screen.getByTestId('map-callout-hide-note'))
+      .toHaveTextContent('Wildlife hide: never scored for sky colour.');
+    expect(screen.queryByText('Not scored yet')).toBeNull();
+    expect(screen.queryByText('Loading…')).toBeNull();
+  });
+
+  it('is not "Loading…" either while the rating\'s own source has not answered — nothing is coming', async () => {
+    await mount({ now: DAY_BEFORE, location: HIDE, rating: null, ratingKnown: false, hourlyRows: HOURS });
+    expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Comfort only');
+    expect(screen.queryByText('Loading…')).toBeNull();
+  });
+
+  it('prints the served rows\' temperature, wind, rain and span, ties going to the earliest hour', async () => {
+    await mount({ now: DAY_BEFORE, location: HIDE, rating: null, ratingKnown: true, hourlyRows: HOURS });
+    expect(lines()).toEqual([
+      '2 to 7°C, feels like -1 to 5°C.',
+      // 08:00 UTC is 09:00 BST; the 09:00 UTC tie is not the one named.
+      'Wind up to 13.4 mph W at 09:00.',
+      'Rain chance up to 40% at 10:00.',
+      'Daylight hours 08:00 to 11:00.',
+    ]);
+  });
+
+  it('says plainly there is no hourly forecast when the day holds no rows', async () => {
+    await mount({ now: DAY_BEFORE, location: HIDE, rating: null, ratingKnown: true, hourlyRows: null });
+    expect(screen.getByTestId('map-callout-comfort-none'))
+      .toHaveTextContent('No hourly forecast for this day yet.');
+    expect(screen.queryByTestId('map-callout-comfort-line')).toBeNull();
+    expect(screen.queryByText('Not scored yet')).toBeNull();
+  });
+
+  it('treats an empty array as no rows, the same as null', async () => {
+    await mount({ now: DAY_BEFORE, location: HIDE, rating: null, ratingKnown: true, hourlyRows: [] });
+    expect(screen.getByTestId('map-callout-comfort-none')).toBeInTheDocument();
+  });
+
+  it('is a button into the four-day sheet, named for its destination, and takes focus on the press', async () => {
+    // The peek route, exactly as the reason prose has it: sheet OVER the map, tab unmoved, and the
+    // button focuses itself first so the sheet has somewhere to return focus to.
+    const onOpenSheet = vi.fn();
+    const onOpenInPlan = vi.fn();
+    await mount({
+      now: DAY_BEFORE, location: HIDE, rating: null, ratingKnown: true, hourlyRows: HOURS, onOpenSheet, onOpenInPlan,
+    });
+    const button = screen.getByTestId('map-callout-comfort');
+    expect(button.tagName).toBe('BUTTON');
+    expect(button).toHaveAttribute('aria-haspopup', 'dialog');
+    // The FULL accessible name: the caption naming the day, the figures, then the destination — and
+    // NOT the aria-hidden "Hour by hour ›" caption, and not the sky locations' "four days".
+    expect(button).toHaveAccessibleName(
+      /^Comfort forecast · Mon 15 Jun 2 to 7°C, feels like -1 to 5°C\. Wind up to 13\.4 mph W at 09:00\. Rain chance up to 40% at 10:00\. Daylight hours 08:00 to 11:00\. Gosforth Nature Reserve — hourly comfort forecast$/,
+    );
+    expect(screen.getByRole('button', { name: /Gosforth Nature Reserve — hourly comfort forecast/ })).toBe(button);
+    expect(screen.queryByRole('button', { name: /four days here/ })).toBeNull();
+    expect(screen.getByText('Hour by hour ›')).toBeInTheDocument();
+    fireEvent.click(button);
+    expect(document.activeElement).toBe(button);
+    expect(onOpenSheet).toHaveBeenCalledTimes(1);
+    expect(onOpenInPlan).not.toHaveBeenCalled();
+  });
+
+  it('keeps that route when the day holds no rows — the other days may', async () => {
+    const onOpenSheet = vi.fn();
+    await mount({ now: DAY_BEFORE, location: HIDE, rating: null, ratingKnown: true, hourlyRows: null, onOpenSheet });
+    fireEvent.click(screen.getByTestId('map-callout-comfort'));
+    expect(onOpenSheet).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not borrow the region\'s SKY gloss — a read of colour a hide was never given', async () => {
+    const scoreIndex = buildScoreIndex([{
+      locationId: HIDE.id, locationName: HIDE.name, date: TODAY, targetType: 'SUNSET',
+      rating: null, summary: 'A warm, layered sky with a clean sea horizon.',
+    }]);
+    await mount({ now: DAY_BEFORE, location: HIDE, rating: null, ratingKnown: true, scoreIndex, hourlyRows: HOURS });
+    expect(screen.queryByTestId('map-callout-reason')).toBeNull();
+    expect(screen.queryByText(/layered sky/)).toBeNull();
+  });
+
+  it('renders the same card on the phone — the callout IS the phone\'s selection surface', async () => {
+    // The peek sheet holds no selected-place facts (its three sections are windows, tide and
+    // layers), so the comfort summary has to live on the 266px card and nowhere else.
+    mockIsMobile = true;
+    await mount({ now: DAY_BEFORE, location: HIDE, rating: null, ratingKnown: true, hourlyRows: HOURS });
+    expect(screen.getByTestId('map-callout').style.width).toBe('266px');
+    expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Comfort only');
+    expect(lines()[1]).toBe('Wind up to 13.4 mph W at 09:00.');
+  });
+
+  it('⚠️ leaves a sky location exactly as it was: "Not scored yet", no comfort block, rows ignored', async () => {
+    await mount({ rating: null, ratingKnown: true, hourlyRows: HOURS });
+    expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Not scored yet');
+    expect(screen.queryByTestId('map-callout-comfort')).toBeNull();
+    expect(screen.queryByTestId('map-callout-hide-note')).toBeNull();
+  });
+
+  it('⚠️ leaves a rated sky location\'s verdict path alone even when rows are handed in', async () => {
+    await mount({ rating: 4, hourlyRows: HOURS });
+    expect(screen.getByTestId('map-callout-score')).toHaveTextContent('4★ Worth it');
+    expect(screen.queryByTestId('map-callout-comfort')).toBeNull();
+  });
+
+  it('treats a place that is a hide AND a landscape as a sky location — it keeps the sky verdict path, here the unscored line', async () => {
+    await mount({
+      now: DAY_BEFORE,
+      location: { ...HIDE, locationType: ['WILDLIFE', 'LANDSCAPE'] },
+      rating: null, ratingKnown: true, hourlyRows: HOURS,
+    });
+    expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Not scored yet');
+    expect(screen.queryByTestId('map-callout-comfort')).toBeNull();
+  });
+});
+
+/**
+ * A hide on the callout: night windows, the rest of today, the day named, the rating order.
+ *
+ * <p><b>What breaks if these fail:</b> an astro or aurora night headlines daylight figures "for this
+ * day" (at 02:00 on a night dated yesterday, a finished day); an afternoon callout leads with a rain
+ * chance from 08:00; a screen reader hears a sunset and then whole-day figures with no date; or a
+ * real star ends up under "never scored for sky colour".
+ */
+describe('MapCallout — a wildlife hide: night windows, the rest of today, the named day', () => {
+  let restore;
+  beforeEach(() => { currentMap = makeMap(); restore = withMeasuredCard(286, 260); });
+  afterEach(() => restore());
+
+  const HIDE = {
+    id: 21, name: 'Gosforth Nature Reserve', lat: 55.0, lon: -1.62,
+    regionName: 'Northumberland', tideType: [], locationType: ['WILDLIFE'],
+  };
+  // UTC hours on a BST date: 08:00..17:00 UK is 07:00..16:00 UTC.
+  const row = (hourUtc, rain) => ({
+    solarEventTime: `${TODAY}T${String(hourUtc).padStart(2, '0')}:00:00`,
+    temperatureCelsius: 10 + hourUtc / 10,
+    apparentTemperatureCelsius: 8,
+    windSpeed: 3,
+    windDirection: 90,
+    precipitationProbabilityPercent: rain,
+  });
+  // Rain peaks at 70 % at 07:00 UTC (08:00 UK) — a figure that must vanish once that hour has passed.
+  const DAY_ROWS = [row(7, 70), row(10, 20), row(13, 30), row(16, 10)];
+  const lines = () => screen.getAllByTestId('map-callout-comfort-line').map((el) => el.textContent.trim());
+
+  describe('on a NIGHT window (astro or aurora)', () => {
+    it('renders what a hide always did: "Not scored yet", no comfort summary, no "never scored" note', async () => {
+      await mount({
+        location: HIDE, event: ASTRO_EVENT, rating: null, ratingKnown: true, hourlyRows: DAY_ROWS,
+      });
+      expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Not scored yet');
+      expect(screen.queryByText('Comfort only')).toBeNull();
+      expect(screen.queryByTestId('map-callout-hide-note')).toBeNull();
+      expect(screen.queryByTestId('map-callout-comfort-line')).toBeNull();
+      expect(screen.queryByTestId('map-callout-comfort')).toBeNull();
+    });
+
+    it('keeps a genuine night rating — a dark-sky hide may carry a real star, and no note sits under it', async () => {
+      await mount({
+        location: HIDE, event: ASTRO_EVENT, rating: 4, ratingKnown: true, hourlyRows: DAY_ROWS,
+      });
+      expect(screen.getByTestId('map-callout-score')).toHaveTextContent('4★ Worth it');
+      expect(screen.queryByTestId('map-callout-hide-note')).toBeNull();
+      expect(screen.queryByTestId('map-callout-comfort-line')).toBeNull();
+    });
+
+    it('points at the daylight forecast through the sheet route, with one plain line', async () => {
+      const onOpenSheet = vi.fn();
+      await mount({
+        location: HIDE, event: ASTRO_EVENT, rating: null, ratingKnown: true, hourlyRows: DAY_ROWS, onOpenSheet,
+      });
+      const pointer = screen.getByTestId('map-callout-comfort-night');
+      expect(pointer).toHaveTextContent('Comfort forecast covers daylight hours.');
+      expect(pointer).toHaveAttribute('aria-haspopup', 'dialog');
+      expect(pointer).toHaveAccessibleName(
+        /^Comfort forecast covers daylight hours\. Gosforth Nature Reserve — hourly comfort forecast$/,
+      );
+      fireEvent.click(pointer);
+      expect(onOpenSheet).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not read the rows at all: an aurora night dated yesterday never summarises a finished day', async () => {
+      const aurora = { ...ASTRO_EVENT, id: `aurora:${TODAY}:AURORA`, kind: 'aurora', eventType: 'AURORA' };
+      await mount({
+        now: new Date(`${TODAY}T01:00:00Z`), location: HIDE, event: aurora, rating: null,
+        ratingKnown: true, hourlyRows: DAY_ROWS,
+      });
+      expect(screen.queryByTestId('map-callout-comfort-line')).toBeNull();
+      expect(screen.queryByTestId('map-callout-comfort-none')).toBeNull();
+    });
+
+    it('leaves a sky location\'s night card without any comfort pointer', async () => {
+      await mount({ event: ASTRO_EVENT, rating: null, ratingKnown: true, hourlyRows: DAY_ROWS });
+      expect(screen.queryByTestId('map-callout-comfort-night')).toBeNull();
+    });
+  });
+
+  describe('on TODAY — only the hours still to come', () => {
+    it('drops the elapsed hours: at 13:30 UK the 08:00 rain peak is gone and the caption says so', async () => {
+      // 12:30 UTC = 13:30 BST: the 07:00 and 10:00 UTC rows have started, 13:00 UTC has not ended.
+      await mount({
+        now: new Date(`${TODAY}T12:30:00Z`), location: HIDE, rating: null, ratingKnown: true, hourlyRows: DAY_ROWS,
+      });
+      expect(screen.getByTestId('map-callout-comfort-caption')).toHaveTextContent('Comfort for the rest of today');
+      expect(lines()).toEqual([
+        '11 to 12°C, feels like 8°C.',
+        'Wind up to 6.7 mph E at 14:00.',
+        'Rain chance up to 30% at 14:00.',
+        'Daylight hours left, 14:00 to 17:00.',
+      ]);
+    });
+
+    it('keeps the current hour: at exactly the start of an hour that hour is still counted', async () => {
+      await mount({
+        now: new Date(`${TODAY}T16:00:00Z`), location: HIDE, rating: null, ratingKnown: true, hourlyRows: DAY_ROWS,
+      });
+      expect(lines().at(-1)).toBe('Only the 17:00 hour is left.');
+    });
+
+    it('says so, and keeps the route, once every daylight hour has passed', async () => {
+      const onOpenSheet = vi.fn();
+      await mount({
+        now: new Date(`${TODAY}T18:00:00Z`), location: HIDE, rating: null, ratingKnown: true,
+        hourlyRows: DAY_ROWS, onOpenSheet,
+      });
+      expect(screen.getByTestId('map-callout-comfort-none')).toHaveTextContent('Today’s daylight hours have passed.');
+      expect(screen.queryByTestId('map-callout-comfort-line')).toBeNull();
+      fireEvent.click(screen.getByTestId('map-callout-comfort'));
+      expect(onOpenSheet).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not claim hours "have passed" when there were never any rows today', async () => {
+      await mount({
+        now: new Date(`${TODAY}T12:30:00Z`), location: HIDE, rating: null, ratingKnown: true, hourlyRows: [],
+      });
+      expect(screen.getByTestId('map-callout-comfort-none')).toHaveTextContent('No hourly forecast for this day yet.');
+    });
+
+    it('measures TODAY on the UK civil date: 23:30 UTC in June is already tomorrow in the UK', async () => {
+      // The window's date is the 15th; at 23:30Z on the 15th the UK date is the 16th, so the 15th is
+      // a PAST day, not today — it takes the whole-day caption, not "the rest of today".
+      await mount({
+        now: new Date(`${TODAY}T23:30:00Z`), location: HIDE, rating: null, ratingKnown: true, hourlyRows: DAY_ROWS,
+      });
+      expect(screen.getByTestId('map-callout-comfort-caption')).not.toHaveTextContent('rest of today');
+    });
+  });
+
+  describe('naming the day', () => {
+    it('names a later day by weekday and date, never "Today" or "Tomorrow"', async () => {
+      await mount({
+        now: new Date('2026-06-12T09:00:00Z'), location: HIDE, rating: null, ratingKnown: true, hourlyRows: DAY_ROWS,
+      });
+      expect(screen.getByTestId('map-callout-comfort-caption')).toHaveTextContent('Comfort forecast · Mon 15 Jun');
+      expect(lines().at(-1)).toBe('Daylight hours 08:00 to 17:00.');
+    });
+  });
+
+  describe('the verdict slot order: a served star always wins', () => {
+    it('a hide with a SOLAR rating shows the star, no "never scored" note, and still its comfort summary', async () => {
+      await mount({
+        now: new Date('2026-06-12T09:00:00Z'), location: HIDE, rating: 3, ratingKnown: true, hourlyRows: DAY_ROWS,
+      });
+      expect(screen.getByTestId('map-callout-score')).toHaveTextContent('3★ Maybe');
+      expect(screen.queryByText('Comfort only')).toBeNull();
+      expect(screen.queryByTestId('map-callout-hide-note')).toBeNull();
+      expect(screen.getAllByTestId('map-callout-comfort-line').length).toBeGreaterThan(0);
+    });
+  });
+});
+
+/**
+ * DAY mode: a wildlife hide's card when the tab has no map event at all.
+ *
+ * <p><b>What breaks if these fail:</b> a forecast of hides alone leaves the Map tab open onto a dead
+ * end — the hide can be picked and nothing comes of it; or the card invents a window (a sunset chip,
+ * a verdict) it has no event for; or a SKY location with no event starts getting a card; or the card
+ * speaks for a day that has nothing left in it while a later day holds the forecast.
+ */
+describe('MapCallout — day mode: a wildlife hide with no map event at all', () => {
+  let restore;
+  beforeEach(() => { currentMap = makeMap(); restore = withMeasuredCard(286, 260); });
+  afterEach(() => restore());
+
+  // UTC hours on BST dates (08:00..17:00 UK is 07:00..16:00 UTC).
+  const row = (date, hourUtc, rain) => ({
+    solarEventTime: `${date}T${String(hourUtc).padStart(2, '0')}:00:00`,
+    temperatureCelsius: 10 + hourUtc / 10,
+    apparentTemperatureCelsius: 8,
+    windSpeed: 3,
+    windDirection: 90,
+    precipitationProbabilityPercent: rain,
+  });
+  const dayOf = (date) => [row(date, 7, 70), row(date, 10, 20), row(date, 13, 30), row(date, 16, 10)];
+  const entry = (hourly) => ({ sunrise: null, sunset: null, hourly });
+  const hide = (byDate) => ({
+    id: 21, name: 'Gosforth Nature Reserve', lat: 55.0, lon: -1.62, regionName: 'Northumberland',
+    tideType: [], locationType: ['WILDLIFE'], forecastsByDate: new Map(byDate),
+  });
+  // 12:30Z = 13:30 UK on the 15th: the 07:00 and 10:00 UTC rows are gone, 13:00 and 16:00 are to come.
+  const MIDDAY = new Date(`${TODAY}T12:30:00Z`);
+  const mountDay = (location, extra = {}) => mount({
+    location, event: null, dayMode: true, rating: null, now: MIDDAY, ...extra,
+  });
+
+  it('⚠️ renders the card with NO event: no verdict row, no every-event strip, no window label', async () => {
+    await mountDay(hide([[TODAY, entry(dayOf(TODAY))]]));
+    expect(screen.getByTestId('map-callout')).toBeInTheDocument();
+    expect(screen.queryByTestId('map-callout-verdict')).toBeNull();
+    expect(screen.queryByTestId('map-callout-score')).toBeNull();
+    expect(screen.queryByTestId('map-callout-strip-toggle')).toBeNull();
+    expect(screen.queryByText(/Not scored|Loading/)).toBeNull();
+    expect(screen.getByTestId('map-callout-hide-note')).toHaveTextContent('Wildlife hide: never scored for sky colour.');
+  });
+
+  it('speaks for TODAY while it has hours left: the rest of today, from the start of the current hour', async () => {
+    await mountDay(hide([[TODAY, entry(dayOf(TODAY))], ['2026-06-16', entry(dayOf('2026-06-16'))]]));
+    expect(screen.getByTestId('map-callout-comfort-caption')).toHaveTextContent('Comfort for the rest of today');
+    expect(screen.getAllByTestId('map-callout-comfort-line').map((el) => el.textContent.trim())).toEqual([
+      '11 to 12°C, feels like 8°C.',
+      'Wind up to 6.7 mph E at 14:00.',
+      'Rain chance up to 30% at 14:00.',
+      'Daylight hours left, 14:00 to 17:00.',
+    ]);
+  });
+
+  it('⚠️ names the FIRST LATER day with rows when today has none left — and says which day', async () => {
+    const gone = [row(TODAY, 7, 70), row(TODAY, 10, 20)];
+    await mountDay(hide([[TODAY, entry(gone)], ['2026-06-17', entry(dayOf('2026-06-17'))]]));
+    expect(screen.getByTestId('map-callout-comfort-caption')).toHaveTextContent('Comfort forecast · Wed 17 Jun');
+    expect(screen.getAllByTestId('map-callout-comfort-line').at(-1)).toHaveTextContent('Daylight hours 08:00 to 17:00.');
+  });
+
+  it('says today\'s daylight has passed when it is the only day with rows', async () => {
+    const gone = [row(TODAY, 7, 70), row(TODAY, 10, 20)];
+    await mountDay(hide([[TODAY, entry(gone)]]));
+    expect(screen.getByTestId('map-callout-comfort-none')).toHaveTextContent('Today’s daylight hours have passed.');
+  });
+
+  it('names no day, and says so plainly, when the hide has no rows from today on', async () => {
+    await mountDay(hide([['2026-06-10', entry(dayOf('2026-06-10'))]]));
+    expect(screen.getByTestId('map-callout-comfort-caption')).toHaveTextContent(/^Comfort forecast$/);
+    expect(screen.getByTestId('map-callout-comfort-none')).toHaveTextContent('No hourly forecast yet.');
+  });
+
+  it('keeps the route into the sheet, named for its destination, and takes focus on the press', async () => {
+    const onOpenSheet = vi.fn();
+    await mountDay(hide([[TODAY, entry(dayOf(TODAY))]]), { onOpenSheet });
+    const button = screen.getByTestId('map-callout-comfort');
+    expect(button).toHaveAttribute('aria-haspopup', 'dialog');
+    expect(button).toHaveAccessibleName(/Gosforth Nature Reserve — hourly comfort forecast$/);
+    fireEvent.click(button);
+    // The sheet's `useDialogFocus` restores focus to whatever held it when it opened: the button.
+    expect(document.activeElement).toBe(button);
+    expect(onOpenSheet).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the card\'s close button and actions, so the selection can be dismissed and the place zoomed to', async () => {
+    const onClose = vi.fn();
+    await mountDay(hide([[TODAY, entry(dayOf(TODAY))]]), { onClose });
+    fireEvent.click(screen.getByTestId('map-callout-close'));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('map-callout-zoom')).toBeInTheDocument();
+  });
+
+  it('⚠️ gives a SKY location with no event NO card — day mode is for a hide only', async () => {
+    await mountDay({ ...LOCATION, forecastsByDate: new Map([[TODAY, entry(dayOf(TODAY))]]) });
+    expect(screen.queryByTestId('map-callout')).toBeNull();
+  });
+
+  it('⚠️ ignores day mode when an event IS present — the window card is unchanged', async () => {
+    await mount({
+      location: hide([[TODAY, entry(dayOf(TODAY))]]), event: SUNSET_EVENT, dayMode: true, rating: null,
+      ratingKnown: true, hourlyRows: dayOf(TODAY), now: new Date('2026-06-12T09:00:00Z'),
+    });
+    expect(screen.getByTestId('map-callout-verdict')).toBeInTheDocument();
+    expect(screen.getByTestId('map-callout-comfort-caption')).toHaveTextContent('Comfort forecast · Mon 15 Jun');
+    expect(screen.getByTestId('map-callout-strip-toggle')).toBeInTheDocument();
+  });
+
+  it('renders the same day card on the phone, at 266px', async () => {
+    mockIsMobile = true;
+    await mountDay(hide([[TODAY, entry(dayOf(TODAY))]]));
+    expect(screen.getByTestId('map-callout').style.width).toBe('266px');
+    expect(screen.getByTestId('map-callout-comfort-caption')).toHaveTextContent('Comfort for the rest of today');
+  });
+});

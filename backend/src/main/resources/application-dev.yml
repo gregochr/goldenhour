@@ -31,7 +31,6 @@ spring:
 
 anthropic:
   api-key: ${ANTHROPIC_API_KEY:}
-  model: claude-haiku-4-5
 worldtides:
   api-key: ${WORLDTIDES_API_KEY:}
 notifications:
@@ -41,13 +40,13 @@ notifications:
     enabled: false
   macos-toast:
     enabled: false
+  admin-alerts:
+    enabled: false
 forecast:
   schedule:
     sonnet:
       cron: "0 0 0 1 1 ?"
     haiku:
-      cron: "0 0 0 1 1 ?"
-    wildlife:
       cron: "0 0 0 1 1 ?"
 tide:
   schedule:

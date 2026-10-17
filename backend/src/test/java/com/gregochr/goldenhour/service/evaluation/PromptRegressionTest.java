@@ -571,6 +571,45 @@ class PromptRegressionTest {
                         + result.fierySkyPotential());
     }
 
+    /**
+     * Low Hauxley, 4 October 2026, SUNRISE 06:13 UTC — POSITIVE case (worth going: clear horizon, high canvas).
+     *
+     * <p>Data sourced from production record id 86677 (Haiku 4.5, batch pipeline, run 2026-10-04
+     * 01:04 UTC), and unlike the cases above the user message is the production prompt verbatim —
+     * {@link LowHauxleyPromptFidelityTest} pins it to the stored text. A SEASCAPE with a tide, so it
+     * runs through the coastal prompt. Solar horizon 0% low / 10% mid / 100% high, antisolar
+     * 100% across, far corridor 1%; the high canvas arrived through the last three hours with no
+     * low-cloud blocker and nothing upwind. Production rated it 4 stars (fiery 72, golden 68).
+     *
+     * <p>The owner went and photographed it, looking out to Coquet Island: a clean sea horizon,
+     * streaked high cloud on the sun's side lit orange and salmon, lilac-grey away from it —
+     * strong but pastel colour, no deep red. Verdict: "It was worth going, so it's a 4. I view 3
+     * as maybe get out of bed and it was better than that." The bounds are the owner's:
+     * <ul>
+     *   <li>Rating: exactly 4 (worth going; not spectacular, so not 5; better than a 3 "maybe")</li>
+     *   <li>Fiery Sky: 55–85 (strong colour, pastel, no deep red)</li>
+     *   <li>Golden Hour: min 55</li>
+     * </ul>
+     */
+    @Test
+    void lowHauxley_4Oct2026_sunrise_clearHorizonHighCanvas_worthGoing() {
+        AtmosphericData data = LowHauxleyFixture.atmosphericData();
+
+        SunsetEvaluation result = strategy.evaluate(data);
+        System.out.println("[lowHauxley_4Oct] rating=" + result.rating()
+                + " fiery=" + result.fierySkyPotential()
+                + " golden=" + result.goldenHourPotential() + " " + result.summary());
+
+        assertScoresNotNull(result);
+        assertEquals(4, result.rating(),
+                "Rating should be exactly 4 (worth going, not spectacular) but was " + result.rating());
+        assertTrue(result.fierySkyPotential() >= 55 && result.fierySkyPotential() <= 85,
+                "Fiery Sky should be 55-85 (strong pastel colour, no deep red) but was "
+                        + result.fierySkyPotential());
+        assertTrue(result.goldenHourPotential() >= 55,
+                "Golden Hour should be >= 55 (good light) but was " + result.goldenHourPotential());
+    }
+
     private static void assertScoresNotNull(SunsetEvaluation result) {
         assertNotNull(result.rating(), "Rating should not be null");
         assertNotNull(result.fierySkyPotential(), "Fiery Sky should not be null");

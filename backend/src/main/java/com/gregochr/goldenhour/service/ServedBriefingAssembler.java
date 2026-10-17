@@ -7,7 +7,10 @@ import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
+import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
+import com.gregochr.goldenhour.model.LocationTideFact;
+import com.gregochr.goldenhour.repository.LocationPoint;
 import com.gregochr.goldenhour.service.pipeline.BestBetFallbackService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -64,26 +67,35 @@ class ServedBriefingAssembler {
      * window in which this field could be observed null.
      */
     private final BriefingScoreEnricher scoreEnricher;
+    private final LocationPointProvider locationPointProvider;
+    private final NeighbourGuardProperties neighbourGuardProperties;
+    private final NeighbourGuardLog neighbourGuardLog;
 
     ServedBriefingAssembler(BestBetFallbackService bestBetFallbackService,
             BriefingRegionSnapshotService regionSnapshotService,
             WindowTideRollupBuilder windowTideRollupBuilder,
             @Lazy EvaluationViewService evaluationViewService,
             Clock clock,
-            BriefingScoreEnricher scoreEnricher) {
+            BriefingScoreEnricher scoreEnricher,
+            LocationPointProvider locationPointProvider,
+            NeighbourGuardProperties neighbourGuardProperties,
+            NeighbourGuardLog neighbourGuardLog) {
         this.bestBetFallbackService = bestBetFallbackService;
         this.regionSnapshotService = regionSnapshotService;
         this.windowTideRollupBuilder = windowTideRollupBuilder;
         this.evaluationViewService = evaluationViewService;
         this.clock = clock;
         this.scoreEnricher = scoreEnricher;
+        this.locationPointProvider = locationPointProvider;
+        this.neighbourGuardProperties = neighbourGuardProperties;
+        this.neighbourGuardLog = neighbourGuardLog;
     }
 
     /**
      * Assembles the served briefing <b>without</b> the Plan-tab window projection: re-enrichment,
-     * the serve-time best-bet fallback, and the honesty filter, in that order. Backs {@link
-     * BriefingService#getServedBriefing()} — see that method's javadoc for the panel-sharing
-     * contract (shared by {@code CloseToHomeService}) this composition exists to support.
+     * the serve-time best-bet fallback, and the honesty filter, in that order. The first stage of
+     * {@link #assembleForPlan}; package-private so a test can use it as the unstripped oracle for
+     * the slot-tide strip. Nothing serves it on its own.
      *
      * @param snapshot         the cached briefing, or {@code null} if none has been built yet
      * @param minCoverageRatio the honesty filter's lightly-evaluated threshold; see {@link
@@ -93,9 +105,12 @@ class ServedBriefingAssembler {
      */
     DailyBriefingResponse assembleWithoutPlan(DailyBriefingResponse snapshot,
             double minCoverageRatio) {
+        Reenriched reenriched = reEnrichVerdicts(snapshot);
         return BriefingHonestyFilter.apply(
-                applyBestBetFallback(reEnrichVerdicts(snapshot)),
-                minCoverageRatio);
+                applyBestBetFallback(reenriched.response()),
+                minCoverageRatio,
+                reenriched.latestBySlot(),
+                clock);
     }
 
     /**
@@ -124,17 +139,26 @@ class ServedBriefingAssembler {
         // The fallback still runs on the ENRICHED response, so its FAILED test and the filter's
         // coverage test both read current state. Nothing else about it is order-sensitive: it
         // reads only bestBetStatus and passes the day hierarchy through untouched.
-        // Movement is attached HERE and not inside assembleWithoutPlan (which backs
-        // BriefingService.getServedBriefing()), and the distinction is the same one that method's
-        // own javadoc was written to make: CloseToHomeService shares that accessor and reads slots
-        // and bestBets only, so a movement step inside it would cost /api/user/settings/reach two
-        // queries and a full rebuild of the day hierarchy for a field it discards — the exact "paid
-        // twice per page, one copy thrown away" pattern the projection was moved out here to stop.
-        // Nothing renders a delta except the Plan tab, and this is the Plan tab's payload.
+        // Movement is attached HERE and not inside assembleWithoutPlan: nothing renders a delta
+        // except the Plan tab, and this is the Plan tab's payload.
         //
         // Before the projector, deliberately: the projector is the outermost step and rebuilds the
         // response through withPlan, which carries previousGeneratedAt and every region untouched.
-        DailyBriefingResponse filtered = attachMovement(assembleWithoutPlan(snapshot, minCoverageRatio));
+        //
+        // Per-location tide facts are projected from the RAW snapshot, before the honesty filter:
+        // the filter empties a zero-coverage region's slots (the designed state of every window
+        // Gate 4 does not score and of every travel day), and the tide facts come from stored
+        // tide tables, not from Claude. Slot tide is never touched by re-enrichment or the
+        // fallback, so the snapshot's tide is the served tide. Read-only on the snapshot.
+        Map<PlanWindowProjector.WindowKey, List<LocationTideFact>> tideFacts = snapshot == null
+                ? Map.of() : WindowTideFactProjector.project(snapshot.days());
+        // The neighbour guard marks a slot rated far above its neighbours so the projector's topSlot
+        // does not NAME it. After the honesty filter, so a zero-coverage region's emptied slots are
+        // not neighbours and the guard judges the ratings actually served; before the projector,
+        // which reads the flag. Serve-time only: never on the build path, so daily_briefing_cache
+        // never carries it.
+        DailyBriefingResponse filtered = markNeighbourOutliers(
+                attachMovement(assembleWithoutPlan(snapshot, minCoverageRatio)));
         // The tide rollup is derived here rather than inside the projector so the projector stays a
         // pure function of the response: it needs three repositories, and the projector has none.
         // It is fed the FILTERED days for one reason only — the same day list the windows are
@@ -146,11 +170,107 @@ class ServedBriefingAssembler {
         // which declared a window past up to an hour early — see plan-verdict-consolidation-plan.md
         // §1 D4. This is the "one clock, two calendars" rule from the daysAhead work: DATES are
         // London, INSTANT comparisons are UTC, and this is an instant comparison.
-        return PlanWindowProjector.apply(
+        DailyBriefingResponse projected = PlanWindowProjector.apply(
                 filtered,
                 LocalDateTime.now(clock.withZone(ZoneOffset.UTC)),
                 filtered == null ? Map.of()
-                        : windowTideRollupBuilder.build(filtered.days()));
+                        : windowTideRollupBuilder.build(filtered.days()),
+                tideFacts);
+        // LAST, after the projector, so nothing the projector reads is stripped from under it (the
+        // facts themselves come from the raw snapshot above). See stripSlotTide.
+        return stripSlotTide(projected);
+    }
+
+    /**
+     * Marks the neighbour outliers in a response (docs/engineering/neighbour-guard-plan.md §4).
+     *
+     * <p>A no-op, and never reads the location provider, unless {@code photocast.neighbour-guard.enabled}
+     * is set. Fails open: a failed or empty coordinates read serves the response unmarked. Only slots in a
+     * region are touched; every other slot, and every field of every slot, is carried by the
+     * withers.
+     *
+     * @param response the honesty-filtered response with movement (may be {@code null})
+     * @return the response, with {@code neighbourOutlier} set on each flagged slot
+     */
+    private DailyBriefingResponse markNeighbourOutliers(DailyBriefingResponse response) {
+        if (!neighbourGuardProperties.isEnabled() || response == null || response.days().isEmpty()) {
+            return response;
+        }
+        NeighbourOutlierGuard.Result result;
+        try {
+            Map<Long, LocationPoint> points = locationPointProvider.points();
+            if (points.isEmpty()) {
+                // The provider answers an empty map when its read failed (it logged that once); no
+                // real roster is empty, and a pass over no points would log a summary claiming the
+                // guard had judged the briefing.
+                return response;
+            }
+            result = NeighbourOutlierGuard.flag(response.days(), points, neighbourGuardProperties);
+        } catch (Exception e) {
+            LOG.warn("Neighbour guard failed — this serve carries no outlier marks: {}", e.getMessage());
+            return response;
+        }
+        neighbourGuardLog.record(response.generatedAt(), result);
+        if (result.flagged().isEmpty()) {
+            return response;
+        }
+        List<BriefingDay> days = new ArrayList<>(response.days().size());
+        for (BriefingDay day : response.days()) {
+            List<BriefingEventSummary> events = new ArrayList<>(day.eventSummaries().size());
+            for (BriefingEventSummary es : day.eventSummaries()) {
+                List<BriefingRegion> regions = es.regions().stream()
+                        .map(region -> region.withSlots(region.slots().stream()
+                                .map(slot -> isFlagged(result, day, es, slot)
+                                        ? slot.withNeighbourOutlier(Boolean.TRUE) : slot)
+                                .toList()))
+                        .toList();
+                events.add(es.withRegions(regions));
+            }
+            days.add(day.withEventSummaries(events));
+        }
+        return response.withDays(days);
+    }
+
+    private static boolean isFlagged(NeighbourOutlierGuard.Result result, BriefingDay day,
+            BriefingEventSummary es, BriefingSlot slot) {
+        return slot.locationId() != null && !slot.canopy() && result.flagged().contains(
+                new NeighbourOutlierGuard.Key(slot.locationId(), day.date(), es.targetType()));
+    }
+
+    /**
+     * Removes the per-location tide from every served slot, so {@code window.tideFacts} is the one
+     * source of it on the wire (docs/engineering/window-tide-facts-plan.md §3, P5).
+     *
+     * <p>Sets each slot's {@code tide} to <b>null</b>, never an empty {@code TideInfo}: its primitive
+     * booleans would serialise {@code tideAligned:false} on every slot, and the unwrapped keys vanish
+     * only for a null. Covers regioned and unregioned slots. Rebuilds through the withers so each
+     * day's {@code peak}, every {@code window} (tideFacts included) and {@code renderedEvents} are
+     * carried. Runs at the tail of {@link #assembleForPlan} only; {@link #assembleWithoutPlan}
+     * is not stripped, and the cached snapshot is never mutated (records are copied, not edited).
+     *
+     * @param response the fully projected response (may be {@code null})
+     * @return a copy whose slots carry no tide, or {@code null} if input was
+     */
+    private static DailyBriefingResponse stripSlotTide(DailyBriefingResponse response) {
+        if (response == null) {
+            return null;
+        }
+        List<BriefingDay> days = new ArrayList<>(response.days().size());
+        for (BriefingDay day : response.days()) {
+            List<BriefingEventSummary> events = new ArrayList<>(day.eventSummaries().size());
+            for (BriefingEventSummary es : day.eventSummaries()) {
+                List<BriefingRegion> regions = es.regions().stream()
+                        .map(region -> region.withSlots(withoutTide(region.slots())))
+                        .toList();
+                events.add(es.withRegions(regions).withUnregioned(withoutTide(es.unregioned())));
+            }
+            days.add(day.withEventSummaries(events));
+        }
+        return response.withDays(days);
+    }
+
+    private static List<BriefingSlot> withoutTide(List<BriefingSlot> slots) {
+        return slots == null ? null : slots.stream().map(slot -> slot.withTide(null)).toList();
     }
 
     /**
@@ -242,9 +362,9 @@ class ServedBriefingAssembler {
      * @param response the cached briefing (may be {@code null})
      * @return a copy whose regions carry freshly re-derived verdicts, or {@code null} if input was
      */
-    private DailyBriefingResponse reEnrichVerdicts(DailyBriefingResponse response) {
+    private Reenriched reEnrichVerdicts(DailyBriefingResponse response) {
         if (response == null || response.days().isEmpty()) {
-            return response;
+            return new Reenriched(response, Map.of());
         }
         LocalDate start = response.days().getFirst().date();
         LocalDate end = response.days().getLast().date();
@@ -254,13 +374,31 @@ class ServedBriefingAssembler {
                 .collect(java.util.stream.Collectors.toCollection(
                         () -> java.util.EnumSet.noneOf(TargetType.class)));
         if (types.isEmpty()) {
-            return response;
+            return new Reenriched(response, Map.of());
         }
         Map<String, Map<String, BriefingEvaluationResult>> index =
                 evaluationViewService.getScoresForEnrichmentBulk(start, end, types);
         RegionScoreResolver resolver = (regionName, date, targetType) ->
                 index.getOrDefault(regionName + "|" + date + "|" + targetType, Map.of());
-        return response.withDays(scoreEnricher.enrich(response.days(), resolver));
+        // Independent of `resolver` above — answers a different question about the same
+        // region/date/event key (a Codex review of #943, P1-A, round 2; see
+        // TriagedByBatchResolver's own javadoc for why this cannot be derived from `resolver`'s
+        // own return value).
+        // The same single disposition read also yields each slot's latest category, which the
+        // honesty filter folds into the reason a blanked region has no forecast.
+        EvaluationViewService.ServeTriage serveTriage =
+                evaluationViewService.loadServeTriage(start, end, types);
+        Map<String, Set<String>> triagedIndex = serveTriage.triagedByKey();
+        TriagedByBatchResolver triagedResolver = (regionName, date, targetType) ->
+                triagedIndex.getOrDefault(regionName + "|" + date + "|" + targetType, Set.of());
+        return new Reenriched(
+                response.withDays(scoreEnricher.enrich(response.days(), resolver, triagedResolver)),
+                serveTriage.latestBySlot());
+    }
+
+    /** A re-enriched response with the latest disposition per slot the filter words blanks by. */
+    private record Reenriched(DailyBriefingResponse response,
+            Map<String, EvaluationViewService.LatestDisposition> latestBySlot) {
     }
 
     /**
@@ -289,18 +427,13 @@ class ServedBriefingAssembler {
         if (response == null || response.bestBetStatus() != BestBetStatus.FAILED) {
             return response;
         }
-        List<BestBet> fallback = bestBetFallbackService.findFreshFallback();
+        List<BestBet> fallback = bestBetFallbackService.findFreshFallback(response.days());
         if (fallback.isEmpty()) {
             return response;
         }
-        return new DailyBriefingResponse(
-                response.generatedAt(), response.headline(), response.days(),
-                fallback, response.auroraTonight(), response.auroraTomorrow(),
-                response.stale(), response.partialFailure(), response.failedLocationCount(),
-                response.bestBetModel(), response.hotTopics(), response.seasonalFeatures(),
-                // Carried, not cleared: this now runs BEFORE the honesty filter, so there is no
-                // withdrawal yet to describe — the filter sets the flag afterwards, against
-                // whichever list it ends up seeing, including this one.
-                response.bestBetStatus(), response.bestBetsWithdrawn());
+        // The withdrawal flag is carried, not cleared: this now runs BEFORE the honesty filter, so
+        // there is no withdrawal yet to describe — the filter sets the flag afterwards, against
+        // whichever list it ends up seeing, including this one.
+        return response.withBestBets(fallback, response.bestBetsWithdrawn());
     }
 }

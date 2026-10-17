@@ -32,6 +32,18 @@ public final class RatingValidator {
     }
 
     /**
+     * Whether a rating is on Claude's 1-5 scale, inclusive. The one range test: the Plan window
+     * projector's {@code usableRating} and Ask's pick eligibility both call it, so a malformed row
+     * (a rating of 491, say) is refused by every reader for the same reason.
+     *
+     * @param rating the rating; may be {@code null}
+     * @return true only for a non-null rating in {@code [MIN_RATING, MAX_RATING]}
+     */
+    public static boolean isInRange(Integer rating) {
+        return rating != null && rating >= MIN_RATING && rating <= MAX_RATING;
+    }
+
+    /**
      * Validates a Claude 1-5 star rating.
      *
      * @param raw          rating as parsed from Claude; may be {@code null}

@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.comingup.ComingUpAssembler;
 import com.gregochr.goldenhour.service.comingup.ComingUpConditionsBuilder;
 import com.gregochr.goldenhour.service.comingup.ComingUpScoringProperties;
+import com.gregochr.goldenhour.service.comingup.DailyRangeHistory;
 import com.gregochr.goldenhour.service.comingup.TideRunPeakHistory;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.junit.jupiter.api.DisplayName;
@@ -40,8 +41,10 @@ class AlmanacServiceTest {
                 mock(LocationRepository.class),
                 mock(TideRunBuilder.class),
                 mock(TideRunPeakHistory.class),
+                mock(DailyRangeHistory.class),
                 mock(TideService.class),
-                new ComingUpScoringProperties());
+                new ComingUpScoringProperties(),
+                new com.gregochr.solarutils.MoonriseMoonsetCalculator());
     }
 
     /**
@@ -165,6 +168,25 @@ class AlmanacServiceTest {
     }
 
     @Test
+    @DisplayName("a rewound request neither reads the day cache nor writes it — the next live request "
+            + "still gets the live feed, and a rewound one never gets the cached live feed")
+    void rewoundRequestsBypassTheCache() {
+        CountingSource source = new CountingSource(List.of(event(DAY, DAY, "x")));
+        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler(), conditionsBuilder());
+        try {
+            service.getFeed(30);                                        // live: builds and caches (1)
+            com.gregochr.goldenhour.util.Rewind.set(CLOCK.instant().minusSeconds(3600));
+            service.getFeed(30);                                        // rewound: rebuilds (2), caches nothing
+            service.getFeed(30);                                        // rewound again: rebuilds (3)
+        } finally {
+            com.gregochr.goldenhour.util.Rewind.clear();
+        }
+        service.getFeed(30);                                            // live: the cache from (1) still stands
+
+        assertThat(source.calls.get()).isEqualTo(3);
+    }
+
+    @Test
     @DisplayName("evict() forces the next request to rebuild")
     void evictForcesARebuild() {
         CountingSource source = new CountingSource(List.of(event(DAY, DAY, "x")));
@@ -175,6 +197,262 @@ class AlmanacServiceTest {
         service.getFeed(30);
 
         assertThat(source.calls.get()).isEqualTo(2);
+    }
+
+    // ── refresh and the startup warm ────────────────────────────────────────
+
+    @Test
+    @DisplayName("refresh() fills an empty cache, so the first reader of the day pays for no build")
+    void refreshWarmsAnEmptyCache() {
+        CountingSource source = new CountingSource(List.of(event(DAY, DAY, "x")));
+        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler(), conditionsBuilder());
+
+        assertThat(service.refresh()).isTrue();
+        service.getFeed();
+
+        assertThat(source.calls.get()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("refresh() replaces a cache that is already warm with a rebuild from current data")
+    void refreshReplacesAWarmCache() {
+        LocalDate beyond = LAST_PLAN_DATE.plusDays(1);
+        List<AlmanacEvent> served = new java.util.ArrayList<>(List.of(event(beyond, beyond, "meteor")));
+        AlmanacSource source = (f, t) -> List.copyOf(served);
+        AlmanacService service = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK, assembler(),
+                conditionsBuilder());
+        ComingUpResponse before = service.getFeed();
+
+        // The pipeline has written new data since the day's first request.
+        served.add(event(beyond.plusDays(1), beyond.plusDays(1), "eclipse"));
+        service.refresh();
+        ComingUpResponse after = service.getFeed();
+
+        assertThat(after).isNotSameAs(before);
+        assertThat(after.entries()).hasSizeGreaterThan(before.entries().size());
+        // Served from the refreshed cache, not rebuilt a third time.
+        assertThat(service.getFeed()).isSameAs(after);
+    }
+
+    @Test
+    @DisplayName("a reader who arrives while refresh() is building is served the previous feed, "
+            + "never an empty slot — build first, then replace")
+    void aReaderDuringRefreshSeesThePreviousFeed() {
+        AtomicInteger calls = new AtomicInteger();
+        java.util.concurrent.atomic.AtomicReference<AlmanacService> holder =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicReference<ComingUpResponse> seenMidBuild =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        AlmanacSource source = (f, t) -> {
+            // The second call is the refresh's build. A getFeed() from inside it stands in for a
+            // request that arrives while it runs: with evict-then-build it would find nothing and
+            // build recursively; with build-then-replace it is served what was cached before.
+            if (calls.incrementAndGet() == 2) {
+                seenMidBuild.set(holder.get().getFeed());
+            }
+            return List.of(event(DAY, DAY, "x"));
+        };
+        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler(), conditionsBuilder());
+        holder.set(service);
+        ComingUpResponse before = service.getFeed();
+
+        service.refresh();
+
+        assertThat(seenMidBuild.get()).isSameAs(before);
+        assertThat(calls.get()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("a reader's miss-build that finishes after a refresh() does not overwrite the "
+            + "refreshed feed — the slot is only filled if it is still the one the reader found empty")
+    void aMissBuildThatOutlivesARefreshDoesNotOverwriteIt() {
+        LocalDate beyond = LAST_PLAN_DATE.plusDays(1);
+        AtomicInteger calls = new AtomicInteger();
+        java.util.concurrent.atomic.AtomicReference<AlmanacService> holder =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        AlmanacSource source = (f, t) -> {
+            // Call 1 is the reader's build on a cold cache; a refresh() from inside it stands in for
+            // the pipeline tail landing while the reader's build is still running. The refresh's
+            // own build (call 2) sees one more event, so the two responses can be told apart.
+            if (calls.incrementAndGet() == 1) {
+                holder.get().refresh();
+                return List.of(event(beyond, beyond, "meteor"));
+            }
+            return List.of(event(beyond, beyond, "meteor"), event(beyond.plusDays(1), beyond.plusDays(1), "eclipse"));
+        };
+        AlmanacService service = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK, assembler(),
+                conditionsBuilder());
+        holder.set(service);
+
+        ComingUpResponse readersOwn = service.getFeed();
+
+        assertThat(calls.get()).isEqualTo(2);
+        assertThat(readersOwn.entries()).hasSize(1);
+        // The cache keeps the refresh's answer, built from the newer data, not the reader's older one.
+        assertThat(service.getFeed().entries()).hasSize(2);
+        assertThat(calls.get()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("two overlapping refreshes run one at a time, so the one that started last — on "
+            + "the newer data — is the one that publishes last")
+    void overlappingRefreshesAreSerialised() throws Exception {
+        LocalDate beyond = LAST_PLAN_DATE.plusDays(1);
+        AtomicInteger calls = new AtomicInteger();
+        java.util.concurrent.CountDownLatch firstStarted = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        AlmanacSource source = (f, t) -> {
+            // Call 1 is the first refresh's build, captured BEFORE the data changed; it is held
+            // until the second refresh has been asked for. Call 2 is the second refresh's build,
+            // which sees one more event. Unserialised, the second would finish first and the
+            // first would then publish its older answer over it.
+            if (calls.incrementAndGet() == 1) {
+                firstStarted.countDown();
+                try {
+                    release.await(5, java.util.concurrent.TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                return List.of(event(beyond, beyond, "meteor"));
+            }
+            return List.of(event(beyond, beyond, "meteor"), event(beyond.plusDays(1), beyond.plusDays(1), "eclipse"));
+        };
+        AlmanacService service = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK, assembler(),
+                conditionsBuilder());
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            java.util.concurrent.Future<Boolean> first = pool.submit(service::refresh);
+            assertThat(firstStarted.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            java.util.concurrent.Future<Boolean> second = pool.submit(service::refresh);
+            // Serialised, the second cannot finish while the first is held: this wait times out
+            // deterministically. Unserialised, the second completes within milliseconds and this
+            // assertion is what fails — before the first's older answer gets to overwrite it.
+            assertThatThrownBy(() -> second.get(500, java.util.concurrent.TimeUnit.MILLISECONDS))
+                    .isInstanceOf(java.util.concurrent.TimeoutException.class);
+            assertThat(calls.get()).isEqualTo(1);
+            release.countDown();
+            assertThat(first.get(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThat(second.get(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        } finally {
+            pool.shutdownNow();
+        }
+
+        assertThat(calls.get()).isEqualTo(2);
+        assertThat(service.getFeed().entries()).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("a refresh during which a source fails keeps the complete feed already standing for "
+            + "today, rather than publishing a rebuild with that source's events missing")
+    void aRefreshWithAFailedSourceKeepsTheCompleteFeed() {
+        LocalDate beyond = LAST_PLAN_DATE.plusDays(1);
+        AtomicInteger tideCalls = new AtomicInteger();
+        AlmanacSource meteors = (f, t) -> List.of(event(beyond, beyond, "meteor"));
+        AlmanacSource tides = (f, t) -> {
+            // Healthy for the day's first build, down for the refresh.
+            if (tideCalls.incrementAndGet() > 1) {
+                throw new IllegalStateException("db down");
+            }
+            return List.of(event(beyond.plusDays(1), beyond.plusDays(1), "spring-tide"));
+        };
+        AlmanacService service = new AlmanacService(List.of(meteors, tides), ELIGIBILITY_CLOCK, assembler(),
+                conditionsBuilder());
+        ComingUpResponse complete = service.getFeed();
+        assertThat(complete.entries()).hasSize(2);
+
+        assertThat(service.refresh()).isFalse();
+
+        // Served as before: the tide run is still there, not silently gone until midnight.
+        assertThat(service.getFeed()).isSameAs(complete);
+        assertThat(tideCalls.get()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("on a cold cache a refresh with a failed source still publishes the partial feed — the "
+            + "same answer a reader's own miss-build would have cached")
+    void aColdRefreshWithAFailedSourcePublishesWhatItHas() {
+        LocalDate beyond = LAST_PLAN_DATE.plusDays(1);
+        AlmanacSource meteors = (f, t) -> List.of(event(beyond, beyond, "meteor"));
+        AlmanacSource broken = (f, t) -> {
+            throw new IllegalStateException("db down");
+        };
+        CountingSource counter = new CountingSource(List.of());
+        AlmanacService service = new AlmanacService(List.of(meteors, broken, counter), ELIGIBILITY_CLOCK,
+                assembler(), conditionsBuilder());
+
+        assertThat(service.refresh()).isTrue();
+
+        assertThat(service.getFeed().entries()).extracting(ComingUpEntry::type).containsExactly("meteor");
+        // Served from the cache the refresh filled, not rebuilt.
+        assertThat(counter.calls.get()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("a refresh whose build fails leaves the previous feed in place and propagates")
+    void aFailedRefreshKeepsThePreviousFeed() {
+        CountingSource source = new CountingSource(List.of(event(DAY, DAY, "x")));
+        ComingUpConditionsBuilder conditions = conditionsBuilder();
+        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler(), conditions);
+        ComingUpResponse before = service.getFeed();
+        org.mockito.Mockito.when(conditions.build(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new IllegalStateException("conditions broke"));
+
+        assertThatThrownBy(service::refresh).isInstanceOf(IllegalStateException.class);
+
+        assertThat(service.getFeed()).isSameAs(before);
+    }
+
+    @Test
+    @DisplayName("refresh() refuses to build while an admin rewind is set, and caches nothing")
+    void refreshIsRefusedUnderARewind() {
+        CountingSource source = new CountingSource(List.of(event(DAY, DAY, "x")));
+        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler(), conditionsBuilder());
+        try {
+            com.gregochr.goldenhour.util.Rewind.set(CLOCK.instant().minusSeconds(3600));
+            assertThat(service.refresh()).isFalse();
+        } finally {
+            com.gregochr.goldenhour.util.Rewind.clear();
+        }
+
+        assertThat(source.calls.get()).isZero();
+        service.getFeed();
+        assertThat(source.calls.get()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("the startup warm is handed to the executor, not run on the calling thread, and "
+            + "fills the cache when it runs")
+    void startupWarmRunsOnTheExecutor() {
+        CountingSource source = new CountingSource(List.of(event(DAY, DAY, "x")));
+        java.util.List<Runnable> queued = new java.util.ArrayList<>();
+        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler(), conditionsBuilder(),
+                queued::add);
+
+        service.warmOnStartup();
+
+        assertThat(queued).hasSize(1);
+        assertThat(source.calls.get()).isZero();
+        queued.getFirst().run();
+        service.getFeed();
+        assertThat(source.calls.get()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("a startup warm that fails, or an executor that refuses it, is logged and ignored")
+    void startupWarmNeverThrows() {
+        ComingUpConditionsBuilder conditions = conditionsBuilder();
+        org.mockito.Mockito.when(conditions.build(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new IllegalStateException("conditions broke"));
+        AlmanacService failing = new AlmanacService(List.of(), CLOCK, assembler(), conditions, Runnable::run);
+        AlmanacService refused = new AlmanacService(List.of(), CLOCK, assembler(), conditionsBuilder(),
+                task -> {
+                    throw new java.util.concurrent.RejectedExecutionException("shut down");
+                });
+
+        org.assertj.core.api.Assertions.assertThatCode(failing::warmOnStartup).doesNotThrowAnyException();
+        org.assertj.core.api.Assertions.assertThatCode(refused::warmOnStartup).doesNotThrowAnyException();
     }
 
     @Test
@@ -313,6 +591,38 @@ class AlmanacServiceTest {
                 assembler(), conditionsBuilder()).getFeed(90).entries();
 
         assertThat(entries).extracting(ComingUpEntry::type).containsExactly("straddler");
+    }
+
+    @Test
+    @DisplayName("a supermoon inside Plan's window is still a merge partner for the eligible run that "
+            + "overlaps it: one merged card, the moon marked on its day (supermoon-tide-run-plan.md §4.7)")
+    void planWindowSupermoon_isMarkedOnTheOverlappingEligibleRun() {
+        LocalDate moonNight = LAST_PLAN_DATE.minusDays(1);
+        AlmanacSource source = (f, t) -> List.of(
+                event(LAST_PLAN_DATE.minusDays(2), LAST_PLAN_DATE.plusDays(3), "spring-tide"),
+                event(moonNight, moonNight, "supermoon"));
+
+        var entries = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK,
+                assembler(), conditionsBuilder()).getFeed(90).entries();
+
+        assertThat(entries).hasSize(1);
+        assertThat(entries.getFirst().type()).isEqualTo("spring-tide");
+        assertThat(entries.getFirst().coincidence()).extracting(c -> c.type())
+                .containsExactly("spring-tide", "supermoon");
+        assertThat(entries.getFirst().dayMarks()).extracting(m -> m.date()).containsExactly(moonNight);
+    }
+
+    @Test
+    @DisplayName("a Plan-window event that pairs with nothing is still not a chronology entry")
+    void unpairedPlanWindowEvent_isNotAnEntry() {
+        AlmanacSource source = (f, t) -> List.of(
+                event(LAST_PLAN_DATE.minusDays(1), LAST_PLAN_DATE.minusDays(1), "supermoon"),
+                event(LAST_PLAN_DATE.plusDays(5), LAST_PLAN_DATE.plusDays(6), "spring-tide"));
+
+        var entries = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK,
+                assembler(), conditionsBuilder()).getFeed(90).entries();
+
+        assertThat(entries).extracting(ComingUpEntry::type).containsExactly("spring-tide");
     }
 
     // ── enteredWindow (plan D3) — startDate − (DEFAULT_DAYS − 1), fixed at 90 ──

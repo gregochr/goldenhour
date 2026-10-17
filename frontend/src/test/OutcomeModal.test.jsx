@@ -98,6 +98,21 @@ describe('OutcomeModal', () => {
     });
   });
 
+  it("shows the server's error sentence, not axios's generic message, when the save is refused", async () => {
+    const user = userEvent.setup();
+    recordOutcome.mockRejectedValue(Object.assign(
+      new Error('Request failed with status code 400'),
+      { response: { status: 400, data: { error: 'Invalid outcome: rating out of range' } } },
+    ));
+    renderModal();
+
+    await user.click(screen.getByTestId('outcome-submit'));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Invalid outcome: rating out of range');
+    expect(alert).not.toHaveTextContent('Request failed with status code 400');
+  });
+
   it('shows "Saving..." while save is in progress', async () => {
     const user = userEvent.setup();
     recordOutcome.mockReturnValue(new Promise((resolve) => {

@@ -8,7 +8,7 @@ import {
 import { useHeatCanvas } from '../hooks/useHeatCanvas.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
-import { badgeChannel } from '../utils/windowFirstCards.js';
+import { badgeChannel, formatRegionMean, shortVerdictLabel } from '../utils/windowFirstCards.js';
 import { beyondRegions, GLANCE_MINUTES } from '../utils/planningArea.js';
 import { placeWithNudges } from '../utils/labelPlacement.js';
 import { scopeRegions, scopeSpots } from '../utils/planOrigin.js';
@@ -18,11 +18,17 @@ import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenc
 import { topMovers } from '../utils/movement.js';
 import { buildWindowMatrix, MATRIX_ROW } from '../utils/windowFirstMatrix.js';
 import {
-  buildSpread, poolPhrase, poolWithinReach, spreadBars, spreadTitle, unratedPhrase,
+  buildSpread, formatSpreadCount, poolWithinReach, spokenPoolPhrase, spreadBandsSpoken,
+  spreadBars, spreadCountLayout, spreadQualifier, spreadRowState, spreadTitle, unratedBar,
+  unratedPhrase,
 } from '../utils/windowFirstSpread.js';
-import { buildTopicIndex, windowTopics } from '../utils/windowFirstTopics.js';
+import { buildTopicIndex, chipClock, windowTopics } from '../utils/windowFirstTopics.js';
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
 import { leaveBy } from '../utils/leaveBy.js';
+import { DIRECTION_WORD, STATE_WORD } from '../utils/windowFirstRows.js';
+import { tideRun } from '../utils/windowFirstTideRun.js';
+import TideWave from './map/TideWave.jsx';
+import { prefersReducedMotion } from '../utils/askCamera.js';
 
 /**
  * The thumbnail frame's aspect clamps.
@@ -109,9 +115,10 @@ export function thumbAspect(fitTo) {
  * threshold would be a second, quieter answer to a question the backend owns. This function must
  * stay a map — a comparison operator appearing in it is the defect.
  *
- * <p>AWAITING and an away window take no tint. Neither is a judgement about the sky: one means the
- * window has neither a rating nor a triage signal, the other that nothing was forecast at all, and
- * a coloured card would read as one of the three grades.
+ * <p>AWAITING, UNRATED and an away window take no tint. None is a judgement about the sky: AWAITING
+ * means the window has neither a rating nor a triage signal, UNRATED that the weather passed it but
+ * no trustworthy rating has called it (unrated-verdict-plan.md U2), and away that nothing was
+ * forecast at all; a coloured card would read as one of the three grades.
  *
  * @param {?string} verdict the served {@code DisplayVerdict}
  * @returns {?string} `vg`, `vm`, `vp`, or null
@@ -120,11 +127,25 @@ export function verdictTint(verdict) {
   return VERDICT_TINT[verdict] ?? null;
 }
 
-/** @see verdictTint */
-const VERDICT_TINT = {
+/**
+ * The tint table behind {@link verdictTint}. Exported so a test can assert that EVERY word in
+ * {@code VERDICT_LABEL} has an entry here — the explicit-arm rule (unrated-verdict-plan.md U2): a
+ * verdict with no entry reads as "no tint" by lookup miss, which is how a new value would silently
+ * become AWAITING.
+ *
+ * <p>{@code UNRATED} and {@code AWAITING} are both {@code null} — deliberately two entries, not one
+ * shared fall-through: "the weather did not rule it out, but no trustworthy rating has called it"
+ * must not wear green (that is the defect U2 removes) or amber (a Maybe is a rating's call), and a
+ * future divergence between the two neutral states is then one edit here.
+ *
+ * @see verdictTint
+ */
+export const VERDICT_TINT = {
   WORTH_IT: 'vg',
   MAYBE: 'vm',
   STAND_DOWN: 'vp',
+  UNRATED: null,
+  AWAITING: null,
 };
 
 /**
@@ -135,6 +156,69 @@ const VERDICT_TINT = {
  */
 function starsSpoken(rating) {
   return `${rating} star${rating === 1 ? '' : 's'}`;
+}
+
+/**
+ * The Best row's line for the one state where "not scored yet" would be false of the WINDOW
+ * (plan-card-verdict-honesty-plan.md H2): the window carries a rated verdict, and every rated place
+ * behind it is further than the active reach tier.
+ *
+ * <p>Production, 2026-10-13: Friday's sunrise read "Worth it" (Northumberland &amp; Tyneside, 38
+ * rated) over a Spread of "none rated yet" and a Best of "not scored yet", because from the
+ * 45-minute tier every rated spot of that region was beyond the ring. "Not scored yet" is true only
+ * of the reader's POOL; the card never said whose word the verdict was, or that it was out of reach.
+ * This names the region ({@code card.hotRegionName} — the SAME argmax the verdict word and the H1
+ * mean came from, never a fresh pick) and the tier, formatted by {@link formatDriveDuration}, the
+ * one formatter {@code REACH_TIERS} derives the lens bar's chip labels with, so "45 min" here and
+ * on the chip cannot differ.
+ *
+ * <p><b>"Beyond" is claimable only where the tier could act.</b> Every condition below is
+ * load-bearing: a measured drive ({@code reachMeasured} — an unknown drive passes every tier, so
+ * without one nothing was gated and a rated verdict always leaves a rated spot in the pool); an
+ * active tier ({@code reachLimitMinutes} non-null — under "Any" the pool is {@code allSpots}); a
+ * non-empty pool (an empty one is "nothing in reach", a different and already-true sentence); and
+ * a pool with nothing rated, measured by {@link buildSpread} so "rated" means what the Spread row
+ * means by it. Between {@code allSpots} and {@code pool} the reach gate is the ONLY filter, so a
+ * window that has a region mean and a pool with no rated spot has had its rated spots removed by
+ * that gate. Away (an origin set) the scope is the origin's region, whose own mean is the word:
+ * "beyond 45 min" is then measured from the origin, and is just as true.
+ *
+ * <p><b>Not muted, and labelled "Region".</b> The muted ink and 400 weight of "nothing in reach"
+ * mark a state with nothing to report; this is a fact about the window, so it keeps the primary
+ * ink. The label is "Region" rather than "Best" because the line no longer names a best place —
+ * it names whose verdict the word above is — and the word is six characters, as "Spread" is, so
+ * the card's auto-width key column does not grow (a seven-character "Verdict" would take ~6px from
+ * a value column that is only ~88px wide at 320px).
+ *
+ * @param {object} card the thumbnail descriptor
+ * @returns {?object} the line (same shape as {@link bestReachLine}'s, plus {@code beyond: true}),
+ *          or null when the card is not in this state
+ */
+function verdictBeyondReach(card) {
+  const region = card?.hotRegionName;
+  const limit = card?.reachLimitMinutes;
+  if (card?.away || !region || card?.verdictMean == null) return null;
+  if (!card.reachMeasured || limit == null) return null;
+  const pool = card.pool ?? [];
+  if (pool.length === 0 || buildSpread(pool).rated > 0) return null;
+  const tier = formatDriveDuration(limit);
+  return {
+    rating: null,
+    label: 'Region',
+    value: `${region} · beyond ${tier}`,
+    muted: false,
+    beyond: true,
+    // ⚠️ An UNRATED word is not a verdict "of" a region (unrated-verdict-plan.md U2, review F8):
+    // "The verdict is X's" would assert one the sample gate declined to give. The rated verdict's
+    // title is unchanged.
+    title: card.verdict === 'UNRATED'
+      ? `Too few rated in ${region} to call it, and its rated places are all further than ${tier} away`
+      : `The verdict is ${region}'s, and its rated places are all further than ${tier} away`,
+    tideAligned: false,
+    tideState: null,
+    // Starts with the visible label's own word (SC 2.5.3), then the same two facts in words.
+    spoken: `region ${region}, beyond ${tier}`,
+  };
 }
 
 /**
@@ -159,7 +243,7 @@ function starsSpoken(rating) {
  *
  * @param {object} card the thumbnail descriptor
  * @returns {{rating: ?number, label: ?string, value: string, muted: boolean, title: ?string,
- *          spoken: string}} what to draw and what to say
+ *          tideAligned: boolean, tideState: ?string, spoken: string}} what to draw and what to say
  */
 export function bestReachLine(card) {
   const best = card?.bestReach ?? null;
@@ -169,22 +253,65 @@ export function bestReachLine(card) {
     // Only the parts that exist: a user with no postcode has no drive and no leave time, and a
     // title reading "Region · · leave " is worse than a title naming the region alone.
     const parts = [best.regionName, drive, leave ? `leave ${leave}` : null].filter(Boolean);
+    // The preference-axis glyph (tide-plan-card-plan.md §3 C2 task 1) — `bestReach.tideAligned`
+    // alone, `=== true` so a miss (`false`) and an inland spot (`null`) both read as no mark. Never
+    // `tideOnTheLight`'s timing question — the two-tide-axes rule (§1 #6, §4 #3). A miss is
+    // silent: no glyph, no tooltip clause, no spoken clause, anywhere below.
+    const tideAligned = best.tideAligned === true;
+    const tideStateWord = tideAligned ? STATE_WORD[best.tideState] : null;
+    const titleParts = [...parts];
+    if (tideAligned && tideStateWord) titleParts.push(`${tideStateWord} — the water it wants`);
     return {
       rating: best.rating,
       label: null,
       value: best.locationName,
       muted: false,
-      title: parts.join(' · ') || null,
+      title: titleParts.join(' · ') || null,
+      tideAligned,
+      // The matched state (tide-window-plan.md §4 #21) — the glyph's own letter reads this, never
+      // a level or threshold computed here. Null on a miss or an inland pick, matching `tideAligned`.
+      tideState: tideAligned ? (best.tideState ?? null) : null,
       // ⚠️ THE SAME PARTS THE TITLE CARRIES, joined for speech rather than for a tooltip. A `title`
       // on a non-focusable span inside a button named by `aria-labelledby` reaches nobody: not the
       // accessible name, not touch, not the keyboard. Leaving the region, the drive and the
       // departure there alone would make the one figure on this card a photographer actually acts
       // on — when to leave — pointer-only, which is the "number with no route to the thing it
-      // counts" defect CLAUDE.md already records against Close-to-home.
-      spoken: [`best ${best.locationName}`, starsSpoken(best.rating), ...parts].join(', '),
+      // counts" defect CLAUDE.md already records against Close-to-home. The tide clause rides the
+      // same list for the same reason: `.wf-hc-pls` is `aria-hidden` (§1 #2), so this sentence is
+      // the ONLY route the glyph's claim has to a screen reader. It now names the matched water
+      // (tide-window-plan.md §4 #21), mirroring `mapTideFit.tideAccessibleClause`'s own match
+      // wording, rather than the state-blind "the tide is right here" it used to read.
+      spoken: [`best ${best.locationName}`, starsSpoken(best.rating), ...parts,
+        ...(tideAligned ? [tideStateWord ? `${tideStateWord}, right here` : 'the tide is right here'] : [])]
+        .join(', '),
+    };
+  }
+  // ⚠️ Tested BEFORE the fall-throughs below: a withheld pool HAS rated spots (the outlier and
+  // maybe more), so `empty` is false and `verdictBeyondReach` could otherwise answer, and the card
+  // would print "not scored yet" over a pool the guard deliberately declined to name. The title
+  // takes the same reach rule as everywhere: "within reach" only where a drive time exists.
+  if (card?.bestReachWithheld === true) {
+    return {
+      rating: null,
+      label: 'Best',
+      value: 'no clear pick',
+      muted: true,
+      title: card?.reachMeasured
+        ? 'The highest rating within reach is well above every place around it, so none is named.'
+        : 'The highest rating here is well above every place around it, so none is named.',
+      tideAligned: false,
+      tideState: null,
+      // Begins with the visible label's own word (WCAG 2.5.3). The reason rides here too: the
+      // `title` above reaches a pointer only, and "no clear pick" with no why is a dead end for
+      // everyone else.
+      spoken: `Best, no clear pick: ${card?.reachMeasured
+        ? 'the top rating within reach is well above the places around it'
+        : 'the top rating here is well above the places around it'}`,
     };
   }
   const empty = (card?.pool?.length ?? 0) === 0;
+  const beyond = verdictBeyondReach(card);
+  if (beyond) return beyond;
   // ⚠️ "In reach" only where the reach axis could have acted — `card.reachMeasured`, computed once
   // in `buildWindowCards` and folded onto this descriptor. An unknown drive passes every tier (plan
   // §2.5), so for a reader with no home postcode the pool was never gated and an empty one means
@@ -197,10 +324,41 @@ export function bestReachLine(card) {
     value: empty ? emptyWord : 'not scored yet',
     muted: true,
     title: null,
+    tideAligned: false,
+    tideState: null,
     // Both forms keep the visible label's own word, so WCAG 2.5.3's label-in-name holds for a
     // speech-input user reading "Best" off the row.
     spoken: empty ? `best, ${emptyWord}` : 'best, not scored yet',
   };
+}
+
+/**
+ * The tide chip's tooltip — the reach-scoped count and how well served, the run size, and whether
+ * this is the one to take (tide-plan-card-plan.md §3 C2 task 2).
+ *
+ * <p>The state phrase reads the served WINDOW tide (`card.tide.state`/`.direction`, through the
+ * same {@link STATE_WORD}/{@link DIRECTION_WORD} tables `windowFirstRows.js` exports) — never a
+ * level or a threshold computed here (§4 #1/#2). "In reach" only when {@code card.reachMeasured}
+ * (§1 #11); the run clause only when more than one window is live; the "most of any of them"
+ * clause only on the ranked best.
+ *
+ * @param {object} card the thumbnail descriptor
+ * @param {{matched: number, coastal: number}} fit the card's tide-fit summary
+ * @param {number} liveCount how many windows in the run are live
+ * @param {boolean} isBest whether this window is the run's ranked best
+ * @returns {string} the tooltip text
+ */
+function tideChipTooltip(card, fit, liveCount, isBest) {
+  const state = STATE_WORD[card?.tide?.state];
+  const direction = DIRECTION_WORD[card?.tide?.direction];
+  const stateClause = [state, direction].filter(Boolean).join(', ');
+  const reachWord = card?.reachMeasured ? ' in reach' : '';
+  const head = `${fit.matched} of ${fit.coastal} coastal locations${reachWord} get the water they want`
+    + (stateClause ? ` — ${stateClause}` : '');
+  const clauses = [head];
+  if (liveCount > 1) clauses.push(`${liveCount} windows in this run are live`);
+  if (isBest) clauses.push('the most of any of them');
+  return clauses.join(' · ');
 }
 
 /**
@@ -479,6 +637,13 @@ function areaLabel(regionName, tiny) {
  *                                    and (at M2) the science notes. Absent simply means no topic is
  *                                    scope-filtered — see {@code windowFirstTopics.js}
  * @param {Set}      [props.openKeys] the window keys whose cards are open
+ * @param {?Map<string, number>} [props.highlightKeys] Ask PhotoCast's selected pick, as the window key
+ *                                    its card carries mapped to the pick's rank (F5, plan §2.8 — a Map
+ *                                    and not a Set because the rank is drawn on the card). Empty or
+ *                                    absent highlights nothing, and so does a key whose card is not a
+ *                                    control (an away cell) or is not among the rendered windows. The
+ *                                    highlight never opens the popup and is a different mark from
+ *                                    {@code openKeys}'s: both can sit on one card.
  * @param {string}   props.todayStr   today's ISO date in Europe/London, for the horizon fallback,
  *                                    the today column and the elapsed-morning cell
  * @param {?string}  [props.runAge]   the last forecast run's age, already formatted by the shell
@@ -494,7 +659,7 @@ function areaLabel(regionName, tiny) {
  */
 export default function WindowFirstHeatStrip({
   cards, pointSets, spots, reachById, hotTopics, openKeys, todayStr, runAge, onOpenWindow,
-  origin = null, onSearchRegion, colourMode = null, homeCoords = null,
+  origin = null, onSearchRegion, colourMode = null, homeCoords = null, highlightKeys = null,
 }) {
   // Framing is the ONE thing scope is allowed to decide about the field: which regions are in shot.
   // It must never become the point set — handing the scoped list to the kernel would turn the
@@ -526,6 +691,12 @@ export default function WindowFirstHeatStrip({
   const matrix = useMemo(() => buildWindowMatrix(cards, todayStr), [cards, todayStr]);
   // Indexed once for the whole matrix rather than scanned per card — `buildTopicIndex` records why.
   const topicIndex = useMemo(() => buildTopicIndex(hotTopics), [hotTopics]);
+  // The tide run across the WHOLE strip — which cards are live, and which of them is the one to
+  // take (tide-plan-card-plan.md §3 C1 task 3). Computed once here, over the served, non-away
+  // cards, rather than per card: `tideRun` itself ranks across the strip, so a per-card call would
+  // either recompute the same answer six times or, worse, six different ones if a card's own list
+  // slipped out of strip order.
+  const run = useMemo(() => tideRun(cards), [cards]);
 
   /**
    * Everything each card derives from its own pool, computed once per render rather than inline.
@@ -544,17 +715,61 @@ export default function WindowFirstHeatStrip({
       // answers "could the tier have acted", and it is the same field `bestReachLine` reads for its
       // own empty word, so the tooltip and the visible line agree by construction.
       const withinReach = pool.length === 0 ? Boolean(card.reachMeasured) : poolWithinReach(pool);
+      // The ONE decision behind bars-vs-text (plan-matrix §4 row, minimum-sample rule) — the visible
+      // row and the spoken sentence's suppression rules both read `state` rather than testing the
+      // thresholds themselves, so they cannot disagree about which of a card's states this is. An
+      // empty pool answers `bars: true` (the pre-existing five-hairline treatment, unchanged by this
+      // rule), so `state` takes no `withinReach` argument — nothing below the gate needs it either.
+      const state = spreadRowState(spread);
+      const bars = spreadBars(spread);
+      const unrated = unratedBar(spread);
+      // The card's tide-fit chip, or null below the gate — `card.tideFit.live` alone, never a
+      // second read of the gate's own thresholds (tide-plan-card-plan.md §3 C2 task 2). `isBest` is
+      // this card's key against the strip-wide `run.bestKey`, so the emphasis and `best of N` can
+      // only ever land on the one window `tideRun` ranked first.
+      const isBest = run.bestKey === card.key;
+      const tideChip = card.tideFit?.live ? {
+        matched: card.tideFit.matched,
+        isBest,
+        liveCount: run.liveCount,
+        tooltip: tideChipTooltip(card, card.tideFit, run.liveCount, isBest),
+        // The accessible-name clause (§1 #2): `.wf-hc-tps` is `aria-hidden`, so this string is the
+        // chip's only route to a screen reader — the same discipline `bestReachLine`'s `spoken`
+        // already keeps for the glyph.
+        accessible: `${card.tideFit.matched} on tide${isBest ? `, best of ${run.liveCount}` : ''}`,
+      } : null;
       byKey.set(card.key, {
         spread,
-        bars: spreadBars(spread),
+        state,
+        bars,
+        // ⚠️ `unratedBar` is a function of `spread` ALONE — it does not know about `state.bars`, and
+        // answers non-null whenever the pool has a real remainder, including a pool BELOW the
+        // minimum-sample gate. The render is what ANDs this with `state.bars` before drawing
+        // anything; do not read a non-null value here as "the bar is drawn".
+        unratedBar: unrated,
         title: spreadTitle(spread, withinReach),
         withinReach,
+        // The Spread row's second label line and the spoken pool clause both read this ONE answer
+        // (spread-row-plan.md §2 #5), so the label and the sentence cannot name different pools.
+        // ⚠️ `withinReach` is the pool-wide predicate computed above, at the top of this loop — the
+        // very one the tooltip's "within reach" reads — and NEVER `card.reachMeasured` alone: that is true as
+        // soon as ANY spot in the window has a drive, so a mixed pool (some measured, some unknown)
+        // would wear "(within 45m)" over bars that also count the unknown ones. `reachLimitMinutes`
+        // is null under "Any" (`buildHeatStripCards` folds it so); an `undefined` is an unresolved
+        // lens and the helper keeps it silent.
+        qualifier: spreadQualifier({ reachLimitMinutes: card.reachLimitMinutes, withinReach }),
+        // The count columns' per-card width and type size, from the bars that are actually DRAWN:
+        // the hatched bar's count takes part only when the row is in bars mode, because below the
+        // minimum-sample gate `unratedBar` is non-null for a real remainder and nothing is drawn
+        // for it (the `unratedBar` note above). Null `unrated` makes it count for nothing.
+        countLayout: spreadCountLayout(bars, state.bars ? unrated : null),
         best: bestReachLine(card),
         topics: windowTopics(card.key, card.badges, topicIndex, scopeNames),
+        tideChip,
       });
     }
     return byKey;
-  }, [cards, topicIndex, scopeNames]);
+  }, [cards, topicIndex, scopeNames, run]);
 
   /**
    * The windows the payload says carry no rating at all.
@@ -576,6 +791,20 @@ export default function WindowFirstHeatStrip({
     }
     return keys;
   }, [cards]);
+
+  /**
+   * Whether ANY card on screen is currently drawing the histogram's hatched, unrated bar — the
+   * footer's own note for it (below) shows only while that mark is actually on screen, matching the
+   * unscored-map-plate note's own rule one line above it (independently: the two conditions are
+   * never OR'd into one, so a fixture that fires only one of them never brings up the other's note).
+   * `facts.unratedBar` alone does NOT answer "is the bar drawn" — it is non-null for a below-gate
+   * pool with a real remainder too — so this ANDs it with `facts.state.bars`, the same test the row
+   * itself makes, rather than reading `unratedBar` as sufficient on its own.
+   */
+  const hatchedSpread = useMemo(
+    () => Array.from(derived.values()).some((facts) => facts.state.bars && facts.unratedBar),
+    [derived],
+  );
 
   /**
    * Per-card geography for the thumbnail overlay's home marker and area names (field-geography
@@ -882,6 +1111,28 @@ export default function WindowFirstHeatStrip({
     repaintNow();
   }, [isMobile, repaintNow]);
 
+  /**
+   * Ask PhotoCast's highlight, scrolled into view when it ARRIVES or MOVES (F5, plan §2.8) — never on
+   * an unrelated re-render, which is why the effect keys on the highlight's own signature and not on
+   * the cards. {@code block: 'nearest'} moves the page only as far as the card needs (the lens bar's
+   * {@code scroll-margin-top} is what keeps it from landing under the sticky bar), and a reader who
+   * asked the system for less motion gets none. {@code scrollIntoView} is guarded because jsdom has no
+   * layout and no such method.
+   */
+  const stripRef = useRef(null);
+  const highlightSignature = highlightKeys && highlightKeys.size > 0
+    ? [...highlightKeys].map(([key, rank]) => `${key}#${rank}`).join('|')
+    : '';
+  useEffect(() => {
+    if (!highlightSignature) return;
+    const node = stripRef.current?.querySelector('[data-ask-highlight="true"]');
+    if (node && typeof node.scrollIntoView === 'function') {
+      node.scrollIntoView({
+        block: 'nearest', inline: 'nearest', behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+      });
+    }
+  }, [highlightSignature]);
+
   // Nothing to index. The matrix is a picture of the field, so with no catalogue joined — a scores
   // fetch that failed, a session with no roster — it withdraws entirely rather than drawing six
   // empty coastlines under a header claiming to summarise them. The window rows are untouched.
@@ -902,6 +1153,9 @@ export default function WindowFirstHeatStrip({
   const renderCard = (card, column, row, solo) => {
     const notScored = unscored.has(card.key);
     const open = Boolean(openKeys?.has(card.key));
+    // Ask's pick lands here — only on a card that is a control: an away cell is a read-out and a
+    // highlight on it would promise a window nobody forecast.
+    const askRank = card.away ? null : (highlightKeys?.get(card.key) ?? null);
     const facts = derived.get(card.key);
     // The thumbnail overlay's geometry for this card, and its placement once measured. `measured`
     // is false on the very first render after a paint — before the layout effect has had a chance
@@ -913,13 +1167,45 @@ export default function WindowFirstHeatStrip({
     const tint = card.away ? null : verdictTint(card.verdict);
     const place = { '--c': column, '--r': row };
     const poolTotal = facts.spread.total;
-    // ⚠️ `poolPhrase`/`unratedPhrase`, not a second spelling of them. The tooltip and this sentence
-    // describe the SAME set on the same card, and A10's disclosure of the remainder (`N > Σbars`
-    // whenever an unrated spot is in reach) has to reach the reader who cannot see the bars — the
-    // `title` carrying it sits on a span inside an `aria-hidden` subtree and reaches nobody.
+    // ⚠️ `spokenPoolPhrase`/`unratedPhrase`/`facts.state`, never a second spelling of any of them. The
+    // pool count and the reach claim are VISIBLE TEXT nowhere else on the card once bars are not
+    // drawn, so SC 2.5.3 (label in name) requires this sentence to keep saying them — a below-gate
+    // clause that dropped straight to "1 of 4 rated" would read as a claim about the verdict rather
+    // than about the pool, and would say less than the card's own tooltip. `poolTotal === 0` stays
+    // silent here exactly as before: `bestReachLine`'s own "nothing in reach"/"nothing to show"
+    // clause already states the identical fact a few lines below, and saying it twice in one
+    // sentence is the defect this file's header comment warns against elsewhere. Below the gate,
+    // when the window is ALSO `notScored`, the pool phrase is said ALONE — "none rated yet" would
+    // restate what "not scored" (added below) already says about the same window.
+    //
+    // ⚠️ `facts.state.spoken`, NEVER `facts.state.text` — the row's own compact "1/4 rated" is a
+    // VISUAL space saving (`spreadRowState`'s own doc comment), and a screen reader voices a
+    // fraction-shaped string as a number or a date, not as two counts. `spoken` is the same fact in
+    // words ("1 of 4 rated"); the two strings agree for "none rated yet", where there is no count to
+    // mis-voice.
+    //
+    // ⚠️ The pool clause names the SAME pool the visible label names (spread-row-plan.md §2 #5,
+    // §6 Q1): `spokenPoolPhrase(poolTotal, facts.qualifier)` — "7 locations within 45 min" / "7
+    // locations, any drive" — and is the bare "7 locations" when the label is silent (an unmeasured
+    // pool), byte for byte what `poolPhrase(n, false)` said. The tooltip keeps "within reach"; it
+    // sits beside the label, speech has no such neighbour. In bars mode the NON-ZERO band counts
+    // follow (`spreadBandsSpoken`) because the grid is `aria-hidden` and the counts are now visible
+    // text — SC 1.3.1, the same principle `unratedPhrase` states; below the gate there are no
+    // visible counts to match, so only the pool clause moves.
+    //
+    // ⚠️ An EMPTY pool no longer short-circuits to null when the label names a tier: the visible
+    // label reads "(within 45m)" over an empty well, so the sentence says "no locations within 45
+    // min" too. The Best row's own empty clause stays beside it (below) — the sentence carries "the
+    // visible best-reach words verbatim" for speech control (SC 2.5.3), and the pool clause is not
+    // those words; the redundancy is the price of that contract. With no qualifier the pool clause
+    // is null, exactly as before.
+    const poolClause = spokenPoolPhrase(poolTotal, facts.qualifier);
+    const bandsSpoken = facts.state.bars ? spreadBandsSpoken(facts.spread) : '';
     const spokenPool = poolTotal === 0
-      ? null
-      : `${poolPhrase(poolTotal, facts.withinReach)}${unratedPhrase(facts.spread, ', ')}`;
+      ? poolClause
+      : (facts.state.bars
+        ? `${poolClause}${bandsSpoken ? `, ${bandsSpoken}` : ''}${unratedPhrase(facts.spread, ', ')}`
+        : `${poolClause}${notScored ? '' : `, ${facts.state.spoken}`}`);
     // Built once per card so the hidden sentence and the visible words cannot be assembled from
     // different values. The comma-separated form is what a screen reader pauses on.
     //
@@ -927,7 +1213,12 @@ export default function WindowFirstHeatStrip({
     // reading of the weather, and this says nothing rated it. When it fires, the best-reach clause
     // is suppressed: a window with no rating anywhere has no rated spot in its pool either, so the
     // two would be one fact said twice.
+    // The region mean behind the verdict word (plan-card-verdict-honesty-plan.md H1). Null — a
+    // triage-fallback verdict, an unrated window, an away cell — is SILENCE in both the face and the
+    // sentence: no mean standing behind a word is itself the disclosure that no rating does.
+    const regionMean = card.away ? null : formatRegionMean(card.verdictMean);
     const accessibleName = [card.label, card.time, card.verdictLabel]
+      .concat(regionMean ? [`${regionMean} star average`] : [])
       .filter(Boolean)
       .concat(notScored ? ['not scored'] : [])
       .concat(card.away || !spokenPool ? [] : [spokenPool])
@@ -935,11 +1226,36 @@ export default function WindowFirstHeatStrip({
       // either, so "not scored" and "best, not scored yet" would be one fact said twice in a
       // sentence that has to stay scannable across six cards. NOT suppressed on an empty pool: the
       // face still says "nothing in reach", and "nothing is scored" is a different claim from
-      // "nothing is reachable".
-      .concat(card.away || (notScored && poolTotal > 0) ? [] : [facts.best.spoken])
-      .concat(card.away ? [] : facts.topics.map((t) => t.badge.label).filter(Boolean))
+      // "nothing is reachable". ⚠️ Also suppressed whenever the POOL's own rated count is zero
+      // (independent of `notScored`, which answers for the whole window rather than this reach-gated
+      // pool): the spoken pool clause above says "none rated yet" for that state, and repeating "best,
+      // not scored yet" right after it is the same fact twice. ⚠️ EXCEPT in the H2 state
+      // (`facts.best.beyond`, plan-card-verdict-honesty-plan.md): there the Best row no longer says
+      // "not scored yet" at all — it names the region whose verdict the word is and that it is
+      // beyond the tier — so its clause is NEW information, not a repeat, and replaces the
+      // suppressed one.
+      .concat(
+        card.away || ((notScored || facts.spread.rated === 0) && poolTotal > 0 && !facts.best.beyond)
+          ? []
+          : [facts.best.spoken],
+      )
+      // The tide chip's clause (tide-plan-card-plan.md §3 C2 task 2) — DOM order: the best-reach
+      // row's own tide clause lands just above, and this one sits where the chip itself sits, first
+      // in the topics line. Absent whenever the chip is (below the gate, or away), never a separate
+      // predicate from the one that gates the visible chip.
+      .concat(card.away || !facts.tideChip ? [] : [facts.tideChip.accessible])
+      // A clocked topic (lunar-eclipse-plan.md §2.6) states its own instant here too — the chip's
+      // divider is `aria-hidden`, so "Lunar eclipse at 05:13" is this sentence's only route to a
+      // screen reader, built from the SAME `chipClock` read the visible chip renders from.
+      .concat(card.away ? [] : facts.topics.map(({ badge }) => {
+        const clock = chipClock(badge);
+        return clock ? `${badge.label} at ${clock}` : badge.label;
+      }).filter(Boolean))
       .concat(card.pickKind === 'best' ? ['best bet'] : [])
       .concat(card.pickKind === 'also' ? ['also good'] : [])
+      // Said last, after the forecast's own claims, so it reads as what it is: Ask's pick, not the
+      // forecast's. The rank circle that draws it is aria-hidden below.
+      .concat(askRank !== null ? [`Ask pick ${askRank}`] : [])
       .join(', ');
     const nameId = `wf-heat-name-${card.key.replace(/:/g, '-')}`;
     const body = (
@@ -970,6 +1286,14 @@ export default function WindowFirstHeatStrip({
           <span data-testid="wf-heat-sun" className={`wf-hc-sun ${card.sunrise ? 'am' : 'pm'}`}>
             {card.sunrise ? 'SUNRISE' : 'SUNSET'}
           </span>
+          {/* The pick's rank, in the top row beside the word (F5): the gold border alone is the open
+              card's own look, so this circle is what says "Ask's pick" rather than "the open one". IN the
+              row's flow and not hung over the card's edge like the pick legend: measured in a browser, a
+              circle overhanging the top-left corner sat on the sun word's own top edge (1px) and, one
+              px more, would have met the rail's label above the first column. */}
+          {askRank !== null && (
+            <span className="wf-hc-ask" data-testid="wf-heat-ask-rank">{askRank}</span>
+          )}
         </span>
         {!geoFailed && (
           <span data-testid="wf-heat-well" className="wf-hc-cv">
@@ -1025,50 +1349,120 @@ export default function WindowFirstHeatStrip({
             </span>
           </span>
         )}
-        <span className="wf-hc-pls" aria-hidden="true">
+        <span data-testid="wf-heat-value-grid" className="wf-hc-pls" aria-hidden="true">
           <span data-testid="wf-heat-time" className="wf-hc-t">{card.time}</span>
+          {/* ⚠️ ONE LINE, for every verdict, and no hook on the row for it to be otherwise. The value
+              column is 83–89px at 320, 640 and a docked 1024 (measured), "Too few rated 3.6★" is
+              113.8px, so the UNRATED word prints its SHORT form here ("Too few 3.6★" = 74.2px) and
+              the row never wraps — a wrapped row would push this card's Spread and Best rows down
+              against its neighbours'. The grid is `aria-hidden`; the full word is in the card's
+              spoken sentence (`accessibleName` above) (unrated-verdict-plan.md U2, review F2). */}
           <span className="wf-hc-pv">
             <span
               data-testid="wf-heat-verdict"
               className="wf-hc-vd"
               data-verdict={card.verdict || 'AWAY'}
             >
-              {card.verdictLabel}
+              {shortVerdictLabel(card.verdict, card.verdictLabel)}
             </span>
+            {/* H1: the served region mean, a SIBLING of the verdict word (not nested in it, so the
+                word's text content stays exactly the word). One decimal always, so "3.5★" cannot be
+                mistaken for the integer best-spot "4★" chip. Absent when null — no dash. The grid is
+                `aria-hidden`; the same figure is voiced in the card's sentence above. */}
+            {regionMean && (
+              <span data-testid="wf-heat-mean" className="wf-hc-mean">{regionMean}★</span>
+            )}
           </span>
           {/* An away window draws none of the three derived rows: there is no card behind it, so
               there is no pool, and an empty histogram beside "Best — nothing in reach" would be
               three claims about a night nobody forecast. */}
           {!card.away && (
             <>
-              <span className="wf-hc-k">Spread</span>
-              <span className="wf-hc-pv">
-                {/* `title` carries the per-band breakdown; the pool count itself is in the card's
-                    hidden sentence, so the figure a reader acts on is in the accessibility tree
-                    and only the detail is pointer-only. */}
-                <span
-                  data-testid="wf-heat-spread"
-                  className="wf-hc-hist"
-                  title={facts.title}
-                >
-                  {facts.bars.map((bar) => (
-                    <i
-                      key={bar.star}
-                      data-testid="wf-heat-spread-bar"
-                      data-star={bar.star}
-                      style={{
-                        height: `${bar.heightPx}px`,
-                        // The band's own ramp colour, from the same module the canvas above it is
-                        // painted from — never a second table of five hexes. Full opacity, and the
-                        // empty band lifted to 0.40: both are measured against the histogram's dark
-                        // well rather than against the card, which is what puts every stop over
-                        // SC 1.4.11's 3:1 — see the stylesheet's note for the whole table.
-                        background: bar.filled
-                          ? rgb(rampRgb(bar.star), 1)
-                          : 'rgba(242,231,211,0.40)',
-                      }}
-                    />
-                  ))}
+              {/* The Spread row's WRAPPER (spread-row-plan.md §2 #2): a grid child spanning both
+                  columns, so the second label line can never widen the `auto` column the rating
+                  pill below sits in. Both states — bars and the below-gate note — live inside it,
+                  so the pool label is drawn in both. */}
+              <span data-testid="wf-heat-spread-row" className="wf-hc-sprow">
+                <span data-testid="wf-heat-spread-label" className="wf-hc-k wf-hc-sk">
+                  Spread
+                  {/* Absent — no element, not an empty one — when the pool was not wholly gated by
+                      the active tier (`facts.qualifier`'s own note). Parenthesised in the markup,
+                      not by CSS `::before`, so a text assertion reads what a sighted reader sees. */}
+                  {facts.qualifier && (
+                    <small data-testid="wf-heat-spread-qualifier">({facts.qualifier.text})</small>
+                  )}
+                </span>
+                <span data-testid="wf-heat-spread-value" className="wf-hc-pv">
+                  {/* `title` carries the per-band breakdown when bars are drawn (the pool count
+                      itself is in the card's hidden sentence, so the figure a reader acts on is in
+                      the accessibility tree and only the detail is pointer-only); below the
+                      minimum-sample gate it carries the SAME short text the row and the sentence
+                      show, never a longer one (`spreadTitle`'s own doc comment). The counts under
+                      the bars are visible text now, and `accessibleName` voices them too. */}
+                  <span
+                    data-testid="wf-heat-spread"
+                    className={facts.state.bars
+                      ? `wf-hc-hist${facts.countLayout.small ? ' sm' : ''}`
+                      : 'wf-hc-hist-note'}
+                    style={facts.state.bars ? { '--cw': `${facts.countLayout.widthPx}px` } : undefined}
+                    title={facts.title}
+                  >
+                    {facts.state.bars ? (
+                      <>
+                        {/* The unrated remainder (Part 2 of the minimum-sample rule) — a SIXTH,
+                            hatched bar to the LEFT of 1★, on the bands' own scale. Hatched, never a
+                            ramp colour: the map's own unscored plate already means "nothing was
+                            scored here" with this exact texture, and 1★ means "scored, and poorly"
+                            — giving the remainder a ramp colour would have this histogram
+                            contradict the map over the same fact. Absent entirely when nothing is
+                            unrated. Its COLUMN, not the bar, carries the wider gap
+                            (`wf-hc-hb-unrated`): the margin is spent between outer items, and
+                            inside a fixed-width column it would be swallowed (spread-row-plan.md
+                            §2 #3, S2 task 4). Its count IS the "not yet rated" figure the tooltip
+                            and the sentence already name. */}
+                        {facts.unratedBar && (
+                          <span className="wf-hc-hb wf-hc-hb-unrated">
+                            <i
+                              data-testid="wf-heat-spread-bar-unrated"
+                              className="wf-hc-hist-unrated"
+                              style={{ height: `${facts.unratedBar.heightPx}px` }}
+                            />
+                            <em data-testid="wf-heat-spread-count-unrated">
+                              {formatSpreadCount(facts.unratedBar.count)}
+                            </em>
+                          </span>
+                        )}
+                        {facts.bars.map((bar) => (
+                          <span
+                            key={bar.star}
+                            className={`wf-hc-hb${bar.count > 0 ? '' : ' wf-hc-hb-zero'}`}
+                          >
+                            <i
+                              data-testid="wf-heat-spread-bar"
+                              data-star={bar.star}
+                              style={{
+                                height: `${bar.heightPx}px`,
+                                // The band's own ramp colour, from the same module the canvas
+                                // above it is painted from — never a second table of five hexes.
+                                // Full opacity, and the empty band lifted to 0.40: both are
+                                // measured against the histogram's dark well rather than against
+                                // the card, which is what puts every stop over SC 1.4.11's 3:1 —
+                                // see the stylesheet's note for the whole table.
+                                background: bar.filled
+                                  ? rgb(rampRgb(bar.star), 1)
+                                  : 'rgba(242,231,211,0.40)',
+                              }}
+                            />
+                            <em data-testid="wf-heat-spread-count" data-star={bar.star}>
+                              {formatSpreadCount(bar.count)}
+                            </em>
+                          </span>
+                        ))}
+                      </>
+                    ) : (
+                      <span data-testid="wf-heat-spread-note">{facts.state.text}</span>
+                    )}
+                  </span>
                 </span>
               </span>
               {facts.best.rating != null ? (
@@ -1091,26 +1485,81 @@ export default function WindowFirstHeatStrip({
               <span className="wf-hc-pv2">
                 <span
                   data-testid="wf-heat-best"
-                  className={`wf-hc-best${facts.best.muted ? ' none' : ''}`}
+                  className={`wf-hc-best${facts.best.muted ? ' none' : ''}${facts.best.beyond ? ' beyond' : ''}`}
                   title={facts.best.title ?? undefined}
                 >
+                  {/* The preference-axis glyph (tide-plan-card-plan.md §3 C2 task 1) — the pick is
+                      chosen on score, so a miss draws nothing here: no glyph, no recolour of the
+                      name. `.wf-hc-pls` is `aria-hidden`, so the claim reaches a screen reader only
+                      through `facts.best.spoken`'s own clause, never an `sr-only` span in this
+                      subtree (§1 #2). */}
+                  {facts.best.tideAligned && (
+                    <TideWave
+                      className="wf-hc-best-tw"
+                      testId="wf-heat-best-tide"
+                      state={facts.best.tideState}
+                    />
+                  )}
                   {facts.best.value}
                 </span>
               </span>
               {/* Reserved even when empty, so a topic-free card's rows land on the same baselines
                   as its neighbours' — the design's own reason. */}
               <span data-testid="wf-heat-topics" className="wf-hc-tps">
-                {facts.topics.map(({ badge }) => (
+                {/* The tide chip (tide-plan-card-plan.md §3 C2 task 2) — first in the line, as the
+                    spec places it, by DOM order (§1 #4). A client-derived mark rather than a served
+                    badge, so it is its own element rather than a member of `facts.topics`. Silent
+                    below the gate: no greyed chip, no zero (§2). */}
+                {facts.tideChip && (
                   <span
-                    key={`${badge.type}:${badge.label}`}
-                    data-testid="wf-heat-topic"
-                    data-channel={badgeChannel(badge.type)}
-                    className="wf-hc-tw"
-                    title={badge.detail ? `${badge.label} — ${badge.detail}` : badge.label}
+                    data-testid="wf-heat-tide-chip"
+                    data-channel="tide"
+                    className="wf-hc-tw wf-hc-tide"
+                    data-best={facts.tideChip.isBest || undefined}
+                    title={facts.tideChip.tooltip}
                   >
-                    {badge.label}
+                    <TideWave />
+                    {`${facts.tideChip.matched} on tide`}
+                    {facts.tideChip.isBest && (
+                      <em className="wf-hc-tide-best">{`best of ${facts.tideChip.liveCount}`}</em>
+                    )}
                   </span>
-                ))}
+                )}
+                {facts.topics.map(({ badge }) => {
+                  // The clocked chip (lunar-eclipse-plan.md §2.6) — a badge whose own clock is a
+                  // DIFFERENT instant from the window's (both eclipse types) prints it after a
+                  // divider in the tide chip's emphasised shape. Every other badge is unchanged.
+                  //
+                  // ⚠️ The clock is a SEPARATE, non-shrinking flex item from the label, never a
+                  // second text node inside the same ellipsis-clipped span. `.wf-hc-tw`'s base
+                  // rule clips the WHOLE element's content as one run — at the supported ~137px
+                  // card width a label such as "Deep partial eclipse" already fills the chip, so
+                  // the trailing time was clipped along with it (found by review of #915 — the
+                  // clock rendered in tests, which stub layout, but never at the actual card
+                  // width). `.wf-hc-clocked-label` ellipsizes on its own, shrinkable; the clock
+                  // is reserved (`flex: none`) so it is never the thing that gives way.
+                  const clock = chipClock(badge);
+                  return (
+                    <span
+                      key={`${badge.type}:${badge.label}`}
+                      data-testid="wf-heat-topic"
+                      data-channel={badgeChannel(badge.type)}
+                      className={`wf-hc-tw${clock ? ' wf-hc-clocked' : ''}`}
+                      title={badge.detail ? `${badge.label} — ${badge.detail}` : badge.label}
+                    >
+                      {clock ? (
+                        <span data-testid="wf-heat-topic-label" className="wf-hc-clocked-label">
+                          {badge.label}
+                        </span>
+                      ) : badge.label}
+                      {clock && (
+                        <em data-testid="wf-heat-topic-clock" className="wf-hc-clocked-time">
+                          {clock}
+                        </em>
+                      )}
+                    </span>
+                  );
+                })}
               </span>
             </>
           )}
@@ -1163,6 +1612,9 @@ export default function WindowFirstHeatStrip({
         // glance — back under the floor that measurement set.
         data-unscored={notScored ? 'true' : undefined}
         data-open={open ? 'true' : undefined}
+        // Ask PhotoCast's selected pick (F5) — a DIFFERENT mark from `data-open`, and the two can sit on
+        // one card: the highlight never opens the popup, and an open popup never takes the highlight.
+        data-ask-highlight={askRank !== null ? 'true' : undefined}
         // Which window is open was a CSS-only signal — a gold border tint and two recoloured words
         // — so a screen-reader user could not tell which one they were in, and neither could anyone
         // who cannot resolve the tint.
@@ -1268,7 +1720,7 @@ export default function WindowFirstHeatStrip({
   // matches no visible text, announced ahead of buttons that each name themselves. The grouping
   // the matrix needs is visual, and the buttons carry the words.
   return (
-    <section data-testid="wf-heat-strip" className="wf-hstrip-block">
+    <section ref={stripRef} data-testid="wf-heat-strip" className="wf-hstrip-block">
       <div data-testid="wf-heat-head" className="wf-hstrip-h">
         {/* ⚠️ A HEADING, not a span. It is a section heading by every visual convention — 9.5px mono,
             600, letter-spaced, uppercase, beside a full-width hairline — and it was marked up as a
@@ -1362,9 +1814,24 @@ export default function WindowFirstHeatStrip({
             a hatched plate is actually on screen, and the phone is where the misreading was
             reported. It says nothing about WHY — "at this range" was drafted and dropped, because
             the horizon is the usual cause and not the only one (a failed batch leaves T+0
-            unscored), and the client cannot tell those apart. */}
+            unscored), and this note cannot tell those apart; the served verdict word and region
+            wording carry the reason (the backend folds the pipeline's own record into it). */}
         {unscored.size > 0 && (
           <span data-testid="wf-heat-unscored-note">unshaded — not scored</span>
+        )}
+        {/* The histogram's own hatch (the minimum-sample rule's Part 2) gets the SAME treatment as
+            the map plate's note above, for the same reason: a texture is not vocabulary and a
+            card's own rows have no room for it. ⚠️ NOT rare in practice — a catalogue with any
+            sparsely-rated windows shows this on most loads, closer to permanent than occasional —
+            it is still conditional (absent whenever every card on screen either clears the gate
+            with nothing unrated or draws no bars at all) and it renders at EVERY width, not just
+            the phone: `.wf-hstrip-sp`'s own desktop-only restriction is what this note is
+            deliberately NOT subject to, for the same reason the map's note above it is not. Worded
+            differently from the map's note on purpose — "unshaded" names the map's mark and
+            "hatched bar" names the histogram's, so the two conditional clauses can never be
+            mistaken for restating each other when both happen to be on screen at once. */}
+        {hatchedSpread && (
+          <span data-testid="wf-heat-spread-unrated-note">hatched bar — not yet rated</span>
         )}
         {/* Desktop only, as the design has it — the phone bar has no room for a third clause and
             the first two are the ones that decode the picture. */}
@@ -1516,18 +1983,37 @@ WindowFirstHeatStrip.propTypes = {
     }),
     /** The reach-gated, pre-floor spot pool the spread and the best-reach line are measured over. */
     pool: PropTypes.array,
-    /** That pool's head, or null when nothing in it is rated — see {@link bestReachLine}. */
+    /** True when the neighbour guard skipped an outlier and nothing clears the named floor. */
+    bestReachWithheld: PropTypes.bool,
+    /** That pool's best non-outlier spot, or null when nothing in it is rated — see {@link bestReachLine}. */
     bestReach: PropTypes.shape({
       locationName: PropTypes.string,
       regionName: PropTypes.string,
       rating: PropTypes.number,
       driveMinutes: PropTypes.number,
       solarEventTime: PropTypes.string,
+      /** The preference-axis match, read by {@link bestReachLine} — `=== true` for a match. */
+      tideAligned: PropTypes.bool,
+      /** The served state at the light this window — the glyph's own letter reads this on a
+       * match (tide-window-plan.md §4 #21). */
+      tideState: PropTypes.oneOf(['HIGH', 'MID', 'LOW']),
     }),
     /** The window's badges BEFORE row promotion — the matrix names every topic on the night. */
     badges: PropTypes.array,
     /** The window's leading region, for the thumbnail's brightened area name. Null when unrated. */
     hotRegionName: PropTypes.string,
+    /** The served mean of the window's top region (the Order control's key). Not printed directly. */
+    topMeanRating: PropTypes.number,
+    /**
+     * The mean the card may print beside its verdict word: `topMeanRating` only when the top region
+     * is verdict-eligible, else null. Read by the face, the spoken sentence and the H2 "beyond the
+     * tier" line, all of which claim a RATING stands behind the word.
+     */
+    verdictMean: PropTypes.number,
+    /** The active reach tier's threshold in minutes; null under "Any" (H2). */
+    reachLimitMinutes: PropTypes.number,
+    /** Whether a drive time exists for the tier to have gated on (H2 requires it). */
+    reachMeasured: PropTypes.bool,
   })).isRequired,
   pointSets: PropTypes.instanceOf(Map),
   spots: PropTypes.array.isRequired,
@@ -1535,6 +2021,7 @@ WindowFirstHeatStrip.propTypes = {
   /** The served hot topics, for the scope filter. Absent means nothing is scope-filtered. */
   hotTopics: PropTypes.array,
   openKeys: PropTypes.instanceOf(Set),
+  highlightKeys: PropTypes.instanceOf(Map),
   todayStr: PropTypes.string,
   runAge: PropTypes.string,
   onOpenWindow: PropTypes.func,

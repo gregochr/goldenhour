@@ -1,0 +1,11 @@
+-- The Anthropic API's prompt-cache diagnostics for a logged call (the response's `diagnostics` field),
+-- kept beside the token columns so a cache miss can be explained per request instead of inferred from
+-- cache_read_input_tokens dropping to zero.
+--
+-- A compact JSON string, e.g. {"status":"MISS","reason":"messages_changed","missedInputTokens":1234},
+-- rather than typed columns, because the SDK's shape may grow. NULL for every call that carries none:
+-- a failed call, a non-Anthropic call, a request that did not name a previous message to compare
+-- against, a comparison that found no divergence, and every row written before this migration.
+-- Nothing reads it to decide anything; it is shown on the admin per-call rows and queried by hand
+-- (see CLAUDE.md, "Batch cache primer").
+ALTER TABLE api_call_log ADD COLUMN cache_diagnostics TEXT;

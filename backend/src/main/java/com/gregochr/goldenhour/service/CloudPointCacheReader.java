@@ -29,12 +29,58 @@ public final class CloudPointCacheReader {
 
     private static final Logger LOG = LoggerFactory.getLogger(CloudPointCacheReader.class);
 
+    /** Number of pressure levels recorded (850, 700, 600, 500, 400 and 300 hPa). */
+    static final int PRESSURE_LEVEL_COUNT = 6;
+
     private CloudPointCacheReader() {
+    }
+
+    /**
+     * Reads the six pressure-level cloud values (850, 700, 600, 500, 400, 300 hPa, in that order)
+     * at the event's hour from a pressure-level response. Shared by the cache reader and the live
+     * reader. Has its own failure isolation: a null response, null hourly block or time list, an
+     * unparseable time or any other exception yields six nulls, and never throws.
+     *
+     * @param response       the pressure-level response for the far point, or {@code null}
+     * @param solarEventTime UTC time of the solar event
+     * @param targetType     SUNRISE or SUNSET
+     * @return array of six values in level order, each possibly {@code null}
+     */
+    static Integer[] readPressureLevels(OpenMeteoForecastResponse response,
+            LocalDateTime solarEventTime, TargetType targetType) {
+        Integer[] levels = new Integer[PRESSURE_LEVEL_COUNT];
+        try {
+            if (response == null || response.getHourly() == null
+                    || response.getHourly().getTime() == null) {
+                return levels;
+            }
+            OpenMeteoForecastResponse.Hourly h = response.getHourly();
+            int idx = TimeSlotUtils.findBestIndex(h.getTime(), solarEventTime, targetType);
+            levels[0] = OpenMeteoResponseParser.integerAt(h.getCloudCover850hPa(), idx);
+            levels[1] = OpenMeteoResponseParser.integerAt(h.getCloudCover700hPa(), idx);
+            levels[2] = OpenMeteoResponseParser.integerAt(h.getCloudCover600hPa(), idx);
+            levels[3] = OpenMeteoResponseParser.integerAt(h.getCloudCover500hPa(), idx);
+            levels[4] = OpenMeteoResponseParser.integerAt(h.getCloudCover400hPa(), idx);
+            levels[5] = OpenMeteoResponseParser.integerAt(h.getCloudCover300hPa(), idx);
+            return levels;
+        } catch (Exception e) {
+            LOG.warn("Pressure-level cloud extraction failed, levels not recorded: {}",
+                    e.getMessage());
+            return new Integer[PRESSURE_LEVEL_COUNT];
+        }
     }
 
     /**
      * Extracts directional cloud data from a pre-fetched {@link CloudPointCache}.
      * Falls back to {@code null} if any required point is missing from the cache.
+     *
+     * <p>A missing far cell leaves every far field {@code null} and returns the rest. A malformed
+     * far point (a null hourly block, a null or short low-cloud series) still nulls the whole
+     * result, deliberately unchanged: that outcome removes the prompt's directional block and
+     * switches triage's cloud source, so it is a rating input. The far mid, high and dark-hour
+     * values are read null-safely and can never throw. The six pressure-level values come from
+     * {@link CloudPointCache#getPressureLevels} through a helper with its own failure isolation, so
+     * they can never affect any other field or the result's nullness.
      *
      * @param lat              observer latitude
      * @param lon              observer longitude
@@ -68,7 +114,9 @@ public final class CloudPointCacheReader {
             }
 
             // Antisolar (index 3)
-            OpenMeteoForecastResponse antisolarF = cloudCache.get(points.get(3)[0], points.get(3)[1]);
+            OpenMeteoForecastResponse antisolarF = cloudCache.get(
+                    points.get(DirectionalSamplingGeometry.ANTISOLAR_POINT_INDEX)[0],
+                    points.get(DirectionalSamplingGeometry.ANTISOLAR_POINT_INDEX)[1]);
             if (antisolarF == null) {
                 return null;
             }
@@ -78,12 +126,31 @@ public final class CloudPointCacheReader {
 
             // Far solar (index 4)
             Integer farSolarLow = null;
-            OpenMeteoForecastResponse farF = cloudCache.get(points.get(4)[0], points.get(4)[1]);
+            Integer farSolarMid = null;
+            Integer farSolarHigh = null;
+            Integer farLowDark = null;
+            Integer farMidDark = null;
+            Integer farHighDark = null;
+            OpenMeteoForecastResponse farF = cloudCache.get(
+                    points.get(DirectionalSamplingGeometry.FAR_SOLAR_POINT_INDEX)[0],
+                    points.get(DirectionalSamplingGeometry.FAR_SOLAR_POINT_INDEX)[1]);
             if (farF != null) {
-                int farIdx = TimeSlotUtils.findBestIndex(farF.getHourly().getTime(),
-                        solarEventTime, targetType);
-                farSolarLow = farF.getHourly().getCloudCoverLow().get(farIdx);
+                OpenMeteoForecastResponse.Hourly fh = farF.getHourly();
+                int farIdx = TimeSlotUtils.findBestIndex(fh.getTime(), solarEventTime, targetType);
+                farSolarLow = fh.getCloudCoverLow().get(farIdx);
+                // Recorded, never prompted: null-safe reads that cannot throw.
+                int darkIdx = TimeSlotUtils.darkSideIndex(farIdx, targetType);
+                farSolarMid = OpenMeteoResponseParser.integerAt(fh.getCloudCoverMid(), farIdx);
+                farSolarHigh = OpenMeteoResponseParser.integerAt(fh.getCloudCoverHigh(), farIdx);
+                farLowDark = OpenMeteoResponseParser.integerAt(fh.getCloudCoverLow(), darkIdx);
+                farMidDark = OpenMeteoResponseParser.integerAt(fh.getCloudCoverMid(), darkIdx);
+                farHighDark = OpenMeteoResponseParser.integerAt(fh.getCloudCoverHigh(), darkIdx);
             }
+
+            // Pressure levels: own failure isolation, can never affect any other field.
+            double[] farPoint = points.get(DirectionalSamplingGeometry.FAR_SOLAR_POINT_INDEX);
+            Integer[] levels = readPressureLevels(
+                    cloudCache.getPressureLevels(farPoint[0], farPoint[1]), solarEventTime, targetType);
 
             return new DirectionalCloudData(
                     solarLowSum / DirectionalSamplingGeometry.SOLAR_CONE_POINT_COUNT,
@@ -92,7 +159,8 @@ public final class CloudPointCacheReader {
                     ah.getCloudCoverLow().get(antisolarIdx),
                     ah.getCloudCoverMid().get(antisolarIdx),
                     ah.getCloudCoverHigh().get(antisolarIdx),
-                    farSolarLow);
+                    farSolarLow, farSolarMid, farSolarHigh, farLowDark, farMidDark, farHighDark,
+                    levels[0], levels[1], levels[2], levels[3], levels[4], levels[5]);
         } catch (Exception e) {
             LOG.warn("Directional cloud extraction from cache failed: {}", e.getMessage());
             return null;

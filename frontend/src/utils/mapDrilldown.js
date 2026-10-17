@@ -1,10 +1,11 @@
 import { byMeanThenName } from './windowFirstRegions.js';
-import { VERDICT_LABEL } from './windowFirstCards.js';
+import { VERDICT_LABEL, verdictEligible } from './windowFirstCards.js';
 import { resolveRegionDisplay } from './tierUtils.js';
 import { regionDriveMinutes } from './planningArea.js';
 import { formatDriveDuration } from './briefingDisplay.js';
 import { eventInstantOf, lookupForWindow } from './locationSheet.js';
 import { calloutLeaveBy } from './mapCallout.js';
+import { tierOf } from './mapTideFit.js';
 
 /**
  * The Map tab's drilldown — window → regions (map-landing-plan.md §3 L5,
@@ -183,6 +184,9 @@ export function buildPanelRegionRows({
       verdictLabel: VERDICT_LABEL[tier] || VERDICT_LABEL.AWAITING,
       meanRating: finite(region.meanRating),
       bestRating: finite(region.bestRating),
+      // Carried for {@code byMeanThenName}: eligible regions rank first, as the card's top region
+      // does, so the panel's first row is the region the pill names (review F2). Not rendered.
+      verdictEligible: verdictEligible(region),
       driveMinutes,
       driveLabel: driveMinutes == null ? null : formatDriveDuration(driveMinutes),
       placeCount: places.get(name) ?? 0,
@@ -220,7 +224,31 @@ export function windowPanelNote({ verdict, isSolar, scopeIsArea = true }) {
   if (verdict.allInScope && verdict.tier === 'STAND_DOWN') {
     const area = scopeIsArea ? ' in your area' : '';
     return `Poor in all ${verdict.scopedRegionCount} regions${area} — nothing here is worth the `
-      + 'drive on this window. Rows are ranked by average, best first.';
+      + 'drive on this window. Rows are ranked by average, best first; a region too thinly '
+      + 'rated for a verdict ranks last.';
+  }
+  // ⚠️ UNRATED gets its own sentence (unrated-verdict-plan.md U2). It must not fall to the
+  // several-regions branch below, whose template is "N regions are <word> for this window, so the
+  // choice between them is drive time" — "Too few rated" in that slot reads as nonsense, and worse,
+  // "so the choice is drive time" advises picking between regions NO rating has called. Weather did
+  // not rule these out and the sample is too thin to recommend them: say exactly that, once, and
+  // keep the ranking rule. The all-in-scope wording follows the Poor branch's own scope phrase.
+  if (verdict.tier === 'UNRATED') {
+    const area = scopeIsArea ? ' in your area' : '';
+    const subject = verdict.allInScope
+      ? `No region${area} has enough ratings for a verdict on this window`
+      : verdict.sharingCount > 0
+        ? `${verdict.sharingCount + 1} regions have too few ratings for a verdict on this window`
+        : null;
+    if (subject) {
+      return `${subject} — the weather does not rule them out, but nothing has called them. Rows `
+        + 'are ranked by average, best first.';
+    }
+    // A LONE UNRATED region (the window's verdict is the top region's, and no other region shares
+    // it): RANKING_NOTE opens "Verdict is the strongest region’s average", which is false here —
+    // the word is "Too few rated", and the average it quotes is the very figure the sample gate
+    // declined to turn into a verdict (review F8).
+    return UNRATED_LONE_NOTE;
   }
   const sharing = verdict.sharingCount + 1;
   if (sharing > 1) {
@@ -234,7 +262,7 @@ export function windowPanelNote({ verdict, isSolar, scopeIsArea = true }) {
     // choice to make between N write-offs", and the reason is the part to implement.
     if (verdict.tier === 'STAND_DOWN') {
       return `${sharing} regions are poor for this window — nothing there is worth the drive. `
-        + 'Rows are ranked by average, best first.';
+        + 'Rows are ranked by average, best first; a region too thinly rated for a verdict ranks last.';
     }
     const word = (VERDICT_LABEL[verdict.tier] || VERDICT_LABEL.AWAITING).toLowerCase();
     return `${sharing} regions are ${word} for this window, so the choice between them is drive `
@@ -245,7 +273,12 @@ export function windowPanelNote({ verdict, isSolar, scopeIsArea = true }) {
 
 /** Why the rows are in the order they are in — the answer the ranking itself provokes. */
 const RANKING_NOTE = 'Verdict is the strongest region’s average. Regions rank on that average, '
-  + 'not on their ceiling — the reach filter only decides what the map draws.';
+  + 'not on their ceiling, and a region too thinly rated for a verdict ranks last — the reach '
+  + 'filter only decides what the map draws.';
+
+/** The note under a lone "Too few rated" window verdict — true of the state, unlike RANKING_NOTE. */
+const UNRATED_LONE_NOTE = 'Too few rated to call: the regions here passed the weather screen but too '
+  + 'few places are rated to say more. Rows are ranked by average, best first.';
 
 /** A night window has no solar verdict of its own, and cannot be a pick. */
 const NIGHT_NOTE = 'A night event, scored from darkness, clarity and Kp rather than the solar '
@@ -272,12 +305,18 @@ export const REGION_PANEL_LOCATIONS = 4;
  *
  * <h2>⚠️ The two per-location facts are LOOKED UP, never re-derived</h2>
  *
- * <p><b>The tide glyph</b> reads {@code BriefingSlot.TideInfo.tideOnTheLight} through
- * {@code locationSheet.buildTideAlignmentIndex} — served since #749, per location, per window. The
- * plan says it in as many words: <em>do not</em> re-derive one representative coastline's geometry.
- * CLAUDE.md's tide-axis rule is why a served answer is the only acceptable one here — the run row's
- * extremes belong to a separately-selected representative and its {@code tideAligned} sibling asks a
- * preference-weighted question this glyph must not answer.
+ * <p><b>The tide glyph</b> read {@code BriefingSlot.TideInfo.tideOnTheLight} through
+ * {@code locationSheet.buildTideAlignmentIndex} — served since #749, per location, per window —
+ * until the tide-window increment (T4, tide-window-plan.md §3) moved it onto the served
+ * <em>preference</em> axis instead ({@code tierOf}, over the SAME index's {@code aligned} field):
+ * the map's one tide question is "is it the water this spot wants", not "does an extreme land on
+ * the light" (CLAUDE.md's two-tide-axes rule — this glyph now answers the PREFERENCE question on
+ * purpose, the same move T4 makes to the chip and Pins dot). {@code tideOnTheLight} is not read
+ * here at all any more; the offset fact it once carried survives only inside the served
+ * {@code tideFitPhrase} the callout/sheet block (T5) reads. CLAUDE.md's tide-axis rule is why a
+ * served answer is the only acceptable one here regardless of which axis: the run row's extremes
+ * belong to a separately-selected representative, and re-deriving anything from them for one
+ * location's own row would answer a question this file has no business asking.
  *
  * <p><b>The leave-by time</b> comes from {@code mapCallout.calloutLeaveBy} over
  * {@code locationSheet.eventInstantOf} — the SAME recovery the callout already makes for its own
@@ -326,6 +365,7 @@ export function buildRegionLocationRows({
       lookupForWindow(scoreIndex, point.id, name, date, targetType), targetType,
     );
     const leave = calloutLeaveBy(eventTimeIso, driveMinutes);
+    const tideFact = lookupForWindow(tideIndex, point.id, name, date, targetType);
     rows.push({
       id: point.id ?? null,
       name,
@@ -334,11 +374,16 @@ export function buildRegionLocationRows({
       driveLabel: driveMinutes == null ? null : formatDriveDuration(driveMinutes),
       leaveTime: leave?.time ?? null,
       leaveDayWord: leave?.dayWord ?? null,
-      // ⚠️ A MISSING entry and a `false` one are different claims and only the deriver knows which
-      // is true (`buildTideAlignmentIndex` skips rather than indexes an underivable slot), so this
-      // is read for TRUTH alone — the glyph is drawn or it is not, and nothing anywhere says
-      // "the tide does not land on the light here".
-      tideOnLight: Boolean(lookupForWindow(tideIndex, point.id, name, date, targetType)?.onTheLight),
+      // ⚠️ A MISSING entry (`tierOf` → null) and a served `miss` are different claims and only the
+      // deriver knows which is true (`buildTideAlignmentIndex` skips rather than indexes an
+      // underivable slot) — tide-window-plan.md §3 T4 item 6 moves this glyph onto the same
+      // preference axis the chip and Pins dot now read, so `null` still means "not a coastal slot
+      // with a served tide state" and never a drawn claim either way.
+      tideTier: tierOf(tideFact),
+      tideShortfall: tideFact?.shortfall ?? null,
+      // The served state at the light this window (tide-window-plan.md §4 #21) — the row's glyph
+      // letters a match with this, read only alongside `tideTier: 'match'`.
+      tideState: tideFact?.state ?? null,
     });
   }
   rows.sort((a, b) => (b.rating - a.rating)

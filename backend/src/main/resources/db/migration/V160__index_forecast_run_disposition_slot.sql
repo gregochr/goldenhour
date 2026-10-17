@@ -1,0 +1,29 @@
+-- V160: an index on forecast_run_disposition keyed by SLOT — (location_name, evaluation_date,
+-- event_type, created_at) — so any per-slot "most recent decision" lookup is an index probe rather
+-- than a scan of the whole 30-day retention window.
+--
+-- Why now. #943 (2026-09-29, the verdict-minimum-sample rule's "examined" evidence, P1-A round 2)
+-- added ForecastRunDispositionRepository#findLatestNonCachedDispositions and runs it on EVERY
+-- GET /api/briefing and GET /api/briefing/digest serve (ServedBriefingAssembler) and once per
+-- briefing build (BriefingService). As shipped it was a correlated scalar subquery,
+--     created_at = (SELECT MAX(created_at) FROM forecast_run_disposition d2 WHERE <same slot> ...)
+-- and V101's only indexes are (job_run_id) and (disposition, created_at), neither of which serves
+-- the slot correlation. Postgres cannot decorrelate a scalar subquery in WHERE, so it ran the
+-- subplan once per outer row as a full table scan: measured 36 s on a Postgres 16 with the table
+-- sized to production's own rate (13,120 rows per five days of evaluation_date, ~78k rows at the
+-- 30-day retention). Every open client re-issued the request on focus and every 10 minutes while
+-- the previous one still held a pool connection, so on 2026-09-30 the Plan tab rendered nothing
+-- and the map drew no heat field: the briefing simply never arrived before Cloudflare's 100 s
+-- limit.
+--
+-- The query itself is rewritten in the same change to a NOT EXISTS anti-join, which Postgres
+-- decorrelates into a hash anti join (34 ms on the same data with NO new index). This index is
+-- therefore belt and braces rather than the fix: it makes the slot lookup cheap under either
+-- query shape, so a future revert to the correlated form, or any new per-slot "latest" read on
+-- this table, cannot silently reintroduce the scan.
+--
+-- Additive-only. A plain CREATE INDEX (not CONCURRENTLY — Flyway runs migrations inside a
+-- transaction, and CONCURRENTLY cannot) takes a brief share lock on a table of ~80k rows, which
+-- is a fraction of a second at startup.
+CREATE INDEX idx_forecast_run_disposition_slot
+    ON forecast_run_disposition(location_name, evaluation_date, event_type, created_at);

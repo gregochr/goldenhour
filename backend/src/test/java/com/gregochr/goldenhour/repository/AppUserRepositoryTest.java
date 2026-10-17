@@ -1,0 +1,488 @@
+package com.gregochr.goldenhour.repository;
+
+import com.gregochr.goldenhour.entity.AppUserEntity;
+import com.gregochr.goldenhour.entity.UserRole;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
+import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
+import org.springframework.jdbc.core.JdbcTemplate;
+
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.Map;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+/**
+ * Proves the settings writes on {@link AppUserRepository} against a real JPA stack (H2, schema from
+ * the entity annotations): each column-scoped update writes its own columns and no others, the
+ * drive-time compare-and-set takes both branches, and a whole-entity save can no longer write a
+ * stale home back.
+ *
+ * <p>Every assertion reads the row through {@link JdbcTemplate} after a flush, never through the
+ * persistence context — a managed instance reports what Hibernate holds in memory, which is exactly
+ * the thing a lost update makes disagree with the database.
+ *
+ * <p>What this cannot show is behaviour under real concurrency on the production engine (a row lock
+ * making the compare-and-set wait, then re-check). That is Postgres's, and is proven in CI by
+ * {@code UserSettingsRowLockIntegrationTest}.
+ */
+@DataJpaTest
+class AppUserRepositoryTest {
+
+    private static final String USERNAME = "reader";
+
+    /** Durham — the home the drive times were measured from. */
+    private static final String OLD_POSTCODE = "DH1 3LE";
+    private static final double OLD_LAT = 54.7761;
+    private static final double OLD_LON = -1.5733;
+
+    /** Newcastle — the home a save moves to. */
+    private static final String NEW_POSTCODE = "NE1 4ST";
+    private static final double NEW_LAT = 54.9714;
+    private static final double NEW_LON = -1.6174;
+
+    private static final Instant STAMP = Instant.parse("2026-09-01T06:30:00Z");
+    private static final Instant LAST_SEEN = Instant.parse("2026-08-30T19:00:00Z");
+    private static final LocalDateTime LAST_ACTIVE = LocalDateTime.of(2026, 9, 1, 7, 0);
+    private static final Instant RECALCULATED = Instant.parse("2026-09-02T08:15:00Z");
+
+    @Autowired
+    private AppUserRepository repository;
+
+    @Autowired
+    private TestEntityManager entityManager;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
+    private Long userId;
+
+    @BeforeEach
+    void persistReader() {
+        AppUserEntity user = AppUserEntity.builder()
+                .username(USERNAME)
+                .password("{bcrypt}hash")
+                .role(UserRole.PRO_USER)
+                .enabled(true)
+                .createdAt(LocalDateTime.of(2026, 1, 1, 12, 0))
+                .email("reader@example.com")
+                .lastActiveAt(LAST_ACTIVE)
+                .homePostcode(OLD_POSTCODE)
+                .homeLatitude(OLD_LAT)
+                .homeLongitude(OLD_LON)
+                .localRadiusMiles(40)
+                .driveTimesCalculatedAt(STAMP)
+                .mapColourScale("verdict")
+                .comingUpLastSeenAt(LAST_SEEN)
+                .build();
+        userId = entityManager.persistAndGetId(user, Long.class);
+        entityManager.flush();
+        entityManager.clear();
+    }
+
+    /** The row as the database holds it, bypassing the persistence context. */
+    private Map<String, Object> row() {
+        entityManager.flush();
+        return jdbcTemplate.queryForMap("SELECT home_postcode, home_latitude, home_longitude, "
+                + "local_radius_miles, drive_times_calculated_at, map_colour_scale, "
+                + "coming_up_last_seen_at, last_active_at, email FROM app_user WHERE id = ?", userId);
+    }
+
+    /** The credential and authority columns as the database holds them, bypassing the persistence context. */
+    private Map<String, Object> accountRow() {
+        entityManager.flush();
+        return jdbcTemplate.queryForMap("SELECT password, enabled, password_change_required, role, "
+                + "credentials_version, credentials_changed_at, marketing_email_opt_in, email "
+                + "FROM app_user WHERE id = ?", userId);
+    }
+
+    private Instant stamp() {
+        entityManager.flush();
+        OffsetDateTime value = jdbcTemplate.queryForObject(
+                "SELECT drive_times_calculated_at FROM app_user WHERE id = ?", OffsetDateTime.class, userId);
+        return value == null ? null : value.toInstant();
+    }
+
+    private Instant lastSeen() {
+        entityManager.flush();
+        OffsetDateTime value = jdbcTemplate.queryForObject(
+                "SELECT coming_up_last_seen_at FROM app_user WHERE id = ?", OffsetDateTime.class, userId);
+        return value == null ? null : value.toInstant();
+    }
+
+    private LocalDateTime lastActive() {
+        // Flushed first, like every read here: a whole-entity save's UPDATE waits in the
+        // persistence context until flush, and a read that ran before it would see the row as it
+        // stood — which is how this control first failed.
+        entityManager.flush();
+        return jdbcTemplate.queryForObject(
+                "SELECT last_active_at FROM app_user WHERE id = ?", LocalDateTime.class, userId);
+    }
+
+    @Test
+    @DisplayName("a new row is inserted with its settings columns — updatable = false does not "
+            + "reach an insert")
+    void insert_writesTheSettingsColumns() {
+        // The control every other test leans on: if the fixture's settings never reached the row,
+        // "unchanged" below would be comparing null with null.
+        Map<String, Object> row = row();
+        assertThat(row.get("home_postcode")).isEqualTo(OLD_POSTCODE);
+        assertThat(row.get("home_latitude")).isEqualTo(OLD_LAT);
+        assertThat(row.get("home_longitude")).isEqualTo(OLD_LON);
+        assertThat(row.get("local_radius_miles")).isEqualTo(40);
+        assertThat(row.get("map_colour_scale")).isEqualTo("verdict");
+        assertThat(stamp()).isEqualTo(STAMP);
+        assertThat(lastSeen()).isEqualTo(LAST_SEEN);
+    }
+
+    @Nested
+    @DisplayName("updateHome")
+    class UpdateHome {
+
+        @Test
+        @DisplayName("writes the postcode, coordinates and radius, and no other column")
+        void writesTheHomeFieldsTogether() {
+            int updated = repository.updateHome(userId, NEW_POSTCODE, NEW_LAT, NEW_LON, 25);
+
+            assertThat(updated).isEqualTo(1);
+            Map<String, Object> row = row();
+            assertThat(row.get("home_postcode")).isEqualTo(NEW_POSTCODE);
+            assertThat(row.get("home_latitude")).isEqualTo(NEW_LAT);
+            assertThat(row.get("home_longitude")).isEqualTo(NEW_LON);
+            assertThat(row.get("local_radius_miles")).isEqualTo(25);
+            // The stamp belongs to the drive-time writes: a save that moves the home clears it
+            // separately, and one that does not must leave it alone.
+            assertThat(stamp()).isEqualTo(STAMP);
+            assertThat(row.get("map_colour_scale")).isEqualTo("verdict");
+            assertThat(lastSeen()).isEqualTo(LAST_SEEN);
+            assertThat(lastActive()).isEqualTo(LAST_ACTIVE);
+            assertThat(row.get("email")).isEqualTo("reader@example.com");
+        }
+
+        @Test
+        @DisplayName("a null radius keeps the stored one — it is not a reset")
+        void nullRadiusKeepsTheStoredOne() {
+            repository.updateHome(userId, NEW_POSTCODE, NEW_LAT, NEW_LON, null);
+
+            Map<String, Object> row = row();
+            assertThat(row.get("local_radius_miles")).isEqualTo(40);
+            assertThat(row.get("home_postcode")).isEqualTo(NEW_POSTCODE);
+        }
+
+        @Test
+        @DisplayName("matches no row for an unknown id")
+        void unknownId_updatesNothing() {
+            assertThat(repository.updateHome(userId + 1000, NEW_POSTCODE, NEW_LAT, NEW_LON, 25)).isZero();
+            assertThat(row().get("home_postcode")).isEqualTo(OLD_POSTCODE);
+        }
+    }
+
+    @Test
+    @DisplayName("clearDriveTimesCalculatedAt nulls the stamp and nothing else")
+    void clearDriveTimesCalculatedAt_nullsOnlyTheStamp() {
+        assertThat(repository.clearDriveTimesCalculatedAt(userId)).isEqualTo(1);
+
+        assertThat(stamp()).isNull();
+        Map<String, Object> row = row();
+        assertThat(row.get("home_postcode")).isEqualTo(OLD_POSTCODE);
+        assertThat(row.get("local_radius_miles")).isEqualTo(40);
+        assertThat(row.get("map_colour_scale")).isEqualTo("verdict");
+    }
+
+    @Test
+    @DisplayName("updateMapColourScaleByUsername writes the scale and nothing else")
+    void updateMapColourScale_writesOnlyTheScale() {
+        assertThat(repository.updateMapColourScaleByUsername(USERNAME, "temp")).isEqualTo(1);
+
+        Map<String, Object> row = row();
+        assertThat(row.get("map_colour_scale")).isEqualTo("temp");
+        assertThat(row.get("home_postcode")).isEqualTo(OLD_POSTCODE);
+        assertThat(row.get("home_latitude")).isEqualTo(OLD_LAT);
+        assertThat(row.get("local_radius_miles")).isEqualTo(40);
+        assertThat(stamp()).isEqualTo(STAMP);
+        assertThat(lastSeen()).isEqualTo(LAST_SEEN);
+    }
+
+    @Nested
+    @DisplayName("stampDriveTimesIfHomeIs — the compare-and-set")
+    class StampIfHomeIs {
+
+        @Test
+        @DisplayName("stamps while the home is still the one measured from")
+        void homeUnchanged_stamps() {
+            int stamped = repository.stampDriveTimesIfHomeIs(userId, OLD_LAT, OLD_LON, RECALCULATED);
+
+            assertThat(stamped).isEqualTo(1);
+            assertThat(stamp()).isEqualTo(RECALCULATED);
+        }
+
+        @Test
+        @DisplayName("after a save has moved the home, a result measured from the old one matches "
+                + "nothing and stamps nothing")
+        void homeMovedSinceMeasuring_stampsNothing() {
+            // The refresh race in the order it happens: routing from the old home, the save lands,
+            // then the refresh tries to store.
+            repository.updateHome(userId, NEW_POSTCODE, NEW_LAT, NEW_LON, null);
+            repository.clearDriveTimesCalculatedAt(userId);
+
+            int stamped = repository.stampDriveTimesIfHomeIs(userId, OLD_LAT, OLD_LON, RECALCULATED);
+
+            assertThat(stamped).isZero();
+            assertThat(stamp()).isNull();
+            assertThat(row().get("home_postcode")).isEqualTo(NEW_POSTCODE);
+        }
+
+        @Test
+        @DisplayName("a latitude that differs alone is a moved home")
+        void latitudeAloneDiffers_stampsNothing() {
+            // Two conditions in one WHERE: a test that moved both coordinates would leave either
+            // one deletable with the suite still green.
+            assertThat(repository.stampDriveTimesIfHomeIs(userId, NEW_LAT, OLD_LON, RECALCULATED))
+                    .isZero();
+            assertThat(stamp()).isEqualTo(STAMP);
+        }
+
+        @Test
+        @DisplayName("a longitude that differs alone is a moved home")
+        void longitudeAloneDiffers_stampsNothing() {
+            assertThat(repository.stampDriveTimesIfHomeIs(userId, OLD_LAT, NEW_LON, RECALCULATED))
+                    .isZero();
+            assertThat(stamp()).isEqualTo(STAMP);
+        }
+
+        @Test
+        @DisplayName("measures the other user's row not at all — the id is part of the match")
+        void anotherUsersId_stampsNothing() {
+            assertThat(repository.stampDriveTimesIfHomeIs(userId + 1000, OLD_LAT, OLD_LON, RECALCULATED))
+                    .isZero();
+            assertThat(stamp()).isEqualTo(STAMP);
+        }
+    }
+
+    @Test
+    @DisplayName("a whole-entity save of a copy read before the settings changed writes none of "
+            + "them back")
+    void staleWholeEntitySave_cannotRevertTheSettings() {
+        // The lost update itself. The JWT filter's hourly last-active write, login, a password
+        // change and the admin paths all load the user and save the whole entity back. A copy
+        // loaded before a settings save commits carries the OLD home, colour and stamps; merged
+        // back, Hibernate counts every stale value as a change and — without updatable = false —
+        // writes it, silently undoing the save in between.
+        AppUserEntity staleCopy = repository.findByUsername(USERNAME).orElseThrow();
+        entityManager.detach(staleCopy);
+
+        repository.updateHome(userId, NEW_POSTCODE, NEW_LAT, NEW_LON, 25);
+        repository.stampDriveTimesIfHomeIs(userId, NEW_LAT, NEW_LON, RECALCULATED);
+        repository.updateMapColourScaleByUsername(USERNAME, "temp");
+        repository.updateComingUpLastSeenAtByUsername(USERNAME, RECALCULATED);
+
+        LocalDateTime nowActive = LocalDateTime.of(2026, 9, 2, 9, 0);
+        staleCopy.setLastActiveAt(nowActive);
+        repository.save(staleCopy);
+
+        // Positive control: the whole-entity save really wrote, so the survivors below survived a
+        // write rather than the absence of one.
+        assertThat(lastActive()).isEqualTo(nowActive);
+        Map<String, Object> row = row();
+        assertThat(row.get("home_postcode")).isEqualTo(NEW_POSTCODE);
+        assertThat(row.get("home_latitude")).isEqualTo(NEW_LAT);
+        assertThat(row.get("home_longitude")).isEqualTo(NEW_LON);
+        assertThat(row.get("local_radius_miles")).isEqualTo(25);
+        assertThat(row.get("map_colour_scale")).isEqualTo("temp");
+        assertThat(stamp()).isEqualTo(RECALCULATED);
+        assertThat(lastSeen()).isEqualTo(RECALCULATED);
+    }
+
+    @Test
+    @DisplayName("a whole-entity save of a copy read before a credential change or a demotion writes NEITHER the "
+            + "old hash, enabled flag, gate or role NOR the credential version and stamp back (login-"
+            + "registration plan §2 #13); the scoped updates are the only writers")
+    void staleWholeEntitySave_cannotRevertCredentialsOrRole() {
+        AppUserEntity staleCopy = repository.findByUsername(USERNAME).orElseThrow();
+        entityManager.detach(staleCopy);
+        assertThat(staleCopy.getRole()).isEqualTo(UserRole.PRO_USER);
+
+        jdbcTemplate.update("UPDATE app_user SET password = 'new-hash', enabled = FALSE, "
+                + "password_change_required = TRUE, role = 'LITE_USER', credentials_version = 4, "
+                + "credentials_changed_at = ? WHERE id = ?", java.sql.Timestamp.from(RECALCULATED), userId);
+
+        LocalDateTime nowActive = LocalDateTime.of(2026, 9, 2, 9, 0);
+        staleCopy.setLastActiveAt(nowActive);
+        staleCopy.setMarketingEmailOptIn(false);
+        repository.save(staleCopy);
+
+        // Positive control: the whole-entity save really wrote (an updatable column moved) ...
+        assertThat(lastActive()).isEqualTo(nowActive);
+        // ... and the credential and authority columns survived that write.
+        Map<String, Object> row = accountRow();
+        assertThat(row.get("password")).isEqualTo("new-hash");
+        assertThat(row.get("enabled")).isEqualTo(false);
+        assertThat(row.get("password_change_required")).isEqualTo(true);
+        assertThat(row.get("role")).isEqualTo("LITE_USER");
+        assertThat(((Number) row.get("credentials_version")).longValue()).isEqualTo(4L);
+        assertThat(row.get("credentials_changed_at")).isNotNull();
+    }
+
+    @Nested
+    @DisplayName("the scoped updates write their own column and no other")
+    class ScopedUpdates {
+
+        @Test
+        @DisplayName("touchLastActiveAt writes lastActiveAt alone")
+        void touchLastActiveAt() {
+            LocalDateTime now = LocalDateTime.of(2026, 10, 16, 9, 0);
+
+            assertThat(repository.touchLastActiveAt(userId, now)).isEqualTo(1);
+
+            assertThat(lastActive()).isEqualTo(now);
+            assertThat(accountRow().get("role")).isEqualTo("PRO_USER");
+            assertThat(accountRow().get("enabled")).isEqualTo(true);
+            assertThat(repository.touchLastActiveAt(userId + 1000, now)).isZero();
+        }
+
+        @Test
+        @DisplayName("findCredentialsChangedAt reads the stamp as a scalar, and is empty for a row that never "
+                + "changed or does not exist")
+        void findCredentialsChangedAt() {
+            assertThat(repository.findCredentialsChangedAt(userId)).isEmpty();
+            jdbcTemplate.update("UPDATE app_user SET credentials_changed_at = ? WHERE id = ?",
+                    java.sql.Timestamp.from(STAMP), userId);
+
+            assertThat(repository.findCredentialsChangedAt(userId)).contains(STAMP);
+            assertThat(repository.findCredentialsChangedAt(userId + 1000)).isEmpty();
+        }
+
+        @Test
+        @DisplayName("updateEnabled flips the flag and nothing else — no version bump")
+        void updateEnabled() {
+            assertThat(repository.updateEnabled(userId, false)).isEqualTo(1);
+            assertThat(accountRow().get("enabled")).isEqualTo(false);
+
+            assertThat(repository.updateEnabled(userId, true)).isEqualTo(1);
+
+            assertThat(accountRow().get("enabled")).isEqualTo(true);
+            assertThat(((Number) accountRow().get("credentials_version")).longValue()).isZero();
+            assertThat(accountRow().get("password")).isEqualTo("{bcrypt}hash");
+            assertThat(repository.updateEnabled(userId + 1000, true)).isZero();
+        }
+
+        @Test
+        @DisplayName("updateRole changes the role and nothing else")
+        void updateRole() {
+            assertThat(repository.updateRole(userId, UserRole.LITE_USER)).isEqualTo(1);
+
+            assertThat(accountRow().get("role")).isEqualTo("LITE_USER");
+            assertThat(accountRow().get("enabled")).isEqualTo(true);
+            assertThat(((Number) accountRow().get("credentials_version")).longValue()).isZero();
+            assertThat(repository.updateRole(userId + 1000, UserRole.ADMIN)).isZero();
+        }
+
+        @Test
+        @DisplayName("updateMarketingEmailOptIn writes the consent and nothing else")
+        void updateMarketingEmailOptIn() {
+            assertThat(repository.updateMarketingEmailOptIn(userId, false)).isEqualTo(1);
+
+            assertThat(accountRow().get("marketing_email_opt_in")).isEqualTo(false);
+            assertThat(accountRow().get("role")).isEqualTo("PRO_USER");
+            assertThat(repository.updateMarketingEmailOptIn(userId + 1000, true)).isZero();
+        }
+
+        @Test
+        @DisplayName("updateEmail writes the address and nothing else")
+        void updateEmail() {
+            assertThat(repository.updateEmail(userId, "moved@example.com")).isEqualTo(1);
+
+            assertThat(accountRow().get("email")).isEqualTo("moved@example.com");
+            assertThat(accountRow().get("role")).isEqualTo("PRO_USER");
+            assertThat(repository.updateEmail(userId + 1000, "x@example.com")).isZero();
+        }
+    }
+
+    @Test
+    @DisplayName("findByUsernameForUpdate reads the row it locks")
+    void findByUsernameForUpdate_returnsTheUser() {
+        // The lock itself is proven against Postgres in CI, where it matters; here, that the query
+        // with its lock mode is accepted and answers like findByUsername.
+        AppUserEntity locked = repository.findByUsernameForUpdate(USERNAME).orElseThrow();
+
+        assertThat(locked.getId()).isEqualTo(userId);
+        assertThat(locked.getHomePostcode()).isEqualTo(OLD_POSTCODE);
+        assertThat(repository.findByUsernameForUpdate("nobody")).isEmpty();
+    }
+
+    /**
+     * {@code AdminAlertService}'s recipient-list query — the fixture's own "reader" (PRO_USER) is
+     * always present, so a role filter that leaked past PRO_USER would be caught by every test in
+     * this nested class, not only the ones that add an ADMIN.
+     */
+    @Nested
+    @DisplayName("findByRoleAndEnabledTrue")
+    class FindByRoleAndEnabledTrue {
+
+        private Long persistUser(String username, UserRole role, boolean enabled, String email) {
+            AppUserEntity user = AppUserEntity.builder()
+                    .username(username)
+                    .password("{bcrypt}hash")
+                    .role(role)
+                    .enabled(enabled)
+                    .createdAt(LocalDateTime.of(2026, 1, 1, 12, 0))
+                    .email(email)
+                    .build();
+            Long id = entityManager.persistAndGetId(user, Long.class);
+            entityManager.flush();
+            return id;
+        }
+
+        @Test
+        @DisplayName("returns an enabled ADMIN, excludes the fixture's PRO_USER and a disabled "
+                + "ADMIN, and excludes a LITE_USER")
+        void returnsOnlyEnabledAdmins() {
+            Long enabledAdminId = persistUser("admin1", UserRole.ADMIN, true, "admin1@example.com");
+            persistUser("admin2disabled", UserRole.ADMIN, false, "admin2@example.com");
+            persistUser("lite1", UserRole.LITE_USER, true, "lite1@example.com");
+            entityManager.clear();
+
+            List<AppUserEntity> admins = repository.findByRoleAndEnabledTrue(UserRole.ADMIN);
+
+            assertThat(admins).extracting(AppUserEntity::getId).containsExactly(enabledAdminId);
+            assertThat(admins).extracting(AppUserEntity::getUsername).containsExactly("admin1");
+        }
+
+        @Test
+        @DisplayName("an enabled ADMIN with a null email is still returned — the blank/null-email "
+                + "filter is the caller's (AdminAlertService's) job, not this query's")
+        void enabledAdminWithNullEmail_stillReturned() {
+            AppUserEntity admin = AppUserEntity.builder()
+                    .username("noemailadmin")
+                    .password("{bcrypt}hash")
+                    .role(UserRole.ADMIN)
+                    .enabled(true)
+                    .createdAt(LocalDateTime.of(2026, 1, 1, 12, 0))
+                    .build();
+            entityManager.persistAndGetId(admin, Long.class);
+            entityManager.flush();
+            entityManager.clear();
+
+            List<AppUserEntity> admins = repository.findByRoleAndEnabledTrue(UserRole.ADMIN);
+
+            assertThat(admins).extracting(AppUserEntity::getUsername).containsExactly("noemailadmin");
+            assertThat(admins.get(0).getEmail()).isNull();
+        }
+
+        @Test
+        @DisplayName("no enabled ADMIN at all — empty, not null")
+        void noEnabledAdmin_returnsEmpty() {
+            persistUser("admindisabled", UserRole.ADMIN, false, "a@example.com");
+            entityManager.clear();
+
+            assertThat(repository.findByRoleAndEnabledTrue(UserRole.ADMIN)).isEmpty();
+        }
+    }
+}

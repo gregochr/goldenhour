@@ -77,6 +77,21 @@ public sealed interface EvaluationTask
      *                    result side can score the row in place (R5) without a lookup by natural
      *                    key, which goes ambiguous whenever nightly + intraday + JFDI overlap on
      *                    one slot
+     * @param forced      whether this SKY task was submitted by {@code ForceEvalHeadlineSelector}
+     *                    as a stability-gated far-out best-bet headline rescue, rather than an
+     *                    ordinary Gate-4-eligible task. {@code false} for every non-scheduled path
+     *                    (region-filtered admin batch, JFDI, force-submit, the sync engine) — only
+     *                    {@code ForecastTaskCollector}'s scheduled loop ever sets it. Embedded in
+     *                    the batch custom id (R3, alongside {@code evalRowId}) so the fact survives
+     *                    the async Batch API round trip and reaches {@code ForecastResultHandler}
+     *                    at result time, which is the ONLY place {@link
+     *                    com.gregochr.goldenhour.model.BriefingEvaluationResult#forced} is ever set
+     *                    true — see {@code docs/engineering/plan-verdict-consolidation-plan.md} for
+     *                    why the previous timestamp-inference design (comparing a
+     *                    {@code forecast_run_disposition} row's {@code created_at} against the
+     *                    winning result's own evaluation instant) could grant the verdict-minimum-
+     *                    sample rule's force-evaluation exemption to an unrelated, ordinary rating
+     *                    that merely landed after the disposition was written
      */
     record Forecast(
             LocationEntity location,
@@ -86,7 +101,8 @@ public sealed interface EvaluationTask
             AtmosphericData data,
             WriteTarget writeTarget,
             PromptKind promptKind,
-            Long evalRowId
+            Long evalRowId,
+            boolean forced
     ) implements EvaluationTask {
 
         /**
@@ -124,6 +140,17 @@ public sealed interface EvaluationTask
             WOODLAND
         }
 
+        /**
+         * Canonical constructor: rejects a task that could not be submitted or written back.
+         *
+         * <p>{@code location}, {@code date}, {@code targetType}, {@code model}, {@code data},
+         * {@code writeTarget} and {@code promptKind} must all be non-null, and the location must
+         * already be persisted (non-null id) because the id is embedded in the batch custom id.
+         * {@code evalRowId} is deliberately nullable and {@code forced} is a primitive.
+         *
+         * @throws NullPointerException     if any of the seven required components is null
+         * @throws IllegalArgumentException if {@code location} has a null id
+         */
         public Forecast {
             Objects.requireNonNull(location, "location");
             if (location.getId() == null) {
@@ -144,7 +171,9 @@ public sealed interface EvaluationTask
          * row — the six-arg shape every pre-Pass-3 caller uses. Bluebell/woodland tasks pass
          * {@link PromptKind#BLUEBELL}/{@link PromptKind#WOODLAND} explicitly via the seven-arg
          * constructor; a sky-lane batch submission that persisted a pending row (R4) uses the
-         * canonical eight-arg constructor directly to carry its {@code evalRowId}.
+         * eight-arg constructor directly to carry its {@code evalRowId}; the nine-arg canonical
+         * constructor is reserved for {@code ForecastTaskCollector}'s scheduled loop, the only
+         * caller that ever sets {@code forced}.
          *
          * @param location    target location entity
          * @param date        evaluation date
@@ -174,6 +203,29 @@ public sealed interface EvaluationTask
                 EvaluationModel model, AtmosphericData data, WriteTarget writeTarget,
                 PromptKind promptKind) {
             this(location, date, targetType, model, data, writeTarget, promptKind, null);
+        }
+
+        /**
+         * Convenience constructor for a sky-lane batch submission that persisted a pending row
+         * (R4), with {@code forced} defaulted to {@code false} — every caller except {@code
+         * ForecastTaskCollector}'s scheduled loop (region-filtered admin batches, JFDI,
+         * force-submit) uses this shape, since none of them ever force-evaluates a stability-
+         * gated headline candidate.
+         *
+         * @param location    target location entity
+         * @param date        evaluation date
+         * @param targetType  SUNRISE / SUNSET / HOURLY
+         * @param model       Claude model to use
+         * @param data        fully prepared atmospheric data
+         * @param writeTarget where the engine should write the parsed result
+         * @param promptKind  which prompt evaluates this task
+         * @param evalRowId   primary key of the pending row this submission carries
+         */
+        public Forecast(LocationEntity location, LocalDate date, TargetType targetType,
+                EvaluationModel model, AtmosphericData data, WriteTarget writeTarget,
+                PromptKind promptKind, Long evalRowId) {
+            this(location, date, targetType, model, data, writeTarget, promptKind, evalRowId,
+                    false);
         }
 
         @Override
@@ -222,6 +274,18 @@ public sealed interface EvaluationTask
             TonightWindow tonightWindow
     ) implements EvaluationTask {
 
+        /**
+         * Canonical constructor: rejects a task that could not produce a meaningful aurora request.
+         *
+         * <p>{@code alertLevel}, {@code date}, {@code model}, {@code viableLocations},
+         * {@code cloudByLocation}, {@code spaceWeather} and {@code triggerType} must be non-null,
+         * and {@code viableLocations} must not be empty (one task is one request listing every
+         * viable location, so an empty list has nothing to score). {@code tonightWindow} is
+         * deliberately nullable, since real-time triggers omit it.
+         *
+         * @throws NullPointerException     if any of the seven required components is null
+         * @throws IllegalArgumentException if {@code viableLocations} is empty
+         */
         public Aurora {
             Objects.requireNonNull(alertLevel, "alertLevel");
             Objects.requireNonNull(date, "date");

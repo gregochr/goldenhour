@@ -1,4 +1,5 @@
 import { daysOut, resolveConfidence } from './confidenceUtils.js';
+import { windowTail } from './windowKeys.js';
 import { formatDriveDuration, formatTime } from './briefingDisplay.js';
 import { GLANCE_MINUTES } from './planningArea.js';
 import { leaveByParts } from './leaveBy.js';
@@ -21,6 +22,7 @@ function isCoastalTidal(location) {
   return Array.isArray(location?.tideType) && location.tideType.length > 0;
 }
 import { regionGlossFor } from './regionGloss.js';
+import { SLOT_VERDICT_LABEL } from './windowFirstCards.js';
 
 /**
  * The four-day location sheet — one place, its six windows, and what each of them costs to reach
@@ -187,11 +189,15 @@ export function eventInstantOf(score, targetType) {
  * them in exactly this order for exactly this reason, and a drill-down that reversed them would
  * have the same two facts telling two different stories about the same evening.
  *
+ * <p>Exported for Ask PhotoCast's "Plan this" (F5): its "Best light" cell reads the identical
+ * windows through this function rather than a copy, so the figure there and the row's light line
+ * here cannot disagree about one window.
+ *
  * @param {?object} score      the score-row entry, or null
  * @param {string}  targetType SUNRISE or SUNSET
  * @returns {?Array<{label: string, range: string}>} ordered windows, or null when neither prints
  */
-function lightWindows(score, targetType) {
+export function lightWindows(score, targetType) {
   if (!score) return null;
   const golden = lightWindow('golden', score.goldenHourStart, score.goldenHourEnd);
   const blue = lightWindow('blue', score.blueHourStart, score.blueHourEnd);
@@ -199,17 +205,17 @@ function lightWindows(score, targetType) {
   return ordered.length > 0 ? ordered : null;
 }
 
-/** Every slot in an event summary, regioned and unregioned alike — {@code solarEventTimes}' rule. */
-function slotsOf(eventSummary) {
+/**
+ * Every slot in an event summary, regioned and unregioned alike — {@code solarEventTimes}' rule.
+ *
+ * <p>Exported for {@code utils/askModel.js}, whose pick join walks one window's slots rather than
+ * building a second index; it must read the same population every index in this file reads.
+ */
+export function slotsOf(eventSummary) {
   const regioned = (eventSummary?.regions ?? []).flatMap(
     (region) => (region?.slots ?? []).map((slot) => ({ slot, region })),
   );
   return [...regioned, ...(eventSummary?.unregioned ?? []).map((slot) => ({ slot, region: null }))];
-}
-
-/** The window half of both indexes' key. */
-function tailOf(date, targetType) {
-  return `${date}|${targetType}`;
 }
 
 /** Puts a value under the id key and the name key, first-inserted winning in each. */
@@ -225,6 +231,49 @@ function index(byId, byName, locationId, locationName, tail, value) {
 }
 
 /**
+ * Every served window of a briefing, in document order, as {@code {date, summary, tail}}.
+ *
+ * <p>The one walk all four per-location indexes share: a day with no date and a summary with no
+ * {@code targetType} are skipped, and {@code tail} is the window half of every index key.
+ *
+ * @param {Array} days {@code briefing.days}
+ * @returns {Array<{date: string, summary: object, tail: string}>}
+ */
+export function windowsOf(days) {
+  const windows = [];
+  for (const day of Array.isArray(days) ? days : []) {
+    if (!day?.date) continue;
+    for (const summary of day.eventSummaries ?? []) {
+      if (!summary?.targetType) continue;
+      windows.push({ date: day.date, summary, tail: windowTail(day.date, summary.targetType) });
+    }
+  }
+  return windows;
+}
+
+/**
+ * Builds the {@code {byId, byName}} pair every per-location, per-window index shares.
+ *
+ * <p>Keys are {@code `${locationId}|${tail}`} and {@code `${name}|${tail}`}, first entry winning in
+ * each map ({@link index}'s rule), so a duplicate location in one window resolves to the first.
+ *
+ * @param {Array} days       {@code briefing.days}
+ * @param {function({date: string, summary: object, tail: string}): Iterable<{locationId: *,
+ *        locationName: ?string, value: *}>} entriesOf the entries one window contributes
+ * @returns {{byId: Map<string, *>, byName: Map<string, *>}}
+ */
+export function indexByWindow(days, entriesOf) {
+  const byId = new Map();
+  const byName = new Map();
+  for (const window of windowsOf(days)) {
+    for (const { locationId, locationName, value } of entriesOf(window) ?? []) {
+      index(byId, byName, locationId, locationName, window.tail, value);
+    }
+  }
+  return { byId, byName };
+}
+
+/**
  * Each slot's own solar event time and its region's confidence, keyed by location and window.
  *
  * <p><b>Unregioned slots are indexed too</b>, unlike {@code buildWindowSpots}, which drops them.
@@ -234,69 +283,219 @@ function index(byId, byName, locationId, locationName, tail, value) {
  *
  * @param {Array} days {@code briefing.days}
  * @returns {{byId: Map<string, object>, byName: Map<string, object>}} the two indexes, each valued
- *          {@code {eventTime, confidence}}
+ *          {@code {eventTime, confidence, displayVerdict}}
  */
 export function buildSlotIndex(days) {
-  const byId = new Map();
-  const byName = new Map();
-  for (const day of Array.isArray(days) ? days : []) {
-    if (!day?.date) continue;
-    for (const summary of day.eventSummaries ?? []) {
-      if (!summary?.targetType) continue;
-      const tail = tailOf(day.date, summary.targetType);
-      for (const { slot, region } of slotsOf(summary)) {
-        if (!slot?.solarEventTime) continue;
-        index(byId, byName, slot.locationId, slot.locationName, tail, {
-          eventTime: slot.solarEventTime,
-          confidence: region?.confidence ?? null,
-        });
-      }
-    }
-  }
-  return { byId, byName };
+  return indexByWindow(days, ({ summary }) => slotsOf(summary)
+    .filter(({ slot }) => slot?.solarEventTime)
+    .map(({ slot, region }) => ({
+      locationId: slot.locationId,
+      locationName: slot.locationName,
+      value: {
+        eventTime: slot.solarEventTime,
+        confidence: region?.confidence ?? null,
+        // The BRIEFING slot's own served verdict (unrated-verdict-plan.md U2, Codex review of
+        // #1140, round 2). It is carried here, beside the slot's event time, because it is the one
+        // place the verdict of a slot the SCORES endpoint has no row for can be read: that endpoint
+        // (`EvaluationViewService.buildViews`) drops a `Source.NONE` slot outright, and a weather
+        // GO/MARGINAL slot with no Claude result is exactly that — yet the briefing serves it as
+        // `UNRATED`. {@link buildLocationSheet} and `MapCallout` read it as the FALLBACK behind the
+        // score row's own verdict ({@link slotVerdictOf} states the precedence). Fail-soft: a slot
+        // with no field (a legacy payload) or a non-string is null.
+        displayVerdict: typeof slot.displayVerdict === 'string' && slot.displayVerdict !== ''
+          ? slot.displayVerdict
+          : null,
+      },
+    })));
 }
 
 /**
- * Each coastal location's map-tab tide-alignment facts per window (the tide-chip bundle rev 2) —
- * whether THIS window's water actually lands on the light, keyed exactly like {@link buildSlotIndex}
- * so `MapView`/`MapCallout` read it through the same {@link lookupForWindow}.
+ * Each coastal location's map-tab tide facts per window — BOTH axes CLAUDE.md's two-tide-axes rule
+ * keeps apart, carried side by side rather than folded into one answer, keyed exactly like
+ * {@link buildSlotIndex} so `MapView`/`MapCallout` read it through the same {@link lookupForWindow}.
  *
- * <p>Reads two of {@code BriefingSlot.TideInfo}'s four sibling fields off each slot flat
- * ({@code tideOnTheLight}, {@code nearestSolarOffsetPhrase} — {@code @JsonUnwrapped} puts them
- * directly on the slot, the same way {@code slot.tideAligned} already reaches this file's other
- * readers) — never {@code tideAligned}, which tests the location's configured {@code TideType}
- * PREFERENCE, a different question the map's glyph and tiebreaker must not answer (CLAUDE.md's
- * tide-axis rule against conflating the two). The other two wire fields
- * ({@code nearestSolarOffsetMinutes}, {@code nearestExtremeKind}) have no reader on this arm — the
- * chip, tooltip and callout only ever need the boolean and the already-formatted phrase — so this
- * INDEX carries only what is read; the wire keeps serving all four regardless.
+ * <p>⚠️ <b>Reads {@code window.tideFacts}, not slots</b>
+ * (docs/engineering/window-tide-facts-plan.md). A slot exists only where Claude coverage does —
+ * {@code BriefingHonestyFilter} empties a zero-coverage region's slot list, which is the designed
+ * state of every unscored window — while tide comes from stored tide tables and has nothing to do
+ * with Claude. Each served fact is flat ({@code tideState}, {@code tideAligned},
+ * {@code tideOnTheLight}, {@code nearestSolarOffsetPhrase}, {@code tideLevel},
+ * {@code tideDirection}, {@code tideHeight}, {@code tideShortfall}, {@code tideFitPhrase}). A payload
+ * with no {@code tideFacts} gives an empty index and there is NO fallback to slots. The two
+ * evaluation-side field, {@code skyRating}, lives on the slot, so it is
+ * joined from the same window's slot (id first, then name) and reads as "no sky rating"
+ * when the window has none. The two wire fields with no reader on any arm of
+ * this increment ({@code nearestSolarOffsetMinutes}, {@code nearestExtremeKind}) stay unindexed —
+ * the chip, tooltip, callout and strip only ever need the already-formatted phrase — so this INDEX
+ * carries only what is read; the wire keeps serving both regardless.
  *
- * <p>A slot with no derivable tide-alignment fact ({@code tideOnTheLight === null} — inland, or no
- * stored extremes near this event) is SKIPPED rather than indexed as "not aligned": a missing entry
- * and a {@code false} one are different claims, and only the deriver knows which is true.
+ * <p>⚠️ <b>The tide-window increment (T3) adds {@code aligned} to this index, and that does NOT
+ * revive the conflation the two-axes rule forbids.</b> The rule bans answering the ON-THE-LIGHT
+ * question ("does an extreme land on the light") WITH the PREFERENCE answer ("is it the water this
+ * spot wants") — they disagree exactly where a HIGH-wanting spot has LOW water on the light, and
+ * folding one into the other is the defect the rule exists to stop. This increment's readers WILL
+ * be (the map chip's glyph/ring/tiebreak, the tooltip, the callout block, the sheet block, the tide
+ * strip — none of them wired to this field yet; T3 is plumbing only, "no visible change") asking the
+ * PREFERENCE question ON PURPOSE — "is the tide right for this spot" is what {@code tideAligned}
+ * answers, so reading it here answers the axis it was built for, not the other one wearing its
+ * clothes. {@code onTheLight}/{@code phrase} survive unchanged, for the offset clause inside
+ * {@code fitPhrase} alone (tide-window-plan.md §1 #6) — no caller may read one axis's field to
+ * answer the other's question.
+ *
+ * <p>Every coastal slot with a served {@code tideState} is indexed now, not only one with a
+ * derivable on-the-light fact: a location whose nearest extreme is too far to name a landing still
+ * has a preference answer, and the map's dimming feature (T4) needs that slot in the index even
+ * when {@code onTheLight} is null — the case the old {@code tideOnTheLight}-gated skip dropped. A
+ * slot with NO {@code tideState} at all (inland, or the location carries no stored extremes near
+ * this event) is still SKIPPED rather than indexed as a miss: a missing entry and a served
+ * {@code miss} are different claims, and only the deriver knows which is true.
+ *
+ * <p>⚠️ <b>{@code skyRating} rides this index too, added with the tide gate lift (2026-09-18,
+ * tide-window-plan.md §6 Q1)</b> — the sky visitor's own component score, with no tide
+ * contribution averaged into it (unlike the served, combined {@code claudeRating} every other
+ * rating surface reads). It lives here rather than in {@link buildScoreIndex} because it is a
+ * TIDE-FIT fact in the sense that matters to a reader: it exists to answer "was the light itself
+ * good, whatever the water did", which is precisely the question {@code TideFitBlock} — this
+ * index's one consumer — was built to answer. Folding it into the rating index would put a
+ * tide-adjacent figure beside a scoreRows shape ({@code buildScoreIndex}) that search results also
+ * populate from a different backend source with no {@code skyRating} of its own.
  *
  * @param {Array} days {@code briefing.days}
  * @returns {{byId: Map<string, object>, byName: Map<string, object>}} the two indexes, each valued
- *          {@code {onTheLight, phrase}}
+ *          {@code {aligned, state, onTheLight, phrase, level, direction, height, shortfall,
+ *          fitPhrase, skyRating}} — {@code state} is the served {@code tideState}
+ *          (HIGH/MID/LOW), so a reader can ask WHICH want an alignment satisfied, not only that
+ *          one did
  */
 export function buildTideAlignmentIndex(days) {
-  const byId = new Map();
-  const byName = new Map();
-  for (const day of Array.isArray(days) ? days : []) {
-    if (!day?.date) continue;
-    for (const summary of day.eventSummaries ?? []) {
-      if (!summary?.targetType) continue;
-      const tail = tailOf(day.date, summary.targetType);
-      for (const { slot } of slotsOf(summary)) {
-        if (slot?.tideOnTheLight == null) continue;
-        index(byId, byName, slot.locationId, slot.locationName, tail, {
-          onTheLight: Boolean(slot.tideOnTheLight),
-          phrase: slot.nearestSolarOffsetPhrase ?? null,
-        });
-      }
+  return indexByWindow(days, ({ summary }) => {
+    // A payload with no `tideFacts` (a pre-deploy cache, an inland-only window) is an empty index,
+    // never a fallback to slots: two sources would hide a missing-facts bug.
+    const facts = summary?.window?.tideFacts;
+    if (!Array.isArray(facts) || facts.length === 0) return [];
+    // The slot join for the two evaluation-side fields, built once per window.
+    const slotById = new Map();
+    const slotByName = new Map();
+    for (const { slot } of slotsOf(summary)) {
+      if (slot?.locationId != null && !slotById.has(slot.locationId)) slotById.set(slot.locationId, slot);
+      if (slot?.locationName && !slotByName.has(slot.locationName)) slotByName.set(slot.locationName, slot);
     }
-  }
-  return { byId, byName };
+    return facts
+      .filter((fact) => fact?.tideState != null)
+      .map((fact) => {
+        const slot = (fact.locationId != null ? slotById.get(fact.locationId) : undefined)
+          ?? (fact.locationName ? slotByName.get(fact.locationName) : undefined);
+        return {
+          locationId: fact.locationId,
+          locationName: fact.locationName,
+          value: {
+            aligned: Boolean(fact.tideAligned),
+            // The served HIGH/MID/LOW state itself, beside the aggregate `aligned`: a spot wanting
+            // {HIGH, LOW} is `aligned` in a LOW window too, so a scan for "the next HIGH window" has
+            // to read WHICH water the alignment was to (a Codex P1 on #878).
+            state: fact.tideState,
+            // Nullable: a genuine `false` and "no nearby extreme to name" are different claims.
+            onTheLight: fact.tideOnTheLight ?? null,
+            phrase: fact.nearestSolarOffsetPhrase ?? null,
+            level: fact.tideLevel ?? null,
+            direction: fact.tideDirection ?? null,
+            height: fact.tideHeight ?? null,
+            shortfall: fact.tideShortfall ?? null,
+            fitPhrase: fact.tideFitPhrase ?? null,
+            // The evaluation-side field lives on the window's slot, not the fact: a window the
+            // honesty filter blanked has no slot, so it defaults to "no sky rating".
+            skyRating: slot?.skyRating ?? null,
+          },
+        };
+      });
+  });
+}
+
+/**
+ * Each location's lunar eclipse sight per window — the popup's dawn-race source (L4,
+ * `docs/engineering/lunar-eclipse-plan.md` §2.7), keyed exactly like {@link buildSlotIndex} so
+ * {@code WindowSheetDialog} reads it through the same {@link lookupForWindow} every other
+ * per-location, per-window fact in this file goes through.
+ *
+ * <p>Reads {@code BriefingSlot.eclipse} (the served {@code EclipseSight}, {@code NON_NULL} on the
+ * wire) straight off each slot. A slot outside the eclipse's own window — or any night with no
+ * catalogued or simulated eclipse at all — carries no field and is simply skipped, the same "a
+ * missing entry means eligible-or-unknown, never a fabricated miss" rule.
+ *
+ * @param {Array} days {@code briefing.days}
+ * @returns {{byId: Map<string, object>, byName: Map<string, object>}} the two indexes, each valued
+ *          the served {@code EclipseSight} object verbatim
+ */
+export function buildEclipseIndex(days) {
+  return indexByWindow(days, ({ summary }) => slotsOf(summary)
+    .filter(({ slot }) => slot?.eclipse)
+    .map(({ slot }) => ({
+      locationId: slot.locationId,
+      locationName: slot.locationName,
+      value: slot.eclipse,
+    })));
+}
+
+/**
+ * The word a SLOT with no rating of its own prints once its ratings source HAS answered — the one
+ * home of the three-way choice, read by the location sheet's window rows (via
+ * {@link buildLocationSheet}'s {@code unratedWord}) and by {@code MapCallout}'s verdict slot
+ * (unrated-verdict-plan.md U2; the Codex review of #1140, P1).
+ *
+ * <p>Why it exists: U2 gave the client a slot-level vocabulary ({@code SLOT_VERDICT_LABEL}) and
+ * wired only Ask's pick card to it, so the two surfaces that look at ONE place's windows — the sheet
+ * and the callout — still hardcoded "Not scored yet" for every unrated slot. For a slot the weather
+ * screen passed and no rating called, that is a false statement ("nothing has looked yet" — the
+ * pipeline did look, and the server now says UNRATED); for a weather stand-down it hid a decision
+ * that the Plan card and the map pill both state as "Poor". The server already serves the answer
+ * per slot ({@code LocationEvaluationView.displayVerdict}); this reads it, deriving nothing.
+ *
+ * <ul>
+ *   <li>{@code UNRATED} → "Not rated" (the weather passed it; no rating called it).</li>
+ *   <li>{@code STAND_DOWN} → "Poor" — a weather stand-down is a decision AGAINST that slot, the
+ *       product's long-standing reading (the two-question rule), and it is the word the region and
+ *       window levels already print for it.</li>
+ *   <li>Anything else — {@code AWAITING}, null, a legacy row with no field, a verdict this build
+ *       does not know, even a rated verdict on a row whose rating was out of bounds — keeps
+ *       "Not scored yet": unknown never claims more than it knew.</li>
+ * </ul>
+ *
+ * @param {?string} displayVerdict the score row's served {@code displayVerdict}, or null
+ * @returns {string} the word to print for an unrated slot
+ */
+export function unratedSlotWord(displayVerdict) {
+  return displayVerdict === 'UNRATED' || displayVerdict === 'STAND_DOWN'
+    ? SLOT_VERDICT_LABEL[displayVerdict]
+    : 'Not scored yet';
+}
+
+/**
+ * Which served verdict a slot's unrated word is chosen from — the one home of the PRECEDENCE
+ * (unrated-verdict-plan.md U2; the Codex review of #1140, round 2, P1).
+ *
+ * <p>A slot's verdict can come from two reads, and neither alone is complete:
+ * <ol>
+ *   <li><b>The score row's {@code displayVerdict}</b> ({@code GET /api/briefing/evaluate/scores}) —
+ *       wins whenever the scores source HAS a row for the slot. It is the retraction-aware, more
+ *       recent read: it can say {@code STAND_DOWN} for a triage row the briefing still shows
+ *       otherwise, and a nightly stability skip's retraction has already been applied to it.</li>
+ *   <li><b>The briefing slot's {@code displayVerdict}</b> ({@code GET /api/briefing}) — the
+ *       fallback for the one case the scores endpoint cannot express: a weather GO/MARGINAL slot
+ *       with no Claude result has NO score row at all ({@code EvaluationViewService.mergeToView}
+ *       emits only rated verdicts, a triage {@code STAND_DOWN}, or {@code Source.NONE}, and
+ *       {@code buildViews} drops NONE), so reading the score row alone could never print
+ *       "Not rated" — the state the first cut of this fix was written for.</li>
+ * </ol>
+ * Neither: null, which {@link unratedSlotWord} reads as "Not scored yet" (unknown never claims more
+ * than it knew). This only chooses WHICH verdict speaks once the ratings source has answered; the
+ * callers' loading gates (`scoresKnown` / `ratingKnown`) still decide WHETHER anything is printed.
+ *
+ * @param {?object} score the slot's score-index entry ({@link buildScoreIndex}), or null
+ * @param {?object} slot  the slot's briefing-index entry ({@link buildSlotIndex}), or null
+ * @returns {?string} the verdict to feed {@link unratedSlotWord}
+ */
+export function slotVerdictOf(score, slot) {
+  return score?.displayVerdict ?? slot?.displayVerdict ?? null;
 }
 
 /**
@@ -321,9 +520,15 @@ export function buildTideAlignmentIndex(days) {
  * discard by a different mechanism.
  *
  * @param {Array} scoreRows raw {@code LocationEvaluationView} rows
+ * <p>And the slot's served {@code displayVerdict} (unrated-verdict-plan.md U2, Codex review of
+ * #1140), kept beside the rating as the raw string: it is what lets a row with NO rating say
+ * "Not rated" / "Poor" / "Not scored yet" by the slot's own served word ({@link unratedSlotWord})
+ * instead of one hardcoded phrase. Fail-soft: a legacy row with no field, or a non-string, is null,
+ * which reads "Not scored yet" as before.
+ *
  * @returns {{byId: Map<string, object>, byName: Map<string, object>}} valued
- *          {@code {rating, summary, fierySky, goldenHour, goldenHourStart, goldenHourEnd,
- *          blueHourStart, blueHourEnd}}
+ *          {@code {rating, displayVerdict, summary, fierySky, goldenHour, goldenHourStart,
+ *          goldenHourEnd, blueHourStart, blueHourEnd}}
  */
 export function buildScoreIndex(scoreRows) {
   const byId = new Map();
@@ -340,8 +545,11 @@ export function buildScoreIndex(scoreRows) {
     const fierySky = boundedScore(row.fierySkyPotential);
     const goldenHour = boundedScore(row.goldenHourPotential);
     index(byId, byName, row.locationId, row.locationName,
-      tailOf(row.date, row.targetType), {
+      windowTail(row.date, row.targetType), {
         rating,
+        displayVerdict: typeof row.displayVerdict === 'string' && row.displayVerdict !== ''
+          ? row.displayVerdict
+          : null,
         summary,
         fierySky,
         goldenHour,
@@ -370,7 +578,7 @@ export function buildScoreIndex(scoreRows) {
  */
 export function lookupForWindow(idx, locationId, name, date, targetType) {
   if (!idx) return null;
-  const tail = tailOf(date, targetType);
+  const tail = windowTail(date, targetType);
   if (locationId != null) {
     const hit = idx.byId?.get(`${locationId}|${tail}`);
     if (hit !== undefined) return hit;
@@ -400,6 +608,26 @@ function dayOfMonth(dateStr) {
 export function shortDow(dateStr) {
   return new Date(`${dateStr}T12:00:00Z`)
     .toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' });
+}
+
+/**
+ * The departure for a spot, with the day marker named — {@code leaveByParts} plus the one word a
+ * renderer needs to print it.
+ *
+ * <p>Named here rather than in the component so the ONE thing a renderer has to do with it is print
+ * it. {@code dayWord} is null exactly when the departure shares the event's UK day. Exported because
+ * Ask PhotoCast's "Plan this" (F5) shows the same departure in its "Leave home" cell: one function,
+ * so the cell and the sheet's row cannot answer differently for the same fixture.
+ *
+ * @param {string|Date|null} eventTimeUtc the slot's own {@code solarEventTime}
+ * @param {?number} driveMinutes the drive to the spot (the caller chooses whose: this sheet's page
+ *        origin, Ask's home)
+ * @returns {?{time: string, date: string, sameDay: boolean, dayWord: ?string}} or null on the terms
+ *          {@code leaveByParts} answers null
+ */
+export function departureWithDay(eventTimeUtc, driveMinutes) {
+  const parts = leaveByParts(eventTimeUtc, driveMinutes);
+  return parts && { ...parts, dayWord: parts.sameDay ? null : shortDow(parts.date) };
 }
 
 /**
@@ -632,10 +860,15 @@ export function buildLocationSheet(spot, windows, {
       ? null
       : lookupForWindow(scoreIndex, locationId, name, card.date, card.targetType);
     const rating = score?.rating ?? null;
-    const parts = card.away ? null : leaveByParts(slot?.eventTime, driveMinutes);
-    // The day marker, named here rather than in the component so the ONE thing a renderer has to do
-    // with it is print it. Null exactly when the departure shares the event's UK day.
-    const leave = parts && { ...parts, dayWord: parts.sameDay ? null : shortDow(parts.date) };
+    const ownSummary = card.away ? null : (score?.summary ?? null);
+    // The region's gloss is read only when the location has no prose of its own, and the row
+    // records WHOSE prose it is showing — the sheet labels a borrowed sky read as the region's,
+    // because unlabelled it reads as a read of this place, which is exactly what confused a reader
+    // on a tide-gated window.
+    const regionSummary = card.away || ownSummary != null
+      ? null
+      : regionGlossFor(regionGlossIndex, card.date, card.targetType, spot?.regionName);
+    const leave = card.away ? null : departureWithDay(slot?.eventTime, driveMinutes);
     return {
       key: card.key,
       date: card.date,
@@ -663,6 +896,13 @@ export function buildLocationSheet(spot, windows, {
       away: Boolean(card.away),
       stateLabel: card.verdictLabel,
       rating,
+      // The word for a row with no rating once the ratings response has arrived — chosen HERE, by
+      // the slot's own served verdict ({@link unratedSlotWord}), so the component prints a string
+      // and decides nothing. The score row's verdict wins; the briefing slot's is the fallback for
+      // a slot the scores endpoint has no row for ({@link slotVerdictOf}, Codex #1140 round 2). An
+      // away day has no score lookup at all (above), so its verdict is never asked for — but `slot`
+      // IS looked up on an away day, so the away guard must hold here too.
+      unratedWord: unratedSlotWord(card.away ? null : slotVerdictOf(score, slot)),
       /**
        * This window's prose — this location's own served summary first, its REGION's gloss second.
        *
@@ -675,10 +915,9 @@ export function buildLocationSheet(spot, windows, {
        * <p>Same order and same index as the callout's, so the two can never show different prose for
        * one window. Null on an away day, like every sibling here.
        */
-      summary: card.away
-        ? null
-        : (score?.summary
-          ?? regionGlossFor(regionGlossIndex, card.date, card.targetType, spot?.regionName)),
+      summary: ownSummary ?? regionSummary,
+      /** The region whose gloss `summary` is, or null when the prose is this location's own. */
+      summaryRegion: regionSummary != null ? (spot?.regionName ?? null) : null,
       // Location-sheet superset plan, Phase 1: the SAME score row rating and summary come from —
       // never a second lookup, which is P8's load-bearing rule restated for two more fields.
       fierySky: card.away ? null : (score?.fierySky ?? null),

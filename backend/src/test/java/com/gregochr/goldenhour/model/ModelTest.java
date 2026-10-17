@@ -104,7 +104,7 @@ class ModelTest {
         LocalDate date = LocalDate.of(2026, 2, 20);
         ActualOutcome outcome = new ActualOutcome(
                 54.7753, -1.5849, "Durham UK", date, TargetType.SUNSET,
-                true, 65, 78, "Beautiful warm light.");
+                true, 65, 78, "Beautiful warm light.", null);
 
         assertThat(outcome.locationLat()).isEqualTo(54.7753);
         assertThat(outcome.locationLon()).isEqualTo(-1.5849);

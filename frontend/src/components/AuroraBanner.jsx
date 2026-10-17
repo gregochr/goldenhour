@@ -1,12 +1,55 @@
-import React, { useState } from 'react';
+import React, { Component, Suspense, lazy, useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
+import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
+import { useAuroraScores } from '../hooks/useAuroraScores.js';
 import { useAuroraStatus } from '../hooks/useAuroraStatus.js';
 import { useAuroraViewline } from '../hooks/useAuroraViewline.js';
+import { useIsMobile } from '../hooks/useIsMobile.js';
+import { auroraRampHex } from '../utils/auroraRamp.js';
+import { ALERT_WORTHY, areaField, isRealAlert } from '../utils/auroraBannerScores.js';
 import { formatInstantUk, parseUtcInstant } from '../utils/conversions.js';
 import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
 
-// Alert levels that should show the banner (MODERATE or STRONG)
-const ALERT_WORTHY = new Set(['MODERATE', 'STRONG']);
+// ⚠️ Lazy on purpose: the field thumbnail imports the heat kernel (d3-geo and the land chunk), and
+// this banner is imported by App on every tab. A static import would put the kernel in the entry
+// chunk for readers who never see a field (aurora-banner-plan.md §4 D6). The build check is
+// `grep -l geoMercator dist/assets/index-*.js` finding nothing.
+const AuroraFieldThumb = lazy(() => import('./AuroraFieldThumb.jsx'));
+
+/**
+ * Severity presentation, keyed by the API's alert level — NEVER by `status.hexColour`, which is the
+ * API's amber/red and means "marginal / stand down" everywhere else in PhotoCast. An aurora storm is
+ * good news, so severity rides the aurora ramp (docs/design/aurora-banner/README.md, "Severity
+ * scale"). `acc` is the fill/glow colour, `ink` the TEXT colour (a ramp colour below `#3AC884` is
+ * never text), `fill` the percentage of the glow strip's bottom edge that is lit, `breathes` whether
+ * the row ever moves (the spec's Motion column: MODERATE none, STRONG `breathe` while live and Bz is
+ * southward — plan §1 #10 equated the old pulse with `breathe` and missed that the old pulse had no
+ * level term, the spec's table does).
+ * SEVERE and EXTREME take STRONG's row: the API emits only MODERATE and STRONG today
+ * ({@link ALERT_WORTHY}), but the mapping is one lookup if that ever changes
+ * (docs/engineering/aurora-banner-plan.md §4 D13).
+ */
+const STRONG_ROW = { acc: '#76FFA0', ink: '#A8FFC4', fill: 92, breathes: true };
+export const SEVERITY = Object.freeze({
+  MODERATE: Object.freeze({ acc: '#3AC884', ink: '#8CE6B6', fill: 62, breathes: false }),
+  STRONG: Object.freeze({ ...STRONG_ROW }),
+  SEVERE: Object.freeze({ ...STRONG_ROW }),
+  EXTREME: Object.freeze({ ...STRONG_ROW }),
+});
+
+const LEVEL_WORDS = { MODERATE: 'Moderate', STRONG: 'Strong', SEVERE: 'Severe', EXTREME: 'Extreme' };
+
+/** The Kp meter's nine bars, bottom-up: Kp 0..8 steps spread over the ramp's 1★..5★. */
+const METER_BARS = Array.from({ length: 9 }, (_, k) => k);
+/** Bars at and above this index glow when lit — the top of the scale reads as a storm. */
+const METER_GLOW_FROM = 6;
+/**
+ * One custom property per bar, so the meter's colours come from the ramp module and reach the CSS
+ * the way the severity colours do — as properties on the root, never as per-element inline styles.
+ */
+const METER_VARS = Object.fromEntries(
+  METER_BARS.map((k) => [`--bar-${k}`, auroraRampHex(1 + (4 * k) / 8)]),
+);
 
 /**
  * Formats the detection timestamp for the banner headline.
@@ -77,75 +120,8 @@ export function bzStatus(bz) {
   };
 }
 
-const PULSE_STYLE = `
-  @keyframes aurora-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.85; box-shadow: 0 0 20px rgba(255, 255, 255, 0.3); }
-  }
-`;
 
-/** CSS for the dashed-border simulation indicator. */
-const SIM_BORDER_STYLE = `
-  .aurora-banner-simulated {
-    background-image: repeating-linear-gradient(
-      45deg,
-      transparent,
-      transparent 6px,
-      rgba(255,255,255,0.08) 6px,
-      rgba(255,255,255,0.08) 12px
-    );
-    border-color: rgba(255, 255, 255, 0.35) !important;
-    border-style: dashed !important;
-  }
-`;
-
-/**
- * Direction A styling — a calm dark banner where severity is carried by an
- * accent rail, an aurora roundel and a labelled pill rather than a flat neon
- * fill. All colour is derived from the single CSS variable --aurora-accent
- * (set from the API hexColour) via color-mix, so amber→red escalation and any
- * future level slot in automatically.
- */
-const AURORA_A_STYLE = `
-  .aurora-a { position: relative; overflow: hidden; border: 1px solid var(--color-plex-border); }
-  .aurora-a .aurora-rail { position: absolute; top: 0; bottom: 0; left: 0; width: 4px;
-    background: linear-gradient(180deg, color-mix(in srgb, var(--aurora-accent) 82%, white 14%), var(--aurora-accent)); }
-  .aurora-a .aurora-glow { position: absolute; inset: 0; pointer-events: none;
-    background: radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--aurora-accent) 30%, transparent) 0%, transparent 46%);
-    opacity: 0.55; }
-  .aurora-a .aurora-inner { position: relative; z-index: 1; display: flex; gap: 14px; align-items: flex-start; }
-  .aurora-roundel { width: 42px; height: 42px; border-radius: 11px; flex-shrink: 0;
-    display: flex; align-items: center; justify-content: center;
-    background: linear-gradient(155deg, color-mix(in srgb, var(--aurora-accent) 88%, white 6%), color-mix(in srgb, var(--aurora-accent) 52%, black 36%)); }
-  .aurora-roundel svg { width: 26px; height: 26px; }
-  .aurora-body { flex: 1; min-width: 0; }
-  .aurora-top { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
-  .aurora-sev { font-size: 10px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase;
-    padding: 3px 8px; border-radius: 5px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
-    background: color-mix(in srgb, var(--aurora-accent) 16%, transparent);
-    color: color-mix(in srgb, var(--aurora-accent) 42%, white);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--aurora-accent) 42%, transparent); }
-  .aurora-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--aurora-accent);
-    box-shadow: 0 0 7px var(--aurora-accent); }
-  .aurora-when { font-size: 10px; font-weight: 500; letter-spacing: 0.05em; text-transform: uppercase;
-    color: var(--color-plex-text-muted); }
-  .aurora-when [data-testid="aurora-banner-detected"] { color: var(--color-plex-text-secondary); }
-  .aurora-title { font-size: 15px; font-weight: 700; line-height: 1.3; margin-top: 7px;
-    color: var(--color-plex-text); text-wrap: pretty; }
-  .aurora-meta { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; margin-top: 8px;
-    font-size: 12px; color: var(--color-plex-text-secondary); }
-  .aurora-meta .aurora-kp { font-weight: 600; color: var(--color-plex-text); }
-  .aurora-meta .aurora-kp strong.italic { font-weight: 700; font-style: italic; }
-  .aurora-div { width: 1px; height: 12px; background: var(--color-plex-border); display: inline-block; }
-  .aurora-cta { font-weight: 600; color: color-mix(in srgb, var(--aurora-accent) 42%, white); }
-  .aurora-sub { font-size: 12px; color: var(--color-plex-text-secondary); margin-top: 5px; }
-  .aurora-x { color: var(--color-plex-text-secondary); font-size: 17px; line-height: 1; flex-shrink: 0;
-    width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
-    border-radius: 6px; background: transparent; border: 0; cursor: pointer; }
-  .aurora-x:hover { background: rgba(255,255,255,0.06); color: var(--color-plex-text); }
-`;
-
-/** Aurora "curtains" glyph used in the roundel. */
+/** Aurora "curtains" glyph used on the glow strip. */
 function AuroraGlyph() {
   return (
     <svg viewBox="0 0 28 28" fill="none" aria-hidden="true">
@@ -160,14 +136,550 @@ function AuroraGlyph() {
 }
 
 /**
- * Full-width aurora alert banner displayed when NOAA SWPC reports a moderate or strong alert.
+ * Bz as a signed one-decimal figure with a true minus sign (U+2212), judged on the ROUNDED value so a
+ * reading of −0.04 never prints "−0.0".
+ *
+ * @param {number} bz the IMF Bz in nT
+ * @returns {string} e.g. "−9.2", "+3.2", "0.0"
+ */
+function formatBz(bz) {
+  const rounded = Number(bz.toFixed(1));
+  const abs = Math.abs(rounded).toFixed(1);
+  if (rounded < 0) return `−${abs}`;
+  if (rounded > 0) return `+${abs}`;
+  return abs;
+}
+
+/**
+ * Whether triage found every dark-sky site overcast. An unknown clear count fails open: missing data
+ * is not overcast.
+ */
+function isAllOvercast(status) {
+  const dark = status.darkSkyLocationCount;
+  const clear = status.clearLocationCount;
+  return dark > 0 && clear != null && clear === 0;
+}
+
+/**
+ * Whether the overcast gate hides this banner: every dark-sky site is overcast, and the alert is not
+ * a major storm. Telling a photographer "aurora tonight" when every dark-sky location is overcast is
+ * noise in the most valuable slot on the screen — NLC gates the same way (active && clearTonight) —
+ * unless it is a STRONG storm, which is rare and worth surfacing under cloud (gaps open, people
+ * travel). Fails OPEN when the clear count is unknown (missing data is not overcast). A simulated
+ * alert is an admin preview tool that must always render: the gate is about real alerts nobody can
+ * act on, not synthetic ones. One definition for the render below and for the viewline request, so a
+ * banner nobody sees never asks for a line.
+ *
+ * @param {object} status the aurora status payload
+ * @returns {boolean} true when the banner renders nothing
+ */
+function hiddenByOvercast(status) {
+  const majorStorm = status.level === 'STRONG'; // extend if SEVERE/EXTREME join ALERT_WORTHY
+  return isAllOvercast(status) && !majorStorm && status.simulated !== true;
+}
+
+/**
+ * Everything the two layouts need, derived once from the status so the card and the strip can never
+ * disagree about a word, a count or a colour.
+ *
+ * @param {object} status the aurora status payload (alert-worthy)
+ * @param {?{best: {name: string, stars: number}}} field the planning area's rated field once
+ *   per-location scores exist ({@link areaField}), else null — a simulated alert never has one
+ * @returns {object} the presentation model
+ */
+function deriveModel(status, field) {
+  const simulated = status.simulated === true;
+  const forecast = !simulated && status.triggerType === 'forecast';
+  const live = !simulated && !forecast;
+  const sev = SEVERITY[status.level] ?? SEVERITY.MODERATE;
+  const levelWord = LEVEL_WORDS[status.level]
+    || (status.level ? status.level.charAt(0) + status.level.slice(1).toLowerCase() : 'Alert');
+  const sevLabel = status.gScale ? `${levelWord} · ${status.gScale}` : levelWord;
+  const kp = status.forecastKp ?? status.kp;
+  const bz = status.bzNanoTesla;
+  const dark = status.darkSkyLocationCount;
+  const clear = status.clearLocationCount;
+  return {
+    simulated,
+    forecast,
+    sev,
+    levelWord,
+    pillText: simulated ? `${sevLabel} · simulated` : sevLabel,
+    kp: kp != null ? Math.round(kp) : null,
+    allOvercast: isAllOvercast(status),
+    // The site count both layouts word: the clear count once triage has run, else the dark-sky total
+    // (and then it is NOT "clear" — missing triage is not a clear sky). Null when there are no
+    // Bortle-enriched locations to count.
+    siteCount: dark > 0 ? (clear ?? dark) : null,
+    sitesClear: dark > 0 && clear != null,
+    // Bz is a LIVE reading: a forecast alert has no current Bz and a simulation has no real one.
+    bzText: live && bz != null ? formatBz(bz) : null,
+    // Live, southward Bz, and a row that moves at all: the one state the banner breathes in.
+    breathing: sev.breathes && live && bz != null && bz < -1,
+    description: status.description,
+    detected: live ? formatDetectedAt(status.detectedAt) : null,
+    // The best rated site in the reader's planning area; null while the slot is still pending.
+    best: !simulated && field ? { name: field.best.name, stars: field.best.stars } : null,
+  };
+}
+
+/**
+ * A star rating: the digit, a visual ★ and a spoken word. NVDA at its default symbol level does not
+ * speak U+2605, so a bare "4★" is announced as "4" and loses its unit (`WindowSheetDialog.jsx` records
+ * the same finding); the glyph is hidden and " stars" is read instead, the pattern the rest of the
+ * app uses. The visible text is unchanged.
+ */
+function Stars({ n }) {
+  return (
+    <span className="wf-aurora-stars">
+      {n}
+      <span aria-hidden="true">★</span>
+      <span className="sr-only">{n === 1 ? ' star' : ' stars'}</span>
+    </span>
+  );
+}
+
+Stars.propTypes = { n: PropTypes.number.isRequired };
+
+/** Noun for a site count: "1 site", "12 sites". */
+function siteNoun(n) {
+  return n === 1 ? 'site' : 'sites';
+}
+
+/**
+ * The pending thumbnail: tonight's Kp on a nine-step vertical meter. Until per-location scores exist
+ * nothing knows whether a field can be drawn, so this is the slot's only state in B1; the same
+ * 96×118 box will hold the field later, so the swap shifts nothing.
+ *
+ * @param {object} props
+ * @param {number|null} [props.kp] tonight's Kp rounded to a whole step; null draws an unlit meter
+ * @param {boolean} [props.simulated] a simulated alert shows a test tube and no figure
+ */
+function PendingSlot({ kp = null, simulated = false }) {
+  if (simulated) {
+    return (
+      <div className="wf-aurora-thumb-pend" data-testid="aurora-banner-slot">
+        <span className="wf-aurora-flask" aria-hidden="true">🧪</span>
+      </div>
+    );
+  }
+  return (
+    <div className="wf-aurora-thumb-pend" data-testid="aurora-banner-slot">
+      {kp != null && <span className="wf-aurora-kp" data-testid="aurora-banner-kp">Kp {kp}</span>}
+      <span className="wf-aurora-meter" aria-hidden="true" data-testid="aurora-banner-meter">
+        {METER_BARS.map((k) => {
+          const lit = kp != null && k < kp;
+          return (
+            <span
+              key={k}
+              className="wf-aurora-bar"
+              data-testid="aurora-banner-bar"
+              data-k={k}
+              data-lit={lit ? 'true' : 'false'}
+              data-glow={lit && k >= METER_GLOW_FROM ? 'true' : 'false'}
+            />
+          );
+        })}
+      </span>
+      <span className="wf-aurora-pend-label" aria-hidden="true">Scoring / locations</span>
+    </div>
+  );
+}
+
+PendingSlot.propTypes = {
+  kp: PropTypes.number,
+  simulated: PropTypes.bool,
+};
+
+/** The planning area's rated field, as `areaField` builds it (the part the thumbnail reads). */
+const FIELD_SHAPE = PropTypes.shape({
+  spots: PropTypes.array.isRequired,
+  fit: PropTypes.object.isRequired,
+});
+
+/**
+ * Catches a failure of the lazy field chunk and shows the pending slot instead.
+ *
+ * <p>`React.lazy` rejects when a hashed chunk 404s — a page kept open across a deploy keeps the JS it
+ * loaded — and since the provider lift the nearest boundary above the banner is `PlanErrorBoundary`,
+ * so an unguarded thumbnail would take the whole shell to its fallback for a decorative picture
+ * (aurora-banner-plan.md §5). A class, because React has no hook form of an error boundary.
+ */
+class FieldBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { failed: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  render() {
+    const { fallback, children } = this.props;
+    const { failed } = this.state;
+    return failed ? fallback : children;
+  }
+}
+
+FieldBoundary.propTypes = {
+  fallback: PropTypes.node.isRequired,
+  children: PropTypes.node.isRequired,
+};
+
+/**
+ * The thumbnail slot's content: tonight's field once per-location scores exist for the planning
+ * area, else the pending slot. The lazy chunk's `Suspense` fallback and its error fallback are BOTH
+ * the pending slot, so a slow or failed chunk looks like "scores not here yet" and shifts nothing.
+ *
+ * @param {object} props
+ * @param {number|null} props.kp the pending slot's Kp figure
+ * @param {boolean} props.simulated a simulated alert shows a test tube and never a field
+ * @param {?{spots: Array, fit: object}} props.field the area's rated sites and frame, or null
+ * @param {?object} props.viewline the southern viewline to draw on the field, or null
+ * @param {function(boolean): void} [props.onViewlineDrawn] told by the thumbnail whether the line is
+ *   actually on its canvas; a slot that never mounts the thumbnail (pending, simulated, a failed
+ *   chunk) never tells, which leaves the answer "no"
+ */
+function ThumbSlot({ kp, simulated, field, viewline = null, onViewlineDrawn = null }) {
+  const pending = <PendingSlot kp={kp} simulated={simulated} />;
+  if (simulated || !field) return pending;
+  return (
+    <FieldBoundary fallback={pending}>
+      <Suspense fallback={pending}>
+        <AuroraFieldThumb
+          spots={field.spots}
+          fit={field.fit}
+          viewline={viewline}
+          kp={kp}
+          onViewlineDrawn={onViewlineDrawn}
+        />
+      </Suspense>
+    </FieldBoundary>
+  );
+}
+
+ThumbSlot.propTypes = {
+  kp: PropTypes.number,
+  simulated: PropTypes.bool.isRequired,
+  field: FIELD_SHAPE,
+  viewline: PropTypes.object,
+  onViewlineDrawn: PropTypes.func,
+};
+
+/** The shape both layouts read; see {@link deriveModel}. */
+const MODEL_SHAPE = PropTypes.shape({
+  simulated: PropTypes.bool.isRequired,
+  forecast: PropTypes.bool.isRequired,
+  sev: PropTypes.shape({
+    acc: PropTypes.string.isRequired,
+    ink: PropTypes.string.isRequired,
+    fill: PropTypes.number.isRequired,
+    breathes: PropTypes.bool.isRequired,
+  }).isRequired,
+  levelWord: PropTypes.string.isRequired,
+  pillText: PropTypes.string.isRequired,
+  kp: PropTypes.number,
+  allOvercast: PropTypes.bool.isRequired,
+  siteCount: PropTypes.number,
+  sitesClear: PropTypes.bool.isRequired,
+  bzText: PropTypes.string,
+  breathing: PropTypes.bool.isRequired,
+  description: PropTypes.string,
+  detected: PropTypes.string,
+  best: PropTypes.shape({
+    name: PropTypes.string.isRequired,
+    stars: PropTypes.number.isRequired,
+  }),
+}).isRequired;
+
+/**
+ * The root's custom properties: the severity colours (and the strip's lit fraction) reach the
+ * stylesheet here and nowhere else. The fraction travels twice: `--fill` as a percentage for the
+ * lit edge's WIDTH, `--fill-ratio` as a bare number so the edge's background can be stretched back
+ * to the whole strip (`background-size: calc(100% / var(--fill-ratio))` — a division by a number is
+ * the one thing calc() allows, and a percentage cannot be one).
+ */
+function rootVars(m, extra) {
+  return {
+    '--acc': m.sev.acc,
+    '--acc-ink': m.sev.ink,
+    '--fill': `${m.sev.fill}%`,
+    '--fill-ratio': String(m.sev.fill / 100),
+    ...extra,
+  };
+}
+
+/**
+ * The viewline's one spoken sentence: the response's `summary` with one small, deliberate departure
+ * from verbatim - a full stop is added when the server's sentence ends without terminal punctuation
+ * (all of its summaries do), so a screen reader pauses before the call to action. Punctuation
+ * followed by a closing quote or bracket still counts as terminal.
+ */
+function spokenViewline(summary) {
+  const text = summary.trim();
+  // \x22 and \x27 are the straight quotes, escaped so no quote character sits in this source line.
+  return /[.!?][)\]\x22\x27”’]*$/.test(text) ? text : `${text}.`;
+}
+
+/**
+ * Whether a key press on the root should activate the surface. The dismiss button sits inside the
+ * root and its Enter/Space bubbles here — without the target check a keyboard dismiss ALSO opened
+ * the Map tab.
+ */
+function activates(e) {
+  return e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ');
+}
+
+/**
+ * The wide layout (≥ 640px): thumbnail slot at left, the alert in words at right.
+ *
+ * @param {object} props
+ * @param {object} props.m the presentation model from {@link deriveModel}
+ * @param {function} props.onActivate opens the Map tab (or, simulated, the admin hash)
+ * @param {function} props.onDismiss dismisses the banner at its current level
+ * @param {?object} props.field the planning area's rated field ({@link areaField}), or null while
+ *   the slot is pending
+ * @param {?object} [props.viewline] the southern viewline drawn on the field, or null
+ * @param {?string} [props.viewlineSummary] the viewline response's sentence, spoken to assistive
+ *   technology and drawn nowhere; null whenever the line is not on screen
+ * @param {function(boolean): void} [props.onViewlineDrawn] handed to the thumbnail, which reports
+ *   whether the line is on its canvas
+ */
+function AuroraCard({
+  m, field = null, viewline = null, viewlineSummary = null, onViewlineDrawn = null, onActivate, onDismiss,
+}) {
+  const parts = [];
+  if (m.best) {
+    // Ready: the best rated site in the reader's area, then how many sites are clear. Without triage
+    // the count is the dark-sky total, and then it is NOT "clear" (missing triage is not a clear sky).
+    parts.push(
+      <span key="best">
+        Best: <b>{m.best.name}</b> <Stars n={m.best.stars} />
+      </span>,
+    );
+    if (m.siteCount != null) {
+      parts.push(
+        <span key="sites">
+          {m.siteCount} {m.sitesClear ? '' : 'dark-sky '}{siteNoun(m.siteCount)}{m.sitesClear ? ' clear' : ''}
+        </span>,
+      );
+    }
+  } else if (m.siteCount != null) {
+    parts.push(
+      <span key="sites">
+        <b>{m.siteCount}</b> dark-sky {siteNoun(m.siteCount)}{m.sitesClear ? ' clear' : ''}
+      </span>,
+    );
+  }
+  if (m.bzText) {
+    parts.push(<span key="bz">Bz <b>{m.bzText} nT</b></span>);
+  }
+  const whenLabel = m.simulated ? 'Simulated' : m.forecast ? 'Forecast · tonight' : 'Active now';
+
+  return (
+    <>
+      {/* eslint-disable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */}
+      <div
+        role="alert"
+        data-testid="aurora-banner"
+        data-layout="card"
+        style={rootVars(m, METER_VARS)}
+        className={[
+          'wf-aurora-card',
+          m.simulated && 'wf-aurora-simulated',
+          m.breathing && 'wf-aurora-breathe',
+        ].filter(Boolean).join(' ')}
+        onClick={onActivate}
+        onKeyDown={(e) => {
+          if (!activates(e)) return;
+          e.preventDefault();
+          onActivate();
+        }}
+        tabIndex={0}
+      >
+        {/* eslint-enable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */}
+        <div className="wf-aurora-thumb" data-testid="aurora-banner-thumb">
+          <ThumbSlot
+            kp={m.kp}
+            simulated={m.simulated}
+            field={field}
+            viewline={viewline}
+            onViewlineDrawn={onViewlineDrawn}
+          />
+        </div>
+        <div className="wf-aurora-body">
+          <span className="wf-aurora-pill" data-testid="aurora-banner-pill">
+            <span className="wf-aurora-dot" aria-hidden="true" />
+            {m.pillText}
+          </span>
+          <span className="wf-aurora-when" data-testid="aurora-banner-when">
+            {whenLabel}
+            {m.detected && (
+              <>
+                {' · '}
+                <span data-testid="aurora-banner-detected">detected {m.detected}</span>
+              </>
+            )}
+          </span>
+          <p className="wf-aurora-title">{m.description}</p>
+          {m.allOvercast ? (
+            <p data-testid="aurora-banner-overcast" className="wf-aurora-best">
+              All locations overcast — no clear skies forecast tonight
+            </p>
+          ) : (
+            parts.length > 0 && (
+              <p className="wf-aurora-best" data-testid="aurora-banner-best">
+                {parts.map((part, i) => (
+                  <React.Fragment key={part.key}>
+                    {i > 0 && ' · '}
+                    {part}
+                  </React.Fragment>
+                ))}
+              </p>
+            )
+          )}
+          {viewlineSummary && (
+            // The line and its label on the thumbnail are aria-hidden decoration; this is the one
+            // sentence of them a screen reader gets, inside the alert's own text (plan §6, closed B4).
+            <span className="sr-only" data-testid="aurora-banner-viewline-sr">
+              {spokenViewline(viewlineSummary)}
+            </span>
+          )}
+          <span className="wf-aurora-cta">{m.simulated ? 'Generate scores →' : 'View on map →'}</span>
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label="Dismiss aurora banner"
+          data-testid="aurora-banner-dismiss"
+          className="wf-aurora-x"
+        >
+          ✕
+        </button>
+      </div>
+    </>
+  );
+}
+
+AuroraCard.propTypes = {
+  m: MODEL_SHAPE,
+  field: FIELD_SHAPE,
+  viewline: PropTypes.object,
+  viewlineSummary: PropTypes.string,
+  onViewlineDrawn: PropTypes.func,
+  onActivate: PropTypes.func.isRequired,
+  onDismiss: PropTypes.func.isRequired,
+};
+
+/**
+ * The narrow layout (< 640px): one 56px strip — glyph, two lines, a `Map →` door, dismiss.
+ *
+ * @param {object} props
+ * @param {object} props.m the presentation model from {@link deriveModel}
+ * @param {function} props.onActivate opens the Map tab (or, simulated, the admin hash)
+ * @param {function} props.onDismiss dismisses the banner at its current level
+ */
+function AuroraStrip({ m, onActivate, onDismiss }) {
+  // The best site gets its own markup (a name that ellipsises and a rating that never does); every
+  // other form is one text run.
+  const showBest = !m.allOvercast && m.best;
+  let detail = null;
+  if (m.allOvercast) {
+    detail = 'all sites overcast';
+  } else if (!showBest && m.siteCount != null) {
+    detail = `${m.siteCount} dark ${siteNoun(m.siteCount)}${m.sitesClear ? ' clear' : ''}`;
+  }
+  const headline = m.simulated ? 'Aurora simulated' : m.forecast ? 'Aurora tonight' : 'Aurora active now';
+
+  return (
+    <>
+      {/* eslint-disable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */}
+      <div
+        role="alert"
+        data-testid="aurora-banner"
+        data-layout="strip"
+        style={rootVars(m)}
+        className={[
+          'wf-aurora-strip',
+          m.simulated && 'wf-aurora-simulated',
+          m.breathing && 'wf-aurora-breathe',
+        ].filter(Boolean).join(' ')}
+        onClick={onActivate}
+        onKeyDown={(e) => {
+          if (!activates(e)) return;
+          e.preventDefault();
+          onActivate();
+        }}
+        tabIndex={0}
+      >
+        {/* eslint-enable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */}
+        <span className="wf-aurora-glyph" aria-hidden="true">
+          {m.simulated ? '🧪' : <AuroraGlyph />}
+        </span>
+        <div className="wf-aurora-strip-text">
+          <p className="wf-aurora-strip-l1" data-testid="aurora-banner-strip-headline">
+            <span className="wf-aurora-strip-lvl">{m.levelWord}</span>{' '}
+            {headline}
+          </p>
+          {(m.kp != null || detail || showBest) && (
+            <p
+              className={showBest ? 'wf-aurora-strip-l2 wf-aurora-strip-l2-best' : 'wf-aurora-strip-l2'}
+              data-testid="aurora-banner-strip-detail"
+            >
+              {m.kp != null && <b>Kp {m.kp}</b>}
+              {showBest ? (
+                <>
+                  <span className="wf-aurora-keep">{m.kp != null ? ' · best ' : 'best '}</span>
+                  <span className="wf-aurora-strip-name">{m.best.name}</span>
+                  <span className="wf-aurora-keep"> </span>
+                  <Stars n={m.best.stars} />
+                </>
+              ) : (
+                <>
+                  {m.kp != null && detail && ' · '}
+                  {detail}
+                </>
+              )}
+            </p>
+          )}
+        </div>
+        <span className="wf-aurora-strip-cta">{m.simulated ? 'Scores →' : 'Map →'}</span>
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label="Dismiss aurora banner"
+          data-testid="aurora-banner-dismiss"
+          className="wf-aurora-x wf-aurora-x-strip"
+        >
+          ✕
+        </button>
+      </div>
+    </>
+  );
+}
+
+AuroraStrip.propTypes = {
+  m: MODEL_SHAPE,
+  onActivate: PropTypes.func.isRequired,
+  onDismiss: PropTypes.func.isRequired,
+};
+
+/**
+ * Aurora alert banner displayed when NOAA SWPC reports a moderate or strong alert.
  *
  * Behaviour:
  * - Not rendered for free-tier users (403 from the API → status is null)
- * - Not rendered for QUIET or MINOR status
- * - Shows for MODERATE or STRONG with the alert colour as background
- * - Subtitle shows Kp and Bz status with plain-English explanation
- * - Pulses gently when Bz < −1 nT (favourable southward field)
+ * - Not rendered for QUIET or MINOR status, nor for a MODERATE alert under full overcast
+ * - Severity rides the aurora ramp, chosen from `status.level` (never the API's `hexColour`)
+ * - At 640px and up a card: a thumbnail slot (Kp on a nine-step meter while no per-location scores
+ *   exist for the planning area, tonight's aurora field once they do), the level pill, when-line,
+ *   description, best/sites-clear line and a call to action
+ * - Below 640px a 56px glow strip
+ * - Needs the briefing provider for the planning area and the HOME drive (App mounts it above the
+ *   banner block); without one the field falls back to every rated site
+ * - The card's field carries the southern viewline (live first, forecast else) once it is drawn
+ * - A STRONG alert breathes gently while it is live and Bz is southward (< −1 nT)
  * - Dismissible per session; re-appears if the level escalates
  *
  * @param {object} props
@@ -177,9 +689,36 @@ function AuroraGlyph() {
  */
 export default function AuroraBanner({ onViewOnMap = null }) {
   const { status } = useAuroraStatus();
-  const viewlineEnabled = status != null && ALERT_WORTHY.has(status.level);
-  const { viewline } = useAuroraViewline(viewlineEnabled);
+  const isMobile = useIsMobile();
   const [dismissedLevel, setDismissedLevel] = useState(null);
+  // Whether the thumbnail has the viewline on its canvas, as the thumbnail itself reports it. The
+  // request's own gate cannot know: a chunk still loading, a failed chunk, a declined draw or a
+  // line the projection cannot place all leave the slot without a line while the data is in hand.
+  const [lineDrawn, setLineDrawn] = useState(false);
+
+  // Tonight's per-location ratings, restricted to the reader's planning area (plan §4 D8). The hooks
+  // run before the early returns below: nothing is asked for a status that is null, not alert-worthy
+  // or simulated (the hook gates itself), and `useWindowFirstBriefing` answers empty outside the
+  // briefing provider — then every rated site counts and frames itself, the degrade path.
+  // A banner dismissed at this level draws nothing, so it asks for nothing either (null is "no alert"
+  // to the hook); an escalation changes the level and asks again.
+  const dismissed = Boolean(status) && dismissedLevel === status.level;
+  const scores = useAuroraScores(dismissed ? null : status);
+  const { heatSpots, reachById, origin } = useWindowFirstBriefing();
+  const field = useMemo(
+    () => (status?.simulated === true ? null : areaField(scores.spots, heatSpots, reachById, origin)),
+    [status?.simulated, scores.spots, heatSpots, reachById, origin],
+  );
+
+  // The southern viewline is drawn on the field and nowhere else, so it is asked for only when that
+  // field is actually on screen: a real alert (not simulated), not dismissed, the wide layout (the
+  // strip has no thumbnail), the planning area's rated field present, and the banner not suppressed
+  // by the overcast gate below. No request while the slot shows the Kp meter or a test tube. Both
+  // sources, the hook's default: the live OVATION contour, else NOAA's forecast line — the Map tab's
+  // own precedence. Enabled by the owner, 2026-10-12 (plan §4 D4); there is no flag.
+  const viewlineEnabled = isRealAlert(status) && !dismissed && !isMobile && field !== null
+    && !hiddenByOvercast(status);
+  const { viewline } = useAuroraViewline(viewlineEnabled);
 
   // Not eligible (free-tier, 403) or not yet loaded
   if (!status) return null;
@@ -190,61 +729,10 @@ export default function AuroraBanner({ onViewOnMap = null }) {
   // Dismissed at this exact level — re-show only on escalation
   if (dismissedLevel === status.level) return null;
 
-  const isSimulated = status.simulated === true;
+  const m = deriveModel(status, field);
 
-  // Gate on clear skies. Telling a photographer "aurora tonight" when every dark-sky
-  // location is overcast is noise in the most valuable slot on the screen — NLC already
-  // gates the same way (active && clearTonight). Suppress the banner when all locations
-  // are overcast, unless it's a major storm (STRONG+, rare and worth surfacing under
-  // cloud — gaps open, people travel). Fail OPEN when the clear count is unknown
-  // (missing data ≠ overcast). A simulated alert is an admin preview tool that must always
-  // render — the gate is about real alerts nobody can act on, not synthetic ones.
-  const allOvercast = status.darkSkyLocationCount > 0
-    && status.clearLocationCount != null && status.clearLocationCount === 0;
-  const isMajorStorm = status.level === 'STRONG'; // extend if SEVERE/EXTREME join ALERT_WORTHY
-  if (allOvercast && !isMajorStorm && !isSimulated) return null;
-
-  const detectedLabel = formatDetectedAt(status.detectedAt);
-
-  let locationText = null;
-  if (!allOvercast && status.darkSkyLocationCount > 0) {
-    if (status.clearLocationCount != null) {
-      const c = status.clearLocationCount;
-      locationText = `${c} dark-sky location${c !== 1 ? 's' : ''} clear`;
-    } else {
-      const c = status.darkSkyLocationCount;
-      locationText = `${c} dark-sky location${c !== 1 ? 's' : ''}`;
-    }
-  }
-
-  const displayKp = status.forecastKp ?? status.kp;
-  const isForecastTrigger = !isSimulated && status.triggerType === 'forecast';
-  const kpText = displayKp != null
-    ? (isSimulated
-        ? `Kp ${Math.round(displayKp)} (SIMULATED)`
-        : isForecastTrigger
-          ? `Kp ${Math.round(displayKp)} forecast `
-          : `Kp ${Math.round(displayKp)}`)
-    : null;
-
-  const bz = status.bzNanoTesla;
-  const bzInfo = bz != null ? bzStatus(bz) : null;
-  const bzText = bzInfo ? `${bzInfo.emoji} ${bzInfo.label} — ${bzInfo.explanation}` : null;
-
-  const actionCta = isSimulated ? 'Generate scores →' : 'Show on map →';
-
-  const viewlineSummary = !isSimulated && viewline?.active ? viewline.summary : null;
-
-  // Severity presentation. The accent hue comes from the API (amber for
-  // MODERATE, red for STRONG); the level word + optional NOAA G-scale make the
-  // escalation legible in text, not just colour.
-  const accent = status.hexColour || '#F5991F';
-  const levelWord = { MODERATE: 'Moderate', STRONG: 'Strong', SEVERE: 'Severe', EXTREME: 'Extreme' }[status.level]
-    || (status.level ? status.level.charAt(0) + status.level.slice(1).toLowerCase() : 'Alert');
-  const gScale = status.gScale || null;
-  const sevLabel = gScale ? `${levelWord} · ${gScale}` : levelWord;
-
-  const isFavourable = !isSimulated && !isForecastTrigger && bz != null && bz < -1;
+  // Gate on clear skies (see hiddenByOvercast).
+  if (hiddenByOvercast(status)) return null;
 
   function handleDismiss(e) {
     e.stopPropagation();
@@ -257,7 +745,7 @@ export default function AuroraBanner({ onViewOnMap = null }) {
   // listener this once drove); kept and named rather than fixed, docs/engineering/
   // v1-retirement-plan.md §8.11.
   function handleActivate() {
-    if (isSimulated) {
+    if (m.simulated) {
       window.location.hash = 'manage';
     } else if (onViewOnMap) {
       onViewOnMap();
@@ -266,95 +754,28 @@ export default function AuroraBanner({ onViewOnMap = null }) {
     }
   }
 
-  return (
-    <>
-      <style>{AURORA_A_STYLE}</style>
-      {isFavourable && <style>{PULSE_STYLE}</style>}
-      {isSimulated && <style>{SIM_BORDER_STYLE}</style>}
-      {/* eslint-disable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */}
-      <div
-        role="alert"
-        data-testid="aurora-banner"
-        style={{
-          '--aurora-accent': accent,
-          backgroundColor: 'var(--color-plex-surface)',
-          animation: isFavourable ? 'aurora-pulse 3s ease-in-out infinite' : undefined,
-        }}
-        className={`aurora-a px-4 py-3 rounded-xl select-none cursor-pointer${isSimulated ? ' aurora-banner-simulated' : ''}`}
-        onClick={handleActivate}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') handleActivate();
-        }}
-        tabIndex={0}
-      >
-      {/* eslint-enable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */}
-        <div className="aurora-rail" />
-        <div className="aurora-glow" />
-        <div className="aurora-inner">
-          <div className="aurora-roundel">
-            {isSimulated ? <span style={{ fontSize: '20px' }} aria-hidden="true">🧪</span> : <AuroraGlyph />}
-          </div>
-          <div className="aurora-body">
-            <div className="aurora-top">
-              <span className="aurora-sev">
-                <span className="aurora-dot" />
-                {isSimulated ? `${sevLabel} · simulated` : sevLabel}
-              </span>
-              <span className="aurora-when">
-                {isSimulated
-                  ? 'Simulated'
-                  : isForecastTrigger
-                    ? 'Aurora forecast'
-                    : 'Aurora active now'}
-                {!isSimulated && !isForecastTrigger && detectedLabel && (
-                  <>
-                    {' · '}
-                    <span data-testid="aurora-banner-detected">Detected {detectedLabel}</span>
-                  </>
-                )}
-              </span>
-            </div>
+  // The line is spoken exactly when it is drawn: the thumbnail says a line is on its canvas
+  // (`lineDrawn`), the request's own gate still holds (never a test tube, the strip or a dismissed
+  // card), the line is active, and there is a sentence to speak. Never the data predicate alone.
+  const viewlineSummary = lineDrawn && viewlineEnabled && viewline?.active === true
+    && typeof viewline.summary === 'string' && viewline.summary.trim() !== ''
+    ? viewline.summary
+    : null;
 
-            <p className="aurora-title">{status.description}</p>
-
-            <p className="aurora-meta">
-              {kpText && (
-                <span className="aurora-kp">
-                  {kpText}
-                  {isForecastTrigger && <strong className="italic">tonight</strong>}
-                </span>
-              )}
-              {kpText && locationText && <span className="aurora-div" aria-hidden="true" />}
-              {locationText && <span>{locationText}</span>}
-              {(kpText || locationText) && <span className="aurora-div" aria-hidden="true" />}
-              <span className="aurora-cta">{actionCta}</span>
-            </p>
-
-            {allOvercast && (
-              <p data-testid="aurora-banner-overcast" className="aurora-sub">
-                All locations overcast — no clear skies forecast <strong className="italic">tonight</strong>
-              </p>
-            )}
-            {!isSimulated && bzText && (
-              <p data-testid="aurora-banner-bz" className="aurora-sub">{bzText}</p>
-            )}
-            {viewlineSummary && (
-              <p data-testid="aurora-banner-viewline" className="aurora-sub">🌌 {viewlineSummary}</p>
-            )}
-          </div>
-
-          <button
-            onClick={handleDismiss}
-            aria-label="Dismiss aurora banner"
-            data-testid="aurora-banner-dismiss"
-            className="aurora-x"
-          >
-            ✕
-          </button>
-        </div>
-      </div>
-    </>
-  );
+  // The strip has no thumbnail, so only the card is handed the field.
+  return isMobile
+    ? <AuroraStrip m={m} onActivate={handleActivate} onDismiss={handleDismiss} />
+    : (
+      <AuroraCard
+        m={m}
+        field={field}
+        viewline={viewline}
+        viewlineSummary={viewlineSummary}
+        onViewlineDrawn={setLineDrawn}
+        onActivate={handleActivate}
+        onDismiss={handleDismiss}
+      />
+    );
 }
 
 AuroraBanner.propTypes = {

@@ -1,14 +1,18 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.client.PostcodeLookupUnavailableException;
+import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.exception.RegistrationClosedException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.client.RestClientResponseException;
 
+import java.util.List;
 import java.util.NoSuchElementException;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -36,6 +40,10 @@ class GlobalExceptionHandlerTest extends AbstractControllerTest {
     @BeforeEach
     void setUp() {
         when(turnstileService.verify(any())).thenReturn(true);
+        // POST /api/forecast/run is only the vehicle for the exceptions below, and it refuses to
+        // start a run with no sky location to offer, so give it one (untyped = a sky subject).
+        when(locationService.findAllEnabled()).thenReturn(List.of(
+                LocationEntity.builder().id(1L).name("Durham UK").lat(54.7753).lon(-1.5849).build()));
     }
 
     @Test
@@ -50,6 +58,20 @@ class GlobalExceptionHandlerTest extends AbstractControllerTest {
         mockMvc.perform(post("/api/forecast/run"))
                 .andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.error").exists());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("PostcodeLookupUnavailableException is mapped to 502 with the fixed sentence")
+    void handlePostcodeUnavailable_returns502WithFixedMessage() throws Exception {
+        // The one production path that throws it: the postcode lookup, stubbed on its exact argument.
+        when(settingsService.lookupPostcode("DH1 3LE")).thenThrow(new PostcodeLookupUnavailableException());
+
+        mockMvc.perform(post("/api/user/settings/home/lookup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"postcode\": \"DH1 3LE\"}"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error").value(PostcodeLookupUnavailableException.MESSAGE));
     }
 
     @Test

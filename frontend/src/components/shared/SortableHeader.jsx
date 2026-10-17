@@ -42,7 +42,7 @@ export default function SortableHeader({
             value={filterValue || ''}
             onChange={(e) => onFilter(e.target.value)}
             placeholder={filterPlaceholder || 'Filter…'}
-            className="w-full bg-plex-surface-light border border-plex-border rounded px-1.5 py-0.5 text-xs text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
+            className="w-full bg-plex-surface-light border border-plex-border rounded px-1.5 py-0.5 text-xs text-plex-text placeholder-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold"
             data-testid={`filter-${sortKey}`}
           />
         </div>

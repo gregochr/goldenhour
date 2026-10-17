@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.ForecastRunDispositionEntity;
 import com.gregochr.goldenhour.model.CandidateDisposition;
 import com.gregochr.goldenhour.model.DispositionBreakdownResponse;
 import com.gregochr.goldenhour.repository.ForecastRunDispositionRepository;
+import com.gregochr.goldenhour.repository.PipelineRunRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -37,18 +38,54 @@ public class ForecastDispositionService {
     /**
      * How long to keep disposition rows before pruning. ~2k/day × 30 = ~60k
      * steady-state, trivial for either H2 or Postgres but bounded.
+     *
+     * <p>Public because {@code OutcomeRatingService.MAX_RATING_AGE_DAYS} is derived from it: the
+     * stability-skip evidence an outcome rating's provenance reads is pruned at this age.
      */
-    static final int RETENTION_DAYS = 30;
+    public static final int RETENTION_DAYS = 30;
 
     private final ForecastRunDispositionRepository repository;
+    private final PipelineRunRepository pipelineRunRepository;
 
     /**
      * Constructs the service.
      *
-     * @param repository disposition repository
+     * @param repository            disposition repository
+     * @param pipelineRunRepository records which job run holds a cycle's dispositions
      */
-    public ForecastDispositionService(ForecastRunDispositionRepository repository) {
+    public ForecastDispositionService(ForecastRunDispositionRepository repository,
+            PipelineRunRepository pipelineRunRepository) {
         this.repository = repository;
+        this.pipelineRunRepository = pipelineRunRepository;
+    }
+
+    /**
+     * Persists a pipeline cycle's dispositions AND records, in the same transaction, which job run
+     * holds them ({@code pipeline_run.disposition_job_run_id}).
+     *
+     * <p>This is the transactional boundary that keeps the link and the rows together: either both
+     * are written or neither is. A cycle whose dispositions persisted but whose link did not would
+     * be settled by the location auto-disable with no evidence and then claimed for good, losing a
+     * reset for ever; so a link that cannot be written (the write throws, or the pipeline run does
+     * not exist) rolls the dispositions back with it and the caller's ordinary disposition-failure
+     * handling applies. Nothing here is swallowed.
+     *
+     * @param pipelineRunId the orchestrated cycle id
+     * @param jobRunId      the job run the rows are persisted onto
+     * @param dispositions  the cycle's dispositions
+     * @throws IllegalStateException if the pipeline run does not exist, so the link cannot be written
+     */
+    @Transactional
+    public void persist(Long pipelineRunId, Long jobRunId, List<CandidateDisposition> dispositions) {
+        persist(jobRunId, dispositions);
+        if (pipelineRunId == null || jobRunId == null || dispositions == null
+                || dispositions.isEmpty()) {
+            return;
+        }
+        if (pipelineRunRepository.recordDispositionJobRun(pipelineRunId, jobRunId) == 0) {
+            throw new IllegalStateException("Pipeline run " + pipelineRunId + " not found: cannot "
+                    + "record job run " + jobRunId + " as holding its dispositions");
+        }
     }
 
     /**

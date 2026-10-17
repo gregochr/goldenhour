@@ -77,6 +77,16 @@ describe('JobRunDetail — loading and error states', () => {
     });
   });
 
+  it("shows the server's error sentence, not axios's generic message, when the request is refused", async () => {
+    getApiCalls.mockRejectedValue(Object.assign(
+      new Error('Request failed with status code 404'),
+      { response: { status: 404, data: { error: 'Job run not found' } } },
+    ));
+    render(<JobRunDetail jobRun={BASE_JOB_RUN} />);
+    expect(await screen.findByText('Error: Job run not found')).toBeInTheDocument();
+    expect(screen.queryByText(/Request failed with status code 404/)).toBeNull();
+  });
+
   it('uses fallback error text when rejection has no message', async () => {
     getApiCalls.mockRejectedValue({});
     render(<JobRunDetail jobRun={BASE_JOB_RUN} />);
@@ -437,7 +447,7 @@ describe('JobRunDetail — Anthropic evaluation breakdown', () => {
       expect(screen.getByText('2026-03-15')).toBeInTheDocument();
     });
     expect(screen.getByText('SUNRISE')).toBeInTheDocument();
-    expect(screen.getByText('SONNET')).toBeInTheDocument();
+    expect(screen.getByText('Sonnet 4.6')).toBeInTheDocument();
   });
 
   it('sorts breakdown rows by date then event then model', async () => {
@@ -516,6 +526,74 @@ describe('JobRunDetail — Failed calls section', () => {
     });
     expect(screen.getAllByText('OPEN_METEO').length).toBeGreaterThan(0);
     expect(screen.getByText('Timeout after 30s')).toBeInTheDocument();
+  });
+
+  async function headingFor(call) {
+    getApiCalls.mockResolvedValue({ data: [{ ...call, succeeded: false }] });
+    render(<JobRunDetail jobRun={BASE_JOB_RUN} />);
+    await waitFor(() => {
+      expect(screen.getByText('Failed Calls')).toBeInTheDocument();
+    });
+    return screen.getByTestId('failed-call-heading').textContent;
+  }
+
+  it('shows the error type beside the service for a failed Claude call, without repeating the status', async () => {
+    const heading = await headingFor({
+      ...ANTHROPIC_CALL, id: 7, statusCode: 401, errorType: 'anthropic_401',
+      errorMessage: 'invalid x-api-key',
+    });
+
+    expect(heading).toBe('ANTHROPIC · anthropic_401');
+    expect(screen.getByText('invalid x-api-key')).toBeInTheDocument();
+  });
+
+  it('shows no status for a Claude row written before the real status was recorded (placeholder 500, no type)',
+    async () => {
+      const heading = await headingFor({
+        ...ANTHROPIC_CALL, id: 10, statusCode: 500, errorType: null, errorMessage: 'old failure',
+      });
+
+      expect(heading).toBe('ANTHROPIC');
+    });
+
+  it('shows the status for a weather row, which is always a real HTTP status', async () => {
+    const heading = await headingFor({
+      ...OPEN_METEO_CALL, id: 11, statusCode: 503, errorType: null, errorMessage: 'unavailable',
+    });
+
+    expect(heading).toBe('OPEN_METEO · 503');
+  });
+
+  it('shows the error type for a batch row, which has a type and no status', async () => {
+    const heading = await headingFor({
+      ...ANTHROPIC_CALL, id: 12, statusCode: null, errorType: 'overloaded_error',
+      customId: 'fc-1-2026-01-01-SUNSET', errorMessage: 'busy',
+    });
+
+    expect(heading).toBe('ANTHROPIC · overloaded_error');
+  });
+
+  it('omits the status for a failure that had none and shows the error type alone', async () => {
+    getApiCalls.mockResolvedValue({ data: [{
+      ...ANTHROPIC_CALL, id: 8, succeeded: false, statusCode: null, errorType: 'circuit_open',
+      errorMessage: 'CircuitBreaker is OPEN',
+    }] });
+    render(<JobRunDetail jobRun={BASE_JOB_RUN} />);
+    await waitFor(() => {
+      expect(screen.getByText('Failed Calls')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('failed-call-heading').textContent).toBe('ANTHROPIC · circuit_open');
+  });
+
+  it('shows the service alone when a failed call carries neither a status nor an error type', async () => {
+    getApiCalls.mockResolvedValue({ data: [{
+      ...OPEN_METEO_CALL, id: 9, succeeded: false, errorMessage: 'Timeout after 30s',
+    }] });
+    render(<JobRunDetail jobRun={BASE_JOB_RUN} />);
+    await waitFor(() => {
+      expect(screen.getByText('Failed Calls')).toBeInTheDocument();
+    });
+    expect(screen.getByTestId('failed-call-heading').textContent).toBe('OPEN_METEO');
   });
 });
 
@@ -689,5 +767,90 @@ describe('JobRunDetail — Fallback-parsed responses', () => {
     });
     expect(screen.queryByTestId('fallback-parses')).not.toBeInTheDocument();
     expect(screen.queryByText(/Fallback-parsed responses/)).not.toBeInTheDocument();
+  });
+});
+
+describe('JobRunDetail — Prompt-cache diagnostics', () => {
+  const MISS = '{"status":"MISS","reason":"messages_changed","missedInputTokens":1234}';
+  const DIAGNOSED_CALL = {
+    ...ANTHROPIC_CALL,
+    id: 11,
+    customId: 'fc-42-2026-10-08-SUNRISE',
+    cacheReadInputTokens: 4726,
+    cacheDiagnostics: MISS,
+  };
+
+  it('shows a badge per diagnosed call, with the reason and what the cache did to its tokens', async () => {
+    getApiCalls.mockResolvedValue({ data: [ANTHROPIC_CALL, DIAGNOSED_CALL] });
+    render(<JobRunDetail jobRun={BASE_JOB_RUN} />);
+    await waitFor(() => {
+      expect(screen.getByTestId('cache-diagnostics')).toBeInTheDocument();
+    });
+    expect(screen.getByText('Prompt-cache diagnostics: 1')).toBeInTheDocument();
+    expect(screen.getAllByTestId('cache-diagnostics-row')).toHaveLength(1);
+    expect(screen.getByText('fc-42-2026-10-08-SUNRISE')).toBeInTheDocument();
+    expect(screen.getByTestId('cache-badge').textContent)
+      .toBe('cache: read 4,726 · miss — messages_changed (1,234 tok)');
+  });
+
+  it('tallies reasons across every diagnosed call but lists only the first 25', async () => {
+    const many = Array.from({ length: 30 }, (_, i) => ({
+      ...DIAGNOSED_CALL,
+      id: 100 + i,
+      customId: `fc-${i}-2026-10-08-SUNRISE`,
+    }));
+    const systemChanged = {
+      ...DIAGNOSED_CALL,
+      id: 200,
+      customId: 'fc-x-2026-10-08-SUNRISE',
+      cacheDiagnostics: '{"status":"MISS","reason":"system_changed","missedInputTokens":4800}',
+    };
+    getApiCalls.mockResolvedValue({ data: [...many, systemChanged] });
+    render(<JobRunDetail jobRun={BASE_JOB_RUN} />);
+    await waitFor(() => {
+      expect(screen.getByTestId('cache-diagnostics')).toBeInTheDocument();
+    });
+    expect(screen.getByText('Prompt-cache diagnostics: 31')).toBeInTheDocument();
+    expect(screen.getAllByTestId('cache-diagnostics-row')).toHaveLength(25);
+    expect(screen.getByTestId('cache-diagnostics-more').textContent).toBe('+6 more');
+    const tally = screen.getByTestId('cache-diagnostics-tally').textContent;
+    expect(tally).toContain('messages_changed ×30');
+    expect(tally).toContain('system_changed ×1');
+  });
+
+  it('words a pending comparison, and a reason with no token estimate', async () => {
+    getApiCalls.mockResolvedValue({ data: [
+      { ...DIAGNOSED_CALL, id: 1, cacheReadInputTokens: 0, cacheDiagnostics: '{"status":"PENDING"}' },
+      {
+        ...DIAGNOSED_CALL,
+        id: 2,
+        cacheReadInputTokens: 0,
+        cacheCreationInputTokens: 4726,
+        cacheDiagnostics: '{"status":"MISS","reason":"previous_message_not_found"}',
+      },
+    ] });
+    render(<JobRunDetail jobRun={BASE_JOB_RUN} />);
+    await waitFor(() => {
+      expect(screen.getAllByTestId('cache-badge')).toHaveLength(2);
+    });
+    const badges = screen.getAllByTestId('cache-badge').map((b) => b.textContent);
+    expect(badges).toEqual([
+      'cache: pending',
+      'cache: write 4,726 · miss — previous_message_not_found',
+    ]);
+  });
+
+  it('hides the section entirely when no call carries diagnostics, or the field is not valid JSON', async () => {
+    getApiCalls.mockResolvedValue({ data: [
+      ANTHROPIC_CALL,
+      { ...ANTHROPIC_CALL, id: 3, cacheDiagnostics: null },
+      { ...ANTHROPIC_CALL, id: 4, cacheDiagnostics: 'not json' },
+    ] });
+    render(<JobRunDetail jobRun={BASE_JOB_RUN} />);
+    await waitFor(() => {
+      expect(screen.getByText('ANTHROPIC')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('cache-diagnostics')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Prompt-cache diagnostics/)).not.toBeInTheDocument();
   });
 });

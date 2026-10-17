@@ -141,7 +141,7 @@ describe('WindowFirstComingUp — the four states', () => {
           cadence: 'deterministic',
           interim: false,
           rateLabel: 'a run every 14.8 days',
-          quantLabel: 'occasional · 6 runs in 90 days',
+          quantLabel: 'about one a fortnight · 6 runs in 90 days',
           peak: null,
           occurrences: [],
         }],
@@ -483,7 +483,11 @@ describe('WindowFirstComingUp — card-click fires the entry’s action', () => 
   it('invokes onGoToPlan with the action’s own date on a plan-kind card', () => {
     const { onGoToPlan } = renderPane({
       events: {
+        // Over the day-chip cap: a short or one-day plan entry draws chips instead (§11.26), so
+        // only a long one still has the single Plan line this test is about.
         entries: [wireEntry({
+          startDate: '2026-08-12',
+          endDate: '2026-12-31',
           action: { label: 'See the plan for 12 Aug →', kind: 'plan', date: '2026-08-12' },
         })],
         counts: { fixed: 1, forecast: 0, byFamily: { 'night-sky': 1 } },
@@ -503,7 +507,7 @@ describe('WindowFirstComingUp — recurring conditions strip (plan §7 P4)', () 
     cadence: 'deterministic',
     interim: false,
     rateLabel: 'a run every 14.8 days · fixed by the ephemeris',
-    quantLabel: 'occasional · 7 runs in 90 days',
+    quantLabel: 'about one a fortnight · 7 runs in 90 days',
     peak: null,
     occurrences: [],
   };
@@ -535,13 +539,13 @@ describe('WindowFirstComingUp — recurring conditions strip (plan §7 P4)', () 
     expect(screen.queryByTestId('coming-up-conditions')).toBeNull();
   });
 
-  it('the STRIP\'s own header sub-line gains a quiet "scores are provisional" suffix while any visible '
+  it('the STRIP\'s own header sub-line gains a quiet "figures are provisional" suffix while any visible '
       + 'condition is interim — never the chronology pane\'s own sub-line (plan §7)', () => {
     renderPane({
       events: { entries: ENTRIES, counts: COUNTS, conditions: [{ ...CONDITION, interim: true }] },
     });
     const marker = screen.getByTestId('coming-up-provisional');
-    expect(marker).toHaveTextContent('scores are provisional');
+    expect(marker).toHaveTextContent('figures are provisional');
     expect(screen.getByTestId('coming-up-conditions')).toContainElement(marker);
     expect(screen.getByTestId('coming-up-subtitle')).not.toContainElement(marker);
   });
@@ -551,3 +555,247 @@ describe('WindowFirstComingUp — recurring conditions strip (plan §7 P4)', () 
     expect(screen.queryByTestId('coming-up-provisional')).toBeNull();
   });
 });
+
+describe('WindowFirstComingUp — map doors follow the reader’s forecast dates (plan §11.24)', () => {
+  // Both fixtures are OVER-CAP spans (a months-long season's shape): a single-day or short entry gets
+  // day chips instead (§11.25, §11.26), so only an over-cap one still takes the single, gated door.
+  // Different action dates let one list split them.
+  const SPLIT_ENTRIES = [
+    wireEntry({
+      id: 'meteor:2026-08-12:2026-09-30', startDate: '2026-08-12', endDate: '2026-09-30',
+      action: { label: 'Show dark-sky spots for 12 Aug →', kind: 'dark-sky-spots', date: '2026-08-12' },
+    }),
+    wireEntry({
+      id: 'spring-tide:2026-10-11:2026-12-31', type: 'spring-tide', family: 'coastal',
+      title: 'Spring tide run', metric: null, prose: null,
+      startDate: '2026-10-11', endDate: '2026-12-31',
+      action: { label: 'Show coastal spots for 11 Oct →', kind: 'coastal-spots', date: '2026-10-11' },
+    }),
+  ];
+  // One object held across every render below, so a `forecastDates` change is the ONLY thing that
+  // can make the chronology recompute — a fresh `events` literal would recompute it regardless.
+  const SPLIT_EVENTS = { entries: SPLIT_ENTRIES, counts: COUNTS };
+  const renderSplit = (props = {}) => renderPane({ events: SPLIT_EVENTS, ...props });
+
+  it('makes a button of the entry whose date is listed and a plain card of the one that is not', () => {
+    const { onShowOnMap } = renderSplit({ forecastDates: ['2026-08-12'] });
+    const perseids = screen.getByRole('button', { name: /Perseids/ });
+    expect(screen.queryByRole('button', { name: /Spring tide run/ })).toBeNull();
+
+    const spring = screen.getAllByTestId('coming-up-card')[1];
+    expect(spring.tagName).toBe('DIV');
+    expect(within(spring).getByTestId('coming-up-action'))
+      .toHaveTextContent('Coastal spots: no forecast for 11 Oct');
+
+    fireEvent.click(spring);
+    expect(onShowOnMap).not.toHaveBeenCalled();
+    fireEvent.click(perseids);
+    expect(onShowOnMap).toHaveBeenCalledWith(expect.objectContaining({ kind: 'coming-up', date: '2026-08-12' }));
+  });
+
+  it('withholds every map door when the list is known to be empty, and draws no button', () => {
+    renderSplit({ forecastDates: [] });
+    expect(screen.queryByRole('button', { name: /Perseids/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Spring tide run/ })).toBeNull();
+    for (const action of screen.getAllByTestId('coming-up-action')) {
+      expect(action).toHaveAttribute('data-withheld', 'true');
+    }
+  });
+
+  it('leaves every map door live while the forecast dates are not known yet (none passed)', () => {
+    renderSplit();
+    expect(screen.getByRole('button', { name: /Perseids/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Spring tide run/ })).toBeInTheDocument();
+    for (const action of screen.getAllByTestId('coming-up-action')) {
+      expect(action).not.toHaveAttribute('data-withheld');
+    }
+  });
+
+  it('re-decides the doors when only the list changes under a mounted pane', () => {
+    const { rerender, onShowOnMap, onRetry, onGoToPlan } = renderSplit({ forecastDates: [] });
+    expect(screen.getAllByTestId('coming-up-card').map((c) => c.tagName)).toEqual(['DIV', 'DIV']);
+    rerender(
+      <WindowFirstComingUp
+        id="window-first-panel-coming-up"
+        labelledBy="window-first-tab-coming-up"
+        status="ready"
+        events={SPLIT_EVENTS}
+        todayStr={TODAY}
+        onRetry={onRetry}
+        onGoToPlan={onGoToPlan}
+        onShowOnMap={onShowOnMap}
+        forecastDates={['2026-08-12', '2026-10-11']}
+      />,
+    );
+    expect(screen.getAllByTestId('coming-up-card').map((c) => c.tagName)).toEqual(['BUTTON', 'BUTTON']);
+  });
+});
+
+describe('WindowFirstComingUp — a run’s day chips follow the reader’s forecast dates (plan §11.25)', () => {
+  const RUN_EVENTS = {
+    entries: [wireEntry({
+      id: 'spring-tide:2026-10-09:2026-10-14', type: 'spring-tide', family: 'coastal',
+      title: 'Spring tide run', metric: null, prose: null,
+      startDate: '2026-10-09', endDate: '2026-10-14',
+      action: { label: 'Show coastal spots for 11 Oct →', kind: 'coastal-spots', date: '2026-10-11' },
+    })],
+    counts: COUNTS,
+  };
+  const dayChip = (label) => screen.getByRole('button', { name: label });
+
+  it('enables the chips for held dates, dims the rest and opens the map on the chip’s date', () => {
+    const { onShowOnMap } = renderPane({
+      events: RUN_EVENTS, todayStr: '2026-10-07', forecastDates: ['2026-10-09', '2026-10-10'],
+    });
+    expect(screen.getAllByTestId('coming-up-day-chip')).toHaveLength(6);
+    expect(screen.getByTestId('coming-up-card').tagName).toBe('DIV');
+    expect(dayChip('Sun 11 Oct, peak day — no forecast yet')).toBeDisabled();
+    fireEvent.click(dayChip('Show coastal spots for Sat 10 Oct'));
+    expect(onShowOnMap).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'coming-up', filterAction: 'SEASCAPE', date: '2026-10-10' }),
+    );
+  });
+
+  it('leaves every chip live while the forecast dates are not known yet', () => {
+    renderPane({ events: RUN_EVENTS, todayStr: '2026-10-07' });
+    for (const chip of screen.getAllByTestId('coming-up-day-chip')) {
+      expect(chip).toBeEnabled();
+    }
+    expect(screen.queryByTestId('coming-up-day-chips-note')).toBeNull();
+  });
+
+  it('re-decides the chips when only the list changes under a mounted pane', () => {
+    const { rerender, onShowOnMap, onRetry, onGoToPlan } = renderPane({
+      events: RUN_EVENTS, todayStr: '2026-10-07', forecastDates: [],
+    });
+    for (const chip of screen.getAllByTestId('coming-up-day-chip')) {
+      expect(chip).toBeDisabled();
+    }
+    rerender(
+      <WindowFirstComingUp
+        id="window-first-panel-coming-up"
+        labelledBy="window-first-tab-coming-up"
+        status="ready"
+        events={RUN_EVENTS}
+        todayStr="2026-10-07"
+        onRetry={onRetry}
+        onGoToPlan={onGoToPlan}
+        onShowOnMap={onShowOnMap}
+        forecastDates={['2026-10-09', '2026-10-11']}
+      />,
+    );
+    expect(dayChip('Show coastal spots for Fri 9 Oct')).toBeEnabled();
+    expect(dayChip('Show coastal spots for Sun 11 Oct, peak day')).toBeEnabled();
+    expect(dayChip('Sat 10 Oct — no forecast yet')).toBeDisabled();
+  });
+
+  it('keeps an over-cap span on its single gated door — chips are for short runs only', () => {
+    // 9–19 Oct is eleven days: past the cap, so the entry keeps ONE door, and the gate still applies.
+    const overCap = {
+      entries: [wireEntry({
+        id: 'season:2026-10-09:2026-10-19', type: 'nlc', family: 'night-sky',
+        title: 'Long season', metric: null, prose: null,
+        startDate: '2026-10-09', endDate: '2026-10-19',
+        action: { label: 'Show dark-sky spots for 14 Oct →', kind: 'dark-sky-spots', date: '2026-10-14' },
+      })],
+      counts: COUNTS,
+    };
+    const { onShowOnMap } = renderPane({
+      events: overCap, todayStr: '2026-10-07', forecastDates: ['2026-10-08'],
+    });
+    expect(screen.queryByTestId('coming-up-day-chips')).toBeNull();
+    expect(screen.getByTestId('coming-up-action'))
+      .toHaveTextContent('Dark-sky spots: no forecast for 14 Oct');
+    expect(screen.queryByRole('button', { name: /Long season/ })).toBeNull();
+    fireEvent.click(screen.getByTestId('coming-up-card'));
+    expect(onShowOnMap).not.toHaveBeenCalled();
+  });
+});
+
+describe('WindowFirstComingUp — a single-day map entry draws a one-box row (plan §11.26)', () => {
+  const METEOR_EVENTS = {
+    entries: [wireEntry({
+      id: 'meteor:2026-10-21:2026-10-21', title: 'Orionids',
+      startDate: '2026-10-21', endDate: '2026-10-21',
+      action: { label: 'Show dark-sky spots for 21 Oct →', kind: 'dark-sky-spots', date: '2026-10-21' },
+    })],
+    counts: COUNTS,
+  };
+
+  it('draws the lead, one chip and the singular caption when its day has no forecast', () => {
+    renderPane({ events: METEOR_EVENTS, todayStr: '2026-10-07', forecastDates: ['2026-10-08'] });
+    expect(screen.getByRole('group', { name: 'Dark-sky spots' })).toBeInTheDocument();
+    expect(screen.getAllByTestId('coming-up-day-chip')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Wed 21 Oct, peak day — no forecast yet' })).toBeDisabled();
+    expect(screen.getByTestId('coming-up-day-chips-note')).toHaveTextContent('no forecast for this day yet');
+    expect(screen.queryByTestId('coming-up-action')).toBeNull();
+  });
+
+  it('opens the map on the entry’s date from its one live chip', () => {
+    const { onShowOnMap } = renderPane({
+      events: METEOR_EVENTS, todayStr: '2026-10-07', forecastDates: ['2026-10-21'],
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Show dark-sky spots for Wed 21 Oct, peak day' }));
+    expect(onShowOnMap).toHaveBeenCalledWith({
+      kind: 'coming-up', filterAction: null, darkSky: true, label: 'Orionids · Wed 21 Oct', date: '2026-10-21',
+    });
+  });
+});
+
+describe('WindowFirstComingUp — a plan entry’s chips open the map, not the Plan tab (plan §11.26)', () => {
+  const SOLSTICE = {
+    entries: [wireEntry({
+      id: 'solstice:2026-12-18:2026-12-24', type: 'solstice', family: 'sun-moon',
+      title: 'Winter solstice', metric: null, prose: null,
+      startDate: '2026-12-18', endDate: '2026-12-24',
+      action: { label: 'See the plan for 21 Dec →', kind: 'plan', date: '2026-12-21' },
+    })],
+    counts: COUNTS,
+  };
+
+  it('draws the All spots row and sends an unfiltered handoff with the chip’s date', () => {
+    const { onShowOnMap, onGoToPlan } = renderPane({
+      events: SOLSTICE, todayStr: '2026-12-10', forecastDates: ['2026-12-19'],
+    });
+    expect(screen.getByRole('group', { name: 'All spots by day' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Show all spots for Sat 19 Dec' }));
+    expect(onShowOnMap).toHaveBeenCalledWith({
+      kind: 'coming-up', filterAction: null, darkSky: false,
+      label: 'Winter solstice · Sat 19 Dec', date: '2026-12-19',
+    });
+    expect(onGoToPlan).not.toHaveBeenCalled();
+    expect(screen.queryByText(/See the plan/)).toBeNull();
+  });
+});
+
+describe('WindowFirstComingUp — a single-day plan entry draws a one-box All spots row (plan §11.26)', () => {
+  const ECLIPSE = {
+    entries: [wireEntry({
+      id: 'eclipse:2026-10-21:2026-10-21', type: 'eclipse', family: 'eclipse', title: 'Partial eclipse',
+      metric: null, prose: null, startDate: '2026-10-21', endDate: '2026-10-21',
+      action: { label: 'See the plan for 21 Oct →', kind: 'plan', date: '2026-10-21' },
+    })],
+    counts: COUNTS,
+  };
+
+  it('opens the map unfiltered on its date from the one live chip, never the Plan tab', () => {
+    const { onShowOnMap, onGoToPlan } = renderPane({
+      events: ECLIPSE, todayStr: '2026-10-07', forecastDates: ['2026-10-21'],
+    });
+    expect(screen.getByRole('group', { name: 'All spots' })).toBeInTheDocument();
+    expect(screen.queryByText(/See the plan/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Show all spots for Wed 21 Oct, peak day' }));
+    expect(onShowOnMap).toHaveBeenCalledWith({
+      kind: 'coming-up', filterAction: null, darkSky: false,
+      label: 'Partial eclipse · Wed 21 Oct', date: '2026-10-21',
+    });
+    expect(onGoToPlan).not.toHaveBeenCalled();
+  });
+
+  it('dims the chip with the singular caption when its day has no forecast', () => {
+    renderPane({ events: ECLIPSE, todayStr: '2026-10-07', forecastDates: ['2026-10-08'] });
+    expect(screen.getByRole('button', { name: 'Wed 21 Oct, peak day — no forecast yet' })).toBeDisabled();
+    expect(screen.getByTestId('coming-up-day-chips-note')).toHaveTextContent('no forecast for this day yet');
+  });
+});
+

@@ -2,10 +2,14 @@ import React from 'react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, within, fireEvent } from '@testing-library/react';
+import { render, screen, within, fireEvent, waitFor } from '@testing-library/react';
 import LocationFourDaySheet from '../components/LocationFourDaySheet.jsx';
-import { buildScoreIndex, buildSlotIndex } from '../utils/locationSheet.js';
+import {
+  buildEclipseIndex, buildScoreIndex, buildSlotIndex, buildTideAlignmentIndex,
+} from '../utils/locationSheet.js';
+import { buildRegionGlossIndex } from '../utils/regionGloss.js';
 import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
+import { withTideFacts } from './tideFactsFixture.js';
 
 /**
  * The four-day location sheet, rendered (plan D10, P8).
@@ -285,6 +289,103 @@ describe('LocationFourDaySheet', () => {
     expect(unscored.getByTestId('location-sheet-state')).toHaveTextContent('Not scored yet');
     expect(unscored.getByTestId('location-sheet-nowhy'))
       .toHaveTextContent('Nothing written about this one yet.');
+  });
+
+  /**
+   * unrated-verdict-plan.md U2, Codex review of #1140 (P1). `SLOT_VERDICT_LABEL` was only ever read
+   * by Ask's pick card, so this sheet printed "Not scored yet" for a slot the server had already
+   * called UNRATED (weather passed, no rating) or STAND_DOWN (weather said no). What breaks if these
+   * fail: the sheet says nothing has looked at a window the pipeline did look at, and the Plan card
+   * and the map pill contradict the sheet's row for the same place.
+   */
+  describe('names an unrated window by the slot\'s own served verdict', () => {
+    const VERDICTS = buildScoreIndex([
+      { locationId: 7, locationName: 'Bamburgh', date: '2026-08-14', targetType: 'SUNSET', rating: 3, displayVerdict: 'MAYBE', summary: 'x' },
+      { locationId: 7, locationName: 'Bamburgh', date: '2026-08-15', targetType: 'SUNRISE', rating: null, displayVerdict: 'UNRATED' },
+      { locationId: 7, locationName: 'Bamburgh', date: '2026-08-15', targetType: 'SUNSET', rating: null, displayVerdict: 'STAND_DOWN' },
+    ]);
+    const stateOf = (key) => within(row(key)).getByTestId('location-sheet-state');
+
+    it('says "Not rated" for an UNRATED slot and "Poor" for a triage stand-down', () => {
+      setup({ scoreIndex: VERDICTS });
+      expect(stateOf('2026-08-15:SUNRISE')).toHaveTextContent('Not rated');
+      expect(stateOf('2026-08-15:SUNRISE')).not.toHaveTextContent('Not scored yet');
+      expect(stateOf('2026-08-15:SUNSET')).toHaveTextContent('Poor');
+    });
+
+    it('keeps "Not scored yet" for an AWAITING slot, a missing row and a legacy row', () => {
+      const awaiting = buildScoreIndex([
+        { locationId: 7, locationName: 'Bamburgh', date: '2026-08-15', targetType: 'SUNRISE', rating: null, displayVerdict: 'AWAITING' },
+        // A legacy row: no `displayVerdict` field at all.
+        { locationId: 7, locationName: 'Bamburgh', date: '2026-08-15', targetType: 'SUNSET', rating: null },
+      ]);
+      setup({ scoreIndex: awaiting });
+      expect(stateOf('2026-08-15:SUNRISE')).toHaveTextContent('Not scored yet');
+      expect(stateOf('2026-08-15:SUNSET')).toHaveTextContent('Not scored yet');
+      expect(stateOf('2026-08-14:SUNSET')).toHaveTextContent('Not scored yet');
+    });
+
+    it('leaves a rated row on its star, with no verdict word beside it', () => {
+      setup({ scoreIndex: VERDICTS });
+      const rated = within(row('2026-08-14:SUNSET'));
+      expect(rated.getByTestId('location-sheet-rating')).toHaveTextContent('3 stars');
+      expect(rated.queryByTestId('location-sheet-state')).toBeNull();
+    });
+
+    // Codex review of #1140, round 2 (P1): the scores endpoint has no row for a weather GO/MARGINAL
+    // slot with no Claude result, so the word has to come from the BRIEFING slot the sheet already
+    // holds (`slotIndex`).
+    describe('where the scores endpoint has no row, from the briefing slot', () => {
+      const slotsWith = (byWindow) => buildSlotIndex(Object.entries(byWindow).map(([key, verdict]) => {
+        const [date, targetType] = key.split(':');
+        return {
+          date,
+          eventSummaries: [{
+            targetType,
+            regions: [{ slots: [{
+              locationId: 7, locationName: 'Bamburgh', solarEventTime: `${date}T12:00:00`, displayVerdict: verdict,
+            }] }],
+          }],
+        };
+      }));
+
+      it('reads "Not rated" for a briefing UNRATED slot and "Poor" for a briefing STAND_DOWN one', () => {
+        setup({
+          scoreIndex: buildScoreIndex([]),
+          slotIndex: slotsWith({ '2026-08-15:SUNRISE': 'UNRATED', '2026-08-15:SUNSET': 'STAND_DOWN' }),
+        });
+        expect(stateOf('2026-08-15:SUNRISE')).toHaveTextContent('Not rated');
+        expect(stateOf('2026-08-15:SUNSET')).toHaveTextContent('Poor');
+        // A window whose slot carries no verdict keeps the old phrase.
+        expect(stateOf('2026-08-14:SUNSET')).toHaveTextContent('Not scored yet');
+      });
+
+      it('⚠️ a score row\'s STAND_DOWN beats a briefing UNRATED for the same window', () => {
+        setup({
+          scoreIndex: VERDICTS,
+          slotIndex: slotsWith({ '2026-08-15:SUNSET': 'UNRATED' }),
+        });
+        expect(stateOf('2026-08-15:SUNSET')).toHaveTextContent('Poor');
+        expect(stateOf('2026-08-15:SUNSET')).not.toHaveTextContent('Not rated');
+      });
+
+      it('still says "Loading ratings…" while the ratings are in flight, briefing verdict in hand', () => {
+        setup({
+          scoreIndex: buildScoreIndex([]),
+          scoresKnown: false,
+          slotIndex: slotsWith({ '2026-08-15:SUNRISE': 'UNRATED' }),
+        });
+        expect(stateOf('2026-08-15:SUNRISE')).toHaveTextContent('Loading ratings…');
+      });
+    });
+
+    it('says nothing of a verdict while the ratings are still loading', () => {
+      // The "Loading ratings…" branch is untouched: a verdict served by an index that has not been
+      // confirmed complete is still no evidence about the pipeline.
+      setup({ scoreIndex: VERDICTS, scoresKnown: false });
+      expect(stateOf('2026-08-15:SUNRISE')).toHaveTextContent('Loading ratings…');
+      expect(stateOf('2026-08-15:SUNSET')).toHaveTextContent('Loading ratings…');
+    });
   });
 
   it('⚠️ claims NOTHING about the pipeline while the ratings are unknown', () => {
@@ -854,3 +955,608 @@ describe('LocationFourDaySheet — the map’s one added row (increment §2)', (
   });
 });
 
+/**
+ * An unscored window that borrows its region's sky gloss: the row says whose prose it is.
+ */
+describe('LocationFourDaySheet — a borrowed region gloss', () => {
+  const DAY = {
+    date: '2026-08-15',
+    eventSummaries: [{
+      targetType: 'SUNSET',
+      regions: [{
+        regionName: 'Northumberland',
+        confidence: 'low',
+        glossHeadline: null,
+        glossDetail: 'High cloud canvas with modest colour potential across the region.',
+        slots: [{ locationId: 7, locationName: 'Bamburgh', solarEventTime: '2026-08-15T19:39:00' }],
+      }],
+    }],
+  };
+  // Saturday sunset unscored: the same fixture minus its row.
+  const UNSCORED_SAT_SUNSET = buildScoreIndex([
+    { locationId: 7, locationName: 'Bamburgh', date: '2026-08-14', targetType: 'SUNSET', rating: 3, summary: 'High cloud thins after eight.' },
+    { locationId: 7, locationName: 'Bamburgh', date: '2026-08-15', targetType: 'SUNRISE', rating: 5, summary: 'A clear eastern horizon under mid cloud.' },
+  ]);
+
+  it('labels a borrowed region gloss on an unscored window', () => {
+    // The label is about whose prose it is: an unscored window for any reason (stability, triage,
+    // cache) borrows the region's gloss and must say so.
+    setup({
+      scoreIndex: UNSCORED_SAT_SUNSET,
+      slotIndex: buildSlotIndex([DAY]),
+      regionGlossIndex: buildRegionGlossIndex([DAY]),
+    });
+    const r = within(row('2026-08-15:SUNSET'));
+    expect(r.getByTestId('location-sheet-state')).toHaveTextContent('Not scored yet');
+    expect(r.getByTestId('location-sheet-why'))
+      .toHaveTextContent('High cloud canvas with modest colour potential across the region.');
+    expect(r.queryByTestId('location-sheet-nowhy')).toBeNull();
+    expect(r.getByTestId('location-sheet-why-region')).toHaveTextContent('Northumberland sky');
+  });
+
+  it('a rated window shows its own prose and no region label', () => {
+    setup({
+      scoreIndex: SCORES,
+      slotIndex: buildSlotIndex([DAY]),
+      regionGlossIndex: buildRegionGlossIndex([DAY]),
+    });
+    const r = within(row('2026-08-15:SUNSET'));
+    expect(r.getByTestId('location-sheet-rating')).toHaveTextContent('2★');
+    expect(r.getByTestId('location-sheet-why')).toHaveTextContent('Blanket low cloud to the west.');
+    expect(r.queryByTestId('location-sheet-why-region')).toBeNull();
+  });
+});
+
+/**
+ * The tide-fit block, per solar row (T5, `docs/engineering/tide-window-plan.md`).
+ *
+ * <p><b>What breaks if these fail:</b> a coastal location's sheet stops carrying the same tide
+ * fact the map callout that opened it already showed, or the sheet's own next-fit jump silently
+ * moves the map underneath a dialog that must stay in place (plan-to-map-doors-plan.md §5 #4).
+ */
+describe('LocationFourDaySheet — the tide-fit block (T5)', () => {
+  const COASTAL = {
+    id: 7, name: 'Bamburgh', locationType: ['SEASCAPE'], bortleClass: 3, tideType: ['HIGH'],
+  };
+
+  const TIDE_DAYS = withTideFacts([
+    {
+      date: '2026-08-14',
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'Northumberland',
+          slots: [{
+            locationId: 7, locationName: 'Bamburgh', solarEventTime: '2026-08-14T19:41:00',
+            tideState: 'HIGH', tideAligned: true, tideDirection: 'FALLING',
+            tideFitPhrase: 'high water, falling · HW 19:52 · 36m before sunset · 3.9 m',
+          }],
+        }],
+      }],
+    },
+    {
+      date: '2026-08-15',
+      eventSummaries: [
+        {
+          targetType: 'SUNRISE',
+          regions: [{
+            regionName: 'Northumberland',
+            slots: [{
+              locationId: 7, locationName: 'Bamburgh', solarEventTime: '2026-08-15T04:38:00',
+              tideState: 'LOW', tideAligned: false, tideDirection: 'RISING', tideShortfall: 'HIGHER',
+              tideFitPhrase: 'wants high water · low tide, rising at 04:10 · 1.1 m of 4.2 m',
+            }],
+          }],
+        },
+        {
+          targetType: 'SUNSET',
+          regions: [{
+            regionName: 'Northumberland',
+            slots: [{
+              locationId: 7, locationName: 'Bamburgh', solarEventTime: '2026-08-15T19:39:00',
+              tideState: 'HIGH', tideAligned: true, tideDirection: 'RISING',
+              tideFitPhrase: 'high water, rising · HW 19:39 · 20m before sunset · 4.1 m',
+            }],
+          }],
+        },
+      ],
+    },
+    {
+      // ⚠️ Sunday sunrise is the AWAY day (`WINDOWS[3]`). This entry exists to PIN
+      // `LocationFourDaySheet`'s own `row.away ? null : lookupForWindow(...)` guard — an aligned
+      // fact IS indexed here, so a fixture with no entry at all for this date would let the guard
+      // be deleted (always looking up) with no test noticing. The guard is what must suppress it.
+      date: '2026-08-16',
+      eventSummaries: [{
+        targetType: 'SUNRISE',
+        regions: [{
+          regionName: 'Northumberland',
+          slots: [{
+            locationId: 7, locationName: 'Bamburgh', solarEventTime: '2026-08-16T04:41:00',
+            tideState: 'HIGH', tideAligned: true, tideDirection: 'FALLING',
+            tideFitPhrase: 'high water, falling · HW 04:35 · 6m before sunrise · 3.8 m',
+          }],
+        }],
+      }],
+    },
+  ]);
+  const TIDE_INDEX = buildTideAlignmentIndex(TIDE_DAYS);
+
+  it('renders a block per solar row that carries a served tide fact — match, miss, and match again', () => {
+    setup({ location: COASTAL, tideAlignmentIndex: TIDE_INDEX });
+
+    const friSunset = within(row('2026-08-14:SUNSET')).getByTestId('tide-fit-block');
+    expect(friSunset).toHaveAttribute('data-tier', 'match');
+    expect(friSunset).toHaveTextContent('Tide lands on the light');
+
+    const satSunrise = within(row('2026-08-15:SUNRISE')).getByTestId('tide-fit-block');
+    expect(satSunrise).toHaveAttribute('data-tier', 'miss');
+    expect(satSunrise).toHaveTextContent('Wrong water, not wrong light');
+
+    const satSunset = within(row('2026-08-15:SUNSET')).getByTestId('tide-fit-block');
+    expect(satSunset).toHaveAttribute('data-tier', 'match');
+  });
+
+  it('renders none on the away row, even though TIDE_INDEX carries an aligned fact for it', () => {
+    // ⚠️ `TIDE_DAYS` deliberately DOES index 2026-08-16:SUNRISE (an aligned fact) — a tautological
+    // version of this test would omit that entry and pass merely because the index had nothing to
+    // find. With the entry present, this pins the ROW'S OWN `row.away ? null : lookupForWindow(…)`
+    // guard: a forecast for a night nobody forecast must be suppressed even when the pipeline's own
+    // data (a stale index, or a rebuild racing the travel-day edit) would otherwise show one.
+    setup({ location: COASTAL, tideAlignmentIndex: TIDE_INDEX });
+    expect(within(row('2026-08-16:SUNRISE')).queryByTestId('tide-fit-block')).toBeNull();
+  });
+
+  it('renders no block at all with no tideAlignmentIndex — the honest degrade, never a guess', () => {
+    setup({ location: COASTAL });
+    for (const el of screen.getAllByTestId('location-sheet-row')) {
+      expect(within(el).queryByTestId('tide-fit-block')).toBeNull();
+    }
+  });
+
+  it('names the resolved next-fit window in the sheet\'s own day vocabulary, not the map\'s', () => {
+    setup({ location: COASTAL, tideAlignmentIndex: TIDE_INDEX });
+    const jump = within(row('2026-08-15:SUNRISE')).getByTestId('tide-fit-jump');
+    // `row.dow` ("Sat"), never "Tomorrow" — this sheet's own weekday vocabulary, read off the
+    // TARGET row (Saturday's sunset), not the row the jump lives on. `formatTime` reads the
+    // fixture's naive `solarEventTime` as UTC and states it in UK local time (BST, +1h in
+    // August): `TIDE_DAYS`' 19:39 prints as 20:39, the same +1h `SLOTS`' own 19:41 fixture
+    // takes to the 20:41 the first test in this file asserts.
+    expect(jump).toHaveTextContent('Next high water on the light · Sat sunset 20:39');
+  });
+
+  it('the jump FOCUSES the target row on THIS sheet — it does not move the map underneath it', () => {
+    // plan-to-map-doors-plan.md §5 #4's reasoning: a control inside an open sheet must not move
+    // the surface it sits over. The target row (Saturday's sunset) starts CLOSED — the seeded
+    // best window is Saturday's sunrise (rating 5 in `SCORES`) — so this also proves the jump
+    // OPENS it, not merely focuses whatever was already showing.
+    //
+    // `requestAnimationFrame` is mocked to run synchronously (`WindowFirstShell.test.jsx`'s own
+    // pattern for the same deferred-focus shape) — `focusRow` defers the `.focus()` call past
+    // React's commit on purpose (adversarial review, accessibility lens: calling it synchronously
+    // alongside `setOpen` would focus the toggle while `aria-expanded` still read the PRE-click
+    // value for one paint), so a test with no rAF flush would only prove the state changed, not
+    // that focus landed on the settled DOM.
+    const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { cb(); return 0; });
+    setup({ location: COASTAL, tideAlignmentIndex: TIDE_INDEX });
+    const targetBefore = within(row('2026-08-15:SUNSET')).getByTestId('location-sheet-row-toggle');
+    expect(targetBefore).toHaveAttribute('aria-expanded', 'false');
+
+    fireEvent.click(within(row('2026-08-15:SUNRISE')).getByTestId('tide-fit-jump'));
+
+    const targetAfter = within(row('2026-08-15:SUNSET')).getByTestId('location-sheet-row-toggle');
+    expect(targetAfter).toHaveAttribute('aria-expanded', 'true');
+    expect(document.activeElement).toBe(targetAfter);
+    raf.mockRestore();
+  });
+
+  it('says "Nothing in these 3 days…" when the index carries no later fit for this location', () => {
+    // This fixture's own `WINDOWS` span 3 distinct days (`sheet.rows`' own `dayCount`), which is
+    // why the sheet's horizon word here is "3 days" rather than the callout's spelled-out default.
+    // Only the SUNRISE miss entry — no later aligned slot for this location to find.
+    const MISS_ONLY = buildTideAlignmentIndex([
+      { date: '2026-08-15', eventSummaries: [TIDE_DAYS[1].eventSummaries[0]] },
+    ]);
+    setup({ location: COASTAL, tideAlignmentIndex: MISS_ONLY });
+    const denial = within(row('2026-08-15:SUNRISE')).getByTestId('tide-fit-denial');
+    expect(denial).toHaveTextContent('Nothing in these 3 days puts high water on the light here.');
+    expect(within(row('2026-08-15:SUNRISE')).queryByTestId('tide-fit-jump')).toBeNull();
+  });
+
+  it('⚠️ the scan skips the away row even when the index carries a real aligned fact for it (adversarial review)', () => {
+    // The pipeline still COLLECTS a travel day's tide extremes even though it skips EVALUATING
+    // them — the same rule that gates the away row's OWN display (`row.away ? null : …` above) —
+    // so `buildTideAlignmentIndex`, built from unfiltered `briefing.days`, can genuinely carry an
+    // aligned entry for 2026-08-16. Without the scan's own away-guard, the SUNRISE miss row's jump
+    // would resolve to that away row and open a body reading "Nothing was forecast for this day —
+    // away" directly under a jump that had just named a real tide. This fixture's ONLY aligned
+    // entry is the away one — no other later fit exists — so a real skip reads as the denial; a
+    // broken guard would print a jump naming Sunday's water instead.
+    const AWAY_ONLY = buildTideAlignmentIndex([
+      { date: '2026-08-15', eventSummaries: [TIDE_DAYS[1].eventSummaries[0]] },
+      TIDE_DAYS[2],
+    ]);
+    setup({ location: COASTAL, tideAlignmentIndex: AWAY_ONLY });
+    const missRow = within(row('2026-08-15:SUNRISE'));
+    expect(missRow.getByTestId('tide-fit-denial'))
+      .toHaveTextContent('Nothing in these 3 days puts high water on the light here.');
+    expect(missRow.queryByTestId('tide-fit-jump')).toBeNull();
+  });
+
+  // The sky component (tide gate lift, 2026-09-18, docs/engineering/tide-window-plan.md §6 Q1).
+  // `TideFitBlock.test.jsx` covers the rendering rule exhaustively; these prove the SHEET wires
+  // the right combined figure through — `row.rating`, from the same `scoreIndex`
+  // (`SCORES`: Fri sunset rating 3, Sat sunrise rating 5) every other row on this sheet reads —
+  // never a re-derivation of its own.
+  describe('the sky component', () => {
+    it('a miss states the served skyRating beside the row\'s own combined star', () => {
+      const WITH_SKY = buildTideAlignmentIndex([
+        {
+          ...TIDE_DAYS[1],
+          eventSummaries: [{
+            ...TIDE_DAYS[1].eventSummaries[0],
+            regions: [{
+              ...TIDE_DAYS[1].eventSummaries[0].regions[0],
+              slots: [{
+                ...TIDE_DAYS[1].eventSummaries[0].regions[0].slots[0], skyRating: 4,
+              }],
+            }],
+          }],
+        },
+      ]);
+      setup({ location: COASTAL, tideAlignmentIndex: WITH_SKY });
+      const satSunrise = within(row('2026-08-15:SUNRISE'));
+      expect(satSunrise.getByTestId('location-sheet-rating')).toHaveTextContent('5★');
+      expect(satSunrise.getByTestId('tide-fit-sky')).toHaveTextContent('sky 4★');
+    });
+
+    it('a match whose sky score agrees with the row\'s combined star (3★) states nothing new', () => {
+      setup({ location: COASTAL, tideAlignmentIndex: TIDE_INDEX });
+      // TIDE_DAYS carries no `skyRating` at all, so this is the "unknown" case — nothing renders.
+      expect(within(row('2026-08-14:SUNSET')).queryByTestId('tide-fit-sky')).toBeNull();
+    });
+
+    it('a match whose sky score differs from the row\'s combined star (3★) states it', () => {
+      const WITH_SKY = buildTideAlignmentIndex([
+        {
+          ...TIDE_DAYS[0],
+          eventSummaries: [{
+            ...TIDE_DAYS[0].eventSummaries[0],
+            regions: [{
+              ...TIDE_DAYS[0].eventSummaries[0].regions[0],
+              slots: [{
+                ...TIDE_DAYS[0].eventSummaries[0].regions[0].slots[0], skyRating: 4,
+              }],
+            }],
+          }],
+        },
+      ]);
+      setup({ location: COASTAL, tideAlignmentIndex: WITH_SKY });
+      const friSunset = within(row('2026-08-14:SUNSET'));
+      expect(friSunset.getByTestId('location-sheet-rating')).toHaveTextContent('3★');
+      expect(friSunset.getByTestId('tide-fit-sky')).toHaveTextContent('sky 4★');
+    });
+  });
+});
+
+/**
+ * The eclipse spot line, per solar row (L7, `docs/engineering/lunar-eclipse-plan.md` §3 L7).
+ *
+ * <p><b>What breaks if these fail:</b> a location's sheet stops carrying the same per-location moon
+ * geometry the map callout that opened it (or the popup's `DawnRace`) already showed, or a travel
+ * day starts reading like a forecast the pipeline never made.
+ */
+describe('LocationFourDaySheet — the eclipse spot line (L7)', () => {
+  const SIGHT = {
+    moonAltAtMax: 7, moonAzCardinal: 'WSW', moonset: '2026-08-14T06:16:00', moonrise: null,
+    setsInShadow: true, risesInShadow: false,
+  };
+
+  const ECLIPSE_DAYS = [
+    {
+      date: '2026-08-14',
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'Northumberland',
+          slots: [{
+            locationId: 7, locationName: 'Bamburgh', solarEventTime: '2026-08-14T19:41:00',
+            eclipse: SIGHT,
+          }],
+        }],
+      }],
+    },
+    {
+      // ⚠️ Sunday sunrise is the AWAY day (`WINDOWS[3]`), and it DOES carry a served sight — the
+      // same tautology guard `TIDE_DAYS` states above: without an indexed entry here, the away
+      // row's suppression could be deleted (always looking up) and this file would not notice.
+      date: '2026-08-16',
+      eventSummaries: [{
+        targetType: 'SUNRISE',
+        regions: [{
+          regionName: 'Northumberland',
+          slots: [{
+            locationId: 7, locationName: 'Bamburgh', solarEventTime: '2026-08-16T04:41:00',
+            eclipse: SIGHT,
+          }],
+        }],
+      }],
+    },
+  ];
+  const ECLIPSE_INDEX = buildEclipseIndex(ECLIPSE_DAYS);
+
+  it('renders the line on the row carrying a served sight', () => {
+    setup({ eclipseIndex: ECLIPSE_INDEX });
+    expect(within(row('2026-08-14:SUNSET')).getByTestId('eclipse-spot-line'))
+      .toHaveTextContent('moon 7° up WSW at max · sets 06:16 in shadow');
+  });
+
+  it('renders nothing on a row with no served sight for its own window', () => {
+    setup({ eclipseIndex: ECLIPSE_INDEX });
+    // Saturday sunrise is indexed by nothing in ECLIPSE_DAYS.
+    expect(within(row('2026-08-15:SUNRISE')).queryByTestId('eclipse-spot-line')).toBeNull();
+  });
+
+  it('renders nothing on the away row, even though ECLIPSE_DAYS carries a sight for it', () => {
+    setup({ eclipseIndex: ECLIPSE_INDEX });
+    expect(within(row('2026-08-16:SUNRISE')).queryByTestId('eclipse-spot-line')).toBeNull();
+  });
+
+  it('renders no line at all with no eclipseIndex — the honest degrade, never a guess', () => {
+    setup();
+    for (const el of screen.getAllByTestId('location-sheet-row')) {
+      expect(within(el).queryByTestId('eclipse-spot-line')).toBeNull();
+    }
+  });
+
+  it('a row whose sight sits below the horizon at max, with neither flag set, reads "not visible from here" and never "up" (Codex, PR #918)', () => {
+    const BELOW_HORIZON_SIGHT = {
+      moonAltAtMax: -2, moonAzCardinal: 'WSW', moonset: null, moonrise: null,
+      setsInShadow: false, risesInShadow: false,
+    };
+    const days = [
+      {
+        date: '2026-08-14',
+        eventSummaries: [{
+          targetType: 'SUNSET',
+          regions: [{
+            regionName: 'Northumberland',
+            slots: [{
+              locationId: 7, locationName: 'Bamburgh', solarEventTime: '2026-08-14T19:41:00',
+              eclipse: BELOW_HORIZON_SIGHT,
+            }],
+          }],
+        }],
+      },
+    ];
+    setup({ eclipseIndex: buildEclipseIndex(days) });
+    const line = within(row('2026-08-14:SUNSET')).getByTestId('eclipse-spot-line');
+    expect(line).toHaveTextContent('moon 2° below the horizon at max · not visible from here');
+    expect(line.textContent).not.toContain('up');
+  });
+
+  it('a row whose sight sits AT exactly zero altitude, with neither flag set, makes no visibility claim (Codex, PR #918, second pass)', () => {
+    // The served altitude is a rounded integer, so a genuine -0.4deg reading also serves as 0 — the
+    // client cannot tell the two apart at this boundary and must not guess either way.
+    const ON_HORIZON_SIGHT = {
+      moonAltAtMax: 0, moonAzCardinal: 'WSW', moonset: null, moonrise: null,
+      setsInShadow: false, risesInShadow: false,
+    };
+    const days = [
+      {
+        date: '2026-08-14',
+        eventSummaries: [{
+          targetType: 'SUNSET',
+          regions: [{
+            regionName: 'Northumberland',
+            slots: [{
+              locationId: 7, locationName: 'Bamburgh', solarEventTime: '2026-08-14T19:41:00',
+              eclipse: ON_HORIZON_SIGHT,
+            }],
+          }],
+        }],
+      },
+    ];
+    setup({ eclipseIndex: buildEclipseIndex(days) });
+    const line = within(row('2026-08-14:SUNSET')).getByTestId('eclipse-spot-line');
+    expect(line).toHaveTextContent('moon on the horizon at max');
+    expect(line.textContent).not.toContain('up');
+    expect(line.textContent).not.toContain('throughout');
+    expect(line.textContent).not.toContain('not visible');
+  });
+});
+
+/**
+ * A pure wildlife hide on the sheet — its hourly comfort forecast REPLACES the window rows.
+ *
+ * <p><b>What breaks if these fail:</b> a hide's sheet goes back to a column of "Not scored yet"
+ * windows with nothing under them; the table loses its structure (headers, a row header per hour)
+ * and becomes a run of loose text; a day the hourly job has not written stops saying so; or a SKY
+ * location's sheet changes, which this must not touch.
+ */
+describe('LocationFourDaySheet — a wildlife hide shows its hourly comfort forecast', () => {
+  const HIDE_SPOT = { id: 21, name: 'Gosforth Nature Reserve', regionName: 'Northumberland' };
+
+  // UTC instants on BST dates: the sheet prints the UK clock, one hour on.
+  const hourly = (date, time, t, feels, windSpeed, windDirection, rain) => ({
+    solarEventTime: `${date}T${time}:00`,
+    temperatureCelsius: t,
+    apparentTemperatureCelsius: feels,
+    windSpeed,
+    windDirection,
+    precipitationProbabilityPercent: rain,
+  });
+  const day = (date, rows) => [date, { sunrise: null, sunset: null, hourly: rows }];
+
+  const HIDE = {
+    id: 21,
+    name: 'Gosforth Nature Reserve',
+    locationType: ['WILDLIFE'],
+    forecastsByDate: new Map([
+      // Yesterday's rows — a finished day answers nothing and is not listed.
+      day('2026-08-13', [hourly('2026-08-13', '08:00', 11, 9, 4, 180, 0)]),
+      day('2026-08-14', [
+        hourly('2026-08-14', '08:00', 12, 10, 4, 270, 10),
+        hourly('2026-08-14', '09:00', 14, 12, 6, 250, 30),
+      ]),
+      day('2026-08-15', [hourly('2026-08-15', '08:00', 13, 11, 5, 180, 20)]),
+      // The 16th is a window the sheet spans, with no hourly rows: it must say so.
+      // The 19th is held up by hourly rows alone (T+5): listed, though no window names it.
+      day('2026-08-19', [hourly('2026-08-19', '08:00', 15, 13, 3, 90, 5)]),
+    ]),
+  };
+
+  const hideSetup = (props = {}) => setup({
+    spot: HIDE_SPOT, location: HIDE, scoreIndex: null, slotIndex: null, ...props,
+  });
+
+  const dayBlock = (date) => screen.getAllByTestId('location-sheet-hourly-day')
+    .find((el) => el.dataset.date === date);
+
+  it('is named for what it shows, not for a count of windows it does not have', () => {
+    hideSetup();
+    expect(screen.getByRole('dialog', { name: 'Gosforth Nature Reserve — hourly comfort forecast' }))
+      .toBeInTheDocument();
+  });
+
+  it('says what the place is, so the table is not mistaken for a sky read', () => {
+    hideSetup();
+    expect(screen.getByTestId('location-sheet-hide-note'))
+      .toHaveTextContent('Wildlife hide: never scored for sky colour.');
+  });
+
+  it('renders one table per day with rows, in date order, from today, and none for a finished day', () => {
+    hideSetup();
+    expect(screen.getAllByTestId('location-sheet-hourly-day').map((el) => el.dataset.date))
+      .toEqual(['2026-08-14', '2026-08-15', '2026-08-16', '2026-08-19']);
+    expect(within(dayBlock('2026-08-14')).getByRole('heading', { name: 'Fri 14 Aug' })).toBeInTheDocument();
+    expect(within(dayBlock('2026-08-19')).getByRole('heading', { name: 'Wed 19 Aug' })).toBeInTheDocument();
+  });
+
+  it('draws the day\'s hours as a real table: named, with column headers and a row header per hour', () => {
+    hideSetup();
+    const table = within(dayBlock('2026-08-14')).getByRole('table', {
+      name: 'Hourly comfort at Gosforth Nature Reserve, Fri 14 Aug',
+    });
+    // Visible short forms on a phone, but the accessible NAME of each header is the full word.
+    for (const name of ['Time', 'Temperature', 'Wind', 'Rain chance']) {
+      expect(within(table).getByRole('columnheader', { name })).toBeInTheDocument();
+    }
+    expect(within(table).getAllByRole('columnheader')).toHaveLength(4);
+    // 08:00 and 09:00 UTC are 09:00 and 10:00 BST.
+    expect(within(table).getAllByRole('rowheader').map((th) => th.textContent)).toEqual(['09:00', '10:00']);
+    const [first, second] = within(table).getAllByTestId('hourly-comfort-row');
+    expect(first).toHaveTextContent('12°C · feels 10°C');
+    expect(first).toHaveTextContent('8.9 mph W');
+    expect(first).toHaveTextContent('10%');
+    expect(second).toHaveTextContent('14°C · feels 12°C');
+    expect(second).toHaveTextContent('13.4 mph W');
+    expect(second).toHaveTextContent('30%');
+  });
+
+  it('shows the column headers, not hides them — the popup keeps them for assistive technology only', () => {
+    hideSetup();
+    const table = within(dayBlock('2026-08-14')).getByRole('table');
+    expect(within(table).getByRole('columnheader', { name: 'Wind' }).firstChild)
+      .not.toHaveClass('sr-only');
+  });
+
+  it('says so, in words, for a day the sheet spans that holds no hourly rows', () => {
+    hideSetup();
+    const block = dayBlock('2026-08-16');
+    expect(within(block).getByTestId('location-sheet-hourly-day-none'))
+      .toHaveTextContent('No hourly forecast for this day yet.');
+    expect(within(block).queryByRole('table')).toBeNull();
+  });
+
+  it('draws no window rows, no lead line and no "not scored" for a place that is never scored', () => {
+    hideSetup({ scoreIndex: SCORES, slotIndex: SLOTS });
+    expect(screen.queryAllByTestId('location-sheet-row')).toEqual([]);
+    expect(screen.queryByTestId('location-sheet-lead')).toBeNull();
+    expect(screen.queryByText(/Not scored/)).toBeNull();
+    expect(screen.queryByTestId('location-sheet-empty')).toBeNull();
+  });
+
+  it('keeps the footer\'s way onto the map — the sheet\'s two doors are the place\'s own', () => {
+    const { onShowOnMap } = hideSetup();
+    fireEvent.click(screen.getByRole('button', { name: /Show on map/ }));
+    expect(onShowOnMap).toHaveBeenCalledTimes(1);
+  });
+
+  it('says there is no hourly forecast yet when there are no rows and no windows to name a day', () => {
+    hideSetup({ windows: [], location: { ...HIDE, forecastsByDate: new Map() } });
+    expect(screen.getByTestId('location-sheet-hourly-none')).toHaveTextContent('No hourly forecast yet.');
+    expect(screen.queryAllByTestId('location-sheet-hourly-day')).toEqual([]);
+    // ⚠️ And NOT the sky sheet's "No forecast loaded yet." — a hide with no windows is not waiting
+    // for window rows it will never have (deleting the `!hourlyBody` guard on it fails this).
+    expect(screen.queryByTestId('location-sheet-empty')).toBeNull();
+  });
+
+  it('makes the one scroller a named, focusable region for a hide — nothing inside a table takes focus', () => {
+    hideSetup();
+    const region = screen.getByRole('region', { name: 'Gosforth Nature Reserve hourly comfort forecast' });
+    expect(region).toBe(screen.getByTestId('location-sheet-rows'));
+    expect(region).toHaveAttribute('tabindex', '0');
+  });
+
+  it('⚠️ gives a sky location\'s scroller no tab stop or region role — its row buttons are the stops', () => {
+    setup();
+    const scroller = screen.getByTestId('location-sheet-rows');
+    expect(scroller).not.toHaveAttribute('tabindex');
+    expect(screen.queryByRole('region')).toBeNull();
+  });
+
+  describe('a hide opened before its roster record joins (Plan search: the heat spot carries skySubject)', () => {
+    const PENDING_SPOT = { ...HIDE_SPOT, skySubject: false };
+
+    it('paints NO window rows while the record is unknown — never six "Not scored yet" for a hide', () => {
+      hideSetup({ spot: PENDING_SPOT, location: null });
+      expect(screen.queryAllByTestId('location-sheet-row')).toEqual([]);
+      expect(screen.queryByText(/Not scored/)).toBeNull();
+      expect(screen.getByTestId('location-sheet-hide-pending')).toHaveTextContent('Loading this place…');
+    });
+
+    it('swaps to the hourly section when the record arrives, and focus is never dropped to <body>', async () => {
+      const handlers = { onClose: vi.fn(), onShowOnMap: vi.fn() };
+      const props = {
+        spot: PENDING_SPOT, windows: WINDOWS, scoreIndex: null, slotIndex: null, scoresKnown: true,
+        todayStr: TODAY, ...handlers,
+      };
+      const { rerender } = render(<LocationFourDaySheet {...props} location={null} />);
+      const dialog = screen.getByRole('dialog');
+      await waitFor(() => expect(dialog).toHaveFocus());
+      rerender(<LocationFourDaySheet {...props} location={HIDE} />);
+      expect(screen.getAllByTestId('location-sheet-hourly-day').length).toBeGreaterThan(0);
+      expect(screen.queryByTestId('location-sheet-hide-pending')).toBeNull();
+      expect(screen.queryAllByTestId('location-sheet-row')).toEqual([]);
+      // There was never a row to tab onto, so nothing unmounted under the reader: focus stays inside.
+      expect(document.activeElement).not.toBe(document.body);
+      expect(dialog).toContainElement(document.activeElement);
+    });
+
+    it('does NOT withhold rows from a place with ratings, or from a spot that is not flagged', () => {
+      // A flagged spot with a rated row (a rated wood, say) keeps its rows; so does an unflagged one.
+      setup({ spot: { ...SPOT, skySubject: false }, location: null });
+      expect(screen.getAllByTestId('location-sheet-row').length).toBeGreaterThan(0);
+    });
+
+    it('leaves a spot with no flag exactly as before — a popup chip, which comes from the joined roster', () => {
+      setup({ spot: HIDE_SPOT, scoreIndex: null, slotIndex: null, location: null });
+      expect(screen.getAllByTestId('location-sheet-row').length).toBeGreaterThan(0);
+      expect(screen.queryByTestId('location-sheet-hide-pending')).toBeNull();
+    });
+  });
+
+  it('⚠️ leaves a sky location\'s sheet exactly as it was: window rows, no hourly section', () => {
+    setup();
+    expect(screen.getAllByTestId('location-sheet-row')).toHaveLength(4);
+    expect(screen.queryByTestId('location-sheet-hourly')).toBeNull();
+    expect(screen.getByRole('dialog', { name: 'Bamburgh — the next 4 windows' })).toBeInTheDocument();
+  });
+
+  it('treats a place that is a hide AND a landscape as a sky location — window rows, no hourly section', () => {
+    setup({ location: { ...HIDE, id: 7, locationType: ['WILDLIFE', 'LANDSCAPE'] } });
+    expect(screen.getAllByTestId('location-sheet-row')).toHaveLength(4);
+    expect(screen.queryByTestId('location-sheet-hourly')).toBeNull();
+  });
+});

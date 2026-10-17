@@ -55,8 +55,8 @@ export function occurrenceCountsLine(occurrences) {
 }
 
 /**
- * Whether the strip should show its quiet "scores are provisional" marker (README's "say so in the UI"
- * clause, §11.8) — true while ANY served condition's scoring is interim.
+ * Whether the strip should show its quiet "figures are provisional" marker (README's "say so in
+ * the UI" clause, §11.8) — true while ANY served condition's scoring is interim.
  *
  * @param {?Array<{interim: boolean}>} conditions the served conditions, or null/undefined
  * @returns {boolean}
@@ -66,18 +66,20 @@ export function anyConditionInterim(conditions) {
 }
 
 /**
- * A plain-English word for a surprisal score in bits — mirrors
- * {@code ComingUpConditionsBuilder.rarityWord} on the backend (same boundaries), used to caption
- * the raw `bits` figure the server sends on a peak or occurrence rather than showing the bare
- * information-theory unit on its own. An interim readability pass, not yet user-tested.
+ * A plain-English word for a surprisal score, captioning the raw `bits` figure the server sends
+ * on a peak or occurrence rather than showing the bare information-theory unit on its own
+ * (lunar-eclipse plan §2.9: "no more bits"). No backend counterpart, unlike the retired
+ * `rarityWord` this replaces: `bits` here is the entry's or occurrence's own combined total
+ * (rarity + magnitude), so a three-way frequency phrase would double-count what
+ * `ComingUpConditionsBuilder`'s `quantLabel`/`rateLabel` already say about how OFTEN something
+ * happens — this is purely a client-side bucket over the design's own three-word scale (README
+ * §6): `exceptional` / `above usual` / `typical`.
  *
  * @param {number} bits the surprisal score
- * @returns {string} 'common' | 'occasional' | 'uncommon' | 'rare' | 'very rare'
+ * @returns {string} 'exceptional' | 'above usual' | 'typical'
  */
 export function bitsWord(bits) {
-  if (bits < 2.0) return 'common';
-  if (bits < 4.0) return 'occasional';
-  if (bits < 6.0) return 'uncommon';
-  if (bits < 8.0) return 'rare';
-  return 'very rare';
+  if (bits >= 7.0) return 'exceptional';
+  if (bits >= 4.5) return 'above usual';
+  return 'typical';
 }

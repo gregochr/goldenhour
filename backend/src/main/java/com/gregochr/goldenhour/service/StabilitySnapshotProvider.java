@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
@@ -63,10 +64,23 @@ public class StabilitySnapshotProvider {
 
     private static final Logger LOG = LoggerFactory.getLogger(StabilitySnapshotProvider.class);
 
-    /** Hours after which a persisted snapshot is considered stale. */
-    private static final long SNAPSHOT_STALENESS_HOURS = 24;
+    /**
+     * Hours after which a persisted snapshot is considered stale: a day plus a six-hour margin.
+     *
+     * <p>Only a non-ephemeral (morning) classification publishes a snapshot, so under a
+     * sun-relative morning cycle the gap between two snapshots is a day give or take a few minutes
+     * that drift every day, and a failed or late cycle can stretch it further. A strict 24 hours
+     * would read yesterday's snapshot as missing after a restart landing just before the next
+     * cycle writes, treating every region as UNSETTLED (the 4-hour freshness threshold, more
+     * Claude spend). The worst case 30 hours lets through is a classification from a missed
+     * morning cycle, up to six hours older than before; it is still the latest classification of
+     * slow-moving pressure patterns, and the alternative is the UNSETTLED default for everything.
+     */
+    static final long SNAPSHOT_STALENESS_HOURS = 30;
 
     private final StabilitySnapshotRepository stabilitySnapshotRepository;
+
+    private final Clock clock;
 
     /** Most recent stability snapshot, populated after each scheduled triage run. */
     private final AtomicReference<StabilitySummaryResponse> latestStabilitySummary =
@@ -76,14 +90,17 @@ public class StabilitySnapshotProvider {
      * Constructs the provider.
      *
      * @param stabilitySnapshotRepository repository for persisting and retrieving snapshots
+     * @param clock                       clock for the staleness guard
      */
-    public StabilitySnapshotProvider(StabilitySnapshotRepository stabilitySnapshotRepository) {
+    public StabilitySnapshotProvider(StabilitySnapshotRepository stabilitySnapshotRepository,
+            Clock clock) {
         this.stabilitySnapshotRepository = stabilitySnapshotRepository;
+        this.clock = clock;
     }
 
     /**
      * Returns the most recent stability summary. Tries in-memory first, then falls
-     * back to the database (with a 24-hour staleness guard). Returns {@code null} if
+     * back to the database (with a 30-hour staleness guard). Returns {@code null} if
      * no fresh snapshot is available from either source.
      *
      * @return latest snapshot, or {@code null}
@@ -152,14 +169,14 @@ public class StabilitySnapshotProvider {
 
     /**
      * Read-through: loads the stability snapshot from the database when the in-memory
-     * cache is empty (e.g. after container restart). Applies a 24-hour staleness guard —
+     * cache is empty (e.g. after container restart). Applies a 30-hour staleness guard —
      * snapshots older than that are treated as missing.
      *
      * @return reconstructed snapshot, or {@code null} if no fresh rows exist
      */
     private StabilitySummaryResponse loadSnapshotFromDb() {
         try {
-            Instant staleThreshold = Instant.now().minus(SNAPSHOT_STALENESS_HOURS, ChronoUnit.HOURS);
+            Instant staleThreshold = clock.instant().minus(SNAPSHOT_STALENESS_HOURS, ChronoUnit.HOURS);
             List<StabilitySnapshotEntity> fresh = stabilitySnapshotRepository
                     .findByClassifiedAtAfter(staleThreshold);
 

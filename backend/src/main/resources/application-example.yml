@@ -1,6 +1,5 @@
 anthropic:
   api-key: YOUR_ANTHROPIC_API_KEY
-  model: claude-sonnet-4-5-20250929
 
 spring:
   datasource:
@@ -40,20 +39,40 @@ notifications:
     user-key: YOUR_PUSHOVER_USER_KEY
   macos-toast:
     enabled: true
+  admin-alerts:
+    # Emails every enabled ADMIN account when a pipeline run is marked DEGRADED (see
+    # AdminAlertService). Default is false when this key is absent at all — set explicitly per
+    # profile so intent is never ambiguous.
+    enabled: true
 
 cost:
   # Token-based pricing (USD per million tokens) — matches Anthropic published rates
   haiku-input-usd-per-mtok: 1.00
   haiku-output-usd-per-mtok: 5.00
   haiku-cache-write-usd-per-mtok: 1.25
+  haiku-cache-write-1h-usd-per-mtok: 2.00   # 2x input; the 1-hour cache lifetime
   haiku-cache-read-usd-per-mtok: 0.10
   sonnet-input-usd-per-mtok: 3.00
   sonnet-output-usd-per-mtok: 15.00
   sonnet-cache-write-usd-per-mtok: 3.75
+  sonnet-cache-write-1h-usd-per-mtok: 6.00   # 2x input; the 1-hour cache lifetime
   sonnet-cache-read-usd-per-mtok: 0.30
+  sonnet55-input-usd-per-mtok: 2.00
+  sonnet55-output-usd-per-mtok: 10.00
+  sonnet55-cache-write-usd-per-mtok: 2.50
+  sonnet55-cache-write-1h-usd-per-mtok: 4.00   # 2x input; the 1-hour cache lifetime
+  sonnet55-cache-read-usd-per-mtok: 0.20
+  # Haiku 5.5: these are the rates for prompts up to 100K tokens (all of ours); above 100K the
+  # rates are 0.50 input / 2.50 output (cache rates scale with input)
+  haiku55-input-usd-per-mtok: 0.10
+  haiku55-output-usd-per-mtok: 0.50
+  haiku55-cache-write-usd-per-mtok: 0.125
+  haiku55-cache-write-1h-usd-per-mtok: 0.20   # 2x input; the 1-hour cache lifetime
+  haiku55-cache-read-usd-per-mtok: 0.01
   opus-input-usd-per-mtok: 5.00
   opus-output-usd-per-mtok: 25.00
   opus-cache-write-usd-per-mtok: 6.25
+  opus-cache-write-1h-usd-per-mtok: 10.00   # 2x input; the 1-hour cache lifetime
   opus-cache-read-usd-per-mtok: 0.50
   # Non-Anthropic flat costs (micro-dollars)
   world-tides-micro-dollars: 3000   # ~$0.003 per call
@@ -166,6 +185,11 @@ coming-up:
                                                # a little under every other lunar month
       eclipse-mean-gap-days: 1500.0           # placeholder pending a catalogue-derived figure —
                                                # only five UK-visible eclipses are catalogued at all
+      lunar-eclipse-mean-gap-days: 900.0      # documented long-run estimate, NOT the seeded window's
+                                               # own mean (six gaps, Mar 2025-2030, average ~290 d —
+                                               # that window is unusually dense); log2(900)+1 clears
+                                               # the interrupt band, log2(290)+1 would not — lowering
+                                               # this is a re-census decision, see the class javadoc
     recurrent:                                # standing-conditions strip topics (plan §7 P4) —
                             # dust and inversion, whose magnitude stays config-interim forever
                             # (never a real distribution — D4)
@@ -191,6 +215,64 @@ coming-up:
                             # through config rather than hardcoded, ready for P7
 
 photocast:
+  # Solar-relative scheduling (docs/engineering/solar-relative-refresh-plan.md D5). The point a
+  # SOLAR_OFFSET job's sunrise/sunset is computed for. Optional: the default is Durham. Both keys
+  # must be set together; a missing, non-numeric or out-of-range value never stops startup or
+  # scheduling — it logs ERROR and Durham is used.
+  #   scheduler:
+  #     solar-reference:
+  #       lat: 54.776               # degrees north, -90..90
+  #       lon: -1.575               # degrees east, -180..180
+  # Ask PhotoCast (docs/engineering/ask-photocast-plan.md §2.9). Every key is optional; each default
+  # is shown. Uncomment to change one. A value outside its stated range fails startup.
+  #   ask:
+  #     enabled: false              # the whole feature; false answers 404 on every Ask endpoint and
+  #                                 # the client hides Ask. Rollback is this flag: there is no data to unwind
+  #     stub: false                 # true = StubAskEngine: no Anthropic call, no cost row. NEVER
+  #                                 # true in production (startup refuses it under the prod profile);
+  #                                 # false (the default) bills the real key
+  #     seed-local-fixture: false   # local profile only, H2 only: writes "Fixture ..." regions,
+  #                                 # rated entries and a briefing build into the local database
+  #     model: HAIKU                # HAIKU or SONNET only; Sonnet 5.5 is refused (it cannot disable thinking)
+  #     max-turns: 4                # model turns per conversation, 1-6
+  #     max-tokens: 600             # per model turn, 200-2000
+  #     call-timeout-seconds: 20    # per model call, 1-60; must not exceed deadline-seconds
+  #     deadline-seconds: 30        # whole conversation, 1-120
+  #     rate-per-minute: 5          # per user, in memory, 1-600; checked before the body is read
+  #     limit-lite: 3               # typed questions a day, LITE_USER, 0-1000
+  #     limit-pro: 30               # typed questions a day, PRO_USER and ADMIN, 0-1000. The client's
+  #                                 # "Pro: 30 a day" copy is a constant: change both together
+  #     engine-ceiling-multiplier: 3  # never-refunded engine calls a day = this x the role's limit, 1-20
+  #     daily-spend-cap-usd: 0.50   # typed spend a day (UK date), above 0 and at most 1000; tripping
+  #                                 # it answers 503 TYPED_UNAVAILABLE to everyone and emails the
+  #                                 # admins once (needs notifications.admin-alerts.enabled)
+  #     ready:
+  #       max-cycles-per-day: 6     # scheduled Ready precomputes a day, 1-48
+  #     cache:
+  #       max-entries: 2000         # typed-answer cache, 1-100000
+  #       ttl-minutes: 30           # 1-1440
+  #     thread:
+  #       max-exchanges: 8          # earlier exchanges a follow-up question may carry, 1-20; more is
+  #                                 # 400 INVALID (the POST /api/ask body cap follows it: 8 KiB + 10 KiB each)
+  #     log:
+  #       retention-days: 90        # ask_log rows kept, 1-3650
+  # Neighbour guard (docs/engineering/neighbour-guard-plan.md §4). A sky rating far above SEVERAL nearby
+  # places that see the same sky is far more likely model noise than a real local difference, so the
+  # guard marks such a slot and no surface NAMES it as the single best place (the Plan window pick,
+  # the best-reachable line, Ask); it keeps its star. ON BY DEFAULT since G4 (2026-10-17): production
+  # needs no config. Every key is optional; each default is shown. Uncomment to change one. A value
+  # outside its stated range fails startup.
+  #   neighbour-guard:
+  #     enabled: true               # rollback is `enabled: false` + a restart: nothing is flagged and no
+  #                                 # coordinates are read
+  #     radius-km: 5.0              # how near counts as "the same sky", 1-20
+  #     min-neighbours: 2           # similar-height nearby places rated `margin` or more below the slot
+  #                                 # that are needed to flag it, 1-5. Any nearby place, at any height,
+  #                                 # rated less than `margin` below it (or higher) clears the slot
+  #     margin: 2                   # stars below the slot that count as disagreement, 2-4
+  #     min-rating: 3               # lowest sky rating that can be flagged, 3-5 (a floor below 3 is
+  #                                 # unreachable at margin 2); raise it to guard only 4-star claims
+  #     max-elevation-gap-m: 150    # two places closer in height than this are "at a similar height", 0-1000
   tide-run:
     preferred-anchor: "St. Mary's Lighthouse"  # location NAME the spring/king tide run's 24-hour
                             # chart is drawn for. Blank restores pure biggest-range selection.
@@ -220,6 +302,20 @@ photocast:
                                 # the honest empty state instead. ~30h ≈ one nightly + intraday.
   batch:
     min-prefetch-success-ratio: 0.5  # abort batch if fewer than 50% of weather fetches succeed
+    cache-primer:
+      enabled: true          # before a scheduled cycle submits its sky buckets, submit a one-request
+                             # primer batch per distinct system-prompt cache prefix and wait for it,
+                             # so the real requests READ the cache instead of each WRITING it (1.25x).
+                             # A prefix whose primer succeeded gets a 1-hour cache lifetime on its real
+                             # requests (2x write); nothing else does. false = exactly as before.
+      wait-seconds: 180      # the most the cycle waits for all primers together (0..600); 0 = do not
+                             # prime. Adds up to this long to the submit phase.
+      poll-seconds: 10       # how often the primers are polled while waiting (1..60)
+      diagnostics: false     # true = the primer's request opts in to the API's cache diagnostics and each
+                             # warmed real request names its primer as the previous message to compare
+                             # with, so api_call_log.cache_diagnostics says where it diverged. Adds a
+                             # `diagnostics` object to those batch requests (not yet exercised against the
+                             # live Batch API); reading diagnostics works whatever this is.
   briefing:
     min-coverage-ratio: 0.5  # API read-path honesty: a region whose Claude-scored fraction
                              # (scoredLocationCount / roster size) is positive but below this
@@ -239,11 +335,14 @@ photocast:
                                   # is only the dead-batch backstop — set to the Batch API's 24 h
                                   # guaranteed-completion window rather than a short await timeout.
   pipeline:
-    safety-timeout: PT4H   # failure backstop for the batch wait phase (ISO-8601 duration).
-                           # Anthropic batch latency is load-dependent: nightly (01:00 UTC) batches
-                           # finish in minutes, but afternoon (~14:00 UTC, peak load) batches were
-                           # observed taking up to ~3h. 4h clears the worst observed with margin
-                           # while still bounding a genuinely dead cycle.
+    safety-timeout: PT3H30M  # failure backstop for the batch wait phase (ISO-8601 duration).
+                             # ONE budget per cycle: the wait phase and the retry phase share it,
+                             # measured from the cycle's first batch submit (earliest
+                             # forecast_batch.submitted_at), so a restart cannot extend it.
+                             # Anthropic batch latency is load-dependent: nightly batches finish
+                             # in minutes, but afternoon (peak load) batches were observed taking
+                             # up to ~3h (slowest of 49 cycles: 181 min). 3h30 clears that while
+                             # staying under the shortest gap between two cycles (6.4 h).
   freshness:
     settled-hours: 36              # blocking highs — once-daily refresh rhythm
     transitional-hours: 12         # half synoptic cycle — catches frontal transitions
@@ -266,9 +365,15 @@ photocast:
                                    # sits at the safety floor. Independent of safety-floor-hours
                                    # despite sharing its default: raise the floor and the floor
                                    # governs; set this to 36 to roll back to stability-only at T+0.
-      t1-hours: 8                  # survives no cycle boundary — the nightly cycle lands results
-                                   # near 01:00 UTC and intraday fires at 14:00, so a 12h+ gap
-                                   # always exceeds it and a T+1 slot clears this gate at both
+      t1-hours: 3                  # survives no cycle boundary — an entry's age runs from when
+                                   # its results ARRIVED, so the cap must be under the shortest
+                                   # gap between cycles (midwinter morning -> afternoon, ~7h24 at
+                                   # Durham) minus the slowest batch still awaited (the 3h30
+                                   # safety budget): ~3h54, so 3h. It also clears the fixed
+                                   # 01:00/14:00 schedule. Re-derive it if the safety budget
+                                   # rises or the cycles move closer. It is
+                                   # applied at both cycles by the shared CACHED gate, which runs
+                                   # before eligibility, so a T+1 slot clears this gate at both
                                    # cycles. Clearing the FRESHNESS gate is not the same as being
                                    # re-evaluated: a SETTLED T+1 *sunset* is then skipped by
                                    # IntradayEligibilityPolicy, because two further looks are
@@ -278,11 +383,25 @@ photocast:
     dual-write: true               # Pass 2: dual-write component scores to forecast_score
                                    # alongside the serving path (results_json untouched). Whole-pass
                                    # rollback = set false (no redeploy); nothing reads the table yet.
-  survivor-atmosphere:
-    write: true                    # Stage B: capture survivor atmospheric readings (dust/surge/snow)
-                                   # to survivor_atmosphere at submission time — the readings half of
-                                   # the unified survivor read surface. Rollback = set false (additive
-                                   # table, no redeploy); nothing reads it until the Stage 2 read model.
+  slot-atmosphere:
+    write: true                    # Stage B: capture every candidate slot's atmospheric readings
+                                   # (dust/surge/snow) to slot_atmosphere at submission time — the
+                                   # readings half of the unified hot-topic read surface. Rollback =
+                                   # set false (additive table, no redeploy). Renamed from
+                                   # photocast.survivor-atmosphere.write in V159 (2026-09-30); the old
+                                   # key was read as a legacy alias for the rest of that day only and
+                                   # is no longer read at all.
+    retention-days: 180            # the nightly slot_atmosphere_cleanup job (03:45 UTC) deletes rows
+                                   # whose evaluation_date (the slot's own date) is more than this
+                                   # many days before today's UK date; a row exactly this old is
+                                   # kept. Owner decision 2026-10-02. Startup REFUSES a value below
+                                   # the longest reader window (coming-up.scoring.recurrent.
+                                   # trailing-window-days, default 60) — pruning must never delete
+                                   # history a reader still asks for.
+  forecast-prompt:
+    retention-days: 30             # the nightly forecast_prompt_cleanup job (03:50 UTC) deletes
+                                   # forecast_evaluation_prompt rows (the stored batch sky user
+                                   # message, V164) created more than this many days ago.
   season:
     bluebell:
       start: "04-18"               # bluebell season first active day (MM-dd, inclusive).
@@ -308,6 +427,18 @@ resilience4j:
   circuitbreaker:
     circuitBreakerAspectOrder: 1
     instances:
+      # Ask PhotoCast's own breaker (AnthropicApiClient.createAskMessage): a reader's questions must
+      # never be able to open the "anthropic" breaker the forecast pipeline shares. No health
+      # indicator, so a breaker that opens on questions cannot flip the application's health.
+      ask:
+        registerHealthIndicator: false
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30s
+        permittedNumberOfCallsInHalfOpenState: 2
+        automaticTransitionFromOpenToHalfOpenEnabled: true
       anthropic:
         registerHealthIndicator: true
         slidingWindowType: COUNT_BASED
@@ -329,12 +460,27 @@ resilience4j:
   retry:
     retryAspectOrder: 2
     instances:
+      # Ask PhotoCast model turns: two attempts, server errors only (AskRetryPredicate).
+      ask:
+        maxAttempts: 2
+        waitDuration: 500ms
       anthropic:
         maxAttempts: 4
         waitDuration: 1s
         enableExponentialBackoff: true
         exponentialBackoffMultiplier: 2
         exponentialMaxWaitDuration: 30s
+      # Second, longer-window retry around Anthropic Batch API creation calls
+      # (AnthropicBatchClient) — deliberately separate from "anthropic" above and much
+      # slower: batch creation is a handful of calls per cycle, hours apart, so ~30s/60s/120s
+      # of backoff (~3.5 min total on top of the SDK's own retries) is cheap insurance against
+      # a transient Anthropic-side 5xx/timeout. See docs on the 2026-09-29 incident.
+      anthropic-batch:
+        maxAttempts: 4
+        waitDuration: 30s
+        enableExponentialBackoff: true
+        exponentialBackoffMultiplier: 2
+        exponentialMaxWaitDuration: 120s
       open-meteo:
         maxAttempts: 3
         waitDuration: 5s
@@ -350,6 +496,11 @@ resilience4j:
   bulkhead:
     bulkheadAspectOrder: 4
     instances:
+      # Ask PhotoCast: at most four conversations talk to Claude at once; a fifth waits two seconds
+      # and is then turned away (counted as load, not as a Claude fault, by the ask breaker).
+      ask:
+        maxConcurrentCalls: 4
+        maxWaitDuration: 2s
       forecast:
         maxConcurrentCalls: 8
         maxWaitDuration: 120s

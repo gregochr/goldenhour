@@ -55,14 +55,15 @@ import java.util.List;
  *   <li>{@code topRarityRank} — no badges. Advice for the client's promoted strip; nothing here
  *       enforces the one-strip rule.</li>
  *   <li>{@code tide} — no coastal location could be resolved, or the one that was has no day with
- *       both a high and a low water on this date. The row falls back to {@code BriefingSlot.tide}'s
+ *       both a high and a low water on this date. The row falls back to {@link #tideFacts}'s
  *       per-location fact line. It is <em>not</em> a statement that the tide is unremarkable, and
  *       nothing is ever synthesised to fill the gap.</li>
  * </ul>
  *
  * <p>{@code verdict} is never null. {@code AWAITING} is reachable and means the window has neither
- * a rating nor a triage signal — it is not a synonym for a poor forecast, and must not render as
- * one.
+ * a rating nor a triage signal, or that its top region was blanked by the honesty filter for a
+ * reason that is not the weather (never attempted at this range, a travel day, a run that did not
+ * finish) — it is not a synonym for a poor forecast, and must not render as one.
  *
  * @param eventTime     the window's single header time, or null
  * @param verdict       the window's verdict; never null
@@ -72,6 +73,10 @@ import java.util.List;
  * @param badges        hot topics landing on this window; never null, often empty
  * @param topRarityRank the rarest badge's rarity rank, or null
  * @param tide          the window's tide rollup at one named coastal location, or null
+ * @param tideFacts     per-location tide for every coastal location with a slot in this window, or
+ *                      null when the window has none (never an empty list); sits outside the slots
+ *                      because the honesty filter empties those on any window Claude did not score,
+ *                      see {@link LocationTideFact}
  */
 public record BriefingWindow(
         @JsonInclude(JsonInclude.Include.NON_NULL) LocalDateTime eventTime,
@@ -81,10 +86,36 @@ public record BriefingWindow(
         @JsonInclude(JsonInclude.Include.NON_NULL) Pick pick,
         List<Badge> badges,
         @JsonInclude(JsonInclude.Include.NON_NULL) Integer topRarityRank,
-        @JsonInclude(JsonInclude.Include.NON_NULL) BriefingWindowTide tide) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) BriefingWindowTide tide,
+        @JsonInclude(JsonInclude.Include.NON_NULL) List<LocationTideFact> tideFacts) {
 
+    /**
+     * Canonical constructor: takes an immutable copy of {@code badges}, and reads a null list as
+     * empty so the client can rely on "never null, often empty". {@code tideFacts} stays null when
+     * null (absence is the statement) and is otherwise copied.
+     */
     public BriefingWindow {
         badges = badges == null ? List.of() : List.copyOf(badges);
+        tideFacts = tideFacts == null ? null : List.copyOf(tideFacts);
+    }
+
+    /**
+     * Convenience constructor for a window carrying no per-location tide facts: {@code tideFacts}
+     * defaults to null.
+     *
+     * @param eventTime     the window's single header time, or null
+     * @param verdict       the window's verdict
+     * @param bestRating    the highest rating in the window, or null
+     * @param confidence    the top region's confidence, or null
+     * @param pick          this window's forecast-wide pick, or null
+     * @param badges        hot topics landing on this window
+     * @param topRarityRank the rarest badge's rarity rank, or null
+     * @param tide          the window's tide rollup, or null
+     */
+    public BriefingWindow(LocalDateTime eventTime, DisplayVerdict verdict, Integer bestRating,
+            Confidence confidence, Pick pick, List<Badge> badges, Integer topRarityRank,
+            BriefingWindowTide tide) {
+        this(eventTime, verdict, bestRating, confidence, pick, badges, topRarityRank, tide, null);
     }
 
     /** Which of the forecast's two picks this is. */
@@ -115,10 +146,17 @@ public record BriefingWindow(
      * grid cell prints as its star — or the window would contradict the drill-down beneath it. It
      * was canopy-inclusive until the canopy fix, along with the verdict it has to match; a rated
      * wood moved both. {@code locationName} is canopy-<em>exclusive</em> for a different reason:
-     * it must match the slot the header star came from, or the card would send someone to a place
-     * chosen by the opposite measure of a good morning. The two rules now coincide for a mixed
+     * it must match the slot the header star came from (the region's best; the destination
+     * skips a neighbour outlier, see below), or the card would send someone to a place chosen by
+     * the opposite measure of a good morning. The two rules now coincide for a mixed
      * region and still differ for an all-canopy one, where the average falls back to the woods and
      * the destination is one of them.
+     *
+     * <p><b>The destination is never a neighbour outlier</b> (docs/engineering/neighbour-guard-plan.md
+     * §3). It is the highest-rated slot not marked {@link BriefingSlot#neighbourOutlier}; when the
+     * guard skipped one, the next must be rated at least the fixed named floor of 3, else there is no
+     * destination. So a null {@code locationName} now also happens on an ordinary window with rated
+     * slots, and every consumer already treats it as "name the region only".
      *
      * <p><b>The id travels with the name, from the same slot.</b> The client joins per-user reach
      * data by {@code locationId} — that contract carries no name at all — so publishing only a
@@ -134,7 +172,8 @@ public record BriefingWindow(
      * @param detail        the gloss body, nullable independently of the headline
      * @param averageRating the average this region was ranked and floored on, published so the
      *                      selection is auditable from the payload rather than only from the logs
-     * @param locationName  the region's highest-rated location, or null when none is rated
+     * @param locationName  the region's highest-rated location that is not a neighbour outlier, or
+     *                      null when none is rated or the guard left none rated at least 3
      * @param locationId    that location's id, or null on a slot cached before slots carried one
      */
     public record Pick(
@@ -170,7 +209,13 @@ public record BriefingWindow(
      * <p>A badge's own clock time is a <em>different anchor</em> from its window's: the topic's is
      * computed from the first enabled location in its regions, the window's is the earliest slot
      * across every region, so the two can differ by minutes. Render one or the other, never both
-     * side by side.
+     * side by side. ⚠️ <b>That rule is scoped to a badge whose clock names the SAME solar event
+     * as the window's own</b> — the ordinary case, where the two figures could be mistaken for a
+     * disagreement about one instant. A badge of a type in the client's {@code CLOCKED_TOPIC_TYPES}
+     * (currently {@code ECLIPSE} and {@code LUNAR_ECLIPSE}) carries the clock of a wholly different
+     * event — an eclipse's own maximum, which a sunrise or sunset window's {@code eventTime} never
+     * claims to be — so stating both side by side is not the duplication the rule above forbids; it
+     * is the only way the reader learns the eclipse's own time at all (lunar-eclipse-plan.md §2.6).
      *
      * <p><b>{@code facts} is what lets a topic become an attribute row rather than a chip.</b> The
      * Plan card draws two kinds of surface for a topic: a header badge, which has room for the
@@ -208,6 +253,10 @@ public record BriefingWindow(
             @JsonInclude(JsonInclude.Include.NON_NULL) String rarityNote,
             @JsonInclude(JsonInclude.Include.NON_NULL) String safetyNote) {
 
+        /**
+         * Canonical constructor: takes an immutable copy of {@code facts}, and reads a null list as
+         * empty so the client's "has facts" test is a length check, never a null check.
+         */
         public Badge {
             facts = facts == null ? List.of() : List.copyOf(facts);
         }

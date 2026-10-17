@@ -37,10 +37,15 @@ function clamp(v, a, b) {
  * {@code 10.6 → 12.2}/{@code 0.17} — co-tuned in the same commit as the radius re-tune and the land
  * clip (docs/design/map-tab-v2/README.md, "Field / label handover"): the old band was part of why
  * the field swam offshore.
+ *
+ * <p>Floor re-tuned {@code 0.12 → 0.35} on 2026-10-02 (owner report: at zoom ~12 over Hadrian's
+ * Wall every chip read 3-4 stars yet the shading looked gone). 12% on the dark basemap is
+ * invisible, and it stacked with `MapHeatLayer`'s radius cap shrinking the kernel at that zoom.
+ * The band ({@link FADE_FROM}/{@link FADE_TO}) is unchanged.
  */
 export const FADE_FROM = 10.4;
 export const FADE_TO = 12.0;
-export const HEAT_FLOOR = 0.12;
+export const HEAT_FLOOR = 0.35;
 
 /**
  * Where the map is in the handover, from its zoom.

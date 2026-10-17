@@ -1,0 +1,16 @@
+-- forecast_evaluation.scored_at: when a row GOT its rating or triage reason (docs/engineering/
+-- outcome-rating-plan.md §2 #1, Codex rounds 3 and 11 on #1185).
+--
+-- forecast_run_at is a SUBMISSION instant: a batch row is built (and stamped) before its batch's own
+-- submit time is known, and the Batch API may land the result up to 24 hours later. So "what was
+-- available at an event" cannot be read off forecast_run_at - a late batch's own row precedes the
+-- event on that column and follows it in reality. scored_at is the AVAILABILITY instant: stamped from
+-- the clock by ForecastService (a row inserted with something to say) and by
+-- ForecastResultHandler.scoreEvaluationRow (a PENDING batch row scored in place). A row still PENDING
+-- or ABANDONED keeps NULL.
+--
+-- Nullable, no backfill, no guess: a row written before this column has no availability instant, and
+-- the as-of-event resolver never treats a NULL scored_at as a candidate (its submission instant is not
+-- proof it had arrived). Legacy rows therefore resolve to nothing until they age out of the rating
+-- window; every row scored after this deploy carries the stamp.
+ALTER TABLE forecast_evaluation ADD COLUMN scored_at TIMESTAMPTZ;

@@ -10,7 +10,7 @@ const condition = (over = {}) => ({
   cadence: 'deterministic',
   interim: false,
   rateLabel: 'a run every 14.8 days · fixed by the ephemeris',
-  quantLabel: 'occasional · 7 runs in 90 days · typical run 4.7 m, top 10% reach 5.0 m',
+  quantLabel: 'about one a fortnight · 7 runs in 90 days · typical run 4.7 m, top 10% reach 5.0 m',
   peak: { dateLabel: '26 Nov', valueLabel: '5.2 m', bits: 9.0 },
   occurrences: [],
   ...over,
@@ -58,16 +58,16 @@ describe('WindowComingUpConditions — the strip', () => {
     expect(screen.getByTestId('condition-rate')).toHaveTextContent('a run every 14.8 days');
     expect(screen.getByTestId('condition-peak')).toHaveTextContent('26 Nov');
     expect(screen.getByTestId('condition-peak')).toHaveTextContent('5.2 m');
-    expect(screen.getByTestId('condition-peak')).toHaveTextContent('very rare');
+    expect(screen.getByTestId('condition-peak')).toHaveTextContent('exceptional');
     expect(screen.getByTestId('condition-quant')).toHaveTextContent('typical run 4.7 m, top 10% reach 5.0 m');
   });
 
-  it('the strip\'s own header sub-line carries the "scores provisional" marker while any condition '
-      + 'is interim, and omits it once every condition is mature (plan §7)', () => {
+  it('the strip\'s own header sub-line carries the "figures are provisional" marker while any '
+      + 'condition is interim, and omits it once every condition is mature (plan §7)', () => {
     const { rerender } = render(
       <WindowComingUpConditions conditions={[condition({ interim: true })]} onGoToPlan={vi.fn()} />,
     );
-    expect(screen.getByTestId('coming-up-provisional')).toHaveTextContent('scores are provisional');
+    expect(screen.getByTestId('coming-up-provisional')).toHaveTextContent('figures are provisional');
 
     rerender(<WindowComingUpConditions conditions={[condition({ interim: false })]} onGoToPlan={vi.fn()} />);
     expect(screen.queryByTestId('coming-up-provisional')).toBeNull();
@@ -174,7 +174,7 @@ describe('WindowComingUpConditions — the strip', () => {
     render(
       <WindowComingUpConditions
         conditions={[condition({
-          occurrences: [occ({ reason: 'max w/ supermoon' }), occ({ date: '2026-09-01', reason: null })],
+          occurrences: [occ({ reason: 'supermoon' }), occ({ date: '2026-09-01', reason: null })],
         })]}
         onGoToPlan={vi.fn()}
       />,
@@ -182,7 +182,7 @@ describe('WindowComingUpConditions — the strip', () => {
     fireEvent.click(screen.getByTestId('condition-row'));
 
     const rows = screen.getAllByTestId('condition-occurrence');
-    expect(within(rows[0]).getByText('max w/ supermoon')).toBeInTheDocument();
+    expect(within(rows[0]).getByText('supermoon')).toBeInTheDocument();
   });
 
   it('an inside-Plan occurrence is a real button that calls onGoToPlan with its own date', () => {
@@ -246,7 +246,7 @@ describe('WindowComingUpConditions — the strip', () => {
 
     const row = screen.getByRole('button', {
       name: 'Coastal tides deterministic a run every 14.8 days · fixed by the ephemeris '
-        + 'peak 26 Nov · 5.2 m — very rare occasional · 7 runs in 90 days · '
+        + 'peak 26 Nov · 5.2 m — exceptional about one a fortnight · 7 runs in 90 days · '
         + 'typical run 4.7 m, top 10% reach 5.0 m',
     });
     expect(row).toBeInTheDocument();
@@ -257,7 +257,7 @@ describe('WindowComingUpConditions — the strip', () => {
       <WindowComingUpConditions
         conditions={[condition({
           occurrences: [occ({
-            status: 'promoted', entryId: 'x', valueLabel: '4.8 m', bits: 5.4, reason: 'max w/ supermoon',
+            status: 'promoted', entryId: 'x', valueLabel: '4.8 m', bits: 5.4, reason: 'supermoon',
           })],
         })]}
         onGoToPlan={vi.fn()}
@@ -266,7 +266,7 @@ describe('WindowComingUpConditions — the strip', () => {
     fireEvent.click(screen.getByTestId('condition-row'));
 
     expect(screen.getByRole('button', {
-      name: '30 Aug 4.8 m uncommon max w/ supermoon see it below →',
+      name: '30 Aug 4.8 m above usual supermoon see it below →',
     })).toBeInTheDocument();
   });
 

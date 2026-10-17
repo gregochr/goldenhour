@@ -2,14 +2,17 @@ import React, { useActionState, useState } from 'react';
 import PropTypes from 'prop-types';
 import { useAuth } from '../context/AuthContext.jsx';
 import TurnstileWidget from './TurnstileWidget.jsx';
-import BrandLockup from './shared/BrandLockup.jsx';
+import AuthShell from './auth/AuthShell.jsx';
+import AuthHeading from './auth/AuthHeading.jsx';
+import PasswordInput from './auth/PasswordInput.jsx';
 
 /**
- * Full-page login form rendered when the user has no valid session.
+ * Full-page login form rendered when the user has no valid session. The first field takes a
+ * username or an email address (the wire field stays {@code username}); "Forgot password?" sits on
+ * the password label's row and appears only when the gate hands in {@code onForgotPassword}.
  */
-export default function LoginPage({ onRegister = null }) {
+export default function LoginPage({ onRegister = null, onForgotPassword = null }) {
   const { login, sessionExpired } = useAuth();
-  const [showPassword, setShowPassword] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState('');
   const [turnstileResetKey, setTurnstileResetKey] = useState(0);
 
@@ -29,123 +32,108 @@ export default function LoginPage({ onRegister = null }) {
   }, '');
 
   return (
-    <div className="min-h-screen bg-plex-bg flex items-center justify-center px-4">
-      <div className="w-full max-w-sm">
-        <div className="mb-8">
-          <BrandLockup variant="auth" />
-        </div>
-
+    <AuthShell>
+      <form
+        action={submitAction}
+        className="card flex flex-col gap-4"
+      >
         {sessionExpired && (
-          <p className="text-sm text-amber-400 text-center mb-2" data-testid="session-expired-message">
+          <p className="text-sm text-plex-text-secondary" data-testid="session-expired-message">
             Your session expired. Please sign in again.
           </p>
         )}
 
-        <form
-          action={submitAction}
-          className="card flex flex-col gap-4"
-        >
-          <p className="text-sm font-semibold text-plex-text">Sign in</p>
+        <AuthHeading>Sign in</AuthHeading>
 
-          <div>
-            <label className="block text-xs text-plex-text-secondary mb-1" htmlFor="login-username">
-              Username
-            </label>
-            <input
-              id="login-username"
-              name="username"
-              type="text"
-              data-testid="login-username"
-              autoComplete="username"
-              className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-2 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
-              disabled={isPending}
-              required
-            />
-          </div>
+        <div>
+          <label className="block text-xs text-plex-text-secondary mb-1" htmlFor="login-username">
+            Username or email
+          </label>
+          <input
+            id="login-username"
+            name="username"
+            type="text"
+            data-testid="login-username"
+            autoComplete="username"
+            className="field"
+            disabled={isPending}
+            required
+          />
+        </div>
 
-          <div>
-            <label className="block text-xs text-plex-text-secondary mb-1" htmlFor="login-password">
+        <div>
+          <div className="flex justify-between items-baseline mb-1">
+            <label className="block text-xs text-plex-text-secondary" htmlFor="login-password">
               Password
             </label>
-            <div className="relative">
-              <input
-                id="login-password"
-                name="password"
-                type={showPassword ? 'text' : 'password'}
-                data-testid="login-password"
-                autoComplete="current-password"
-                className="w-full bg-plex-surface-light border border-plex-border rounded px-3 py-2 pr-10 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold"
-                disabled={isPending}
-                required
-              />
+            {onForgotPassword && (
               <button
                 type="button"
-                aria-label={showPassword ? 'Hide password' : 'Show password'}
-                onClick={() => setShowPassword((v) => !v)}
-                className="absolute inset-y-0 right-0 flex items-center px-3 text-plex-text-secondary hover:text-plex-text"
+                className="text-xs text-plex-gold hover:underline"
+                onClick={onForgotPassword}
+                data-testid="login-forgot-link"
               >
-                {showPassword ? (
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                    <path d="M10 3C5 3 1.73 7.11 1.05 8.87a1 1 0 000 .26C1.73 10.89 5 15 10 15s8.27-4.11 8.95-5.87a1 1 0 000-.26C18.27 7.11 15 3 10 3zm0 10a4 4 0 110-8 4 4 0 010 8zm0-6a2 2 0 100 4 2 2 0 000-4z" />
-                    <path d="M3.28 2.22a.75.75 0 00-1.06 1.06l14.5 14.5a.75.75 0 101.06-1.06L3.28 2.22z" />
-                  </svg>
-                ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                    <path d="M10 3C5 3 1.73 7.11 1.05 8.87a1 1 0 000 .26C1.73 10.89 5 15 10 15s8.27-4.11 8.95-5.87a1 1 0 000-.26C18.27 7.11 15 3 10 3zm0 10a4 4 0 110-8 4 4 0 010 8zm0-6a2 2 0 100 4 2 2 0 000-4z" />
-                  </svg>
-                )}
+                Forgot password?
               </button>
-            </div>
+            )}
           </div>
+          <PasswordInput
+            id="login-password"
+            name="password"
+            testId="login-password"
+            autoComplete="current-password"
+            disabled={isPending}
+          />
+        </div>
 
-          <input type="hidden" name="turnstile-token" value={turnstileToken} />
-          {!turnstileLoadFailed && (
-            <TurnstileWidget
-              key={turnstileResetKey}
-              onVerify={(token) => setTurnstileToken(token)}
-              onExpire={() => setTurnstileToken('')}
-              onLoadFail={() => setTurnstileLoadFailed(true)}
-            />
-          )}
-          {turnstileLoadFailed && (
-            <p className="text-xs text-amber-400" data-testid="turnstile-unavailable">
-              Security check unavailable — we&apos;ll verify your sign-in another way.
-            </p>
-          )}
+        <input type="hidden" name="turnstile-token" value={turnstileToken} />
+        {!turnstileLoadFailed && (
+          <TurnstileWidget
+            key={turnstileResetKey}
+            onVerify={(token) => setTurnstileToken(token)}
+            onExpire={() => setTurnstileToken('')}
+            onLoadFail={() => setTurnstileLoadFailed(true)}
+          />
+        )}
+        {turnstileLoadFailed && (
+          <p className="text-xs text-plex-text-secondary" data-testid="turnstile-unavailable">
+            Security check unavailable — we&apos;ll verify your sign-in another way.
+          </p>
+        )}
 
-          {error && (
-            <p className="text-xs text-red-400" role="alert" data-testid="login-error">
-              {error}
-            </p>
-          )}
+        {error && (
+          <p className="text-xs text-plex-error" role="alert" data-testid="login-error">
+            {error}
+          </p>
+        )}
 
-          <button
-            type="submit"
-            data-testid="login-submit"
-            className="btn-primary"
-            disabled={isPending || (!turnstileToken && !turnstileLoadFailed)}
-          >
-            {isPending ? 'Signing in…' : 'Sign in'}
-          </button>
+        <button
+          type="submit"
+          data-testid="login-submit"
+          className="btn-primary"
+          disabled={isPending || (!turnstileToken && !turnstileLoadFailed)}
+        >
+          {isPending ? 'Signing in…' : 'Sign in'}
+        </button>
 
-          {onRegister && (
-            <div className="text-center">
-              <button
-                type="button"
-                className="text-xs text-plex-text-muted hover:text-plex-text"
-                onClick={onRegister}
-                data-testid="login-register-link"
-              >
-                Don&apos;t have an account? Create one
-              </button>
-            </div>
-          )}
-        </form>
-      </div>
-    </div>
+        {onRegister && (
+          <div className="text-center">
+            <button
+              type="button"
+              className="text-xs text-plex-text-secondary hover:text-plex-text"
+              onClick={onRegister}
+              data-testid="login-register-link"
+            >
+              Don&apos;t have an account? Create one
+            </button>
+          </div>
+        )}
+      </form>
+    </AuthShell>
   );
 }
 
 LoginPage.propTypes = {
   onRegister: PropTypes.func,
+  onForgotPassword: PropTypes.func,
 };

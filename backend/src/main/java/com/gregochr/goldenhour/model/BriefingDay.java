@@ -22,6 +22,11 @@ public record BriefingDay(
         List<BriefingEventSummary> eventSummaries,
         @JsonInclude(JsonInclude.Include.NON_NULL) BriefingDayPeak peak) {
 
+    /**
+     * Canonical constructor: takes an immutable copy of {@code eventSummaries}, so a caller's later
+     * changes to the list it passed cannot alter this day. A null list is rejected with a
+     * {@link NullPointerException}.
+     */
     public BriefingDay {
         eventSummaries = List.copyOf(eventSummaries);
     }

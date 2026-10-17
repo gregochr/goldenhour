@@ -34,7 +34,6 @@ spring:
             enable: true
 anthropic:
   api-key: ${ANTHROPIC_API_KEY:YOUR_ANTHROPIC_API_KEY}
-  model: claude-haiku-4-5
 
 worldtides:
   api-key: ${WORLDTIDES_API_KEY:}
@@ -48,6 +47,11 @@ notifications:
     app-token: dev
     user-key: dev
   macos-toast:
+    enabled: false
+  admin-alerts:
+    # Deliberately false here: application-local.yml's spring.mail block above points at a real
+    # SMTP server (smtp.livemail.co.uk), so a local run with MAIL_PASSWORD set would otherwise
+    # email every ADMIN account in the local DB whenever a run is degraded.
     enabled: false
 
 logging:
@@ -126,6 +130,18 @@ resilience4j:
   circuitbreaker:
     circuitBreakerAspectOrder: 1
     instances:
+      # Ask PhotoCast's own breaker (AnthropicApiClient.createAskMessage): a reader's questions must
+      # never be able to open the "anthropic" breaker the forecast pipeline shares. No health
+      # indicator, so a breaker that opens on questions cannot flip the application's health.
+      ask:
+        registerHealthIndicator: false
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30s
+        permittedNumberOfCallsInHalfOpenState: 2
+        automaticTransitionFromOpenToHalfOpenEnabled: true
       anthropic:
         registerHealthIndicator: true
         slidingWindowType: COUNT_BASED
@@ -147,12 +163,27 @@ resilience4j:
   retry:
     retryAspectOrder: 2
     instances:
+      # Ask PhotoCast model turns: two attempts, server errors only (AskRetryPredicate).
+      ask:
+        maxAttempts: 2
+        waitDuration: 500ms
       anthropic:
         maxAttempts: 4
         waitDuration: 1s
         enableExponentialBackoff: true
         exponentialBackoffMultiplier: 2
         exponentialMaxWaitDuration: 30s
+      # Second, longer-window retry around Anthropic Batch API creation calls
+      # (AnthropicBatchClient) — deliberately separate from "anthropic" above and much
+      # slower: batch creation is a handful of calls per cycle, hours apart, so ~30s/60s/120s
+      # of backoff (~3.5 min total on top of the SDK's own retries) is cheap insurance against
+      # a transient Anthropic-side 5xx/timeout. See docs on the 2026-09-29 incident.
+      anthropic-batch:
+        maxAttempts: 4
+        waitDuration: 30s
+        enableExponentialBackoff: true
+        exponentialBackoffMultiplier: 2
+        exponentialMaxWaitDuration: 120s
       open-meteo:
         maxAttempts: 3
         waitDuration: 5s
@@ -168,6 +199,11 @@ resilience4j:
   bulkhead:
     bulkheadAspectOrder: 4
     instances:
+      # Ask PhotoCast: at most four conversations talk to Claude at once; a fifth waits two seconds
+      # and is then turned away (counted as load, not as a Claude fault, by the ask breaker).
+      ask:
+        maxConcurrentCalls: 4
+        maxWaitDuration: 2s
       forecast:
         maxConcurrentCalls: 8
         maxWaitDuration: 120s
@@ -194,6 +230,21 @@ management:
       enabled: false
 
 photocast:
+  # Ask PhotoCast, local development. Both settings below are safe as committed defaults: the stub
+  # engine makes no Anthropic call and writes no cost row, so a local run spends nothing.
+  # NEVER set `stub: false` here to "try the real thing": it bills the real Anthropic key (about 1p a
+  # question). To rehearse the real engine, override on the command line for that one run.
+  ask:
+    enabled: true
+    stub: true
+    # Off by default, and an override rather than a default: the fixture seeder writes three
+    # "Fixture ..." regions, their locations, rated cache entries and synthetic tide extremes into
+    # YOUR local H2 file, then triggers a briefing build. That build makes the same Claude calls a
+    # normal build does (gloss, best bet) with whatever ANTHROPIC_API_KEY is set, so with a real key
+    # it spends a few cents on every start that needs a rebuild. Turn it on for one run with
+    #   -Dspring-boot.run.arguments=--photocast.ask.seed-local-fixture=true
+    # (best against a fresh database: -Dspring-boot.run.arguments="--spring.datasource.url=jdbc:h2:file:./data/ask-fixture;AUTO_SERVER=TRUE").
+    seed-local-fixture: false
   tide-run:
     preferred-anchor: "St. Mary's Lighthouse"  # location NAME the spring/king tide run's 24-hour
                             # chart is drawn for. Blank restores pure biggest-range selection.

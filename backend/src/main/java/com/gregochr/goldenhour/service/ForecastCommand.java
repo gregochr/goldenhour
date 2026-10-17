@@ -21,6 +21,12 @@ import java.util.Set;
  * @param triggeredManually   whether this was triggered manually via the API
  * @param excludedSlots       (date|TARGETTYPE) keys to skip, e.g. "2026-03-20|SUNRISE"; null/empty = skip none
  * @param excludedLocations   location names to exclude from the run (e.g. too far to drive); null/empty = skip none
+ * @param slots               when non-empty, the ONLY slots a colour run evaluates: the executor builds a task
+ *                            for a (location, date, event) triple only if it is in this set, so a retry
+ *                            re-runs exactly what failed rather than every combination of the failed places
+ *                            and dates. Null/empty = every slot the locations and dates produce. A
+ *                            non-empty set also stands sentinel sampling down for the run (see
+ *                            {@link ForecastCommandExecutor})
  */
 public record ForecastCommand(
         RunType runType,
@@ -29,8 +35,17 @@ public record ForecastCommand(
         EvaluationStrategy strategy,
         boolean triggeredManually,
         Set<String> excludedSlots,
-        Set<String> excludedLocations
+        Set<String> excludedLocations,
+        Set<ForecastSlot> slots
 ) {
+    /** Convenience constructor — exclusions but no explicit slot list (every slot the places and dates make). */
+    public ForecastCommand(RunType runType, List<LocalDate> dates, List<LocationEntity> locations,
+            EvaluationStrategy strategy, boolean triggeredManually, Set<String> excludedSlots,
+            Set<String> excludedLocations) {
+        this(runType, dates, locations, strategy, triggeredManually, excludedSlots, excludedLocations,
+                Set.of());
+    }
+
     /** Convenience constructor — no excluded slots or locations. */
     public ForecastCommand(RunType runType, List<LocalDate> dates, List<LocationEntity> locations,
             EvaluationStrategy strategy, boolean triggeredManually) {

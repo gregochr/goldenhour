@@ -178,8 +178,11 @@ public class AuroraAdminController {
      *       location results using real weather data + the simulated geomagnetic values.</li>
      * </ul>
      *
-     * <p>The real NOAA polling job continues independently and will overwrite this simulated
-     * state when a real geomagnetic event is detected or simulation is cleared.
+     * <p>While the {@code aurora_polling} job runs, the next real reading the state machine
+     * evaluates ends the simulation: a quiet one clears it, an alert replaces it as a new, real
+     * alert. After dark that is the next poll — within five minutes by default, so a forecast run
+     * meant to use the simulated values has to be started before then. By day it is a forecast that
+     * tonight reaches the alert threshold. The Clear endpoint ends it at once.
      *
      * @param request simulated Kp, OVATION, Bz, and G-scale values
      * @return derived alert level and instructions for next steps
@@ -209,16 +212,23 @@ public class AuroraAdminController {
     }
 
     /**
-     * Clears the active aurora simulation, resetting the state machine to IDLE.
+     * Clears the active aurora simulation, resetting the state machine to IDLE — and does nothing
+     * if no simulation is running.
      *
-     * <p>The banner disappears and the aurora UI deactivates. Equivalent to
-     * {@link #resetStateCache()} but semantically distinct for simulation lifecycle management.
+     * <p>Unlike {@link #resetStateCache()}, this touches only a simulation. A real reading can end
+     * one before the admin's screen shows it, and if that reading was an alert the machine now holds
+     * a real one, which a Clear sent from the stale screen must not wipe for every Pro user. So when
+     * nothing is simulated it answers 200 with a status saying nothing was cleared, rather than an
+     * error, since the state the admin asked for — no simulation — already holds.
      *
-     * @return confirmation message
+     * @return confirmation message, saying whether a simulation was cleared
      */
     @PostMapping("/simulate/clear")
     public ResponseEntity<Map<String, String>> clearSimulation() {
-        stateCache.reset();
+        if (!stateCache.endSimulation()) {
+            LOG.info("Admin asked to clear an aurora simulation, but none is running — nothing cleared");
+            return ResponseEntity.ok(Map.of("status", "No aurora simulation was running — nothing cleared"));
+        }
         LOG.info("Admin cleared aurora simulation — state machine reset to IDLE");
         return ResponseEntity.ok(Map.of("status", "Aurora simulation cleared"));
     }

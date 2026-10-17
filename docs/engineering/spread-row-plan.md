@@ -1,0 +1,532 @@
+# Plan tab — the Spread row: pool label and visible counts (2026-10-15)
+
+**Source**: the design bundle vendored at `docs/design/spread-row/` — `README.md` (the spec),
+`CLAUDE_CODE_PROMPT.md` (the designer's working order), `Plan Tide Summary.html` + `plan-tide-v6.js`
+(the prototype), three screenshots. `docs/design/spread-row/VENDORING.md` records what was copied
+and what was not. Read the spec before any phase; **this document is the *port* plan**: what the
+codebase already has, what is genuinely new, where the spec and the code disagree on purpose, and
+how the work cuts into single-session phases for **Sonnet** sessions.
+
+**The one-sentence version.** The Spread row on every Plan card already draws the right picture
+(a five-band histogram over the reach-gated pool, a sixth hatched bar for the unrated remainder,
+text instead of bars below the minimum-sample gate). Two things it does not say out loud: **which
+pool** the bars were counted over (the reach tier is in the lens bar, three cards away from the row
+that depends on it) and **how many** are in each band (pointer-only, in the `title`). This increment
+prints both — a second label line `(within 45m)` / `(within 1h30)` / `(within 2h30)` / `(any
+drive)` and a count under every bar — and changes nothing else on the card.
+
+**Cadence per phase** (CLAUDE.md "UI Work — Review Cadence"): build → tests → adversarial review of
+the diff (prosecutor lenses + one refuter per charge, all read-only, run in the FOREGROUND so their
+results return to the session that launched them) → fix survivors → browser/fixture measurement (§7)
+→ changelog.d entry → commit → push → PR → CI and Codex green → merge. Frontend gate before any
+push: `npm run lint && npm test && npm audit --audit-level=high && npm run build`, gated on exit
+codes. Never tag; never run `release.sh`. Paste the relevant section of THIS plan and the spec into
+every review agent's prompt — an agent cannot open a path.
+
+**Check open PRs first.** `gh pr list --state open` and grep the titles for *spread*, *histogram*,
+*card*, *reach*. Checked 2026-10-15 at plan time: three open PRs (#1132 a jsdom bump, #843 and #815
+docs), none touching the Plan card.
+
+---
+
+## §0 Status
+
+**Status: COMPLETE 2026-10-15 — S0–S3 shipped (#1180, #1181, #1182 and this docs sweep).** S0 was
+written against `origin/main` at `dc60c563` (#1177, v2.27.4). Every question in §6 is decided or
+closed (the item-by-item account is there); §4 closed at 14 entries and §7 holds the S2 measurement.
+Nothing is pending in this plan. One residual is accepted rather than open: the tooltip still says
+"within reach" beside an "(any drive)" label — §2 #7 decided the tooltip stays, and the S2 review
+declined to reopen it.
+
+Phase log (S0 creates the first row; every phase appends its own in the same commit as its code —
+the commit column names the PR once it lands):
+
+| phase | branch | commit | date | notes |
+|---|---|---|---|---|
+| S0 | `claude/spread-row-enhancement-7c99de` | #1180 | 2026-10-15 | Plan + bundle vendored at `docs/design/spread-row/`. No code. Codex reviewed the plan twice and found four P1s, all accepted: round 1 — the qualifier must key on the pool-wide `facts.withinReach` (a mixed pool would otherwise wear "(within 45m)" over unmeasured spots — §2 #5), and the spec's 177px worst-case card does not exist here (the grid is 116–157px at six of seven geometries — §1 #7, plan-time figures corrected at S2, the stacked state §2 #2, §4 #10, §6 Q4); round 2 — the spoken sentence must name the tier the label names (§6 Q1 decided yes; `spokenPoolPhrase`, the tooltip unchanged) and the muted token is under AA on the well (zero counts quietened by weight, §2 #4, §4 #6); round 3 — the wrapper's children fall outside `.wf-hc-pls > span`, so they need their own `display: flex` or the stacked histogram sits left (§2 #2 ⚠️, S2 tasks 1 and 6); round 4 — the stacked threshold rose from 170 to 205px so no count the clamp allows is ever clipped side by side (§6 Q4 closed), and the empty-pool path, which short-circuits the spoken clause, must voice the qualifier too (§2 #5's empty-pool rule); round 5 — the hatched bar's 4px gap must move from the `<i>` to its new column wrapper or the fixed-width column swallows it (S2 task 4); round 6 — the Best row's empty clause stays in the sentence beside the new pool clause (the verbatim contract, §2 #5), and `.wf-hc-sk` reserves its second line so stacked neighbours that disagree on the qualifier keep their Best rows aligned (§2 #2, S2 task 1); round 7 — the nested value cell reserves the well's height in the text state too, so neighbours on opposite sides of the minimum-sample gate align (§2 #2, S2 tasks 1 and 4). |
+| S1 | `claude/spread-row-s1-helpers` | #1181 (`3cbe233b`) | 2026-10-15 | Maths only, no component change: `formatDriveDurationCompact`, `REACH_TIERS[].shortLabel`, `formatSpreadCount` / `spreadColumnWidthPx` / `spreadCountLayout`, `spreadQualifier` (+ optional `tiers` argument so the test can retune a copy), `spokenPoolPhrase`, `spreadBandsSpoken`. Review (runtime, test quality, conventions) found no spec defect; fixed on review: tenths now rounded half-up in integers (the prototype's `toFixed(1)` rounds 1150 to "1.1k" and 1950 to "1.9k"), an `undefined` threshold is silence not Any (S2 must pass an explicit `null` for Any), survivors pinned (lower-casing, printed-vs-raw width, incomplete tier, end-to-end separator per real tier). Decisions S2 should know: compact form zero-pads minutes (`65 → "1h05"`); `spreadBandsSpoken` says "1 star" singular; it does not know the sample gate, so S2 calls it in bars mode only and passes `null` as `spreadCountLayout`'s second argument when the hatched bar is not drawn. |
+| S2 | `claude/spread-row-s2-row` | #1182 (`4bf601d6`) | 2026-10-15 | The row: `.wf-hc-sprow` wrapper (grid-spanning, one `--wf-hc-well` token for the wrapper's, the value cell's and the well's height), two-line label with the pool-wide `facts.withinReach` qualifier, per-bar `.wf-hc-hb` columns with counts (`--cw`/`.sm` from `spreadCountLayout`, the hatched count counted only when drawn), the hatched gap moved to its column, `spokenPool` via `spokenPoolPhrase` + `spreadBandsSpoken` (bars mode only; empty pool voices the tier and keeps `best, nothing in reach`), and the stacked state by `@container wf-card (max-width: 205px)`. `ratedCard` in the strip test now defaults `reachLimitMinutes: 45` (the "ordinary reader"; `stripCard` stays tier-less); ~15 expectations moved from "within reach" to "within 45 min" plus band counts; a cascade test file pins the specificity ladder against the real stylesheet. **§7 measured** (headless Chromium 151, real compiled CSS, real IBM Plex Mono, the real strip DOM in the shell's wrapper chain) — table below. Findings the measurement made: (1) the real stacked histogram line is the card CONTENT width, **112px at 320, not 116** (§1 #7's grid widths were 112 / 132 / 139.5 / 147 at 320 / 360 / 375 / 390, 121 at 640, 153 at 768, 169.5 at 834, 127 at a docked 1024, 217 undocked, 239 at 1280), so §6 Q4's residual clip was 10px, not 6, and a `1.2k` hatched count rendered ".2k"; **fixed here with Q4's own remedy, early and only under `.sm`** (§4 #11): the well's side padding and 2px of the hatched gap, which brings the four-character histogram to 114px and the clip to 2px (the `1.2k` stays legible); (2) the 205px threshold was sized on 122px and now carries ~10px of slack, documented in the CSS; (3) secondary ink on the well is 7.14:1 at 9px/600, 7.5px and weight 400, so the zero-count weight rule passes AA outright (the muted token would have been 3.55:1). Alignment: Best rows measured equal across qualified/unqualified x bars/text neighbours in stacked AND side-by-side rows at all ten geometries; the rating pill's column (35.4px) is identical with and without the qualifier; pick legends hit-test as themselves and a hovered card lifts 2px with its legend still on top. Six review lenses (runtime, CSS, tests, accessibility, conventions, later-harder) found no defect that survived; fixed on review: stale 122px/205px comment, the "well's own edge" wording, `gridColumn` and `flex-shrink` unpinned, an unrated remainder of 1,000+ unpinned, one over-strict regex, a stale comment line. Declined: the tooltip's "within reach" beside an "(any drive)" label (the plan decided the tooltip stays, §2 #7). |
+| S3 | `claude/spread-row-s3-docs` | (this PR) | 2026-10-15 | Docs only, no code. Reconciled the record with what shipped: status flipped to COMPLETE; §1 #7 and §2 #2 carry S2's measured widths (the stacked line is 112px at a 320px viewport, not 116, and the row is ≈ 21 + 2 + 28px stacked); §4 gained #12 (`formatSpreadCount` rounds tenths half-up in integers), #13 (`spreadQualifier` treats an `undefined` threshold as silence, only an explicit `null` as Any) and #14 (the 205px threshold kept with ~10px of slack after #11); §6 Q4 rewritten to its final state and every question closed with its date; §7 given its status and the cases-run paragraph's stale "required" wording. Added `plan-matrix-plan.md` §4 **A28** (the label and counts, citing this plan; A27 and rule 5 point to it), one sentence pair in CLAUDE.md's spread-histogram ⚠️ paragraph, and the "Final count" paragraph in `docs/design/spread-row/VENDORING.md`. CLAUDE.md's Backend-heavy bullet needs no change: the S1 helpers are the already-licensed filter/map/select class over the A10/A27 pool (S1's module header says so), not a new member of the reach-scoped class. |
+
+---
+
+## §1 What the codebase already has — corrections to the spec
+
+Numbered so a phase log can cite them. Every file:line was read against `dc60c563`; **re-verify
+before editing**, code moves.
+
+### 1. The row, the pool and the gate all exist; the spec describes a prototype without two of them
+
+The spec says to recreate the row "in the existing Plan card component, e.g. `HeatmapGrid.jsx`,
+`DailyBriefing.jsx`". Neither is the Plan card: `DailyBriefing.jsx` died in v1 retirement D2, and
+`HeatmapGrid` is the popup's grid. **The card is `components/WindowFirstHeatStrip.jsx`** (the
+value grid at `:1294–1388`, the Spread row at `:1323–1373`), its maths is
+`utils/windowFirstSpread.js` (`buildSpread`, `spreadBars`, `unratedBar`, `spreadRowState`,
+`spreadTitle`), and its CSS is `index.css:1941–2190` (`.wf-hc-pls`, `.wf-hc-k`, `.wf-hc-pv`,
+`.wf-hc-hist`, `.wf-hc-hist i`, `.wf-hc-hist .wf-hc-hist-unrated`, `.wf-hc-hist-note`).
+
+The pool is already the one the spec names — `card.pool`, "scope ∩ named ∩ driveTime ≤ reach", before
+the rating floor (`utils/windowFirstCards.js`, plan-matrix §4 A10). Nothing new is derived for the
+counts: `spreadBars(spread)` already carries `count` per band and `unratedBar(spread)` the
+remainder's.
+
+Two things the prototype does not have, and the codebase keeps (plan-matrix §4 A27, owner decision
+2026-09-29):
+
+- **The minimum-sample gate.** Below `rated >= 5 && rated >= total·0.5` the row prints `none rated
+  yet` or the compact `N/M rated` instead of bars (`spreadRowState`). The spec's counts are a
+  bars-mode feature; the text state keeps its text. The NEW label line applies in both states.
+- **The sixth hatched bar.** The unrated remainder is drawn to the LEFT of 1★, hatched, with a wider
+  gap, on the bands' own scale, with its own 4px floor. It gets a count under it like the five bands
+  (its count IS the "not yet rated" figure the tooltip and the spoken sentence already name), and it
+  takes part in the per-card column width (§2 #3).
+
+### 2. The reach tier is already on the card — two fields, both needed
+
+`buildWindowCards` publishes `card.reachLimitMinutes` (the active tier's threshold, null under "Any")
+and `card.reachMeasured` (whether any spot in the window has a measured drive — `windowFirstCards.js:752–757`),
+forwarded by `windowFirstStrip.js:163–166` for H2's "beyond the tier" line. The label reads these;
+no new prop reaches the strip and nothing is read from `localStorage` or the lens bar's own state.
+
+### 3. The tier's words are derived, never authored
+
+`REACH_TIERS` (`utils/reachLens.js:50–54`) derives each tier's `label` from `formatDriveDuration`
+(`utils/briefingDisplay.js:140–146` — `45 min`, `1h 30min`, `2h 30min`, `Any`), and
+`WindowFirstHeatStrip.jsx:171` records why: "one formatter derives the lens bar's chip labels, so
+'45 min' here and there agree". The prototype's `RSHORT = {'45':'45m','90':'1h30','150':'2h30'}` is
+a hand table keyed by id. The port derives the compact form from `limitMinutes` the same way the
+long form is derived (§2 #1), so a retuned tier cannot leave the row naming a threshold the lens bar
+no longer offers.
+
+### 4. The count colours are tokens this stylesheet already has
+
+The spec's `--ink-2` / `--ink-3` are the prototype's own names. On the card, `.wf-hc-k` (the
+label) is `--color-plex-text-secondary` (rgba(242,231,211,.66)) and the muted ink is
+`--color-plex-text-muted` (.42). The counts use those two (§2 #4) — no new token, and no hex typed
+from the spec (plan-matrix §3 rule 9: tokens in `@theme static`).
+
+### 5. There is no "sideways" card layout here
+
+The spec's "in the sideways card layout the `.pls` grid rows are `21px 27px 32px 1fr`" describes
+`Plan Tide Summary.html:202`, a prototype toolbar mode. `grep -n sideways frontend/src/index.css`
+finds nothing; the card's rows take a shared `min-height: 20px` (`.wf-hc-pls > span`) so every
+card's rows land on the same baselines. The 27px figure is applied as the Spread row's own minimum
+height on its wrapper (§2 #2), which keeps the cross-card alignment the shared minimum exists for.
+
+### 6. The grid is `aria-hidden`; the card speaks through one sentence
+
+`.wf-hc-pls` is `aria-hidden="true"` (`WindowFirstHeatStrip.jsx:1294`) and every fact a reader acts
+on is in the card's accessible name (`:1129–1195`: `poolPhrase`, `unratedPhrase`, `facts.state.spoken`).
+So the new label line and the printed counts reach a screen reader only through that sentence —
+§2 #5 says what changes there, and what deliberately does not.
+
+### 7. The card is narrower than the spec's own worst case — at every breakpoint the spec measured
+
+The spec sizes its worst case on "the narrowest card (iPad, `.pls` 177px wide)": five 17px columns
+plus gaps, 93px, "fits beside the label". This card grid is narrower than that in most of its
+real geometries, measured in Chromium with the real faces (`index.css:2016–2021`, the H1 note):
+the VALUE column alone is 70.3px at a 320px viewport (two columns below 640px, `index.css:2925`),
+90.3 at 360, 97.8 at 375, 79.3 at 640 (four columns), 111.3 at 768, 85.3 at a docked 1024 and
+175.3 at an undocked one. ⚠️ Those were the plan-time figures, and the whole-grid estimate built on
+them (label column ≈ 40px, giving 116 / 136 / 144 / 125 / 157 / 131 / 221px) was high: S2 measured
+the grid itself (card content box, §7) and the label column is 35.4px (the time sets it, not
+"Spread"). **The figures to use are 112 / 132 / 139.5 / 147 (390) / 121 / 153 / 169.5 (834) / 127
+(docked 1024) / 217 (undocked 1024) / 239 (1280)** at the viewports 320 / 360 / 375 / 390 / 640 /
+768 / 834 / 1024 / 1024 / 1280 — eight of the ten are under the 205px stacking threshold. The six-column histogram with the well and
+the hatched bar's gap is 74px at one-character counts (`6×9 + 5×2 + 4 + 6`), 82px at two, 114 at
+three and 122 at four; the longest qualifier, `(WITHIN 2H30)`, is ≈73px at 8.5px mono with .06em
+tracking. Side by side with the spec's 8px gap that is 155px at the SMALLEST — wider than the card at
+seven of the ten measured geometries (112–153px), and past the 169.5px of the widest stacked one
+(834px) at anything over two-character counts. The spec's layout therefore cannot
+be applied as a single rule; §2 #2 adds the stacked state and §4 #10 records the disagreement. (A
+Codex review of the plan PR, #1180, found this; the plan's first cut had carried the spec's 177px
+figure unexamined.)
+
+---
+
+## §2 What is genuinely new
+
+1. **A compact drive-duration formatter** beside the long one — `formatDriveDurationCompact(minutes)`
+   in `utils/briefingDisplay.js`: `45 → "45m"`, `90 → "1h30"`, `150 → "2h30"`, `60 → "1h"`,
+   `null → null`. `REACH_TIERS` gains `shortLabel` derived from it (`'any'`'s is `null` — the row
+   has its own words for that tier). One formatter, two forms, both derived.
+2. **The row wrapper.** `.wf-hc-sprow`, a grid child spanning both columns (`grid-column: 1 / -1`),
+   a flex row `justify-content: space-between; gap: 8px; min-height: 27px` (§1 #5), holding the
+   two-line label (`.wf-hc-k.wf-hc-sk`: `Spread` + `<small>` qualifier, flex column, `gap: 1px`,
+   `line-height: 1.15`, 8.5px/600/uppercase, `Spread` at `.1em`, the qualifier at `.06em` and
+   `white-space: nowrap`) and the value cell (`.wf-hc-pv`, `overflow: hidden` kept as the safety
+   net). ⚠️ **The wrapper's two children are no longer direct children of the grid**, so the
+   `.wf-hc-pls > span` rule (`display: flex; align-items: center; min-width: 0; min-height: 20px`)
+   no longer reaches them, and the base `.wf-hc-pv` rule sets only `justify-content`,
+   `flex-wrap`, `gap` and `overflow` — never `display`. Both children therefore need their own
+   `display: flex; align-items: center; min-width: 0` on a `.wf-hc-sprow > span` rule (the
+   prototype's own `.pls .sprow > span { display: flex; min-width: 0 }`), written at (0,2,1) or
+   better so it is not shadowed, or the histogram sits at the LEFT of its line in the stacked state
+   and the label loses its vertical centring (a Codex review of #1180 caught the omission). The wrapper is the whole point of the spec's own regression note: a longer label in the
+   shared `auto` column widens it and pushes the `5★ <name>` row below out of shape.
+   **Two states, decided by the CARD's width, never by content** (§1 #7): side by side where the
+   card is wide enough, and STACKED — the label line first, the histogram on its own line below,
+   right-aligned (`margin-left: auto`) — where it is not. The switch is a container query on the
+   card (`.wf-hc { container-type: inline-size; container-name: wf-card }`, the precedent is
+   `@container wf-tabrow` at `index.css:12650`), threshold `wf-card (max-width: 205px)` on the
+   card's content box: sized so the WIDEST histogram the clamp allows — four-character counts,
+   122px — beside the longest qualifier (73px) and the 8px gap, 203px, fits side by side at 206px
+   and above, and stacks at 205px and below, so no count the row can print is ever clipped side by side.
+   (The first cut set 170px, sized for two-character counts, and accepted a clip for three; a
+   Codex review of #1180 pointed out that a three-digit band under Any is realistic in a 253-place
+   catalogue and that the docked and 768px geometries sit in exactly the clipped range — the
+   threshold is cheap to raise, so it was.) Of the measured geometries (§1 #7) only the undocked
+   1024 (217px) and the 1280 desktop (239px) stay side by side; the other eight stack. A card-width rule, not
+   `flex-wrap`, because every card in a grid row shares a width and so makes the SAME decision —
+   a content-driven wrap would let two neighbours' Best rows land on different baselines, the
+   cross-card alignment the shared `min-height` exists for. Stacked, the row is the label's two
+   lines plus the well: ≈ 21 + 2 + 28px; cards in a stacked row grow together — which needs the
+   LABEL to be the same height whether or not its second line is drawn: two neighbours in one
+   stacked row can legitimately disagree on the qualifier (one pool wholly measured, the other
+   holding an unknown drive — §2 #5), and `.wf-hc` is a top-packed flex column, so a one-line
+   label on one card and a two-line label on the other would put their Best rows a line apart.
+   `.wf-hc-sk` therefore reserves its two lines always (`min-height: 21px` — two 8.5px lines at
+   1.15 plus the 1px gap, with `justify-content: center` so the lone word sits where its first
+   line would), in both states (a Codex review of #1180 caught the unreserved line). **And the
+   VALUE cell reserves the well's height whether it holds bars or the text state**: the well is
+   a 25px column plus its padding (≈ 28px, one named figure in the stylesheet), while
+   `.wf-hc-hist-note` is a single 10px line, and the nested cell no longer inherits the grid's
+   20px minimum (§2 #2's first ⚠️) — so two stacked neighbours on opposite sides of the
+   minimum-sample gate (one drawing bars, one printing `124/253 rated`) would differ by ≈ 15px and
+   their Best rows would part. `.wf-hc-sprow > .wf-hc-pv { min-height: <the well's height> }` in
+   both states (the text note sits vertically centred in it, as the grid's own `align-items:
+   center` centred it before); the wrapper's own `min-height` becomes that same figure rather than
+   the spec's 27px, which was measured without a well (a further Codex round caught this one).
+   The histogram on
+   its own line has the whole card width, which is 112px at the 320px viewport (§1 #7): counts
+   up to three characters fit there (three lose 1.6px of the well's padding, §7), and a four-character count would clip 10px — which §4 #11
+   shrinks to 2px under `.sm` (§6 Q4).
+   ⚠️ `container-type: inline-size` applies layout containment, which makes the card a stacking
+   context; the pick legend (`BEST BET` / `ALSO GOOD`) and the card's hover `transform` must be
+   checked still to paint as they do today — S2 verifies it in the fixture, both on the hovered
+   and the picked card.
+3. **Counts under the bars, one column width per card.** Each bar becomes a column
+   (`.wf-hc-hb`: flex column, `justify-content: flex-end; gap: 2px; width: var(--cw)`), the bar an
+   `<i>` (7px wide, radius 1px — up from 5px, §4 #1), the count an `<em>` (mono, 9px/600,
+   `line-height: 1`, `letter-spacing: -.06em`). `--cw = clamp(9px, chars × 5.2px, 17px)` where
+   `chars` is the longest formatted count on THAT card across all six columns (the hatched bar's
+   count included); when `chars > 3` the histogram takes `.sm` (7.5px, `-.1em`). Set as an inline
+   custom property on `.wf-hc-hist` (the card already sets `--c`/`--r` inline; a per-card number is
+   what custom properties are for). Three pure helpers in `windowFirstSpread.js`, unit-tested:
+   `formatSpreadCount(n)` (`< 1000` raw; `< 9950` one decimal + `k`, trailing `.0` dropped; else
+   rounded `k`), `spreadColumnWidthPx(chars)` (the clamp, with the three constants named) and
+   `spreadCountLayout(bars, unratedBar)` → `{chars, widthPx, small}`.
+4. **Count colour.** Every count, zero included, in `--color-plex-text-secondary` (§1 #4). A zero
+   count is quietened by WEIGHT (400 against the others' 600), never by a lighter ink: the spec's
+   `--ink-3` at .6 maps to this stylesheet's `--color-plex-text-muted` (rgba(242,231,211,.42)),
+   which composites over the well (`--color-heat-sea`, #13100e) at about 3.55:1 — under the 4.5:1
+   AA asks of 9px text, and further under at the `.sm` 7.5px (a Codex review of #1180 measured it;
+   the plan's first cut had assigned the muted token). S2 measures the secondary ink on the well
+   at both sizes (§7); if 7.5px/400 fails there, the zero count keeps 600 and the distinction is
+   the figure alone.
+5. **The qualifier.** `spreadQualifier({reachLimitMinutes, withinReach})` in
+   `windowFirstSpread.js` → `"within 45m"` | `"within 1h30"` | `"within 2h30"` | `"any drive"` |
+   `null`, rendered as `(…)`. **`withinReach` is the strip's EXISTING per-card `facts.withinReach`**
+   (`WindowFirstHeatStrip.jsx:693`: `poolWithinReach(pool)` — every spot in the pool has a measured
+   drive — or `card.reachMeasured` for an empty pool), the very predicate the tooltip's and the
+   spoken sentence's "within reach" already read, so the three surfaces agree by construction.
+   `null` — no second line at all — when a tier is active and `withinReach` is false: an unknown
+   drive passes every tier (plan-matrix §2.5 rule 1), so a pool holding even one such spot was not
+   wholly gated at 45 minutes and the label would be counting places it never measured. ⚠️ Not
+   `card.reachMeasured` (the plan's first cut): that is true as soon as ANY spot in the window has a
+   drive, so a mixed pool — some measured, some unknown — would wear "(within 45m)" over bars that
+   count the unknown ones too, and the row would disagree with its own tooltip (a Codex review of
+   #1180 caught it). Under "Any" the qualifier is `any drive` whatever `withinReach` says — it
+   claims no gate. **The helper answers in TWO forms**: `{text: "within 45m", spoken: "within 45
+   min"}` — the compact form for the label, the lens bar's own long form (`REACH_TIERS[].label`,
+   lower-cased) for the spoken sentence, where "45m" would be voiced as a letter — and
+   `{text: "any drive", spoken: "any drive"}`; `null` is null for both.
+   **The spoken sentence names the same pool the label names** (§6 Q1, decided on the plan PR —
+   a Codex review of #1180 pointed out that under Any with measured drives the card would SHOW
+   "any drive" and SAY "within reach", and that under a finite tier the threshold the sighted
+   reader gets would never reach a screen reader): `spokenPoolPhrase(total, qualifier)` in
+   `windowFirstSpread.js` → `"7 locations within 45 min"` / `"7 locations, any drive"` /
+   `"7 locations"` (null qualifier — exactly today's bare clause), with `poolPhrase`'s own plural
+   rule; the strip's `spokenPool` reads it in place of `poolPhrase` in BOTH the bars and the text
+   branches. ⚠️ **And in the EMPTY-pool path, which today short-circuits to `null` before either
+   branch** (`WindowFirstHeatStrip.jsx:1146–1150`, because `bestReachLine`'s own "nothing in
+   reach" clause already states the fact): with a non-null qualifier the pool clause is
+   `spokenPoolPhrase(0, qualifier)` → `"no locations within 45 min"` / `"no locations, any drive"`
+   — the visible label names the tier over an empty well, so the sentence must too — and the Best
+   row's empty clause (`"best, nothing in reach"`) is KEPT beside it, not suppressed: the sentence's
+   own contract (`WindowFirstHeatStrip.jsx:1205–1210`) is that it carries "the visible best-reach
+   words verbatim" so WCAG 2.5.3 holds for a speech-control user addressing the card by the words
+   they can see, and "no locations within 45 min" is not those words. The two clauses say the
+   same nothing twice, and that redundancy is the price of the contract; with a null qualifier (an
+   empty pool and no measured drive) the path is unchanged — silent pool clause, `"best, nothing to
+   show"`. (A Codex review of #1180 found the short-circuit; the plan's first cut amended only the
+   two branches below it, and its second cut suppressed the Best clause, which a further round
+   showed broke the verbatim contract.) The TOOLTIP keeps `poolPhrase(total, withinReach)`
+   — "N locations within reach — …" — and its two empty-pool sentences unchanged: the spec says
+   keep it, and it sits beside the label that already names the tier, so a pointer reader sees no
+   mismatch.
+6. **The spoken sentence gains the band counts in bars mode** — the counts are now VISIBLE text, so
+   a reader of the accessible name must get the same figures (SC 1.3.1, the principle
+   `unratedPhrase`'s own export comment states). `spreadBandsSpoken(spread)` in
+   `windowFirstSpread.js`: the NON-ZERO bands only, highest first, worded (`"2 at 5 stars, 3 at 3
+   stars"` — never `★`, which a screen reader may skip or name), appended after `poolPhrase` and
+   before `unratedPhrase` in the bars-mode branch of `spokenPool` (`WindowFirstHeatStrip.jsx:1148`).
+   Zero bands are omitted so a six-card strip stays scannable; the tooltip keeps all five.
+   Below the gate nothing changes: there are no visible counts to match.
+7. **The tooltip is kept exactly** (`spreadTitle` unchanged — the spec says keep it, and its
+   per-band sentence is now the full form of what the counts show).
+
+---
+
+## §3 Phases
+
+Sequential, one Sonnet session each, one branch each, `claude/spread-row-s<N>-<slug>`. Each phase
+re-verifies every file:line it touches against `origin/main` before editing. **S1 and S2 touch the
+same two files** (`windowFirstSpread.js`, its test) so they are NOT run in parallel.
+
+### S1 — the maths, no visible change
+
+Files: `utils/briefingDisplay.js`, `utils/reachLens.js`, `utils/windowFirstSpread.js`, and their
+tests (`test/briefingDisplay.test.js` or wherever `formatDriveDuration` is pinned — find it;
+`test/reachLens.test.js`; `test/windowFirstSpread.test.js`).
+
+1. `formatDriveDurationCompact` (§2 #1) beside `formatDriveDuration`, with the same null rule.
+   Pin all four tiers' outputs AND that it agrees with the long form on the hours/minutes split
+   (one input table, both formatters, so the two cannot drift).
+2. `REACH_TIERS[].shortLabel` derived from it; `'any'` → `null`. Pin that every tier's `shortLabel`
+   is the compact form of its own `limitMinutes` (iterate `REACH_TIERS`, never a hand table).
+3. `formatSpreadCount`, `spreadColumnWidthPx`, `spreadCountLayout` (§2 #3). Pin the spec's own
+   examples (`999`, `1000 → "1k"`, `1200 → "1.2k"`, `9949 → "9.9k"`, `9950 → "10k"`,
+   `12345 → "12k"`), the clamp's three regimes (1 char → 9px, 3 chars → 15.6px, 4+ → 17px),
+   `small` flipping at exactly 4 chars, and that the hatched bar's count takes part in `chars`
+   (a pool with 1,200 unrated and single-digit bands must answer `chars: 4`).
+4. `spreadQualifier` (§2 #5): the four tiers with `withinReach: true` → `{text, spoken}` pairs
+   (`within 45m` / `within 45 min`, `within 1h30` / `within 1h 30min`, `within 2h30` / `within 2h
+   30min`, `any drive` / `any drive`); `{45, withinReach: false}` → `null`;
+   `{null, withinReach: false}` → the any pair; `{null, withinReach: true}` → the any pair. Pin
+   that `text` is built from `shortLabel` and `spoken` from `label`, not a table (mutate a tier's
+   `limitMinutes` in the test's own copy and assert both follow). The helper takes a plain boolean;
+   it is the CALLER (S2) that must pass the strip's pool-wide `facts.withinReach`, and S2 pins that
+   with a mixed pool. Then `spokenPoolPhrase(total, qualifier)` (§2 #5): `"7 locations within 45
+   min"`, `"7 locations, any drive"`, `"7 locations"` for null, `"1 location …"` singular,
+   `"no locations within 45 min"` / `"no locations, any drive"` for a total of 0 with a qualifier
+   and `null` for a total of 0 without one — and a test that its null-qualifier form equals
+   `poolPhrase(total, false)` exactly for every total above zero, so the sentence for a mixed pool
+   is byte-for-byte what it is today.
+5. `spreadBandsSpoken` (§2 #6): non-zero bands only, highest first, `stars` worded, `""` for an
+   all-zero spread; and a test that the words it uses are the same five the tooltip's bands use,
+   just filtered and reworded (drive both from one `buildSpread`).
+6. No component change. `npm test` must leave `WindowFirstHeatStrip.test.jsx` byte-for-byte green.
+
+Acceptance: the five helpers exist, exported, documented in the module's own header voice (what it
+is for, why the hatched bar counts toward `chars`, why `null` for an unmeasured tier); the gate
+passes; `changelog.d/20261015-spread-row-s1-helpers.md` (`### Changed`). Review lenses: runtime
+behaviour, test quality (against `docs/engineering/frontend-test-standards.md`), project
+conventions (CLAUDE.md "Backend-heavy" — these are the already-licensed filter/map class over the
+A10/A27 pool, not a new member; say so in the header).
+
+### S2 — the row
+
+Files: `components/WindowFirstHeatStrip.jsx` (the Spread row and `spokenPool` only),
+`index.css` (the value-grid block only), `test/WindowFirstHeatStrip.test.jsx`.
+
+1. Wrap the Spread row in `.wf-hc-sprow` (§2 #2), with the `.wf-hc-sprow > span` rule restoring
+   what `.wf-hc-pls > span` no longer gives its two children (§2 #2's ⚠️), and `.wf-hc-sk`
+   reserving its second line's height whether or not the qualifier is drawn (§2 #2's second ⚠️;
+   pin the `min-height` by the cascade in jsdom, and in the §7 fixture put a qualified card beside
+   an unqualified one in a stacked row and read both Best rows' `top`), and `.wf-hc-sprow >
+   .wf-hc-pv` reserving the well's height in both the bars and the text state (§2 #2's third ⚠️;
+   pin the cascade, and in the fixture put a bars-mode card beside a `124/253 rated` card in a
+   stacked row AND in a side-by-side row and read both Best rows' `top` — four geometry cases in
+   all: qualified/unqualified × bars/text). Both states — bars and
+   the `.wf-hc-hist-note` text — live inside the wrapper, so the label line is drawn in both. Pin that `.wf-hc-k` for
+   "Spread" is no longer a direct grid child (the regression the spec names: measure that the
+   rating pill's column width is unchanged with and without the qualifier — `getBoundingClientRect`
+   in jsdom reads 0, so assert it by the cascade: the `auto` column's only remaining children are
+   the time, the rating pill and the Best label).
+2. The qualifier `<small>` from `spreadQualifier({reachLimitMinutes: card.reachLimitMinutes,
+   withinReach})` where `withinReach` is the card's EXISTING `facts.withinReach` (§2 #5) — never
+   `card.reachMeasured` directly; absent (no element, not an empty one) when it answers `null`.
+   `data-testid="wf-heat-spread-qualifier"`. Pin all four tier strings and the `any drive` cases
+   through the rendered row, AND the mixed pool: a 45-minute tier, `reachMeasured: true`, a pool
+   with one spot whose `driveMinutes` is null → no qualifier, while the same pool with every drive
+   measured → `(within 45m)`. That pair is the test a `reachMeasured` mutant fails.
+3. Counts: each `<i>` becomes a `.wf-hc-hb` column with its `<em>` count
+   (`data-testid="wf-heat-spread-count"`, `data-star`; the hatched bar's `wf-heat-spread-count-unrated`),
+   `--cw` and `.sm` from `spreadCountLayout`. Keep every existing `data-testid` on the bars so the
+   A27 tests keep passing unchanged where they can; pin: counts print under the right bars; a zero
+   count carries the muted class; `--cw` is `9px` for a single-digit card and `17px` for a `1.2k`
+   card; `.sm` only when some count is 4 chars; the hatched bar's count is the unrated remainder.
+4. CSS, in the existing block with the existing voice (every rule there explains itself): `.wf-hc-sprow`,
+   `.wf-hc-sk`, `.wf-hc-hb`, `.wf-hc-hist em`, `.wf-hc-hist.sm em`, the zero-count ink, and the
+   well's height raised to hold a 25px column plus its padding — ONE figure, named in a comment
+   and reused by the nested value cell's `min-height` and the wrapper's (§2 #2), so the three
+   cannot drift. ⚠️ The specificity trap the block
+   already documents: `.wf-hc-hist i` is (0,1,1) and `.wf-hc-pls > span` is (0,1,1); any override of
+   a `.wf-hc-pls` child or of the bar must be written at least as specific. Bar width 7px moves
+   from the unrated rule to the shared `i` rule; the hatched bar keeps its hatch. ⚠️ **Its wider
+   gap moves OUT to its column**: today's `margin-right: 4px` sits on the `<i>` itself, and once
+   that `<i>` is inside a fixed-width `.wf-hc-hb` column the margin is spent inside the column
+   (clipped or absorbed by `width: var(--cw)`) and the next column stays the ordinary 2px away —
+   the hatched bar would lose the one spacing cue that marks it as a different KIND of bar (A27
+   Part 2). So the column wrapper carries it: `.wf-hc-hist .wf-hc-hb-unrated { margin-right: 4px }`
+   (the same two-class form the bar's own rule uses, for the same specificity reason), and the
+   inner `<i>` loses the margin. `spreadColumnWidthPx`'s width arithmetic (§1 #7: `6×cw + 5×2 +
+   4`) already counts that 4px between OUTER items, so nothing in S1 moves. Pin in jsdom that the
+   unrated column, not the bar, carries the class the rule keys on; measure the gap in the §7
+   fixture (6px between the hatched bar and 1★, 2px between bands). (A Codex review of #1180 caught
+   the first cut leaving the margin on the bar.) `.wf-hc-hist` keeps `cursor: help` — the tooltip
+   stays (§2 #7).
+5. `spokenPool` reads `spokenPoolPhrase(poolTotal, qualifier)` in place of `poolPhrase` in both
+   branches (§2 #5) and gains `spreadBandsSpoken` in bars mode (§2 #6). Pin the full accessible
+   name on a bars-mode card under a measured 45-minute tier (the existing `getByRole('button',
+   {name: …})` test at `:620` is the model — its expected string changes, and that change is the
+   point), under Any with measured drives ("…, any drive, …" — never "within reach"), on a mixed
+   pool (the bare "7 locations", exactly today's words), on an EMPTY pool under a measured
+   45-minute tier ("no locations within 45 min" present AND "best, nothing in reach" still
+   present, in that order — the §2 #5 empty-pool rule and the verbatim contract), on an empty pool
+   with no measured drive (unchanged: no pool clause, "best, nothing to show"), and that below the
+   gate only the pool clause moves. The tooltip's
+   expected strings do not change — pin one to prove it, the empty-pool sentences included.
+6. The stacked state (§2 #2): `container-type: inline-size; container-name: wf-card` on `.wf-hc`
+   and `@container wf-card (max-width: 205px) { .wf-hc-sprow { flex-wrap: wrap } .wf-hc-sprow >
+   .wf-hc-pv { margin-left: auto; flex-basis: 100% } }` (or the equivalent that puts the histogram
+   on its own right-aligned line) — ON TOP OF the base `.wf-hc-sprow > span { display: flex;
+   align-items: center; min-width: 0 }` rule from task 1, since the nested `.wf-hc-pv` keeps its
+   `justify-content: flex-end` only while it IS a flex container (§2 #2's ⚠️). Pin by the cascade
+   in jsdom (the computed `display` of the nested value cell is `flex`) and by geometry in the §7
+   fixture (the histogram's right edge meets the cell's right edge in the stacked state). No separate markup, no `useIsMobile` branch — the same DOM at
+   every width, which is what the spec asks. jsdom has no layout, so the switch is proven in the
+   §7 fixture at every width in the table, and the pick legend and hover transform are checked
+   there too (the containment stacking-context note in §2 #2).
+
+Acceptance: the gate passes; §7 measured and recorded in this plan's phase log; the three
+screenshots in `docs/design/spread-row/screenshots/` matched at desktop by eye (a headless Chromium
+screenshot of the fixture, attached to the PR); `changelog.d/20261015-spread-row-s2-counts-and-label.md`
+(`### Changed`). Review lenses: runtime behaviour, CSS/tokens (including the AA figures in §7),
+test quality, accessibility (the spoken sentence; nothing new is pointer-only), project
+conventions, and "what this makes harder later" (the wrapper is now the one place a seventh column
+would go).
+
+### S3 — docs sweep and the plan-matrix amendment
+
+Files: this plan (§0, phase log, §4 count, §7 table), `docs/engineering/plan-matrix-plan.md` §4
+(a new **A28** row — the label and counts, citing this plan), CLAUDE.md's Plan tab bullet (the
+spread histogram ⚠️ gains one sentence: the row names its pool and prints its counts; the
+qualifier is silent for an unmeasured tier), `docs/design/spread-row/VENDORING.md`'s final count.
+No code. One Sonnet session; a docs-only PR (CI's docs-only detector skips the suites).
+
+---
+
+## §4 Disagreements with the spec, on purpose
+
+| # | spec | here | why |
+|---|---|---|---|
+| 1 | Bars 7px, no well, empty band `rgba(242,231,211,.13)` | Bars 7px **in the existing dark well** (`--color-heat-sea`, padded), empty band stays `rgba(242,231,211,0.40)` | The well is where every bar's contrast was measured (SC 1.4.11, the stylesheet's own table); the empty band's .40 clears 3:1 against it where .13 would not. The width follows the spec; the ground does not. |
+| 2 | Five columns | **Six** — the hatched unrated bar keeps its place to the LEFT of 1★, with a count | A27 Part 2 (2026-09-29): the remainder is a real fact the card must disclose; its count is the "not yet rated" figure the tooltip already states. It takes part in `chars`. |
+| 3 | Bars for any pool | The minimum-sample gate stands: below it the row prints text, with the new label line above | A27 Part 1, owner decision. A count under a bar drawn from one rated spot in 31 would make the noise look like data twice over. |
+| 4 | The label "follows the drive/reach filter" always | **Silent** (no second line) when a tier is active and the card's pool-wide `facts.withinReach` is false — any spot without a measured drive | CLAUDE.md's rule for six existing surfaces: "within reach" is claimable only where a drive time existed to gate on, and the tooltip already reads this exact predicate (`poolWithinReach`), so the label cannot disagree with it. "(any drive)" is kept under Any for every reader — it names no gate. |
+| 5 | `RSHORT` hand table keyed by tier id | `shortLabel` derived from `limitMinutes` by `formatDriveDurationCompact` | §1 #3 — one formatter, two forms; a retuned tier cannot strand the label. |
+| 6 | `--ink-2` counts, `--ink-3` at `.6` for zero | `--color-plex-text-secondary` for every count; a zero count at weight 400 instead of a lighter ink | §1 #4, §2 #4 — the muted token is ~3.55:1 on the well, under AA for 9px text. S2 measures the secondary ink at 9 and 7.5px. |
+| 7 | "sideways" layout rows `21px 27px 32px 1fr` | `min-height: 27px` on the wrapper; no layout mode | §1 #5 — the layout does not exist here; the row's own minimum keeps cross-card alignment. |
+| 8 | The grid's label is the only place the pool is named | The spoken sentence ALSO names the tier ("7 locations within 45 min" / "7 locations, any drive") and gains the non-zero band counts in bars mode; the tooltip keeps "within reach" | §1 #6, §2 #5–#6 — the grid is `aria-hidden`; a visible label and visible counts need an accessible equivalent, and "within reach" against a visible "any drive" is a contradiction (§6 Q1, decided). |
+| 9 | Recreate in `HeatmapGrid.jsx` / `DailyBriefing.jsx` | `WindowFirstHeatStrip.jsx` | §1 #1 — the Plan card lives there; the named files are the popup's grid and a deleted component. |
+| 10 | One side-by-side layout everywhere; worst case "iPad, `.pls` 177px" | A second, STACKED state (label line, then the histogram right-aligned on its own line) below a 205px card content width, by container query | §1 #7 — this grid is 112–169px wide at eight of its ten measured geometries (§1 #7, §7); side by side the row needs 155px at one-character counts and 203 at four. A card-width rule sized for the widest count, not a content wrap, so neighbours stay aligned and nothing clips. |
+| 11 | (not in the spec) | Under `.sm` (a four-character count) the well's side padding is 0 and the hatched column's gap is 2px instead of 4 | §6 Q4's own remedy, applied at S2 rather than left open: the §7 fixture measured the stacked line at 112px at a 320px viewport (not 116), so a `1.2k` card needed 122px and the value cell cut 10px off the hatched column, which printed ".2k". With the give-back the card needs 114px and 2px is cut (legible). Cards with counts up to three characters are untouched. |
+| 12 | `fmtN`: `(c/1000).toFixed(1)` for counts from 1000 to 9949 (`plan-tide-v6.js:208`) | `formatSpreadCount` rounds the tenths half-up in integers, `Math.round(n / 100)` | Binary floating point makes `toFixed(1)` round some hundreds the wrong way: the prototype prints 1150 as "1.1k" and 1950 as "1.9k"; the port prints "1.2k" and "2k". The difference is at most 50 on a count past a thousand, and the printed width is unchanged (still at most four characters). S1's review found it; the spec's own examples (`1000 → "1k"`, `1200 → "1.2k"`, `9949 → "9.9k"`, `9950 → "10k"`) all hold either way. |
+| 13 | (not in the spec — the prototype's tier is always one of its three keys) | `spreadQualifier` answers `null` (silence) for an `undefined` `reachLimitMinutes`; only an explicit `null` means Any. `buildHeatStripCards` already folds an absent value to `null` (`reachLimitMinutes: card?.reachLimitMinutes ?? null`), so the strip never hands the helper an `undefined` — the rule is the helper's own guard for a direct caller | An `undefined` threshold is an unresolved lens, not "no gate"; reading it as Any would print "(any drive)" over a pool that was perhaps gated. Silence is the safe direction (§2 #5). A finite threshold that matches no tier is silent for the same reason. |
+| 14 | (not in the spec) | The 205px container threshold stays at 205px after #11, now carrying about 10px of slack | §2 #2 sized it on the 122px worst-case histogram (203px beside the label and the gap). #11 brings that card to 114px (195px beside the label), so the threshold could be retuned down — left, because the three-character case (113.6px, 194.6px beside the label) sits just under it and the stylesheet's own comment documents the arithmetic; retuning `.sm`, the 17px maximum or the type moves it. |
+
+---
+
+## §5 Decisions taken at plan time (defaults every phase builds on)
+
+1. The hatched bar is a counted column (§4 #2). A reviewer who argues it should be countless is
+   arguing with A27 — point them at the plan-matrix row.
+2. `--cw` is an inline custom property, not a class per width: the value is continuous (one of
+   ~nine) and the card already carries `--c`/`--r` the same way.
+3. The spoken sentence names only non-zero bands (§2 #6). Five clauses per card across six cards
+   would be thirty, most of them "0 at N stars".
+4. The qualifier string is parenthesised in the markup, not by CSS `::before`, so a text-content
+   assertion reads what a sighted reader sees — and so a contrast sweep that walks text nodes sees
+   it too (`contrast-sweep-misses-pseudo-elements`).
+
+---
+
+## §6 Owner questions — all decided or closed (none blocked a phase)
+
+- **Q1 — DECIDED on the plan PR (2026-10-15), shipped at S2.** The SPOKEN sentence names the tier's minutes
+  ("7 locations within 45 min", "7 locations, any drive") because the visible label now does and
+  the grid is `aria-hidden` (§2 #5); the TOOLTIP keeps "within reach", as the spec asks. The
+  default had been "no"; a Codex review showed the Any-tier contradiction it would have shipped.
+- **Q2 — CLOSED at S2 (2026-10-15).** The `.sm` 7.5px count type shipped as specified; its
+  measured ink is 7.14:1 on the well (§7), so the size question is only a size.
+- **Q3 — CLOSED, default taken (2026-10-15).** Under an away origin the label copy is unchanged
+  (spec) — the drive is from the base town, which is what the pool is gated on. Shipped
+  unchanged.
+- **Q4 — CLOSED on the plan PR (2026-10-15); residual FIXED at S2 (§4 #11).** The threshold was
+  raised from 170 to 205px (§2 #2) so the widest count the clamp allows fits side by side wherever
+  the row is side by side. The residual — a four-character count on the stacked line at the 320px
+  viewport — was first estimated at 6px (a 116px line) and measured at S2 as 10px (the line is
+  112px); the remedy named here (drop the well's side padding and 2px of the hatched gap under
+  `.sm`) was applied at S2 and leaves a 2px clip from the hatched column's own leading edge, with
+  the `1.2k` still legible. A pool that put a thousand places within reach is not today's catalogue
+  (253), so this is a margin, not a live case.
+
+---
+
+## §7 Verification — the measurement S2 records here
+
+**Measured at S2 (2026-10-15); the table below is the record.** Only the fixture was run — S2's
+phase-log row records no live-stack check, and a fresh H2 file holds no ratings for one.
+
+Fixture, not assertion: a standalone page built from the REAL compiled `dist/assets/index-*.css`
+(fresh `npm run build`) and the real IBM Plex Mono files, reproducing the card's DOM chain
+(`.wf-hstrip > .wf-hc > .wf-hc-pls > .wf-hc-sprow`), opened in headless Chromium (Playwright, the
+`browser-pane-headless-fallback` route) at the ten shell geometries of the table below (320, 360, 375, 390, 640, 768, 834, 1024 with the Ask dock open and closed, 1280px). A live local stack
+(`./mvnw -Plocal-dev spring-boot:run -Dspring-boot.run.profiles=local`, port 8083, `npm run dev`,
+`admin`/`golden2026`) is the bonus check if its H2 holds ratings; a fresh file holds none, so bars
+mode is a fixture question.
+
+| viewport | card content width | stacked? (§2 #2) | histogram width at 1 / 2 / 4 chars | label width (45m / 2h30 / any / unqualified) | overlap or clip? | count ink on well (AA) | zero-count ink | `.sm` ink | pick legend + hover paint as before? |
+|---|---|---|---|---|---|---|---|---|---|
+| 320 | 112 | yes | 59 / 82.3 / 114 | 67.3 / 73.0 / 61.7 / 35.7 | no overlap; clip 1.6px at 3-char x6 (inside the well's padding), 2px at `1.2k` (§4 #11) | 7.14:1 (9px/600) | 7.14:1 (9px/400) | 7.14:1 (7.5px) | yes |
+| 360 | 132 | yes | same | same | none | 7.14 | 7.14 | 7.14 | yes |
+| 375 | 139.5 | yes | same | same | none | 7.14 | 7.14 | 7.14 | yes |
+| 390 | 147 | yes | same | same | none | 7.14 | 7.14 | 7.14 | yes |
+| 640 | 121 | yes | same | same | none | 7.14 | 7.14 | 7.14 | yes |
+| 768 | 153 | yes | same | same | none | 7.14 | 7.14 | 7.14 | yes |
+| 834 | 169.5 | yes | same | same | none | 7.14 | 7.14 | 7.14 | yes |
+| 1024 docked (Ask dock open) | 127 | yes | same | same | none | 7.14 | 7.14 | 7.14 | yes |
+| 1024 undocked | 217 | no (side by side) | same | same | none | 7.14 | 7.14 | 7.14 | yes |
+| 1280 | 239 | no (side by side) | same | same | none | 7.14 | 7.14 | 7.14 | yes |
+
+Histogram widths: 59 = five columns of 9px (no hatched bar); 82.3 = two-character counts with the hatched bar (`6×10.4 + 5×2 + 4 + 6`); three characters with the hatched bar 113.6; four characters 114 under `.sm` (122 before the give-back). Column gaps measured: 2px between bands, 6px from the hatched column to 1★ (4px under `.sm`). "Pick legend + hover" = `elementFromPoint` at each legend's centre returns the legend, and a hovered card computes `translateY(-2px)` with its legend still the hit target, at every viewport (the containment made each card a stacking context; nothing moved).
+
+Cases run on every viewport (the DOM is the real component's, the cards in the real 2-column phone grid below 640px and the real rows layout above): single-digit counts; `999` in every column; `1.2k` in every column; the hatched bar at `1.2k` beside single-digit bands (synthetic: the minimum-sample gate makes it unreachable in production, set exactly as the component sets a four-character count); the text state (`124/253 rated`) with the label line above it; a mixed pool (one unknown drive: "Spread" alone); "Any"; the 90 and 150 tiers; two-digit counts (the 2h30 screenshot shape). Nothing drew over the label at any width. The rating pill's column measured 35.4px with and without the qualifier. **Alignment**: with qualified/unqualified x bars/text neighbours placed both as day pairs (phone) and as rows (desktop), every card's Best row sat at the same offset from its card top in every row at every viewport (172 / 182 / 185.75 / 189.5 / 176.5 / 192.5 / 200.75 / 179.5 / 201.5 / 212.5px). The only clip: a `1.2k` card at 320px loses 2px of the hatched column's leading edge (10px before §4 #11), a `999` card 1.6px of the well's padding.
+
+The required cases (the spec's `999` and `1.2k` checks on the narrowest stacked card and the narrowest
+side-by-side card, the hatched bar at `1.2k`, the text state, a mixed pool, "Any") and the three
+conditions on them — nothing draws over the label, the rating pill's column measures the same with
+and without the qualifier, a `1.2k` card at 320px clips only inside the value cell — are all met by
+the run above; the clip is the 2px recorded there.
+
+---
+
+## §8 Process
+
+Each phase is a **fresh Sonnet session** in its own worktree, started by the planning session with
+this plan's §3 phase text and the spec pasted in (the plan is on main once S0 merges; a session's
+worktree is cut from `origin/main`, so a phase must not start until the previous phase's PR has
+MERGED). The session: builds → runs the gate → runs its review lenses in the foreground → fixes →
+measures (S2) → writes its changelog.d entry and its phase-log row → commits (conventional commit,
+the attribution trailer) → pushes its branch → opens the PR (`gh pr create`, body ending with the
+generated-with line) → watches CI (`gh pr checks --watch`) and Codex → fixes anything either
+raises, pushing follow-up commits and asking `@codex review` after each → merges with
+`gh pr merge --squash --match-head-commit "$(gh pr view <N> --json headRefOid -q .headRefOid)"`
+only when CI is green AND Codex has answered for the HEAD sha. ⚠️ Codex clean is a 👍 reaction on
+the PR body or the "Codex Review Summary" comment naming the head's short sha — 👀 is in progress,
+never clean; a force-push does not re-trigger it. The planning session verifies each merge on
+`origin/main` before launching the next phase. The owner is told only when a phase is genuinely
+blocked (a Codex finding the session cannot resolve with cited evidence, a CI failure outside the
+diff) — never for a decision §5 already takes.

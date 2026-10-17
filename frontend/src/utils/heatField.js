@@ -21,8 +21,9 @@
  * points and it returns the blended score field. The geo host ({@link drawGeo}) projects with
  * d3 and clips to real coastline for the static Plan thumbnails; the tile host
  * ({@link drawTiles}) projects with a Leaflet map and paints over the basemap. Both get the same
- * colour ramp, the same coverage clamp, the same confidence haze and the same cull, so the two
- * surfaces can never drift in what they mean.
+ * colour ramp by default (a host may inject its own through `opts.ramp`), the same coverage
+ * clamp, the same confidence haze and the same cull, so the two surfaces can never drift in what
+ * they mean.
  *
  * <p>Two performance rounds are baked in and both are required — the cull and the 3×3 spatial
  * bucketing. Without bucketing, 204 locations already stalled a pan (~4.5M inner-loop iterations
@@ -84,7 +85,11 @@ export { rgb };
  * @param {number} w  surface width in CSS px
  * @param {number} h  surface height in CSS px
  * @param {{radius?: number, grid?: number, conf?: number, focus?: *, alpha?: number, bloom?: *,
- *          bloomFrom?: number, bloomA?: number}} [opts] dials
+ *          bloomFrom?: number, bloomA?: number, ramp?: function(number): number[],
+ *          bloomRGB?: number[]}} [opts] dials. `ramp` maps a blended score to [r, g, b] (default
+ *          the active `scoreRamp` mode's `rampRgb`); `bloomRGB` is the bloom's colour (default the
+ *          ember [255,138,66]). Both exist so an aurora night can paint through this same kernel
+ *          in its own colours (`auroraRamp.js`) without a second kernel.
  * @returns {{canvas: HTMLCanvasElement, bloom: HTMLCanvasElement|null, cols: number, rows: number,
  *           gp: number, n: number, unc: number, img: ImageData,
  *           bloomImg: ImageData|null}|null} the field, or null when nothing can contribute
@@ -133,6 +138,8 @@ export function field(pts, w, h, opts) {
   // only on request: every non-bloom surface (still most of them, until P2 flips the call sites)
   // must not pay for a second ImageData it never reads.
   const bl = opts.bloom ? octx.createImageData(cols, rows) : null;
+  const ramp = opts.ramp || rampRgb;
+  const bc = opts.bloomRGB || [255, 138, 66];
   const aMax = (opts.alpha == null ? 206 : opts.alpha) * (1 - 0.34 * unc);
   for (let j = 0; j < rows; j += 1) {
     for (let i = 0; i < cols; i += 1) {
@@ -167,7 +174,7 @@ export function field(pts, w, h, opts) {
         continue;
       }
       const s0 = sws / sw;
-      let c = rampRgb(s0);
+      let c = ramp(s0);
       /* coverage clamp: warmth only where locations actually are, so empty ground stays empty
          instead of being coloured in by interpolation from thirty miles away */
       const cov = 1 - Math.exp(-sw / 1.15);
@@ -181,8 +188,10 @@ export function field(pts, w, h, opts) {
       img.data[k + 2] = c[2];
       img.data[k + 3] = Math.round(clamp(cov, 0, 1) * aMax);
       if (bl) {
-        /* The gate MUST stay at 3★ on every surface — where the ramp's own luminance peaks (see
-           this function's doc comment and the design bundle README, "The heat bloom"). Any higher
+        /* On the shared/temperature ramp the gate MUST stay at 3★ — where that ramp's own
+           luminance peaks (see this function's doc comment and the design bundle README, "The
+           heat bloom"). A monotonic ramp injected via `opts.ramp` (aurora, plan §4 #4) may pass
+           its own `bloomFrom`, since it has no dead band. On the temperature ramp any higher
            gate leaves a DEAD BAND between 3★ and the gate in which the ramp is already darkening
            and the bloom contributes nothing, which reintroduces the exact inversion the bloom
            exists to remove. To stop a small surface washing out, cut `bloomBlur` in {@link paint}
@@ -199,9 +208,9 @@ export function field(pts, w, h, opts) {
            at 3 regardless of which measurement is more precise. */
         const g = opts.bloomFrom == null ? 3 : opts.bloomFrom;
         const t = Math.pow(clamp((s0 - g) / (5 - g), 0, 1), 1.2);
-        bl.data[k] = 255;
-        bl.data[k + 1] = 138;
-        bl.data[k + 2] = 66;
+        bl.data[k] = bc[0];
+        bl.data[k + 1] = bc[1];
+        bl.data[k + 2] = bc[2];
         bl.data[k + 3] = Math.round(
           t * clamp(cov, 0, 1) * (opts.bloomA == null ? 190 : opts.bloomA) * conf,
         );
@@ -491,9 +500,11 @@ const HATCH_INK = 'rgba(242,231,211,.18)';
  * an unscored Saturday printed a confident "Poor" above an empty map beside a Thursday whose
  * identical "Poor" was 200 locations actually rated bad.
  *
- * <p>It is deliberately mute about WHY. The client cannot tell a stability skip from a triage
- * stand-down from a failed batch — all it sees is a window with no ratings — so the mark says
- * that and no more, and the strip's footer is where the convention is named in words.
+ * <p>It is deliberately mute about WHY. The reason lives in the served verdict word and region
+ * wording (the honesty filter words a blank by what the pipeline did: not scored at this range, a
+ * travel day, a run that did not finish, or a weather stand-down) — all this plate sees is a
+ * window with no ratings — so the mark says that and no more, and the strip's footer is where the
+ * convention is named in words.
  *
  * @param {CanvasRenderingContext2D} ctx target context
  * @param {number} w surface width in CSS px

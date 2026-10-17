@@ -2,6 +2,7 @@
  * Utility functions for unit conversions and date/label formatting.
  */
 import { ukDateStr, ukDateStrOffset, ukDayOffset, UK_ZONE } from './mapDates.js';
+import { appNow } from './rewind.js';
 
 const COMPASS_POINTS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 const MS_TO_MPH = 2.23694;
@@ -61,7 +62,7 @@ export function degreesToCompass(degrees) {
  * @param {boolean} [skipRelative=false] - If true, always returns the formatted date (e.g. "Sat 28 Feb").
  * @returns {string} Human-readable label.
  */
-export function formatDateLabel(dateStr, now = new Date(), skipRelative = false) {
+export function formatDateLabel(dateStr, now = appNow(), skipRelative = false) {
   // "Today"/"Tomorrow" on the UK calendar, not the browser's. `DateStrip` decides which chip is
   // today with `ukDateStr` and then calls this for every other chip, so a second basis here could
   // put "Today" on two chips at once for a reader outside the UK.
@@ -162,6 +163,24 @@ export function formatEventTimeUk(utcDateTimeStr) {
 }
 
 /**
+ * Formats an instant as the UK day and clock a reader acts on: "Sun 4 Oct, 05:58".
+ *
+ * <p>`en-GB` puts its own comma between the weekday and the day ("Sun, 4 Oct, 05:58"); the first
+ * is dropped so the phrase reads as one. The Rewind bar and the Operations Rewind view print the
+ * moment the app is rendering as of in this form.
+ *
+ * @param {string|Date|null} value - a backend instant (bare or `Z`-suffixed), or a Date
+ * @returns {string|null} e.g. "Sun 4 Oct, 05:58", or null when the instant is absent or unparseable
+ */
+export function formatDayClockUk(value) {
+  const s = formatInstantUk(value, {
+    weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+    hourCycle: 'h23',
+  });
+  return s == null ? null : s.replace(/^(\w{3}),/, '$1');
+}
+
+/**
  * Formats a UTC forecast run timestamp as a full UK local datetime string including year.
  *
  * Returns a string like "23 Feb 2026 13:25" for display in map popups and detail views.
@@ -214,18 +233,6 @@ export function groupForecastsByLocation(forecasts) {
 }
 
 /**
- * Groups an array of forecast evaluations by date, keeping only the most
- * recent run for each date+type combination.
- *
- * HOURLY rows (WILDLIFE model) are collected into a sorted {@code hourly} array
- * keyed by the full UTC hour timestamp. Only the most-recent run per hour slot
- * is kept.
- *
- * @param {Array<object>} forecasts - Raw forecast evaluations from the API.
- * @returns {Map<string, {sunrise: object|null, sunset: object|null, hourly: Array<object>}>}
- *   A map keyed by date string (YYYY-MM-DD).
- */
-/**
  * Tests whether an ISO date string (YYYY-MM-DD) falls inside any travel range.
  *
  * <p>Ranges are inclusive of both bounds. ISO date strings sort lexicographically
@@ -240,6 +247,23 @@ export function isTravelDate(dateStr, ranges) {
   return ranges.some((r) => dateStr >= r.startDate && dateStr <= r.endDate);
 }
 
+/**
+ * Groups an array of forecast evaluations by date, keeping only the most
+ * recent run for each date+type combination.
+ *
+ * HOURLY rows (WILDLIFE model) are collected into a sorted {@code hourly} array
+ * keyed by the full UTC hour timestamp. Only the most-recent run per hour slot
+ * is kept.
+ *
+ * <p>⚠️ **The returned keys include HOURLY-ONLY dates.** A wildlife hide's comfort rows run
+ * today..T+5, a day beyond the colour pipeline, and a date entry opens for ANY row — with `sunrise`
+ * and `sunset` both null. Never read the keys as "the dates that have a forecast window": use
+ * {@link colourForecastDates}, which counts a date only when a sunrise or sunset stands behind it.
+ *
+ * @param {Array<object>} forecasts - Raw forecast evaluations from the API.
+ * @returns {Map<string, {sunrise: object|null, sunset: object|null, hourly: Array<object>}>}
+ *   A map keyed by date string (YYYY-MM-DD).
+ */
 export function groupForecastsByDate(forecasts) {
   const map = new Map();
   // Intermediate: collect most-recent HOURLY row per hour slot
@@ -287,6 +311,31 @@ export function groupForecastsByDate(forecasts) {
   }
 
   return map;
+}
+
+/**
+ * Every date on which at least one location carries a sunrise or sunset (COLOUR) forecast, sorted.
+ *
+ * <p>This is the app's forecast-date domain — what the Map tab derives its window rows, its night
+ * previews and its date rules from — and it must NOT take in a date that holds only HOURLY rows.
+ * `groupForecastsByDate` opens a per-date entry for any row, so a wildlife hide's comfort forecast
+ * (written today..T+5, a day further than the colour pipeline evaluates) puts a date key on
+ * `forecastsByDate` that no sunrise or sunset was ever evaluated for. Counting those keys made the
+ * Map tab's window control draw an empty Sunrise/Sunset pair for a day nothing rates, and could
+ * make an app with only hides look like it had a map to open. A date counts only when a colour row
+ * stands behind it.
+ *
+ * @param {Array<{forecastsByDate: ?Map<string, {sunrise: ?object, sunset: ?object}>}>} locations
+ * @returns {string[]} the dates, ascending
+ */
+export function colourForecastDates(locations) {
+  const dates = new Set();
+  for (const loc of locations) {
+    for (const [date, entry] of loc.forecastsByDate) {
+      if (entry?.sunrise || entry?.sunset) dates.add(date);
+    }
+  }
+  return [...dates].sort();
 }
 
 /**
@@ -413,6 +462,8 @@ export function computeAutoSelection(locations, now) {
 
   let earliestSunset = null;
   for (const loc of locations) {
+    // ⚠️ Not `isWildlifeOnly`: `.every` with no length guard, so an UNTYPED location also skips here.
+    // Left as it was (a known divergent site, named in `isWildlifeOnly`'s JSDoc).
     if ((loc.locationType ?? []).every((t) => t === 'WILDLIFE')) continue;
     const sunsetTime = loc.forecastsByDate.get(todayStr)?.sunset?.solarEventTime;
     if (sunsetTime) {

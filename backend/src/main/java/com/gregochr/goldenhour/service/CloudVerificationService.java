@@ -42,6 +42,10 @@ import java.util.stream.Collectors;
  * point the gate actually looks at? 226 km is the geometric centre of a 4 km mid canvas's blocking
  * corridor and only the near edge of an 8 km high canvas's, whose centre is ~319 km — see
  * {@code DirectionalSamplingGeometry.FAR_SOLAR_OFFSET_METRES}).
+ *
+ * <p>Pressure-level cloud (850 to 300 hPa, recorded on the forecast side only) is deliberately NOT
+ * fetched from the ERA5 archive: the archive returns null for those variables (checked 2026-10-13),
+ * so do not add them to {@code ARCHIVE_HOURLY}.
  */
 @Service
 public class CloudVerificationService {
@@ -454,11 +458,14 @@ public class CloudVerificationService {
     }
 
     /**
-     * Reads the far-solar archive hour matching the solar event and records its low cloud.
+     * Reads the far-solar archive hour matching the solar event and records its cloud.
      *
-     * <p>Only the low layer is kept: the far point exists to measure the canvas-underlighting
-     * corridor (dead centre of a 4 km mid canvas's 113–339 km blocking corridor; near edge of an
-     * 8 km high canvas's 206–432 km one), and low cloud is the only layer that blocks there.
+     * <p>The far point exists to measure the canvas-underlighting corridor (dead centre of a 4 km
+     * mid canvas's 113–339 km blocking corridor; near edge of an 8 km high canvas's 206–432 km
+     * one). Low cloud at the event hour remains the only layer any report reads. The mid and high
+     * layers at the event hour, and low, mid and high on the dark side of the event
+     * ({@link TimeSlotUtils#darkSideIndex}), are recorded for far-cloud-lid-plan P1 and read by
+     * nothing yet; a missing layer or an index off the array's edge records {@code null}.
      *
      * @param builder   the verification row under construction
      * @param archive   the far-solar archive response, or {@code null} if the fetch failed
@@ -475,6 +482,12 @@ public class CloudVerificationService {
         int idx = TimeSlotUtils.findBestIndex(
                 hourly.getTime(), candidate.solarEventTime(), candidate.targetType());
         builder.farLowCloud(layerAt(hourly.getCloudCoverLow(), idx));
+        builder.farMidCloud(layerAt(hourly.getCloudCoverMid(), idx));
+        builder.farHighCloud(layerAt(hourly.getCloudCoverHigh(), idx));
+        int darkIdx = TimeSlotUtils.darkSideIndex(idx, candidate.targetType());
+        builder.farLowCloudDark(layerAt(hourly.getCloudCoverLow(), darkIdx));
+        builder.farMidCloudDark(layerAt(hourly.getCloudCoverMid(), darkIdx));
+        builder.farHighCloudDark(layerAt(hourly.getCloudCoverHigh(), darkIdx));
     }
 
     /**

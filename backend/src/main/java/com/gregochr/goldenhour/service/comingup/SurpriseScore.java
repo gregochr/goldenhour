@@ -115,4 +115,65 @@ public final class SurpriseScore {
         }
         return "onRequest";
     }
+
+    /**
+     * A plain-language phrase for how often something happens — the rarity component read back
+     * out in the mean gap it was built from, never the raw log2 unit (lunar-eclipse plan §2.9: "no
+     * more bits" applies to display copy, not to the wire, so {@code rarityBits} itself is
+     * unaffected). {@link #rarity} is exactly {@code log2(meanGapDays)}, so {@code days =
+     * 2^bits} recovers it losslessly; this is the one place that inverse is taken.
+     *
+     * <p>The buckets are natural-language calendar units, chosen so every mean-gap-days value
+     * actually configured in {@code application-example.yml} lands on the word that describes it
+     * — a spring tide's 14.8-day gap reads "a fortnight", a meteor shower's or an NLC season's
+     * 365.25-day gap reads "a year", a lunar eclipse's 900-day gap reads "every two to three
+     * years", a solar eclipse's 1500-day gap (4.1 years — outside that band) reads "every 4
+     * years" — rather than tuned to hit only the four phrases the design bundle happens to name.
+     *
+     * <p>The returned phrase completes "once ___": {@code "It comes round about once " +
+     * gapWord(bits) + ", which is rare enough to flag on its own."}
+     *
+     * <p>⚠️ <b>The phrase ships alone — never {@code phrase (3.9)}.</b> Every quant line that
+     * calls this used to append the raw bits figure in brackets, which put back exactly the log2
+     * unit this method exists to replace: {@code bits} is unbounded surprisal, so a bracketed
+     * {@code 3.9} offers a reader no denominator to reason about — there is no "out of". The
+     * number stays on the wire where a consumer can use it ({@code
+     * ComingUpConditionPeak.bits}/{@code ComingUpConditionOccurrence.bits}/{@code
+     * ComingUpEntry.bits}); it simply does not belong in a sentence a photographer reads.
+     *
+     * @param bits the rarity component, in bits ({@code log2(meanGapDays)})
+     * @return a phrase such as {@code "a fortnight"}, {@code "a year"} or {@code "every 4 years"}
+     */
+    public static String gapWord(double bits) {
+        return gapWordFromDays(Math.pow(2, bits));
+    }
+
+    private static String gapWordFromDays(double meanGapDays) {
+        if (meanGapDays <= 1.5) {
+            return "a day";
+        }
+        if (meanGapDays <= 10.0) {
+            return "a week";
+        }
+        if (meanGapDays <= 25.0) {
+            return "a fortnight";
+        }
+        if (meanGapDays <= 45.0) {
+            return "a month";
+        }
+        if (meanGapDays <= 100.0) {
+            return "a couple of months";
+        }
+        if (meanGapDays <= 274.0) {
+            return "six months";
+        }
+        if (meanGapDays <= 548.0) {
+            return "a year";
+        }
+        if (meanGapDays <= 1200.0) {
+            return "every two to three years";
+        }
+        long years = Math.round(meanGapDays / 365.25);
+        return "every " + years + " years";
+    }
 }

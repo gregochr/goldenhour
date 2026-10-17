@@ -100,7 +100,29 @@ describe('MarkerPopupContent', () => {
     it('shows upgrade hint for LITE_USER', () => {
       renderPopup({ role: 'LITE_USER' });
       expect(screen.getByTestId('upgrade-hint')).toBeInTheDocument();
-      expect(screen.getByTestId('upgrade-hint').textContent).toContain('Upgrade to Pro');
+      expect(screen.getByTestId('upgrade-hint').textContent)
+        .toBe('Pro accounts get Fiery Sky & Golden Hour scores, storm surge analysis, and full AI analysis');
+    });
+
+    it('has no anchor to /upgrade in either LITE branch: it is plain text, not a link', () => {
+      // `/upgrade` is not a route, and the App Store forbids a link to a web purchase.
+      const sentence = 'Pro accounts get Fiery Sky & Golden Hour scores, storm surge analysis, and full AI analysis';
+
+      const forecastBranch = renderPopup({ role: 'LITE_USER' });
+      expect(screen.getByTestId('upgrade-hint').querySelector('a')).toBeNull();
+      expect(forecastBranch.container.querySelector('a[href="/upgrade"]')).toBeNull();
+      forecastBranch.unmount();
+
+      // The batch-scored branch (no forecast row, a briefing rating) carries its own copy of it.
+      const batchBranch = renderPopup({
+        role: 'LITE_USER',
+        forecast: null,
+        briefingScore: { rating: 4, summary: 'Clear horizon.' },
+      });
+      expect(screen.getByTestId('batch-scored-popup')).toBeInTheDocument();
+      expect(screen.getByTestId('upgrade-hint').textContent).toBe(sentence);
+      expect(screen.getByTestId('upgrade-hint').querySelector('a')).toBeNull();
+      expect(batchBranch.container.querySelector('a[href="/upgrade"]')).toBeNull();
     });
 
     it('does not show upgrade hint for PRO_USER', () => {
@@ -207,6 +229,12 @@ describe('MarkerPopupContent', () => {
       expect(screen.getByText(/by Sonnet/)).toBeInTheDocument();
     });
 
+    it('names a Sonnet 5.5 evaluation "Sonnet 5.5", not the title-cased enum', () => {
+      renderPopup({ role: 'ADMIN', forecast: { ...BASE_FORECAST, evaluationModel: 'SONNET_55' } });
+      expect(screen.getByText(/by Sonnet 5\.5$/)).toBeInTheDocument();
+      expect(screen.queryByText(/Sonnet_55/)).not.toBeInTheDocument();
+    });
+
     it('hides the footer when forecastRunAt is null (no fabricated time)', () => {
       renderPopup({ role: 'ADMIN', forecast: { ...BASE_FORECAST, forecastRunAt: null } });
       expect(screen.queryByText(/Forecast generated/)).not.toBeInTheDocument();
@@ -239,7 +267,7 @@ describe('MarkerPopupContent', () => {
       };
       renderPopup({ role: 'ADMIN', forecast: triaged });
       expect(screen.getByText(/not evaluated by Claude due to heavy low cloud/)).toBeInTheDocument();
-      expect(screen.getByText(/Haiku run/)).toBeInTheDocument();
+      expect(screen.getByText(/Haiku 4\.5 run/)).toBeInTheDocument();
     });
 
     it('shows sentinel skip note in footer when forecast was sentinel-skipped', () => {
@@ -416,6 +444,73 @@ describe('MarkerPopupContent', () => {
     it('shows no-hourly message when hourlyData is empty', () => {
       renderPopup({ role: 'PRO_USER', isPureWildlife: true, hourlyData: [] });
       expect(screen.getByText('No hourly forecast available')).toBeInTheDocument();
+    });
+
+    it('draws the hours with the shared table — a named table, a row header per hour, the same cell text', () => {
+      renderPopup({
+        role: 'PRO_USER',
+        isPureWildlife: true,
+        hourlyData: [
+          { solarEventTime: '2026-03-03T08:00:00Z', temperatureCelsius: 6, apparentTemperatureCelsius: 3, windSpeed: 5, windDirection: 180, precipitationProbabilityPercent: 20 },
+          { solarEventTime: '2026-03-03T09:00:00Z', temperatureCelsius: 7.4, apparentTemperatureCelsius: null, windSpeed: null, windDirection: null, precipitationProbabilityPercent: null },
+        ],
+      });
+      screen.getByRole('table', { name: 'Hourly comfort for Bamburgh' });
+      expect(screen.getAllByRole('rowheader').map((th) => th.textContent)).toEqual(['08:00', '09:00']);
+      const [first, second] = screen.getAllByTestId('hourly-comfort-row');
+      expect(first).toHaveTextContent('6°C · feels 3°C');
+      expect(first).toHaveTextContent('11.2 mph S');
+      expect(first).toHaveTextContent('20%');
+      // A missing feels-like prints no "feels" at all (it used to present the air temperature as one);
+      // a missing wind or rain figure is a dash with a hidden "not forecast", never "undefined".
+      expect(second).toHaveTextContent('7°C');
+      expect(second.textContent).not.toContain('feels');
+      expect(second.textContent).not.toContain('undefined');
+    });
+
+    it('keeps the popup\'s column headers hidden — the frozen overlay\'s look is unchanged — yet named', () => {
+      renderPopup({
+        role: 'PRO_USER',
+        isPureWildlife: true,
+        hourlyData: [
+          { solarEventTime: '2026-03-03T08:00:00Z', temperatureCelsius: 6, apparentTemperatureCelsius: 3, windSpeed: null, windDirection: null, precipitationProbabilityPercent: null },
+        ],
+      });
+      for (const name of ['Time', 'Temperature', 'Wind', 'Rain chance']) {
+        // The sr-only pattern: present in the accessibility tree, invisible on screen.
+        expect(screen.getByRole('columnheader', { name }).firstChild).toHaveClass('sr-only');
+      }
+      // A missing wind and a missing rain figure each expose "not forecast" to a screen reader.
+      expect(screen.getAllByText('not forecast')).toHaveLength(2);
+    });
+
+    it('prints a solar-row wind with no direction as speed alone, in the popup\'s detail block too', () => {
+      renderPopup({
+        role: 'PRO_USER',
+        forecast: { ...BASE_FORECAST, windSpeed: 4.2, windDirection: null },
+      });
+      fireEvent.click(screen.getByTestId('more-details-toggle'));
+      expect(screen.queryByText(/undefined/)).toBeNull();
+    });
+  });
+
+  describe('waterfall locations', () => {
+    // The hourly comfort job has only ever written rows for pure-wildlife hides, so a waterfall
+    // popup carries none and the branch that once drew a table under its colour forecast was dead.
+    // It is gone: even handed rows (and the old prop), a waterfall popup draws no comfort table.
+    it('draws no hourly comfort table even when hourly rows are present', () => {
+      renderPopup({
+        role: 'PRO_USER',
+        location: { ...BASE_LOCATION, name: 'High Force', locationType: ['WATERFALL'] },
+        showComfortRows: true,
+        hourlyData: [
+          { solarEventTime: '2026-03-03T08:00:00Z', temperatureCelsius: 6, apparentTemperatureCelsius: 3, windSpeed: 5, windDirection: 180, precipitationProbabilityPercent: 20 },
+        ],
+      });
+      expect(screen.queryByRole('table')).toBeNull();
+      expect(screen.queryByText(/Hourly comfort/)).toBeNull();
+      // The colour forecast the waterfall does have is untouched.
+      expect(screen.getByText('4/5')).toBeInTheDocument();
     });
   });
 

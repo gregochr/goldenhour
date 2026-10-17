@@ -12,6 +12,7 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collection;
@@ -206,6 +207,64 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
             Pageable pageable);
 
     /**
+     * Every row of a roster's slot-day that had been SCORED by {@code upTo}, newest submission first —
+     * the as-of-event resolver's step-2 pool ({@code AsOfEventResolver}, outcome-rating plan §2 #1).
+     *
+     * <p>Bounded on the AVAILABILITY stamp: {@code scored_at IS NOT NULL AND scored_at <= upTo}. A
+     * row with no {@code scored_at} (still {@code PENDING}, {@code ABANDONED}, an {@code HOURLY}
+     * comfort row, or written before V178 with nothing to say: V183 stamped the rest) is never
+     * returned, because its {@code forecast_run_at} is a submission instant and proves nothing about
+     * when it arrived. The caller applies the per-place
+     * event bound, the has-something-to-say rule and the stability-skip retraction in memory, from
+     * this one read — {@code upTo} is the latest event instant among the places asked about, so the
+     * pool is a superset for every one of them.
+     *
+     * <p>Ordered {@code forecast_run_at DESC, id DESC}, the order {@link
+     * #findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc} serves a slot in, so
+     * the first row passing a caller's tests is the one the serve path would have picked.
+     *
+     * @param locationIds the places asked about
+     * @param targetDate  the event date
+     * @param targetType  SUNRISE or SUNSET
+     * @param upTo        the latest availability instant of interest
+     * @return the scored rows, newest submission first
+     */
+    @Query("SELECT e FROM ForecastEvaluationEntity e"
+            + " WHERE e.location.id IN :locationIds"
+            + " AND e.targetDate = :targetDate"
+            + " AND e.targetType = :targetType"
+            + " AND e.scoredAt IS NOT NULL AND e.scoredAt <= :upTo"
+            + " ORDER BY e.forecastRunAt DESC, e.id DESC")
+    List<ForecastEvaluationEntity> findScoredByEventInstant(
+            @Param("locationIds") Collection<Long> locationIds,
+            @Param("targetDate") LocalDate targetDate,
+            @Param("targetType") TargetType targetType,
+            @Param("upTo") Instant upTo);
+
+    /**
+     * Deletes one place's {@code HOURLY} (wildlife comfort) rows for one target date — the
+     * "replace" half of {@code WildlifeComfortRefreshJob}'s delete-then-insert, and the single
+     * exception to this table being insert-only.
+     *
+     * <p>⚠️ The {@code HOURLY} literal is part of the query text, not a parameter, so no caller can
+     * point this at a {@code SUNRISE} or {@code SUNSET} row: the scored forecast rows, their
+     * {@code cloud_verification} dependants and the calibration join all stay out of its reach.
+     * Callers must delete only inside the transaction that inserts the replacement rows, and only
+     * once those rows exist — see {@code WildlifeComfortWriter}.
+     *
+     * @param locationId the location primary key
+     * @param targetDate the target date whose {@code HOURLY} rows are superseded
+     * @return the number of rows deleted
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("DELETE FROM ForecastEvaluationEntity e WHERE e.location.id = :locationId"
+            + " AND e.targetDate = :targetDate"
+            + " AND e.targetType = com.gregochr.goldenhour.entity.TargetType.HOURLY")
+    int deleteHourlyByLocationIdAndTargetDate(@Param("locationId") Long locationId,
+            @Param("targetDate") LocalDate targetDate);
+
+    /**
      * R7(a) event-driven abandonment: stamps {@code ABANDONED} every still-{@code PENDING} row
      * among the given primary keys. A no-op for any id already {@code SCORED} (the batch result
      * beat the sweep) or already {@code ABANDONED} (an R6 retry precursor stamp beat it here) —
@@ -259,7 +318,8 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
     @Query("SELECT new com.gregochr.goldenhour.model.CalibrationPair("
             + " e.location.name, e.targetDate, e.targetType, e.daysAhead, e.forecastRunAt,"
             + " e.evaluationModel, e.rating, e.fierySkyPotential, e.goldenHourPotential,"
-            + " o.actualRating, o.fierySkyActual, o.goldenHourActual, o.wentOut)"
+            + " o.actualRating, o.fierySkyActual, o.goldenHourActual, o.wentOut, o.id,"
+            + " e.appBuild, e.promptHash)"
             + " FROM ForecastEvaluationEntity e, ActualOutcomeEntity o"
             + " WHERE e.location.id = o.location.id"
             + " AND e.targetDate = o.outcomeDate"
@@ -269,4 +329,52 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
             + " AND o.outcomeDate BETWEEN :from AND :to")
     List<CalibrationPair> findCalibrationPairs(
             @Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    /**
+     * Pairs each reader's {@code outcome_rating} with the forecast row it resolved to when it was
+     * written, so the calibration gate can score forecasts against what readers saw.
+     *
+     * <p>The join is on {@code r.forecastEvaluationId} — the one row proven available by the event
+     * and unretracted at it — never on the natural key, which would admit every rated row of the
+     * slot and let a batch that landed after the event win the gate's newest-run-per-slot rule. A
+     * rating with a null id therefore pairs with nothing. The predicted rating is
+     * {@code r.forecastRating}, the star the reader saw (never {@code e.rating}, which for a
+     * recombined OPEN_FELL slot is the sky lane alone); a rating with no captured star is not a
+     * pair, and neither is one whose row carries no rating. Horizon, run time, model and
+     * potentials are the row's own. "Didn't see it" ratings (null) are not pairs. The window
+     * bounds the event date, inclusive at both ends.
+     *
+     * <p>The projection uses the narrower {@code CalibrationPair} constructor rather than null
+     * literals: the record has no fiery-sky or golden-hour actual and no trip flag.
+     *
+     * @param from start of the event-date window (inclusive)
+     * @param to   end of the event-date window (inclusive)
+     * @return one pair per usable rating, unordered
+     */
+    @Query("SELECT new com.gregochr.goldenhour.model.CalibrationPair("
+            + " e.location.name, e.targetDate, e.targetType, e.daysAhead, e.forecastRunAt,"
+            + " e.evaluationModel, r.forecastRating, e.fierySkyPotential, e.goldenHourPotential,"
+            + " r.rating, r.userId, e.appBuild, e.promptHash)"
+            + " FROM ForecastEvaluationEntity e, OutcomeRatingEntity r"
+            + " WHERE e.id = r.forecastEvaluationId"
+            + " AND e.rating IS NOT NULL"
+            + " AND r.rating IS NOT NULL"
+            + " AND r.forecastRating IS NOT NULL"
+            + " AND r.eventDate BETWEEN :from AND :to")
+    List<CalibrationPair> findCalibrationPairsFromRatings(
+            @Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    /**
+     * Stamps the system-prompt fingerprint on rows whose batch request carried it (V182). One
+     * statement per distinct prompt, never a load-modify-save, so it cannot rewrite any other column
+     * of a row a result handler is scoring.
+     *
+     * @param hash the {@code PromptHash} of the system prompt
+     * @param ids  the {@code forecast_evaluation} ids whose requests carried it
+     * @return the number of rows stamped
+     */
+    @Modifying
+    @Transactional
+    @Query("UPDATE ForecastEvaluationEntity e SET e.promptHash = :hash WHERE e.id IN :ids")
+    int stampPromptHash(@Param("hash") String hash, @Param("ids") Collection<Long> ids);
 }

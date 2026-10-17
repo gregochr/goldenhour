@@ -28,6 +28,23 @@ notifications:
     user-key: test
   macos-toast:
     enabled: false
+  admin-alerts:
+    enabled: false
+
+photocast:
+  batch:
+    # Do not prime the prompt cache in tests. The primer is on by default with a 180s wait, and an
+    # integration test whose WireMock batch-status stub answers in_progress forever made it poll for
+    # the full three minutes before the submission under test ran at all —
+    # OrchestratedDispositionWriteIntegrationTest went from 18s to 197s the day #999 landed, and
+    # because it was the last class to finish it put every one of those seconds on the CI job's
+    # critical path. Zero means "do not prime": the submission is byte-identical to the pre-primer
+    # request, which is exactly what the integration tests assert on. The primer's own behaviour
+    # (timeout, cap, failed submits, warmed prefixes) is covered by BatchCachePrimerTest against a
+    # fake clock and sleeper, and the warmed-prefix handoff by ScheduledBatchEvaluationServiceTest —
+    # neither reads this property. A test that wants the primer live sets this itself.
+    cache-primer:
+      wait-seconds: 0
 
 forecast:
   locations:
@@ -49,6 +66,18 @@ resilience4j:
   circuitbreaker:
     circuitBreakerAspectOrder: 1
     instances:
+      # Ask PhotoCast's own breaker (AnthropicApiClient.createAskMessage): a reader's questions must
+      # never be able to open the "anthropic" breaker the forecast pipeline shares. No health
+      # indicator, so a breaker that opens on questions cannot flip the application's health.
+      ask:
+        registerHealthIndicator: false
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30s
+        permittedNumberOfCallsInHalfOpenState: 2
+        automaticTransitionFromOpenToHalfOpenEnabled: true
       anthropic:
         registerHealthIndicator: false
         slidingWindowType: COUNT_BASED
@@ -68,12 +97,28 @@ resilience4j:
   retry:
     retryAspectOrder: 2
     instances:
+      # Ask PhotoCast model turns: two attempts, server errors only (AskRetryPredicate). Millisecond
+      # backoff: the attempt COUNT and predicate are what the tests exercise, not the real-world wait.
+      ask:
+        maxAttempts: 2
+        waitDuration: 10ms
       anthropic:
         maxAttempts: 4
         waitDuration: 1s
         enableExponentialBackoff: true
         exponentialBackoffMultiplier: 2
         exponentialMaxWaitDuration: 30s
+      # Same shape as prod's "anthropic-batch" (AnthropicBatchClient) but with millisecond
+      # backoff — production's 30s/60s/120s would make ForecastBatchPipelineIntegrationTest's
+      # "submission failure" scenario (a persistent 500 from the batch-create endpoint) take
+      # minutes per test run for no extra coverage; the retry COUNT and predicate are what
+      # those tests exercise, not the real-world wait.
+      anthropic-batch:
+        maxAttempts: 4
+        waitDuration: 10ms
+        enableExponentialBackoff: true
+        exponentialBackoffMultiplier: 2
+        exponentialMaxWaitDuration: 50ms
       open-meteo:
         maxAttempts: 3
         waitDuration: 5s
@@ -89,6 +134,11 @@ resilience4j:
   bulkhead:
     bulkheadAspectOrder: 4
     instances:
+      # Ask PhotoCast: at most four conversations talk to Claude at once; a fifth waits two seconds
+      # and is then turned away (counted as load, not as a Claude fault, by the ask breaker).
+      ask:
+        maxConcurrentCalls: 4
+        maxWaitDuration: 2s
       forecast:
         maxConcurrentCalls: 8
         maxWaitDuration: 0ms

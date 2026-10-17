@@ -15,8 +15,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  * error, warn, or degrade visibly. It simply returns {@code cache_creation_input_tokens: 0} and
  * charges the full input rate forever.
  *
- * <p>The forecast prompt clears the floor by roughly 5% (16,193 characters inland, 16,452 coastal,
- * against a ~15,350 character equivalent). Nothing else in the codebase records that margin, so a
+ * <p>The forecast prompt clears the floor by roughly 15% (measured 2026-10-04: 17,920 characters and
+ * 4,726 tokens inland, 18,179 and 4,779 coastal). Nothing else in the codebase records that margin, so a
  * routine edit that trims a few paragraphs would silently switch caching off across every T+2/T+3
  * evaluation with no failing test and no operational signal. That is what these assertions exist
  * to prevent.

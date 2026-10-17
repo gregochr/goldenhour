@@ -53,6 +53,13 @@ import java.time.LocalDateTime;
  * @param avgRangeMetres             the location's average tidal range (avgHigh - avgLow), or
  *                                   {@code null} when stats are unavailable; the baseline for the
  *                                   spring-tide range anomaly fact
+ * @param tideAlignmentQuality       how well-centred the water is in the wanted state at the
+ *                                   light, on the same time axis {@link #tideAligned} is decided
+ *                                   on — 0.0 at the edge of the tight alignment window, 1.0 dead
+ *                                   centre. {@code null} unless {@link #tideAligned}: an unaligned
+ *                                   slot has no "how well" to report. When more than one wanted
+ *                                   state is aligned, the best of them. Never derived from level
+ *                                   or height (CLAUDE.md's two-tide-axes rule)
  */
 public record TideDerivation(
         TideState tideState,
@@ -70,7 +77,45 @@ public record TideDerivation(
         boolean heightAboveP95,
         boolean heightAboveSpringThreshold,
         BigDecimal springTideThresholdMetres,
-        BigDecimal avgRangeMetres) {
+        BigDecimal avgRangeMetres,
+        Double tideAlignmentQuality) {
+
+    /**
+     * Legacy 16-field constructor, retained so the existing call sites (mostly tests) that
+     * predate {@link #tideAlignmentQuality} keep compiling unchanged. Defaults the new field to
+     * {@code null} — "not computed here", the same fail-soft convention
+     * {@link BriefingSlot.TideInfo#NONE} uses elsewhere on this record's sibling.
+     *
+     * @param tideState                  tide state at the solar event
+     * @param nextHighTideTime           time of the next high tide
+     * @param nextHighTideHeightMetres   height of the next high tide, or {@code null}
+     * @param nextLowTideTime            time of the next low tide
+     * @param nextLowTideHeightMetres    height of the next low tide, or {@code null}
+     * @param tideAligned                whether the tide aligns within the tight window
+     * @param widenedAligned             whether the tide aligns within the widened window
+     * @param nearestHighTideTime        time of the nearest high tide to the solar event
+     * @param nearestLowTideTime         time of the nearest low tide to the solar event
+     * @param lunarTideType              lunar classification for the date
+     * @param lunarPhase                 moon phase name for the date
+     * @param moonAtPerigee              whether the moon is at perigee, or {@code null}
+     * @param heightAboveP95             true if the next high tide exceeds the historical P95
+     * @param heightAboveSpringThreshold true if the next high tide exceeds the spring threshold
+     * @param springTideThresholdMetres  the location's spring-tide height threshold, or
+     *                                   {@code null}
+     * @param avgRangeMetres             the location's average tidal range, or {@code null}
+     */
+    public TideDerivation(TideState tideState, LocalDateTime nextHighTideTime,
+            BigDecimal nextHighTideHeightMetres, LocalDateTime nextLowTideTime,
+            BigDecimal nextLowTideHeightMetres, boolean tideAligned, boolean widenedAligned,
+            LocalDateTime nearestHighTideTime, LocalDateTime nearestLowTideTime,
+            LunarTideType lunarTideType, String lunarPhase, Boolean moonAtPerigee,
+            boolean heightAboveP95, boolean heightAboveSpringThreshold,
+            BigDecimal springTideThresholdMetres, BigDecimal avgRangeMetres) {
+        this(tideState, nextHighTideTime, nextHighTideHeightMetres, nextLowTideTime,
+                nextLowTideHeightMetres, tideAligned, widenedAligned, nearestHighTideTime,
+                nearestLowTideTime, lunarTideType, lunarPhase, moonAtPerigee, heightAboveP95,
+                heightAboveSpringThreshold, springTideThresholdMetres, avgRangeMetres, null);
+    }
 
     /**
      * Collapses the two independent statistical booleans into the scoring path's

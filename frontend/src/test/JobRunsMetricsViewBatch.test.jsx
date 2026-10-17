@@ -455,6 +455,20 @@ describe('Region display in dialog', () => {
 // logs to check, so the status line must say which it is. Each 409 test is paired with a non-409
 // one: a component that printed the "in progress" line for every error would pass the first alone.
 
+describe('A refused job-run list load', () => {
+  it("shows the server's error sentence, not axios's generic message", async () => {
+    getJobRuns.mockRejectedValue(Object.assign(
+      new Error('Request failed with status code 400'),
+      { response: { status: 400, data: { error: 'Invalid run type: NOPE' } } },
+    ));
+
+    renderView();
+
+    expect(await screen.findByText('Invalid run type: NOPE')).toBeInTheDocument();
+    expect(screen.queryByText(/Request failed with status code 400/)).toBeNull();
+  });
+});
+
 describe('Refused briefing and tide runs', () => {
   const REFUSED = { response: { status: 409 } };
   // The sharpest non-409 inputs: an adjacent 4xx, and a network error with no response at all

@@ -2,8 +2,10 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.model.DriveTimeRefreshResponse;
 import com.gregochr.goldenhour.model.MapColourPreferencesRequest;
+import com.gregochr.goldenhour.model.MapTideModeRequest;
 import com.gregochr.goldenhour.model.PostcodeLookupRequest;
 import com.gregochr.goldenhour.model.PostcodeLookupResult;
+import com.gregochr.goldenhour.model.ReverseLookupRequest;
 import com.gregochr.goldenhour.model.SaveHomeRequest;
 import com.gregochr.goldenhour.model.TodaysLightResponse;
 import com.gregochr.goldenhour.model.UserSettingsResponse;
@@ -12,6 +14,8 @@ import com.gregochr.goldenhour.model.ReachEntry;
 import com.gregochr.goldenhour.service.ReachService;
 import com.gregochr.goldenhour.service.TodaysLightService;
 import com.gregochr.goldenhour.service.UserSettingsService;
+import com.gregochr.goldenhour.service.ask.AskService;
+import com.gregochr.goldenhour.service.ask.AskSettingsResponse;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -37,6 +41,7 @@ public class UserSettingsController {
     private final DriveTimeResolver driveTimeResolver;
     private final ReachService reachService;
     private final TodaysLightService todaysLightService;
+    private final AskService askService;
 
     /**
      * Constructs a {@code UserSettingsController}.
@@ -45,15 +50,32 @@ public class UserSettingsController {
      * @param driveTimeResolver  the drive time resolver for fetching per-user drive times
      * @param reachService       the caller's reach over the whole roster
      * @param todaysLightService today's light at the caller's home, for the masthead
+     * @param askService         the caller's Ask allowance
      */
     public UserSettingsController(UserSettingsService settingsService,
             DriveTimeResolver driveTimeResolver,
             ReachService reachService,
-            TodaysLightService todaysLightService) {
+            TodaysLightService todaysLightService,
+            AskService askService) {
         this.settingsService = settingsService;
         this.driveTimeResolver = driveTimeResolver;
         this.reachService = reachService;
         this.todaysLightService = todaysLightService;
+        this.askService = askService;
+    }
+
+    /**
+     * The caller's Ask allowance today and whether typed questions are available right now (plan
+     * §2.9), so the empty state can show the count before any question is asked. <b>Always 200</b>:
+     * with Ask switched off it is {@code enabled: false} and zeros. Personal (it names the caller's
+     * own count), so it lives under this prefix, which {@code HttpCachingConfig} never filters.
+     *
+     * @param auth the current authentication context
+     * @return the allowance
+     */
+    @GetMapping("/ask")
+    public AskSettingsResponse getAskSettings(Authentication auth) {
+        return askService.settings(auth);
     }
 
     /**
@@ -76,6 +98,24 @@ public class UserSettingsController {
     @PostMapping("/home/lookup")
     public PostcodeLookupResult lookupPostcode(@RequestBody PostcodeLookupRequest request) {
         return settingsService.lookupPostcode(request.postcode());
+    }
+
+    /**
+     * Finds the nearest UK postcode to a point ("Use my location") without persisting anything.
+     *
+     * <p>Bearer, with no role gate and no rate limit of its own: a LITE account may save a home
+     * postcode, so it may find one, and the lookup is as cheap as {@code /home/lookup}. Never ETag'd:
+     * it sits under {@code /api/user/settings}, which {@code HttpCachingConfig} never filters.
+     *
+     * <p>400 {@code {error}} for a missing, non-finite or out-of-range value, and for a point with no
+     * UK postcode near it; 502 {@code {error}} when postcodes.io is down. Neither echoes the upstream.
+     *
+     * @param request the point to look up
+     * @return the nearest postcode with its coordinates and place name
+     */
+    @PostMapping("/home/reverse")
+    public PostcodeLookupResult reverseLookupPostcode(@RequestBody ReverseLookupRequest request) {
+        return settingsService.reverseLookupPostcode(request.latitude(), request.longitude());
     }
 
     /**
@@ -106,6 +146,19 @@ public class UserSettingsController {
     }
 
     /**
+     * Saves the caller's Map tab tide mode — Auto, Always or Off (map-mobile-sheet-plan.md M4).
+     *
+     * @param request the chosen mode
+     * @param auth    the current authentication context
+     * @return the updated user settings
+     */
+    @PutMapping("/map-tide-mode")
+    public UserSettingsResponse saveMapTideMode(
+            @RequestBody MapTideModeRequest request, Authentication auth) {
+        return settingsService.saveMapTideMode(auth, request);
+    }
+
+    /**
      * Records that the caller has just looked at the "Coming up" tab — the badge's only write.
      *
      * <p>Its own endpoint rather than fields on {@code saveHome}, matching {@code map-colours}'
@@ -119,6 +172,23 @@ public class UserSettingsController {
     @PutMapping("/coming-up-seen")
     public UserSettingsResponse markComingUpSeen(Authentication auth) {
         return settingsService.markComingUpSeen(auth);
+    }
+
+    /**
+     * Records that the caller dismissed the one-time sign-in postcode prompt ("Not now") and answers
+     * the settings, whose {@code postcodePromptDue} is then false.
+     *
+     * <p>Its own endpoint for the reason {@code /coming-up-seen} is: a partial {@code /home} body
+     * would wipe a saved postcode. No request body — "now" is the server's clock — and idempotent:
+     * a second dismissal overwrites the instant. Personal state, so under the prefix
+     * {@code HttpCachingConfig} never filters.
+     *
+     * @param auth the current authentication context
+     * @return the updated user settings
+     */
+    @PutMapping("/postcode-prompt-dismissed")
+    public UserSettingsResponse markPostcodePromptDismissed(Authentication auth) {
+        return settingsService.markPostcodePromptDismissed(auth);
     }
 
     /**

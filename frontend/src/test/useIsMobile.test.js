@@ -24,6 +24,13 @@ describe('useIsMobile', () => {
     vi.restoreAllMocks();
   });
 
+  // The aurora banner's strip-below / card-above switch and every other phone gate ride this query:
+  // a wrong width here moves them all, and the rest of this file stubs `matchMedia` and cannot see it.
+  it('asks for exactly "(max-width: 639px)": strip at 639px, card from 640px', () => {
+    renderHook(() => useIsMobile());
+    expect(globalThis.matchMedia).toHaveBeenCalledWith('(max-width: 639px)');
+  });
+
   it('returns true when viewport is mobile-sized', () => {
     currentMatches = true;
     const { result } = renderHook(() => useIsMobile());

@@ -1,0 +1,1460 @@
+# Map tab — rate how a past sunrise or sunset turned out ("How was it?") (2026-10-15)
+
+**Source**: the design bundle vendored at `docs/design/outcome-rating/` — `README.md` (the spec),
+`Outcome Prototype.html` (the prototype), `Outcome Flow v2 (static states, superseded layout).html`
+(the copy table and decisions list), fifteen screenshots. `docs/design/outcome-rating/VENDORING.md`
+records what was copied. Read the spec before any phase; **this document is the *port* plan**: what
+the codebase already has, what is genuinely new, where the spec and the code disagree on purpose,
+and how the work cuts into single-session phases for **Sonnet** sessions.
+
+**The one-sentence version.** Pro and Admin readers record, with one tap inside the Map tab's
+location callout, how a sunrise or sunset that has already happened actually looked (1–5★, or
+"Didn't see it"), per user, upsert-only, against the last forecast run before the event; to reach a
+past window the Map's window control steps backwards through today's elapsed windows and the two
+served past days, then fetches one more stored day at a time back to T-4; nothing says whether the
+forecast was right. The record is the calibration gate's input (CLAUDE.md "Calibration gate
+(ADMIN)"), which has had almost nothing to score because the only way to record an outcome was an
+API call.
+
+**Cadence per phase** (CLAUDE.md "UI Work — Review Cadence"): build → tests → adversarial review of
+the diff (prosecutor lenses + one refuter per charge, all read-only, run in the FOREGROUND so their
+results return to the session that launched them) → fix survivors → measurement where §7 asks for
+one → changelog.d entry → commit → push → PR → CI and Codex green → merge. ⚠️ **The owner authorised
+push, PR and merge for every phase of this series on 2026-10-15** ("Push and Open a PR. Merge once
+CI is green and Codex is happy"); CLAUDE.md's standing "never push" rule is lifted for exactly this
+series and nothing else — never tag, never run `release.sh`. Backend gate before any push (JDK 23
+on this Mac, see `no-jdk-25-on-this-mac` in memory; `$SCRATCH` is the session scratchpad, never
+bare `/tmp`):
+`cd backend && export JAVA_HOME=/Users/chrisgregory/Library/Java/JavaVirtualMachines/openjdk-23.0.2/Contents/Home MAVEN_OPTS=--enable-preview && ./mvnw clean verify --batch-mode --no-transfer-progress -Djava.version=23 -Dmaven.compiler.enablePreview=true -Dtest='!**/integration/**,!EvaluationModelTest' -DfailIfNoSpecifiedTests=false >"$SCRATCH/v.log" 2>&1; echo "exit: $?"`
+— gate on the echoed exit code, never a grep. Frontend gate: `cd frontend && npm run lint && npm test
+&& npm audit --audit-level=high && npm run build`. Paste the relevant section of THIS plan and the
+spec into every review agent's prompt — an agent cannot open a path it was not given.
+
+**Check open PRs first.** `gh pr list --state open` and grep the titles for *outcome*, *rating*,
+*past*, *window control*, *callout*. Checked 2026-10-15 at plan time: three open PRs (#1132 a jsdom
+bump, #843 and #815 docs), none touching any file this plan names.
+
+---
+
+## §0 Status
+
+**Status: COMPLETE 2026-10-16.** O0 (this plan, #1185), O1 (#1187), O2 (#1190), O3a (#1186), O3b
+(#1192), O3c (#1188), O4a (#1191), O4b (#1193), O5a (#1194), O5b (#1189) and O6 (the docs sweep, this
+row's PR) are all merged; every §6 owner question is closed (by what shipped or by the plan's default). Written 2026-10-15 against `origin/main`
+at `015d93fb` (#1184) and reviewed by four prosecutor lenses (§5a). **Shipped but UNRELEASED and never
+seen signed-in**: every phase was tested in jsdom, by reading the real stylesheet and (O3b, O4a, O5a)
+in headless Chromium over a fixture, but a session cannot sign in, so the owner's browser check is
+owed (§7). The maintained description is CLAUDE.md's *Map tab — past windows* and *Map tab — rating a past window* bullets; this document is the port plan and its history. §1 describes the codebase AT PLAN TIME
+(2026-10-15) — where a later phase changed a fact stated there, that phase's row below says so.
+
+Phase log (O0 creates the first row; every phase appends its own in the same commit as its code —
+the commit column names the PR once it lands). ⚠️ Two phases that run in parallel both append here:
+**whichever merges second rebases its row onto the other's** (a one-line conflict, resolved by
+keeping both rows in phase order).
+
+| phase | branch | commit | date | notes |
+|---|---|---|---|---|
+| O0 | `claude/forecast-accuracy-ratings-5fbd0d` | #1185 | 2026-10-15 | Plan + bundle vendored at `docs/design/outcome-rating/`. No code. Four review lenses at plan time (§5a): backend, frontend, spec fidelity, conventions and sizing — 3 P1s and ~30 P2/P3s, all accepted and folded in. Codex rounds 1–11: nineteen P1s (provenance: the served result, not the newest cycle; only one that had arrived by the event; the fallback must not admit a late batch's own row — hence `scored_at`, V178; it must honour a stability retraction as of the event; the calibration join must use the resolved row id, not the natural key; the stored `forecast_rating` for a recombined OPEN_FELL slot; the past-row rule needs the afterglow-elapsed test, not withdrawal alone; retraction by submission instant; no guessed star for a canopy place after a post-event cache replacement; a canopy place's availability bound is the entry's last write; a past window's best is over painted points; no block for a place with no row; one as-of-event resolution for the serve path and the record; the write bounded to the retraction evidence's retention less the skip's lead time; a stale no-row sentence; the serve path serving the captured star, never a sky-only fallback; no legacy unstamped candidates; the bound at 24 days for a T+5 skip), all accepted. |
+| O1 | `claude/outcome-rating-o1-backend-record` | #1187 | 2026-10-15 | **Shipped**: V177 `outcome_rating` (+ an index on `forecast_evaluation_id`, for the FK check and O5b's join), V178 `forecast_evaluation.scored_at`, `OutcomeRatingEntity` (every column `updatable = false`, no setters), `OutcomeRatingRepository` (native insert with `CAST`ed nullable binds, JPQL conditional update, range read, theta-join slot read), `OutcomeRatingStore` (no `@Transactional`, 12-thread H2 race), `OutcomeRatingService`, `OutcomeRatingController` (role matrix as §2 #1), `AsOfEventResolver`, the two `scored_at` stamp sites (`ForecastService`: `buildEntity` when the row has a rating, `standDown(...)` for the three triage sites and the sentinel skip; `ForecastResultHandler.scoreEvaluationRow`, which now takes a `Clock`, stamps once and only when the validated star survived). **Resolver API (for O2/O5b)**: `AsOfEventResolver.resolve(LocationEntity, LocalDate, TargetType, Instant eventInstant) -> AsOfEvent` and `resolveAll(Collection<LocationEntity>, LocalDate, TargetType, Function<LocationEntity, Instant> eventInstants) -> Map<Long locationId, AsOfEvent>`; `AsOfEvent(BriefingEvaluationResult result, Long forecastEvaluationId, Instant runAt, Long pipelineRunId, Integer forecastRating, ForecastEvaluationEntity forecastRow)` (the sixth component is an addition so the serve path never refetches the row), `AsOfEvent.NONE`, `AsOfEventResolver.isCanopyBearing`. `resolveAll` costs, per (date, type): one scored-row read, one skip read, one bulk served read (3 queries, only if a place has a region), one cycle lookup per distinct `submittedAt`, one cache-entry read per region with a canopy place. **Corrections to the plan**: `PipelineRunRepository.findFirstByTriggerTimeOrderByIdAsc` (not `findByTriggerTime`: `trigger_time` is not unique); `ForecastDispositionService.RETENTION_DAYS` made public; `BriefingEvaluationService.getCachedEntryUpdatedAt` is the canopy accessor (reads the durable row's `updated_at`); the skip finder is roster-shaped (`findStabilitySkipInstantsUpTo(names, date, type, upTo)`, ungrouped, per-place latest-at-or-before-event taken in memory); `rate` validates the slot and star range BEFORE any lookup (400 before 404). **Decision beyond the plan**: a re-rate keeps the provenance recorded the first time (when it recorded a `forecast_run_at`) instead of resolving again — the served-result step reads an in-memory cache that `rehydrateCacheOnStartup` fills only for today forward, so after any restart a past date has no step-1 answer and a second resolution would overwrite a full record (cycle id, canopy star) with a degraded one. **Review (4 read-only lenses, then fixes)**: runtime — no P1; P2 restart emptiness of the past-date cache (step 1 answers nothing after a restart: `pipelineRunId` null, canopy `forecastRating` null, so those ratings never calibrate — accepted as the plan's safe direction and stated below; the re-rate overwrite fixed), P3 re-stamp on reprocessed results (fixed); conventions — no P1; P2 a malformed `date`/`from`/`locationId` answers 500 as every other controller does (not changed: needs a `MethodArgumentTypeMismatchException` handler, a global behaviour change); tests — P2 tide-triage stamp and the whole-row write discipline unpinned (both added), boundary and per-slot-skip cases added; O2/O5b lens — no P1, the traps below. **O2 must know**: (1) every `forecast_evaluation` row written before V178 has a null `scored_at` and is never a candidate, so for about T-3 days after deploy a passed slot with no step-1 answer resolves to NONE and the list endpoint's own past days would blank — O2 must decide (serve a sparse row from `result`, or accept and name the window); step 1 answering with `forecastRow == null` is also possible (candidate retracted or unscored) and the plan does not say what to serve; (2) a passed slot resolving to NONE must still go in serveRange's `covered` set or `cachedOnlyViewsForDateRange` resurrects the post-event cache entry; (3) `forecastRow` is a managed entity — never `setRating` on it, override through the DTO; `forecastRating` is the combined (enhanced) star, a LITE reader is meant to see the basic one; (4) call `resolveAll` once per (date, type) over the passed slots only, and treat a missing event instant as unpassed, not NONE; (5) the star in `forecastRating` and `forecastEvaluationId` can come from different cycles when step 1 answered (the served result's star, the latest scored row's id) — O5b: `daysAhead`, `forecastRunAt`, model and potentials come from the row, the star from the rating; (6) the admin read has no age bound (display only). Migrations and the Postgres race are **pending CI**. |
+| O2 | `claude/outcome-rating-o2-forecast-date` | #1190 | 2026-10-15 | Backend only. Shipped §2 #4/§3 O2: `ForecastHorizon.MAX_PAST_DAYS = 4`; `ForecastController.getForecasts` is now `serveRange(from, to, auth)`; `@GetMapping(params = "date")` takes the date as a STRING (a `LocalDate` parameter's conversion failure falls into `GlobalExceptionHandler`'s catch-all as a 500) and answers 400 `date must be between T-4 and yesterday` for malformed, today, future and T-5; `ForecastListDto.withRating`/`unscored`. A passed slot (`PlanWindowProjector.hasPassed` on the PLACE's own `SolarEventFreshness.eventTime`, `now` from the injected clock, loop over `from..min(to, today)` x SUNRISE/SUNSET) goes through ONE `resolveAll` per (date, type) over the passed places; the seven hand-off decisions were built as briefed: (1) NONE serves no row, so for the first days after V178 windows scored before it show fewer stars (changelog says so); (2) a result with no row is a SPARSE row built by feeding `toSparseListDto` a `LocationEvaluationView` made from the result (rating = `forecastRating`, `evaluatedAt` = `runAt`), no new mapper method; (3) every passed slot, NONE included, is in `covered`; (4) the managed row is never mutated, the captured star overrides on the DTO; (5) LITE keeps the row exactly as the list serves LITE (`rating` is NOT basic-vs-enhanced in `ForecastDtoMapper.toListDto` - only the potentials are - so for LITE a canopy place still shows the row's sky star: accepted, LITE has no outcome write); (6) no event time = unpassed; (7) nothing. **Added by review**: an unrecoverable star (captured null while the row had one) also clears the row's fiery/golden potentials (`ForecastListDto.unscored()`, the stand-down reason kept), because `markerLabelAndColour` draws a scored pin from the potentials alone. Four review lenses (runtime, test quality, conventions, effect on O3b): no P1; accepted and fixed - the unscored-scores hole above, stale Javadoc (ordering, `?date=` also admits T-1/T-2), changelog overclaim for LITE, and test gaps (a multi-row index/pairing test, `covered` for row- and result-served slots, the afterglow/UTC boundary, `viewOf` field mapping and the unregioned/LITE sparse path, `ForecastListDto` copy methods); declined with reason - moving the serve logic out of the controller (the plan names `serveRange` there), the extra queries (see below), `GET /api/forecast/{id}` is not as-of-event (a popup opened from a passed rich row still shows that row's own summary/rating). **For O3b/O4a**: (1) wire shape of a passed slot: a RICH row is the step-2 candidate's `ForecastListDto` (its `id`, `forecastRunAt`, comfort fields) with PRO/ADMIN `rating` = the captured star (null = unscored, and then `fierySkyPotential`/`goldenHourPotential` are null too); a SPARSE row has `id: null`, `forecastRunAt` = the served result's `submittedAt` else `evaluatedAt`, inline `summary`/`triageMessage`, null comfort fields, and `rating` = the captured star for EVERY role; no available forecast = no element at all. `?date=` returns the same array shape for one day (every enabled place's passed SUNRISE/SUNSET slot as above plus that day's HOURLY rows unchanged). (2) Rows are no longer ordered by location id; the array is unpassed rows, passed rows, sparse passed rows, cached-only rows - group by date and type. (3) `?date=` admits T-1 and T-2 as well as T-3/T-4 (same code path as the list; the client must not ask for a day it holds, §4 #9). (4) A day can legitimately come back with FEWER rows than before the deploy (V178: no `scored_at` on older rows) or EMPTY; `colourForecastDates` loses a date whose slots are all absent, so T-2/T-1 can drop out of `allDates` for a few days - treat an empty day as ordinary. (5) The answer for a slot can change between two reads (step 1 requires the CURRENT served result to have arrived by the event, so a later write to its cache entry, or for a canopy place to any place's entry in the region, flips it to the row or to nothing); the list wins on a merge. (6) Cost: the list endpoint now runs up to six `resolveAll` calls (roughly 5-6 queries each, plus a cache-entry read per region with a canopy place) instead of about 4 queries in total - the brief's accepted trade; a per-request cache of the bulk served read or a windows-only resolver is the follow-up if it bites. (7) The resolver's step-1 retraction is as of NOW (`getLiveScoresForEnrichment`), not as of the event - O1's code, untouched, noted. |
+| O3a | `claude/outcome-rating-o3a-past-rows` | #1186 | 2026-10-15 | Frontend only. Shipped to §2 #2/§3 O3a: `pastDayLabel`; `buildPastSolarWindows` (pane input, in `mapEvents.js`) + `isPastSolarWindow` (the one rule, called by `buildMapEvents` AND by MapView's per-render `activeWindowPast` boolean, which the rating accessors need before the EV list exists); `hasSolarRow`/`solarRowPredicate` admit a past entry for `date < today` (today's own is already a row, filler until elapsed); `isForwardableRow` forwards `row.past`; `withScopedSolarTimes` stops skipping `served === false` only when `row.past`; `resolveMapDate`/`App.selectDate` `selectedIsPast` (usable iff in `allDates` and `d <= today`; night wins if both); `MapView.selectEvRow` and the Ask handoff pass `isPast: true` **only when true** (existing tests pin `{ isNight }` exactly); PAST pill tag, stepper names say `past`; `calloutFacts({past})`; "Open in Plan" withheld; `otherWindow` skips past rows in scan and fallback (null if none); `getRatingForLocation`, `isStandDownLocation` and the medallion arcs read the forecast row alone when `activeWindowPast`. Six review lenses (runtime, tests, conventions, a11y, CSS, later-phase hazards): no P1 except a latent one for O3c, all accepted or noted. **Fixed from review**: a stale-verdict guard (a past row never gets a tint/tick whatever `verdicts` holds); the dropdown row shows `Past` in the score cell instead of an unmarked dash (interim — O3b's EARLIER group replaces it with `Not rated`/`{n} rated`); medallion arcs and the Ask-handoff `isPast`; stale comments; test gaps (Leave-by really present on the control, the shipped clock at the 08:54/08:55 afterglow boundary, a BST time on the UK clock, today's elapsed sunrise rating, a New York pastDayLabel pin beside the Auckland one). **For O3b/O3c/O4a**: (1) `"served"` means in `heat.windows` **without `past: true`** — buildMapEvents, solarRowPredicate and `activeWindowPast` all ignore a `past`-flagged entry, so O3c must flag the past entries it adds to `heat.windows` `past: true` or every past window turns into an unlabelled served row; (2) a past row and a D-13 filler share the id `solar:DATE:TYPE` (the filler→past flip at the afterglow boundary keeps the id; `MapCallout`'s repaint list now names `event.past`); (3) O3b must split `WindowControl.groups` by `row.past` without reusing `key={group.date}` (today appears in both groups) and replace the interim `Past` cell; the peek sheet's Windows rows and the callout's "Every event here" strip draw no past marker and read `scoreIndex` (latest results) for past rows — a gap the plan assigns to no phase, O3b/O4a decide; (4) `MapCallout`'s prose, verdict word and strip still read `scoreIndex`/`slotIndex`, so only the star follows the forecast-row-only rule — O4a mounts the block beside them; (5) `placePassed` is per place from its own row; do not reuse `activeWindowPast`; (6) `Four days here ›` (the peek route) still opens on a past window and the "This event is not scored yet" line says `yet` — both unaddressed; (7) a keyboard user parked on "Open in Plan" when the window turns past would lose focus to `<body>` (low probability, unaddressed). (8) **Codex round 1 (P1, declined with evidence)**: until O2 merges, `GET /api/forecast` still serves the latest run per slot, so a past chip can show a post-event revision — exactly the gap §2 #4 / §3 O2 step 4 close with `AsOfEventResolver` in `serveRange`; O3a is frontend-only by its brief and O3b needs O2 merged first, so no past window should be treated as record-accurate before O2 lands. Tested in jsdom and the real stylesheet by regex; **tested, not seen signed-in**. |
+| O3c | `claude/outcome-rating-o3c-past-heat` | #1188 | 2026-10-15 | Frontend only. Shipped to §2 #3/§3 O3c: `WindowFirstMapPane.pastHeat` — a past-only spot catalogue (`buildHeatSpots` over `heatSpots.forecastScoreRows`, drawn from `forecastsByDate` ONLY, never `scoreRows`), its `buildHeatPointSets`, and one `heat.windows` entry per UNSERVED window with rows (`{key, date, targetType, past: true, bestRating, confidence: null, conf}`; `conf` = the inferred cap via `resolveConfidence`), appended after the strip's six; `heat.pointsByKey` is the provider's Map untouched when there is no past window, else a new merged Map (served keys are never overwritten: a window with a strip card gets no past entry). `mapEvents.pastWindowBest(spots, index)` = max over `heatPointsFor`'s PAINTED points (a wood's 5, an unregioned or coordinate-less place never count), recorded in its javadoc as the new named member of the fifth (Map-tab client-max) class beside `bestOfNight` — CLAUDE.md's "those two, nothing else" is O6's to update. **Design choice**: the pane builds entries for every unserved window with rows, today's not-yet-elapsed one included, because a data-keyed memo cannot follow the app clock; `MapView`'s `heatWindow` therefore returns null for a `past` entry unless its own per-render `activeWindowPast` agrees (pinned both ways, incl. today's elapsed sunrise). So `heat.windows.filter(w => w.past)` does NOT mean "over" — O4a/O4b must use `isPastSolarWindow` or the EV row's `past`. Past entries carry only what the field and key read (no label/time/badges/tide/`confidenceTier`; the past EV row carries those); the EV row's `bestRating` stays null — O4b must pick one source on purpose for any "N★ best" in the EARLIER group. Four review lenses (runtime, test quality, conventions, later-phase hazards): no P1/P2 against the code. **Fixed from review**: `fillerHasRatings` now also fires for a `past` entry with `bestRating == null` (a past window rated only on unpainted places had "not scored yet" beside rated chips); stale `heatWindow`/PropTypes comments; the "served as of the event" claim softened to "once the as-of-event resolver lands" (O2); licence javadoc names why it is not the filter/map class; tests added for T-4, today's unserved entry, today's elapsed sunrise painting, a rating field absent. Noted, not changed: `pastHeat` re-runs on every `heatStripCards` identity change (keys only matter; ms-scale, `heat` rebuilds on that beat anyway); `NO_PAST_HEAT` is a shallow freeze; no test mounts the real pane into the real `MapView` (the two suites meet at a hand-written entry shape). Tested in jsdom; **tested, not seen signed-in**. |
+| O4a | `claude/outcome-rating-o4a-rating-block` | #1191 | 2026-10-15 | Frontend only. Shipped to §2 #5/§3 O4a: `api/outcomeRatingApi.js` (`fetchMyRatings`, `putRating`); `hooks/useOutcomeRatings.js` (mounted in `WindowFirstMapPane`; returns one memoised `{mine: Map<"locId|date|type", {rating, updatedAt}>, saving: Set, saveError: Set, loaded, covers(date), canRate, rate(locId, date, type, value) -> Promise<boolean>, clearSaveError(key)}`, `rowKey(locId, date, type)` exported; optimistic write, rollback to the value held before the FIRST of overlapping saves, an overtaken response dropped whole, a read never overwrites a key written or in flight since it began, LITE reads once with its mount range, nothing while rewound; read from the oldest past date in `dates` through `todayStr`, re-read when that date or `locations` changes); `components/map/OutcomeRatingBlock.jsx` (+ exported `ratingView`) and `outcomeRatingCopy.js` (no plan-introduced strings yet); `MapCallout` takes `userRole` + `ratings`, mounts the block after the facts row with a key of location and `event.id` when `ratings.covers(event.date) && event.past && !isHide && !rewound && isEventTimePast(the place's OWN row's solarEventTime)` and a known role, owns `changing`/`adminOpen` (reset on that key) and names `ratingLayout`, `changing`, `adminOpen` in the repaint list; "Not scored yet" reads "Not scored" on a past window; `MapView` forwards `userRole` and `outcomeRatings`; three tokens (`--color-star`, `-star-off`, `-star-selected-bg`) in `@theme static`. Props as built are in §2 #5's note. **§7 measured** (headless Chromium over the compiled CSS, real IBM Plex faces loaded, the component's real markup in a `.wf-callout`/`.wf-callout-body` chain; **measured in a fixture, not seen signed-in**): the card's inside is 238px (266 − 2·13 padding − 2 border), so the five-column grid at the spec's 5px gap is **43.59px** a cell — under 44 — and the phone override (`max-width: 639px`) takes the gap to 4px for **44.39px** (at viewports 375 and 320); the 286px card is 258px inside, **47.59px** at 5px. Cells are 44px tall. The meta line stays ONE line in every state at both widths: widest `Sunrise was yesterday 06:55` is 153.9px beside a 72.4px question and an 8px gap (234.3 of 238, 3.7px spare), `Sunset was Sat 11, 18:17` 136.8px, `Tap to replace "not seen"` 142.5px; no horizontal overflow of the body. Block height 127.5px unrated/changing, 152.5px with the failed line, 153.5px Lite, 50px rated. Six review lenses (runtime, test quality, conventions, accessibility, CSS, later-phase hazards): no P1. **Fixed from review**: the empty failed-save live region was `display: none` (out of the accessibility tree, so its first text would go unannounced — four lenses) and now collapses by `height: 0` + `margin-top: -7px`; a failed save left a stale focus intent that a later record could turn into a focus steal; forced-colors rule for the selected choice; star border token `--color-plex-border-light` (the spec's), `--color-star-off` only for the unlit glyphs; the Lite line on the secondary ink (the muted ink is 3.6:1, under AA at 12px; the 9.5px meta keeps the spec's muted ink); `EMPTY_MINE` made per instance; a vacuous focus test replaced and tests added for the late save after a selection change, a late read failure, a write settled before a read, and an unsorted `dates`. Mutation pass: 16 mutants, all killed. **Accepted/noted**: no "saving"/"saved" announcement (the focus move plus the Change button's description voices the result — a reviewer's P2; one status line is the plan's rule); hover styling applies to `aria-disabled` controls and sticks on touch; the replace-while-saving meta reads the new value; an overtaken success followed by a failure rolls back to the pre-first-write value (unreachable from the UI, `saving` blocks a second tap); no timer re-renders the callout when the place's own event passes after the window's did (the block appears at the next render, as the window going past does). **For O4b/O5a**: `mine` is a NEW Map after every read (identity is not stable — depend on `outcomeRatings.mine`, not the object); `loaded`/`covers` are true after a FAILED read too, so a count or badge that states a fact ("Not rated") needs its own read-failed signal or silence; O5a's re-fetch-after-own-save has no hook signal: wrap `onRate` in `MapCallout` (`ok = await ratings.rate(...)`) and guard by the slot key, and hoist the admin rows/`loading` above the block and into the repaint list (the card's placement cannot see inside the block); `admin` and `locationId` are not block props. Tested in jsdom, the real stylesheet by regex and Chromium for the figures; **tested, not seen signed-in**. |
+| O5b | `claude/outcome-rating-o5b-calibration` | #1189 | 2026-10-15 | Backend only. **Shipped** per §2 #8: `ForecastEvaluationRepository.findCalibrationPairsFromRatings` (theta join `e.id = r.forecastEvaluationId`, `e.rating`/`r.rating`/`r.forecastRating` non-null, bounded on `r.eventDate`, predicted star `r.forecastRating`, no `null` literal in the `SELECT new`); `CalibrationPair` gains `outcomeKey` (canonical 14th component) with two explicit constructors (the old table's, taking the outcome id, and the rating's 11-argument one, taking the user id — `actualFierySky`/`actualGoldenHour`/`wentOut` null) and `slotHorizonKey()` appends it; the old query's projection gains `o.id`; `ForecastCalibrationService.report` concatenates both queries before `latestPerSlotHorizon`, and `outcomesInRange` adds `OutcomeRatingRepository.countByEventDateBetween` (new derived count, all rows, "not seen" included) to the old table's count; `UserRole`'s javadoc and `CalibrationReport`'s `@param` text corrected. Tests: `ForecastEvaluationRepositoryTest` (named row vs a newer row, captured star over the row's, not-seen / unscored row / null id / null star pair with nothing, two users, window bound on the rating's event date, old-table key), `ForecastCalibrationServiceTest` (two users survive, one row in each table survives, two runs for one reader collapse to the newest, outcomes-in-range counts both tables), `CalibrationPairTest`. **Review (3 read-only lenses)**: runtime — no P1/P2 (pairing, projection and constructor resolution read correct; P3: old-table duplicates for one slot no longer collapse — `actual_outcome` has no unique key, accepted as each being an observation; the two 14-argument constructors differ only by last parameter type, a bare `null` there would be ambiguous — nothing does it); tests — no P1/P2, P3s taken (a window test whose rating event date differs from the row's target date; a pure `CalibrationPairTest`); conventions — P2 phase-log row (this), P3 changelog wording and two javadoc nits, all fixed. **O6 must know** — CLAUDE.md sentences now stale: the *Outcomes* endpoint note ("It is the calibration gate's only input"), the *Calibration gate (ADMIN)* paragraph (second source joined on `forecast_evaluation_id` with the captured star as predicted rating; outcome identity in the dedup key so counts are pairs, not slots; `outcomesInRange` counts both tables), the "This starves the calibration gate" bullet under *Where a rating lives* (true of the old source only), and the Roles table/note on outcome recording (the new rating PUT is Pro/Admin; `POST /api/outcome` stays open to LITE). The migration-free phase: no CI-only proof owed beyond the Backend job. |
+| O3b | `claude/outcome-rating-o3b-earlier-group` | #1192 | 2026-10-16 | Frontend only. **Shipped** per §2 #2/§3 O3b: `fetchForecastsForDate` (`GET /api/forecast?date=`); `useForecasts.loadOlderDay` with `olderDays` in hook state and the merge DERIVED (`locations = useMemo(mergeOlderDays(base, olderDays))`, so every rebuilt list payload is re-merged, which is stronger than re-merging inside `load()`; same array identity when nothing is loaded), merge-without-replace, loaded-empty entries, `olderDayLoading`, `loadedPastDays`, never `writeSwrCache`, a failed fetch leaves the roster unchanged and reports through `error`, stands down under a rewind; `utils/mapOlderDay.js` (`MAX_PAST_DAYS = 4`, a client mirror of `ForecastHorizon.MAX_PAST_DAYS`, named in a comment; `olderDayState`: day before the oldest of `dates ∪ loadedPastDays`, clamped to ≤ yesterday, never older than T-4, none under a rewind) and `mapDates.shiftDateStr`; `App` → `WindowFirstMapPane` (`canLoadOlder`/`nextOlderDate` memo placed after O4a's `rewound`) → `MapView` (`canLoadOlder`, `olderDayDate`, `olderDayLoading`, `onLoadOlderDay`) → `WindowControl`/`MapPeekWindowsSection`. **Landing** lives in `MapView` (a `useEffect` keyed on `olderDayLoading` going null; `pending = {date, fromId}` set by `startOlderLoad`; lands on that day's SUNSET row else SUNRISE through `selectEvRow`; an empty/failed day or a reader who picked another window meanwhile moves nothing). `WindowControl`: EARLIER header + Load row sit OUTSIDE the listbox, past sub-headers and rows inside it (`PastWindowRow`, `data-past`, 44px, `Not rated`/`{n} rated`, the day in `sr-only` text), groups keyed `earlier:`/`day:` (today in both, `FRI 16 · today` only when the date also heads an EARLIER sub-header), `‹`/`←` at index 0 fetch (name `Load {Dow} {d}`), loading pill (`Loading …`, `aria-busy`), steppers + Load row disabled, an always-mounted `role=status` announcement, focus to the pill in the handler BEFORE the fetch. **Beyond the plan**: the opened menu scrolls itself (menu only, never an ancestor) to show the active row, because the EARLIER group sits above the future days and would push the window you are on below a 420px fold. **Seam for O4b**: `WindowControl` takes `ratedCounts` (Map of EV row id → n; absent or 0 prints `Not rated`) and passes `ratedCount` to `PastWindowRow`/`RatedCell` (local, not exported). The phone `MapPeekWindowsSection` has NO count seam: its past rows print `Past` where a verdict would be (spec §2) — whether O4b adds `{n} rated` there is its call. `RatedCell` cannot say "unknown": O4b must omit or special-case a date `outcomeRatings.covers()` does not yet cover (a just-landed older day, LITE's one-off read), or those rows would read `Not rated` falsely. **Review** (6 read-only lenses): runtime — no P1/P2 (P3s: a failed older-day fetch reaches only `error`, which `App` renders only with no locations — silent to the reader, an owner call; with yesterday's night row kept after dawn the EARLIER-first split breaks chronology, cosmetic); conventions — P2 the `.wf-win-day-after-earlier` divider lost to `:first-child` (fixed with `.wf-win-day.wf-win-day-after-earlier` + a source test), P3 `--color-star`, dead export, licence note on the landing effect (all fixed); a11y — P2 no announcement of the fetch (fixed with the status region; the landing itself is still silent), P3 contrast, Load-row name wording (left as the plan specifies); CSS — the divider, the phone Load chip shrinking (`flex-shrink: 0`), the peek `:last-child` rule stripping each past day's last rule (all fixed), `Not rated` .52 → .6 for AA on the selected row; tests — hourly merge, failed fetch through `MapView`, a refused landing, the `Yesterday` label, a vacuous tick test removed; O4b lens — the two seams above, `--color-star`, CLAUDE.md sentences left for O6 (the Map-tab window-control and peek-sheet bullets; the sixth-class and fifth-class lists, which should name `olderDayState`/`mergeOlderDays` as the filter/map class; "Outcome recording is API-only"; the `GET /api/forecast?date=` entry). **§7, measured in headless Chromium over the compiled CSS on markup rendered from the real components, in a fixture, not seen signed-in**: the pill at 320px is 224px wide with `‹` at x=8 and `›` at x=276 for a served window (with the pick medallion and the "everywhere in your area" verdict), a PAST window (Yesterday/Today/Wed 14) and the loading state, identical at 1280px (432px, 60/532) — no overflow, label not clipped, the caret inside the pill, `PAST` tag 37.8×18.3px; the EARLIER menu has no horizontal overflow at 320 or 1280, the Load row is 57.4px at 320 (sub-line wraps to two lines) and 44.6px at 1280 (one line), the sub-headers 20.3px, past rows 44px against 46.75px for a future row, the phone sheet's Load row 63.4px (320) / 50.6px (1280). NOT re-measured after the review fixes (the divider rule, the phone chip's `flex-shrink: 0`, `Not rated` .6, the peek rules): those are CSS and source-tested only. NOT measured: the scroll-to-active behaviour (jsdom only, with stubbed offsets), the menu in the signed-in app. Tested in jsdom and by reading the real stylesheet. |
+| O4b | `claude/outcome-rating-o4b-counts-badge` | #1193 | 2026-10-16 | Frontend only. **Shipped** per §2 #6/§3 O4b: `utils/outcomeRatingJoin.js` (`ratedCountByWindow`, `myRatingOf` — the two NEW named members of the fourth per-user-join class, said in its header; `ratingsKnownFor`, `badgeText`, `badgeAccessibleClause`, `NOT_SEEN` are helpers, not members); `WindowFirstMapPane.ratedCounts` (a `Map` of EV row id to count over the past windows the pane found PLUS today's two, `mine` keys joined to the roster so a disabled place is not counted, "not seen" included) -> `MapView` `ratedCounts` -> `WindowControl` and `MapPeekWindowsSection`; `RatedCell` exported from `WindowControl`. **Unknown is not zero** (convention for O5a/O6): an id ABSENT from `ratedCounts` is unknown (date not read, a failed read, a rewind -> the whole prop null), 0 prints `Not rated`; the dropdown prints NOTHING for unknown, the phone peek sheet keeps its old `Past` tag (a deliberate asymmetry: the dropdown row has the time and chip to stand on, the peek row would be blank). `useOutcomeRatings` gains `readFailed` (the NEWEST settled read failed; global, not per date; false under a rewind; cleared by the next successful read; an overtaken read's late failure cannot set it) and `wasRead(date)` (range-based for EVERY role) — `covers()` stays as O4a left it (true after a failed read, and for a LITE reader's every date after the first read), so counts and badges read `ratingsKnownFor = !readFailed && wasRead(date)`, never `covers`. Consequence O5a must know: after a failed read the rating block still works and a save shows in `mine`, but counts/badges stay silent until the next successful read; the admin list is its own per-slot fetch and must not gate on `ratingsKnownFor`. `MapView.labelSpots` sets `spot.myRating` (`1..5`, `'NOT_SEEN'`, null) ONLY when `activeWindowPast`; `MapLabels` and `PinsLayer` draw `RatedBadge` (`span.wf-rated-badge`, `.wf-pin-star`'s neighbour in `index.css`) and append the spoken clause to the host's `aria-label`. **Two deviations from §1 #4/§2 #6/§4 #19, both on purpose**: (1) **pins have no measured rect** — `PinsLayer` places only the HOME label through the collision pass, pins sit on their projected point — so there is nothing to grow for a pin and the badge overhangs it unreserved (`pointer-events: none`; a badge within ~11px of the frame edge can clip, and a stronger neighbouring pin can paint over a weaker pin's badge); only CHIPS reserve the overhang (`withBadgeOverhang` before the pass, `chipBoxWithinBadgedBox` after it, so the chip is drawn exactly where it would have been and the reserved box stays in the committed list); (2) **an Ask pick never wears a badge** (`hasRatedBadge`): a pick is built from the pick's own window, which need not be the one on screen. `BADGE_OVERHANG_X/Y` mirror the CSS offsets and `RatedBadgeCss.test.js` pins the pair. A count and a badge cover different populations (the menu counts every record on the roster, the badge only places visible under the current scope/filters). `useForecasts` no longer fetches `GET /api/outcome/all` (two requests on load), builds no `loc.outcomes`, writes `{forecasts, locationMeta}` to the SWR cache and `readValidCache` no longer requires `outcomes` (an old payload hydrates); `fetchAllOutcomes` stays exported in `forecastApi.js` and seven App tests still mock it (now vacuous — O6 may delete both). **Stale text for O6**: CLAUDE.md's overview line "Outcome recording is API-only (no UI)", the Backend-heavy fourth class's member list ("those three" -> five) and fifth class (O3c's `pastWindowBest`), the Rewind paragraph (counts, badges and the ratings read), the Map-tab window-control description (EARLIER group, Load row, counts), plan §1 #5 (`useForecasts` still fetching), the O3b row's "Seam for O4b", and `docs/engineering/all-in/serve-surfaces.md` (still says `useForecasts` attaches `.outcomes`). **Review (6 read-only lenses)**: runtime — one P2, fixed (a LITE reader's older day read `Not rated`: `covers()` is true there, so `wasRead` was added); tests — two P2, fixed (a MapView-level phone-peek count test; a stale read's late failure must not set `readFailed`) plus a served-row-ignores-count test, a rewind-after-failure test and `toBeInTheDocument` nits; conventions — P3s fixed (`readFailed`/`wasRead` in the `outcomeRatings` PropTypes, changelog wording for the phone, the helpers sentence in the join module header); accessibility — no P1/P2 (contrast 8.75:1; terse `3 rated` for a screen reader and the pin badge sitting 2px further out than a chip's because `.wf-pin` has a 2px border are noted, not changed); CSS — no P1/P2, `white-space: nowrap` added to the badge; later phases — the pin-rect deviation, the unknown-vs-zero asymmetry and the stale-text list above, all recorded here. **Not measured**: placer rule tested, not measured; not seen signed-in — the badge at a dense zoom, the pin badge near a frame edge, the peek row's count at 320px, and the Ask cascade with a badge present are the owner's browser check. |
+| O5a | `claude/outcome-rating-o5a-admin-list` | #1194 | 2026-10-16 | Frontend only. **Shipped** per §2 #7/§3 O5a: `fetchAllRatingsForSlot` (`api/outcomeRatingApi.js`); **`hooks/useSlotRatings.js`** (a hook of its own beside `useOutcomeRatings`, not a method on it — that one is the Map-wide range read of the caller's own rows, this is one slot's read that exists while one admin's callout is open): `{rows, eventTime, forecastRunAt, loading, failed, refetch(key)}`, fetched on FIRST expand only (`enabled && open`, never for PRO/LITE/rewind/no block), a slot change drops the held answer and abandons an in-flight request, a re-open after a failure retries (closing forgets the failure), a failed RE-fetch keeps the rows already held, `refetch(key)` acts only for the slot the hook currently holds; `components/map/OutcomeAdminList.jsx` (the box: `aria-expanded`/`aria-controls` onto an always-rendered `hidden` panel, `role=status` line OUTSIDE the panel and empty while collapsed, `<ul>` rows, mine first then served order, stars `aria-hidden` + one `sr-only` "N out of 5", the rating clamped 1..5); `OutcomeRatingBlock` takes `admin` (`{open, onToggle, loading, failed, rows, eventTime, forecastRunAt}`), draws it under either layout only for `userRole === 'ADMIN'`, with a fixed `key` so a save flipping `done`/`grid` does not remount the toggle; `MapCallout` calls the hook (`enabled: isAdmin && showRating`), wraps `onRate` (`ok = await ratings.rate(...)`, then `refetch(ratingKey)` — the hook ignores a key it no longer holds) and adds `adminLayout` (open, loading, failed, row count) to the repaint list; `outcomeRatingCopy.js` gains `adminHeader`/`adminStamp`/`adminFooter` and the three plan-introduced strings (no-run footer, `Couldn't load ratings.`, `Loading …`) plus the `{n} min` and tail-less footer wordings, marked. The header reads `All ratings` (no count) until the first fetch lands, then `All ratings · n` (every row, the caller's included). The footer's gap is whole minutes first (59 -> `59 min`, 60 -> `1h`, 89 -> `1h`, 90 -> `2h`), dropped when under a minute or the event time is missing. **Deviations on purpose**: the time column reserves 56px not the prototype's 64 and the name column is `minmax(0, 1fr)` + `overflow-wrap: anywhere` (at the 238px inner width a long name otherwise starves or overflows; measured ~11 characters before it wraps); the muted ink on the timestamp/footer is the spec's (3.55:1, like the block's meta line), the prose sentences take the secondary ink. **Review (5 read-only lenses)**: runtime — no P1/P2 (P3s: failed re-fetch discarding rows, fixed; one-frame stale failure on re-open, fixed; a remount of the list on layout flip, fixed; a refetch after unmount, fixed; the block not checking the role itself, fixed; an unclamped rating throwing in render, fixed); accessibility — two P2, both fixed (the live region sat inside the collapsed `hidden` panel so its text was announced by almost nobody — moved outside; the list remounted on the `done`/`grid` flip and the focus effect then moved focus from the toggle to Change — fixed with a stable `key`), P3 `aria-busy` wrapping the region (no longer an ancestor); CSS — P2 the name column at 238px (time column 56px, comment states the budget), P3 comment completeness (fixed); tests — three P2 (the callout's PRO/LITE tests were vacuous because a non-admin can never open the box — now pinned by recording what the callout hands the hook; the abandon-on-slot-change test missed its mutant — now revisits the slot; the row-count term of `adminLayout` unpinned — now pinned), P3 `as served` fixture and the UK-day-of-`now` case added, the vacuous unmount test replaced; conventions — P3 unmarked wordings (marked), a stale comment, a loose PropTypes shape (all fixed). Mutation pass: removing the stable `key` and removing the row-count term were both killed. **For O6**: CLAUDE.md's overview still says "Outcome recording is API-only (no UI)"; the Map-tab callout description should name the Admin list; `adminStamp`/`adminFooter`/the mine-first hoist are display formatting of served instants and the served `mine` flag — the already-licensed filter/map/select class, not a new member of the per-user-join class. **Tested in jsdom and the real stylesheet by regex; the box was measured in headless Chromium by the CSS lens in a fixture; tested, not seen signed-in.** |
+| O6 | `claude/outcome-rating-o6-docs` | (this PR) | 2026-10-16 | Docs sweep, plus one code deletion. **CLAUDE.md**: the overview line; the Roles table and note; Forecast and Outcomes endpoints (`GET /api/forecast?date=`, the passed-slot rule, the three `/api/outcome/ratings` routes, `MAX_RATING_AGE_DAYS`); the Calibration gate paragraph; *Where a rating lives* (the starving bullet scoped to the old source, `outcome_rating`, `scored_at`, a passed slot's served row); two new Map-tab bullets (*Map tab — past windows*, *Map tab — rating a past window*); the Backend-heavy bullet's fourth, fifth and sixth classes and the helpers sentence; a *Role gating — UI pattern* assessment bullet; the Rewind paragraph; the Dev Setup `IntegrationTestBase` count; the migrations table (V177, V178). **Other docs**: `v1-retirement-plan.md` §8 item 7 and `all-in/serve-surfaces.md` Break 2 (status lines), `map-tab-v2-plan.md` §4 #33, this plan (§0, §4 #23–#32, §6, §7), `docs/design/outcome-rating/VENDORING.md` ("Final count"). **Code**: `forecastApi.fetchAllOutcomes` (no caller since O4b) deleted with its nine vacuous test mocks; one stale `mapEvents.js` comment ("until O6") reworded. |
+| O7 | `fix/outcome-rating-legacy-rows-and-empty-day` | (this PR) | 2026-10-17 | Two follow-ups after the first real use (owner, Saturday 13:30 UK: `‹` never showed a window past Friday and ended greyed at T-4; Thursday's sunset could not be rated). **Backend**: V183 stamps `scored_at = forecast_run_at` for rows with something to say, no stamp and `forecast_run_at` before V178's `installed_on` (a deliberate, bounded departure from V178's "no backfill, no guess", §2 #1; the stamp is the submission instant, so for a batch row that landed after its event it overstates availability, accepted for one week of rows that ages out of the 24-day rating window by mid-November; PENDING and ABANDONED rows stay NULL), with a CI-only migration test. **Frontend**: §4 #15 reversed, an older day that loads empty is named (`No stored forecast for Fri 16`) in both menus and the status region. |
+
+---
+
+## §1 What the codebase already has — corrections to the spec
+
+Numbered so a phase log can cite them. Every file:line was read against `015d93fb`; **re-verify
+before editing**, code moves. Paths are `frontend/src/` and
+`backend/src/main/java/com/gregochr/goldenhour/` unless given in full; frontend tests live under
+`frontend/src/test/`, never beside their modules.
+
+### 1. The forecast list already serves two past days, and the Map tab hides every one of them
+
+The spec's open item "confirm how many past days `/forecast` returns today, and set it to 2" is
+already true: `GET /api/forecast` serves `today − ForecastHorizon.SERVE_PAST_DAYS (2)` through
+`today + 5` (`controller/ForecastController.java:144–219`, `util/ForecastHorizon.java:149`), rich
+rows from `forecast_evaluation` plus sparse `cached_evaluation` rows, each retracted by the slot's
+latest stability skip. `GET /api/briefing/evaluate/scores` serves the same days
+(`BriefingEvaluationController.java:66–80`). Those rows reach the client: `App.allDates`
+(`App.jsx:332–335`, `conversions.colourForecastDates`) holds today−2 and today−1, and every
+location's `forecastsByDate` carries their rows.
+
+**But the Map tab refuses to show them, by three rules that must each be loosened (O3a):**
+
+- `utils/mapEvents.js` `hasSolarRow` (`:426–428`) — `Boolean(servedWindow) || (inForecastDomain &&
+  date >= todayStr)`. A served window comes from the briefing's `heatStripCards`, which withdraw a
+  window once `PlanWindowProjector.hasPassed` (its earliest event time + 30 min); so **today's
+  elapsed sunrise stays in the roster as a D-13 filler row** (`served: false`, no verdict,
+  labelled "Today", the dropdown shows `—`), while yesterday and today−2 are excluded outright.
+  `solarRowPredicate` (`:492–502`) applies the same rule, and **it gates every chip, pin and
+  callout rating**: `MapView.solarWindowOnScreen` (`components/MapView.jsx:3231–3236`) →
+  `getRatingForLocation` (`:3284–3313`), which reads the briefing score index first, then the
+  forecast row (`briefingScore?.rating ?? forecast?.rating`).
+- `isForwardableRow` (`mapEvents.js:686–691`) forwards a solar row to App only when
+  `row.date >= todayStr`; a non-forwardable row is kept local by `MapView.selectEvRow`
+  (`:4941–4994`, which already calls `onSelectDate?.(row.date, { isNight })` at `:4986`) through
+  `setLocalNightDate`, which only ASTRO/AURORA read. **A past solar row has nowhere to go.**
+- `utils/mapDates.js` `resolveMapDate` (`:366–381`) never returns a past date — `notPast = d >=
+  todayStr` — except for an explicit NIGHT selection (`selectedIsNight`, keyed on provenance, never
+  value: Codex, #803). `App.selectDate(date, {isNight})` (`App.jsx:313–316`) is the one writer and
+  already destructures an options object; its other two callers (the Ask handoff, the aurora jump)
+  cannot reach a past solar row, so a default `isPast: false` there is safe.
+
+The night precedent is the shape to copy, not the local-override half of it: D-14 (`map-past-nights
+-d14` in memory, #841) kept a past NIGHT on screen by forwarding it to App with a provenance flag
+the clamp honours. A past SOLAR window gets the same: a `selectedIsPast` flag beside
+`selectedIsNight` (§2 #2).
+
+### 2. "Today" and "Tomorrow" exist; "Yesterday" does not
+
+`utils/windowFirstCards.js` `dayLabelFor(dateStr, todayStr, tomorrowStr)` (`:61–66`) returns
+`Today`, `Tomorrow` or a long weekday name (`en-GB`, UTC). The spec's past labels are `Today`,
+`Yesterday`, then `{Dow} {d}` (`Fri 16`); future days keep the existing labels. O3a adds a
+`pastDayLabel(dateStr, todayStr)` beside it (§2 #2) rather than widening `dayLabelFor`, whose two
+Plan-tab callers never see a past date.
+
+### 3. The callout is `.wf-callout`, 286px / 266px on a phone, with no notion of a passed window
+
+`components/map/MapCallout.jsx`: `CALLOUT_WIDTH = 286`, `CALLOUT_WIDTH_MOBILE = 266` (`:32`, `:40`
+— **the spec's 296 is the map-landing bundle's figure and is not changed here**). There is no
+`#cal`, no `.cv2`: the verdict strip is `.wf-callout-verdict` (`:753–809`), the "why" prose is
+`button.wf-callout-reason` with its `Four days here ›` caption (`:881–938`), the facts row
+`.wf-callout-facts` (Drive / Leave by / Dark sky, `:939–948`, from `utils/mapCallout.calloutFacts`
+`:179–209`, which takes `{driveMinutes, distanceMiles, eventTimeIso, bortleClass}` and no event),
+then `TideFitBlock`, `EclipseSpotLine`, topics, the "Every event here" strip, and — **outside the
+scrolling body** — the actions row `.wf-callout-actions` (`:1044–1060`, "Zoom to it" and "Open in
+Plan"). The rating block goes **inside `.wf-callout-body`, immediately after the facts row** (which
+is hidden on a past window, §2 #6), so it shares the card's one scroller and sits "between the
+forecast why text and the action buttons" as the spec asks (§4 #12: it is not the LAST thing before
+the actions, as it was in the prototype).
+
+It knows the window only through `event` (= `activeMapEvent`), has no `role` prop (MapView reads
+`useAuth().role`, `:1455`), reads a clock once (`now ?? appNow()`, `:675`, for a hide's comfort
+day) and — **load-bearing** — repaints its placement from a dependency list (`:462–465`) **of its
+own props and state**: anything whose change alters the card's height must be named there, and a
+child's private state cannot be. The rating block switches between a 44px star grid and a 40px "You
+rated" row, so its `changing` / `adminOpen` state is **owned by `MapCallout`** and passed down
+(§2 #4); `MapCallout.test.jsx:1126–1145` already pins the repaint for `event?.id` with
+`vi.spyOn(currentMap, 'latLngToContainerPoint')` + `rerender`, the shape to copy.
+
+### 4. Pins and chips have no corner badge; the Ask pick is the nearest precedent and it is not one
+
+`components/map/PinsLayer.jsx` draws `button.wf-pin` per location (`:477–531`; `data-ask="pick"`
+pins at `:422–464` put the rank INSIDE the dot). `components/map/MapLabels.jsx` draws
+`button.wf-maplab-chip` (`:783–827`; the pick chip at `:727–766` prefixes a 17px
+`span.wf-maplab-pick-rk` circle, `data-multi` for `1·2`). Both are `position: absolute` with no
+`overflow`, so either can host an absolutely positioned child. The only existing top-right tag in
+the stylesheet is the heat-strip card's BEST BET `.wf-hc-lg` (`index.css:2613–2625`). The data
+route is `MapView.labelSpots` (`:3974–4087`, `spotOf(loc)` at `:3975–4034`): a new per-spot field
+rides it like `askPick` does, with its PropTypes in both layers. A badge is `aria-hidden` and its
+meaning joins the button's `aria-label` the way `tideAccessibleClause` does. ⚠️ **The chip placer
+measures the chip's box** (`MapLabels.jsx:493–503`, `measuredChip`): a badge overhanging that box
+by design (top −7 / right −9) is invisible to it and would collide at any density, so the overhang
+is folded into the measured rect whenever the badge is drawn (§2 #4).
+
+### 5. The old outcome stack is a different feature and stays as it is
+
+`actual_outcome` (V2/V17/V47; `entity/ActualOutcomeEntity.java`) has **no user**, no run reference,
+no unique key, free-text notes and two 0–100 scores; `POST /api/outcome` (`OutcomeController.java:84`)
+is a plain insert open to every role (`UserRole`'s javadoc even calls outcome recording a LITE
+right — O5b corrects the words). Its only live reader is the calibration gate,
+`ForecastEvaluationRepository.findCalibrationPairs` (`:282–294`, a theta join — the house JPQL
+shape), consumed by `ForecastCalibrationService.report` (`:68–97`). ⚠️ **`latestPerSlotHorizon`
+(`:107–131`) keeps one pair per `CalibrationPair.slotHorizonKey()` = `locationName|targetDate|
+targetType|daysAhead`** — it was written to collapse RUNS of one forecast, and has no outcome
+identity in its key, so two outcomes of one slot (two users, or one row in each table) would
+collapse to whichever the unordered query returned first. §2 #6 adds the identity. The frontend's
+`OutcomeModal.jsx` is mounted nowhere; `useForecasts` still fetches `GET /api/outcome/all` for the
+last seven days and attaches `loc.outcomes`, which nothing reads (`src/test/useForecasts.test.js`
+references `outcomes` 23 times, so removing it is a real test edit, not a line). The spec says
+leave the modal alone, and this plan does: **the new record is a new table** (§2 #1), the old
+endpoints are untouched, and the calibration gate learns to read both (§2 #6). The dead
+`fetchAllOutcomes` call is removed in O4b only because the new hook replaces it on the same screen
+(§4 #7).
+
+*Status (2026-10-16)*: the call went in O4b and the export with its test mocks in O6; `OutcomeModal` and
+`fetchOutcomes`/`recordOutcome` stay.
+
+### 6. The server already knows every event instant and every run
+
+`service/SolarEventFreshness.eventTime(location, date, type)` (`:84–91`) gives a location's sunrise
+or sunset as naive UTC; `PlanWindowProjector.hasPassed(eventTime, now)` (`:559–561`,
+`eventTime.plusMinutes(30).isBefore(now)` — strict, null reads as not passed) is the one "has this
+window passed" rule, read by the briefing, the digest and `RewindEventService`.
+**The forecast a slot is SERVED with is one resolution, and it already exists**:
+`EvaluationViewService.getLiveScoresForEnrichment(regionName, date, targetType)` (`:998`) returns,
+per location name, the `BriefingEvaluationResult` the Plan tab, the map's score index and the
+best-bet advisor all read — the cached entry when it is at least as fresh as the slot's latest
+`forecast_evaluation` row, else that row (`cachedIsAtLeastAsFresh`, `:1667–1673`), with the
+stability-skip retraction applied and retracted markers removed. A result carries `submittedAt`
+(the cycle's `PipelineRunEntity.triggerTime` for a batch in a cycle, the batch's own submit instant
+for an ad-hoc batch, the call start for a sync/admin run; null on a legacy row) and `evaluatedAt`
+(arrival). ⚠️ A later cycle that FAILED, skipped the slot (Gate 4, triage) or submitted no result
+writes nothing for it, so "the newest `pipeline_run` before the event" names a cycle the reader never
+saw a forecast from — the stale-row case CLAUDE.md's `forecast_score` notes and Codex's review of
+#1185 both name. The rated run is therefore the SERVED result's own instant (§2 #1), never a
+roster-wide cycle lookup. `pipeline_run.trigger_time` (V102, `PipelineRunEntity.triggerTime`, an
+`Instant`, never pruned) is matched by equality to a served `submittedAt` to recover the cycle id;
+`forecast_evaluation.forecast_run_at` (naive UTC;
+`findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc` `:195–206` skips PENDING,
+takes a `Pageable`) is the fallback for a slot with no live result at all, and the only trace of a
+hand-started run (the map's Run Forecast, the Operations buttons write no `pipeline_run`).
+
+### 7. The user is the principal's username, and a per-user read must stay out of the ETag list
+
+`JwtAuthenticationFilter` makes the principal the username (`:88–95`); services resolve the row
+with `AppUserRepository.findByUsername(auth.getName())` (`UserSettingsService.getUserId`, `:617–625`,
+404 when missing). `HttpCachingConfig`'s revalidatable set is exact-path (`:72–106`); `/api/outcome`
+and `/api/outcome/all` are already pinned as never-filtered in
+`HttpCachingConfigTest.personalDataPathsAreNeverFiltered` (`:90–120`). New `/api/outcome/ratings*`
+paths are unfiltered by construction and go on that test's list (§2 #1). `GET /api/forecast?date=`
+is ETag'd automatically and safely (the body is not personal). `GlobalExceptionHandler` maps
+`IllegalArgumentException` → 400 `{"error": …}` (`:84–85`) and `NoSuchElementException` → 404
+(`:47–49`); there is no `DataIntegrityViolationException` handler.
+
+### 8. The find-or-insert shape for an upsert without `ON CONFLICT` already exists — and it only works OUTSIDE a transaction
+
+`service/ask/AskUsageStore.ensureRow` (`:136–149`) + `AskUsageRepository.insertRow` (native INSERT,
+`:68–74`): exists-check, native insert, catch `DataIntegrityViolationException`, re-check, then a
+conditional JPQL `UPDATE`. ⚠️ **`AskUsageStore` carries no `@Transactional`** (`:26–149`); only the
+repository methods do. That is what makes the catch work on Postgres — inside one transaction a
+unique violation aborts it and the re-check fails ("current transaction is aborted") — and the
+breakage is invisible to H2 and to the `@DataJpaTest` race (`AskUsageStoreTest.java:41–42`,
+`NOT_SUPPORTED`). The outcome upsert copies the whole shape, store class included (§2 #1), and the
+CI-only migration test races it on Postgres as `AskUsageMigrationTest.java:167–172` does.
+
+### 9. Rewind reaches GETs under `/api/outcome` and the Map's "today"
+
+`RewindFilter` honours `X-Rewind-To` for an ADMIN's GET (`:95`) outside `/api/admin/` (`:88`), so a
+rewound read of the new rating endpoints sees the rewound clock (they take explicit dates and read
+no clock, so nothing changes); a PUT is never rewound, so "has the event passed" on a write is
+always the real clock. On the client `swrCache` is disabled while rewound and `appNow()` is the
+rewound instant, so `todayStr` and every past-window label move with it. Decision §5 #6: the rating
+block, the badges, the ratings read and the older-day fetch are **hidden under a rewind** — a rewind
+is a screenshot of the forecast as it stood, and a rating recorded later would contradict the
+picture; `App.jsx:117–147` (`AskWhenLive` / `RewindGate`) is the precedent.
+
+### 10. The one-day sparse read already works, with a bounded over-read
+
+`EvaluationViewService.loadCachedEvaluations(start, end, …)` (`:1734–1790`) iterates
+`for (date = start; !date.isAfter(end); …)` — one day is one iteration — and its DB half calls
+`findByEvaluationDateGreaterThanEqual(start)` then drops rows after `end` (`:1762–1768`), so
+`cachedOnlyViewsForDateRange(d, d, …)` returns the day's sparse rows. The cost: a `?date=T-4`
+request loads every `cached_evaluation` row from T-4 to the forward horizon and keeps one day's —
+pointless but bounded (regions × ~6 days × 2), noted in O2's javadoc, not fixed (changing
+`loadCachedEvaluations` is out of scope).
+
+---
+
+## §2 What is genuinely new
+
+### 1. The record, its upsert and its three endpoints (backend, O1)
+
+**Table `outcome_rating` (V177; next after V176, re-read the tree before writing):**
+
+```sql
+CREATE TABLE outcome_rating (
+    id                  BIGSERIAL    PRIMARY KEY,
+    user_id             BIGINT       NOT NULL REFERENCES app_user (id) ON DELETE CASCADE,
+    location_id         BIGINT       NOT NULL REFERENCES locations (id),
+    event_date          DATE         NOT NULL,
+    event_type          VARCHAR(10)  NOT NULL,
+    rating              INTEGER,
+    event_time          TIMESTAMPTZ  NOT NULL,
+    pipeline_run_id     BIGINT,
+    forecast_run_at     TIMESTAMPTZ,
+    forecast_evaluation_id BIGINT REFERENCES forecast_evaluation (id) ON DELETE SET NULL,
+    forecast_rating     INTEGER,
+    created_at          TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    updated_at          TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    CONSTRAINT uq_outcome_rating_slot UNIQUE (user_id, location_id, event_date, event_type),
+    CONSTRAINT ck_outcome_rating_range CHECK (rating IS NULL OR (rating BETWEEN 1 AND 5)),
+    CONSTRAINT ck_outcome_rating_event_type CHECK (event_type IN ('SUNRISE', 'SUNSET'))
+);
+CREATE INDEX idx_outcome_rating_user_date ON outcome_rating (user_id, event_date);
+CREATE INDEX idx_outcome_rating_slot ON outcome_rating (location_id, event_date, event_type);
+```
+
+- `rating` **null means "not seen"** — the spec's data model, verbatim. A row's existence is the
+  answer; there is no separate flag. `user_id` cascades (a deleted user takes their ratings, the
+  `ask_usage` precedent — V166's header explains why `UserService.deleteUser` needs it);
+  `location_id` does not (locations are never hard-deleted; `actual_outcome` is the precedent).
+  `BIGSERIAL` ↔ `GenerationType.IDENTITY` and `TIMESTAMPTZ` ↔ `Instant` both have
+  `ddl-auto: validate` precedents (`AskUsageEntity`, `AskLogEntity`).
+- `event_time` is the event instant the server computed for THIS location (not the roster's
+  earliest), stored so the admin footer's "Xh before sunrise" needs no recomputation and survives a
+  later change to the solar library. `pipeline_run_id` / `forecast_run_at` name the forecast being
+  rated (below); nullable because a slot can have been shown with no run behind it at all.
+  `forecast_evaluation_id` is the one `forecast_evaluation` row that was available by the event
+  and not retracted at it (step 2's candidate, resolved on EVERY write whether or not step 1
+  answered the run instant) — the row the calibration gate pairs this rating with (§2 #8), so no
+  join ever has to redo the availability arithmetic; nullable when no such row exists.
+  `forecast_rating` is **the predicted star the reader actually saw** — the served result's own
+  `rating` when step 1 answered, else the step-2 row's — stored because a served rating is not
+  always any one row's: an in-season OPEN_FELL place's cached rating is recombined from its sky
+  and bluebell results (`BriefingEvaluationService.recombineBluebell`, `:502–516`) and the bluebell
+  lane writes `forecast_score` only, never a `forecast_evaluation` row (`ForecastResultHandler`
+  `:735–743`, `:799–819`), so the sky row's `rating` would understate what was on the map (Codex,
+  #1185 round 6). Null only when nothing was served.
+- Entity `OutcomeRatingEntity` (`@Table(uniqueConstraints = …)` so the H2 `create-drop` schema
+  carries the key; `userId` and `locationId` as plain `Long` columns like `AskUsageEntity`;
+  `eventType` as `TargetType` `@Enumerated(STRING)` length 10 — SUNRISE/SUNSET only by the CHECK,
+  never HOURLY; a fresh table needs no `LocalH2EnumWidener` line). ⚠️ **Write discipline, the
+  `app_user` / `locations` pattern**: every column is written by the native insert and the JPQL
+  `UPDATE` below and nothing else — `rating`, `eventTime`, `pipelineRunId`, `forecastRunAt`, `forecastEvaluationId`,
+  `forecastRating` and `updatedAt` are `updatable = false` with no setter, so a later `save()` of a loaded row cannot
+  become a second writer. `OutcomeRatingRepository`:
+  `existsByUserIdAndLocationIdAndEventDateAndEventType`, a native `insertRow(...)`, a JPQL
+  conditional `updateRow(...)` returning the count, `findByUserIdAndEventDateBetween`, and
+  `findAllForSlot(locationId, date, type)` as a constructor projection over the theta join `FROM
+  OutcomeRatingEntity r, AppUserEntity u WHERE u.id = r.userId AND …` (the `findCalibrationPairs`
+  shape) ordered by `updatedAt DESC`.
+- **Which forecast is rated** (`OutcomeRatingService.resolveRatedRun(location, date, type,
+  eventInstant)` → `RatedRun(pipelineRunId, runAt, forecastEvaluationId, forecastRating)`): **the forecast actually served for this slot**
+  (§1 #6; the spec: "the last forecast run before the event time, even if it was stale because of
+  batch failures — staleness is useful data", so the age of the forecast the reader SAW is what is
+  recoverable). Step 1: for a regioned location,
+  `evaluationViewService.getLiveScoresForEnrichment(regionName, date, type).get(location.getName())`
+  — the one serve-time resolution the map and the Plan tab read. **The result must have been
+  AVAILABLE by the event**: its `evaluatedAt` (arrival / write time) must be `<= eventInstant`
+  (a batch submitted before the event but landing after it — the Batch API allows 24 h — was not
+  what the reader saw at it; a legacy result with no `evaluatedAt` is skipped). ⚠️ **For a
+  canopy-bearing place (a BLUEBELL or WOODLAND type) `evaluatedAt` is NOT proof**: an OPEN_FELL
+  recombination keeps the earlier sky result's `evaluatedAt` while the composite star exists only
+  once the bluebell lane merges (`BriefingEvaluationService.java:504–513`, `:626–632`), so for such
+  a place the availability instant is the cached ENTRY's region-level `updated_at`
+  (`CachedEvaluationEntity` for that region, date and type — the latest write to the entry, a
+  conservative upper bound on when the composite existed; read through `BriefingEvaluationService`'s
+  repository, O1 names the accessor), which must be `<= eventInstant`; a later write by ANY place
+  of the region sends a canopy place to step 2, where its star is stored null (below) — the safe
+  direction, since a guessed composite would calibrate against a star never seen (Codex, #1185
+  round 8). A result that
+  passes gives `runAt` = its `submittedAt` (the forecast's own age), else its `evaluatedAt`, and
+  `pipelineRunId` = the `pipeline_run` whose `trigger_time` EQUALS that `submittedAt` (new finder
+  `PipelineRunRepository.findByTriggerTime(Instant)` → `Optional`; a cycle's batch results carry
+  exactly that instant), else null (an ad-hoc batch, a sync run, a legacy row). Step 2, when step 1
+  yields nothing — an unregioned location (the batch never scores one), a slot with no live
+  result, or a served result that arrived AFTER the event: the slot's latest `forecast_evaluation`
+  row that **has something to say** (`rating IS NOT NULL OR triage_reason IS NOT NULL`, the
+  `hasSomethingToSay` rule — a triage row is a decision the reader saw) and **was available by the
+  event**: `scored_at IS NOT NULL AND scored_at <= eventInstant` — **a row with no `scored_at` (one
+  written before V178) is never a candidate**, because its `forecast_run_at` is a submission
+  instant, not an availability one, and the write window reaches 24 days back, so a legacy
+  late-landing batch row would otherwise be recorded and calibrated as served (Codex, #1185 round
+  11) — **and not retracted as of the event**: the slot's latest `SKIPPED_STABILITY` disposition with `created_at <= eventInstant`
+  (a new bounded sibling of `ForecastRunDispositionRepository.findLatestStabilitySkipTimestamps`,
+  by location name, date and type — the 30-day retention covers T-4) retracts any row whose
+  **submission instant** (`forecastRunAt.toInstant(UTC)`, never `scored_at`) precedes it, exactly
+  as `EvaluationViewService.isRetractedByStabilitySkip` (`:611–621`) compares at serve time — a
+  batch row submitted before a skip but scored in place after it (`ForecastResultHandler` scores
+  superseded rows unconditionally; the serve path refuses their cache write) was never served,
+  and `scored_at` would read it as unretracted (Codex, #1185 round 7); `scored_at` serves the
+  availability bound alone — because a row the pipeline had already declined to re-look at
+  was absent from the map at the event; a skip recorded AFTER the event is ignored (it retracts
+  what the reader saw later, not what they saw then — which is also why step 1's live accessor,
+  whose retraction is as-of-now, can return nothing for a slot step 2 then correctly answers).
+  With `pipelineRunId = null`. **The step-2 candidate is resolved on every write even when step 1
+  answered**, and its id is stored as `forecastEvaluationId` (null when there is none);
+  `forecastRating` is step 1's served `rating` when step 1 answered; when step 2 stands in, the
+  row's `rating` ONLY for a place with no canopy type (no WOODLAND, no BLUEBELL in
+  `LocationEntity`'s types — a single-lane place, whose row rating IS what the cache served),
+  and **null for a canopy-bearing place**: its served star may have been recombined from a sky
+  and a bluebell result the cache has since replaced (a newer batch landing after the event is
+  latest-wins, §1 #5's `cached_evaluation`), no table keeps that combined value, and storing the
+  sky row's star would calibrate against a number the reader never saw (Codex, #1185 round 7). A
+  null `forecastRating` means "the star seen is not recoverable" and the calibration gate skips
+  the rating (§2 #8); the admin footer's run instant is unaffected. Neither →
+  all null — the slot was shown with no forecast behind it. The UI never offers such a rating
+  (no row → no block, §2 #5); the API still accepts one, records it with null provenance, and the
+  calibration gate, which pairs on a captured star and a scored row, simply never pairs it. ⚠️ **`forecast_evaluation.scored_at` is new (V178, same phase)** — a
+  nullable `TIMESTAMPTZ` stamped from the clock wherever a row GETS its rating or triage reason:
+  `ForecastService.buildEntity` for a row inserted with one (the sync engine, a triage row), and
+  `ForecastResultHandler.scoreEvaluationRow` for a batch's PENDING row scored in place; a row
+  still PENDING or ABANDONED keeps null (and has nothing to say, so the finder never picks it).
+  Without it the fallback cannot tell a late batch's OWN row from the forecast that stood before
+  it: a batch row's `forecast_run_at` is stamped when the row is built (`ForecastService.java:817`),
+  BEFORE the batch's `submittedAt` is known (`BatchSubmissionService.java:143–152`), so a
+  "submitted earlier" bound would admit the very row step 1 just set aside (Codex, #1185 round 3).
+  Legacy rows with a null `scored_at` are simply not candidates: for the first days after the
+  deploy a passed slot scored before it resolves to nothing (served unscored on the past-window
+  view, recorded with null provenance, never calibrated), and every row scored after it carries
+  the stamp — no backfill, no guess. ⚠️ **Reversed 2026-10-17 (V183, the O7 row in §0):** the first
+  Saturday after the deploy showed that "for the first days" meant a week of unrateable windows, so one
+  bounded backfill stamps the pre-V178 rows that have something to say.
+  **Never a roster-wide "latest cycle before the event"** (§4 #2). ⚠️ **This resolution has TWO
+  readers, and they must agree** (Codex, #1185 round 9): the rating's provenance here, and the
+  forecast SERVE path for a passed slot (§2 #4), so that the star the past-window UI draws is the
+  star the record captures. It therefore lives in its own class, `AsOfEventResolver`
+  (`service/`), with one method, `resolve(location, date, type, eventInstant) → AsOfEvent(result
+  or null, forecastEvaluationId, runAt, pipelineRunId, forecastRating)`, that both
+  `OutcomeRatingService` and `ForecastController.serveRange` call; O1 builds it, O2 consumes it. Resolved on every write
+  (idempotent in practice: nothing re-scores a slot whose date has passed, and a late batch landing
+  after the event is set aside by the availability gate, so the answer is fixed once the event is) and on the admin read, so a slot with no ratings still shows its run.
+- **The upsert** is split in two classes, the `AskUsageStore` shape: `OutcomeRatingStore`
+  (`OutcomeRatingRepository` its only dependency, **no `@Transactional` on the class or the
+  method** — a javadoc cites §1 #8 and `AskUsageStore` for why) does `upsert(userId, locationId,
+  date, type, rating, eventTime, run, now)`: exists → native insert → on violation re-check → one
+  JPQL `UPDATE … SET rating, eventTime, pipelineRunId, forecastRunAt, forecastEvaluationId,
+  forecastRating, updatedAt WHERE userId, locationId, eventDate, eventType`. `OutcomeRatingService.rate(username, locationId, date, type,
+  rating)` orchestrates: resolve the user (404 "User not found" if gone); the location must exist
+  (404; a disabled location may still be rated — its past rows are still served); `rating` null or
+  1..5, else 400 `"rating must be between 1 and 5"`; `eventType` SUNRISE/SUNSET else 400 (the
+  request DTO's validation, before any lookup); **the event must have passed**:
+  `PlanWindowProjector.hasPassed(solarEventFreshness.eventTime(location, date, type), now)` with
+  `now` from the injected `Clock` (a PUT is never rewound), else 400 `"That sunrise has not
+  happened yet"` / `"… sunset …"`; **and not older than the retraction evidence**: `date` must be
+  on or after `today − OutcomeRatingService.MAX_RATING_AGE_DAYS`, where `MAX_RATING_AGE_DAYS =
+  ForecastDispositionService.RETENTION_DAYS − RunType.FORECAST_HORIZON_DAYS − 1` (30 − 5 − 1 = 24;
+  both existing constants, the first made public for this reader; the javadoc shows the
+  arithmetic),
+  else 400 `"That sunrise is too old to rate"` — because step 2's retraction reads
+  `forecast_run_disposition`, which the `disposition_cleanup` prune deletes by the disposition's own
+  `created_at` at `RETENTION_DAYS` (`ForecastDispositionService.java:180–181`), while
+  `forecast_evaluation` is never pruned, AND a `SKIPPED_STABILITY` for an event is recorded up to
+  `FORECAST_HORIZON_DAYS` (5) days BEFORE it (`NightlyEligibilityPolicy.resolve` records every
+  T+4-and-beyond rejection as a stability skip, `NightlyEligibilityPolicy.java:57–66`, persisted at
+  `ForecastTaskCollector.java:485–488`, and the candidate window runs to T+5), so a rating for an
+  event 25–30 days old could resolve a retracted row as served after its skip was deleted (Codex,
+  #1185 rounds 9–11); the extra day covers the prune deleting by instant rather than by UK date. The
+  superseded board's "any time means no cut-off" is therefore not honoured (§4 #21); the Map reaches
+  T-4. `updatedAt` from the clock.
+  Returns `OutcomeRatingDto(locationId, locationName, eventDate, eventType, rating, updatedAt,
+  forecastRunAt, pipelineRunId, forecastRating)`; the range read joins names with ONE `findAllById` over the
+  distinct location ids per request, never per row.
+- **Endpoints** (`OutcomeRatingController`, `@RequestMapping("/api/outcome/ratings")`; the old
+  `OutcomeController` is untouched):
+  - `GET /api/outcome/ratings?from=&to=` → the caller's own rows in the range, no role gate (a LITE
+    account has no rows, so it answers `[]` naturally; a downgraded account would see its old rows,
+    harmlessly). 400 for `from > to` or a span over 31 days (`MAX_RANGE_DAYS`, the shape
+    `ForecastController.getHistory` uses for its cap).
+  - `PUT /api/outcome/ratings` `{locationId, eventDate, eventType, rating}` (`rating` absent or
+    null = not seen) → 200 with the DTO. `@PreAuthorize("hasAnyRole('ADMIN', 'PRO_USER')")` — a
+    LITE PUT is 403 ("writes are rejected server-side"). PUT, not POST: the call is idempotent and
+    replaces.
+  - `GET /api/outcome/ratings/all?locationId=&date=&eventType=` → ADMIN only →
+    `{eventTime, forecastRunAt, pipelineRunId, ratings: [{username, rating, updatedAt, mine}]}`,
+    every user's row for the slot, **newest first**, `mine` true on the caller's own row (the
+    client hoists it to the top, the prototype's order — §4 #13). Under `/api/outcome/`, so a
+    rewound admin GET sees the rewound clock — harmless, it reads none.
+- `HttpCachingConfigTest.personalDataPathsAreNeverFiltered` gains `/api/outcome/ratings` and
+  `/api/outcome/ratings/all`. `AbstractControllerTest` gains a `@MockitoBean OutcomeRatingService`.
+  `OutcomeRatingMigrationTest` (CI-only, extends `IntegrationTestBase`, the `AskUsageMigrationTest`
+  shape: columns, the unique key, both CHECKs, the user cascade, the location FK, and a 12-thread
+  upsert race through the REAL `OutcomeRatingStore` — the Postgres proof §1 #8 needs).
+
+### 2. Past rows in the window control (frontend, O3a; the fetch and the EARLIER group O3b)
+
+`buildMapEvents` (`utils/mapEvents.js:557`) takes a new input, `pastSolarWindows` — built in
+`WindowFirstMapPane` from `locations[].forecastsByDate` for every (date, targetType) with at least
+one row and `date <= todayStr`: `{date, targetType, earliestEventTime}` (the earliest `solarEventTime` among the rows, UTC,
+which decides `past`; nothing stands in for a place with no row of its own at the block, §2 #5). A solar row is **past** (`row.past === true`) when it has
+NO served window AND it is in the forecast domain AND **its `earliestEventTime` has elapsed by the
+afterglow rule** (`isEventTimePast`, `utils/briefingDisplay.js:269` — the same instant and the
+same 30 minutes `PlanWindowProjector.hasPassed` withdraws the served window on, so with a live
+briefing the two conditions flip together and the Map and the Plan tab retire a window at the
+same minute, CLAUDE.md Backend-heavy sixth class (e)). The elapsed test is load-bearing on its
+own: an unserved window is not necessarily over — the briefing can be absent (204) or stale, and
+`mapEvents.js:620–642`'s filler path exists precisely to represent in-domain windows the briefing
+does not serve — so without it a future sunset would wear `PAST` whenever the briefing lagged
+(Codex, #1185 round 6). A `date < todayStr` window passes the test trivially. §4 #4 records the
+per-place consequence. A past row is `{id: 'solar:DATE:TYPE', kind: 'solar', eventType, date, past: true,
+served: false, scored: false, inForecastDomain: true, label, dayLabel, time, bestRating: null,
+badges: [], pickKind: null}`; **its `time` is set in `buildMapEvents` from `earliestEventTime`
+through `formatTimeUk`** (a base that exists even with no briefing and an empty scope pool, which
+`withScopedSolarTimes` (`utils/mapScopedTime.js:46`) returns rows unchanged for at `:49`/`:63`);
+that function then narrows a past row's time to the scope pool's earliest as it does for a served
+row — it stops skipping `served === false` rows when `row.past` (a past window's time is a fact of
+the rows, not something "lent"). `hasSolarRow` / `solarRowPredicate` admit a date with a past
+window; the filler branch keeps its `date > todayStr` cases. Ordering is unchanged (by date,
+sunrise before sunset).
+
+`pastDayLabel(dateStr, todayStr)` (new, `utils/windowFirstCards.js` beside `dayLabelFor`):
+`Today`, `Yesterday`, else `{Dow} {d}` (`Fri 16`, `en-GB` short weekday, UTC day-of-month, no
+leading zero).
+
+**Selection plumbing** (O3a): `isForwardableRow` forwards a `row.past` solar row;
+`MapView.selectEvRow` calls `onSelectDate(row.date, {isPast: true})` for one (and `{isNight}` as
+today); `App.selectDate` gains `isPast` beside `isNight`, stored as `selectedDateIsPast`;
+`resolveMapDate` gains `selectedIsPast`: usable when `dates.includes(d) && d <= todayStr` (today's
+own elapsed window is a past selection on today's date). The night exemption is untouched. Every
+other route to `selectDate` keeps the default `false`, so a stale past pick cannot hold the map
+after a reload (the clamp falls through to the today-forward pick, as for a stale solar date).
+
+**The pill** (O3a, `components/map/WindowControl.jsx:212–282`): when `active.past`, a
+`span.wf-win-past` reading `Past` (uppercased by CSS, the prototype's `.wpast`) replaces
+`<VerdictCell>` (`:272`); tag style per spec §2 (mono 9.5px, uppercase, `.08em`, ink-3, 1px
+border-light, radius 4, padding 1px 5px). The pill's accessible name says "past" in words. The
+phone override pill reads the same. `buildEvVerdicts` already skips `served === false` rows
+(`mapVerdict.js:287`), so no verdict, tint or tick is drawn.
+
+**The callout** (O3a): `calloutFacts` takes a `past` flag and hides Drive and Leave by when set
+(the spec: "Past windows hide Drive / Leave by"; Dark sky stays). The verdict strip keeps the
+forecast star — "the forecast star stays where it already is". `onOpenWindowPanel` stays withheld
+for a past row (it is `served === false`), as it is for a filler today; **"Open in Plan" is
+withheld too** (§4 #14: the location sheet it opens is built from the briefing's windows, which
+never hold a past one; "Zoom to it" stays). `mapPeek.otherWindow` (`utils/mapPeek.js:49–64`) skips
+`row.past` rows unconditionally — in the forward scan AND in the all-stand-down fallback — so the
+collapsed "Other windows" summary never names a window that has gone. `landingCardModel` already
+skips `!row.served` rows.
+
+**The dropdown** (O3b, `WindowControl.jsx:296–420`): an **EARLIER** group above the day groups,
+rendered when any row is past or more history can be fetched: header `EARLIER` left, `rate how it
+went` right (not uppercase, weight 400); the **Load row** first while `canLoadOlder`
+(`button.wf-win-row.wf-win-load`: a leading `↑` chip in the kind-chip slot, `--color-tide` on a 1px
+`rgba(111,168,176,.35)` border — the prototype's `.wk.lo`; `Load {Dow} {d}` in `--color-tide`;
+sub-line `or press ‹ past the oldest window · fetches {Dow} {d}`; the row's accessible name says
+what it fetches; press → closes the dropdown, moves focus to the pill **in the handler, before the
+state change** (`useRowFocusRescue` records only `[data-ev-id]` rows and clears on pointerdown,
+`hooks/useRowFocusRescue.js:49–56`, so it will NOT rescue this row), then `onLoadOlderDay()`); then
+each past day's sub-header (`pastDayLabel`, mono 9.5px/600 ink-2) followed by its rows (sunrise
+first) showing the kind chip, the **time bold in ink-2** (the prototype's `.wr.past .wm b`), and on
+the right `Not rated` (ink-3) or `{n} rated` (star gold) — the count is O4b's; O3b renders `Not
+rated` for every past row and leaves a `ratedCount` prop null. Past rows wear `data-past`. The
+existing future groups follow unchanged — ⚠️ **today may appear in both**: at Thu 08:15 the elapsed
+sunrise sits under a past sub-header `Today` and the sunset under the future group `THU 15 · today`
+(the prototype's `render()` resets `day` at the past→future boundary); do not dedupe.
+
+**Stepping** (O3b): `atStart` becomes `activeIndex <= 0 && !canLoadOlder`; `step(-1)` at index 0
+with `canLoadOlder` calls `onLoadOlderDay()` instead (and so does `ArrowLeft`, `:169–175`); the
+`‹` stepper's accessible name at index 0 with `canLoadOlder` reads `Load {Dow} {d}`, not "Previous
+event". While `olderDayLoading` the pill reads `Loading {Dow} {d}…` (`wf-win-loading`,
+`aria-busy`) and both steppers plus the Load row are disabled (§4 #10); when the day lands,
+selection moves to that day's **sunset** row if it exists, else its sunrise — from `‹`, `←` AND the
+Load row alike (§4 #11: the README is the spec here; the prototype's Load row keeps the current
+window); a day that loads with no rows moves nothing, still counts toward T-4, is NAMED in both menus and
+the status region (`No stored forecast for Fri 16`, §4 #15 as amended 2026-10-17), and the Load row
+offers the next older day. At the oldest reachable day (`T-4` loaded, or
+loaded-empty) `‹` is disabled (the existing `:disabled` rule, `index.css:4843`, opacity .35 — the
+spec's .3 is not adopted, §4 #16).
+
+**The phone peek sheet** (O3b, `components/map/MapPeekSheet.jsx:325–385`, `MapPeekWindowsSection`):
+the same EARLIER header, Load row and past sub-headers above the flat list; a past row shows
+`PAST` where a verdict would be.
+
+**Older-day fetch** (O3b, `hooks/useForecasts.js`): `loadOlderDay(date)` calls the new
+`fetchForecastsForDate(date)` (`api/forecastApi.js`, `GET /api/forecast?date=`), keeps the answer
+in hook state as `olderDays: Map<date, rows>` (an empty answer is a loaded-empty entry), and
+**re-merges every entry inside every `load()` after `buildLocations`** — ⚠️ `load()` rebuilds
+`locations` from the list payload on every refresh (`:144`; `refresh()` runs after a forecast run
+and a drive-time change, `App.jsx:691`), and without the re-merge a loaded T-3 would vanish,
+`allDates` would lose the date, `resolveMapDate` would refuse the selection and the map would jump
+forward while `canLoadOlder` still read false. Merge rule: an older day's rows never replace an
+existing (date, type) entry the list payload carries. Exposes `{olderDayLoading: date | null,
+loadedPastDays}`. **Never written to `swrCache`** (the cached payload is the list endpoint's,
+revalidated as a whole; an older day is re-fetched on the next session, which is the cheap and
+correct outcome). A failed fetch leaves the roster unchanged, clears `olderDayLoading` and reports
+through the hook's `error` (user-initiated). `canLoadOlder` and the next older date are derived in
+the pane from `allDates ∪ loadedPastDays` against `ukDateStrOffset(-MAX_PAST_DAYS)`: the next older
+date is the day before the oldest known date, and nothing older than T-4 is ever asked for. The
+pane passes `onLoadOlderDay`, `olderDayLoading` and `canLoadOlder` to `MapView`, which hands them to
+`WindowControl` and `MapPeekSheet`.
+
+**Ratings on a past window** (O3a): with `solarRowPredicate` admitting past windows,
+`getRatingForLocation` answers for them — **from the forecast row ALONE when `row.past`**, never
+from `briefingScoreIndex` (the scores endpoint serves the latest result, which for a passed slot
+may be one that landed after the event; the forecast rows for a passed slot are served as of the
+event, §2 #4) — and the chips, pins and the callout star follow. `isStandDownLocation` reads the
+same way for a past row.
+
+### 3. The heat field on a past window (frontend, O3c)
+
+The field is keyed on the briefing's rendered events three times over, and all three must learn
+the past windows **in the pane, never in the briefing context**: `WindowFirstBriefingContext.jsx:697`
+calls `buildHeatSpots(locations, scoreRows, upcomingEvents)` with the SAME `upcomingEvents` that
+builds the Plan's `windowCards` (`:622`), `paneItems` (`:667`) and `regionSeries` (`:724`) —
+extending it there would put past windows into the Plan matrix, which spec §1 forbids. So
+`WindowFirstMapPane`: (a) builds a past-only event list from `pastSolarWindows` and a past-only
+score-row list — `{locationId, locationName, date, targetType, rating}` rows drawn from
+`forecastsByDate` for EVERY past slot, never from `scoreRows` (the scores endpoint's latest result
+may postdate the event; the forecast rows are served as of it, §2 #4) — and runs `buildHeatSpots`
++ `buildHeatPointSets` over them;
+(b) extends `heat.windows` (built at `:490` from `heatStripCards`) with one entry per past window
+`{key, date, targetType, bestRating, confidence: null}` and `heat.pointsByKey` with the past
+windows' point sets — because `MapView.jsx:2924–2928` finds `heatWindow` in `heat.windows` and
+`:3056` reads `heat.pointsByKey.get(heatWindow.key)`, so a window absent from `heat.windows` paints
+`EMPTY_POINTS` and `fillerHasRatings` (`:3585–3589`) treats it as a filler; (c) gives the past
+window's `bestRating` as a **client max over that window's PAINTED points** — the `scores[]` the
+`buildHeatSpots` output carries for the window, after its own join and sky-subject filters
+(`heatSpots.js:133–143` withholds a WOODLAND/BLUEBELL/WILDLIFE-only place's scores, an unregioned
+place and one with no coordinates), never the raw merged rows — because `windowUnscored`
+(`:3114–3120`) reads `heatWindow?.bestRating` to decide whether the legend key is withheld, and a
+key over an empty field (a window whose only rated rows are a wood's) would be a lie (Codex,
+#1185 round 8); a rated past window must show its key and an unpainted one must not. ⚠️ That max is a NEW named member of CLAUDE.md's licensed Map-tab class
+(the `mapEvents.bestOfNight` shape: a max across a roster that no served field states, because the
+briefing serves no past window) — `mapEvents.pastWindowBest`, recorded in O6 beside `bestOfNight`,
+not folded into the filter/map class. The kernel's haze reads the inferred confidence cap
+(`medium`, `MAX_INFERRED_TIER`) because a past window carries no served confidence — accepted
+(§4 #5). The field, the legend and the counts footer then behave on a past window exactly as on a
+served one.
+
+### 4. `GET /api/forecast?date=YYYY-MM-DD` — one stored day (backend, O2)
+
+The existing `getForecasts` body becomes a private `serveRange(from, to, auth)`; the list endpoint
+calls it with the window it has today, and a new `@GetMapping(params = "date")` on the same path
+(the `params` condition is the more specific mapping and resolves beside the bare `@GetMapping` and
+`/{id:\d+}`) calls it with `from = to = date` after validating `today − ForecastHorizon.MAX_PAST_DAYS
+(4, new) <= date < today` — 400 `{"error": "date must be between T-4 and yesterday"}` otherwise,
+so the endpoint can never become a second serve path for days the list already carries or for the
+future. Stored rows only; **nothing in it may reach `runForecast`, a batch or a model** (pinned
+by a test that the controller's run-capable collaborators are never called). ⚠️ **A passed slot is
+served AS OF ITS EVENT, on the list's own past days as well as on `?date=`** (Codex, #1185 round
+9): for every (location, date, type) whose event has passed — `hasPassed(eventTime, now)` with the
+roster's per-place time — `serveRange` serves the row `AsOfEventResolver` (§2 #1) resolves (the
+`forecast_evaluation` row available by the event and unretracted at it) **with the resolver's
+captured `forecastRating` as its served `rating`, always** — so a canopy-bearing place whose
+composite is unrecoverable (a post-event cache write, §2 #1) is served with `rating = null`, an
+unscored slot, never the fallback row's sky-only star (Codex, #1185 round 10); and no row at all
+when nothing was available — never the slot's latest row and never the sparse cache entry,
+so a batch that landed after the event cannot repaint a window the reader has already seen and
+may be rating — the chips, the field and the callout then show the star the record captures. An
+unpassed slot (today's sunset before it happens, every future day) is served exactly as today:
+the latest rich row, the stability-skip retraction as of now, the sparse cache rows (§1 #10).
+The existing `getForecasts_*` tests stay green for the unpassed days; the passed-slot rule gets
+its own cases (a late-landing row hidden; a retracted-before-event row hidden; a canopy place's
+captured star served; a canopy place with an unrecoverable composite served unscored). `ForecastHorizon.MAX_PAST_DAYS` carries a javadoc naming its
+reader (the Map tab's older-day fetch) and the relation to `SERVE_PAST_DAYS` (the list's past
+edge; the one-day read covers the gap between them). `/evaluate/scores` does not learn `?date=` and is **not consulted for a past window at all**: the
+briefing score index serves the latest result, which for a passed slot may postdate the event, so
+the client reads only the forecast rows for a past window (§2 #2, §2 #3).
+
+### 5. The rating block (frontend, O4a)
+
+`components/map/OutcomeRatingBlock.jsx`, mounted by `MapCallout` inside `.wf-callout-body` after
+the facts row when `event.past && !isHide && !rewound && placePassed`, where `placePassed` is
+`isEventTimePast(the selected place's own forecast row's solarEventTime)` — **and a place with no
+forecast row for the window, or a row with no time, gets no block at all**: the roster's
+`latestEventTime` is derived from the rows and so cannot vouch for a place that has none (its own
+event may be later than every row's), and a bare `event.past` is decided on the roster's EARLIEST
+time; either would mount controls the server's per-place `hasPassed` then refuses (Codex, #1185
+rounds 6 and 8). A place with no row had no forecast to rate against, and the calibration gate
+could pair nothing. The per-place check keeps the client and the server in step along a coastline
+(§4 #4). Every string lives in
+`components/map/outcomeRatingCopy.js` (the `WindowControl.PICK_TEXT` shape), with a header
+separating the spec's strings from the plan-introduced ones (§4 #17; a fifth, the older-day line, joined 2026-10-17). Props: `{event,
+locationId, mine, role, saving, saveError, changing, onChangingChange, onRate, admin}` where `mine`
+is `{rating: number | null, updatedAt} | null` (null = unrated), `role` from MapView's
+`useAuth()`, `onRate(value)` with `value` 1..5 or `null` (not seen), `changing` / `adminOpen`
+**owned by `MapCallout`** (§1 #3: reset when `${locationId}|${event.id}` changes, and named in the
+repaint dependency list so a 40px→44px switch re-anchors the card), and `admin` null until O5a.
+⚠️ **As built (O4a, 2026-10-15) the props are `{event, mine, userRole, saving, saveError, changing,
+onChangingChange, onRate, onClearError}`**: `role` became `userRole` (a literal `role="…"` trips
+`jsx-a11y/aria-role`, and the name should never read as an ARIA role — `MapCallout` takes `userRole`
+and `ratings` too); `locationId` is not a prop (the callout closes it into `onRate(value)` and
+`onClearError()`); `admin` is not yet a prop (O5a adds it). The callout mounts the block with
+`key={locationId|event.id}` and only once `ratings.covers(event.date)` (a read for a range holding that
+date has landed or failed — Codex, round 1 on #1191: an older day widens the range, and until its own
+read returns a slot there has no record only because nobody asked) and the role is one of the three known; the block's unmount clears that slot's save error.
+
+States and copy, from spec §3 verbatim:
+
+| state | render |
+|---|---|
+| Unrated | row `How was it?` (13px/600) left, meta right-aligned (mono 9.5px ink-3): `{Sunrise\|Sunset} was {today\|yesterday} {HH:MM}` or `… was {Dow} {d}, {HH:MM}` — the clock time is the window's own `event.time`; then five `button.wf-rate-star` in a 5-column grid (gap 5px), then full-width `button.wf-rate-ns` `Didn't see it` |
+| Saving | the grid and the not-seen button at opacity .55, `aria-disabled`, non-interactive |
+| Rated | `You rated ★★★☆☆ 3★` (stars 15px, filled `#E5A00D`, empty `#4A3A2E`, `aria-hidden`; the numeral mono 12px/600 ink; a visually-hidden "3 out of 5") left, `button.wf-rate-change` `Change` right; the grid hidden |
+| Not seen | `You marked this not seen` + `Change` |
+| Changing | the Unrated layout with the meta reading `Tap to replace your {n}★` / `Tap to replace "not seen"`, the current choice `aria-pressed` and highlighted; one tap replaces it |
+| Save failed | the grid stays (returns to Changing when a value existed) with a `role="status"` line `● Not saved. Tap a star again.` (12px ink-2) — the 8px dot `--color-verdict-marginal` amber, the only amber in the flow. **Lifetime**: the line stays while the retry is saving, and clears on the next successful save, on `Change`, and on re-selection of the spot or the window (the prototype resets `S.err` on step, menu pick and spot pick) |
+| Lite | `How was it?` + `ProPill`; **the five stars dim to opacity .45 and `Didn't see it` keeps full opacity** (the prototype's `.lock` is on `.stars` only — screenshot 08), both `aria-disabled` and both locked: a tap on either calls nothing and swaps the line (12px ink-3) `Rate how the sky turned out.` for `Rating is part of Pro.` (no upgrade route exists in this app beyond the words — §4 #6; the tap is accepted rather than `pointer-events: none`, §4 #18) |
+| Future window | not mounted |
+
+Star button: min-height 44px (phone and desktop alike), 1px `#4A3A2E` border, radius 9, bg
+`#1E1712`, `★` (16px, ink-3) over the numeral (mono 10.5px/600, ink-2); hover border ink-3;
+selected border `#E5A00D`, bg `rgba(229,160,13,.12)`, star gold; `aria-label="Rate the
+{sunrise|sunset} {n} out of 5"`. `Didn't see it`: min-height 40, 1px `#3A2C23` border, radius 9,
+12.5px/500 ink-2; selected like a selected star. `Change`: min-height 40, padding 0 12px, 1px
+`#4A3A2E` border, radius 8, 12.5px/500 ink-2. Container: 1px top border `#3A2C23`, padding-top 9,
+column, gap 7. Every colour is a token where one exists (the phase reads `@theme` and names the
+token per literal — `--color-plex-border-light`, `--color-plex-border`, `--color-plex-panel`,
+`--color-verdict-marginal` — adding `--color-star`, `--color-star-off` and
+`--color-star-selected-bg` only for the three the stylesheet lacks).
+
+**Focus**: a press that unmounts its own button moves focus to a survivor BEFORE the state change
+lands — `Change` → the current choice's star (or star 1); a star / not-seen press → the `Change`
+button once it mounts (a `useLayoutEffect` keyed on the state transition); the §1 #3 rule, which
+the Map tab has had to relearn five times (`map-landing-plan.md` §3 L4–L6). Escape inside the block
+is left to the pane (it deselects the callout — the spec says nothing and a dismiss is the honest
+answer). Arrow keys are not handled (five buttons, not a radiogroup — the spec's buttons carry
+numerals and there is a sixth, "Didn't see it", that is not a value on the same scale).
+
+**The data** (`hooks/useOutcomeRatings.js`, mounted in `WindowFirstMapPane` beside the forecasts
+it joins to; nothing in `swrCache`, `localStorage` or module scope, so a logout cannot carry one
+user's ratings to the next): `mine: Map<"locationId|date|type", {rating, updatedAt}>`, loaded by
+`GET /api/outcome/ratings?from=<oldest known past date>&to=<today>` on mount, re-read when an older
+day lands and when the forecasts refresh; `rate(locationId, date, type, value)` is **optimistic** —
+writes `mine` first, PUTs, and on failure restores the previous value (or deletes the key when
+there was none) and reports `saveError` for that key; `saving` per key; a late response from an
+overtaken request is dropped (the Ask `send` rule; the negative tests settle inside an awaited
+`act`, `frontend-test-standards.md` `:502`). A LITE role never calls `rate`. Ratings are not asked
+for at all while rewound (§5 #6). The API bindings are `fetchMyRatings(from, to)` and
+`putRating(body)` in a new `api/outcomeRatingApi.js`.
+
+### 6. Counts and the badge (frontend, O4b)
+
+**Menu counts**: `ratedCountByWindow` — for each past row, the number of `mine` keys on its
+(date, type), a count including "not seen" (the prototype's `myCount` counts any record) —
+derived in the pane from the hook's map and handed to `WindowControl` / `MapPeekSheet` as
+`ratedCount` on the row; `{n} rated` in star gold, else `Not rated`.
+
+**The badge**: `spot.myRating` (`1..5`, `'NOT_SEEN'`, or null) rides `labelSpots`, set only when
+the active window is past; `PinsLayer` and `MapLabels` draw `span.wf-rated-badge` top-right
+(`{n}★` / `–`; mono 9px/700, gold on `#0e0b09`, 1px `#4A3A2E` border, radius 6, padding 0 3px,
+line-height 14, offset top −7px / right −9px, `aria-hidden`) and append `, you rated {n} out of 5`
+/ `, you marked this not seen` to the button's accessible name. The chip's `measuredChip` rect
+(`MapLabels.jsx:493–503`) and the pin's grow by the overhang (7px up, 9px right) whenever the
+badge is drawn, so the label placer sees it (§1 #4) — a unit-tested placer rule, not a Chromium
+measurement (§7). Badge on chips AND pins (§4 #19).
+
+**Both are per-user joins**, not derivations over the shared briefing: the reader's own records
+from a never-cached endpoint, joined to the window and the spot — the Coming up badge's class
+(CLAUDE.md Backend-heavy, the fourth, per-user-join class: "what is new *to you*"), whose
+member list O6 grows by exactly two (`ratedCountByWindow`, `spot.myRating`).
+
+### 7. The admin list (frontend, O5a)
+
+`admin` prop on the block: `{open, onToggle, loading, rows, eventTime, forecastRunAt}`. A
+collapsible box `All ratings · {n}` (collapsed by default, `▾/▴`, `aria-expanded`) under the
+reader's own block; rows **the caller's own row first (`mine`), then the rest newest first** as
+served; each `{username}` · stars (`aria-hidden`, with a visually-hidden "N out of 5") or `Not
+seen` · `HH:MM` (today on the UK clock) / `{Dow} HH:MM` otherwise, from `updatedAt`; empty state
+`No ratings yet.`; footer `Rated against the run at {Dow} {d} {Mon}, {HH:MM} · {Xh} before
+{sunrise|sunset}` from `forecastRunAt` and `eventTime` — `X` is whole hours rounded to the nearest
+hour when the gap is an hour or more (`2h`), else minutes (`40 min`); with no run (`forecastRunAt`
+null) the footer reads `No forecast run recorded before this {sunrise|sunset}` (both
+plan-introduced, §4 #17). The list is fetched on first expand (`GET /api/outcome/ratings/all`,
+`fetchAllRatingsForSlot`) and re-fetched after the admin's own save lands. `adminOpen` resets with
+`changing` on a spot OR window change (the prototype resets it on a spot change only — §4 #20).
+ADMIN only; the block never mounts it for another role.
+
+### 8. The calibration gate reads the new ratings (backend, O5b)
+
+`ForecastEvaluationRepository` gains `findCalibrationPairsFromRatings(from, to)`: a constructor
+projection over the theta join `FROM ForecastEvaluationEntity e, OutcomeRatingEntity r WHERE
+e.id = r.forecastEvaluationId AND e.rating IS NOT NULL AND r.rating IS NOT NULL AND r.eventDate
+AND r.forecastRating IS NOT NULL`, projecting **`r.forecastRating` as the predicted rating**
+(the star the reader saw, captured at write time — never the row's `e.rating`, which for a
+recombined OPEN_FELL slot is the sky lane alone, §2 #1; a rating with no captured star is not a
+pair) with the row's own `daysAhead`, `forecastRunAt`, `evaluationModel` and potentials —
+**joined on the row id the rating resolved at write time** (§2 #1), never
+on the natural key: a natural-key join would admit every rated row for the slot, and
+`latestPerSlotHorizon` would then crown a batch that landed after the event (Codex, #1185 round
+5); the id is the one row proven available by the event and unretracted at it, so the gate's
+"newest run per slot and horizon" has exactly one candidate per rating. A rating with a null
+`forecastEvaluationId` pairs with nothing, by construction. ⚠️ **No
+`null` literals in the `SELECT new`** (no repository here does it and HQL's constructor resolution
+on an untyped null is not proven for this Hibernate): `CalibrationPair` gains a second, explicit
+constructor taking only the columns this join has (`fierySkyActual`, `goldenHourActual`, `wentOut`
+null — the new record has none; `wentOut` stays null so no reader infers a trip) and the query
+projects only those. ⚠️ **The dedup key gains an outcome identity** (§1 #5): `CalibrationPair`
+carries `outcomeKey` (`"rating:" + userId` for the new table, `"outcome:" + id` for the old) and
+`slotHorizonKey()` appends it, so `latestPerSlotHorizon` collapses only RUNS of one forecast for
+one outcome, as it was written to. `ForecastCalibrationService.report` concatenates both queries
+before `latestPerSlotHorizon`; `outcomesInRange` counts both tables' rows in the window, **all
+rows, "not seen" included**, the rule the old table already follows (`:79`). Several users rating
+one slot give several pairs — each is an observation, which is what a calibration sample is; the
+report's bucket counts say "pairs", not "slots". `CalibrationReport` needs no new field.
+`UserRole`'s javadoc stops calling outcome recording a LITE right.
+
+---
+
+## §3 Phases
+
+One Sonnet session each, one branch each (`claude/outcome-rating-o<N>-<slug>`), one PR each.
+**Dependencies and parallelism**: O1 ∥ O3a (disjoint — O1 backend, O3a frontend only); O2 needs O1
+merged (it consumes `AsOfEventResolver`) and may run beside O3a; O3b needs O2 and O3a merged;
+O5b needs only O1 and may run beside O3b; O3c needs O3a; O4a needs O1, O3a and O3c (the callout
+mounts on `event.past`; the hook needs the backend); O4b needs O4a and O3b (the menu counts);
+O5a needs O4a; O6 needs everything. Never more than two phases open at once, and never two that
+touch one source file. Each phase re-verifies every file:line it touches against `origin/main`
+before editing, reads `docs/engineering/test-improvement-standards.md` (backend) or
+`docs/engineering/frontend-test-standards.md` (frontend), writes its
+`changelog.d/<its own date YYYYMMDD>-outcome-rating-o<N>-<slug>.md` (`### Added` for code phases,
+`### Changed` where it changes an existing behaviour, `### Docs` for O6; **one file per `###`
+block**) and appends its phase-log row to §0 **in the same commit**.
+
+### O1 — backend: the record and its endpoints
+
+Files: `V177__outcome_rating.sql`, `V178__forecast_evaluation_scored_at.sql`;
+`service/AsOfEventResolver.java` (new, the shared resolution §2 #1 names; `ForecastDispositionService
+.RETENTION_DAYS` made public);
+`entity/ForecastEvaluationEntity.java` (+ `scoredAt`), `service/ForecastService.java` and
+`service/evaluation/ForecastResultHandler.java` (the two stamp sites), `ForecastEvaluationRepository`
+(+ one bounded slot finder), `ForecastRunDispositionRepository` (+ one bounded skip finder); `entity/OutcomeRatingEntity.java`;
+`repository/OutcomeRatingRepository.java`; `PipelineRunRepository` (+ one finder);
+`service/OutcomeRatingStore.java`, `service/OutcomeRatingService.java`;
+`model/OutcomeRatingDto.java`, `OutcomeRatingRequest.java`, `SlotRatingsDto.java`;
+`controller/OutcomeRatingController.java`; tests: `OutcomeRatingStoreTest` (`@DataJpaTest` on H2
+with `@Transactional(propagation = NOT_SUPPORTED)` and an executor race, the `AskUsageStoreTest`
+shape — the store has one dependency, so the real store races over the real repository),
+`OutcomeRatingServiceTest` (Mockito, exact inputs), `OutcomeRatingControllerTest` (extends
+`AbstractControllerTest`; `@WithMockUser(roles = …)` for ADMIN / PRO_USER / LITE_USER on every
+endpoint: LITE GET 200 `[]`, LITE PUT 403, admin-all PRO 403), `OutcomeRatingRepositoryTest`
+(`@DataJpaTest`: the slot read with usernames, the range read), `integration/OutcomeRatingMigrationTest`
+(CI-only; also asserts the V178 column through `information_schema`), `ForecastResultHandlerTest` and
+`ForecastServiceTest` (the stamp sites), `ForecastEvaluationRepositoryTest` (the bounded finder),
+`HttpCachingConfigTest` (two paths added), `AbstractControllerTest` (one `@MockitoBean`).
+
+1. The migration (§2 #1 verbatim; a header comment in the V166 voice: why null = not seen, why
+   the user cascades and the location does not, why the run is nullable, why `event_time` is
+   stored). Re-read `ls backend/src/main/resources/db/migration | sort -V | tail -1` first.
+2. Entity (write discipline per §2 #1) + repository: the native insert, the conditional update,
+   the range read, the slot read with usernames (the theta join, newest first).
+3. `forecast_evaluation.scored_at` (V178, nullable `TIMESTAMPTZ`, no backfill in V178 itself — V183 added a bounded one on 2026-10-17, §0 O7; a one-line
+   migration with a header saying what it proves) + `ForecastEvaluationEntity.scoredAt`
+   (`Instant`, nullable) + the two write sites (`ForecastService.buildEntity` when the row carries
+   a rating or triage reason; `ForecastResultHandler.scoreEvaluationRow`), pinned: a sync row is
+   stamped at insert, a triage row at insert, a PENDING row null until scored then stamped, an
+   ABANDONED row never. Then `resolveRatedRun` (§2 #1) through
+   `EvaluationViewService.getLiveScoresForEnrichment`, the new `PipelineRunRepository
+   .findByTriggerTime` and a new slot finder bounded on `scoredAt IS NOT NULL AND scoredAt <=
+   :instant` with the has-something-to-say rule; pinned with exact instants: a cached result that
+   arrived before the event whose `submittedAt` matches a cycle (id + instant); one from an ad-hoc
+   batch (instant, no id); a legacy result with `evaluatedAt` only (instant, no id); a
+   canopy-bearing place whose cached entry's region-level `updated_at` is after the event (set
+   aside → step 2, star null) and one whose entry was last written before it (taken); a result
+   submitted before but ARRIVED after the event (set aside → the latest row scored by the event,
+   never the late batch's own row even though that row's `forecastRunAt` precedes the event; nulls
+   when no such row); a slot the serve path has nothing for, with a row scored before the event
+   (its instant, no id) and with one scored after it (nulls); a legacy row with null `scoredAt`
+   never a candidate, however early its `forecastRunAt`; an unregioned location (step 1 skipped); a retracted result (not
+   returned by the live accessor → step 2); `forecastEvaluationId` set from step 2's candidate
+   whenever one exists, step 1 answering or not, and null otherwise; `forecastRating` the served
+   result's rating when step 1 answered (a recombined 3 over a sky row's 4) and the row's when not; a row SUBMITTED before a stability skip and
+   scored after it, both before the event (retracted — the skip is compared with `forecastRunAt`,
+   not `scored_at` → an earlier unretracted row, else nulls); a row submitted after the skip (it
+   stands); the same row with the skip recorded after the event (it stands); `forecastRating`
+   from a step-2 row for a sky-only place, and null for a place with a BLUEBELL or WOODLAND type.
+4. `OutcomeRatingStore.upsert` — no `@Transactional`, the javadoc citing §1 #8; the race test.
+   `rate(...)`: the refusals in order (unknown user 404, unknown location 404, rating out of range
+   400 at 0 and 6 with 1 and 5 accepted and null accepted, HOURLY 400, event not passed 400 at
+   exactly the afterglow boundary — `hasPassed` is strict, so `eventTime + 30 min == now` is NOT
+   passed, a date older than `MAX_RATING_AGE_DAYS` 400 with the boundary day accepted) and the happy
+   path writing every column. `AsOfEventResolver` is its own class with its own test; `rate`'s
+   tests mock it.
+5. The three endpoints (§2 #1): role matrix, 400 bodies `{"error": …}` through the existing
+   `IllegalArgumentException` mapping, the 31-day range cap, `from > to`, PUT body with `rating`
+   absent → not seen, admin-all with zero rows still carrying `forecastRunAt`, `mine` set on the
+   caller's row, the name join done once per range read (pin the repository call count).
+6. Gate, review lenses (runtime, test quality against the backend standards, conventions —
+   Checkstyle javadoc on every public member, JaCoCo 80% per class: cover the DTO's null branches
+   with assertions, not deletions), changelog, phase-log row.
+
+Acceptance: every endpoint answers per §2 #1's matrix in `OutcomeRatingControllerTest`; the store's
+H2 race passes 12 threads; the migration is proven by CI only (say so in the PR body — "pending
+CI", the CLAUDE.md framing); the local gate passes on JDK 23 with the one exclusion the memory
+note names.
+
+### O2 — backend: `GET /api/forecast?date=`
+
+Files: `controller/ForecastController.java`, `util/ForecastHorizon.java`, tests
+`ForecastControllerTest` (extends `AbstractControllerTest`; `getForecasts_*` at `:106–262` — add the
+`?date=` cases beside them), `ForecastHorizonTest`, `EvaluationViewServiceTest` (one case).
+
+1. `ForecastHorizon.MAX_PAST_DAYS = 4` with its javadoc (§2 #4).
+2. Extract `serveRange(from, to, auth)` from `getForecasts`; the list endpoint's behaviour is
+   byte-for-byte unchanged (its existing tests stay green untouched).
+3. `@GetMapping(params = "date")` on the same path: the bound (400 for today, tomorrow, T-5, a
+   malformed date; 200 for T-1 and T-4), LITE score selection applied, **no run collaborator
+   touched** (a test that the
+   command factory / executor / batch services are never called — whichever of the controller's
+   injected collaborators can trigger work).
+4. The passed-slot rule in `serveRange` (§2 #4): every slot whose per-place event has passed is
+   served through `AsOfEventResolver` (one call per passed slot — bound it: the resolver takes the
+   roster's rows for the day in one read and answers per slot from memory, O2 shapes the batch
+   form), unpassed slots exactly as before; pinned: a late-landing row hidden on T-1; a row
+   retracted before its event hidden; a canopy place's captured star served and, after a
+   post-event cache write, served with a null rating rather than the sky row's; today's sunset
+   before it happens served as before; the list's unpassed days byte-for-byte unchanged. The sparse cache
+   path is unchanged for unpassed slots (§1 #10's over-read noted in the javadoc).
+5. Gate, lenses (runtime, test quality, conventions), changelog, phase-log row. The endpoint is
+   ETag'd by path with no change to `HttpCachingConfig` (say so in the javadoc).
+
+Acceptance: `ForecastControllerTest`'s existing `getForecasts_*` tests pass unmodified wherever
+they fix a clock before the slots' events; the new `?date=` tests cover the four refusals and the
+two admissions; the passed-slot cases above; no run collaborator is invoked.
+
+### O3a — frontend: past rows, the PAST pill and the selection plumbing
+
+Files: `utils/mapEvents.js`, `utils/mapDates.js`, `utils/mapScopedTime.js`,
+`utils/windowFirstCards.js` (`pastDayLabel`), `utils/mapPeek.js`, `utils/mapCallout.js`, `App.jsx`
+(`selectDate`, `selectedDateIsPast`, the `resolveMapDate` call), `components/WindowFirstMapPane.jsx`
+(`pastSolarWindows`), `components/MapView.jsx` (`selectEvRow`, the `calloutFacts` call, the
+"Open in Plan" withhold), `components/map/WindowControl.jsx` (the PAST tag only), `index.css`
+(`.wf-win-past`); tests under `src/test/`: `mapEvents.test.js`, `mapDates.test.js` +
+`mapDatesAbroad.test.js`, `mapScopedTime.test.js` (find it), `windowFirstCards.test.js`,
+`mapPeek.test.js`, `mapCallout.test.js`, `WindowControl.test.jsx`, `MapCallout.test.jsx`, an `App`
+test in the `AppRewind.test.jsx` shape for the `isPast` route.
+
+1. `pastDayLabel` (§2 #2): today, yesterday, `Fri 16`, `Sat 1` (no leading zero), pinned in UTC
+   and under a non-UK zone.
+2. Past rows in `buildMapEvents` (§2 #2): the `pastSolarWindows` input, `row.past` (not served,
+   in domain, `date <= todayStr`), the base `time` from `earliestEventTime`, the `hasSolarRow` /
+   `solarRowPredicate` widening, today's sunrise becoming past exactly when its earliest event time
+   plus the afterglow elapses AND it is unserved (pin: served → not past; unserved with the
+   earliest time one minute short of the afterglow → NOT past, a filler; one minute over → past;
+   unserved with no briefing at all and a future time → a filler, never past; a date with rows and
+   `date > todayStr` still a filler), T-1 and T-2 rows present, ordering unchanged,
+   `withScopedSolarTimes` narrowing a past row's time and leaving it when the pool is empty,
+   `isForwardableRow` true for a past row.
+3. `resolveMapDate` `selectedIsPast` (§2 #2): a past date is usable only with the flag and only
+   when in `allDates`; a stale past pick without the flag falls through; the night exemption's
+   tests untouched. `App.selectDate(date, {isPast})`, `selectedDateIsPast`, forwarded through
+   `onSelectDate`; `MapView.selectEvRow` sets it for a past row; `userHasOverriddenEvent` keeps the
+   auto-event effect from undoing the event type (`:1457`, `:2206–2216`).
+4. The PAST tag on the pill (§2 #2) and the override pill, the accessible name, the CSS.
+5. `calloutFacts` `past` flag (Drive and Leave by hidden, Dark sky kept); "Open in Plan" withheld
+   on a past window; `otherWindow` skipping past rows in both paths; `getRatingForLocation` and
+   `isStandDownLocation` reading the forecast row alone for a past row (pin: a briefing score of 4
+   and a forecast row of 2 on a past window → 2; on a served window → 4 as today).
+6. Gate, lenses (runtime, test quality, conventions — `pastSolarWindows`, `pastDayLabel`, the
+   `past` filter are the already-licensed filter/map/select class over served facts; say so in
+   the module headers), changelog, phase-log row.
+
+Acceptance: on a fixture with today's elapsed sunrise, T-1 and T-2 rows, the EV list holds past
+rows for all five windows, each selectable through App with the flag, the pill reading `PAST`,
+the chips answering with the forecast rows' ratings, the callout showing no Drive / Leave by and no
+"Open in Plan"; a stale past selection without the flag falls through to today.
+
+### O3b — frontend: the EARLIER group and the older-day fetch
+
+Files: `api/forecastApi.js` (`fetchForecastsForDate`), `hooks/useForecasts.js` (`loadOlderDay`,
+`olderDays`, the re-merge), `components/WindowFirstMapPane.jsx` (`canLoadOlder`, the next older
+date, the three props), `components/MapView.jsx` (pass-through), `components/map/WindowControl.jsx`
+(EARLIER group, Load row, stepping, keyboard, loading pill, focus), `components/map/MapPeekSheet.jsx`
+(the same group and rows), `index.css`; tests: `useForecasts.test.js`, `WindowControl.test.jsx`,
+`MapPeekSheet.test.jsx`, `WindowFirstMapPane` tests (find the file), a cascade test in the
+`mapWindowControlWidthCascade.test.jsx` shape if any new rule competes with an existing one (the
+pill's fixed width — `min-width: 0` beside `overflow: hidden` is a no-op, the
+`window-control-fixed-width` memory).
+
+1. `fetchForecastsForDate` and `loadOlderDay` (§2 #2): merge-without-replace, the loaded-empty
+   entry, **the re-merge on every `load()`** (pin: a refresh keeps a loaded T-3's rows and
+   `allDates`), `olderDayLoading`, never `writeSwrCache`, a failed fetch leaving the roster
+   unchanged and `olderDayLoading` cleared with the error reported.
+2. `canLoadOlder` and the next older date in the pane; nothing older than T-4 is ever requested
+   (pin: at T-4 loaded, `canLoadOlder` false; at T-4 loaded-empty, false; with only today loaded,
+   the next older date is T-1).
+3. `WindowControl` (§2 #2): the EARLIER header, the Load row with its `↑` chip, text, sub-line and
+   accessible name, the press closing the menu and focusing the pill before the state change, past
+   sub-headers, the bold ink-2 time, `Not rated` placeholder, `data-past`, today appearing in both
+   groups, `‹` and `ArrowLeft` at index 0 calling `onLoadOlderDay` with `‹`'s accessible name
+   naming the day, the loading pill with both steppers and the Load row disabled, the landing on
+   the loaded day's sunset from all three routes, an empty day moving nothing, `‹` disabled at the
+   oldest reachable window.
+4. `MapPeekSheet` (§2 #2): the same group and rows; `PAST` in the verdict slot.
+5. CSS: `.wf-win-earlier`, `.wf-win-load`, `.wf-win-loading`, the past sub-header, all on existing
+   tokens; the cascade test if needed.
+6. Gate, lenses (runtime, CSS/tokens, test quality, accessibility, conventions), §7 measurement
+   (the pill with `PAST` at 320px; the EARLIER menu at 320 and 1280), changelog, phase-log row.
+
+Acceptance: from today's sunrise, `‹` reaches T-4 (or a loaded-empty day) and never issues a
+request older; a refresh keeps every loaded day; the menu's EARLIER group matches screenshots 02
+and 15 at the measured widths.
+
+### O3c — frontend: the heat field on a past window
+
+Files: `components/WindowFirstMapPane.jsx` (the past-only event list, the merged score rows,
+`heat.windows` and `heat.pointsByKey` extensions), `utils/mapEvents.js` (`pastWindowBest`),
+`utils/heatSpots.js` (only if a helper is needed — `buildHeatSpots` itself is unchanged);
+tests: the pane's tests, `mapEvents.test.js`, `MapViewHeat.test.jsx` (a past window paints points;
+the legend key shows on a rated past window and is withheld on an unrated one; the counts footer).
+
+1. The merged score rows and the past-only event list in the pane (§2 #3); `buildHeatSpots` over
+   them; `heat.pointsByKey` extended.
+2. `heat.windows` extended with `{key, date, targetType, bestRating: pastWindowBest(spots, index),
+   confidence: null}` — the max over the painted points' `scores[index]`, so a window whose only
+   rated rows are a wood's or an unregioned place's reads `null` and withholds the key (pinned);
+   `pastWindowBest` beside `bestOfNight` with the licence note in its javadoc.
+3. `MapViewHeat.test.jsx`: a T-1 window with briefing scores paints; a T-4 window with forecast
+   rows only paints; a past window with no scored place paints nothing and withholds the key.
+4. Gate, lenses (runtime, test quality, conventions — the new licensed member named), changelog,
+   phase-log row.
+
+Acceptance: the Heat|Pins toggle behaves on a past window as on a served one; the Plan matrix's
+`upcomingEvents` and its tests are untouched.
+
+### O4a — frontend: the rating block and its data
+
+Files: `api/outcomeRatingApi.js` (new), `hooks/useOutcomeRatings.js` (new),
+`components/map/OutcomeRatingBlock.jsx` (new), `components/map/outcomeRatingCopy.js` (new),
+`components/map/MapCallout.jsx` (mount, owned state, repaint deps, `placePassed`),
+`components/WindowFirstMapPane.jsx` (the hook, `rewound`), `components/MapView.jsx` (props),
+`index.css`; tests: `useOutcomeRatings.test.js`, `OutcomeRatingBlock.test.jsx` (every state in
+§2 #5's table, one test per row plus the transitions and the error line's lifetime),
+`MapCallout.test.jsx` (mount conditions; the repaint re-running on `changing`, the existing
+`:1126–1145` shape), a `mapCalloutRatingCascade.test.jsx` pinning the block's rules against the
+real stylesheet.
+
+1. The API bindings and the hook (§2 #5): optimistic write, rollback on failure, per-key
+   `saving`/`saveError`, the overtaken-response drop, the range re-read when an older day lands
+   and on refresh, nothing stored outside React state, no request while rewound, the Lite role
+   making the initial read only.
+2. The block (§2 #5): states, copy, focus handoffs, `aria-pressed` on the current choice in
+   Changing, the status line and its lifetime, the Lite lock (stars dim, not-seen does not; taps
+   call nothing; the line swaps), the 44/40px targets, tokens.
+3. `MapCallout`: the mount condition (`event.past && !isHide && !rewound && placePassed`, with
+   `placePassed` pinned: a place with its own row and a passed time mounts; one with a row whose
+   time has not passed does not; one with no row does not), the
+   owned `changing`/`adminOpen` state reset on `${locationId}|${event.id}`, both in the repaint
+   dependency list (pinned), the facts row already hidden (O3a).
+4. Gate, lenses (runtime, CSS/tokens, test quality, accessibility — the block speaks its state
+   through one status line and one visually-hidden phrase, never twice; conventions; "what this
+   makes harder for O4b/O5a"), §7 measurement (the block at the 266px phone callout and at 286:
+   the five-column grid's cell width, the meta line's wrap at `Sunset was Sat 11, 18:17`),
+   changelog, phase-log row.
+
+Acceptance: every row of §2 #5's table has a test; a failed save restores the previous value and
+shows the line; the callout re-anchors when the block changes height; the measurement is in §7.
+
+### O4b — frontend: the counts and the badge
+
+Files: `components/WindowFirstMapPane.jsx` (`ratedCountByWindow`, `myRating` per spot),
+`components/MapView.jsx` (`labelSpots`), `components/map/PinsLayer.jsx`,
+`components/map/MapLabels.jsx` (badge + `measuredChip` overhang), `components/map/WindowControl.jsx`
++ `MapPeekSheet.jsx` (`ratedCount`), `hooks/useForecasts.js` (drop `fetchAllOutcomes` and
+`loc.outcomes`; `readValidCache` stops requiring `outcomes` so an old cached payload still
+hydrates), `index.css`; tests: `PinsLayer.test.jsx`, `MapLabels.test.jsx` (the placer rect with and
+without the badge), `WindowControl.test.jsx`, `MapPeekSheet.test.jsx`, `useForecasts.test.js`
+(its 23 `outcomes` references).
+
+1. `ratedCount` on past rows and the `{n} rated` / `Not rated` cell in both menus (§2 #6),
+   counting "not seen".
+2. The badge on pins and chips, only on a past window, with the accessible-name clause and the
+   measured-rect overhang (§2 #6).
+3. Remove `fetchAllOutcomes` from `useForecasts` and `loc.outcomes` from `buildLocations` (§4 #7);
+   the `forecastApi.js` bindings and `OutcomeModal` stay.
+4. Gate, lenses, changelog (two files: `### Added` for the counts and badge, `### Changed` for the
+   old outcomes fetch), phase-log row.
+
+Acceptance: a rated spot wears its badge on both representations on a past window and none on a
+served one; the placer test shows the badge inside the measured rect; `useForecasts` makes two
+requests on load, not three.
+
+### O5a — frontend: the admin list
+
+Files: `components/map/OutcomeRatingBlock.jsx` (the `admin` prop), `outcomeRatingCopy.js`,
+`api/outcomeRatingApi.js` (`fetchAllRatingsForSlot`), `hooks/useOutcomeRatings.js` (the per-slot
+admin read), `MapView.jsx` / `MapCallout.jsx` (pass `admin` for ADMIN only); tests
+`OutcomeRatingBlock.test.jsx` (own row first, then newest first; empty state; footer with and
+without a run; the hour rule at 59 min / 60 min / 89 min / 90 min; the `HH:MM` vs `{Dow} HH:MM`
+rule at the UK midnight boundary; ADMIN-only mount), `useOutcomeRatings.test.js`.
+
+1. The admin list (§2 #7): fetch on first expand, re-fetch after the admin's own save, the
+   footer rules, the reset rule.
+2. Gate, lenses, changelog, phase-log row.
+
+Acceptance: screenshot 09 / 14's states have tests; a PRO role never fetches the slot list.
+
+### O5b — backend: the calibration gate reads the new ratings
+
+Files: `model/CalibrationPair.java` (the second constructor, `outcomeKey`, `slotHorizonKey`),
+`repository/ForecastEvaluationRepository.java` (`findCalibrationPairsFromRatings`),
+`service/ForecastCalibrationService.java`, `entity/UserRole.java` (javadoc); tests
+`ForecastEvaluationRepositoryTest` (beside the `findCalibrationPairs_*` neighbours at `:713–766`:
+a rating row pairs with the row its id names and with no other row of the slot, even a newer one;
+the pair's predicted rating is `forecastRating` (a recombined 3 over the row's 4); a rating with a
+null `forecastRating` never pairs, whatever the row's rating;
+a not-seen row does not; a null id pairs with nothing; two users give two pairs), `ForecastCalibrationServiceTest`
+(two users of one slot survive `latestPerSlotHorizon`; one row in each table survives; two RUNS of
+one forecast for one user still collapse to the newest; `outcomesInRange` counts both tables).
+
+1. §2 #8 verbatim.
+2. Gate, lenses, changelog (`### Changed`), phase-log row.
+
+Acceptance: the four service cases above; a late-landing newer row for the slot never enters a
+pair; the repository query compiles against H2 with no `null` literal in its projection.
+
+### O6 — docs sweep
+
+Files: `CLAUDE.md` — the overview's "Outcome recording is API-only (no UI since 2026-02-27)"
+sentence; the Roles table's LITE row and its note; the Forecast endpoints (`GET /api/forecast?date=`);
+the Outcomes endpoints (the three new routes and their gates); the Calibration gate paragraph
+(both tables, the outcome identity in the key); the Map tab bullet (past windows, the
+`selectedIsPast` provenance flag, the EARLIER group, the older-day fetch); the Backend-heavy
+bullet — (i) the sixth class's member (e) sentence "whether a window has passed still reads the
+served instant, so the two tabs retire it at the same minute" stays true (the past rule is the
+served withdrawal) but gains the per-place clause §4 #4 states, (ii) the fifth class ("Members:
+those two, nothing else") grows to three with `mapEvents.pastWindowBest`, (iii) the fourth
+per-user-join class ("Members: those three, nothing else") grows to five with `ratedCountByWindow`
+and `spot.myRating`, (iv) one sentence naming O3a's filter/map helpers; a "Role gating — UI
+pattern" assessment bullet for the rating block (every role sees the block; LITE's stars dim and
+every tap answers in words; the write is 403 server-side; the `aria-disabled` rather than
+`disabled` choice and why); the Rewind paragraph ("Ask PhotoCast is hidden under a rewind" gains
+the rating block, badges and fetch); the Dev Setup Docker note's "Thirteen classes extend
+`IntegrationTestBase`" → fourteen; the migrations table — V177. Also
+`docs/engineering/v1-retirement-plan.md` §8 item 7 (a status line: the outcome UI has a v2 home),
+`docs/engineering/map-tab-v2-plan.md` §4 (one entry: past solar windows and the `selectedIsPast`
+flag), this plan's §0 (COMPLETE, every §6 question closed with a date),
+`docs/design/outcome-rating/VENDORING.md` ("Final count"). No code.
+
+*As built (O6, 2026-10-16)*: the `IntegrationTestBase` count is **fifteen** (counted, not fourteen), the migrations
+table gained V177 **and** V178, and the sweep also deleted `forecastApi.fetchAllOutcomes` with its test mocks (the
+one code change, §0).
+
+---
+
+## §4 Disagreements with the spec, on purpose
+
+1. **The phone callout is 266px, not 296.** The spec's figure is the map-landing bundle's; the
+   callout's width was decided at L3 and is not reopened. The five-column grid fits ONLY with a
+   narrower phone gap: the card's side padding is 13px, not 10, so the inside is 238px and five
+   columns with 5px gaps give 43.59px (measured, O4a) — under the 44px target — so the phone
+   (≤ 639px) takes a 4px gap, 44.39px; the desktop 286px card keeps 5px, 47.59px.
+2. **The forecast being rated is the SERVED result's own instant, gated on availability, not a
+   cycle lookup.** The spec says "`forecast_run_id` (or run timestamp)" and "the last forecast run
+   before the event". A cycle that failed, skipped the slot or landed nothing is not a forecast the
+   reader saw, and a result that landed after the event was not seen at it either; so the record
+   resolves the slot through the same serve-time precedence the map reads (§1 #6, §2 #1), takes a
+   result only if it had ARRIVED by the event, stores its submission instant (the forecast's age),
+   recovers the cycle id only where a cycle's trigger instant matches it exactly, and otherwise
+   falls back to the latest `forecast_evaluation` row proven available by the event through a new
+   `scored_at` stamp (V178). Raised by Codex on #1185 in three rounds: the first draft took the
+   newest cycle before the event, the second gated on submission alone, the third bounded the
+   fallback by submission order, which a late ad-hoc batch's own row satisfies.
+3. **`event_time` is stored per location**, not derived from the window: the admin footer's "Xh
+   before sunrise" is a fact about THIS place's sunrise, and the roster's earliest would misstate
+   it by up to twenty minutes along a coastline.
+4. **A past window is unserved AND elapsed on the roster's earliest event time, with a per-place
+   check at the block.** The spec says "event time < now"; the briefing withdraws a window when its
+   EARLIEST event time plus the 30-minute afterglow has passed (`PlanWindowProjector.hasPassed`),
+   and the Map applies the identical test to the same instant, so the two tabs retire a window at
+   the same minute (CLAUDE.md's invariant) while a stale or absent briefing cannot make a future
+   window read as past. For a
+   place further north or west the window may then be "past" on the pill minutes before that
+   place's own afterglow ends, and the server's PUT would refuse it; so the block itself mounts
+   only when the selected place's own `solarEventTime` has passed by the same rule (`placePassed`,
+   §2 #5) — the pill says PAST, the callout waits a few minutes. The afterglow itself is a
+   disagreement with the spec's bare "event time < now", on both sides, on purpose: one shared rule.
+5. **The heat field paints a past window from the same ratings the chips read** (§2 #3) — the
+   spec's prototype has placeholder pins and says nothing; a pins-only past window would make the
+   Heat|Pins toggle lie on half the roster. The kernel's haze reads the inferred cap (`medium`)
+   because a past window carries no served confidence; accepted, and recorded in the pane's
+   comment. The past window's `bestRating` is a client max, a new licensed member (O6).
+6. **The Lite tap has no upgrade route to wire.** The spec says "wire it to the existing upgrade
+   path"; this app has none (CLAUDE.md "Role gating — UI pattern": `ProPill` or "Upgrade to Pro"
+   text, never a link). The tap shows `Rating is part of Pro.` and nothing else.
+7. **`useForecasts` stops fetching the old outcomes.** `fetchAllOutcomes` has fed `loc.outcomes`
+   to no reader since the outcome UI died (2026-02-27); the new hook is the replacement on the same
+   screen. The `forecastApi` bindings and `OutcomeModal` stay, as the spec asks.
+8. **No "Before event" copy.** The superseded board's `You can rate this after sunrise at {HH:MM}.`
+   is not in the prototype (the block is simply absent on a future window) and is not built.
+9. **`GET /api/forecast?date=` admits T-1 as well as T-3/T-4.** The spec bounds it to T-3 and T-4;
+   the list's past edge is a constant that can move, and a fresh deployment may serve no rows for
+   T-1 at all, so the honest contract is "any past day back to T-4 that the list did not already
+   answer for", enforced by the client never asking for a day it already holds.
+10. **"Loading" is not timed, and the steppers are disabled during it.** The prototype's 600ms is a
+    demo and its `‹` stays enabled behind an `if (fetching) return` guard; here the pill shows the
+    loading state for as long as the request takes and both steppers plus the Load row are
+    disabled, so the state is visible rather than silently swallowed.
+11. **The Load row lands on the loaded day's sunset, like `‹` and `←`.** The README says all three
+    routes do; the prototype's `fetchOlder(step)` keeps the current window for the Load row
+    (`build(step ? 1 : S.ei + 2)`). The README is the spec.
+12. **The block is not the last thing before the actions.** The spec places it "between the why
+    text and the action buttons"; in this callout `TideFitBlock`, `EclipseSpotLine`, the topics and
+    the "Every event here" strip also live there, and the block sits right after the facts row,
+    above them — the prototype's callout had none of those.
+13. **The admin list serves newest first with the caller's row hoisted.** The prototype shows the
+    admin's own row first and the rest in fixture order (screenshot 09 newer above older); the
+    server orders by `updatedAt` descending and marks `mine`, the client hoists.
+14. **"Open in Plan" is withheld on a past window.** The spec keeps the action buttons; this
+    callout's "Open in Plan" opens `LocationFourDaySheet` on the briefing's windows, which never
+    hold a past one, so the press would open a place's upcoming windows under a card about a past
+    one. "Zoom to it" stays.
+15. **An older day that loads empty is NAMED (reversed 2026-10-17, the owner's decision; it was silent).**
+    The spec and the prototype have no such state (a stored day always has rows in the demo); here the
+    roster for T-3 may be empty on a fresh deployment, so the fetch records the day as loaded, moves
+    nothing and the Load row offers the next older day — the day still counts toward T-4. *Originally*
+    the plan printed nothing, and on Saturday 2026-10-17 that made three empty fetches (Thu, Wed, Tue,
+    every row scored before V178 resolving to nothing) end in a greyed `‹` at T-4 with no word of why.
+    Now, when the MOST RECENTLY loaded older day (the oldest loaded date) returned no rows, both menus
+    (the dropdown's EARLIER group, the phone sheet's Windows section) draw `No stored forecast for
+    {Dow} {d}` — a quiet, non-interactive line, mono 9.5px in the muted ink, in the place the Load row
+    for that day occupied, with the Load row for the NEXT older day still below it — and the window
+    control's existing `role="status"` region announces the same sentence (the phone sheet's copy is
+    not live, so it is said once). At the T-4 floor the line stays, so the disabled `‹` is explained.
+    A later day that loads WITH rows replaces it. `useForecasts` exposes `emptyPastDays` (the loaded
+    days with no sunrise or sunset row: the endpoint also serves a hide's HOURLY rows for a past day,
+    and a day of those alone gives no window to step onto), `mapOlderDay.emptyOlderDay` picks the one that speaks, the string is
+    `noStoredForecast` in `outcomeRatingCopy.js` (plan-introduced, §4 #17's rule) and the day is the
+    calendar form (`dowDayLabel`), never "yesterday".
+16. **`‹` at the oldest window is opacity .35, not .3.** The stylesheet's one `:disabled` rule
+    for the steppers (`index.css:4843`) is reused, not duplicated for a 0.05 difference.
+17. **Four plan-introduced strings** (a fifth, `No stored forecast for {Dow} {d}`, joined 2026-10-17 with #15's reversal) (`No forecast run recorded before this {sunrise|sunset}`, the
+    `40 min` footer variant, `Load {Dow} {d}` as the `‹` stepper's accessible name, `Loading …` as
+    an `aria-busy` state) are marked as such in `outcomeRatingCopy.js` so the copy module is never
+    read as the spec.
+18. **The Lite lock is `aria-disabled` with the tap accepted, not `pointer-events: none` +
+    `disabled`.** CLAUDE.md's pattern greys with `pointer-events: none`; the spec asks the tap to
+    answer (`Rating is part of Pro.`), which `pointer-events: none` would prevent, and a `disabled`
+    control that held focus drops it to `<body>` (the Ask field's rule).
+19. **The badge draws on chips as well as pins.** The spec says "on pins"; the heat view's chips are
+    the default representation and the prototype's pins are its only one, so the badge rides both,
+    with the placer overhang folded in (§1 #4).
+20. **`adminOpen` resets on a window change as well as a spot change.** The prototype resets it on
+    a spot pick only; the list is per (spot, window), so a stale open list over a new window would
+    show another window's ratings until refetched.
+21. **A rating cannot be older than the retraction evidence.** The superseded board says "any time
+    means no cut-off"; the PUT refuses a date older than `MAX_RATING_AGE_DAYS` (24 = the
+    disposition retention of 30 less the five-day candidate window less one day of instant-prune
+    slack) because the stability-skip evidence provenance needs is pruned 30 days after it was
+    RECORDED, up to five days before its event, and an older date would resolve a retracted
+    forecast as served.
+22. **A passed slot is served as of its event.** The spec says a past window "is a database read
+    only"; this codebase's read would otherwise be the slot's LATEST row, which a batch landing
+    after the event (24 h ceiling) can replace, so the past-window UI would show a star the
+    rating's provenance refuses. One resolution (`AsOfEventResolver`) answers both the serve path
+    for a passed slot and the record, and the client reads a past window from the forecast rows
+    alone, never the briefing score index.
+
+*Added at O6 (2026-10-16): deviations the phases recorded in their log rows and did not number.*
+
+23. **Only a CHIP reserves the badge's overhang; a pin's badge is unreserved** (O4b; §1 #4, §2 #6 and #19
+    assumed both). `PinsLayer` places only the HOME label through the collision pass — a pin sits on its
+    projected point and has no measured rect to grow — so its badge overhangs it with `pointer-events:
+    none`; within ~11px of the frame edge it can clip, and a stronger neighbouring pin can paint over a
+    weaker pin's badge. Chips fold the overhang into the placer's box before the pass
+    (`withBadgeOverhang`) and draw where they would have been (`chipBoxWithinBadgedBox`). The pair of
+    offsets is pinned by `RatedBadgeCss.test.js`.
+24. **An Ask pick never wears a badge** (O4b, `hasRatedBadge`). A pick is built from the pick's own
+    window, which need not be the window on screen, and the badge says "you rated THIS window".
+25. **The admin list's time column is 56px, not the prototype's 64**, and the name column is
+    `minmax(0, 1fr)` with `overflow-wrap: anywhere` (O5a): at the callout's 238px inner width a long
+    name otherwise starves or overflows (measured: about eleven characters before it wraps).
+26. **A re-rate keeps the provenance recorded the first time** (O1) instead of resolving again, when
+    the first record held a `forecast_run_at`. The served-result step reads an in-memory cache that
+    `rehydrateCacheOnStartup` fills only for today forward, so after any restart a past date has no
+    step-1 answer and a second resolution would overwrite a full record (cycle id, canopy star) with a
+    degraded one. A row recorded with no forecast at all is resolved afresh.
+27. **`PipelineRunRepository.findFirstByTriggerTimeOrderByIdAsc`, not `findByTriggerTime`** (O1):
+    `pipeline_run.trigger_time` is not unique, and the cycle a served result's instant names is the
+    first run that carries it.
+28. **The older-day merge is a derived memo** (O3b): `useForecasts` holds the fetched days in state and
+    computes `locations = useMemo(mergeOlderDays(base, olderDays))`, rather than re-merging inside
+    `load()` (§2 #2's wording). Every rebuilt list payload is therefore re-merged, which is stronger
+    than the plan asked for; the same array identity is returned when nothing is loaded, and a loaded
+    day is never written to the SWR cache.
+29. **The opened window menu scrolls itself to the active row, and the fetch announces itself** (O3b).
+    The EARLIER group sits above the future days and would otherwise push the window you are on below a
+    420px fold; the menu (never an ancestor) scrolls. An always-mounted `role="status"` region carries
+    the Loading announcement (an a11y lens P2).
+30. **Counts and badges read `ratingsKnownFor`, not `covers`** (O4b): `useOutcomeRatings` gained
+    `readFailed` (the newest settled read failed) and `wasRead(date)` (range-based for every role)
+    because `covers()` is true after a FAILED read and, for a LITE reader, for every date after the
+    first. **Unknown is not zero**: an id absent from `ratedCounts` is unknown (a date not read, a
+    failed read, a rewind), 0 prints `Not rated`; the dropdown prints nothing for unknown while the
+    phone peek row keeps its old `Past` tag, a deliberate asymmetry (the dropdown row has the time and
+    chip to stand on, the peek row would be blank).
+31. **LITE's star on a passed slot is the row's own** (O2): `ForecastDtoMapper.toListDto` selects only
+    the potentials by role, never `rating`, so a LITE reader keeps the row exactly as the list has
+    always served LITE (a canopy place shows the row's sky star). LITE has no outcome write, so the
+    captured-star override is PRO/ADMIN only.
+32. **A passed slot with no available forecast is served as no row at all** (O2, from V178): every
+    `forecast_evaluation` row written before V178 has a null `scored_at` and is never a candidate, so
+    for about T-3 days after the deploy a passed slot with no step-1 answer shows fewer stars or none,
+    and `colourForecastDates` can drop a date from `allDates`. Treated as an ordinary empty day; the
+    changelog says so. ⚠️ **Closed 2026-10-17 by V183** (§0 O7): the owner found a week of unrateable
+    windows too long, so one migration stamps the pre-V178 rows that have something to say; the
+    empty-day case itself remains and is now named (#15).
+
+---
+
+## §5 Decisions taken at plan time (defaults every phase builds on)
+
+1. **One table, three endpoints, PUT for the write.** `outcome_rating` beside `actual_outcome`,
+   never a `user_id` column bolted onto the old table (its rows are a different record with no
+   user, and its API stays open to LITE for the calibration input it was built for).
+2. **LITE reads, never writes**: the GET of own ratings has no role gate (LITE has no rows), the
+   PUT is `hasAnyRole('ADMIN', 'PRO_USER')`, the admin read `hasRole('ADMIN')`.
+3. **The event must have passed on the server's clock** (the 30-minute afterglow, `hasPassed`, per
+   place), and nothing else bounds the date: the Map only reaches T-4, and a future ad-hoc reader
+   could legitimately backfill.
+4. **Optimistic saves, per-key rollback, one status line.** No toast, no modal, no confirm.
+5. **"Not seen" is `rating: null` on the wire and in the table.** No enum, no second column.
+6. **Hidden under a rewind**: the block, the badges, the ratings read and the older-day fetch all
+   stand down while `getRewindTo()` is set (the `AskWhenLive` precedent); past windows themselves
+   still step, because the rewound clock defines them.
+7. **The admin list is fetched on expand**, never with the ratings read; it is one slot's rows.
+8. **Counts and badges are per-user joins** of the reader's own records from a never-cached
+   endpoint onto the window and the spot — the Coming up badge's class (CLAUDE.md Backend-heavy's
+   fourth, per-user-join class), two new named members; the past window's `bestRating` is a client
+   max in the fifth, Map-tab class, one new named member. Nothing else derives.
+9. **The calibration gate reads both tables** and treats each user's rating as a pair, with an
+   outcome identity in the dedup key so the run-collapse never collapses users.
+10. **No notifications, no history view, no Plan-tab surface**, as the spec's overview says; none
+    of the phases adds one.
+11. **The upsert runs outside any transaction**, in its own store class, for the reason §1 #8 gives.
+
+### §5a Adversarial review of this plan (2026-10-15, O0)
+
+Four read-only prosecutor lenses over the first draft (backend; frontend; spec fidelity and copy;
+conventions, process and sizing). Every charge was accepted and folded in, no refutation round was
+run (each carried a file:line). The three P1s: the calibration dedup key collapsing users
+(§1 #5, §2 #8); the heat-field extension naming the briefing context's `upcomingEvents` — the
+Plan matrix's own list — and missing the `heat.windows` / `pointsByKey` / `bestRating` gates
+(§2 #3); the older-day merge not surviving `useForecasts.load()` (§2 #2). Of the P2s: the upsert's
+transaction trap and the store extraction (§1 #8, §2 #1); the `forecast_evaluation` fallback being
+unreachable without the later-wins rule (§2 #1, §4 #2); `null` literals in a constructor projection
+(§2 #8); the callout repaint rule needing the state lifted (§1 #3); `otherWindow`'s scan and
+fallback (§2 #2); a past row's time with an empty scope (§2 #2); the badge overhang invisible to the
+placer (§1 #4, §2 #6); the past-window rule against CLAUDE.md's "same minute" invariant (§2 #2,
+§4 #4); the licensed-class accounting (§5 #8, O6); the Lite pattern divergence (§4 #18); O3 and O4
+too large for one session (split into O3a/b/c and O4a/b; O5 into a/b); the §0 table conflict
+between parallel phases (§0); acceptance lines (§3); the Codex-clean rule (§8); the changelog
+filename date and the two-files rule (§3); the role-gating assessment and two more CLAUDE.md
+sentences (O6); the prototype's Load-row, dropdown-close, admin-order, Lite-lock, error-lifetime,
+`↑` chip, both-groups-today, empty-day and block-position behaviours (§2, §4 #11–#20).
+
+**Codex, round 1 on #1185 (P1, accepted):** "the newest `pipeline_run` before the event" misattributes
+a rating whenever a later cycle failed, skipped the slot or landed nothing — the reader saw the older
+forecast, and the footer's age would describe a cycle that served them nothing. The rated run is now
+the slot's SERVED result through `EvaluationViewService.getLiveScoresForEnrichment`, with the cycle
+id recovered by exact instant match only (§1 #6, §2 #1, §4 #2, O1 step 3).
+
+**Codex, round 2 on #1185 (P1, accepted):** gating on `submittedAt` alone still accepts a batch
+submitted before the event that LANDED after it. The served result now counts only when its
+`evaluatedAt` is at or before the event; a late one is set aside and the earlier-submitted
+`forecast_evaluation` row stands in, with the residual stated (no arrival stamp on that table — §6 Q5).
+
+**Codex, round 3 on #1185 (P1, accepted):** a "submitted earlier" bound on the fallback admits a late
+ad-hoc batch's OWN row, whose `forecast_run_at` is stamped at row build, before the batch's
+`submittedAt`. The arrival stamp Q5 deferred is now part of O1 (`scored_at`, V178), and the fallback
+selects the latest row proven available by the event.
+
+**Codex, round 4 on #1185 (P1, accepted):** a `SKIPPED_STABILITY` recorded before the event retracts
+the row from the served view, so the fallback must apply the same retraction as of the event and
+ignore skips recorded after it (§2 #1 step 2, O1 step 3).
+
+**Codex, round 5 on #1185 (P1, accepted):** a natural-key calibration join admits a batch that
+landed after the event, and `latestPerSlotHorizon` would crown it. The rating now stores
+`forecast_evaluation_id` — the row step 2 resolves on every write — and the calibration pairs join
+on that id (§2 #1, §2 #8, O5b).
+
+**Codex, round 6 on #1185 (two P1s, accepted):** (a) an unserved window is not necessarily over —
+the briefing can be absent or stale — so a past row also requires the afterglow-elapsed test on the
+roster's earliest event time, and the block's per-place fallback for a place with no row reads the
+roster's LATEST time rather than `event.past` (§2 #2, §2 #5, §4 #4, O3a step 2); (b) an OPEN_FELL
+place's served rating is recombined from sky and bluebell results with no single `forecast_evaluation`
+row holding it, so the rating stores `forecast_rating`, the star the reader saw, and the calibration
+pair projects it over the row's own (§2 #1, §2 #8, O5b).
+
+**Codex, round 7 on #1185 (two P1s, accepted):** (a) the fallback's retraction compares the skip
+with the row's SUBMISSION instant, as serve time does — a row submitted before the skip and scored
+after it was never served; `scored_at` is the availability bound only (§2 #1, O1 step 3); (b) a
+canopy-bearing place's combined star, once replaced in the cache by a batch landing after the
+event, is not recoverable from any table, so a step-2 fallback stores no served star for such a
+place and the calibration gate requires one (§2 #1, §2 #8, O5b).
+
+**Codex, round 8 on #1185 (three P1s, accepted):** (a) a recombined composite keeps the sky result's
+`evaluatedAt`, so for a canopy-bearing place step 1's availability bound is the cached entry's
+region-level `updated_at`, conservative by design (§2 #1, O1 step 3); (b) a past window's
+`bestRating` is the max over its PAINTED points, after `buildHeatSpots`'s join and sky-subject
+filters, never the raw rows (§2 #3, O3c); (c) a place with no forecast row for the window gets no
+block — the roster's latest event time cannot vouch for it (§2 #2, §2 #5, O4a).
+
+**Codex, round 9 on #1185 (three P1s, accepted):** (a) the past-window UI drew the slot's latest
+result while provenance picked the as-of-event row, so the two could disagree on the star — one
+`AsOfEventResolver` now serves a passed slot on the forecast path AND resolves the record, and the
+client reads past windows from the forecast rows alone (§2 #1, §2 #2, §2 #3, §2 #4, §4 #22; O2
+now depends on O1); (b) `forecast_run_disposition` is pruned at 30 days while `forecast_evaluation`
+is not, so a rating older than that could resolve a retracted row as served — the PUT is bounded to
+`RETENTION_DAYS` (§2 #1, §4 #21); (c) a stale sentence still mounted the block for a place with
+no row — removed (§2 #1).
+
+**Codex, round 10 on #1185 (two P1s, accepted):** (a) the as-of-event serve path must serve the
+captured star itself — null for a canopy place whose composite is unrecoverable — never the fallback
+row's sky-only rating (§2 #4, O2 step 4); (b) a stability skip is recorded up to four days before
+its event, so the write bound subtracts the candidate window from the retention: 25 days, not 30
+(§2 #1, §4 #21, O1 step 4).
+
+**Codex, round 11 on #1185 (two P1s, accepted):** (a) a row with no `scored_at` (pre-V178) is never
+a provenance candidate — its submission instant is not an availability instant and the write
+window reaches 24 days back (§2 #1, O1 step 3); (b) the candidate window runs to T+5 and
+`NightlyEligibilityPolicy` records a T+5 rejection as a stability skip, so the write bound is
+`RETENTION_DAYS − FORECAST_HORIZON_DAYS − 1` = 24 (§2 #1, §4 #21).
+
+---
+
+## §6 Owner questions — none blocks a phase (all closed 2026-10-16: Q1 and Q5 by what shipped, Q2–Q4 by the plan's defaults)
+
+- **Q1** (closed 2026-10-16, O5b #1189) Should the calibration gate prefer the new per-user ratings over `actual_outcome` once
+  both exist for a slot? Default (§5 #9): union, each a pair, never collapsed — as shipped: the
+  outcome's identity is in `latestPerSlotHorizon`'s key. Revisit when the report has enough rows to matter.
+- **Q2** (closed 2026-10-16: not built) Should an admin be able to delete a user's rating? Not in the spec; not built. The
+  database admin can.
+- **Q3** (closed 2026-10-16: nothing to do) The spec's "set `/forecast` to 2 past days" — already 2; nothing to do. If the owner wants
+  three served days up front, `SERVE_PAST_DAYS` is the one constant (`Rewind.MAX_AGE` is
+  `SERVE_PAST_DAYS + 1` and follows it).
+- **Q4** (closed 2026-10-16: out of scope) Should the Plan tab's location sheet show a rated past window? Out of scope (spec §1: not
+  in the Plan tab).
+- **Q5** (closed 2026-10-15, Codex round 3; shipped in O1, #1187) `forecast_evaluation` gains an arrival stamp,
+  `scored_at` (V178, O1), because without it the fallback cannot exclude a late ad-hoc batch's own
+  row. Legacy rows keep the stated residual until they age out of the window.
+
+---
+
+## §7 Verification — what each phase measures
+
+O3b: the pill with `PAST` beside the day label and time at a 320px viewport (no overflow, the
+fixed pill width holding); the EARLIER menu at 320 and 1280 (the Load row's two lines, the
+sub-headers). O4a: the block inside the 266px and 286px callouts (cell width ≥ 44px, the meta line's
+wrap). Both in headless Chromium over the real compiled CSS, the shape `spread-row-plan.md` §7 used. **O4a's figures are recorded in its §0 phase-log row** (43.59px a cell at the spec's gap, 44.39px with the phone's 4px; the meta never wraps).
+O4b: the badge-versus-placer question is a **placer rule tested in `MapLabels.test.jsx`**, not a
+Chromium measurement — the placer runs over live Leaflet rects a static fixture does not have, and
+the signed-in app is off limits to a session (the `cannot-sign-in-for-browser-checks` memory), so
+every phase's PR body says "measured in a fixture, not seen signed-in" and the owner's browser
+check is owed at the end: the EARLIER group, the PAST pill, the block's six states, the badge at a
+dense zoom, the admin list.
+
+**Measured, in headless Chromium over the compiled CSS on markup rendered from the real components
+(fixtures, not the signed-in app), 2026-10-16.** *O3b*: the pill at 320px is 224px wide with `‹` at
+x=8 and `›` at x=276 for a served window, a PAST window and the loading state alike, identical at
+1280px (432px, 60/532) — no overflow, label not clipped, the caret inside the pill, the `PAST` tag
+37.8×18.3px; the EARLIER menu has no horizontal overflow at 320 or 1280; the Load row is 57.4px at 320
+(its sub-line wraps to two lines) and 44.6px at 1280 (one line); sub-headers 20.3px; past rows 44px
+against 46.75px for a future row; the phone sheet's Load row 63.4px at 320 and 50.6px at 1280. Not
+re-measured after the review fixes (the divider rule, the phone chip's `flex-shrink: 0`, `Not rated` at
+.6 alpha, the peek rules: source-tested only); the scroll-to-active behaviour is jsdom only. *O4a*: the
+callout's inside is 238px (266 less 2·13 padding less 2 border), so five columns at the spec's 5px gap
+are **43.59px** — under the 44px target — and the phone override (`max-width: 639px`) takes the gap to
+4px for **44.39px** (at viewports 375 and 320); the 286px card is 258px inside, **47.59px** at 5px;
+cells are 44px tall; the meta line stays one line in every state at both widths (the widest, `Sunrise
+was yesterday 06:55`, is 153.9px beside a 72.4px question and an 8px gap: 234.3 of 238px); block height
+127.5px unrated or changing, 152.5px with the failed line, 153.5px for LITE, 50px once rated. *O5a*:
+the Admin box was measured by the CSS lens (the name column wraps after about eleven characters at the
+238px inner width, the reason for §4 #25). *O4b*: nothing measured; the badge-versus-placer rule is
+tested in `MapLabels.test.jsx`.
+
+**The owner's browser check, still owed (never seen signed-in):** the PAST pill and the EARLIER menu at
+320px; the rating block's six states (unrated, saving, changing, done, failed, LITE) at 266px; the badge
+at a dense zoom and a pin badge near the frame edge; the peek sheet's row count at 320px; the Admin box
+and its footer at 266px; the Ask cascade with a badge present.
+
+---
+
+## §8 Process
+
+Each phase is a **fresh Sonnet session in its own worktree**, launched by the planning session with
+this plan's §3 phase text, the relevant §1/§2/§4/§5 entries and the spec pasted in (the plan is on
+main once O0 merges; an agent's worktree is cut from `origin/main`, so a dependent phase must not
+start until its predecessor's PR has MERGED). The session: builds → runs the gate → runs its review
+lenses in the foreground → fixes → measures (§7) → writes its changelog.d entry and its phase-log
+row → commits (conventional commit, the attribution trailer) → pushes its branch → opens the PR
+(`gh pr create`, body ending with the generated-with line) → watches CI and Codex → fixes anything
+either raises, pushing follow-up commits and asking `@codex review` after each → merges with
+`gh pr merge --squash --match-head-commit "$(gh pr view <N> --json headRefOid -q .headRefOid)"`
+only when CI is green AND Codex has answered for the HEAD sha. ⚠️ **Codex clean** is the "Codex
+Review Summary" comment's row reading `✅ Completed` on the head's short sha **with no Codex review
+posted against that sha** — the row names the head sha while still 🔄 Running, so the status word
+matters; a 👍 reaction on the PR body is the same answer; 👀 is in progress, never clean; a
+force-push does not re-trigger it. The planning session's `watch-pr.sh` applies exactly that rule.
+The planning session verifies each merge on `origin/main` before launching the next phase. The owner
+is told only when a phase is genuinely blocked (a Codex finding the session cannot resolve with
+cited evidence, a CI failure outside the diff) — never for a decision §5 already takes.

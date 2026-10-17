@@ -16,6 +16,7 @@ import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.exception.WeatherDataFetchException;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.CacheDiagnosticsFixtures;
 import com.gregochr.goldenhour.model.EvaluationDetail;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TokenUsage;
@@ -84,6 +85,24 @@ class MetricsLoggingDecoratorTest {
     }
 
     @Test
+    @DisplayName("evaluateWithDetails() logs the detail's cache diagnostics beside its token usage")
+    void evaluateWithDetails_logsCacheDiagnostics() {
+        EvaluationDetail withDiagnostics = new EvaluationDetail(
+                evaluationDetail.evaluation(), evaluationDetail.promptSent(), evaluationDetail.rawResponse(),
+                evaluationDetail.durationMs(), evaluationDetail.tokenUsage(),
+                CacheDiagnosticsFixtures.MESSAGES_CHANGED_READ);
+        when(delegate.evaluateWithDetails(atmosphericData)).thenReturn(withDiagnostics);
+
+        decorator.evaluateWithDetails(atmosphericData);
+
+        verify(jobRunService).logAnthropicApiCall(
+                eq(42L), eq(350L), eq(200), eq(null), eq(true), eq(null),
+                eq(EvaluationModel.SONNET), eq(withDiagnostics.tokenUsage()), eq(false),
+                eq(LocalDate.of(2026, 6, 21)), eq(TargetType.SUNSET), eq(null),
+                eq(CacheDiagnosticsFixtures.MESSAGES_CHANGED_READ));
+    }
+
+    @Test
     @DisplayName("evaluateWithDetails() delegates to the wrapped strategy and returns the full detail")
     void evaluateWithDetails_delegatesAndReturnsDetail() {
         when(delegate.evaluateWithDetails(atmosphericData)).thenReturn(evaluationDetail);
@@ -116,7 +135,8 @@ class MetricsLoggingDecoratorTest {
                 tokenCaptor.capture(),
                 eq(false),
                 eq(LocalDate.of(2026, 6, 21)),
-                eq(TargetType.SUNSET));
+                eq(TargetType.SUNSET),
+                eq(null), eq(null));
 
         TokenUsage captured = tokenCaptor.getValue();
         assertThat(captured.inputTokens()).isEqualTo(500);
@@ -148,7 +168,53 @@ class MetricsLoggingDecoratorTest {
                 eq(TokenUsage.EMPTY),
                 eq(false),
                 eq(LocalDate.of(2026, 6, 21)),
-                eq(TargetType.SUNSET));
+                eq(TargetType.SUNSET),
+                eq("anthropic_429"), eq(null));
+    }
+
+    /** Runs a failing evaluation through the decorator and verifies the one failed row it wrote. */
+    private void assertFailedRow(Exception failure, Integer status, String errorType, String message) {
+        when(delegate.evaluateWithDetails(atmosphericData)).thenThrow(failure);
+
+        assertThatThrownBy(() -> decorator.evaluateWithDetails(atmosphericData)).isSameAs(failure);
+
+        verify(jobRunService).logAnthropicApiCall(
+                eq(42L), eq(0L), eq(status), eq(message), eq(false), eq(message),
+                eq(EvaluationModel.SONNET), eq(TokenUsage.EMPTY), eq(false),
+                eq(LocalDate.of(2026, 6, 21)), eq(TargetType.SUNSET), eq(errorType), eq(null));
+    }
+
+    @Test
+    @DisplayName("a 401 is logged with status 401 and error type anthropic_401")
+    void failure_rejectedKey_logsStatusAndType() {
+        AnthropicServiceException ex = mock(AnthropicServiceException.class);
+        when(ex.statusCode()).thenReturn(401);
+        when(ex.getMessage()).thenReturn("invalid x-api-key");
+
+        assertFailedRow(ex, 401, "anthropic_401", "invalid x-api-key");
+    }
+
+    @Test
+    @DisplayName("a 529 is logged with status 529 and error type anthropic_529")
+    void failure_overloaded_logsStatusAndType() {
+        AnthropicServiceException ex = mock(AnthropicServiceException.class);
+        when(ex.statusCode()).thenReturn(529);
+        when(ex.getMessage()).thenReturn("overloaded");
+
+        assertFailedRow(ex, 529, "anthropic_529", "overloaded");
+    }
+
+    @Test
+    @DisplayName("an I/O failure has no HTTP status: a null status, not a placeholder 500, and its type name")
+    void failure_ioFailure_logsNullStatus() {
+        assertFailedRow(new com.anthropic.errors.AnthropicIoException("timed out"), null,
+                "AnthropicIoException", "timed out");
+    }
+
+    @Test
+    @DisplayName("a non-Anthropic exception has no HTTP status: a null status and its simple class name")
+    void failure_otherException_logsNullStatus() {
+        assertFailedRow(new IllegalStateException("boom"), null, "IllegalStateException", "boom");
     }
 
     @Test

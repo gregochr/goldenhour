@@ -16,11 +16,12 @@ import com.gregochr.goldenhour.entity.ServiceName;
 import com.gregochr.goldenhour.model.BestBet;
 import com.gregochr.goldenhour.model.BestBetResult;
 import com.gregochr.goldenhour.model.BestBetStatus;
+import com.gregochr.goldenhour.model.CacheDiagnostics;
 import com.gregochr.goldenhour.model.CandidateCoverage;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.RollupResult;
 import com.gregochr.goldenhour.service.AlsoGoodFloor;
-import com.gregochr.goldenhour.service.BriefingEvaluationService;
+import com.gregochr.goldenhour.service.EvaluationViewService;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
@@ -50,6 +51,21 @@ import java.util.stream.Collectors;
  * <p>Input is region-level rollup data only (not per-location slot data), keeping the prompt
  * small (~1–2 KB). Any failure is caught and returns an empty list — the briefing always
  * loads and falls back to the mechanical headline.
+ *
+ * <p><b>Every returned pick is validated against evidence the model was never asked to reason
+ * about.</b> {@code advise()} runs Claude's response through THREE independent gates before it can
+ * be crowned, in order: {@link #validateAndFilterPicks} (does the pick even name a real
+ * event/region/day from this rollup), {@link #dropUnevaluatedPicks} (does the region carry ANY
+ * Claude colour rating at all), and — since round 10, P1-B — {@link #dropIneligiblePicks} (is the
+ * region's sample large enough for the verdict-minimum-sample rule to trust it, or does it carry a
+ * force-evaluation exemption). The third gate closes a specific hole the second one leaves open: a
+ * region can clear "at least one rating exists" while still being far short of the sample the Plan
+ * tab itself requires before it will show that region a verdict at all — {@link
+ * com.gregochr.goldenhour.model.BriefingRegion#verdictEligible()} is the ONE shared test both
+ * surfaces read, so the advisor can never crown a region the Plan tab would refuse to speak for.
+ * All three gates are model-output validation, never prompt shaping — the rollup JSON sent to
+ * Claude is unchanged by any of them, which keeps every fixture {@code
+ * BestBetAuroraPromptRegressionTest} pins untouched.
  */
 @Component
 public class BriefingBestBetAdvisor {
@@ -91,7 +107,7 @@ public class BriefingBestBetAdvisor {
     private final ModelSelectionService modelSelectionService;
     private final AuroraStateCache auroraStateCache;
     private final StabilitySnapshotProvider stabilitySnapshotProvider;
-    private final BriefingEvaluationService briefingEvaluationService;
+    private final EvaluationViewService evaluationViewService;
     private final TravelDayService travelDayService;
 
     /**
@@ -121,7 +137,8 @@ public class BriefingBestBetAdvisor {
      * @param modelSelectionService      service for resolving the active Claude model
      * @param auroraStateCache           read-only access to the current aurora alert state
      * @param stabilitySnapshotProvider  provides the latest stability summary for region rollup
-     * @param briefingEvaluationService  cached Claude evaluation scores from drill-down
+     * @param evaluationViewService      retraction-aware Claude evaluation scores — see
+     *                                   {@link EvaluationViewService#getLiveScoresForEnrichment}
      * @param travelDayService           excludes travel-day events from the candidate rollup
      * @param maxTokens                  response-token ceiling for standard best-bet calls
      * @param clock                      UTC clock supplying "now" and (via London) "today"
@@ -132,7 +149,7 @@ public class BriefingBestBetAdvisor {
             ModelSelectionService modelSelectionService,
             AuroraStateCache auroraStateCache,
             StabilitySnapshotProvider stabilitySnapshotProvider,
-            @Lazy BriefingEvaluationService briefingEvaluationService,
+            @Lazy EvaluationViewService evaluationViewService,
             TravelDayService travelDayService,
             @Value("${photocast.best-bet.max-tokens:" + DEFAULT_MAX_TOKENS + "}") int maxTokens,
             java.time.Clock clock) {
@@ -142,13 +159,13 @@ public class BriefingBestBetAdvisor {
         this.modelSelectionService = modelSelectionService;
         this.auroraStateCache = auroraStateCache;
         this.stabilitySnapshotProvider = stabilitySnapshotProvider;
-        this.briefingEvaluationService = briefingEvaluationService;
+        this.evaluationViewService = evaluationViewService;
         this.travelDayService = travelDayService;
         this.maxTokens = maxTokens;
         this.clock = clock;
         this.auroraRegionSelector = new AuroraRegionSelector(auroraStateCache);
         this.rollupBuilder = new BriefingRollupBuilder(objectMapper, clock, travelDayService,
-                briefingEvaluationService, stabilitySnapshotProvider, auroraStateCache,
+                evaluationViewService, stabilitySnapshotProvider, auroraStateCache,
                 auroraRegionSelector);
         this.enricher = new BestBetEnricher(clock);
     }
@@ -198,7 +215,7 @@ public class BriefingBestBetAdvisor {
         try {
             EvaluationModel model = modelSelectionService.getActiveModel(RunType.BRIEFING_BEST_BET);
             boolean useExtendedThinking = modelSelectionService.isExtendedThinking(RunType.BRIEFING_BEST_BET)
-                    && model != EvaluationModel.HAIKU;
+                    && model != EvaluationModel.HAIKU && !ModelRequestSupport.usesLowEffort(model);
             LocalDateTime now = LocalDateTime.now(clock);
             RollupResult rollup = rollupBuilder.buildRollupJson(days, now);
             logPickTwoEligibility(rollup.coverageByKey(), jobRunId);
@@ -206,7 +223,8 @@ public class BriefingBestBetAdvisor {
 
             MessageCreateParams.Builder paramsBuilder = MessageCreateParams.builder()
                     .model(model.getModelId())
-                    .maxTokens(useExtendedThinking ? MAX_TOKENS_THINKING : maxTokens)
+                    .maxTokens(useExtendedThinking || ModelRequestSupport.thinksAdaptively(model)
+                            ? MAX_TOKENS_THINKING : maxTokens)
                     .systemOfTextBlockParams(List.of(
                             TextBlockParam.builder().text(BestBetPromptText.systemPrompt()).build()))
                     .addUserMessage(rollup.json());
@@ -216,19 +234,29 @@ public class BriefingBestBetAdvisor {
                         .build());
             }
 
-            Message response = anthropicApiClient.createMessage(paramsBuilder.build());
+            Message response = anthropicApiClient.createMessage(
+                    ModelRequestSupport.tune(paramsBuilder, model).build());
 
             long durationMs = System.currentTimeMillis() - startMs;
             String raw = extractFirstText(response);
             Optional<StopReason> stopReason = response.stopReason();
             var usage = response.usage();
-            TokenUsage tokenUsage = usage == null ? null : new TokenUsage(
-                    usage.inputTokens(), usage.outputTokens(),
-                    usage.cacheCreationInputTokens().orElse(0L),
-                    usage.cacheReadInputTokens().orElse(0L));
+            TokenUsage tokenUsage = usage == null ? null : TokenUsage.from(usage);
 
             LOG.info("Best-bet advisor completed ({}ms, model={}, stopReason={})",
                     durationMs, model, stopReason.map(Object::toString).orElse("unknown"));
+            // A refusal or a max_tokens truncation is a FAILED call, for every model: it is
+            // logged as a failure (still carrying its real token usage, so it is costed) and
+            // never reaches the parser, whose salvage could dress a cut-off answer as picks.
+            String rejection = rejectionReason(stopReason.orElse(null));
+            if (rejection != null) {
+                jobRunService.logApiCall(jobRunId, ServiceName.ANTHROPIC,
+                        "POST", "briefing-best-bet", rollup.json(),
+                        durationMs, 200, raw, false, rejection,
+                        model, tokenUsage, CacheDiagnostics.from(response));
+                logResponseDisposition(stopReason, 0, raw.length(), jobRunId);
+                return BestBetResult.failed();
+            }
             // Capture the exact rollup input (request body) alongside the response so the
             // advisor replay harness can re-feed any live cycle's input through a swapped
             // prompt for before/after validation — previously this was logged as null. The
@@ -236,7 +264,7 @@ public class BriefingBestBetAdvisor {
             jobRunService.logApiCall(jobRunId, ServiceName.ANTHROPIC,
                     "POST", "briefing-best-bet", rollup.json(),
                     durationMs, 200, raw, true, null,
-                    model, tokenUsage);
+                    model, tokenUsage, CacheDiagnostics.from(response));
 
             BestBetResult parsed = classifyAndParse(raw);
             logResponseDisposition(stopReason, parsed.picks().size(), raw.length(), jobRunId);
@@ -261,7 +289,19 @@ public class BriefingBestBetAdvisor {
                         + "no-picks (jobRunId={})", jobRunId);
                 return BestBetResult.noPicks();
             }
-            List<BestBet> covered = applyCoverageAwareRanking(evidenced, rollup.coverageByKey());
+            // Round 10 (P1-B): a pick can carry SOME colour coverage and still name a region the
+            // verdict-minimum-sample rule does not trust — the gap dropUnevaluatedPicks alone
+            // leaves open, one rating short of zero. Validate Claude's own response against the
+            // identical eligibility test the Plan tab already applies (BriefingRegion#verdictEligible,
+            // moved there for exactly this reuse) before any pick is allowed to be crowned.
+            List<BestBet> eligible = dropIneligiblePicks(evidenced, rollup.coverageByKey());
+            if (eligible.isEmpty()) {
+                LOG.info("Best-bet advisor: every pick named a region below the verdict-minimum "
+                        + "sample with no force-evaluation exemption — declining with no-picks "
+                        + "(jobRunId={})", jobRunId);
+                return BestBetResult.noPicks();
+            }
+            List<BestBet> covered = applyCoverageAwareRanking(eligible, rollup.coverageByKey());
             List<BestBet> enriched = enricher.enrichWithEventData(covered, days);
             if (enriched.isEmpty()) {
                 // Picks parsed but none survived enrichment — nothing usable came back.
@@ -462,6 +502,21 @@ public class BriefingBestBetAdvisor {
     }
 
     /**
+     * Drops picks naming a region the verdict-minimum-sample rule does not trust (round 10, P1-B).
+     * Thin delegator to {@link BestBetRanker#dropIneligiblePicks}, kept as a package-private wrapper
+     * so tests can exercise it directly the same way they already do {@link #dropUnevaluatedPicks}
+     * and {@link #applyCoverageAwareRanking}.
+     *
+     * @param picks    colour-evidenced picks in ranked order
+     * @param coverage per-{@code event|region} Claude coverage from the rollup
+     * @return the picks whose region is verdict-eligible, renumbered; possibly empty
+     */
+    List<BestBet> dropIneligiblePicks(List<BestBet> picks,
+            Map<String, CandidateCoverage> coverage) {
+        return BestBetRanker.dropIneligiblePicks(picks, coverage);
+    }
+
+    /**
      * Builds the region-level rollup JSON sent to Claude as the user message, plus the
      * validation sets derived from the same data.
      *
@@ -518,11 +573,24 @@ public class BriefingBestBetAdvisor {
      */
     public ComparisonRun compareModels(List<BriefingDay> days,
             Map<String, Integer> driveMap) throws com.fasterxml.jackson.core.JsonProcessingException {
+        return compareModels(List.of(
+                EvaluationModel.HAIKU, EvaluationModel.SONNET, EvaluationModel.SONNET_ET,
+                EvaluationModel.OPUS, EvaluationModel.OPUS_ET), days);
+    }
+
+    /**
+     * Runs the comparison over an explicit list of variants (the scheduled comparison keeps its
+     * fixed five; this overload lets a test, or a future harness, name others such as Sonnet 5.5).
+     *
+     * @param models   the variants to call, in order
+     * @param days     the fully assembled briefing days (triage complete)
+     * @return comparison run containing the rollup JSON and one result per variant
+     * @throws com.fasterxml.jackson.core.JsonProcessingException if rollup JSON build fails
+     */
+    ComparisonRun compareModels(List<EvaluationModel> models, List<BriefingDay> days)
+            throws com.fasterxml.jackson.core.JsonProcessingException {
         LocalDateTime now = LocalDateTime.now(clock);
         RollupResult rollup = rollupBuilder.buildRollupJson(days, now);
-        List<EvaluationModel> models = List.of(
-                EvaluationModel.HAIKU, EvaluationModel.SONNET, EvaluationModel.SONNET_ET,
-                EvaluationModel.OPUS, EvaluationModel.OPUS_ET);
 
         List<ModelComparisonResult> results = new ArrayList<>();
         for (EvaluationModel model : models) {
@@ -539,7 +607,8 @@ public class BriefingBestBetAdvisor {
 
             MessageCreateParams.Builder builder = MessageCreateParams.builder()
                     .model(model.getModelId())
-                    .maxTokens(extendedThinking ? MAX_TOKENS_THINKING : maxTokens)
+                    .maxTokens(extendedThinking || ModelRequestSupport.thinksAdaptively(model)
+                        ? MAX_TOKENS_THINKING : maxTokens)
                     .systemOfTextBlockParams(List.of(
                             TextBlockParam.builder().text(BestBetPromptText.systemPrompt()).build()))
                     .addUserMessage(rollup.json());
@@ -550,8 +619,11 @@ public class BriefingBestBetAdvisor {
                         .build());
             }
 
-            Message response = anthropicApiClient.createMessage(builder.build());
+            Message response = anthropicApiClient.createMessage(
+                    ModelRequestSupport.tune(builder, model).build());
             long durationMs = System.currentTimeMillis() - startMs;
+            // Refusal or truncation: a failed variant (caught below), never parsed picks.
+            ModelRequestSupport.checkStopReason(response);
 
             // Text blocks only — thinking blocks are filtered out here
             String raw = extractFirstText(response);
@@ -565,11 +637,7 @@ public class BriefingBestBetAdvisor {
                     .findFirst()
                     .orElse(null);
 
-            TokenUsage tokenUsage = new TokenUsage(
-                    response.usage().inputTokens(),
-                    response.usage().outputTokens(),
-                    response.usage().cacheCreationInputTokens().orElse(0L),
-                    response.usage().cacheReadInputTokens().orElse(0L));
+            TokenUsage tokenUsage = TokenUsage.from(response.usage());
 
             List<BestBet> parsed = parseBestBets(raw);
             List<BestBet> validated = validateAndFilterPicks(
@@ -594,6 +662,17 @@ public class BriefingBestBetAdvisor {
      * @param response the Claude message
      * @return the first text block's content, or an empty string
      */
+    private static String rejectionReason(StopReason stopReason) {
+        if (StopReason.REFUSAL.equals(stopReason)) {
+            return "Claude refused the best-bet request (stop_reason=refusal)";
+        }
+        if (StopReason.MAX_TOKENS.equals(stopReason)) {
+            return "Claude's best-bet response was truncated at the max_tokens limit "
+                    + "(stop_reason=max_tokens)";
+        }
+        return null;
+    }
+
     private static String extractFirstText(Message response) {
         return response.content().stream()
                 .filter(ContentBlock::isText)
@@ -632,7 +711,8 @@ public class BriefingBestBetAdvisor {
         boolean extendedThinking = model.isExtendedThinking();
         MessageCreateParams.Builder builder = MessageCreateParams.builder()
                 .model(model.getModelId())
-                .maxTokens(extendedThinking ? MAX_TOKENS_THINKING : maxTokens)
+                .maxTokens(extendedThinking || ModelRequestSupport.thinksAdaptively(model)
+                        ? MAX_TOKENS_THINKING : maxTokens)
                 .systemOfTextBlockParams(List.of(
                         TextBlockParam.builder().text(systemPrompt).build()))
                 .addUserMessage(rollupJson);
@@ -642,7 +722,13 @@ public class BriefingBestBetAdvisor {
                     .build());
         }
 
-        Message response = anthropicApiClient.createMessage(builder.build());
+        Message response = anthropicApiClient.createMessage(
+                    ModelRequestSupport.tune(builder, model).build());
+        String rejection = rejectionReason(response.stopReason().orElse(null));
+        if (rejection != null) {
+            LOG.warn("Best-bet replay with {} failed: {}", model, rejection);
+            return BestBetResult.failed();
+        }
         String raw = extractFirstText(response);
 
         BestBetResult parsed = classifyAndParse(raw);

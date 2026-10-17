@@ -19,7 +19,7 @@ vi.mock('../api/modelsApi', () => ({
   getAvailableModels: vi.fn(),
 }));
 
-import { getPromptTestRuns, getPromptTestResults, getGitInfo } from '../api/promptTestApi';
+import { getPromptTestRuns, getPromptTestResults, getGitInfo, runPromptTest } from '../api/promptTestApi';
 import { fetchLocations } from '../api/forecastApi';
 import { getAvailableModels } from '../api/modelsApi';
 
@@ -40,6 +40,7 @@ describe('PromptTestView', () => {
       available: [
         { name: 'HAIKU', version: '4.5' },
         { name: 'SONNET', version: '4.5' },
+        { name: 'SONNET_55', version: '5.5' },
         { name: 'OPUS', version: '4.6' },
       ],
     });
@@ -159,7 +160,7 @@ describe('PromptTestView', () => {
 
     expect(screen.getByText('SUNSET')).toBeInTheDocument();
     // HAIKU appears in both the radio label and the run row model badge
-    expect(screen.getAllByText(/HAIKU/).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText(/Haiku/).length).toBeGreaterThanOrEqual(2);
   });
 
   it('shows in-progress indicator for run without completedAt', async () => {
@@ -196,6 +197,19 @@ describe('PromptTestView', () => {
     await waitFor(() => {
       expect(screen.getByTestId('prompt-test-error')).toBeInTheDocument();
     });
+  });
+
+  it("shows the server's error sentence, not axios's generic message, when a request is refused", async () => {
+    getPromptTestRuns.mockRejectedValue(Object.assign(
+      new Error('Request failed with status code 502'),
+      { response: { status: 502, data: { error: 'Upstream API error: 503' } } },
+    ));
+
+    render(<PromptTestView />);
+
+    const banner = await screen.findByTestId('prompt-test-error');
+    expect(banner).toHaveTextContent('Upstream API error: 503');
+    expect(banner).not.toHaveTextContent('Request failed with status code 502');
   });
 
   it('allows selecting a different model', async () => {
@@ -308,16 +322,60 @@ describe('PromptTestView', () => {
     expect(screen.queryByTestId('preview-btn-11')).not.toBeInTheDocument();
   });
 
-  it('shows model versions next to model radio buttons', async () => {
+  it('labels every model radio distinctly, from the static table (no network needed)', async () => {
+    getAvailableModels.mockRejectedValue(new Error('offline'));
     render(<PromptTestView />);
     await waitFor(() => {
       expect(screen.getByTestId('model-radio-HAIKU')).toBeInTheDocument();
     });
 
-    // Model versions should appear as text near the radio buttons
+    const label = (m) => screen.getByTestId(`model-radio-${m}`).closest('label').textContent.trim();
+    expect(label('HAIKU')).toBe('Haiku 4.5');
+    expect(label('HAIKU_55')).toBe('Haiku 5.5');
+    expect(label('SONNET')).toBe('Sonnet 4.6');
+    expect(label('SONNET_55')).toBe('Sonnet 5.5');
+    expect(label('OPUS')).toBe('Opus');
+  });
+
+  it('selecting Haiku 5.5 and confirming runs HAIKU_55; the dialog names it "Haiku 5.5"', async () => {
+    runPromptTest.mockResolvedValue({ data: { id: 8, status: 'RUNNING', evaluationModel: 'HAIKU_55' } });
+    getPromptTestResults.mockResolvedValue({ data: [] });
+    render(<PromptTestView />);
     await waitFor(() => {
-      expect(screen.getAllByText('4.5').length).toBeGreaterThanOrEqual(1);
-      expect(screen.getAllByText('4.6').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByTestId('model-radio-HAIKU_55')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('model-radio-HAIKU_55'));
+    fireEvent.click(screen.getByTestId('run-prompt-test-btn'));
+
+    const dialog = screen.getByTestId('confirm-dialog');
+    expect(dialog).toHaveTextContent('using Haiku 5.5.');
+    expect(dialog).not.toHaveTextContent('HAIKU_55');
+
+    fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
+    await waitFor(() => {
+      expect(runPromptTest).toHaveBeenCalledWith('HAIKU_55', 'VERY_SHORT_TERM');
+    });
+  });
+
+  it('selecting Sonnet 5.5 and confirming runs SONNET_55; the dialog names it "Sonnet 5.5"', async () => {
+    runPromptTest.mockResolvedValue({ data: { id: 9, status: 'RUNNING', evaluationModel: 'SONNET_55' } });
+    getPromptTestResults.mockResolvedValue({ data: [] });
+    render(<PromptTestView />);
+    await waitFor(() => {
+      expect(screen.getByTestId('model-radio-SONNET_55')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('model-radio-SONNET_55'));
+    fireEvent.click(screen.getByTestId('run-prompt-test-btn'));
+
+    const dialog = screen.getByTestId('confirm-dialog');
+    expect(dialog).toHaveTextContent('using Sonnet 5.5.');
+    expect(dialog).not.toHaveTextContent('SONNET_55');
+
+    fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
+    await waitFor(() => {
+      expect(runPromptTest).toHaveBeenCalledWith('SONNET_55', 'VERY_SHORT_TERM');
     });
   });
 });

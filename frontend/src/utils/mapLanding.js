@@ -183,7 +183,9 @@ export function elsewherePicks({ events, rows }) {
 /**
  * The first WORTH_IT solar window strictly after {@code afterIndex}, or null.
  *
- * <p>⚠️ <b>{@code WORTH_IT} only — never a Maybe.</b> This feeds a sentence that has just told the
+ * <p>⚠️ <b>{@code WORTH_IT} only — never a Maybe, and never an {@code UNRATED}.</b> A window the sample
+ * gate withheld a verdict from (unrated-verdict-plan.md U2) is not a window anything has called worth
+ * the drive, so it is not offered as the way out of a Poor pair. This feeds a sentence that has just told the
  * reader the next two windows are not worth the drive; offering one the same sentence would also
  * have to call not worth the drive is the exact failure the design names. The prototype searches
  * {@code 'go'} alone for this reason and then prints a fallback line claiming nothing "clears
@@ -194,7 +196,7 @@ export function elsewherePicks({ events, rows }) {
  * briefing serves up to ten solar windows in {@code briefing.days} but renders only
  * {@code PlanRenderLimits.MAX_VISIBLE_EVENTS} of them, and {@code buildRegionVerdictIndex} folds
  * the DAYS — so about four windows carry a served verdict while appearing in the EV list as
- * unrendered D-13 fillers with no time and no star. Ungated, this line could offer a destination
+ * unrendered D-13 fillers with no star (and, unless a tide was lent, no time). Ungated, this line could offer a destination
  * the card would have refused to show as a row and the Plan tab does not draw at all. It also made
  * the model's {@code afterIndex} a live rather than an equivalent mutant: with a non-served window
  * BETWEEN the two rows, measuring from the first row instead of the last returns something earlier
@@ -222,6 +224,8 @@ export function nextWorthIt({ events, verdicts = null, afterIndex }) {
  * Everything the card draws, in one call — the seam `MapLandingCard` renders and tests drive.
  *
  * <p><b>The all-Poor branch</b> fires only when every shown row carries a STAND_DOWN verdict. A row
+ * wearing {@code UNRATED} ("Too few rated", unrated-verdict-plan.md U2) is not Poor either: the weather
+ * did not rule it out, so "neither is worth the drive" would be a call nothing has made. A row
  * with <em>no</em> verdict is not Poor: an unrated window and a bad one are different claims, and
  * "neither is worth the drive" over a window nothing was scored in would be an assertion the
  * payload does not support.

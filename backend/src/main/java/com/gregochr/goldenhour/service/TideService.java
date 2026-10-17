@@ -10,10 +10,13 @@ import com.gregochr.goldenhour.entity.TideType;
 import com.gregochr.goldenhour.model.TideData;
 import com.gregochr.goldenhour.model.TideStats;
 import com.gregochr.goldenhour.repository.TideExtremeRepository;
+import com.gregochr.goldenhour.util.DayScopedMemo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.client.RestClient;
 
 import java.math.BigDecimal;
@@ -26,6 +29,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Reads and classifies tide extremes for coastal locations from the {@code tide_extreme} table.
@@ -52,7 +56,7 @@ public class TideService {
     private static final Logger LOG = LoggerFactory.getLogger(TideService.class);
 
     /** Days either side of the solar event time to query from the DB. */
-    private static final long QUERY_WINDOW_DAYS = 2;
+    private static final long QUERY_WINDOW_DAYS = TideExtremeSnapshot.READ_WINDOW_DAYS;
 
     /**
      * Minutes within which the solar event is classified as HIGH or LOW tide,
@@ -81,6 +85,26 @@ public class TideService {
     private final WorldTidesIngestionService ingestionService;
 
     /**
+     * Each location's {@link #getTideStats} answer for the current UTC day, keyed by location id.
+     *
+     * <p>The answer is a pure function of the stored extremes and of the day: the sample is bounded
+     * at the start of today UTC, so it can only change when a row is written to {@code tide_extreme}
+     * or when the day rolls. The memo turns over on the day by itself and is evicted by
+     * {@link #evictTideStats(Long)} on every write path, so a backfill cannot be served stale
+     * percentiles. Before it existed {@code getTideStats} was three queries per call, one of which
+     * pulls every stored high water for the location into Java, and one "Coming up" build asked for
+     * it hundreds of times.
+     */
+    private final DayScopedMemo<Long, Optional<TideStats>> statsMemo = new DayScopedMemo<>();
+
+    /**
+     * Callers whose own caches are derived from stored tide extremes and must be dropped when one
+     * changes. Registered by those caches themselves, because they depend on this service and not
+     * the other way round.
+     */
+    private final List<Runnable> writeListeners = new CopyOnWriteArrayList<>();
+
+    /**
      * Constructs a {@code TideService}.
      *
      * <p>Builds its own {@link WorldTidesIngestionService} from the same four dependencies
@@ -105,7 +129,54 @@ public class TideService {
             WorldTidesProperties worldTidesProperties, JobRunService jobRunService) {
         this.tideExtremeRepository = tideExtremeRepository;
         this.ingestionService = new WorldTidesIngestionService(
-                restClient, tideExtremeRepository, worldTidesProperties, jobRunService);
+                restClient, tideExtremeRepository, worldTidesProperties, jobRunService,
+                this::evictTideStats);
+    }
+
+    /**
+     * Registers a callback to run whenever stored tide extremes change, after the change is
+     * committed (or immediately when there is no transaction).
+     *
+     * <p>For caches built over {@code tide_extreme} that sit above this service in the dependency
+     * graph, such as {@code TideSizeIndex}'s measured sizes and {@code TideRunPeakHistory}'s run
+     * peaks. They call this once from their constructors and are never deregistered: every one is a
+     * singleton that lives as long as this service.
+     *
+     * @param listener drops the caller's derived state; must be cheap and must not throw
+     */
+    public void onTideExtremesChanged(Runnable listener) {
+        writeListeners.add(listener);
+    }
+
+    /**
+     * Drops the cached statistics for one location and tells every registered derived cache that the
+     * stored extremes changed.
+     *
+     * <p>Called by every code path that inserts or deletes {@code tide_extreme} rows (the weekly
+     * forward refresh and the 12-month backfill, both through {@link WorldTidesIngestionService}).
+     * Inside a transaction the eviction waits for the transaction to <em>complete</em>, committed or
+     * rolled back: evicting at the write would let a concurrent reader re-cache the old rows before
+     * the commit lands, and a rollback must not leave an entry computed from rows that never
+     * existed. Outside a transaction it happens at once.
+     *
+     * @param locationId the location whose extremes changed
+     */
+    public void evictTideStats(Long locationId) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCompletion(int status) {
+                    dropDerivedState(locationId);
+                }
+            });
+        } else {
+            dropDerivedState(locationId);
+        }
+    }
+
+    private void dropDerivedState(Long locationId) {
+        statsMemo.evict(locationId);
+        writeListeners.forEach(Runnable::run);
     }
 
     /**
@@ -299,7 +370,32 @@ public class TideService {
      */
     public Optional<DualWindowTideData> deriveDualWindowTideData(Long locationId,
             LocalDateTime eventTime, long tightWindowMinutes, long widenedWindowMinutes) {
-        List<TideExtremeEntity> extremes = fetchExtremesAround(locationId, eventTime);
+        return dualWindowFrom(fetchExtremesAround(locationId, eventTime), locationId, eventTime,
+                tightWindowMinutes, widenedWindowMinutes);
+    }
+
+    /**
+     * As {@link #deriveDualWindowTideData(Long, LocalDateTime, long, long)}, reading the extremes
+     * from a build-scoped {@link TideExtremeSnapshot} instead of querying. Equivalent by
+     * construction: the snapshot answers the identical inclusive range.
+     *
+     * @param locationId           the location primary key
+     * @param eventTime            UTC time of sunrise or sunset
+     * @param tightWindowMinutes   the tight alignment window half-width in minutes
+     * @param widenedWindowMinutes the widened alignment window half-width in minutes
+     * @param snapshot             the build's snapshot
+     * @return both tide-data classifications, or empty if no extremes are available
+     */
+    public Optional<DualWindowTideData> deriveDualWindowTideData(Long locationId,
+            LocalDateTime eventTime, long tightWindowMinutes, long widenedWindowMinutes,
+            TideExtremeSnapshot snapshot) {
+        return dualWindowFrom(fetchExtremesAround(locationId, eventTime, snapshot), locationId,
+                eventTime, tightWindowMinutes, widenedWindowMinutes);
+    }
+
+    private Optional<DualWindowTideData> dualWindowFrom(List<TideExtremeEntity> extremes,
+            Long locationId, LocalDateTime eventTime, long tightWindowMinutes,
+            long widenedWindowMinutes) {
         if (extremes.isEmpty()) {
             LOG.warn("No tide extremes in DB for locationId={} around {}", locationId, eventTime);
             return Optional.empty();
@@ -324,6 +420,21 @@ public class TideService {
                         locationId,
                         eventTime.minusDays(QUERY_WINDOW_DAYS),
                         eventTime.plusDays(QUERY_WINDOW_DAYS));
+    }
+
+    /**
+     * As {@link #fetchExtremesAround(Long, LocalDateTime)}, reading the same ± day range from the
+     * build's snapshot (which falls back to the live query for anything it did not load).
+     *
+     * @param locationId the location primary key
+     * @param eventTime  UTC time of the solar event
+     * @param snapshot   the build's snapshot
+     * @return the extremes in the ± day range, ascending by event time (possibly empty)
+     */
+    private List<TideExtremeEntity> fetchExtremesAround(Long locationId, LocalDateTime eventTime,
+            TideExtremeSnapshot snapshot) {
+        return snapshot.between(tideExtremeRepository, locationId,
+                eventTime.minusDays(QUERY_WINDOW_DAYS), eventTime.plusDays(QUERY_WINDOW_DAYS));
     }
 
     /**
@@ -376,11 +487,21 @@ public class TideService {
      * with a louder one: a location fetched forward-only reports two high waters on its second
      * day, and two neap samples put the spring threshold below almost every later high water.
      *
+     * <p><strong>Cached per location per UTC day.</strong> The answer cannot change within a day
+     * except by a write to {@code tide_extreme}, so it is memoised and evicted by
+     * {@link #evictTideStats(Long)} from every write path. A caller that needs the figures to
+     * reflect a write made by some other route must call that method after it commits.
+     *
      * @param locationId the location primary key
      * @return Optional containing TideStats if data is available, empty otherwise
      */
     public Optional<TideStats> getTideStats(Long locationId) {
-        LocalDateTime statsCutoff = LocalDate.now(ZoneOffset.UTC).atStartOfDay();
+        LocalDate cutoffDate = LocalDate.now(ZoneOffset.UTC);
+        return statsMemo.get(cutoffDate, locationId, () -> computeTideStats(locationId, cutoffDate));
+    }
+
+    private Optional<TideStats> computeTideStats(Long locationId, LocalDate cutoffDate) {
+        LocalDateTime statsCutoff = cutoffDate.atStartOfDay();
 
         Object[] highStats = tideExtremeRepository.findHeightStatsByLocationIdAndTypeBefore(
                 locationId, TideExtremeType.HIGH, statsCutoff);
@@ -601,16 +722,83 @@ public class TideService {
 
     private boolean isMidPointAligned(List<TideExtremeEntity> extremes, LocalDateTime eventTime,
             long windowMinutes) {
+        Long offset = computeMidpointOffsetMinutes(extremes, eventTime);
+        return offset != null && Math.abs(offset) <= windowMinutes;
+    }
+
+    /**
+     * Signed minutes from {@code eventTime} to the midpoint of whichever consecutive pair of
+     * stored extremes brackets it most closely, or {@code null} when fewer than two extremes are
+     * given. Positive when the midpoint falls after {@code eventTime}.
+     *
+     * <p>The same bracketing geometry {@link #isMidPointAligned} tests for a MID-preference
+     * location — that method now delegates here and compares the magnitude against its window,
+     * so the two can never disagree about which pair is "the" bracketing one. Package-private and
+     * static so {@code TideServiceTest} can exercise the geometry directly, without a database.
+     *
+     * @param extremes  stored tide extremes, in chronological order
+     * @param eventTime UTC time of the solar event
+     * @return the signed minutes to the nearest bracketing midpoint, or {@code null} when fewer
+     *     than two extremes are given
+     */
+    static Long computeMidpointOffsetMinutes(List<TideExtremeEntity> extremes,
+            LocalDateTime eventTime) {
+        Long best = null;
         for (int i = 0; i < extremes.size() - 1; i++) {
             LocalDateTime t1 = extremes.get(i).getEventTime();
             LocalDateTime t2 = extremes.get(i + 1).getEventTime();
             long halfSeconds = ChronoUnit.SECONDS.between(t1, t2) / 2;
             LocalDateTime midpoint = t1.plusSeconds(halfSeconds);
-            if (Math.abs(ChronoUnit.MINUTES.between(midpoint, eventTime)) <= windowMinutes) {
-                return true;
+            long offset = ChronoUnit.MINUTES.between(eventTime, midpoint);
+            if (best == null || Math.abs(offset) < Math.abs(best)) {
+                best = offset;
             }
         }
-        return false;
+        return best;
+    }
+
+    /**
+     * Signed minutes from {@code eventTime} to the midpoint of whichever consecutive pair of this
+     * location's stored extremes brackets it most closely — the raw distance behind a MID-want's
+     * {@code nearMidPoint} flag, for a caller that already knows alignment held (via {@link
+     * TideData#nearMidPoint()}) and wants to measure how well-centred it is.
+     *
+     * <p>Re-fetches the location's stored extremes: a second query beyond {@link
+     * #deriveDualWindowTideData}'s single fetch, over the identical ± day range (see {@link
+     * #fetchExtremesAround}). Reserve it for the case that actually needs the figure — {@link
+     * com.gregochr.goldenhour.service.TideFactDeriver}'s {@code tideAlignmentQuality}, computed
+     * only for a MID-aligned slot — rather than calling it on every coastal location.
+     *
+     * @param locationId the location primary key
+     * @param eventTime  UTC time of the solar event
+     * @return the signed minutes to the nearest bracketing midpoint, or empty when fewer than two
+     *     extremes are stored around the event
+     */
+    public Optional<Long> nearestMidpointOffsetMinutes(Long locationId, LocalDateTime eventTime) {
+        List<TideExtremeEntity> extremes = fetchExtremesAround(locationId, eventTime);
+        if (extremes.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(computeMidpointOffsetMinutes(extremes, eventTime));
+    }
+
+    /**
+     * As {@link #nearestMidpointOffsetMinutes(Long, LocalDateTime)}, reading the extremes from a
+     * build-scoped {@link TideExtremeSnapshot} instead of querying.
+     *
+     * @param locationId the location primary key
+     * @param eventTime  UTC time of the solar event
+     * @param snapshot   the build's snapshot
+     * @return the signed minutes to the nearest bracketing midpoint, or empty when fewer than two
+     *     extremes are stored around the event
+     */
+    public Optional<Long> nearestMidpointOffsetMinutes(Long locationId, LocalDateTime eventTime,
+            TideExtremeSnapshot snapshot) {
+        List<TideExtremeEntity> extremes = fetchExtremesAround(locationId, eventTime, snapshot);
+        if (extremes.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(computeMidpointOffsetMinutes(extremes, eventTime));
     }
 
     /**

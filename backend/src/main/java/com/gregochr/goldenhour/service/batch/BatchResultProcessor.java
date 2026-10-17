@@ -9,15 +9,20 @@ import com.anthropic.models.messages.TextBlock;
 import com.anthropic.models.messages.Usage;
 import com.anthropic.models.messages.batches.MessageBatchIndividualResponse;
 import com.anthropic.models.messages.batches.MessageBatchResult;
+import com.gregochr.goldenhour.entity.BluebellExposure;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchType;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.PipelineRunEntity;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
+import com.gregochr.goldenhour.model.CacheDiagnostics;
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.service.EvaluationFailure;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.repository.PipelineRunRepository;
 import com.gregochr.goldenhour.service.CostCalculator;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.evaluation.AuroraResultHandler;
@@ -71,6 +76,7 @@ public class BatchResultProcessor {
     private final ForecastResultHandler forecastResultHandler;
     private final AuroraResultHandler auroraResultHandler;
     private final EvaluationAbandonmentService evaluationAbandonmentService;
+    private final PipelineRunRepository pipelineRunRepository;
 
     /**
      * Constructs the batch result processor.
@@ -87,6 +93,11 @@ public class BatchResultProcessor {
      * @param evaluationAbandonmentService R7(a) event-driven sweep: stamps ABANDONED every
      *                               still-PENDING {@code forecast_evaluation} row this
      *                               forecast batch's requests never scored
+     * @param pipelineRunRepository  round 12: resolves a forecast batch's orchestrated cycle's own
+     *                               {@code triggerTime} — the submission instant stamped onto
+     *                               every result this batch produces, shared identically by every
+     *                               batch (including a retry) the same cycle submits. See {@link
+     *                               #resolveSubmissionInstant}
      */
     public BatchResultProcessor(AnthropicClient anthropicClient,
             ForecastBatchRepository batchRepository,
@@ -95,7 +106,8 @@ public class BatchResultProcessor {
             CostCalculator costCalculator,
             ForecastResultHandler forecastResultHandler,
             AuroraResultHandler auroraResultHandler,
-            EvaluationAbandonmentService evaluationAbandonmentService) {
+            EvaluationAbandonmentService evaluationAbandonmentService,
+            PipelineRunRepository pipelineRunRepository) {
         this.anthropicClient = anthropicClient;
         this.batchRepository = batchRepository;
         this.locationRepository = locationRepository;
@@ -104,6 +116,7 @@ public class BatchResultProcessor {
         this.forecastResultHandler = forecastResultHandler;
         this.auroraResultHandler = auroraResultHandler;
         this.evaluationAbandonmentService = evaluationAbandonmentService;
+        this.pipelineRunRepository = pipelineRunRepository;
     }
 
     /**
@@ -142,6 +155,12 @@ public class BatchResultProcessor {
         // region cache entry, never replaced — a bluebell mini-batch carries only the bluebell
         // sites of a region, so a replace would wipe that region's sky locations.
         Map<String, List<BriefingEvaluationResult>> bluebellByKey = new HashMap<>();
+        // The recombination decision (average onto a prior sky entry, or stand alone) must key on
+        // the location's ACTUAL exposure, not on the shape of whatever is sitting in the cache —
+        // BriefingEvaluationResult carries no exposure field, so it is captured here, at the one
+        // point in the pipeline where the LocationEntity is still in hand, and carried alongside
+        // bluebellByKey rather than being re-derived (or guessed) downstream.
+        Map<String, BluebellExposure> bluebellExposureByLocation = new HashMap<>();
         Map<String, List<BriefingEvaluationResult>> woodlandByKey = new HashMap<>();
         int succeeded = 0;
         int errored = 0;
@@ -149,13 +168,14 @@ public class BatchResultProcessor {
         long totalOutput = 0;
         long totalCacheRead = 0;
         long totalCacheCreate = 0;
+        long totalCacheCreate1h = 0;
         String firstModelId = null;
         Map<String, Integer> errorTypeCounts = new HashMap<>();
         boolean firstError = true;
 
         ResultContext context = ResultContext.forBatch(
                 batch.getJobRunId(), batch.getAnthropicBatchId(),
-                batch.getPipelineRunId(), null);
+                batch.getPipelineRunId(), resolveSubmissionInstant(batch), null);
 
         try (var streamResp = anthropicClient.messages().batches()
                 .resultsStreaming(batch.getAnthropicBatchId())) {
@@ -180,8 +200,7 @@ public class BatchResultProcessor {
                     }
                     errorTypeCounts.merge(detail[0], 1, Integer::sum);
                     errored++;
-                    inlineFailureLog(context, customId,
-                            detail[0].toUpperCase(), detail[0], detail[1], null, null);
+                    inlineFailureLog(context, customId, detail[0], detail[1], null, null);
                     continue;
                 }
 
@@ -189,10 +208,33 @@ public class BatchResultProcessor {
                 if (message == null) {
                     LOG.warn("Forecast batch: no message for '{}'", customId);
                     errored++;
-                    inlineFailureLog(context, customId, "NO_MESSAGE",
+                    inlineFailureLog(context, customId,
                             "extraction_error", "succeeded but no message", null, null);
                     continue;
                 }
+
+                // Usage is accumulated BEFORE any stop-reason rejection below: a refused or
+                // truncated response was still billed, so its tokens belong in the batch totals
+                // and on its api_call_log row.
+                if (firstModelId == null) {
+                    firstModelId = message.model().asString();
+                }
+
+                Usage usage = message.usage();
+                long input = usage.inputTokens();
+                long output = usage.outputTokens();
+                long cacheRead = usage.cacheReadInputTokens().orElse(0L);
+                long cacheCreate = usage.cacheCreationInputTokens().orElse(0L);
+                long cacheCreate1h = TokenUsage.oneHourCacheWrite(usage);
+                LOG.info("Batch token usage [{}]: input={}, output={}, cacheRead={}, cacheCreate={}",
+                        customId, input, output, cacheRead, cacheCreate);
+                totalInput += input;
+                totalOutput += output;
+                totalCacheRead += cacheRead;
+                totalCacheCreate += cacheCreate;
+                totalCacheCreate1h += cacheCreate1h;
+                EvaluationModel responseModel = resolveEvaluationModel(message.model().asString());
+                TokenUsage responseUsage = TokenUsage.from(usage);
 
                 // Reject a max_tokens truncation as a failure, not a partial success. The
                 // parser's regex-salvage fallback can reconstruct a valid-looking evaluation
@@ -205,10 +247,24 @@ public class BatchResultProcessor {
                 if (StopReason.MAX_TOKENS.equals(message.stopReason().orElse(null))) {
                     LOG.warn("Forecast batch: response truncated at max_tokens for '{}'", customId);
                     errored++;
-                    inlineFailureLog(context, customId, "MAX_TOKENS",
+                    inlineFailureLog(context, customId,
                             "truncation_error",
                             "Claude's response was truncated at the max_tokens limit "
-                                    + "(stop_reason=max_tokens)", null, null);
+                                    + "(stop_reason=max_tokens)", null, null,
+                            responseModel, responseUsage, CacheDiagnostics.from(message));
+                    continue;
+                }
+
+                // A refusal arrives as a succeeded batch result (stop_reason=refusal), so it
+                // is failed here under its own recognisable error type instead of reaching
+                // the parser as an empty or partial reply.
+                if (StopReason.REFUSAL.equals(message.stopReason().orElse(null))) {
+                    LOG.warn("Forecast batch: Claude refused '{}'", customId);
+                    errored++;
+                    inlineFailureLog(context, customId,
+                            EvaluationFailure.TYPE_REFUSAL,
+                            "Claude refused to evaluate this forecast (stop_reason=refusal)",
+                            null, null, responseModel, responseUsage, CacheDiagnostics.from(message));
                     continue;
                 }
 
@@ -216,26 +272,10 @@ public class BatchResultProcessor {
                 if (text == null) {
                     LOG.warn("Forecast batch: no text content for '{}'", customId);
                     errored++;
-                    inlineFailureLog(context, customId, "NO_TEXT",
+                    inlineFailureLog(context, customId,
                             "extraction_error", "no text content blocks", null, null);
                     continue;
                 }
-
-                if (firstModelId == null) {
-                    firstModelId = message.model().asString();
-                }
-
-                Usage usage = message.usage();
-                long input = usage.inputTokens();
-                long output = usage.outputTokens();
-                long cacheRead = usage.cacheReadInputTokens().orElse(0L);
-                long cacheCreate = usage.cacheCreationInputTokens().orElse(0L);
-                LOG.info("Batch token usage [{}]: input={}, output={}, cacheRead={}, cacheCreate={}",
-                        customId, input, output, cacheRead, cacheCreate);
-                totalInput += input;
-                totalOutput += output;
-                totalCacheRead += cacheRead;
-                totalCacheCreate += cacheCreate;
 
                 ParsedCustomId parsed;
                 try {
@@ -243,7 +283,7 @@ public class BatchResultProcessor {
                 } catch (IllegalArgumentException e) {
                     LOG.warn("Forecast batch: malformed customId '{}', skipping", customId);
                     errored++;
-                    inlineFailureLog(context, customId, "MALFORMED_ID",
+                    inlineFailureLog(context, customId,
                             "parse_error", "malformed customId", null, null);
                     continue;
                 }
@@ -254,15 +294,16 @@ public class BatchResultProcessor {
                 switch (parsed) {
                     case ParsedCustomId.Forecast f ->
                         identity = new ForecastIdentity(
-                                f.locationId(), f.date(), f.targetType(), f.evalRowId());
+                                f.locationId(), f.date(), f.targetType(), f.evalRowId(),
+                                f.forced());
                     case ParsedCustomId.Bluebell b -> {
                         identity = new ForecastIdentity(
-                                b.locationId(), b.date(), b.targetType(), null);
+                                b.locationId(), b.date(), b.targetType(), null, b.forced());
                         isBluebell = true;
                     }
                     case ParsedCustomId.Woodland w -> {
                         identity = new ForecastIdentity(
-                                w.locationId(), w.date(), w.targetType(), null);
+                                w.locationId(), w.date(), w.targetType(), null, w.forced());
                         isWoodland = true;
                     }
                     case ParsedCustomId.Jfdi j ->
@@ -279,7 +320,7 @@ public class BatchResultProcessor {
                         LOG.warn("Forecast batch: aurora customId '{}' in forecast batch, "
                                 + "skipping", customId);
                         errored++;
-                        inlineFailureLog(context, customId, "MALFORMED_ID",
+                        inlineFailureLog(context, customId,
                                 "parse_error", "aurora customId in forecast batch",
                                 null, null);
                         continue;
@@ -294,17 +335,17 @@ public class BatchResultProcessor {
                     LOG.warn("Forecast batch: location {} not found for customId '{}', skipping",
                             identity.locationId(), customId);
                     errored++;
-                    inlineFailureLog(context, customId, "LOCATION_NOT_FOUND",
+                    inlineFailureLog(context, customId,
                             "lookup_error",
                             "location " + identity.locationId() + " not found",
                             identity.date(), identity.targetType());
                     continue;
                 }
 
-                TokenUsage tokens = new TokenUsage(input, output, cacheCreate, cacheRead);
+                TokenUsage tokens = new TokenUsage(input, output, cacheCreate, cacheRead, cacheCreate1h);
                 EvaluationModel model = resolveEvaluationModel(message.model().asString());
                 ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
-                        customId, text, tokens, model);
+                        customId, text, tokens, model, CacheDiagnostics.from(message));
 
                 Optional<BatchSuccess> success;
                 if (isBluebell) {
@@ -322,6 +363,8 @@ public class BatchResultProcessor {
                     Map<String, List<BriefingEvaluationResult>> sink;
                     if (isBluebell) {
                         sink = bluebellByKey;
+                        bluebellExposureByLocation.put(
+                                location.getName(), location.getBluebellExposure());
                     } else if (isWoodland) {
                         sink = woodlandByKey;
                     } else {
@@ -343,12 +386,17 @@ public class BatchResultProcessor {
             // Flushing here is safe precisely because these writes MERGE rather than replace —
             // the same property that lets coastal, inland, bluebell and woodland buckets share a
             // region key. A partial flush therefore adds what it has and disturbs nothing else.
-            int flushed = flushAccumulated(byKey, bluebellByKey, woodlandByKey);
+            int flushed = flushAccumulated(
+                    byKey, bluebellByKey, bluebellExposureByLocation, woodlandByKey);
             LOG.error("Forecast batch: failed to stream results for {} after {} succeeded — "
                             + "flushed {} cache key(s) before failing: {}",
                     batch.getAnthropicBatchId(), succeeded, flushed, e.getMessage(), e);
             batch.setSucceededCount(succeeded);
             batch.setErroredCount(errored);
+            // Responses streamed before the failure were billed: cost them on the batch so the
+            // job run is completed with that cost rather than as free.
+            persistTokenUsage(batch, totalInput, totalOutput, totalCacheRead, totalCacheCreate,
+                    totalCacheCreate1h, firstModelId);
             markFailed(batch, "Failed to stream results after " + succeeded
                     + " succeeded (" + flushed + " cache keys flushed): " + e.getMessage());
             // R7(a): every response streamed before the failure either scored its row (R5) or is
@@ -390,7 +438,7 @@ public class BatchResultProcessor {
         // Merging costs a stale location lingering in a region entry until that key ages out;
         // replacing costs a paid-for evaluation. The retry path has merged for exactly this reason
         // since it was written.
-        flushAccumulated(byKey, bluebellByKey, woodlandByKey);
+        flushAccumulated(byKey, bluebellByKey, bluebellExposureByLocation, woodlandByKey);
 
         LOG.info("Forecast batch complete: batchId={}, {} succeeded, {} errored, {} cache keys written "
                         + "({} sky + {} bluebell + {} woodland)",
@@ -404,7 +452,7 @@ public class BatchResultProcessor {
         batch.setStatus(succeeded > 0 ? BatchStatus.COMPLETED : BatchStatus.FAILED);
 
         persistTokenUsage(batch, totalInput, totalOutput, totalCacheRead, totalCacheCreate,
-                firstModelId);
+                totalCacheCreate1h, firstModelId);
 
         batchRepository.save(batch);
         if (batch.getJobRunId() != null) {
@@ -426,11 +474,13 @@ public class BatchResultProcessor {
         com.gregochr.goldenhour.entity.AlertLevel level =
                 com.gregochr.goldenhour.entity.AlertLevel.QUIET;
         String auroraModelId = null;
+        CacheDiagnostics auroraDiagnostics = CacheDiagnostics.EMPTY;
         String customId = null;
         long totalInput = 0;
         long totalOutput = 0;
         long totalCacheRead = 0;
         long totalCacheCreate = 0;
+        long totalCacheCreate1h = 0;
 
         try (var streamResp = anthropicClient.messages().batches()
                 .resultsStreaming(batch.getAnthropicBatchId())) {
@@ -453,15 +503,28 @@ public class BatchResultProcessor {
                 if (message != null) {
                     rawResponse = extractTextFromMessage(message);
                     auroraModelId = message.model().asString();
+                    auroraDiagnostics = CacheDiagnostics.from(message);
 
                     Usage usage = message.usage();
                     totalInput = usage.inputTokens();
                     totalOutput = usage.outputTokens();
                     totalCacheRead = usage.cacheReadInputTokens().orElse(0L);
                     totalCacheCreate = usage.cacheCreationInputTokens().orElse(0L);
+                    totalCacheCreate1h = TokenUsage.oneHourCacheWrite(usage);
                     LOG.info("Batch token usage [{}]: input={}, output={}, cacheRead={}, "
                             + "cacheCreate={}", customId, totalInput, totalOutput,
                             totalCacheRead, totalCacheCreate);
+
+                    // A refused or truncated aurora answer was still billed, so its usage is
+                    // costed on the batch and logged on a failed row before the batch is
+                    // failed. A truncated array must never reach the parser, for any model.
+                    StopReason stop = message.stopReason().orElse(null);
+                    if (StopReason.REFUSAL.equals(stop) || StopReason.MAX_TOKENS.equals(stop)) {
+                        failAuroraRejectedResponse(batch, customId, message, stop,
+                                totalInput, totalOutput, totalCacheRead, totalCacheCreate,
+                                totalCacheCreate1h);
+                        return;
+                    }
                 }
 
                 String[] parts = customId.split("-", 3);
@@ -490,13 +553,17 @@ public class BatchResultProcessor {
         ResultContext context = ResultContext.forBatch(
                 batch.getJobRunId(), batch.getAnthropicBatchId(), null);
         EvaluationModel model = resolveEvaluationModel(auroraModelId);
-        TokenUsage tokens = new TokenUsage(totalInput, totalOutput, totalCacheCreate, totalCacheRead);
+        TokenUsage tokens = new TokenUsage(totalInput, totalOutput, totalCacheCreate, totalCacheRead,
+                totalCacheCreate1h);
         ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
-                customId, rawResponse, tokens, model);
+                customId, rawResponse, tokens, model, auroraDiagnostics);
 
         AuroraBatchOutcome handlerResult =
                 auroraResultHandler.processBatchResponse(level, outcome, context);
         if (!handlerResult.success()) {
+            // The response was billed whatever the handler made of it.
+            persistTokenUsage(batch, totalInput, totalOutput, totalCacheRead, totalCacheCreate,
+                    totalCacheCreate1h, auroraModelId);
             markFailed(batch, handlerResult.failureReason());
             return;
         }
@@ -510,7 +577,7 @@ public class BatchResultProcessor {
         batch.setStatus(BatchStatus.COMPLETED);
 
         persistTokenUsage(batch, totalInput, totalOutput, totalCacheRead, totalCacheCreate,
-                auroraModelId);
+                totalCacheCreate1h, auroraModelId);
 
         batchRepository.save(batch);
         if (batch.getJobRunId() != null) {
@@ -521,22 +588,70 @@ public class BatchResultProcessor {
     }
 
     /**
+     * Resolves the submission instant to stamp onto every {@link BriefingEvaluationResult} this
+     * batch produces (round 12) — {@code BriefingEvaluationResult#submittedAt}'s own javadoc has
+     * the full rule this backs; here only how the instant is FOUND.
+     *
+     * <p>For a batch belonging to an orchestrated cycle, that is the cycle's own {@code
+     * PipelineRunEntity#getTriggerTime()} — set once, at cycle start, and never updated — rather
+     * than this batch's own {@link ForecastBatchEntity#getSubmittedAt()}. The two differ in
+     * practice: {@code submitBuckets} submits the near/far, coastal/inland, bluebell and woodland
+     * lanes as up to six SEPARATE Anthropic batch-create calls, each stamping its own {@code
+     * submittedAt} at its own {@code Instant.now()}, seconds or more apart — so an OPEN_FELL
+     * candidate's sky and bluebell batches would almost never carry an equal {@code submittedAt}
+     * even though both belong to the same cycle. Reading the shared pipeline-run instant instead
+     * makes every batch of one cycle — including a {@code is_retry} batch, which carries the SAME
+     * {@code pipelineRunId} as the precursor it retries — agree on ONE instant by construction, so
+     * {@code BriefingEvaluationService.recombineBluebell}'s same-cycle test can be a plain equality
+     * check rather than a tolerance window.
+     *
+     * <p>Falls back to the batch's own {@code submittedAt} when {@code pipelineRunId} is null (an
+     * ad-hoc submission outside any cycle — a region-filtered admin batch, JFDI, force-submit) or
+     * when the pipeline run row is somehow missing (defensive; should not happen in practice, since
+     * the row is created before any batch that references it).
+     *
+     * @param batch the ended batch being processed
+     * @return the submission instant to stamp on this batch's results
+     */
+    private Instant resolveSubmissionInstant(ForecastBatchEntity batch) {
+        Long pipelineRunId = batch.getPipelineRunId();
+        if (pipelineRunId == null) {
+            return batch.getSubmittedAt();
+        }
+        return pipelineRunRepository.findById(pipelineRunId)
+                .map(PipelineRunEntity::getTriggerTime)
+                .orElse(batch.getSubmittedAt());
+    }
+
+    /**
      * Logs an inline (pre-handler) failure where there is no resolved location entity to
      * dispatch through {@link ForecastResultHandler#parseBatchResponse}. Used for SDK-level
      * problems (no message / no text), malformed custom ids, location lookup misses, and
      * cross-type custom ids.
      */
-    private void inlineFailureLog(ResultContext context, String customId, String status,
+    private void inlineFailureLog(ResultContext context, String customId,
             String errorType, String errorMessage,
             LocalDate targetDate, TargetType targetType) {
+        inlineFailureLog(context, customId, errorType, errorMessage,
+                targetDate, targetType, null, null, null);
+    }
+
+    /**
+     * As above, for a response that was billed but rejected (refusal, truncation): the row
+     * carries the model and the response's real token usage so the failed call is costed.
+     */
+    private void inlineFailureLog(ResultContext context, String customId,
+            String errorType, String errorMessage,
+            LocalDate targetDate, TargetType targetType,
+            EvaluationModel model, TokenUsage tokenUsage, CacheDiagnostics cacheDiagnostics) {
         if (context == null || context.jobRunId() == null) {
             return;
         }
         try {
             jobRunService.logBatchResult(
                     context.jobRunId(), context.batchId(), customId,
-                    false, status, errorType, errorMessage,
-                    null, null, targetDate, targetType);
+                    false, errorType, errorMessage,
+                    model, tokenUsage, targetDate, targetType, null, cacheDiagnostics);
         } catch (Exception e) {
             LOG.warn("Forecast batch: failed to persist api_call_log for customId={}: {}",
                     customId, e.getMessage());
@@ -568,7 +683,7 @@ public class BatchResultProcessor {
      * Persists token usage totals and estimated cost on the batch entity.
      */
     private void persistTokenUsage(ForecastBatchEntity batch, long totalInput, long totalOutput,
-            long totalCacheRead, long totalCacheCreate, String modelId) {
+            long totalCacheRead, long totalCacheCreate, long totalCacheCreate1h, String modelId) {
         if (totalInput == 0 && totalOutput == 0) {
             return;
         }
@@ -580,7 +695,7 @@ public class BatchResultProcessor {
 
         EvaluationModel evalModel = resolveEvaluationModel(modelId);
         TokenUsage tokenUsage = new TokenUsage(totalInput, totalOutput, totalCacheCreate,
-                totalCacheRead);
+                totalCacheRead, totalCacheCreate1h);
         long costMicroDollars = costCalculator.calculateCostMicroDollars(evalModel, tokenUsage, true);
         BigDecimal costUsd = BigDecimal.valueOf(costMicroDollars)
                 .divide(BigDecimal.valueOf(1_000_000), 6, RoundingMode.HALF_UP);
@@ -732,27 +847,66 @@ public class BatchResultProcessor {
      * for. It is safe to call with partial contents because all three writes <b>merge</b> rather
      * than replace — see the caller's comment for why that property exists.
      *
-     * @param byKey         sky results, keyed region|date|event
-     * @param bluebellByKey bluebell results; the merge additionally recombines the rating with a
-     *                      prior sky result for OPEN_FELL sites (C3b)
-     * @param woodlandByKey woodland results; merging preserves the region's sky locations, since
-     *                      the mini-batch holds only its canopy sites
+     * @param byKey                     sky results, keyed region|date|event
+     * @param bluebellByKey             bluebell results; the merge additionally recombines the
+     *                                  rating with a prior sky result for non-WOODLAND sites (C3b)
+     * @param bluebellExposureByLocation each bluebell location's actual {@code BluebellExposure},
+     *                                  captured at parse time so the recombination decision never
+     *                                  has to infer it from the cache
+     * @param woodlandByKey             woodland results; merging preserves the region's sky
+     *                                  locations, since the mini-batch holds only its canopy sites
      * @return the number of cache keys written across all three sinks
      */
     private int flushAccumulated(
             Map<String, List<BriefingEvaluationResult>> byKey,
             Map<String, List<BriefingEvaluationResult>> bluebellByKey,
+            Map<String, BluebellExposure> bluebellExposureByLocation,
             Map<String, List<BriefingEvaluationResult>> woodlandByKey) {
         for (Map.Entry<String, List<BriefingEvaluationResult>> entry : byKey.entrySet()) {
             forecastResultHandler.mergeCacheKey(entry.getKey(), entry.getValue());
         }
         for (Map.Entry<String, List<BriefingEvaluationResult>> entry : bluebellByKey.entrySet()) {
-            forecastResultHandler.mergeBluebellCacheKey(entry.getKey(), entry.getValue());
+            forecastResultHandler.mergeBluebellCacheKey(
+                    entry.getKey(), entry.getValue(), bluebellExposureByLocation);
         }
         for (Map.Entry<String, List<BriefingEvaluationResult>> entry : woodlandByKey.entrySet()) {
             forecastResultHandler.mergeWoodlandCacheKey(entry.getKey(), entry.getValue());
         }
         return byKey.size() + bluebellByKey.size() + woodlandByKey.size();
+    }
+
+    /**
+     * Fails an aurora batch whose single response was refused or cut off at max_tokens: logs a
+     * failed {@code api_call_log} row (error type {@link EvaluationFailure#TYPE_REFUSAL} or
+     * {@code truncation_error}) carrying the response's real usage, costs the batch, and marks
+     * it FAILED.
+     */
+    private void failAuroraRejectedResponse(ForecastBatchEntity batch, String customId,
+            Message message, StopReason stop, long input, long output, long cacheRead,
+            long cacheCreate, long cacheCreate1h) {
+        boolean refusal = StopReason.REFUSAL.equals(stop);
+        String errorType = refusal ? EvaluationFailure.TYPE_REFUSAL : "truncation_error";
+        String reason = refusal
+                ? "Claude refused to interpret the aurora conditions (stop_reason=refusal)"
+                : "Claude's aurora response was truncated at the max_tokens limit "
+                        + "(stop_reason=max_tokens)";
+        LOG.warn("Aurora batch: {} for '{}'", refusal ? "Claude refused" : "response truncated",
+                customId);
+        persistTokenUsage(batch, input, output, cacheRead, cacheCreate, cacheCreate1h,
+                message.model().asString());
+        if (batch.getJobRunId() != null) {
+            try {
+                jobRunService.logBatchResult(batch.getJobRunId(), batch.getAnthropicBatchId(),
+                        customId, false, errorType, reason,
+                        resolveEvaluationModel(message.model().asString()),
+                        TokenUsage.from(message.usage()), null, null, null,
+                        CacheDiagnostics.from(message));
+            } catch (Exception e) {
+                LOG.warn("Aurora batch: failed to persist api_call_log for customId={}: {}",
+                        customId, e.getMessage());
+            }
+        }
+        markFailed(batch, "Aurora batch request failed: " + reason);
     }
 
     private void markFailed(ForecastBatchEntity batch, String reason) {
@@ -762,8 +916,11 @@ public class BatchResultProcessor {
         batchRepository.save(batch);
         if (batch.getJobRunId() != null) {
             int succeeded = batch.getSucceededCount() != null ? batch.getSucceededCount() : 0;
+            // Complete with the cost the batch accrued (set by persistTokenUsage when a billed
+            // response preceded the failure; 0 when nothing was billed).
             jobRunService.completeBatchRun(batch.getJobRunId(), succeeded,
-                    batch.getRequestCount() - succeeded);
+                    batch.getRequestCount() - succeeded,
+                    toMicroDollars(batch.getEstimatedCostUsd()));
         }
     }
 }

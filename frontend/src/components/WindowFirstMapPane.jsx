@@ -1,7 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore,
+} from 'react';
 import PropTypes from 'prop-types';
 import MapView from './MapView.jsx';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
+import { useAsk } from '../context/AskContext.jsx';
+import { buildMapAskContext } from '../utils/askMapContext.js';
 // From `heatGeometry`, NOT `heatField` — this is the whole reason that module exists. `heatField`
 // statically imports `d3-geo`, and this pane is not behind the same `lazy()` boundary the layer is,
 // so importing a bounding-box helper from there fetched a 24 KB projection chunk the moment the Map
@@ -10,16 +14,81 @@ import { latLngBounds } from '../utils/heatGeometry.js';
 import { scopeSpots } from '../utils/planOrigin.js';
 import { beyondRegions } from '../utils/planningArea.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
-import { buildScoreIndex, buildTideAlignmentIndex } from '../utils/locationSheet.js';
+import {
+  buildEclipseIndex, buildScoreIndex, buildSlotIndex, buildTideAlignmentIndex,
+} from '../utils/locationSheet.js';
 import { buildRegionGlossIndex } from '../utils/mapCallout.js';
 import { buildRegionBestIndex } from '../utils/regionsJump.js';
 import { buildRegionVerdictIndex } from '../utils/mapVerdict.js';
+import { foreignModalOver } from '../utils/mapForeignModal.js';
+import { buildWindowTideIndex } from '../utils/mapTideFit.js';
+import { buildPastSolarWindows, pastWindowBest } from '../utils/mapEvents.js';
+import { buildHeatPointSets, buildHeatSpots, forecastScoreRows } from '../utils/heatSpots.js';
+import { windowKey } from '../utils/windowKeys.js';
+import { formatTime } from '../utils/briefingDisplay.js';
+import { useAuth } from '../context/AuthContext.jsx';
+import { useRewind } from '../hooks/useRewind.js';
+import { useOutcomeRatings } from '../hooks/useOutcomeRatings.js';
+import { ratedCountByWindow } from '../utils/outcomeRatingJoin.js';
+import { emptyOlderDay, olderDayState } from '../utils/mapOlderDay.js';
 
 /**
  * The framing pad, in degrees of latitude — the bundle's own figure (`map-tab.js`), and the same
  * one the opening `fitBounds` and the area toggle both use so the two cannot drift apart.
  */
 const FRAME_PAD_DEG = 0.12;
+
+/**
+ * The past-window heat when there is none (O3c). One shared value, so a pane with no past window
+ * keeps the identity of everything built from it — `MapView` is `React.memo`, and a fresh empty
+ * `Map` per call would rebuild the `heat` prop on every re-render of a pane that has nothing to add.
+ */
+const NO_PAST_HEAT = Object.freeze({ windows: [], pointSets: new Map() });
+
+/** Stable empty list: no older days fetched. The `loadedPastDays` prop's default, so an absent prop keeps one identity. */
+const NO_LOADED_DAYS = Object.freeze([]);
+
+/**
+ * Subscribes to everything that can change whether this page is the one in front of the reader:
+ * the document's visibility (a background browser tab) and the window's focus (another app raised
+ * over a still-visible window). Module-level, so `useSyncExternalStore` sees one stable subscribe
+ * and never resubscribes on a render.
+ */
+function subscribePagePresence(onChange) {
+  document.addEventListener('visibilitychange', onChange);
+  window.addEventListener('focus', onChange);
+  window.addEventListener('blur', onChange);
+  return () => {
+    document.removeEventListener('visibilitychange', onChange);
+    window.removeEventListener('focus', onChange);
+    window.removeEventListener('blur', onChange);
+  };
+}
+
+/** Whether this page is in front of the reader: its document visible, and its window focused. */
+function isPageInFront() {
+  return document.visibilityState === 'visible' && document.hasFocus();
+}
+
+/**
+ * Subscribes to a foreign dialog mounting, unmounting, or toggling `aria-modal` anywhere in the
+ * document — a `MutationObserver` on `document.body`'s whole subtree, because a dialog foreign to
+ * this pane never arrives as this component's own descendant: `BottomSheet` portals straight to the
+ * body, and `UserSettingsModal` is a plain sibling of the shell, high above this pane, in `App`. The
+ * `attributes`/`attributeFilter` half catches the OTHER way a dialog changes without an add or a
+ * remove: `Modal`'s `stacked` prop drops a covered dialog's `aria-modal` rather than unmounting it
+ * (`Modal.jsx`), so a dialog stacking over — or coming out from under — another has to be seen too.
+ * Module-level, so `useSyncExternalStore` sees one stable subscribe and never resubscribes on a
+ * render, exactly like {@link subscribePagePresence} above.
+ */
+function subscribeForeignModalDom(onChange) {
+  if (typeof MutationObserver === 'undefined') return () => {};
+  const observer = new MutationObserver(onChange);
+  observer.observe(document.body, {
+    childList: true, subtree: true, attributes: true, attributeFilter: ['aria-modal'],
+  });
+  return () => observer.disconnect();
+}
 
 /**
  * The window-first arm's Map tab: the full map, in the shell's slotted panel.
@@ -36,7 +105,7 @@ const FRAME_PAD_DEG = 0.12;
  *
  * <p>Before map-tab-v2-plan.md §3 P6, this pane mounted its own {@code DateStrip} beside
  * {@code MapView} because the two had different domains: the rail's is up to six briefing events,
- * while the map's is every date {@code GET /api/forecast} returned. P6 folded that browsing job
+ * while the map's is every date with a sunrise or sunset row ({@code colourForecastDates}). P6 folded that browsing job
  * into {@code MapView}'s single window control (`utils/mapEvents.js`'s D-13 rows), so this pane's
  * only remaining job on that front is handing down the full domain as {@code forecastDates} — the
  * same list {@code DateStrip} used to receive as {@code dates}.
@@ -85,7 +154,7 @@ const FRAME_PAD_DEG = 0.12;
  *
  * @param {object}   props
  * @param {Array}    props.locations       the enabled locations the map draws
- * @param {string[]} props.dates           every date the forecast endpoint returned
+ * @param {string[]} props.dates           every date with a sunrise or sunset forecast (`colourForecastDates` — NOT hourly-only dates)
  * @param {string}   props.selectedDate    the date the map is showing
  * @param {Function} props.onSelectDate    hands a new date back to {@code App}
  * @param {object}   [props.handoff]       a handoff the reader ASKED to land on, from the overlay's
@@ -96,13 +165,21 @@ const FRAME_PAD_DEG = 0.12;
  * @param {Map}      [props.briefingScores]
  * @param {Function} [props.onForecastRun]
  * @param {Array}    [props.seasonalFeatures]
- * @param {object}   [props.homeCoords]
+ * @param {object}   [props.homeCoords]    the home; null with no postcode, `undefined` while not
+ *                                         known — no default, see its PropTypes note
  * @param {'temp'|'verdict'} [props.mapColourScale] the active scoreRamp mode, forwarded to
  *                                         `MapView` so a live switch reaches this pane's
  *                                         never-unmounted instance
  * @param {boolean}  [props.colourScaleDefaulted] whether the loaded colour preference was never
  *                                         explicitly chosen — forwarded to `MapView`'s one-time
  *                                         "colours changed" notice
+ * @param {'auto'|'always'|'off'} [props.mapTideMode] the caller's persisted Map tab tide mode
+ *                                         (map-mobile-sheet-plan.md M4) — forwarded to `MapView`
+ *                                         on the same route as `mapColourScale`, above. Unread by
+ *                                         any UI until M5; wired and tested here only.
+ * @param {Function} [props.saveTideMode] `App.jsx`'s `useReaderSettings().saveTideMode` — the
+ *                                         serialised save action, forwarded straight through
+ *                                         alongside `mapTideMode`. Also unread until M5.
  * @param {Function} [props.onOpenSettings]
  * @param {Function} [props.onOpenLocationSheet] the selection callout's two routes into one
  *                                         four-day sheet (map-tab-v2-plan.md §3 P9) —
@@ -118,23 +195,86 @@ const FRAME_PAD_DEG = 0.12;
 export default function WindowFirstMapPane({
   locations, dates, selectedDate, onSelectDate, handoff = null, autoEventType = null,
   briefingScores = new Map(),
-  onForecastRun = null, seasonalFeatures = [], homeCoords = null,
-  mapColourScale = null, colourScaleDefaulted = false, onOpenSettings = null,
-  onOpenLocationSheet = null, onReturnToPlan = null,
+  onForecastRun = null, seasonalFeatures = [], homeCoords,
+  mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null,
+  onOpenSettings = null, onOpenLocationSheet = null, onReturnToPlan = null,
+  onLoadOlderDay = null, olderDayLoading = null, loadedPastDays = NO_LOADED_DAYS,
+  emptyPastDays = NO_LOADED_DAYS,
 }) {
   const wrapRef = useRef(null);
   const [resizeNonce, setResizeNonce] = useState(0);
   /**
-   * Whether this pane is on screen — false while the shell hides its panel, read off the same
-   * observation as `resizeNonce` (the hide reports a 0×0 box). `MapView` gates its status region on
-   * it (Codex, #848): kept mounted under a `hidden` panel, the map went on retrying a failed night,
-   * and a failure while the reader was on another tab filled the region outside the accessibility
-   * tree — so coming back, which only removes `hidden`, announced nothing. Empty while hidden, the
-   * region fills on the return instead, and that is a change it announces; the observer reports the
-   * reveal only once the panel is laid out, so the region is back in the tree before it fills.
-   * Starts true: the shell mounts this pane's contents only when its tab is first selected.
+   * Whether the shell is showing this pane's panel — false while it hides the panel between visits,
+   * read off the same observation as `resizeNonce` (the hide reports a 0×0 box). Starts true: the
+   * shell mounts this pane's contents only when its tab is first selected. Half of `paneVisible`.
    */
-  const [paneVisible, setPaneVisible] = useState(true);
+  const [panelShown, setPanelShown] = useState(true);
+  /**
+   * Whether the page is the one in front of the reader — its document visible AND its window
+   * focused ({@link isPageInFront}), kept current by {@link subscribePagePresence}. The other half of
+   * `paneVisible`, because the panel keeps its box through both kinds of absence and the observer
+   * reports nothing. ⚠️ `useSyncExternalStore`, not a `useState` read at render plus a listener added
+   * in an effect (the first cut, review R3): this pane is `lazy()` behind a Suspense fallback, whose
+   * commit React can hold back for a moment, and a change in that gap reached no listener. The store
+   * reads the page again once it has subscribed.
+   */
+  const pageInFront = useSyncExternalStore(subscribePagePresence, isPageInFront);
+  /**
+   * Whether a dialog FOREIGN to this pane — outside {@code wrapRef.current} — is open anywhere in
+   * the document: the four-day sheet opened as a peek from the callout or the region panel
+   * (`sheetSpot`), or settings. The fourth layer {@code paneVisible}'s own doc named as a residual
+   * when #850 closed the third (the document and the window's focus): neither dialog leaves this
+   * tab, and neither is `inert` behind (O-20 stands on arms A and B), so a failure filling the
+   * region while one is open sits behind a dialog the reader is actually looking at — and WebKit is
+   * understood to drop everything outside a visible `aria-modal` dialog from the accessibility tree
+   * altogether, so a screen reader following that rule would never reach the region at all, only to
+   * find it already full, unannounced, once the dialog closes.
+   *
+   * <p>Read through {@link foreignModalOver} — the SAME predicate every Escape rule and the
+   * outside-press channel on this tab already use (`utils/mapForeignModal.js`'s own doc: "the
+   * dismissal rules on this tab must never disagree") — against {@code wrapRef.current} rather than
+   * `MapView`'s own `mapPaneRef`: this pane's wrapper contains everything `MapView` renders (neither
+   * ever renders `aria-modal` inline — `mapForeignModal.js` verifies that by grep, not citation), and
+   * it exists whether or not `MapView` itself has mounted anything yet.
+   *
+   * <p>A `MutationObserver` ({@link subscribeForeignModalDom}), not a React-state-and-effect pair,
+   * for the identical reason {@link pageInFront} is one: it fires on the actual DOM write, wherever
+   * in the tree a portalled or plain-sibling dialog lands, not on whichever render React gets around
+   * to next — the same lazy-Suspense-commit-gap class of race a state-plus-effect pair already lost
+   * once on this file's own `pageInFront`.
+   */
+  const foreignModalOverPane = useSyncExternalStore(
+    subscribeForeignModalDom, () => foreignModalOver(wrapRef.current),
+  );
+  /**
+   * Whether this pane is on screen for the reader: its panel shown, the page in front, AND no
+   * foreign dialog over it. `MapView` gates its status region on it: the region has to be empty
+   * whenever the reader cannot perceive it, and fill — a change, which is what a live region
+   * announces — when they can. Each layer that can hide it was a review finding on #848 or its
+   * follow-up:
+   * <ul>
+   *   <li><b>The shell's panel</b> (Codex). Kept mounted under a `hidden` panel, the map went on
+   *       retrying a failed night; a failure while the reader was on another app tab filled the
+   *       region outside the accessibility tree, and coming back, which only removes `hidden`,
+   *       announced nothing. The observer reports the reveal only once the panel is laid out, so the
+   *       region is back in the tree before it fills.</li>
+   *   <li><b>The document</b> (Codex, post-merge). With the whole browser tab in the background the
+   *       panel keeps its box, and the region filled while the screen reader was presenting another
+   *       tab — still in the page's tree, but unheard — to be found already full on the return.</li>
+   *   <li><b>The window's focus</b> (review R2). A visible window with another app raised over it —
+   *       side by side, a second monitor — keeps `visibilityState` at `'visible'`, but the screen
+   *       reader is presenting the other app; and the return fires `focus`, not
+   *       `visibilitychange`. The cost, accepted: a trip to the browser's own chrome (the address
+   *       bar) blurs the window too, so a failure still on screen is announced again on the way
+   *       back.</li>
+   *   <li><b>A foreign dialog over the pane</b> ({@link foreignModalOverPane}, above — the sheet peek
+   *       or settings). Neither closes this tab nor leaves the pane `inert` behind it, so without
+   *       this term a failure filled the region while the reader was looking at the dialog instead,
+   *       to be found already full — or never found at all, in an engine that prunes the pane from
+   *       the tree while the dialog stands — once it closes.</li>
+   * </ul>
+   */
+  const paneVisible = panelShown && pageInFront && !foreignModalOverPane;
   /**
    * Warms the four-day sheet's lazy chunk, the Map-tab twin of `WindowFirstShell`'s own
    * {@code warmStackedChunks} (which the PLAN routes get for free, since every one of them is
@@ -158,8 +298,82 @@ export default function WindowFirstMapPane({
   useEffect(() => { import('./LocationFourDaySheet.jsx').catch(() => {}); }, []);
   const {
     heatSpots, heatPointSets, heatStripCards, reachById, homePlace, todayStr,
-    origin, setOrigin, effectiveReachById, scoreRows, scoresLoaded, briefing,
+    origin, setOrigin, effectiveReachById, scoreRows, scoresLoaded, briefing, regions,
   } = useWindowFirstBriefing();
+
+  // ── Ask PhotoCast (F3, docs/engineering/ask-photocast-plan.md §2.7) ─────────────────────────────
+  // This pane is a descendant of `AskProvider` (the shell's tree) and `MapView` is the pane's own
+  // child, so the pane is the one place both ends of the linkage meet: it hands the answer DOWN as
+  // props and takes the Map's scope and window UP into `AskContext`'s registration channel, which the
+  // dock and the tablet sheet read. With no provider (every pane test that predates Ask) the context
+  // default is Ask OFF with no cards, so every value below is the empty one and `MapView` draws
+  // exactly what it did before.
+  const ask = useAsk();
+  const {
+    pickCards, selectedPick, selectionNonce, selectionCallout, answer: askAnswer, selectPick: selectAskPick,
+    registerMapContext, availability: askAvailability, phase: askPhase,
+  } = ask;
+  /**
+   * Whether the phone's peek sheet draws Ask's row (F4): Ask is on, or unreachable and shown disabled
+   * — the shell's own "an entry exists" test, `pending` and `off` draw nothing (and the default
+   * context, with no provider, is `off`: a rewound page and every test that predates Ask). `MapView`
+   * adds the phone and the tab.
+   */
+  const askOffered = askAvailability === 'on' || askAvailability === 'down';
+  /**
+   * The picks `MapView` marks, each already joined to the briefing (`utils/askModel.buildPickCards`):
+   * the rating and verdict are the PICK'S window's, never the active window's. Filter/map over served
+   * facts. Stable while the cards are.
+   */
+  const askPicks = useMemo(() => pickCards.map((card) => ({
+    rank: card.rank,
+    locationId: card.locationId,
+    name: card.name,
+    date: card.date,
+    eventType: card.targetType,
+    shortWindow: card.shortWindow,
+    rating: card.rating,
+    verdict: card.verdict,
+    label: card.label,
+  })), [pickCards]);
+  /**
+   * The window the CHOSEN pick names, with a nonce that is new on every choice — the pick chosen
+   * twice is two choices, and the second must move the map back if the reader has moved it since. The
+   * window-follow channel lives here (and in `MapView`'s own effect), not in `App`: `AppInner` is
+   * ABOVE `AskProvider` and cannot hear the conversation. Not `planHandoff`: see `MapView`.
+   */
+  const chosenCard = pickCards.find((card) => card.rank === selectedPick) ?? null;
+  const chosenDate = chosenCard?.date ?? null;
+  const chosenType = chosenCard?.targetType ?? null;
+  const chosenLocationId = chosenCard?.locationId ?? null;
+  // `callout` and `locationId` ride the nonce (docs/engineering/phone-pick-callout-plan.md §3 P1): the
+  // intent belongs to the choice that made it, so a card choice (callout false) can never inherit a chip's.
+  const askWindow = useMemo(
+    () => (chosenDate && chosenType && selectionNonce > 0
+      ? {
+        date: chosenDate,
+        eventType: chosenType,
+        nonce: selectionNonce,
+        callout: selectionCallout === true,
+        locationId: chosenLocationId,
+      }
+      : null),
+    [chosenDate, chosenType, selectionNonce, selectionCallout, chosenLocationId],
+  );
+  /** The camera fits once per answer that has picks on the map. */
+  const askAnswerId = pickCards.length > 0 ? (askAnswer?.id ?? null) : null;
+  /**
+   * The Map's scope and window, as `AskContext` wants them: names become region ids by name (the one
+   * key the briefing and the regions payload share), and the words for the chips are written once.
+   * `useCallback`'d, not a literal — `MapView` is `React.memo`'d and an unstable function would defeat it.
+   */
+  const onAskContext = useCallback(
+    (facts) => registerMapContext(buildMapAskContext(facts, regions)),
+    [registerMapContext, regions],
+  );
+  // The pane never unmounts while the app lives, but a test (or a future change) can unmount it: the
+  // dock must not go on quoting a scope that no longer exists.
+  useEffect(() => () => registerMapContext(null), [registerMapContext]);
   /**
    * A STRUCTURED handoff, distinguished from the overlay hatch's on the SAME `handoff` channel
    * (doors D2, `plan-to-map-doors-plan.md` §3 D2 task 2) — all of them arrive as `App.jsx`'s
@@ -205,6 +419,14 @@ export default function WindowFirstMapPane({
    * per-keystroke cost to guard against here the way there is behind a dialog's open state.
    */
   const scoreIndex = useMemo(() => buildScoreIndex(scoreRows), [scoreRows]);
+  /**
+   * The briefing slot index — the callout's fallback source for a slot's own served
+   * {@code displayVerdict} where the scores endpoint has no row (unrated-verdict-plan.md U2, Codex
+   * review of #1140, round 2). The SAME {@code buildSlotIndex} the location sheet is handed
+   * (`WindowFirstShell.jsx`), over the SAME {@code briefing.days}, so the callout and the sheet one
+   * step away name an unrated slot alike.
+   */
+  const slotIndex = useMemo(() => buildSlotIndex(briefing?.days), [briefing?.days]);
   /** The reason prose's region-gloss fallback (map-tab-v2-plan.md §3 P9). */
   const regionGlossIndex = useMemo(() => buildRegionGlossIndex(briefing?.days), [briefing?.days]);
   /**
@@ -236,6 +458,154 @@ export default function WindowFirstMapPane({
    */
   const tideAlignmentIndex = useMemo(
     () => buildTideAlignmentIndex(briefing?.days), [briefing?.days],
+  );
+  /**
+   * The map callout's per-location eclipse sight (L7, `docs/engineering/lunar-eclipse-plan.md`
+   * §3 L7) — the SAME `buildEclipseIndex` join the Plan-tab popup's `DawnRace` already reads
+   * (`WindowFirstShell.jsx`'s own `eclipseIndex`), over the SAME {@code briefing.days}, so the map
+   * and the Plan tab can never disagree about one location's own moon geometry for one window.
+   */
+  const eclipseIndex = useMemo(
+    () => buildEclipseIndex(briefing?.days), [briefing?.days],
+  );
+
+  /**
+   * The Map tab's PAST windows (outcome-rating-plan.md §2 #2): every (date, targetType) the
+   * locations hold at least one forecast row for with {@code date <= today}, each with the earliest
+   * {@code solarEventTime} among its rows — the instant that decides whether the window has
+   * elapsed. Built here, from {@code forecastsByDate}, and never from the briefing: the briefing
+   * withdraws a window once it is over, which is exactly when this list starts to matter. The
+   * window control's rows, the pane's rating reads and the forwarding rule are all derived from it
+   * in {@code MapView}; a filter/min over served rows, the already-licensed class (CLAUDE.md
+   * Backend-heavy), reading no rating.
+   */
+  const pastSolarWindows = useMemo(
+    () => buildPastSolarWindows(locations, todayStr), [locations, todayStr],
+  );
+
+  /**
+   * The heat field for the PAST windows (outcome-rating-plan.md §2 #3, O3c) — built HERE, in the
+   * pane, and never in the briefing context. {@code WindowFirstBriefingContext} joins its heat spots
+   * over the SAME {@code upcomingEvents} that build the Plan's cards, rows and region series, so
+   * extending that list would put past windows into the Plan matrix, which the spec forbids.
+   *
+   * <p>Three things come out: a past-only spot catalogue (the roster joined over the past windows
+   * alone), its keyed point sets, and one {@code heat.windows} entry per window. ⚠️ The score rows
+   * are drawn from {@code forecastsByDate} ONLY ({@link forecastScoreRows}), never from
+   * {@code scoreRows}: the scores endpoint serves the latest result for a slot, which for a passed
+   * slot may postdate the event, while the forecast rows for a passed slot are served as of it (once
+   * the as-of-event resolver, plan §2 #4, lands) — the chips and the callout already read them alone
+   * on a past window, and the field must agree.
+   *
+   * <p>A window the briefing still SERVES (a strip card with the same key) is left to the briefing's
+   * own entry and point set: a served and a past entry for one key would let the field read the
+   * wrong ratings. Every entry carries {@code past: true}, which {@code buildMapEvents},
+   * {@code solarRowPredicate} and {@code MapView}'s {@code activeWindowPast} all read as "NOT served"
+   * — without it each past window would turn into an unlabelled served row. The entries are built for
+   * every unserved window with rows, today's not-yet-elapsed one included (that is a D-13 filler
+   * until it elapses): the elapsed test needs the app clock, which a data-keyed memo cannot follow,
+   * so {@code MapView}'s {@code heatWindow} withholds a {@code past} entry unless its own per-render
+   * {@code activeWindowPast} agrees. So {@code heat.windows.filter((w) => w.past)} does NOT mean
+   * "windows that are over": for today it can name one that has not yet elapsed. A reader that needs
+   * that must ask {@code isPastSolarWindow} (or the EV row's {@code past}), never this list. These
+   * entries also carry only the fields the field and the colour key read (no label, time, badges,
+   * tide or {@code confidenceTier}); the past EV row ({@code mapEvents.pastSolarRow}) carries the rest.
+   *
+   * <p>The kernel's haze reads the inferred confidence cap ({@code medium}): a past window carries no
+   * served confidence (plan §4 #5). {@code bestRating} is {@link pastWindowBest}, a client max over
+   * the PAINTED points — the new named member of the licensed Map-tab class.
+   */
+  const pastHeat = useMemo(() => {
+    const served = new Set(heatStripCards.map((card) => card.key));
+    const events = pastSolarWindows
+      .filter((w) => !served.has(windowKey(w.date, w.targetType)))
+      .map(({ date, targetType }) => ({ date, targetType }));
+    if (events.length === 0) return NO_PAST_HEAT;
+    const spots = buildHeatSpots(locations, forecastScoreRows(locations, events), events);
+    return {
+      windows: events.map(({ date, targetType }, index) => {
+        const confidenceTier = resolveConfidence({ confidence: null }, daysOut(date, todayStr));
+        return {
+          key: windowKey(date, targetType),
+          date,
+          targetType,
+          past: true,
+          bestRating: pastWindowBest(spots, index),
+          confidence: null,
+          conf: confidenceScalar(confidenceTier),
+        };
+      }),
+      pointSets: buildHeatPointSets(spots, events),
+    };
+  }, [heatStripCards, pastSolarWindows, locations, todayStr]);
+
+  /**
+   * The reader's own outcome ratings for the past windows (outcome-rating-plan.md §2 #5) — read for
+   * the oldest past date this pane knows of through today, re-read when an older day lands (that
+   * date moves) and when the forecasts refresh ({@code locations} is rebuilt by every refresh), and
+   * handed to {@code MapView} as one object for the callout's rating block. A per-user join of the
+   * reader's own records onto windows and spots, never a derivation over the shared briefing; held
+   * in state alone, so a logout cannot carry them to the next account. Offered to nobody while a
+   * rewind is in force (§5 #6): a rewind is a screenshot of the forecast as it stood.
+   */
+  const { role } = useAuth();
+  const rewound = useRewind() != null;
+  const ratingsFrom = useMemo(() => {
+    const past = (Array.isArray(dates) ? dates : []).filter((d) => d && d < todayStr).sort();
+    return past[0] ?? todayStr ?? null;
+  }, [dates, todayStr]);
+  const outcomeRatings = useOutcomeRatings({
+    role, rewound, from: ratingsFrom, to: todayStr ?? null, refreshKey: locations,
+  });
+
+  /**
+   * How many locations the reader has rated for each PAST window — the window control's and the peek
+   * sheet's {@code {n} rated} (outcome-rating-plan.md §2 #6, O4b), "didn't see it" included. A
+   * per-user join of the reader's own records onto the past windows this pane found, one of the two
+   * new named members of CLAUDE.md's Backend-heavy per-user-join class
+   * ({@code utils/outcomeRatingJoin.js}); never a derivation over the shared briefing. A window the
+   * reader's ratings are not known for (older day still being read, a failed read, a rewind) is
+   * ABSENT from the map, so the menus print nothing rather than a false {@code Not rated}. Today's two
+   * windows are counted too: the elapsed one is a past row whether or not a forecast row carried it.
+   */
+  const ratedCounts = useMemo(() => {
+    if (rewound || !todayStr) return null;
+    return ratedCountByWindow({
+      ratings: outcomeRatings,
+      windows: [
+        ...pastSolarWindows,
+        { date: todayStr, targetType: 'SUNRISE' },
+        { date: todayStr, targetType: 'SUNSET' },
+      ],
+      locations,
+    });
+  }, [rewound, todayStr, outcomeRatings, pastSolarWindows, locations]);
+
+  /**
+   * Whether the window control may offer one more stored past day, and which (outcome-rating-plan.md
+   * §2 #2, O3b): the day before the oldest date held — the forecast list's {@code dates} unioned with
+   * the older days already fetched, an empty one included — never older than T-4, and never while an
+   * admin rewind is in force (the Rewind view turns the clock back, and a rewound GET would be
+   * answered for the rewound clock; plan §5 #6). Absent a loader there is nothing to offer. A
+   * lookup over dates the pane already holds, the already-licensed filter/map class (CLAUDE.md
+   * Backend-heavy): it reads no rating and no server rule beyond the {@code MAX_PAST_DAYS} mirror.
+   */
+  const { canLoadOlder, nextOlderDate } = useMemo(() => {
+    const state = olderDayState({
+      dates, loadedPastDays, todayStr, rewound,
+    });
+    return onLoadOlderDay ? state : { canLoadOlder: false, nextOlderDate: null };
+  }, [dates, loadedPastDays, todayStr, rewound, onLoadOlderDay]);
+  // The most recently loaded older day, when it came back with no rows: the menus say so in the Load
+  // row's place (outcome-rating-plan.md §4 #15, amended 2026-10-17). Null with no loader.
+  const emptyOlderDayDate = useMemo(
+    () => (onLoadOlderDay ? emptyOlderDay({ loadedPastDays, emptyPastDays }) : null),
+    [loadedPastDays, emptyPastDays, onLoadOlderDay],
+  );
+
+  // The briefing's served tide for every window it carries (rendered or not), with its event time.
+  const tideByWindow = useMemo(
+    () => buildWindowTideIndex(briefing?.days, formatTime), [briefing?.days],
   );
 
   /**
@@ -273,11 +643,22 @@ export default function WindowFirstMapPane({
       hasHome,
       spots: heatSpots,
       areaSpots: framed,
-      pointsByKey: heatPointSets,
+      // The briefing's own point sets, plus the PAST windows' (`pastHeat`, built above and never in
+      // the context). With no past window the provider's Map is handed through untouched, so its
+      // identity is the provider's and a test can pin that the pane added nothing.
+      pointsByKey: pastHeat.pointSets.size === 0
+        ? heatPointSets : new Map([...heatPointSets, ...pastHeat.pointSets]),
+      // The briefing's served tide for EVERY window it carries, rendered or not — lent to the
+      // Map tab's D-13 filler rows (`mapEvents.solarRow`), which would otherwise lose the strip.
+      tideByWindow,
       // Every rendered window, away days included, so the selector's six are the strip's six — one
       // shape of the week. An away window simply has no points and paints nothing, which is the
       // same answer the Plan tab's thumbnail gives it.
-      windows: heatStripCards.map((card) => {
+      //
+      // Then the PAST windows, each flagged `past: true` (`pastHeat`'s doc says why that flag is
+      // load-bearing): appended after the served six, never interleaved, so `windows[0..5]` stay
+      // the strip's own.
+      windows: [...heatStripCards.map((card) => {
         // One resolution, two readers: the kernel's haze (`conf`, a scalar) and the window
         // control's EV rows (`confidenceTier`, the tier string `utils/mapEvents.js` carries
         // straight through via `resolveConfidence`'s own fail-soft precedence — see that
@@ -338,6 +719,15 @@ export default function WindowFirstMapPane({
           // need only the kind — their subject is the window — but the region panel's header is
           // about one region, and a medallion there has to know whether it is that one.
           pickRegion: card.pickRegion,
+          // The served `BriefingWindowTide`, folded straight off the card (tide-window-plan.md T6)
+          // — `mapEvents.js#solarRow` reads THIS field as `served.tide` and forwards it verbatim
+          // onto the EV row `MapView`'s tide strip consumes. Without this the chain from
+          // `GET /api/briefing`'s real `window.tide` to the map breaks silently: every earlier link
+          // (`buildWindowCards`, `buildHeatStripCards`) already carries it, so a missing copy HERE
+          // is invisible to any test that stubs `heat.windows` directly rather than building it
+          // through the real fold — exactly how this gap first shipped and was only caught in
+          // browser verification against a live payload.
+          tide: card.tide ?? null,
           // ⚠️ **The verdict is NOT forwarded, and that is the phase's central decision.**
           // `card.verdict` is the Plan tab's answer: the whole roster's top region (or the origin's
           // region when planning from one). The MAP's verdict has to move with the map's own scope
@@ -349,7 +739,7 @@ export default function WindowFirstMapPane({
           // Agreement with the Plan tab is proven by test at whole-catalogue scope
           // (map-landing-plan.md check 8), not by shipping the same value twice.
         };
-      }),
+      }), ...pastHeat.windows],
       areaBounds: framed.length > 0 ? latLngBounds(framed, FRAME_PAD_DEG) : null,
       catalogueBounds: heatSpots.length > 0 ? latLngBounds(heatSpots, FRAME_PAD_DEG) : null,
       // ⚠️ Only while away. `MapView` fetches the per-user drive times itself and the standalone
@@ -371,8 +761,8 @@ export default function WindowFirstMapPane({
        */
       beyondRegionNames: origin ? [] : beyondRegions(heatSpots, reachById),
     };
-  }, [heatSpots, heatPointSets, heatStripCards, reachById, homePlace, todayStr,
-    origin, effectiveReachById]);
+  }, [heatSpots, heatPointSets, heatStripCards, pastHeat, tideByWindow, reachById, homePlace,
+    todayStr, origin, effectiveReachById]);
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -388,12 +778,12 @@ export default function WindowFirstMapPane({
     // to is blank until the next tick corrects it. Ignoring the hide leaves Leaflet's state intact,
     // and the reveal is then a genuine no-op when nothing actually moved.
     //
-    // The same zero box is also what `paneVisible` reads, for the map's status region: see its
-    // declaration.
+    // The same zero box is also what `panelShown` reads, for the map's status region: see
+    // `paneVisible`.
     const ro = new ResizeObserver(() => {
       const { width, height } = el.getBoundingClientRect();
       const shown = !(width === 0 && height === 0);
-      setPaneVisible(shown);
+      setPanelShown(shown);
       if (!shown) return;
       setResizeNonce((n) => n + 1);
     });
@@ -419,6 +809,16 @@ export default function WindowFirstMapPane({
         // mapEvents.js` uses this both to add unscored solar rows beyond the briefing horizon and
         // to decide whether a picked EV row's date may be forwarded via `onSelectDate` at all.
         forecastDates={dates}
+        // The past windows the forecast list holds rows for (outcome-rating-plan.md §2 #2) — what
+        // lets the window control step back onto a window the briefing has already withdrawn.
+        pastSolarWindows={pastSolarWindows}
+        // The older-day fetch (outcome-rating-plan.md §2 #2, O3b): the next day to ask for, and the
+        // loader `App` owns (`useForecasts.loadOlderDay`).
+        canLoadOlder={canLoadOlder}
+        olderDayDate={nextOlderDate}
+        emptyOlderDayDate={emptyOlderDayDate}
+        olderDayLoading={olderDayLoading}
+        onLoadOlderDay={onLoadOlderDay}
         autoEventType={autoEventType}
         // Withheld outright for a structured handoff (`isStructuredHandoff`) — see this component's
         // own `planHandoff` doc note just above: a structured payload's region/location/event ride
@@ -448,11 +848,16 @@ export default function WindowFirstMapPane({
         origin={origin}
         mapColourScale={mapColourScale}
         colourScaleDefaulted={colourScaleDefaulted}
+        // Unread by any UI until M5 (map-mobile-sheet-plan.md) — wired and tested in this phase so
+        // M5 needs no new plumbing of its own.
+        mapTideMode={mapTideMode}
+        saveTideMode={saveTideMode}
         onOpenSettings={onOpenSettings}
         resizeNonce={resizeNonce}
         paneVisible={paneVisible}
         heat={heat}
         scoreIndex={scoreIndex}
+        slotIndex={slotIndex}
         scoresKnown={scoresLoaded}
         regionGlossIndex={regionGlossIndex}
         regionBestIndex={regionBestIndex}
@@ -462,6 +867,7 @@ export default function WindowFirstMapPane({
         // that granularity is the intended one and not a bug to sharpen.
         runId={briefing?.generatedAt ?? null}
         tideAlignmentIndex={tideAlignmentIndex}
+        eclipseIndex={eclipseIndex}
         reachById={reachById}
         onOpenLocationSheet={onOpenLocationSheet}
         // The breadcrumb's `clear` origin reset (D2) — the SAME `setOrigin` the masthead's ⌂ and
@@ -470,6 +876,17 @@ export default function WindowFirstMapPane({
         // `useCallback`'d above, not an inline literal — see that declaration's own doc note.
         onClearOrigin={onClearOrigin}
         onReturnToPlan={onReturnToPlan}
+        askPicks={askPicks}
+        askSelectedRank={selectedPick}
+        onSelectAskPick={selectAskPick}
+        askWindow={askWindow}
+        askAnswerId={askAnswerId}
+        onAskContext={onAskContext}
+        askOffered={askOffered}
+        askPhase={askPhase}
+        panelShown={panelShown}
+        outcomeRatings={rewound ? null : outcomeRatings}
+        ratedCounts={ratedCounts}
       />
     </div>
   );
@@ -498,12 +915,32 @@ WindowFirstMapPane.propTypes = {
   briefingScores: PropTypes.instanceOf(Map),
   onForecastRun: PropTypes.func,
   seasonalFeatures: PropTypes.array,
+  /**
+   * The home: an object, `null` when no postcode is saved, or `undefined` while that is not known
+   * (not answered yet, or the read failed). Deliberately no default — a `= null` would turn
+   * "unknown" into "no postcode", and the ⌂ control answers that with a prompt to set one.
+   */
   homeCoords: PropTypes.object,
   /** The active `scoreRamp` mode — forwarded to `MapView` so its `React.memo` sees a live switch. */
   mapColourScale: PropTypes.oneOf(['temp', 'verdict']),
   /** Whether the colour preference was never explicitly chosen — forwarded to `MapView`'s notice. */
   colourScaleDefaulted: PropTypes.bool,
+  /**
+   * The caller's persisted Map tab tide mode (map-mobile-sheet-plan.md M4) — forwarded to
+   * `MapView` on the same route as `mapColourScale`. Unread by any UI until M5.
+   */
+  mapTideMode: PropTypes.oneOf(['auto', 'always', 'off']),
+  /** The serialised save action for `mapTideMode` — forwarded straight through. Unread until M5. */
+  saveTideMode: PropTypes.func,
   onOpenSettings: PropTypes.func,
   onOpenLocationSheet: PropTypes.func,
   onReturnToPlan: PropTypes.func,
+  /** {@code (date) => void}: fetches one older stored day (`useForecasts.loadOlderDay`). Null offers none. */
+  onLoadOlderDay: PropTypes.func,
+  /** The older day being fetched now, YYYY-MM-DD, or null. */
+  olderDayLoading: PropTypes.string,
+  /** The older days already fetched, empty ones included — they still count toward the T-4 floor. */
+  loadedPastDays: PropTypes.arrayOf(PropTypes.string),
+  /** The subset of {@code loadedPastDays} that came back with no rows (`useForecasts.emptyPastDays`). */
+  emptyPastDays: PropTypes.arrayOf(PropTypes.string),
 };

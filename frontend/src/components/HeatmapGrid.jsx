@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import PropTypes from 'prop-types';
 import { computeCellTier, resolveRegionDisplay } from '../utils/tierUtils.js';
 import { formatTideHighlight } from '../utils/conversions.js';
+import { buildTideAlignmentIndex, lookupForWindow } from '../utils/locationSheet.js';
 import {
   locationTypeIcons, isPoorSlot, slotSortKey, sortedSlotsByTidePriority, weatherCodeToIcon,
   msToMph, formatDriveDuration, formatTime, isEventPast,
@@ -11,6 +12,7 @@ import SlotLocationName from './shared/SlotLocationName.jsx';
 import VerdictPill from './shared/VerdictPill.jsx';
 import ProvisionalMark from './shared/ProvisionalMark.jsx';
 import { daysOut, resolveConfidence, confidenceTreatment, scaleRgbaAlpha } from '../utils/confidenceUtils.js';
+import { VERDICT_LABEL } from '../utils/windowFirstCards.js';
 import { useIsCoarsePointer } from '../hooks/useIsCoarsePointer.js';
 
 // ── Pure helpers ──────────────────────────────────────────────────────────
@@ -110,12 +112,12 @@ function TideChip({ label, muted = false }) {
   );
 }
 
-function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evaluationComplete = false, showAllLocations = false, date = null, targetType = null, onShowOnMap = null }) {
+function LocationSlotList({ slots, alignedOf, driveMap, typeMap, scores = new Map(), evaluationComplete = false, showAllLocations = false, date = null, targetType = null, onShowOnMap = null }) {
   // Rows are collapsed by default — the reasoning sentence is one tap away.
   const [expandedRows, setExpandedRows] = useState(new Set());
-  const visible = sortedSlotsByTidePriority((slots || []).filter((s) => !isPoorSlot(s)));
+  const visible = sortedSlotsByTidePriority((slots || []).filter((s) => !isPoorSlot(s)), alignedOf);
   const standdownSlots = showAllLocations
-    ? sortedSlotsByTidePriority((slots || []).filter(isPoorSlot))
+    ? sortedSlotsByTidePriority((slots || []).filter(isPoorSlot), alignedOf)
     : [];
 
   const hasHiddenStanddowns = !showAllLocations && (slots || []).some(isPoorSlot);
@@ -142,7 +144,7 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evalua
       const ra = sa?.rating ?? 0;
       const rb = sb?.rating ?? 0;
       if (ra !== rb) return rb - ra; // higher score first
-      const diff = slotSortKey(a) - slotSortKey(b);
+      const diff = slotSortKey(a, alignedOf(a)) - slotSortKey(b, alignedOf(b));
       return diff !== 0 ? diff : a.locationName.localeCompare(b.locationName);
     })
     : visible;
@@ -291,7 +293,7 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evalua
 
 // ── HeatmapDrillDown ──────────────────────────────────────────────────────────
 
-function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap, typeMap, onClose, onShowOnMap, evaluationScores = new Map(), isPro = false, showAllLocations = false, onShowAllLocationsChange = null }) {
+function HeatmapDrillDown({ date, regionName, targetType, briefingDays, alignedOf, driveMap, typeMap, onClose, onShowOnMap, evaluationScores = new Map(), isPro = false, showAllLocations = false, onShowAllLocationsChange = null }) {
   const day = briefingDays.find((d) => d.date === date);
 
   const events = [];
@@ -356,6 +358,8 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
       <div className="space-y-0.5">
         {events.map(({ es, region, past }) => {
           const regionDisplay = resolveRegionDisplay(region);
+          // UNRATED is not poor (unrated-verdict-plan.md U2) — the weather passed it; it stays
+          // tappable without the "Include poor locations" toggle, like the triage pass it replaced.
           const regionIsPoor = regionDisplay === 'STAND_DOWN' || regionDisplay === 'AWAITING';
           const tappable = !past && (!regionIsPoor || showAllLocations);
           const eventKey = es.targetType;
@@ -426,6 +430,7 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
               {tappable && (
                 <LocationSlotList
                   slots={region.slots}
+                  alignedOf={(slot) => alignedOf(slot, date, es.targetType)}
                   driveMap={driveMap}
                   typeMap={typeMap}
                   scores={slotScores}
@@ -471,7 +476,7 @@ function computeCellTipPlacement(rect) {
   return { style, alignRight };
 }
 
-function HeatmapCell({ date, regionName, targetType, briefingDays, isActive, onToggle, showAllLocations = false, todayStr = null, noHoverTip = false }) {
+function HeatmapCell({ date, regionName, targetType, briefingDays, alignedOf, isActive, onToggle, showAllLocations = false, todayStr = null, noHoverTip = false }) {
   const cellData = getSubCellData(date, regionName, targetType, briefingDays);
 
   // Hover tooltip placement, portalled to <body> so the plan card's overflow:hidden can't clip
@@ -502,13 +507,18 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, isActive, onT
   const tideHighlight = (region.tideHighlights || []).find((h) =>
     h.toLowerCase().includes('king') || h.toLowerCase().includes('spring') || h.toLowerCase().includes('extra'));
   const tideLabel = tideHighlight ? formatTideHighlight(tideHighlight) : null;
-  const alignedCount = (region.slots || []).filter((s) => s.tideAligned).length;
+  const alignedCount = (region.slots || []).filter((s) => alignedOf(s, date, targetType)).length;
 
   const eventLabel = targetType === 'SUNRISE' ? 'sunrise' : 'sunset';
+  // Explicit UNRATED arm (unrated-verdict-plan.md U2): without it the chain's last branch would
+  // print "Maybe sunrise" for a region no rating has called — the very claim the verdict exists to
+  // stop making. The region-level word, kept contiguous with the event word like the others.
+  const isUnrated = displaySignal === 'UNRATED';
   const verdictLabel = displaySignal === 'STAND_DOWN' ? 'Poor'
     : displaySignal === 'AWAITING' ? 'Not scored'
-      : displaySignal === 'WORTH_IT' ? `Worth it ${eventLabel}`
-        : `Maybe ${eventLabel}`;
+      : isUnrated ? `${VERDICT_LABEL.UNRATED} ${eventLabel}`
+        : displaySignal === 'WORTH_IT' ? `Worth it ${eventLabel}`
+          : `Maybe ${eventLabel}`;
 
   // The cell's accessible NAME. Without it a `role="button"` div is named by its own contents, so
   // the ~30 Poor cells in a typical grid all announced as literally "Poor, button" — and no cell,
@@ -571,19 +581,28 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, isActive, onT
 
   // ── Good / Maybe cell — quiet by default; the gloss sentence moves to hover ──
   const isGo = displaySignal === 'WORTH_IT';
-  const baseCellBg = isGo
-    ? { background: 'rgba(138,174,114,0.18)', borderColor: 'rgba(138,174,114,0.35)' }
-    : { background: 'rgba(224,165,66,0.14)', borderColor: 'rgba(224,165,66,0.28)' };
+  // UNRATED wears the neutral bone wash the AWAITING chips use, never the green/amber pair, and no
+  // confidence decay (below): the word already says "provisional", and a half-decayed neutral
+  // wash would read as a rendering bug (the CONFIDENCE_VERDICTS rationale).
+  const baseCellBg = isUnrated
+    ? { background: 'rgba(242,231,211,0.06)', borderColor: 'rgba(242,231,211,0.16)' }
+    : isGo
+      ? { background: 'rgba(138,174,114,0.18)', borderColor: 'rgba(138,174,114,0.35)' }
+      : { background: 'rgba(224,165,66,0.14)', borderColor: 'rgba(224,165,66,0.28)' };
   // Confidence channel: a far-horizon / wide-spread verdict reads visibly more provisional —
   // dimmed fill + a small marker — WITHOUT touching the star (quality) signal. Fail-soft: a
   // missing backend confidence falls back to a horizon-only tier via resolveConfidence.
   const confidenceTier = resolveConfidence(region, daysOut(date, todayStr));
-  const treatment = confidenceTreatment(confidenceTier);
+  const treatment = isUnrated
+    ? { fillScale: 1, provisional: false }
+    : confidenceTreatment(confidenceTier);
   const cellBg = {
     background: scaleRgbaAlpha(baseCellBg.background, treatment.fillScale),
     borderColor: scaleRgbaAlpha(baseCellBg.borderColor, treatment.fillScale),
   };
-  const verdictColour = isGo ? 'var(--color-verdict-go)' : 'var(--color-verdict-marginal)';
+  const verdictColour = isUnrated
+    ? 'var(--color-plex-text-secondary)'
+    : isGo ? 'var(--color-verdict-go)' : 'var(--color-verdict-marginal)';
 
   const weatherLine = region.regionTemperatureCelsius != null
     ? `${weatherCodeToIcon(region.regionWeatherCode)}${Math.round(region.regionTemperatureCelsius)}°C${region.regionWindSpeedMs != null ? ` ${msToMph(region.regionWindSpeedMs)}mph` : ''}`
@@ -735,6 +754,16 @@ export default function HeatmapGrid({
   // than any mobile breakpoint and still has no hover. One call here rather than one per cell:
   // there are 24+ cells on screen and each would otherwise register its own matchMedia listener.
   const noHoverTip = useIsCoarsePointer();
+  // Whether a slot's tide suits its spot is a served per-window fact (window.tideFacts), not a slot
+  // field: built once per briefing and asked per (slot, window). A window or location with no fact
+  // is not aligned, never "unknown but counted".
+  const tideIndex = useMemo(() => buildTideAlignmentIndex(briefingDays), [briefingDays]);
+  const alignedOf = useMemo(
+    () => (slot, date, targetType) => lookupForWindow(
+      tideIndex, slot?.locationId, slot?.locationName, date, targetType,
+    )?.aligned === true,
+    [tideIndex],
+  );
   const [drillDown, setDrillDown] = useState(null); // { date, regionName, targetType }
   const [showPoorRegions, setShowPoorRegions] = useState(false); // A3a: reveal the pooled poor-only rows
   const [prevPoolPoor, setPrevPoolPoor] = useState(false); // tracks poolPoor to reset the reveal (F4)
@@ -839,11 +868,11 @@ export default function HeatmapGrid({
       const cdA = getSubCellData(date, a, targetType, briefingDays);
       const cdB = getSubCellData(date, b, targetType, briefingDays);
       if (cdA && !cdA.past) {
-        const t = computeCellTier(cdA.region);
+        const t = computeCellTier(cdA.region, (s) => alignedOf(s, date, targetType));
         if (t < bestA) bestA = t;
       }
       if (cdB && !cdB.past) {
-        const t = computeCellTier(cdB.region);
+        const t = computeCellTier(cdB.region, (s) => alignedOf(s, date, targetType));
         if (t < bestB) bestB = t;
       }
     }
@@ -864,7 +893,12 @@ export default function HeatmapGrid({
 
   // ── A3a: pool poor-only region rows behind a reveal ──────────────────────────
   // A region is "all poor" when none of its evaluated cells is a GO/MARGINAL (Worth it / Maybe)
-  // — every cell is STAND_DOWN or AWAITING. We key on the display verdict directly rather than on
+  // — every cell is STAND_DOWN or AWAITING. UNRATED is NOT poor (unrated-verdict-plan.md U2, review
+  // F6): the weather passed it and no trustworthy rating has called it, so a region of nothing but
+  // "Too few rated" cells stays in the lead rows, exactly where the triage pass it replaced put it,
+  // rather than being filed behind "+N regions · all poor" under a label that is false of it. (Its
+  // cells still sort by tier, where UNRATED and STAND_DOWN are both 5 and tie alphabetically.)
+  // We key on the display verdict directly rather than on
   // tier. reorderedRegions is sorted best-first, so poor rows
   // already trail. Split them off and tuck them behind a full-width toggle so a rated-heavy grid
   // isn't mostly dead cells the eye must scan past.
@@ -873,7 +907,7 @@ export default function HeatmapGrid({
       const cd = getSubCellData(date, regionName, targetType, briefingDays);
       if (!cd || cd.past || !cd.region) continue;
       const dv = resolveRegionDisplay(cd.region);
-      if (dv === 'WORTH_IT' || dv === 'MAYBE') return false;
+      if (dv === 'WORTH_IT' || dv === 'MAYBE' || dv === 'UNRATED') return false;
     }
     return true;
   }
@@ -940,6 +974,7 @@ export default function HeatmapGrid({
               regionName={regionName}
               targetType={targetType}
               briefingDays={briefingDays}
+              alignedOf={alignedOf}
               isActive={isActive}
               onToggle={toggleDrillDown}
               showAllLocations={showAllLocations}
@@ -959,6 +994,7 @@ export default function HeatmapGrid({
             regionName={regionName}
             targetType={drillDown.targetType}
             briefingDays={briefingDays}
+            alignedOf={alignedOf}
             driveMap={driveMap}
             typeMap={typeMap}
             onClose={() => setDrillDown(null)}

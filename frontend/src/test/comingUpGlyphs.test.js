@@ -20,6 +20,12 @@ describe('comingUpGlyphs — entryGlyph', () => {
     expect(entryGlyph({ family: 'sun-moon', type: 'supermoon' })).toBe('🌙');
   });
 
+  it('overrides the family glyph for a lunar-eclipse-typed entry, even under eclipse', () => {
+    // The waning-crescent glyph, not the eclipse family's '◐' — the same override shape as
+    // supermoon, since a lunar eclipse's family is 'eclipse' but its own glyph reads as moon.
+    expect(entryGlyph({ family: 'eclipse', type: 'lunar-eclipse' })).toBe('🌘');
+  });
+
   it('returns null for an unknown family and no type override', () => {
     expect(entryGlyph({ family: 'not-a-real-family', type: 'not-a-real-type' })).toBeNull();
   });
@@ -34,6 +40,12 @@ describe('comingUpGlyphs — coincidenceLineGlyph (plan §4.5)', () => {
   it('resolves by the line\'s own served family, the same lookup as everywhere else', () => {
     expect(coincidenceLineGlyph({ family: 'sun-moon', name: 'Supermoon' })).toBe('☀️');
     expect(coincidenceLineGlyph({ family: 'coastal', name: 'Spring tide run' })).toBe('🌊');
+  });
+
+  it('prefers the line\'s served wire type, so the supermoon line is 🌙 like its card', () => {
+    expect(coincidenceLineGlyph({ family: 'sun-moon', name: 'Supermoon', type: 'supermoon' })).toBe('🌙');
+    // A type with no override falls through to the family lookup.
+    expect(coincidenceLineGlyph({ family: 'coastal', name: 'King tide run', type: 'king-tide' })).toBe('🌊');
   });
 
   it('falls back to the name regex only when the line carries no family at all', () => {

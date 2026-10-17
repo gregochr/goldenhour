@@ -213,9 +213,15 @@ export function ringLabelItems({
  *
  * <p>Sorted best score first, then TIDE ALIGNMENT, then nearest (missing values sort last in every
  * tier — README: "so when space runs out it is always the weakest names that go"). Among equal
- * stars, the location whose tide lands on the light for THIS window is the one worth the drive, so
- * it is also the one that keeps its label when space runs out (bundle rev 2's tide-chip tweak,
- * mirroring {@code map-tab-v2.js}'s own {@code tideFit(b,e)?1:0)-(tideFit(a,e)?1:0)} rule). The
+ * stars, the location whose water this window is the one this spot WANTS is worth the drive, so it
+ * is also the one that keeps its label when space runs out (bundle rev 2's tide-chip tweak,
+ * mirroring {@code map-tab-v2.js}'s own {@code tideFit(b,e)?1:0)-(tideFit(a,e)?1:0)} rule) — moved
+ * from the on-the-light axis onto the served PREFERENCE axis by the tide-window increment (T4,
+ * tide-window-plan.md §3): {@code tideTier === 'match'}, not {@code onTheLight}, is the fact worth
+ * a label now (§1 #6/§5 #3 — the two axes disagree exactly where this tiebreak matters). ⚠️ A
+ * {@code 'miss'} does NOT sort below a spot with no tide fact at all — this key only ever PROMOTES
+ * a match; a miss falls through to the drive-time tiebreak like every other tier, never demoted
+ * below the rest (plan §3 T4 item 3, "dimmed, not dropped" applied to the label budget itself). The
  * best-in-region candidate for EVERY region is always included, from the FULL {@code spots} list,
  * not the in-view subset — "a named region always contains a named destination." The in-view
  * subset is then capped at {@link chipBudget}. Identity is the location NAME (this catalogue's
@@ -224,7 +230,7 @@ export function ringLabelItems({
  *
  * @param {object} args
  * @param {Array<object>} args.spots the filtered pool (every field {@code chipCandidates} reads:
- *        {@code name, rid, rating, onTheLight, driveMinutes})
+ *        {@code name, rid, rating, tideTier, driveMinutes})
  * @param {?Set<string>} [args.inViewNames] names currently inside the map's bounds. Null/undefined
  *        treats every spot as in view (a caller with no bounds yet, e.g. before the first
  *        {@code moveend}) — the safe direction is to offer more candidates, never fewer, since the
@@ -232,7 +238,9 @@ export function ringLabelItems({
  * @param {number} args.zoom the map's current zoom, for {@link chipBudget}
  * @param {?string} [args.selectedName] the selected location's name — always kept, and always
  *        moved to the FRONT of the returned order, so a caller can rely on
- *        {@code result[0] === selected} whenever a selection exists and survived the filters.
+ *        {@code result[0] === selected} whenever a selection exists and survived the filters —
+ *        unless Ask PhotoCast's picks are on the map (a spot with {@code askPick}), which go before
+ *        everything, the selection included, and are always offered.
  * @returns {Array<object>} the ordered subset of {@code spots} to offer the placer
  */
 export function chipCandidates({
@@ -242,8 +250,8 @@ export function chipCandidates({
     const ra = Number.isFinite(a.rating) ? a.rating : -Infinity;
     const rb = Number.isFinite(b.rating) ? b.rating : -Infinity;
     if (rb !== ra) return rb - ra;
-    const ta = a.onTheLight ? 1 : 0;
-    const tb = b.onTheLight ? 1 : 0;
+    const ta = a.tideTier === 'match' ? 1 : 0;
+    const tb = b.tideTier === 'match' ? 1 : 0;
     if (tb !== ta) return tb - ta;
     const da = Number.isFinite(a.driveMinutes) ? a.driveMinutes : Infinity;
     const db = Number.isFinite(b.driveMinutes) ? b.driveMinutes : Infinity;
@@ -275,7 +283,17 @@ export function chipCandidates({
     if (selectedSpot) shown.unshift(selectedSpot);
   }
 
-  return shown;
+  // ⚠️ Ask PhotoCast's picks (F3, plan §2.7) go FIRST — ahead of the selected location too, which is
+  // the one thing this function otherwise promises about order — and are all offered, in view or not
+  // and whatever the budget says: the answer named them, and the greedy pass that follows gives an
+  // earlier item its space regardless of what a later one would have preferred. The chosen pick leads
+  // the others, then rank order. A spot is a pick by carrying `askPick`; identity is still the name.
+  const picks = sorted.filter((s) => s.askPick);
+  if (picks.length === 0) return shown;
+  picks.sort((a, b) => (Number(b.askPick.selected === true) - Number(a.askPick.selected === true))
+    || (a.askPick.rank - b.askPick.rank));
+  const pickNames = new Set(picks.map((s) => s.name));
+  return [...picks, ...shown.filter((s) => !pickNames.has(s.name))];
 }
 
 // ── The placement pass ───────────────────────────────────────────────────────────────────────────
@@ -317,4 +335,66 @@ export function placeLabelPass(items, frameWidth, frameHeight, obstacles = []) {
     }
   }
   return placed;
+}
+
+// ── The rated badge's overhang (outcome-rating-plan.md §1 #4, §2 #6, O4b) ─────────────────────────
+
+/**
+ * How far the "you rated this" badge hangs outside a chip's own box: 9px to the right and 7px up
+ * ({@code .wf-rated-badge}'s {@code right: -9px; top: -7px}). The chip is measured by
+ * {@code offsetWidth/offsetHeight}, which an absolutely positioned child does not enlarge, so
+ * without folding this in the placer sees the chip and not the badge and would put a neighbour
+ * under it at any density.
+ */
+export const BADGE_OVERHANG_X = 9;
+export const BADGE_OVERHANG_Y = 7;
+
+/**
+ * Whether a chip or pin draws the rated badge: the spot carries the reader's own record
+ * ({@code spot.myRating}, set only on a PAST window) and is not one of Ask's picks — a pick is built
+ * from the PICK'S own window, which need not be the one on screen, so it speaks for none of the
+ * reader's records here.
+ *
+ * @param {{myRating: ?(number|string), askPick: ?object}} spot
+ * @returns {boolean}
+ */
+export function hasRatedBadge(spot) {
+  return spot.myRating != null && !spot.askPick;
+}
+
+/**
+ * The placer item for a chip that wears the rated badge: its measured box grown to include the
+ * overhang (right and up), the anchor shifted by half of it so the CHIP itself keeps exactly the
+ * place it would have had without a badge ({@link placeLabelPass} centres a box on its anchor).
+ * Pair with {@link chipBoxWithinBadgedBox} once placed.
+ *
+ * @param {{key: string, x: number, y: number, w: number, h: number}} item a measured chip item
+ * @returns {{key: string, x: number, y: number, w: number, h: number}}
+ */
+export function withBadgeOverhang(item) {
+  return {
+    ...item,
+    x: item.x + BADGE_OVERHANG_X / 2,
+    y: item.y - BADGE_OVERHANG_Y / 2,
+    w: item.w + BADGE_OVERHANG_X,
+    h: item.h + BADGE_OVERHANG_Y,
+  };
+}
+
+/**
+ * The chip's own box inside a box {@link placeLabelPass} placed for {@link withBadgeOverhang}: the
+ * reserved box's left edge and bottom, minus the overhang above and to the right. This is where the
+ * chip is DRAWN; the reserved box stays in the placer's committed list so later items keep clear of
+ * the badge.
+ *
+ * @param {{x: number, y: number, w: number, h: number}} box a placed, badge-inclusive box
+ * @returns {{x: number, y: number, w: number, h: number}}
+ */
+export function chipBoxWithinBadgedBox(box) {
+  return {
+    x: box.x,
+    y: box.y + BADGE_OVERHANG_Y,
+    w: box.w - BADGE_OVERHANG_X,
+    h: box.h - BADGE_OVERHANG_Y,
+  };
 }

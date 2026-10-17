@@ -26,6 +26,18 @@ import java.time.LocalDate;
  *                                 each entry's {@code enteredWindow} as two ISO date strings, so
  *                                 the timezone rule stays server-side ({@code ForecastHorizon
  *                                 .civilDate}) and the timestamp column remains the durable truth.
+ * @param mapTideMode              which tide cues the phone Map tab shows — {@code "auto"},
+ *                                 {@code "always"} or {@code "off"}, or null when never chosen.
+ *                                 Raw pass-through, deliberately not defaulted here, matching
+ *                                 {@code mapColourScale}'s reasoning (map-mobile-sheet-plan.md M4).
+ * @param postcodePromptDismissedAt when the caller dismissed the one-time sign-in postcode prompt
+ *                                 ("Not now"), or null when they never have (V181)
+ * @param postcodePromptDue        whether the app should ask this caller for a home postcode now:
+ *                                 {@code true} exactly when they have no home postcode AND have
+ *                                 never dismissed the prompt. Computed on the server for every
+ *                                 response, never inferred by a client, so an existing account
+ *                                 without a postcode is asked once and a postcode saved anywhere
+ *                                 ends the question (login-registration plan §2 #3)
  */
 public record UserSettingsResponse(
         String username,
@@ -38,5 +50,8 @@ public record UserSettingsResponse(
         Integer localRadiusMiles,
         Instant driveTimesCalculatedAt,
         String mapColourScale,
-        LocalDate comingUpLastSeenDate) {
+        LocalDate comingUpLastSeenDate,
+        String mapTideMode,
+        Instant postcodePromptDismissedAt,
+        boolean postcodePromptDue) {
 }

@@ -2,6 +2,7 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import WindowFirstMapPane from '../components/WindowFirstMapPane.jsx';
+import { lookupForWindow } from '../utils/locationSheet.js';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 
 /**
@@ -21,6 +22,15 @@ vi.mock('../components/MapView.jsx', () => ({
     MapStub.renders += 1;
     return <div data-testid="stub-map" />;
   },
+}));
+// The pane mounts the reader's outcome-rating hook (outcome-rating-plan.md §2 #5): it reads the role
+// and asks for the range of ratings — never answered here (a read that never lands changes no state, so
+// no act() noise), since this file is about what the pane hands the map, not about ratings
+// (`useOutcomeRatings.test.js` and `WindowFirstMapPaneRatings.test.jsx` are).
+vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: 'PRO_USER' }) }));
+vi.mock('../api/outcomeRatingApi.js', () => ({
+  fetchMyRatings: vi.fn(() => new Promise(() => {})),
+  putRating: vi.fn(),
 }));
 
 const DATES = ['2026-08-11', '2026-08-12', '2026-08-13', '2026-08-14', '2026-08-15',
@@ -79,6 +89,44 @@ const installResizeObserver = () => {
   global.ResizeObserver = RO;
 };
 
+/**
+ * jsdom implements a real `MutationObserver`, but a fake one — exactly like `installResizeObserver`
+ * above — lets a test fire the "something changed" signal deterministically and synchronously,
+ * rather than racing jsdom's own microtask timing for the real thing. What actually makes
+ * `foreignModalOverPane` true or false is a real DOM read (`foreignModalOver`, against the real
+ * document), so a test still appends and removes a real dialog element; only the NOTIFICATION that
+ * something changed is faked.
+ */
+let notifyForeignModalChange = () => {};
+let foreignModalObserverDisconnected = false;
+const installMutationObserver = () => {
+  foreignModalObserverDisconnected = false;
+  class MO {
+    constructor(cb) { notifyForeignModalChange = () => act(() => cb([])); }
+
+    observe() {}
+
+    disconnect() { foreignModalObserverDisconnected = true; }
+  }
+  global.MutationObserver = MO;
+};
+
+/**
+ * A dialog `foreignModalOver` counts as foreign to any pane — `role="dialog"`, `aria-modal="true"`,
+ * appended as a sibling of the render container rather than inside it, exactly how the four-day
+ * sheet or settings mount (never as this pane's own descendant). Tracked for the shared `afterEach`
+ * so a test that throws before removing its own dialog cannot leave one for the next test to find.
+ */
+let foreignDialogs = [];
+const openForeignDialog = () => {
+  const dialog = document.createElement('div');
+  dialog.setAttribute('role', 'dialog');
+  dialog.setAttribute('aria-modal', 'true');
+  document.body.appendChild(dialog);
+  foreignDialogs.push(dialog);
+  return dialog;
+};
+
 const renderPane = (props = {}) => render(
   <WindowFirstMapPane
     locations={[]}
@@ -93,9 +141,30 @@ beforeEach(() => {
   MapStub.lastProps = null;
   MapStub.renders = 0;
   delete global.ResizeObserver;
+  delete global.MutationObserver;
   triggerResize = () => {};
+  notifyForeignModalChange = () => {};
+  // jsdom's document never has focus; the reader's page does. The pane counts itself on screen only
+  // while it does (`isPageInFront`), so every test starts from the page a reader is looking at.
+  vi.spyOn(document, 'hasFocus').mockReturnValue(true);
 });
-afterEach(() => { delete global.ResizeObserver; vi.restoreAllMocks(); });
+
+/**
+ * jsdom lays nothing out, so every `getBoundingClientRect` is 0×0 — which the component reads as
+ * "hidden". Tests that mean "the box is real" have to say so.
+ */
+const withBox = (w = 800, h = 500) => {
+  const pane = screen.getByTestId('window-first-map-pane');
+  vi.spyOn(pane, 'getBoundingClientRect').mockReturnValue({ width: w, height: h });
+  return pane;
+};
+afterEach(() => {
+  delete global.ResizeObserver;
+  delete global.MutationObserver;
+  foreignDialogs.forEach((d) => d.remove());
+  foreignDialogs = [];
+  vi.restoreAllMocks();
+});
 
 describe('WindowFirstMapPane', () => {
   /**
@@ -116,6 +185,53 @@ describe('WindowFirstMapPane', () => {
       expect(MapStub.lastProps.forecastDates).toEqual(DATES);
     });
 
+    it('hands MapView the past windows its locations hold forecast rows for — never the briefing\'s '
+        + '(outcome-rating-plan.md §2 #2)', () => {
+      // The briefing withdraws a window once it is over, which is exactly when the list starts to
+      // matter; the pane builds the input from `forecastsByDate` alone. Today here is DATES[0]
+      // (2026-08-11); the fixture holds yesterday's sunset (two stations), today's sunrise and a
+      // FUTURE sunrise that must not appear.
+      vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue({
+        heatSpots: [], heatPointSets: new Map(), heatStripCards: [], reachById: new Map(),
+        homePlace: null, todayStr: DATES[0], origin: null, setOrigin: vi.fn(),
+        effectiveReachById: new Map(), scoreRows: [], scoresLoaded: true, briefing: null,
+      });
+      const locations = [
+        {
+          id: 1, name: 'A', forecastsByDate: new Map([
+            ['2026-08-10', { sunset: { solarEventTime: '2026-08-10T19:41:00' } }],
+            ['2026-08-11', { sunrise: { solarEventTime: '2026-08-11T05:02:00' } }],
+            ['2026-08-12', { sunrise: { solarEventTime: '2026-08-12T05:04:00' } }],
+          ]),
+        },
+        {
+          id: 2, name: 'B', forecastsByDate: new Map([
+            ['2026-08-10', { sunset: { solarEventTime: '2026-08-10T19:38:00' } }],
+          ]),
+        },
+      ];
+
+      renderPane({ locations });
+
+      expect(MapStub.lastProps.pastSolarWindows).toEqual([
+        { date: '2026-08-10', targetType: 'SUNSET', earliestEventTime: '2026-08-10T19:38:00' },
+        { date: '2026-08-11', targetType: 'SUNRISE', earliestEventTime: '2026-08-11T05:02:00' },
+      ]);
+    });
+
+    it('keeps the past windows\' identity across a re-render that changes nothing they depend on', () => {
+      // MapView is React.memo'd and this pane re-renders on every provider tick; a fresh array each
+      // time would bust the `solarRowExists` memo downstream.
+      const locations = [];
+      const { rerender } = renderPane({ locations });
+      const first = MapStub.lastProps.pastSolarWindows;
+      rerender(
+        <WindowFirstMapPane locations={locations} dates={DATES} selectedDate={DATES[0]}
+          onSelectDate={vi.fn()} />,
+      );
+      expect(MapStub.lastProps.pastSolarWindows).toBe(first);
+    });
+
     it('renders the map, and hands it an empty list, when there are no dates at all', () => {
       // The App-level gate is what normally prevents this; gates get edited, so the pane must
       // still degrade rather than throw.
@@ -131,6 +247,108 @@ describe('WindowFirstMapPane', () => {
       // to assert the absence of any more.)
       renderPane({ selectedDate: null });
       expect(screen.getByTestId('stub-map')).toBeInTheDocument();
+    });
+  });
+
+  /**
+   * The older-day fetch's inputs (outcome-rating-plan.md §2 #2, §3 O3b step 2): whether one more
+   * stored past day can be loaded and which, derived here from the dates the pane holds against the
+   * T-4 floor. Today is DATES[0] (2026-08-11), so T-1 is the 10th, T-3 the 8th and the floor the 7th.
+   */
+  describe('the older-day fetch (O3b)', () => {
+    const onLoadOlderDay = vi.fn();
+    const withToday = () => vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue({
+      heatSpots: [], heatPointSets: new Map(), heatStripCards: [], reachById: new Map(),
+      homePlace: null, todayStr: DATES[0], origin: null, setOrigin: vi.fn(),
+      effectiveReachById: new Map(), scoreRows: [], scoresLoaded: true, briefing: null,
+    });
+    const props = (extra = {}) => ({
+      dates: ['2026-08-09', '2026-08-10', ...DATES], onLoadOlderDay, ...extra,
+    });
+
+    it('offers the day before the oldest held date, and hands MapView the loader unchanged', () => {
+      withToday();
+      renderPane(props());
+      expect(MapStub.lastProps.canLoadOlder).toBe(true);
+      expect(MapStub.lastProps.olderDayDate).toBe('2026-08-08');
+      expect(MapStub.lastProps.onLoadOlderDay).toBe(onLoadOlderDay);
+    });
+
+    it('passes the date being loaded straight through', () => {
+      withToday();
+      renderPane(props({ olderDayLoading: '2026-08-08' }));
+      expect(MapStub.lastProps.olderDayLoading).toBe('2026-08-08');
+    });
+
+    it('with only today held, the next older date is T-1', () => {
+      withToday();
+      renderPane(props({ dates: ['2026-08-11', '2026-08-12'] }));
+      expect(MapStub.lastProps.olderDayDate).toBe('2026-08-10');
+    });
+
+    it('counts a loaded day, an empty one included: T-3 loaded offers T-4, T-4 loaded offers nothing', () => {
+      withToday();
+      renderPane(props({ loadedPastDays: ['2026-08-08'] }));
+      expect(MapStub.lastProps.olderDayDate).toBe('2026-08-07');
+      expect(MapStub.lastProps.canLoadOlder).toBe(true);
+
+      renderPane(props({ loadedPastDays: ['2026-08-08', '2026-08-07'] }));
+      expect(MapStub.lastProps.canLoadOlder).toBe(false);
+      expect(MapStub.lastProps.olderDayDate).toBeNull();
+    });
+
+    it('hands MapView the most recently loaded day only when it came back empty (the line in the Load row\'s place)', () => {
+      withToday();
+      renderPane(props({ loadedPastDays: ['2026-08-08'], emptyPastDays: ['2026-08-08'] }));
+      expect(MapStub.lastProps.emptyOlderDayDate).toBe('2026-08-08');
+
+      renderPane(props({ loadedPastDays: ['2026-08-08', '2026-08-07'], emptyPastDays: ['2026-08-08'] }));
+      expect(MapStub.lastProps.emptyOlderDayDate).toBeNull();
+
+      renderPane(props({ loadedPastDays: ['2026-08-08'] }));
+      expect(MapStub.lastProps.emptyOlderDayDate).toBeNull();
+    });
+
+    it('keeps the empty day at the T-4 floor, where no Load row follows it', () => {
+      withToday();
+      renderPane(props({
+        loadedPastDays: ['2026-08-08', '2026-08-07'], emptyPastDays: ['2026-08-08', '2026-08-07'],
+      }));
+      expect(MapStub.lastProps.canLoadOlder).toBe(false);
+      expect(MapStub.lastProps.emptyOlderDayDate).toBe('2026-08-07');
+    });
+
+    it('names no empty day without a loader', () => {
+      withToday();
+      renderPane(props({ onLoadOlderDay: null, loadedPastDays: ['2026-08-08'], emptyPastDays: ['2026-08-08'] }));
+      expect(MapStub.lastProps.emptyOlderDayDate).toBeNull();
+    });
+
+    it('never asks for anything older than T-4', () => {
+      withToday();
+      renderPane(props({ dates: ['2026-08-07', ...DATES] }));
+      expect(MapStub.lastProps.canLoadOlder).toBe(false);
+      renderPane(props({ dates: ['2026-08-03', ...DATES] }));
+      expect(MapStub.lastProps.canLoadOlder).toBe(false);
+    });
+
+    it('stands down under an admin rewind: no Load row, no fetch (plan section 5 #6)', async () => {
+      const { setRewind } = await import('../utils/rewind.js');
+      withToday();
+      setRewind('2026-08-10T12:00:00.000Z');
+      try {
+        renderPane(props());
+        expect(MapStub.lastProps.canLoadOlder).toBe(false);
+        expect(MapStub.lastProps.olderDayDate).toBeNull();
+      } finally {
+        setRewind(null);
+      }
+    });
+
+    it('offers nothing without a loader', () => {
+      withToday();
+      renderPane(props({ onLoadOlderDay: null }));
+      expect(MapStub.lastProps.canLoadOlder).toBe(false);
     });
   });
 
@@ -168,6 +386,50 @@ describe('WindowFirstMapPane', () => {
       expect(MapStub.lastProps.handoffLocationName).toBeNull();
       expect(MapStub.lastProps.handoffRegion).toBeNull();
       expect(MapStub.lastProps.handoffNonce).toBeNull();
+    });
+
+    it('hands the home down as given — unknown stays unknown, never "no postcode"', () => {
+      // `undefined` is "the settings read has not answered, or failed"; `null` is "no postcode
+      // saved", which `MapView`'s ⌂ answers with a prompt to set one. A `= null` default here would
+      // make every unanswered read that claim (`useReaderSettings`' three states).
+      const home = { lat: 55.17, lon: -1.69 };
+      const { rerender } = renderPane();
+      expect(MapStub.lastProps.homeCoords).toBeUndefined();
+
+      const pane = (homeCoords) => (
+        <WindowFirstMapPane locations={[]} dates={DATES} selectedDate={DATES[0]}
+          onSelectDate={vi.fn()} homeCoords={homeCoords} />
+      );
+      rerender(pane(null));
+      expect(MapStub.lastProps.homeCoords).toBeNull();
+      rerender(pane(home));
+      expect(MapStub.lastProps.homeCoords).toBe(home);
+    });
+
+    it('forwards the Map tab\'s persisted tide mode and its save action (map-mobile-sheet-plan.md '
+        + 'M4) — wired here, unread until M5', () => {
+      const saveTideMode = vi.fn();
+      renderPane({ mapTideMode: 'always', saveTideMode });
+
+      expect(MapStub.lastProps.mapTideMode).toBe('always');
+      expect(MapStub.lastProps.saveTideMode).toBe(saveTideMode);
+    });
+
+    it('defaults the tide mode to auto when App has not passed one', () => {
+      renderPane();
+      expect(MapStub.lastProps.mapTideMode).toBe('auto');
+    });
+
+    it('hands MapView a saved mode on the next render — the live-update `App.jsx`\'s '
+        + '`useReaderSettings` relies on, the same route `mapColourScale` already takes', () => {
+      const { rerender } = renderPane({ mapTideMode: 'auto' });
+      expect(MapStub.lastProps.mapTideMode).toBe('auto');
+
+      rerender(
+        <WindowFirstMapPane locations={[]} dates={DATES} selectedDate={DATES[0]}
+          onSelectDate={vi.fn()} mapTideMode="off" />,
+      );
+      expect(MapStub.lastProps.mapTideMode).toBe('off');
     });
 
     it('forwards a darkSky handoff (D8, plan §6b) — the Coming up dark-sky-spots action', () => {
@@ -275,19 +537,35 @@ describe('WindowFirstMapPane', () => {
       );
       expect(MapStub.lastProps.onClearOrigin).toBe(first);
     });
+
+    // unrated-verdict-plan.md U2, Codex review of #1140 round 2: the callout's fallback source for
+    // a slot the scores endpoint has no row for. Without this prop the callout silently degrades to
+    // "Not scored yet" and every callout test (which hands the index in directly) stays green.
+    it('⚠️ hands MapView the briefing slot index, so the callout can read a slot\'s own verdict', () => {
+      const days = [{
+        date: DATES[0],
+        eventSummaries: [{
+          targetType: 'SUNSET',
+          regions: [{ regionName: 'North East', slots: [{
+            locationId: 7,
+            locationName: 'Bamburgh',
+            solarEventTime: `${DATES[0]}T19:41:00`,
+            displayVerdict: 'UNRATED',
+          }] }],
+        }],
+      }];
+      vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue({
+        heatSpots: [], heatPointSets: new Map(), heatStripCards: [], reachById: new Map(),
+        homePlace: null, todayStr: DATES[0], origin: null, setOrigin: vi.fn(),
+        effectiveReachById: new Map(), scoreRows: [], scoresLoaded: true, briefing: { days },
+      });
+      renderPane();
+      expect(lookupForWindow(MapStub.lastProps.slotIndex, 7, 'Bamburgh', DATES[0], 'SUNSET')
+        ?.displayVerdict).toBe('UNRATED');
+    });
   });
 
   describe('telling Leaflet its box moved', () => {
-    /**
-     * jsdom lays nothing out, so every `getBoundingClientRect` is 0×0 — which the component now
-     * reads as "hidden" and ignores. Tests that mean "the box is real" have to say so.
-     */
-    const withBox = (w = 800, h = 500) => {
-      const pane = screen.getByTestId('window-first-map-pane');
-      vi.spyOn(pane, 'getBoundingClientRect').mockReturnValue({ width: w, height: h });
-      return pane;
-    };
-
     it('observes its own wrapper and bumps the nonce when the box changes', () => {
       // The shell hides a deselected panel with `display: none` rather than unmounting it, so a
       // viewport change while the reader is on another tab — a phone rotating — leaves Leaflet
@@ -325,22 +603,6 @@ describe('WindowFirstMapPane', () => {
       expect(MapStub.lastProps.resizeNonce).toBe(before + 1);
     });
 
-    it('tells the map whether it is on screen, off the same box — false while hidden, true again on the return', () => {
-      // Codex, #848: `MapView` gates its status region on this, so a failure while the reader is on
-      // another tab is announced when they come back rather than into a hidden panel. The hide's
-      // 0×0 box — the one the nonce ignores — is exactly the observation that says so.
-      installResizeObserver();
-      renderPane();
-      expect(MapStub.lastProps.paneVisible).toBe(true);
-      const pane = screen.getByTestId('window-first-map-pane');
-      const rect = vi.spyOn(pane, 'getBoundingClientRect').mockReturnValue({ width: 0, height: 0 });
-      triggerResize();
-      expect(MapStub.lastProps.paneVisible).toBe(false);
-      rect.mockReturnValue({ width: 800, height: 500 });
-      triggerResize();
-      expect(MapStub.lastProps.paneVisible).toBe(true);
-    });
-
     it('disconnects the observer when the pane goes away', () => {
       // The pane DOES unmount on logout (`App` swaps the whole tree for the login page) — so the
       // cleanup is load-bearing rather than tidy.
@@ -358,7 +620,8 @@ describe('WindowFirstMapPane', () => {
       renderPane();
       expect(screen.getByTestId('stub-map')).toBeInTheDocument();
       expect(MapStub.lastProps.resizeNonce).toBe(0);
-      // ...and counts as on screen, which it is whenever it is mounted without one.
+      // ...and counts its panel as shown, with no observer to say otherwise — so, the page being in
+      // front, it is on screen.
       expect(MapStub.lastProps.paneVisible).toBe(true);
     });
 
@@ -367,6 +630,248 @@ describe('WindowFirstMapPane', () => {
       // after the first resize would leave the very first reveal — the common case — unhandled.
       renderPane();
       expect(typeof MapStub.lastProps.resizeNonce).toBe('number');
+    });
+  });
+
+  describe('being on screen for the reader — the panel, the document, the window\'s focus, and a foreign dialog', () => {
+    // `MapView` gates its status region on `paneVisible`: a live region announces a change, so it has
+    // to be empty whenever the reader cannot perceive it and fill when they can. Each layer that can
+    // hide the pane from the reader is pinned alone AND against the others — one flag that every
+    // layer wrote to, the last write winning, passed every single-layer test (review Q1). The page is
+    // faked through spies on jsdom's own getters (`useTodaysLight.test.jsx`'s way), both
+    // `visibilityState` and `hidden` so no reading of it sees an impossible document; the file's
+    // `vi.restoreAllMocks()` undoes them even when an assertion throws.
+    let visibility;
+    let hidden;
+    beforeEach(() => {
+      visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+      hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+    });
+    const setDocument = (state) => { visibility.mockReturnValue(state); hidden.mockReturnValue(state !== 'visible'); };
+    const setFocus = (focused) => { vi.mocked(document.hasFocus).mockReturnValue(focused); };
+    const fire = (target, type) => act(() => { target.dispatchEvent(new Event(type)); });
+    const onScreen = () => MapStub.lastProps.paneVisible;
+
+    it('is off screen while its panel is hidden — the 0×0 box the nonce ignores — and on screen again on the return', () => {
+      // Codex, #848: kept mounted under a `hidden` panel, a failure behind another app tab filled the
+      // region outside the accessibility tree, and the return announced nothing.
+      installResizeObserver();
+      renderPane();
+      expect(onScreen()).toBe(true);
+      const rect = vi.spyOn(screen.getByTestId('window-first-map-pane'), 'getBoundingClientRect')
+        .mockReturnValue({ width: 0, height: 0 });
+      triggerResize();
+      expect(onScreen()).toBe(false);
+      rect.mockReturnValue({ width: 800, height: 500 });
+      triggerResize();
+      expect(onScreen()).toBe(true);
+    });
+
+    it('is off screen while the document is hidden — a background browser tab — and on screen again on the return', () => {
+      // Codex's post-merge review of #848: the panel keeps its box then, so the box alone said "on
+      // screen", and the region filled while the screen reader was presenting another tab.
+      renderPane();
+      expect(onScreen()).toBe(true);
+      setDocument('hidden');
+      fire(document, 'visibilitychange');
+      expect(onScreen()).toBe(false);
+      setDocument('visible');
+      fire(document, 'visibilitychange');
+      expect(onScreen()).toBe(true);
+    });
+
+    it('is off screen while the window is not focused — another app in front of a visible window — and on screen again when it returns', () => {
+      // Review R2: side by side, or on a second monitor, `visibilityState` stays 'visible' while the
+      // screen reader presents the other app — and the return fires `focus`, not `visibilitychange`.
+      renderPane();
+      expect(onScreen()).toBe(true);
+      setFocus(false);
+      fire(window, 'blur');
+      expect(document.visibilityState).toBe('visible');
+      expect(onScreen()).toBe(false);
+      setFocus(true);
+      fire(window, 'focus');
+      expect(onScreen()).toBe(true);
+    });
+
+    it('stays off screen while its panel is hidden, whatever the page does — the panel\'s own return brings it back', () => {
+      installResizeObserver();
+      renderPane();
+      const rect = vi.spyOn(screen.getByTestId('window-first-map-pane'), 'getBoundingClientRect')
+        .mockReturnValue({ width: 0, height: 0 });
+      triggerResize();
+      expect(onScreen()).toBe(false);
+      // The reader, still on the Plan tab, visits another browser tab and comes back.
+      setDocument('hidden');
+      fire(document, 'visibilitychange');
+      setDocument('visible');
+      fire(document, 'visibilitychange');
+      // Broken — one flag both layers write — the page's return said "on screen" with the Map panel
+      // still hidden, and a failure there filled the region unannounced: #848's defect, back.
+      expect(onScreen()).toBe(false);
+      rect.mockReturnValue({ width: 800, height: 500 });
+      triggerResize();
+      expect(onScreen()).toBe(true);
+    });
+
+    it('stays off screen while the page is not in front, whatever the box does — the reader\'s return brings it back', () => {
+      installResizeObserver();
+      renderPane();
+      withBox();
+      setDocument('hidden');
+      fire(document, 'visibilitychange');
+      expect(onScreen()).toBe(false);
+      // A resize while away — a phone rotating in a background tab — reports a real box.
+      triggerResize();
+      // Broken — one flag both layers write — the box said "on screen" with the page still hidden.
+      expect(onScreen()).toBe(false);
+      setDocument('visible');
+      fire(document, 'visibilitychange');
+      expect(onScreen()).toBe(true);
+    });
+
+    it.each([
+      ['a hidden document', () => setDocument('hidden')],
+      ['an unfocused window', () => setFocus(false)],
+    ])('starts off screen when mounted into %s, and comes on screen when the reader arrives', (_, away) => {
+      // A map first mounted with the reader elsewhere must not count as on screen until they arrive,
+      // or a failure before then fills the region unannounced.
+      away();
+      renderPane();
+      expect(onScreen()).toBe(false);
+      setDocument('visible');
+      setFocus(true);
+      fire(document, 'visibilitychange');
+      fire(window, 'focus');
+      expect(onScreen()).toBe(true);
+    });
+
+    it('reads the page again once it has subscribed — a change between the render and the subscription is not lost', () => {
+      // Review R3: this pane is `lazy()` behind a Suspense fallback whose commit React can hold back,
+      // so a tab switch can land after the render has read the page and before any listener exists.
+      // Simulated by the page going away just as the pane's subscription is added (the stub has
+      // rendered by then): no event reaches the new listener.
+      const realAdd = document.addEventListener.bind(document);
+      vi.spyOn(document, 'addEventListener').mockImplementation((type, listener, options) => {
+        if (type === 'visibilitychange' && MapStub.renders > 0) setDocument('hidden');
+        return realAdd(type, listener, options);
+      });
+      renderPane();
+      // Broken — the page read once at render, a listener added after — this still said "on screen".
+      expect(onScreen()).toBe(false);
+    });
+
+    it('stops listening when the pane goes away — every listener it added, removed with the same arguments', () => {
+      // The pane unmounts on logout; a listener left behind would set state on a component that is
+      // gone, for the rest of the page's life. Whole argument lists, options included: a capture flag
+      // on one side only would leave the listener attached.
+      const docAdd = vi.spyOn(document, 'addEventListener');
+      const docRemove = vi.spyOn(document, 'removeEventListener');
+      const winAdd = vi.spyOn(window, 'addEventListener');
+      const winRemove = vi.spyOn(window, 'removeEventListener');
+      const calls = (spy, types) => spy.mock.calls.filter(([type]) => types.includes(type));
+      const { unmount } = renderPane();
+      expect(calls(docAdd, ['visibilitychange'])).toHaveLength(1);
+      expect(calls(winAdd, ['focus', 'blur'])).toHaveLength(2);
+      unmount();
+      expect(calls(docRemove, ['visibilitychange'])).toEqual(calls(docAdd, ['visibilitychange']));
+      expect(calls(winRemove, ['focus', 'blur'])).toEqual(calls(winAdd, ['focus', 'blur']));
+    });
+
+    it('is off screen while a foreign dialog is open over the pane, and on screen again once it closes', () => {
+      // The four-day sheet opened as a peek, or settings, opens without leaving this tab and is not
+      // `inert` behind it (O-20) — so a failure filling the region while one is open sits behind a
+      // dialog the reader is actually looking at, not the map.
+      installMutationObserver();
+      renderPane();
+      expect(onScreen()).toBe(true);
+      const dialog = openForeignDialog();
+      notifyForeignModalChange();
+      expect(onScreen()).toBe(false);
+      dialog.remove();
+      notifyForeignModalChange();
+      expect(onScreen()).toBe(true);
+    });
+
+    it('stays off screen while a foreign dialog is open, whatever the panel does', () => {
+      // One flag every layer writes, the last write winning, passed every single-layer test before
+      // (review Q1) — the same trap this pins for the panel/document/focus trio above.
+      installResizeObserver();
+      installMutationObserver();
+      renderPane();
+      const dialog = openForeignDialog();
+      notifyForeignModalChange();
+      expect(onScreen()).toBe(false);
+      // The panel reveals itself with a real box while the dialog is still open.
+      withBox();
+      triggerResize();
+      expect(onScreen()).toBe(false);
+      dialog.remove();
+      notifyForeignModalChange();
+      expect(onScreen()).toBe(true);
+    });
+
+    it('stays off screen while a foreign dialog is open, whatever the page does', () => {
+      installMutationObserver();
+      renderPane();
+      const dialog = openForeignDialog();
+      notifyForeignModalChange();
+      expect(onScreen()).toBe(false);
+      // The reader's browser tab comes back to front while the dialog is still open.
+      setDocument('hidden');
+      fire(document, 'visibilitychange');
+      setDocument('visible');
+      fire(document, 'visibilitychange');
+      expect(onScreen()).toBe(false);
+      dialog.remove();
+      notifyForeignModalChange();
+      expect(onScreen()).toBe(true);
+    });
+
+    it('starts off screen when mounted with a foreign dialog already open, and comes on screen once it closes', () => {
+      // A map first mounted behind an already-open dialog must not count as on screen until it
+      // closes, or a failure before then fills the region behind it.
+      installMutationObserver();
+      const dialog = openForeignDialog();
+      renderPane();
+      expect(onScreen()).toBe(false);
+      dialog.remove();
+      notifyForeignModalChange();
+      expect(onScreen()).toBe(true);
+    });
+
+    it('does not count a dialog rendered INSIDE the pane\'s own wrapper as foreign', () => {
+      // Containment, not "is any modal open anywhere" — `mapForeignModal.js`'s own rule, mirrored
+      // here rather than re-decided: nothing today renders `aria-modal` inline inside this pane, but
+      // the question this pane asks has to be answered against its OWN root, not against a hardcoded
+      // "nothing is mine" that would treat every dialog anywhere, inline or not, as foreign.
+      installMutationObserver();
+      renderPane();
+      const pane = screen.getByTestId('window-first-map-pane');
+      const dialog = document.createElement('div');
+      dialog.setAttribute('role', 'dialog');
+      dialog.setAttribute('aria-modal', 'true');
+      pane.appendChild(dialog);
+      notifyForeignModalChange();
+      expect(onScreen()).toBe(true);
+      dialog.remove();
+    });
+
+    it('still counts itself on screen where there is no MutationObserver at all, rather than throwing', () => {
+      // jsdom has one; some older engines do not, and this pane must degrade to exactly what it was
+      // before the modal layer existed — on screen, per the panel and the page alone — not fail to
+      // render. `global.MutationObserver` is already absent by default (the outer `beforeEach`).
+      renderPane();
+      expect(screen.getByTestId('stub-map')).toBeInTheDocument();
+      expect(onScreen()).toBe(true);
+    });
+
+    it('disconnects the modal observer when the pane goes away', () => {
+      installMutationObserver();
+      const { unmount } = renderPane();
+      expect(foreignModalObserverDisconnected).toBe(false);
+      unmount();
+      expect(foreignModalObserverDisconnected).toBe(true);
     });
   });
 });

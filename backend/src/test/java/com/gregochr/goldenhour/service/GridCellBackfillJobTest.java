@@ -17,6 +17,7 @@ import java.util.stream.IntStream;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -86,8 +87,9 @@ class GridCellBackfillJobTest {
         assertThat(penshaw.getGridLng()).isEqualTo(-1.5);
         assertThat(roker.getGridLat()).isEqualTo(54.95);
         assertThat(roker.getGridLng()).isEqualTo(-1.35);
-        verify(locationRepository).save(penshaw);
-        verify(locationRepository).save(roker);
+        verify(locationRepository).updateGridCell(penshaw.getId(), 54.9, -1.5);
+        verify(locationRepository).updateGridCell(roker.getId(), 54.95, -1.35);
+        verify(locationRepository, never()).save(any());
     }
 
     @Test
@@ -100,7 +102,7 @@ class GridCellBackfillJobTest {
 
         // The steady state. A nightly job that is normally a no-op must actually cost nothing.
         verifyNoInteractions(locationEnrichmentService);
-        verify(locationRepository, never()).save(any());
+        verify(locationRepository, never()).updateGridCell(anyLong(), anyDouble(), anyDouble());
     }
 
     @Test
@@ -118,8 +120,8 @@ class GridCellBackfillJobTest {
 
         assertThat(bad.hasGridCell()).isFalse();
         assertThat(good.getGridLat()).isEqualTo(54.9);
-        verify(locationRepository, never()).save(bad);
-        verify(locationRepository).save(good);
+        verify(locationRepository, never()).updateGridCell(eq(bad.getId()), anyDouble(), anyDouble());
+        verify(locationRepository).updateGridCell(good.getId(), 54.9, -1.5);
     }
 
     @Test
@@ -140,7 +142,7 @@ class GridCellBackfillJobTest {
         // than today's implementation — an unchecked throw must not take the scheduler thread down
         // or strand the rest of the backlog.
         assertThat(good.getGridLat()).isEqualTo(54.9);
-        verify(locationRepository).save(good);
+        verify(locationRepository).updateGridCell(good.getId(), 54.9, -1.5);
     }
 
     @Test
@@ -160,7 +162,7 @@ class GridCellBackfillJobTest {
         job.runScheduled();
 
         // The one success before the outage is kept...
-        verify(locationRepository).save(first);
+        verify(locationRepository).updateGridCell(first.getId(), 54.1, -1.1);
         // ...and the run stops after the 5th consecutive failure rather than working through the
         // remaining 3, which during an outage is three more pointless calls per night.
         verify(locationEnrichmentService, times(6)).fetchGridCell(anyDouble(), anyDouble());
@@ -191,7 +193,7 @@ class GridCellBackfillJobTest {
         job.runScheduled();
 
         verify(locationEnrichmentService, times(9)).fetchGridCell(anyDouble(), anyDouble());
-        verify(locationRepository).save(success);
+        verify(locationRepository).updateGridCell(success.getId(), 54.1, -1.1);
     }
 
     @Test
@@ -207,15 +209,16 @@ class GridCellBackfillJobTest {
 
         job.runScheduled();
 
-        ArgumentCaptor<LocationEntity> saved = ArgumentCaptor.forClass(LocationEntity.class);
-        verify(locationRepository, times(GridCellBackfillJob.MAX_PER_RUN)).save(saved.capture());
-        assertThat(saved.getAllValues()).hasSize(GridCellBackfillJob.MAX_PER_RUN);
+        verify(locationRepository, times(GridCellBackfillJob.MAX_PER_RUN))
+                .updateGridCell(anyLong(), eq(54.1), eq(-1.1));
         // The tail is untouched, not silently dropped — it is still missing a cell, so the next
         // run's query returns it again.
         assertThat(pending.get(GridCellBackfillJob.MAX_PER_RUN).hasGridCell()).isFalse();
     }
 
+    private long nextId = 1L;
+
     private LocationEntity entity(String name, double lat, double lon) {
-        return LocationEntity.builder().name(name).lat(lat).lon(lon).build();
+        return LocationEntity.builder().id(nextId++).name(name).lat(lat).lon(lon).build();
     }
 }

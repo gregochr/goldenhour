@@ -51,21 +51,25 @@ public final class TopicRarity {
             // else in this table is in the same order of magnitude, which is why it — and only it —
             // clears SOLO_PROMOTION_RANK.
             Map.entry("ECLIPSE", 1),
-            Map.entry("SUPERMOON", 2),
-            Map.entry("EQUINOX", 3),
-            Map.entry("KING_TIDE", 4),
-            Map.entry("AURORA", 5),
-            Map.entry("METEOR", 6),
-            Map.entry("STORM_SURGE", 7),
-            Map.entry("INVERSION", 8),
-            Map.entry("SNOW_TOPS", 9),
-            Map.entry("SNOW_MIST", 10),
-            Map.entry("SNOW_FRESH", 11),
-            Map.entry("DUST", 12),
-            Map.entry("CLEARANCE", 13),
-            Map.entry("BLUEBELL", 14),
-            Map.entry("NLC", 15),
-            Map.entry("SPRING_TIDE", 16));
+            // A lunar eclipse recurs far more often than a deep solar one (the mean UK-visible gap
+            // is ~900 days against the solar eclipse's decades) but still well ahead of every other
+            // kind below it — see lunar-eclipse-plan.md §2.1.
+            Map.entry("LUNAR_ECLIPSE", 2),
+            Map.entry("SUPERMOON", 3),
+            Map.entry("EQUINOX", 4),
+            Map.entry("KING_TIDE", 5),
+            Map.entry("AURORA", 6),
+            Map.entry("METEOR", 7),
+            Map.entry("STORM_SURGE", 8),
+            Map.entry("INVERSION", 9),
+            Map.entry("SNOW_TOPS", 10),
+            Map.entry("SNOW_MIST", 11),
+            Map.entry("SNOW_FRESH", 12),
+            Map.entry("DUST", 13),
+            Map.entry("CLEARANCE", 14),
+            Map.entry("BLUEBELL", 15),
+            Map.entry("NLC", 16),
+            Map.entry("SPRING_TIDE", 17));
 
     private TopicRarity() {
     }

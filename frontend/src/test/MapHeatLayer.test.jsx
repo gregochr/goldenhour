@@ -267,8 +267,8 @@ describe('MapHeatLayer — the paint', () => {
     expect(opts.grid).toBe(6);
     expect(opts.blur).toBe(4);
     expect(opts.conf).toBe(0.5);
-    // P4 RE-PIN: 8500/34/240 → 7200/30/190 (map-tab-v2-plan.md §3 P4).
-    expect(radiusFor).toHaveBeenCalledWith(currentMap, 7200, 30, 190);
+    // P4 RE-PIN: 8500/34/240 → 7200/30/190 (map-tab-v2-plan.md §3 P4); cap 190 → 400 on 2026-10-02.
+    expect(radiusFor).toHaveBeenCalledWith(currentMap, 7200, 30, 400);
   });
 
   it('sizes the radius in real distance, so a mile means a mile at every zoom', async () => {
@@ -306,6 +306,107 @@ describe('MapHeatLayer — the heat bloom (map-tab-v2-plan.md §3 P2)', () => {
     currentMap = makeMap({ panes: markerPanes() });
     await mount();
     expect('bloom' in drawTiles.mock.calls.at(-1)[4]).toBe(false);
+  });
+
+  // The injected ramp and bloom (aurora-heat-plan.md §3 A2). Aurora is NOT a colourMode value.
+  describe('an injected ramp and bloom', () => {
+    const RAMP = () => [1, 2, 3];
+    const BLOOM = { rgb: [120, 255, 170], from: 3.4, a: 150 };
+
+    it('hands the ramp to the kernel, and carries no ramp key at all without one', async () => {
+      currentMap = makeMap({ panes: markerPanes() });
+      await mount({ ramp: RAMP, bloom: BLOOM });
+      expect(drawTiles.mock.calls.at(-1)[4].ramp).toBe(RAMP);
+      await mount();
+      expect('ramp' in drawTiles.mock.calls.at(-1)[4]).toBe(false);
+    });
+
+    it('asks for the bloom with its own colour, gate and strength', async () => {
+      setMode('verdict');
+      currentMap = makeMap({ panes: markerPanes() });
+      await mount({ ramp: RAMP, bloom: BLOOM });
+      const opts = drawTiles.mock.calls.at(-1)[4];
+      expect(opts.bloom).toBe(1);
+      expect(opts.bloomFrom).toBe(3.4);
+      expect(opts.bloomA).toBe(150);
+      expect(opts.bloomRGB).toEqual([120, 255, 170]);
+    });
+
+    it('lets the aurora bloom win over the temperature arm — no half-mixed dials', async () => {
+      // In temperature mode the bare flag would be set with NO dials; the injected bloom must carry
+      // all four keys, so a swapped order of the two arms is caught here.
+      setMode('temp');
+      currentMap = makeMap({ panes: markerPanes() });
+      await mount({ ramp: RAMP, bloom: BLOOM });
+      const opts = drawTiles.mock.calls.at(-1)[4];
+      expect(opts.bloomRGB).toEqual([120, 255, 170]);
+      expect(opts.bloomFrom).toBe(3.4);
+      expect(opts.bloomA).toBe(150);
+    });
+
+    it('with no bloom prop in verdict mode there is still no bloom, whatever ramp is injected', async () => {
+      setMode('verdict');
+      currentMap = makeMap({ panes: markerPanes() });
+      await mount({ ramp: RAMP });
+      const opts = drawTiles.mock.calls.at(-1)[4];
+      expect('bloom' in opts).toBe(false);
+      expect('bloomRGB' in opts).toBe(false);
+    });
+
+    it('a ramp injected without a bloom adds the ramp and no bloom key of any kind (verdict mode)', async () => {
+      setMode('verdict');
+      currentMap = makeMap({ panes: markerPanes() });
+      await mount({ ramp: RAMP, bloom: null });
+      const opts = drawTiles.mock.calls.at(-1)[4];
+      expect(opts.ramp).toBe(RAMP);
+      for (const key of ['bloom', 'bloomFrom', 'bloomA', 'bloomRGB']) expect(key in opts).toBe(false);
+    });
+
+    it('in temperature mode with no injected bloom the bare flag carries none of the aurora dials', async () => {
+      setMode('temp');
+      currentMap = makeMap({ panes: markerPanes() });
+      await mount({ ramp: null, bloom: null });
+      const opts = drawTiles.mock.calls.at(-1)[4];
+      expect(opts.bloom).toBe(1);
+      for (const key of ['bloomFrom', 'bloomA', 'bloomRGB', 'ramp']) expect(key in opts).toBe(false);
+    });
+
+    it('repaints when ONLY the ramp changes', async () => {
+      currentMap = makeMap({ panes: markerPanes() });
+      const { rerender } = await mount({ ramp: RAMP, bloom: BLOOM });
+      const before = drawTiles.mock.calls.length;
+      const OTHER = () => [9, 9, 9];
+      await act(async () => {
+        rerender(<MapHeatLayer points={POINTS} conf={1} ramp={OTHER} bloom={BLOOM} />);
+      });
+      expect(drawTiles.mock.calls.length).toBeGreaterThan(before);
+      expect(drawTiles.mock.calls.at(-1)[4].ramp).toBe(OTHER);
+    });
+
+    it('repaints when ONLY the bloom changes', async () => {
+      currentMap = makeMap({ panes: markerPanes() });
+      const { rerender } = await mount({ ramp: RAMP, bloom: BLOOM });
+      const before = drawTiles.mock.calls.length;
+      await act(async () => {
+        rerender(<MapHeatLayer points={POINTS} conf={1} ramp={RAMP} bloom={{ ...BLOOM, a: 99 }} />);
+      });
+      expect(drawTiles.mock.calls.length).toBeGreaterThan(before);
+      expect(drawTiles.mock.calls.at(-1)[4].bloomA).toBe(99);
+    });
+
+    it('drops the ramp and bloom again when they go back to null (Aurora to Sunset and back)', async () => {
+      currentMap = makeMap({ panes: markerPanes() });
+      const { rerender } = await mount({ ramp: RAMP, bloom: BLOOM });
+      const after = (props) => act(async () => {
+        rerender(<MapHeatLayer points={POINTS} conf={1} {...props} />);
+      });
+      await after({ ramp: null, bloom: null });
+      expect('ramp' in drawTiles.mock.calls.at(-1)[4]).toBe(false);
+      expect('bloomRGB' in drawTiles.mock.calls.at(-1)[4]).toBe(false);
+      await after({ ramp: RAMP, bloom: BLOOM });
+      expect(drawTiles.mock.calls.at(-1)[4].ramp).toBe(RAMP);
+      expect(drawTiles.mock.calls.at(-1)[4].bloomFrom).toBe(3.4);
+    });
   });
 });
 
@@ -423,9 +524,9 @@ describe('MapHeatLayer — throttle, never debounce', () => {
     });
     expect(drawTiles).toHaveBeenCalledTimes(2);
     // The FIELD's own opacity is what tracks the last zoom now (the markers are simply off at
-    // both) — 13 is past `fadeAt`'s band, so the field is at its 0.12 floor. A repaint that kept
+    // both) — 13 is past `fadeAt`'s band, so the field is at its 0.35 floor. A repaint that kept
     // zoom 11's frame would show 1 − 0.88×0.375 = 0.67 here.
-    expect(drawTiles.mock.calls.at(-1)[4].opacity).toBeCloseTo(0.92 * 0.12, 5);
+    expect(drawTiles.mock.calls.at(-1)[4].opacity).toBeCloseTo(0.92 * 0.35, 5);
   });
 
   it('keeps ONE Leaflet subscription across a window change', async () => {
@@ -487,16 +588,16 @@ describe('MapHeatLayer — the zoom handover (D8)', () => {
     // is the Legend indicator's progress fraction now and nothing renders at it; the field's own
     // `heat` half is the one the canvas still reads. (It used to read "above it the markers are
     // whole" — the sentence this change falsified.) Below the band the field is whole;
-    // and the field settles to a 12% wash rather than vanishing — the regional answer is still
+    // and the field settles to a 35% wash rather than vanishing — the regional answer is still
     // true at street level.
     expect(fadeAt(9)).toEqual({ markers: 0, heat: 1 });
     expect(fadeAt(10.4)).toEqual({ markers: 0, heat: 1 });
     expect(fadeAt(12.0).markers).toBe(1);
-    expect(fadeAt(12.0).heat).toBeCloseTo(0.12, 5);
+    expect(fadeAt(12.0).heat).toBeCloseTo(0.35, 5);
     expect(fadeAt(19).markers).toBe(1);
     const mid = fadeAt(11.2);
     expect(mid.markers).toBeCloseTo(0.5, 5);
-    expect(mid.heat).toBeCloseTo(1 - 0.88 * 0.5, 5);
+    expect(mid.heat).toBeCloseTo(1 - 0.65 * 0.5, 5);
   });
 
   it('multiplies the field’s own 0.92 by the zoom fade rather than replacing it', async () => {
@@ -507,9 +608,9 @@ describe('MapHeatLayer — the zoom handover (D8)', () => {
     currentMap = makeMap({ zoom: 13, panes: markerPanes() });
     drawTiles.mockClear();
     await mount();
-    // P4 RE-PIN: floor 0.17 → 0.12 (map-tab-v2-plan.md §3 P4).
+    // P4 RE-PIN: floor 0.17 → 0.12 (map-tab-v2-plan.md §3 P4); 0.12 → 0.35 on 2026-10-02.
     // 2026-09-03: base opacity corrected 0.9 → 0.92 (drift repair, map-tab-v2-plan.md §4).
-    expect(drawTiles.mock.calls[0][4].opacity).toBeCloseTo(0.92 * 0.12, 5);
+    expect(drawTiles.mock.calls[0][4].opacity).toBeCloseTo(0.92 * 0.35, 5);
   });
 
   it('hides the marker panes wholesale at the zoom the tab opens at', async () => {
@@ -611,10 +712,11 @@ describe('MapHeatLayer — the zoom handover (D8)', () => {
   });
 
   it('hands the markers back to the keyboard when it lets go of them', async () => {
-    // The other half, and what keeps AURORA honest: `heatOffered` is false for an aurora window, so
-    // this layer unmounts and the medallions become the tab's ONLY location vocabulary — no chips,
-    // no pins. If `inert` outlived the unmount they would be unreachable by keyboard exactly where
-    // they are the whole answer. Same path covers a tab change and a logout.
+    // The other half: the unmount is the ONLY route back to a reachable medallion. The Plan-tab
+    // overlay never mounts this layer, but a tab change, a logout, or a window that unmounts the
+    // layer (a roster with no join) must not leave `inert` on the markers — they would then be
+    // unreachable by keyboard where they are the whole answer. (Aurora used to be the case that
+    // unmounted it; since aurora heat A2 it paints the field like any other window.)
     currentMap = makeMap({ zoom: 4, panes: markerPanes() });
     const { unmount } = await mount();
     expect(currentMap.panes.markerPane.hasAttribute('inert')).toBe(true);
@@ -631,7 +733,7 @@ describe('MapHeatLayer — the zoom handover (D8)', () => {
     // the new 10.4→12.0 band (that's 11.2 — see "computes the two opacities" above), so the
     // expected value here is recomputed from the formula at this same zoom rather than copied
     // from the old band's coincidentally-round 0.585: t = (11.4−10.4)/1.6 = 0.625,
-    // heat = 1 − 0.88×0.625 = 0.45.
+    // heat = 1 − 0.88×0.625 = 0.45 (floor 0.35 since 2026-10-02: 1 − 0.65×0.625 = 0.59375).
     //
     // ⚠️ The MARKER half of this pin is gone with the medallion fade — the markers are simply off
     // mid-band now, which is what the assertion below says. `fadeAt`'s own `markers` component is
@@ -640,7 +742,7 @@ describe('MapHeatLayer — the zoom handover (D8)', () => {
     await mount();
     expect(currentMap.panes.markerPane.style.opacity).toBe('0');
     // 2026-09-03: base opacity corrected 0.9 → 0.92 (drift repair, map-tab-v2-plan.md §4).
-    expect(drawTiles.mock.calls[0][4].opacity).toBeCloseTo(0.92 * 0.45, 5);
+    expect(drawTiles.mock.calls[0][4].opacity).toBeCloseTo(0.92 * 0.59375, 5);
   });
 
   it('keeps the medallions hidden even while a location is OPEN', async () => {
@@ -700,9 +802,9 @@ describe('MapHeatLayer — the zoom handover (D8)', () => {
   it('hands the marker panes back exactly as it found them when it unmounts', async () => {
     // ⚠️ Since the hide became unconditional this is the ONLY route back to a visible medallion,
     // so it carries the whole "this host does not latch the panes off forever" property on its own
-    // — it is what keeps aurora (where `heatOffered` is false and this layer never mounts), a tab
-    // change and a logout honest. Restoring to '' rather than to '1'/'auto'/'visible' matters: an
-    // inline declaration would keep overriding the stylesheet on a map this layer no longer owns.
+    // — it is what keeps the Plan overlay's medallions (which share the pane), a tab change and a
+    // logout honest. (Aurora used to be the case here, until aurora heat A2 mounted the layer.)
+    // Restoring to '' rather than to '1'/'auto'/'visible' matters: an inline declaration would keep overriding the stylesheet on a map this layer no longer owns.
     currentMap = makeMap({ zoom: 9, panes: markerPanes() });
     const { unmount } = await mount();
     expect(currentMap.panes.markerPane.style.opacity).toBe('0');
@@ -756,22 +858,28 @@ describe('MapHeatLayer — the land clip (map-tab-v2-plan.md §3 P4)', () => {
     HTMLCanvasElement.prototype.getContext = () => makeCanvasCtxStub();
   });
 
-  it('re-tunes the field to the P4 dials — 7200m / 30–190px', async () => {
+  it('re-tunes the field to 7200m / 30–400px (cap 190 → 400, 2026-10-02)', async () => {
     currentMap = makeMap({ zoom: 9, panes: markerPanes() });
     await mount();
-    expect(radiusFor).toHaveBeenCalledWith(currentMap, 7200, 30, 190);
+    expect(radiusFor).toHaveBeenCalledWith(currentMap, 7200, 30, 400);
   });
 
-  it('re-tunes the field/marker handover band to 10.4→12.0, floor 0.12', () => {
+  it('keeps the field at the 0.35 floor from zoom 12 up, and whole below the band (2026-10-02)', () => {
+    expect(fadeAt(10).heat).toBe(1);
+    expect(fadeAt(12).heat).toBeCloseTo(0.35, 5);
+    expect(fadeAt(14).heat).toBeCloseTo(0.35, 5);
+  });
+
+  it('re-tunes the field/marker handover band to 10.4→12.0 (floor since raised to 0.35)', () => {
     // Pinned as pure numbers on `fadeAt` itself, the same idiom as the pre-existing D8 suite
     // (which still pins the OLD 10.6/12.2/0.17 band — see this phase's own report on that).
     expect(fadeAt(10.4)).toEqual({ markers: 0, heat: 1 });
     expect(fadeAt(12.0).markers).toBe(1);
-    expect(fadeAt(12.0).heat).toBeCloseTo(0.12, 5);
+    expect(fadeAt(12.0).heat).toBeCloseTo(0.35, 5);
     // The midpoint of the NEW band (11.2, not the old band's 11.4) is where the two curves cross.
     const mid = fadeAt(11.2);
     expect(mid.markers).toBeCloseTo(0.5, 5);
-    expect(mid.heat).toBeCloseTo(1 - 0.88 * 0.5, 5);
+    expect(mid.heat).toBeCloseTo(1 - 0.65 * 0.5, 5);
   });
 
   it('passes the clip keyed to the map’s own pixel origin, below zoom 11.5', async () => {
@@ -1218,5 +1326,79 @@ describe('MapHeatLayer — Pins mode (map-tab-v2-plan.md §3 P10, `fieldEnabled`
     });
     expect(currentMap.panes.markerPane.style.opacity).toBe('0');
     expect(currentMap.panes.markerPane.classList.contains('wf-markers-inert')).toBe(true);
+  });
+});
+
+/**
+ * `dim` — Ask PhotoCast's picks step the field's FILL back (F3, plan §1 #14 / §2.7).
+ *
+ * <p>The field, the coastline stroke and the reach rings are painted on ONE canvas, which is why the
+ * dim is a factor inside the draw and not an opacity on the pane: a pane opacity would dim the
+ * coastline too, and a test of "the heat looks dimmer" could not tell the two apart. These tests read
+ * what the draw was handed and what the stroke was painted with.
+ */
+describe('MapHeatLayer — dim (Ask PhotoCast’s picks)', () => {
+  let ctxStub;
+
+  beforeEach(() => {
+    landMaskGet.mockReset();
+    landMaskGet.mockReturnValue({ __stub: 'land' });
+    landMaskInvalidate.mockReset();
+    ctxStub = makeCanvasCtxStub();
+    HTMLCanvasElement.prototype.getContext = () => ctxStub;
+  });
+
+  it('leaves the fill exactly as it was by default (dim 1)', async () => {
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    await mount();
+    expect(drawTiles.mock.calls.at(-1)[4].opacity).toBeCloseTo(0.92, 5);
+  });
+
+  it('multiplies the fill by dim — and multiplies the zoom fade rather than replacing it', async () => {
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    await mount({ dim: 0.36 });
+    expect(drawTiles.mock.calls.at(-1)[4].opacity).toBeCloseTo(0.92 * 0.36, 5);
+
+    drawTiles.mockClear();
+    currentMap = makeMap({ zoom: 13, panes: markerPanes() });
+    await mount({ dim: 0.36 });
+    expect(drawTiles.mock.calls.at(-1)[4].opacity).toBeCloseTo(0.92 * 0.35 * 0.36, 5);
+  });
+
+  it('⚠️ leaves the coastline stroke exactly as strong as without it', async () => {
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    await mount();
+    const undimmed = ctxStub.strokeStyle;
+    expect(undimmed).toMatch(/^rgba\(242,231,211,/);
+
+    ctxStub.stroke.mockClear();
+    document.body.innerHTML = '';
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    await mount({ dim: 0.36 });
+
+    expect(ctxStub.stroke).toHaveBeenCalled();
+    expect(ctxStub.strokeStyle).toBe(undimmed);
+  });
+
+  it('repaints when dim changes — the field is a picture and nothing else would redraw it', async () => {
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    const view = await mount({ dim: 1 });
+    drawTiles.mockClear();
+
+    await act(async () => { view.rerender(<MapHeatLayer points={POINTS} conf={1} dim={0.36} />); });
+    await act(async () => { runFrames(); });
+
+    expect(drawTiles).toHaveBeenCalled();
+    expect(drawTiles.mock.calls.at(-1)[4].opacity).toBeCloseTo(0.92 * 0.36, 5);
+  });
+
+  it('draws the field at full strength again once the dim is lifted', async () => {
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    const view = await mount({ dim: 0.36 });
+
+    await act(async () => { view.rerender(<MapHeatLayer points={POINTS} conf={1} dim={1} />); });
+    await act(async () => { runFrames(); });
+
+    expect(drawTiles.mock.calls.at(-1)[4].opacity).toBeCloseTo(0.92, 5);
   });
 });

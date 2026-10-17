@@ -9,16 +9,10 @@ import { formatCostGbp, formatCostUsd, formatTokens } from '../utils/formatCost.
 import useConfirmDialog from '../hooks/useConfirmDialog.js';
 import ConfirmDialog from './shared/ConfirmDialog.jsx';
 import ErrorBanner from './shared/ErrorBanner.jsx';
+import { apiErrorMessage } from '../utils/apiError.js';
+import { modelLabel } from '../utils/modelLabels.js';
 
 const MODELS = ['HAIKU', 'SONNET', 'SONNET_ET', 'OPUS', 'OPUS_ET'];
-
-const MODEL_LABEL = {
-  HAIKU: 'Haiku',
-  SONNET: 'Sonnet',
-  SONNET_ET: 'Sonnet (ET)',
-  OPUS: 'Opus',
-  OPUS_ET: 'Opus (ET)',
-};
 
 /**
  * Briefing model comparison test view — runs five Claude variants (Haiku, Sonnet,
@@ -43,7 +37,7 @@ export default function BriefingModelTestView() {
       const response = await getBriefingModelTestRuns();
       setRuns(response.data || []);
     } catch (err) {
-      setError(err?.response?.data?.message || err.message || 'Failed to load test runs');
+      setError(apiErrorMessage(err, err?.message || 'Failed to load test runs'));
     } finally {
       setLoading(false);
     }
@@ -55,7 +49,7 @@ export default function BriefingModelTestView() {
       const response = await getBriefingModelTestResults(runId);
       setResults(response.data || []);
     } catch (err) {
-      setError(err?.response?.data?.message || err.message || 'Failed to load results');
+      setError(apiErrorMessage(err, err?.message || 'Failed to load results'));
     } finally {
       setLoadingResults(false);
     }
@@ -82,7 +76,7 @@ export default function BriefingModelTestView() {
           setSelectedRunId(response.data.id);
           await loadResults(response.data.id);
         } catch (err) {
-          setError(err?.response?.data?.message || err.message || 'Failed to run comparison');
+          setError(apiErrorMessage(err, err?.message || 'Failed to run comparison'));
         } finally {
           setRunning(false);
         }
@@ -276,7 +270,7 @@ export default function BriefingModelTestView() {
                   if (!r) return (
                     <div key={model} className="rounded-lg bg-plex-card-bg p-3 min-w-[160px] flex-1">
                       <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${modelBadgeColor(model)}`}>
-                        {MODEL_LABEL[model] || model}
+                        {modelLabel(model)}
                       </span>
                       <p className="text-sm text-plex-text-muted mt-2">No result</p>
                     </div>
@@ -285,7 +279,7 @@ export default function BriefingModelTestView() {
                     <div key={model} className="rounded-lg bg-plex-card-bg p-3 min-w-[160px] flex-1" data-testid={`metric-${model}`}>
                       <div className="flex items-center gap-2 mb-2">
                         <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${modelBadgeColor(model)}`}>
-                          {MODEL_LABEL[model] || model}
+                          {modelLabel(model)}
                         </span>
                         {r.succeeded ? (
                           <span className="text-green-400 text-xs">OK</span>
@@ -354,7 +348,7 @@ export default function BriefingModelTestView() {
                         {picksAtRank.map(({ model, pick }) => (
                           <div key={model} className="flex gap-2 items-start text-xs">
                             <span className={`inline-block px-1.5 py-0.5 rounded font-medium shrink-0 ${modelBadgeColor(model)}`}>
-                              {MODEL_LABEL[model] || model}
+                              {modelLabel(model)}
                             </span>
                             {pick ? (
                               <div className="min-w-0">

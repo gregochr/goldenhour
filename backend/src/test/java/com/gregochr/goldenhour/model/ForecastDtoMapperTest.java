@@ -17,6 +17,7 @@ import com.gregochr.goldenhour.entity.MarineWaveEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideState;
 import com.gregochr.goldenhour.entity.TideType;
+import com.gregochr.goldenhour.service.EvaluationViewService;
 import com.gregochr.goldenhour.service.LunarPhaseService;
 import com.gregochr.goldenhour.service.SolarService;
 import com.gregochr.solarutils.LunarCalculator;
@@ -29,9 +30,11 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.MonthDay;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.List;
@@ -63,15 +66,21 @@ class ForecastDtoMapperTest {
     @Mock
     private com.gregochr.goldenhour.repository.MarineWaveRepository marineWaveRepository;
 
+    @Mock
+    private EvaluationViewService evaluationViewService;
+
     private ForecastDtoMapper mapper;
 
     @BeforeEach
     void setUp() {
         lenient().when(solarService.goldenBlueWindow(anyDouble(), anyDouble(), any(), anyBoolean()))
                 .thenReturn(new SolarWindow(null, null, null, null));
+        // No stability skips by default — the retraction behaviour itself is covered by its own
+        // dedicated tests below; every other test here is about an unrelated mapping concern.
+        lenient().when(evaluationViewService.loadStabilitySkips(any(), any())).thenReturn(Map.of());
         mapper = new ForecastDtoMapper(new LunarPhaseService(new LunarCalculator()), solarService,
                 new SeasonalWindow(MonthDay.of(4, 18), MonthDay.of(5, 18), "BLUEBELL"),
-                forecastScoreRepository, marineWaveRepository);
+                forecastScoreRepository, marineWaveRepository, evaluationViewService);
     }
 
     private static final LocationEntity LOCATION = LocationEntity.builder()
@@ -211,6 +220,76 @@ class ForecastDtoMapperTest {
         assertThat(dto.bluebellSummary()).isNull();
         // Exposure still surfaces (it is a property of the location, not the score).
         assertThat(dto.bluebellExposure()).isEqualTo("WOODLAND");
+    }
+
+    private static LocationEntity bluebellWood(long id) {
+        return LocationEntity.builder()
+                .id(id).name("Bluebell Wood").lat(54.5).lon(-3.0)
+                .locationType(Set.of(LocationType.BLUEBELL))
+                .bluebellExposure(BluebellExposure.WOODLAND)
+                .build();
+    }
+
+    @Test
+    @DisplayName("toDto() drops the BLUEBELL rating for a slot a nightly stability skip stands "
+            + "against and postdates — the DTO's Claude BLUEBELL rating, a Codex review of #940")
+    void toDto_bluebellRetractedByStabilitySkip_ratingAbsent() {
+        LocalDate inSeason = LocalDate.of(2026, 5, 1);
+        LocationEntity bluebellLoc = bluebellWood(9L);
+        ForecastEvaluationEntity entity = new ForecastEvaluationEntity();
+        entity.setLocation(bluebellLoc);
+        entity.setTargetDate(inSeason);
+        entity.setTargetType(TargetType.SUNRISE);
+
+        ForecastScoreEntity bluebellRow = new ForecastScoreEntity();
+        bluebellRow.setForecastType(ForecastType.BLUEBELL);
+        bluebellRow.setScore(4);
+        bluebellRow.setSummary("Bright still light if they are in flower.");
+        bluebellRow.setEvaluatedAt(Instant.parse("2026-04-30T18:00:00Z"));
+        when(forecastScoreRepository.findComponent(
+                eq(ForecastType.BLUEBELL), eq(9L), eq(inSeason), eq(TargetType.SUNRISE)))
+                .thenReturn(Optional.of(bluebellRow));
+        String skipKey = EvaluationViewService.stabilitySkipKey(
+                "Bluebell Wood", inSeason, TargetType.SUNRISE);
+        when(evaluationViewService.loadStabilitySkips(inSeason, inSeason))
+                .thenReturn(Map.of(skipKey, Instant.parse("2026-04-30T19:00:00Z")));
+
+        ForecastEvaluationDto dto = mapper.toDto(entity, false);
+
+        assertThat(dto.bluebellScore()).isNull();
+        assertThat(dto.bluebellSummary()).isNull();
+        // Exposure still surfaces — it is a property of the location, not the retracted score.
+        assertThat(dto.bluebellExposure()).isEqualTo("WOODLAND");
+    }
+
+    @Test
+    @DisplayName("toDto() serves the BLUEBELL rating written AFTER the skip that stands against its "
+            + "slot")
+    void toDto_bluebellWrittenAfterSkip_ratingServed() {
+        LocalDate inSeason = LocalDate.of(2026, 5, 1);
+        LocationEntity bluebellLoc = bluebellWood(9L);
+        ForecastEvaluationEntity entity = new ForecastEvaluationEntity();
+        entity.setLocation(bluebellLoc);
+        entity.setTargetDate(inSeason);
+        entity.setTargetType(TargetType.SUNRISE);
+
+        ForecastScoreEntity bluebellRow = new ForecastScoreEntity();
+        bluebellRow.setForecastType(ForecastType.BLUEBELL);
+        bluebellRow.setScore(4);
+        bluebellRow.setSummary("Bright still light if they are in flower.");
+        bluebellRow.setEvaluatedAt(Instant.parse("2026-04-30T20:00:00Z"));
+        when(forecastScoreRepository.findComponent(
+                eq(ForecastType.BLUEBELL), eq(9L), eq(inSeason), eq(TargetType.SUNRISE)))
+                .thenReturn(Optional.of(bluebellRow));
+        String skipKey = EvaluationViewService.stabilitySkipKey(
+                "Bluebell Wood", inSeason, TargetType.SUNRISE);
+        when(evaluationViewService.loadStabilitySkips(inSeason, inSeason))
+                .thenReturn(Map.of(skipKey, Instant.parse("2026-04-30T19:00:00Z")));
+
+        ForecastEvaluationDto dto = mapper.toDto(entity, false);
+
+        assertThat(dto.bluebellScore()).isEqualTo(4);
+        assertThat(dto.bluebellSummary()).isEqualTo("Bright still light if they are in flower.");
     }
 
     @Test
@@ -380,7 +459,7 @@ class ForecastDtoMapperTest {
         LunarPhaseService lunarSpy = spy(new LunarPhaseService(new LunarCalculator()));
         ForecastDtoMapper localMapper = new ForecastDtoMapper(lunarSpy, solarService,
                 new SeasonalWindow(MonthDay.of(4, 18), MonthDay.of(5, 18), "BLUEBELL"),
-                forecastScoreRepository, marineWaveRepository);
+                forecastScoreRepository, marineWaveRepository, evaluationViewService);
         LocalDate dateA = LocalDate.of(2026, 3, 8);
         LocalDate dateB = LocalDate.of(2026, 3, 9);
         ForecastEvaluationEntity a1 = lunarEntity(dateA, TargetType.SUNRISE);

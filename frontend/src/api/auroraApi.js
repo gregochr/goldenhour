@@ -154,7 +154,8 @@ export async function getAuroraForecastAvailableDates() {
 }
 
 /**
- * Fetches the forecast aurora extent line based on the Kp-to-latitude lookup table.
+ * Fetches the forecast aurora extent line: the camera-visibility rule drawn for the highest Kp NOAA
+ * forecasts for the rest of tonight, read by the server on every request.
  * Returns null for free-tier users (403).
  *
  * @returns {Promise<object|null>} forecast viewline response or null

@@ -1,6 +1,13 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.entity.ForecastType;
+import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.SlotAtmosphereEntity;
+import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.HotTopic;
+import com.gregochr.goldenhour.repository.ForecastRunDispositionRepository;
+import com.gregochr.goldenhour.repository.ForecastScoreRepository;
+import com.gregochr.goldenhour.repository.SlotAtmosphereRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -8,11 +15,14 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -20,6 +30,13 @@ import static org.mockito.Mockito.mock;
 
 /**
  * Unit tests for {@link HotTopicAggregator}.
+ *
+ * <p>⚠️ Between #940 landing (commit c6e14cc8) and the owner's two-question rule (2026-09-29,
+ * see {@code SlotSignalReader}'s class javadoc), this aggregator opened a shared
+ * {@code SlotSignalReader.withStabilityWindow} around the whole strategies pass. That
+ * dependency is gone entirely — this class no longer holds a {@code SlotSignalReader}
+ * reference at all, and {@link #getHotTopics_aggregationIssuesNoStabilityOrDispositionQuery}
+ * below proves it end to end through real strategies.
  */
 @ExtendWith(MockitoExtension.class)
 class HotTopicAggregatorTest {
@@ -61,8 +78,8 @@ class HotTopicAggregatorTest {
         HotTopicStrategy strategy1 = (from, to) -> List.of(topic1);
         HotTopicStrategy strategy2 = (from, to) -> List.of(topic2);
 
-        HotTopicAggregator aggregator = new HotTopicAggregator(
-                List.of(strategy1, strategy2), simulationService, travelDayService, eventEnricher);
+        HotTopicAggregator aggregator = new HotTopicAggregator(List.of(strategy1, strategy2),
+                simulationService, travelDayService, eventEnricher);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
@@ -80,12 +97,88 @@ class HotTopicAggregatorTest {
         when(travelDayService.isTravelDay(FROM)).thenReturn(true);
 
         HotTopicStrategy strategy = (from, to) -> List.of(away, workable);
-        HotTopicAggregator aggregator =
-                new HotTopicAggregator(List.of(strategy), simulationService, travelDayService, eventEnricher);
+        HotTopicAggregator aggregator = new HotTopicAggregator(List.of(strategy),
+                simulationService, travelDayService, eventEnricher);
 
         List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
 
         assertThat(topics).containsExactly(workable);
+    }
+
+    @Test
+    @DisplayName("a NIGHT topic dated a travel day yesterday survives when today — its sunrise half — is not one")
+    void getHotTopics_runningNightTopic_travelYesterdayHomeToday_kept() {
+        // The aurora strategy dates the pre-dawn alert by the night still running: yesterday.
+        HotTopic running = new HotTopic("AURORA", "Aurora possible", "Kp 5 forecast until dawn",
+                FROM.minusDays(1), 1, null, List.of(), null, null).withEvent("NIGHT", "18:30");
+        // Yesterday is behind the range and is not consulted at all — so being away then cannot
+        // matter; only today's answer is asked for. (A stub for yesterday would go unused.)
+        when(travelDayService.isTravelDay(FROM)).thenReturn(false);
+
+        HotTopicAggregator aggregator = new HotTopicAggregator(List.of((from, to) -> List.of(running)),
+                simulationService, travelDayService, eventEnricher);
+
+        assertThat(aggregator.getHotTopics(FROM, TO)).containsExactly(running);
+    }
+
+    @Test
+    @DisplayName("a NIGHT topic dated yesterday is suppressed when today — its only half ahead — is a travel day")
+    void getHotTopics_runningNightTopic_travelToday_suppressed() {
+        HotTopic running = new HotTopic("AURORA", "Aurora possible", "Kp 5 forecast until dawn",
+                FROM.minusDays(1), 1, null, List.of(), null, null).withEvent("NIGHT", "18:30");
+        when(travelDayService.isTravelDay(FROM)).thenReturn(true);
+
+        HotTopicAggregator aggregator = new HotTopicAggregator(List.of((from, to) -> List.of(running)),
+                simulationService, travelDayService, eventEnricher);
+
+        assertThat(aggregator.getHotTopics(FROM, TO)).isEmpty();
+        // Yesterday is behind the range and is never consulted — being away then changes nothing.
+        verify(travelDayService, never()).isTravelDay(FROM.minusDays(1));
+    }
+
+    @Test
+    @DisplayName("a NIGHT topic dated a travel day today survives for tomorrow's sunrise when tomorrow is not one")
+    void getHotTopics_nightTopic_travelTodayHomeTomorrow_kept() {
+        HotTopic tonight = new HotTopic("AURORA", "Aurora possible", "Kp 5 forecast tonight",
+                FROM, 1, null, List.of(), null, null).withEvent("NIGHT", "18:30");
+        when(travelDayService.isTravelDay(FROM)).thenReturn(true);
+        when(travelDayService.isTravelDay(FROM.plusDays(1))).thenReturn(false);
+
+        HotTopicAggregator aggregator = new HotTopicAggregator(List.of((from, to) -> List.of(tonight)),
+                simulationService, travelDayService, eventEnricher);
+
+        assertThat(aggregator.getHotTopics(FROM, TO)).containsExactly(tonight);
+    }
+
+    @Test
+    @DisplayName("a NIGHT topic is suppressed when both of its dates are travel days")
+    void getHotTopics_nightTopic_awayBothDays_suppressed() {
+        HotTopic tonight = new HotTopic("AURORA", "Aurora possible", "Kp 5 forecast tonight",
+                FROM, 1, null, List.of(), null, null).withEvent("NIGHT", "18:30");
+        when(travelDayService.isTravelDay(FROM)).thenReturn(true);
+        when(travelDayService.isTravelDay(FROM.plusDays(1))).thenReturn(true);
+
+        HotTopicAggregator aggregator = new HotTopicAggregator(List.of((from, to) -> List.of(tonight)),
+                simulationService, travelDayService, eventEnricher);
+
+        assertThat(aggregator.getHotTopics(FROM, TO)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("the travel filter reads the ENRICHED topic — an anchor the enricher adds decides the dates")
+    void getHotTopics_travelFilter_readsTheEnrichedAnchor() {
+        // The strategy emits the topic with no anchor; the enricher (the real one maps AURORA to
+        // NIGHT) supplies it. Filtering before enrichment would read one date and drop this topic.
+        HotTopic bare = new HotTopic("AURORA", "Aurora possible", "Kp 5 forecast until dawn",
+                FROM.minusDays(1), 1, null, List.of(), null, null);
+        HotTopic enriched = bare.withEvent("NIGHT", "18:30");
+        when(eventEnricher.enrich(anyList())).thenReturn(List.of(enriched));
+        when(travelDayService.isTravelDay(FROM)).thenReturn(false);
+
+        HotTopicAggregator aggregator = new HotTopicAggregator(List.of((from, to) -> List.of(bare)),
+                simulationService, travelDayService, eventEnricher);
+
+        assertThat(aggregator.getHotTopics(FROM, TO)).containsExactly(enriched);
     }
 
     @Test
@@ -165,8 +258,8 @@ class HotTopicAggregatorTest {
     void getHotTopics_invokesEachStrategyWithExactDates() {
         when(mockStrategy1.detect(FROM, TO)).thenReturn(List.of());
         when(mockStrategy2.detect(FROM, TO)).thenReturn(List.of());
-        HotTopicAggregator aggregator = new HotTopicAggregator(
-                List.of(mockStrategy1, mockStrategy2), simulationService, travelDayService, eventEnricher);
+        HotTopicAggregator aggregator = new HotTopicAggregator(List.of(mockStrategy1, mockStrategy2),
+                simulationService, travelDayService, eventEnricher);
 
         aggregator.getHotTopics(FROM, TO);
 
@@ -185,5 +278,72 @@ class HotTopicAggregatorTest {
         aggregator.getHotTopics(FROM, TO);
 
         verifyNoInteractions(mockStrategy1);
+    }
+
+    // ── Owner decision (2026-09-29): no stability-skip or disposition query on this path ────
+
+    @Mock
+    private ForecastScoreRepository forecastScoreRepository;
+    @Mock
+    private SlotAtmosphereRepository slotAtmosphereRepository;
+    @Mock
+    private ForecastRunDispositionRepository forecastRunDispositionRepository;
+
+    /**
+     * Proves the count from the brief directly, through a real strategy and a real
+     * {@link SlotSignalReader} — not a mock standing in for the claim. Before 2026-09-29 this
+     * same shape of pass opened one shared {@code loadStabilitySkips} query (backed by
+     * {@link ForecastRunDispositionRepository#findLatestStabilitySkipTimestamps}); now
+     * {@code SlotSignalReader}'s only two collaborators are {@link ForecastScoreRepository} and
+     * {@link SlotAtmosphereRepository}, and {@code HotTopicAggregator} itself holds neither an
+     * {@code EvaluationViewService} nor a {@code SlotSignalReader} reference — so the
+     * disposition repository, mocked here exactly as production wires it to other beans (e.g.
+     * {@code EvaluationViewService} for the rating-retraction path this test does not exercise), is
+     * verified to receive ZERO interactions across a full real aggregation.
+     */
+    @Test
+    @DisplayName("one hot-topic aggregation issues no stability-skip or disposition query at all — "
+            + "the repository behind that lookup is never touched, proven through a real strategy "
+            + "and a real SlotSignalReader (owner decision, 2026-09-29)")
+    void getHotTopics_aggregationIssuesNoStabilityOrDispositionQuery() {
+        LocationEntity fell = new LocationEntity();
+        fell.setId(1L);
+        fell.setName("Great Gable");
+        // Phase 2 (V158, owner decision 2026-09-30): InversionHotTopicStrategy now fires off the
+        // calculator's own slot_atmosphere reading, not the forecast_score Claude echo — so
+        // the strong-inversion row this test needs to make the strategy fire lives here.
+        SlotAtmosphereEntity strongInversion = new SlotAtmosphereEntity();
+        strongInversion.setLocation(fell);
+        strongInversion.setEvaluationDate(FROM);
+        strongInversion.setEventType(TargetType.SUNRISE);
+        strongInversion.setInversionScore(9.0);
+        // V158 round 4: a fresh row must be marked scored, or effectiveInversionScore() reads it
+        // as pre-column and falls back to the (here, absent) forecast_score echo instead.
+        strongInversion.setInversionScored(true);
+        strongInversion.setEvaluatedAt(Instant.parse("2026-04-25T05:00:00Z"));
+        lenient().when(forecastScoreRepository.findComponentsByType(
+                        ForecastType.INVERSION.getId(), FROM, TO))
+                .thenReturn(List.of());
+        lenient().when(forecastScoreRepository.findComponentsByType(
+                        ForecastType.BLUEBELL.getId(), FROM, TO))
+                .thenReturn(List.of());
+        lenient().when(slotAtmosphereRepository.findInDateRange(FROM, TO))
+                .thenReturn(List.of(strongInversion));
+
+        SolarEventFreshness freshness = mock(SolarEventFreshness.class);
+        lenient().when(freshness.isAhead(fell, FROM, TargetType.SUNRISE)).thenReturn(true);
+        SlotSignalReader realReader =
+                new SlotSignalReader(forecastScoreRepository, slotAtmosphereRepository);
+        InversionHotTopicStrategy realInversionStrategy =
+                new InversionHotTopicStrategy(realReader, freshness);
+
+        HotTopicAggregator aggregator = new HotTopicAggregator(
+                List.of(realInversionStrategy), simulationService, travelDayService, eventEnricher);
+
+        List<HotTopic> topics = aggregator.getHotTopics(FROM, TO);
+
+        assertThat(topics).hasSize(1);
+        assertThat(topics.get(0).type()).isEqualTo("INVERSION");
+        verifyNoInteractions(forecastRunDispositionRepository);
     }
 }

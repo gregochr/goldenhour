@@ -9,7 +9,10 @@ import com.anthropic.models.messages.TextBlock;
 import com.anthropic.models.messages.TextBlockParam;
 import tools.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.exception.ClaudeRefusalException;
+import com.gregochr.goldenhour.exception.ClaudeReplyUnreadableException;
 import com.gregochr.goldenhour.model.AtmosphericData;
+import com.gregochr.goldenhour.model.CacheDiagnostics;
 import com.gregochr.goldenhour.model.EvaluationDetail;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TokenUsage;
@@ -103,12 +106,13 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
                 .map(ContentBlock::asText)
                 .map(TextBlock::text)
                 .findFirst()
-                .orElseThrow(() -> new IllegalStateException("Claude returned no text content"));
+                .orElseThrow(() -> new ClaudeReplyUnreadableException("Claude returned no text content"));
 
         SunsetEvaluation result = parser.parseEvaluation(text, objectMapper);
         long durationMs = System.currentTimeMillis() - startMs;
 
-        return new EvaluationDetail(result, userMessage, text, durationMs, tokenUsage);
+        return new EvaluationDetail(result, userMessage, text, durationMs, tokenUsage,
+                CacheDiagnostics.from(response));
     }
 
     /**
@@ -119,11 +123,7 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
      */
     TokenUsage extractTokenUsage(Message response) {
         var u = response.usage();
-        return new TokenUsage(
-                u.inputTokens(),
-                u.outputTokens(),
-                u.cacheCreationInputTokens().orElse(0L),
-                u.cacheReadInputTokens().orElse(0L));
+        return TokenUsage.from(u);
     }
 
     /**
@@ -145,16 +145,16 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
     static void checkStopReason(Message response) {
         StopReason stopReason = response.stopReason().orElse(null);
         if (StopReason.REFUSAL.equals(stopReason)) {
-            throw new IllegalStateException(
+            throw new ClaudeRefusalException(
                     "Claude refused to evaluate this forecast (stop_reason=refusal)");
         }
         if (StopReason.MODEL_CONTEXT_WINDOW_EXCEEDED.equals(stopReason)) {
-            throw new IllegalStateException(
+            throw new ClaudeReplyUnreadableException(
                     "Claude's response was cut short by the context window limit "
                             + "(stop_reason=model_context_window_exceeded)");
         }
         if (StopReason.MAX_TOKENS.equals(stopReason)) {
-            throw new IllegalStateException(
+            throw new ClaudeReplyUnreadableException(
                     "Claude's response was truncated at the max_tokens limit "
                             + "(stop_reason=max_tokens)");
         }
@@ -173,7 +173,7 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
      */
     private Message invokeClaude(String userMessage, PromptBuilder builder) {
         return anthropicApiClient.createMessage(
-                MessageCreateParams.builder()
+                ModelRequestSupport.withThinkingSetting(MessageCreateParams.builder()
                         .model(evaluationModel.getModelId())
                         .maxTokens(evaluationModel.getMaxTokens())
                         .systemOfTextBlockParams(List.of(
@@ -181,8 +181,9 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
                                         .text(builder.getSystemPrompt())
                                         .cacheControl(CacheControlEphemeral.builder().build())
                                         .build()))
-                        .outputConfig(builder.buildOutputConfig())
-                        .addUserMessage(userMessage)
+                        .outputConfig(ModelRequestSupport.withEffort(
+                                builder.buildOutputConfig(), evaluationModel))
+                        .addUserMessage(userMessage), evaluationModel)
                         .build());
     }
 

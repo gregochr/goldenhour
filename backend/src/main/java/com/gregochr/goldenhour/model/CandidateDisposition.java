@@ -24,7 +24,15 @@ import java.time.LocalDate;
  * @param daysAhead       days from today to {@code evaluationDate} —
  *                        negative for past-date dispositions, may be null
  * @param category        disposition outcome — see {@link DispositionCategory}
- * @param detail          human-readable reason for skip dispositions, null for EVALUATED
+ * @param detail          human-readable reason for skip dispositions and for
+ *                        {@link DispositionCategory#SUBMISSION_FAILED}. Null for a plain
+ *                        {@code EVALUATED} row. Never null for {@code FORCE_EVALUATED} — it
+ *                        always carries {@code "Force-evaluated best-bet headline candidate"}
+ *                        ({@code ForecastTaskCollector#includeDisposition}). A paired candidate
+ *                        (OPEN_FELL sky+bluebell) whose OTHER bucket failed to submit while this
+ *                        one succeeded gets a partial-loss note APPENDED to whatever detail was
+ *                        already there — never replacing a forced candidate's own reason (see
+ *                        {@code ScheduledBatchEvaluationService#applySubmissionFailures})
  */
 public record CandidateDisposition(
         Long locationId,

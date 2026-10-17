@@ -238,7 +238,7 @@ describe('WindowFirstShell — the four-day location sheet', () => {
 
   /** Opens search and picks the named location — the entry that CLOSES the popup first. */
   const openSheetFor = async (name) => {
-    fireEvent.keyDown(document, { key: '/' });
+    fireEvent.click(screen.getByTestId('window-first-search'));
     const input = await screen.findByTestId('plan-search-input');
     fireEvent.change(input, { target: { value: name } });
     fireEvent.click(screen.getByRole('option', { name: new RegExp(name) }));
@@ -283,6 +283,34 @@ describe('WindowFirstShell — the four-day location sheet', () => {
     // Search closes behind it: two `aria-modal` dialogs on one page is two Escape listeners and
     // two focus restores.
     expect(screen.queryByTestId('plan-search')).toBeNull();
+  });
+
+  it('⚠️ a wildlife hide picked from search shows its hourly comfort tables, not window rows (shell → sheet, both joins real)', async () => {
+    // The sheet is reached by Plan search too, so the hide's table is not a Map-tab-only feature. The
+    // heat spot carries `skySubject: false`; the roster record (with `forecastsByDate`) arrives on the
+    // shell's `locations` prop. Nothing is injected into the sheet directly.
+    const HIDE_SPOT = {
+      id: 9, name: 'Gosforth Nature Reserve', lat: 55.0, lng: -1.62, regionName: 'Northumberland',
+      rid: 'Northumberland', skySubject: false, bortleClass: 5, scores: [null],
+    };
+    const HIDE_RECORD = {
+      id: 9, name: 'Gosforth Nature Reserve', lat: 55.0, lon: -1.62, locationType: ['WILDLIFE'],
+      forecastsByDate: new Map([['2026-08-14', {
+        sunrise: null,
+        sunset: null,
+        hourly: [{
+          solarEventTime: '2026-08-14T08:00:00', temperatureCelsius: 12, apparentTemperatureCelsius: 10,
+          windSpeed: 4, windDirection: 270, precipitationProbabilityPercent: 30,
+        }],
+      }]]),
+    };
+    renderShell({ heatSpots: [...SPOTS, HIDE_SPOT] }, { locations: [HIDE_RECORD] });
+    const sheet = await openSheetFor('Gosforth');
+    const day = await within(sheet).findByTestId('location-sheet-hourly-day');
+    expect(day).toHaveAttribute('data-date', '2026-08-14');
+    expect(within(day).getByRole('table')).toHaveTextContent('12°C · feels 10°C');
+    expect(within(sheet).queryAllByTestId('location-sheet-row')).toEqual([]);
+    expect(within(sheet).queryByText(/Not scored/)).toBeNull();
   });
 
   it('⚠️ opens a spot card\'s sheet OVER the popup, and does not touch the map', async () => {

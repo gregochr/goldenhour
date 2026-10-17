@@ -105,4 +105,33 @@ class OpenMeteoForecastResponseTest {
         assertThat(response.getLatitude()).isEqualTo(0.0);
         assertThat(response.getLongitude()).isEqualTo(0.0);
     }
+
+    @Test
+    @DisplayName("Deserializes the six pressure-level cloud series into their own lists")
+    void deserialize_pressureLevelCloud_sixLists() throws Exception {
+        String json = """
+                {
+                  "hourly": {
+                    "time": ["2026-04-03T00:00"],
+                    "cloud_cover_850hPa": [11],
+                    "cloud_cover_700hPa": [22],
+                    "cloud_cover_600hPa": [33],
+                    "cloud_cover_500hPa": [44],
+                    "cloud_cover_400hPa": [55],
+                    "cloud_cover_300hPa": [66]
+                  }
+                }
+                """;
+
+        OpenMeteoForecastResponse.Hourly hourly =
+                mapper.readValue(json, OpenMeteoForecastResponse.class).getHourly();
+
+        assertThat(hourly.getCloudCover850hPa()).containsExactly(11);
+        assertThat(hourly.getCloudCover700hPa()).containsExactly(22);
+        assertThat(hourly.getCloudCover600hPa()).containsExactly(33);
+        assertThat(hourly.getCloudCover500hPa()).containsExactly(44);
+        assertThat(hourly.getCloudCover400hPa()).containsExactly(55);
+        assertThat(hourly.getCloudCover300hPa()).containsExactly(66);
+        assertThat(hourly.getCloudCoverLow()).isNull();
+    }
 }

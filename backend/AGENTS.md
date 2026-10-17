@@ -10,7 +10,7 @@ this file does *not* cover.
 - `cd backend && ./mvnw compile -q` — fast compile check (no Docker).
 - `./mvnw checkstyle:check` — fails fast on style (120-char lines, Javadoc on
   public classes/methods, no unused imports, 4-space indent).
-- ⚠️ **There is NO Docker on this machine.** Never tell anyone to start it. The 6
+- ⚠️ **There is NO Docker on this machine.** Never tell anyone to start it. The 13
   `IntegrationTestBase` classes under `src/test/java/.../integration/` need
   Testcontainers, so every local run must pass `-Dtest='!**/integration/**'`:
   `./mvnw clean verify --batch-mode -Dtest='!**/integration/**' -DfailIfNoSpecifiedTests=false`
@@ -95,6 +95,11 @@ Checkstyle and SpotBugs gate those in CI.
    `HttpCachingConfig`'s ETag allow-list (personal data would persist in a
    browser cache JavaScript cannot evict on logout);
    `HttpCachingConfigTest.personalDataPathsAreNeverFiltered` pins it per path.
+   Ask PhotoCast follows the same shape: `GET /api/ask/ready`, `POST /api/ask` and
+   `GET /api/user/settings/ask` carry no role gate (the daily allowance is the gate), and of the
+   three only `/api/ask/ready` is ETag-revalidated (user-independent) — never the POST, never
+   the settings read. The `/api/admin/ask/*` endpoints are ADMIN and answer 404 only after the
+   role check.
 
 9. **`HotTopicAggregator` must not serve the almanac feed.** Ten of thirteen
    strategies ignore the date range. `AlmanacSource` is the whole-range
@@ -107,6 +112,36 @@ Checkstyle and SpotBugs gate those in CI.
     retired in V153 along with `OptimisationSkipEvaluator` — don't report the
     survivors as dead, and don't reintroduce a type without a path that evaluates
     it.
+
+11. **Ask PhotoCast's guards look like missing checks and are not** (`service/ask/`,
+    CLAUDE.md's *Ask PhotoCast* bullets; do not re-flag these without evidence):
+    - **The validator, not the model, decides.** A pick survives only if `rank_spots` returned its
+      `(locationId, windowId)` in that conversation; every card fact is joined from served data;
+      an event's `safetyNote` (the solar eclipse's lens-filter warning) is re-joined from the
+      served topic — the model has no field for it — and the snapshot attaches
+      `EclipseHotTopicStrategy.SAFETY_NOTE` to the almanac's `eclipse` entry. A change that lets
+      an Ask surface drop that note is a P0.
+    - **The window set is the served `renderedEvents`**, not "events with a non-null
+      `window()`" (every summary carries a window; only six are rendered), minus passed windows
+      and travel days. Pick-eligible means non-canopy, rated 3–5, in a `verdictEligible()` region:
+      no rating exempts an ineligible region (the 2026-09-29 shape).
+    - **`engine_calls` is never refunded**; `used` is, on the RESERVED date. The refund is what
+      makes the ceiling necessary. The rate limit runs in an interceptor BEFORE the body is
+      converted, on purpose.
+    - **The accounting latch fails closed.** A paid turn whose `api_call_log` insert fails latches
+      Ask shut (`AskJobRunService.accountingAvailable()`), checked by a `CallGate` inside
+      `AnthropicApiClient.createAskMessage` before every attempt. The in-flight window and a
+      restart losing the in-memory holder are the named residuals, not oversights.
+    - **Ask has its own `ask` retry, breaker and bulkhead, `AskRetryPredicate`, and the SDK's own
+      retries are off for that door** (`maxRetries(0)`). Reusing `TransientHttpErrorPredicate`
+      or the shared `anthropic` instances is the bug.
+    - **`personal` is the server's decision** (`rank_spots` called with `maxDriveMinutes`), never
+      the model's; a personal answer is cached per user. Nothing is cached during a simulation.
+    - **`stub=true` under `prod` fails startup**, and exactly one `AskEngine` bean exists for any
+      value of the flag.
+    - Ready answers are precomputed AFTER `finishRun` on the background executor: a RUNNING
+      pipeline run forces later tail settles to `RESETS_ONLY`, so precompute must never run inside
+      one.
 
 ### Bugs that were fixed and must not come back
 
@@ -185,7 +220,11 @@ Checkstyle and SpotBugs gate those in CI.
   `lenient()` usage. Never freeze a test clock to the wall-clock date.
 - **Never modify assertions in `src/test/java/.../regression/`** (prompt
   regression tests encode ground truth against real Claude output; only the
-  owner updates them).
+  owner updates them). The same holds for every `@Tag("prompt-regression")` class
+  wherever it lives, including `service/ask/AskPromptRegressionTest` (structural
+  invariants only — never wording — approved by the owner). A new tagged class must
+  also be added to `pom.xml`'s PIT `<excludedTestClasses>`; `PitExclusionDriftTest`
+  fails the build otherwise.
 
 ### Review output
 

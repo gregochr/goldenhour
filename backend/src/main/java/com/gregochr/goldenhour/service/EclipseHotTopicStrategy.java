@@ -70,8 +70,12 @@ public class EclipseHotTopicStrategy implements HotTopicStrategy {
      * it. The second clause is the load-bearing one — eclipse glasses protect the eye at the
      * viewfinder while an unfiltered lens concentrates sunlight onto the sensor, and on a mirrorless
      * body the eye is behind that sensor.
+     *
+     * <p>Public because it is the one home of this string: the Ask snapshot attaches this same
+     * constant to the solar eclipse's almanac entries, which carry no warning of their own, so a
+     * solar eclipse never reaches an Ask answer without it.
      */
-    private static final String SAFETY_NOTE =
+    public static final String SAFETY_NOTE =
             "Certified solar filter on the lens — not only over your eye";
 
     /** The "where to look" cue. The design's own sentence, and true for every UK location here. */

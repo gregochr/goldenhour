@@ -1,6 +1,9 @@
-import { dayLabelFor, eventWord } from './windowFirstCards.js';
+import { dayLabelFor, eventWord, pastDayLabel } from './windowFirstCards.js';
 import { resolveConfidence, daysOut } from './confidenceUtils.js';
 import { isNightOver } from './mapDates.js';
+import { parseUtcInstant } from './conversions.js';
+import { windowKey } from './windowKeys.js';
+import { heatPointsFor, POINT_SCORE_INDEX } from './heatSpots.js';
 
 /**
  * The Map tab's single chronological event list ("EV") — map-tab-v2-plan.md §3 P6.
@@ -61,6 +64,26 @@ import { isNightOver } from './mapDates.js';
  * forecast's own dates, or an ended night picked again from this list. That stays until the reader
  * leaves it or {@code App}'s date next moves. It can be stepped away from, never back to.
  *
+ * <h2>Past windows — the outcome-rating series (docs/engineering/outcome-rating-plan.md §2 #2)</h2>
+ *
+ * <p>The forecast list serves today−2 onward, and until O3a this list refused every solar window
+ * that had gone: the briefing withdraws an elapsed window, and the filler branch is gated on
+ * {@code date >= todayStr}. A solar window is now a <b>past row</b> ({@code row.past === true})
+ * when it has no served window, is in the forecast domain, has forecast rows ({@code
+ * pastSolarWindows}) and its roster-earliest event time has elapsed by the afterglow rule
+ * ({@link isPastSolarWindow}) — the same instant and thirty minutes the briefing withdraws it on, so
+ * the Map and the Plan tab retire a window at the same minute. A past row is {@code served: false},
+ * {@code scored: false}, forwarded to {@code App} with a provenance flag ({@link isForwardableRow}),
+ * and rated from the forecast rows alone (the briefing score index serves the latest result, which
+ * for a passed slot may postdate the event). {@code pastSolarWindows}, {@code pastDayLabel} and the
+ * {@code past} filter are the already-licensed filter/map/select class over served facts: they
+ * compute no rating and no verdict.
+ *
+ * <p>The heat field paints a past window too (O3c): the pane lists it in {@code heat.windows} flagged
+ * {@code past: true} — which {@link buildMapEvents} and {@link solarRowPredicate} read as "not served"
+ * — with a {@link pastWindowBest} client max as its {@code bestRating}, the one rating derivation this
+ * adds (a new named member of the licensed client-max class, beside {@link bestOfNight}).
+ *
  * <h2>Aurora is absent, not greyed, for LITE (cross-vendor review on #723)</h2>
  *
  * <p>An earlier revision of the plan promised a greyed row; it is not implemented, because
@@ -115,6 +138,42 @@ export function bestOfNight(rows) {
 
 
 /**
+ * A PAST solar window's {@code bestRating} for the heat field — the highest star among the points
+ * the field actually PAINTS for it. outcome-rating-plan.md §2 #3 (O3c).
+ *
+ * <p>A <b>new named member of the licensed Map-tab client-max class</b> (CLAUDE.md Backend-heavy,
+ * fifth class), beside {@link bestOfNight}, and deliberately NOT folded into the filter/map/select
+ * class: it takes a max across a roster of places, a derivation, where that class only reads or
+ * reshapes a figure already served. The briefing serves no window once it has gone, so no served
+ * field states this figure, and {@code MapView}'s {@code windowUnscored} needs one to decide whether
+ * the colour key is drawn. Nothing else here derives (the entry's {@code conf} reuses
+ * {@code resolveConfidence}/{@code confidenceScalar}). CLAUDE.md's Backend-heavy bullet records
+ * it as the class's third member.
+ *
+ * <p><b>Over the painted points, never the raw rows</b> (Codex, #1185 round 8). The population is
+ * {@link heatPointsFor}'s — the spots {@code buildHeatSpots} kept (it drops an unregioned place and
+ * one with no usable coordinates, and withholds the scores of a WOODLAND/BLUEBELL/WILDLIFE-only
+ * site) that hold a finite rating in this window. A window whose only rated rows are a wood's, or an
+ * unregioned place's, therefore reads {@code null} and the key is withheld rather than drawn over an
+ * empty field. Like {@code bestOfNight} it is unfiltered by the reader's rating floor, subject chips,
+ * reach and dark-sky toggle: the key asks "is there a rating behind the picture", not "what is left
+ * after my filters".
+ *
+ * @param {Array<{scores: Array<?number>}>} spots spots from {@code buildHeatSpots}
+ * @param {number} windowIndex which of the spots' windows to read (the index the point set was built at)
+ * @returns {?number} the highest painted star, or null when the field would paint nothing
+ */
+export function pastWindowBest(spots, windowIndex) {
+  let best = null;
+  for (const point of heatPointsFor(spots, windowIndex)) {
+    const s = point.r[POINT_SCORE_INDEX];
+    if (best == null || s > best) best = s;
+  }
+  return best;
+}
+
+
+/**
  * A night row's pill/dropdown label — "Tonight", "Tomorrow night", "Thursday night" — mirroring
  * the design bundle's {@code evLabel} night branch, built from the app's own day-label vocabulary
  * (never a fresh spelling of "Today"/"Tomorrow") rather than the bundle's own day-of-month compare.
@@ -158,7 +217,9 @@ function dayOnly(label) {
 /**
  * Builds one solar EV row from a served window (the shape {@code WindowFirstMapPane} builds
  * {@code heat.windows} in, enriched with {@code confidenceTier} and {@code badges}) or synthesises
- * an unscored D-13 row when none was served for this date/type.
+ * an unscored D-13 row when the pane's rendered list carried none for this date/type. A filler may
+ * still borrow the briefing's own served tide and clock time for the window ({@code lent}): the
+ * briefing rolls those up for every event of its owned days, rendered or not.
  *
  * <p><b>The menu-best population (plan §4.14, stated in code as that section requires):</b>
  * {@code served.bestRating} is the served {@code BriefingWindow.bestRating} figure verbatim,
@@ -169,7 +230,9 @@ function dayOnly(label) {
  * doc comment states why the night rows are held to the identical, unfiltered rule rather than
  * independently scope-filtered.
  */
-function solarRow(date, targetType, served, todayStr, tomorrowStr, inForecastDomain) {
+function solarRow(
+  date, targetType, served, todayStr, tomorrowStr, inForecastDomain, lent = null,
+) {
   const eventType = targetType;
   if (served) {
     const label = served.label;
@@ -194,7 +257,8 @@ function solarRow(date, targetType, served, todayStr, tomorrowStr, inForecastDom
       // withdraws an elapsed window (`PlanWindowProjector.hasPassed`) while the D-13 filler branch
       // below is only gated on `date >= todayStr` — so after this morning's sunrise the list still
       // leads with a filler SUNRISE row for a window hours in the past. Gate on THIS, never on list
-      // position (map-landing-plan.md §3 L4 step 2).
+      // position (map-landing-plan.md §3 L4 step 2). `served: false` also describes a PAST row
+      // (outcome-rating-plan.md §2 #2): "which windows are still ahead" is `served` AND not `past`.
       served: true,
       // Whether the briefing marked this window a TRAVEL day. Carried, never derived — the away
       // state is `buildWindowCards`' own, and the landing card drops such a window rather than
@@ -215,6 +279,12 @@ function solarRow(date, targetType, served, todayStr, tomorrowStr, inForecastDom
       // subject is a region must be able to test the pick's own region; one whose subject is the
       // window ignores this and reads the kind alone.
       pickRegion: served.pickRegion ?? null,
+      // The served `BriefingWindowTide` for this window (tide-window-plan.md T3, §1 #4/#12) —
+      // forwarded verbatim, never re-derived: the strip's chart, header and next-fit scan all read
+      // this object's own fields (`curve`, `windowPosition`, `windowLevel`, `extremes`,
+      // `locationName`…), and a solar window the briefing served but with no coastal representative
+      // carries no `tide` at all, hence the fallback.
+      tide: served.tide ?? null,
       inForecastDomain,
     };
   }
@@ -226,33 +296,130 @@ function solarRow(date, targetType, served, todayStr, tomorrowStr, inForecastDom
     date,
     label,
     dayLabel: dayOnly(label),
-    time: '',
+    // The served clock time lent with the tide, when there is one — never synthesised here.
+    time: lent?.time || '',
     confidence: resolveConfidence(null, daysOut(date, todayStr)),
     bestRating: null,
     scored: false,
-    // A D-13 filler: the briefing served no window for this date, so nothing here has been through
-    // the elapsed test. See the served branch above.
+    // A D-13 filler: the pane's rendered list carried no window for this date and event, so nothing
+    // here has been through the elapsed test (the briefing may still have served one — see `tide`).
+    // See the served branch above.
     served: false,
-    // A filler row is a date the briefing carried no window for at all, so it carries no away
+    // A filler row is a date the pane's rendered list carried no window for, so it carries no away
     // state either — the travel ranges the pane knows about never reach this list.
     away: false,
     badges: [],
-    // A D-13 filler row is a date the briefing carried no window for, so there is no pick. Null
+    // A D-13 filler row has no rendered window, so there is no pick. Null
     // rather than absent, so every solar row has one shape.
     //
     // ⚠️ A filler row is NOT pastness-filtered the way a served one is. The briefing withdraws an
     // elapsed window (`PlanWindowProjector.hasPassed`), but `forecastDates` still carries today, so
     // after this morning's sunrise a filler SUNRISE row is emitted for a window hours in the past
-    // — the `date >= todayStr` gate above only excludes YESTERDAY. A caller wanting "the next N
+    // — the `date >= todayStr` gate above only excludes YESTERDAY. (Since the outcome-rating series
+    // such a window becomes a `past` row instead whenever forecast rows with an event time exist for
+    // it — `pastSolarRow`; a filler is now the elapsed window with NO such rows, or no time to
+    // judge it by, and the future window the briefing has not served.) A caller wanting "the next N
     // windows" must therefore gate on `served`, never on list position alone
-    // (map-landing-plan.md §3 L4 step 2).
+    // (map-landing-plan.md §3 L4 step 2). The one thing that IS pastness-filtered is the lent tide
+    // and time: `lendFor` withholds both once the window has elapsed (`isEventTimePast`).
     pickKind: null,
     // Null rather than absent, with `pickKind` — the invariant the comment above states is that
     // every solar row has ONE shape, and L6 added this field to the served branch alone. A
     // completeness sweep caught the omission; it is harmless today only because every reader
     // short-circuits on the kind first.
     pickRegion: null,
+    // A D-13 filler has no window in the pane's list, but the briefing may still have served one:
+    // it rolls a tide up for every event of its four owned days while the pane lists only the six
+    // it renders. `lent.tide` is that served rollup, forwarded verbatim; null where the briefing
+    // carried none (past its owned days, or no drawable tide), and the tide is then never
+    // synthesised. The row stays unscored and `served: false` — the tide and its clock time are all
+    // a filler borrows; per-spot fit comes from the slots' own served tide facts, as for any row.
+    tide: lent?.tide ?? null,
     inForecastDomain,
+  };
+}
+
+/**
+ * The past-window inputs {@link buildMapEvents} and {@link solarRowPredicate} take
+ * (outcome-rating-plan.md §2 #2): every (date, targetType) the locations hold at least one forecast
+ * row for with {@code date <= todayStr}, each carrying {@code earliestEventTime} — the earliest
+ * {@code solarEventTime} among its rows (UTC-naive, as served), the instant that decides whether the
+ * window has elapsed. Null when no row of the window carries a parseable time: the window is then a
+ * past row only on a date before today, and today's own stays a filler (the elapsed test needs a
+ * time, and nothing stands in for one).
+ *
+ * <p>A filter/min over served rows — the already-licensed filter/map/select class (CLAUDE.md
+ * Backend-heavy), the same earliest-served-instant {@code mapScopedTime.withScopedSolarTimes} takes
+ * over a scope pool, here over the whole roster because the elapsed test is the briefing's own
+ * (roster-earliest, {@code PlanWindowProjector.hasPassed}). It reads no rating. Chronological,
+ * sunrise before sunset.
+ *
+ * @param {Array<{forecastsByDate: ?Map<string, {sunrise: ?object, sunset: ?object}>}>} locations
+ * @param {string} todayStr the UK civil today
+ * @returns {Array<{date: string, targetType: 'SUNRISE'|'SUNSET', earliestEventTime: ?string}>}
+ */
+export function buildPastSolarWindows(locations, todayStr) {
+  const byKey = new Map();
+  for (const loc of Array.isArray(locations) ? locations : []) {
+    const days = loc?.forecastsByDate;
+    if (!(days instanceof Map)) continue;
+    for (const [date, entry] of days) {
+      if (!date || date > todayStr) continue;
+      for (const [slot, targetType] of [['sunrise', 'SUNRISE'], ['sunset', 'SUNSET']]) {
+        const row = entry?.[slot];
+        if (!row) continue;
+        const key = windowKey(date, targetType);
+        const known = byKey.get(key) ?? { date, targetType, earliestEventTime: null };
+        const raw = row.solarEventTime ?? null;
+        const at = parseUtcInstant(raw);
+        if (at && (known.earliestEventTime == null
+          || at < parseUtcInstant(known.earliestEventTime))) {
+          known.earliestEventTime = raw;
+        }
+        byKey.set(key, known);
+      }
+    }
+  }
+  const order = (w) => `${w.date}${w.targetType === 'SUNRISE' ? 0 : 1}`;
+  return Array.from(byKey.values()).sort((a, b) => (order(a) < order(b) ? -1 : 1));
+}
+
+/**
+ * Builds one PAST solar EV row (outcome-rating-plan.md §2 #2): a window the briefing no longer
+ * serves, whose roster-earliest event time has elapsed, drawn from the forecast rows the pane found
+ * for it. It is {@code served: false} and {@code scored: false} — the briefing holds nothing for it
+ * and its menu figure is not a thing this list states — and carries {@code past: true}, which is what
+ * every consumer keys on (the pill's PAST tag, the callout's facts, the selection plumbing, the
+ * rating accessor's forecast-row-only read).
+ *
+ * <p>{@code time} is the window's own earliest event time through {@code formatTimeUk}, a base that
+ * exists even with no briefing and an empty scope pool; {@code withScopedSolarTimes} then narrows it
+ * to the scope pool's earliest as it does for a served row. Left blank when no row carried a time,
+ * never guessed.
+ */
+function pastSolarRow(date, targetType, pastWindow, todayStr, formatTimeUk) {
+  const dayLabel = pastDayLabel(date, todayStr);
+  return {
+    id: `solar:${date}:${targetType}`,
+    kind: EVENT_KIND.SOLAR,
+    eventType: targetType,
+    date,
+    past: true,
+    label: `${dayLabel} ${eventWord(targetType)}`,
+    dayLabel,
+    time: (pastWindow?.earliestEventTime ? formatTimeUk(pastWindow.earliestEventTime) : null) || '',
+    // A past window carries no served confidence; the inferred, capped tier is the honest answer
+    // (outcome-rating-plan.md §4 #5).
+    confidence: resolveConfidence(null, daysOut(date, todayStr)),
+    bestRating: null,
+    scored: false,
+    served: false,
+    away: false,
+    badges: [],
+    pickKind: null,
+    pickRegion: null,
+    tide: null,
+    inForecastDomain: true,
   };
 }
 
@@ -340,7 +507,7 @@ function formatNightTime(instant, formatTimeUk) {
  *
  * @param {object} args
  * @param {Array<{date: string}>} [args.solarWindows] served solar windows (`heat.windows`)
- * @param {string[]} [args.forecastDates] every date `GET /api/forecast` returned
+ * @param {string[]} [args.forecastDates] every date with a sunrise or sunset row (`colourForecastDates`)
  * @param {string} args.todayStr the UK civil today — dates before it are excluded
  * @returns {string[]} sorted, deduplicated dates, `>= todayStr`
  */
@@ -394,7 +561,9 @@ export function nightPreviewDates(eventType, availableDates, {
  * <p>A served window is a row unconditionally: the briefing only ever renders current/future
  * events, so its presence is already evidence the date belongs on screen. A D-13 filler row
  * additionally requires {@code date >= todayStr} — see the call site's own comment for the
- * just-after-midnight case that gate exists for.
+ * just-after-midnight case that gate exists for. A PAST window (a date before today with forecast
+ * rows for that event, {@code pastWindow}) is a row too; today's own is already a row by the filler
+ * clause, so no clock enters here.
  *
  * @param {*} servedWindow the served window for this (date, targetType), if any
  * @param {boolean} inForecastDomain whether `GET /api/forecast` returned this date
@@ -402,8 +571,48 @@ export function nightPreviewDates(eventType, availableDates, {
  * @param {string} todayStr the caller's UK-civil today
  * @returns {boolean}
  */
-function hasSolarRow(servedWindow, inForecastDomain, date, todayStr) {
-  return Boolean(servedWindow) || (inForecastDomain && date >= todayStr);
+function hasSolarRow(servedWindow, inForecastDomain, date, todayStr, pastWindow = null) {
+  return Boolean(servedWindow)
+    || (inForecastDomain && date >= todayStr)
+    // A PAST window (outcome-rating-plan.md §2 #2): a date before today whose forecast rows exist.
+    // Today's own is already a row by the clause above — filler until it elapses, past after — so
+    // this clause needs no clock, and `isPastSolarWindow` is where the elapsed test lives.
+    || (inForecastDomain && date < todayStr && Boolean(pastWindow));
+}
+
+/**
+ * Whether one solar window is a PAST row — outcome-rating-plan.md §2 #2, the Map tab's answer to
+ * "has this window gone, and are there forecast rows to show for it".
+ *
+ * <p>All four must hold: the briefing serves NO window for it, it is in the forecast domain
+ * ({@code GET /api/forecast} returned its date), forecast rows exist for it ({@code pastWindow},
+ * built by {@code WindowFirstMapPane} from {@code forecastsByDate}), and its roster-earliest event
+ * time has elapsed by the afterglow rule ({@code isEventTimePast}) — the same instant and the same
+ * thirty minutes {@code PlanWindowProjector.hasPassed} withdraws the served window on, so with a
+ * live briefing the two conditions flip together and the Map and the Plan tab retire a window at
+ * the same minute. ⚠️ The elapsed test is load-bearing on its own: an unserved window is not
+ * necessarily over (the briefing can be absent or stale, and the D-13 filler exists to represent
+ * in-domain windows it does not serve), so without it a future sunset would wear PAST whenever the
+ * briefing lagged (Codex, #1185 round 6). A date before today passes trivially.
+ *
+ * <p>A filter over served facts — the already-licensed filter/map/select class (CLAUDE.md
+ * Backend-heavy); it computes no rating and no verdict.
+ *
+ * @param {object} args
+ * @param {*} [args.servedWindow] the served window for this (date, targetType), if any
+ * @param {?{earliestEventTime: ?string}} [args.pastWindow] the pane's past-window entry, if any
+ * @param {boolean} args.inForecastDomain whether `GET /api/forecast` returned this date
+ * @param {string} args.date
+ * @param {string} args.todayStr the UK civil today
+ * @param {(eventTime: ?string) => boolean} [args.isEventTimePast] the app clock's elapsed test
+ * @returns {boolean}
+ */
+export function isPastSolarWindow({
+  servedWindow = null, pastWindow = null, inForecastDomain, date, todayStr,
+  isEventTimePast = () => false,
+}) {
+  if (servedWindow || !inForecastDomain || !pastWindow || date > todayStr) return false;
+  return date < todayStr || isEventTimePast(pastWindow.earliestEventTime ?? null);
 }
 
 /**
@@ -464,19 +673,28 @@ function hasSolarRow(servedWindow, inForecastDomain, date, todayStr) {
  * @param {object} args
  * @param {Array<{date: string, targetType: string}>} [args.solarWindows] served solar windows
  *   (`heat.windows`)
- * @param {string[]} [args.forecastDates] every date `GET /api/forecast` returned
+ * @param {string[]} [args.forecastDates] every date with a sunrise or sunset row (`colourForecastDates`)
+ * @param {Array<{date: string, targetType: string}>} [args.pastSolarWindows] the pane's past
+ *   windows (outcome-rating-plan.md §2 #2) — each makes a date before today a row
  * @param {string} args.todayStr the UK civil today
  * @returns {(date: string, targetType: string) => boolean}
  */
-export function solarRowPredicate({ solarWindows = [], forecastDates = [], todayStr }) {
+export function solarRowPredicate({
+  solarWindows = [], forecastDates = [], pastSolarWindows = [], todayStr,
+}) {
   const served = new Set();
   for (const w of solarWindows) {
-    if (w?.date && w?.targetType) served.add(`${w.date}:${w.targetType}`);
+    if (w?.date && w?.targetType && !w.past) served.add(`${w.date}:${w.targetType}`);
+  }
+  const past = new Set();
+  for (const w of pastSolarWindows) {
+    if (w?.date && w?.targetType) past.add(windowKey(w.date, w.targetType));
   }
   const domain = new Set(forecastDates);
   const domainKnown = served.size > 0 || domain.size > 0;
   return (date, targetType) => !domainKnown || hasSolarRow(
     served.has(`${date}:${targetType}`), domain.has(date), date, todayStr,
+    past.has(windowKey(date, targetType)) ? { date, targetType } : null,
   );
 }
 
@@ -505,7 +723,7 @@ export function isNightOffered(eventType, date, { todayStr, currentNightDate = n
  * @param {Array<{date: string, targetType: 'SUNRISE'|'SUNSET', label: string, time: string,
  *   bestRating: ?number, confidenceTier: ?string, badges: ?Array}>} args.solarWindows the served
  *   solar windows — `WindowFirstMapPane`'s `heat.windows`, chronological
- * @param {string[]} args.forecastDates every date `GET /api/forecast` returned (`allDates`),
+ * @param {string[]} args.forecastDates every date with a sunrise or sunset row (`colourForecastDates`) (`allDates`),
  *   sorted — the map's own full browsable domain (D-13) and the EV-ownership forwarding test
  * @param {string} args.todayStr today's UK calendar date
  * @param {string} args.tomorrowStr tomorrow's UK calendar date
@@ -520,6 +738,20 @@ export function isNightOffered(eventType, date, { todayStr, currentNightDate = n
  * @param {string[]} [args.auroraAvailableDates] dates with stored aurora forecast results
  * @param {Map<string, Array>} [args.auroraResultsByDate] date → that night's aurora result rows
  * @param {boolean} [args.isLite] true for a LITE account — aurora rows are omitted outright
+ * @param {?Map<string, {tide: object, eventTime: ?string, time: ?string}>} [args.tideByWindow]
+ *   the briefing's served tide (with the window's event instant and its formatted clock time) per
+ *   {@link windowKey}, lent to a D-13 filler row — a window the briefing carries but the
+ *   pane's rendered-six list does not. Omitted, a filler has no tide
+ * @param {(eventTime: ?string) => boolean} [args.isEventTimePast] the elapsed test (the app clock's,
+ *   `briefingDisplay.isEventTimePast`), injected so this module reads no clock. A filler whose lent
+ *   window has elapsed borrows nothing: the briefing withdraws an elapsed window and so must this.
+ *   Defaults to never past
+ * @param {Array<{date: string, targetType: 'SUNRISE'|'SUNSET', earliestEventTime: ?string}>}
+ *   [args.pastSolarWindows] every (date, targetType) with at least one forecast row and
+ *   {@code date <= todayStr}, as {@code WindowFirstMapPane} builds them from {@code forecastsByDate}:
+ *   {@code earliestEventTime} is the earliest {@code solarEventTime} among the rows (UTC-naive), the
+ *   instant that decides {@code past}. A window with no served window, in the forecast domain, whose
+ *   earliest time has elapsed becomes a {@code past: true} row (module doc)
  * @param {(v: ?string) => ?string} [args.formatTimeUk] UTC-naive → UK 'HH:MM' formatter, injected
  *   so this module makes no `Intl`/timezone assumption of its own (defaults to a passthrough that
  *   renders no clock time, which is a safe empty state rather than a wrong one)
@@ -538,11 +770,25 @@ export function buildMapEvents({
   auroraResultsByDate = new Map(),
   isLite = false,
   formatTimeUk = () => null,
+  tideByWindow = new Map(),
+  isEventTimePast = () => false,
+  pastSolarWindows = [],
 }) {
   const forecastDateSet = new Set(forecastDates);
+  const pastByKey = new Map();
+  for (const w of Array.isArray(pastSolarWindows) ? pastSolarWindows : []) {
+    if (w?.date && w?.targetType) pastByKey.set(windowKey(w.date, w.targetType), w);
+  }
+  const tides = tideByWindow instanceof Map ? tideByWindow : new Map();
+  const lendFor = (date, type) => {
+    const entry = tides.get(windowKey(date, type));
+    return entry && !isEventTimePast(entry.eventTime) ? entry : null;
+  };
   const solarByDate = new Map();
   for (const w of solarWindows) {
-    if (!w?.date || !w?.targetType) continue;
+    // A window flagged `past` is not SERVED (outcome-rating-plan.md §2 #3: the pane may list past windows
+    // in `heat.windows` for the field) — "served" means the briefing rendered it.
+    if (!w?.date || !w?.targetType || w.past) continue;
     const entry = solarByDate.get(w.date) || {};
     entry[w.targetType] = w;
     solarByDate.set(w.date, entry);
@@ -591,13 +837,25 @@ export function buildMapEvents({
     // (`YYYY-MM-DD`) string comparison sorts correctly with no parsing. A SERVED window is never
     // gated by this: the briefing only ever renders current/future events, so `served.X` being
     // present is already evidence the date belongs on screen regardless of this check.
-    if (hasSolarRow(served.SUNRISE, inForecastDomain, date, todayStr)) {
-      const sunriseInDomain = inForecastDomain || Boolean(served.SUNRISE);
-      rows.push(solarRow(date, 'SUNRISE', served.SUNRISE, todayStr, tomorrowStr, sunriseInDomain));
-    }
-    if (hasSolarRow(served.SUNSET, inForecastDomain, date, todayStr)) {
-      const sunsetInDomain = inForecastDomain || Boolean(served.SUNSET);
-      rows.push(solarRow(date, 'SUNSET', served.SUNSET, todayStr, tomorrowStr, sunsetInDomain));
+    //
+    // ⚠️ A PAST window (outcome-rating-plan.md §2 #2) is a third kind of unserved row: forecast rows
+    // exist for it and its earliest event time has elapsed by the afterglow rule
+    // (`isPastSolarWindow`), so it is the elapsed twin of the filler — same `served: false`, but
+    // `past: true` and a label in the past vocabulary. It never borrows a lent tide or time: both
+    // are withheld for an elapsed window by `lendFor` already.
+    for (const type of ['SUNRISE', 'SUNSET']) {
+      const pastWindow = pastByKey.get(windowKey(date, type)) ?? null;
+      if (!hasSolarRow(served[type], inForecastDomain, date, todayStr, pastWindow)) continue;
+      if (isPastSolarWindow({
+        servedWindow: served[type], pastWindow, inForecastDomain, date, todayStr, isEventTimePast,
+      })) {
+        rows.push(pastSolarRow(date, type, pastWindow, todayStr, formatTimeUk));
+        continue;
+      }
+      const inDomain = inForecastDomain || Boolean(served[type]);
+      rows.push(solarRow(
+        date, type, served[type], todayStr, tomorrowStr, inDomain, lendFor(date, type),
+      ));
     }
 
     // Night — after that day's sunset (README "The window control").
@@ -644,7 +902,10 @@ export function buildMapEvents({
 export function isForwardableRow(row, { todayStr, currentNightDate = null }) {
   if (!row?.inForecastDomain) return false;
   return row.kind === EVENT_KIND.SOLAR
-    ? row.date >= todayStr
+    // A PAST solar row is forwarded with a provenance flag (`App.selectDate`'s `isPast`), exactly as
+    // a night is: `resolveMapDate` refuses a date before today without it, so the flag, never the
+    // value, is what keeps a stale past pick from holding the map after a reload.
+    ? row.date >= todayStr || row.past === true
     : !isNightOver(row.date, { todayStr, nightDate: currentNightDate });
 }
 

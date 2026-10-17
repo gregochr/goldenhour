@@ -7,6 +7,7 @@ import com.anthropic.models.messages.batches.MessageBatchIndividualResponse;
 import com.anthropic.services.blocking.MessageService;
 import com.anthropic.services.blocking.messages.BatchService;
 import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.gregochr.goldenhour.config.AppBuild;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus;
@@ -32,6 +33,7 @@ import com.gregochr.goldenhour.service.evaluation.ForecastResultHandler.Forecast
 import com.gregochr.goldenhour.service.evaluation.ForecastScoreWriter;
 import com.gregochr.goldenhour.service.evaluation.ResultContext;
 import com.gregochr.goldenhour.service.evaluation.SunsetEvaluationParser;
+import com.gregochr.goldenhour.service.evaluation.SupersedingDispositionService;
 import com.gregochr.goldenhour.service.evaluation.visitor.BluebellVisitor;
 import com.gregochr.goldenhour.service.evaluation.visitor.RatingCombiner;
 import com.gregochr.goldenhour.service.evaluation.visitor.SkyVisitor;
@@ -145,13 +147,18 @@ class ClaudeResponseParseResilienceTest {
     private ForecastScoreWriter forecastScoreWriter;
     @Mock
     private ForecastEvaluationRepository forecastEvaluationRepository;
+    @Mock
+    private SupersedingDispositionService supersedingDispositionService;
 
     private ForecastResultHandler handler;
 
     @BeforeEach
     void setUp() {
         // Real parser, real Jackson-3 mapper, real combiner: the fixtures must be exercised by the
-        // production parse path, not by a stub standing in for it.
+        // production parse path, not by a stub standing in for it. supersedingDispositionService is
+        // unstubbed — Mockito's default false for isSuperseded means every forecast_score write in
+        // this file's fixtures proceeds exactly as it did before round 14, since none of them
+        // concern the round-14 gate.
         handler = new ForecastResultHandler(
                 briefingEvaluationService,
                 jobRunService,
@@ -161,7 +168,10 @@ class ClaudeResponseParseResilienceTest {
                 forecastDataAugmentor,
                 forecastScoreWriter,
                 new SunsetEvaluationParser(),
-                forecastEvaluationRepository);
+                forecastEvaluationRepository,
+                supersedingDispositionService,
+                java.time.Clock.systemUTC(),
+                new AppBuild("v2.28.0"));
     }
 
     // ── (i) + (ii) + (iii), table-driven ─────────────────────────────────────
@@ -284,10 +294,10 @@ class ClaudeResponseParseResilienceTest {
         // (iii) the disposition lands on the api_call_log row, joinable to the slot it was for.
         verify(jobRunService).logBatchResult(
                 eq(JOB_RUN_ID), eq(BATCH_ID), eq(CUSTOM_ID),
-                eq(testCase.loggedSucceeded()), any(String.class),
+                eq(testCase.loggedSucceeded()),
                 eq(testCase.loggedErrorType()), any(),
                 any(), any(),
-                eq(DATE), eq(SUNSET), any());
+                eq(DATE), eq(SUNSET), any(), eq(null));
     }
 
     // ── The gap assertion (iii) cannot make ──────────────────────────────────
@@ -316,10 +326,10 @@ class ClaudeResponseParseResilienceTest {
         // joined back to the slot it was for.
         verify(jobRunService).logBatchResult(
                 eq(JOB_RUN_ID), eq(BATCH_ID), eq(CUSTOM_ID),
-                eq(false), eq("PARSE_FAILED"),
+                eq(false),
                 eq("parse_error"), contains("Failed to parse evaluation response"),
                 eq((EvaluationModel) null), eq((TokenUsage) null),
-                eq(DATE), eq(SUNSET), eq((String) null));
+                eq(DATE), eq(SUNSET), eq((String) null), eq(null));
     }
 
     @Test
@@ -364,10 +374,10 @@ class ClaudeResponseParseResilienceTest {
         // And the log row is a clean success, indistinguishable from a scored slot.
         verify(jobRunService).logBatchResult(
                 eq(JOB_RUN_ID), eq(BATCH_ID), eq(CUSTOM_ID),
-                eq(true), eq("SUCCESS"),
+                eq(true),
                 eq(null), eq(null),
                 eq(EvaluationModel.HAIKU), any(TokenUsage.class),
-                eq(DATE), eq(SUNSET), any(String.class));
+                eq(DATE), eq(SUNSET), any(String.class), eq(null));
     }
 
     @Test
@@ -402,10 +412,10 @@ class ClaudeResponseParseResilienceTest {
         // response stays diagnosable in api_call_log.
         verify(jobRunService).logBatchResult(
                 eq(JOB_RUN_ID), eq(BATCH_ID), eq(CUSTOM_ID),
-                eq(true), eq("SUCCESS"),
+                eq(true),
                 eq(null), eq(null),
                 eq(EvaluationModel.HAIKU), any(TokenUsage.class),
-                eq(DATE), eq(SUNSET), any(String.class));
+                eq(DATE), eq(SUNSET), any(String.class), eq(null));
     }
 
     // ── f55ed200: an unknown custom-id prefix discards a perfectly good answer ──
@@ -434,7 +444,8 @@ class ClaudeResponseParseResilienceTest {
         BatchResultProcessor processor = new BatchResultProcessor(
                 stubbedClient(response), batchRepository, mock(LocationRepository.class),
                 batchJobRunService, costCalculator, mockHandler, mock(AuroraResultHandler.class),
-                mock(EvaluationAbandonmentService.class));
+                mock(EvaluationAbandonmentService.class),
+                mock(com.gregochr.goldenhour.repository.PipelineRunRepository.class));
 
         ForecastBatchEntity batch = new ForecastBatchEntity(
                 BATCH_ID, BatchType.FORECAST, 1, Instant.now().plusSeconds(86_400));
@@ -449,10 +460,10 @@ class ClaudeResponseParseResilienceTest {
         // slots they were for.
         verify(batchJobRunService).logBatchResult(
                 eq(JOB_RUN_ID), eq(BATCH_ID), eq("xyz-42-2026-07-26-SUNSET"),
-                eq(false), eq("MALFORMED_ID"),
+                eq(false),
                 eq("parse_error"), eq("malformed customId"),
                 eq((EvaluationModel) null), eq((TokenUsage) null),
-                eq((LocalDate) null), eq((TargetType) null));
+                eq((LocalDate) null), eq((TargetType) null), eq(null), eq(null));
 
         ArgumentCaptor<ForecastBatchEntity> saved =
                 ArgumentCaptor.forClass(ForecastBatchEntity.class);

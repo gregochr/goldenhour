@@ -1,96 +1,80 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { getAuroraViewline, getAuroraForecastViewline } from '../api/auroraApi.js';
+import { viewlineDrawable } from '../utils/viewlineDrawable.js';
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
- * Polls the aurora viewline endpoint every 5 minutes.
+ * Polls both aurora viewline endpoints every 5 minutes and offers ONE line: always live, the
+ * forecast as the fallback, never both.
  *
- * Only fetches when `enabled` is true (PRO/ADMIN user with aurora active at
- * MODERATE or STRONG level).
+ * Only fetches when `enabled` is true (PRO/ADMIN user with aurora active at MODERATE or STRONG
+ * level). When it is, both `GET /viewline` (the OVATION nowcast's 5% contour) and
+ * `GET /viewline/forecast` (the Kp rule, drawn for the highest Kp NOAA forecasts for the rest of
+ * tonight) are asked on mount and again every 5 minutes. The forecast endpoint reads the live
+ * forecast per request, so the forecast line follows NOAA's revisions with no help from the alert
+ * state: this hook no longer needs the trigger type or the alert's Kp.
  *
- * When `triggerType` is `'forecast'`, fetches the forecast viewline — a lookup built from the Kp the
- * alert was triggered on, which the status serves as `forecastKp` — again only when that Kp changes,
- * or on the poll cadence until a first answer has landed. Otherwise fetches the live OVATION
- * viewline with 5-minute polling.
+ * The line on offer is the live one when it is drawable ({@code viewlineDrawable}: active, with
+ * points), else the forecast one when that is drawable, else null. {@code source} says which, so a
+ * caller can tell without reading {@code isForecast}.
  *
- * ⚠️ A line is offered only as what it was fetched as: the live nowcast, or the forecast line for
- * one Kp. Each answer is held with that key and handed out only while the key is still in force, so
- * a trigger flip or a changed forecast Kp withholds the old line in the very render that makes the
- * change — not a commit later, after an effect. Three ways a wrong line used to stand:
- *   - A STALE WINDOW. Nothing withheld the previous line on a trigger change, so it was offered as
- *     the new mode's until the new request landed — and for good if that request failed, since the
- *     forecast mode never re-asked.
- *   - A CHANGED KP. An escalation inside a forecast-triggered alert re-sets the Kp the forecast line
- *     is built from without moving `enabled` or the mode, so the pre-escalation line stood for the
- *     rest of the alert, under an overlay label quoting the new Kp.
- *   - A LATE RESPONSE. A live request still out when the trigger flipped to forecast could land
- *     after the forecast line and replace it. Hence `cancelled`, which drops any answer from a run
- *     that has since been superseded.
- * And the held line is cleared whenever the hook is disabled, because a later alert may want the
- * very same key — the live line, or a forecast at the same Kp — and must start with no line rather
- * than the ended alert's.
+ * ⚠️ Each answer is held on its own and replaced only by a later answer from the same endpoint, so a
+ * failed poll keeps that endpoint's previous line (a transient error must not blank the map), while
+ * an {@code active: false} answer is an answer and drops it, handing the map to the forecast line.
+ * Both are cleared whenever the hook is disabled — a later alert starts with no line rather than the
+ * ended alert's — and `cancelled` drops any response from a run that has since been superseded or
+ * disabled, so a late answer can never land in a newer run's state.
  *
  * @param {boolean} enabled whether to poll
- * @param {string|null} triggerType 'forecast' or 'realtime' (or null)
- * @param {number|null} forecastKp the Kp a forecast-triggered alert was raised on — the status's
- *   `forecastKp`; read only in forecast mode
- * @returns {{ viewline: object|null }}
+ * @param {object} [options]
+ * @param {boolean} [options.includeForecast=true] ask the forecast endpoint too. A caller whose
+ *   copy is about the live OVATION line alone passes false, so the forecast is neither asked for
+ *   (the endpoint reads NOAA's forecast per request) nor ever offered to it. (The banner did, until
+ *   its redesign dropped the viewline sentence; no production caller passes it today.)
+ * @returns {{ viewline: object|null, source: 'live'|'forecast'|null }}
  */
-export function useAuroraViewline(enabled, triggerType = null, forecastKp = null) {
-  const isForecast = triggerType === 'forecast';
-  // What the line on offer must have been fetched as. `null` and `'realtime'` are one key — both
-  // mean the live line, whose endpoint reads no trigger state at all — so a flip between them
-  // neither withholds the line nor re-asks for it. The forecast line is keyed on its Kp because the
-  // backend builds it from exactly that (`AuroraController.getForecastViewline` reads
-  // `lastTriggerKp`, the same field the status serves as `forecastKp`).
-  const lineKey = isForecast ? `forecast:${forecastKp ?? ''}` : 'live';
-  const [held, setHeld] = useState(null); // { key, data }: the last line landed, and what it was fetched as
-  const intervalRef = useRef(null);
+export function useAuroraViewline(enabled, { includeForecast = true } = {}) {
+  const [live, setLive] = useState(null);
+  const [forecast, setForecast] = useState(null);
 
   useEffect(() => {
     if (!enabled) {
       // Inline async wrapper satisfies react-hooks/set-state-in-effect while the setState still
       // applies synchronously this tick — the idiom MapView's own fetch effects use.
-      (async () => setHeld(null))();
+      (async () => {
+        setLive(null);
+        setForecast(null);
+      })();
       return undefined;
     }
 
     let cancelled = false;
-    let landed = false;
 
-    async function fetchViewline() {
-      try {
-        const data = isForecast
-          ? await getAuroraForecastViewline()
-          : await getAuroraViewline();
-        if (cancelled) return;
-        landed = true;
-        setHeld({ key: lineKey, data });
-      } catch {
-        // Transient error — keep whatever is held. It is handed out only while its key is still in
-        // force (see the return below), so a failure can never leave another mode's line, or another
-        // Kp's, on offer: a failed live poll keeps the previous poll's line, and a failed first
-        // request leaves none.
-      }
+    async function fetchBoth() {
+      // Independent: one endpoint failing or lagging must not hold up or discard the other.
+      const askLive = getAuroraViewline().then(
+        (data) => { if (!cancelled) setLive(data); },
+        () => { /* transient error — keep whatever is held */ },
+      );
+      const askForecast = !includeForecast ? Promise.resolve() : getAuroraForecastViewline().then(
+        (data) => { if (!cancelled) setForecast(data); },
+        () => { /* transient error — keep whatever is held */ },
+      );
+      await Promise.all([askLive, askForecast]);
     }
 
-    fetchViewline();
-
-    // Re-asked on the poll cadence: always for the live line, which is a nowcast; for the forecast
-    // line only until one has landed — it changes only with its Kp, but one failed request must not
-    // leave the map without a line for the rest of the alert.
-    intervalRef.current = setInterval(() => {
-      if (!isForecast || !landed) fetchViewline();
-    }, POLL_INTERVAL_MS);
+    fetchBoth();
+    const interval = setInterval(fetchBoth, POLL_INTERVAL_MS);
 
     return () => {
       cancelled = true;
-      clearInterval(intervalRef.current);
+      clearInterval(interval);
     };
-  }, [enabled, isForecast, lineKey]);
+  }, [enabled, includeForecast]);
 
-  // `enabled &&` covers the render in which the hook is disabled, before the clear above has run;
-  // the key comparison covers every render in which the line in force has changed.
-  return { viewline: enabled && held?.key === lineKey ? held.data : null };
+  // `enabled &&` covers the render in which the hook is disabled, before the clear above has run.
+  if (enabled && viewlineDrawable(live)) return { viewline: live, source: 'live' };
+  if (enabled && includeForecast && viewlineDrawable(forecast)) return { viewline: forecast, source: 'forecast' };
+  return { viewline: null, source: null };
 }

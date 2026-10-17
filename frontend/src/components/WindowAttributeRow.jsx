@@ -21,10 +21,22 @@ import WindowTideSparkline from './chart/WindowTideSparkline.jsx';
  * design's own `.wrap.mob .mini{display:none}`. Neither costs the reader anything, because the row
  * is `aria-hidden` on the picture and states the whole answer in the facts.
  *
+ * <h2>{@code extraFacts} is a caller-supplied tail, never a served fact</h2>
+ *
+ * <p>Everything in {@code row.facts} came off the served payload {@code buildWindowRows} maps
+ * (tide-plan-card-plan.md §5 #6: nothing reach-scoped enters that module). The popup's coastal-pool
+ * count is reach-scoped client data — per-user, over {@code card.tideFit} — so it cannot ride
+ * {@code row.facts} without smuggling client derivation into a pure served-fact mapper; the caller
+ * builds it and hands it down as its own prop instead (tide-plan-card-plan.md §3 C3). Appended after
+ * {@code row.facts} so the served facts always read first, in the same {@code {segments, optional}}
+ * shape {@code tideFacts} already uses, and rendered nothing when empty or omitted.
+ *
  * @param {object} props
  * @param {object} props.row a descriptor from {@code buildWindowRows}
+ * @param {Array} [props.extraFacts] caller-derived facts appended after the row's served facts
  */
-export default function WindowAttributeRow({ row }) {
+export default function WindowAttributeRow({ row, extraFacts = [] }) {
+  const facts = extraFacts.length > 0 ? [...row.facts, ...extraFacts] : row.facts;
   return (
     <div
       data-testid="window-attribute-row"
@@ -39,7 +51,7 @@ export default function WindowAttributeRow({ row }) {
         {/* Index-keyed, and deliberately: a row's facts are a fixed, ordered list built fresh from
             one payload — nothing reorders or splices them — while their text is not unique by
             construction, so keying on content is the option that could actually collide. */}
-        {row.facts.map((fact, i) => (
+        {facts.map((fact, i) => (
           <span
             key={`${i}:${fact.segments[0]?.text ?? ''}`}
             data-testid="window-attribute-fact"
@@ -55,6 +67,16 @@ export default function WindowAttributeRow({ row }) {
   );
 }
 
+// Shared by `row.facts` and `extraFacts` — both are lists in the one {segments, optional} shape
+// `tideFacts` (`windowFirstRows.js`) already produces, whatever builds them.
+const FACT_SHAPE = PropTypes.shape({
+  segments: PropTypes.arrayOf(PropTypes.shape({
+    text: PropTypes.string.isRequired,
+    tone: PropTypes.oneOf(['base', 'strong']).isRequired,
+  })).isRequired,
+  optional: PropTypes.bool,
+});
+
 WindowAttributeRow.propTypes = {
   row: PropTypes.shape({
     // Tide alone today: the snow promotion died with the window card at M2 (the popup's topic rows
@@ -63,17 +85,12 @@ WindowAttributeRow.propTypes = {
     // channel — surge, clearance — arrives as a second member.
     channel: PropTypes.oneOf(['tide']).isRequired,
     kicker: PropTypes.string.isRequired,
-    facts: PropTypes.arrayOf(PropTypes.shape({
-      segments: PropTypes.arrayOf(PropTypes.shape({
-        text: PropTypes.string.isRequired,
-        tone: PropTypes.oneOf(['base', 'strong']).isRequired,
-      })).isRequired,
-      optional: PropTypes.bool,
-    })).isRequired,
+    facts: PropTypes.arrayOf(FACT_SHAPE).isRequired,
     chart: PropTypes.shape({
       path: PropTypes.string.isRequired,
       markX: PropTypes.number,
       markY: PropTypes.number,
     }),
   }).isRequired,
+  extraFacts: PropTypes.arrayOf(FACT_SHAPE),
 };

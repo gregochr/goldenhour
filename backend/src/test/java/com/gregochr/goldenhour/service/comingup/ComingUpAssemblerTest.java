@@ -4,11 +4,18 @@ import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.model.AlmanacEvent;
 import com.gregochr.goldenhour.model.AlmanacKind;
 import com.gregochr.goldenhour.model.TideStats;
+import com.gregochr.goldenhour.model.comingup.ComingUpDayMark;
+import com.gregochr.goldenhour.model.comingup.ComingUpDayRange;
 import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
+import com.gregochr.goldenhour.model.comingup.ComingUpFact;
 import com.gregochr.goldenhour.model.comingup.ComingUpResponse;
 import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.service.AlmanacService;
 import com.gregochr.goldenhour.service.TideRunBuilder;
 import com.gregochr.goldenhour.service.TideService;
+import com.gregochr.goldenhour.service.TideSizeIndex;
+import com.gregochr.solarutils.MoonriseMoonset;
+import com.gregochr.solarutils.MoonriseMoonsetCalculator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,6 +25,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -27,7 +35,13 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /** Unit tests for {@link ComingUpAssembler}. */
@@ -48,6 +62,8 @@ class ComingUpAssemblerTest {
     @Mock
     private TideRunPeakHistory tideRunPeakHistory;
 
+    private DailyRangeHistory dailyRangeHistory;
+
     @Mock
     private TideService tideService;
 
@@ -55,8 +71,9 @@ class ComingUpAssemblerTest {
 
     @BeforeEach
     void setUp() {
+        dailyRangeHistory = new DailyRangeHistory(tideRunBuilder, mock(TideSizeIndex.class));
         assembler = new ComingUpAssembler(locationRepository, tideRunBuilder, tideRunPeakHistory,
-                tideService, new ComingUpScoringProperties());
+                dailyRangeHistory, tideService, new ComingUpScoringProperties(), new MoonriseMoonsetCalculator());
         // Empty by default; individual tide-run tests override.
         when(locationRepository.findCoastalLocations()).thenReturn(COASTAL_ROSTER);
     }
@@ -118,6 +135,63 @@ class ComingUpAssemblerTest {
         assertThat(entry.bits()).isGreaterThan(10.0);
         assertThat(entry.interim()).isFalse();
         assertThat(entry.meta()).doesNotContainKeys("coverage", "maximum", "location");
+    }
+
+    @Test
+    @DisplayName("a lunar eclipse entry clears the interrupt band and shares family 'eclipse' with the solar one")
+    void lunarEclipseEntryClearsInterruptAndSharesFamily() {
+        // log2(900) + 1.0 ≈ 10.81 — the plan's own worked figure (§1 row 12).
+        AlmanacEvent lunar = event(DAY, DAY, "lunar-eclipse", "Deep partial lunar eclipse",
+                Map.of("magnitude", "93% in shadow", "maximum", "05:12 · moon WSW 241°, 8° up",
+                        "shadow", "in shadow 03:33 → sets 06:16", "seen", "seen from 41 of 57 sites",
+                        "next", "Next from the UK: a partial eclipse, Wed 12 Jan 2028",
+                        "since", "September 2025", "location", "Bamburgh"));
+
+        ComingUpResponse response = assembler.assemble(DAY, List.of(lunar));
+
+        ComingUpEntry entry = response.entries().getFirst();
+        assertThat(entry.family()).isEqualTo("eclipse");
+        assertThat(entry.metric()).isEqualTo("93%");
+        assertThat(entry.bits()).isCloseTo(10.8, org.assertj.core.data.Offset.offset(0.05));
+        assertThat(entry.interim()).isFalse();
+        // "sets " appears in the shadow meta, so the representative sets while still eclipsed.
+        assertThat(entry.superlative()).isEqualTo("sets in shadow");
+        assertThat(entry.aside())
+                .isEqualTo("No filter needed — bracket, the shadow is ~10 stops under the lit edge");
+        // "since" wins over markScoreNotes' generic rarity-carried phrasing.
+        assertThat(entry.scoreNote()).isEqualTo("The first visible from here since September 2025.");
+        assertThat(entry.meta()).doesNotContainKeys(
+                "magnitude", "maximum", "shadow", "next", "since", "location");
+        // "seen" is not consumed by any fact row and survives as a passthrough figure.
+        assertThat(entry.meta()).containsEntry("seen", "seen from 41 of 57 sites");
+    }
+
+    @Test
+    @DisplayName("a lunar eclipse whose representative does not set in shadow carries no superlative")
+    void lunarEclipseNotSettingInShadowHasNoSuperlative() {
+        AlmanacEvent lunar = event(DAY, DAY, "lunar-eclipse", "Partial lunar eclipse",
+                Map.of("shadow", "in shadow 03:33 → 06:52"));
+
+        ComingUpResponse response = assembler.assemble(DAY, List.of(lunar));
+
+        assertThat(response.entries().getFirst().superlative()).isNull();
+    }
+
+    @Test
+    @DisplayName("a lunar eclipse with no 'since' fact falls through to markScoreNotes' generic rarity phrasing")
+    void lunarEclipseWithNoSinceFallsThroughToGenericScoreNote() {
+        // No "since" key at all — the catalogue's earliest entry, which has nothing earlier.
+        AlmanacEvent lunar = event(DAY, DAY, "lunar-eclipse", "Total lunar eclipse", Map.of());
+
+        ComingUpResponse response = assembler.assemble(DAY, List.of(lunar));
+
+        ComingUpEntry entry = response.entries().getFirst();
+        // gapWord(rarity(900)) → gapWordFromDays(900), which falls in the ≤1200 band: "every two
+        // to three years" (the plan's own worked figure — lunar-eclipse-plan.md §1 row 12).
+        assertThat(entry.scoreNote()).isEqualTo(
+                "It comes round about once every two to three years, which is rare enough to flag on its own.");
+        assertThat(entry.aside())
+                .isEqualTo("No filter needed — bracket, the shadow is ~10 stops under the lit edge");
     }
 
     @Test
@@ -230,17 +304,21 @@ class ComingUpAssemblerTest {
     }
 
     @Test
-    @DisplayName("a high-band entry gets a server-authored scoreNote naming whichever component "
-            + "carried the score")
+    @DisplayName("a high-band entry gets a server-authored, plain-language scoreNote naming the "
+            + "rarity-carried case — no bits figure, the mean gap read back as a calendar phrase")
     void highBandEntryGetsAScoreNote() {
-        // Eclipse rarity alone (~10.6 bits) clears the announce band (7.5) on rarity, not magnitude.
+        // Eclipse rarity alone (~10.6 bits, from the 1500-day config gap) clears the announce band
+        // (7.5) on rarity, not magnitude — 1500 days ≈ 4.1 years, so gapWord reads "every 4 years"
+        // rather than overclaiming the "two to three years" band a lunar eclipse's 900-day gap gets.
         AlmanacEvent eclipse = event(DAY, DAY, "eclipse", "Partial solar eclipse", Map.of());
 
         ComingUpResponse response = assembler.assemble(DAY, List.of(eclipse));
 
         ComingUpEntry entry = response.entries().getFirst();
         assertThat(entry.bits()).isGreaterThanOrEqualTo(7.5);
-        assertThat(entry.scoreNote()).isNotNull().contains("Rarity");
+        assertThat(entry.scoreNote()).isEqualTo(
+                "It comes round about once every 4 years, which is rare enough to flag on its own.");
+        assertThat(entry.scoreNote()).doesNotContain("bits").doesNotContain("Rarity");
     }
 
     @Test
@@ -252,6 +330,57 @@ class ComingUpAssemblerTest {
 
         assertThat(response.entries().getFirst().bits()).isLessThan(7.5);
         assertThat(response.entries().getFirst().scoreNote()).isNull();
+    }
+
+    @Test
+    @DisplayName("a magnitude-carried scoreNote names the entry's own figure against the usual one "
+            + "from its history, once the magnitude was computed from a mature distribution")
+    void magnitudeCarriedScoreNoteNamesFigureAgainstUsual() {
+        when(tideRunBuilder.peakRange(anyList(), eq(COASTAL_ROSTER)))
+                .thenReturn(Optional.of(new TideRunBuilder.RunPeak(SEAHAM, 6.0)));
+        when(tideService.getTideStats(SEAHAM.getId())).thenReturn(Optional.of(stats("3.3")));
+        // 100 observations, 0.05..5.0 — a range of 6.0 clears every one of them, so magnitude
+        // (~6.66 bits) beats the spring/king rarity (~3.9 bits) and carries the score.
+        List<Double> history = new java.util.ArrayList<>();
+        for (int i = 1; i <= 100; i++) {
+            history.add((double) i / 20.0);
+        }
+        when(tideRunPeakHistory.peakRanges(eq(SEAHAM), eq(COASTAL_ROSTER), eq(DAY), eq(DAY)))
+                .thenReturn(history);
+        AlmanacEvent run = event(DAY, DAY, "king-tide", "King tide run",
+                AlmanacEvent.metaOf("range", "6.0 m"));
+
+        ComingUpResponse response = assembler.assemble(DAY, List.of(run));
+
+        ComingUpEntry entry = response.entries().getFirst();
+        assertThat(entry.bits()).isGreaterThanOrEqualTo(7.5);
+        assertThat(entry.interim()).isFalse();
+        // Median of 0.05..5.0 in steps of 0.05 (nearest-rank, 50th percentile of 100 values) is
+        // the 50th value: 2.5.
+        assertThat(entry.scoreNote()).isEqualTo("An unusually big one — 6.0 m against the usual 2.5 m.");
+    }
+
+    @Test
+    @DisplayName("a cold-start magnitude-carried scoreNote falls back to the no-figure wording — a "
+            + "bucketed reference names no real distribution to call \"usual\"")
+    void coldStartMagnitudeCarriedScoreNoteFallsBackWithNoFigure() {
+        when(tideRunBuilder.peakRange(anyList(), eq(COASTAL_ROSTER)))
+                .thenReturn(Optional.of(new TideRunBuilder.RunPeak(SEAHAM, 11.0)));
+        when(tideService.getTideStats(SEAHAM.getId())).thenReturn(Optional.of(stats("3.3")));
+        // 10 observations (well under the 60-observation cold-start floor) — 11.0 clears all of
+        // them, bucketing to p97Bits (5.1), still enough to beat the spring/king rarity (~3.9).
+        List<Double> history = List.of(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0);
+        when(tideRunPeakHistory.peakRanges(eq(SEAHAM), eq(COASTAL_ROSTER), eq(DAY), eq(DAY)))
+                .thenReturn(history);
+        AlmanacEvent run = event(DAY, DAY, "king-tide", "King tide run",
+                AlmanacEvent.metaOf("range", "11.0 m"));
+
+        ComingUpResponse response = assembler.assemble(DAY, List.of(run));
+
+        ComingUpEntry entry = response.entries().getFirst();
+        assertThat(entry.bits()).isGreaterThanOrEqualTo(7.5);
+        assertThat(entry.interim()).isTrue();
+        assertThat(entry.scoreNote()).isEqualTo("An unusually big one carries it, not rarity.");
     }
 
     // ── id, kindTag, region-scope fact ──────────────────────────────────────
@@ -536,21 +665,21 @@ class ComingUpAssemblerTest {
 
     @Test
     @DisplayName("the biggest run in a window still sets the comparison set for its neighbours even "
-            + "after being absorbed into a supermoon coincidence — superlatives/thresholds must be "
-            + "computed BEFORE the merge, not after, or the merged-away run's range silently drops "
-            + "out of every other run's comparison")
-    void biggestRunMergedAway_stillSetsNeighboursComparisonSet() {
+            + "after being merged with a supermoon — superlatives/thresholds must be computed BEFORE "
+            + "the merge, and the run that hosts the merged card keeps its OWN superlative and "
+            + "threshold")
+    void biggestRunMerged_stillSetsNeighboursComparisonSet() {
         LocalDate aStart = DAY;
         LocalDate bStart = DAY.plusDays(14);
         LocalDate cStart = DAY.plusDays(28);
         when(tideRunBuilder.peakRange(eq(datesOf(aStart, aStart.plusDays(3))), eq(COASTAL_ROSTER)))
                 .thenReturn(Optional.of(new TideRunBuilder.RunPeak(SEAHAM, 4.0)));
-        // B is the biggest of the three, and overlaps a supermoon — which outscores every tide run
-        // here on default magnitude alone (~6.9 vs ~4.9 bits), so B is the one that gets merged away.
+        // B overlaps a supermoon, which outscores every tide run here on default magnitude alone
+        // (~6.9 vs ~4.9 bits) — yet B's four-day span is longer, so B hosts the merged card.
         when(tideRunBuilder.peakRange(eq(datesOf(bStart, bStart.plusDays(3))), eq(COASTAL_ROSTER)))
                 .thenReturn(Optional.of(new TideRunBuilder.RunPeak(SEAHAM, 6.0)));
         when(tideRunBuilder.peakRange(eq(datesOf(cStart, cStart.plusDays(3))), eq(COASTAL_ROSTER)))
-                .thenReturn(Optional.of(new TideRunBuilder.RunPeak(SEAHAM, 5.0)));
+                .thenReturn(Optional.of(new TideRunBuilder.RunPeak(SEAHAM, 7.0)));
         when(tideService.getTideStats(SEAHAM.getId())).thenReturn(Optional.empty());
 
         AlmanacEvent a = event(aStart, aStart.plusDays(3), "spring-tide", "Spring tide run", Map.of());
@@ -566,94 +695,677 @@ class ComingUpAssemblerTest {
         ComingUpEntry merged = response.entries().get(1);
         ComingUpEntry entryC = response.entries().get(2);
 
-        assertThat(merged.type()).isEqualTo("supermoon");
-        assertThat(merged.coincidence()).hasSize(1);
+        assertThat(merged.type()).isEqualTo("spring-tide");
+        assertThat(merged.coincidence()).hasSize(2);
 
-        // A still knows B (6.0, merged away) is the next bigger run — not silently invisible.
+        // A still knows B (6.0, now the merged card) is the next bigger run.
         assertThat(entryA.superlative()).isEqualTo("biggest until " + fmt(bStart));
-        assertThat(entryA.threshold()).contains("6.0").contains("5.0");
-        // C's threshold still names B's true range (6.0), the run's own comparison set unaffected
-        // by B having been folded into the supermoon's coincidence line.
+        assertThat(entryA.threshold()).contains("6.0").contains("7.0");
+        // B hosts, so its own superlative and threshold now appear on the merged card.
+        assertThat(merged.superlative()).isEqualTo("biggest until " + fmt(cStart));
+        assertThat(merged.threshold()).contains("4.0").contains("7.0");
         assertThat(entryC.threshold()).contains("4.0").contains("6.0");
         assertThat(entryC.superlative()).isNull();
     }
 
-    // ── coincidence merge (plan D10) ─────────────────────────────────────
+    // ── coincidence merge (plan D10; shape: supermoon-tide-run-plan.md) ──────
 
-    @Test
-    @DisplayName("a tide run and a supermoon sharing dates merge into one entry, scored as the max "
-            + "of the two, with the loser folded into coincidence and a joinNote naming the winner")
-    void tideRunAndSupermoonMerge() {
-        when(tideRunBuilder.peakRange(anyList(), eq(COASTAL_ROSTER))).thenReturn(Optional.empty());
-        AlmanacEvent tideRun = event(DAY, DAY.plusDays(3), "king-tide", "King tide run", Map.of());
-        AlmanacEvent supermoon = event(DAY.plusDays(1), DAY.plusDays(1), "supermoon", "Supermoon",
-                Map.of("peakDate", DAY.plusDays(1).toString()));
+    // Oct 2026: 25 Sun, 26 Mon, 27 Tue, 28 Wed, 29 Thu, 30 Fri. UK clocks go back on the 25th, so
+    // the 26th is GMT and a UTC instant reads the same on the London clock.
+    private static final LocalDate BUILT = LocalDate.of(2026, 10, 20);
 
-        ComingUpResponse response = assembler.assemble(DAY, List.of(tideRun, supermoon));
+    private static LocalDate oct(int day) {
+        return LocalDate.of(2026, 10, day);
+    }
 
-        assertThat(response.entries()).hasSize(1);
-        ComingUpEntry merged = response.entries().getFirst();
-        // Supermoon (rarity ~5.9 + 1.0 ≈ 6.9) beats the king run's default-magnitude score
-        // (rarity ~3.9 + 1.0 ≈ 4.9), so the supermoon carries the merged entry.
-        assertThat(merged.type()).isEqualTo("supermoon");
-        assertThat(merged.coincidence()).hasSize(1);
-        assertThat(merged.coincidence().getFirst().family()).isEqualTo("coastal");
-        assertThat(merged.coincidence().getFirst().name()).isEqualTo("King tide run");
-        assertThat(merged.joinNote()).contains("maximum").contains("Supermoon");
+    private static LocalDate nov(int day) {
+        return LocalDate.of(2026, 11, day);
+    }
+
+    /** A run's meta as TideAlmanacSource writes it for a run with a true peak. */
+    private static Map<String, String> runMeta(LocalDate peak, LocalDate alignedOn) {
+        return AlmanacEvent.metaOf("range", "4.9 m", "alignment", "HW 15:48 · 52m before sunset",
+                "alignmentDate", alignedOn == null ? null : alignedOn.toString(),
+                "peakDate", peak.toString(), "location", "Seaham");
+    }
+
+    private static AlmanacEvent supermoon(LocalDate start, LocalDate end, LocalDate peak) {
+        return event(start, end, "supermoon", "Supermoon", Map.of("peakDate", peak.toString()));
+    }
+
+    /** Stubs one derivable peak at Seaham with no stored statistics (interim, default magnitude). */
+    private void stubRunAtSeaham() {
+        when(tideRunBuilder.peakRange(anyList(), eq(COASTAL_ROSTER)))
+                .thenReturn(Optional.of(new TideRunBuilder.RunPeak(SEAHAM, 4.9)));
+        when(tideService.getTideStats(SEAHAM.getId())).thenReturn(Optional.empty());
+    }
+
+    private static final java.time.ZoneId LONDON = java.time.ZoneId.of("Europe/London");
+
+    /** A moonrise at the given UTC clock (these dates are GMT, so the London clock reads the same). */
+    private static MoonriseMoonset risesAt(int year, int month, int day, int hour, int minute) {
+        return new MoonriseMoonset(Optional.of(ZonedDateTime.of(year, month, day, hour, minute, 0, 0,
+                java.time.ZoneOffset.UTC)), Optional.empty());
+    }
+
+    /** The served non-breaking-space form of a facts label: breaks only around " · " and " – ". */
+    private static String nb(String label) {
+        return label.replace(" – ", "\u0001").replace(" · ", "\u0002").replace(' ', ' ')
+                .replace("\u0001", " – ").replace("\u0002", " · ");
+    }
+
+    private ComingUpAssembler assemblerWith(MoonriseMoonsetCalculator calculator) {
+        return new ComingUpAssembler(locationRepository, tideRunBuilder, tideRunPeakHistory,
+                dailyRangeHistory, tideService, new ComingUpScoringProperties(), calculator);
+    }
+
+    private static List<String> factTexts(ComingUpEntry entry) {
+        return entry.facts().stream()
+                .map(f -> f.segments().stream().map(ComingUpFact.Segment::text)
+                        .reduce("", String::concat))
+                .toList();
     }
 
     @Test
-    @DisplayName("a supermoon that sorts BEFORE its overlapping tide run still merges into one "
-            + "entry, not a standalone supermoon plus a second merged copy — the merge must not "
-            + "depend on which of the pair AlmanacService.build()'s date sort happens to place "
-            + "first, since a supermoon's span commonly starts before the tide run it overlaps")
-    void supermoonSortingBeforeItsTideRun_stillMergesToOneEntry() {
-        when(tideRunBuilder.peakRange(anyList(), eq(COASTAL_ROSTER))).thenReturn(Optional.empty());
-        // Supermoon starts a day before the tide run (and so sorts first in a date-ordered list)
-        // but still overlaps it.
-        AlmanacEvent supermoon = event(DAY.minusDays(1), DAY.plusDays(1), "supermoon", "Supermoon",
-                Map.of("peakDate", DAY.toString()));
-        AlmanacEvent tideRun = event(DAY, DAY.plusDays(3), "king-tide", "King tide run", Map.of());
+    @DisplayName("§2.3: a supermoon that wins on bits inside a longer spring run leaves the RUN hosting "
+            + "the union span, with both lines, both marks, the run's door and the composite title")
+    void supermoonWinsOnBits_runStillHostsTheUnionSpan() {
+        stubRunAtSeaham();
+        AlmanacEvent run = event(oct(25), oct(30), "spring-tide", "Spring tide run",
+                runMeta(oct(27), oct(27)));
 
-        // Passed in the exact order a date-sorted feed would hand them: supermoon first.
-        ComingUpResponse response = assembler.assemble(DAY, List.of(supermoon, tideRun));
+        MoonriseMoonsetCalculator calculator = mock(MoonriseMoonsetCalculator.class);
+        when(calculator.calculate(oct(26), 54.84, -1.33, LONDON)).thenReturn(risesAt(2026, 10, 26, 17, 22));
+
+        ComingUpResponse response = assemblerWith(calculator).assemble(BUILT,
+                List.of(run, supermoon(oct(26), oct(26), oct(26))));
 
         assertThat(response.entries()).hasSize(1);
         ComingUpEntry merged = response.entries().getFirst();
-        assertThat(merged.type()).isEqualTo("supermoon");
-        assertThat(merged.coincidence()).hasSize(1);
-        assertThat(merged.coincidence().getFirst().name()).isEqualTo("King tide run");
+        assertThat(merged.type()).isEqualTo("spring-tide");
+        assertThat(merged.family()).isEqualTo("coastal");
+        assertThat(merged.id()).isEqualTo("spring-tide:2026-10-25:2026-10-30");
+        assertThat(merged.startDate()).isEqualTo(oct(25));
+        assertThat(merged.endDate()).isEqualTo(oct(30));
+        assertThat(merged.title()).isEqualTo("Spring tide run, on a supermoon");
+        assertThat(merged.action().kind()).isEqualTo("coastal-spots");
+        assertThat(merged.action().date()).isEqualTo(oct(27));
+        assertThat(merged.action().label()).isEqualTo("Show coastal spots for 27 Oct →");
+        assertThat(merged.metric()).isEqualTo("4.9 m");
+
+        assertThat(merged.coincidence()).hasSize(2);
+        assertThat(merged.coincidence().get(0).family()).isEqualTo("coastal");
+        assertThat(merged.coincidence().get(0).name()).isEqualTo("Spring tide run");
+        assertThat(merged.coincidence().get(0).type()).isEqualTo("spring-tide");
+        assertThat(merged.coincidence().get(0).factsLabel())
+                .isEqualTo(nb("Sun 25 – Fri 30 Oct · biggest Tue 27 · 4.9 m · HW 15:48"));
+        assertThat(merged.coincidence().get(1).family()).isEqualTo("sun-moon");
+        assertThat(merged.coincidence().get(1).name()).isEqualTo("Supermoon");
+        assertThat(merged.coincidence().get(1).type()).isEqualTo("supermoon");
+        assertThat(merged.coincidence().get(1).factsLabel()).isEqualTo(nb("Mon 26 Oct · moonrise 17:22"));
+
+        assertThat(merged.joinNote()).isEqualTo("Same cause, two effects. The moon is closest to Earth, "
+                + "which both enlarges it and stretches the tide. The moon is full on the 26th and the "
+                + "tide peaks a day later, on the 27th. Counted as one event, not two.");
+        assertThat(merged.dayMarks()).containsExactly(
+                new ComingUpDayMark(oct(26), "full moon", "sun-moon"),
+                new ComingUpDayMark(oct(27), "peak", "coastal"));
+        // The run's range/alignment facts stay (alignment gains its day); the supermoon's "peaks" does not.
+        assertThat(factTexts(merged)).containsExactly("range 4.9 m at Seaham",
+                "tide HW 15:48 · 52m before sunset on the 27th");
+        assertThat(merged.joinNote()).doesNotContain("bits");
     }
 
     @Test
-    @DisplayName("when the tide run outscores the supermoon, the TIDE carries the merged entry — "
-            + "the max rule can land on either side, not just the higher-rarity one")
-    void tideRunOutscoresSupermoon_tideCarriesTheMerge() {
+    @DisplayName("R10: the score provenance stays with the bits WINNER — the supermoon's bits, interim "
+            + "flag and enteredWindow — never the union start, which would back-date the arrival")
+    void scoreProvenanceStaysWithTheWinner() {
+        stubRunAtSeaham();
+        AlmanacEvent run = event(oct(25), oct(30), "spring-tide", "Spring tide run",
+                runMeta(oct(27), oct(27)));
+        AlmanacEvent moon = supermoon(oct(26), oct(26), oct(26));
+
+        ComingUpEntry merged = assembler.assemble(BUILT, List.of(run, moon)).entries().getFirst();
+        ComingUpEntry moonAlone = assembler.assemble(BUILT, List.of(moon)).entries().getFirst();
+
+        assertThat(merged.bits()).isEqualTo(moonAlone.bits());
+        // The run alone is interim (no stored statistics); the winning supermoon is not.
+        assertThat(merged.interim()).isFalse();
+        assertThat(merged.enteredWindow()).isEqualTo(moonAlone.enteredWindow());
+        assertThat(merged.enteredWindow()).isEqualTo(oct(26).minusDays(AlmanacService.DEFAULT_DAYS - 1L));
+    }
+
+    @Test
+    @DisplayName("a king run with a two-night supermoon: both nights marked, the peak marked on its own day")
+    void kingRunWithTwoNightSupermoon() {
+        stubRunAtSeaham();
+        AlmanacEvent run = event(nov(23), nov(28), "king-tide", "King tide run", runMeta(nov(26), nov(26)));
+        MoonriseMoonsetCalculator calculator = mock(MoonriseMoonsetCalculator.class);
+        // The supermoon's peak night is the 25th (nearest perigee), not its first night.
+        when(calculator.calculate(nov(25), 54.84, -1.33, LONDON)).thenReturn(risesAt(2026, 11, 25, 15, 30));
+
+        ComingUpEntry merged = assemblerWith(calculator).assemble(BUILT,
+                List.of(run, supermoon(nov(24), nov(25), nov(25)))).entries().getFirst();
+
+        assertThat(merged.type()).isEqualTo("king-tide");
+        assertThat(merged.title()).isEqualTo("King tide run, on a supermoon");
+        assertThat(merged.id()).isEqualTo("king-tide:2026-11-23:2026-11-28");
+        assertThat(merged.dayMarks()).containsExactly(
+                new ComingUpDayMark(nov(24), "full moon", "sun-moon"),
+                new ComingUpDayMark(nov(25), "full moon", "sun-moon"),
+                new ComingUpDayMark(nov(26), "peak", "coastal"));
+        assertThat(merged.joinNote()).contains("The moon is full on the 24th and 25th and the tide peaks "
+                + "a day later, on the 26th.");
+        // The multi-night line names the night the moonrise is for.
+        assertThat(merged.coincidence().get(1).factsLabel())
+                .isEqualTo(nb("Tue 24 – Wed 25 Nov · moonrise 15:30 on the 25th"));
+    }
+
+    @Test
+    @DisplayName("when the tide peaks on a moon night the host's mark comes first and the note says same day")
+    void peakOnAMoonNight_hostMarkFirst() {
+        stubRunAtSeaham();
+        AlmanacEvent run = event(oct(25), oct(30), "spring-tide", "Spring tide run",
+                runMeta(oct(26), oct(26)));
+
+        ComingUpEntry merged = assembler.assemble(BUILT,
+                List.of(run, supermoon(oct(26), oct(26), oct(26)))).entries().getFirst();
+
+        assertThat(merged.dayMarks()).containsExactly(
+                new ComingUpDayMark(oct(26), "peak", "coastal"),
+                new ComingUpDayMark(oct(26), "full moon", "sun-moon"));
+        assertThat(merged.joinNote()).contains("The moon is full and the tide peaks on the same day, "
+                + "the 26th. Counted as one event, not two.");
+    }
+
+    @Test
+    @DisplayName("a one-day run has no true peak: the supermoon hosts on the span tie, marks the day full "
+            + "moon only, and the note says nothing about a peak")
+    void oneDayRunHasNoTruePeak() {
+        stubRunAtSeaham();
+        AlmanacEvent run = event(oct(26), oct(26), "spring-tide", "Spring tide run",
+                AlmanacEvent.metaOf("range", "4.9 m", "figuresFrom", oct(26).toString(),
+                        "partialCoverage", "true", "location", "Seaham"));
+
+        ComingUpEntry merged = assembler.assemble(BUILT,
+                List.of(run, supermoon(oct(26), oct(26), oct(26)))).entries().getFirst();
+
+        // Equal spans: the bits winner (the supermoon) hosts — R2's accepted consequence.
+        assertThat(merged.type()).isEqualTo("supermoon");
+        assertThat(merged.title()).isEqualTo("Supermoon, on a spring tide run");
+        assertThat(merged.action().kind()).isEqualTo("dark-sky-spots");
+        assertThat(merged.id()).isEqualTo("supermoon:2026-10-26:2026-10-26");
+        assertThat(merged.dayMarks()).containsExactly(new ComingUpDayMark(oct(26), "full moon", "sun-moon"));
+        assertThat(merged.joinNote()).isEqualTo("Same cause, two effects. The moon is closest to Earth, "
+                + "which both enlarges it and stretches the tide. Counted as one event, not two.");
+        // The supermoon's own "peaks" fact is not served on a merged entry.
+        assertThat(factTexts(merged)).isEmpty();
+        // Host first: the supermoon's line leads, the run's line follows with its own figures.
+        assertThat(merged.coincidence().get(1).factsLabel()).isEqualTo(nb("Mon 26 Oct · 4.9 m on Mon 26"));
+    }
+
+    @Test
+    @DisplayName("a supermoon starting a day before a run that wins on bits: the union starts on the "
+            + "moon's night, the run hosts and its OWN enteredWindow stands")
+    void runWinsOnBitsWithSupermoonBeforeIt() {
         when(tideRunBuilder.peakRange(anyList(), eq(COASTAL_ROSTER)))
                 .thenReturn(Optional.of(new TideRunBuilder.RunPeak(SEAHAM, 6.0)));
         when(tideService.getTideStats(SEAHAM.getId())).thenReturn(Optional.of(stats("3.3")));
-        // 100 observations, 1..100 — a peak of 6.0 (the biggest on record) scores a high exact
-        // magnitude, comfortably beating a supermoon's default ~6.9-bit score.
         List<Double> history = new java.util.ArrayList<>();
         for (int i = 1; i <= 100; i++) {
             history.add((double) i / 20.0);
         }
-        when(tideRunPeakHistory.peakRanges(eq(SEAHAM), eq(COASTAL_ROSTER), eq(DAY), eq(DAY)))
+        when(tideRunPeakHistory.peakRanges(eq(SEAHAM), eq(COASTAL_ROSTER), eq(BUILT), eq(nov(25))))
                 .thenReturn(history);
-        AlmanacEvent tideRun = event(DAY, DAY.plusDays(3), "king-tide", "King tide run",
-                AlmanacEvent.metaOf("range", "6.0 m"));
-        AlmanacEvent supermoon = event(DAY.plusDays(1), DAY.plusDays(1), "supermoon", "Supermoon",
-                Map.of("peakDate", DAY.plusDays(1).toString()));
+        AlmanacEvent run = event(nov(25), nov(29), "king-tide", "King tide run", runMeta(nov(27), nov(27)));
 
-        ComingUpResponse response = assembler.assemble(DAY, List.of(tideRun, supermoon));
+        ComingUpEntry merged = assembler.assemble(BUILT,
+                List.of(supermoon(nov(24), nov(25), nov(24)), run)).entries().getFirst();
+
+        assertThat(merged.type()).isEqualTo("king-tide");
+        assertThat(merged.startDate()).isEqualTo(nov(24));
+        assertThat(merged.endDate()).isEqualTo(nov(29));
+        assertThat(merged.id()).isEqualTo("king-tide:2026-11-24:2026-11-29");
+        // The run won on bits, so the arrival is the run's own day, not the union start.
+        assertThat(merged.enteredWindow()).isEqualTo(nov(25).minusDays(AlmanacService.DEFAULT_DAYS - 1L));
+        assertThat(merged.interim()).isFalse();
+        assertThat(merged.dayMarks()).containsExactly(
+                new ComingUpDayMark(nov(24), "full moon", "sun-moon"),
+                new ComingUpDayMark(nov(25), "full moon", "sun-moon"),
+                new ComingUpDayMark(nov(27), "peak", "coastal"));
+        assertThat(merged.joinNote()).contains("tide peaks 2 days later, on the 27th.");
+    }
+
+    @Test
+    @DisplayName("a merged run with no true peak (partial coverage, two or more days) marks the moon "
+            + "nights only — never a peak anywhere")
+    void partialCoverageRun_marksMoonNightsOnly() {
+        stubRunAtSeaham();
+        AlmanacEvent run = event(oct(25), oct(29), "spring-tide", "Spring tide run",
+                AlmanacEvent.metaOf("range", "4.9 m", "figuresFrom", oct(26).toString(),
+                        "partialCoverage", "true", "location", "Seaham"));
+
+        ComingUpEntry merged = assembler.assemble(BUILT,
+                List.of(run, supermoon(oct(26), oct(27), oct(26)))).entries().getFirst();
+
+        assertThat(merged.type()).isEqualTo("spring-tide");
+        assertThat(merged.dayMarks()).extracting(ComingUpDayMark::label)
+                .containsExactly("full moon", "full moon");
+        assertThat(merged.joinNote()).doesNotContain("peaks");
+        assertThat(merged.coincidence().getFirst().factsLabel())
+                .isEqualTo(nb("Sun 25 – Thu 29 Oct · 4.9 m on Mon 26"));
+        assertThat(factTexts(merged)).contains("figures cover only part of this run");
+    }
+
+    @Test
+    @DisplayName("the alignment clock is printed beside the peak only when the alignment is on the peak day")
+    void alignmentClockOnlyWhenOnThePeakDay() {
+        stubRunAtSeaham();
+        AlmanacEvent run = event(oct(25), oct(30), "spring-tide", "Spring tide run",
+                runMeta(oct(27), oct(28)));
+
+        ComingUpEntry merged = assembler.assemble(BUILT,
+                List.of(run, supermoon(oct(26), oct(26), oct(26)))).entries().getFirst();
+
+        assertThat(merged.coincidence().getFirst().factsLabel())
+                .isEqualTo(nb("Sun 25 – Fri 30 Oct · biggest Tue 27 · 4.9 m"));
+        assertThat(factTexts(merged)).contains("tide HW 15:48 · 52m before sunset on the 28th");
+    }
+
+    @Test
+    @DisplayName("the join note counts days from the NEAREST moon night, in both directions, "
+            + "and lists three nights")
+    void joinNoteRelativeWordings() {
+        stubRunAtSeaham();
+        AlmanacEvent later = event(oct(20), oct(29), "spring-tide", "Spring tide run",
+                runMeta(oct(27), null));
+        assertThat(assembler.assemble(BUILT, List.of(later, supermoon(oct(23), oct(25), oct(24))))
+                .entries().getFirst().joinNote())
+                .contains("full on the 23rd, 24th and 25th and the tide peaks 2 days later, on the 27th.");
+
+        AlmanacEvent earlier = event(oct(20), oct(29), "spring-tide", "Spring tide run",
+                runMeta(oct(21), null));
+        assertThat(assembler.assemble(BUILT, List.of(earlier, supermoon(oct(23), oct(25), oct(24))))
+                .entries().getFirst().joinNote())
+                .contains("tide peaks 2 days earlier, on the 21st.");
+
+        AlmanacEvent justBefore = event(oct(20), oct(29), "spring-tide", "Spring tide run",
+                runMeta(oct(22), null));
+        assertThat(assembler.assemble(BUILT, List.of(justBefore, supermoon(oct(23), oct(25), oct(24))))
+                .entries().getFirst().joinNote())
+                .contains("tide peaks a day earlier, on the 22nd.");
+    }
+
+    @Test
+    @DisplayName("moonrise is read at the run's representative on the moon night, converted to the "
+            + "London clock from the instant, and omitted when the moon does not rise")
+    void moonriseAtTheRepresentative() {
+        stubRunAtSeaham();
+        MoonriseMoonsetCalculator calculator = mock(MoonriseMoonsetCalculator.class);
+        // 13:22 in New York on the 26th is 17:22 UTC — the clock must come from the instant.
+        ZonedDateTime rise = ZonedDateTime.of(2026, 10, 26, 13, 22, 0, 0,
+                java.time.ZoneId.of("America/New_York"));
+        when(calculator.calculate(oct(26), 54.84, -1.33, java.time.ZoneId.of("Europe/London")))
+                .thenReturn(new MoonriseMoonset(Optional.of(rise), Optional.empty()));
+        AlmanacEvent run = event(oct(25), oct(30), "spring-tide", "Spring tide run",
+                runMeta(oct(27), oct(27)));
+
+        ComingUpEntry merged = assemblerWith(calculator).assemble(BUILT,
+                List.of(run, supermoon(oct(26), oct(26), oct(26)))).entries().getFirst();
+        assertThat(merged.coincidence().get(1).factsLabel()).isEqualTo(nb("Mon 26 Oct · moonrise 17:22"));
+
+        when(calculator.calculate(oct(26), 54.84, -1.33, java.time.ZoneId.of("Europe/London")))
+                .thenReturn(new MoonriseMoonset(Optional.empty(), Optional.empty()));
+        ComingUpEntry noRise = assemblerWith(calculator).assemble(BUILT,
+                List.of(run, supermoon(oct(26), oct(26), oct(26)))).entries().getFirst();
+        assertThat(noRise.coincidence().get(1).factsLabel()).isEqualTo(nb("Mon 26 Oct"));
+    }
+
+    @Test
+    @DisplayName("with no representative (no derivable peak) the moonrise is never asked for")
+    void noRepresentative_noMoonrise() {
+        when(tideRunBuilder.peakRange(anyList(), eq(COASTAL_ROSTER))).thenReturn(Optional.empty());
+        MoonriseMoonsetCalculator calculator = mock(MoonriseMoonsetCalculator.class);
+        AlmanacEvent run = event(oct(25), oct(30), "spring-tide", "Spring tide run", Map.of());
+
+        ComingUpEntry merged = assemblerWith(calculator).assemble(BUILT,
+                List.of(run, supermoon(oct(26), oct(26), oct(26)))).entries().getFirst();
+
+        assertThat(merged.coincidence().get(1).factsLabel()).isEqualTo(nb("Mon 26 Oct"));
+        assertThat(merged.coincidence().getFirst().factsLabel()).isEqualTo(nb("Sun 25 – Fri 30 Oct"));
+        verifyNoInteractions(calculator);
+    }
+
+    @Test
+    @DisplayName("R2: on a span tie the bits winner hosts; on a bits tie too the tide run hosts")
+    void hostTies() {
+        stubRunAtSeaham();
+        AlmanacEvent run = event(oct(26), oct(27), "spring-tide", "Spring tide run", runMeta(oct(26), null));
+        AlmanacEvent moon = supermoon(oct(26), oct(27), oct(26));
+        // Higher rarity for the supermoon: it wins the tie.
+        assertThat(assembler.assemble(BUILT, List.of(run, moon)).entries().getFirst().type())
+                .isEqualTo("supermoon");
+
+        ComingUpScoringProperties tied = new ComingUpScoringProperties();
+        tied.getRarity().setSpringTideMeanGapDays(tied.getRarity().getSupermoonMeanGapDays());
+        ComingUpAssembler tiedAssembler = new ComingUpAssembler(locationRepository, tideRunBuilder,
+                tideRunPeakHistory, dailyRangeHistory, tideService, tied, new MoonriseMoonsetCalculator());
+        assertThat(tiedAssembler.assemble(BUILT, List.of(moon, run)).entries().getFirst().type())
+                .isEqualTo("spring-tide");
+    }
+
+    @Test
+    @DisplayName("a merged entry counts under every family it holds; fixed and forecast count it once")
+    void mergedEntryCountsUnderEachFamily() {
+        stubRunAtSeaham();
+        AlmanacEvent run = event(oct(25), oct(30), "spring-tide", "Spring tide run", runMeta(oct(27), null));
+        AlmanacEvent meteor = event(nov(10), nov(10), "meteor", "Leonids", Map.of());
+
+        var counts = assembler.assemble(BUILT, List.of(run, supermoon(oct(26), oct(26), oct(26)), meteor))
+                .counts();
+
+        assertThat(counts.byFamily()).containsEntry("coastal", 1).containsEntry("sun-moon", 1)
+                .containsEntry("night-sky", 1);
+        assertThat(counts.fixed()).isEqualTo(2);
+        assertThat(counts.forecast()).isZero();
+    }
+
+    private void stubRanges(LocalDate start, LocalDate end, Object... dateAndRange) {
+        java.util.Map<LocalDate, Double> ranges = new java.util.LinkedHashMap<>();
+        for (int i = 0; i < dateAndRange.length; i += 2) {
+            ranges.put((LocalDate) dateAndRange[i], (Double) dateAndRange[i + 1]);
+        }
+        when(tideRunBuilder.dailyRangesAt(eq(SEAHAM), eq(datesOf(start, end)))).thenReturn(ranges);
+    }
+
+    @Test
+    @DisplayName("S2: an unmerged run serves one 1-dp range per derivable day, ascending, peak true on "
+            + "the true peak day only")
+    void unmergedRunServesDayRanges() {
+        stubRunAtSeaham();
+        stubRanges(oct(25), oct(30), oct(25), 4.34, oct(26), 4.66, oct(27), 4.9, oct(28), 4.51,
+                oct(29), 4.0, oct(30), 3.54);
+        AlmanacEvent run = event(oct(25), oct(30), "spring-tide", "Spring tide run", runMeta(oct(27), null));
+
+        ComingUpEntry entry = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
+
+        assertThat(entry.dayRanges()).containsExactly(
+                new ComingUpDayRange(oct(25), 4.3, false, null), new ComingUpDayRange(oct(26), 4.7, false, null),
+                new ComingUpDayRange(oct(27), 4.9, true, null), new ComingUpDayRange(oct(28), 4.5, false, null),
+                new ComingUpDayRange(oct(29), 4.0, false, null), new ComingUpDayRange(oct(30), 3.5, false, null));
+        assertThat(entry.dayMarks()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("S2: a missing middle day is absent from the served ranges, never synthesised")
+    void missingMiddleDayIsAbsentFromDayRanges() {
+        stubRunAtSeaham();
+        stubRanges(oct(25), oct(27), oct(25), 4.3, oct(27), 4.9);
+        AlmanacEvent run = event(oct(25), oct(27), "spring-tide", "Spring tide run", runMeta(oct(27), null));
+
+        ComingUpEntry entry = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
+
+        assertThat(entry.dayRanges()).extracting(ComingUpDayRange::date).containsExactly(oct(25), oct(27));
+    }
+
+    @Test
+    @DisplayName("S2: fewer than two derivable days serves no ranges")
+    void fewerThanTwoDerivableDaysServesNoRanges() {
+        stubRunAtSeaham();
+        stubRanges(oct(25), oct(27), oct(26), 4.9);
+        AlmanacEvent run = event(oct(25), oct(27), "spring-tide", "Spring tide run", runMeta(oct(26), null));
+
+        assertThat(assembler.assemble(BUILT, List.of(run)).entries().getFirst().dayRanges()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("S2: with no representative (no derivable peak) there are no ranges and none are fetched")
+    void noRepresentativeServesNoRanges() {
+        when(tideRunBuilder.peakRange(anyList(), eq(COASTAL_ROSTER))).thenReturn(Optional.empty());
+        AlmanacEvent run = event(oct(25), oct(27), "spring-tide", "Spring tide run", runMeta(oct(26), null));
+
+        assertThat(assembler.assemble(BUILT, List.of(run)).entries().getFirst().dayRanges()).isEmpty();
+        verify(tideRunBuilder, never()).dailyRangesAt(any(), anyList());
+    }
+
+    @Test
+    @DisplayName("S2: a failing range read degrades — the entry is still served with its metric and "
+            + "tide, just without dayRanges")
+    void failingRangeReadDegradesToNoDayRanges() {
+        stubRunAtSeaham();
+        when(tideRunBuilder.dailyRangesAt(any(), anyList())).thenThrow(new IllegalStateException("db down"));
+        AlmanacEvent run = event(oct(25), oct(27), "spring-tide", "Spring tide run", runMeta(oct(26), null));
+
+        ComingUpEntry entry = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
+
+        assertThat(entry.dayRanges()).isEmpty();
+        assertThat(entry.metric()).isEqualTo("4.9 m");
+        assertThat(entry.type()).isEqualTo("spring-tide");
+    }
+
+    @Test
+    @DisplayName("S2: ranges round exactly as the headline metric is spelt (%.1f), e.g. 8.966 - 1.516")
+    void dayRangesRoundLikeTheMetric() {
+        stubRunAtSeaham();
+        double nearlyHalf = 8.966 - 1.516;
+        stubRanges(oct(25), oct(27), oct(25), 4.35, oct(26), nearlyHalf);
+        AlmanacEvent run = event(oct(25), oct(27), "spring-tide", "Spring tide run", runMeta(oct(26), null));
+
+        ComingUpEntry entry = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
+
+        assertThat(entry.dayRanges()).extracting(ComingUpDayRange::rangeMetres)
+                .containsExactly(Double.parseDouble(String.format(java.util.Locale.UK, "%.1f", 4.35)),
+                        Double.parseDouble(String.format(java.util.Locale.UK, "%.1f", nearlyHalf)));
+        assertThat(entry.dayRanges().get(1).rangeMetres()).isEqualTo(7.4);
+    }
+
+    @Test
+    @DisplayName("S2 (defensive guard — production emits partialCoverage only for a one-day run, which "
+            + "has no ranges): a fixture with no peakDate crowns no day, peak is false everywhere")
+    void partialCoverageRunHasNoPeakDay() {
+        stubRunAtSeaham();
+        stubRanges(oct(25), oct(30), oct(27), 4.9, oct(28), 4.5, oct(29), 4.0);
+        AlmanacEvent run = event(oct(25), oct(30), "spring-tide", "Spring tide run",
+                AlmanacEvent.metaOf("range", "4.9 m", "figuresFrom", oct(27).toString(),
+                        "partialCoverage", "true", "location", "Seaham"));
+
+        ComingUpEntry entry = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
+
+        assertThat(entry.dayRanges()).hasSize(3).noneMatch(ComingUpDayRange::peak);
+    }
+
+    @Test
+    @DisplayName("S2: a merged entry carries the run's ranges when the run hosts")
+    void mergedEntryCarriesRunRangesWhenRunHosts() {
+        stubRunAtSeaham();
+        stubRanges(oct(25), oct(30), oct(25), 4.3, oct(26), 4.6, oct(27), 4.9);
+        AlmanacEvent run = event(oct(25), oct(30), "spring-tide", "Spring tide run", runMeta(oct(27), null));
+
+        ComingUpEntry merged = assembler.assemble(BUILT, List.of(run, supermoon(oct(26), oct(26), oct(26))))
+                .entries().getFirst();
+
+        assertThat(merged.type()).isEqualTo("spring-tide");
+        assertThat(merged.dayMarks()).isNotEmpty();
+        assertThat(merged.dayRanges()).extracting(ComingUpDayRange::date)
+                .containsExactly(oct(25), oct(26), oct(27));
+        assertThat(merged.dayRanges()).extracting(ComingUpDayRange::peak).containsExactly(false, false, true);
+    }
+
+    @Test
+    @DisplayName("S2: a merged entry carries the run's ranges when the supermoon hosts, restricted to the run")
+    void mergedEntryCarriesRunRangesWhenSupermoonHosts() {
+        stubRunAtSeaham();
+        stubRanges(oct(26), oct(27), oct(26), 4.2, oct(27), 4.9);
+        AlmanacEvent run = event(oct(26), oct(27), "spring-tide", "Spring tide run", runMeta(oct(27), null));
+        AlmanacEvent moon = supermoon(oct(24), oct(30), oct(26));
+
+        ComingUpEntry merged = assembler.assemble(BUILT, List.of(run, moon)).entries().getFirst();
+
+        assertThat(merged.type()).isEqualTo("supermoon");
+        assertThat(merged.startDate()).isEqualTo(oct(24));
+        assertThat(merged.dayRanges()).containsExactly(
+                new ComingUpDayRange(oct(26), 4.2, false, null), new ComingUpDayRange(oct(27), 4.9, true, null));
+    }
+
+    @Test
+    @DisplayName("unmerged entries are exactly as before: own title, id, action, no coincidence, no dayMarks")
+    void unmergedEntriesKeepTheirShape() {
+        stubRunAtSeaham();
+        AlmanacEvent run = event(oct(25), oct(30), "spring-tide", "Spring tide run", runMeta(oct(27), oct(27)));
+        AlmanacEvent moon = supermoon(nov(24), nov(24), nov(24));
+
+        ComingUpResponse response = assembler.assemble(BUILT, List.of(moon, run));
+
+        ComingUpEntry runEntry = response.entries().get(0);
+        assertThat(runEntry.title()).isEqualTo("Spring tide run");
+        assertThat(runEntry.id()).isEqualTo("spring-tide:2026-10-25:2026-10-30");
+        assertThat(runEntry.startDate()).isEqualTo(oct(25));
+        assertThat(runEntry.action().label()).isEqualTo("Show coastal spots for 27 Oct →");
+        assertThat(runEntry.coincidence()).isEmpty();
+        assertThat(runEntry.dayMarks()).isEmpty();
+        assertThat(runEntry.joinNote()).isNull();
+        // Unmerged: the alignment fact carries no "on the" suffix.
+        assertThat(factTexts(runEntry)).containsExactly("range 4.9 m at Seaham",
+                "tide HW 15:48 · 52m before sunset");
+
+        ComingUpEntry moonEntry = response.entries().get(1);
+        assertThat(moonEntry.title()).isEqualTo("Supermoon");
+        assertThat(moonEntry.id()).isEqualTo("supermoon:2026-11-24:2026-11-24");
+        assertThat(moonEntry.action().kind()).isEqualTo("dark-sky-spots");
+        assertThat(moonEntry.coincidence()).isEmpty();
+        assertThat(moonEntry.dayMarks()).isEmpty();
+        assertThat(factTexts(moonEntry)).containsExactly("peaks 24 Nov");
+    }
+
+    // ── Plan-owned partners (supermoon-tide-run-plan.md §4.7) ────────────
+
+    @Test
+    @DisplayName("§4.7: a supermoon inside Plan's window, supplied as a partner only, is marked on the "
+            + "eligible run that overlaps it — one merged card, not a run with no mark")
+    void planWindowSupermoonMergesIntoAnEligibleRun() {
+        stubRunAtSeaham();
+        AlmanacEvent run = event(oct(25), oct(30), "spring-tide", "Spring tide run", runMeta(oct(27), oct(27)));
+
+        ComingUpResponse response = assembler.assemble(BUILT, List.of(run),
+                List.of(supermoon(oct(26), oct(26), oct(26))));
+
+        assertThat(response.entries()).hasSize(1);
+        assertThat(response.entries().getFirst().type()).isEqualTo("spring-tide");
+        assertThat(response.entries().getFirst().dayMarks()).contains(
+                new ComingUpDayMark(oct(26), "full moon", "sun-moon"));
+    }
+
+    @Test
+    @DisplayName("§4.7: a Plan-window run partnered with an eligible supermoon merges, the longer run hosting")
+    void planWindowRunMergesIntoAnEligibleSupermoon() {
+        stubRunAtSeaham();
+        AlmanacEvent run = event(oct(23), oct(26), "spring-tide", "Spring tide run", runMeta(oct(24), oct(24)));
+
+        ComingUpResponse response = assembler.assemble(BUILT, List.of(supermoon(oct(26), oct(27), oct(26))),
+                List.of(run));
 
         assertThat(response.entries()).hasSize(1);
         ComingUpEntry merged = response.entries().getFirst();
-        assertThat(merged.type()).isEqualTo("king-tide");
-        assertThat(merged.coincidence()).hasSize(1);
-        assertThat(merged.coincidence().getFirst().name()).isEqualTo("Supermoon");
-        assertThat(merged.coincidence().getFirst().family()).isEqualTo("sun-moon");
-        assertThat(merged.joinNote()).contains("King tide run");
+        assertThat(merged.type()).isEqualTo("spring-tide");
+        assertThat(merged.startDate()).isEqualTo(oct(23));
+        assertThat(merged.endDate()).isEqualTo(oct(27));
+    }
+
+    @Test
+    @DisplayName("§4.7: an unpaired partner-only event is dropped; two partner-only events never pair; "
+            + "and a partner-only run never joins the superlative comparison set")
+    void partnersOnlyAreNeverEntriesOfTheirOwn() {
+        when(tideRunBuilder.peakRange(eq(datesOf(oct(25), oct(30))), eq(COASTAL_ROSTER)))
+                .thenReturn(Optional.of(new TideRunBuilder.RunPeak(SEAHAM, 4.0)));
+        when(tideService.getTideStats(SEAHAM.getId())).thenReturn(Optional.empty());
+        AlmanacEvent eligible = event(oct(25), oct(30), "spring-tide", "Spring tide run", Map.of());
+        AlmanacEvent planRun = event(oct(1), oct(4), "spring-tide", "Spring tide run", Map.of());
+        AlmanacEvent planMoon = supermoon(oct(2), oct(2), oct(2));
+        AlmanacEvent loneMoon = supermoon(oct(10), oct(10), oct(10));
+
+        ComingUpResponse response = assembler.assemble(BUILT, List.of(eligible),
+                List.of(planRun, planMoon, loneMoon));
+
+        // planRun and planMoon overlap but are both partner-only: neither pairs, neither is listed.
+        assertThat(response.entries()).hasSize(1);
+        ComingUpEntry only = response.entries().getFirst();
+        assertThat(only.id()).isEqualTo("spring-tide:2026-10-25:2026-10-30");
+        // The Plan-window run is not in the comparison set: no threshold, no superlative.
+        assertThat(only.threshold()).isNull();
+        assertThat(only.superlative()).isNull();
+        // And, unpaired, it was never enriched: no repository read for its dates.
+        verify(tideRunBuilder, never()).peakRange(eq(datesOf(oct(1), oct(4))), eq(COASTAL_ROSTER));
+    }
+
+    @Test
+    @DisplayName("§4.7: a paired partner whose enrichment throws is dropped with a warning — the "
+            + "eligible event is still served, unmerged, and the build succeeds")
+    void aPartnerWhoseEnrichmentThrowsNeverFailsTheFeed() {
+        when(tideRunBuilder.peakRange(eq(datesOf(oct(23), oct(26))), eq(COASTAL_ROSTER)))
+                .thenThrow(new IllegalStateException("db down"));
+        AlmanacEvent planRun = event(oct(23), oct(26), "spring-tide", "Spring tide run", runMeta(oct(24), oct(24)));
+
+        ComingUpResponse response = assembler.assemble(BUILT,
+                List.of(supermoon(oct(26), oct(27), oct(26))), List.of(planRun));
+
+        assertThat(response.entries()).hasSize(1);
+        assertThat(response.entries().getFirst().type()).isEqualTo("supermoon");
+        assertThat(response.entries().getFirst().coincidence()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("first-of-type prose goes to the EARLIEST card of its type even when that card is hosted "
+            + "by a Plan-owned partner, which is staged after every eligible event")
+    void proseGoesToTheEarliestCardEvenWhenAPartnerHostsIt() {
+        stubRunAtSeaham();
+        AlmanacEvent planRun = event(oct(23), oct(26), "spring-tide", "Spring tide run", runMeta(oct(24), oct(24)));
+        AlmanacEvent laterRun = event(nov(5), nov(8), "spring-tide", "Spring tide run", runMeta(nov(6), nov(6)));
+
+        ComingUpResponse response = assembler.assemble(BUILT,
+                List.of(supermoon(oct(26), oct(27), oct(26)), laterRun), List.of(planRun));
+
+        assertThat(response.entries()).hasSize(2);
+        ComingUpEntry merged = response.entries().get(0);
+        ComingUpEntry later = response.entries().get(1);
+        assertThat(merged.startDate()).isEqualTo(oct(23));
+        assertThat(merged.prose()).isEqualTo("detail");
+        assertThat(later.prose()).isNull();
+    }
+
+    @Test
+    @DisplayName("a partner-only event that can never pair is not even staged: its enrichment (which "
+            + "reads the scoring knobs) never runs, so a failure there cannot fail the feed")
+    void nonPairablePartnerIsNeverStaged() {
+        ComingUpScoringProperties properties = mock(ComingUpScoringProperties.class);
+        when(properties.getBands()).thenReturn(new ComingUpScoringProperties().getBands());
+        ComingUpAssembler guarded = new ComingUpAssembler(locationRepository, tideRunBuilder,
+                tideRunPeakHistory, dailyRangeHistory, tideService, properties, new MoonriseMoonsetCalculator());
+
+        ComingUpResponse response = guarded.assemble(BUILT, List.of(), List.of(
+                event(oct(21), oct(21), "meteor", "Perseids", Map.of()),
+                event(oct(22), oct(22), "lunar-eclipse", "Eclipse", Map.of())));
+
+        assertThat(response.entries()).isEmpty();
+        verify(properties, never()).getRarity();
+    }
+
+    @Test
+    @DisplayName("'biggest until X' names the date the later run's CARD shows — the union start when "
+            + "that run is merged with a supermoon that begins a day earlier")
+    void superlativeNamesTheMergedCardsDate() {
+        when(tideRunBuilder.peakRange(eq(datesOf(nov(1), nov(4))), eq(COASTAL_ROSTER)))
+                .thenReturn(Optional.of(new TideRunBuilder.RunPeak(SEAHAM, 4.0)));
+        when(tideRunBuilder.peakRange(eq(datesOf(nov(20), nov(23))), eq(COASTAL_ROSTER)))
+                .thenReturn(Optional.of(new TideRunBuilder.RunPeak(SEAHAM, 6.0)));
+        when(tideService.getTideStats(SEAHAM.getId())).thenReturn(Optional.empty());
+        AlmanacEvent a = event(nov(1), nov(4), "spring-tide", "Spring tide run", Map.of());
+        AlmanacEvent b = event(nov(20), nov(23), "spring-tide", "Spring tide run", Map.of());
+
+        ComingUpResponse response = assembler.assemble(BUILT, List.of(a, b, supermoon(nov(19), nov(20), nov(19))));
+
+        assertThat(response.entries()).hasSize(2);
+        assertThat(response.entries().get(1).startDate()).isEqualTo(nov(19));
+        assertThat(response.entries().get(0).superlative()).isEqualTo("biggest until 19 Nov");
     }
 
     @Test
@@ -693,5 +1405,190 @@ class ComingUpAssemblerTest {
 
     private static String fmt(LocalDate date) {
         return java.time.format.DateTimeFormatter.ofPattern("d MMM", java.util.Locale.UK).format(date);
+    }
+
+    // ── R1: rank against the year, one average per card ─────────────────────────
+
+    private static List<LocalDate> yearBefore(LocalDate built) {
+        List<LocalDate> dates = new java.util.ArrayList<>();
+        for (int back = 365; back >= 1; back--) {
+            dates.add(built.minusDays(back));
+        }
+        return dates;
+    }
+
+    private void stubYearOf(java.util.Map<LocalDate, Double> year) {
+        doReturn(year).when(tideRunBuilder).dailyRangesAt(eq(SEAHAM), eq(yearBefore(BUILT)));
+    }
+
+    /** Stubs the year read: {@code bigDays} days at 5.0, {@code nearDays} at 4.9, the rest at 3.4. */
+    private void stubYear(int days, int bigDays, int nearDays) {
+        java.util.Map<LocalDate, Double> year = new java.util.LinkedHashMap<>();
+        List<LocalDate> dates = yearBefore(BUILT);
+        for (int i = 0; i < days; i++) {
+            double v = i < bigDays ? 5.0 : i < bigDays + nearDays ? 4.9 : 3.4;
+            year.put(dates.get(i), v);
+        }
+        stubYearOf(year);
+    }
+
+    @Test
+    @DisplayName("R1: every day carries its top-N% and the run the year's average; the run's delta is "
+            + "measured against that average, not TideStats")
+    void daysRankedAgainstTheYearAndDeltaUsesTheYearAverage() {
+        stubRunAtSeaham();
+        when(tideService.getTideStats(SEAHAM.getId())).thenReturn(Optional.of(stats("2.0")));
+        stubRanges(oct(25), oct(27), oct(25), 4.3, oct(26), 4.9, oct(27), 5.2);
+        stubYear(365, 5, 15);
+        AlmanacEvent run = event(oct(25), oct(27), "spring-tide", "Spring tide run", runMeta(oct(27), null));
+
+        ComingUpEntry entry = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
+
+        // 5.2 is above every sample day -> top 1%; 4.9 and 4.3 are matched by 20 of 365 -> ceil(5.48) = 6
+        assertThat(entry.dayRanges()).extracting(ComingUpDayRange::rangePercentile).containsExactly(6, 6, 1);
+        // mean = (5 * 5.0 + 15 * 4.9 + 345 * 3.4) / 365 = 3.48 -> 3.5
+        assertThat(entry.rangeAverageMetres()).isEqualTo(3.5);
+        // delta = displayed headline range 4.9 - 3.5, not 4.9 - 2.0 from TideStats
+        assertThat(entry.tide().delta()).isEqualTo(1.4);
+    }
+
+    @Test
+    @DisplayName("R1: ranking is in display space - 40 samples of 6.05 - 1.20 (4.85, displays 4.9) count as "
+            + "at least a 4.9 day")
+    void rankingUsesDisplayedValues() {
+        stubRunAtSeaham();
+        stubRanges(oct(25), oct(26), oct(25), 3.5, oct(26), 4.9);
+        java.util.Map<LocalDate, Double> year = new java.util.LinkedHashMap<>();
+        List<LocalDate> dates = yearBefore(BUILT);
+        for (int i = 0; i < dates.size(); i++) {
+            year.put(dates.get(i), i < 40 ? 6.05 - 1.20 : 3.0);
+        }
+        stubYearOf(year);
+        AlmanacEvent run = event(oct(25), oct(26), "spring-tide", "Spring tide run", runMeta(oct(26), null));
+
+        ComingUpEntry entry = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
+
+        // 40 of 365 -> ceil(10.96) = 11; a raw comparison (4.85 < 4.9) would have found none -> 1
+        assertThat(entry.dayRanges().get(1).rangePercentile()).isEqualTo(11);
+        assertThat(entry.dayRanges().get(0).rangePercentile()).isEqualTo(11);
+    }
+
+    @Test
+    @DisplayName("R1: a year sample of 299 days serves neither a percentile nor an average; 300 serves both")
+    void thinYearSampleServesNothing() {
+        stubRunAtSeaham();
+        when(tideService.getTideStats(SEAHAM.getId())).thenReturn(Optional.of(stats("3.3")));
+        stubRanges(oct(25), oct(26), oct(25), 4.0, oct(26), 4.9);
+        stubYear(299, 0, 0);
+        AlmanacEvent run = event(oct(25), oct(26), "spring-tide", "Spring tide run", runMeta(oct(26), null));
+
+        ComingUpEntry thin = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
+
+        assertThat(thin.rangeAverageMetres()).isNull();
+        assertThat(thin.dayRanges()).extracting(ComingUpDayRange::rangePercentile).containsOnlyNulls();
+        // the TideStats figure still drives the delta
+        assertThat(thin.tide().delta()).isEqualTo(1.6);
+
+        dailyRangeHistory.evict();
+        stubYear(300, 0, 0);
+        ComingUpEntry enough = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
+
+        assertThat(enough.rangeAverageMetres()).isEqualTo(3.4);
+        assertThat(enough.dayRanges()).extracting(ComingUpDayRange::rangePercentile).containsExactly(1, 1);
+    }
+
+    @Test
+    @DisplayName("R1: a run with no day ranges reads no year at all")
+    void noDayRangesSkipsTheYearRead() {
+        stubRunAtSeaham();
+        AlmanacEvent run = event(oct(25), oct(27), "spring-tide", "Spring tide run", runMeta(oct(26), null));
+
+        ComingUpEntry entry = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
+
+        assertThat(entry.rangeAverageMetres()).isNull();
+        verify(tideRunBuilder, never()).dailyRangesAt(any(), eq(yearBefore(BUILT)));
+    }
+
+    @Test
+    @DisplayName("R1: a failing year read degrades to no percentile and no average, and is not cached")
+    void failingYearReadDegradesAndIsNotCached() {
+        stubRunAtSeaham();
+        stubRanges(oct(25), oct(26), oct(25), 4.0, oct(26), 4.9);
+        doThrow(new IllegalStateException("db down")).when(tideRunBuilder)
+                .dailyRangesAt(eq(SEAHAM), eq(yearBefore(BUILT)));
+        AlmanacEvent run = event(oct(25), oct(26), "spring-tide", "Spring tide run", runMeta(oct(26), null));
+
+        ComingUpEntry failed = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
+
+        assertThat(failed.rangeAverageMetres()).isNull();
+        assertThat(failed.dayRanges()).hasSize(2);
+        assertThat(failed.dayRanges()).extracting(ComingUpDayRange::rangePercentile).containsOnlyNulls();
+
+        stubYear(365, 0, 0);
+        ComingUpEntry recovered = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
+
+        assertThat(recovered.rangeAverageMetres()).isEqualTo(3.4);
+    }
+
+    @Test
+    @DisplayName("R1: a merged entry carries the ranked days and the average whichever topic hosts, and the "
+            + "tide coincidence line reads 'top N% of the year' in place of the metres")
+    void mergedEntryCarriesRankAndCoincidenceLineReadsIt() {
+        stubRunAtSeaham();
+        stubRanges(oct(25), oct(30), oct(25), 4.3, oct(26), 4.6, oct(27), 5.2);
+        stubYear(365, 5, 15);
+        AlmanacEvent run = event(oct(25), oct(30), "spring-tide", "Spring tide run", runMeta(oct(27), oct(27)));
+
+        ComingUpEntry runHosts = assembler.assemble(BUILT, List.of(run, supermoon(oct(26), oct(26), oct(26))))
+                .entries().getFirst();
+
+        assertThat(runHosts.type()).isEqualTo("spring-tide");
+        assertThat(runHosts.rangeAverageMetres()).isEqualTo(3.5);
+        assertThat(runHosts.dayRanges()).extracting(ComingUpDayRange::rangePercentile).containsExactly(6, 6, 1);
+        assertThat(runHosts.coincidence().get(0).factsLabel())
+                .isEqualTo(nb("Sun 25 – Fri 30 Oct · biggest Tue 27 · top 1% of the year · HW 15:48"));
+
+        ComingUpEntry moonHosts = assembler.assemble(BUILT, List.of(run, supermoon(oct(24), oct(30), oct(26))))
+                .entries().getFirst();
+
+        assertThat(moonHosts.type()).isEqualTo("supermoon");
+        assertThat(moonHosts.rangeAverageMetres()).isEqualTo(3.5);
+        assertThat(moonHosts.dayRanges()).extracting(ComingUpDayRange::rangePercentile)
+                .containsExactly(6, 6, 1);
+        assertThat(moonHosts.coincidence()).extracting(c -> c.factsLabel())
+                .anyMatch(l -> l.contains(nb("top 1% of the year")));
+    }
+
+    @Test
+    @DisplayName("R1: the partial-coverage branch keeps its metres even when percentiles are served")
+    void partialCoverageBranchKeepsItsMetres() {
+        stubRunAtSeaham();
+        stubRanges(oct(25), oct(30), oct(27), 4.9, oct(28), 4.5, oct(29), 4.0);
+        stubYear(365, 5, 15);
+        AlmanacEvent partial = event(oct(25), oct(30), "spring-tide", "Spring tide run",
+                AlmanacEvent.metaOf("range", "4.9 m", "figuresFrom", oct(27).toString(),
+                        "partialCoverage", "true", "location", "Seaham"));
+
+        ComingUpEntry merged = assembler.assemble(BUILT, List.of(partial, supermoon(oct(26), oct(26), oct(26))))
+                .entries().getFirst();
+
+        assertThat(merged.dayRanges()).extracting(ComingUpDayRange::rangePercentile).isNotEmpty()
+                .doesNotContainNull();
+        assertThat(merged.coincidence().get(0).factsLabel()).contains(nb("4.9 m on Tue 27"))
+                .doesNotContain("of the year");
+    }
+
+    @Test
+    @DisplayName("R1: with no percentile the coincidence line keeps the metres")
+    void coincidenceLineKeepsMetresWithoutAPercentile() {
+        stubRunAtSeaham();
+        stubRanges(oct(25), oct(30), oct(27), 4.9, oct(28), 4.5, oct(29), 4.0);
+        AlmanacEvent run = event(oct(25), oct(30), "spring-tide", "Spring tide run", runMeta(oct(27), null));
+
+        ComingUpEntry merged = assembler.assemble(BUILT, List.of(run, supermoon(oct(26), oct(26), oct(26))))
+                .entries().getFirst();
+
+        assertThat(merged.coincidence().get(0).factsLabel()).contains(nb("biggest Tue 27 · 4.9 m"))
+                .doesNotContain("of the year");
     }
 }

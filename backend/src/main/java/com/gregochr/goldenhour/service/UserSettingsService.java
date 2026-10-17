@@ -3,8 +3,10 @@ package com.gregochr.goldenhour.service;
 import com.gregochr.goldenhour.client.PostcodeLookupException;
 import com.gregochr.goldenhour.client.PostcodesIoClient;
 import com.gregochr.goldenhour.entity.AppUserEntity;
+import com.gregochr.goldenhour.entity.UserDriveTimeEntity;
 import com.gregochr.goldenhour.model.DriveTimeRefreshResponse;
 import com.gregochr.goldenhour.model.MapColourPreferencesRequest;
+import com.gregochr.goldenhour.model.MapTideModeRequest;
 import com.gregochr.goldenhour.model.PostcodeLookupResult;
 import com.gregochr.goldenhour.model.SaveHomeRequest;
 import com.gregochr.goldenhour.model.UserSettingsResponse;
@@ -20,11 +22,16 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
+import static org.springframework.http.HttpStatus.CONFLICT;
 import static org.springframework.http.HttpStatus.TOO_MANY_REQUESTS;
 
 /**
@@ -33,6 +40,29 @@ import static org.springframework.http.HttpStatus.TOO_MANY_REQUESTS;
  * <p>Deliberately not class-level transactional: several methods call external HTTP services
  * (postcodes.io geocoding, the ORS drive-time chain), and a class-level transaction would pin a
  * pooled database connection across those calls. Only the write methods open transactions.
+ *
+ * <p><strong>No write here saves the whole user row.</strong> Each goes through a column-scoped
+ * update on {@link AppUserRepository} that writes only what its own request changes. A whole-entity
+ * {@code save()} wrote every column back from the copy it had loaded, so two writes that overlapped
+ * lost one of them: a colour save and a home save in two tabs, a home save during the nightly
+ * drive-time job, or — the worst of them — a postcode saved while a drive-time refresh was routing
+ * from the old one, which put the old home back.
+ *
+ * <p><strong>{@code driveTimesCalculatedAt} is never left non-null with zero {@code user_drive_time}
+ * rows behind it.</strong> {@link #refreshDriveTimes} treats {@link DriveDurationService}'s two
+ * kinds of nothing differently on purpose (see that method's javadoc, and
+ * {@link UserDriveTimeWriter}'s class javadoc for the full outcome table): no answer from ORS at
+ * all leaves the stamp and the rows exactly as they were, while a confirmed-unreachable answer
+ * (ORS answered; no valid duration to anywhere) CLEARS the rows and sets the stamp to {@code null}
+ * — the same state a home move already produces, which the rest of the product already handles.
+ * Neither outcome ever leaves a fresh, non-null stamp with no rows behind it. Throughout both,
+ * {@link #pendingDriveTimeAttempts}, an in-memory tracker, throttles a repeated press within the
+ * 30-minute cooldown — the only mechanism that CAN, once a confirmed-unreachable attempt has left
+ * the persisted stamp null. That map resets on an app restart, which is accepted — it is a rate
+ * limit on a single-instance app, not a record anything downstream reads, and the worst a restart
+ * can do is let one extra attempt through before the persisted stamp (once a refresh actually
+ * stores rows) takes back over. Migration V157 reconciles the one database state this rule cannot
+ * itself repair: a stamp an earlier, pre-fix build left behind with zero rows.
  */
 @Service
 public class UserSettingsService {
@@ -46,17 +76,97 @@ public class UserSettingsService {
     /** The only two values {@code mapColourScale} may take. */
     private static final Set<String> VALID_MAP_COLOUR_SCALES = Set.of("temp", "verdict");
 
+    /** The only three values {@code mapTideMode} may take (map-mobile-sheet-plan.md, M4). */
+    private static final Set<String> VALID_MAP_TIDE_MODES = Set.of("auto", "always", "off");
+
 
     private static final Logger LOG = LoggerFactory.getLogger(UserSettingsService.class);
 
     /** Minimum interval between drive time refreshes (30 minutes). */
     private static final long REFRESH_COOLDOWN_MINUTES = 30;
 
+    /** The bounds a WGS84 latitude and longitude may take. */
+    private static final double MAX_LATITUDE = 90.0;
+    private static final double MAX_LONGITUDE = 180.0;
+
     private final AppUserRepository userRepository;
     private final PostcodesIoClient postcodesIoClient;
     private final DriveDurationService driveDurationService;
     private final UserDriveTimeWriter driveTimeWriter;
     private final Clock clock;
+
+    /**
+     * A user's most recent drive-time refresh ATTEMPT (not necessarily a stored one), keyed by user
+     * id — package-private so tests can assert on it directly rather than only through behaviour.
+     *
+     * <p>Exists because the persisted {@code driveTimesCalculatedAt} column can no longer carry a
+     * failed attempt (see the class javadoc), but the 30-minute cooldown must still catch a repeated
+     * press after ORS gives no answer, or the button could be hammered for free. Written just before
+     * the ORS call, so the throttle covers the call in flight too — including one that THROWS:
+     * nothing downstream catches it, so the entry recorded a moment earlier survives an exception
+     * exactly as it survives a no-answer response, and {@link #isThrottled} treats both the same way.
+     *
+     * <p><strong>Each entry belongs to the home it was measured from, not merely to the user.</strong>
+     * A refresh reads the user's home once, at the top of {@link #refreshDriveTimes}, and records
+     * that read alongside the attempt ({@link PendingAttempt}). {@link #isThrottled} only honours an
+     * entry whose recorded origin equals the CALLER'S CURRENT home — read fresh at the start of that
+     * same refresh — and otherwise ignores it exactly as if it were absent; {@link #refreshDriveTimes}
+     * then unconditionally overwrites whatever was there with a fresh entry for the origin it just
+     * read, so an ignored entry never lingers ("ignored and replaced", not merely ignored). This is
+     * what closes the interleaving a home move can otherwise produce: a refresh reads home A, loses
+     * a race to a save that moves the home to B (whose own removal below finds nothing yet to
+     * remove, because this attempt has not been recorded yet), then records its attempt anyway — a
+     * map keyed only by user id let that A-recorded entry throttle a later refresh reading the new
+     * home B, for up to 30 minutes, even though a home move is documented to release the cooldown.
+     * Origin comparison is exact {@code ==} on both coordinates ({@link PendingAttempt#matchesOrigin}),
+     * matching {@link AppUserRepository#stampDriveTimesIfHomeIs}'s JPQL equality on the same
+     * {@code DOUBLE PRECISION} columns — no tolerance is introduced that comparison does not already
+     * have.
+     *
+     * <p>Bounded the same three ways as before: removed the moment a refresh for that user stores
+     * successfully (the persisted stamp then covers it), removed on the 409 path (the home moved
+     * mid-measurement, so the attempt describes nothing any longer), and expired lazily on read once
+     * older than the cooldown ({@link #isThrottled}). All three removals use the map's
+     * value-conditional {@code remove(key, value)} rather than a bare {@code remove(key)}, so a
+     * concurrent refresh's own fresh entry for this user is never clobbered by a stale one finishing
+     * late. {@link #saveHome} also removes the entry on every move, unconditionally — see its own
+     * comment for why that is now a tidy-up rather than the thing correctness depends on. That map
+     * resets on an app restart, which is accepted — it is a rate limit on a single-instance app, not
+     * a record anything downstream reads, and the worst a restart can do is let one extra attempt
+     * through before the persisted stamp (once a refresh actually stores rows) takes back over.
+     * Migration V157 reconciles the one database state this rule cannot itself repair: a stamp an
+     * earlier, pre-fix build left behind with zero rows.
+     */
+    final Map<Long, PendingAttempt> pendingDriveTimeAttempts = new ConcurrentHashMap<>();
+
+    /**
+     * One recorded drive-time refresh attempt that did not (yet, or ever) result in a stored stamp:
+     * when it was recorded, and the home coordinates {@link #refreshDriveTimes} read at the moment
+     * it recorded it.
+     *
+     * <p>Package-private, like {@link #pendingDriveTimeAttempts} itself, so a test can construct one
+     * to assert against directly.
+     *
+     * @param attemptedAt the instant the attempt was recorded
+     * @param originLat   the home latitude the refresh read when it recorded this attempt
+     * @param originLon   the home longitude the refresh read when it recorded this attempt
+     */
+    record PendingAttempt(Instant attemptedAt, double originLat, double originLon) {
+
+        /**
+         * Whether this attempt was measured from the given coordinates — exact {@code ==} on both,
+         * matching {@link AppUserRepository#stampDriveTimesIfHomeIs}'s JPQL equality on the same
+         * {@code DOUBLE PRECISION} columns. No tolerance is introduced that the persisted
+         * compare-and-set does not already have.
+         *
+         * @param latitude  the CURRENT home latitude to compare against
+         * @param longitude the CURRENT home longitude to compare against
+         * @return {@code true} if this attempt was measured from exactly these coordinates
+         */
+        boolean matchesOrigin(double latitude, double longitude) {
+            return originLat == latitude && originLon == longitude;
+        }
+    }
 
     /**
      * Constructs a {@code UserSettingsService}.
@@ -96,9 +206,9 @@ public class UserSettingsService {
      *
      * <p>{@link #getSettings} geocodes the postcode through {@code PostcodesIoClient} purely to
      * produce a human-readable place name for the Settings screen, and that lookup is uncached.
-     * Close to home needs only the numbers, and its panel refetches whenever the briefing or the
-     * home settings change — so routing it through {@code getSettings} put an uncached
-     * third-party HTTP call on a Plan-tab render path and threw the result away.
+     * The reach and light readers need only the numbers, and refetch whenever the briefing or the
+     * home settings change — so routing them through {@code getSettings} would put an uncached
+     * third-party HTTP call on a Plan-tab render path and throw the result away.
      *
      * @param auth the authenticated user
      * @return the caller's home location and radius
@@ -132,7 +242,9 @@ public class UserSettingsService {
      *
      * @param postcode the postcode to look up
      * @return the lookup result with coordinates and place name
-     * @throws PostcodeLookupException if the postcode is invalid
+     * @throws PostcodeLookupException if the postcode is invalid (a 400)
+     * @throws com.gregochr.goldenhour.client.PostcodeLookupUnavailableException if postcodes.io
+     *         failed (a 502)
      */
     public PostcodeLookupResult lookupPostcode(String postcode) {
         return postcodesIoClient.lookup(postcode);
@@ -141,41 +253,58 @@ public class UserSettingsService {
     /**
      * Persists the confirmed home location on the user entity.
      *
+     * <p>Reads the row under a lock ({@link AppUserRepository#findByUsernameForUpdate}) and writes
+     * the home fields through one column-scoped update. The lock is what makes the "does this move
+     * the origin?" decision sound: it is made against the row as it stands, and nothing else can
+     * write the row before this commits. Another save waits. So does a drive-time refresh trying
+     * to store what it measured from the home this save replaces: its compare-and-set runs once
+     * this commits, and matches nothing.
+     *
      * @param auth    the authenticated user
      * @param request the confirmed postcode and coordinates
      * @return the updated user settings response
      */
     @Transactional
     public UserSettingsResponse saveHome(Authentication auth, SaveHomeRequest request) {
-        AppUserEntity user = getUser(auth);
-        boolean originMoved = originMoved(user, request);
-        user.setHomePostcode(request.postcode());
-        user.setHomeLatitude(request.latitude());
-        user.setHomeLongitude(request.longitude());
-        if (request.localRadiusMiles() != null) {
-            // Clamped rather than rejected: this arrives from a slider whose bounds the client
-            // already enforces, so an out-of-range value means a stale client or a direct API
-            // call, and silently honouring 500 miles would make "close to home" meaningless.
-            user.setLocalRadiusMiles(Math.clamp(request.localRadiusMiles(),
-                    MIN_LOCAL_RADIUS_MILES, MAX_LOCAL_RADIUS_MILES));
-        }
+        AppUserEntity stored = userRepository.findByUsernameForUpdate(auth.getName())
+                .orElseThrow(() -> userNotFound(auth));
+        boolean originMoved = originMoved(stored, request);
+        // Clamped rather than rejected: this arrives from a slider whose bounds the client already
+        // enforces, so an out-of-range value means a stale client or a direct API call, and silently
+        // honouring 500 miles would make "close to home" meaningless. Null keeps the stored radius.
+        Integer radius = request.localRadiusMiles() == null ? null
+                : Math.clamp(request.localRadiusMiles(), MIN_LOCAL_RADIUS_MILES, MAX_LOCAL_RADIUS_MILES);
+        userRepository.updateHome(stored.getId(), request.postcode(), request.latitude(),
+                request.longitude(), radius);
         if (originMoved) {
             // Every stored drive time was measured from the OLD home, so each one now describes a
             // journey nobody is going to make. Discarding leaves them unknown, which this product
             // renders honestly — no drive line, and the reach lens passes the spot at every tier.
             // Keeping them would gate a location on a figure quietly tens of minutes wrong.
-            driveTimeWriter.clearForUser(user.getId());
+            driveTimeWriter.clearForUser(stored.getId());
             // Clearing the stamp is not bookkeeping. It is what the UI reads to say when times
             // were last calculated — and it is the refresh COOLDOWN's own input, so leaving it set
             // would lock a user who has just moved house out of recalculating for up to
             // REFRESH_COOLDOWN_MINUTES while they are served nothing at all.
-            user.setDriveTimesCalculatedAt(null);
+            userRepository.clearDriveTimesCalculatedAt(stored.getId());
+            // Same reasoning applies to the in-memory attempt tracker: a failed attempt from before
+            // the move must not go on throttling someone who has just moved house. This removal is
+            // now a TIDY-UP, not the thing correctness depends on: pendingDriveTimeAttempts' own
+            // origin comparison (see its javadoc) already ignores an entry recorded against a home
+            // other than the one a later refresh reads, so even where this line races a refresh's
+            // own put() and finds nothing yet to remove — the interleaving that motivated the
+            // origin check — the stale entry left behind is still ignored, never honoured, the next
+            // time anyone checks it. Kept anyway: it is one line, it keeps the map from carrying
+            // dead weight between moves, and removing unconditionally is correct here regardless —
+            // a move genuinely invalidates whatever was pending, whichever origin it names.
+            pendingDriveTimeAttempts.remove(stored.getId());
         }
-        userRepository.save(user);
         LOG.info("User '{}' saved home location: {} ({}, {}){}",
-                user.getUsername(), request.postcode(), request.latitude(), request.longitude(),
+                stored.getUsername(), request.postcode(), request.latitude(), request.longitude(),
                 originMoved ? " — drive times cleared" : "");
-        return mapToResponse(user, null);
+        // Read back rather than assembled here: the updates evicted the locked instance, and a
+        // null radius kept whatever was stored, which only the row itself can say.
+        return mapToResponse(getUser(auth), null);
     }
 
     /**
@@ -199,9 +328,47 @@ public class UserSettingsService {
     /**
      * Recalculates drive times from the user's home to all locations.
      *
+     * <p><strong>Stores what it measured only while the home is still the one it measured
+     * from.</strong> Routing takes seconds and runs outside any transaction, and the settings
+     * dialog lets a reader save a new postcode while it runs. Before this was guarded, the refresh
+     * wrote its drive times after that save had discarded the old ones, then saved the whole user
+     * row it had loaded before routing — putting the old postcode and coordinates back over the
+     * new ones. Now the store is a compare-and-set on the coordinates measured from
+     * ({@link UserDriveTimeWriter#storeIfHomeUnchanged}); when the home has moved, nothing is
+     * written and this answers 409.
+     *
+     * <p>409 rather than measuring again from the new home. A retry comes back in through the top
+     * of this method, so every precondition is judged afresh against the row as it stands then —
+     * the cooldown included, which answers 429 if another refresh has already measured from the
+     * new home, where re-measuring in place would pay ORS twice for one answer. Refusing costs the
+     * reader nothing they can lose: the save that moved the home discarded the old drive times and
+     * released the cooldown, so pressing again is allowed.
+     *
+     * <p><strong>{@link DriveDurationService#measureForUser}'s two kinds of nothing are handled
+     * DIFFERENTLY here, on purpose — see {@link UserDriveTimeWriter}'s class javadoc for the full
+     * outcome table.</strong> No answer at all (ORS unconfigured, rate-limited, or an
+     * empty/failed response): no writer call, rows and stamp both left exactly as they were, and
+     * the response reports the user's own unmodified stamp — {@code null} on the realistic
+     * sequence that reaches this (a postcode change, whose save already cleared it, is the only
+     * way this button is enabled) — rather than {@code now}, so the settings dialog cannot read a
+     * fresh timestamp and print "Last calculated: Just now" for a refresh that calculated nothing.
+     * A present-but-empty answer (ORS answered; no valid duration to anywhere — "confirmed
+     * unreachable") is different: {@link UserDriveTimeWriter#clearIfHomeUnchanged} CLEARS the
+     * user's rows and sets the stamp to {@code null} together, because ORS has just told us the
+     * stored rows are stale, not merely unmeasured — the response then reports {@code null} too.
+     * A present-but-empty answer used to instead call
+     * {@link UserDriveTimeWriter#storeIfHomeUnchanged} with an empty list, which clears the stored
+     * rows in the very same call that also stamps — recreating a non-null stamp with zero rows
+     * behind it; V157 repairs the state that left in the database, and routing this case through
+     * {@code clearIfHomeUnchanged} instead is why it cannot recur. See
+     * {@link #pendingDriveTimeAttempts} for how the 30-minute cooldown still catches a repeated
+     * press after either kind of nothing — including a confirmed-unreachable one, where it is the
+     * ONLY thing enforcing the cooldown, since the persisted stamp it left behind is null.
+     *
      * @param auth the authenticated user
      * @return the refresh response with count and timestamp
-     * @throws ResponseStatusException 400 if no home location set, 429 if recently refreshed
+     * @throws ResponseStatusException 400 if no home location set, 429 if recently refreshed, 409 if
+     *                                 the home moved while drive times were being measured
      */
     public DriveTimeRefreshResponse refreshDriveTimes(Authentication auth) {
         AppUserEntity user = getUser(auth);
@@ -209,20 +376,141 @@ public class UserSettingsService {
             throw new ResponseStatusException(BAD_REQUEST,
                     "Set a home location before refreshing drive times");
         }
-        if (user.getDriveTimesCalculatedAt() != null
-                && user.getDriveTimesCalculatedAt()
-                        .isAfter(Instant.now().minus(REFRESH_COOLDOWN_MINUTES, ChronoUnit.MINUTES))) {
+
+        Instant now = clock.instant();
+        if (isThrottled(user, now)) {
             throw new ResponseStatusException(TOO_MANY_REQUESTS,
                     "Drive times were refreshed recently. Please wait before trying again.");
         }
 
-        int updated = driveDurationService.refreshForUser(
-                user.getId(), user.getHomeLatitude(), user.getHomeLongitude());
-        user.setDriveTimesCalculatedAt(Instant.now());
-        userRepository.save(user);
+        double originLat = user.getHomeLatitude();
+        double originLon = user.getHomeLongitude();
+        // Recorded BEFORE the ORS call — not after, and not only on success — so this attempt
+        // throttles a same-cooldown retry even if it fails, including one that THROWS: nothing
+        // below catches it, so this entry survives an exception exactly as it survives a no-answer
+        // response. And so the stamp a SUCCESSFUL attempt eventually stores below is the
+        // roster-READ instant, matching DriveTimeRefreshJob's identical fix (measureForUser reads
+        // the whole location table, then spends seconds routing; a location created in that gap
+        // must have a created_at later than this instant, or the scheduled job's rosterGrewSince
+        // would never see it). Scoped to the origin just read, not merely to the user — see the
+        // field's javadoc — and an unconditional put() regardless of what (if anything) was there
+        // before: a stale entry for a different origin is exactly what this is meant to replace.
+        PendingAttempt attempt = new PendingAttempt(now, originLat, originLon);
+        pendingDriveTimeAttempts.put(user.getId(), attempt);
+
+        Optional<List<UserDriveTimeEntity>> measured =
+                driveDurationService.measureForUser(user.getId(), originLat, originLon);
+
+        if (measured.isEmpty()) {
+            // No answer at all — ORS unconfigured, rate-limited, or an empty/failed response.
+            // Nothing was learned, so the stored rows and their stamp are exactly as trustworthy as
+            // they were a moment ago: no writer call, both left untouched. See the class and method
+            // javadoc, and UserDriveTimeWriter's outcome table. The pending-attempt entry just
+            // recorded above is the only thing throttling a repeated press within the cooldown.
+            LOG.warn("Drive time refresh measured no drive times for user {} (ORS gave no answer) "
+                    + "— leaving the stored ones and their calculated-at stamp exactly as they are",
+                    user.getId());
+            return new DriveTimeRefreshResponse(0, user.getDriveTimesCalculatedAt());
+        }
+
+        if (measured.get().isEmpty()) {
+            // Confirmed unreachable — ORS answered, and no destination had a valid duration. This
+            // is NOT "no answer": ORS has told us the stored rows describe journeys it can no
+            // longer confirm, so keeping them would let the reach lens and a leave-by time go on
+            // using drive times just invalidated. Clears the rows AND the stamp together, in one
+            // guarded operation (UserDriveTimeWriter.clearIfHomeUnchanged) — the EXACT state
+            // saveHome already produces on a home move, which the rest of this product already
+            // handles (no "Last calculated" line, the reach lens reads the location as unknown).
+            // See the class javadoc's outcome table for why the scheduled job does NOT do this.
+            boolean cleared = driveTimeWriter.clearIfHomeUnchanged(user.getId(), originLat, originLon);
+            if (!cleared) {
+                // Value-conditional: removes this attempt only if nothing has overwritten it since
+                // — a concurrent refresh's own fresh entry for this user must not be lost here.
+                pendingDriveTimeAttempts.remove(user.getId(), attempt);
+                LOG.info("Drive time refresh for user {} discarded — the home moved while it was "
+                        + "measured", user.getId());
+                throw new ResponseStatusException(CONFLICT, "Your home location changed while drive "
+                        + "times were being calculated, so nothing was saved. Refresh again to "
+                        + "calculate them from the new home.");
+            }
+            // Deliberately NOT removing the pending-attempt entry: the persisted stamp is now null
+            // (see clearIfHomeUnchanged), so unlike a successful store it cannot cover the 30-minute
+            // cooldown on its own — the pending entry is the only thing enforcing it after a
+            // confirmed-unreachable attempt, which still spent a routing call and must still be
+            // throttled. It expires on its own via isThrottled's lazy removal once the cooldown
+            // passes, exactly as a no-answer attempt's entry does.
+            LOG.warn("Drive time refresh confirmed unreachable for user {} — cleared their stored "
+                    + "drive times and stamp; the scheduled job will measure them again", user.getId());
+            return new DriveTimeRefreshResponse(0, null);
+        }
+
+        boolean stored = driveTimeWriter.storeIfHomeUnchanged(
+                user.getId(), originLat, originLon, measured.get(), now);
+        if (!stored) {
+            // Belt and braces: saveHome already removes this entry when it moves the home (the
+            // same reasoning it gives for clearing the persisted stamp), so this is normally a
+            // no-op — but a lingering entry here would re-arm a cooldown that move is documented
+            // to release, so it is cleared on this path too rather than assumed. Value-conditional
+            // for the same reason as the confirmed-unreachable branch above: a concurrent refresh's
+            // own fresh entry for this user must not be lost to this cleanup.
+            pendingDriveTimeAttempts.remove(user.getId(), attempt);
+            LOG.info("Drive time refresh for user {} discarded — the home moved while it was measured",
+                    user.getId());
+            throw new ResponseStatusException(CONFLICT, "Your home location changed while drive times "
+                    + "were being calculated, so nothing was saved. Refresh again to calculate them "
+                    + "from the new home.");
+        }
+        // Stored successfully: the persisted stamp now covers this attempt, so the in-memory entry
+        // is redundant — drop it rather than let it sit until it ages out on its own.
+        // Value-conditional, same reasoning as above.
+        pendingDriveTimeAttempts.remove(user.getId(), attempt);
+        int updated = measured.get().size();
         LOG.info("Drive times refreshed for user '{}': {} locations updated",
                 user.getUsername(), updated);
-        return new DriveTimeRefreshResponse(updated, user.getDriveTimesCalculatedAt());
+        return new DriveTimeRefreshResponse(updated, now);
+    }
+
+    /**
+     * Whether a refresh for this user must wait — the later of two clocks. The persisted
+     * {@code driveTimesCalculatedAt} covers an attempt that stored; {@link #pendingDriveTimeAttempts}
+     * covers one that did not, which is otherwise invisible to any persisted column now that a
+     * failed attempt no longer writes a stamp.
+     *
+     * <p>A pending entry only counts when it was recorded against the SAME home this call just read
+     * ({@link PendingAttempt#matchesOrigin}) — see the field's javadoc for why. A mismatched entry
+     * is ignored here rather than removed: {@link #refreshDriveTimes} always overwrites it with a
+     * fresh entry for the current origin the moment this method returns {@code false}, so removing
+     * it here too would only race that overwrite for no benefit, and could drop a DIFFERENT
+     * concurrent refresh's own fresh entry if one for this user is mid-flight.
+     *
+     * <p>Reading a matching entry also expires it: once it is older than the cooldown it is removed
+     * here rather than left in place — value-conditionally, so a concurrent refresh's own fresh
+     * write cannot be lost to this cleanup — which is what keeps the map bounded for a user who
+     * fails once and is never throttled by that failure again.
+     *
+     * @param user the caller, as read at the top of {@link #refreshDriveTimes}
+     * @param now  this call's "now" — the same instant the caller will store if it succeeds
+     * @return {@code true} if a refresh right now must be refused with 429
+     */
+    private boolean isThrottled(AppUserEntity user, Instant now) {
+        Instant cooldownFloor = now.minus(REFRESH_COOLDOWN_MINUTES, ChronoUnit.MINUTES);
+        if (user.getDriveTimesCalculatedAt() != null
+                && user.getDriveTimesCalculatedAt().isAfter(cooldownFloor)) {
+            return true;
+        }
+        PendingAttempt pending = pendingDriveTimeAttempts.get(user.getId());
+        if (pending == null
+                || !pending.matchesOrigin(user.getHomeLatitude(), user.getHomeLongitude())) {
+            return false;
+        }
+        // Same boundary as the persisted stamp above (not-after, not strictly-before): an
+        // attempt recorded exactly at the cooldown floor is not throttled, matching
+        // `atOrAfterCooldown_refreshes`'s own exact-1800-seconds case for the persisted path.
+        if (!pending.attemptedAt().isAfter(cooldownFloor)) {
+            pendingDriveTimeAttempts.remove(user.getId(), pending);
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -231,6 +519,11 @@ public class UserSettingsService {
      * <p>Its own endpoint rather than fields on {@code saveHome}: a colour preference is not
      * home-derived, so folding it into that request would deserialise the home fields to null and
      * wipe a saved postcode.
+     *
+     * <p>Writes the scale alone ({@link AppUserRepository#updateMapColourScaleByUsername}), then
+     * reads the row back for the response — the shape {@link #markComingUpSeen} records the reason
+     * for. A whole-entity save here would write back the home it had loaded, undoing a postcode
+     * saved in another tab a moment before.
      *
      * @param auth    the authenticated user
      * @param request the chosen scale and whether markers follow it
@@ -248,13 +541,43 @@ public class UserSettingsService {
             throw new ResponseStatusException(BAD_REQUEST,
                     "mapColourScale must be 'temp' or 'verdict'");
         }
+        userRepository.updateMapColourScaleByUsername(auth.getName(), request.mapColourScale());
         AppUserEntity user = getUser(auth);
-        user.setMapColourScale(request.mapColourScale());
-        userRepository.save(user);
         LOG.info("User '{}' saved map colour preference: scale={}",
                 user.getUsername(), request.mapColourScale());
         // null place name, matching saveHome: this save does not geocode, and the modal already
         // merges the previous placeName forward rather than losing it to a blanked field.
+        return mapToResponse(user, null);
+    }
+
+    /**
+     * Persists the caller's Map tab tide mode — Auto, Always or Off (map-mobile-sheet-plan.md M4).
+     *
+     * <p>Copies {@link #saveMapColourPreferences}'s shape exactly: its own endpoint because a tide
+     * mode is not home-derived, so folding it into {@code saveHome} would deserialise the home
+     * fields to null and wipe a saved postcode; a column-scoped write
+     * ({@link AppUserRepository#updateMapTideModeByUsername}) so a whole-entity save elsewhere can
+     * never discard it; then a read-back for the response.
+     *
+     * @param auth    the authenticated user
+     * @param request the chosen mode
+     * @return the updated user settings response
+     * @throws ResponseStatusException 400 if {@code mapTideMode} is not "auto", "always" or "off"
+     */
+    @Transactional
+    public UserSettingsResponse saveMapTideMode(Authentication auth, MapTideModeRequest request) {
+        // Null-checked before the Set lookup, matching saveMapColourPreferences:
+        // VALID_MAP_TIDE_MODES is Set.of(...), whose contains() throws NullPointerException on a
+        // null argument rather than returning false — an omitted field would otherwise 500 instead
+        // of the 400 a bad request deserves.
+        if (request.mapTideMode() == null || !VALID_MAP_TIDE_MODES.contains(request.mapTideMode())) {
+            throw new ResponseStatusException(BAD_REQUEST,
+                    "mapTideMode must be 'auto', 'always' or 'off'");
+        }
+        userRepository.updateMapTideModeByUsername(auth.getName(), request.mapTideMode());
+        AppUserEntity user = getUser(auth);
+        LOG.info("User '{}' saved map tide mode: mode={}", user.getUsername(), request.mapTideMode());
+        // null place name, matching saveMapColourPreferences: this save does not geocode.
         return mapToResponse(user, null);
     }
 
@@ -292,6 +615,57 @@ public class UserSettingsService {
     }
 
     /**
+     * Records that the caller dismissed the one-time sign-in postcode prompt ("Not now"; V181,
+     * login-registration plan §2 #3), and answers the settings with {@code postcodePromptDue} now
+     * false.
+     *
+     * <p>The {@link #markComingUpSeen} shape throughout: its own endpoint's write (a partial
+     * {@code /home} body would wipe a saved postcode), no request body ("now" is the server's
+     * clock), a column-scoped update rather than a whole-entity save, and a fresh re-read for the
+     * response. Idempotent — a second dismissal overwrites the instant. A caller who has since saved
+     * a postcode is dismissed too; the flag is false either way.
+     *
+     * @param auth the authenticated user
+     * @return the updated user settings response
+     */
+    @Transactional
+    public UserSettingsResponse markPostcodePromptDismissed(Authentication auth) {
+        userRepository.updatePostcodePromptDismissedAtByUsername(auth.getName(), clock.instant());
+        AppUserEntity user = getUser(auth);
+        // null place name, matching markComingUpSeen: this write does not geocode.
+        return mapToResponse(user, null);
+    }
+
+    /**
+     * Finds the nearest UK postcode to a point — the "Use my location" lookup. Persists nothing.
+     *
+     * <p>Validates before the upstream is touched: both values present, finite, and in range. The
+     * messages are fixed text; neither the value nor the upstream's reply is echoed.
+     *
+     * @param latitude  WGS84 latitude, −90 to 90
+     * @param longitude WGS84 longitude, −180 to 180
+     * @return the nearest postcode with its coordinates and place name
+     * @throws IllegalArgumentException                                    for a missing, non-finite or
+     *                                                                     out-of-range value (a 400)
+     * @throws PostcodeLookupException                                     if no postcode is near the
+     *                                                                     point (a 400)
+     * @throws com.gregochr.goldenhour.client.PostcodeLookupUnavailableException if postcodes.io
+     *                                                                     failed (a 502)
+     */
+    public PostcodeLookupResult reverseLookupPostcode(Double latitude, Double longitude) {
+        if (latitude == null || longitude == null) {
+            throw new IllegalArgumentException("latitude and longitude are required");
+        }
+        if (!Double.isFinite(latitude) || latitude < -MAX_LATITUDE || latitude > MAX_LATITUDE) {
+            throw new IllegalArgumentException("latitude must be between -90 and 90");
+        }
+        if (!Double.isFinite(longitude) || longitude < -MAX_LONGITUDE || longitude > MAX_LONGITUDE) {
+            throw new IllegalArgumentException("longitude must be between -180 and 180");
+        }
+        return postcodesIoClient.reverseLookup(latitude, longitude);
+    }
+
+    /**
      * Resolves the authenticated user's database ID.
      *
      * @param auth the authentication context
@@ -303,8 +677,11 @@ public class UserSettingsService {
 
     private AppUserEntity getUser(Authentication auth) {
         return userRepository.findByUsername(auth.getName())
-                .orElseThrow(() -> new NoSuchElementException(
-                        "User not found: " + auth.getName()));
+                .orElseThrow(() -> userNotFound(auth));
+    }
+
+    private static NoSuchElementException userNotFound(Authentication auth) {
+        return new NoSuchElementException("User not found: " + auth.getName());
     }
 
     private String resolveHomePlaceName(AppUserEntity user) {
@@ -334,6 +711,11 @@ public class UserSettingsService {
                 user.getMapColourScale(),
                 // The London civil date, derived here so the client compares two ISO date strings
                 // and no timezone rule reaches the browser (plan D3). The instant stays stored.
-                ForecastHorizon.civilDate(user.getComingUpLastSeenAt()));
+                ForecastHorizon.civilDate(user.getComingUpLastSeenAt()),
+                user.getMapTideMode(),
+                user.getPostcodePromptDismissedAt(),
+                // The one place the flag is decided, on every response this service builds: no
+                // postcode and never dismissed (plan §2 #3). A postcode saved anywhere ends it.
+                user.getHomePostcode() == null && user.getPostcodePromptDismissedAt() == null);
     }
 }

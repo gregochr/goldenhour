@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PhotoCast — Ask PhotoCast</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#181210;--surface:#221A15;--panel:#1E1712;--border:#3A2C23;--border-light:#4A3A2E;--ink:#F2E7D3;--ink-2:rgba(242,231,211,.7);--ink-3:rgba(242,231,211,.5);--go:#8AAE72;--marginal:#E0A542;--poor:#C8452F;--tide:#6FA8B0;--home:#C9A24B;--coral:#E8593F;--dawn:#8FA8C4;--sans:'IBM Plex Sans',system-ui,sans-serif;--serif:'Newsreader',Georgia,serif;--mono:'IBM Plex Mono',monospace}
+html,body{background:#0e0b09;color:var(--ink)}
+body{font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased;padding:24px 20px 60px}
+a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
+button,input{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+input{cursor:text;outline:none}
+.hd{max-width:900px;margin:0 auto 18px}
+.hd .m{font-family:var(--mono);font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);margin-bottom:7px}
+.hd h1{font-size:20px;font-weight:700;letter-spacing:-.02em}
+.hd ol{font-size:13px;color:var(--ink-2);max-width:80ch;margin:10px 0 0 18px;display:grid;gap:4px}
+.hd b{color:var(--ink);font-weight:600}
+.stage{display:flex;justify-content:center}
+.phone{position:relative;width:390px;height:844px;border-radius:44px;overflow:hidden;background:var(--bg);box-shadow:0 0 0 9px #241c17,0 0 0 10px #3a2c23,0 26px 60px rgba(0,0,0,.6);display:flex;flex-direction:column}
+.sb{height:46px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:6px 30px 0 34px;font-size:15px;font-weight:600;background:#1B1411}
+.sb .isl{width:112px;height:30px;border-radius:16px;background:#000}
+.sb .r{font-family:var(--mono);font-size:11px;color:var(--ink-2)}
+.mast{background:linear-gradient(180deg,#241B16,#1B1411);padding:6px 14px 0;border-bottom:1px solid var(--border);flex:none}
+.ctop{display:flex;align-items:center;gap:10px}
+.spine{position:relative;padding-left:17px}
+.spine::before{content:'';position:absolute;left:0;top:0;bottom:0;width:8px;background:repeating-linear-gradient(180deg,var(--border-light) 0 6px,transparent 6px 12px);border-right:1px solid var(--border)}
+.cw{font-family:var(--serif);font-weight:600;font-size:20px;line-height:1;letter-spacing:-.022em;color:#F9F1E2}
+.ck{font-family:var(--mono);font-size:7.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--coral);margin-top:4px}
+.mr{margin-left:auto;display:flex;align-items:center;gap:8px}
+.up{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10px;font-weight:600;color:var(--go);border:1px solid rgba(138,174,114,.4);border-radius:6px;padding:4px 7px}
+.up i{width:6px;height:6px;border-radius:50%;background:var(--go);box-shadow:0 0 6px var(--go)}
+.cog{width:30px;height:30px;border:1px solid var(--border);border-radius:7px;display:flex;align-items:center;justify-content:center}
+.cog i{width:12px;height:12px;border-radius:50%;border:2px solid var(--ink-3)}
+.rule{margin-top:9px;height:3px;border-radius:2px;background:linear-gradient(90deg,#26313F 0%,#4A3550 9%,#B4553C 19%,#E8593F 25%,#E0A542 33%,#F2E7D3 50%,#E0A542 66%,#E8593F 74%,#7C4A56 84%,#2E3446 93%,#26313F 100%)}
+.ticks{display:flex;align-items:center;gap:8px;padding:6px 0 7px;font-family:var(--mono);font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+.ticks b{color:var(--ink);font-weight:600}
+.ticks .tm{margin-left:auto;display:flex;gap:9px;color:var(--marginal)}
+.tabs{display:flex;gap:5px;padding:0 14px;background:#1B1411;flex:none;border-bottom:1px solid var(--border)}
+.tab{font-size:13px;font-weight:500;color:var(--ink-2);border:1px solid var(--border);border-bottom:0;background:var(--panel);border-radius:8px 8px 0 0;padding:8px 12px;display:flex;align-items:center;gap:6px}
+.tab.on{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:inset 0 2px 0 var(--home)}
+.tab .n{font-family:var(--mono);font-size:10px;color:#EE8064;border:1px solid rgba(232,89,63,.5);border-radius:999px;padding:0 6px}
+.safari{height:82px;flex:none;background:#1a1512;display:flex;align-items:flex-start;justify-content:center;gap:12px;padding-top:12px}
+.safari i{width:44px;height:44px;border-radius:50%;background:#2e2723}
+.safari span{width:240px;height:44px;border-radius:22px;background:#2e2723;display:flex;align-items:center;justify-content:center;font-size:15px;color:var(--ink-2)}
+.mw{position:relative;flex:1;min-height:0;background:#161310;overflow:hidden}
+.map{position:absolute;inset:0}
+.leaflet-container{background:#161310;font-family:var(--mono)}
+.basewarm{filter:saturate(.5) sepia(.32) brightness(.9) contrast(1.08)}
+.leaflet-control-attribution{background:rgba(20,16,13,.55)!important;color:rgba(242,231,211,.3)!important;font-size:8px!important;padding:0 4px!important}
+.leaflet-control-attribution a{color:rgba(242,231,211,.4)!important}
+.leaflet-div-icon{background:none;border:none}
+.lc{display:flex;align-items:center;gap:5px;padding:3px 6px;border-radius:5px;background:rgba(14,11,9,.86);box-shadow:inset 0 0 0 1px var(--border-light),0 2px 6px rgba(0,0,0,.5);font-family:var(--mono);font-size:10px;white-space:nowrap;color:var(--ink);transform:translate(-50%,-50%);width:max-content;transition:opacity .25s}
+.lc i{width:6px;height:6px;flex:none}
+.lc b{font-weight:600}
+.lc em{font-style:normal;font-weight:600;padding-left:4px;border-left:1px solid var(--border-light)}
+.lc.dim{opacity:.28}
+.lc.pick{background:rgba(20,15,12,.97);box-shadow:inset 0 0 0 1px var(--home),0 4px 12px rgba(0,0,0,.6);font-size:11px;padding:4px 7px 4px 4px}
+.lc.pick.sel{box-shadow:inset 0 0 0 2px #EBD9A8,0 0 0 4px rgba(201,162,75,.25),0 4px 12px rgba(0,0,0,.6)}
+.lc .rk{width:17px;height:17px;border-radius:50%;background:var(--home);color:#1B1411;font-weight:700;font-size:10px;display:flex;align-items:center;justify-content:center;flex:none}
+.lc .w{color:var(--ink-2)}
+.pill{position:absolute;z-index:500;top:10px;left:10px;right:10px;display:flex;gap:6px}
+.pill .st{width:44px;height:44px;flex:none;border-radius:10px;background:rgba(20,15,12,.92);border:1px solid var(--border-light);font-size:15px;color:var(--ink-2)}
+.pill .mid{flex:1;min-width:0;height:44px;display:flex;align-items:center;gap:8px;padding:0 10px;border-radius:10px;background:rgba(20,15,12,.94);border:1px solid var(--bc);box-shadow:inset 3px 0 0 var(--vc),0 6px 18px rgba(0,0,0,.45)}
+.ev{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.1em;padding:2px 6px;border-radius:4px;flex:none}
+.ev.SUNSET{color:#EE8064;border:1px solid rgba(232,89,63,.5);background:rgba(232,89,63,.1)}
+.ev.SUNRISE{color:var(--dawn);border:1px solid rgba(143,168,196,.5);background:rgba(143,168,196,.1)}
+.pill .d{font-size:14px;font-weight:600;white-space:nowrap}
+.pill .tt{font-family:var(--mono);font-size:12px;color:var(--ink-2)}
+.vd{margin-left:auto;font-family:var(--mono);font-size:10.5px;font-weight:600;letter-spacing:.1em;white-space:nowrap}
+.v-worth{color:var(--go)}.v-maybe{color:var(--marginal)}.v-poor{color:#E0735E}
+.askbar{position:absolute;z-index:520;left:10px;right:10px;bottom:10px;height:48px;display:flex;align-items:center;gap:10px;padding:0 6px 0 14px;border-radius:14px;background:rgba(20,15,12,.95);border:1px solid rgba(201,162,75,.45);box-shadow:0 8px 22px rgba(0,0,0,.5);text-align:left;transition:opacity .2s,transform .2s}
+.askbar .q{flex:1;min-width:0;font-size:14px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.askbar .k{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--home);flex:none}
+.askbar .go{width:36px;height:36px;border-radius:10px;background:rgba(201,162,75,.16);color:#EBD9A8;display:flex;align-items:center;justify-content:center;font-size:15px;flex:none}
+.askbar.gone{opacity:0;transform:translateY(10px);pointer-events:none}
+.sh{position:absolute;z-index:1100;left:0;right:0;bottom:0;height:0;background:rgba(22,17,13,.98);border-top:1px solid var(--border-light);border-radius:16px 16px 0 0;box-shadow:0 -10px 30px rgba(0,0,0,.55);display:flex;flex-direction:column;transition:height .28s cubic-bezier(.3,.7,.2,1);overflow:hidden}
+.sh.open{height:300px}
+.sh.tall{height:432px}
+.sh.min{height:116px}
+.hdl{height:22px;flex:none;display:flex;justify-content:center;align-items:center;width:100%}
+.hdl i{width:36px;height:4px;border-radius:2px;background:var(--border-light)}
+.shb{flex:1;min-height:0;overflow:auto;padding:0 14px 10px;display:flex;flex-direction:column;gap:12px}
+.tk{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.yq{align-self:flex-end;max-width:88%;font-size:13.5px;background:var(--surface);border:1px solid var(--border);border-radius:12px 12px 4px 12px;padding:7px 11px}
+.sum{font-family:var(--serif);font-size:17px;line-height:1.35;letter-spacing:-.005em;color:#F9F1E2;text-wrap:pretty}
+.sugs{display:flex;flex-direction:column}
+.sug{min-height:44px;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border);font-size:14px;text-align:left;width:100%}
+.sug:last-child{border-bottom:0}
+.sug::after{content:'›';margin-left:auto;color:var(--ink-3)}
+.picks{display:flex;flex-direction:column;gap:8px}
+.pk{display:grid;grid-template-columns:24px minmax(0,1fr);gap:4px 10px;padding:10px 10px 10px 8px;border:1px solid var(--border);border-radius:12px;background:var(--panel);text-align:left;width:100%;transition:border-color .2s,background .2s}
+.pk.sel{border-color:rgba(201,162,75,.65);background:rgba(201,162,75,.08)}
+.pk .rk{grid-row:1/4;width:22px;height:22px;border-radius:50%;background:var(--home);color:#1B1411;font-family:var(--mono);font-weight:700;font-size:11px;display:flex;align-items:center;justify-content:center;margin-top:1px}
+.pk .l1{display:flex;align-items:center;gap:8px}
+.pk .nm{font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pk .sc{margin-left:auto;font-family:var(--mono);font-size:10.5px;font-weight:600;letter-spacing:.08em;white-space:nowrap}
+.pk .l2{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11px;color:var(--ink-2);flex-wrap:wrap}
+.pk .l2 .sep{width:3px;height:3px;border-radius:50%;background:var(--ink-3)}
+.pk .tdl{color:#8FC0C7}
+.pk .why{font-size:13px;color:var(--ink-2);line-height:1.45;text-wrap:pretty}
+.foot{font-family:var(--mono);font-size:9.5px;color:var(--ink-3);line-height:1.5}
+.inrow{flex:none;display:flex;gap:6px;padding:8px 10px 10px;border-top:1px solid var(--border)}
+.inrow input{flex:1;min-width:0;height:44px;border-radius:12px;background:var(--surface);border:1px solid var(--border-light);padding:0 12px;font-size:14px}
+.inrow input::placeholder{color:var(--ink-3)}
+.inrow input:focus{border-color:rgba(201,162,75,.6)}
+.inrow button{width:44px;height:44px;border-radius:12px;background:rgba(201,162,75,.18);border:1px solid rgba(201,162,75,.5);color:#EBD9A8;font-size:16px;flex:none}
+.inrow button:disabled{opacity:.4}
+.think{display:flex;flex-direction:column;gap:6px}
+.think .ln{font-family:var(--mono);font-size:11px;color:var(--ink-2);display:flex;align-items:center;gap:8px;opacity:0;animation:fi .3s ease forwards}
+.think .ln i{width:6px;height:6px;border-radius:50%;background:var(--home);animation:bl 1s ease infinite}
+.think .ln:nth-child(2){animation-delay:.6s}.think .ln:nth-child(3){animation-delay:1.2s}
+@keyframes fi{to{opacity:1}}
+@keyframes bl{50%{opacity:.25}}
+.min .sum,.min .yq,.min .picks,.min .foot{display:none}
+.minrow{display:none;align-items:center;gap:8px;font-size:13px;color:var(--ink-2)}
+.min .minrow{display:flex;padding-right:36px}
+.minrow b{color:var(--ink);font-weight:600}
+.evc{display:flex;flex-direction:column;gap:3px;padding:10px 12px;border:1px solid var(--border);border-left:3px solid var(--c);border-radius:12px;background:var(--panel)}
+.evc .k{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;color:var(--c)}
+.evc .wh{font-family:var(--mono);font-size:11px;color:var(--ink-2)}
+.evc .hl{font-size:14.5px;font-weight:600;letter-spacing:-.005em;text-wrap:pretty}
+.evc .why{font-size:13px;color:var(--ink-2);line-height:1.45;text-wrap:pretty}
+.min .evs{display:none}
+.cant{display:flex;flex-direction:column;gap:6px;padding:12px;border:1px dashed var(--border-light);border-radius:12px}
+.cant .k{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3)}
+.cant .t{font-size:14px;color:var(--ink);line-height:1.45;text-wrap:pretty}
+.cant .m{font-family:var(--mono);font-size:11px;color:var(--ink-2)}
+.try{display:flex;flex-direction:column}
+.min .cant,.min .try{display:none}
+.minrow .rk{width:18px;height:18px;border-radius:50%;background:var(--home);color:#1B1411;font-family:var(--mono);font-weight:700;font-size:10px;display:inline-flex;align-items:center;justify-content:center}
+.x{position:absolute;right:8px;top:4px;width:36px;height:36px;border-radius:8px;color:var(--ink-3);font-size:13px;z-index:2}
+</style>
+</head>
+<body>
+<div class="hd">
+<div class="m">Map tab · iPhone · proposal</div>
+<h1>Ask PhotoCast</h1>
+<ol>
+<li><b>An ask bar sits at the bottom of the map.</b> Tap it for suggested questions or type your own.</li>
+<li><b>The answer is two or three picks,</b> each a place plus a window, with the score, drive time, tide and one line on why.</li>
+<li><b>The map follows the answer.</b> Picks are numbered on the map and everything else dims. Tap a pick to fly to it and set the window pill to that light.</li>
+<li><b>Event questions</b> (“Any rare events coming up?”, “Is there snow on the tops?”) answer from hot topics with event cards, plus spots if they help.</li>
+<li><b>Questions the data can't answer</b> get a plain “Not in the forecast” reply that names what's missing, with related questions to try instead. It never guesses.</li>
+<li>Drag the handle down to shrink the answer to one line and see the whole map. Answers come only from PhotoCast's own forecasts.</li>
+</ol>
+</div>
+<div class="stage"><div class="phone" id="ph"></div></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+const WIN=[
+ {id:'SAT_AM',d:'Saturday',ev:'SUNRISE',t:'07:12',sky:'Clear inland, sea fret lingering on the coast until 08:30',tide:'Low ↑'},
+ {id:'SAT_PM',d:'Saturday',ev:'SUNSET',t:'18:31',sky:'Broken mid-level cloud from the west, gap on the horizon',tide:'High'},
+ {id:'SUN_AM',d:'Sunday',ev:'SUNRISE',t:'07:14',sky:'High cirrus over the North Sea, clear eastern horizon',tide:'High ↓'},
+ {id:'SUN_PM',d:'Sunday',ev:'SUNSET',t:'18:28',sky:'Cloud thickening from the west, low chance of colour',tide:'Low'}];
+const SP=[
+ ['Whitby',54.486,-0.615,[3,4,5,2],1,1,'1h 25'],['Robin Hood’s Bay',54.434,-0.534,[3,3,5,2],1,1,'1h 35'],['Staithes',54.558,-0.79,[4,4,4,1],1,1,'1h 05'],['Saltburn',54.583,-0.973,[4,5,3,2],1,0,'50 min'],
+ ['Runswick Bay',54.531,-0.742,[3,4,4,2],1,0,'1h 10'],['Scarborough',54.283,-0.4,[2,3,5,3],1,1,'1h 45'],['Sandsend',54.502,-0.668,[3,4,4,2],1,1,'1h 20'],['Ravenscar',54.4,-0.487,[2,3,4,3],1,1,'1h 40'],
+ ['Roseberry Topping',54.505,-1.107,[5,3,3,2],0,0,'45 min'],['Hole of Horcum',54.335,-0.69,[4,2,3,3],0,0,'1h 25'],['Rosedale',54.36,-0.89,[4,2,2,3],0,0,'1h 20'],['Sutton Bank',54.24,-1.21,[5,3,2,2],0,0,'55 min'],['Blakey Ridge',54.39,-0.95,[4,2,3,2],0,0,'1h 10']
+].map(a=>({n:a[0],ll:[a[1],a[2]],s:a[3],coast:!!a[4],wantH:!!a[5],drive:a[6]}));
+const COL=s=>s>=5?'#8AAE72':s>=4?'#B7B25A':s>=3?'#E0A542':'#C8452F';
+const VERD=s=>s>=4?'worth':s>=3?'maybe':'poor',VL={worth:'WORTH IT',maybe:'MAYBE',poor:'POOR'};
+const SUGS=['Best spot this weekend?','Any rare events coming up?','Is there snow on the tops?','Somewhere within an hour of home?','Will Whitby be busy on Saturday?'];
+const HOT=[
+ {id:'AURORA',k:'◠ Aurora',c:'#A8C795',when:'Sat 10 Oct · 21:00–01:00',head:'Kp 5 forecast, aurora possible low on the northern horizon',why:'Clear skies Saturday night on the coast; north-facing headlands like Saltburn and Staithes have the darkest view.'},
+ {id:'SNOW',k:'❄ Snow on the tops',c:'#C6D8E3',when:'Sun 11 Oct · dawn',head:'First dusting of the season above 600 m on the Cheviot',why:'Lying snow from about 05:00, gone by midday. North York Moors tops (430 m) stay clear. Cheviot is 1h 30 from home.'},
+ {id:'ORIONIDS',k:'✶ Meteor shower',c:'#BFB6E8',when:'Wed 21 – Thu 22 Oct',head:'Orionids peak, up to 20 an hour before dawn',why:'Moon sets early, so the sky is dark. Too far out to forecast cloud yet.'}];
+
+const el=document.getElementById('ph');
+el.innerHTML=`<div class="sb"><span>09:41</span><span class="isl"></span><span class="r">●●● 27</span></div>
+<div class="mast"><div class="ctop"><div class="spine"><div class="cw">PhotoCast</div><div class="ck">Field guide to light</div></div><div class="mr"><span class="up"><i></i>UP</span><span class="cog"><i></i></span></div></div><div class="rule"></div>
+<div class="ticks"><span>⌂ <b>Home · DH6 5DQ</b></span><span class="tm"><span>07:08</span><span>18:38</span></span></div></div>
+<div class="tabs"><span class="tab">◉ Plan</span><span class="tab">Coming up <span class="n">1</span></span><span class="tab on">◍ Map</span></div>
+<div class="mw"><div class="map"></div>
+<div class="pill"><button class="st" data-a="prev">‹</button><div class="mid"></div><button class="st" data-a="next">›</button></div>
+<button class="askbar" data-a="open"><span class="k">Ask</span><span class="q">Where’s best this weekend?</span><span class="go">↑</span></button>
+<div class="sh"><button class="hdl" data-a="hdl"><i></i></button><button class="x" data-a="close">✕</button><div class="shb"></div>
+<form class="inrow"><input placeholder="Ask about the forecasts…" autocomplete="off"><button type="submit">↑</button></form></div></div>
+<div class="safari"><i></i><span>photocast.online</span><i></i></div>`;
+
+const st={wi:0,mode:null,q:'',ans:null,sel:null,size:'open'};
+const $=s=>el.querySelector(s),sh=$('.sh'),shb=$('.shb'),inp=$('.inrow input');
+const map=L.map($('.map'),{zoomControl:false}).setView([54.43,-0.85],9.2);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,maxNativeZoom:16,className:'basewarm',attribution:'Tiles © Esri'}).addTo(map);
+const heatL=L.layerGroup().addTo(map),chipL=L.layerGroup().addTo(map);
+const wIdx=id=>WIN.findIndex(w=>w.id===id);
+const wLabel=w=>`${w.d} ${w.ev==='SUNRISE'?'sunrise':'sunset'}`;
+
+function drawMap(){const w=st.wi,picks=st.ans?.picks||[];heatL.clearLayers();chipL.clearLayers();
+ SP.forEach(p=>{const s=p.s[w];L.circle(p.ll,{radius:9000,stroke:false,fillColor:COL(s),fillOpacity:picks.length?.08:.22,interactive:false}).addTo(heatL);
+  const pi=picks.findIndex(k=>k.spot===p.n);
+  if(pi>-1){const k=picks[pi],kw=WIN[wIdx(k.window)],ks=p.s[wIdx(k.window)];
+   L.marker(p.ll,{zIndexOffset:1000,icon:L.divIcon({className:'',iconSize:[0,0],html:`<div class="lc pick${st.sel===pi?' sel':''}"><span class="rk">${pi+1}</span><b>${p.n}</b><span class="w">${kw.d.slice(0,3)} ${kw.ev==='SUNRISE'?'AM':'PM'}</span><em style="color:${COL(ks)}">${ks}</em></div>`})}).on('click',()=>selectPick(pi)).addTo(chipL)}
+  else L.marker(p.ll,{icon:L.divIcon({className:'',iconSize:[0,0],html:`<div class="lc${picks.length?' dim':''}"><i style="background:${COL(s)}"></i><b>${p.n}</b><em>${s}</em></div>`})}).addTo(chipL)});
+ const W=WIN[w],best=Math.max(...SP.map(p=>p.s[w])),v=VERD(best),mid=$('.pill .mid');
+ mid.style.setProperty('--vc',v==='worth'?'var(--go)':v==='maybe'?'var(--marginal)':'var(--poor)');
+ mid.style.setProperty('--bc',v==='worth'?'rgba(138,174,114,.55)':v==='maybe'?'rgba(224,165,66,.55)':'rgba(200,69,47,.55)');
+ mid.innerHTML=`<span class="ev ${W.ev}">${W.ev}</span><span class="d">${W.d}</span><span class="tt">${W.t}</span><span class="vd v-${v}">${VL[v]}</span>`}
+
+function pickCard(k,i){const p=SP.find(s=>s.n===k.spot),w=WIN[wIdx(k.window)],s=p.s[wIdx(k.window)],v=VERD(s);
+ return `<button class="pk${st.sel===i?' sel':''}" data-pk="${i}"><span class="rk">${i+1}</span>
+ <span class="l1"><span class="nm">${p.n}</span><span class="sc v-${v}">${VL[v]} · ${s}</span></span>
+ <span class="l2"><span class="ev ${w.ev}">${w.ev}</span><span>${w.d.slice(0,3)} ${w.t}</span><span class="sep"></span><span>⌂ ${p.drive}</span>${p.coast?`<span class="sep"></span><span class="tdl">${w.tide} tide</span>`:''}</span>
+ <span class="why">${esc(k.why)}</span></button>`}
+function evCard(e){const h=HOT.find(x=>x.id===e.topic);return `<div class="evc" style="--c:${h.c}"><span class="k">${h.k}</span><span class="hl">${esc(h.head)}</span><span class="wh">${h.when}</span><span class="why">${esc(e.why||h.why)}</span></div>`}
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function render(){
+ $('.askbar').classList.toggle('gone',!!st.mode);
+ sh.className='sh'+(st.mode?(st.size==='min'?' min':st.mode==='ans'&&(st.ans.picks.length||st.ans.events?.length||st.ans.answerable===false)?' tall':' open'):'');
+ if(st.mode==='start')shb.innerHTML=`<div class="tk">Ask about the forecasts</div><div class="sugs">${SUGS.map(s=>`<button class="sug" data-q="${esc(s)}">${s}</button>`).join('')}</div>`;
+ else if(st.mode==='busy')shb.innerHTML=`<div class="yq">${esc(st.q)}</div><div class="think"><span class="ln"><i></i>Reading 52 forecasts for 13 spots</span><span class="ln"><i></i>Checking hot topics, tide and cloud</span><span class="ln"><i></i>Ranking against your home, DH6 5DQ</span></div>`;
+ else if(st.mode==='ans'){const a=st.ans,top=a.picks[st.sel??0];
+  shb.innerHTML=`<div class="minrow">${top?`<span class="rk">${(st.sel??0)+1}</span><b>${esc(top.spot)}</b><span>${wLabel(WIN[wIdx(top.window)])}</span><span style="margin-left:auto;color:var(--ink-3)">${a.picks.length} picks ▴</span>`:esc(a.summary)}</div>
+  <div class="yq">${esc(st.q)}</div>${a.answerable===false?`<div class="cant"><span class="k">Not in the forecast</span><span class="t">${esc(a.summary)}</span>${a.missing?`<span class="m">PhotoCast doesn’t have: ${esc(a.missing)}</span>`:''}</div>
+  <div class="try"><div class="tk">Try asking</div>${(a.try?.length?a.try:SUGS.slice(0,2)).slice(0,3).map(s=>`<button class="sug" data-q="${esc(s)}">${esc(s)}</button>`).join('')}</div>`:`<div class="sum">${esc(a.summary)}</div>`}
+  ${a.events?.length?`<div class="picks evs">${a.events.map(evCard).join('')}</div>`:''}
+  ${a.picks.length?`<div class="picks">${a.picks.map(pickCard).join('')}</div>`:''}<div class="foot">From the 06:00 forecast run · scores 1–5 · drive times from home</div>`}
+ drawMap()}
+
+function fallback(q){const ql=q.toLowerCase();let c=[];
+ if(!/snow|rare|event|aurora|meteor|coming up|best|where|spot|sunrise|sunset|hour|near|close|coast|tide|sea|weekend|saturday|sunday|worth|light/.test(ql)||/busy|crowd|park|people|open|toilet|caf|heather|bloom/.test(ql))return{answerable:false,summary:'I can only answer from PhotoCast’s forecasts, and they don’t cover this.',missing:/busy|crowd|people|park/.test(ql)?'visitor numbers or car park data':'data on this',try:['Best spot this weekend?','Best coastal spot at high tide?'],picks:[]};
+ if(/snow/.test(ql))return{summary:'Not on the North York Moors. There’s a first dusting on the Cheviot above 600 m at dawn on Sunday.',events:[{topic:'SNOW'}],picks:[]};
+ if(/rare|event|aurora|meteor|coming up/.test(ql))return{summary:'Two this month: a chance of aurora on Saturday night, and the Orionids peak on 21–22 October.',events:[{topic:'AURORA'},{topic:'ORIONIDS'}],picks:[{spot:'Saltburn',window:'SAT_PM',why:'North-facing pier and a clear sky after sunset; stay on for the aurora window from 21:00.'},{spot:'Staithes',window:'SAT_PM',why:'Dark harbour with an open northern horizon. Scores 4 for sunset too.'}]};
+ SP.forEach(p=>WIN.forEach((w,i)=>c.push({p,w,i,s:p.s[i]})));
+ if(/hour|near|close/.test(ql))c=c.filter(x=>/min|1h 0/.test(x.p.drive));
+ if(/coast|tide|sea/.test(ql))c=c.filter(x=>x.p.coast);
+ if(/saturday/.test(ql))c=c.filter(x=>x.w.d==='Saturday');
+ c.sort((a,b)=>b.s-a.s||parseInt(a.p.drive)-parseInt(b.p.drive));
+ const out=[],usedW=new Set(),usedP=new Set();
+ for(const x of c){if(out.length===3)break;if(usedP.has(x.p.n)||usedW.has(x.w.id)&&c.some(y=>!usedW.has(y.w.id)&&!usedP.has(y.p.n)&&y.s===x.s))continue;out.push(x);usedP.add(x.p.n);usedW.add(x.w.id)}
+ const why=x=>x.p.coast?`${x.w.sky}. ${x.w.tide.startsWith('High')?(x.p.wantH?'High water fills the foreground.':'High water, so less beach.'):'Low water exposes the scars.'}`:`${x.w.sky}. Above the fret, looking east.`;
+ const b=out[0];
+ return{summary:b?`${wLabel(b.w)} is the pick of the weekend: ${b.p.n} scores ${b.s} of 5.${out[1]?` ${out[1].p.n} on ${wLabel(out[1].w)} is the closer alternative.`:''}`:'Nothing scores well enough to recommend.',
+  picks:out.map(x=>({spot:x.p.n,window:x.w.id,why:why(x)}))}}
+
+async function ask(q){q=q.trim();if(!q)return;st.q=q;st.mode='busy';st.sel=null;st.size='open';inp.value='';render();
+ const data=WIN.map((w,i)=>`${w.id} (${wLabel(w)} ${w.t}; sky: ${w.sky}; tide: ${w.tide})\n`+SP.map(p=>`  ${p.n}: ${p.s[i]}/5, ${p.coast?'coast'+(p.wantH?', best at high water':''):'inland'}, drive ${p.drive}`).join('\n')).join('\n');
+ const sys=`You are PhotoCast, a forecast assistant for landscape photographers. Today is Monday 5 Oct 2026; "the weekend" is Sat 10 and Sun 11 Oct. Home is DH6 5DQ. Answer ONLY from this data.\n\nLIGHT FORECAST (scores per window):\n${data}\n\nHOT TOPICS:\n${HOT.map(h=>`${h.id}: ${h.k} · ${h.when} · ${h.head}. ${h.why}`).join('\n')}\n\nReply with JSON only, no prose: {"summary":"one or two plain sentences that directly answer the question","events":[{"topic":"HOT TOPIC id","why":"optional one sentence"}],"picks":[{"spot":"exact spot name","window":"SAT_AM|SAT_PM|SUN_AM|SUN_PM","why":"one sentence, under 22 words, citing sky/tide/score"}]}. Include events only for hot topics relevant to the question. For where/when questions give 2 or 3 picks, different spots, ranked best first; otherwise picks may be []. If the data can't answer the question, do NOT guess: return {"answerable":false,"summary":"one plain sentence saying you can't tell from PhotoCast's forecasts","missing":"short phrase naming the data PhotoCast doesn't have","try":["2 short related questions the data CAN answer"],"picks":[]}. Otherwise include "answerable":true. Plain British English, no hype.`;
+ let ans=null;const t0=Date.now();
+ try{const r=await window.claude.complete({system:sys,max_tokens:600,messages:[{role:'user',content:q}]});
+  const j=JSON.parse(r.slice(r.indexOf('{'),r.lastIndexOf('}')+1));
+  j.events=(j.events||[]).filter(e=>HOT.some(h=>h.id===e.topic));
+  j.picks=(j.picks||[]).filter(k=>SP.some(s=>s.n===k.spot)&&wIdx(k.window)>-1).slice(0,3);
+  if(j.summary)ans=j}catch(e){}
+ if(!ans)ans=fallback(q);
+ await new Promise(r=>setTimeout(r,Math.max(0,1900-(Date.now()-t0))));
+ st.ans=ans;st.mode='ans';
+ if(ans.picks.length){st.wi=wIdx(ans.picks[0].window);render();
+  map.flyToBounds(L.latLngBounds(ans.picks.map(k=>SP.find(s=>s.n===k.spot).ll)),{paddingTopLeft:[60,80],paddingBottomRight:[60,450],maxZoom:10,duration:.8})}
+ else render()}
+
+function recenter(){if(st.sel==null)return;const p=SP.find(s=>s.n===st.ans.picks[st.sel].spot);setTimeout(()=>{const h=sh.offsetHeight,z=map.getZoom(),pt=map.project(p.ll,z).add([0,(h-60)/2]);map.flyTo(map.unproject(pt,z),z,{duration:.5})},300)}
+function selectPick(i){st.sel=i;const k=st.ans.picks[i],p=SP.find(s=>s.n===k.spot);st.wi=wIdx(k.window);render();
+ const h=st.size==='min'?116:432,z=10.5,pt=map.project(p.ll,z).add([0,(h-60)/2]);map.flyTo(map.unproject(pt,z),z,{duration:.7})}
+
+el.addEventListener('click',e=>{const t=e.target.closest('button');if(!t)return;const a=t.dataset.a;
+ if(a==='open'){st.mode=st.ans?'ans':'start';st.size='open';render();setTimeout(()=>inp.focus(),300)}
+ else if(a==='close'){st.mode=null;st.ans=null;st.sel=null;render()}
+ else if(a==='hdl'&&st.mode==='ans'){st.size=st.size==='min'?'open':'min';render();recenter()}
+ else if(a==='prev'||a==='next'){st.wi=(st.wi+(a==='next'?1:3))%4;st.sel=null;render()}
+ else if(t.dataset.q)ask(t.dataset.q);
+ else if(t.dataset.pk!=null)selectPick(+t.dataset.pk)});
+$('.minrow')||0;
+shb.addEventListener('click',e=>{if(e.target.closest('.minrow')){st.size='open';render();recenter()}});
+$('.inrow').addEventListener('submit',e=>{e.preventDefault();ask(inp.value)});
+let sy=null;$('.hdl').addEventListener('pointerdown',e=>sy=e.clientY);
+window.addEventListener('pointerup',e=>{if(sy==null||st.mode!=='ans')return sy=null;const dy=e.clientY-sy;sy=null;if(Math.abs(dy)>30){st.size=dy>0?'min':'open';render();recenter()}});
+map.on('dragstart',()=>{if(st.mode==='ans'&&st.size!=='min'){st.size='min';render()}else if(st.mode==='start'){st.mode=null;render()}});
+render();
+</script>
+</body>
+</html>

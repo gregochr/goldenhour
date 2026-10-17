@@ -5,7 +5,7 @@ import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.HotTopicFact;
-import com.gregochr.goldenhour.model.SurvivorSignals;
+import com.gregochr.goldenhour.model.SlotSignals;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -21,7 +21,7 @@ import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for {@link SnowTopsHotTopicStrategy}, including the freezing-level-versus-elevation
- * margin boundary. Reads the survivor surface; elevation comes from the composite's location.
+ * margin boundary. Reads the slot surface; elevation comes from the composite's location.
  */
 @ExtendWith(MockitoExtension.class)
 class SnowTopsHotTopicStrategyTest {
@@ -30,27 +30,27 @@ class SnowTopsHotTopicStrategyTest {
     private static final LocalDate TO = FROM.plusDays(3);
 
     @Mock
-    private SurvivorSignalReader survivorSignalReader;
+    private SlotSignalReader slotSignalReader;
 
     private SnowTopsHotTopicStrategy strategy;
 
     @BeforeEach
     void setUp() {
-        strategy = new SnowTopsHotTopicStrategy(survivorSignalReader);
+        strategy = new SnowTopsHotTopicStrategy(slotSignalReader);
     }
 
-    /** A survivor composite carrying a freezing-level reading at a location of the given elevation. */
-    private static SurvivorSignals signal(LocalDate date, String regionName,
+    /** A slot composite carrying a freezing-level reading at a location of the given elevation. */
+    private static SlotSignals signal(LocalDate date, String regionName,
             Double freezingLevelMetres, Integer elevationMetres) {
         RegionEntity region = new RegionEntity();
         region.setName(regionName);
         LocationEntity location = new LocationEntity();
         location.setRegion(region);
         location.setElevationMetres(elevationMetres);
-        SurvivorSignals.Readings readings = new SurvivorSignals.Readings(
-                null, null, null, null, null, freezingLevelMetres, null, null, null, null, null);
-        return new SurvivorSignals(location, date, TargetType.SUNRISE,
-                SurvivorSignals.Scores.EMPTY, readings);
+        SlotSignals.Readings readings = new SlotSignals.Readings(
+                null, null, null, null, null, freezingLevelMetres, null, null, null, null, null, null, false);
+        return new SlotSignals(location, date, TargetType.SUNRISE,
+                SlotSignals.Scores.EMPTY, readings);
     }
 
     private static HotTopicFact factWithKey(HotTopic topic, String key) {
@@ -58,10 +58,10 @@ class SnowTopsHotTopicStrategyTest {
     }
 
     @Test
-    @DisplayName("white-tops survivor fires SNOW_TOPS at priority 3 with the 100 m margin")
+    @DisplayName("white-tops row fires SNOW_TOPS at priority 3 with the 100 m margin")
     void detect_whiteTops_fires() {
         // 451 m summit, freezing level at 351 m == elevation - 100 → white.
-        when(survivorSignalReader.read(FROM, TO))
+        when(slotSignalReader.read(FROM, TO))
                 .thenReturn(List.of(signal(FROM, "The Lake District", 351.0, 451)));
 
         List<HotTopic> topics = strategy.detect(FROM, TO);
@@ -76,7 +76,7 @@ class SnowTopsHotTopicStrategyTest {
     @Test
     @DisplayName("fact line shows the snow line (freezing level) and its margin below the summit")
     void detect_whiteTops_factLine() {
-        when(survivorSignalReader.read(FROM, TO))
+        when(slotSignalReader.read(FROM, TO))
                 .thenReturn(List.of(signal(FROM, "The Lake District", 351.0, 451)));
 
         HotTopic topic = strategy.detect(FROM, TO).get(0);
@@ -91,7 +91,7 @@ class SnowTopsHotTopicStrategyTest {
     @DisplayName("representative is the row with the greatest margin below the summit")
     void detect_representative_greatestMargin() {
         // Cat Bells 451 m summit, freezing 351 → margin 100; a higher fell 978 m, freezing 400 → 578.
-        when(survivorSignalReader.read(FROM, TO)).thenReturn(List.of(
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of(
                 signal(FROM, "The Lake District", 351.0, 451),
                 signal(FROM, "The Lake District", 400.0, 978)));
 
@@ -105,16 +105,16 @@ class SnowTopsHotTopicStrategyTest {
     @DisplayName("freezing level above the margin does not fire — the margin filter, not just empty")
     void detect_aboveMargin_doesNotFire() {
         // 451 m summit, freezing level at 400 m > elevation - 100 → not white.
-        when(survivorSignalReader.read(FROM, TO))
+        when(slotSignalReader.read(FROM, TO))
                 .thenReturn(List.of(signal(FROM, "The Lake District", 400.0, 451)));
 
         assertThat(strategy.detect(FROM, TO)).isEmpty();
     }
 
     @Test
-    @DisplayName("no survivor rows does not fire")
+    @DisplayName("no slot rows does not fire")
     void detect_noRows_doesNotFire() {
-        when(survivorSignalReader.read(FROM, TO)).thenReturn(List.of());
+        when(slotSignalReader.read(FROM, TO)).thenReturn(List.of());
 
         assertThat(strategy.detect(FROM, TO)).isEmpty();
     }

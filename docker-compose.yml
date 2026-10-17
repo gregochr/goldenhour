@@ -54,6 +54,16 @@ services:
       goldenhour-db:
         condition: service_healthy
     restart: always
+    # Docker's default stop budget is 10 s. The backend's dynamic scheduler waits up to 30 s on
+    # shutdown for a job that is RUNNING to finish (SchedulerConfig.AWAIT_TERMINATION_SECONDS), so at
+    # 10 s a deploy that lands mid-job killed the JVM before that wait, Hikari or the entity manager
+    # finished. 40 s covers the scheduler's full budget with a margin; a restart with no job running
+    # still stops in a second or two (since #1026 pending cron firings no longer hold the await).
+    # Not covered: Boot 4 also drains in-flight HTTP requests first (server.shutdown=graceful, up to
+    # spring.lifecycle.timeout-per-shutdown-phase, 30 s), which runs BEFORE the scheduler's wait, so
+    # a slow request still in flight AND a running job could together need 60 s. An owner call
+    # (2026-10-06) to size this for the job, not for that coincidence.
+    stop_grace_period: 40s
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8082/actuator/health"]
       interval: 30s

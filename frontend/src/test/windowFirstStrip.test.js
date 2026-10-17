@@ -116,6 +116,36 @@ describe('buildHeatStripCards — one thumbnail per rendered window', () => {
     expect(build(events, cards).map((c) => c.pickKind)).toEqual(['best', 'also']);
   });
 
+  it('carries the card\'s region mean through to the thumbnail, and null as null (verdict-honesty H1)', () => {
+    // Folded from the card, never re-picked: the face prints this beside the verdict word, so a
+    // second selection here is a second chance to name a different region than the word's.
+    const events = [{ date: TODAY, targetType: 'SUNSET' }];
+
+    expect(build(events, [card({ topMeanRating: 3.5 })])[0].topMeanRating).toBe(3.5);
+    expect(build(events, [card()])[0].topMeanRating).toBeNull();
+    expect(build(events, [])[0].topMeanRating).toBeNull();
+  });
+
+  it('folds the printable mean (verdictMean) separately from the ranking mean, null when absent (review F1)', () => {
+    const events = [{ date: TODAY, targetType: 'SUNSET' }];
+
+    const [thumb] = build(events, [card({ topMeanRating: 2, verdictMean: null })]);
+    expect(thumb.topMeanRating).toBe(2);
+    expect(thumb.verdictMean).toBeNull();
+    expect(build(events, [card({ verdictMean: 3.5 })])[0].verdictMean).toBe(3.5);
+    expect(build(events, [])[0].verdictMean).toBeNull();
+  });
+
+  it('carries the active tier\'s minutes through to the thumbnail, null when none (verdict-honesty H2)', () => {
+    // The strip never sees `buildWindowCards`' output directly, so a field the face reads must be
+    // folded here or the component tests (which hand cards straight in) would pass over a drop.
+    const events = [{ date: TODAY, targetType: 'SUNSET' }];
+
+    expect(build(events, [card({ reachLimitMinutes: 45 })])[0].reachLimitMinutes).toBe(45);
+    expect(build(events, [card()])[0].reachLimitMinutes).toBeNull();
+    expect(build(events, [])[0].reachLimitMinutes).toBeNull();
+  });
+
   it('carries no pick kind when the window has no pick at all', () => {
     expect(build([{ date: TODAY, targetType: 'SUNSET' }], [card()])[0].pickKind).toBeNull();
   });
@@ -277,6 +307,64 @@ describe('buildHeatStripCards — hotRegionName (field-geography plan §2.3)', (
 
     expect(only.away).toBe(true);
     expect(only.hotRegionName).toBeNull();
+  });
+});
+
+describe('buildHeatStripCards — tide (tide-window-plan.md T6)', () => {
+  // ⚠️ THE test a component-level fixture cannot replace, for the identical reason the
+  // `hotRegionName` block above states it: `WindowFirstMapPane`'s own fixture-driven tests hand
+  // `heatStripCards` straight in, so a field dropped from THIS fold would leave the Map tab's tide
+  // strip permanently invisible in production while every other test stayed green — exactly the
+  // gap browser verification against a live payload found. `windowFirstCards.test.js` pins where
+  // the value comes from (the served `window.tide`); this pins that it survives the strip's fold.
+  const events = [{ date: TODAY, targetType: 'SUNSET' }];
+
+  it('folds the card\'s tide through untouched', () => {
+    const tide = { locationName: 'Bamburgh Beach', state: 'MID', curve: [0, 1] };
+    expect(build(events, [card({ tide })])[0].tide).toBe(tide);
+  });
+
+  it('is null when the card carries none', () => {
+    expect(build(events, [card({ tide: null })])[0].tide).toBeNull();
+  });
+
+  it('is null on an away day, which has no card to fold it from', () => {
+    const AWAY_DAYS = [{
+      date: TODAY,
+      eventSummaries: [{ targetType: 'SUNSET', solarEventTime: `${TODAY}T20:11:00` }],
+    }];
+    const [only] = build(events, [], new Set([TODAY]), AWAY_DAYS);
+
+    expect(only.away).toBe(true);
+    expect(only.tide).toBeNull();
+  });
+});
+
+describe('buildHeatStripCards — tideFit (tide-plan-card-plan.md C1)', () => {
+  // The strip never sees `buildWindowCards`' output directly (see the `tide` suite above) — this is
+  // the one place `windowFirstTideRun.js#tideRun` can read the client-derived summary, so a field
+  // dropped from THIS fold would leave every live window unlabelled with the count and every day
+  // silently un-rankable, while `windowFirstCards.test.js` stayed green.
+  const events = [{ date: TODAY, targetType: 'SUNSET' }];
+
+  it('folds the card\'s tideFit through untouched', () => {
+    const tideFit = { coastal: 9, matched: 6, live: true, meanQuality: 0.72 };
+    expect(build(events, [card({ tideFit })])[0].tideFit).toBe(tideFit);
+  });
+
+  it('is null when the card carries none', () => {
+    expect(build(events, [card({ tideFit: null })])[0].tideFit).toBeNull();
+  });
+
+  it('is null on an away day, which has no card to fold it from', () => {
+    const AWAY_DAYS = [{
+      date: TODAY,
+      eventSummaries: [{ targetType: 'SUNSET', solarEventTime: `${TODAY}T20:11:00` }],
+    }];
+    const [only] = build(events, [], new Set([TODAY]), AWAY_DAYS);
+
+    expect(only.away).toBe(true);
+    expect(only.tideFit).toBeNull();
   });
 });
 

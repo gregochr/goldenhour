@@ -17,6 +17,7 @@ vi.mock('react-leaflet', () => ({ useMap: () => currentMap }));
 
 import PinsLayer from '../components/map/PinsLayer.jsx';
 import { rampHex, setMode } from '../utils/scoreRamp.js';
+import { auroraRampHex } from '../utils/auroraRamp.js';
 import { readableInkOn } from '../utils/windowFirstSpots.js';
 import { NO_DATA_COLOUR, STAND_DOWN_COLOUR } from '../components/markerUtils.js';
 
@@ -139,6 +140,12 @@ const runFrames = () => {
   frames = [];
   for (const cb of due) if (cb) cb();
 };
+
+// jsdom's PointerEvent honours `pointerType`, which is what the tooltip's guard reads. A real touch
+// tap also emits compatibility mouse events (no leave until the next tap), so TOUCH stands for the
+// pointer half of that sequence.
+const MOUSE = { pointerType: 'mouse' };
+const TOUCH = { pointerType: 'touch' };
 
 async function mount(props = {}) {
   let result;
@@ -337,7 +344,7 @@ describe('PinsLayer — hover tooltip parity with the P8 chip', () => {
     await mount({ eventLabel: 'Sunset · Tonight 19:58' });
     const pin = [...document.querySelectorAll('[data-testid="map-pin"]')]
       .find((el) => el.getAttribute('aria-label') === 'Bamburgh, 5 star');
-    fireEvent.mouseEnter(pin);
+    fireEvent.pointerEnter(pin, MOUSE);
     const tip = document.querySelector('[data-testid="map-label-tip"]');
     expect(tip).not.toBeNull();
     expect(tip.className).toBe('wf-maplab-tip');
@@ -347,8 +354,43 @@ describe('PinsLayer — hover tooltip parity with the P8 chip', () => {
     expect(tip).toHaveTextContent('North East');
     expect(tip).toHaveTextContent('1h 30min');
     expect(tip).toHaveTextContent('sky 4');
-    fireEvent.mouseLeave(pin);
+    fireEvent.pointerLeave(pin, MOUSE);
     expect(document.querySelector('[data-testid="map-label-tip"]')).toBeNull();
+  });
+
+  it('a TOUCH pointerenter never shows the tooltip — a tap must not leave one stuck over the callout it opens', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({});
+    const pin = [...document.querySelectorAll('[data-testid="map-pin"]')]
+      .find((el) => el.getAttribute('aria-label') === 'Bamburgh, 5 star');
+    fireEvent.pointerEnter(pin, TOUCH);
+    expect(screen.queryByTestId('map-label-tip')).toBeNull();
+    // ...nor does a touch pointermove position-and-reveal one.
+    fireEvent.pointerMove(pin, { ...TOUCH, clientX: 50, clientY: 50 });
+    expect(screen.queryByTestId('map-label-tip')).toBeNull();
+  });
+
+  it('the compatibility mouseenter a tap emits no longer shows the tooltip on its own', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({});
+    const pin = [...document.querySelectorAll('[data-testid="map-pin"]')]
+      .find((el) => el.getAttribute('aria-label') === 'Bamburgh, 5 star');
+    fireEvent.mouseEnter(pin);
+    fireEvent.mouseMove(pin, { clientX: 50, clientY: 50 });
+    expect(screen.queryByTestId('map-label-tip')).toBeNull();
+  });
+
+  it('a click hides a tooltip that is already showing, and still selects the location', async () => {
+    const onSelect = vi.fn();
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({ onSelect });
+    const pin = [...document.querySelectorAll('[data-testid="map-pin"]')]
+      .find((el) => el.getAttribute('aria-label') === 'Bamburgh, 5 star');
+    fireEvent.pointerEnter(pin, MOUSE);
+    expect(screen.getByTestId('map-label-tip')).toBeInTheDocument();
+    fireEvent.click(pin);
+    expect(screen.queryByTestId('map-label-tip')).toBeNull();
+    expect(onSelect).toHaveBeenCalledWith('Bamburgh');
   });
 
   it('portals the tooltip to the chrome wrapper, never inside the pins pane', async () => {
@@ -356,12 +398,153 @@ describe('PinsLayer — hover tooltip parity with the P8 chip', () => {
     await mount();
     const pin = [...document.querySelectorAll('[data-testid="map-pin"]')]
       .find((el) => el.getAttribute('aria-label') === 'Bamburgh, 5 star');
-    fireEvent.mouseEnter(pin);
+    fireEvent.pointerEnter(pin, MOUSE);
     const tip = document.querySelector('[data-testid="map-label-tip"]');
     expect(tip).not.toBeNull();
     const pinsPane = currentMap.panes['wf-pins'];
     expect(pinsPane.contains(tip)).toBe(false);
     expect(currentMap.wrap.contains(tip)).toBe(true);
+  });
+});
+
+describe('PinsLayer — the tide-fit dot (tide-window-plan.md §3 T4 item 5)', () => {
+  it('carries data-tide="match" for a served match, and the ramp fill is untouched', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({
+      spots: [{
+        name: 'Bamburgh', lat: 55.6, lng: -1.7, rid: 'North East', rating: 5, tideTier: 'match',
+      }],
+    });
+    const pin = document.querySelector('[data-testid="map-pin"]');
+    expect(pin).toHaveAttribute('data-tide', 'match');
+    // §7 check 12's rule, applied to the pin the same way as the chip: the tier changes an
+    // attribute a CSS opacity rule keys off, never the inline ramp `background`.
+    const probe = document.createElement('div');
+    probe.style.background = rampHex(5);
+    expect(pin.style.background).toBe(probe.style.background);
+  });
+
+  it('carries data-tide="miss" for a served miss, with the ramp fill still untouched', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({
+      spots: [{
+        name: 'Bamburgh', lat: 55.6, lng: -1.7, rid: 'North East', rating: 3, tideTier: 'miss',
+      }],
+    });
+    const pin = document.querySelector('[data-testid="map-pin"]');
+    expect(pin).toHaveAttribute('data-tide', 'miss');
+    const probe = document.createElement('div');
+    probe.style.background = rampHex(3);
+    expect(pin.style.background).toBe(probe.style.background);
+  });
+
+  it('carries no data-tide attribute when there is no served tide fact at all', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({
+      spots: [{
+        name: 'Bamburgh', lat: 55.6, lng: -1.7, rid: 'North East', rating: 5, tideTier: null,
+      }],
+    });
+    const pin = document.querySelector('[data-testid="map-pin"]');
+    expect(pin).not.toHaveAttribute('data-tide');
+  });
+
+  it('renders an unrated coastal dot the same way as any other unrated dot — the gate makes it VISIBLE, not special', async () => {
+    // §7 check 13's own claim, drawn one layer down: a tide-gated coastal location bypasses
+    // `visibleLocations`' rating stage (`MapView.jsx`, T4 item 1) and reaches this pool with no
+    // rating at all — the dot it gets here is the ordinary no-data/stand-down shape, never a third
+    // visual class invented for the gate.
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({
+      spots: [{
+        name: 'Bamburgh', lat: 55.6, lng: -1.7, rid: 'North East', rating: null, isStandDown: false, tideTier: 'miss',
+      }],
+    });
+    const pin = document.querySelector('[data-testid="map-pin"]');
+    const probe = document.createElement('div');
+    probe.style.background = NO_DATA_COLOUR;
+    expect(pin.style.background).toBe(probe.style.background);
+    expect(pin).toHaveAttribute('data-tide', 'miss');
+  });
+
+  it('adds the third tooltip line for a MATCH, teal-inked, mirroring the chip', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({
+      spots: [{
+        name: 'Bamburgh',
+        lat: 55.6,
+        lng: -1.7,
+        rid: 'North East',
+        rating: 5,
+        tideTier: 'match',
+        tideFitPhrase: 'high water, falling · HW 19:52 · 36m before sunset · 3.9 m',
+      }],
+    });
+    const pin = document.querySelector('[data-testid="map-pin"]');
+    fireEvent.pointerEnter(pin, MOUSE);
+    const tideLine = document.querySelector('[data-testid="map-pin-tip-tide"]');
+    expect(tideLine).not.toBeNull();
+    expect(tideLine).toHaveTextContent(
+      'Tide lands on the light — high water, falling · HW 19:52 · 36m before sunset · 3.9 m',
+    );
+    expect(tideLine).toHaveClass('wf-maplab-tip-t');
+  });
+
+  it('adds the third tooltip line for a MISS, headed "Wrong water, not wrong light", with no teal ink', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({
+      spots: [{
+        name: 'Bamburgh',
+        lat: 55.6,
+        lng: -1.7,
+        rid: 'North East',
+        rating: 5,
+        tideTier: 'miss',
+        tideFitPhrase: 'wants low water · mid tide, rising at 05:42 · 2.6 m of 4.3 m',
+      }],
+    });
+    const pin = document.querySelector('[data-testid="map-pin"]');
+    fireEvent.pointerEnter(pin, MOUSE);
+    const tideLine = document.querySelector('[data-testid="map-pin-tip-tide"]');
+    expect(tideLine).not.toBeNull();
+    expect(tideLine).toHaveTextContent(
+      'Wrong water, not wrong light — wants low water · mid tide, rising at 05:42 · 2.6 m of 4.3 m',
+    );
+    expect(tideLine).not.toHaveClass('wf-maplab-tip-t');
+  });
+
+  it('heads an UNASSESSED miss "Tide misses the light here" — no claim that the light was fine', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({
+      spots: [{
+        name: 'Bamburgh',
+        lat: 55.6,
+        lng: -1.7,
+        rid: 'North East',
+        rating: null,
+        tideTier: 'miss',
+        tideAssessed: false,
+        tideFitPhrase: 'wants low water · mid tide, rising at 05:42 · 2.6 m of 4.3 m',
+      }],
+    });
+    fireEvent.pointerEnter(document.querySelector('[data-testid="map-pin"]'), MOUSE);
+    const tideLine = document.querySelector('[data-testid="map-pin-tip-tide"]');
+    expect(tideLine).toHaveTextContent(
+      'Tide misses the light here — wants low water · mid tide, rising at 05:42 · 2.6 m of 4.3 m',
+    );
+    expect(tideLine).not.toHaveTextContent('Wrong water');
+  });
+
+  it('adds no tide line when there is no served tide fact at all', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({
+      spots: [{
+        name: 'Bamburgh', lat: 55.6, lng: -1.7, rid: 'North East', rating: 5, tideTier: null,
+      }],
+    });
+    const pin = document.querySelector('[data-testid="map-pin"]');
+    fireEvent.pointerEnter(pin, MOUSE);
+    expect(document.querySelector('[data-testid="map-pin-tip-tide"]')).toBeNull();
   });
 });
 
@@ -383,7 +566,7 @@ describe('PinsLayer — the hover tooltip answers for the window on screen, not 
     currentMap = makeFullMap({ zoom: 9 });
     const result = await mount({ eventLabel: SAT });
     const pin = screen.getByRole('button', { name: 'Bamburgh, 5 star' });
-    fireEvent.mouseEnter(pin);
+    fireEvent.pointerEnter(pin, MOUSE);
     expect(screen.getByTestId('map-label-tip')).toHaveTextContent(`${SAT} · 5★ Worth it`);
     return { result, pin };
   }
@@ -537,6 +720,9 @@ describe('PinsLayer — the home marker', () => {
     ['the Regions jump menu (P11)', 'wf-jump-menu'],
     ['the window panel', 'wf-win-panel'],
     ['the region panel', 'wf-reg-panel'],
+    // tide-window-plan.md T7 — on the phone the strip is a SIBLING of `.wf-map-chrome-bl`, not a
+    // child of it (unlike the desktop mount, already covered via that entry), so it needs its own.
+    ['the tide strip', 'wf-tide-strip'],
   ])('seeds %s as an obstacle too', async (_label, testid) => {
     restoreMeasure = withMeasuredLabels(30, 14);
     currentMap = makeFullMap({ zoom: 9 });
@@ -583,5 +769,146 @@ describe('PinsLayer — re-paints on the same rAF-guarded cadence as the field',
     await act(async () => { currentMap.fire('moveend'); });
     const after = [...document.querySelectorAll('[data-testid="map-pin"]')].map((el) => el.style.left);
     expect(after).not.toEqual(before);
+  });
+});
+
+describe('PinsLayer — the aurora ramp and glow (aurora-heat-plan.md §3 A2)', () => {
+  const pinNamed = (label) => [...document.querySelectorAll('[data-testid="map-pin"]')]
+    .find((el) => el.getAttribute('aria-label') === label);
+  const colourOf = (value) => {
+    const probe = document.createElement('div');
+    probe.style.background = value;
+    return probe.style.background;
+  };
+
+  it('fills from the injected rampHex, not the shared ramp', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({ rampHex: auroraRampHex, glow: true });
+    expect(pinNamed('Bamburgh, 5 star').style.background).toBe(colourOf(auroraRampHex(5)));
+    expect(auroraRampHex(5)).not.toBe(rampHex(5));
+  });
+
+  it('puts a 14px halo in its own fill on a 4 star and up pin and none on a 3 star pin', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({ rampHex: auroraRampHex, glow: true });
+    // 5 star #76FFA0 is rgb(118,255,160); 4 star #3AC884 is rgb(58,200,132)
+    expect(pinNamed('Bamburgh, 5 star').style.boxShadow).toContain('0 0 14px rgba(118,255,160,.7)');
+    expect(pinNamed('Buttermere, 4 star').style.boxShadow).toContain('0 0 14px rgba(58,200,132,.7)');
+    expect(pinNamed('Whitby, 3 star').style.boxShadow).not.toContain('14px');
+  });
+
+  it('draws no halo without the glow flag, even with the aurora ramp', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({ rampHex: auroraRampHex });
+    expect(pinNamed('Bamburgh, 5 star').style.boxShadow).not.toContain('14px');
+  });
+
+  it('glows a 4 star and up UNNAMED dot too — the spec applies the halo at both sizes', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({
+      spots: [{
+        name: 'Quiet corner', lat: 55, lng: -2, rid: 'X', rating: 4, named: false,
+      }],
+      rampHex: auroraRampHex,
+      glow: true,
+    });
+    const pin = document.querySelector('[data-testid="map-pin"]');
+    expect(pin.dataset.named).toBe('false');
+    expect(pin.style.boxShadow).toContain('0 0 14px rgba(58,200,132,.7)');
+  });
+
+  it('never glows an unrated pin, even with the glow flag set', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({
+      spots: [{
+        name: 'No data', lat: 55, lng: -2, rid: 'X', rating: null,
+      }],
+      glow: true,
+    });
+    expect(document.querySelector('[data-testid="map-pin"]').style.boxShadow).not.toContain('14px');
+  });
+
+  it('omitUnrated drops an unrated pin and keeps the rated ones; off by default', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    const spots = [...SPOTS, {
+      name: 'No data', lat: 55, lng: -2, rid: 'X', rating: null,
+    }];
+    const { unmount } = await mount({ spots, omitUnrated: true });
+    const names = [...document.querySelectorAll('[data-testid="map-pin"]')].map((el) => el.getAttribute('aria-label'));
+    expect(names).not.toContain('No data');
+    expect(names).toHaveLength(SPOTS.length);
+    unmount();
+    await mount({ spots });
+    expect(document.querySelectorAll('[data-testid="map-pin"]')).toHaveLength(SPOTS.length + 1);
+  });
+
+  it('with the defaults the fill is the shared ramp and the shadow carries no halo', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount();
+    const pin = pinNamed('Bamburgh, 5 star');
+    expect(pin.style.background).toBe(colourOf(rampHex(5)));
+    expect(pin.style.boxShadow).not.toContain('14px');
+    // Byte-identical to the pre-aurora shadow: the rim, then the drop, nothing in front.
+    expect(pin.style.boxShadow).toBe('0 2px 0 -1px rgb(100,20,16), 0 5px 12px rgba(0,0,0,.5)');
+  });
+});
+
+describe('PinsLayer — the "you rated this" badge (outcome-rating-plan.md §2 #6, O4b)', () => {
+  const rated = (myRating) => SPOTS.map((spot) => (spot.name === 'Bamburgh' ? { ...spot, myRating } : spot));
+  const pinNamed = (name) => [...document.querySelectorAll('[data-testid="map-pin"]')]
+    .find((el) => el.getAttribute('aria-label') === name);
+
+  it('draws N★ top-right on a pin whose spot carries the reader\'s rating, aria-hidden', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({ spots: rated(3) });
+    const pin = [...document.querySelectorAll('[data-testid="map-pin"]')]
+      .find((el) => el.getAttribute('aria-label').startsWith('Bamburgh'));
+    const badge = pin.querySelector('.wf-rated-badge');
+    expect(badge).toHaveTextContent('3★');
+    expect(badge).toHaveAttribute('aria-hidden', 'true');
+    // Exactly one badge on the layer: the other pins carry no record.
+    expect(document.querySelectorAll('.wf-rated-badge')).toHaveLength(1);
+  });
+
+  it('appends the spoken clause to the pin\'s accessible name (the badge itself is hidden)', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({ spots: rated(3) });
+    expect(pinNamed('Bamburgh, 5 star, you rated 3 out of 5')).toBeInTheDocument();
+  });
+
+  it('draws an en dash and says "not seen" for a "didn\'t see it" record', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({ spots: rated('NOT_SEEN') });
+    const pin = pinNamed('Bamburgh, 5 star, you marked this not seen');
+    expect(pin.querySelector('.wf-rated-badge')).toHaveTextContent('–');
+  });
+
+  it('draws no badge, and leaves the name alone, when no spot carries a rating', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount();
+    expect(screen.queryByTestId('wf-rated-badge')).not.toBeInTheDocument();
+    expect(pinNamed('Bamburgh, 5 star')).toBeInTheDocument();
+  });
+
+  it('draws a badge on an UNRATED pin too (the reader may have rated a place nothing scored)', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({ spots: [{ name: 'Blank', lat: 55, lng: -2, rid: 'X', rating: null, myRating: 2 }] });
+    const pin = pinNamed('Blank, you rated 2 out of 5');
+    expect(pin.querySelector('.wf-rated-badge')).toHaveTextContent('2★');
+  });
+
+  it('a pick pin never wears the badge — it is built from the PICK\'s own window', async () => {
+    currentMap = makeFullMap({ zoom: 9 });
+    await mount({
+      spots: [{
+        ...SPOTS[0],
+        myRating: 4,
+        askPick: {
+          rank: 1, shortWindow: 'Sun', rating: 4, verdict: 'WORTH_IT', label: 'Pick 1', selected: false,
+        },
+      }],
+    });
+    expect(document.querySelector('.wf-rated-badge')).toBeNull();
+    expect(document.querySelector('[data-ask="pick"]')).toHaveAttribute('aria-label', 'Pick 1');
   });
 });

@@ -9,6 +9,7 @@ import WindowSheetDialog from '../components/WindowSheetDialog.jsx';
 import { buildTopicIndex } from '../utils/windowFirstTopics.js';
 import { drawGeo } from '../utils/heatField.js';
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
+import { buildEclipseIndex } from '../utils/locationSheet.js';
 
 /**
  * The window popup — one window's whole drill-down, as a dialog over the plan.
@@ -376,6 +377,24 @@ describe('WindowSheetDialog — the verdict badge', () => {
     expect(alphaOf(badge().style.background)).toBeCloseTo(0.14 * 0.5, 3);
   });
 
+  it('leaves an UNRATED badge at full strength: the neutral fill does not decay, whatever the card says (U2)', () => {
+    // UNRATED is outside CONFIDENCE_VERDICTS (the BADGE gate). Since review F5 the card DOES carry
+    // the server's tier for UNRATED — the field's haze reads it — so this dialog's own gate is what
+    // keeps the badge unmarked: a decayed neutral wash would read as a rendering bug, and "Too few
+    // rated" already says provisional. Neither the fill, the confidence line, the ProvisionalMark
+    // nor the badge's tier hook may follow the card's 'low'.
+    renderDialog({ card: card({ verdict: 'UNRATED', verdictLabel: 'Too few rated', confidence: 'low' }) });
+    expect(alphaOf(badge().style.background)).toBeCloseTo(0.04, 3);
+    expect(screen.queryByTestId('window-sheet-confidence')).toBeNull();
+    expect(screen.queryByTestId('provisional-mark')).toBeNull();
+    expect(badge()).not.toHaveAttribute('data-confidence');
+  });
+
+  it('still advertises the tier on a recommending badge', () => {
+    renderDialog({ card: card({ verdict: 'WORTH_IT', verdictLabel: 'Worth it', confidence: 'low' }) });
+    expect(badge()).toHaveAttribute('data-confidence', 'low');
+  });
+
   it.each(['STAND_DOWN', 'AWAITING'])('leaves a %s badge at full strength', (verdict) => {
     // Confidence qualifies a recommendation. These are not recommendations, and the derivation
     // nulls the field for them — so the badge must not decay even though `resolveConfidence` would
@@ -407,6 +426,7 @@ describe('WindowSheetDialog — the verdict badge', () => {
     ['WORTH_IT', 'Worth it', 'var(--color-badge-go)'],
     ['MAYBE', 'Maybe', 'var(--color-badge-maybe)'],
     ['STAND_DOWN', 'Poor', 'var(--color-badge-poor)'],
+    ['UNRATED', 'Too few rated', 'var(--color-plex-text-secondary)'],
     ['AWAITING', 'Awaiting', 'var(--color-plex-text-secondary)'],
   ])('inks a %s badge in its own colour', (verdict, verdictLabel, expected) => {
     // ⚠️ THE assertion this dialog shipped without. The alpha tests above pin the DECAY and not the
@@ -426,7 +446,7 @@ describe('WindowSheetDialog — the verdict badge', () => {
     const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8');
     const defined = new Set([...css.matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1]));
     const used = new Set();
-    for (const verdict of ['WORTH_IT', 'MAYBE', 'STAND_DOWN', 'AWAITING']) {
+    for (const verdict of ['WORTH_IT', 'MAYBE', 'STAND_DOWN', 'UNRATED', 'AWAITING']) {
       const { unmount } = renderDialog({ card: card({ verdict, verdictLabel: verdict }) });
       for (const node of screen.getByTestId('window-sheet').querySelectorAll('[style]')) {
         for (const m of node.getAttribute('style').matchAll(/var\((--[a-z0-9-]+)\)/g)) used.add(m[1]);
@@ -444,6 +464,14 @@ describe('WindowSheetDialog — the verdict badge', () => {
 
     renderDialog({ card: card({ verdict: 'AWAITING', verdictLabel: 'Awaiting', confidence: null }) });
     expect(badge().textContent).not.toContain('◎');
+  });
+
+  it('⚠️ withholds ◎ from UNRATED too — "Too few rated" recommends nothing (U2)', () => {
+    // The mark was gated by a NEGATIVE list ("not STAND_DOWN, not AWAITING"), which would have
+    // handed a new UNRATED verdict a recommendation glyph it has not earned.
+    renderDialog({ card: card({ verdict: 'UNRATED', verdictLabel: 'Too few rated', confidence: null }) });
+    expect(badge().textContent).not.toContain('◎');
+    expect(badge()).toHaveTextContent(/^Too few rated$/);
   });
 
   it('renders Awaiting on the neutral badge, never the red one', () => {
@@ -1024,6 +1052,80 @@ describe('WindowSheetDialog — the rows below', () => {
     expect(screen.queryByTestId('window-attribute-row')).toBeNull();
   });
 
+  // tide-plan-card-plan.md §3 C3: the tide row's trailing fact, built here from `card.tideFit`
+  // and `card.reachMeasured` and handed down through `WindowAttributeRow`'s own `extraFacts` prop
+  // — never added inside `windowFirstRows.js#tideFacts`, which maps served facts only (§5 #6).
+  const TIDE_ROW = {
+    key: 'tide', channel: 'tide', kicker: '≈ Tide', facts: [{ segments: [{ text: 'HW 21:02', tone: 'strong' }] }], chart: null,
+  };
+
+  it('appends the coastal-pool count as a trailing fact on the tide row', () => {
+    renderDialog({
+      card: card({
+        rows: [TIDE_ROW],
+        tideFit: { coastal: 14, matched: 9, live: true, meanQuality: 0.8 },
+      }),
+    });
+    const facts = within(screen.getByTestId('window-attribute-row'))
+      .getAllByTestId('window-attribute-fact');
+    expect(facts).toHaveLength(2);
+    expect(facts[1]).toHaveTextContent('9 of 14 coastal locations in reach on tide');
+  });
+
+  it('says "in reach" only when reachMeasured — otherwise states the count alone', () => {
+    renderDialog({
+      card: card({
+        rows: [TIDE_ROW],
+        tideFit: { coastal: 14, matched: 9, live: true, meanQuality: 0.8 },
+        reachMeasured: false,
+      }),
+    });
+    const facts = within(screen.getByTestId('window-attribute-row'))
+      .getAllByTestId('window-attribute-fact');
+    expect(facts[1]).toHaveTextContent('9 of 14 coastal locations on tide');
+    expect(facts[1]).not.toHaveTextContent('in reach');
+  });
+
+  it('omits the fact entirely when the pool holds no coastal spot', () => {
+    // A zero is a fact about the roster, not about tonight — the row states the served facts
+    // alone rather than printing "0 of 0 coastal locations on tide".
+    renderDialog({
+      card: card({
+        rows: [TIDE_ROW],
+        tideFit: { coastal: 0, matched: 0, live: false, meanQuality: null },
+      }),
+    });
+    const facts = within(screen.getByTestId('window-attribute-row'))
+      .getAllByTestId('window-attribute-fact');
+    expect(facts).toHaveLength(1);
+    expect(screen.getByTestId('window-attribute-row')).not.toHaveTextContent('coastal locations');
+  });
+
+  it('states the fact at zero matched, as long as the coastal pool is non-empty', () => {
+    // The gate the plan names is `coastal === 0`, not `matched === 0` — a live pool that nobody
+    // currently matches is still a fact about tonight ("0 of 5"), and a mutation swapping one
+    // field for the other must fail this test, not only the coastal===0 one above where both
+    // fields happen to be zero together.
+    renderDialog({
+      card: card({
+        rows: [TIDE_ROW],
+        tideFit: { coastal: 5, matched: 0, live: false, meanQuality: null },
+      }),
+    });
+    const facts = within(screen.getByTestId('window-attribute-row'))
+      .getAllByTestId('window-attribute-fact');
+    expect(facts[facts.length - 1]).toHaveTextContent('0 of 5 coastal locations in reach on tide');
+  });
+
+  it('omits the fact entirely when the card carries no tideFit at all', () => {
+    // A window built before C1's per-window summary, or a legacy cache payload — absence, never
+    // a claim about zero coastal locations.
+    renderDialog({ card: card({ rows: [TIDE_ROW] }) });
+    const facts = within(screen.getByTestId('window-attribute-row'))
+      .getAllByTestId('window-attribute-fact');
+    expect(facts).toHaveLength(1);
+  });
+
   it('joins topics through the shared util, including the NIGHT bucketing', () => {
     // The popup and the matrix cell that opened it must name the same topics — one join, one
     // filter, in `windowFirstTopics.js`. Driven through the real index so the join is exercised.
@@ -1047,5 +1149,224 @@ describe('WindowSheetDialog — the rows below', () => {
     });
     expect(screen.getByTestId('wf-topic-row-name')).toHaveTextContent('Aurora');
     expect(screen.getByTestId('window-sheet-topic-pill')).toHaveTextContent('Aurora');
+  });
+});
+
+describe('WindowSheetDialog — the dawn race (lunar-eclipse-plan.md §2.7, §3 L4)', () => {
+  const DAWN_SIGHT = {
+    type: 'LUNAR_ECLIPSE',
+    race: 'DAWN',
+    moonAltAtMax: 7,
+    moonAzAtMax: 244,
+    moonAzCardinal: 'WSW',
+    maximum: `${TODAY}T05:13:00`,
+    umbraStart: `${TODAY}T03:34:00`,
+    umbraEnd: `${TODAY}T06:52:00`,
+    moonset: `${TODAY}T06:16:00`,
+    moonrise: null,
+    setsInShadow: true,
+    risesInShadow: false,
+    stops: [
+      { key: 'NAUTICAL_DAWN', time: `${TODAY}T03:09:00` },
+      { key: 'CIVIL_DAWN', time: `${TODAY}T05:24:00` },
+      { key: 'SUNRISE', time: `${TODAY}T06:11:00` },
+      { key: 'GOLDEN_MORNING_END', time: `${TODAY}T06:41:00` },
+    ],
+  };
+
+  const LUNAR_ECLIPSE_BADGE = {
+    type: 'LUNAR_ECLIPSE', label: 'Lunar eclipse', detail: '93% at 05:13', rarityRank: 2,
+  };
+
+  /** A hand-built `{byId, byName}` index, keyed exactly as `buildEclipseIndex` keys it. */
+  function eclipseIndexFor(locationId, sight) {
+    const byId = new Map();
+    byId.set(`${locationId}|${TODAY}|SUNSET`, sight);
+    return { byId, byName: new Map() };
+  }
+
+  it('mounts with a LUNAR_ECLIPSE row present AND a served race', () => {
+    renderDialog({
+      card: card({ allBadges: [LUNAR_ECLIPSE_BADGE] }),
+      eclipseIndex: eclipseIndexFor(NEAR.locationId, DAWN_SIGHT),
+    });
+    expect(screen.getByTestId('dawn-race')).toBeInTheDocument();
+  });
+
+  it('draws nothing with no LUNAR_ECLIPSE row, even with a served sight for the spot', () => {
+    renderDialog({
+      card: card(),
+      eclipseIndex: eclipseIndexFor(NEAR.locationId, DAWN_SIGHT),
+    });
+    expect(screen.queryByTestId('dawn-race')).toBeNull();
+  });
+
+  it('draws nothing when the sight carries no race — a high, leisurely eclipse, facts only', () => {
+    renderDialog({
+      card: card({ allBadges: [LUNAR_ECLIPSE_BADGE] }),
+      eclipseIndex: eclipseIndexFor(NEAR.locationId, { ...DAWN_SIGHT, race: null }),
+    });
+    expect(screen.queryByTestId('dawn-race')).toBeNull();
+  });
+
+  it('draws nothing with no eclipseIndex at all (the popup-closed default)', () => {
+    renderDialog({
+      card: card({ allBadges: [LUNAR_ECLIPSE_BADGE] }),
+    });
+    expect(screen.queryByTestId('dawn-race')).toBeNull();
+  });
+
+  it('captions the window’s best-reachable spot', () => {
+    renderDialog({
+      card: card({ allBadges: [LUNAR_ECLIPSE_BADGE] }),
+      eclipseIndex: eclipseIndexFor(NEAR.locationId, DAWN_SIGHT),
+    });
+    expect(within(screen.getByTestId('dawn-race')).getByText(new RegExp(NEAR.locationName))).toBeInTheDocument();
+  });
+
+  it('falls back to the first ranked spot when the window has no rated best-reachable pick', () => {
+    const spots = [{ ...NEAR, rating: null }, DALES];
+    renderDialog({
+      card: card({ allBadges: [LUNAR_ECLIPSE_BADGE], spots, bestReach: null }),
+      eclipseIndex: eclipseIndexFor(NEAR.locationId, DAWN_SIGHT),
+    });
+    expect(within(screen.getByTestId('dawn-race')).getByText(new RegExp(NEAR.locationName))).toBeInTheDocument();
+  });
+
+  it('mounts between the topic rows and the tide row', () => {
+    renderDialog({
+      card: card({
+        allBadges: [LUNAR_ECLIPSE_BADGE],
+        rows: [{
+          key: 'tide', channel: 'tide', kicker: '≈ Tide',
+          facts: [{ segments: [{ text: 'HW 21:02', tone: 'strong' }] }], chart: null,
+        }],
+      }),
+      eclipseIndex: eclipseIndexFor(NEAR.locationId, DAWN_SIGHT),
+    });
+    const body = screen.getByTestId('window-sheet-card');
+    const order = Array.from(body.querySelectorAll('[data-testid]'))
+      .map((el) => el.getAttribute('data-testid'))
+      .filter((id) => id === 'wf-topic-rows' || id === 'dawn-race' || id === 'window-attribute-row');
+    expect(order).toEqual(['wf-topic-rows', 'dawn-race', 'window-attribute-row']);
+  });
+
+  it('joins the sight through the real per-window index, from raw briefing days', () => {
+    // The end-to-end case, mirroring "joins topics through the shared util" above: the whole
+    // popup fed off `buildEclipseIndex(days)` rather than a hand-built index, so the real join is
+    // exercised, not only the dialog's own gating.
+    const days = [{
+      date: TODAY,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'Coast',
+          slots: [{
+            locationId: NEAR.locationId, locationName: NEAR.locationName, eclipse: DAWN_SIGHT,
+          }],
+        }],
+        unregioned: [],
+      }],
+    }];
+    renderDialog({
+      card: card({ allBadges: [LUNAR_ECLIPSE_BADGE] }),
+      eclipseIndex: buildEclipseIndex(days),
+    });
+    expect(screen.getByTestId('dawn-race')).toBeInTheDocument();
+  });
+
+  it('⚠️ the topic row’s (i) click does not close the dialog (plan §3 L4 exit criterion)', () => {
+    // The (i) tip's own `stopPropagation` predates this phase (`InfoTip.jsx`), but the plan names
+    // this explicitly as something L4 must leave true inside THIS dialog — asserted here, in this
+    // dialog's own context, rather than assumed from InfoTip's unit behaviour alone.
+    const { onClose } = renderDialog({
+      card: card({ allBadges: [LUNAR_ECLIPSE_BADGE] }),
+      topicIndex: buildTopicIndex([{
+        type: 'LUNAR_ECLIPSE',
+        label: 'Lunar eclipse',
+        date: TODAY,
+        eventType: 'SUNSET',
+        detail: '93% at 05:13',
+        description: 'Earth’s atmosphere bends a little sunlight into its own shadow.',
+        regions: [],
+        rarityRank: 2,
+      }]),
+      eclipseIndex: eclipseIndexFor(NEAR.locationId, DAWN_SIGHT),
+    });
+    fireEvent.click(screen.getByRole('button', { name: /more info/i }));
+    expect(screen.getByTestId('infotip-popover')).toBeInTheDocument();
+    expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe('WindowSheetDialog — the neighbour guard (neighbour-guard-plan.md §4 G3)', () => {
+  const OUTLIER = spot({ neighbourOutlier: true, rating: 4 });
+  const LOW = spot({
+    key: '3', locationId: 3, locationName: 'Craster', regionName: 'Coast', rating: 2,
+  });
+
+  it('⚠️ says "no clear pick within reach" for a withheld window, never "nothing rated yet"', () => {
+    const spots = [OUTLIER, LOW];
+    renderDialog({ card: card({ spots, bestReach: null, bestReachWithheld: true }) });
+    const best = screen.getByTestId('window-sheet-best');
+    expect(best).toHaveTextContent('no clear pick within reach');
+    expect(best).not.toHaveTextContent('nothing rated yet');
+  });
+
+  it('⚠️ drops "within reach" from the withheld header when no drive was measured', () => {
+    const unmeasured = [
+      { ...OUTLIER, driveMinutes: null }, { ...LOW, driveMinutes: null },
+    ];
+    renderDialog({
+      card: card({
+        spots: unmeasured, pool: unmeasured, allSpots: unmeasured, bestReach: null, bestReachWithheld: true,
+      }),
+    });
+    expect(screen.getByTestId('window-sheet-best')).toHaveTextContent('no clear pick');
+    expect(screen.getByTestId('window-sheet-best')).not.toHaveTextContent('reach');
+  });
+
+  it('still says "nothing rated yet" when nothing was withheld', () => {
+    renderDialog({ card: card({ bestReach: null, bestReachWithheld: false }) });
+    expect(screen.getByTestId('window-sheet-best')).toHaveTextContent('nothing rated yet');
+  });
+
+  it('⚠️ never captions the dawn race with a neighbour outlier', () => {
+    const LUNAR = {
+      type: 'LUNAR_ECLIPSE', label: 'Lunar eclipse', detail: '93% at 05:13', rarityRank: 2,
+    };
+    const sight = {
+      type: 'LUNAR_ECLIPSE',
+      race: 'DAWN',
+      moonAltAtMax: 7,
+      moonAzAtMax: 244,
+      moonAzCardinal: 'WSW',
+      maximum: `${TODAY}T05:13:00`,
+      umbraStart: `${TODAY}T03:34:00`,
+      umbraEnd: `${TODAY}T06:52:00`,
+      moonset: `${TODAY}T06:16:00`,
+      moonrise: null,
+      setsInShadow: true,
+      risesInShadow: false,
+      stops: [
+        { key: 'NAUTICAL_DAWN', time: `${TODAY}T03:09:00` },
+        { key: 'CIVIL_DAWN', time: `${TODAY}T05:24:00` },
+        { key: 'SUNRISE', time: `${TODAY}T06:11:00` },
+        { key: 'GOLDEN_MORNING_END', time: `${TODAY}T06:41:00` },
+      ],
+    };
+    const byId = new Map();
+    byId.set(`${DALES.locationId}|${TODAY}|SUNSET`, sight);
+    byId.set(`${OUTLIER.locationId}|${TODAY}|SUNSET`, sight);
+    renderDialog({
+      card: card({
+        allBadges: [LUNAR], spots: [OUTLIER, DALES], bestReach: null, bestReachWithheld: true,
+      }),
+      eclipseIndex: { byId, byName: new Map() },
+    });
+    const race = screen.getByTestId('dawn-race');
+    expect(within(race).getByText(new RegExp(DALES.locationName))).toBeInTheDocument();
+    expect(within(race).queryByText(new RegExp(OUTLIER.locationName))).toBeNull();
   });
 });

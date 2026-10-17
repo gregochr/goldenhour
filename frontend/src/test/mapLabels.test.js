@@ -6,6 +6,7 @@ import {
   ringLabelItems, RING_LABEL_MAX_ZOOM,
   chipCandidates,
   placeLabelPass,
+  BADGE_OVERHANG_X, BADGE_OVERHANG_Y, chipBoxWithinBadgedBox, hasRatedBadge, withBadgeOverhang,
   verdictWord, WORTH_IT_THRESHOLD, MAYBE_THRESHOLD,
 } from '../utils/mapLabels.js';
 import * as verdictWordModule from '../utils/verdictWord.js';
@@ -196,23 +197,45 @@ describe('mapLabels — chipCandidates', () => {
     expect(chipCandidates({ spots, zoom: 13 }).map((s) => s.name)).toEqual(['rated', 'unrated']);
   });
 
-  it('among equal stars, tide alignment is the tiebreaker — the aligned one survives a budget of one (bundle rev 2)', () => {
+  it('among equal stars, a served MATCH is the tiebreaker — it survives a budget of one (tide-window-plan.md §3 T4 item 3)', () => {
     // Two SAME-region spots, both out of view: the only slot either can reach is the region's own
     // single guaranteed "best" pick, so whichever the sort puts first is the ONLY one that survives
     // — a real budget-of-one, not merely a position within a longer list. Without the tiebreaker
-    // the closer, unaligned spot (drive 5) would win on the sort's OLD final key.
-    const notAligned = { ...spot('not-aligned', 'A', 4, 5), onTheLight: false };
-    const aligned = { ...spot('aligned', 'A', 4, 50), onTheLight: true };
+    // the closer, unmatched spot (drive 5) would win on the sort's OLD final key.
+    const notMatched = { ...spot('not-matched', 'A', 4, 5), tideTier: 'miss' };
+    const matched = { ...spot('matched', 'A', 4, 50), tideTier: 'match' };
     const result = chipCandidates({
-      spots: [notAligned, aligned], zoom: 13, inViewNames: new Set(),
+      spots: [notMatched, matched], zoom: 13, inViewNames: new Set(),
     });
-    expect(result.map((s) => s.name)).toEqual(['aligned']);
+    expect(result.map((s) => s.name)).toEqual(['matched']);
+  });
+
+  it('⚠️ a MISS is not demoted below a spot with no tide fact at all — the key only promotes a match', () => {
+    // Same "budget of one" shape as the promotion test above (both spots share a region and are
+    // out of view, so only ONE survives — `bestPerRegion`'s pick, whichever the sort puts first).
+    // The loser here carries NO tide fact at all — a bare inland spot — rather than a served
+    // miss. A `tideTier === 'match' ? 1 : 0` reads the same `0` for a MISS and for "no fact at
+    // all", so this comparator's own "never demotes" claim (design §3) needs a fixture where the
+    // two tie on every OTHER key and ONLY a wrongly-written negative score for 'miss' (e.g.
+    // `'miss' ? -1 : (match?1:0)`) could move them apart.
+    //
+    // ⚠️ Order is load-bearing. `missed` is listed FIRST: `Array.prototype.sort` is spec-stable
+    // (ES2019+), so the correct comparator (a genuine tie on every key) leaves this exact input
+    // order untouched and `missed` survives the budget of one. A demotion mutant would instead
+    // compare `ta=-1` (missed) against `tb=0` (inland) and swap them, so `inland` would survive
+    // instead — the one difference this test exists to catch. The promotion test above (`matched`
+    // last, `notMatched` first) could not also prove this: it already differs on the tide key BY
+    // DESIGN, so a demotion mutant and the correct code agree on its answer too.
+    const missed = { ...spot('missed', 'A', 4, 5), tideTier: 'miss' };
+    const inland = { ...spot('inland', 'A', 4, 5) };
+    const result = chipCandidates({ spots: [missed, inland], zoom: 13, inViewNames: new Set() });
+    expect(result.map((s) => s.name)).toEqual(['missed']);
   });
 
   it('tide alignment never overrides a HIGHER star rating — score is still the first sort key', () => {
-    const higherNotAligned = { ...spot('higher', 'A', 5, 5), onTheLight: false };
-    const lowerAligned = { ...spot('lower', 'A', 4, 5), onTheLight: true };
-    const result = chipCandidates({ spots: [lowerAligned, higherNotAligned], zoom: 13 });
+    const higherNotMatched = { ...spot('higher', 'A', 5, 5), tideTier: 'miss' };
+    const lowerMatched = { ...spot('lower', 'A', 4, 5), tideTier: 'match' };
+    const result = chipCandidates({ spots: [lowerMatched, higherNotMatched], zoom: 13 });
     expect(result.map((s) => s.name)).toEqual(['higher', 'lower']);
   });
 
@@ -273,6 +296,64 @@ describe('mapLabels — chipCandidates', () => {
     expect(result).toHaveLength(3);
   });
 
+});
+
+describe('mapLabels — chipCandidates: Ask PhotoCast\'s picks (F3)', () => {
+  const pickOf = (name, rid, rating, rank, over = {}) => ({
+    ...spot(name, rid, rating), askPick: { rank, selected: false, ...over },
+  });
+
+  it('⚠️ puts the picks FIRST, in rank order, ahead of better-rated chips', () => {
+    const spots = [
+      spot('Best', 'A', 5),
+      pickOf('Low pick', 'A', 1, 2),
+      spot('Good', 'B', 4),
+      pickOf('Other pick', 'B', 2, 1),
+    ];
+
+    const names = chipCandidates({ spots, zoom: 13 }).map((s) => s.name);
+
+    expect(names.slice(0, 2)).toEqual(['Other pick', 'Low pick']);
+    expect(names).toEqual(expect.arrayContaining(['Best', 'Good']));
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  it('the CHOSEN pick leads the other picks', () => {
+    const spots = [
+      pickOf('One', 'A', 3, 1),
+      pickOf('Two', 'A', 3, 2, { selected: true }),
+      pickOf('Three', 'A', 3, 3),
+    ];
+
+    expect(chipCandidates({ spots, zoom: 13 }).map((s) => s.name)).toEqual(['Two', 'One', 'Three']);
+  });
+
+  it('offers every pick however low the zoom budget is, in view or not', () => {
+    // Zoom 8 gives a budget of 6; thirty better-rated chips fill it. The pick is still offered.
+    const crowd = Array.from({ length: 30 }, (_, i) => spot(`Crowd ${i}`, `R${i}`, 5));
+    const pick = pickOf('Quiet pick', 'Z', 1, 1);
+
+    const names = chipCandidates({
+      spots: [...crowd, pick], inViewNames: new Set(crowd.map((s) => s.name)), zoom: 8,
+    }).map((s) => s.name);
+
+    expect(names[0]).toBe('Quiet pick');
+  });
+
+  it('puts a pick ahead of the SELECTED location too — the one other thing the order promises', () => {
+    const spots = [spot('Selected', 'A', 5), pickOf('The pick', 'B', 1, 1)];
+
+    const names = chipCandidates({ spots, zoom: 13, selectedName: 'Selected' }).map((s) => s.name);
+
+    expect(names).toEqual(['The pick', 'Selected']);
+  });
+
+  it('is exactly what it was when no spot is a pick', () => {
+    const spots = [spot('B', 'A', 3), spot('A', 'A', 5), spot('C', 'B', 4)];
+
+    expect(chipCandidates({ spots, zoom: 13, selectedName: 'B' }).map((s) => s.name))
+      .toEqual(['B', 'A', 'C']);
+  });
 });
 
 describe('mapLabels — placeLabelPass (the whole greedy priority pass)', () => {
@@ -424,5 +505,64 @@ describe('mapLabels — density integration: the mid-zoom "hole" the bundle reco
     // Regions first — the README's own priority order (home, rings, regions, THEN chips).
     const placed = placeLabelPass([...regions, ...chips], 1200, 900);
     expect(placed.size).toBeGreaterThan(2);
+  });
+});
+
+describe('the rated badge\'s overhang (outcome-rating-plan.md §1 #4, §2 #6)', () => {
+  const chipAt = (key, x, y) => ({
+    key, x, y, w: 30, h: 14,
+  });
+
+  it('is 9px right and 7px up — the numbers .wf-rated-badge hangs by', () => {
+    expect(BADGE_OVERHANG_X).toBe(9);
+    expect(BADGE_OVERHANG_Y).toBe(7);
+  });
+
+  it('grows the item by the overhang and shifts its anchor by half of it, so the chip keeps its own place', () => {
+    expect(withBadgeOverhang(chipAt('chip:A', 100, 80))).toEqual({
+      key: 'chip:A', x: 104.5, y: 76.5, w: 39, h: 21,
+    });
+  });
+
+  it('chipBoxWithinBadgedBox is the exact inverse: the box the chip would have had without a badge', () => {
+    const chip = chipAt('chip:A', 100, 80);
+    const reserved = placeLabelPass([withBadgeOverhang(chip)], 800, 500).get('chip:A');
+    const plain = placeLabelPass([chip], 800, 500).get('chip:A');
+    expect(chipBoxWithinBadgedBox(reserved)).toEqual(plain);
+  });
+
+  it('a neighbour that would sit flush beside a bare chip is pushed clear of its badge', () => {
+    const a = chipAt('chip:A', 30, 40);
+    const b = chipAt('chip:B', 65, 40);
+    const bare = placeLabelPass([a, b], 800, 500);
+    const badged = placeLabelPass([withBadgeOverhang(a), b], 800, 500);
+    // Bare: B sits at its anchor (x 50), flush right of A (A ends at 45).
+    expect(bare.get('chip:B').x).toBe(50);
+    // The badge hangs to A.right + 9 = 54: B may not start inside it, and was moved.
+    const aRight = chipBoxWithinBadgedBox(badged.get('chip:A')).x + a.w;
+    expect(badged.get('chip:B').x).toBeGreaterThanOrEqual(aRight + BADGE_OVERHANG_X);
+  });
+
+  it('a chip too close to the top edge for its badge is nudged down, never clipped', () => {
+    const edge = chipAt('chip:A', 100, 10);
+    const bare = placeLabelPass([edge], 800, 500).get('chip:A');
+    const badged = placeLabelPass([withBadgeOverhang(edge)], 800, 500).get('chip:A');
+    expect(bare.y).toBe(3);
+    // The reserved box starts on screen, so the badge, 7px above the chip, is on screen too.
+    expect(badged.y).toBeGreaterThanOrEqual(1);
+    expect(chipBoxWithinBadgedBox(badged).y - BADGE_OVERHANG_Y).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('hasRatedBadge', () => {
+  it('is true for a spot carrying 1..5 or NOT_SEEN, false for none', () => {
+    expect(hasRatedBadge({ myRating: 4 })).toBe(true);
+    expect(hasRatedBadge({ myRating: 'NOT_SEEN' })).toBe(true);
+    expect(hasRatedBadge({ myRating: null })).toBe(false);
+    expect(hasRatedBadge({})).toBe(false);
+  });
+
+  it('is false for an Ask pick, whatever the record — a pick speaks for its own window', () => {
+    expect(hasRatedBadge({ myRating: 4, askPick: { rank: 1 } })).toBe(false);
   });
 });

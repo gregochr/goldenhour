@@ -64,6 +64,9 @@ describe('SkyRatingEvalView', () => {
     expect(screen.getByTestId('sky-eval-chart-flat-grey-overcast')).toBeInTheDocument();
     expect(screen.getByTestId('sky-eval-run-btn')).toBeInTheDocument();
     expect(screen.getByTestId('sky-eval-model-SONNET')).toBeInTheDocument();
+    expect(screen.getByTestId('sky-eval-model-HAIKU_55').closest('label')).toHaveTextContent('Haiku 5.5');
+    expect(screen.getByTestId('sky-eval-model-SONNET_55')).toBeInTheDocument();
+    expect(screen.getByTestId('sky-eval-model-SONNET_55').closest('label')).toHaveTextContent('Sonnet 5.5');
   });
 
   it('shows the run pass rate and direction-bucketed misses in the runs table', async () => {
@@ -80,6 +83,33 @@ describe('SkyRatingEvalView', () => {
     fireEvent.click(toggle);
     // one caption per fixture chart switches to the sub-score legend
     expect(screen.getAllByText(/fiery \(orange\) \/ golden \(amber\)/).length).toBeGreaterThan(0);
+  });
+
+  it('flags a completed run that had failed evaluations, with the reason on hover', async () => {
+    const partialMessage = '3 of 48 evaluations failed and count as non-passes (MAX_TOKENS=1, REFUSAL=2)';
+    getSkyRatingEvalRuns.mockResolvedValue({
+      data: [{ ...RUNS[0], id: 7, errorMessage: partialMessage }, { ...RUNS[0], id: 8 }],
+    });
+    render(<SkyRatingEvalView />);
+
+    const flag = await screen.findByTestId('sky-eval-partial-7');
+    expect(flag).toHaveAttribute('title', partialMessage);
+    expect(screen.queryByTestId('sky-eval-partial-8')).not.toBeInTheDocument();
+  });
+
+  it('selecting Sonnet 5.5 sends SONNET_55 and the dialog names it', async () => {
+    runSkyRatingEval.mockResolvedValue({
+      data: { ...RUNS[0], id: 3, model: 'SONNET_55', status: 'RUNNING' },
+    });
+    render(<SkyRatingEvalView />);
+    fireEvent.click(await screen.findByTestId('sky-eval-model-SONNET_55'));
+    fireEvent.click(await screen.findByTestId('sky-eval-run-btn'));
+
+    expect(await screen.findByText(/with Sonnet 5\.5\./)).toBeInTheDocument();
+    fireEvent.click(await screen.findByText('Run Eval'));
+    await waitFor(() => {
+      expect(runSkyRatingEval).toHaveBeenCalledWith('SONNET_55', 8);
+    });
   });
 
   it('triggers a run via the confirm dialog', async () => {
@@ -143,5 +173,18 @@ describe('SkyRatingEvalView', () => {
     fireEvent.click(screen.getByTestId('sky-eval-model-OPUS'));
     expect(screen.getByTestId('sky-eval-chart-strong-clearing-canvas')).toBeInTheDocument();
     expect(screen.queryByTestId('sky-eval-chart-flat-grey-overcast')).not.toBeInTheDocument();
+  });
+
+  it("shows the server's error sentence, not axios's generic message, when the load is refused", async () => {
+    getSkyRatingEvalRuns.mockRejectedValue(Object.assign(
+      new Error('Request failed with status code 502'),
+      { response: { status: 502, data: { error: 'Upstream API error: 503' } } },
+    ));
+
+    render(<SkyRatingEvalView />);
+
+    const banner = await screen.findByTestId('sky-eval-error');
+    expect(banner).toHaveTextContent('Upstream API error: 503');
+    expect(banner).not.toHaveTextContent('Request failed with status code 502');
   });
 });

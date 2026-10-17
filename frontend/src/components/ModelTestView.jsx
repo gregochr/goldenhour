@@ -8,6 +8,8 @@ import ConfirmDialog from './shared/ConfirmDialog.jsx';
 import ErrorBanner from './shared/ErrorBanner.jsx';
 import Modal from './shared/Modal.jsx';
 import { isSkyPromptCandidate } from '../utils/locationTypes.js';
+import { apiErrorMessage } from '../utils/apiError.js';
+import { modelLabel } from '../utils/modelLabels.js';
 
 /**
  * Model comparison test view — triggers A/B/C tests and displays results.
@@ -70,7 +72,7 @@ const ModelTestView = () => {
       const response = await getModelTestRuns();
       setRuns(response.data || []);
     } catch (err) {
-      setError(err.message || 'Failed to load test runs');
+      setError(apiErrorMessage(err, err?.message || 'Failed to load test runs'));
     } finally {
       setLoading(false);
     }
@@ -88,7 +90,7 @@ const ModelTestView = () => {
       const response = await getModelTestResults(runId);
       setResults(response.data || []);
     } catch (err) {
-      setError(err.message || 'Failed to load results');
+      setError(apiErrorMessage(err, err?.message || 'Failed to load results'));
     } finally {
       setLoadingResults(false);
     }
@@ -134,7 +136,7 @@ const ModelTestView = () => {
           setSelectedRunId(newRun.id);
           loadResults(newRun.id);
         } catch (err) {
-          setError(err?.response?.data?.message || err.message || 'Model test failed.');
+          setError(apiErrorMessage(err, err?.message || 'Model test failed.'));
         } finally {
           setRunning(false);
         }
@@ -175,7 +177,7 @@ const ModelTestView = () => {
       setSelectedRunId(newRun.id);
       loadResults(newRun.id);
     } catch (err) {
-      setError(err?.response?.data?.message || err.message || 'Single-location test failed.');
+      setError(apiErrorMessage(err, err?.message || 'Single-location test failed.'));
     } finally {
       setRunningLocation(false);
     }
@@ -206,7 +208,7 @@ const ModelTestView = () => {
           loadResults(newRun.id);
           setParentResults([]);
         } catch (err) {
-          setError(err?.response?.data?.message || err.message || 'Re-run failed.');
+          setError(apiErrorMessage(err, err?.message || 'Re-run failed.'));
         } finally {
           setRerunning(false);
         }
@@ -249,7 +251,7 @@ const ModelTestView = () => {
               .catch(() => setParentResults([]));
           }
         } catch (err) {
-          setError(err?.response?.data?.message || err.message || 'Determinism re-run failed.');
+          setError(apiErrorMessage(err, err?.message || 'Determinism re-run failed.'));
         } finally {
           setRerunningDeterministic(false);
         }
@@ -541,7 +543,7 @@ const ModelTestView = () => {
                               model === 'SONNET' ? 'bg-purple-900/30 text-purple-300' :
                               'bg-amber-900/30 text-amber-300'
                             }`}>
-                              {model}
+                              {modelLabel(model)}
                             </span>
                           </td>
                           <td className="py-2 pr-4 text-plex-text">
@@ -611,7 +613,7 @@ const ModelTestView = () => {
         <Modal label="Summary" onClose={() => setExpandedSummary(null)} maxWidth="lg" className="gap-3" data-testid="summary-dialog">
             <div className="flex items-center justify-between">
               <p className="text-sm font-semibold text-plex-text">
-                {expandedSummary.model} — {expandedSummary.region}
+                {modelLabel(expandedSummary.model)} — {expandedSummary.region}
               </p>
               <button
                 onClick={() => setExpandedSummary(null)}

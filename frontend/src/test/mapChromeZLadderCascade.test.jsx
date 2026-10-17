@@ -42,7 +42,8 @@ import {
  * as the chips, so labels have to clear THAT pane and not merely the heat canvas. The reason
  * originally given here — that the app "fades them back to full opacity and interactivity past the
  * zoom handover" — no longer holds: `MapHeatLayer` hides those panes unconditionally now. They are
- * still restored on unmount and fully painted in aurora mode, which is why 650 stays). That z-index is set directly in JS on the Leaflet pane (`MapLabels.jsx`'s
+ * still restored on unmount and mounted in the Plan overlay, which has no field, which is why 650
+ * stays). That z-index is set directly in JS on the Leaflet pane (`MapLabels.jsx`'s
  * `LABEL_PANE_Z`) rather than through a CSS rule on a class, so — like the heat field's own pane
  * above — it has nothing for this file's slicer to extract and stays untested HERE by construction;
  * `MapLabels.test.jsx` pins the numeric value and its relation to Leaflet's marker/popup panes
@@ -82,7 +83,14 @@ function sliceRules(needle) {
   return rules.join('\n');
 }
 
-const CHROME_CLASSES = ['wf-map-chrome-tl', 'wf-map-chrome-tr', 'wf-map-chrome-bl', 'wf-map-counts-footer'];
+// `wf-map-tide-strip` joined at T6 (tide-window-plan.md T6 #8) — the tide strip is a plain flex
+// child of `.wf-map-chrome-bl`, never separately `position: absolute` in the real DOM (it inherits
+// the wrapper's stacking context by flex order alone, §4 #6), but it declares the SAME chrome-tier
+// `z-index: 1100` directly on itself so this file's isolated-element probe reads it correctly too.
+const CHROME_CLASSES = [
+  'wf-map-chrome-tl', 'wf-map-chrome-tr', 'wf-map-chrome-bl', 'wf-map-counts-footer',
+  'wf-map-tide-strip',
+];
 const CALLOUT_CLASSES = ['wf-selmk', 'wf-callout'];
 // `wf-legend-panel` joined at P10 (map-tab-v2-plan.md §3 P10) — the Legend popover must beat chrome
 // and the callout exactly like the window/filters menus do; it is the same popover-exclusivity
@@ -92,16 +100,24 @@ const MENU_CLASSES = ['wf-win-menu', 'wf-filters-panel', 'wf-legend-panel'];
 // tooltip, shipped at P8 with the ladder's reserved 1400 but never asserted here until P12's own
 // z-relation sweep asked for the full "menus > tooltip > callout > chrome" chain.
 const TOOLTIP_CLASSES = ['wf-maplab-tip'];
+// The phone peek sheet (map-mobile-sheet-plan.md §3 M2 task 1) — an EXPLICIT rung of its own,
+// `1120`, above every chrome tier member (1100) and below the menus tier (1500, which the
+// drilldown panels this rung must never outrank also share): never the design prototype's `520`,
+// which would let a chip or a popup paint OVER an open sheet.
+const PEEK_SHEET_CLASSES = ['wf-map-peek'];
 
 let styleEl;
 beforeAll(() => {
-  const slice = [...CHROME_CLASSES, ...CALLOUT_CLASSES, ...TOOLTIP_CLASSES, ...MENU_CLASSES]
-    .map((cls) => sliceRules(`.${cls}`)).join('\n');
+  const slice = [
+    ...CHROME_CLASSES, ...CALLOUT_CLASSES, ...TOOLTIP_CLASSES, ...MENU_CLASSES, ...PEEK_SHEET_CLASSES,
+  ].map((cls) => sliceRules(`.${cls}`)).join('\n');
   // Fail loudly rather than silently injecting nothing — a no-match extraction would leave every
   // probe element's z-index as `auto` and the ">" assertions below would pass for the wrong
   // reason (`auto` compares as `NaN` against a number, and `NaN > NaN` is false — so this guard
   // is what stands between a real pass and a silently-skipped one).
-  for (const cls of [...CHROME_CLASSES, ...CALLOUT_CLASSES, ...TOOLTIP_CLASSES, ...MENU_CLASSES]) {
+  for (const cls of [
+    ...CHROME_CLASSES, ...CALLOUT_CLASSES, ...TOOLTIP_CLASSES, ...MENU_CLASSES, ...PEEK_SHEET_CLASSES,
+  ]) {
     expect(slice, `no rule found for .${cls} in index.css`).toContain(`.${cls} {`);
   }
   styleEl = document.createElement('style');
@@ -132,6 +148,24 @@ describe('the Map tab\'s full-frame chrome z-ladder (map-tab-v2-plan.md §3 P7)'
     const menuZ = zIndexOf(menuCls);
     for (const chromeCls of CHROME_CLASSES) {
       expect(menuZ).toBeGreaterThan(zIndexOf(chromeCls));
+    }
+  });
+
+  it.each(PEEK_SHEET_CLASSES)('.%s (the phone peek sheet) sits at its OWN explicit rung, 1120 — never the prototype\'s 520', (cls) => {
+    expect(zIndexOf(cls)).toBe(1120);
+  });
+
+  it.each(PEEK_SHEET_CLASSES)('.%s beats every chrome chip — chips and popups must never paint over an open sheet', (peekCls) => {
+    const peekZ = zIndexOf(peekCls);
+    for (const chromeCls of CHROME_CLASSES) {
+      expect(peekZ).toBeGreaterThan(zIndexOf(chromeCls));
+    }
+  });
+
+  it.each(PEEK_SHEET_CLASSES)('.%s never outranks a menu — the drilldown panels\' own rung stays above it', (peekCls) => {
+    const peekZ = zIndexOf(peekCls);
+    for (const menuCls of MENU_CLASSES) {
+      expect(peekZ).toBeLessThan(zIndexOf(menuCls));
     }
   });
 
@@ -183,5 +217,24 @@ describe('the Map tab\'s full-frame chrome z-ladder (map-tab-v2-plan.md §3 P7)'
     for (const tipCls of TOOLTIP_CLASSES) {
       expect(menuZ).toBeGreaterThan(zIndexOf(tipCls));
     }
+  });
+});
+
+/**
+ * The tide strip lifts the bottom-CENTRE counts footer via `--tsh` while it is on screen
+ * (tide-window-plan.md T6 #6, plan §7 check 4) — a `bottom: calc(var(--tsh, 120px) + 16px)` rule
+ * jsdom cannot resolve numerically (`css: false` means no `var()`/`calc()` support at all), so this
+ * asserts the RAW rule text rather than a computed style, the same reason `sliceRules` above reads
+ * source text instead of trusting `getComputedStyle`. Real numeric clearance is a browser
+ * measurement (plan §9), not a unit test's job.
+ */
+describe('the tide strip lifts the counts footer via --tsh (tide-window-plan.md T6 #6)', () => {
+  it('declares the lift scoped to BOTH the tab root\'s strip-on class and the counts footer', () => {
+    const css = readFileSync(CSS_PATH, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    // Scoped to both classes together — a bare `.wf-map-counts-footer { bottom: … }` would lift the
+    // footer on every render, not only while the strip is actually mounted and visible.
+    expect(css).toMatch(
+      /\.wf-map-tab\.wf-tide-strip-on\s+\.wf-map-counts-footer\s*\{[^}]*bottom:\s*calc\(var\(--tsh,\s*120px\)\s*\+\s*16px\)/,
+    );
   });
 });

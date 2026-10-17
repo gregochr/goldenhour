@@ -159,8 +159,8 @@ export const FILTER_CHIPS = [
 ];
 
 /**
- * Each chip's served count, from {@code counts.byFamily} — never from the (possibly filtered)
- * rendered list, so a chip's own number cannot change when a DIFFERENT chip is selected (design
+ * Each chip's served count, from {@code counts.byFamily} (All: {@code fixed + forecast}) — never
+ * from the (possibly filtered) rendered list, so a chip's own number cannot change when a DIFFERENT chip is selected (design
  * §7: "counts stay static; they describe the unfiltered set").
  *
  * @param {?object} counts the wire's {@code ComingUpCounts}, or null/undefined before it arrives
@@ -168,28 +168,201 @@ export const FILTER_CHIPS = [
  */
 export function chipCounts(counts) {
   const byFamily = counts?.byFamily ?? {};
+  // All is fixed + forecast, never the sum of byFamily: a merged card counts under EVERY family it
+  // holds there (so the family filter and its chip agree), and summing would count it twice.
+  const total = (counts?.fixed ?? 0) + (counts?.forecast ?? 0);
   return FILTER_CHIPS.map((chip) => ({
     id: chip.id,
     label: chip.label,
     count: chip.families
       ? chip.families.reduce((sum, family) => sum + (byFamily[family] ?? 0), 0)
-      : Object.values(byFamily).reduce((sum, n) => sum + n, 0),
+      : total,
   }));
 }
 
 /**
  * Whether `entry` belongs to the selected chip — `all` always matches, and every other chip
- * matches on {@code entry.family} against its own family list (D6's "Sun & moon covers eclipse,
- * Air & dust covers air+dust" mapping).
+ * matches on {@code entry.family} OR any {@code entry.coincidence[].family} against its own family
+ * list (D6's "Sun & moon covers eclipse, Air & dust covers air+dust" mapping) — a merged card is
+ * found under every family it holds, exactly as the server counts it.
  */
 function matchesFilter(entry, filterId) {
   if (filterId === 'all') return true;
   const chip = FILTER_CHIPS.find((c) => c.id === filterId);
-  return Boolean(chip?.families?.includes(entry.family));
+  if (!chip?.families) return false;
+  // A merged card is found under EVERY family it holds (its host's and each coincidence line's),
+  // which is how the server counts it in byFamily — so a chip's count and its list agree.
+  return chip.families.includes(entry.family)
+    || (entry.coincidence ?? []).some((line) => chip.families.includes(line.family));
 }
 
 /** Every served `action.kind` with a real destination as of P3b (D8) — see {@link buildEntryView}. */
 const INTERACTIVE_ACTION_KINDS = ['plan', 'coastal-spots', 'dark-sky-spots'];
+
+/**
+ * The two kinds whose destination is the map overlay on {@code action.date} — the only ones that
+ * need a colour forecast for that date to open onto anything. `plan` is exempt, but not because
+ * its date is always covered (the backend emits a `plan` action at the event's own date anywhere
+ * in the 90-day feed): the shell's {@code goToPlan} discards the date and only switches tabs, so a
+ * Plan door never opens onto a date at all.
+ */
+const MAP_ACTION_KINDS = ['coastal-spots', 'dark-sky-spots'];
+
+/** What each withheld map door names, so the note keeps what the served label said. */
+const DOOR_NAMES = {
+  'coastal-spots': 'Coastal spots',
+  'dark-sky-spots': 'Dark-sky spots',
+  // A plan entry's chips open the map with no subject filter (plan §11.26).
+  plan: 'All spots',
+};
+
+/**
+ * Every kind whose entry gets the day-chip row when it has a date: the two map doors, which decide
+ * the subject filter, and {@code plan}, which filters nothing. The door kind only decides which spots
+ * the map shows (plan §11.26).
+ */
+const CHIP_ACTION_KINDS = [...MAP_ACTION_KINDS, 'plan'];
+
+/**
+ * The reason a withheld map door prints in place of its served label — it names the door and the
+ * date: `Coastal spots: no forecast for 11 Oct`, `Dark-sky spots: no forecast for 21 Oct`. A
+ * missing date reads `Coastal spots: no forecast`.
+ */
+function withheldNote(kind, dateStr) {
+  const door = DOOR_NAMES[kind];
+  return dateStr ? `${door}: no forecast for ${formatArrivalDate(dateStr)}` : `${door}: no forecast`;
+}
+
+/**
+ * The longest run, in days inclusive, that gets a row of per-day doors instead of one. A tide run is
+ * five or six days but can be longer (`TideAlmanacSource` walks up to ten days each side), and a run
+ * over the cap would silently fall back to the single peak door — the defect the chips fix — so the
+ * cap is ten, with the row wrapping to fit. A multi-night supermoon (two or three nights,
+ * `dark-sky-spots`) gets chips too. The NLC season is months, so it keeps its single (gated) door.
+ */
+export const MAX_CHIP_DAYS = 10;
+
+/**
+ * The cap for an entry that serves {@code dayMarks} (a merged tide run and supermoon): the union of
+ * the two spans can push a long run past {@link MAX_CHIP_DAYS}, and an unchipped run would fall back
+ * to its single peak door. Unmerged entries keep the ten.
+ */
+export const MAX_MARKED_CHIP_DAYS = 14;
+
+/** Whole days a span covers, both ends counted; NaN when either end is not a date. */
+function inclusiveSpanDays(startDate, endDate) {
+  return daysBetween(startDate, endDate) + 1;
+}
+
+/**
+ * The per-day door chips for a dated entry, or null when the entry does not get them. The rule is
+ * keyed on the door KIND, never on the family: any {@code coastal-spots}, {@code dark-sky-spots} or
+ * {@code plan} entry whose span is at most {@link MAX_CHIP_DAYS} days. A single-day entry (a meteor
+ * shower, a supermoon night, an eclipse) gets a one-chip row, so the same fact is not drawn two ways
+ * a few cards apart (owner decision 2026-10-07, plan §11.26); the kind decides only which spots the
+ * chip's map shows. A months-long season and a single-day entry whose action carries no date are
+ * null; so is a reversed or unparseable span (never an empty list).
+ *
+ * <p>Each chip is {@code {date, dow, day, monthWord, dateLabel, today, gone, peak, marks, live}}:
+ * {@code peak} is the served action date (the day the card's figures describe), {@code marks} the
+ * served {@code dayMarks} on that date ({@code [{label, family}]}, in served order, possibly empty)
+ * or null on EVERY chip of an entry that serves none — decided once per entry, so an unmerged card
+ * keeps its {@code peak} word and a merged one takes "peak" only from a served {@code peak} mark
+ * (a partial-coverage run's action date is its figures day, not a true peak), {@code today} the
+ * reader's today, {@code gone} is a day before today (the forecast window reaches two days back, so
+ * a passed day can still be listed, and the Map tab refuses a past date), {@code monthWord} is set
+ * only on the first chip of a NEW month when the run crosses one, and {@code live} is never true for
+ * a gone day and otherwise follows the same three-valued contract as the single door's withholding
+ * — null or undefined {@code forecastDates} is not known yet (every day live), an array is known
+ * (live iff it lists the date). A today whose light has passed stays live, as the single door does.
+ * Lookups of served dates in the client's forecast-date domain, a comparison against
+ * {@code todayStr} and a walk of a served span: the already-licensed filter/map/select class (plan
+ * §11.25), not a new derivation.
+ *
+ * @returns {?Array<object>}
+ */
+function buildDayChips(entry, action, todayStr, forecastDates) {
+  if (!CHIP_ACTION_KINDS.includes(action.kind)) return null;
+  const { startDate, endDate } = entry;
+  if (!startDate || !endDate) return null;
+  const span = inclusiveSpanDays(startDate, endDate);
+  const dayMarks = Array.isArray(entry.dayMarks) && entry.dayMarks.length > 0 ? entry.dayMarks : null;
+  if (!(span >= 1 && span <= (dayMarks ? MAX_MARKED_CHIP_DAYS : MAX_CHIP_DAYS))) return null;
+  // A dateless single-day action keeps its single line: there is no served day to call the peak.
+  if (span === 1 && !action.date) return null;
+
+  const known = Array.isArray(forecastDates);
+  const ranges = Array.isArray(entry.dayRanges) ? entry.dayRanges : [];
+  const chips = [];
+  let previousMonth = null;
+  for (let i = 0; i < span; i += 1) {
+    const date = new Date(atMidday(startDate).getTime() + i * 86400000).toISOString().slice(0, 10);
+    const month = monthName(date);
+    const crossed = previousMonth !== null && month !== previousMonth;
+    const gone = date < todayStr;
+    previousMonth = month;
+    const served = ranges.find((r) => r.date === date);
+    chips.push({
+      date,
+      dow: weekday(date),
+      day: dayNum(date),
+      monthWord: crossed ? month : null,
+      dateLabel: `${weekday(date)} ${dayNum(date)} ${month}`,
+      today: date === todayStr,
+      gone,
+      peak: date === action.date,
+      marks: dayMarks
+        ? dayMarks.filter((m) => m.date === date).map(({ label, family }) => ({ label, family }))
+        : null,
+      // Served per-day tidal range (supermoon-tide-run-plan S4); `rangePeak` is the server's.
+      rangeMetres: typeof served?.rangeMetres === 'number' ? served.rangeMetres : null,
+      rangePeak: Boolean(served?.peak),
+      // Served rank of the day's range among the past year's (tide-range-rank-plan R1), or null.
+      rangePercentile: Number.isInteger(served?.rangePercentile) ? served.rangePercentile : null,
+      live: !gone && (known ? forecastDates.includes(date) : true),
+    });
+  }
+  return chips;
+}
+
+/** Track geometry of the range bars (px): the bar's floor and the track's height. */
+const RANGE_BAR_FLOOR_PX = 13;
+const RANGE_BAR_SPAN_PX = 19;
+const RANGE_BAR_FLAT_PX = 18;
+/** A day ranking in the biggest this-many percent of the year wears the "big" tier. */
+export const BIG_RANGE_PERCENTILE = 5;
+
+/**
+ * The scale of a chip row's range bars, or null unless at least two chips carry a served range (a
+ * single value has no scale). {@code min}/{@code max} span the run's days; {@code lo}/{@code hi} also
+ * take in the served average so the dashed line always sits inside the bars' track. {@code
+ * hasPercentiles} is true only when every ranged day serves one (the server's all-or-none rule).
+ * Geometry over served values: the licensed filter/map class.
+ */
+function buildRangeScale(dayChips, average) {
+  if (dayChips === null) return null;
+  const ranged = dayChips.filter((c) => c.rangeMetres !== null);
+  if (ranged.length < 2) return null;
+  const values = ranged.map((c) => c.rangeMetres);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  return {
+    min,
+    max,
+    lo: average === null ? min : Math.min(min, average),
+    hi: average === null ? max : Math.max(max, average),
+    hasPercentiles: ranged.every((c) => c.rangePercentile !== null),
+  };
+}
+
+/**
+ * The height in px (13..32) of a range bar, or of the average line, on a scale from
+ * {@code buildRangeScale}; every bar is 18px when the scale is flat.
+ */
+export function rangeBarHeight(value, scale) {
+  if (scale.hi === scale.lo) return RANGE_BAR_FLAT_PX;
+  return Math.round(RANGE_BAR_FLOOR_PX + ((value - scale.lo) / (scale.hi - scale.lo)) * RANGE_BAR_SPAN_PX);
+}
 
 /**
  * Turns one wire entry into the view a card renders. Almost entirely a pass-through — P2 already
@@ -211,14 +384,57 @@ const INTERACTIVE_ACTION_KINDS = ['plan', 'coastal-spots', 'dark-sky-spots'];
  * new {@code kind:'coming-up'} channel. {@code interactive} names all three — the P3a-era refusal
  * (the map channel did not exist yet) no longer applies.
  *
+ * <p>A map door ({@code coastal-spots}/{@code dark-sky-spots}) is also withheld when the reader holds
+ * no colour forecast for its date. The feed covers 90 days but the client holds colour forecasts for
+ * only the next few, so "Show coastal spots for 11 Oct" days ahead would open a map of unscored pins
+ * (an owner decision, 2026-10-07 — plan §11.24). That is a lookup of the action date in the client's
+ * forecast-date domain ({@code App}'s {@code allDates}, the one the Map tab windows on) — the
+ * already-licensed filter/map/select class CLAUDE.md's Backend-heavy bullet names, not a new client
+ * aggregation. It is a PROXY for "would the overlay draw anything scored": the list is the union over
+ * every visible location of dates with a sunrise or sunset row, so a date can be listed on one inland
+ * location's row while every seascape pin is unscored. It lives client-side because
+ * {@code GET /api/almanac} is day-cached and ETag-shared, while which dates carry a forecast changes
+ * every pipeline cycle. A withheld view carries {@code actionWithheld: true} and {@code actionNote},
+ * the reason the card prints in place of the served label; a live door carries {@code false} and
+ * null. {@code plan} actions are never withheld: their single-line destination is the tab, not a date.
+ *
+ * <p>The list is three-valued. {@code null}/{@code undefined} means the forecast is not known yet,
+ * and no door is withheld — the card renders as it did before the gate, making no claim either way.
+ * An array means known: a map door is withheld when its date is not in it, so an empty array
+ * withholds every one.
+ *
+ * <p>Every dated entry of at most {@link MAX_CHIP_DAYS} days ({@link MAX_MARKED_CHIP_DAYS} when it
+ * serves {@code dayMarks}) gets {@code dayChips} instead of that
+ * single door (plan §11.25, §11.26 — an exception to §6's one action link and D8's single card
+ * action): one door per day of a run, because its single door named only the peak day and left the
+ * reachable days with nowhere to go, and a one-box row for a single-day entry so the same fact is
+ * not drawn two ways. That includes {@code plan} entries, whose chips open the map unfiltered. So
+ * this single-door withholding now serves only a map entry over the cap (the months-long NLC
+ * season, or a run longer than its cap) or one with no served date.
+ * With chips the card is no longer the control, so {@code interactive}, {@code actionWithheld} and
+ * {@code actionNote} are all false/null — each chip carries its own state — and {@code doorNoun}
+ * names the door for the row's lead word and group label.
+ *
  * @param {object}  entry        a {@code ComingUpEntry} as served
  * @param {string}  todayStr     the reader's today, `YYYY-MM-DD`
  * @param {?string} lastSeenDate the reader's stored `comingUpLastSeenDate`, or null/undefined
  *                               before it is known — passed to {@code isNewEntry} unchanged
+ * @param {?Array<string>} forecastDates the dates (`YYYY-MM-DD`) the reader holds a colour forecast
+ *                               for; null/undefined means not known yet and withholds nothing, an
+ *                               empty array means known-empty and withholds every map door
  * @returns {object} the view model
  */
-export function buildEntryView(entry, todayStr, lastSeenDate) {
+export function buildEntryView(entry, todayStr, lastSeenDate, forecastDates) {
   const action = entry.action ?? { label: '', kind: null, date: entry.startDate };
+  const dayChips = buildDayChips(entry, action, todayStr, forecastDates);
+  const rangeAverage = typeof entry.rangeAverageMetres === 'number' ? entry.rangeAverageMetres : null;
+  // With chips each day carries its own state, so the single-door gate does not apply. It now
+  // serves only a map entry over the cap (the months-long NLC season, or a run longer than its cap)
+  // or one with no served date.
+  const actionWithheld = dayChips === null
+    && MAP_ACTION_KINDS.includes(action.kind)
+    && Array.isArray(forecastDates)
+    && !forecastDates.includes(action.date);
   return {
     id: entry.id,
     type: entry.type,
@@ -233,9 +449,18 @@ export function buildEntryView(entry, todayStr, lastSeenDate) {
     prose: entry.prose ?? null,
     isFeature: Boolean(entry.prose) || Boolean(entry.superlative),
     facts: entry.facts ?? [],
+    // The dashed-top supplementary slot (design's `why2`) — a generic passthrough, not a lunar
+    // branch; the lunar eclipse topic is its first server-side writer (plan §2.8, §4 #7).
+    aside: entry.aside ?? null,
     threshold: entry.threshold ?? null,
     action,
-    interactive: INTERACTIVE_ACTION_KINDS.includes(action.kind),
+    interactive: dayChips === null && INTERACTIVE_ACTION_KINDS.includes(action.kind) && !actionWithheld,
+    dayChips,
+    rangeAverage,
+    rangeScale: buildRangeScale(dayChips, rangeAverage),
+    doorNoun: dayChips === null ? null : DOOR_NAMES[action.kind],
+    actionWithheld,
+    actionNote: actionWithheld ? withheldNote(action.kind, action.date) : null,
     // Tide entries only (P2); the sparkline (plan §6b) and the coincidence card (D10) are both
     // straight passthroughs — nothing here is derived, only placed.
     tide: entry.tide ?? null,
@@ -284,13 +509,15 @@ export function groupEntriesByMonth(views) {
  * @param {string}  todayStr     the reader's today, `YYYY-MM-DD`
  * @param {string}  filterId     the active chip's id, e.g. `'all'`
  * @param {?string} lastSeenDate the reader's stored `comingUpLastSeenDate`, or null/undefined
+ * @param {?Array<string>} forecastDates the dates the reader holds a colour forecast for (null:
+ *                               not known yet), handed to {@link buildEntryView} unchanged
  * @returns {Array} month groups, each holding its filtered, view-built entries
  */
-export function buildChronology(entries, todayStr, filterId, lastSeenDate) {
+export function buildChronology(entries, todayStr, filterId, lastSeenDate, forecastDates) {
   if (!Array.isArray(entries)) return [];
   const views = entries
     .filter((entry) => matchesFilter(entry, filterId))
-    .map((entry) => buildEntryView(entry, todayStr, lastSeenDate));
+    .map((entry) => buildEntryView(entry, todayStr, lastSeenDate, forecastDates));
   return groupEntriesByMonth(views);
 }
 

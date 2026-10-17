@@ -33,9 +33,9 @@ public enum DispositionCategory {
     FORCE_EVALUATED,
 
     /**
-     * STANDDOWN slot whose reason is a hard physical constraint (currently only
-     * tide mismatch on a coastal location whose tide preference does not match
-     * the event-time tide state). Cannot be revised by Claude, so never reaches it.
+     * No longer written; historical rows only. It recorded a STANDDOWN slot whose reason was a hard
+     * physical constraint (latterly only a tide mismatch, until the tide gate lift of 2026-09-18).
+     * The constant stays so those rows, kept up to 30 days, still deserialise.
      */
     SKIPPED_HARD_CONSTRAINT,
 
@@ -104,7 +104,32 @@ public enum DispositionCategory {
      * SETTLED candidates whose cached evaluation is still within threshold for
      * the intraday refresh would be tagged with this — not used yet.
      */
-    SKIPPED_NO_REFRESH_NEEDED;
+    SKIPPED_NO_REFRESH_NEEDED,
+
+    /**
+     * The candidate was included in a batch bucket — decided {@code EVALUATED} or
+     * {@code FORCE_EVALUATED} by triage/eligibility exactly as normal — but that
+     * bucket's Anthropic Batch API submission itself ultimately failed (after
+     * {@code AnthropicBatchClient}'s retries were exhausted), so no request ever
+     * reached Claude for it.
+     *
+     * <p>Distinct from every {@code SKIPPED_*} category: those are decisions made
+     * during collection, before submission was ever attempted, about whether a
+     * candidate should be sent. This category means collection decided to send
+     * it and infrastructure then failed to. {@code ScheduledBatchEvaluationService
+     * #submitBuckets} rewrites a candidate's disposition from {@code EVALUATED}/
+     * {@code FORCE_EVALUATED} to this value after submission, for every candidate
+     * whose task(s) landed only in bucket(s) that failed to submit — see that
+     * method's own javadoc for the rule covering a candidate whose tasks span two
+     * buckets (an OPEN_FELL sky+bluebell pair) where only one of the two fails.
+     *
+     * <p>Born from the 2026-09-29 incident (pipeline run 249): all three forecast
+     * batch submissions failed with HTTP 500, but every one of their 510
+     * candidates was persisted as {@code EVALUATED} — indistinguishable, by
+     * disposition alone, from a normal night where every one of those candidates
+     * was actually rated by Claude.
+     */
+    SUBMISSION_FAILED;
 
     /**
      * Parses a stored disposition string back to the enum. Returns

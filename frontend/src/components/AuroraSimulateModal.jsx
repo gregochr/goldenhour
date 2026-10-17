@@ -110,7 +110,7 @@ function AuroraSimulateModal({ isActive, onClose, onSuccess }) {
                   step="0.5"
                   value={form.kp}
                   onChange={(e) => handleChange('kp', e.target.value)}
-                  className="w-full bg-plex-bg border border-plex-border rounded px-2 py-1.5 text-sm text-plex-text focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-plex-bg border border-plex-border rounded px-2 py-1.5 text-sm text-plex-text focus:outline-hidden focus:border-indigo-500"
                   data-testid="simulate-kp"
                 />
               </label>
@@ -125,7 +125,7 @@ function AuroraSimulateModal({ isActive, onClose, onSuccess }) {
                   step="1"
                   value={form.ovationProbability}
                   onChange={(e) => handleChange('ovationProbability', e.target.value)}
-                  className="w-full bg-plex-bg border border-plex-border rounded px-2 py-1.5 text-sm text-plex-text focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-plex-bg border border-plex-border rounded px-2 py-1.5 text-sm text-plex-text focus:outline-hidden focus:border-indigo-500"
                   data-testid="simulate-ovation"
                 />
               </label>
@@ -138,7 +138,7 @@ function AuroraSimulateModal({ isActive, onClose, onSuccess }) {
                   step="0.5"
                   value={form.bzNanoTesla}
                   onChange={(e) => handleChange('bzNanoTesla', e.target.value)}
-                  className="w-full bg-plex-bg border border-plex-border rounded px-2 py-1.5 text-sm text-plex-text focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-plex-bg border border-plex-border rounded px-2 py-1.5 text-sm text-plex-text focus:outline-hidden focus:border-indigo-500"
                   data-testid="simulate-bz"
                 />
               </label>
@@ -149,7 +149,7 @@ function AuroraSimulateModal({ isActive, onClose, onSuccess }) {
                 <select
                   value={form.gScale}
                   onChange={(e) => handleChange('gScale', e.target.value)}
-                  className="w-full bg-plex-bg border border-plex-border rounded px-2 py-1.5 text-sm text-plex-text focus:outline-none focus:border-indigo-500"
+                  className="w-full bg-plex-bg border border-plex-border rounded px-2 py-1.5 text-sm text-plex-text focus:outline-hidden focus:border-indigo-500"
                   data-testid="simulate-gscale"
                 >
                   {G_SCALE_OPTIONS.map((g) => (

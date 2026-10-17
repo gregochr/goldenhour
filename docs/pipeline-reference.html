@@ -936,7 +936,7 @@ Examples: "High cirrus canvas — good colour potential",
     <span class="section-num">5</span>
     <div class="section-title-block">
       <h2>Aurora Pipeline</h2>
-      <p class="section-summary">NOAA SWPC polling every 5 min + Met Office scraping hourly. At most one evaluation per poll: the forecast for tonight by day; after dark, the higher of the forecast for the rest of tonight and the conditions now. State machine (IDLE&harr;ACTIVE) with escalation. Single Claude Haiku call for all viable locations. Conservative: Kp latitude hard caps, lenient cloud triage. After dark Kp and OVATION are both read every poll and either raises an alert on its own; a daylight poll reads only the Kp forecast.</p>
+      <p class="section-summary">NOAA SWPC polling every 5 min + Met Office scraping hourly. At most one evaluation per poll: the forecast for tonight by day; after dark, the higher of the forecast for the rest of tonight and the conditions now. State machine (IDLE&harr;ACTIVE) with escalation. Single Claude Haiku call for all viable locations. Conservative: lenient cloud triage; the forecast viewline is a camera-visibility rule. After dark Kp and OVATION are both read every poll and either raises an alert on its own; a daylight poll reads only the Kp forecast.</p>
     </div>
     <span class="chevron">&#9654;</span>
   </div>
@@ -991,6 +991,8 @@ Examples: "High cirrus canvas — good colour potential",
               <tr><td>ACTIVE</td><td>Higher severity</td><td><strong>NOTIFY</strong> (escalation)</td><td>ACTIVE</td></tr>
               <tr><td>ACTIVE</td><td>Same / lower (&ge; MODERATE)</td><td>SUPPRESS</td><td>ACTIVE</td></tr>
               <tr><td>ACTIVE</td><td>QUIET / MINOR</td><td>CLEAR</td><td>IDLE</td></tr>
+              <tr><td>ACTIVE (simulated)</td><td>MODERATE / STRONG</td><td><strong>NOTIFY</strong> (a new, real alert; the simulation ends)</td><td>ACTIVE</td></tr>
+              <tr><td>ACTIVE (simulated)</td><td>QUIET / MINOR</td><td>CLEAR (the simulation ends)</td><td>IDLE</td></tr>
             </table>
           </div>
         </div>
@@ -1028,18 +1030,15 @@ fromKp: >= 7.0 -> STRONG, >= kp-threshold (5.0) -> MODERATE, >= 4.0 -> MINOR, el
         </div>
         <div class="subsection-body">
           <div class="subsection-content">
-            <h4>Kp Latitude Hard Caps</h4>
-            <p>Applied to the aurora viewline. OVATION can pull the line <strong>north</strong> of the cap (real data overrides), but <strong>cannot push it south</strong> (prevents unrealistic claims).</p>
+            <h4>Forecast Viewline Rule (camera visibility)</h4>
+            <p>Replaces the old Kp-to-latitude hard-cap table, which read NOAA&rsquo;s <em>geomagnetic</em> figures as geographic latitude, truncated Kp to an integer and also clamped the live line. The forecast line is <code>AuroraViewlineRule</code>: the oval&rsquo;s equatorward edge at <strong>66 &minus; 2&times;Kp geomagnetic latitude</strong> (NOAA SWPC), converted to geographic latitude <strong>per longitude</strong> with a centred-dipole model (pole 80.9&deg;N, 72.6&deg;W, IGRF-14 2025), then <strong>4&deg; further south</strong> (<code>HORIZON_ALLOWANCE_DEG</code>: NOAA says aurora is seen &ldquo;hundreds of kilometers equatorward&rdquo; of the edge, low on the horizon). Continuous in Kp, clamped to 0&ndash;9, one point per integer longitude from 12&deg;W to 4&deg;E; the line dips further south to the west. The live OVATION line is no longer capped: it is the 5% contour as NOAA publishes it. The forecast Kp is the highest forecast Kp for the rest of tonight, read on every request.</p>
             <table>
-              <tr><th>Kp</th><th>Cap Latitude</th><th>Region</th></tr>
-              <tr><td>&lt;4</td><td>60&deg;N</td><td>Far northern Scotland</td></tr>
-              <tr><td>4</td><td>58&deg;N</td><td>Northern Scotland</td></tr>
-              <tr><td>5</td><td>56&deg;N</td><td>Central Scotland</td></tr>
-              <tr><td>6</td><td>54&deg;N</td><td>Northern England</td></tr>
-              <tr><td>7</td><td>52&deg;N</td><td>Midlands</td></tr>
-              <tr><td>8</td><td>50&deg;N</td><td>Southern England</td></tr>
-              <tr><td>9</td><td>48&deg;N</td><td>Entire UK</td></tr>
-              <tr><td>&ge;10</td><td>0&deg;N</td><td>No cap</td></tr>
+              <tr><th>Kp</th><th>Geomagnetic edge</th><th>Line at 2&deg;W</th><th>West (12&deg;W)</th><th>East (4&deg;E)</th></tr>
+              <tr><td>0</td><td>66&deg;</td><td>60.5&deg;N</td><td>58.8&deg;N</td><td>61.5&deg;N</td></tr>
+              <tr><td>4</td><td>58&deg;</td><td>52.0&deg;N</td><td>50.4&deg;N</td><td>53.0&deg;N</td></tr>
+              <tr><td>6</td><td>54&deg;</td><td>47.9&deg;N</td><td>46.3&deg;N</td><td>48.8&deg;N</td></tr>
+              <tr><td><strong>6.67</strong></td><td>52.7&deg;</td><td><strong>46.5&deg;N</strong> (worked row)</td><td>44.9&deg;N</td><td>47.4&deg;N</td></tr>
+              <tr><td>9</td><td>48&deg;</td><td>41.7&deg;N</td><td>40.1&deg;N</td><td>42.6&deg;N</td></tr>
             </table>
 
             <h4>Other Conservatism</h4>
@@ -1088,7 +1087,7 @@ fromKp: >= 7.0 -> STRONG, >= kp-threshold (5.0) -> MODERATE, >= 4.0 -> MINOR, el
         <div class="subsection-body">
           <div class="subsection-content">
             <p><strong>AuroraBanner:</strong> Full-width alert banner when level is MODERATE or STRONG. Shows Kp reading with trigger type, Bz status (green check if &lt;&minus;1 nT coupling, warning if positive), detection timestamp, location count. Pulses gently when Bz is favourable. Dismissible per session; re-appears on escalation. Hidden for LITE users (403 &rarr; null status).</p>
-            <p><strong>AuroraViewlineOverlay:</strong> Leaflet polygon (semi-transparent green from 72&deg;N to boundary) + dashed polyline at southernmost visible latitude. Non-interactive overlay with tooltip summary.</p>
+            <p><strong>AuroraViewlineOverlay:</strong> Leaflet polygon (translucent fill from 72&deg;N to the boundary) + polyline. Always live, forecast as fallback, never both: the live OVATION contour is a solid pale line (<code>#F2E7D3</code>), the forecast rule line is dashed amber (<code>#ff9900</code>). Non-interactive overlay with a permanent label: <em>Forecast &middot; Kp 6.7 &middot; 19:40</em> / <em>Live &middot; 22:40</em> (Europe/London).</p>
             <p><strong>Access Control:</strong> <code>/api/aurora/status</code>, <code>/api/aurora/viewline</code>, <code>/api/aurora/locations</code> require Bearer token (PRO_USER + ADMIN). Admin endpoints at <code>/api/aurora/admin/*</code> require ADMIN role.</p>
           </div>
         </div>
@@ -1344,7 +1343,7 @@ fromKp: >= 7.0 -> STRONG, >= kp-threshold (5.0) -> MODERATE, >= 4.0 -> MINOR, el
         </div>
         <div class="subsection-body">
           <div class="subsection-content">
-            <p>All fields are <code>volatile</code> for concurrent reads from REST endpoints while the single polling-job writer thread updates state.</p>
+            <p>All fields are <code>volatile</code>, read by the REST endpoints and briefing builders without a lock. Every write holds one <code>ReentrantLock</code>: the polling job (a scheduled poll and a Scheduler Run Now can overlap), the admin run, simulate, simulate-clear and reset endpoints, and <code>AuroraResultHandler</code> on the batch path.</p>
             <table>
               <tr><th>Field</th><th>Type</th><th>Updated On</th><th>Read By</th></tr>
               <tr><td><code>state</code></td><td><code>State</code> (IDLE / ACTIVE)</td><td>FSM transitions in <code>evaluate()</code></td><td><code>isActive()</code>, status endpoint</td></tr>
@@ -1355,10 +1354,9 @@ fromKp: >= 7.0 -> STRONG, >= kp-threshold (5.0) -> MODERATE, >= 4.0 -> MINOR, el
               <tr><td><code>darkSkyLocationCount</code></td><td><code>int</code></td><td><code>updateLocationCounts()</code></td><td>Status endpoint, banner count</td></tr>
               <tr><td><code>clearLocationCount</code></td><td><code>Integer</code> (nullable)</td><td><code>updateLocationCounts()</code></td><td>Status endpoint, banner count</td></tr>
               <tr><td><code>activeSince</code></td><td><code>Instant</code></td><td>NOTIFY / escalation</td><td>Status endpoint (detection timestamp)</td></tr>
-              <tr><td><code>simulated</code></td><td><code>boolean</code></td><td><code>activateSimulation()</code></td><td>Status endpoint (SIMULATED badge)</td></tr>
-              <tr><td><code>simulatedData</code></td><td><code>SimulatedNoaaData</code></td><td><code>activateSimulation()</code></td><td>Status endpoint (fake Kp/OVATION/Bz)</td></tr>
+              <tr><td><code>simulatedData</code></td><td><code>SimulatedNoaaData</code> (nullable)</td><td><code>activateSimulation()</code>; cleared by the first real reading, a Clear or a reset</td><td>Status endpoint and forecast preview/run &mdash; non-null <em>is</em> the SIMULATED flag (fake Kp/OVATION/Bz/G-scale)</td></tr>
             </table>
-            <p>All state cleared on <code>CLEAR</code> action (incoming &lt; MODERATE) or admin <code>/api/aurora/admin/reset</code>.</p>
+            <p>All state cleared on <code>CLEAR</code> action (incoming &lt; MODERATE), on admin <code>/api/aurora/admin/reset</code>, and on <code>/api/aurora/admin/simulate/clear</code> while a simulation is running.</p>
           </div>
         </div>
       </div>

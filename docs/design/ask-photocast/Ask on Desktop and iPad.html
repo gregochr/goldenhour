@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PhotoCast — Ask on desktop and iPad</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#181210;--surface:#221A15;--panel:#1E1712;--border:#3A2C23;--border-light:#4A3A2E;--ink:#F2E7D3;--ink-2:rgba(242,231,211,.7);--ink-3:rgba(242,231,211,.5);--go:#8AAE72;--marginal:#E0A542;--poor:#C8452F;--tide:#6FA8B0;--home:#C9A24B;--coral:#E8593F;--dawn:#8FA8C4;--sans:'IBM Plex Sans',system-ui,sans-serif;--serif:'Newsreader',Georgia,serif;--mono:'IBM Plex Mono',monospace}
+html,body{background:#0e0b09;color:var(--ink)}
+body{font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased;padding:24px 20px 60px;overflow-x:auto}
+a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
+button,input{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+input{cursor:text;outline:none}
+.hd{max-width:1180px;margin:0 auto 18px}
+.hd .m{font-family:var(--mono);font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);margin-bottom:7px}
+.hd h1{font-size:20px;font-weight:700;letter-spacing:-.02em}
+.hd ol{font-size:13px;color:var(--ink-2);max-width:92ch;margin:10px 0 0 18px;display:grid;gap:4px}
+.hd b{color:var(--ink);font-weight:600}
+.stack{display:flex;flex-direction:column;gap:46px;align-items:safe center;min-width:max-content}
+.cap{width:var(--w);max-width:100%}
+.cap .t{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--home)}
+.cap h2{font-size:16px;font-weight:700;letter-spacing:-.01em;margin-top:2px}
+.cap p{font-size:12.5px;color:var(--ink-2);margin-top:4px;max-width:90ch;text-wrap:pretty}
+.fw{display:flex;flex-direction:column;gap:12px}
+.dev{position:relative;flex:none;overflow:hidden;background:var(--bg);display:flex;flex-direction:column}
+.dev.br{width:1180px;height:760px;border-radius:12px;box-shadow:0 0 0 1px #3a2c23,0 26px 60px rgba(0,0,0,.6)}
+.dev.ip{width:1024px;height:740px;border-radius:30px;box-shadow:0 0 0 12px #241c17,0 0 0 13px #3a2c23,0 26px 60px rgba(0,0,0,.6)}
+.chrome{height:40px;flex:none;background:#1a1512;display:flex;align-items:center;gap:8px;padding:0 14px;border-bottom:1px solid var(--border)}
+.chrome i{width:11px;height:11px;border-radius:50%;background:#3a302a}
+.chrome span{margin-left:16px;width:420px;height:24px;border-radius:7px;background:#2a221d;font-size:12px;color:var(--ink-2);display:flex;align-items:center;padding:0 10px}
+.ipsb{height:24px;flex:none;display:flex;justify-content:space-between;align-items:center;padding:0 22px;font-size:12px;font-weight:600;background:#1B1411}
+.mast{background:linear-gradient(180deg,#241B16,#1B1411);padding:8px 18px 0;border-bottom:1px solid var(--border);flex:none}
+.ctop{display:flex;align-items:center;gap:14px}
+.spine{position:relative;padding-left:17px}
+.spine::before{content:'';position:absolute;left:0;top:0;bottom:0;width:8px;background:repeating-linear-gradient(180deg,var(--border-light) 0 6px,transparent 6px 12px);border-right:1px solid var(--border)}
+.cw{font-family:var(--serif);font-weight:600;font-size:22px;line-height:1;letter-spacing:-.022em;color:#F9F1E2}
+.ck{font-family:var(--mono);font-size:7.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--coral);margin-top:4px}
+.mr{margin-left:auto;display:flex;align-items:center;gap:8px}
+.up{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10px;font-weight:600;color:var(--go);border:1px solid rgba(138,174,114,.4);border-radius:6px;padding:4px 7px}
+.up i{width:6px;height:6px;border-radius:50%;background:var(--go);box-shadow:0 0 6px var(--go)}
+.cog{width:30px;height:30px;border:1px solid var(--border);border-radius:7px;display:flex;align-items:center;justify-content:center}
+.cog i{width:12px;height:12px;border-radius:50%;border:2px solid var(--ink-3)}
+.rule{margin-top:9px;height:3px;border-radius:2px;background:linear-gradient(90deg,#26313F 0%,#4A3550 9%,#B4553C 19%,#E8593F 25%,#E0A542 33%,#F2E7D3 50%,#E0A542 66%,#E8593F 74%,#7C4A56 84%,#2E3446 93%,#26313F 100%)}
+.ticks{display:flex;align-items:center;gap:8px;padding:6px 0 7px;font-family:var(--mono);font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+.ticks b{color:var(--ink);font-weight:600}
+.ticks .tm{margin-left:auto;display:flex;gap:9px;color:var(--marginal)}
+.tabs{display:flex;gap:5px;padding:0 18px;background:#1B1411;flex:none;border-bottom:1px solid var(--border);align-items:flex-end}
+.tab{font-size:13px;font-weight:500;color:var(--ink-2);border:1px solid var(--border);border-bottom:0;background:var(--panel);border-radius:8px 8px 0 0;padding:8px 14px;display:flex;align-items:center;gap:6px}
+.tab.on{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:inset 0 2px 0 var(--home)}
+.tab .n{font-family:var(--mono);font-size:10px;color:#EE8064;border:1px solid rgba(232,89,63,.5);border-radius:999px;padding:0 6px}
+.askf{margin:0 0 6px auto;width:340px;height:34px;display:flex;align-items:center;gap:9px;padding:0 6px 0 11px;border-radius:9px;background:var(--surface);border:1px solid rgba(201,162,75,.45);text-align:left}
+.askf.on{border-color:rgba(201,162,75,.8);background:rgba(201,162,75,.1)}
+.askf .k{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--home);flex:none}
+.askf .q{flex:1;min-width:0;font-size:13px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.askf kbd{font-family:var(--mono);font-size:10px;color:var(--ink-3);border:1px solid var(--border-light);border-radius:5px;padding:1px 5px}
+.ip .askf{width:260px}
+.body{position:relative;flex:1;min-height:0;display:flex;overflow:hidden}
+.main{position:relative;flex:1;min-width:0;background:var(--surface)}
+.map{position:absolute;inset:0}
+.leaflet-container{background:#161310;font-family:var(--mono)}
+.basewarm{filter:saturate(.5) sepia(.32) brightness(.9) contrast(1.08)}
+.leaflet-control-attribution{background:rgba(20,16,13,.55)!important;color:rgba(242,231,211,.3)!important;font-size:8px!important}
+.leaflet-control-attribution a{color:rgba(242,231,211,.4)!important}
+.leaflet-div-icon{background:none;border:none}
+.lc{display:flex;align-items:center;gap:5px;padding:3px 6px;border-radius:5px;background:rgba(14,11,9,.86);box-shadow:inset 0 0 0 1px var(--border-light),0 2px 6px rgba(0,0,0,.5);font-family:var(--mono);font-size:10px;white-space:nowrap;color:var(--ink);transform:translate(-50%,-50%);width:max-content;transition:opacity .25s}
+.lc i{width:6px;height:6px;flex:none}.lc b{font-weight:600}
+.lc em{font-style:normal;font-weight:600;padding-left:4px;border-left:1px solid var(--border-light)}
+.lc.fade{opacity:.25}
+.lc.pick{background:rgba(20,15,12,.97);box-shadow:inset 0 0 0 1px var(--home),0 4px 12px rgba(0,0,0,.6);font-size:11px;padding:4px 7px 4px 4px}
+.lc.pick.sel{box-shadow:inset 0 0 0 2px #EBD9A8,0 0 0 4px rgba(201,162,75,.25)}
+.lc .rk{width:17px;height:17px;border-radius:50%;background:var(--home);color:#1B1411;font-weight:700;font-size:10px;display:flex;align-items:center;justify-content:center}
+.ctl{position:absolute;z-index:500;top:12px;left:12px;height:40px;display:flex;align-items:center;gap:8px;padding:0 12px;border-radius:10px;background:rgba(20,15,12,.94);border:1px solid rgba(138,174,114,.55);box-shadow:inset 3px 0 0 var(--go),0 6px 18px rgba(0,0,0,.45);font-size:14px;font-weight:600}
+.ctl .tt{font-family:var(--mono);font-size:12px;color:var(--ink-2);font-weight:400}
+.ctl .vd{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;color:var(--go);margin-left:6px}
+.clu{position:absolute;z-index:500;top:12px;right:12px;display:flex;gap:6px}
+.clu span{height:36px;display:flex;align-items:center;padding:0 12px;border-radius:9px;background:rgba(20,15,12,.94);border:1px solid var(--border-light);font-size:12.5px}
+.ev{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.1em;padding:2px 6px;border-radius:4px;flex:none}
+.ev.SUNSET{color:#EE8064;border:1px solid rgba(232,89,63,.5);background:rgba(232,89,63,.1)}
+.ev.SUNRISE{color:var(--dawn);border:1px solid rgba(143,168,196,.5);background:rgba(143,168,196,.1)}
+.v-worth{color:var(--go)}.v-maybe{color:var(--marginal)}.v-poor{color:#E0735E}
+.plan{position:absolute;inset:0;overflow:auto;padding:18px 22px;display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;align-content:start}
+.plan .sec{grid-column:1/-1;font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.win{border:1px solid var(--border);border-radius:12px;background:var(--panel);padding:12px 14px;display:flex;flex-direction:column;gap:8px;box-shadow:inset 3px 0 0 var(--vc);transition:border-color .2s,background .2s}
+.win.hl{border-color:rgba(201,162,75,.7);background:rgba(201,162,75,.08)}
+.win .l1{display:flex;align-items:center;gap:8px}
+.win .d{font-size:14px;font-weight:600}
+.win .tt{font-family:var(--mono);font-size:11px;color:var(--ink-2)}
+.win .vd{margin-left:auto;font-family:var(--mono);font-size:10.5px;font-weight:600;letter-spacing:.1em}
+.win .sp{display:flex;flex-direction:column;gap:4px}
+.win .sp span{font-size:13px;color:var(--ink-2);display:flex;justify-content:space-between;border-top:1px solid var(--border);padding-top:4px}
+.win .sp b{font-family:var(--mono);color:var(--ink);font-weight:600}
+.ap{flex:none;width:0;overflow:hidden;background:rgba(22,17,13,.99);border-left:1px solid var(--border-light);display:flex;flex-direction:column;transition:width .28s cubic-bezier(.3,.7,.2,1)}
+.ap.on{width:380px}
+.ip .ap{position:absolute;z-index:600;top:10px;right:10px;bottom:10px;border:1px solid var(--border-light);border-radius:14px;box-shadow:0 20px 50px rgba(0,0,0,.6)}
+.ip .ap.on{width:360px}
+.ip .ap:not(.on){border-width:0}
+.aph{flex:none;display:flex;align-items:center;gap:8px;padding:12px 10px 10px 16px;border-bottom:1px solid var(--border);min-width:340px}
+.aph .t{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--home)}
+.aph .ctx{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.aph .x{margin-left:auto;width:32px;height:32px;border-radius:8px;color:var(--ink-3);font-size:13px}
+.conv{flex:1;min-height:0;overflow:auto;padding:14px 16px;display:flex;flex-direction:column;gap:12px;min-width:340px}
+.tk{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.sug{min-height:40px;display:flex;align-items:center;border-bottom:1px solid var(--border);font-size:14px;text-align:left;width:100%}
+.sug:last-child{border-bottom:0}.sug::after{content:'›';margin-left:auto;color:var(--ink-3)}
+.yq{align-self:flex-end;max-width:88%;font-size:13.5px;background:var(--surface);border:1px solid var(--border);border-radius:12px 12px 4px 12px;padding:7px 11px}
+.sum{font-family:var(--serif);font-size:17px;line-height:1.35;color:#F9F1E2;text-wrap:pretty}
+.think{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11px;color:var(--ink-2)}
+.think i{width:6px;height:6px;border-radius:50%;background:var(--home);animation:bl 1s ease infinite}@keyframes bl{50%{opacity:.25}}
+.pk{display:grid;grid-template-columns:24px minmax(0,1fr);gap:4px 10px;padding:10px 10px 10px 8px;border:1px solid var(--border);border-radius:12px;background:var(--panel);text-align:left;width:100%}
+.pk:hover{border-color:var(--border-light)}
+.pk.sel{border-color:rgba(201,162,75,.65);background:rgba(201,162,75,.08)}
+.pk .rk{grid-row:1/4;width:22px;height:22px;border-radius:50%;background:var(--home);color:#1B1411;font-family:var(--mono);font-weight:700;font-size:11px;display:flex;align-items:center;justify-content:center}
+.pk .l1{display:flex;align-items:center;gap:8px}.pk .nm{font-size:15px;font-weight:600}
+.pk .sc{margin-left:auto;font-family:var(--mono);font-size:10.5px;font-weight:600;letter-spacing:.08em}
+.pk .l2{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11px;color:var(--ink-2);flex-wrap:wrap}
+.pk .sep{width:3px;height:3px;border-radius:50%;background:var(--ink-3)}
+.pk .why{font-size:13px;color:var(--ink-2);line-height:1.45;text-wrap:pretty}
+.foot{font-family:var(--mono);font-size:9.5px;color:var(--ink-3)}
+.rd{margin-left:auto;margin-right:8px;font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--go);border:1px solid rgba(138,174,114,.4);border-radius:4px;padding:1px 5px}
+.sug:has(.rd)::after{margin-left:0}
+.ctxr{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.cx{display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 4px 0 9px;border-radius:999px;border:1px solid var(--border-light);background:var(--surface);font-family:var(--mono);font-size:10.5px;color:var(--ink-2)}
+.cx:last-child{padding-right:9px}
+.cx button{width:20px;height:20px;border-radius:50%;font-size:9px;color:var(--ink-3)}
+.usage{font-family:var(--mono);font-size:10px;color:var(--ink-3)}.usage a{color:var(--home)}
+.pk{cursor:pointer}
+.pk .act{display:flex;gap:6px;margin-top:2px}
+.pk .act button{min-height:32px;padding:0 11px;border-radius:8px;border:1px solid rgba(201,162,75,.5);font-family:var(--mono);font-size:11px;color:#EBD9A8}
+.cant{display:flex;flex-direction:column;gap:6px;padding:12px;border:1px dashed var(--border-light);border-radius:12px}
+.cant .k{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3)}
+.cant .t{font-size:14px;line-height:1.45}.cant .m{font-family:var(--mono);font-size:11px;color:var(--ink-2)}
+.bk{align-self:flex-start;min-height:32px;font-family:var(--mono);font-size:11px;color:var(--ink-2)}
+.plh{display:flex;gap:10px;align-items:flex-start}
+.plh .rk{width:24px;height:24px;border-radius:50%;background:var(--home);color:#1B1411;font-family:var(--mono);font-weight:700;font-size:11px;display:flex;align-items:center;justify-content:center;flex:none}
+.plh .nm{font-family:var(--serif);font-size:22px;font-weight:600;line-height:1.1}
+.plh .l2{display:flex;gap:8px;align-items:center;font-family:var(--mono);font-size:11px;color:var(--ink-2);margin-top:4px}
+.figs{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.figs div{background:var(--panel);padding:8px 10px;display:flex;flex-direction:column}
+.figs span{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.figs b{font-family:var(--mono);font-size:15px;font-weight:600}
+.why2{font-size:13px;color:var(--ink-2);text-wrap:pretty}
+.acts{display:flex;gap:6px}
+.acts button{flex:1;min-height:40px;border-radius:10px;border:1px solid var(--border-light);font-size:13px;font-weight:500}
+.acts .pri{background:rgba(201,162,75,.18);border-color:rgba(201,162,75,.6);color:#EBD9A8;font-weight:600}
+.inrow{flex:none;display:flex;gap:6px;padding:10px 12px 12px;border-top:1px solid var(--border);min-width:340px}
+.inrow input{flex:1;min-width:0;height:40px;border-radius:10px;background:var(--surface);border:1px solid var(--border-light);padding:0 12px;font-size:14px}
+.inrow input::placeholder{color:var(--ink-3)}
+.inrow button{width:40px;height:40px;border-radius:10px;background:rgba(201,162,75,.18);border:1px solid rgba(201,162,75,.5);color:#EBD9A8;font-size:15px;flex:none}
+</style>
+</head>
+<body>
+<div class="hd">
+<div class="m">Ask PhotoCast · desktop &amp; iPad · proposal</div>
+<h1>Ask on the big screens</h1>
+<ol>
+<li><b>An Ask field sits at the right end of the tab row</b> on every tab. There's room for it there, so nothing goes on top of the map. On desktop, <b>/</b> focuses it.</li>
+<li><b>On desktop the answer docks as a 380 px column on the right.</b> The map or Plan narrows rather than being covered, so you can read the picks and see them at the same time.</li>
+<li><b>On iPad it floats as a card on the right</b> over the map, leaving the window control and the left two-thirds clear. On Plan it pushes the content the same way.</li>
+<li><b>Picks stay linked to the tab.</b> On Map they're numbered and fly to the spot. On Plan the matching window lights up. <b>Plan this</b> on any pick gives leave time, light and tide, and adds it to Coming up.</li>
+<li><b>Same rules as iPhone:</b> suggested questions are Ready (free, answered at the 06:00 run), typed ones use 1 of 3 a day, questions PhotoCast can't answer are caught first, and the Asking about chips show what's sent with the question.</li>
+</ol>
+</div>
+<div class="stack">
+<div class="fw"><div class="dev br" id="fb"></div><div class="cap" style="--w:1180px"><div class="t">Desktop browser · 1180 × 760</div><h2>Docked column</h2><p>Opening Ask narrows the map by 380 px, and the map refits so all the picks stay in view. Close it with ✕ or Esc.</p></div></div>
+<div class="fw"><div class="dev ip" id="fi"></div><div class="cap" style="--w:1024px"><div class="t">iPad landscape · 1024 × 740</div><h2>Floating card</h2><p>Same contents. It floats instead of docking so the map keeps its full width. In portrait it would become the same bottom sheet as on iPhone.</p></div></div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+const SP=[['Whitby',54.486,-0.615,4],['Robin Hood’s Bay',54.434,-0.534,4],['Staithes',54.558,-0.79,4],['Saltburn',54.583,-0.973,5],['Runswick Bay',54.531,-0.742,4],['Scarborough',54.283,-0.4,3],['Sandsend',54.502,-0.668,4],['Ravenscar',54.4,-0.487,3],['Roseberry Topping',54.505,-1.107,3],['Hole of Horcum',54.335,-0.69,2],['Rosedale',54.36,-0.89,2],['Sutton Bank',54.24,-1.21,3],['Blakey Ridge',54.39,-0.95,2]].map(a=>({n:a[0],ll:[a[1],a[2]],s:a[3]}));
+const COL=s=>s>=5?'#8AAE72':s>=4?'#B7B25A':s>=3?'#E0A542':'#C8452F';
+const WINS=[{d:'Saturday',ev:'SUNRISE',t:'07:12',v:'worth',sp:[['Roseberry Topping',5],['Sutton Bank',5],['Staithes',4]]},{d:'Saturday',ev:'SUNSET',t:'18:31',v:'worth',sp:[['Saltburn',5],['Whitby',4],['Staithes',4]]},{d:'Sunday',ev:'SUNRISE',t:'07:14',v:'worth',sp:[['Whitby',5],['Robin Hood’s Bay',5],['Scarborough',5]]},{d:'Sunday',ev:'SUNSET',t:'18:28',v:'poor',sp:[['Scarborough',3],['Rosedale',3],['Ravenscar',3]]}];
+const VL={worth:'WORTH IT',maybe:'MAYBE',poor:'POOR'};
+const ANS={sum:'Sunday sunrise is the pick: Whitby scores 5 with a clear eastern horizon and high water. Saltburn on Saturday evening is closer to home.',picks:[
+ {n:'Whitby',w:2,s:5,short:'Sun AM',drive:'1h 25',tide:'High ↓ tide',leave:'05:20',light:'06:55–07:40',note:'Park at the Abbey and walk the 199 steps down to the West Pier for the harbour mouth.',why:'High cirrus over the sea and a clear horizon. High water fills the harbour.'},
+ {n:'Saltburn',w:1,s:5,short:'Sat PM',drive:'50 min',tide:'High tide',leave:'17:10',light:'18:05–18:50',note:'The pier is open to 19:00; the beach steps give the low angle once it closes.',why:'A gap opens on the western horizon under broken mid cloud. Pier at high water.'},
+ {n:'Roseberry Topping',w:0,s:5,short:'Sat AM',drive:'45 min',leave:'05:15',light:'06:50–07:35',note:'Includes the 40 min walk up from Newton-under-Roseberry. Head torch.',why:'Clear inland, with sea fret below you to the east. The nearest of the three.'}]};
+const CANT=/busy|crowd|park|people|open|toilet|caf|shop/i;
+const SUG={map:['Best spot this weekend?','Best coastal spot at high tide?','Any rare events coming up?'],plan:['Best spot this weekend?','Sunrise or sunset on Saturday?','Somewhere within an hour of home?']};
+
+function makeFrame(id,kind){
+ const el=document.getElementById(id),st={tab:'map',open:false,busy:false,ans:false,q:'',sel:null};
+ el.classList.add(kind);
+ el.innerHTML=`${kind==='br'?'<div class="chrome"><i></i><i></i><i></i><span>photocast.online</span></div>':'<div class="ipsb"><span>09:41 Mon 5 Oct</span><span>100%</span></div>'}
+ <div class="mast"><div class="ctop"><div class="spine"><div class="cw">PhotoCast</div><div class="ck">Field guide to light</div></div><div class="mr"><span class="up"><i></i>UP</span><span class="cog"><i></i></span></div></div><div class="rule"></div>
+ <div class="ticks"><span>⌂ <b>Home · DH6 5DQ</b></span><span class="tm"><span>07:08</span><span>18:38</span></span></div></div>
+ <div class="tabs"><button class="tab" data-t="plan">◉ Plan</button><button class="tab" data-t="up">Coming up <span class="n">3</span></button><button class="tab" data-t="map">◍ Map</button><button class="askf" data-a="open"><span class="k">Ask</span><span class="q">Ask about the forecasts…</span>${kind==='br'?'<kbd>/</kbd>':''}</button></div>
+ <div class="body"><div class="main"><div class="map"></div><div class="plan" style="display:none"></div><div class="ctl"><span class="ev SUNRISE">SUNRISE</span>Saturday<span class="tt">07:12</span><span class="vd">WORTH IT</span></div><div class="clu"><span>◎ Regions ▾</span><span>Heat · Pins</span><span>Filters ▾</span></div></div>
+ <div class="ap"><div class="aph"><span class="t">Ask PhotoCast</span><span class="ctx"></span><button class="x" data-a="close">✕</button></div><div class="conv"></div><form class="inrow"><input placeholder="Ask about the forecasts…"><button type="submit">↑</button></form></div></div>`;
+ const $=s=>el.querySelector(s),ap=$('.ap'),mapEl=$('.map');
+ const map=L.map(mapEl,{zoomControl:false}).setView([54.43,-0.82],kind==='br'?9.6:9.4);
+ L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,maxNativeZoom:16,className:'basewarm',attribution:'Tiles © Esri'}).addTo(map);
+ const heatL=L.layerGroup().addTo(map),chipL=L.layerGroup().addTo(map);
+ const padR=()=>kind==='ip'&&st.open?390:40;
+ function drawMap(){heatL.clearLayers();chipL.clearLayers();const AP=st.ans&&st.kind!=='cant'?ANS.picks:[];
+  SP.forEach(p=>{L.circle(p.ll,{radius:9000,stroke:false,fillColor:COL(p.s),fillOpacity:AP.length?.08:.22,interactive:false}).addTo(heatL);const pi=AP.findIndex(k=>k.n===p.n);
+   if(pi>-1){const k=AP[pi];L.marker(p.ll,{zIndexOffset:1000,icon:L.divIcon({className:'',iconSize:[0,0],html:`<div class="lc pick${st.sel===pi?' sel':''}"><span class="rk">${pi+1}</span><b>${p.n}</b><span style="color:var(--ink-2)">${k.short}</span><em style="color:${COL(k.s)}">${k.s}</em></div>`})}).on('click',()=>sel(pi)).addTo(chipL)}
+   else L.marker(p.ll,{icon:L.divIcon({className:'',iconSize:[0,0],html:`<div class="lc${AP.length?' fade':''}"><i style="background:${COL(p.s)}"></i><b>${p.n}</b><em>${p.s}</em></div>`})}).addTo(chipL)})}
+ function conv(){const tab=st.tab==='map'?'map':'plan',left=st.left??(kind==='br'?3:3);
+  const ctx=`<div class="ctxr"><span class="tk">Asking about</span>${st.ctx!==false?`<span class="cx">${st.tab==='map'?'Saturday sunrise':'This weekend'}<button data-cx>✕</button></span>`:''}<span class="cx">${st.tab==='map'?'Map view · N. York Moors':'Plan · all regions'}</span></div>`;
+  const usage=`<div class="usage">${left?`${left} of 3 own questions left today`:'No own questions left today'} · <a href="#">Pro: 30 a day</a></div>`;
+  if(st.busy)return `${ctx}<div class="yq">${st.q}</div><div class="think"><i></i>${st.kind==='ready'?'Opening this morning’s answer':'Reading forecasts and hot topics'}</div>`;
+  if(st.planI!=null)return planView(ANS.picks[st.planI],st.planI);
+  if(!st.ans)return `${ctx}<div class="tk">Ready from the 06:00 run · free</div><div>${SUG[tab].map(s=>`<button class="sug" data-q="${s}" data-ready="1">${s}<span class="rd">Ready</span></button>`).join('')}</div>${usage}`;
+  if(st.kind==='cant')return `${ctx}<div class="yq">${st.q}</div><div class="cant"><span class="k">Not in the forecast</span><span class="t">I can only answer from PhotoCast’s forecasts, and they don’t cover this.</span><span class="m">PhotoCast doesn’t have: ${st.missing}</span></div><div class="tk">Try asking</div><div>${SUG[tab].slice(0,2).map(s=>`<button class="sug" data-q="${s}" data-ready="1">${s}<span class="rd">Ready</span></button>`).join('')}</div><div class="foot">No question used</div>`;
+  return `${ctx}<div class="yq">${st.q}</div><div class="sum">${ANS.sum}</div>${ANS.picks.map((p,i)=>{const w=WINS[p.w];return `<div class="pk${st.sel===i?' sel':''}" data-pk="${i}"><span class="rk">${i+1}</span><span class="l1"><span class="nm">${p.n}</span><span class="sc v-worth">WORTH IT · ${p.s}</span></span><span class="l2"><span class="ev ${w.ev}">${w.ev}</span><span>${w.d.slice(0,3)} ${w.t}</span><span class="sep"></span><span>⌂ ${p.drive}</span>${p.tide?`<span class="sep"></span><span style="color:#8FC0C7">${p.tide}</span>`:''}</span><span class="why">${p.why}</span><span class="act"><button data-plan="${i}">Plan this ›</button></span></div>`}).join('')}<div class="foot">${st.kind==='ready'?'Ready answer from the 06:00 run · no question used':`Answered from the 06:00 run · ${left} of 3 left today`}</div>`}
+ function planView(p,i){const w=WINS[p.w];return `<button class="bk" data-back>‹ Back to the answer</button>
+  <div class="plh"><span class="rk">${i+1}</span><div><div class="nm">${p.n}</div><div class="l2"><span class="ev ${w.ev}">${w.ev}</span><span>${w.d.slice(0,3)} ${w.t}</span><span class="v-worth">WORTH IT · ${p.s}</span></div></div></div>
+  <div class="figs"><div><span>Leave home</span><b>${p.leave}</b></div><div><span>Drive</span><b>${p.drive}</b></div><div><span>Best light</span><b>${p.light}</b></div><div><span>Tide</span><b>${p.tide?p.tide.replace(' tide',''):'—'}</b></div></div>
+  <div class="why2">${p.note}</div>
+  <div class="acts"><button class="pri" data-add="${i}">${st.added===i?'Added to Coming up ✓':'Add to Coming up'}</button><button data-t="plan">Open in Plan ›</button></div>`}
+ function planHtml(){const hw=st.sel!=null&&st.ans?ANS.picks[st.sel].w:null;return `<div class="sec">This weekend · Sat 10 – Sun 11 Oct</div>${WINS.map((w,i)=>`<div class="win${hw===i?' hl':''}" style="--vc:var(--${w.v==='worth'?'go':'poor'})"><div class="l1"><span class="ev ${w.ev}">${w.ev}</span><span class="d">${w.d}</span><span class="tt">${w.t}</span><span class="vd v-${w.v}">${VL[w.v]}</span></div><div class="sp">${w.sp.map(s=>`<span>${s[0]}<b>${s[1]}</b></span>`).join('')}</div></div>`).join('')}`}
+ function render(){el.querySelectorAll('.tab').forEach(t=>t.classList.toggle('on',t.dataset.t===st.tab||(st.tab==='up'&&t.dataset.t==='up')));
+  const onMap=st.tab==='map';mapEl.style.visibility=onMap?'':'hidden';$('.ctl').style.display=$('.clu').style.display=onMap?'':'none';
+  $('.plan').style.display=onMap?'none':'grid';if(!onMap)$('.plan').innerHTML=planHtml();
+  $('.askf').classList.toggle('on',st.open);ap.classList.toggle('on',st.open);$('.ctx').textContent=onMap?'· on Map':'· on Plan';
+  $('.conv').innerHTML=conv();drawMap()}
+ function fit(){if(!st.ans||st.kind==='cant')return;map.invalidateSize();map.flyToBounds(L.latLngBounds(ANS.picks.map(k=>SP.find(s=>s.n===k.n).ll)),{paddingTopLeft:[60,80],paddingBottomRight:[padR()+20,60],maxZoom:10,duration:.7})}
+ function sel(i){st.sel=i;render();if(st.tab==='map'){const p=SP.find(s=>s.n===ANS.picks[i].n),z=10.6,pt=map.project(p.ll,z).add([padR()/2,0]);map.flyTo(map.unproject(pt,z),z,{duration:.7})}}
+ function ask(q,ready){const cant=!ready&&CANT.test(q);if(!ready&&!cant&&(st.left??3)<=0)return;
+  st.q=q;st.kind=ready?'ready':cant?'cant':'own';st.missing=/busy|crowd|people|park/i.test(q)?'visitor numbers or car park data':'data on this';
+  if(st.kind==='own')st.left=(st.left??3)-1;
+  st.busy=true;st.ans=false;st.sel=null;st.planI=null;st.added=null;render();setTimeout(()=>{st.busy=false;st.ans=true;render();if(st.tab==='map')fit()},ready?400:cant?500:1200)}
+ el.addEventListener('click',e=>{const t=e.target.closest('button,a,[data-pk]');if(!t)return;if(t.tagName==='A'){e.preventDefault();return}
+  if(t.dataset.cx!=null){st.ctx=false;render();return}
+  if(t.dataset.plan!=null){st.planI=+t.dataset.plan;sel(st.planI);return}
+  if(t.dataset.back!=null){st.planI=null;render();return}
+  if(t.dataset.add!=null){st.added=+t.dataset.add;render();return}
+  if(t.dataset.a==='open'){st.open=true;render();setTimeout(()=>{map.invalidateSize();$('.inrow input').focus()},300);return}
+  if(t.dataset.a==='close'){st.open=false;st.ans=false;st.sel=null;render();setTimeout(()=>map.invalidateSize(),300);return}
+  if(t.dataset.t){st.tab=t.dataset.t==='up'?'plan':t.dataset.t;st.ctx=true;render();if(st.tab==='map')setTimeout(()=>{map.invalidateSize();fit()},50);return}
+  if(t.dataset.q){ask(t.dataset.q,!!t.dataset.ready);return}
+  if(t.dataset.pk!=null)sel(+t.dataset.pk)});
+ el.addEventListener('submit',e=>{e.preventDefault();const v=e.target.querySelector('input').value.trim();if(v){e.target.querySelector('input').value='';ask(v)}});
+ ap.addEventListener('transitionend',()=>map.invalidateSize());
+ render();return{st,open:()=>{st.open=true;render()},ask};
+}
+const F=[makeFrame('fb','br'),makeFrame('fi','ip')];
+document.addEventListener('keydown',e=>{if(e.key==='/'&&!e.target.matches('input')){e.preventDefault();document.querySelector('#fb .askf').click()}if(e.key==='Escape')document.querySelectorAll('.ap.on .x').forEach(x=>x.click())});
+setTimeout(()=>F.forEach(f=>{f.open();f.ask('Best spot this weekend?',true)}),600);
+</script>
+</body>
+</html>

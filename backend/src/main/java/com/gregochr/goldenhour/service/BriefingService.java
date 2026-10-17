@@ -13,6 +13,8 @@ import com.gregochr.goldenhour.model.BestBet;
 import com.gregochr.goldenhour.model.BestBetResult;
 import com.gregochr.goldenhour.model.BestBetStatus;
 import com.gregochr.goldenhour.model.BriefingDay;
+import com.gregochr.goldenhour.model.BriefingEvaluationResult;
+import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.BriefingRefreshedEvent;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
@@ -37,9 +39,11 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.IntStream;
@@ -82,13 +86,14 @@ public class BriefingService {
     private final BriefingRegionSnapshotService regionSnapshotService;
     private final ServedBriefingAssembler assembler;
     private final BriefingRegionEvaluationRollup rollup;
+    private final EclipseSightAssembler eclipseSightAssembler;
 
     /**
      * Number of consecutive dates the briefing covers, starting on the day it is built.
      *
      * <p><b>Five, not four, because the briefing is read a day after it is written.</b> Since
      * V103 retired the standalone {@code daily_briefing} cron it is refreshed only at the
-     * <em>tail</em> of a pipeline cycle, so the 01:00 nightly cycle consumes the briefing the
+     * <em>tail</em> of a pipeline cycle, so the morning (nightly) cycle consumes the briefing the
      * previous afternoon's intraday cycle left behind. That briefing's first date is by then
      * yesterday, and {@code BriefingCandidateCollector} drops it as {@code PAST_DATE} — so a
      * four-date window arrives at the nightly cycle already one date short at the far end.
@@ -169,6 +174,11 @@ public class BriefingService {
      * @param rollup                     turns the weather/triage hierarchy into a scored one;
      *                                   shared with the serve path through the
      *                                   {@link BriefingScoreEnricher} socket
+     * @param eclipseSightAssembler      the serve-time simulated-eclipse overlay ({@link
+     *                                   EclipseSightAssembler#simulatedSightFor}) —
+     *                                   deliberately NOT how a real sight reaches a slot;
+     *                                   that happens once, at build time, inside
+     *                                   {@code slotBuilder} itself
      */
     public BriefingService(LocationService locationService,
             BriefingWeatherLoader weatherLoader,
@@ -191,7 +201,8 @@ public class BriefingService {
             MarineWaveRefreshService marineWaveRefreshService,
             BriefingRegionSnapshotService regionSnapshotService,
             ServedBriefingAssembler assembler,
-            BriefingRegionEvaluationRollup rollup) {
+            BriefingRegionEvaluationRollup rollup,
+            EclipseSightAssembler eclipseSightAssembler) {
         this.locationService = locationService;
         this.weatherLoader = weatherLoader;
         this.jobRunService = jobRunService;
@@ -216,6 +227,7 @@ public class BriefingService {
         this.regionSnapshotService = regionSnapshotService;
         this.assembler = assembler;
         this.rollup = rollup;
+        this.eclipseSightAssembler = eclipseSightAssembler;
     }
 
     /**
@@ -240,19 +252,30 @@ public class BriefingService {
     }
 
     /**
-     * Returns the cached daily briefing with live aurora state overlaid.
+     * Returns the cached daily briefing with live aurora state, live hot topics and — when
+     * {@code LUNAR_ECLIPSE} admin simulation is active — a simulated eclipse sight overlaid.
      *
      * <p>When the aurora FSM is idle, {@code buildAuroraTonight()} returns null instantly
      * with zero overhead. When active, the 5-minute cache in the builder keeps API calls
      * minimal.
      *
-     * @return the most recent briefing response with live aurora, or null
+     * <p>The eclipse overlay runs on <b>every</b> call, independent of whether aurora/hot-topics
+     * changed — it must, because enabling or disabling the simulation changes nothing this
+     * method's own equality check compares. {@link EclipseSightAssembler#simulatedSightFor} is
+     * the only place a simulated sight is ever produced; nothing the build path
+     * ({@link BriefingSlotBuilder}) writes into {@code daily_briefing_cache} can ever contain one
+     * (see that class's own javadoc for why persisting one there was a real defect, Codex review
+     * of #914) — so toggling the admin simulation takes effect on the very next request in either
+     * direction, and a restart with it off serves the persisted, real-sights-only cache untouched.
+     *
+     * @return the most recent briefing response with every live overlay applied, or null
      */
     public DailyBriefingResponse getCachedBriefing() {
         DailyBriefingResponse cached = cache.get();
         if (cached == null) {
             return null;
         }
+        DailyBriefingResponse overlaid;
         try {
             AuroraTonightSummary liveTonight = auroraSummaryBuilder.buildAuroraTonightCached();
             AuroraTomorrowSummary liveTomorrow = auroraSummaryBuilder.buildAuroraTomorrowCached();
@@ -267,26 +290,71 @@ public class BriefingService {
             if (Objects.equals(cached.auroraTonight(), liveTonight)
                     && Objects.equals(cached.auroraTomorrow(), liveTomorrow)
                     && Objects.equals(cached.hotTopics(), liveTopics)) {
-                return cached;
+                overlaid = cached;
+            } else {
+                // withLiveOverlays() carries every other component, bestBetStatus included. This
+                // rebuild overlays live aurora and hot topics; it is not a new verdict on the
+                // best-bet advisor, so dropping the status would silently disable the serve-time
+                // fallback in applyBestBetFallback (which returns early unless the status is
+                // FAILED) and the frontend's "from an earlier forecast" chip.
+                overlaid = cached.withLiveOverlays(liveTonight, liveTomorrow, liveTopics);
             }
-            // bestBetStatus MUST be carried through. This rebuild overlays live aurora and hot
-            // topics; it is not a new verdict on the best-bet advisor, so dropping the status
-            // silently disables two things that switch on it — the serve-time fallback in
-            // applyBestBetFallback (which returns early unless the status is FAILED) and the
-            // frontend's "from an earlier forecast" chip. Both would go dark on exactly the
-            // requests that reach this branch, i.e. whenever aurora is live or a hot-topic
-            // simulation is toggled. The 12-arg convenience constructor defaults it to null,
-            // which is why this passes all 13 explicitly.
-            return new DailyBriefingResponse(
-                    cached.generatedAt(), cached.headline(), cached.days(), cached.bestBets(),
-                    liveTonight, liveTomorrow, cached.stale(), cached.partialFailure(),
-                    cached.failedLocationCount(), cached.bestBetModel(),
-                    liveTopics, cached.seasonalFeatures(), cached.bestBetStatus());
         } catch (Exception e) {
             LOG.warn("Aurora overlay failed — returning briefing without live aurora: {}",
                     e.getMessage());
-            return cached;
+            overlaid = cached;
         }
+        return overlaySimulatedEclipse(overlaid);
+    }
+
+    /**
+     * Overlays {@link EclipseSightAssembler#simulatedSightFor} onto today's SUNRISE slots that
+     * carry no real sight, when {@code LUNAR_ECLIPSE} admin simulation is active — the serve-time
+     * seam {@link EclipseSightAssembler}'s own javadoc names. Never touches anything when
+     * simulation is inactive: {@link EclipseSightAssembler#isSimulationActiveForLunarEclipse} is
+     * the same near-zero-cost early exit the aurora overlay above relies on for its own idle case.
+     *
+     * @param response the response to overlay (already carrying live aurora/hot-topics)
+     * @return the same response when simulation is inactive, or a copy with the simulated sight
+     *     attached to the matching window's slots
+     */
+    private DailyBriefingResponse overlaySimulatedEclipse(DailyBriefingResponse response) {
+        if (!eclipseSightAssembler.isSimulationActiveForLunarEclipse()) {
+            return response;
+        }
+        List<BriefingDay> newDays = response.days().stream()
+                .map(this::overlaySimulatedEclipseOnDay)
+                .toList();
+        return response.withDays(newDays);
+    }
+
+    private BriefingDay overlaySimulatedEclipseOnDay(BriefingDay day) {
+        List<BriefingEventSummary> newSummaries = day.eventSummaries().stream()
+                .map(summary -> overlaySimulatedEclipseOnEventSummary(day.date(), summary))
+                .toList();
+        return day.withEventSummaries(newSummaries);
+    }
+
+    private BriefingEventSummary overlaySimulatedEclipseOnEventSummary(
+            LocalDate date, BriefingEventSummary summary) {
+        BriefingSlot.EclipseSight simulated =
+                eclipseSightAssembler.simulatedSightFor(date, summary.targetType());
+        if (simulated == null) {
+            return summary;
+        }
+        List<BriefingRegion> newRegions = summary.regions().stream()
+                .map(region -> region.withSlots(overlaySimulatedEclipseOnSlots(region.slots(), simulated)))
+                .toList();
+        List<BriefingSlot> newUnregioned =
+                overlaySimulatedEclipseOnSlots(summary.unregioned(), simulated);
+        return summary.withRegions(newRegions).withUnregioned(newUnregioned);
+    }
+
+    private static List<BriefingSlot> overlaySimulatedEclipseOnSlots(
+            List<BriefingSlot> slots, BriefingSlot.EclipseSight simulated) {
+        return slots.stream()
+                .map(slot -> slot.eclipse() == null ? slot.withEclipse(simulated) : slot)
+                .toList();
     }
 
     /**
@@ -307,37 +375,10 @@ public class BriefingService {
      */
     public DailyBriefingResponse getCachedBriefingForApi() {
         // The ordered composition itself — projector outermost, honesty wrapping the fallback,
-        // movement attached here rather than inside getServedBriefing, the tide rollup fed the
+        // movement attached after the honesty filter, the tide rollup fed the
         // FILTERED days, UTC not London — is ServedBriefingAssembler's job now; see
         // ServedBriefingAssembler.assembleForPlan for the rules and why each one holds.
         return assembler.assembleForPlan(getCachedBriefing(), minCoverageRatio);
-    }
-
-    /**
-     * The served briefing <b>without</b> the Plan-tab window projection — for panels that read
-     * slots and never read {@link BriefingEventSummary#window()}.
-     *
-     * <p>Identical to {@link #getCachedBriefingForApi()} in every other respect: the same
-     * re-enrichment, the same serve-time best-bet fallback, and the same honesty filter, in the
-     * same order. That matters, because the whole point of a panel sharing this accessor is that
-     * two panels cannot disagree about the same location — and the window projection only
-     * <em>attaches</em> a window, leaving slots, verdicts and {@code bestBets} untouched.
-     *
-     * <p>It exists because the projection is no longer free. Deriving the per-window tide rollup
-     * costs a coastal-roster query, a multi-day {@code tide_extreme} scan, the representative's
-     * historical statistics and a {@code marine_wave} lookup per window — and
-     * {@code CloseToHomeService}, the one other caller, discards every byte of it. The Plan tab
-     * fetches both endpoints on load, so leaving them joined paid that cost twice per page.
-     *
-     * <p>⚠️ This is <em>not</em> the API payload. Anything served to a client that renders windows
-     * must go through {@link #getCachedBriefingForApi()}, or the Plan tab silently loses its
-     * verdict badges, its picks and its tide rows.
-     *
-     * @return the enriched, filtered briefing with no windows attached, or {@code null} if none has
-     *         been built yet
-     */
-    public DailyBriefingResponse getServedBriefing() {
-        return assembler.assembleWithoutPlan(getCachedBriefing(), minCoverageRatio);
     }
 
     /**
@@ -351,6 +392,18 @@ public class BriefingService {
     public List<BriefingDay> getCachedDays() {
         DailyBriefingResponse cached = cache.get();
         return cached != null ? cached.days() : null;
+    }
+
+    /**
+     * When the cached briefing was built (UTC), read straight off the raw cache with no overlay —
+     * for a caller that wants the build time alone and must not pay for, or be affected by, the
+     * live hot-topic and aurora overlays {@link #getCachedBriefing()} applies.
+     *
+     * @return the cached briefing's {@code generatedAt}, or null if no briefing has been generated
+     */
+    public LocalDateTime getCachedGeneratedAt() {
+        DailyBriefingResponse cached = cache.get();
+        return cached != null ? cached.generatedAt() : null;
     }
 
     /**
@@ -462,6 +515,8 @@ public class BriefingService {
 
         // Build slots for each location × date × event type (filtered by solar event preference)
         List<BriefingSlot> allSlots = new ArrayList<>();
+        long slotLoopStart = System.nanoTime();
+        TideExtremeSnapshot tideSnapshot = slotBuilder.snapshotFor(colourLocations, dates);
         for (BriefingSlotBuilder.LocationWeather lw : locationWeathers) {
             if (lw.forecast() == null) {
                 failed++;
@@ -486,7 +541,7 @@ public class BriefingService {
                     OpenMeteoForecastResponse horizonForecast =
                             horizonData.getForLocation(lw.location().getId(), eventType);
                     BriefingSlot slot = slotBuilder.buildSlot(lw, date, eventType,
-                            horizonForecast);
+                            horizonForecast, tideSnapshot);
                     if (slot != null) {
                         allSlots.add(slot);
                     }
@@ -494,14 +549,24 @@ public class BriefingService {
             }
         }
 
+        LOG.debug("Briefing slot loop: slotLoopMs={} tideSnapshotRows={}",
+                (System.nanoTime() - slotLoopStart) / 1_000_000,
+                tideSnapshot.rowCount());
+
         // Group into days → event summaries → regions
         List<BriefingDay> days = hierarchyBuilder.buildDays(allSlots, colourLocations, dates);
 
-        // Enrich slots with cached Claude evaluation scores (from prior batch runs)
-        // The BUILD path's resolver: a per-region lookup. The serve path hands the same
-        // rollup a bulk index instead — one owner, two timings, which is the whole point of
-        // RegionScoreResolver being a parameter rather than a collaborator.
-        days = rollup.enrich(days, evaluationViewService::getScoresForEnrichment);
+        // Enrich slots with cached Claude evaluation scores (from prior batch runs). One
+        // EvaluationViewService#getScoresForEnrichmentBulk load over the whole build window,
+        // rather than a getScoresForEnrichment call per region/date/event — the same shape
+        // ServedBriefingAssembler#reEnrichVerdicts already uses on the serve path, so this build
+        // path's query count stays O(locations) rather than O(regions × events). Until this fix
+        // (Codex review of #940) the per-region lookup and the serve path's bulk load were two
+        // different query shapes reading the SAME data — harmless while getScoresForEnrichment
+        // issued two queries per call, but the stability-skip retraction rule added a third
+        // (loadStabilitySkips) to every one of them, which is what made the multiplication worth
+        // closing here rather than leaving as a pre-existing pattern.
+        days = rollup.enrich(days, bulkScoreResolver(days), bulkTriagedResolver(days));
 
         // Enrich GO/MARGINAL regions with Claude-generated one-line gloss
         if (succeeded > 0) {
@@ -613,6 +678,74 @@ public class BriefingService {
         }
     }
 
+    /**
+     * A {@link RegionScoreResolver} backed by one {@link EvaluationViewService
+     * #getScoresForEnrichmentBulk} load over the given days' whole date range and target-type
+     * set, rather than a query per region/date/event.
+     *
+     * <p>Mirrors {@link ServedBriefingAssembler#reEnrichVerdicts}'s own resolver exactly — same
+     * bulk accessor, same {@code "regionName|date|targetType"} key shape, same empty-map default
+     * for an uncovered slot — so the build path and the serve path read scores through the
+     * identical query shape and can never diverge on how many round trips either costs. Returns a
+     * resolver that answers empty for everything when {@code days} is empty or carries no events,
+     * rather than skipping the bulk load's own null-checks inline at the one call site.
+     *
+     * @param days the assembled briefing days for this build
+     * @return a resolver reading from one pre-loaded bulk index
+     */
+    private RegionScoreResolver bulkScoreResolver(List<BriefingDay> days) {
+        if (days.isEmpty()) {
+            return (regionName, date, targetType) -> Map.of();
+        }
+        LocalDate start = days.getFirst().date();
+        LocalDate end = days.getLast().date();
+        Set<TargetType> types = days.stream()
+                .flatMap(day -> day.eventSummaries().stream())
+                .map(BriefingEventSummary::targetType)
+                .collect(java.util.stream.Collectors.toCollection(
+                        () -> EnumSet.noneOf(TargetType.class)));
+        if (types.isEmpty()) {
+            return (regionName, date, targetType) -> Map.of();
+        }
+        Map<String, Map<String, BriefingEvaluationResult>> index =
+                evaluationViewService.getScoresForEnrichmentBulk(start, end, types);
+        return (regionName, date, targetType) ->
+                index.getOrDefault(regionName + "|" + date + "|" + targetType, Map.of());
+    }
+
+    /**
+     * A {@link TriagedByBatchResolver} backed by one {@link EvaluationViewService
+     * #getTriagedByBatchLocationNamesBulk} load over the given days' whole date range and
+     * target-type set — the sibling of {@link #bulkScoreResolver}, read INDEPENDENTLY rather than
+     * derived from it, because the two answer different questions about the same region/date/event
+     * (a Codex review of #943, P1-A, round 2 — see {@link TriagedByBatchResolver}'s own javadoc).
+     *
+     * <p>Mirrors {@link ServedBriefingAssembler#reEnrichVerdicts}'s own triaged resolver exactly —
+     * same bulk accessor, same key shape, same empty-set default for an uncovered slot.
+     *
+     * @param days the assembled briefing days for this build
+     * @return a resolver reading from one pre-loaded bulk index
+     */
+    private TriagedByBatchResolver bulkTriagedResolver(List<BriefingDay> days) {
+        if (days.isEmpty()) {
+            return (regionName, date, targetType) -> Set.of();
+        }
+        LocalDate start = days.getFirst().date();
+        LocalDate end = days.getLast().date();
+        Set<TargetType> types = days.stream()
+                .flatMap(day -> day.eventSummaries().stream())
+                .map(BriefingEventSummary::targetType)
+                .collect(java.util.stream.Collectors.toCollection(
+                        () -> EnumSet.noneOf(TargetType.class)));
+        if (types.isEmpty()) {
+            return (regionName, date, targetType) -> Set.of();
+        }
+        Map<String, Set<String>> index =
+                evaluationViewService.getTriagedByBatchLocationNamesBulk(start, end, types);
+        return (regionName, date, targetType) ->
+                index.getOrDefault(regionName + "|" + date + "|" + targetType, Set.of());
+    }
+
     private String circuitState() {
         if (circuitBreakerRegistry == null) {
             return "UNKNOWN";
@@ -688,6 +821,10 @@ public class BriefingService {
      *
      * <p>A location with no types at all still qualifies — an untyped location is treated as a
      * plain colour location rather than silently dropped from the briefing.
+     *
+     * <p>Exclusion here also means no {@code slot_atmosphere} reading is recorded for the place,
+     * because the scheduled collector is briefing-driven; that is deliberate (owner decision
+     * 2026-10-02), not an omission.
      *
      * @param location the location to check
      * @param date     the date being briefed, tested against the bluebell {@link SeasonalWindow}

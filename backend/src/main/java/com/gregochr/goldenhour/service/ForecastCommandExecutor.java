@@ -14,11 +14,14 @@ import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.ForecastPreEvalResult;
 import com.gregochr.goldenhour.model.GridCellStabilityResult;
+import com.gregochr.goldenhour.exception.RunStoppedException;
 import com.gregochr.goldenhour.model.LocationTaskEvent;
+import com.gregochr.goldenhour.model.LocationTaskSnapshot;
 import com.gregochr.goldenhour.model.LocationTaskState;
 import com.gregochr.goldenhour.model.OpenMeteoForecastResponse;
 import com.gregochr.goldenhour.model.CloudPointCache;
 import com.gregochr.goldenhour.model.RunPhase;
+import com.gregochr.goldenhour.model.RunProgress;
 import com.gregochr.goldenhour.model.WeatherExtractionResult;
 import com.gregochr.goldenhour.service.batch.GridCellStabilityService;
 import com.gregochr.goldenhour.service.batch.NightlyEligibilityPolicy;
@@ -33,12 +36,14 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 
@@ -63,6 +68,12 @@ public class ForecastCommandExecutor {
     private static final Logger LOG = LoggerFactory.getLogger(ForecastCommandExecutor.class);
     private static final int DEFAULT_SENTINEL_RATING_THRESHOLD = 2;
 
+    /** Reason on a task the stability filter dropped from evaluation. */
+    static final String STABILITY_SKIP_REASON = "Skipped: forecast too unsettled this far ahead to evaluate.";
+
+    /** Reason on a wildlife task whose hourly forecast could not be produced. */
+    static final String WILDLIFE_FAILED_REASON = "Hourly forecast failed (see server log).";
+
     private final ForecastService forecastService;
     private final LocationService locationService;
     private final JobRunService jobRunService;
@@ -76,6 +87,7 @@ public class ForecastCommandExecutor {
     private final AstroConditionsService astroConditionsService;
     private final OpenMeteoService openMeteoService;
     private final Clock clock;
+    private final RunCompletion runCompletion;
 
     /**
      * Shared classifier + snapshot producer, wrapping the injected classifier and
@@ -130,6 +142,7 @@ public class ForecastCommandExecutor {
         this.astroConditionsService = astroConditionsService;
         this.openMeteoService = openMeteoService;
         this.clock = clock;
+        this.runCompletion = new RunCompletion(jobRunService, progressTracker, eventPublisher);
         this.gridCellStabilityService =
                 new GridCellStabilityService(stabilityClassifier, stabilitySnapshotProvider);
     }
@@ -150,12 +163,50 @@ public class ForecastCommandExecutor {
      * <p>When {@code preCreatedJobRun} is non-null, it is used instead of creating a new one.
      * This allows the controller to return the job run ID synchronously before execution starts.
      *
+     * <p>⚠️ <b>This is the one guard every hand-started run passes through</b> (all five
+     * {@code ForecastController} endpoints discard the future this runs on, so nothing else can
+     * see a failure). Whatever escapes the pipeline, the run is still told to the admin and
+     * closed: unfinished tasks are published FAILED, the tracker emits {@code run-complete}
+     * (registering the run first if it failed before {@code initRun}), and the {@code job_run} is
+     * closed unless a normal completion already did. An {@link Exception} is logged once at ERROR
+     * and swallowed, returning no results; an {@link Error} gets the same best-effort completion
+     * and is rethrown. If no job run exists yet (none was pre-created and creating one is what
+     * failed) there is nothing to complete, and the exception propagates.
+     *
      * @param command           the command to execute
      * @param preCreatedJobRun  a pre-created job run entity, or null to create one internally
      * @return all saved evaluation entities produced by the run
      */
     public List<ForecastEvaluationEntity> execute(ForecastCommand command,
             JobRunEntity preCreatedJobRun) {
+        AtomicReference<JobRunEntity> runRef = new AtomicReference<>(preCreatedJobRun);
+        try {
+            return executePipeline(command, runRef);
+        } catch (Exception e) {
+            if (runRef.get() == null) {
+                throw e;
+            }
+            abortRun(runRef.get(), e);
+            return List.of();
+        } catch (Error e) {
+            if (runRef.get() != null) {
+                abortRun(runRef.get(), e);
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * Logs a run that threw — once, at ERROR, with the stack trace — then completes it.
+     */
+    private void abortRun(JobRunEntity jobRun, Throwable cause) {
+        LOG.error("Forecast run {} aborted: {}", jobRun.getId(), cause.toString(), cause);
+        runCompletion.abort(jobRun, RunCompletion.reasonForForecastRun(cause));
+    }
+
+    private List<ForecastEvaluationEntity> executePipeline(ForecastCommand command,
+            AtomicReference<JobRunEntity> runRef) {
+        JobRunEntity preCreatedJobRun = runRef.get();
         RunType runType = command.runType();
         EvaluationModel evaluationModel = commandFactory.resolveEvaluationModel(command);
         // Null-safe like the `instanceof` this replaced: ForecastCommand.strategy is
@@ -176,13 +227,9 @@ public class ForecastCommandExecutor {
                 ? preCreatedJobRun
                 : jobRunService.startRun(runType, command.triggeredManually(),
                         evaluationModel, strategiesAudit);
+        runRef.set(jobRun);
 
-        // Resolve locations
-        List<LocationEntity> locations = command.locations() != null
-                ? command.locations()
-                : locationService.findAllEnabled().stream()
-                .filter(loc -> isWildlife ? isPureWildlife(loc) : loc.hasColourTypes())
-                .toList();
+        List<LocationEntity> locations = resolveLocations(command, isWildlife);
 
         // Apply drive-time exclusions (locations the user chose to skip this run)
         Set<String> excludedLocations = command.excludedLocations() != null
@@ -207,8 +254,9 @@ public class ForecastCommandExecutor {
         } else {
             Set<String> excludedSlots = command.excludedSlots() != null
                     ? command.excludedSlots() : Set.of();
+            Set<ForecastSlot> slots = command.slots() != null ? command.slots() : Set.of();
             results = executeThreePhasePipeline(locations, dates, enabledStrategies,
-                    evaluationModel, runType, jobRun, excludedSlots,
+                    evaluationModel, runType, jobRun, excludedSlots, slots,
                     command.triggeredManually());
         }
 
@@ -231,9 +279,25 @@ public class ForecastCommandExecutor {
 
     private List<ForecastEvaluationEntity> executeThreePhasePipeline(
             List<LocationEntity> locations, List<LocalDate> dates,
-            List<OptimisationStrategyEntity> enabledStrategies,
+            List<OptimisationStrategyEntity> configuredStrategies,
             EvaluationModel evaluationModel, RunType runType, JobRunEntity jobRun,
-            Set<String> excludedSlots, boolean triggeredManually) {
+            Set<String> excludedSlots, Set<ForecastSlot> slots, boolean triggeredManually) {
+
+        // Sentinel sampling stands down for an explicit slot list. It evaluates a region's sentinel
+        // places first and, when they all rate low, writes a canned low result for the region's other
+        // slots without asking Claude. Over a handful of named slots that would pick a "sentinel" among
+        // them and then answer for the rest: a guess recorded as a result, which is the opposite of
+        // retrying what failed. Each named slot is evaluated. (Weather triage and TIDE_ALIGNMENT are
+        // per-slot checks, so they still apply; the stability filter is bypassed for a manual run.)
+        List<OptimisationStrategyEntity> enabledStrategies = slots.isEmpty()
+                ? configuredStrategies
+                : configuredStrategies.stream()
+                        .filter(s -> s.getStrategyType() != OptimisationStrategyType.SENTINEL_SAMPLING)
+                        .toList();
+        if (enabledStrategies.size() != configuredStrategies.size()) {
+            LOG.info("Run {}: sentinel sampling not applied to an explicit list of {} slot(s)",
+                    jobRun.getId(), slots.size());
+        }
 
         int succeeded = 0;
         int failed = 0;
@@ -263,6 +327,13 @@ public class ForecastCommandExecutor {
                 }
 
                 for (TargetType targetType : applicableTypes) {
+                    // An explicit slot list (a retry) makes the places-by-dates product a search space
+                    // and nothing more: a slot that is not named never becomes a task at all, so it is
+                    // neither evaluated nor shown as skipped in this run's progress.
+                    if (!slots.isEmpty() && !slots.contains(
+                            new ForecastSlot(location.getName(), targetDate, targetType))) {
+                        continue;
+                    }
                     String taskKey = location.getName() + "|" + targetDate + "|" + targetType;
                     allTaskKeys.add(new String[]{taskKey, location.getName(),
                             targetDate.toString(), targetType.name()});
@@ -293,13 +364,30 @@ public class ForecastCommandExecutor {
         boolean tideAlignmentEnabled = enabledStrategies.stream()
                 .anyMatch(s -> s.getStrategyType() == OptimisationStrategyType.TIDE_ALIGNMENT);
 
-        // Pre-fetch all weather data in batch (2 API calls instead of 2N)
-        Map<String, WeatherExtractionResult> prefetchedWeather = prefetchWeather(
-                nonSkippedTasks, jobRun);
+        // Pre-fetch all weather data in batch (2 API calls instead of 2N). A failed prefetch
+        // degrades instead of aborting the run, as the cloud prefetch below and the batch
+        // pipeline's resilient prefetch already do: an empty (non-null) map makes triage read the
+        // cache with no network call, so every task fails through the ordinary weather FAILED path,
+        // the run completes, and "Retry failed" has failed tasks to retry.
+        Map<String, WeatherExtractionResult> prefetchedWeather;
+        boolean weatherPrefetchFailed = false;
+        try {
+            prefetchedWeather = prefetchWeather(nonSkippedTasks, jobRun);
+        } catch (Exception e) {
+            LOG.warn("Weather prefetch failed — every task of this run will fail individually: {}",
+                    e.toString());
+            prefetchedWeather = Map.of();
+            weatherPrefetchFailed = true;
+            // The reason follows the exception, not an assumption: prefetchWeatherBatch also does
+            // bookkeeping (api_call_log) inside the try that failed, so this need not be Open-Meteo.
+            progressTracker.noteFailure(jobRun.getId(), RunCompletion.reasonForForecastRun(e));
+        }
 
-        // Pre-fetch all cloud sampling points in 1 batch call (~300 calls → 1)
-        CloudPointCache cloudCache = prefetchCloudPoints(
-                nonSkippedTasks, prefetchedWeather, jobRun);
+        // Pre-fetch all cloud sampling points in 1 batch call (~300 calls → 1). Pointless when the
+        // weather prefetch just failed: every task fails at weather before it would read this.
+        CloudPointCache cloudCache = weatherPrefetchFailed
+                ? new CloudPointCache(Map.of())
+                : prefetchCloudPoints(nonSkippedTasks, prefetchedWeather, jobRun);
 
         // Phase 1: TRIAGE (uses pre-fetched data — no individual API calls)
         progressTracker.setPhase(jobRun.getId(), RunPhase.TRIAGE);
@@ -312,11 +400,14 @@ public class ForecastCommandExecutor {
         LOG.info("Triage phase complete — {} triaged, {} survivors", triagedCount, survivors.size());
 
         if (survivors.isEmpty()) {
-            // Everything was triaged — early stop
+            // No task survived triage — early stop. Each one was triaged away or failed at weather
+            // (every one of them, when the prefetch failed); the job_run closes with the tracker's
+            // counts, so those weather failures are in its failed count.
             progressTracker.setPhase(jobRun.getId(), RunPhase.EARLY_STOP);
-            jobRunService.completeRun(jobRun, succeeded, failed, dates);
-            progressTracker.completeRun(jobRun.getId());
-            LOG.info("Forecast run early-stopped — all tasks triaged");
+            runCompletion.complete(jobRun, succeeded, failed, dates);
+            LOG.info(weatherPrefetchFailed
+                    ? "Forecast run ended — weather could not be fetched"
+                    : "Forecast run early-stopped — no task survived triage");
             return results;
         }
 
@@ -344,12 +435,9 @@ public class ForecastCommandExecutor {
         }
 
         if (fullEvalBatch.isEmpty()) {
-            RunPhase finalPhase = survivors.isEmpty() ? RunPhase.EARLY_STOP : RunPhase.COMPLETE;
-            progressTracker.setPhase(jobRun.getId(), finalPhase);
-            jobRunService.completeRun(jobRun, succeeded, failed, dates);
-            progressTracker.completeRun(jobRun.getId());
-            LOG.info("Forecast run complete — runType={}, model={}, {} succeeded, {} failed",
-                    runType, evaluationModel, succeeded, failed);
+            setFinalPhase(jobRun, survivors.isEmpty() ? RunPhase.EARLY_STOP : RunPhase.COMPLETE);
+            runCompletion.complete(jobRun, succeeded, failed, dates);
+            LOG.info("Forecast run complete — runType={}, model={}", runType, evaluationModel);
             return results;
         }
 
@@ -358,6 +446,7 @@ public class ForecastCommandExecutor {
         Map<String, GridCellStabilityResult> stabilityByCell = Map.of();
         if (!triggeredManually) {
             StabilityFilterResult stabilityResult = applyStabilityFilter(fullEvalBatch);
+            publishStabilitySkips(fullEvalBatch, stabilityResult.filteredTasks(), jobRun);
             fullEvalBatch = stabilityResult.filteredTasks();
             stabilityByCell = stabilityResult.stabilityByCell();
         } else {
@@ -365,9 +454,8 @@ public class ForecastCommandExecutor {
         }
 
         if (fullEvalBatch.isEmpty()) {
-            progressTracker.setPhase(jobRun.getId(), RunPhase.COMPLETE);
-            jobRunService.completeRun(jobRun, succeeded, failed, dates);
-            progressTracker.completeRun(jobRun.getId());
+            setFinalPhase(jobRun, RunPhase.COMPLETE);
+            runCompletion.complete(jobRun, succeeded, failed, dates);
             LOG.info("Forecast run complete — all remaining tasks filtered by stability");
             return results;
         }
@@ -382,13 +470,20 @@ public class ForecastCommandExecutor {
         succeeded += fullResults.size();
         failed += fullEvalBatch.size() - fullResults.size();
 
-        progressTracker.setPhase(jobRun.getId(), RunPhase.COMPLETE);
-        jobRunService.completeRun(jobRun, succeeded, failed, dates);
-        progressTracker.completeRun(jobRun.getId());
-        LOG.info("Forecast run complete — runType={}, model={}, {} succeeded, {} failed",
-                runType, evaluationModel, succeeded, failed);
+        setFinalPhase(jobRun, RunPhase.COMPLETE);
+        runCompletion.complete(jobRun, succeeded, failed, dates);
+        LOG.info("Forecast run complete — runType={}, model={}", runType, evaluationModel);
 
         return results;
+    }
+
+    /**
+     * Sets the phase a run completes in. A run stopped on a rejected key did not run to the end, so it
+     * completes in {@link RunPhase#EARLY_STOP} whichever exit it took.
+     */
+    private void setFinalPhase(JobRunEntity jobRun, RunPhase normal) {
+        progressTracker.setPhase(jobRun.getId(),
+                progressTracker.isStopped(jobRun.getId()) ? RunPhase.EARLY_STOP : normal);
     }
 
     /**
@@ -423,6 +518,7 @@ public class ForecastCommandExecutor {
         // eventTime to work out how far cloud advects.
         LocalDateTime now = LocalDateTime.now(clock.withZone(ZoneOffset.UTC));
         List<double[]> allPoints = new ArrayList<>();
+        List<double[]> farPoints = new ArrayList<>();
 
         for (TaskDescriptor task : tasks) {
             double lat = task.location().getLat();
@@ -435,7 +531,14 @@ public class ForecastCommandExecutor {
                     : solarService.sunsetAzimuthDeg(lat, lon, date);
 
             // 5 directional cloud points (cone + antisolar + far-solar)
-            allPoints.addAll(openMeteoService.computeDirectionalCloudPoints(lat, lon, azimuth));
+            List<double[]> directionalPoints =
+                    openMeteoService.computeDirectionalCloudPoints(lat, lon, azimuth);
+            allPoints.addAll(directionalPoints);
+            // The real geometry always returns five points (DirectionalSamplingGeometryTest pins it);
+            // the guard only tolerates mocked short lists.
+            if (directionalPoints.size() > DirectionalSamplingGeometry.FAR_SOLAR_POINT_INDEX) {
+                farPoints.add(directionalPoints.get(DirectionalSamplingGeometry.FAR_SOLAR_POINT_INDEX));
+            }
 
             // Solar horizon point for cloud approach trend (same as cone centre — already included)
             // Upwind point (needs wind from prefetched weather)
@@ -464,7 +567,7 @@ public class ForecastCommandExecutor {
 
         LOG.info("Pre-fetching cloud points: {} raw points from {} tasks",
                 allPoints.size(), tasks.size());
-        return openMeteoService.prefetchCloudBatch(allPoints, jobRun);
+        return openMeteoService.prefetchCloudBatch(allPoints, farPoints, jobRun);
     }
 
     /**
@@ -549,9 +652,7 @@ public class ForecastCommandExecutor {
                         allSentinelsLow = false;
                     }
                 } catch (Exception e) {
-                    LOG.error("Sentinel evaluation failed for {} {} on {}: {}",
-                            sentinel.location().getName(), sentinel.targetType(),
-                            sentinel.date(), e.getMessage(), e);
+                    onEvaluationFailure("Sentinel", sentinel, jobRun, e);
                     failed++;
                     allSentinelsLow = false; // Don't skip region on error
                 }
@@ -592,9 +693,51 @@ public class ForecastCommandExecutor {
             JobRunEntity jobRun) {
         return submitParallel(tasks,
                 task -> forecastService.evaluateAndPersist(task, jobRun),
-                (task, e) -> LOG.error("Full evaluation failed for {} {} on {}: {}",
-                        task.location().getName(), task.targetType(),
-                        task.date(), e.getMessage(), e));
+                (task, e) -> onEvaluationFailure("Full", task, jobRun, e));
+    }
+
+    /**
+     * Logs an evaluation that threw and makes sure its task ends FAILED exactly once.
+     *
+     * <p>{@link ForecastService#evaluateAndPersist} publishes the FAILED outcome itself (with the
+     * Claude-specific reason) for everything that goes wrong after it starts, so this normally finds
+     * the task already FAILED and publishes nothing. What it catches is a failure that never got that
+     * far — the {@code claude} bulkhead refusing the call after its wait, a proxy failure — which would
+     * otherwise leave the task for the completion sweep. A place the run never attempted
+     * ({@link RunStoppedException}) is already published and is not worth a log line each.
+     *
+     * @param phase  "Sentinel" or "Full", for the log line
+     * @param task   the task whose evaluation threw
+     * @param jobRun the run
+     * @param e      what was thrown
+     */
+    private void onEvaluationFailure(String phase, ForecastPreEvalResult task, JobRunEntity jobRun,
+            Exception e) {
+        if (e instanceof RunStoppedException) {
+            LOG.debug("{} evaluation not attempted for {} {} on {}: run stopped",
+                    phase, task.location().getName(), task.targetType(), task.date());
+            return;
+        }
+        LOG.error("{} evaluation failed for {} {} on {} [{}]: {}", phase,
+                task.location().getName(), task.targetType(), task.date(), task.model(),
+                e.getMessage(), e);
+        publishFailedIfUnreported(task, jobRun, e);
+    }
+
+    /**
+     * Publishes FAILED for a task that is still in a non-terminal state, with the fixed phrase for
+     * what was thrown. A task the tracker does not hold, or that has already finished, is left alone.
+     */
+    private void publishFailedIfUnreported(ForecastPreEvalResult task, JobRunEntity jobRun, Exception e) {
+        RunProgress progress = progressTracker.getProgress(jobRun.getId());
+        LocationTaskSnapshot snapshot = progress != null ? progress.getTasks().get(task.taskKey()) : null;
+        if (snapshot == null || RunCompletion.isTerminal(snapshot.state())) {
+            return;
+        }
+        eventPublisher.publishEvent(new LocationTaskEvent(
+                this, jobRun.getId(), task.taskKey(), task.location().getName(),
+                task.date().toString(), task.targetType().name(), LocationTaskState.FAILED,
+                EvaluationFailure.of(e).reason(), LocationTaskState.EVALUATING.name()));
     }
 
     /**
@@ -650,6 +793,25 @@ public class ForecastCommandExecutor {
     }
 
     /**
+     * Publishes SKIPPED for every task the stability filter dropped. Those tasks were left in a
+     * fetching state with no further event, so without this a non-manual run could not complete
+     * without sweeping them to FAILED.
+     */
+    private void publishStabilitySkips(List<ForecastPreEvalResult> before,
+            List<ForecastPreEvalResult> kept, JobRunEntity jobRun) {
+        Set<String> keptKeys = new HashSet<>();
+        kept.forEach(t -> keptKeys.add(t.taskKey()));
+        for (ForecastPreEvalResult task : before) {
+            if (!keptKeys.contains(task.taskKey())) {
+                eventPublisher.publishEvent(new LocationTaskEvent(
+                        this, jobRun.getId(), task.taskKey(), task.location().getName(),
+                        task.date().toString(), task.targetType().name(),
+                        LocationTaskState.SKIPPED, STABILITY_SKIP_REASON, null));
+            }
+        }
+    }
+
+    /**
      * Enriches each task's {@link AtmosphericData} with stability classification from the
      * grid cell stability map. Tasks without a matching grid cell are left unchanged.
      *
@@ -689,33 +851,54 @@ public class ForecastCommandExecutor {
     // Wildlife (bypass pipeline)
     // -------------------------------------------------------------------------
 
+    /**
+     * Runs the legacy wildlife comfort engine: two un-batched Open-Meteo calls per location per
+     * date, inserting rows without replacing any.
+     *
+     * <p>No trigger reaches this any more — {@code RunType.WEATHER}'s only schedule was removed on
+     * 2026-02-27 — and {@code WildlifeComfortRefreshJob} has superseded it with a batched,
+     * replace-in-place refresh of the same {@code HOURLY} rows.
+     */
     private List<ForecastEvaluationEntity> executeWildlife(List<LocationEntity> locations,
             List<LocalDate> dates, JobRunEntity jobRun) {
         int succeeded = 0;
         int failed = 0;
 
-        List<CompletableFuture<List<ForecastEvaluationEntity>>> futures = new ArrayList<>();
         List<String[]> taskKeys = new ArrayList<>();
+        List<LocationEntity> taskLocations = new ArrayList<>();
+        List<LocalDate> taskDates = new ArrayList<>();
 
         for (LocationEntity location : locations) {
             for (LocalDate targetDate : dates) {
                 String taskKey = location.getName() + "|" + targetDate + "|HOURLY";
                 taskKeys.add(new String[]{taskKey, location.getName(),
                         targetDate.toString(), "HOURLY"});
-                futures.add(CompletableFuture.supplyAsync(
-                        () -> runForecast(location, targetDate, null,
-                                EvaluationModel.WILDLIFE, jobRun),
-                        forecastExecutor));
+                taskLocations.add(location);
+                taskDates.add(targetDate);
             }
         }
 
+        // Register BEFORE submitting: the hourly forecast publishes no task events of its own, so this
+        // loop reports each task's outcome, and the tracker must already hold the tasks it reports on.
         progressTracker.initRun(jobRun.getId(), taskKeys);
 
+        List<CompletableFuture<List<ForecastEvaluationEntity>>> futures = new ArrayList<>();
+        for (int i = 0; i < taskKeys.size(); i++) {
+            LocationEntity location = taskLocations.get(i);
+            LocalDate targetDate = taskDates.get(i);
+            futures.add(CompletableFuture.supplyAsync(
+                    () -> runForecast(location, targetDate, null,
+                            EvaluationModel.WILDLIFE, jobRun),
+                    forecastExecutor));
+        }
+
         List<ForecastEvaluationEntity> results = new ArrayList<>();
-        for (CompletableFuture<List<ForecastEvaluationEntity>> future : futures) {
+        for (int i = 0; i < futures.size(); i++) {
+            boolean ok;
             try {
-                List<ForecastEvaluationEntity> taskResults = future.join();
-                if (taskResults != null && !taskResults.isEmpty()) {
+                List<ForecastEvaluationEntity> taskResults = futures.get(i).join();
+                ok = taskResults != null && !taskResults.isEmpty();
+                if (ok) {
                     results.addAll(taskResults);
                     succeeded += taskResults.size();
                 } else {
@@ -723,12 +906,17 @@ public class ForecastCommandExecutor {
                 }
             } catch (Exception e) {
                 LOG.error("Wildlife future join failed: {}", e.getMessage(), e);
+                ok = false;
                 failed++;
             }
+            String[] key = taskKeys.get(i);
+            eventPublisher.publishEvent(new LocationTaskEvent(
+                    this, jobRun.getId(), key[0], key[1], key[2], key[3],
+                    ok ? LocationTaskState.COMPLETE : LocationTaskState.FAILED,
+                    ok ? null : WILDLIFE_FAILED_REASON, ok ? null : "HOURLY"));
         }
 
-        jobRunService.completeRun(jobRun, succeeded, failed, dates);
-        progressTracker.completeRun(jobRun.getId());
+        runCompletion.complete(jobRun, succeeded, failed, dates);
         return results;
     }
 
@@ -746,6 +934,45 @@ public class ForecastCommandExecutor {
                 || runType == RunType.LONG_TERM;
     }
 
+
+    /**
+     * Resolves the locations a run evaluates — the one place this engine decides which places
+     * are sky subjects.
+     *
+     * <p>A colour (sky) run keeps only locations for which {@link LocationEntity#hasColourTypes()}
+     * holds, whether the command named its locations or left them to be defaulted to every enabled
+     * one. The filter used to apply to the defaulted list alone, so {@code POST /api/forecast/run}
+     * (which always hands over an explicit list) sent a wildlife hide, a canopy wood or an
+     * out-of-season bluebell wood to the SKY prompt. WOODLAND and BLUEBELL places are not lost by
+     * this: this engine has never had a woodland or bluebell lane (those exist only in the
+     * scheduled batch pipeline), so they only ever reached the sky prompt by mistake here.
+     *
+     * <p>The wildlife branch is unchanged: an explicit list is used as given, the default is
+     * {@link #isPureWildlife}.
+     *
+     * @param command    the command being executed
+     * @param isWildlife whether the command's strategy is the wildlife one
+     * @return the locations to run, never null
+     */
+    private List<LocationEntity> resolveLocations(ForecastCommand command, boolean isWildlife) {
+        if (isWildlife) {
+            return command.locations() != null
+                    ? command.locations()
+                    : locationService.findAllEnabled().stream().filter(this::isPureWildlife).toList();
+        }
+        List<LocationEntity> candidates = command.locations() != null
+                ? command.locations()
+                : locationService.findAllEnabled();
+        List<LocationEntity> skyLocations = candidates.stream()
+                .filter(LocationEntity::hasColourTypes)
+                .toList();
+        int excluded = candidates.size() - skyLocations.size();
+        if (excluded > 0) {
+            LOG.info("Sky run excluded {} location(s) that are not sky subjects "
+                    + "(wildlife, woodland or bluebell only)", excluded);
+        }
+        return skyLocations;
+    }
 
     /**
      * Returns {@code true} if the location is exclusively a WILDLIFE location

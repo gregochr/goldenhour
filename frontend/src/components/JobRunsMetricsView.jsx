@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { getJobRuns, getApiCalls } from '../api/metricsApi';
 import { runVeryShortTermForecast, runShortTermForecast, runLongTermForecast, refreshTideData, backfillTideData, fetchLocations } from '../api/forecastApi';
@@ -20,6 +20,8 @@ import { isSkyPromptCandidate } from '../utils/locationTypes.js';
 import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
 import { latestSolarEventTimes, hasEventPassed } from '../utils/solarEventTimes.js';
 import { parseUtcInstant } from '../utils/conversions.js';
+import { apiErrorMessage } from '../utils/apiError.js';
+import { retryStartedNote } from '../utils/runOutcome.js';
 
 /**
  * Human-readable labels for optimisation strategies shown in the run confirmation dialog — the two
@@ -100,7 +102,15 @@ function hasColourTypes(loc) {
   return isSkyPromptCandidate(loc.locationType);
 }
 
-/** Returns true if the location is pure-wildlife only (WILDLIFE but no colour types). */
+/**
+ * Returns true if the location is pure-wildlife only (WILDLIFE but no colour types).
+ *
+ * <p>⚠️ NOT `locationTypes.isWildlifeOnly`, and the two names mean DIFFERENT sets. This is the
+ * backend `ForecastCommandExecutor.isPureWildlife` rule (a WILDLIFE+WOODLAND or WILDLIFE+BLUEBELL
+ * place counts, because no colour type is present), which decides which places the admin run
+ * screens treat as no-Claude. `isWildlifeOnly` is the narrower `LocationEntity.isWildlifeOnly()`
+ * (WILDLIFE is the ONLY type), which decides who gets a comfort forecast.
+ */
 function isPureWildlife(loc) {
   const types = loc.locationType || [];
   return types.includes('WILDLIFE') && !hasColourTypes(loc);
@@ -218,7 +228,9 @@ LocationSummary.propTypes = {
  * - Pageable job runs grid with filtering
  * - Per-run API call details
  */
-const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }) => {
+const JobRunsMetricsView = ({
+  activeRunId, onActiveRunChange, onActiveRunClear, retryNote, onRetryNoteChange,
+}) => {
   const { isAdmin } = useAuth();
   const [runs, setRuns] = useState([]);
   const [allApiCalls, setAllApiCalls] = useState([]);
@@ -294,7 +306,7 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
       setPage(pageNum + 1);
       setHasMore(newRuns.length === PAGE_SIZE);
     } catch (err) {
-      setError(err.message || 'Failed to load job runs');
+      setError(apiErrorMessage(err, err?.message || 'Failed to load job runs'));
     } finally {
       setLoading(false);
     }
@@ -311,6 +323,35 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
   const handleLoadMore = () => {
     loadJobRuns(page);
   };
+
+  // Dismissing a kept panel removes the thing that held focus, so focus goes to the heading of the
+  // section that started the run; the run buttons it came from are many, and any one would be a
+  // guess. Only a Dismiss moves focus: a clean run clearing itself leaves it where it was.
+  const [promotedRunId, setPromotedRunId] = useState(null);
+  // A retry the server accepted becomes THE active run: the panel for it follows it by id like any
+  // run, survives a tab switch (the id lives in ManageView, and so does the note of what the retry was
+  // given, `retryNote`), and if it ends with failures is kept with its own Retry and Dismiss. The list
+  // reloads so the grid shows the run that just started. The note is shown only on the run it names.
+  const handleRetryStarted = (retryRunId, result) => {
+    if (retryRunId) {
+      setPromotedRunId(retryRunId);
+      onRetryNoteChange?.({ runId: retryRunId, text: retryStartedNote(result) });
+      onActiveRunChange(retryRunId);
+    }
+    loadJobRuns(0);
+  };
+  const runsHeadingRef = useRef(null);
+  const focusRunsHeading = useRef(false);
+  const handleDismissRun = () => {
+    focusRunsHeading.current = true;
+    onActiveRunClear();
+  };
+  useEffect(() => {
+    if (!activeRunId && focusRunsHeading.current) {
+      focusRunsHeading.current = false;
+      runsHeadingRef.current?.focus();
+    }
+  }, [activeRunId]);
 
   const anyRunning = runningVeryShortTerm || runningShortTerm || runningLongTerm || runningTide || runningBackfill || runningLightPollution || runningBriefing || runningScheduledBatch || runningJfdiBatch;
 
@@ -353,7 +394,9 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
         // may have meant either the day or the date, and guessing is how a wrong exclusion goes
         // out. Index 0 is the UK today by construction, so its date IS the staleness test — no
         // second stored field to fall out of step with the slots themselves.
-        if (resolvedSlots?.length && resolvedSlots[0].date !== ukDateStr()) {
+        // `new Date()` explicitly: Operations reads the REAL clock, never an admin's rewind
+        // (`utils/rewind.js`), which `ukDateStr`'s default would otherwise follow.
+        if (resolvedSlots?.length && resolvedSlots[0].date !== ukDateStr(new Date())) {
           setConfirmDialog((prev) => ({
             ...prev,
             slots: computeSlots(runType),
@@ -602,7 +645,8 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
       filtered = filtered.filter((r) => !batchTypes.has(r.runType));
     }
     if (dateRange === 'today') {
-      const today = ukDateStr();
+      // The real clock, like the 7-day cutoff below — Operations never follows an admin's rewind.
+      const today = ukDateStr(new Date());
       return filtered.filter((r) => {
         const startedAt = parseUtcInstant(r.startedAt);
         return startedAt && ukDateStr(startedAt) === today;
@@ -639,7 +683,14 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
       {isAdmin && (
         <div className="card space-y-4">
           <div>
-            <p className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-2">Forecast Runs</p>
+            <h3
+              ref={runsHeadingRef}
+              tabIndex={-1}
+              className="text-xs font-semibold text-plex-text-muted uppercase tracking-wide mb-2 focus-visible:outline-2 focus-visible:outline-plex-gold"
+              data-testid="forecast-runs-heading"
+            >
+              Forecast Runs
+            </h3>
             <div className="flex flex-wrap gap-2">
               <button
                 className="btn-primary text-sm"
@@ -762,11 +813,17 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
       {/* Live run progress */}
       {activeRunId && (
         <RunProgressPanel
+          // key: starting another run (or promoting a retry) while a finished one is kept must
+          // replace the panel, not hand a new run id to a panel still holding the old run's tasks,
+          // summary and failure line.
+          key={activeRunId}
           jobRunId={activeRunId}
-          onComplete={() => {
-            onActiveRunClear();
-            loadJobRuns(0);
-          }}
+          onComplete={() => loadJobRuns(0)}
+          onAutoClear={onActiveRunClear}
+          onDismiss={handleDismissRun}
+          onRetryStarted={handleRetryStarted}
+          focusOnMount={promotedRunId === activeRunId}
+          startedNote={(retryNote?.runId === activeRunId && retryNote.text) || undefined}
         />
       )}
 
@@ -1066,6 +1123,8 @@ JobRunsMetricsView.propTypes = {
   activeRunId: PropTypes.number,
   onActiveRunChange: PropTypes.func.isRequired,
   onActiveRunClear: PropTypes.func.isRequired,
+  retryNote: PropTypes.shape({ runId: PropTypes.number, text: PropTypes.string }),
+  onRetryNoteChange: PropTypes.func,
 };
 
 export default JobRunsMetricsView;

@@ -5,11 +5,16 @@ import com.gregochr.goldenhour.entity.LunarTideType;
 import com.gregochr.goldenhour.service.LunarPhaseService;
 import com.gregochr.goldenhour.service.TideRunBuilder;
 import com.gregochr.goldenhour.service.TideSizeIndex;
+import com.gregochr.goldenhour.util.DayScopedMemo;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * The historical distribution of a tide run's peak range at one representative port (plan D4).
@@ -42,6 +47,29 @@ public class TideRunPeakHistory {
     private final LunarPhaseService lunarPhaseService;
 
     /**
+     * Each (port, roster, window end) history already worked out today.
+     *
+     * <p>One "Coming up" build scores every spring and king run in the feed twice, once for the
+     * entry and once for the conditions strip, and each scoring asked for the same history: a
+     * three-year roster scan plus one query per historical run (~75 runs), about a dozen scans and
+     * ~900 queries per build for six runs. The answer depends only on the key and on stored
+     * extremes, so it is computed once per distinct question per UTC day and dropped when
+     * {@link TideSizeIndex} says the extremes changed.
+     *
+     * <p><b>Rewind-safe.</b> {@code AlmanacService} bypasses its own cache while an admin's rewind is
+     * active, but this memo needs no such bypass: nothing here reads the application clock. The
+     * window is derived from the {@code today} and run start the caller passes, both of which are in
+     * the key (through {@code to}), and the day the memo turns over on is the real UTC date, the
+     * same one {@code TideService.getTideStats} bounds its sample with. A rewound build therefore
+     * either asks a different question and gets its own entry, or asks the identical question and
+     * is correctly served the identical answer.
+     */
+    private final DayScopedMemo<PeakKey, List<Double>> peaks = new DayScopedMemo<>();
+
+    /** The question {@link #peaks} answers. */
+    private record PeakKey(Long representativeId, Set<Long> rosterIds, LocalDate to) { }
+
+    /**
      * Constructs a {@code TideRunPeakHistory}.
      *
      * @param tideSizeIndex     measures which historical dates carried spring- or king-sized water
@@ -53,6 +81,14 @@ public class TideRunPeakHistory {
         this.tideSizeIndex = tideSizeIndex;
         this.tideRunBuilder = tideRunBuilder;
         this.lunarPhaseService = lunarPhaseService;
+        // The history is read from the same stored extremes the index measures, so it goes when the
+        // index's own caches go.
+        tideSizeIndex.onEvicted(this::evict);
+    }
+
+    /** Drops every memoised history so the next request recomputes it. */
+    public void evict() {
+        peaks.evictAll();
     }
 
     /**
@@ -86,14 +122,22 @@ public class TideRunPeakHistory {
             return List.of();
         }
         LocalDate to = (runStartDate.isBefore(today) ? runStartDate : today).minusDays(1);
+        Set<Long> rosterIds = coastalRoster.stream()
+                .map(LocationEntity::getId).filter(Objects::nonNull).collect(Collectors.toUnmodifiableSet());
+        return peaks.get(LocalDate.now(ZoneOffset.UTC), new PeakKey(representative.getId(), rosterIds, to),
+                () -> computePeakRanges(representative, coastalRoster, to));
+    }
+
+    private List<Double> computePeakRanges(LocationEntity representative, List<LocationEntity> coastalRoster,
+            LocalDate to) {
         LocalDate from = to.minusYears(LOOKBACK_YEARS);
         TideSizeIndex.Sizes sizes = tideSizeIndex.measure(coastalRoster, from, to);
 
-        List<Double> peaks = new ArrayList<>();
+        List<Double> found = new ArrayList<>();
         for (List<LocalDate> run : groupIntoRuns(from, to, sizes)) {
-            tideRunBuilder.peakRangeAt(representative, run).ifPresent(peaks::add);
+            tideRunBuilder.peakRangeAt(representative, run).ifPresent(found::add);
         }
-        return peaks;
+        return List.copyOf(found);
     }
 
     /**

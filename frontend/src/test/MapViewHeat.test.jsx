@@ -103,12 +103,22 @@ vi.mock('../components/map/MapLabels.jsx', () => ({
   },
 }));
 
+/** The lazy pins layer, replaced by the same probe pattern: what `MapView` hands it is the assertion. */
+const pinsProps = { last: null };
+vi.mock('../components/map/PinsLayer.jsx', () => ({
+  default: (props) => {
+    pinsProps.last = props;
+    return <div data-testid="map-pins-stub" />;
+  },
+}));
+
 let role = 'PRO_USER';
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role }) }));
 vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => false }));
 let auroraStatus = null;
 vi.mock('../hooks/useAuroraStatus.js', () => ({ useAuroraStatus: () => ({ status: auroraStatus }) }));
-vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ viewline: null }) }));
+let viewlineAnswer = null;
+vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ viewline: viewlineAnswer, source: viewlineAnswer ? 'live' : null }) }));
 vi.mock('../api/auroraApi.js', () => ({
   getAuroraLocations: vi.fn().mockResolvedValue([]),
   getAuroraForecastResults: vi.fn().mockResolvedValue([]),
@@ -123,7 +133,8 @@ vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn().mockRes
 vi.mock('../components/BottomSheet.jsx', () => ({ default: ({ children }) => <div>{children}</div> }));
 vi.mock('../components/MarkerPopupContent.jsx', () => ({ default: () => <div /> }));
 vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
-vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null }));
+// Marker only: a test can ask whether the overlay is MOUNTED (the legend's `viewlineShown` tracks it).
+vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => <div data-testid="aurora-viewline-overlay" /> }));
 
 /** The real ramp, because "which colour did the marker take" is the assertion. */
 const markerCalls = [];
@@ -140,12 +151,18 @@ vi.mock('../components/markerUtils.js', async (importOriginal) => {
 
 import MapView from '../components/MapView.jsx';
 import { buildRegionVerdictIndex } from '../utils/mapVerdict.js';
-import { STOPS_VERDICT, STOPS_TEMP, setMode } from '../utils/scoreRamp.js';
+import { buildPastSolarWindows } from '../utils/mapEvents.js';
+import {
+  STOPS_VERDICT, STOPS_TEMP, setMode, rampHex,
+} from '../utils/scoreRamp.js';
+import { AURORA_RAMP, AURORA_BLOOM } from '../utils/auroraRamp.js';
+import { getAuroraLocations, getAuroraForecastResults, getAuroraForecastAvailableDates } from '../api/auroraApi.js';
 import { markerLabelAndColour } from '../components/markerUtils.js';
 import { getAstroConditions, getAstroAvailableDates } from '../api/astroApi.js';
 import { ukDateStrOffset } from '../utils/mapDates.js';
 import { latLngBounds } from '../utils/heatGeometry.js';
-import { buildScoreIndex, buildTideAlignmentIndex } from '../utils/locationSheet.js';
+import { buildScoreIndex } from '../utils/locationSheet.js';
+import { tideIndexOf } from './tideFactsFixture.js';
 import { buildRegionGlossIndex } from '../utils/regionGloss.js';
 
 const TODAY = '2026-01-15';
@@ -320,14 +337,35 @@ function openLegend() {
 }
 
 /**
+ * A minimal Leaflet-`LatLngBounds`-shaped stand-in for `target.getBounds()` — never a real
+ * viewport, just enough that neither `BoundsTracker` consumer throws. `getSouth`/`getWest`/
+ * `getNorth`/`getEast` are the overlay's own `handleBounds`; `pad`/`contains` are
+ * `mapTideFit.stripModel`'s (tide-window-plan.md T6), reached now that `MapView.jsx` mounts a
+ * SECOND `BoundsTracker` for the tab (`!overlayMode`) as well as the overlay's own. `contains`
+ * always answers false — this file's fixtures are not testing the tide strip, so a stray "visible"
+ * would be a second, accidental thing to explain in an unrelated assertion.
+ */
+function boundsStub() {
+  return {
+    getSouth: () => 0,
+    getWest: () => 0,
+    getNorth: () => 0,
+    getEast: () => 0,
+    pad: () => ({ contains: () => false }),
+  };
+}
+
+/**
  * Fires `zoomend` on every registered `useMapEvents` caller — `MapViewBasemapDress.test.jsx`'s own
  * idiom, needed here for the first time by the Legend handover indicator's integration tests
  * (adversarial review C7), which must drive a REAL zoom rather than rely on the `useState(9)` mount
- * default every earlier test in this file was content with.
+ * default every earlier test in this file was content with. `getBounds` was added for
+ * tide-window-plan.md T6 — `BoundsTracker`'s own `zoomend` handler calls it unconditionally, and a
+ * SECOND `BoundsTracker` now mounts on the tab as well as the overlay.
  */
 function fireZoomend(zoom) {
   act(() => {
-    const target = { getZoom: () => zoom };
+    const target = { getZoom: () => zoom, getBounds: boundsStub };
     for (const handlers of mapEventHandlers) {
       handlers.zoomend?.({ target });
     }
@@ -340,17 +378,27 @@ beforeEach(() => {
   localStorage.clear();
   heatLayerProps.last = null;
   heatLayerProps.mounts = 0;
+  labelSpotsProps.last = null;
+  pinsProps.last = null;
   mapContainerProps.last = null;
   markerCalls.length = 0;
   fitBounds.mockClear();
   markerNonce += 1;
   auroraStatus = null;
+  viewlineAnswer = { active: true, points: [{ latitude: 54, longitude: -3 }] };
   role = 'PRO_USER';
   mapEventHandlers = [];
   mockMapZoomAtMount = 9;
   polylineCalls.length = 0;
 });
-afterEach(() => { vi.useRealTimers(); localStorage.clear(); });
+afterEach(() => {
+  vi.useRealTimers();
+  localStorage.clear();
+  // The aurora mocks are reassigned per test; put them back so no test inherits another's night.
+  getAuroraLocations.mockReset().mockResolvedValue([]);
+  getAuroraForecastResults.mockReset().mockResolvedValue([]);
+  getAuroraForecastAvailableDates.mockReset().mockResolvedValue([]);
+});
 
 describe('MapView heat — the opt-in is off by default', () => {
   it('renders no toolbar and no field for the Plan overlay, which passes no heat prop', async () => {
@@ -785,6 +833,10 @@ describe('MapView heat — the tide-alignment index join (bundle rev 2)', () => 
           slots: [{
             locationId: 1,
             locationName: 'Bamburgh',
+            // A served tide-fit slot always carries a tideState alongside tideOnTheLight — T3's
+            // index now keys on the former, so the fixture must too (tide-window-plan.md §3 T3).
+            tideState: 'HIGH',
+            tideAligned: true,
             tideOnTheLight,
             nearestSolarOffsetMinutes: 25,
             nearestExtremeKind: 'HW',
@@ -800,7 +852,7 @@ describe('MapView heat — the tide-alignment index join (bundle rev 2)', () => 
   }
 
   it('an aligned slot\'s onTheLight/phrase arrive on the Bamburgh entry in labelSpots', async () => {
-    const tideAlignmentIndex = buildTideAlignmentIndex(briefingWithTide(true).days);
+    const tideAlignmentIndex = tideIndexOf(briefingWithTide(true).days);
     await renderMap({ heat: heatProp(), tideAlignmentIndex });
 
     const spot = bamburghSpot();
@@ -809,7 +861,7 @@ describe('MapView heat — the tide-alignment index join (bundle rev 2)', () => 
   });
 
   it('a not-aligned slot reaches labelSpots too, as onTheLight: false with no phrase', async () => {
-    const tideAlignmentIndex = buildTideAlignmentIndex(briefingWithTide(false).days);
+    const tideAlignmentIndex = tideIndexOf(briefingWithTide(false).days);
     await renderMap({ heat: heatProp(), tideAlignmentIndex });
 
     const spot = bamburghSpot();
@@ -830,17 +882,515 @@ describe('MapView heat — the tide-alignment index join (bundle rev 2)', () => 
   });
 });
 
+describe('MapView heat — dimmed, not dropped (tide-window-plan.md §3 T4)', () => {
+  /**
+   * A slot with a served tide state — `tideAligned` toggles which tier it reads as.
+   */
+  function tideBriefing(locationId, locationName, tideAligned, state = null) {
+    return {
+      days: [{
+        date: TODAY,
+        eventSummaries: [{
+          targetType: 'SUNSET',
+          regions: [{
+            regionName: 'North East',
+            slots: [{
+              locationId,
+              locationName,
+              tideState: state ?? (tideAligned ? 'HIGH' : 'LOW'),
+              tideAligned,
+            }],
+          }],
+        }],
+      }],
+    };
+  }
+
+  /**
+   * A served tide fact for EVERY location in the roster (`SPOTS`, ids 1-6) — "every coastal slot"
+   * as §7 check 2 literally names it, rather than one spot standing in for the whole pool. Real
+   * coastal-ness is a server-side question this predicate never re-checks client-side (adversarial
+   * review, T4) — attaching a tide fact to every id is exactly what proves the pool's SIZE cannot
+   * move regardless of how many slots carry one.
+   */
+  function allTideBriefing(tideAligned) {
+    return {
+      days: [{
+        date: TODAY,
+        eventSummaries: [{
+          targetType: 'SUNSET',
+          regions: [{
+            regionName: 'North East',
+            slots: SPOTS.map((s) => ({
+              locationId: s.id,
+              locationName: `${s.name}-0`,
+              tideState: tideAligned ? 'HIGH' : 'LOW',
+              tideAligned,
+            })),
+          }],
+        }],
+      }],
+    };
+  }
+
+  function coastalTideFactLocation() {
+    return {
+      id: 7,
+      name: 'Tide Fact Coastal',
+      lat: 55.5,
+      lon: -1.65,
+      regionName: 'North East',
+      bortleClass: 4,
+      locationType: ['SEASCAPE'],
+      forecastsByDate: new Map([[TODAY, {
+        sunset: { rating: null, solarEventTime: `${TODAY}T16:12:00`, fierySkyPotential: null, goldenHourPotential: null },
+      }]]),
+    };
+  }
+
+  function inlandUnratedLocation() {
+    return {
+      id: 8,
+      name: 'Inland Unrated',
+      lat: 54.9,
+      lon: -3.0,
+      regionName: 'The Lakes',
+      bortleClass: 3,
+      locationType: ['LANDSCAPE'],
+      forecastsByDate: new Map([[TODAY, {
+        sunset: { rating: null, solarEventTime: `${TODAY}T16:12:00`, fierySkyPotential: null, goldenHourPotential: null },
+      }]]),
+    };
+  }
+
+  // The "My area" scope segment defaults ON (`heatArea` mounts `true`), and `scopedVisibleLocations`
+  // narrows to `heat.areaSpots` membership whenever it is — so both fixture locations need an
+  // entry there, keyed by `id` (`heatSpotKey`'s own id-first join), or the scope narrowing alone
+  // would explain their absence and this test would prove nothing about the rating stage at all.
+  const AREA_SPOTS_WITH_FIXTURES = [
+    ...AREA_SPOTS, { id: 7, name: 'Tide Fact Coastal' }, { id: 8, name: 'Inland Unrated' },
+  ];
+
+  it('§7 check 13 — a coastal location with a served tide fact renders with showUnrated false; an inland unrated one does not', async () => {
+    // ⚠️ Plain, un-suffixed names — `coastalTideFactLocation`/`inlandUnratedLocation` are constructed
+    // directly by this file, never through `makeLocations()`'s `-${markerNonce}` cache-busting
+    // suffix (that exists solely for `makeMarkerIcon`'s module-level cache, which this test does
+    // not exercise). The tide index's join is ID-first regardless (`locationId: 7`), so the name
+    // only has to match what `labelSpots` will actually print.
+    const tideAlignmentIndex = tideIndexOf(
+      tideBriefing(7, 'Tide Fact Coastal', false).days,
+    );
+    await renderMap({
+      heat: heatProp({ areaSpots: AREA_SPOTS_WITH_FIXTURES }),
+      tideAlignmentIndex,
+      locations: [...makeLocations(), coastalTideFactLocation(), inlandUnratedLocation()],
+    });
+
+    const names = labelSpotsProps.last.spots.map((s) => s.name);
+    expect(names).toContain('Tide Fact Coastal');
+    expect(names).not.toContain('Inland Unrated');
+  });
+
+  it('§7 check 13 — the same fixture leaves the admin "unknown" toggle unaffected by the tide-fact location', async () => {
+    // `hasUnrated` gates the admin debug toggle's own enabled state and its title
+    // ("No unknown-state locations in view" vs "Toggle locations with no evaluation") — a
+    // coastal location with a served tide fact must not make that toggle read as though a GENUINELY unrated location
+    // were present, since enabling it would change nothing about a location already on screen.
+    role = 'ADMIN';
+    const tideAlignmentIndex = tideIndexOf(
+      tideBriefing(7, 'Tide Fact Coastal', false).days,
+    );
+    await renderMap({
+      heat: heatProp({ areaSpots: AREA_SPOTS_WITH_FIXTURES }),
+      tideAlignmentIndex,
+      locations: [...makeLocations(), coastalTideFactLocation()],
+    });
+    openFilters();
+
+    const toggle = screen.getByTestId('star-filter-unrated');
+    expect(toggle).toBeDisabled();
+    expect(toggle).toHaveAttribute('title', 'No unknown-state locations in view');
+  });
+
+  it('⚠️ a RATED coastal miss still renders under the default 3★+ floor — the tide bypass is not only for a null rating (Codex review, PR #880 P1)', async () => {
+    // The weather-stood-down-then-rated path (§1 #3) can land a coastal miss with a real,
+    // LOW rating rather than null — `visibleLocations` must let it past the star floor on the
+    // served tide fact alone, the same as a null-rated one, or the "coast disappears for tide"
+    // defect returns for exactly this path. An inland location at the SAME low rating is the
+    // control: it must still be cut by the ordinary floor, proving this isn't "the floor stopped
+    // working" but specifically "a served tide fact bypasses it".
+    function ratedCoastalMissLocation() {
+      return {
+        id: 9,
+        name: 'Rated Coastal Miss',
+        lat: 55.45,
+        lon: -1.55,
+        regionName: 'North East',
+        bortleClass: 4,
+        locationType: ['SEASCAPE'],
+        forecastsByDate: new Map([[TODAY, {
+          sunset: { rating: 2, solarEventTime: `${TODAY}T16:12:00`, fierySkyPotential: 30, goldenHourPotential: 35 },
+        }]]),
+      };
+    }
+    function ratedInlandLocation() {
+      return {
+        id: 10,
+        name: 'Rated Inland',
+        lat: 54.8,
+        lon: -3.1,
+        regionName: 'The Lakes',
+        bortleClass: 3,
+        locationType: ['LANDSCAPE'],
+        forecastsByDate: new Map([[TODAY, {
+          sunset: { rating: 2, solarEventTime: `${TODAY}T16:12:00`, fierySkyPotential: 30, goldenHourPotential: 35 },
+        }]]),
+      };
+    }
+    const tideAlignmentIndex = tideIndexOf(
+      tideBriefing(9, 'Rated Coastal Miss', false).days,
+    );
+    await renderMap({
+      heat: heatProp({
+        areaSpots: [...AREA_SPOTS_WITH_FIXTURES, { id: 9, name: 'Rated Coastal Miss' }, { id: 10, name: 'Rated Inland' }],
+      }),
+      tideAlignmentIndex,
+      locations: [...makeLocations(), ratedCoastalMissLocation(), ratedInlandLocation()],
+    });
+
+    // Premise: default minStars is 3★+ (DEFAULT_MIN_STARS, localStorage cleared in beforeEach),
+    // and both fixtures are rated 2★ — below it.
+    const names = labelSpotsProps.last.spots.map((s) => s.name);
+    expect(names).toContain('Rated Coastal Miss');
+    expect(names).not.toContain('Rated Inland');
+  });
+
+  it('§7 check 2 — nothing is dropped: the pool handed to MapLabels/PinsLayer is the same size whether EVERY coastal slot matches or misses', async () => {
+    const allAligned = tideIndexOf(allTideBriefing(true).days);
+    const allMissed = tideIndexOf(allTideBriefing(false).days);
+
+    await renderMap({ heat: heatProp(), tideAlignmentIndex: allAligned });
+    const alignedCount = labelSpotsProps.last.spots.length;
+    // Premise: the tide index actually reached every rendered spot, not merely one of them —
+    // otherwise an all-vs-all comparison would be no stronger than the single-spot version it
+    // replaces.
+    labelSpotsProps.last.spots.forEach((spot) => expect(spot.tideTier).toBe('match'));
+
+    markerNonce += 1;
+    await renderMap({ heat: heatProp(), tideAlignmentIndex: allMissed });
+    const missedCount = labelSpotsProps.last.spots.length;
+    labelSpotsProps.last.spots.forEach((spot) => expect(spot.tideTier).toBe('miss'));
+
+    expect(missedCount).toBe(alignedCount);
+  });
+
+  it('§7 check 1 — tide never moves the heat: the field\'s own points are unaffected by tide alignment, across HIGH/MID/LOW', async () => {
+    const heat = heatProp();
+    const forState = (state, tideAligned) => tideIndexOf(
+      tideBriefing(1, 'Bamburgh-0', tideAligned, state).days,
+    );
+
+    await renderMap({ heat, tideAlignmentIndex: forState('HIGH', true) });
+    const highPoints = heatLayerProps.last.points;
+
+    // MID is the design's own straddling case (§5 #4: "a set that straddles the state has no
+    // single direction") — the one state a well-meaning "dim the field for an ambiguous tide"
+    // mistake would most plausibly target, so it earns its own comparison rather than being
+    // implied by HIGH vs LOW alone.
+    markerNonce += 1;
+    await renderMap({ heat, tideAlignmentIndex: forState('MID', false) });
+    const midPoints = heatLayerProps.last.points;
+
+    markerNonce += 1;
+    await renderMap({ heat, tideAlignmentIndex: forState('LOW', false) });
+    const lowPoints = heatLayerProps.last.points;
+
+    // Deep-equal, not identity — a fresh render legitimately produces a new array/object graph,
+    // but its CONTENT (every point's rating) must be untouched by which tier the same slot reads.
+    expect(midPoints).toEqual(highPoints);
+    expect(lowPoints).toEqual(highPoints);
+  });
+});
+
 describe('MapView heat — the modes it stands down for', () => {
-  it('paints no field and offers no toolbar in aurora mode', async () => {
-    // The markers there carry Kp visibility, not sky colour. A sky-colour field painted under them
-    // would be two scales on one picture with nothing saying so.
-    //
-    // Aurora mode has to be REACHABLE to be tested: `MapView` resets the event type to SUNSET
-    // whenever aurora is unavailable, so a stored result is what lets the mode stand.
+  // ⚠️ Rewritten for aurora-heat-plan.md §3 A2 (the successor of "paints no field and offers no
+  // toolbar in aurora mode"): aurora now paints the field exactly as astro does, scored from that
+  // night's aurora stars and in its own ramp. See the four tests below.
+  //
+  // Aurora mode has to be REACHABLE to be tested: `MapView` resets the event type to SUNSET
+  // whenever aurora is unavailable, so a live alert (or a stored result) is what lets it stand.
+  it('offers the toolbar and the field in aurora mode', async () => {
     auroraStatus = { active: true, level: 'QUIET' };
     await renderMap({ heat: heatProp(), handoffEventType: 'AURORA' });
-    expect(screen.queryByTestId('wf-map-toolbar')).toBeNull();
-    expect(screen.queryByTestId('map-heat-layer')).toBeNull();
+    expect(screen.getByTestId('wf-map-toolbar')).toBeInTheDocument();
+    await screen.findByTestId('map-heat-layer');
+  });
+
+  it('paints the live night from the LIVE aurora stars, and leaves an unrated location out', async () => {
+    auroraStatus = { active: true, level: 'MODERATE', currentNightDate: TODAY };
+    getAuroraLocations.mockResolvedValue([
+      { location: { name: SPOTS[0].name }, stars: 4 },
+      { location: { name: SPOTS[2].name }, stars: 2 },
+    ]);
+    // A STORED result for the same night that says something different: on the night in progress
+    // the medallion rule (plan D1) reads the live source, so this must not reach the field.
+    getAuroraForecastResults.mockResolvedValue([{ locationName: SPOTS[0].name, stars: 1 }]);
+    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA' });
+    await waitFor(() => expect(heatLayerProps.last.points).toHaveLength(2));
+    // Tynemouth has no aurora rating: ABSENT, never a 1-star placeholder.
+    expect(heatLayerProps.last.points.map((p) => [p.name, p.r[0]]).sort()).toEqual(
+      [[SPOTS[0].name, 4], [SPOTS[2].name, 2]].sort(),
+    );
+  });
+
+  it('paints any OTHER night from that night\'s STORED results, never tonight\'s live stars', async () => {
+    auroraStatus = { active: true, level: 'MODERATE', currentNightDate: TOMORROW };
+    getAuroraLocations.mockResolvedValue([{ location: { name: SPOTS[0].name }, stars: 5 }]);
+    getAuroraForecastResults.mockImplementation((night) => Promise.resolve(
+      night === TODAY ? [{ locationName: SPOTS[2].name, stars: 3 }] : [],
+    ));
+    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA' });
+    await waitFor(() => expect(heatLayerProps.last.points).toHaveLength(1));
+    expect(heatLayerProps.last.points[0].name).toBe(SPOTS[2].name);
+    expect(heatLayerProps.last.points[0].r).toEqual([3]);
+  });
+
+  it('hands the aurora field its own capped-inference confidence, never null/full strength', async () => {
+    auroraStatus = { active: true, level: 'QUIET' };
+    await renderMap({ heat: heatProp(), date: '2026-01-20', handoffEventType: 'AURORA' });
+    await screen.findByTestId('map-heat-layer');
+    // A T+5 night: the capped-inference tier is 'low', scalar 0.5 — not the null-default 1.
+    expect(heatLayerProps.last.conf).toBe(0.5);
+  });
+
+  it('swaps the ramp with the window: aurora ramp, then none on a sunset, then the aurora ramp again', async () => {
+    auroraStatus = { active: true, level: 'MODERATE', currentNightDate: TODAY };
+    getAuroraLocations.mockResolvedValue([{ location: { name: SPOTS[0].name }, stars: 4 }]);
+    // A stored night is what puts an aurora ROW in the window control to switch back to.
+    getAuroraForecastAvailableDates.mockResolvedValue([TODAY]);
+    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA' });
+    await waitFor(() => expect(heatLayerProps.last.ramp).toBe(AURORA_RAMP.rgb));
+    expect(heatLayerProps.last.bloom).toBe(AURORA_BLOOM);
+
+    pickWindow(`${TODAY}:SUNSET`);
+    await waitFor(() => expect(heatLayerProps.last.ramp).toBeNull());
+    expect(heatLayerProps.last.bloom).toBeNull();
+
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    const auroraRow = screen.getAllByTestId('wf-win-row')
+      .find((r) => r.getAttribute('data-ev-id').startsWith('aur:'));
+    expect(auroraRow).toBeTruthy();
+    fireEvent.click(auroraRow);
+    await waitFor(() => expect(heatLayerProps.last.ramp).toBe(AURORA_RAMP.rgb));
+    expect(heatLayerProps.last.bloom).toBe(AURORA_BLOOM);
+  });
+
+  it('hands the chips the aurora ramp in aurora mode and the shared ramp otherwise', async () => {
+    auroraStatus = { active: true, level: 'QUIET' };
+    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA' });
+    await waitFor(() => expect(labelSpotsProps.last).not.toBeNull());
+    expect(labelSpotsProps.last.rampHex).toBe(AURORA_RAMP.hex);
+  });
+
+  it('hands the heat layer NO ramp or bloom in a solar window', async () => {
+    await renderMap({ heat: heatProp() });
+    await screen.findByTestId('map-heat-layer');
+    expect(heatLayerProps.last.ramp).toBeNull();
+    expect(heatLayerProps.last.bloom).toBeNull();
+    expect(labelSpotsProps.last.rampHex).toBe(rampHex);
+  });
+
+  /** Locations named exactly as `SPOTS` are, so a chip's own rating join and the field's agree. */
+  const plainLocations = () => SPOTS.map((sp) => ({
+    id: sp.id,
+    name: sp.name,
+    lat: sp.lat,
+    lon: sp.lng,
+    regionName: sp.rid,
+    bortleClass: sp.bortleClass,
+    locationType: ['LANDSCAPE'],
+    forecastsByDate: new Map(),
+  }));
+  const liveNight = (rows) => {
+    auroraStatus = { active: true, level: 'MODERATE', currentNightDate: TODAY };
+    getAuroraLocations.mockResolvedValue(rows.map(([i, stars]) => ({ location: { name: SPOTS[i].name }, stars })));
+  };
+
+  it('omits a NaN, a null and a missing aurora rating from the field points', async () => {
+    liveNight([[0, 4], [1, Number.NaN], [2, null]]);
+    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA', locations: plainLocations() });
+    await waitFor(() => expect(heatLayerProps.last.points).toHaveLength(1));
+    expect(heatLayerProps.last.points[0].name).toBe(SPOTS[0].name);
+  });
+
+  it('omits a null stored rating on a stored night too', async () => {
+    auroraStatus = { active: true, level: 'MODERATE', currentNightDate: TOMORROW };
+    getAuroraForecastResults.mockImplementation((night) => Promise.resolve(
+      night === TODAY
+        ? [{ locationName: SPOTS[0].name, stars: 3 }, { locationName: SPOTS[1].name, stars: null }]
+        : [],
+    ));
+    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA', locations: plainLocations() });
+    await waitFor(() => expect(heatLayerProps.last.points).toHaveLength(1));
+  });
+
+  it('on the live night, falls back to the stored result for a spot the live cache does not hold', async () => {
+    liveNight([[0, 4]]);
+    getAuroraForecastResults.mockResolvedValue([{ locationName: SPOTS[2].name, stars: 3 }]);
+    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA', locations: plainLocations() });
+    await waitFor(() => expect(heatLayerProps.last.points).toHaveLength(2));
+    expect(heatLayerProps.last.points.map((p) => [p.name, p.r[0]]).sort()).toEqual(
+      [[SPOTS[0].name, 4], [SPOTS[2].name, 3]].sort(),
+    );
+  });
+
+  it('shows the unscored line in aurora mode when nothing is rated, and not when something is', async () => {
+    auroraStatus = { active: true, level: 'QUIET' };
+    getAuroraForecastAvailableDates.mockResolvedValue([TODAY]);
+    const { unmount } = await renderMap({ heat: heatProp(), handoffEventType: 'AURORA' });
+    await screen.findByTestId('map-heat-layer');
+    expect(screen.getByTestId('wf-map-heat-unscored')).toHaveTextContent('This event is not scored yet');
+    expect(screen.queryByTestId('wf-map-heat-legend')).toBeNull();
+    unmount();
+
+    liveNight([[0, 4]]);
+    getAuroraForecastAvailableDates.mockResolvedValue([TODAY]);
+    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA', locations: plainLocations() });
+    await waitFor(() => expect(heatLayerProps.last.points).toHaveLength(1));
+    expect(screen.queryByTestId('wf-map-heat-unscored')).toBeNull();
+    expect(screen.getByTestId('wf-map-heat-legend')).toBeInTheDocument();
+  });
+
+  it('computes the aurora confidence on the NIGHT on screen, not on the date prop', async () => {
+    // `date` stays TODAY (T+0, full strength) while the reader picks a far night through the window
+    // control, which keeps it local: a scalar computed on `date` would read 1 here, not 0.5.
+    const FAR = '2026-01-20';
+    auroraStatus = { active: true, level: 'QUIET' };
+    getAuroraForecastAvailableDates.mockResolvedValue([FAR]);
+    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA' });
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    const row = screen.getAllByTestId('wf-win-row')
+      .find((r) => r.getAttribute('data-ev-id') === `aur:${FAR}:AURORA`);
+    expect(row).toBeTruthy();
+    fireEvent.click(row);
+    await waitFor(() => expect(heatLayerProps.last.conf).toBe(0.5));
+  });
+
+  it('narrows the aurora field by a dark-sky filter set in a solar window, as the chips are narrowed', async () => {
+    // The toggle itself is withheld in aurora mode (`FiltersPopover`), but its state persists across
+    // a window switch, and the chips obey it. The field must too.
+    liveNight([[0, 4], [1, 4], [2, 4]]);
+    getAuroraForecastAvailableDates.mockResolvedValue([TODAY]);
+    await renderMap({ heat: heatProp(), locations: plainLocations() });
+    openFilters();
+    fireEvent.click(screen.getByTestId('dark-sky-filter-toggle'));
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    fireEvent.click(screen.getAllByTestId('wf-win-row')
+      .find((r) => r.getAttribute('data-ev-id').startsWith('aur:')));
+    // Tynemouth is Bortle 6, above the threshold: gone from the field AND from the chips.
+    await waitFor(() => expect(heatLayerProps.last.points.map((p) => p.name).sort()).toEqual(
+      [SPOTS[0].name, SPOTS[2].name].sort(),
+    ));
+    expect(labelSpotsProps.last.spots.map((sp) => sp.name)).not.toContain(SPOTS[1].name);
+    expect(labelSpotsProps.last.spots.map((sp) => sp.name)).toContain(SPOTS[0].name);
+  });
+
+  it('counts the aurora points in the footer', async () => {
+    liveNight([[0, 4], [2, 3]]);
+    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA', locations: plainLocations() });
+    await waitFor(() => expect(screen.getByTestId('wf-map-counts-footer')).toHaveTextContent('2 of 5 shown'));
+  });
+
+  it('draws the colour key as a 1-star to 5-star aurora rating, not Poor to Worth it', async () => {
+    liveNight([[0, 4]]);
+    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA', locations: plainLocations() });
+    const key = await screen.findByTestId('wf-map-heat-legend');
+    expect(key).toHaveAttribute('aria-label', 'Colour key: the field runs from 1★ to 5★ aurora rating');
+    expect(key).toHaveTextContent('1★');
+    expect(key).toHaveTextContent('5★');
+    expect(key).not.toHaveTextContent('Poor');
+    const probe = document.createElement('div');
+    probe.style.background = AURORA_RAMP.gradientCss();
+    expect(screen.getByTestId('wf-map-heat-legend-ramp').style.background).toBe(probe.style.background);
+  });
+
+  it('keeps the solar colour key and the solar legend in a solar window', async () => {
+    await renderMap({ heat: heatProp() });
+    expect(screen.getByTestId('wf-map-heat-legend')).toHaveAttribute(
+      'aria-label', 'Colour key: the field runs from Poor to Worth it',
+    );
+    expect(screen.getByTestId('wf-legend-chip')).toBeInTheDocument();
+
+    openLegend();
+    expect(screen.getByTestId('wf-legend-panel')).toHaveTextContent('1\u2605 poor');
+    expect(screen.getByTestId('wf-legend-panel')).not.toHaveTextContent('AURORA RATING');
+  });
+
+  it('mounts the legend panel in aurora mode with the aurora variant; the note names the viewline on the live night', async () => {
+    // Reverses A2's "withheld in aurora until A3".
+    liveNight([[0, 4]]);
+    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA', locations: plainLocations() });
+    await screen.findByTestId('wf-map-heat-legend');
+    openLegend();
+    const panel = screen.getByTestId('wf-legend-panel');
+    expect(panel).toHaveTextContent('COLOUR = AURORA RATING');
+    expect(panel).toHaveTextContent('5\u2605 aurora green');
+    // viewlineShown tracks the overlay's own mount: both true on the live night.
+    expect(screen.getByTestId('aurora-viewline-overlay')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-legend-note')).toHaveTextContent('The line is where the aurora clears the northern horizon on camera');
+  });
+
+  it('drops the viewline sentence while the viewline has not answered, or answered inactive or empty', async () => {
+    for (const answer of [null, { active: false, points: [] }, { active: true, points: [] }]) {
+      viewlineAnswer = answer;
+      liveNight([[0, 4]]);
+      const { unmount } = await renderMap({
+        heat: heatProp(), handoffEventType: 'AURORA', locations: plainLocations(),
+      });
+      await screen.findByTestId('wf-map-heat-legend');
+      openLegend();
+      // Eligible night: the overlay is mounted, but no line is drawn, so the note must not name one.
+      expect(screen.getByTestId('wf-legend-note')).toHaveTextContent('Rating, not Kp.');
+      expect(screen.getByTestId('wf-legend-note')).not.toHaveTextContent('clears the northern horizon');
+      unmount();
+    }
+  });
+
+  it('drops the viewline sentence on a stored past night, where the overlay is not mounted either', async () => {
+    auroraStatus = { active: true, level: 'MODERATE', currentNightDate: TOMORROW };
+    getAuroraForecastResults.mockImplementation((night) => Promise.resolve(
+      night === TODAY ? [{ locationName: SPOTS[0].name, stars: 3 }] : [],
+    ));
+    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA', locations: plainLocations() });
+    await waitFor(() => expect(heatLayerProps.last.points).toHaveLength(1));
+    openLegend();
+    expect(screen.getByTestId('wf-legend-panel')).toHaveTextContent('COLOUR = AURORA RATING');
+    expect(screen.queryByTestId('aurora-viewline-overlay')).toBeNull();
+    expect(screen.getByTestId('wf-legend-note')).toHaveTextContent('Rating, not Kp.');
+    expect(screen.getByTestId('wf-legend-note')).not.toHaveTextContent('clears the northern horizon');
+  });
+
+  it('hands PinsLayer and MapLabels the aurora ramp, the glow and omitUnrated in aurora mode only', async () => {
+    liveNight([[0, 4]]);
+    await renderMap({ heat: heatProp(), handoffEventType: 'AURORA', locations: plainLocations() });
+    await waitFor(() => expect(labelSpotsProps.last).not.toBeNull());
+    expect(labelSpotsProps.last.omitUnrated).toBe(true);
+    fireEvent.click(screen.getByTestId('wf-map-view-pins'));
+    await waitFor(() => expect(pinsProps.last).not.toBeNull());
+    expect(pinsProps.last.rampHex).toBe(AURORA_RAMP.hex);
+    expect(pinsProps.last.glow).toBe(true);
+    expect(pinsProps.last.omitUnrated).toBe(true);
+  });
+
+  it('hands PinsLayer and MapLabels the defaults in a solar window', async () => {
+    await renderMap({ heat: heatProp() });
+    expect(labelSpotsProps.last.omitUnrated).toBe(false);
+    expect(labelSpotsProps.last.rampHex).toBe(rampHex);
+    fireEvent.click(screen.getByTestId('wf-map-view-pins'));
+    await waitFor(() => expect(pinsProps.last).not.toBeNull());
+    expect(pinsProps.last.rampHex).toBe(rampHex);
+    expect(pinsProps.last.glow).toBe(false);
+    expect(pinsProps.last.omitUnrated).toBe(false);
   });
 
   // ⚠️ Rewritten for map-tab-v2-plan.md §3 P6, which is a genuine behaviour change here, not a
@@ -850,7 +1400,7 @@ describe('MapView heat — the modes it stands down for', () => {
   // tests below for its successor, one per branch (nothing scored yet, and a real score).
   it('offers the toolbar in astro mode, painting nothing while nothing is scored', async () => {
     // This file's `astroApi` mock resolves no conditions for any date, so the field exists but has
-    // nothing to paint — distinct from aurora, which stands the toolbar down outright.
+    // nothing to paint — the same shape aurora now has (aurora heat A2 offers the toolbar there too).
     await renderMap({ heat: heatProp(), handoffEventType: 'ASTRO' });
     expect(screen.getByTestId('wf-map-toolbar')).toBeInTheDocument();
     await screen.findByTestId('map-heat-layer');
@@ -1111,6 +1661,52 @@ describe('MapView heat — the counts footer', () => {
     // Five drawn in My area, four of them rated — the wildlife spot is the fifth.
     expect(foot).toHaveTextContent('5 of 5 shown');
     expect(screen.getByTestId('wf-map-counts-rated')).toHaveTextContent('4 rated');
+  });
+
+  it('⚠️ a hide\'s hourly comfort rows change nothing the footer says — rendered with and without, compared', async () => {
+    // The comfort forecast now shows on the callout and the sheet, and its HOURLY rows ride the same
+    // per-date entry the sunrise/sunset rows do. Nothing that paints the field, a pin or a chip reads
+    // `hourly`; this pins that by rendering the SAME roster twice — the hide with a full day of
+    // hourly rows (a wind and a rain figure each), then with none — and comparing what the footer
+    // says. (`heatSpots.test` pins that the hide's own scores stay withheld.)
+    const withHourly = (hourly) => {
+      const locations = makeLocations();
+      locations[0] = {
+        ...locations[0],
+        locationType: ['WILDLIFE'],
+        forecastsByDate: new Map([[TODAY, {
+          sunset: { solarEventTime: `${TODAY}T16:12:00` },
+          sunrise: { solarEventTime: `${TODAY}T08:24:00` },
+          hourly,
+        }]]),
+      };
+      return locations;
+    };
+    const hourly = [8, 9, 10, 11, 12].map((hour) => ({
+      solarEventTime: `${TODAY}T${String(hour).padStart(2, '0')}:00:00`,
+      temperatureCelsius: 9,
+      apparentTemperatureCelsius: 7,
+      windSpeed: 5,
+      windDirection: 180,
+      precipitationProbabilityPercent: 40,
+    }));
+    const footerFor = async (locations) => {
+      let view;
+      await act(async () => {
+        view = render(
+          <MapView locations={locations} date={TODAY} autoEventType={null} heat={heatProp()} />,
+        );
+      });
+      const foot = (await screen.findByTestId('wf-map-counts-footer')).textContent;
+      view.unmount();
+      return foot;
+    };
+
+    const without = await footerFor(withHourly([]));
+    const withRows = await footerFor(withHourly(hourly));
+
+    expect(without).toContain('5 of 5 shown');
+    expect(withRows).toBe(without);
   });
 
   it('withholds the rated count when every drawn location is rated — never `5 of 5 · 5 rated`', async () => {
@@ -1743,7 +2339,11 @@ describe('the window pill\'s verdict — filters must not move it, scope must (d
   /** What the pill is actually saying, as a reader would read it. */
   function pillVerdict() {
     return {
-      word: screen.getByTestId('wf-win-verdict').querySelector('b').textContent,
+      // The SPOKEN word: an UNRATED pill renders a short/full pair (aria-hidden "Too few" + the full
+      // word, swapped by the stylesheet at 811px and below), so the full-word span is read when there
+      // is one and the bare text otherwise.
+      word: (screen.getByTestId('wf-win-verdict').querySelector('[data-testid="wf-vw-full"]')
+        ?? screen.getByTestId('wf-win-verdict').querySelector('b')).textContent,
       region: screen.queryByTestId('wf-win-verdict-region')?.textContent ?? null,
       tier: screen.getByTestId('wf-win-pill').getAttribute('data-tier'),
     };
@@ -1755,6 +2355,25 @@ describe('the window pill\'s verdict — filters must not move it, scope must (d
     // Opens in "My area", which excludes The Borders — so the answer is The Lakes, not the
     // catalogue's best.
     expect(pillVerdict()).toEqual({ word: 'Maybe', region: 'The Lakes', tier: 'MAYBE' });
+  });
+
+  it('says "Too few rated" and names the region when the top region in scope is UNRATED (unrated-verdict-plan.md U2)', async () => {
+    // The Lakes is rated (mean 2.9) but its sample failed the gate and the weather passed it — the
+    // server says UNRATED. The pill must carry the word and the region, on a tier with no hue.
+    const unratedDays = [{
+      date: TODAY,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [
+          { regionName: 'The Borders', meanRating: 4.4, displayVerdict: 'WORTH_IT', sampleSufficient: true, slots: [{ canopy: false }] },
+          { regionName: 'The Lakes', meanRating: 2.9, displayVerdict: 'UNRATED', sampleSufficient: false, slots: [{ canopy: false }] },
+          { regionName: 'North East', meanRating: 2.0, displayVerdict: 'STAND_DOWN', sampleSufficient: false, slots: [{ canopy: false }] },
+        ],
+      }],
+    }];
+    await renderMap({ heat: heatProp(), regionVerdictIndex: buildRegionVerdictIndex(unratedDays) });
+
+    expect(pillVerdict()).toEqual({ word: 'Too few rated', region: 'The Lakes', tier: 'UNRATED' });
   });
 
   it('would MOVE if the verdict were computed from a filtered pool — the mutation these guard', async () => {
@@ -2219,13 +2838,16 @@ describe('the region panel — one region, into the sheet that already exists', 
     { locationId: 1, date: TODAY, targetType: 'SUNSET', rating: 5, goldenHourEnd: `${TODAY}T16:10:00` },
   ]);
 
-  const TIDE_INDEX = buildTideAlignmentIndex([{
+  const TIDE_INDEX = tideIndexOf([{
     date: TODAY,
     eventSummaries: [{
       targetType: 'SUNSET',
       regions: [{
         regionName: 'North East',
-        slots: [{ locationId: 1, tideOnTheLight: true, nearestSolarOffsetPhrase: 'HW 12 min after sunset' }],
+        slots: [{
+          locationId: 1, tideState: 'HIGH', tideAligned: true, tideOnTheLight: true,
+          nearestSolarOffsetPhrase: 'HW 12 min after sunset',
+        }],
       }],
     }],
   }]);
@@ -3270,5 +3892,210 @@ describe('MapView heat — the key slot while an astro night\'s own request fail
     await land(() => requests[0].reject(new Error('astro conditions down')));
     expect(slot()).toHaveTextContent('Couldn’t load — trying again');
     expect(region).toHaveTextContent('Couldn’t load — trying again');
+  });
+});
+
+describe('MapView heat — the pill’s time follows the scope, not the whole catalogue', () => {
+  /**
+   * The served window time is the earliest sunset ANYWHERE (`PlanWindowProjector.earliestEventTime`),
+   * which on 2026-10-13 put "18:09" — a north-coast minute — on a "My area" pill whose places all
+   * said 18:14. Kelso is the one spot outside the area here, and it sets first.
+   */
+  const timedLocations = () => makeLocations().map((loc) => {
+    const sunsetAt = { 1: '16:10', 4: '16:05' }[loc.id] ?? '16:12';
+    const day = loc.forecastsByDate.get(TODAY);
+    return {
+      ...loc,
+      forecastsByDate: new Map([[TODAY, {
+        ...day,
+        sunset: { ...day.sunset, solarEventTime: `${TODAY}T${sunsetAt}:00` },
+      }]]),
+    };
+  });
+  const pillTime = () => screen.getByTestId('wf-win-pill').querySelector('.wf-win-time');
+
+  it('shows the earliest sunset among the places in “My area”, not the served catalogue time', async () => {
+    await renderMap({ heat: heatProp(), locations: timedLocations() });
+    // Served: 16:12. Catalogue-earliest: Kelso, 16:05, out of area. In area: Bamburgh, 16:10.
+    expect(pillTime()).toHaveTextContent('16:10');
+  });
+
+  it('moves to the catalogue-earliest when the scope widens to “Everywhere”', async () => {
+    await renderMap({ heat: heatProp(), locations: timedLocations() });
+    openFilters();
+    fireEvent.click(screen.getByRole('button', { name: 'Everywhere' }));
+    expect(pillTime()).toHaveTextContent('16:05');
+  });
+});
+
+/**
+ * The heat field on a PAST window (outcome-rating-plan.md §2 #3, O3c) — `MapView`'s half.
+ *
+ * <p>The pane lists a past window in `heat.windows` (flagged `past: true`) and gives it a point set;
+ * `MapView` must paint it, show the colour key only when something is rated behind it, and never let
+ * a `past` entry stand in for a window it has not itself judged to be past. The pane's half —
+ * building the entries and points from the forecast rows — is `WindowFirstMapPaneHeat.test.jsx`.
+ */
+describe('MapView heat — a past window', () => {
+  const YESTERDAY = '2026-01-14';
+
+  const pastLocations = (rating = 4) => SPOTS.map((s) => ({
+    id: s.id,
+    name: `${s.name}-${markerNonce}`,
+    lat: s.lat,
+    lon: s.lng,
+    regionName: s.rid,
+    bortleClass: s.bortleClass,
+    locationType: ['LANDSCAPE'],
+    forecastsByDate: new Map([[YESTERDAY, {
+      sunset: { rating, solarEventTime: `${YESTERDAY}T16:10:00` },
+    }]]),
+  }));
+
+  const pastEntry = (overrides = {}) => ({
+    key: `${YESTERDAY}:SUNSET`,
+    date: YESTERDAY,
+    targetType: 'SUNSET',
+    past: true,
+    bestRating: 4,
+    confidence: null,
+    conf: 0.82,
+    ...overrides,
+  });
+
+  const pastHeat = ({ entry = pastEntry(), points = [pointOf(SPOTS[0], 4), pointOf(SPOTS[2], 2)] } = {}) => heatProp({
+    windows: [...WINDOWS, entry],
+    pointsByKey: new Map([...POINTS_BY_KEY, [`${YESTERDAY}:SUNSET`, points]]),
+  });
+
+  async function renderPast(heat, extra = {}, rating = 4) {
+    const locations = pastLocations(rating);
+    return renderMap({
+      heat,
+      locations,
+      pastSolarWindows: buildPastSolarWindows(locations, TODAY),
+      date: YESTERDAY,
+      forecastDates: [YESTERDAY, TODAY, TOMORROW],
+      autoEventType: 'SUNSET',
+      ...extra,
+    });
+  }
+
+  it('paints the past window\'s own points, at the inferred confidence', async () => {
+    await renderPast(pastHeat());
+    await screen.findByTestId('map-heat-layer');
+
+    expect(heatLayerProps.last.points.map((p) => p.name)).toEqual(['Bamburgh', 'Wastwater']);
+    expect(heatLayerProps.last.conf).toBe(0.82);
+  });
+
+  it('shows the colour key for a rated past window and says nothing about it being unscored', async () => {
+    await renderPast(pastHeat());
+
+    expect(screen.getByTestId('wf-map-heat-legend')).toHaveTextContent('Poor');
+    expect(screen.queryByTestId('wf-map-heat-unscored')).toBeNull();
+    expect(screen.getByTestId('wf-win-past')).toBeInTheDocument();
+  });
+
+  it('withholds the key and names the window unscored when nothing is rated behind the field', async () => {
+    // A window whose only rated rows are a wood's: the pane reads `bestRating` null from the painted
+    // points (pinned there), and here the key must go with it rather than sit over an empty field.
+    await renderPast(pastHeat({ entry: pastEntry({ bestRating: null }), points: [] }), {}, null);
+
+    expect(screen.getByTestId('wf-map-heat-unscored')).toHaveTextContent('This event is not scored yet');
+    expect(screen.queryByTestId('wf-map-heat-legend')).toBeNull();
+    expect(heatLayerProps.last.points).toEqual([]);
+  });
+
+  it('⚠️ withholds the key but NOT contradicts the chips: stars held by unpainted places silence the line', async () => {
+    // The pane's `bestRating` counts painted points only, so a past window rated solely on places
+    // the field withholds reads null while every chip carries a star. "Not scored yet" beside rated
+    // chips is the contradiction the filler rule exists to prevent, so the line stays down; the key
+    // is still withheld because no field is painted behind it.
+    await renderPast(pastHeat({ entry: pastEntry({ bestRating: null }), points: [] }));
+
+    expect(screen.queryByTestId('wf-map-heat-unscored')).toBeNull();
+    expect(screen.queryByTestId('wf-map-heat-legend')).toBeNull();
+  });
+
+  it('paints today\'s elapsed sunrise: the entry counts once THIS view agrees the window has gone', async () => {
+    // The clock reads 12:00 and the sunrise was at 08:24 (+30 min afterglow), so `activeWindowPast`
+    // agrees with the pane's entry — the one branch of the guard that depends on the app clock.
+    const locations = pastLocations().map((l) => ({
+      ...l,
+      forecastsByDate: new Map([[TODAY, { sunrise: { rating: 4, solarEventTime: `${TODAY}T08:24:00` } }]]),
+    }));
+    await renderMap({
+      heat: heatProp({
+        windows: [pastEntry({ key: `${TODAY}:SUNRISE`, date: TODAY, targetType: 'SUNRISE' })],
+        pointsByKey: new Map([[`${TODAY}:SUNRISE`, [pointOf(SPOTS[0], 4)]]]),
+      }),
+      locations,
+      pastSolarWindows: buildPastSolarWindows(locations, TODAY),
+      date: TODAY,
+      forecastDates: [TODAY],
+      autoEventType: 'SUNRISE',
+    });
+
+    expect(screen.getByTestId('wf-win-past')).toBeInTheDocument();
+    expect(heatLayerProps.last.points).toHaveLength(1);
+    expect(screen.getByTestId('wf-map-heat-legend')).toBeInTheDocument();
+  });
+
+  it('control: the same window with NO past entry paints nothing and has no key', async () => {
+    // Without the pane's entry the window is an ordinary row with no `heatWindow`: the point set the
+    // map holds under that key is never read. The pair is the assertion that the entry is what paints.
+    await renderPast(heatProp({
+      pointsByKey: new Map([...POINTS_BY_KEY, [`${YESTERDAY}:SUNSET`, [pointOf(SPOTS[0], 4)]]]),
+    }));
+
+    expect(heatLayerProps.last?.points ?? []).toEqual([]);
+    expect(screen.queryByTestId('wf-map-heat-legend')).toBeNull();
+  });
+
+  it('⚠️ ignores a past entry for a window this view does not judge past — a filler paints no field', async () => {
+    // Tonight's sunset, 16:12 against a 12:00 clock, has not elapsed. The pane builds entries for
+    // every unserved window with rows (it cannot follow the clock), so a `past` entry exists for it;
+    // honouring it would give a D-13 filler a field and a key it has never had.
+    const locations = pastLocations().map((l) => ({
+      ...l,
+      forecastsByDate: new Map([[TODAY, { sunset: { rating: 4, solarEventTime: `${TODAY}T16:12:00` } }]]),
+    }));
+    await renderMap({
+      heat: heatProp({
+        windows: [pastEntry({ key: `${TODAY}:SUNSET`, date: TODAY })],
+        pointsByKey: new Map([[`${TODAY}:SUNSET`, [pointOf(SPOTS[0], 4)]]]),
+      }),
+      locations,
+      pastSolarWindows: buildPastSolarWindows(locations, TODAY),
+      date: TODAY,
+      forecastDates: [TODAY],
+      autoEventType: 'SUNSET',
+    });
+
+    expect(screen.queryByTestId('wf-win-past')).toBeNull();
+    expect(heatLayerProps.last?.points ?? []).toEqual([]);
+    expect(screen.queryByTestId('wf-map-heat-legend')).toBeNull();
+  });
+
+  it('does not turn the past entry into a served row: the pill is Past, not a verdict', async () => {
+    await renderPast(pastHeat());
+
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent('Yesterday');
+    expect(screen.getByTestId('wf-win-past')).toHaveTextContent('Past');
+  });
+
+  it('follows the Heat|Pins toggle on a past window as on a served one', async () => {
+    await renderPast(pastHeat());
+    expect(heatLayerProps.last.fieldEnabled).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pins' }));
+    expect(heatLayerProps.last.fieldEnabled).toBe(false);
+    expect(screen.queryByTestId('wf-map-heat-legend')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Heat' }));
+    expect(heatLayerProps.last.fieldEnabled).toBe(true);
+    expect(heatLayerProps.last.points).toHaveLength(2);
+    expect(screen.getByTestId('wf-map-heat-legend')).toBeInTheDocument();
   });
 });

@@ -82,6 +82,29 @@ describe('buildHandoff — topic filtering, de-duping and naming', () => {
     expect(result.summary).toBe('Nothing on those four days');
   });
 
+  it('keeps a NIGHT topic dated yesterday — its morning half is today\'s sunrise, which Plan badges', () => {
+    // The aurora strategy dates its alert topic by the poller's night: before dawn, yesterday's.
+    const result = buildHandoff(TODAY, [
+      { type: 'AURORA', label: 'Aurora possible', date: '2026-08-07', eventType: 'NIGHT' },
+    ]);
+    expect(result.topics.map((t) => t.type)).toEqual(['AURORA']);
+    expect(result.summary).toBe('One topic on those four days');
+  });
+
+  it('still excludes a SUNSET topic dated yesterday — its one window has gone', () => {
+    const result = buildHandoff(TODAY, [
+      { type: 'DUST', label: 'Saharan dust', date: '2026-08-07', eventType: 'SUNSET' },
+    ]);
+    expect(result.topics).toEqual([]);
+  });
+
+  it('excludes a NIGHT topic dated the day before yesterday — both halves have gone', () => {
+    const result = buildHandoff(TODAY, [
+      { type: 'AURORA', label: 'Aurora possible', date: '2026-08-06', eventType: 'NIGHT' },
+    ]);
+    expect(result.topics).toEqual([]);
+  });
+
   it('excludes a topic dated beyond Plan\'s last day', () => {
     const result = buildHandoff(TODAY, [
       { type: 'DUST', label: 'Saharan dust', date: '2026-08-12' },
@@ -102,6 +125,13 @@ describe('buildHandoff — topic filtering, de-duping and naming', () => {
       { type: 'MYSTERY_TOPIC', date: TODAY },
     ]);
     expect(result.topics[0].name).toBe('MYSTERY_TOPIC');
+  });
+
+  it('gives LUNAR_ECLIPSE the same swatch colour as ECLIPSE — one channel, two types', () => {
+    const result = buildHandoff(TODAY, [
+      { type: 'LUNAR_ECLIPSE', label: 'Lunar eclipse', date: TODAY },
+    ]);
+    expect(result.topics[0].color).toBe('#C4787F');
   });
 
   it('gives an unrecognised type the default swatch colour rather than throwing', () => {

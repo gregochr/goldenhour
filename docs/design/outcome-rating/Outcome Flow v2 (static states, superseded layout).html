@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PhotoCast — rate a forecast (v1, in-app)</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#181210;--surface:#221A15;--surface2:#2A2019;--panel:#1E1712;--border:#3A2C23;--border2:#4A3A2E;--ink:#F2E7D3;--ink2:rgba(242,231,211,.7);--ink3:rgba(242,231,211,.5);--star:#E5A00D;--off:#4A3A2E;--amber:#E0A542;--go:#8AAE72;--sel:rgba(229,160,13,.12);--sans:'IBM Plex Sans',system-ui,sans-serif;--serif:'Newsreader',Georgia,serif;--mono:'IBM Plex Mono',monospace}
+html,body{background:#0e0b09;color:var(--ink)}
+body{font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased;padding:32px 28px 80px}
+a{color:#6FA8B0;text-decoration:none}a:hover{color:#8fc4cc}
+.doc{max-width:1640px;margin:0 auto}
+.m{font-family:var(--mono);font-size:10.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink3)}
+h1.t{font-size:22px;font-weight:700;letter-spacing:-.02em;margin:6px 0 8px}
+.lede{font-size:14px;color:var(--ink2);max-width:92ch;text-wrap:pretty}
+.lede b{color:var(--ink);font-weight:600}
+section.s{margin-top:52px;border-top:1px solid var(--border);padding-top:22px}
+section.s>h2{font-size:17px;font-weight:700;letter-spacing:-.01em;margin:4px 0 6px}
+section.s>p{font-size:13.5px;color:var(--ink2);max-width:92ch;text-wrap:pretty}
+.row{display:flex;flex-wrap:wrap;gap:28px;margin-top:22px;align-items:flex-start}
+.ab{display:flex;flex-direction:column;gap:9px}
+.ab>.cap{font-family:var(--mono);font-size:10.5px;color:rgba(242,231,211,.55);letter-spacing:.03em;max-width:390px;text-wrap:pretty}
+.ab>.cap b{color:var(--ink);font-weight:600}
+.copy{margin-top:22px;display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:1px;background:var(--border);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.copy>div{background:#1B1411;padding:11px 14px;display:grid;grid-template-columns:150px 1fr;gap:10px;font-size:13px}
+.copy .k{font-family:var(--mono);font-size:10.5px;color:var(--ink3);padding-top:2px}
+.copy .v{text-wrap:pretty}
+.copy .v i{color:var(--ink3);font-style:normal;font-family:var(--mono);font-size:11px}
+.note{margin-top:18px;max-width:92ch;font-size:13.5px;color:var(--ink2)}
+.note li{margin:0 0 9px 18px}
+.note b{color:var(--ink)}
+.qs li{list-style:none;counter-increment:q;position:relative;padding-left:30px;margin-left:0}
+.qs{counter-reset:q}
+.qs li::before{content:counter(q,decimal-leading-zero);position:absolute;left:0;top:1px;font-family:var(--mono);font-size:11px;color:var(--ink3)}
+/* map placeholder */
+.map{position:absolute;inset:0;background:repeating-linear-gradient(135deg,#1a1512 0 14px,#1d1714 14px 28px)}
+.map span{position:absolute;left:16px;bottom:14px;font-family:var(--mono);font-size:10px;color:var(--ink3)}
+.pin{position:absolute;width:14px;height:14px;border-radius:50%;background:var(--star);box-shadow:0 0 0 3px rgba(229,160,13,.25)}
+/* phone */
+.ph{width:390px;height:780px;border-radius:28px;overflow:hidden;box-shadow:0 0 0 8px #241c17,0 24px 56px rgba(0,0,0,.6);background:var(--bg);display:flex;flex-direction:column;position:relative}
+.ph .sb{position:relative;z-index:2;display:flex;justify-content:space-between;padding:10px 22px 4px;font-family:var(--mono);font-size:10px;color:var(--ink3)}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--border2);border-radius:18px 18px 0 0;box-shadow:0 -14px 40px rgba(0,0,0,.5);z-index:3}
+.grab{width:38px;height:4px;border-radius:2px;background:var(--border2);margin:8px auto 2px}
+/* desktop */
+.br{width:1180px;height:720px;border-radius:12px;overflow:hidden;border:1px solid var(--border);background:var(--bg);box-shadow:0 22px 50px rgba(0,0,0,.5);display:flex;flex-direction:column}
+.brbar{display:flex;align-items:center;gap:12px;padding:9px 14px;background:var(--surface2);border-bottom:1px solid var(--border);flex:none}
+.brbar .dots{display:flex;gap:6px}.brbar .dots i{width:10px;height:10px;border-radius:50%;background:var(--border2)}
+.brbar .u{flex:1;max-width:560px;font-family:var(--mono);font-size:11px;color:var(--ink3);background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:5px 11px}
+.brmain{flex:1;position:relative}
+.dpop{position:absolute;left:470px;top:70px;width:400px;background:var(--surface);border:1px solid var(--border2);border-radius:12px;box-shadow:0 24px 60px rgba(0,0,0,.6);z-index:2}
+/* popup content */
+.pp{padding:14px 16px 12px;display:flex;flex-direction:column;gap:10px}
+.ph-h{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.pname{font-size:18px;font-weight:700;letter-spacing:-.015em;line-height:1.2}
+.pev{font-family:var(--mono);font-size:11px;color:var(--ink2);white-space:nowrap;display:flex;align-items:center;gap:10px}
+.pev .x{color:var(--ink3);font-size:14px}
+.fst{display:flex;align-items:center;gap:8px}
+.fst .g{font-size:19px;letter-spacing:1px;line-height:1}
+.fst .n{font-family:var(--mono);font-size:12px;color:var(--ink2)}
+.fst .lb{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);margin-right:2px}
+.on{color:var(--star)}.of{color:var(--off)}
+.sum{font-size:13.5px;color:var(--ink2);text-wrap:pretty}
+.more{font-size:12.5px;color:var(--ink3);padding-top:2px}
+/* rating block */
+.rb{border-top:1px solid var(--border);padding-top:12px;display:flex;flex-direction:column;gap:9px}
+.rb .q{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.rb .q b{font-size:14.5px;font-weight:600}
+.rb .q span{font-family:var(--mono);font-size:10.5px;color:var(--ink3)}
+.stars{display:grid;grid-template-columns:repeat(5,minmax(0,1fr)) auto;gap:6px}
+.stars a{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:48px;border:1px solid var(--border2);border-radius:10px;background:var(--panel);color:var(--ink);line-height:1.05}
+.stars a .g{font-size:18px;color:var(--ink3)}
+.stars a .d{font-family:var(--mono);font-size:11px;font-weight:600;color:var(--ink2)}
+.stars a.cur{border-color:var(--star);background:var(--sel)}
+.stars a.cur .g{color:var(--star)}
+.stars a.ns{padding:0 11px;font-size:12.5px;color:var(--ink2);font-weight:500;flex-direction:row;text-align:center;line-height:1.2}
+.stars a.ns.cur{color:var(--ink)}
+.stars.lock a{opacity:.45}
+.done{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:44px}
+.done .y{display:flex;align-items:center;gap:9px;font-size:14px;color:var(--ink2)}
+.done .y .g{font-size:18px;letter-spacing:1px}
+.done .y b{color:var(--ink);font-weight:600}
+.done .chg{min-height:44px;display:flex;align-items:center;padding:0 12px;border:1px solid var(--border2);border-radius:9px;font-size:13px;font-weight:500;color:var(--ink2)}
+.err{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink2)}
+.err i{width:9px;height:9px;border-radius:50%;background:var(--amber);flex:none}
+.wait{font-size:13px;color:var(--ink3)}
+.pro{font-size:11px;background:var(--surface2);color:var(--ink2);padding:2px 8px;border-radius:6px;font-family:var(--sans)}
+.adm{border:1px solid var(--border);border-radius:10px;background:var(--panel)}
+.adm .h{display:flex;justify-content:space-between;align-items:center;min-height:40px;padding:0 12px;font-size:12.5px;color:var(--ink2)}
+.adm .h span{font-family:var(--mono);font-size:10.5px;color:var(--ink3)}
+.adm .r{display:grid;grid-template-columns:1fr auto auto;gap:12px;align-items:center;padding:7px 12px;border-top:1px solid var(--border);font-size:13px}
+.adm .r .g{font-size:14px;letter-spacing:1px}
+.adm .r .t{font-family:var(--mono);font-size:10.5px;color:var(--ink3);min-width:84px;text-align:right}
+.adm .r .nsv{font-size:12px;color:var(--ink3)}
+.adm .run{padding:7px 12px;border-top:1px solid var(--border);font-family:var(--mono);font-size:10.5px;color:var(--ink3)}
+.ds{position:relative;z-index:2;display:flex;align-items:center;gap:6px;padding:8px 12px;overflow:hidden;background:rgba(24,18,16,.92);border-bottom:1px solid var(--border)}
+.ds .ar{width:28px;height:28px;flex:none;display:flex;align-items:center;justify-content:center;border-radius:50%;color:var(--ink2);font-size:13px}
+.ds .c{flex:none;padding:6px 11px;border-radius:999px;font-size:13px;font-weight:500;background:rgba(42,32,25,.5);color:var(--ink3);white-space:nowrap}
+.ds .c.sel{background:var(--star);color:#1a1209}
+.ds .c.fut{background:var(--surface2);color:var(--ink2)}
+.ds .dv{width:1px;align-self:stretch;background:var(--border2);flex:none}
+</style>
+</head>
+<body>
+<div class="doc">
+<div class="m">PhotoCast · Rate a forecast · v1</div>
+<h1 class="t">"How was it?" in the location popup</h1>
+<p class="lede">The first step is in-app only, for Pro and Admin. When a user opens any location whose sunrise or sunset has passed, the popup (a bottom sheet on phone) shows <b>one row: five stars and "Didn't see it"</b>. One tap records it, and the row collapses to the answer with a Change button. The forecast star stays where it already is, above the row. There are no notifications, no new screen and no history. Admins also see everyone's ratings for that event. Lite users see the row locked, with the Pro pill.</p>
+
+<section class="s">
+<div class="m">01 · Phone (390)</div>
+<h2>Bottom sheet states</h2>
+<p>The row sits under the forecast summary, above "More details". At least 48px tall, with "Didn't see it" as a sixth button in the same row so there's one decision in one place. Past days are reached through the existing date strip (state 9).</p>
+<div class="row" id="rp"></div>
+</section>
+
+<section class="s">
+<div class="m">02 · Desktop (1180)</div>
+<h2>Map popup</h2>
+<p>Same block and copy inside the existing 400px popup. The only difference is mouse-sized hover. Shown unrated (Pro) and rated with the admin list open.</p>
+<div class="row" id="rd"></div>
+</section>
+
+<section class="s">
+<div class="m">03 · Copy</div>
+<h2>Every string</h2>
+<div class="copy">
+<div><span class="k">Row label</span><span class="v">How was it?</span></div>
+<div><span class="k">Row meta</span><span class="v">Sunrise was {HH:MM} <i>/</i> Sunset was {HH:MM}</span></div>
+<div><span class="k">Star button</span><span class="v">★ + numeral <i>· aria "Rate the sunrise 3 out of 5"</i></span></div>
+<div><span class="k">Not-seen button</span><span class="v">Didn't see it</span></div>
+<div><span class="k">Rated</span><span class="v">You rated ★★★☆☆ <b>3★</b></span></div>
+<div><span class="k">Not seen</span><span class="v">You marked this not seen</span></div>
+<div><span class="k">Change button</span><span class="v">Change</span></div>
+<div><span class="k">Changing: meta</span><span class="v">Tap to replace your {n}★ <i>/</i> Tap to replace "not seen"</span></div>
+<div><span class="k">Before event</span><span class="v">You can rate this after sunrise at {HH:MM}.</span></div>
+<div><span class="k">Save failed</span><span class="v">Not saved. Tap a star again.</span></div>
+<div><span class="k">Lite</span><span class="v">Rate how the sky turned out. <i>[Pro pill]</i></span></div>
+<div><span class="k">Admin header</span><span class="v">All ratings · {n}</span></div>
+<div><span class="k">Admin row</span><span class="v">{username} · {stars | Not seen} · {HH:MM}</span></div>
+<div><span class="k">Admin empty</span><span class="v">No ratings yet.</span></div>
+<div><span class="k">Admin run line</span><span class="v">Rated against the run at {Thu 15 Oct, HH:MM} · {n}h before sunrise</span></div>
+<div><span class="k">Past-date meta</span><span class="v">Sunrise was {Tue 13 Oct}, {HH:MM}</span></div>
+</div>
+</section>
+
+<section class="s">
+<div class="m">04 · Decisions</div>
+<h2>What this version does and doesn't do</h2>
+<ul class="note">
+<li><b>One row, no modal.</b> The existing OutcomeModal (went out, sliders, notes) stays admin tooling. This row replaces it as the everyday path.</li>
+<li><b>Forecast visible before and after</b>, as chosen. It is already the popup's headline star, so the row adds no second copy of it and no comparison or verdict.</li>
+<li><b>"Didn't see it" is recorded</b> as a not-seen outcome and can be changed like a star.</li>
+<li><b>Optimistic save.</b> The row collapses on tap. If the save fails it reopens with the amber line, the only amber in the flow.</li>
+<li><b>Sunrise first.</b> The popup shows one event at a time; where the sheet lists both, sunrise's row comes first.</li>
+<li><b>Going back.</b> The existing date strip already dims past days behind a divider. Picking one opens that day's popup with the same row, and "any time" means no cut-off.</li>
+<li><b>Map only.</b> The Plan view has no past windows, so rating lives in the map's location callout. See Outcome Prototype v2, which uses the current map window control: step back with ‹ or pick from the menu's "Earlier" group.</li>
+</ul>
+</section>
+
+<section class="s">
+<div class="m">05 · Resolved</div>
+<h2>Answers folded in</h2>
+<ol class="note qs">
+<li><b>Past dates:</b> yes, through the date strip (phone state 9). How far back depends on how many past dates the forecast endpoint returns. Older days need it to return more.</li>
+<li><b>Storage:</b> key is user + location + date + event. Star is 1–5, or null when not seen. Re-rating updates the row.</li>
+<li><b>Which forecast:</b> the last run before the event, even when it's stale after a batch failure. The run time is stored with the rating and shown to admins, so an old forecast is visible as the cause.</li>
+<li><b>Admin list:</b> shows usernames.</li>
+<li><b>Drilldowns:</b> not in Plan, which has no concept of past windows. The map only.</li>
+</ol>
+</section>
+</div>
+<script>
+const S=n=>{let h='';for(let i=1;i<=5;i++)h+=`<span class="${i<=n?'on':'of'}">★</span>`;return h};
+const btns=(cur,lock)=>`<div class="stars ${lock?'lock':''}">${[1,2,3,4,5].map(i=>`<a href="#" class="${cur===i?'cur':''}" aria-label="Rate the sunrise ${i} out of 5"><span class="g">★</span><span class="d">${i}</span></a>`).join('')}<a href="#" class="ns ${cur==='ns'?'cur':''}">Didn't see it</a></div>`;
+const meta='<span>Sunrise was 07:24</span>';
+function rb(st){
+ if(st==='rate')return `<div class="rb"><div class="q"><b>How was it?</b>${meta}</div>${btns(0)}</div>`;
+ if(st==='rated')return `<div class="rb"><div class="done"><span class="y">You rated <span class="g">${S(3)}</span><b>3★</b></span><a class="chg">Change</a></div></div>`;
+ if(st==='change')return `<div class="rb"><div class="q"><b>How was it?</b><span>Tap to replace your 3★</span></div>${btns(3)}</div>`;
+ if(st==='ns')return `<div class="rb"><div class="done"><span class="y">You marked this not seen</span><a class="chg">Change</a></div></div>`;
+ if(st==='before')return `<div class="rb"><p class="wait">You can rate this after sunrise at 07:24.</p></div>`;
+ if(st==='err')return `<div class="rb"><div class="q"><b>How was it?</b>${meta}</div>${btns(0)}<div class="err"><i></i>Not saved. Tap a star again.</div></div>`;
+ if(st==='lite')return `<div class="rb"><div class="q"><b>How was it?</b><span class="pro">Pro</span></div>${btns(0,1)}<p class="wait">Rate how the sky turned out.</p></div>`;
+ if(st==='admin')return `<div class="rb"><div class="done"><span class="y">You rated <span class="g">${S(3)}</span><b>3★</b></span><a class="chg">Change</a></div><div class="adm"><div class="h">All ratings · 3<span>▴</span></div><div class="r"><span>jgregory</span><span class="g">${S(3)}</span><span class="t">08:02</span></div><div class="r"><span>mhart</span><span class="g">${S(2)}</span><span class="t">08:40</span></div><div class="r"><span>dlowe</span><span class="nsv">Not seen</span><span class="t">Fri 16 · 12:15</span></div><div class="run">Rated against the run at Thu 15 Oct, 05:10 · 2h before sunrise</div></div></div>`;
+ if(st==='past')return `<div class="rb"><div class="q"><b>How was it?</b><span>Sunrise was Tue 13 Oct, 07:20</span></div>${btns(0)}</div>`;
+}
+const pop=(st,time)=>`<div class="pp"><div class="ph-h"><div class="pname">Bamburgh Castle</div><div class="pev">Sunrise · 07:24<span class="x">✕</span></div></div><div class="fst"><span class="lb">Forecast</span><span class="g">${S(4)}</span><span class="n">4 / 5</span></div><p class="sum">High cloud breaking from the west at dawn; low cloud clear of the coast.</p>${rb(st)}<div class="more">More details ▾</div></div>`;
+const strip=`<div class="ds"><span class="ar">‹</span><span class="c sel">Tue 13</span><span class="c">Wed 14</span><span class="dv"></span><span class="c fut">Today · Thu 15</span><span class="ar">›</span></div>`;
+const phone=(st,cap,clock)=>`<div class="ab"><div class="ph"><div class="map"><span>map</span></div><div class="pin" style="left:212px;top:250px"></div><div class="sb"><span>${clock||'08:15'}</span><span>•••</span></div>${st==='past'?strip:''}<div class="sheet"><div class="grab"></div>${pop(st)}</div></div><div class="cap">${cap}</div></div>`;
+document.getElementById('rp').innerHTML=
+ phone('rate','<b>1 · Unrated (Pro).</b> Event passed. Five stars plus "Didn\'t see it".')+
+ phone('rated','<b>2 · Rated.</b> The row collapses to the answer; the sheet gets shorter.')+
+ phone('change','<b>3 · Changing.</b> The current star is outlined; one tap replaces it.')+
+ phone('ns','<b>4 · Not seen recorded.</b>')+
+ phone('before','<b>5 · Before the event.</b> One quiet line, no controls.','06:40')+
+ phone('err','<b>6 · Save failed.</b> The row reopens with the amber line.')+
+ phone('lite','<b>7 · Lite.</b> Same row, dimmed, with the Pro pill. Taps open the existing upgrade path.')+
+ phone('admin','<b>8 · Admin.</b> Own rating plus everyone\'s ratings (collapsed by default), and the time of the run being rated.')+
+ phone('past','<b>9 · A past day.</b> Picked from the existing date strip. Same row; the meta line carries the date.');
+const desk=(st,cap)=>`<div class="ab"><div class="br"><div class="brbar"><div class="dots"><i></i><i></i><i></i></div><div class="u">photocast.app/map</div></div><div class="brmain"><div class="map"><span>map</span></div><div class="pin" style="left:660px;top:${st==='admin'?640:560}px"></div><div class="dpop">${pop(st)}</div></div></div><div class="cap" style="max-width:none">${cap}</div></div>`;
+document.getElementById('rd').innerHTML=desk('rate','<b>D1 · Unrated (Pro)</b>')+desk('admin','<b>D2 · Admin, rated, all ratings open</b>');
+</script>
+</body>
+</html>

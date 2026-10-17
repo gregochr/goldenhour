@@ -86,10 +86,22 @@ public class AuroraResultHandler implements ResultHandler<EvaluationTask.Aurora>
      * @param failureReason short reason on failure, else {@code null}
      */
     public record AuroraBatchOutcome(boolean success, int scoredCount, String failureReason) {
+        /**
+         * Outcome for a response whose scores reached the cache.
+         *
+         * @param scoredCount number of scored locations written
+         * @return a successful outcome carrying that count and no failure reason
+         */
         public static AuroraBatchOutcome ok(int scoredCount) {
             return new AuroraBatchOutcome(true, scoredCount, null);
         }
 
+        /**
+         * Outcome for a response that a gate stopped from updating the cache.
+         *
+         * @param reason short description of why nothing was written
+         * @return an unsuccessful outcome with zero scored locations and that reason
+         */
         public static AuroraBatchOutcome failure(String reason) {
             return new AuroraBatchOutcome(false, 0, reason);
         }
@@ -201,10 +213,10 @@ public class AuroraResultHandler implements ResultHandler<EvaluationTask.Aurora>
         try {
             jobRunService.logBatchResult(
                     context.jobRunId(), context.batchId(), outcome.customId(),
-                    outcome.succeeded(), outcome.status(),
+                    outcome.succeeded(),
                     outcome.errorType(), outcome.errorMessage(),
                     model, outcome.tokenUsage(),
-                    null, null);
+                    null, null, null, outcome.cacheDiagnostics());
         } catch (Exception e) {
             LOG.warn("Aurora batch: failed to persist api_call_log for customId={}: {}",
                     outcome.customId(), e.getMessage());
@@ -221,12 +233,13 @@ public class AuroraResultHandler implements ResultHandler<EvaluationTask.Aurora>
                     ? outcome.tokenUsage() : TokenUsage.EMPTY;
             jobRunService.logAnthropicApiCall(
                     context.jobRunId(), outcome.durationMs(),
-                    outcome.succeeded() ? 200 : 500,
+                    outcome.loggedStatusCode(),
                     outcome.succeeded() ? null : outcome.errorMessage(),
                     outcome.succeeded(), outcome.errorMessage(),
                     task.model(), tokens,
                     false,
-                    null, null);
+                    null, null,
+                    outcome.errorType(), outcome.cacheDiagnostics());
         } catch (Exception e) {
             LOG.warn("Aurora sync: failed to persist api_call_log for {}: {}",
                     task.taskKey(), e.getMessage());

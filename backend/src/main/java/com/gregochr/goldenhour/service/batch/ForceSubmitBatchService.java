@@ -28,6 +28,7 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Predicate;
 
 /**
  * Submits a force-test batch to the Anthropic Batch API, bypassing all gates
@@ -41,6 +42,14 @@ import java.util.List;
  * a JFDI run writes rows, so anything wrong with the dates it chooses lands in the table. That is
  * how a UTC-anchored range here came to persist {@code days_ahead = -1} (and, via
  * {@code ConfidenceDeriver.fromHorizon}, a {@code confidence} of HIGH) for a day already over.
+ *
+ * <p>⚠️ <b>Neither entry point writes a {@code slot_atmosphere} reading itself.</b>
+ * {@code fetchWeatherAndTriage} records the candidate's atmospheric readings as part of its own
+ * body, before either triage check it runs — the one seam every caller of that method shares (see
+ * its own javadoc) — so a JFDI or force-submit slot is recorded exactly like a scheduled cycle's,
+ * with no extra call needed here. This class briefly carried its own {@code SlotAtmosphereWriter}
+ * dependency and two explicit write calls (one per entry point); both were removed once the seam
+ * moved inside {@code fetchWeatherAndTriage}, to avoid writing the same fetch twice.
  */
 @Service
 public class ForceSubmitBatchService {
@@ -58,17 +67,17 @@ public class ForceSubmitBatchService {
     /**
      * Constructs the force-submit batch service.
      *
-     * @param anthropicClient        raw Anthropic SDK client (still used by {@link #getResult}
-     *                               which bypasses {@code BatchPollingService} — see Pass 2.5)
-     * @param regionRepository       repository for looking up regions by ID
-     * @param locationService        service for retrieving enabled locations
-     * @param forecastService        service for weather fetch and data assembly
-     * @param modelSelectionService  resolves the active Claude model
-     * @param evaluationService      Pass 3.2 engine — submits forecast tasks via the
-     *                               canonical batch path (request build + observability)
-     * @param clock                  supplies "today" for the JFDI range, resolved in
-     *                               {@code Europe/London} by {@link ForecastHorizon} — the same
-     *                               calendar {@code ForecastService} measures the horizon on
+     * @param anthropicClient       raw Anthropic SDK client (still used by {@link #getResult}
+     *                              which bypasses {@code BatchPollingService} — see Pass 2.5)
+     * @param regionRepository      repository for looking up regions by ID
+     * @param locationService       service for retrieving enabled locations
+     * @param forecastService       service for weather fetch and data assembly
+     * @param modelSelectionService resolves the active Claude model
+     * @param evaluationService     Pass 3.2 engine — submits forecast tasks via the
+     *                              canonical batch path (request build + observability)
+     * @param clock                 supplies "today" for the JFDI range, resolved in
+     *                              {@code Europe/London} by {@link ForecastHorizon} — the same
+     *                              calendar {@code ForecastService} measures the horizon on
      */
     public ForceSubmitBatchService(AnthropicClient anthropicClient,
             RegionRepository regionRepository,
@@ -99,12 +108,8 @@ public class ForceSubmitBatchService {
         java.util.Set<Long> regionFilter = (regionIds != null && !regionIds.isEmpty())
                 ? new java.util.HashSet<>(regionIds) : null;
 
-        List<LocationEntity> locations = locationService.findAllEnabled().stream()
-                .filter(loc -> loc.getRegion() != null)
-                .filter(loc -> regionFilter == null
-                        || regionFilter.contains(loc.getRegion().getId()))
-                .filter(LocationEntity::hasColourTypes)
-                .toList();
+        List<LocationEntity> locations = enabledSkyLocations(loc -> loc.getRegion() != null
+                && (regionFilter == null || regionFilter.contains(loc.getRegion().getId())));
 
         if (locations.isEmpty()) {
             LOG.warn("[JFDI BATCH] No eligible locations found");
@@ -176,12 +181,32 @@ public class ForceSubmitBatchService {
     }
 
     /**
-     * Submits a force-test batch for all locations in a region, bypassing all gates.
+     * The one place both entry points choose their locations: enabled, inside the caller's scope,
+     * and a sky subject by the same {@link LocationEntity#hasColourTypes()} predicate the
+     * synchronous engine and the scheduled batch use. Both routes build SKY-prompt tasks only, and
+     * neither has a woodland or bluebell lane, so a wildlife hide, a canopy wood or a bluebell wood
+     * has nothing here to be evaluated for. Filtering before any fetch also means such a place is
+     * never sent to {@code fetchWeatherAndTriage}.
+     *
+     * @param inScope the caller's own region test
+     * @return the enabled sky locations the caller's scope admits
+     */
+    private List<LocationEntity> enabledSkyLocations(Predicate<LocationEntity> inScope) {
+        return locationService.findAllEnabled().stream()
+                .filter(inScope)
+                .filter(LocationEntity::hasColourTypes)
+                .toList();
+    }
+
+    /**
+     * Submits a force-test batch for all sky locations in a region, bypassing all gates.
      *
      * @param regionId the database ID of the target region
      * @param date     the forecast date
      * @param event    SUNRISE or SUNSET
      * @return submission result summary
+     * @throws IllegalArgumentException if the region is unknown, or has no enabled sky location
+     *                                  (an empty region, or one of only hides and woods)
      */
     public ForceSubmitResult forceSubmit(Long regionId, LocalDate date, TargetType event) {
         RegionEntity region = regionRepository.findById(regionId).orElse(null);
@@ -189,14 +214,15 @@ public class ForceSubmitBatchService {
             throw new IllegalArgumentException("Region not found: " + regionId);
         }
 
-        List<LocationEntity> locations = locationService.findAllEnabled().stream()
-                .filter(loc -> loc.getRegion() != null
-                        && loc.getRegion().getId().equals(regionId))
-                .toList();
+        List<LocationEntity> locations = enabledSkyLocations(loc -> loc.getRegion() != null
+                && loc.getRegion().getId().equals(regionId));
 
+        // An empty region and one holding only hides or woods share one refusal: either way there
+        // is no sky location to submit, and "no enabled sky locations" is true of both (the latter
+        // does have enabled locations, so the older "no enabled locations" wording was not).
         if (locations.isEmpty()) {
             throw new IllegalArgumentException(
-                    "No enabled locations found in region: " + region.getName());
+                    "No enabled sky locations found in region: " + region.getName());
         }
 
         EvaluationModel model = modelSelectionService.getActiveModel(RunType.BATCH_NEAR_TERM);

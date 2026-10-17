@@ -12,6 +12,11 @@ import java.util.List;
  */
 public record MistTrend(List<MistSlot> slots) {
 
+    /**
+     * Canonical constructor: takes an immutable copy of {@code slots}, so a caller's later changes
+     * to the list it passed cannot alter this trend. A null list is rejected with a
+     * {@link NullPointerException}.
+     */
     public MistTrend {
         slots = List.copyOf(slots);
     }

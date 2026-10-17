@@ -16,9 +16,9 @@ import com.gregochr.goldenhour.service.BriefingRatingStats;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
+import com.gregochr.goldenhour.model.CacheDiagnostics;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.model.Verdict;
-import com.gregochr.goldenhour.service.BriefingGatingPolicy;
 import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.ModelSelectionService;
 import org.slf4j.Logger;
@@ -31,14 +31,13 @@ import java.util.List;
 
 /**
  * Generates Claude-authored one-line glosses for briefing regions that have at least
- * one slot eligible for Claude evaluation under {@link BriefingGatingPolicy}.
+ * one slot.
  *
  * <p>After the briefing triage builds the day → event → region hierarchy, this service
  * enriches each region with a short (~10 word) explanation. Under the Gate 2 redesign,
  * weather-condition STANDDOWN regions now receive a gloss too — the gloss reflects
  * Claude's actual evaluation rather than assuming a positive GO/MARGINAL framing.
- * Regions whose every slot is hard-constrained (e.g. all coastal slots tide-mismatched)
- * are skipped (gloss left null) because no slot reached Claude.
+ * Regions with no slots are skipped (gloss left null).
  *
  * <p>Calls are made in parallel using virtual threads with a concurrency cap. Each call
  * is individually error-handled — a failed gloss never blocks the briefing.
@@ -185,8 +184,7 @@ public class BriefingGlossService {
 
     /**
      * Walks the hierarchy and collects one work item per region that has at least
-     * one slot eligible for Claude evaluation under {@link BriefingGatingPolicy}.
-     * Regions whose slots are all hard-constrained (tide mismatch only) are skipped.
+     * one slot. A region with no slots is skipped.
      */
     private List<GlossWorkItem> collectWorkItems(List<BriefingDay> days) {
         List<GlossWorkItem> items = new ArrayList<>();
@@ -196,7 +194,7 @@ public class BriefingGlossService {
                 BriefingEventSummary es = day.eventSummaries().get(ei);
                 for (int ri = 0; ri < es.regions().size(); ri++) {
                     BriefingRegion region = es.regions().get(ri);
-                    if (BriefingGatingPolicy.hasAnyEligibleSlot(region)) {
+                    if (!region.slots().isEmpty()) {
                         items.add(new GlossWorkItem(di, ei, ri, day, es, region));
                     }
                 }
@@ -215,13 +213,14 @@ public class BriefingGlossService {
             userMessage = buildUserMessage(item);
 
             Message response = anthropicApiClient.createMessage(
-                    MessageCreateParams.builder()
+                    ModelRequestSupport.tune(MessageCreateParams.builder()
                             .model(model.getModelId())
-                            .maxTokens(MAX_TOKENS)
+                            .maxTokens(ModelRequestSupport.maxTokens(model, MAX_TOKENS))
                             .systemOfTextBlockParams(List.of(
                                     TextBlockParam.builder().text(SYSTEM_PROMPT).build()))
-                            .addUserMessage(userMessage)
+                            .addUserMessage(userMessage), model)
                             .build());
+            ModelRequestSupport.checkRefusal(response);
 
             long durationMs = System.currentTimeMillis() - callStart;
             String raw = response.content().stream()
@@ -233,14 +232,12 @@ public class BriefingGlossService {
 
             parseGlossResponse(item, raw.strip());
             var usage = response.usage();
-            TokenUsage tokenUsage = usage == null ? null : new TokenUsage(
-                    usage.inputTokens(), usage.outputTokens(),
-                    usage.cacheCreationInputTokens().orElse(0L),
-                    usage.cacheReadInputTokens().orElse(0L));
+            TokenUsage tokenUsage = usage == null ? null : TokenUsage.from(usage);
             // Pass the token usage so the successful gloss call records its real cost, not £0.
             jobRunService.logApiCall(jobRunId, ServiceName.ANTHROPIC,
                     "POST", "briefing-gloss", null,
-                    durationMs, 200, raw, true, null, model, tokenUsage);
+                    durationMs, 200, raw, true, null, model, tokenUsage,
+                    CacheDiagnostics.from(response));
         } catch (Exception e) {
             long durationMs = System.currentTimeMillis() - callStart;
             LOG.warn("Gloss failed for {} {} {}: {}",
@@ -257,12 +254,9 @@ public class BriefingGlossService {
      */
     String buildUserMessage(GlossWorkItem item) {
         BriefingRegion region = item.region;
-        // Under the Gate 2 redesign, the "candidate" slot set is anything eligible for
-        // Claude evaluation — including weather-STANDDOWN. Only hard-constrained slots
-        // (tide mismatch) are excluded from the median cloud cover used in the prompt.
-        List<BriefingSlot> evaluableSlots = region.slots().stream()
-                .filter(BriefingGatingPolicy::isEligibleForEvaluation)
-                .toList();
+        // The "candidate" slot set is every slot in the region — including weather-STANDDOWN,
+        // which reaches Claude like any other.
+        List<BriefingSlot> evaluableSlots = region.slots();
         List<BriefingSlot> goSlots = region.slots().stream()
                 .filter(s -> s.verdict() == Verdict.GO)
                 .toList();

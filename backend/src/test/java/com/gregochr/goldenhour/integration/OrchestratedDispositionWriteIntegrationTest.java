@@ -139,6 +139,10 @@ class OrchestratedDispositionWriteIntegrationTest extends IntegrationTestBase {
                 new CandidateDisposition(null, "Cached Loc B", date,
                         TargetType.SUNSET, 1, DispositionCategory.SKIPPED_CACHED,
                         "Fresh cached evaluation within 36h (SETTLED)"),
+                // A hand-built fixture: production no longer writes SKIPPED_HARD_CONSTRAINT for a
+                // tide mismatch since the tide gate lift (2026-09-18,
+                // docs/engineering/tide-window-plan.md §6 Q1) — see DispositionWriteIntegrationTest
+                // for the fuller note. The category itself stays tested generically.
                 new CandidateDisposition(null, "Tide Loc", date,
                         TargetType.SUNRISE, 1, DispositionCategory.SKIPPED_HARD_CONSTRAINT,
                         "Tide mismatch"));

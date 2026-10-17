@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.SkyRatingEvalRunEntity;
 import com.gregochr.goldenhour.entity.SkyRatingEvalStatus;
 import com.gregochr.goldenhour.entity.SkyRatingEvalTrigger;
+import com.gregochr.goldenhour.eval.SkyRatingEvalFixture;
 import com.gregochr.goldenhour.eval.SkyRatingEvalFixtures;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TokenUsage;
@@ -46,6 +47,10 @@ import static org.mockito.Mockito.when;
 class SkyRatingEvalBatchServiceTest {
 
     private static final long POLL_TIMEOUT_SECONDS = 60;
+
+    /** Evaluations a default run attempts: fixtures x runs per fixture. */
+    private static final int ATTEMPTED =
+            SkyRatingEvalFixtures.ALL.size() * SkyRatingEvalService.DEFAULT_RUNS_PER_FIXTURE;
 
     private SkyRatingEvalService evalService;
     private SkyRatingEvalBatchClient batchClient;
@@ -158,10 +163,154 @@ class SkyRatingEvalBatchServiceTest {
                 eq(eval), eq(usage), isNull(), eq(true), any());
         verify(evalService).persistResult(eq(run), eq(SkyRatingEvalFixtures.ALL.get(0)), eq(2),
                 eq(eval), eq(usage), isNull(), eq(true), any());
-        verify(evalService, times(2)).persistResult(any(), any(), anyInt(), any(), any(),
-                isNull(), eq(true), any());
-        verify(evalService).finalise(eq(run), any(), eq(SkyRatingEvalStatus.COMPLETED), isNull(),
-                anyLong());
+        assertThat(calls("persistResult")).hasSize(2);
+        // Of ATTEMPTED evaluations, 2 were scored; the errored one is a recorded failure and every
+        // fixture the batch never answered is a MISSING failure, so the denominator stays honest.
+        SkyRatingEvalService.Aggregate agg = finalisedAggregate(run, SkyRatingEvalStatus.COMPLETED,
+                (ATTEMPTED - 2) + " of " + ATTEMPTED
+                        + " evaluations failed and count as non-passes (ERRORED=1, MISSING="
+                        + (ATTEMPTED - 3) + ")");
+        assertThat(agg.failedCount()).isEqualTo(ATTEMPTED - 2);
+        // an errored result and an unanswered evaluation were never billed: no tokens, no cost
+        assertThat(agg.inputTokens()).isZero();
+        assertThat(agg.outputTokens()).isZero();
+        assertThat(agg.costMicroDollars()).isZero();
+        assertThat(failureRows()).hasSize(ATTEMPTED - 2);
+        verify(evalService).persistFailureRow(run, SkyRatingEvalFixtures.ALL.get(1), 1, "ERRORED", null);
+        assertThat(failureRows().stream().filter(a -> "MISSING".equals(a[3])).count())
+                .isEqualTo(ATTEMPTED - 3);
+        assertThat(failureRows().stream().filter(a -> a[2].equals(1)
+                && a[1] == SkyRatingEvalFixtures.ALL.get(0))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a fully answered run with a refusal, a truncation and an unreadable reply stays "
+            + "COMPLETED but records 3 failures by type")
+    void processResultsCountsRefusedTruncatedAndUnreadableAsFailures() {
+        SkyRatingEvalRunEntity run = runningRun(11L, EvaluationModel.SONNET_55, "batch2", recentStart());
+        TokenUsage usage = new TokenUsage(3_800, 180, 0, 0);
+        TokenUsage refusedUsage = new TokenUsage(500, 50, 0, 0);
+        TokenUsage truncatedUsage = new TokenUsage(600, 60, 0, 0);
+        when(evalService.batchCostMicroDollars(run, refusedUsage)).thenReturn(1_100L);
+        when(evalService.batchCostMicroDollars(run, truncatedUsage)).thenReturn(2_200L);
+        when(evalService.batchCostMicroDollars(run, usage)).thenReturn(3_300L);
+        List<ClaudeBatchOutcome> outcomes = new java.util.ArrayList<>();
+        for (int f = 0; f < SkyRatingEvalFixtures.ALL.size(); f++) {
+            for (int r = 1; r <= SkyRatingEvalService.DEFAULT_RUNS_PER_FIXTURE; r++) {
+                String id = "e_11_" + f + "_" + r;
+                if (f == 0 && r == 1) {
+                    outcomes.add(ClaudeBatchOutcome.failure(id, "REFUSAL", "refusal", "refused",
+                            refusedUsage));
+                } else if (f == 0 && r == 2) {
+                    outcomes.add(ClaudeBatchOutcome.failure(id, "MAX_TOKENS", "truncation_error", "cut",
+                            truncatedUsage));
+                } else if (f == 0 && r == 3) {
+                    outcomes.add(ClaudeBatchOutcome.success(id, "not json", usage, null));
+                } else {
+                    outcomes.add(ClaudeBatchOutcome.success(id, "{\"rating\":3}", usage, null));
+                }
+            }
+        }
+        when(batchClient.collectResults("batch2")).thenReturn(outcomes);
+        when(parser.parseEvaluation(eq("not json"), any())).thenThrow(new IllegalStateException("bad"));
+        when(parser.parseEvaluation(eq("{\"rating\":3}"), any()))
+                .thenReturn(new SunsetEvaluation(3, 55, 60, "s"));
+
+        service.processResults("batch2", List.of(run));
+
+        SkyRatingEvalService.Aggregate agg = finalisedAggregate(run, SkyRatingEvalStatus.COMPLETED,
+                "3 of " + ATTEMPTED + " evaluations failed and count as non-passes "
+                        + "(MAX_TOKENS=1, PARSE_ERROR=1, REFUSAL=1)");
+        assertThat(agg.failedCount()).isEqualTo(3);
+        assertThat(calls("persistResult")).hasSize(ATTEMPTED - 3);
+        // each failed attempt is persisted as a child row at its own fixture and run index, with the
+        // billed response's usage; the unreadable reply's usage is no longer discarded
+        SkyRatingEvalFixture first = SkyRatingEvalFixtures.ALL.get(0);
+        verify(evalService).persistFailureRow(run, first, 1, "REFUSAL", refusedUsage);
+        verify(evalService).persistFailureRow(run, first, 2, "MAX_TOKENS", truncatedUsage);
+        verify(evalService).persistFailureRow(run, first, 3, "PARSE_ERROR", usage);
+        assertThat(failureRows()).hasSize(3);
+        // and the run aggregate carries exactly those tokens and their batch cost
+        assertThat(agg.inputTokens()).isEqualTo(500 + 600 + 3_800);
+        assertThat(agg.outputTokens()).isEqualTo(50 + 60 + 180);
+        assertThat(agg.costMicroDollars()).isEqualTo(1_100 + 2_200 + 3_300);
+    }
+
+    @Test
+    @DisplayName("a run in which every evaluation failed is FAILED, not COMPLETED")
+    void processResultsAllFailedFailsRun() {
+        SkyRatingEvalRunEntity run = runningRun(12L, EvaluationModel.SONNET_55, "batch3", recentStart());
+        TokenUsage refusedUsage = new TokenUsage(500, 50, 0, 0);
+        when(evalService.batchCostMicroDollars(run, refusedUsage)).thenReturn(1_100L);
+        List<ClaudeBatchOutcome> outcomes = new java.util.ArrayList<>();
+        for (int f = 0; f < SkyRatingEvalFixtures.ALL.size(); f++) {
+            for (int r = 1; r <= SkyRatingEvalService.DEFAULT_RUNS_PER_FIXTURE; r++) {
+                outcomes.add(ClaudeBatchOutcome.failure("e_12_" + f + "_" + r, "REFUSAL", "refusal", "x",
+                        refusedUsage));
+            }
+        }
+        when(batchClient.collectResults("batch3")).thenReturn(outcomes);
+
+        service.processResults("batch3", List.of(run));
+
+        SkyRatingEvalService.Aggregate agg = finalisedAggregate(run, SkyRatingEvalStatus.FAILED,
+                "Every evaluation failed: " + ATTEMPTED + " of " + ATTEMPTED + " (REFUSAL=" + ATTEMPTED + ")");
+        assertThat(agg.failedCount()).isEqualTo(ATTEMPTED);
+        assertThat(calls("persistResult")).isEmpty();
+        // an entirely failed fixture still gets all 8 rows, so it appears in the trend with 0 passes
+        for (int r = 1; r <= SkyRatingEvalService.DEFAULT_RUNS_PER_FIXTURE; r++) {
+            verify(evalService).persistFailureRow(run, SkyRatingEvalFixtures.ALL.get(1), r, "REFUSAL",
+                    refusedUsage);
+        }
+        assertThat(failureRows()).hasSize(ATTEMPTED);
+        // a FAILED run still records every billed response: summed tokens and batch cost, not zero
+        assertThat(agg.inputTokens()).isEqualTo(ATTEMPTED * 500L);
+        assertThat(agg.outputTokens()).isEqualTo(ATTEMPTED * 50L);
+        assertThat(agg.costMicroDollars()).isEqualTo(ATTEMPTED * 1_100L);
+    }
+
+    @Test
+    @DisplayName("an evaluation the batch never answered is attributed to its own fixture and run index")
+    void processResultsAttributesUnansweredEvaluationToItsFixture() {
+        SkyRatingEvalRunEntity run = runningRun(13L, EvaluationModel.SONNET_55, "batch4", recentStart());
+        TokenUsage usage = new TokenUsage(3_800, 180, 0, 0);
+        List<ClaudeBatchOutcome> outcomes = new java.util.ArrayList<>();
+        for (int f = 0; f < SkyRatingEvalFixtures.ALL.size(); f++) {
+            for (int r = 1; r <= SkyRatingEvalService.DEFAULT_RUNS_PER_FIXTURE; r++) {
+                if (f == 2 && r == 5) {
+                    continue; // never answered
+                }
+                outcomes.add(ClaudeBatchOutcome.success("e_13_" + f + "_" + r, "{\"rating\":3}", usage, null));
+            }
+        }
+        when(batchClient.collectResults("batch4")).thenReturn(outcomes);
+        when(parser.parseEvaluation(any(), any())).thenReturn(new SunsetEvaluation(3, 55, 60, "s"));
+
+        service.processResults("batch4", List.of(run));
+
+        verify(evalService).persistFailureRow(run, SkyRatingEvalFixtures.ALL.get(2), 5, "MISSING", null);
+        assertThat(failureRows()).hasSize(1);
+        SkyRatingEvalService.Aggregate agg = finalisedAggregate(run, SkyRatingEvalStatus.COMPLETED,
+                "1 of " + ATTEMPTED + " evaluations failed and count as non-passes (MISSING=1)");
+        assertThat(agg.costMicroDollars()).isZero();
+    }
+
+    private List<org.mockito.invocation.Invocation> calls(String method) {
+        return org.mockito.Mockito.mockingDetails(evalService).getInvocations().stream()
+                .filter(i -> i.getMethod().getName().equals(method)).toList();
+    }
+
+    /** Arguments of every persistFailureRow call: run, fixture, run index, type, usage. */
+    private List<Object[]> failureRows() {
+        return calls("persistFailureRow").stream().map(i -> i.getArguments()).toList();
+    }
+
+    private SkyRatingEvalService.Aggregate finalisedAggregate(SkyRatingEvalRunEntity run,
+            SkyRatingEvalStatus status, String message) {
+        org.mockito.ArgumentCaptor<SkyRatingEvalService.Aggregate> captor =
+                org.mockito.ArgumentCaptor.forClass(SkyRatingEvalService.Aggregate.class);
+        verify(evalService).finalise(eq(run), captor.capture(), eq(status), eq(message), anyLong());
+        return captor.getValue();
     }
 
     @Test
@@ -180,8 +329,9 @@ class SkyRatingEvalBatchServiceTest {
         verify(batchClient).collectResults("b-ended");
         verify(evalService).persistResult(eq(run), any(), eq(1), any(), any(), isNull(), eq(true),
                 any());
-        verify(evalService).finalise(eq(run), any(), eq(SkyRatingEvalStatus.COMPLETED), isNull(),
-                anyLong());
+        verify(evalService).finalise(eq(run), any(), eq(SkyRatingEvalStatus.COMPLETED),
+                eq((ATTEMPTED - 1) + " of " + ATTEMPTED + " evaluations failed and count as "
+                        + "non-passes (MISSING=" + (ATTEMPTED - 1) + ")"), anyLong());
     }
 
     @Test

@@ -257,6 +257,21 @@ describe('elsewherePicks', () => {
   });
 });
 
+describe('nextWorthIt — UNRATED is never offered as the way out (unrated-verdict-plan.md U2)', () => {
+  it('skips an UNRATED window to name the first WORTH_IT one', () => {
+    const events = [solar(TODAY, 'SUNSET'), solar(TOMORROW, 'SUNRISE'), solar(THURSDAY, 'SUNSET', { dayLabel: 'Thursday' })];
+    const verdicts = verdictsOf([
+      [`solar:${TOMORROW}:SUNRISE`, 'UNRATED'],
+      [`solar:${THURSDAY}:SUNSET`, 'WORTH_IT'],
+    ]);
+    expect(nextWorthIt({ events, verdicts, afterIndex: 0 }).index).toBe(2);
+    // And with nothing else Worth it, the answer is null — never the UNRATED one.
+    expect(nextWorthIt({
+      events, verdicts: verdictsOf([[`solar:${TOMORROW}:SUNRISE`, 'UNRATED']]), afterIndex: 0,
+    })).toBeNull();
+  });
+});
+
 describe('nextWorthIt', () => {
   const events = [
     solar(TODAY, 'SUNSET'),
@@ -354,6 +369,25 @@ describe('landingCardModel — the all-Poor branch', () => {
     ]);
 
     expect(landingCardModel({ events, verdicts }).picks).toEqual([]);
+  });
+
+  it.each([
+    ['both rows UNRATED', ['UNRATED', 'UNRATED']],
+    ['one Poor and one UNRATED', ['STAND_DOWN', 'UNRATED']],
+  ])('is not all-Poor when %s — "Too few rated" is not a call that the drive is not worth it (U2)', (_, tiers) => {
+    // The weather did not rule an UNRATED window out, so "Neither is worth the drive." would be a
+    // call nothing has made. Only STAND_DOWN counts toward the all-Poor fold.
+    const verdicts = verdictsOf([
+      [`solar:${TODAY}:SUNSET`, tiers[0]],
+      [`solar:${TOMORROW}:SUNRISE`, tiers[1]],
+      [`solar:${THURSDAY}:SUNSET`, 'WORTH_IT'],
+    ]);
+
+    const model = landingCardModel({ events, verdicts });
+
+    expect(model.allPoor).toBe(false);
+    expect(model.lead).toBeNull();
+    expect(model.nextUp).toBeNull();
   });
 
   it('does NOT fire when a row is merely UNRATED — that is a different claim from Poor', () => {

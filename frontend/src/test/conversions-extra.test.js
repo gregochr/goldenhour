@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  formatDayClockUk,
   formatDuration,
   formatGeneratedAtFull,
   groupForecastsByLocation,
@@ -150,5 +151,18 @@ describe('groupForecastsByLocation', () => {
     const result = groupForecastsByLocation(forecasts);
     expect(result[0].lat).toBe(50.62);
     expect(result[0].lon).toBe(-2.27);
+  });
+});
+
+describe('formatDayClockUk', () => {
+  it('prints the UK day and clock as one phrase — BST in October, GMT in January', () => {
+    expect(formatDayClockUk('2026-10-04T04:58:00Z')).toBe('Sun 4 Oct, 05:58');
+    expect(formatDayClockUk('2026-01-13T07:58:00Z')).toBe('Tue 13 Jan, 07:58');
+    expect(formatDayClockUk(new Date('2026-10-04T04:58:00Z'))).toBe('Sun 4 Oct, 05:58');
+  });
+
+  it('is null for nothing or nonsense, like every UK formatter here', () => {
+    expect(formatDayClockUk(null)).toBeNull();
+    expect(formatDayClockUk('nope')).toBeNull();
   });
 });

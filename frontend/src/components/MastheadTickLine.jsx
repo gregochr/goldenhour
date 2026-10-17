@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useCallback, useLayoutEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { GOLDEN } from './shared/MastheadLight.jsx';
+import { watchDeparture } from '../utils/watchDeparture.js';
+import { SET_POSTCODE_LONG, SET_POSTCODE_SHORT } from '../utils/postcodeNudge.js';
 
 /**
  * The same amber as a Tailwind class, for the nudge link's hover.
@@ -97,13 +99,32 @@ Pin.propTypes = { away: PropTypes.bool.isRequired };
  * purpose, because "you have not set a postcode" is a claim about the reader's account that a 502
  * is no evidence for. Nothing here may collapse the two.
  *
+ * <h2>Search is offered only where a handler is — the Plan tab</h2>
+ *
+ * <p>Two controls here open search: the origin button and the ⌕ beside it. Both render only when
+ * {@code onOpenSearch} is handed over, and the shell hands it over on the Plan tab alone. Everything
+ * search finds is a Plan object (a window, a region to plan from, a place's four-day sheet), and
+ * until 2026-09-16 a pick made on Coming up opened a Plan dialog over the feed. With no handler the
+ * origin is drawn as a non-interactive STATEMENT in the button's place and the ⌕ is not drawn at all:
+ * withheld, never rendered with nothing behind it, because plan-matrix §3 rule 14 bans a control with
+ * no visible effect.
+ *
+ * <p>The statement was the Map tab's first (map-tab-v2-plan.md §3 P11: "on a map, panning IS the
+ * search"), and {@code isMapTab} keeps that rule as its own — it withholds search even from a caller
+ * that hands a handler over — and adds the one thing the other tabs' statement does not draw, the
+ * "drive times from here" caption. The shell never hands the Map tab a handler, so in the app the
+ * two reasons agree; they are kept apart because they are two decisions, and the Map's must not
+ * start depending on which tabs the shell happens to search from.
+ *
  * <h2>The nudge is the origin button's empty state, and it is a different control</h2>
  *
- * <p>In every other state the origin button opens search. With no home saved it opens the postcode
- * field instead, because that is the one thing a reader in that state needs and a button labelled
- * "set a postcode" that opened a search box would be a control whose label lies. Search does not
- * become unreachable: the ⌕ beside it and the {@code /} key both still open it, which is why the
- * two are separate buttons here rather than one.
+ * <p>In every other state the origin button opens search (on the Plan tab; elsewhere it is the
+ * statement). With no home saved it opens the postcode field instead, on every tab, because that is
+ * the one thing a reader in that state needs and a button labelled "set a postcode" that opened a
+ * search box would be a control whose label lies. Search does not become unreachable on the Plan tab:
+ * the ⌕ beside it still opens it (the {@code /} key it once shared that job with moved to Ask at F2,
+ * and its key cap came off the button with it), which is why the two are separate buttons here rather
+ * than one.
  *
  * <p>⚠️ <b>{@code homePlace} is the authority and {@code light} is only consulted while it is
  * unknown</b>, which is narrower than the OR this shipped with and had to be. The two arrive on
@@ -131,28 +152,130 @@ Pin.propTypes = { away: PropTypes.bool.isRequired };
  * word it drops is "Home", which is the entire content of the attribution. Drawing the short form
  * away would have put `NE66 1NG` beside a Cumbrian origin and said nothing about whose it was.
  *
+ * <h2>⚠️ The origin slot keeps the reader's focus when its element is swapped, or ⌂ goes</h2>
+ *
+ * <p>The slot holds one of three elements — the nudge, the Map tab's statement, the origin button
+ * — and on the Map tab the move from the first to the second is a DIFFERENT element: a
+ * {@code <button>} replaced by a {@code <span>}. Elsewhere React reuses the button node and focus
+ * rides it; here the focused node is destroyed and focus falls to {@code <body>}, where no ring
+ * shows and a screen reader can lose its place. The route is the nudge's own purpose: press "set a
+ * postcode" and save one in the settings dialog. The page takes the new home from the save's own
+ * response, so the nudge is replaced while the dialog is still open, and the dialog's recorded
+ * opener is gone by the time it closes (the last paragraph below). The same swap can also land
+ * while the nudge itself holds focus — the dialog closed before its own settings read answered, and
+ * the answer names a home saved elsewhere — which is the handoff this section describes first.
+ *
+ * <p>So the statement is a programmatic focus target ({@code tabIndex={-1}}: focusable, never a tab
+ * stop, so "panning IS the search" still holds for the Tab order), and a swap hands focus from the
+ * departing element to its replacement — but only when the departing one HELD focus. That is
+ * decided in the ref's cleanup by `utils/watchDeparture.js`, whose doc says why a ref cleanup and
+ * never focus events. A "focus is nowhere after a swap" test was the obvious alternative and is
+ * wrong here: a tab switch swaps this slot too, and the shell moves focus deliberately around one
+ * (its `tabRequest` handoff, which arrives with focus wherever a closing dialog left it).
+ *
+ * <p><b>⌂ is the same defect from outside the slot, and ends in the same place.</b> It renders
+ * only while away, and its press returns the origin home — so the press destroys the very node it
+ * was made on, on every tab, and the reader landed on {@code <body>}. It is watched for leaving
+ * exactly as the slot's elements are — recorded only when it HELD focus, and undone on StrictMode's
+ * re-run — and the handoff puts the reader on whatever the slot holds once home: the origin button,
+ * the statement, or the nudge when no home is saved. That element sits beside ⌂ in the same flex
+ * item, and it is the one that now says what the press did ("Home · Durham").
+ *
+ * <p>⚠️ <b>It lands BEFORE a closing dialog's own restore, and that is deliberate.</b> The shell's
+ * {@code onGoHome} also closes the window popup, and ⌂ is reachable from inside it: the popup holds
+ * no trap and leaves this row in the Tab order. On that route the popup's {@code useDialogFocus}
+ * cleanup, a passive effect, used to find focus nowhere and put the reader back on the card that
+ * opened the popup. The handoff is a layout effect, so it runs first; the restore then finds focus
+ * somewhere real, with no layer left claiming modality, and stands down. An owner decision
+ * (2026-09-16): the reader had left the dialog and acted in the masthead, so the popup route ends
+ * on the origin control too. Moving the handoff to a passive effect would reverse it, and
+ * `planOriginShell.test.jsx`'s popup test is what says so. ⚠️ <b>Not while `App`'s map overlay or
+ * settings dialog is ALSO open</b> — the overlay opened over the popup, or the popup opened behind
+ * settings, both routes CLAUDE.md lists as open. That layer still claims modality, so the restore
+ * reads the origin control as stranded and returns the reader to the card, exactly as before this
+ * handoff existed (measured in jsdom through the real `App`, and in Chromium, WebKit and Firefox on
+ * a harness with the real `MapOverlay` and `Modal`).
+ *
+ * <p>⚠️ <b>It lands on a control the next key can press, and no gate on the input device is
+ * safe.</b> Chromium and Firefox focus a button on a mouse click, so a pointer press on ⌂ hands
+ * focus on too, with no ring drawn: a Space or Enter straight after it opens search (or, from the
+ * nudge, settings), where it used to scroll the page or do nothing. Holding Enter does the same by
+ * key repeat, in every engine. Both are a class the app already ships — a popup closed by a mouse
+ * click returns focus to its card, and Space reopens it. The tells for "that was a mouse" are
+ * refused: Chromium reports a screen-reader or voice-control press as a click with {@code detail}
+ * 1 and {@code pointerType} "mouse", Firefox gives it {@code detail} 1, a touch tap has
+ * {@code detail} 1 too, and Chromium focuses that press as a mouse focus, so {@code :focus-visible}
+ * would likely miss it as well — engine source read for the first two, the tap measured, the last
+ * inferred (jsdom cannot check it: its {@code :focus-visible} is its selector engine's heuristic
+ * over the key, mouse and focus events it has recorded, not a browser's). A gate on any of them
+ * would put the readers this handoff exists for back on {@code <body>}.
+ *
+ * <p>The nudge also hands its caller a way to FIND the slot later ({@code onSetPostcode}'s
+ * argument), for the ordinary order: a save moves the home while the dialog is still open, the
+ * nudge is replaced under the dialog, the dialog's recorded opener is detached by the time it
+ * closes, and it needs somewhere else to put the reader. See `App`'s settings mount.
+ *
  * @param {object}    props
  * @param {object|null|undefined} [props.light] the day's light — see the three states above
  * @param {?object}   props.origin      the away origin ({@code {name, baseName}}), or null for home
  * @param {?string}   [props.homePlace] the reader's home place; {@code undefined} while unknown
- * @param {Function}  props.onOpenSearch  opens the search dialog
+ * @param {Function}  [props.onOpenSearch] opens the search dialog; absent on every tab but Plan,
+ *        which withholds both search controls (see the class comment)
  * @param {Function}  props.onGoHome      returns the origin to home
- * @param {Function}  props.onSetPostcode opens settings on the home-postcode field
+ * @param {Function}  props.onSetPostcode opens settings on the home-postcode field; called with a
+ *        function that returns the origin slot's CURRENT element — the nudge's successor, once the
+ *        home is saved — for the dialog to restore focus to if the nudge itself is gone
  */
 export default function MastheadTickLine({
   light, origin, homePlace, onOpenSearch, onGoHome, onSetPostcode, searchOpen = false,
   isMapTab = false,
 }) {
+  // Whichever of the three elements the origin slot holds now. See the class comment's last
+  // section: the handoff below and the nudge's resolver both read it.
+  const originSlot = useRef(null);
+  // The element that left the line while holding focus — the slot's departing element, or ⌂ —
+  // set by a ref cleanup (`watchDeparture`), spent by the layout effect below.
+  const departed = useRef(null);
+  const trackOriginSlot = useCallback((node) => {
+    if (!node) return undefined;
+    originSlot.current = node;
+    const leave = watchDeparture(departed, node);
+    return () => {
+      leave();
+      if (originSlot.current === node) originSlot.current = null;
+    };
+  }, []);
+  // ⌂ is not in the slot, and never a target: it only departs. It hands focus to the same place as
+  // a swapped slot element, and only on the same condition — see the class comment.
+  const trackHome = useCallback((node) => (node ? watchDeparture(departed, node) : undefined), []);
+  // Every commit, but it acts only in the one that took a focused element out — a swapped slot
+  // element or ⌂ — and spends the record either way. The slot's element is attached by then — refs
+  // attach before layout effects run. And only while focus is still nowhere: nothing in this commit
+  // should have placed it, but a reader's position is never taken. ⚠️ A LAYOUT effect, and for ⌂
+  // that is load-bearing: see the class comment on the popup's passive restore.
+  useLayoutEffect(() => {
+    if (!departed.current) return;
+    departed.current = null;
+    const focused = document.activeElement;
+    const nowhere = !focused || focused === document.body || focused === document.documentElement;
+    if (nowhere) originSlot.current?.focus();
+  });
+  const originSlotNow = useCallback(() => originSlot.current, []);
+
   const away = Boolean(origin);
   // See the class comment: either positive answer, never an absent one, and never while away —
   // a reader planning from a region is not planning from a postcode, and the prompt would be
   // about nothing they can see. (The rail footer's "Home not set" line withheld it identically.)
   const noHome = !away && (homePlace === null || (homePlace === undefined && light === null));
-  // The map tab's own statement, drawn INSTEAD of the interactive origin button — never instead of
-  // the empty-state nudge, which stays exactly as it is on every tab (CLAUDE.md's do-not-re-gate-
-  // the-postcode rule: the band's empty state nudges the reader to this field, and a dead statement
-  // there would make the nudge a dead end).
-  const statement = isMapTab && !noHome;
+  // Whether this row offers search at all — the one question both search controls answer from. Two
+  // reasons it may not, and either is enough: no handler was handed over (every tab but Plan — see
+  // the class comment), or this is the Map tab, where panning IS the search whatever a caller passes.
+  const searchable = typeof onOpenSearch === 'function' && !isMapTab;
+  // The statement, drawn INSTEAD of the interactive origin button wherever there is no search to
+  // open — never instead of the empty-state nudge, which stays exactly as it is on every tab
+  // (CLAUDE.md's do-not-re-gate-the-postcode rule: the band's empty state nudges the reader to this
+  // field, and a dead statement there would make the nudge a dead end).
+  const statement = !searchable && !noHome;
   const originLabel = away
     ? `${origin.name} · from ${origin.baseName}`
     : (homePlace ? `Home · ${homePlace}` : 'Home');
@@ -174,7 +297,8 @@ export default function MastheadTickLine({
           {noHome ? (
             <button
               type="button"
-              onClick={onSetPostcode}
+              ref={trackOriginSlot}
+              onClick={() => onSetPostcode(originSlotNow)}
               data-testid="masthead-set-postcode"
               tabIndex={searchOpen ? -1 : undefined}
               // ⚠️ The name is the LONG visible form, and it must stay a superstring of the short one
@@ -182,32 +306,47 @@ export default function MastheadTickLine({
               // replaced, whose visible words genuinely were "Set postcode"/"Set" — and the copy
               // changed underneath it, so neither rendered string appeared in the name and a
               // speech-input reader saying what they could see hit nothing.
-              aria-label="Set a postcode for light and drive times"
+              aria-label={SET_POSTCODE_LONG}
               className={`wf-tick-origin wf-tick-nudge ${GOLDEN_HOVER}`}
             >
               <Pin away={false} />
               <span aria-hidden="true" className="wf-tick-place">
-                <span className="hidden sm:inline">Set a postcode for light and drive times</span>
-                <span className="sm:hidden">Set a postcode</span>
+                <span className="hidden sm:inline">{SET_POSTCODE_LONG}</span>
+                <span className="sm:hidden">{SET_POSTCODE_SHORT}</span>
               </span>
             </button>
           ) : statement ? (
-            // The map tab's own statement (map-tab-v2-plan.md §3 P11, README "Masthead change"):
-            // "on a map, panning IS the search" — so this is a `<span>`, never a `<button>`, and
+            // The statement (map-tab-v2-plan.md §3 P11, README "Masthead change", and every tab but
+            // Plan since 2026-09-16 — see the class comment). A `<span>`, never a `<button>`, so it
             // needs none of WCAG 2.5.3's accname machinery the interactive arm below carries: a
             // non-interactive element's accessible name is just its rendered text, which is already
             // exactly what a reader sees. The caption is real content, not decoration, so it is a
             // plain visible text node rather than `aria-hidden` — only the SVG pin glyph is hidden.
-            <span data-testid="window-first-origin-statement" className="wf-tick-origin">
+            //
+            // `tabIndex={-1}` makes it a place focus can be PUT, never one Tab reaches: it is where
+            // the reader lands when the nudge they pressed is replaced by this (see the class
+            // comment). It carries `.wf-tick-origin`, so a keyboard landing draws that rule's ring.
+            <span
+              ref={trackOriginSlot}
+              tabIndex={-1}
+              data-testid="window-first-origin-statement"
+              className="wf-tick-origin"
+            >
               <Pin away={away} />
               <span className="wf-tick-place">{originLabel}</span>
-              <span data-testid="masthead-origin-caption" className="wf-tick-caption">
-                drive times from here
-              </span>
+              {/* The Map tab's alone: every drive time and leave-by on the map is measured from this
+                  place. Coming up and Operations show no drive time, so there it would be a claim
+                  about nothing. */}
+              {isMapTab && (
+                <span data-testid="masthead-origin-caption" className="wf-tick-caption">
+                  drive times from here
+                </span>
+              )}
             </span>
           ) : (
             <button
               type="button"
+              ref={trackOriginSlot}
               onClick={onOpenSearch}
               data-testid="window-first-origin-chip"
               data-away={away ? 'true' : 'false'}
@@ -235,9 +374,12 @@ export default function MastheadTickLine({
           )}
           {/* Full-height hairline between the two controls, exactly as the bundle draws it. Purely
               visual: the two buttons are already separate tab stops with separate names.
-              ⚠️ Map tab only omits — README "Masthead change": "the ⌕ search button is absent" —
-              because panning IS the search there; every other tab keeps both untouched. */}
-          {!isMapTab && (
+              ⚠️ Omitted with the ⌕ wherever this row offers no search — every tab but Plan. The
+              Map tab withheld it first, by its own rule (README "Masthead change": "the ⌕ search
+              button is absent", because panning IS the search there); Coming up and Operations
+              followed on 2026-09-16 through a missing handler, because a pick from a search opened
+              there put a Plan dialog over that tab. */}
+          {searchable && (
             <>
               <span aria-hidden="true" className="wf-tick-sep" />
               <button
@@ -250,19 +392,22 @@ export default function MastheadTickLine({
                 // who opens it hears the same words the button promised.
                 aria-label="Search days, regions and places"
               >
+                {/* ⚠️ No `/` key cap here any more. The cap advertised the search shortcut, and `/` moved
+                    to Ask at F2 (plan §6 Q1): this button is now the way into search, and a cap on it
+                    would name a key that opens a different surface — the Ask field draws the one. */}
                 <span aria-hidden="true" className="wf-tick-glyph">⌕</span>
-                {/* Hidden on a phone, which has no keyboard to press it with. `aria-hidden` because
-                    the shortcut is an affordance for sighted pointer users; a screen-reader user is
-                    told nothing useful by hearing "slash". */}
-                <kbd aria-hidden="true" className="wf-tick-kbd">/</kbd>
               </button>
             </>
           )}
         </span>
 
+        {/* ⚠️ Its own press removes it — going home ends "away" — so it is watched for leaving with
+            focus, and the reader is handed to the origin slot rather than dropped on `<body>` (the
+            class comment's last section). */}
         {away && (
           <button
             type="button"
+            ref={trackHome}
             data-testid="window-first-origin-home"
             className="wf-tick-home"
             onClick={onGoHome}
@@ -316,7 +461,12 @@ MastheadTickLine.propTypes = {
     baseName: PropTypes.string.isRequired,
   }),
   homePlace: PropTypes.string,
-  onOpenSearch: PropTypes.func.isRequired,
+  /**
+   * Opens search. Absent means this row offers none: the origin is a statement and the ⌕ is not
+   * drawn. The shell hands it over on the Plan tab only; see the class comment. (`isMapTab` withholds
+   * search on its own too.)
+   */
+  onOpenSearch: PropTypes.func,
   onGoHome: PropTypes.func.isRequired,
   onSetPostcode: PropTypes.func.isRequired,
   /**
@@ -334,8 +484,10 @@ MastheadTickLine.propTypes = {
   /**
    * Whether the Map tab is the active tab (map-tab-v2-plan.md §3 P11) — a per-tab STATE of this
    * component, not a fork: the origin control renders as a non-interactive statement (pin, place,
-   * caption) and the `⌕` search button is withheld, because on a map panning IS the search. The
-   * empty-state nudge (`noHome`) is unaffected on every tab — see `statement`'s own derivation.
+   * caption) and the `⌕` search button is withheld, because on a map panning IS the search — whatever
+   * `onOpenSearch` says. ⚠️ Since 2026-09-16 the statement is not the Map's alone: a missing
+   * `onOpenSearch` draws it on every other tab but Plan too, without the caption, which stays this
+   * prop's. The empty-state nudge (`noHome`) is unaffected on every tab — see `statement`'s derivation.
    */
   isMapTab: PropTypes.bool,
 };

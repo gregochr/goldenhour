@@ -71,19 +71,6 @@ describe('ModelSelectionView', () => {
   });
 
   describe('the transient success banner', () => {
-    /** Toggles a strategy and waits for the banner its handler shows. */
-    async function toggleAndAwaitBanner() {
-      updateOptimisationStrategy.mockResolvedValue({
-        strategyType: 'TIDE_ALIGNMENT',
-        enabled: true,
-        paramValue: null,
-      });
-      const view = render(<ModelSelectionView />);
-      fireEvent.click(await screen.findByTestId('strategy-toggle-TIDE_ALIGNMENT'));
-      await screen.findByText('Tide Triage enabled');
-      return view;
-    }
-
     /** Flushes pending promises without moving the fake clock at all. */
     async function pump() {
       await act(async () => {
@@ -288,26 +275,55 @@ describe('ModelSelectionView', () => {
      * ⚠️ Only the pending timer, not every timer ever scheduled. An earlier version demanded all of
      * them, which rejected a behaviourally identical implementation whose only difference was an
      * idle timer the effect had already cleared — an over-specified test "catching" a mutant that
-     * changes nothing observable.
+     * changes nothing observable. What IS demanded is that nothing is left pending AFTER the
+     * unmount: the dismiss is the only timer this tree arms, so a zero count means nothing the
+     * component armed can fire into a torn-down tree — a replacement armed at some other delay
+     * included, which the `ms === 3000` filter cannot see.
+     *
+     * ⚠️ On the fake clock and settled by `pump()`, like the first three tests in this block —
+     * never a `findBy*` for the banner, which raced on real timers and would hang on this frozen
+     * clock (Testing Library ends every wait on a `setTimeout(0)`, and here that is frozen too).
+     * The race: the banner is on screen one scheduler task before its timer exists. Outside `act`,
+     * the commit a resolved request makes leaves its passive effects to a later task, and React
+     * always yields between the two because every commit requests a paint. A `findByText` is
+     * satisfied by the commit, and Testing Library then resumes on a real `setTimeout(0)` that
+     * races React's next `setImmediate` slice. If Node's millisecond clock ticked over before the
+     * event loop came back round — heavy load makes that likely — the timer won, and the test read
+     * an empty `scheduled`: `expected 0 to be greater than 0`, in 41 of 2,700 repetitions under CPU
+     * load and 20 of 20 with that tick forced. An awaited `act` keeps flushing until React's queue
+     * is empty, passive effects included, so nothing here depends on which macrotask wins — and on
+     * a frozen clock the 3s dismiss cannot fire before the unmount, however slow the run.
      */
     it('cancels its pending dismiss timer when it unmounts', async () => {
-      const realSetTimeout = globalThis.setTimeout;
-      const realClearTimeout = globalThis.clearTimeout;
+      vi.useFakeTimers();
+      // Taken after the clock is installed, so the spies wrap the fake functions the effect calls.
+      const fakeSetTimeout = globalThis.setTimeout;
+      const fakeClearTimeout = globalThis.clearTimeout;
       const scheduled = [];
       const cleared = [];
 
       const setSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn, ms, ...rest) => {
-        const id = realSetTimeout(fn, ms, ...rest);
+        const id = fakeSetTimeout(fn, ms, ...rest);
         if (ms === 3000) scheduled.push(id);
         return id;
       });
       const clearSpy = vi.spyOn(globalThis, 'clearTimeout').mockImplementation((id) => {
         cleared.push(id);
-        return realClearTimeout(id);
+        return fakeClearTimeout(id);
       });
 
       try {
-        const { unmount } = await toggleAndAwaitBanner();
+        updateOptimisationStrategy.mockResolvedValue({
+          strategyType: 'TIDE_ALIGNMENT',
+          enabled: true,
+          paramValue: null,
+        });
+        const { unmount } = render(<ModelSelectionView />);
+        await pump();
+
+        fireEvent.click(screen.getByTestId('strategy-toggle-TIDE_ALIGNMENT'));
+        await pump();
+        expect(screen.getByText('Tide Triage enabled')).toBeInTheDocument();
         expect(scheduled.length).toBeGreaterThan(0);
 
         const clearedBeforeUnmount = cleared.length;
@@ -315,9 +331,13 @@ describe('ModelSelectionView', () => {
 
         const clearedByUnmount = cleared.slice(clearedBeforeUnmount);
         expect(clearedByUnmount).toContain(scheduled.at(-1));
+        expect(vi.getTimerCount()).toBe(0);
       } finally {
+        // Spies off BEFORE the clock: restored after it, they would put the fake `setTimeout` back
+        // on the global once the clock itself is gone.
         setSpy.mockRestore();
         clearSpy.mockRestore();
+        vi.useRealTimers();
       }
     });
   });
@@ -493,6 +513,19 @@ describe('ModelSelectionView', () => {
     });
   });
 
+  it("shows the server's error sentence when a strategy change is refused", async () => {
+    updateOptimisationStrategy.mockRejectedValue(Object.assign(
+      new Error('Request failed with status code 400'),
+      { response: { status: 400, data: { error: 'Unknown optimisation strategy: TIDE_ALIGNMENT' } } },
+    ));
+    render(<ModelSelectionView />);
+
+    fireEvent.click(await screen.findByTestId('strategy-toggle-TIDE_ALIGNMENT'));
+
+    expect(await screen.findByText('Unknown optimisation strategy: TIDE_ALIGNMENT')).toBeInTheDocument();
+    expect(screen.queryByText(/Request failed with status code 400/)).toBeNull();
+  });
+
   it('shows loading state initially', () => {
     getAvailableModels.mockReturnValue(new Promise(() => {})); // never resolves
     render(<ModelSelectionView />);
@@ -628,6 +661,38 @@ describe('ModelSelectionView', () => {
     expect(screen.queryByTestId('config-tab-BATCH_NEAR_TERM')).not.toBeInTheDocument();
   });
 
+  it('offers Sonnet 5.5 as a selectable card, ordered after Sonnet 4.6, and switches to it', async () => {
+    getAvailableModels.mockResolvedValue({
+      ...MOCK_DATA,
+      available: [
+        { name: 'HAIKU', version: '4.5' },
+        { name: 'SONNET', version: '4.6' },
+        { name: 'SONNET_55', version: '5.5' },
+        { name: 'OPUS', version: '4.6' },
+      ],
+    });
+    setActiveModel.mockResolvedValue({ runType: 'AURORA_EVALUATION', active: 'SONNET_55' });
+
+    render(<ModelSelectionView />);
+    await waitFor(() => {
+      expect(screen.getByTestId('config-tab-AURORA_EVALUATION')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId('config-tab-AURORA_EVALUATION'));
+
+    const sonnet46 = await screen.findByTestId('switch-AURORA_EVALUATION-SONNET');
+    const sonnet55 = screen.getByTestId('switch-AURORA_EVALUATION-SONNET_55');
+    expect(sonnet46).toHaveTextContent('Switch to Sonnet 4.6');
+    expect(sonnet55).toHaveTextContent('Switch to Sonnet 5.5');
+    expect(
+      sonnet46.compareDocumentPosition(sonnet55) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    fireEvent.click(sonnet55);
+    await waitFor(() => {
+      expect(setActiveModel).toHaveBeenCalledWith('AURORA_EVALUATION', 'SONNET_55');
+    });
+  });
+
   it('Scheduled Batch tab label shows active model in brackets', async () => {
     render(<ModelSelectionView />);
 
@@ -636,10 +701,14 @@ describe('ModelSelectionView', () => {
     });
 
     // MOCK_DATA.configs.BATCH_NEAR_TERM = 'SONNET'
-    expect(screen.getByTestId('config-tab-BATCH_NEAR_TERM')).toHaveTextContent('(Sonnet)');
+    expect(screen.getByTestId('config-tab-BATCH_NEAR_TERM')).toHaveTextContent('(Sonnet 4.6)');
   });
 
-  it('Scheduled Batch tab shows three distinct per-model descriptions', async () => {
+  it('Scheduled Batch tab shows a distinct description for each of the four models', async () => {
+    getAvailableModels.mockResolvedValue({
+      ...MOCK_DATA,
+      available: ['HAIKU', 'SONNET', 'SONNET_55', 'OPUS'],
+    });
     render(<ModelSelectionView />);
 
     await waitFor(() => {
@@ -658,6 +727,8 @@ describe('ModelSelectionView', () => {
     // Each description appears exactly once — not the same text repeated across all three cards
     expect(screen.getAllByText(/cost-efficient model for overnight batch runs/)).toHaveLength(1);
     expect(screen.getAllByText(/Recommended for scheduled batch runs/)).toHaveLength(1);
+    // The fourth model: Sonnet 5.5 has its own description, shown exactly once
+    expect(screen.getAllByText(/Selectable newer Sonnet for scheduled batch runs/)).toHaveLength(1);
   });
 
   it('Scheduled Batch tab shows informational panel', async () => {
@@ -710,8 +781,69 @@ describe('ModelSelectionView', () => {
 
     expect(screen.queryByTestId('cost-estimate-table')).not.toBeInTheDocument();
     // Spot-check cost ranges are present
-    expect(screen.getByText('~£0.0002')).toBeInTheDocument();
-    expect(screen.getByText('~£0.02 – £0.08')).toBeInTheDocument();
+    expect(screen.getAllByText('~£0.0002').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('~£0.02 – £0.08').length).toBeGreaterThanOrEqual(1);
+    // Sonnet 5.5 has its own row, so it can be marked active when selected
+    expect(within(screen.getByTestId('batch-cost-table')).getByText('Sonnet 5.5')).toBeInTheDocument();
+  });
+
+  it('Scheduled Batch cost table marks the Sonnet 5.5 row "(active)" when it is the active model', async () => {
+    getAvailableModels.mockResolvedValue({
+      ...MOCK_DATA,
+      configs: { ...MOCK_DATA.configs, BATCH_NEAR_TERM: 'SONNET_55' },
+    });
+    render(<ModelSelectionView />);
+    fireEvent.click(await screen.findByTestId('config-tab-BATCH_NEAR_TERM'));
+
+    const table = await screen.findByTestId('batch-cost-table');
+    const row = within(table).getByText('Sonnet 5.5').closest('tr');
+    expect(row).toHaveTextContent('(active)');
+    expect(within(table).getByText('Sonnet 4.6').closest('tr')).not.toHaveTextContent('(active)');
+    expect(screen.getByTestId('config-tab-BATCH_NEAR_TERM')).toHaveTextContent('(Sonnet 5.5)');
+  });
+
+  it('Extended Thinking: Sonnet 5.5 shows the no-effect note and suppresses the thinking-cost line', async () => {
+    getAvailableModels.mockResolvedValue({
+      ...MOCK_DATA,
+      configs: { ...MOCK_DATA.configs, BRIEFING_BEST_BET: 'SONNET_55' },
+      extendedThinkingConfigs: { BRIEFING_BEST_BET: true },
+    });
+    render(<ModelSelectionView />);
+    fireEvent.click(await screen.findByTestId('config-tab-BRIEFING_BEST_BET'));
+
+    expect(await screen.findByTestId('extended-thinking-sonnet-55-note')).toHaveTextContent(
+      'always thinks adaptively at low effort',
+    );
+    expect(screen.queryByText(/Active — adds ~10 000 thinking tokens/)).not.toBeInTheDocument();
+  });
+
+  it('Extended Thinking: Haiku 5.5 shows the no-effect note and suppresses the thinking-cost line', async () => {
+    getAvailableModels.mockResolvedValue({
+      ...MOCK_DATA,
+      configs: { ...MOCK_DATA.configs, BRIEFING_BEST_BET: 'HAIKU_55' },
+      extendedThinkingConfigs: { BRIEFING_BEST_BET: true },
+    });
+    render(<ModelSelectionView />);
+    fireEvent.click(await screen.findByTestId('config-tab-BRIEFING_BEST_BET'));
+
+    expect(await screen.findByTestId('extended-thinking-haiku-55-note')).toHaveTextContent(
+      'thinking disabled',
+    );
+    expect(screen.queryByText(/Active — adds ~10 000 thinking tokens/)).not.toBeInTheDocument();
+  });
+
+  it('Extended Thinking: Sonnet 4.6 still shows the thinking-cost line and names which Sonnet', async () => {
+    getAvailableModels.mockResolvedValue({
+      ...MOCK_DATA,
+      configs: { ...MOCK_DATA.configs, BRIEFING_BEST_BET: 'SONNET' },
+      extendedThinkingConfigs: { BRIEFING_BEST_BET: true },
+    });
+    render(<ModelSelectionView />);
+    fireEvent.click(await screen.findByTestId('config-tab-BRIEFING_BEST_BET'));
+
+    expect(await screen.findByText(/Active — adds ~10 000 thinking tokens per call \(Sonnet 4\.6:/))
+      .toBeInTheDocument();
+    expect(screen.queryByTestId('extended-thinking-sonnet-55-note')).not.toBeInTheDocument();
   });
 
   it('batch cost table is absent on non-batch tabs', async () => {

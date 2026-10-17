@@ -21,8 +21,8 @@ class TopicRarityTest {
      */
     private static final List<String> EMITTED_TYPES = List.of(
             "AURORA", "BLUEBELL", "CLEARANCE", "DUST", "ECLIPSE", "EQUINOX", "INVERSION",
-            "KING_TIDE", "METEOR", "NLC", "SNOW_FRESH", "SNOW_MIST", "SNOW_TOPS", "SPRING_TIDE",
-            "STORM_SURGE", "SUPERMOON");
+            "KING_TIDE", "LUNAR_ECLIPSE", "METEOR", "NLC", "SNOW_FRESH", "SNOW_MIST", "SNOW_TOPS",
+            "SPRING_TIDE", "STORM_SURGE", "SUPERMOON");
 
     @Test
     @DisplayName("every kind that can reach a window has an explicit rank")
@@ -58,6 +58,10 @@ class TopicRarityTest {
         assertThat(TopicRarity.rankOf("SUPERMOON")).isLessThan(TopicRarity.rankOf("SPRING_TIDE"));
         assertThat(TopicRarity.rankOf("AURORA")).isLessThan(TopicRarity.rankOf("BLUEBELL"));
         assertThat(TopicRarity.rankOf("KING_TIDE")).isLessThan(TopicRarity.rankOf("SPRING_TIDE"));
+        // A lunar eclipse recurs roughly every 900 days — far more often than a deep solar one,
+        // and still rarer than a supermoon (lunar-eclipse-plan.md §2.1).
+        assertThat(TopicRarity.rankOf("ECLIPSE")).isLessThan(TopicRarity.rankOf("LUNAR_ECLIPSE"));
+        assertThat(TopicRarity.rankOf("LUNAR_ECLIPSE")).isLessThan(TopicRarity.rankOf("SUPERMOON"));
     }
 
     @Test

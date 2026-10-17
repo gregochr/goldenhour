@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PhotoCast — map on iPhone, panels minimised</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#181210;--surface:#221A15;--panel:#1E1712;--border:#3A2C23;--border-light:#4A3A2E;--ink:#F2E7D3;--ink-2:rgba(242,231,211,.7);--ink-3:rgba(242,231,211,.5);--go:#8AAE72;--marginal:#E0A542;--poor:#C8452F;--tide:#6FA8B0;--home:#C9A24B;--coral:#E8593F;--dawn:#8FA8C4;--sans:'IBM Plex Sans',system-ui,sans-serif;--serif:'Newsreader',Georgia,serif;--mono:'IBM Plex Mono',monospace}
+html,body{background:#0e0b09;color:var(--ink)}
+body{font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased;padding:24px 20px 60px}
+a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+.hd{max-width:1100px;margin:0 auto 18px}
+.hd .m{font-family:var(--mono);font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);margin-bottom:7px}
+.hd h1{font-size:20px;font-weight:700;letter-spacing:-.02em}
+.hd p{font-size:13px;color:var(--ink-2);max-width:88ch;margin-top:6px;text-wrap:pretty}
+.hd ol{font-size:13px;color:var(--ink-2);max-width:88ch;margin:10px 0 0 18px;display:grid;gap:4px}
+.hd b{color:var(--ink);font-weight:600}
+.demobar{max-width:1100px;margin:0 auto 16px;display:flex;gap:7px;flex-wrap:wrap;font-family:var(--mono);font-size:10.5px;color:var(--ink-3);align-items:center}
+.demobar button{font-family:var(--mono);font-size:10.5px;border:1px solid var(--border);background:var(--surface);color:var(--ink-2);border-radius:7px;padding:6px 11px}
+.demobar button:hover{border-color:var(--border-light);color:var(--ink)}
+.phones{max-width:1100px;margin:0 auto;display:flex;gap:48px;flex-wrap:wrap;justify-content:center}
+.col{display:flex;flex-direction:column;gap:14px;width:390px}
+.cap .t{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--home)}
+.cap h2{font-size:16px;font-weight:700;letter-spacing:-.01em;margin-top:2px}
+.cap p{font-size:12.5px;color:var(--ink-2);margin-top:4px;text-wrap:pretty}
+
+.phone{position:relative;width:390px;height:844px;border-radius:44px;overflow:hidden;background:var(--bg);box-shadow:0 0 0 9px #241c17,0 0 0 10px #3a2c23,0 26px 60px rgba(0,0,0,.6);display:flex;flex-direction:column}
+.sb{height:46px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:6px 30px 0 34px;font-size:15px;font-weight:600;background:#1B1411}
+.sb .isl{width:112px;height:30px;border-radius:16px;background:#000}
+.sb .r{font-family:var(--mono);font-size:11px;color:var(--ink-2)}
+.mast{background:linear-gradient(180deg,#241B16,#1B1411);padding:6px 14px 0;border-bottom:1px solid var(--border);flex:none}
+.ctop{display:flex;align-items:center;gap:10px}
+.spine{position:relative;padding-left:17px}
+.spine::before{content:'';position:absolute;left:0;top:0;bottom:0;width:8px;background:repeating-linear-gradient(180deg,var(--border-light) 0 6px,transparent 6px 12px);border-right:1px solid var(--border)}
+.cw{font-family:var(--serif);font-weight:600;font-size:20px;line-height:1;letter-spacing:-.022em;color:#F9F1E2}
+.ck{font-family:var(--mono);font-size:7.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--coral);margin-top:4px}
+.mr{margin-left:auto;display:flex;align-items:center;gap:8px}
+.up{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10px;font-weight:600;color:var(--go);border:1px solid rgba(138,174,114,.4);border-radius:6px;padding:4px 7px}
+.up i{width:6px;height:6px;border-radius:50%;background:var(--go);box-shadow:0 0 6px var(--go)}
+.cog{width:30px;height:30px;border:1px solid var(--border);border-radius:7px;display:flex;align-items:center;justify-content:center}
+.cog i{width:12px;height:12px;border-radius:50%;border:2px solid var(--ink-3)}
+.rule{margin-top:9px;height:3px;border-radius:2px;background:linear-gradient(90deg,#26313F 0%,#4A3550 9%,#B4553C 19%,#E8593F 25%,#E0A542 33%,#F2E7D3 50%,#E0A542 66%,#E8593F 74%,#7C4A56 84%,#2E3446 93%,#26313F 100%)}
+.ticks{display:flex;align-items:center;gap:8px;padding:6px 0 7px;font-family:var(--mono);font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
+.ticks b{color:var(--ink);font-weight:600}
+.ticks .tm{margin-left:auto;display:flex;gap:9px;color:var(--marginal)}
+.tabs{display:flex;gap:5px;padding:0 14px;background:#1B1411;flex:none;border-bottom:1px solid var(--border)}
+.tab{font-size:13px;font-weight:500;color:var(--ink-2);border:1px solid var(--border);border-bottom:0;background:var(--panel);border-radius:8px 8px 0 0;padding:8px 12px;display:flex;align-items:center;gap:6px}
+.tab.on{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:inset 0 2px 0 var(--home)}
+.tab .n{font-family:var(--mono);font-size:10px;color:#EE8064;border:1px solid rgba(232,89,63,.5);border-radius:999px;padding:0 6px}
+.safari{height:82px;flex:none;background:#1a1512;display:flex;align-items:flex-start;justify-content:center;gap:12px;padding-top:12px}
+.safari i{width:44px;height:44px;border-radius:50%;background:#2e2723}
+.safari span{width:240px;height:44px;border-radius:22px;background:#2e2723;display:flex;align-items:center;justify-content:center;font-size:15px;color:var(--ink-2)}
+
+.mw{position:relative;flex:1;min-height:0;background:#161310;overflow:hidden}
+.map{position:absolute;inset:0}
+.leaflet-container{background:#161310;font-family:var(--mono)}
+.basewarm{filter:saturate(.5) sepia(.32) brightness(.9) contrast(1.08)}
+.leaflet-control-attribution{background:rgba(20,16,13,.55)!important;color:rgba(242,231,211,.3)!important;font-size:8px!important;padding:0 4px!important}
+.leaflet-control-attribution a{color:rgba(242,231,211,.4)!important}
+.lc{display:flex;align-items:center;gap:5px;padding:3px 6px;border-radius:5px;background:rgba(14,11,9,.86);box-shadow:inset 0 0 0 1px var(--border-light),0 2px 6px rgba(0,0,0,.5);font-family:var(--mono);font-size:10px;white-space:nowrap;color:var(--ink);transform:translate(-50%,-50%);width:max-content;transition:opacity .2s}
+.lc i{width:6px;height:6px;flex:none}
+.lc b{font-weight:600}
+.lc em{font-style:normal;font-weight:600;padding-left:4px;border-left:1px solid var(--border-light)}
+.lc.dim{opacity:.36}
+.lc .tw{width:12px;height:7px;color:var(--tide)}
+.leaflet-div-icon{background:none;border:none}
+
+/* shared: the window pill — the one thing always on screen */
+.pill{position:absolute;z-index:500;top:10px;left:10px;right:10px;display:flex;gap:6px}
+.pill .st{width:44px;height:44px;flex:none;border-radius:10px;background:rgba(20,15,12,.92);border:1px solid var(--border-light);font-size:15px;color:var(--ink-2)}
+.pill .mid{flex:1;min-width:0;height:44px;display:flex;align-items:center;gap:8px;padding:0 10px;border-radius:10px;background:rgba(20,15,12,.94);border:1px solid rgba(138,174,114,.55);box-shadow:inset 3px 0 0 var(--vc),0 6px 18px rgba(0,0,0,.45);--vc:var(--go)}
+.ev{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.1em;padding:2px 6px;border-radius:4px;flex:none}
+.ev.SUNSET{color:#EE8064;border:1px solid rgba(232,89,63,.5);background:rgba(232,89,63,.1)}
+.ev.SUNRISE{color:var(--dawn);border:1px solid rgba(143,168,196,.5);background:rgba(143,168,196,.1)}
+.pill .d{font-size:14px;font-weight:600;white-space:nowrap}
+.pill .tt{font-family:var(--mono);font-size:12px;color:var(--ink-2)}
+.vd{margin-left:auto;font-family:var(--mono);font-size:10.5px;font-weight:600;letter-spacing:.1em;white-space:nowrap}
+.v-worth{color:var(--go)}.v-maybe{color:var(--marginal)}.v-poor{color:#E0735E}
+.caret{font-size:9px;color:var(--ink-3);margin-left:2px}
+
+.toast{position:absolute;z-index:490;top:62px;left:50%;transform:translateX(-50%);font-size:12px;color:var(--ink-2);background:rgba(20,15,12,.9);border:1px solid var(--border);border-radius:999px;padding:4px 12px;white-space:nowrap;transition:opacity .5s}
+.toast.gone{opacity:0;pointer-events:none}
+
+/* tide glyph + chart */
+.tg{width:16px;height:9px;flex:none;color:var(--tide)}
+.tch{display:block;width:100%}
+.tk{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.tph{font-family:var(--mono);font-size:13px;font-weight:600;letter-spacing:.06em;color:#8FC0C7;text-transform:uppercase}
+.tm2{font-family:var(--mono);font-size:10.5px;color:var(--ink-2)}
+.tdim{font-family:var(--mono);font-size:11px;color:var(--ink-2);line-height:1.5}
+.tdim b{color:var(--ink)}
+.tnext{font-family:var(--mono);font-size:11px;color:var(--tide);display:inline-flex;align-items:center;min-height:32px}
+.seg{display:flex;border:1px solid var(--border-light);border-radius:8px;overflow:hidden}
+.seg button{flex:1;font-family:var(--mono);font-size:11px;color:var(--ink-2);padding:0 10px;min-height:36px}
+.seg button.on{background:rgba(201,162,75,.16);color:#EBD9A8;font-weight:600}
+.lg{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10px;color:var(--ink-2)}
+.lg i{width:60px;height:5px;border-radius:3px;background:linear-gradient(90deg,#4a6ea0,#C8452F,#E0A542,#8AAE72)}
+.wl{display:flex;flex-direction:column}
+.wr{display:flex;align-items:center;gap:9px;padding:0 4px;min-height:48px;border-bottom:1px solid var(--border);text-align:left;width:100%}
+.wr:last-child{border-bottom:0}
+.wr.on{background:rgba(201,162,75,.09);box-shadow:inset 3px 0 0 var(--home)}
+.wr .d{font-size:13.5px;font-weight:600}
+.wr .tt{font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+.wr .tw2{width:14px;height:8px;color:var(--tide);opacity:.9}
+.wr .tw2.off{opacity:0}
+.fr{display:flex;align-items:center;gap:10px;justify-content:space-between}
+.fr .k{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2)}
+.hint{font-family:var(--mono);font-size:9.5px;color:var(--ink-3);line-height:1.5;text-wrap:pretty}
+
+/* ── A: peek sheet ─────────────────────────────────────────────────────── */
+.sh{position:absolute;z-index:520;left:0;right:0;bottom:0;background:rgba(22,17,13,.97);border-top:1px solid var(--border-light);border-radius:16px 16px 0 0;box-shadow:0 -10px 30px rgba(0,0,0,.5);display:flex;flex-direction:column;height:74px;transition:height .26s cubic-bezier(.3,.7,.2,1)}
+.sh.open{height:356px}
+.sh .hdl{height:14px;flex:none;display:flex;justify-content:center;align-items:center}
+.sh .hdl i{width:36px;height:4px;border-radius:2px;background:var(--border-light)}
+.pk{display:flex;gap:6px;padding:0 10px 10px;flex:none}
+.pb{flex:1;min-width:0;height:46px;border:1px solid var(--border);border-radius:10px;background:var(--panel);display:flex;flex-direction:column;justify-content:center;align-items:flex-start;padding:0 9px;text-align:left}
+.pb.on{border-color:rgba(201,162,75,.6);background:rgba(201,162,75,.1)}
+.pb .k{font-family:var(--mono);font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);white-space:nowrap}
+.pb .v{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;display:flex;align-items:center;gap:5px}
+.pb.tide{border-color:rgba(111,168,176,.4);background:rgba(111,168,176,.08)}
+.pb.tide.on{border-color:rgba(111,168,176,.8);background:rgba(111,168,176,.16)}
+.pb.tide .v{color:#8FC0C7;font-family:var(--mono);font-size:11.5px}
+.pb.lay{flex:0 0 58px;align-items:center}
+.pb.hide{display:none}
+.pb.pulse{animation:pl 1.2s ease 1}
+@keyframes pl{0%{box-shadow:0 0 0 0 rgba(111,168,176,.7)}100%{box-shadow:0 0 0 10px rgba(111,168,176,0)}}
+.sbody{flex:1;min-height:0;overflow:auto;padding:4px 14px 14px;border-top:1px solid var(--border);display:none}
+.sh.open .sbody{display:block}
+.pane{display:none;flex-direction:column;gap:10px;padding-top:8px}
+.pane.on{display:flex}
+.pane h3{font-size:16px;font-weight:700;letter-spacing:-.01em}
+
+/* ── B: chips on the map ───────────────────────────────────────────────── */
+.dd{position:absolute;z-index:510;top:60px;left:10px;right:10px;background:rgba(20,15,12,.97);border:1px solid var(--border-light);border-radius:12px;box-shadow:0 18px 40px rgba(0,0,0,.6);padding:6px 10px;display:none}
+.dd.on{display:block}
+.bar{position:absolute;z-index:520;left:10px;right:10px;bottom:10px;display:flex;gap:6px}
+.bar>button,.bar .seg{height:44px;border-radius:12px;background:rgba(20,15,12,.94);border:1px solid var(--border-light);font-size:13px;font-weight:500;color:var(--ink)}
+.bar>button{flex:1;padding:0 10px}
+.bar>button.on{border-color:rgba(201,162,75,.6);color:#EBD9A8}
+.bar .seg{flex:0 0 128px}
+.bar .seg button{min-height:42px}
+.tchip{position:absolute;z-index:515;left:10px;bottom:62px;height:40px;display:flex;align-items:center;gap:7px;padding:0 12px;border-radius:999px;background:rgba(20,15,12,.94);border:1px solid rgba(111,168,176,.55);font-family:var(--mono);font-size:11px;color:#8FC0C7;box-shadow:0 6px 16px rgba(0,0,0,.45);transition:opacity .2s,transform .2s}
+.tchip b{font-weight:600}
+.tchip .dm{color:var(--ink-2);padding-left:7px;border-left:1px solid var(--border-light)}
+.tchip.hide{opacity:0;transform:translateY(8px);pointer-events:none}
+.tchip.on{background:rgba(111,168,176,.18)}
+.tchip.pulse{animation:pl 1.2s ease 1}
+.card{position:absolute;z-index:518;left:10px;right:10px;bottom:62px;background:rgba(20,15,12,.97);border:1px solid var(--border-light);border-radius:12px;box-shadow:0 18px 40px rgba(0,0,0,.6);padding:12px;display:none;flex-direction:column;gap:9px}
+.card.on{display:flex}
+.card>.fr:nth-child(2),.card>div:nth-child(2){padding-right:40px}
+.card .x{position:absolute;right:6px;top:6px;width:36px;height:36px;border-radius:8px;color:var(--ink-2);font-size:13px}
+</style>
+</head>
+<body>
+<div class="hd">
+<div class="m">Map tab · iPhone · proposal</div>
+<h1>Map first, panels on request</h1>
+<p>Nothing opens on load. Two ways to fold the window picker, tide and layer controls away, both live below. Step the window with ‹ › or pan inland to see the tide control come and go.</p>
+<ol>
+<li><b>Closed by default.</b> The window pill stays at the top; everything else starts as a one-line summary.</li>
+<li><b>One panel at a time.</b> Opening one closes the other. Touching the map closes whatever is open.</li>
+<li><b>Tide shows up only when it matters:</b> the selected window is Maybe or Worth it, and at least one coastal spot is in view. Filters › Tide lets you set it to Always or Off.</li>
+<li><b>The summary carries the tide reading</b> (“Mid ↓ · 21 dim”), so most of the time you don't need to open the chart.</li>
+<li>The “scored locations shown” toast fades after 3 s.</li>
+</ol>
+</div>
+<div class="demobar"><span>Demo:</span><button id="inland">Pan inland (no coast)</button><button id="coast">Back to coast</button><button id="poor">Jump to a Poor window</button></div>
+<div class="phones">
+<div class="col"><div class="phone" id="pa"></div><div class="cap"><div class="t">Option A</div><h2>Peek sheet</h2><p>Window, Tide and Layers sit in one bottom sheet as three summary buttons. Tap one to open the sheet on that section; tap it again or touch the map to close. Everything is in one place, one thumb-reach away.</p></div></div>
+<div class="col"><div class="phone" id="pb"></div><div class="cap"><div class="t">Option B</div><h2>Chips on the map</h2><p>The pill's ▾ opens the window list. A tide chip sits above the control bar and opens a compact chart card. Closer to today's layout with less on screen; the controls are spread across the screen rather than in one place.</p></div></div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+const WIN=[
+ {d:'Tonight',ev:'SUNSET',t:'18:53',h:18.88,v:'worth',adj:0,evs:[[3.02,1],[9.38,-1],[15.55,1],[21.62,-1]],next:'Monday sunset'},
+ {d:'Tomorrow',ev:'SUNRISE',t:'06:58',h:6.97,v:'maybe',adj:-1,evs:[[3.85,1],[10.2,-1],[16.4,1],[22.45,-1]],next:'Saturday sunrise'},
+ {d:'Tomorrow',ev:'SUNSET',t:'18:51',h:18.85,v:'poor',adj:-3,evs:[[3.85,1],[10.2,-1],[16.4,1],[22.45,-1]],next:'Saturday sunrise'},
+ {d:'Saturday',ev:'SUNRISE',t:'07:00',h:7.0,v:'worth',adj:0,evs:[[1.2,-1],[7.3,1],[13.5,-1],[19.7,1]],next:'Saturday sunrise'}];
+const VL={worth:'WORTH IT',maybe:'MAYBE',poor:'POOR'};
+const SP=[
+ ['Whitby',54.486,-0.615,5,1,1],['Robin Hood’s Bay',54.434,-0.534,5,1,1],['Staithes',54.558,-0.79,4,1,1],['Saltburn',54.583,-0.973,4,1,0],
+ ['Runswick Bay',54.531,-0.742,5,1,0],['Scarborough',54.283,-0.4,4,1,1],['Sandsend',54.502,-0.668,4,1,1],['Ravenscar',54.4,-0.487,3,1,1],
+ ['Roseberry Topping',54.505,-1.107,4,0,0],['Hole of Horcum',54.335,-0.69,4,0,0],['Rosedale',54.36,-0.89,3,0,0],['Sutton Bank',54.24,-1.21,4,0,0],['Blakey Ridge',54.39,-0.95,3,0,0]
+].map(a=>({n:a[0],ll:[a[1],a[2]],s:a[3],coast:!!a[4],wantH:!!a[5]}));
+const COL=s=>s>=5?'#8AAE72':s>=4?'#B7B25A':s>=3?'#E0A542':'#C8452F';
+const TG='<svg class="tg" viewBox="0 0 16 9"><path d="M1 5.5C3 1.5 5 1.5 7 5.5S11 9.5 15 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
+function tideY(t,evs){const P=12.42,e=[[evs[evs.length-1][0]-24,evs[evs.length-1][1]],...evs,[evs[0][0]+24,evs[0][1]]];for(let i=0;i<e.length-1;i++){const a=e[i],b=e[i+1];if(t>=a[0]&&t<=b[0]){const f=(t-a[0])/(b[0]-a[0]);return{y:a[1]+(b[1]-a[1])*(1-Math.cos(Math.PI*f))/2,dir:b[1]-a[1]}}}return{y:0,dir:0}}
+function tideAt(w){const {y,dir}=tideY(w.h,w.evs);const ph=y>.55?'High':y<-.55?'Low':'Mid';return{y,ph,dir:ph==='High'||ph==='Low'?'':dir<0?'falling':'rising',ar:dir<0?'↓':'↑',m:(y*2.1).toFixed(1)}}
+const hh=h=>{const H=Math.floor(h),M=Math.round((h-H)*60);return String(H).padStart(2,'0')+':'+String(M).padStart(2,'0')};
+function chart(w){const W=340,H=92,t0=10,t1=70,x=h=>18+h/24*(W-24),yy=y=>t0+(1-y)/2*(t1-t0);let d='';for(let i=0;i<=96;i++){const h=i/4;d+=(i?'L':'M')+x(h).toFixed(1)+' '+yy(tideY(h,w.evs).y).toFixed(1)}
+ const cur=tideAt(w);let s=`<svg class="tch" viewBox="0 0 ${W} ${H}"><rect x="18" y="${t0}" width="${W-24}" height="${t1-t0}" fill="rgba(111,168,176,.05)"/>`;
+ [t0,(t0+t1)/2,t1].forEach(y=>s+=`<line x1="18" x2="${W-6}" y1="${y}" y2="${y}" stroke="rgba(242,231,211,.12)" stroke-dasharray="3 3"/>`);
+ s+=`<path d="${d}" fill="none" stroke="#6FA8B0" stroke-width="2"/>`;
+ w.evs.forEach(e=>s+=`<text x="${x(e[0])}" y="${t1+11}" text-anchor="middle" font-family="IBM Plex Mono" font-size="8.5" fill="rgba(242,231,211,.55)">${e[1]>0?'HW':'LW'} ${hh(e[0])}</text>`);
+ s+=`<line x1="${x(w.h)}" x2="${x(w.h)}" y1="${t0-4}" y2="${t1}" stroke="#E0A542" stroke-width="1"/><circle cx="${x(w.h)}" cy="${yy(cur.y)}" r="4.5" fill="#8FC0C7" stroke="#161310" stroke-width="1.5"/>`;
+ ['00','06','12','18','24'].forEach((l,i)=>s+=`<text x="${x(i*6)}" y="${H-1}" text-anchor="middle" font-family="IBM Plex Mono" font-size="8.5" fill="rgba(242,231,211,.4)">${l}</text>`);
+ return s+'</svg>'}
+
+function shell(el){el.innerHTML=`<div class="sb"><span>09:41</span><span class="isl"></span><span class="r">●●● 27</span></div>
+<div class="mast"><div class="ctop"><div class="spine"><div class="cw">PhotoCast</div><div class="ck">Field guide to light</div></div><div class="mr"><span class="up"><i></i>UP</span><span class="cog"><i></i></span></div></div><div class="rule"></div>
+<div class="ticks"><span>⌂ <b>Home · DH6 5DQ</b></span><span class="tm"><span>06:56</span><span>18:59</span></span></div></div>
+<div class="tabs"><span class="tab">◉ Plan</span><span class="tab">Coming up <span class="n">1</span></span><span class="tab on">◍ Map</span></div>
+<div class="mw"><div class="map"></div>
+<div class="pill"><button class="st" data-a="prev">‹</button><button class="mid" data-a="pill"></button><button class="st" data-a="next">›</button></div>
+<div class="toast">★ PhotoCast-scored locations shown</div></div>
+<div class="safari"><i></i><span>photocast.online</span><i></i></div>`}
+
+function makePhone(id,variant){
+ const el=document.getElementById(id);shell(el);
+ const mw=el.querySelector('.mw'),st={wi:0,open:null,mode:'auto',heat:true,coastIn:0,shown:null};
+ const map=L.map(el.querySelector('.map'),{zoomControl:false,attributionControl:true}).setView([54.43,-0.82],9.2);
+ L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,maxNativeZoom:16,className:'basewarm',attribution:'Tiles © Esri'}).addTo(map);
+ const heatL=L.layerGroup().addTo(map),chipL=L.layerGroup().addTo(map);
+ setTimeout(()=>el.querySelector('.toast').classList.add('gone'),3000);
+ if(variant==='a'){mw.insertAdjacentHTML('beforeend',`<div class="sh"><div class="hdl"><i></i></div><div class="pk">
+  <button class="pb" data-p="win"><span class="k">Other windows</span><span class="v"></span></button>
+  <button class="pb tide" data-p="tide"><span class="k">Tide at this light</span><span class="v"></span></button>
+  <button class="pb lay" data-p="lay"><span class="k">Layers</span><span class="v">☰</span></button></div>
+  <div class="sbody"><div class="pane" data-p="win"><h3>Tonight, or tomorrow?</h3><div class="wl"></div></div>
+  <div class="pane" data-p="tide"></div><div class="pane" data-p="lay"></div></div></div>`)}
+ else{mw.insertAdjacentHTML('beforeend',`<div class="dd"><div class="wl"></div></div>
+  <button class="tchip hide" data-p="tide"></button><div class="card" data-p="tide"></div><div class="card" data-p="lay"></div>
+  <div class="bar"><button data-p="reg">◎ Regions ▾</button><div class="seg"><button data-h="1">Heat</button><button data-h="0">Pins</button></div><button data-p="lay">Filters ▾</button></div>`)}
+
+ const tideOn=()=>st.mode==='off'?false:st.mode==='always'?true:WIN[st.wi].v!=='poor'&&st.coastIn>0;
+ function spots(){const w=WIN[st.wi],td=tideAt(w),b=map.getBounds();heatL.clearLayers();chipL.clearLayers();st.coastIn=0;let dim=0;
+  SP.forEach(p=>{const s=Math.max(1,p.s+w.adj),inV=b.contains(p.ll);if(p.coast&&inV)st.coastIn++;const dm=tideOn()&&p.coast&&p.wantH&&td.ph!=='High';if(dm&&inV)dim++;
+   if(st.heat)L.circle(p.ll,{radius:9000,stroke:false,fillColor:COL(s),fillOpacity:.22,interactive:false}).addTo(heatL);
+   L.marker(p.ll,{icon:L.divIcon({className:'',iconSize:[0,0],html:`<div class="lc${dm?' dim':''}"><i style="background:${COL(s)}"></i><b>${p.n}</b>${p.coast&&tideOn()?TG.replace('tg','tw'):''}<em>${s}</em></div>`})}).addTo(chipL)});
+  st.dim=dim;return td}
+ function wlist(){return WIN.map((w,i)=>`<button class="wr${i===st.wi?' on':''}" data-w="${i}"><span class="ev ${w.ev}">${w.ev}</span><span class="d">${w.d}</span><span class="tt">${w.t}</span><span class="vd v-${w.v}">${VL[w.v]}</span></button>`).join('')}
+ function tidePane(w,td){return `<div><div class="tk">Tide at this light</div><div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap"><span class="tph">${td.ph} tide${td.dir?', '+td.dir:''}</span><span class="tm2">${td.m} m · ${w.t}</span></div></div>${chart(w)}
+  <div class="tdim">${st.dim?`<b>${st.dim} coastal spots</b> are dimmed; they want high water.`:'No coastal spots in view are held back by the tide.'}</div><a class="tnext" href="#">Next high water on the light · ${w.next} ›</a>`}
+ function layPane(){return `<div class="fr"><span class="k">Show</span><div class="seg" style="flex:0 0 170px"><button data-h="1" class="${st.heat?'on':''}">Heat</button><button data-h="0" class="${st.heat?'':'on'}">Pins</button></div></div>
+  ${variant==='a'?`<div class="fr"><span class="k">Regions</span><button class="seg" style="padding:0 12px;min-height:36px;font-family:var(--mono);font-size:11px">All regions ▾</button></div>`:''}
+  <div class="fr"><span class="k">Tide</span><div class="seg" style="flex:0 0 220px">${['auto','always','off'].map(m=>`<button data-m="${m}" class="${st.mode===m?'on':''}">${m[0].toUpperCase()+m.slice(1)}</button>`).join('')}</div></div>
+  <div class="hint">Auto: shown when the light is Maybe or better and the coast is in view.</div><div class="lg">Poor <i></i> Worth it</div>`}
+
+ function render(){const w=WIN[st.wi],td=spots(),on=tideOn();
+  const mid=el.querySelector('.pill .mid');mid.style.setProperty('--vc',w.v==='worth'?'var(--go)':w.v==='maybe'?'var(--marginal)':'var(--poor)');
+  mid.style.borderColor=w.v==='worth'?'rgba(138,174,114,.55)':w.v==='maybe'?'rgba(224,165,66,.55)':'rgba(200,69,47,.55)';
+  mid.innerHTML=`<span class="ev ${w.ev}">${w.ev}</span><span class="d">${w.d}</span><span class="tt">${w.t}</span><span class="vd v-${w.v}">${VL[w.v]}${variant==='b'?'<span class="caret">▾</span>':''}</span>`;
+  const tsum=`${td.ph}${td.dir?' '+td.ar:''}${st.dim?' · '+st.dim+' dim':''}`;
+  if(!on&&st.open==='tide')st.open=null;
+  const appeared=on&&st.shown===false;st.shown=on;
+  el.querySelectorAll('.wl').forEach(x=>x.innerHTML=wlist());
+  if(variant==='a'){const o=WIN.map((x,i)=>i).filter(i=>i!==st.wi),best=o.find(i=>WIN[i].v!=='poor')??o[0],bw=WIN[best];
+   el.querySelector('.pb[data-p=win] .v').innerHTML=`<span style="overflow:hidden;text-overflow:ellipsis;min-width:0">${bw.d} ${bw.ev==='SUNRISE'?'AM':'PM'}</span><span class="v-${bw.v}" style="font-family:var(--mono);font-size:10px;flex:none">${VL[bw.v]}</span>`;
+   const tb=el.querySelector('.pb.tide');tb.classList.toggle('hide',!on);tb.querySelector('.v').innerHTML=TG+tsum;if(appeared){tb.classList.remove('pulse');void tb.offsetWidth;tb.classList.add('pulse')}
+   el.querySelector('.pane[data-p=tide]').innerHTML=tidePane(w,td);el.querySelector('.pane[data-p=lay]').innerHTML=layPane();
+   el.querySelector('.sh').classList.toggle('open',!!st.open);
+   el.querySelectorAll('.pb').forEach(b=>b.classList.toggle('on',b.dataset.p===st.open));el.querySelectorAll('.pane').forEach(p=>p.classList.toggle('on',p.dataset.p===st.open));
+   el.querySelector('.pb[data-p=win] .k').textContent=st.open==='win'?'Close':'Other windows';}
+  else{const c=el.querySelector('.tchip');c.classList.toggle('hide',!on);c.classList.toggle('on',st.open==='tide');c.innerHTML=`${TG}<b>${td.ph.toUpperCase()}${td.dir?' '+td.ar:''}</b>${st.dim?`<span class="dm">${st.dim} dimmed</span>`:''}`;
+   if(appeared){c.classList.remove('pulse');void c.offsetWidth;c.classList.add('pulse')}
+   c.style.display=st.open==='tide'||st.open==='lay'?'none':'';
+   el.querySelector('.card[data-p=tide]').innerHTML='<button class="x" data-x>✕</button>'+tidePane(w,td);el.querySelector('.card[data-p=lay]').innerHTML='<button class="x" data-x>✕</button>'+layPane();
+   el.querySelectorAll('.card').forEach(k=>k.classList.toggle('on',k.dataset.p===st.open));el.querySelector('.dd').classList.toggle('on',st.open==='win');
+   el.querySelectorAll('.bar .seg button').forEach(b=>b.classList.toggle('on',(b.dataset.h==='1')===st.heat));el.querySelector('.bar [data-p=lay]').classList.toggle('on',st.open==='lay')}}
+ mw.addEventListener('click',e=>{const t=e.target.closest('button,a');if(!t)return;if(t.tagName==='A'){e.preventDefault();return}
+  const a=t.dataset.a;
+  if(a==='prev'||a==='next'){st.wi=(st.wi+(a==='next'?1:WIN.length-1))%WIN.length}
+  else if(a==='pill'){st.open=variant==='b'?(st.open==='win'?null:'win'):(st.open==='win'?null:'win')}
+  else if(t.dataset.w!=null){st.wi=+t.dataset.w;if(variant==='b')st.open=null}
+  else if(t.dataset.h!=null)st.heat=t.dataset.h==='1';
+  else if(t.dataset.m)st.mode=t.dataset.m;
+  else if(t.dataset.x!=null)st.open=null;
+  else if(t.dataset.p&&t.dataset.p!=='reg')st.open=st.open===t.dataset.p?null:t.dataset.p;
+  render()});
+ map.on('mousedown dragstart zoomstart',()=>{if(st.open){st.open=null;render()}});
+ map.on('moveend',render);
+ render();
+ return{map,st,render};
+}
+const P=[makePhone('pa','a'),makePhone('pb','b')];
+document.getElementById('inland').onclick=()=>P.forEach(p=>p.map.flyTo([54.28,-1.95],9.2,{duration:1}));
+document.getElementById('coast').onclick=()=>P.forEach(p=>p.map.flyTo([54.43,-0.82],9.2,{duration:1}));
+document.getElementById('poor').onclick=()=>P.forEach(p=>{p.st.wi=2;p.render()});
+</script>
+</body>
+</html>

@@ -57,12 +57,27 @@ public interface OptimisationStrategyRepository extends JpaRepository<Optimisati
      * type's rows, admin settings and all. Naming the retired types leaves an unknown one to fail
      * loudly on read instead, which loses nothing.
      *
+     * <p>⚠️ The column is compared through {@code CAST(... AS VARCHAR)}, and that cast is load-bearing
+     * on the one database this prune exists for. Production's column is a plain {@code VARCHAR(30)}
+     * (V41), where the cast changes nothing. Local dev runs no migrations, and Hibernate 7 generates an
+     * {@code @Enumerated(STRING)} column on H2 as a native {@code ENUM(...)} of the enum's CURRENT
+     * constants — which H2 refuses to compare with any other value, so a bare {@code strategy_type IN
+     * (?)} bound to a retired name threw ({@code Value not permitted for column ... "SKIP_LOW_RATED"})
+     * on every start after the first of a fresh local database. Casting the column to its label makes
+     * the comparison a string one, which is all the prune ever needed. The alternative — mapping the
+     * column as VARCHAR so H2's schema matches V41 — was tried and rejected: Hibernate then adds a
+     * {@code CHECK (strategy_type IN (...))} of the current constants that neither a
+     * {@code columnDefinition} nor an {@code AttributeConverter} removes, and H2 2.4.240 stops
+     * evaluating such a check once the connection that created the table closes ({@code Check
+     * constraint invalid ... The database has been closed}) — so every write to the table would have
+     * failed as soon as Hikari retired Hibernate's schema-update connection.
+     *
      * @param retiredTypes the enum names that have been removed from {@link OptimisationStrategyType}
      * @return the number of rows deleted
      */
     @Modifying
     @Transactional
-    @Query(value = "DELETE FROM optimisation_strategy WHERE strategy_type IN (:retiredTypes)",
+    @Query(value = "DELETE FROM optimisation_strategy WHERE CAST(strategy_type AS VARCHAR) IN (:retiredTypes)",
             nativeQuery = true)
     int deleteByStrategyTypeIn(@Param("retiredTypes") Collection<String> retiredTypes);
 }

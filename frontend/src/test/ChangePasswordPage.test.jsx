@@ -45,6 +45,59 @@ describe('ChangePasswordPage', () => {
     expect(screen.getByText(/special character/i)).toBeInTheDocument();
   });
 
+  it('sits in the auth shell with an h2 heading under the lockup h1', () => {
+    renderWithAuth(<ChangePasswordPage />);
+
+    expect(screen.getByTestId('auth-shell')).toBeInTheDocument();
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+    expect(screen.getByRole('heading', { level: 2, name: 'Change your password' })).toBeInTheDocument();
+    expect(screen.getByText('You must set a new password before accessing the app.'))
+      .toHaveClass('text-plex-text-secondary');
+  });
+
+  it('uses the shared checklist: ○ for unmet, ✓ in plex-ok for met, live as the user types', () => {
+    renderWithAuth(<ChangePasswordPage />);
+    const items = () => [...screen.getByTestId('cp-checklist').querySelectorAll('li')];
+
+    expect(items().map((li) => li.textContent.charAt(0))).toEqual(['○', '○', '○', '○', '○', '○']);
+
+    fireEvent.change(screen.getByTestId('cp-new-password'), { target: { value: 'Abcdef1!' } });
+    fireEvent.change(screen.getByTestId('cp-confirm-password'), { target: { value: 'Abcdef1!' } });
+
+    expect(items().map((li) => li.textContent.charAt(0))).toEqual(['✓', '✓', '✓', '✓', '✓', '✓']);
+    items().forEach((li) => expect(li).toHaveClass('text-plex-ok'));
+  });
+
+  it('gives each password field its own show/hide eye and the .field class', () => {
+    renderWithAuth(<ChangePasswordPage />);
+    const [first] = screen.getAllByRole('button', { name: 'Show password' });
+
+    fireEvent.click(first);
+
+    expect(screen.getByTestId('cp-new-password')).toHaveAttribute('type', 'text');
+    expect(screen.getByTestId('cp-confirm-password')).toHaveAttribute('type', 'password');
+    expect(screen.getByTestId('cp-new-password')).toHaveClass('field');
+    expect(screen.getByTestId('cp-confirm-password')).toHaveClass('field');
+  });
+
+  it('shows a failed change in the error token', async () => {
+    vi.spyOn(AuthApi, 'changePassword').mockRejectedValue({ response: { data: { error: 'Too weak' } } });
+    renderWithAuth(<ChangePasswordPage />);
+    fireEvent.change(screen.getByTestId('cp-new-password'), { target: { value: 'Abcdef1!' } });
+    fireEvent.change(screen.getByTestId('cp-confirm-password'), { target: { value: 'Abcdef1!' } });
+
+    fireEvent.click(screen.getByTestId('cp-submit'));
+
+    const alert = await screen.findByTestId('cp-error');
+    expect(alert).toHaveTextContent('Too weak');
+    expect(alert).toHaveClass('text-plex-error');
+  });
+
+  it('keeps Sign out a secondary-ink text button', () => {
+    renderWithAuth(<ChangePasswordPage />);
+    expect(screen.getByRole('button', { name: 'Sign out' })).toHaveClass('text-plex-text-secondary');
+  });
+
   it('disables submit button until all requirements are met', () => {
     renderWithAuth(<ChangePasswordPage />);
     const submitButton = screen.getByTestId('cp-submit');
@@ -127,5 +180,98 @@ describe('ChangePasswordPage', () => {
     renderWithAuth(<ChangePasswordPage />);
     expect(screen.getByTestId('turnstile-widget')).toBeInTheDocument();
     expect(window.turnstile.render).toHaveBeenCalled();
+  });
+});
+
+/**
+ * R2b (login-registration-plan.md §2 #4 frontend paragraph): when the Turnstile script cannot
+ * load, the first-login password gate takes the sign-in page's fallback — the widget unmounts, the
+ * line says so, and submit is enabled with an empty token for the server's bounded fallback.
+ */
+describe('ChangePasswordPage Turnstile fallback', () => {
+  const FALLBACK = "Security check unavailable — we'll verify your sign-in another way.";
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.turnstile = {
+      render: vi.fn(() => { throw new Error('Domain not whitelisted'); }),
+      remove: vi.fn(),
+    };
+  });
+
+  afterEach(() => {
+    delete window.turnstile;
+  });
+
+  const fillValidPasswords = () => {
+    fireEvent.change(screen.getByTestId('cp-new-password'), { target: { value: 'NewPass123!' } });
+    fireEvent.change(screen.getByTestId('cp-confirm-password'), { target: { value: 'NewPass123!' } });
+  };
+
+  it('unmounts the widget and shows the sign-in sentence in secondary ink', () => {
+    renderWithAuth(<ChangePasswordPage />);
+
+    const line = screen.getByTestId('turnstile-unavailable');
+    expect(line).toHaveTextContent(FALLBACK);
+    expect(line).toHaveClass('text-xs', 'text-plex-text-secondary');
+    expect(line).toHaveAttribute('role', 'status');
+    expect(line.className).not.toMatch(/amber|red/);
+    expect(screen.queryByTestId('turnstile-widget')).not.toBeInTheDocument();
+    expect(screen.queryByText(/couldn't load/)).not.toBeInTheDocument();
+  });
+
+  it('enables submit once the password rules pass, with no token', () => {
+    renderWithAuth(<ChangePasswordPage />);
+    const submit = screen.getByTestId('cp-submit');
+
+    expect(submit).toBeDisabled();
+    fillValidPasswords();
+    expect(submit).toBeEnabled();
+  });
+
+  it('still refuses a password that fails the rules', () => {
+    renderWithAuth(<ChangePasswordPage />);
+
+    fireEvent.change(screen.getByTestId('cp-new-password'), { target: { value: 'weak' } });
+    fireEvent.change(screen.getByTestId('cp-confirm-password'), { target: { value: 'weak' } });
+
+    expect(screen.getByTestId('cp-submit')).toBeDisabled();
+  });
+
+  it('submits changePassword with an empty token', async () => {
+    vi.spyOn(AuthApi, 'changePassword').mockResolvedValue({});
+    renderWithAuth(<ChangePasswordPage />);
+    fillValidPasswords();
+
+    fireEvent.click(screen.getByTestId('cp-submit'));
+
+    await waitFor(() => expect(AuthApi.changePassword).toHaveBeenCalledTimes(1));
+    expect(AuthApi.changePassword).toHaveBeenCalledWith('NewPass123!', '');
+  });
+
+  it("renders the server's 429 sentence in the error slot and keeps the form usable", async () => {
+    vi.spyOn(AuthApi, 'changePassword').mockRejectedValue({
+      response: { status: 429, data: { error: 'Too many attempts. Please wait a few minutes and try again.' } },
+    });
+    renderWithAuth(<ChangePasswordPage />);
+    fillValidPasswords();
+
+    fireEvent.click(screen.getByTestId('cp-submit'));
+
+    const alert = await screen.findByTestId('cp-error');
+    expect(alert).toHaveTextContent('Too many attempts. Please wait a few minutes and try again.');
+    expect(alert).toHaveClass('text-plex-error');
+    expect(screen.getByTestId('turnstile-unavailable')).toBeInTheDocument();
+    expect(screen.getByTestId('cp-submit')).toBeEnabled();
+  });
+
+  it('does not show the fallback line, and still requires a token, while the widget works', () => {
+    window.turnstile = { render: vi.fn(() => 'widget-id-1'), remove: vi.fn() };
+    renderWithAuth(<ChangePasswordPage />);
+    fillValidPasswords();
+
+    expect(screen.queryByTestId('turnstile-unavailable')).not.toBeInTheDocument();
+    expect(screen.getByTestId('turnstile-widget')).toBeInTheDocument();
+    expect(screen.getByTestId('cp-submit')).toBeDisabled();
   });
 });

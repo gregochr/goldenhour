@@ -19,6 +19,7 @@ import {
   rgb,
 } from '../utils/heatField.js';
 import { rampRgb, rgb as scoreRampRgb } from '../utils/scoreRamp.js';
+import { auroraRampRgb } from '../utils/auroraRamp.js';
 
 /**
  * The heat kernel, tested through a stubbed 2d context.
@@ -1564,5 +1565,69 @@ describe('heatField — drawTiles (host B: over a Leaflet basemap)', () => {
       });
       expect(at(f, 8, 25)).toEqual(rampRgb(1));
     });
+  });
+});
+
+describe('heatField — ramp and bloom colour injection (aurora heat, A1)', () => {
+  // Five scores spanning the whole ramp, close enough to blend, so the fixture exercises
+  // interpolation, the confidence desaturation and the bloom's gate rather than one flat cell.
+  const PTS = [
+    { x: 30, y: 30, sc: 1, rid: 'a' },
+    { x: 70, y: 30, sc: 2.5, rid: 'a' },
+    { x: 110, y: 30, sc: 3.6, rid: 'a' },
+    { x: 150, y: 30, sc: 4.4, rid: 'a' },
+    { x: 190, y: 30, sc: 5, rid: 'a' },
+  ];
+  const BASE = { radius: 30, grid: 2, bloom: 1, conf: 0.8 };
+  const run = (extra) => field(PTS, 220, 60, { ...BASE, ...extra });
+  const bytes = (f, key) => Array.from(f[key].data);
+
+  it('is byte-identical to the defaults when given the module ramp and the ember explicitly', () => {
+    const plain = run();
+    const explicit = run({ ramp: rampRgb, bloomRGB: [255, 138, 66] });
+    // Non-vacuous: the fixture really paints, in both layers, so equal arrays mean equal pixels.
+    expect(bytes(plain, 'img').some((v, i) => i % 4 === 3 && v > 0)).toBe(true);
+    expect(bytes(plain, 'bloomImg').some((v, i) => i % 4 === 3 && v > 0)).toBe(true);
+    expect(bytes(explicit, 'img')).toEqual(bytes(plain, 'img'));
+    expect(bytes(explicit, 'bloomImg')).toEqual(bytes(plain, 'bloomImg'));
+  });
+
+  it('colours the field through opts.ramp and leaves the bloom canvas alone', () => {
+    const plain = run();
+    const aurora = run({ ramp: auroraRampRgb });
+    expect(bytes(aurora, 'img')).not.toEqual(bytes(plain, 'img'));
+    expect(bytes(aurora, 'bloomImg')).toEqual(bytes(plain, 'bloomImg'));
+  });
+
+  it('colours the bloom through opts.bloomRGB and leaves the field canvas alone', () => {
+    const plain = run();
+    const green = run({ bloomRGB: [120, 255, 170] });
+    expect(bytes(green, 'img')).toEqual(bytes(plain, 'img'));
+    expect(bytes(green, 'bloomImg')).not.toEqual(bytes(plain, 'bloomImg'));
+    const k = bytes(green, 'bloomImg').findIndex((v, i) => i % 4 === 3 && v > 0);
+    expect(bytes(green, 'bloomImg').slice(k - 3, k)).toEqual([120, 255, 170]);
+  });
+
+  it('paints a cell with the injected ramp colour', () => {
+    const f = field([{ x: 50, y: 20, sc: 4 }], 100, 40, { radius: 20, grid: 1, ramp: auroraRampRgb });
+    expect(cell(f, 50, 20).slice(0, 3)).toEqual(auroraRampRgb(4));
+  });
+
+  it('hands the ramp the blended score unrounded — a fractional score interpolates', () => {
+    const f = field([{ x: 50, y: 20, sc: 2.5 }], 100, 40, { radius: 20, grid: 1, ramp: auroraRampRgb });
+    expect(cell(f, 50, 20).slice(0, 3)).toEqual([38, 106, 116]);
+  });
+
+  it('reaches the kernel through drawTiles unchanged — opts are passed whole', () => {
+    const map = {
+      getSize: () => ({ x: 300, y: 200 }),
+      latLngToContainerPoint: ([lat, lng]) => ({ x: (lng + 3) * 100, y: (56 - lat) * 100 }),
+    };
+    const spots = [{ lat: 54.5, lng: -2.5, r: [4], rid: 'n' }];
+    const f = drawTiles(canvasWithContext().cv, map, spots, 0, {
+      radius: 40, grid: 6, bloom: 1, bloomFrom: 3.4, ramp: auroraRampRgb, bloomRGB: [120, 255, 170],
+    });
+    expect(cell(f, 8, 25).slice(0, 3)).toEqual(auroraRampRgb(4));
+    expect(cell(f, 8, 25, 'bloomImg').slice(0, 3)).toEqual([120, 255, 170]);
   });
 });

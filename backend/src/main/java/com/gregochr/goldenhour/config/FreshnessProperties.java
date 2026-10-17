@@ -87,10 +87,24 @@ public class FreshnessProperties {
         /**
          * Max cache age (hours) at T+1.
          *
-         * <p>8h is chosen to survive no cycle boundary: with the nightly cycle landing results
-         * near 01:00 UTC and the intraday cycle firing at 14:00, a 12h+ gap always exceeds it,
-         * so a T+1 slot is refreshed by both rather than being held by whichever ran first.
+         * <p>3h is chosen to survive no cycle boundary. The cap applies to both cycles through the
+         * shared CACHED gate in {@code BriefingCandidateCollector} (the {@code maxAgeFor(daysAhead,
+         * stability)} / {@code hasFreshEvaluation} check), which runs <em>before</em> eligibility,
+         * so a T+1 slot is refreshed by both cycles rather than held by whichever ran first.
+         *
+         * <p>A cached entry's age runs from when its results <em>arrived</em>
+         * ({@code BriefingEvaluationService} stamps the write with the current instant), not from
+         * when its cycle fired. So the cap must sit below the shortest gap between two cycles
+         * MINUS the slowest batch the pipeline still waits for. With sun-relative cycles the
+         * shortest gap is midwinter morning to afternoon, about 7 h 24 min at Durham (morning
+         * ~04:15 UK, afternoon ~11:39 UK), and a cycle waits at most its safety budget,
+         * {@code photocast.pipeline.safety-timeout} (3 h 30 min), so a morning batch can land as
+         * little as ~3 h 54 min before the afternoon trigger; 3h stays under that. (6h, the first
+         * cut, would have let any morning batch slower than ~1 h 24 min — the record holds a
+         * 181-minute one — hold its T+1 regions through the afternoon as "cached".) Raising the
+         * safety budget, or moving the cycles closer, means re-deriving this. It also clears
+         * today's fixed 01:00 / 14:00 schedule, whose smallest gap is 11 h.
          */
-        private int t1Hours = 8;
+        private int t1Hours = 3;
     }
 }

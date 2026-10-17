@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
-  POINT_SCORE_INDEX, buildHeatPointSets, buildHeatSpots, heatPointsFor, windowKey,
+  POINT_SCORE_INDEX, buildHeatPointSets, buildHeatSpots, forecastScoreRows, heatPointsFor,
 } from '../utils/heatSpots.js';
+import { windowKey } from '../utils/windowKeys.js';
 
 /**
  * The heat field's catalogue join (plan P1, §4.2).
@@ -335,5 +336,59 @@ describe('buildHeatPointSets', () => {
     const sets = buildHeatPointSets(SPOTS, [{ date: '2026-08-19', targetType: 'SUNSET' }, {}]);
 
     expect([...sets.keys()]).toEqual(['2026-08-19:SUNSET']);
+  });
+});
+
+describe('forecastScoreRows — score rows from the forecast rows alone', () => {
+  const day = (date, entry) => new Map([[date, entry]]);
+  const windows = [
+    { date: '2026-08-19', targetType: 'SUNSET' },
+    { date: '2026-08-19', targetType: 'SUNRISE' },
+  ];
+
+  it('takes each window\'s rating off the location\'s own forecast row, in buildHeatSpots\' row shape', () => {
+    const rows = forecastScoreRows([
+      { id: 1, name: 'Bamburgh', forecastsByDate: day('2026-08-19', { sunset: { rating: 4 }, sunrise: { rating: 2 } }) },
+    ], windows);
+
+    expect(rows).toEqual([
+      { locationId: 1, locationName: 'Bamburgh', date: '2026-08-19', targetType: 'SUNSET', rating: 4 },
+      { locationId: 1, locationName: 'Bamburgh', date: '2026-08-19', targetType: 'SUNRISE', rating: 2 },
+    ]);
+  });
+
+  it('contributes nothing for a window the location has no row for', () => {
+    const rows = forecastScoreRows([
+      { id: 1, name: 'A', forecastsByDate: day('2026-08-19', { sunset: { rating: 4 } }) },
+      { id: 2, name: 'B', forecastsByDate: day('2026-08-20', { sunset: { rating: 5 } }) },
+    ], windows);
+
+    expect(rows.map((r) => `${r.locationName}:${r.targetType}`)).toEqual(['A:SUNSET']);
+  });
+
+  it('keeps a row with no rating as a null — an answer, not an absence', () => {
+    const [row] = forecastScoreRows([
+      { id: 1, name: 'A', forecastsByDate: day('2026-08-19', { sunset: { rating: null } }) },
+    ], windows);
+
+    expect(row.rating).toBeNull();
+  });
+
+  it('tolerates a missing roster, a location with no forecast map and no windows', () => {
+    const located = [{ id: 1, name: 'A', forecastsByDate: day('2026-08-19', { sunset: { rating: 4 } }) }];
+
+    expect(forecastScoreRows(undefined, windows)).toEqual([]);
+    expect(forecastScoreRows([{ id: 1 }, { id: 2, forecastsByDate: null }], windows)).toEqual([]);
+    expect(forecastScoreRows(located, undefined)).toEqual([]);
+  });
+
+  it('feeds buildHeatSpots, which paints the forecast row\'s star', () => {
+    const locations = [{
+      id: 1, name: 'A', lat: 55, lon: -1.5, regionName: 'North East', locationType: ['LANDSCAPE'],
+      forecastsByDate: day('2026-08-19', { sunset: { rating: 4 } }),
+    }];
+    const [spot] = buildHeatSpots(locations, forecastScoreRows(locations, windows), windows);
+
+    expect(spot.scores).toEqual([4, null]);
   });
 });

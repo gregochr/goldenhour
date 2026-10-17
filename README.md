@@ -27,8 +27,8 @@ AI-driven sunrise and sunset forecasting for landscape, wildlife, and coastal ph
 - Per-run-type model configuration — three independent configs (Very Short-Term, Short-Term, Long-Term), each selectable as Haiku/Sonnet/Opus via Admin UI
 - Model comparison + prompt test harnesses for A/B evaluation
 - Stores every evaluation so you can track how the forecast converges as the date approaches
-- Outcome recording (API-only — no UI since 2026-02-27) — log whether you went out and your actual rating; builds an accuracy feedback loop
-- Self-registration with email verification and Cloudflare Turnstile CAPTCHA
+- Outcome recording — Pro and Admin readers rate how a past sunrise or sunset turned out from the Map tab's location callout ("How was it?"); the older free-text `POST /api/outcome` has no UI. Ratings feed the calibration gate
+- Self-registration with email verification and Cloudflare Turnstile CAPTCHA; sign-in by username or email, forgot/reset password, and in-app account deletion
 - JWT-authenticated with ADMIN / PRO_USER / LITE_USER roles
 - Notifications via email (Thymeleaf HTML templates) and Web Push (VAPID)
 - Job run metrics with cost tracking and per-location failure detection
@@ -60,7 +60,7 @@ AI-driven sunrise and sunset forecasting for landscape, wildlife, and coastal ph
 
 ## Prerequisites
 
-- Java 21
+- Java 25
 - Node 20
 - A GitHub personal access token with `read:packages` scope (for `solar-utils`)
 - An Anthropic API key
@@ -159,7 +159,7 @@ Users can self-register at the login page — email verification is required, an
 | Role | Access |
 |---|---|
 | `ADMIN` | All endpoints + Operations tab (users, regions, job metrics, model selection, model test) |
-| `PRO_USER` | 3-day forecast, all scores, outcome recording |
+| `PRO_USER` | 3-day forecast, all scores, outcome recording, rating past windows |
 | `LITE_USER` | 3-day forecast, star rating only |
 
 ---
@@ -170,7 +170,7 @@ Users can self-register at the login page — email verification is required, an
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
-| `POST` | `/api/auth/login` | None | Exchange credentials for access + refresh tokens |
+| `POST` | `/api/auth/login` | None | Exchange a username-or-email and password for access + refresh tokens |
 | `POST` | `/api/auth/refresh` | Refresh token | Issue a new access token (rotates refresh token) |
 | `POST` | `/api/auth/logout` | Bearer | Revoke refresh token |
 | `POST` | `/api/auth/change-password` | Bearer | Change own password |
@@ -178,6 +178,11 @@ Users can self-register at the login page — email verification is required, an
 | `POST` | `/api/auth/resend-verification` | None | Resend verification email (rate-limited) |
 | `POST` | `/api/auth/verify-email` | None | Verify email with token from link |
 | `POST` | `/api/auth/set-password` | None | Set password for verified user (auto-login) |
+| `POST` | `/api/auth/forgot-password` | None | Email a one-hour password-reset link (always the same answer) |
+| `POST` | `/api/auth/reset-password` | None | Redeem a reset link and set a new password (auto-login) |
+| `DELETE` | `/api/user/account` | Bearer | Delete own account (password required; not admins) |
+| `POST` | `/api/user/settings/home/reverse` | Bearer | Nearest UK postcode to a point ("Use my location") |
+| `PUT` | `/api/user/settings/postcode-prompt-dismissed` | Bearer | Record that the sign-in postcode prompt was dismissed |
 | `PUT` | `/api/auth/marketing-emails` | Bearer | Toggle marketing email opt-in |
 
 ### Forecast

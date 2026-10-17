@@ -1,5 +1,7 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import {
+  render, screen, fireEvent, within, act, waitFor,
+} from '@testing-library/react';
 import React from 'react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
@@ -205,6 +207,88 @@ describe('WindowFirstShell — the origin', () => {
       expect(value.setOrigin).toHaveBeenCalledWith(null);
     });
 
+    /**
+     * ⌂ goes on its own press, and the reader goes with it to the origin button (see
+     * {@code MastheadTickLine}'s class comment) — asserted here through the shell's REAL
+     * {@code onGoHome}, which closes the window popup in the same commit.
+     *
+     * <p>{@code renderShell}'s {@code setOrigin} is a bare mock, so its press changes nothing on
+     * screen and ⌂ — which leaves only when the origin does — never leaves. These hold the origin in
+     * state behind the stubbed context, the provider's own shape, so the removal lands in the press's
+     * commit. And every one ends by forcing a frame: the shell defers focus moves of its own by one,
+     * and the claim is where focus RESTS.
+     */
+    describe('⌂ keeps the reader\'s place as its press removes it', () => {
+      const Held = React.createContext(null);
+      function useHeldBriefing() { return React.useContext(Held); }
+      function HeldOrigin() {
+        const [origin, setHeldOrigin] = React.useState(ORIGIN);
+        const value = ctx({
+          origin,
+          setOrigin: (region) => setHeldOrigin(
+            region ? { id: region.id, name: region.name, baseName: region.baseName } : null,
+          ),
+        });
+        return <Held.Provider value={value}><WindowFirstShell {...shellProps()} /></Held.Provider>;
+      }
+      const renderHeld = () => {
+        vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockImplementation(useHeldBriefing);
+        return render(<HeldOrigin />);
+      };
+      const nextFrames = () => act(async () => {
+        await new Promise((resolve) => { requestAnimationFrame(() => requestAnimationFrame(resolve)); });
+      });
+      const HOME_NAME = 'Planning from home · Durham. Search to change it.';
+
+      it('⚠️ puts the reader on the origin button it leaves behind, not on <body>', async () => {
+        renderHeld();
+        // The strip is lazy: waiting for it keeps its mount out of the commit under test.
+        await screen.findByTestId('wf-heat-card');
+        const home = screen.getByRole('button', { name: 'Plan from home again' });
+        home.focus();
+
+        fireEvent.click(home);
+
+        const origin = screen.getByRole('button', { name: HOME_NAME });
+        expect(document.activeElement).toBe(origin);
+        await nextFrames();
+        expect(document.activeElement).toBe(origin);
+      });
+
+      it('⚠️ lands there from inside an open popup too — not back on the card that opened it', async () => {
+        // The one route that did not end on <body>. The popup holds no trap and leaves the masthead
+        // in the Tab order, so a reader can Tab out of it onto ⌂, and `onGoHome` closes the popup in
+        // that press's commit. The popup's `useDialogFocus` cleanup — a PASSIVE effect — then found
+        // focus nowhere and put them back on its opener card. An owner decision (2026-09-16) makes it
+        // the origin control here too: the tick line's layout effect lands first, and the restore,
+        // finding focus somewhere real with no modal layer left, stands down. With `App`'s map
+        // overlay or settings dialog ALSO open the restore still picks the card, because that layer
+        // claims modality and the origin control reads as stranded. This test opens neither.
+        renderHeld();
+        const card = await screen.findByTestId('wf-heat-card');
+        card.focus(); // a keyboard reader opens it from the card, which becomes its return address
+        fireEvent.click(card);
+        const sheet = await screen.findByTestId('window-sheet');
+        // Spend the popup's mount frame first: left pending, its focus move could land anywhere in
+        // the steps below and supply an answer of its own.
+        await waitFor(() => expect(sheet.contains(document.activeElement)).toBe(true));
+        const home = screen.getByRole('button', { name: 'Plan from home again' });
+        home.focus(); // Tabbed out of the popup onto ⌂
+
+        fireEvent.click(home);
+
+        expect(screen.queryByTestId('window-sheet'), 'precondition: the press closed the popup').toBeNull();
+        // What keeps this test guarding the ORDER: were the card gone, the popup's restore would have
+        // nowhere to go, and a handoff moved to a passive effect — running after the restore — would
+        // pass here too.
+        expect(card.isConnected, 'precondition: the popup\'s return address is still there').toBe(true);
+        const origin = screen.getByRole('button', { name: HOME_NAME });
+        expect(document.activeElement).toBe(origin);
+        await nextFrames();
+        expect(document.activeElement).toBe(origin);
+      });
+    });
+
     it('withholds the home prompt while away — it is about a home nobody is planning from', () => {
       // Unchanged behaviour, new carrier: the rail footer's "Home not set" line became the origin
       // button's empty state (M3.5), and it is withheld in the same state for the same reason.
@@ -221,64 +305,48 @@ describe('WindowFirstShell — the origin', () => {
     });
   });
 
-  describe('the / shortcut', () => {
-    it('opens search on the Plan tab', async () => {
+  describe('search is reached by its buttons — `/` is Ask\'s key now (F2, plan §6 Q1)', () => {
+    /**
+     * Opens search with the ⌕ and closes it again: the positive control the absence below runs first.
+     *
+     * <p>⚠️ <b>Without it the absence holds with the shortcut restored, when run alone.</b>
+     * {@code PlanSearch} is {@code lazy()}, and the first time the shell renders it, it suspends, even
+     * when its module is already loaded (measured). A press that opened it would then commit only the
+     * {@code Suspense} fallback, which draws nothing, so {@code queryByTestId('plan-search')} is null
+     * whether or not the press opened search. Opening it once through the button, and waiting for it,
+     * settles that first suspension; from then on a press that opens search renders it in its own
+     * commit, so an absence asserted straight after means the press did nothing.
+     */
+    const openAndCloseSearch = async () => {
+      fireEvent.click(screen.getByTestId('window-first-search'));
+      expect(await screen.findByTestId('plan-search')).toBeInTheDocument();
+      fireEvent.keyDown(document, { key: 'Escape' });
+      expect(screen.queryByTestId('plan-search')).toBeNull();
+    };
+
+    it('opens search from the ⌕ button on the Plan tab', async () => {
       renderShell();
-      fireEvent.keyDown(document, { key: '/' });
+      fireEvent.click(screen.getByTestId('window-first-search'));
       expect(await screen.findByTestId('plan-search')).toBeInTheDocument();
     });
 
-    it('⚠️ is ignored while the reader is typing in a field', () => {
+    it('⚠️ `/` no longer opens it, and the press is left alone (it is the reader\'s own character)', async () => {
+      // The shortcut's whole body moved to Ask (`AskShellKey.test.jsx` holds every refusal it kept).
+      // Here Ask is not mounted at all, so `/` has no behaviour: nothing opens, and nothing is
+      // swallowed — `defaultPrevented` is the lazy-proof observable for "this key did nothing".
       renderShell();
-      const field = document.createElement('input');
-      document.body.appendChild(field);
-      field.focus();
-      fireEvent.keyDown(field, { key: '/' });
+      await openAndCloseSearch();
+      const press = new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true });
+      fireEvent(document, press);
       expect(screen.queryByTestId('plan-search')).toBeNull();
-      field.remove();
+      expect(screen.queryAllByRole('dialog')).toHaveLength(0);
+      expect(press.defaultPrevented).toBe(false);
     });
 
-    it('⚠️ is ignored when a modifier is held, so browser shortcuts are untouched', () => {
+    it('⚠️ and not with Shift held either, which is how some layouts type it', async () => {
       renderShell();
-      fireEvent.keyDown(document, { key: '/', metaKey: true });
-      expect(screen.queryByTestId('plan-search')).toBeNull();
-    });
-
-    it('⚠️ is ignored while a dialog this shell does not own is open', () => {
-      // `UserSettingsModal` is a SIBLING of the shell in `App`, so the shell's own `modalOpen` flag
-      // cannot see it — and `/` over it stacked a second `aria-modal` overlay, with two
-      // document-level Escape handlers and two interleaved focus restores.
-      renderShell();
-      const foreign = document.createElement('div');
-      foreign.setAttribute('role', 'dialog');
-      document.body.appendChild(foreign);
-      try {
-        fireEvent.keyDown(document, { key: '/' });
-        expect(screen.queryByTestId('plan-search')).toBeNull();
-      } finally {
-        foreign.remove();
-      }
-    });
-
-    it('is ignored while the arm is greyed for a dead backend', () => {
-      // The shell is `pointer-events: none` under `contentDisabled`; a keyboard shortcut into it
-      // would be the one live control on a surface that says it is not.
-      const value = ctx();
-      vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(value);
-      render(<WindowFirstShell
-        onOpenSettings={vi.fn()}
-        onSignOut={vi.fn()}
-        onShowOnMap={vi.fn()}
-        contentDisabled
-      />);
-      fireEvent.keyDown(document, { key: '/' });
-      expect(screen.queryByTestId('plan-search')).toBeNull();
-    });
-
-    it('is ignored on another tab, where there is no window list to search into', () => {
-      renderShell();
-      fireEvent.click(screen.getByTestId('window-first-tab-coming-up'));
-      fireEvent.keyDown(document, { key: '/' });
+      await openAndCloseSearch();
+      fireEvent.keyDown(document, { key: '/', shiftKey: true });
       expect(screen.queryByTestId('plan-search')).toBeNull();
     });
   });
@@ -286,7 +354,7 @@ describe('WindowFirstShell — the origin', () => {
   describe('search moves the origin', () => {
     it('hands the region RECORD to setOrigin, so a baseless one cannot become an origin', async () => {
       const value = renderShell();
-      fireEvent.keyDown(document, { key: '/' });
+      fireEvent.click(screen.getByTestId('window-first-search'));
       const input = await screen.findByTestId('plan-search-input');
       fireEvent.change(input, { target: { value: 'lake' } });
       fireEvent.click(screen.getByRole('option', { name: /Lake District/ }));
@@ -385,7 +453,7 @@ describe('WindowFirstShell — the origin', () => {
       fireEvent.click(await screen.findByTestId('wf-heat-card'));
       expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
 
-      fireEvent.keyDown(document, { key: '/' });
+      fireEvent.click(screen.getByTestId('window-first-search'));
       const input = await screen.findByTestId('plan-search-input');
       fireEvent.change(input, { target: { value: 'lake' } });
       fireEvent.click(screen.getByRole('option', { name: /Lake District/ }));
@@ -402,7 +470,7 @@ describe('WindowFirstShell — the origin', () => {
       // it is the one the shell's own "closes FIRST" rule already governs everywhere else.
       renderShell();
       fireEvent.click(await screen.findByTestId('wf-heat-card'));
-      fireEvent.keyDown(document, { key: '/' });
+      fireEvent.click(screen.getByTestId('window-first-search'));
       fireEvent.change(await screen.findByTestId('plan-search-input'), { target: { value: 'derwent' } });
       const row = screen.queryAllByRole('option').find((o) => o.dataset.kind === 'location');
       expect(row, 'the fixture must offer a location row, or this test proves nothing').toBeTruthy();

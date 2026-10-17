@@ -3,6 +3,12 @@ import PropTypes from 'prop-types';
 import { getApiCalls, getBatchSummary } from '../api/metricsApi';
 import { formatCostGbp, formatCostUsd, formatTokens } from '../utils/formatCost';
 import DispositionBreakdown from './DispositionBreakdown.jsx';
+import { apiErrorMessage } from '../utils/apiError.js';
+import { modelLabel } from '../utils/modelLabels.js';
+import { cacheBadge, parseCacheDiagnostics, tallyCacheDiagnostics } from '../utils/cacheDiagnostics.js';
+
+/** Most diagnosed calls listed individually; the tally above them counts every one. */
+const MAX_DIAGNOSED_ROWS = 25;
 
 /**
  * Expandable detail view for a job run showing all API calls.
@@ -19,6 +25,30 @@ import DispositionBreakdown from './DispositionBreakdown.jsx';
  * token summary instead of individual API calls.
  */
 const BATCH_RUN_TYPES = new Set(['SCHEDULED_BATCH', 'BATCH_NEAR_TERM', 'BATCH_FAR_TERM']);
+
+/**
+ * The heading of a failed call: the service, then what is known about why it failed.
+ *
+ * - An error type, when the row has one, follows the service. It already carries the status
+ *   (`anthropic_401`), so the status is not printed a second time.
+ * - Otherwise a status follows the service, but NOT for a Claude row. Every Claude call logged before
+ *   the real status was recorded carries a placeholder 500 with no error type; showing that bare
+ *   status would read last week's rejected key as an Anthropic server error. For those rows the
+ *   heading is the service alone. A weather row's status is always a real HTTP status.
+ *
+ * @param {{service: string, statusCode?: number|null, errorType?: string|null}} call
+ * @returns {string}
+ */
+function failedCallHeading(call) {
+  const has = (value) => value !== null && value !== undefined && value !== '';
+  if (has(call.errorType)) {
+    return `${call.service} · ${call.errorType}`;
+  }
+  if (has(call.statusCode) && call.service !== 'ANTHROPIC') {
+    return `${call.service} · ${call.statusCode}`;
+  }
+  return call.service;
+}
 
 const JobRunDetail = ({ jobRun }) => {
   const [apiCalls, setApiCalls] = useState([]);
@@ -55,7 +85,7 @@ const JobRunDetail = ({ jobRun }) => {
           setApiCalls(response.data || []);
         }
       } catch (err) {
-        setError(err.message || 'Failed to load API calls');
+        setError(apiErrorMessage(err, err?.message || 'Failed to load API calls'));
       } finally {
         setLoading(false);
       }
@@ -78,6 +108,9 @@ const JobRunDetail = ({ jobRun }) => {
   // The raw response is captured into api_call_log.response_body and marked error_type=regex_fallback,
   // even when the call otherwise succeeded. Admin-only screen, so no extra role gating here.
   const fallbackCalls = apiCalls.filter((c) => c.errorType === 'regex_fallback');
+
+  // Diagnostic: calls whose response carried Anthropic prompt-cache diagnostics (V168).
+  const diagnosedCalls = apiCalls.filter((c) => parseCacheDiagnostics(c.cacheDiagnostics) !== null);
 
   // Group API calls by service
   const serviceStats = apiCalls.reduce((acc, call) => {
@@ -319,7 +352,7 @@ const JobRunDetail = ({ jobRun }) => {
                         </div>
                         <div>
                           <div className="text-plex-text-muted text-xs">Model</div>
-                          <div className="font-semibold text-plex-text">{model}</div>
+                          <div className="font-semibold text-plex-text">{modelLabel(model)}</div>
                         </div>
                         <div>
                           <div className="text-plex-text-muted text-xs">Count</div>
@@ -348,7 +381,9 @@ const JobRunDetail = ({ jobRun }) => {
               .filter((call) => !call.succeeded)
               .map((call) => (
                 <div key={call.id} className="text-xs text-red-400 bg-red-900/20 p-2 rounded">
-                  <div className="font-medium">{call.service}</div>
+                  <div className="font-medium" data-testid="failed-call-heading">
+                    {failedCallHeading(call)}
+                  </div>
                   <div className="text-red-400">{call.errorMessage}</div>
                 </div>
               ))}
@@ -396,6 +431,50 @@ const JobRunDetail = ({ jobRun }) => {
               );
             })}
           </ul>
+        </div>
+      )}
+
+      {/* Prompt-cache diagnostics (diagnostic, admin-only screen). Hidden when no call carries any. */}
+      {diagnosedCalls.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-plex-border" data-testid="cache-diagnostics">
+          <h4 className="font-semibold text-plex-text text-sm">
+            Prompt-cache diagnostics: {diagnosedCalls.length}
+          </h4>
+          <p className="text-xs text-plex-text-muted mt-1">
+            Where each call&apos;s prompt diverged from the previous message it was compared with.
+            {' '}messages_changed alone means the cached system prompt matched.
+          </p>
+          <div className="flex flex-wrap gap-1 mt-2" data-testid="cache-diagnostics-tally">
+            {tallyCacheDiagnostics(diagnosedCalls).map(({ label, count }) => (
+              <span
+                key={label}
+                className="text-xs text-plex-text bg-plex-surface border border-plex-border rounded px-2 py-0.5"
+              >
+                {label} &times;{count}
+              </span>
+            ))}
+          </div>
+          <ul className="mt-2 space-y-1">
+            {diagnosedCalls.slice(0, MAX_DIAGNOSED_ROWS).map((call) => (
+              <li
+                key={call.id ?? call.customId}
+                data-testid="cache-diagnostics-row"
+                className="bg-plex-surface rounded border border-plex-border px-2 py-1 flex justify-between items-center gap-2"
+              >
+                <span className="text-xs text-plex-text font-mono">
+                  {call.customId ?? `${call.targetDate ?? ''} ${call.targetType ?? ''}`.trim()}
+                </span>
+                <span className="text-xs text-plex-text-muted" data-testid="cache-badge">
+                  {cacheBadge(call)}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {diagnosedCalls.length > MAX_DIAGNOSED_ROWS && (
+            <div className="text-xs text-plex-text-muted mt-1" data-testid="cache-diagnostics-more">
+              +{diagnosedCalls.length - MAX_DIAGNOSED_ROWS} more
+            </div>
+          )}
         </div>
       )}
 

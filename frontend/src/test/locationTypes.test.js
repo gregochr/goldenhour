@@ -16,6 +16,7 @@ import {
   locationTypeLabel,
   locationTypeIcons,
   isSkyPromptCandidate,
+  isWildlifeOnly,
 } from '../utils/locationTypes.js';
 
 // Mirrors backend/src/main/java/com/gregochr/goldenhour/entity/LocationType.java. A constant added
@@ -136,5 +137,36 @@ describe('locationTypeIcons', () => {
     expect(locationTypeIcons([])).toBe('');
     expect(locationTypeIcons('LANDSCAPE')).toBe('🏔️');
     expect(locationTypeIcons(['NOT_A_TYPE'])).toBe('');
+  });
+});
+
+describe('isWildlifeOnly', () => {
+  // The one client definition of a pure hide, mirroring the backend's `LocationEntity
+  // .isWildlifeOnly()`. It decides which places get a comfort forecast in place of a sky verdict, so
+  // each shape the callers can hand it is pinned, including the ones that must NOT match.
+  it('is true for a location whose only type is WILDLIFE', () => {
+    expect(isWildlifeOnly(['WILDLIFE'])).toBe(true);
+  });
+
+  it('is false the moment any other type joins WILDLIFE — that place is rated for sky colour', () => {
+    expect(isWildlifeOnly(['WILDLIFE', 'LANDSCAPE'])).toBe(false);
+    expect(isWildlifeOnly(['SEASCAPE', 'WILDLIFE'])).toBe(false);
+  });
+
+  it('is false for an untyped location — the opposite of isSkyPromptCandidate, where untyped counts', () => {
+    expect(isWildlifeOnly([])).toBe(false);
+    expect(isWildlifeOnly(null)).toBe(false);
+    expect(isWildlifeOnly(undefined)).toBe(false);
+  });
+
+  it('is false for the other single types', () => {
+    expect(isWildlifeOnly(['LANDSCAPE'])).toBe(false);
+    expect(isWildlifeOnly(['WATERFALL'])).toBe(false);
+    expect(isWildlifeOnly(['WOODLAND'])).toBe(false);
+  });
+
+  it('accepts the bare string a roster record may carry', () => {
+    expect(isWildlifeOnly('WILDLIFE')).toBe(true);
+    expect(isWildlifeOnly('LANDSCAPE')).toBe(false);
   });
 });

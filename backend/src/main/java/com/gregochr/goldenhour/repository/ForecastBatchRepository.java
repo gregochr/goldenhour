@@ -48,6 +48,23 @@ public interface ForecastBatchRepository extends JpaRepository<ForecastBatchEnti
     Optional<ForecastBatchEntity> findByAnthropicBatchId(String anthropicBatchId);
 
     /**
+     * Whether a batch with this Anthropic-assigned ID is already tracked.
+     *
+     * <p>Used by {@link com.gregochr.goldenhour.service.batch.AnthropicBatchClient}'s
+     * duplicate-batch adoption guard to exclude a listed candidate that is already a KNOWN
+     * batch — most importantly, an earlier bucket of the same cycle. {@link
+     * com.gregochr.goldenhour.service.batch.BatchSubmissionService#submit} persists a bucket's
+     * row immediately after {@code create()} returns, before the next bucket is even built, so by
+     * the time a later bucket's retry lists recent batches, every genuinely-succeeded sibling is
+     * already tracked and excluded here — closing the "adopts a sibling bucket's batch id" failure
+     * a size+timing match alone could not rule out.
+     *
+     * @param anthropicBatchId the {@code msgbatch_*} ID to check
+     * @return {@code true} if a row for this id already exists
+     */
+    boolean existsByAnthropicBatchId(String anthropicBatchId);
+
+    /**
      * Returns all batches tagged with the given pipeline run id.
      *
      * <p>Used by the nightly pipeline orchestrator to answer "is the batch
@@ -58,6 +75,19 @@ public interface ForecastBatchRepository extends JpaRepository<ForecastBatchEnti
      * @return matching batches (any status)
      */
     List<ForecastBatchEntity> findByPipelineRunId(Long pipelineRunId);
+
+    /**
+     * Returns a cycle's batches of one type that are not in any of the given statuses, used by the
+     * location-failure settle to find forecast batches still being polled (status outside
+     * {@link BatchStatus#TERMINAL}).
+     *
+     * @param pipelineRunId the orchestrated cycle id
+     * @param batchType     the batch type to consider
+     * @param statuses      the statuses to exclude
+     * @return the cycle's matching batches, any order
+     */
+    List<ForecastBatchEntity> findByPipelineRunIdAndBatchTypeAndStatusNotIn(Long pipelineRunId,
+            ForecastBatchEntity.BatchType batchType, java.util.Collection<BatchStatus> statuses);
 
     /**
      * Returns the precursor (non-retry) batches for a cycle.

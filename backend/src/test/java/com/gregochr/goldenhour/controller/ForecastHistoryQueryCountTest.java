@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.model.ForecastDtoMapper;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.EvaluationViewService;
+import com.gregochr.goldenhour.service.FailedSlotRetryService;
 import com.gregochr.goldenhour.service.ForecastCommandExecutor;
 import com.gregochr.goldenhour.service.ForecastCommandFactory;
 import com.gregochr.goldenhour.service.JobRunService;
@@ -91,6 +92,15 @@ class ForecastHistoryQueryCountTest {
     @Mock
     private RunProgressTracker progressTracker;
 
+    @Mock
+    private FailedSlotRetryService retryService;
+
+    @Mock
+    private com.gregochr.goldenhour.service.AsOfEventResolver asOfEventResolver;
+
+    @Mock
+    private com.gregochr.goldenhour.service.SolarEventFreshness solarEventFreshness;
+
     private Statistics statistics() {
         return entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
     }
@@ -98,7 +108,8 @@ class ForecastHistoryQueryCountTest {
     private ForecastController buildController() {
         return new ForecastController(forecastEvaluationRepository, locationService, commandFactory,
                 commandExecutor, scheduledForecastService, dtoMapper, evaluationViewService,
-                jobRunService, progressTracker, Runnable::run, Clock.systemUTC().withZone(ZoneOffset.UTC));
+                jobRunService, progressTracker, Runnable::run, Clock.systemUTC().withZone(ZoneOffset.UTC),
+                retryService, asOfEventResolver, solarEventFreshness);
     }
 
     @Test
