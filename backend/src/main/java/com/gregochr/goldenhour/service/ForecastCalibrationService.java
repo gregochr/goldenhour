@@ -44,6 +44,9 @@ public class ForecastCalibrationService {
     /** Bucket key used when an evaluation carried no model. */
     private static final String UNKNOWN_MODEL_KEY = "UNKNOWN";
 
+    /** Bucket key used when a forecast row carried no recorded build or prompt fingerprint. */
+    private static final String UNKNOWN_KEY = "UNKNOWN";
+
     private final ForecastEvaluationRepository forecastEvaluationRepository;
     private final ActualOutcomeRepository actualOutcomeRepository;
     private final OutcomeRatingRepository outcomeRatingRepository;
@@ -68,7 +71,7 @@ public class ForecastCalibrationService {
      *
      * @param from start of the window (inclusive)
      * @param to   end of the window (inclusive)
-     * @return accuracy overall, per forecast horizon, and per model
+     * @return accuracy overall, per forecast horizon, per model, per release and per prompt
      * @throws IllegalArgumentException if the window is null or inverted
      */
     @Transactional(readOnly = true)
@@ -95,7 +98,9 @@ public class ForecastCalibrationService {
                 pairs.size(),
                 CalibrationBucket.of(OVERALL_KEY, pairs),
                 bucketsByDaysAhead(pairs),
-                bucketsByModel(pairs));
+                bucketsByModel(pairs),
+                bucketsByKey(pairs, CalibrationPair::appBuild),
+                bucketsByKey(pairs, CalibrationPair::promptHash));
 
         LOG.info("[CALIBRATION] window={}..{} outcomes={} scoredPairs={} "
                 + "meanAbsError={} missedOpportunities={} wastedTrips={}",
@@ -170,6 +175,28 @@ public class ForecastCalibrationService {
         return pairs.stream()
                 .collect(Collectors.groupingBy(pair -> pair.evaluationModel() == null
                         ? UNKNOWN_MODEL_KEY : pair.evaluationModel().name()))
+                .entrySet().stream()
+                .sorted(Map.Entry.comparingByKey(Comparator.naturalOrder()))
+                .map(entry -> CalibrationBucket.of(entry.getKey(), entry.getValue()))
+                .toList();
+    }
+
+    /**
+     * Groups pairs by a recorded string of the forecast row — its build or its prompt fingerprint.
+     * A pair whose row recorded none lands in {@code UNKNOWN}, so history from before the column
+     * existed stays visible as its own bucket rather than vanishing from the report.
+     *
+     * @param pairs the scored pairs
+     * @param key   reads the grouping value off a pair
+     * @return one bucket per distinct value present, ordered by value
+     */
+    private List<CalibrationBucket> bucketsByKey(List<CalibrationPair> pairs,
+            java.util.function.Function<CalibrationPair, String> key) {
+        return pairs.stream()
+                .collect(Collectors.groupingBy(pair -> {
+                    String value = key.apply(pair);
+                    return value == null || value.isBlank() ? UNKNOWN_KEY : value;
+                }))
                 .entrySet().stream()
                 .sorted(Map.Entry.comparingByKey(Comparator.naturalOrder()))
                 .map(entry -> CalibrationBucket.of(entry.getKey(), entry.getValue()))

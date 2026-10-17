@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.config.AppBuild;
 import com.gregochr.goldenhour.TestAtmosphericData;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
@@ -121,7 +122,7 @@ class ForecastCommandExecutorReadingsSeamTest {
                 solarService, openMeteoService, augmentor, legacyEvaluationService,
                 engineEvaluationService, forecastEvaluationRepository, notificationDispatcher,
                 eventPublisher, weatherTriageEvaluator, tideAlignmentEvaluator,
-                slotAtmosphereWriter, progressTracker, CLOCK);
+                slotAtmosphereWriter, progressTracker, CLOCK, new AppBuild("v2.28.0"));
 
         executor = new ForecastCommandExecutor(
                 realForecastService, locationService, jobRunService, solarService,
