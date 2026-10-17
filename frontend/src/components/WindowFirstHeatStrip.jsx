@@ -301,8 +301,12 @@ export function bestReachLine(card) {
         : 'The highest rating here is well above every place around it, so none is named.',
       tideAligned: false,
       tideState: null,
-      // Begins with the visible label's own word (WCAG 2.5.3).
-      spoken: 'Best, no clear pick',
+      // Begins with the visible label's own word (WCAG 2.5.3). The reason rides here too: the
+      // `title` above reaches a pointer only, and "no clear pick" with no why is a dead end for
+      // everyone else.
+      spoken: `Best, no clear pick: ${card?.reachMeasured
+        ? 'the top rating within reach is well above the places around it'
+        : 'the top rating here is well above the places around it'}`,
     };
   }
   const empty = (card?.pool?.length ?? 0) === 0;

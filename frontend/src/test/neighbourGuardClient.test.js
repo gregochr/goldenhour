@@ -152,6 +152,18 @@ describe('bestReach under the guard', () => {
     expect(spread.counts).toEqual([1, 1, 0, 1, 0]);
   });
 
+  it('reads the pre-floor pool, so a rating floor above the named pick changes nothing', () => {
+    // A 4★ outlier and a 3★ place under a 4★ floor: `spots` holds only the outlier, `reached` both.
+    // Reading `spots` would skip the outlier and find nothing (withheld); the pool names the 3★.
+    const card = cardOf(
+      [CAW_GAP, slot(2, 'Hotbank', 3)], REACH,
+      { limitMinutes: null, defaultLimitMinutes: 45, floorId: '4', minRating: 4 },
+    );
+    expect(card.spots.map((s) => s.locationName)).toEqual(['Caw Gap']);
+    expect(card.bestReach.locationName).toBe('Hotbank');
+    expect(card.bestReachWithheld).toBe(false);
+  });
+
   it('judges only the reach-gated pool, so an outlier beyond the tier changes nothing', () => {
     const far = new Map([[1, { driveMinutes: 90, distanceMiles: 60 }], ...[...REACH].slice(1)]);
     const card = cardOf(
@@ -184,7 +196,16 @@ describe('the "no clear pick" line', () => {
   });
 
   it('speaks the label word first (WCAG 2.5.3)', () => {
-    expect(lineOf(withheld()).spoken).toBe('Best, no clear pick');
+    expect(lineOf(withheld()).spoken.startsWith('Best, no clear pick')).toBe(true);
+  });
+
+  it('speaks the reason too, with the reach rule', () => {
+    expect(lineOf(withheld()).spoken)
+      .toBe('Best, no clear pick: the top rating within reach is well above the places around it');
+    const unmeasured = lineOf(withheld(new Map())).spoken;
+    expect(unmeasured)
+      .toBe('Best, no clear pick: the top rating here is well above the places around it');
+    expect(unmeasured).not.toMatch(/within reach/);
   });
 
   it('says "within reach" in the title only with a measured drive', () => {
@@ -196,12 +217,14 @@ describe('the "no clear pick" line', () => {
     expect(unmeasured.title).not.toMatch(/within reach/);
   });
 
-  it('beats the verdict-beyond-reach and empty fall-throughs', () => {
+  it('beats the verdict-beyond-reach fall-through, which a rated pool would otherwise reach', () => {
     // A descriptor that would otherwise answer "Region · beyond 45 min" or "nothing in reach".
     const line = bestReachLine({
       bestReach: null,
       bestReachWithheld: true,
-      pool: [],
+      // One rated (outlier) spot: with an EMPTY pool the `empty` branch would answer the same way
+      // whatever the order, so only a populated pool can show that the withheld branch comes first.
+      pool: [{ rating: 4, neighbourOutlier: true }],
       reachMeasured: true,
       reachLimitMinutes: 45,
       hotRegionName: REGION,
@@ -242,8 +265,17 @@ describe('the search figure', () => {
 
   it('prints "no clear pick" for a withheld window, captioned only with a measured drive', () => {
     const desc = descriptorOf(cardOf([CAW_GAP, CAWFIELDS, STEEL_RIGG]));
-    expect(figureOf(desc, REACH)).toEqual({ value: 'no clear pick', caption: 'in reach' });
-    expect(figureOf(desc, new Map())).toEqual({ value: 'no clear pick', caption: null });
+    expect(figureOf(desc, REACH)).toMatchObject({ value: 'no clear pick', caption: 'in reach' });
+    expect(figureOf(desc, new Map())).toMatchObject({ value: 'no clear pick', caption: null });
+  });
+
+  it('carries the reason as spoken text, with the reach rule', () => {
+    const desc = descriptorOf(cardOf([CAW_GAP, CAWFIELDS, STEEL_RIGG]));
+    expect(figureOf(desc, REACH).reason)
+      .toBe(': the top rating within reach is well above the places around it');
+    const unmeasured = figureOf(desc, new Map()).reason;
+    expect(unmeasured).toBe(': the top rating here is well above the places around it');
+    expect(unmeasured).not.toMatch(/within reach/);
   });
 
   it('prints the surviving pick\'s star after a skip', () => {

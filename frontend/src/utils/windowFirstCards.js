@@ -837,24 +837,21 @@ export function buildWindowCards(
       // second index (§1 #3, §2). Named `tideFit`, never `tide`: that name is taken by the served
       // `BriefingWindowTide` below, which the Map tab's strip forwards untouched (T6, §1 #3).
       tideFit: tideFit(reached),
-      // The pool's HEAD — the best location this reader could actually drive to for this window.
+      // The best location this reader could actually drive to for this window, NAMED.
       //
-      // ⚠️ It is `reached[0]` and nothing else, because the pool arrives ordered by
-      // `compareSpots` (rating desc, then drive, then name) from `buildWindowSpots` and both gates
-      // are order-preserving filters. Writing a second "pick the best" comparator here would be a
-      // second answer to a question the strip, the drill-down and this line all ask, which is
-      // exactly what `compareSpots` was exported to prevent.
+      // ⚠️ It is `bestReachOf(reached)`: the pool's first rated spot that is not a served
+      // `neighbourOutlier` (neighbour-guard-plan.md G3), over the PRE-floor pool `reached`, never
+      // `spots`. The pool arrives ordered by `compareSpots` (rating desc, then drive, then name)
+      // from `buildWindowSpots` and both gates are order-preserving filters, so with no outlier
+      // this is the head and nothing else — there is no second "pick the best" comparator here, only
+      // a skip of the server's flag plus the client twin of the server's named floor
+      // (`NEIGHBOUR_NAMED_FLOOR`), applied only after a skip.
       //
       // Null when the head carries no rating, which is the ordinary state on a far-horizon window
       // (T+4 is never evaluated). `compareSpots` sorts unrated last, so a rated head means every
       // rating in the pool was compared — and an UNRATED head means nothing in the pool is rated
       // at all, and the order that chose it was alphabetical. Naming that spot "the best you could
       // reach" would claim a ranking that never ran, so the caller says "not scored yet" instead.
-      //
-      // ⚠️ Since the neighbour guard (docs/engineering/neighbour-guard-plan.md §4 G3) it is the first
-      // spot of the pool with a rating that is NOT a served `neighbourOutlier`; `bestReachOf` owns
-      // that rule and the withheld state beside it. With no outlier in the pool it is exactly the
-      // head, as before.
       bestReach: reachPick.bestReach,
       // True when a neighbour outlier was skipped and the next rated spot is below the named floor
       // (or there is none): the card then says "no clear pick" rather than naming a place or

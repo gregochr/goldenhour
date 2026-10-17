@@ -512,7 +512,12 @@ export default function WindowSheetDialog({
                   // The neighbour guard declined to name a place (neighbour-guard-plan.md §4 G3):
                   // rated spots exist, so "nothing rated yet" would be false. "Within reach" only
                   // with a measured drive, like every other sentence here.
-                  `no clear pick${reachMeasured ? ' within reach' : ''}`
+                  <>
+                    {`no clear pick${reachMeasured ? ' within reach' : ''}`}
+                    <span className="sr-only">
+                      {`: the top rating ${reachMeasured ? 'within reach' : 'here'} is well above the places around it`}
+                    </span>
+                  </>
                 ) : (
                   // Two different absences and two different sentences — the card face draws the
                   // same distinction from the same field.

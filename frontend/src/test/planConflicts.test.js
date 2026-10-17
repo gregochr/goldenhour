@@ -261,6 +261,36 @@ describe('planConflicts — the rating floor shutting the week out', () => {
     expect(message.body).toContain('3★ — Marsden Bay');
   });
 
+  describe('the neighbour guard (neighbour-guard-plan.md §3)', () => {
+    const OUTLIER = spot({
+      key: '5', locationId: 5, locationName: 'Caw Gap', rating: 4, neighbourOutlier: true,
+    });
+
+    it('keeps the figure but names the highest non-outlier place that carries it', () => {
+      const twin = spot({ key: '6', locationId: 6, locationName: 'Hotbank', rating: 4 });
+      const message = conflict({
+        cards: [card([OUTLIER, twin], { minRating: 5 })], floorId: '5', minRating: 5,
+      });
+      expect(message.body).toBe('The best on offer is 4★ — Hotbank, tomorrow sunset 20:41.');
+    });
+
+    it('prints the figure and the window with no place when only outliers carry it', () => {
+      const lower = spot({ key: '6', locationId: 6, locationName: 'Hotbank', rating: 3 });
+      const message = conflict({
+        cards: [card([OUTLIER, lower], { minRating: 5 })], floorId: '5', minRating: 5,
+      });
+      expect(message.body).toBe('The best on offer is 4★ — tomorrow sunset 20:41, with no one place named.');
+      expect(message.body).not.toContain('Caw Gap');
+    });
+
+    it('still offers the drop-the-floor step for the figure when no place is named', () => {
+      const message = conflict({
+        cards: [card([OUTLIER], { minRating: 5 })], floorId: '5', minRating: 5,
+      });
+      expect(message.actions.map((a) => a.label)).toContain('Or drop the floor to 4★+');
+    });
+  });
+
   it('is not raised while the floor gates nothing', () => {
     expect(conflict({ cards: [card([spot({ rating: 2 })])] })).toBeNull();
   });

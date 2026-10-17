@@ -308,7 +308,12 @@ export function buildSearchGroups(query, {
           caption: reachMeasured ? 'in reach' : null,
         }
         : (card.bestReachWithheld === true
-          ? { value: 'no clear pick', caption: reachMeasured ? 'in reach' : null }
+          ? {
+            value: 'no clear pick',
+            caption: reachMeasured ? 'in reach' : null,
+            // Spoken only: the reason, with the reach rule the title takes.
+            reason: `: the top rating ${reachMeasured ? 'within reach' : 'here'} is well above the places around it`,
+          }
           : null),
       action: card.away ? null : 'Open',
       subParts: clauses([card.time, card.away ? 'Not forecast' : card.verdictLabel]),
