@@ -8,14 +8,14 @@
 -- least two neighbours within 5 km that are at a similar height (both elevations unknown, or both known
 -- and within 150 m). Run after
 -- nothing else (it does not use cell-groups.sql). Rows written before V164 have no sky_rating and are
--- not counted. Its population is the GUARD's: a regioned place that is untyped or carries an open-sky
+-- not counted. Its population is the GUARD's: an enabled, regioned place that is untyped or carries an open-sky
 -- type (LANDSCAPE, SEASCAPE, WATERFALL), mixed types included (the app treats a place with LANDSCAPE and
 -- BLUEBELL as a sky place). cell-groups.sql's narrower population (no woodland, bluebell or wildlife
 -- type at all) is the same-cell spread measurement's and is left as published.
 CREATE TEMP VIEW guard_loc AS
 SELECT l.id, l.lat, l.lon, l.elevation_m, l.grid_lat, l.grid_lng
 FROM locations l
-WHERE l.region_id IS NOT NULL
+WHERE l.enabled AND l.region_id IS NOT NULL
   AND (NOT EXISTS (SELECT 1 FROM location_location_type t WHERE t.location_id = l.id)
        OR EXISTS (SELECT 1 FROM location_location_type t WHERE t.location_id = l.id
                   AND t.location_type IN ('LANDSCAPE', 'SEASCAPE', 'WATERFALL')));

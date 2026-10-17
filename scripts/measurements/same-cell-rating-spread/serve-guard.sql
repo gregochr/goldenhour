@@ -5,8 +5,11 @@
 --   2. each source dropped when a SKIPPED_STABILITY disposition for the slot is later than it;
 --   3. the cache wins when it is at least as fresh as the row (or the row says nothing), else the row,
 --      whose sky rating is its sky_rating (as served once G1a passes it through).
--- Not modelled: the honesty filter (it empties zero-coverage regions, which only removes places) and
--- the region roster join (places are matched by name, enabled, sky type). Postgres-only. Read-only.
+-- Not modelled: the honesty filter, which cannot change a count. It empties only a region whose
+-- scoredLocationCount is 0 (BriefingHonestyFilter: no slot in it carries a Claude rating), and a
+-- skyRating never exists without that rating, so a blanked region holds no candidate, supporter or
+-- witness; a lightly evaluated region is only flagged, not emptied. Also not modelled: the region
+-- roster join (places are matched by name, enabled, sky type). Postgres-only. Read-only.
 -- :since is the first window date; :km the radius; margin 2, floor 3, two witnesses, 150 m are the
 -- plan's defaults.
 -- A served sky place: enabled, in a region (unregioned slots are neither candidates nor neighbours),
