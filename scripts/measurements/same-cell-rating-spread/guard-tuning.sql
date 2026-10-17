@@ -2,7 +2,8 @@
 -- a guard at serve time can only use distance (or the grid cell). For each rated row with a
 -- sky_rating, flag it when its sky_rating is 3+ and at least 2 above EVERY sky-rated neighbour in
 -- the same run, window, model and horizon within r km, for r = 3, 5, 8, 12, and in the same
--- grid cell. A row with no neighbour inside r is never flagged at that r. flag_5km_2nb also
+-- grid cell. A row with no neighbour inside r is never flagged at that r. Witnesses are counted as
+-- DISTINCT neighbour places: a retry can leave two rows for one slot in the same run hour. flag_5km_2nb also
 -- requires at least two neighbours inside 5 km (the plan's min-neighbours rule). flag_plan is the
 -- plan's full default rule: no neighbour within 5 km rated within 1 star of it (any elevation), and at
 -- least two neighbours within 5 km that are at a similar height (both elevations unknown, or both known
@@ -32,7 +33,7 @@ WHERE e.rating IS NOT NULL
 
 CREATE TEMP VIEW near_pair AS
 SELECT a.location_id, a.target_date, a.target_type, a.run_hour, a.evaluation_model, a.days_ahead,
-       a.sky_rating AS sky, b.sky_rating AS nb_sky,
+       a.sky_rating AS sky, b.location_id AS nb_loc, b.sky_rating AS nb_sky,
        CASE WHEN a.grid_lat = b.grid_lat AND a.grid_lng = b.grid_lng THEN 1 ELSE 0 END AS same_cell,
        CASE WHEN (a.elevation_m IS NULL AND b.elevation_m IS NULL)
               OR (a.elevation_m IS NOT NULL AND b.elevation_m IS NOT NULL
@@ -55,8 +56,8 @@ SELECT location_id, target_date, target_type, run_hour, evaluation_model, days_a
        MAX(CASE WHEN km <= 5 THEN nb_sky END) AS hi5,
        MAX(CASE WHEN km <= 8 THEN nb_sky END) AS hi8,
        MAX(CASE WHEN km <= 12 THEN nb_sky END) AS hi12,
-       SUM(CASE WHEN km <= 5 THEN 1 ELSE 0 END) AS n5,
-       SUM(CASE WHEN km <= 5 AND elev_ok = 1 THEN 1 ELSE 0 END) AS n5e
+       COUNT(DISTINCT CASE WHEN km <= 5 THEN nb_loc END) AS n5,
+       COUNT(DISTINCT CASE WHEN km <= 5 AND elev_ok = 1 THEN nb_loc END) AS n5e
 FROM near_pair
 GROUP BY location_id, target_date, target_type, run_hour, evaluation_model, days_ahead, sky;
 
