@@ -1,5 +1,7 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.client.PostcodeLookupException;
+import com.gregochr.goldenhour.client.PostcodeLookupUnavailableException;
 import com.gregochr.goldenhour.exception.RegistrationClosedException;
 import com.gregochr.goldenhour.exception.StaleCredentialsException;
 import com.gregochr.goldenhour.service.ask.AskRefusal;
@@ -87,6 +89,32 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.UNAUTHORIZED)
     public ErrorResponse handleStaleCredentials(StaleCredentialsException ex) {
         return new ErrorResponse(ex.getMessage());
+    }
+
+    /**
+     * Maps {@link PostcodeLookupException} — the postcode lookup worked and found nothing — to
+     * HTTP 400. Until the login-registration series this fell into the catch-all and answered 500.
+     *
+     * @param ex the exception, whose message is fixed text by contract
+     * @return an error response body
+     */
+    @ExceptionHandler(PostcodeLookupException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ErrorResponse handlePostcodeNotFound(PostcodeLookupException ex) {
+        return new ErrorResponse(ex.getMessage());
+    }
+
+    /**
+     * Maps {@link PostcodeLookupUnavailableException} — the postcode service failed or could not be
+     * reached — to HTTP 502 with a fixed message. The upstream's own message is never echoed.
+     *
+     * @param ex the exception
+     * @return an error response body
+     */
+    @ExceptionHandler(PostcodeLookupUnavailableException.class)
+    @ResponseStatus(HttpStatus.BAD_GATEWAY)
+    public ErrorResponse handlePostcodeUnavailable(PostcodeLookupUnavailableException ex) {
+        return new ErrorResponse(PostcodeLookupUnavailableException.MESSAGE);
     }
 
     /**

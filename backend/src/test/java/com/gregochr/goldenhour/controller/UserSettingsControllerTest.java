@@ -1,5 +1,7 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.client.PostcodeLookupException;
+import com.gregochr.goldenhour.client.PostcodeLookupUnavailableException;
 import com.gregochr.goldenhour.model.DriveTimeRefreshResponse;
 import com.gregochr.goldenhour.model.PostcodeLookupResult;
 import com.gregochr.goldenhour.model.ReachEntry;
@@ -44,7 +46,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
         when(settingsService.getSettings(any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
                         "DH1 3LE", 54.7761, -1.5733, "Durham, County Durham",
-                        null, Instant.parse("2026-04-01T10:00:00Z"), null, null, null));
+                        null, Instant.parse("2026-04-01T10:00:00Z"), null, null, null, null, false));
 
         mockMvc.perform(get("/api/user/settings"))
                 .andExpect(status().isOk())
@@ -82,7 +84,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     void saveHome_returnsUpdatedSettings() throws Exception {
         when(settingsService.saveHome(any(), any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
-                        "DH1 3LE", 54.7761, -1.5733, null, null, null, null, null, null));
+                        "DH1 3LE", 54.7761, -1.5733, null, null, null, null, null, null, null, false));
 
         mockMvc.perform(put("/api/user/settings/home")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -97,7 +99,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     void saveMapColourPreferences_returnsUpdatedSettings() throws Exception {
         when(settingsService.saveMapColourPreferences(any(), any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
-                        null, null, null, null, null, null, "temp", null, null));
+                        null, null, null, null, null, null, "temp", null, null, null, false));
 
         mockMvc.perform(put("/api/user/settings/map-colours")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -134,7 +136,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     void saveMapTideMode_returnsUpdatedSettings() throws Exception {
         when(settingsService.saveMapTideMode(any(), any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
-                        null, null, null, null, null, null, null, null, "always"));
+                        null, null, null, null, null, null, null, null, "always", null, false));
 
         mockMvc.perform(put("/api/user/settings/map-tide-mode")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -172,7 +174,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
         when(settingsService.markComingUpSeen(any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
                         null, null, null, null, null, null, null,
-                        java.time.LocalDate.of(2026, 8, 29), null));
+                        java.time.LocalDate.of(2026, 8, 29), null, null, false));
 
         mockMvc.perform(put("/api/user/settings/coming-up-seen"))
                 .andExpect(status().isOk())
@@ -340,5 +342,189 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     void getTodaysLight_unauthenticated_returns401() throws Exception {
         mockMvc.perform(get("/api/user/settings/light"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    // ---- postcode lookup failures (login-registration plan §1 #11, §2 #5) ----
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /home/lookup answers 400 with the fixed message for a postcode that does not "
+            + "exist (it answered 500 through the catch-all before R4a)")
+    void lookupPostcode_notFound_returns400() throws Exception {
+        when(settingsService.lookupPostcode(anyString()))
+                .thenThrow(new PostcodeLookupException("Invalid postcode"));
+
+        mockMvc.perform(post("/api/user/settings/home/lookup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"postcode\": \"ZZ9 9ZZ\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Invalid postcode"));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /home/lookup answers 502 with the fixed message when postcodes.io is down, "
+            + "never echoing an upstream message")
+    void lookupPostcode_unavailable_returns502() throws Exception {
+        when(settingsService.lookupPostcode(anyString()))
+                .thenThrow(new PostcodeLookupUnavailableException());
+
+        mockMvc.perform(post("/api/user/settings/home/lookup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"postcode\": \"DH1 3LE\"}"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error").value("Postcode lookup is unavailable right now"));
+    }
+
+    // ---- POST /home/reverse ----
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /home/reverse hands the point to the service and answers the postcode")
+    void reverseLookup_returnsResult() throws Exception {
+        when(settingsService.reverseLookupPostcode(54.776, -1.575)).thenReturn(
+                new PostcodeLookupResult("DH1 3LE", 54.7761, -1.5733, "Durham, County Durham"));
+
+        mockMvc.perform(post("/api/user/settings/home/reverse")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"latitude\": 54.776, \"longitude\": -1.575}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.postcode").value("DH1 3LE"))
+                .andExpect(jsonPath("$.latitude").value(54.7761))
+                .andExpect(jsonPath("$.longitude").value(-1.5733))
+                .andExpect(jsonPath("$.placeName").value("Durham, County Durham"));
+    }
+
+    @Test
+    @WithMockUser(roles = "LITE_USER")
+    @DisplayName("A LITE account may use /home/reverse and /home/lookup — light times are free")
+    void reverseAndLookup_liteAllowed() throws Exception {
+        when(settingsService.reverseLookupPostcode(54.776, -1.575)).thenReturn(
+                new PostcodeLookupResult("DH1 3LE", 54.7761, -1.5733, "Durham, County Durham"));
+        when(settingsService.lookupPostcode(anyString())).thenReturn(
+                new PostcodeLookupResult("DH1 3LE", 54.7761, -1.5733, "Durham, County Durham"));
+
+        mockMvc.perform(post("/api/user/settings/home/reverse")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"latitude\": 54.776, \"longitude\": -1.575}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/user/settings/home/lookup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"postcode\": \"DH1 3LE\"}"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /home/reverse answers 400 with the service's fixed message for a bad value")
+    void reverseLookup_badValue_returns400() throws Exception {
+        when(settingsService.reverseLookupPostcode(any(), any()))
+                .thenThrow(new IllegalArgumentException("latitude must be between -90 and 90"));
+
+        mockMvc.perform(post("/api/user/settings/home/reverse")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"latitude\": 91, \"longitude\": 0}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("latitude must be between -90 and 90"));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /home/reverse answers 400 'No UK postcode found' for a point with none near it")
+    void reverseLookup_notFound_returns400() throws Exception {
+        when(settingsService.reverseLookupPostcode(any(), any()))
+                .thenThrow(new PostcodeLookupException("No UK postcode found for that location"));
+
+        mockMvc.perform(post("/api/user/settings/home/reverse")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"latitude\": 0, \"longitude\": 0}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("No UK postcode found for that location"));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /home/reverse answers 502 with a fixed message when postcodes.io is down")
+    void reverseLookup_unavailable_returns502() throws Exception {
+        when(settingsService.reverseLookupPostcode(any(), any()))
+                .thenThrow(new PostcodeLookupUnavailableException());
+
+        mockMvc.perform(post("/api/user/settings/home/reverse")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"latitude\": 54.776, \"longitude\": -1.575}"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error").value("Postcode lookup is unavailable right now"));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /home/reverse answers 400 for a body that is not JSON")
+    void reverseLookup_unreadableBody_returns400() throws Exception {
+        mockMvc.perform(post("/api/user/settings/home/reverse")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("not json"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("POST /home/reverse returns 401 without authentication")
+    void reverseLookup_unauthenticated_returns401() throws Exception {
+        mockMvc.perform(post("/api/user/settings/home/reverse")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"latitude\": 54.776, \"longitude\": -1.575}"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    // ---- PUT /postcode-prompt-dismissed ----
+
+    @Test
+    @WithMockUser
+    @DisplayName("PUT /postcode-prompt-dismissed takes no body and answers the settings with the "
+            + "instant set and postcodePromptDue false")
+    void markPostcodePromptDismissed_returnsUpdatedSettings() throws Exception {
+        when(settingsService.markPostcodePromptDismissed(any())).thenReturn(
+                new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
+                        null, null, null, null, null, null, null, null, null,
+                        Instant.parse("2026-10-17T09:30:00Z"), false));
+
+        mockMvc.perform(put("/api/user/settings/postcode-prompt-dismissed"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.postcodePromptDismissedAt").value("2026-10-17T09:30:00Z"))
+                .andExpect(jsonPath("$.postcodePromptDue").value(false));
+    }
+
+    @Test
+    @WithMockUser(roles = "LITE_USER")
+    @DisplayName("A LITE account may dismiss the prompt — it is asked of every role")
+    void markPostcodePromptDismissed_liteAllowed() throws Exception {
+        when(settingsService.markPostcodePromptDismissed(any())).thenReturn(
+                new UserSettingsResponse("testuser", "test@example.com", "LITE_USER",
+                        null, null, null, null, null, null, null, null, null,
+                        Instant.parse("2026-10-17T09:30:00Z"), false));
+
+        mockMvc.perform(put("/api/user/settings/postcode-prompt-dismissed"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("PUT /postcode-prompt-dismissed returns 401 without authentication")
+    void markPostcodePromptDismissed_unauthenticated_returns401() throws Exception {
+        mockMvc.perform(put("/api/user/settings/postcode-prompt-dismissed"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/user/settings carries postcodePromptDue true for a caller with neither "
+            + "a postcode nor a dismissal")
+    void getSettings_carriesThePromptFlag() throws Exception {
+        when(settingsService.getSettings(any())).thenReturn(
+                new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
+                        null, null, null, null, null, null, null, null, null, null, true));
+
+        mockMvc.perform(get("/api/user/settings"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.postcodePromptDue").value(true))
+                .andExpect(jsonPath("$.postcodePromptDismissedAt").doesNotExist());
     }
 }
