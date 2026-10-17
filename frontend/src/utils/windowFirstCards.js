@@ -225,6 +225,43 @@ const TIDE_LIVE_FLOOR = 3;
 const TIDE_LIVE_SHARE = 0.5;
 
 /**
+ * The least rating the best-reachable line will name once a neighbour outlier was skipped to reach
+ * it (neighbour-guard-plan.md §4 G3). A client twin of the server's
+ * {@code NeighbourOutlierGuard.NAMED_FLOOR} (Java): deliberately a fixed 3 on both sides, not the
+ * guard's configurable {@code min-rating}, so the BEST BET pick and this line cannot disagree about
+ * one window. Change both together.
+ */
+export const NEIGHBOUR_NAMED_FLOOR = 3;
+
+/**
+ * The pool's best-reachable spot, and whether the neighbour guard withheld it.
+ *
+ * <p>The first spot of the pool carrying a rating that is not a served {@code neighbourOutlier}.
+ * The pool arrives ordered by {@code compareSpots} (rating desc, unrated last), so with no outlier
+ * this is exactly the head when the head is rated, and null when it is not. If an outlier was
+ * skipped and that spot is rated below {@link NEIGHBOUR_NAMED_FLOOR} — or no rated spot remains
+ * after the skip — nothing is named and {@code withheld} is true. A filter over a served flag, never
+ * a second ranking.
+ *
+ * @param {Array<object>} pool the reach-gated, pre-floor spots in {@code compareSpots} order
+ * @returns {{bestReach: ?object, withheld: boolean}}
+ */
+export function bestReachOf(pool) {
+  const spots = pool || [];
+  let skipped = false;
+  for (const spot of spots) {
+    if (spot?.rating == null) break;
+    if (spot.neighbourOutlier === true) {
+      skipped = true;
+      continue;
+    }
+    if (skipped && spot.rating < NEIGHBOUR_NAMED_FLOOR) return { bestReach: null, withheld: true };
+    return { bestReach: spot, withheld: false };
+  }
+  return { bestReach: null, withheld: skipped };
+}
+
+/**
  * The per-window tide-fit summary — is the coast live on this window, and how well served.
  *
  * <p><b>One pool, three readers (plan §2).</b> Computed over {@code pool} — the SAME reach-gated,
@@ -677,6 +714,7 @@ export function buildWindowCards(
     // chose from, so the bar can say "42 of 138" without either number naming a different thing.
     const reached = gateSpotsByReach(allSpots, limitMinutes);
     const spots = gateSpotsByRating(reached, minRating);
+    const reachPick = bestReachOf(reached);
 
     return {
       key: `${date}:${targetType}`,
@@ -812,7 +850,17 @@ export function buildWindowCards(
       // rating in the pool was compared — and an UNRATED head means nothing in the pool is rated
       // at all, and the order that chose it was alphabetical. Naming that spot "the best you could
       // reach" would claim a ranking that never ran, so the caller says "not scored yet" instead.
-      bestReach: reached[0]?.rating != null ? reached[0] : null,
+      //
+      // ⚠️ Since the neighbour guard (docs/engineering/neighbour-guard-plan.md §4 G3) it is the first
+      // spot of the pool with a rating that is NOT a served `neighbourOutlier`; `bestReachOf` owns
+      // that rule and the withheld state beside it. With no outlier in the pool it is exactly the
+      // head, as before.
+      bestReach: reachPick.bestReach,
+      // True when a neighbour outlier was skipped and the next rated spot is below the named floor
+      // (or there is none): the card then says "no clear pick" rather than naming a place or
+      // claiming nothing is scored. Absent from the pool's histogram and every count — the outlier
+      // keeps its star everywhere a star is shown.
+      bestReachWithheld: reachPick.withheld,
       // How many the lens chose from. Equal to `spots.length` whenever nothing was gated, which is
       // exactly when the strip footer keeps P6's plain count rather than the design's "N of M".
       reachTotal: allSpots.length,

@@ -286,6 +286,25 @@ export function bestReachLine(card) {
         .join(', '),
     };
   }
+  // ⚠️ Tested BEFORE the fall-throughs below: a withheld pool HAS rated spots (the outlier and
+  // maybe more), so `empty` is false and `verdictBeyondReach` could otherwise answer, and the card
+  // would print "not scored yet" over a pool the guard deliberately declined to name. The title
+  // takes the same reach rule as everywhere: "within reach" only where a drive time exists.
+  if (card?.bestReachWithheld === true) {
+    return {
+      rating: null,
+      label: 'Best',
+      value: 'no clear pick',
+      muted: true,
+      title: card?.reachMeasured
+        ? 'The highest rating within reach is well above every place around it, so none is named.'
+        : 'The highest rating here is well above every place around it, so none is named.',
+      tideAligned: false,
+      tideState: null,
+      // Begins with the visible label's own word (WCAG 2.5.3).
+      spoken: 'Best, no clear pick',
+    };
+  }
   const empty = (card?.pool?.length ?? 0) === 0;
   const beyond = verdictBeyondReach(card);
   if (beyond) return beyond;
@@ -1960,7 +1979,9 @@ WindowFirstHeatStrip.propTypes = {
     }),
     /** The reach-gated, pre-floor spot pool the spread and the best-reach line are measured over. */
     pool: PropTypes.array,
-    /** That pool's head, or null when nothing in it is rated — see {@link bestReachLine}. */
+    /** True when the neighbour guard skipped an outlier and nothing clears the named floor. */
+    bestReachWithheld: PropTypes.bool,
+    /** That pool's best non-outlier spot, or null when nothing in it is rated — see {@link bestReachLine}. */
     bestReach: PropTypes.shape({
       locationName: PropTypes.string,
       regionName: PropTypes.string,

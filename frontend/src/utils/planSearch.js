@@ -300,12 +300,16 @@ export function buildSearchGroups(query, {
       // it is simply the best rated place in scope and "in reach" names a filter that never ran.
       // The FIGURE is unchanged; only the word about how it was chosen goes. Here it matters more
       // than elsewhere, because the caption is the only word explaining the number.
+      // The neighbour guard's withheld state (neighbour-guard-plan.md §4 G3) is a figure of its own
+      // ("no clear pick"), not silence: rated places exist and the card behind the box says so.
       figure: card.bestReach
         ? {
           value: starFigure(card.bestReach.rating),
           caption: reachMeasured ? 'in reach' : null,
         }
-        : null,
+        : (card.bestReachWithheld === true
+          ? { value: 'no clear pick', caption: reachMeasured ? 'in reach' : null }
+          : null),
       action: card.away ? null : 'Open',
       subParts: clauses([card.time, card.away ? 'Not forecast' : card.verdictLabel]),
       sub: [card.time, card.away ? 'Not forecast' : card.verdictLabel].filter(Boolean).join(' · '),
