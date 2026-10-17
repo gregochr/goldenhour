@@ -183,8 +183,10 @@ export default function WindowPickDialog({
           {`Show ${pick.regionName} on map`}
           <span aria-hidden="true"> →</span>
         </button>
-        {/* Omitted, not disabled, when the region has nothing rated: `locationName` is null exactly
-            then, and a greyed control for a place that does not exist explains nothing. */}
+        {/* Omitted, not disabled, when the region has no place to name: `locationName` is null when
+            nothing is rated, and also when the neighbour guard skipped an outlier and the next slot
+            is rated below 3 (docs/engineering/neighbour-guard-plan.md). A greyed control for a place
+            that does not exist explains nothing. */}
         {pick.locationName && (
           <button
             type="button"

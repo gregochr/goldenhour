@@ -61,6 +61,11 @@ class ServedBriefingAssemblerTest {
     private WindowTideRollupBuilder windowTideRollupBuilder;
     @Mock
     private EvaluationViewService evaluationViewService;
+    @Mock
+    private LocationPointProvider locationPointProvider;
+
+    /** The guard's default: off, so this class's existing assertions are about the unguarded path. */
+    private final NeighbourGuardProperties neighbourGuardProperties = new NeighbourGuardProperties();
 
     private ServedBriefingAssembler assembler;
 
@@ -74,7 +79,8 @@ class ServedBriefingAssemblerTest {
         // scoredLocationCount of zero is then exactly what the honesty filter reads.
         assembler = new ServedBriefingAssembler(bestBetFallbackService, regionSnapshotService,
                 windowTideRollupBuilder, evaluationViewService, CLOCK,
-                (days, resolver, triaged) -> days);
+                (days, resolver, triaged) -> days, locationPointProvider, neighbourGuardProperties,
+                new NeighbourGuardLog(line -> { }));
     }
 
     private static DailyBriefingResponse snapshot(BriefingEventSummary... summaries) {

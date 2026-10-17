@@ -234,7 +234,9 @@ class BriefingServiceTest {
      */
     private ServedBriefingAssembler assembler(java.time.Clock clock) {
         return new ServedBriefingAssembler(bestBetFallbackService, snapshots(),
-                windowTideRollupBuilder, evaluationViewService, clock, rollup(clock));
+                windowTideRollupBuilder, evaluationViewService, clock, rollup(clock),
+                org.mockito.Mockito.mock(LocationPointProvider.class), new NeighbourGuardProperties(),
+                new NeighbourGuardLog(line -> { }));
     }
 
     /**

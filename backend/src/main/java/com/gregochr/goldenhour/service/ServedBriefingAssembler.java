@@ -66,19 +66,28 @@ class ServedBriefingAssembler {
      * window in which this field could be observed null.
      */
     private final BriefingScoreEnricher scoreEnricher;
+    private final LocationPointProvider locationPointProvider;
+    private final NeighbourGuardProperties neighbourGuardProperties;
+    private final NeighbourGuardLog neighbourGuardLog;
 
     ServedBriefingAssembler(BestBetFallbackService bestBetFallbackService,
             BriefingRegionSnapshotService regionSnapshotService,
             WindowTideRollupBuilder windowTideRollupBuilder,
             @Lazy EvaluationViewService evaluationViewService,
             Clock clock,
-            BriefingScoreEnricher scoreEnricher) {
+            BriefingScoreEnricher scoreEnricher,
+            LocationPointProvider locationPointProvider,
+            NeighbourGuardProperties neighbourGuardProperties,
+            NeighbourGuardLog neighbourGuardLog) {
         this.bestBetFallbackService = bestBetFallbackService;
         this.regionSnapshotService = regionSnapshotService;
         this.windowTideRollupBuilder = windowTideRollupBuilder;
         this.evaluationViewService = evaluationViewService;
         this.clock = clock;
         this.scoreEnricher = scoreEnricher;
+        this.locationPointProvider = locationPointProvider;
+        this.neighbourGuardProperties = neighbourGuardProperties;
+        this.neighbourGuardLog = neighbourGuardLog;
     }
 
     /**
@@ -142,7 +151,13 @@ class ServedBriefingAssembler {
         // fallback, so the snapshot's tide is the served tide. Read-only on the snapshot.
         Map<PlanWindowProjector.WindowKey, List<LocationTideFact>> tideFacts = snapshot == null
                 ? Map.of() : WindowTideFactProjector.project(snapshot.days());
-        DailyBriefingResponse filtered = attachMovement(assembleWithoutPlan(snapshot, minCoverageRatio));
+        // The neighbour guard marks a slot rated far above its neighbours so the projector's topSlot
+        // does not NAME it. After the honesty filter, so a zero-coverage region's emptied slots are
+        // not neighbours and the guard judges the ratings actually served; before the projector,
+        // which reads the flag. Serve-time only: never on the build path, so daily_briefing_cache
+        // never carries it.
+        DailyBriefingResponse filtered = markNeighbourOutliers(
+                attachMovement(assembleWithoutPlan(snapshot, minCoverageRatio)));
         // The tide rollup is derived here rather than inside the projector so the projector stays a
         // pure function of the response: it needs three repositories, and the projector has none.
         // It is fed the FILTERED days for one reason only — the same day list the windows are
@@ -163,6 +178,56 @@ class ServedBriefingAssembler {
         // LAST, after the projector, so nothing the projector reads is stripped from under it (the
         // facts themselves come from the raw snapshot above). See stripSlotTide.
         return stripSlotTide(projected);
+    }
+
+    /**
+     * Marks the neighbour outliers in a response (docs/engineering/neighbour-guard-plan.md §4).
+     *
+     * <p>A no-op, and never reads the location provider, unless {@code photocast.neighbour-guard.enabled}
+     * is set. Fails open: a failed coordinates read serves the response unmarked. Only slots in a
+     * region are touched; every other slot, and every field of every slot, is carried by the
+     * withers.
+     *
+     * @param response the honesty-filtered response with movement (may be {@code null})
+     * @return the response, with {@code neighbourOutlier} set on each flagged slot
+     */
+    private DailyBriefingResponse markNeighbourOutliers(DailyBriefingResponse response) {
+        if (!neighbourGuardProperties.isEnabled() || response == null || response.days().isEmpty()) {
+            return response;
+        }
+        NeighbourOutlierGuard.Result result;
+        try {
+            result = NeighbourOutlierGuard.flag(response.days(), locationPointProvider.points(),
+                    neighbourGuardProperties);
+        } catch (Exception e) {
+            LOG.warn("Neighbour guard failed — this serve carries no outlier marks: {}", e.getMessage());
+            return response;
+        }
+        neighbourGuardLog.record(response.generatedAt(), result);
+        if (result.flagged().isEmpty()) {
+            return response;
+        }
+        List<BriefingDay> days = new ArrayList<>(response.days().size());
+        for (BriefingDay day : response.days()) {
+            List<BriefingEventSummary> events = new ArrayList<>(day.eventSummaries().size());
+            for (BriefingEventSummary es : day.eventSummaries()) {
+                List<BriefingRegion> regions = es.regions().stream()
+                        .map(region -> region.withSlots(region.slots().stream()
+                                .map(slot -> isFlagged(result, day, es, slot)
+                                        ? slot.withNeighbourOutlier(Boolean.TRUE) : slot)
+                                .toList()))
+                        .toList();
+                events.add(es.withRegions(regions));
+            }
+            days.add(day.withEventSummaries(events));
+        }
+        return response.withDays(days);
+    }
+
+    private static boolean isFlagged(NeighbourOutlierGuard.Result result, BriefingDay day,
+            BriefingEventSummary es, BriefingSlot slot) {
+        return slot.locationId() != null && !slot.canopy() && result.flagged().contains(
+                new NeighbourOutlierGuard.Key(slot.locationId(), day.date(), es.targetType()));
     }
 
     /**
