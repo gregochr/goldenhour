@@ -104,6 +104,8 @@ vi.mock('../api/authApi.js', () => ({
   verifyEmail: vi.fn(),
   setPasswordForNewUser: vi.fn(),
   submitWaitlist: vi.fn(),
+  requestPasswordReset: vi.fn(),
+  resetPassword: vi.fn(),
 }));
 
 import { fetchForecasts, fetchLocations } from '../api/forecastApi.js';
@@ -120,6 +122,8 @@ import { getAstroConditions } from '../api/astroApi.js';
 import { getAlmanac } from '../api/almanacApi.js';
 import { subscribeToRunNotifications } from '../api/runProgressApi.js';
 import { getTodaysLight } from '../api/lightApi.js';
+import { verifyEmail, requestPasswordReset, resetPassword } from '../api/authApi.js';
+import userEvent from '@testing-library/user-event';
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -1734,5 +1738,192 @@ describe('App — the aurora banner is inside the briefing provider', () => {
     });
     expect(within(banner).queryByText('Off The Roster')).toBeNull();
     expect(await within(banner).findByTestId('aurora-field-stub')).toBeInTheDocument();
+  });
+});
+
+// ── The auth gate: reset and verification links ──────────────────────────────
+//
+// `AuthGate` routes two emailed links that both arrive as `?token=`. `/reset` is a password reset
+// and is chosen BEFORE the token test, so a reader already signed in on that browser still gets it
+// (login-registration-plan.md §2 #1, §4 #15); every other path is the verification link. These drive
+// the real `AuthProvider` + `AuthGate`; `RegisterPage` only gets as far as its verify call.
+
+const RESET_SESSION = {
+  accessToken: 'reset-access', refreshToken: 'reset-refresh', role: 'PRO_USER', username: 'chris',
+  refreshExpiresAt: '2026-12-01T00:00:00Z', marketingEmailOptIn: false, passwordChangeRequired: false,
+};
+
+/** Puts the browser on `url` (path and query) without a navigation, as an opened email link would. */
+function openLink(url) {
+  window.history.pushState({}, '', url);
+}
+
+/** Types a password that passes every rule into both reset fields and submits. */
+async function submitReset(user, password = 'Abcdef1!') {
+  await user.type(await screen.findByTestId('reset-new-password'), password);
+  await user.type(screen.getByTestId('reset-confirm-password'), password);
+  await user.click(screen.getByTestId('reset-submit'));
+}
+
+describe('App — the auth gate', () => {
+  beforeEach(() => {
+    resetPassword.mockReset();
+    requestPasswordReset.mockReset();
+    verifyEmail.mockReset().mockReturnValue(new Promise(() => {})); // verification never settles
+  });
+
+  afterEach(() => {
+    window.history.pushState({}, '', '/');
+    delete window.turnstile;
+  });
+
+  it('/reset?token=x mounts the reset page with no session stored, and makes no request until submit', async () => {
+    openLink('/reset?token=abc');
+    render(<App />);
+
+    expect(await screen.findByTestId('reset-form')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Set a new password' })).toBeInTheDocument();
+    expect(screen.queryByTestId('login-submit')).not.toBeInTheDocument();
+    expect(verifyEmail).not.toHaveBeenCalled();
+    expect(resetPassword).not.toHaveBeenCalled();
+    expect(requestPasswordReset).not.toHaveBeenCalled();
+  });
+
+  it('/reset?token=x mounts the reset page on a browser that is ALREADY signed in, and it survives re-renders', async () => {
+    localStorage.setItem('goldenhour_token', 'old-access');
+    localStorage.setItem('goldenhour_refresh', 'old-refresh');
+    localStorage.setItem('goldenhour_role', 'PRO_USER');
+    openLink('/reset?token=abc');
+    render(<App />);
+
+    expect(await screen.findByTestId('reset-form')).toBeInTheDocument();
+    expect(screen.queryByTestId('window-first-shell')).not.toBeInTheDocument();
+    // The gate's cleanup effect clears the VERIFICATION token whenever a stored token coexists with a
+    // URL token; it must never reach this one. Let any such effect run, then look again.
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(screen.getByTestId('reset-form')).toBeInTheDocument();
+    expect(window.location.pathname).toBe('/reset');
+    expect(window.location.search).toBe('?token=abc');
+  });
+
+  it('a signed-in reader submits the reset: the new session replaces the old, the URL leaves /reset, the app mounts', async () => {
+    const user = userEvent.setup();
+    resetPassword.mockResolvedValue(RESET_SESSION);
+    localStorage.setItem('goldenhour_token', 'old-access');
+    localStorage.setItem('goldenhour_refresh', 'old-refresh');
+    localStorage.setItem('goldenhour_role', 'PRO_USER');
+    openLink('/reset?token=abc');
+    render(<App />);
+
+    await submitReset(user);
+
+    expect(await screen.findByTestId('window-first-shell')).toBeInTheDocument();
+    expect(resetPassword).toHaveBeenCalledWith('abc', 'Abcdef1!');
+    expect(localStorage.getItem('goldenhour_token')).toBe('reset-access');
+    expect(localStorage.getItem('goldenhour_refresh')).toBe('reset-refresh');
+    expect(window.location.pathname).toBe('/');
+    expect(window.location.search).toBe('');
+    expect(screen.queryByTestId('reset-form')).not.toBeInTheDocument();
+  });
+
+  it('a signed-out reader submits the reset and lands in the app, signed in', async () => {
+    const user = userEvent.setup();
+    resetPassword.mockResolvedValue(RESET_SESSION);
+    openLink('/reset?token=abc');
+    render(<App />);
+
+    await submitReset(user);
+
+    expect(await screen.findByTestId('window-first-shell')).toBeInTheDocument();
+    expect(localStorage.getItem('goldenhour_token')).toBe('reset-access');
+    expect(window.location.pathname).toBe('/');
+  });
+
+  it('a dead link shows the server sentence and "Request a new link" opens the forgot page, even when signed in', async () => {
+    const user = userEvent.setup();
+    resetPassword.mockRejectedValue({
+      response: { status: 400, data: { error: 'This reset link has expired' } },
+    });
+    localStorage.setItem('goldenhour_token', 'old-access');
+    localStorage.setItem('goldenhour_role', 'PRO_USER');
+    openLink('/reset?token=abc');
+    render(<App />);
+
+    await submitReset(user);
+    expect(await screen.findByTestId('reset-error')).toHaveTextContent('This reset link has expired');
+    await user.click(screen.getByTestId('reset-new-link'));
+
+    expect(await screen.findByTestId('forgot-form')).toBeInTheDocument();
+    expect(screen.queryByTestId('reset-form')).not.toBeInTheDocument();
+    expect(window.location.pathname).toBe('/');
+    expect(window.location.search).toBe('');
+    // Back to sign in leaves the forgot page; this reader is signed in, so that is the app.
+    await user.click(screen.getByTestId('forgot-back'));
+    expect(await screen.findByTestId('window-first-shell')).toBeInTheDocument();
+  });
+
+  it('/reset with no token is not a reset link: the sign-in page', async () => {
+    openLink('/reset');
+    render(<App />);
+
+    expect(await screen.findByTestId('login-submit')).toBeInTheDocument();
+    expect(screen.queryByTestId('reset-form')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['/verify?token=vtok'],
+    ['/?token=vtok'],
+    ['/anything-else?token=vtok'],
+  ])('%s mounts registration in verify mode and verifies that token', async (url) => {
+    openLink(url);
+    render(<App />);
+
+    await waitFor(() => expect(verifyEmail).toHaveBeenCalledWith('vtok'));
+    expect(screen.queryByTestId('reset-form')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('login-submit')).not.toBeInTheDocument();
+  });
+
+  it('a consumed verification link leaves the URL at / once the reader is signed in', async () => {
+    localStorage.setItem('goldenhour_token', 'old-access');
+    localStorage.setItem('goldenhour_role', 'PRO_USER');
+    openLink('/verify?token=vtok');
+    render(<App />);
+
+    await screen.findByTestId('window-first-shell');
+    await waitFor(() => expect(window.location.pathname).toBe('/'));
+    expect(window.location.search).toBe('');
+    expect(verifyEmail).not.toHaveBeenCalled();
+  });
+
+  it('the sign-in page\'s "Forgot password?" opens the forgot page, and Back to sign in returns', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByTestId('login-forgot-link'));
+    expect(await screen.findByTestId('forgot-form')).toBeInTheDocument();
+    expect(screen.queryByTestId('login-submit')).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('forgot-back'));
+    expect(await screen.findByTestId('login-submit')).toBeInTheDocument();
+    expect(screen.getByTestId('login-forgot-link')).toBeInTheDocument();
+  });
+
+  it('a forgot request on a bare browser shows the done state', async () => {
+    const user = userEvent.setup();
+    requestPasswordReset.mockResolvedValue({ message: 'x' });
+    window.turnstile = {
+      render: vi.fn((_c, opts) => { opts.callback('ts'); return 'w'; }),
+      remove: vi.fn(),
+      reset: vi.fn(),
+    };
+    render(<App />);
+
+    await user.click(await screen.findByTestId('login-forgot-link'));
+    await user.type(await screen.findByTestId('forgot-email'), 'chris@example.com');
+    await user.click(screen.getByTestId('forgot-submit'));
+
+    expect(await screen.findByTestId('forgot-done-message'))
+      .toHaveTextContent("If that email has an account, we've sent a reset link.");
+    expect(requestPasswordReset).toHaveBeenCalledWith('chris@example.com', 'ts');
   });
 });

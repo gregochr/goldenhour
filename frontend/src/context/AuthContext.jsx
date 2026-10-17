@@ -47,6 +47,11 @@ export function AuthProvider({ children }) {
     () => readStorage(MARKETING_OPT_IN_KEY) !== 'false'
   );
   const [sessionExpired, setSessionExpired] = useState(false);
+  // True from the moment a new account's password is set until the registration flow's last step
+  // ends. In memory on purpose — a reload mid-flow lands the reader in the app, which is where the
+  // masthead's postcode nudge picks them up. `AuthGate` reads it from R4b onward (login-registration
+  // plan §2 #2).
+  const [registrationPending, setRegistrationPending] = useState(false);
 
   const login = useCallback(async (username, password, turnstileToken) => {
     const data = await apiLogin(username, password, turnstileToken);
@@ -92,15 +97,22 @@ export function AuthProvider({ children }) {
     setMustChangePassword(false);
     setRefreshExpiresAt(null);
     setMarketingEmailOptIn(true);
+    setRegistrationPending(false);
   }, []);
 
-  const changePassword = useCallback(async (newPassword, turnstileToken) => {
-    await apiChangePassword(newPassword, turnstileToken);
-    localStorage.removeItem(MUST_CHANGE_KEY);
-    setMustChangePassword(false);
-  }, []);
-
-  const completeRegistration = useCallback((data) => {
+  /**
+   * Stores a freshly issued session (the auth response of set-password and reset-password) and
+   * signs the reader in on it. The registration flag is NOT touched: {@link completeRegistration}
+   * adds it, and the reset page, which is not registration, calls this alone.
+   */
+  const signInWithTokens = useCallback((data) => {
+    // A reset link can be opened on a browser signed in as someone else; the next account must not
+    // see the previous one's instant-paint data. The same account (a password change) keeps its cache.
+    const previousUsername = readStorage(USERNAME_KEY);
+    if (previousUsername && previousUsername !== data.username) {
+      clearSwrCache();
+      clearForecastDetailCache();
+    }
     localStorage.setItem(TOKEN_KEY, data.accessToken);
     localStorage.setItem(REFRESH_KEY, data.refreshToken);
     localStorage.setItem(ROLE_KEY, data.role);
@@ -115,6 +127,25 @@ export function AuthProvider({ children }) {
     setMustChangePassword(false);
     if (data.refreshExpiresAt) setRefreshExpiresAt(data.refreshExpiresAt);
     if (data.marketingEmailOptIn != null) setMarketingEmailOptIn(data.marketingEmailOptIn);
+    setSessionExpired(false);
+  }, []);
+
+  const changePassword = useCallback(async (newPassword, turnstileToken) => {
+    const data = await apiChangePassword(newPassword, turnstileToken);
+    localStorage.removeItem(MUST_CHANGE_KEY);
+    setMustChangePassword(false);
+    // From R3c the server revokes every refresh token on a change and answers with a fresh session
+    // for this device; until then the answer is `{message}` and nothing is stored.
+    if (data?.accessToken) signInWithTokens(data);
+  }, [signInWithTokens]);
+
+  const completeRegistration = useCallback((data) => {
+    signInWithTokens(data);
+    setRegistrationPending(true);
+  }, [signInWithTokens]);
+
+  const finishRegistration = useCallback(() => {
+    setRegistrationPending(false);
   }, []);
 
   const refreshSession = useCallback(async () => {
@@ -156,6 +187,7 @@ export function AuthProvider({ children }) {
       setMustChangePassword(false);
       setRefreshExpiresAt(null);
       setMarketingEmailOptIn(true);
+      setRegistrationPending(false);
       setSessionExpired(true);
     };
     window.addEventListener('goldenhour:session-expired', handleExpired);
@@ -181,13 +213,16 @@ export function AuthProvider({ children }) {
     sessionDaysRemaining,
     marketingEmailOptIn,
     sessionExpired,
+    registrationPending,
     login,
     logout,
     changePassword,
+    signInWithTokens,
     completeRegistration,
+    finishRegistration,
     refreshSession,
     isAdmin: role === 'ADMIN',
-  }), [token, refreshToken, role, username, mustChangePassword, sessionDaysRemaining, marketingEmailOptIn, sessionExpired, login, logout, changePassword, completeRegistration, refreshSession]);
+  }), [token, refreshToken, role, username, mustChangePassword, sessionDaysRemaining, marketingEmailOptIn, sessionExpired, registrationPending, login, logout, changePassword, signInWithTokens, completeRegistration, finishRegistration, refreshSession]);
 
   return (
     <AuthContext.Provider value={value}>
