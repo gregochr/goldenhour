@@ -27,6 +27,10 @@ cat $D/cell-groups.sql $D/top-cells.sql        | ssh dockermacmini "$R -v since=
 cat $D/cell-groups.sql $D/neighbour-pairs.sql  | ssh dockermacmini "$R -v since=$SINCE -v km=12"
 cat $D/cell-groups.sql $D/guard-candidates.sql | ssh dockermacmini "$R -v since=$SINCE -v km=12"
 cat $D/far-cost.sql                            | ssh dockermacmini "$R -v since=$SINCE"
+
+# The neighbour guard (docs/engineering/neighbour-guard-plan.md)
+cat $D/cell-groups.sql $D/guard-tuning.sql     | ssh dockermacmini "$R -v since=$SINCE"
+cat $D/serve-guard.sql                         | ssh dockermacmini "$R -v since=$(date -v-7d +%F) -v km=5"
 ```
 
 `cell-groups.sql` defines three temp views the next four files read, so it always goes first.
@@ -41,6 +45,8 @@ cat $D/far-cost.sql                            | ssh dockermacmini "$R -v since=
 | `neighbour-pairs.sql` | a **near-twin pair**: two places within `:km` km, same run, window, model and horizon, whose solar-horizon low/mid/high cloud agree to within 5 points | how often near-identical inputs get stars 2+ apart |
 | `guard-candidates.sql` | a rated row with at least one near-twin | how many 3★+ ratings sit 2+ stars above every near-twin (what a neighbour guard would flag) |
 | `far-cost.sql` | a successful batch sky call (`custom_id` `fc-…`) in `api_call_log` | calls a day and cost a call, by model × horizon |
+| `guard-tuning.sql` | a rated row with a `sky_rating` | how many the neighbour guard would flag at each radius (and same cell), and at 5 km with at least two neighbours |
+| `serve-guard.sql` | a SERVED result in `cached_evaluation` (one per place per window, any run or model, across regions) | the guard's rule as the app would apply it: rated slots, `skyRating` coverage, flags with one and with two neighbours, and which places |
 
 ## Definitions that matter
 
@@ -71,8 +77,11 @@ on sqlite 3.43 once `:'since'` and `:'km'` are substituted. They were checked th
 seven-location fixture whose answers were worked out by hand: a three-site inland cell spanning 2
 stars, a two-site tidal cell spanning 3, a canopy site that must be excluded, a twin pair 30 points
 apart on solar low cloud that must not pair, a run straddling a minute boundary that must stay one
-group, and a row before `since` that must be dropped. `far-cost.sql` subtracts dates and is
-Postgres-only.
+group, and a row before `since` that must be dropped. `guard-tuning.sql` was also checked against a second fixture
+for the guard's rule: a 4★ with two 2★ witnesses at a similar height is flagged, a 3★ place 1.7 km away
+and 200 m lower clears it (a supporter at any height), and a witness with no elevation does not count
+for a place that has one. `far-cost.sql` subtracts dates and
+`serve-guard.sql` reads a JSON array, so both are Postgres-only.
 
 ## Results
 
