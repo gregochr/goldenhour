@@ -20,7 +20,7 @@ import java.util.Optional;
  * Spring Data repository for {@link AppUserEntity}.
  *
  * <p><strong>Every settings write is a column-scoped update here, never a {@code save()}.</strong>
- * The entity marks its eight settings columns {@code updatable = false} (its class Javadoc records
+ * The entity marks its nine settings columns {@code updatable = false} (its class Javadoc records
  * why), so a whole-entity save cannot write them at all; these updates are the only way in. Each
  * writes exactly the columns its own request changes, so two settings saves in two tabs, or a
  * settings save and the nightly drive-time job, can no longer discard one another's change.
@@ -541,4 +541,25 @@ public interface AppUserRepository extends JpaRepository<AppUserEntity, Long> {
             + "WHERE u.id = :id AND u.homeLatitude = :latitude AND u.homeLongitude = :longitude")
     int clearDriveTimesCalculatedAtIfHomeIs(@Param("id") Long id, @Param("latitude") double latitude,
             @Param("longitude") double longitude);
+
+    /**
+     * Records that the caller dismissed the one-time sign-in postcode prompt (V181,
+     * login-registration plan §2 #3) — the {@link #updateComingUpLastSeenAtByUsername} shape, for the
+     * same reasons: a column-scoped bulk update that writes this one column, so dismissing the prompt
+     * can never overwrite a concurrent home save, and a whole-entity {@code save()} can never write it
+     * (the column is {@code updatable = false}).
+     *
+     * <p>Idempotent: a second dismissal overwrites the instant. {@code clearAutomatically} evicts the
+     * persistence context so the caller's read-back sees this write.
+     *
+     * @param username    the caller's username
+     * @param dismissedAt the instant to record
+     * @return the number of rows updated — 1, or 0 if the username no longer matches a row
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("UPDATE AppUserEntity u SET u.postcodePromptDismissedAt = :dismissedAt "
+            + "WHERE u.username = :username")
+    int updatePostcodePromptDismissedAtByUsername(@Param("username") String username,
+            @Param("dismissedAt") Instant dismissedAt);
 }
