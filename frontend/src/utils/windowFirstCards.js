@@ -85,6 +85,19 @@ export function pastDayLabel(dateStr, todayStr) {
   const d = new Date(`${dateStr}T12:00:00Z`);
   const t = new Date(`${todayStr}T12:00:00Z`);
   if (Math.round((t.getTime() - d.getTime()) / 86400000) === 1) return 'Yesterday';
+  return dowDayLabel(dateStr);
+}
+
+/**
+ * {@code Thu 16} for any date, never {@code Today}/{@code Yesterday} — the form a sentence about ONE
+ * calendar day wants ("No stored forecast for Fri 16": "yesterday" would be wrong the next morning).
+ * The same noon-pinned UTC read {@link pastDayLabel} makes, so the answer is the date's own in any zone.
+ *
+ * @param {string} dateStr an ISO date
+ * @returns {string}
+ */
+export function dowDayLabel(dateStr) {
+  const d = new Date(`${dateStr}T12:00:00Z`);
   const dow = d.toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' });
   return `${dow} ${d.getUTCDate()}`;
 }

@@ -4,7 +4,7 @@
  * T-3 the 13th and the T-4 floor the 12th.
  */
 import { describe, it, expect } from 'vitest';
-import { MAX_PAST_DAYS, olderDayState } from '../utils/mapOlderDay.js';
+import { MAX_PAST_DAYS, emptyOlderDay, olderDayState } from '../utils/mapOlderDay.js';
 import { shiftDateStr } from '../utils/mapDates.js';
 
 const TODAY = '2026-10-16';
@@ -92,5 +92,30 @@ describe('olderDayState', () => {
     expect(olderDayState({ dates: [], todayStr: TODAY }).canLoadOlder).toBe(false);
     expect(olderDayState({ dates: [T2, T1], todayStr: '' }).canLoadOlder).toBe(false);
     expect(olderDayState({ dates: undefined, todayStr: TODAY }).canLoadOlder).toBe(false);
+  });
+});
+
+describe('emptyOlderDay (the day the menus say has no stored forecast)', () => {
+  it('names the most recently loaded day when it came back empty', () => {
+    expect(emptyOlderDay({ loadedPastDays: [T3], emptyPastDays: [T3] })).toBe(T3);
+  });
+
+  it('is the OLDEST loaded day, because the Load row steps newest to oldest', () => {
+    expect(emptyOlderDay({ loadedPastDays: [T3, T4], emptyPastDays: [T4] })).toBe(T4);
+    expect(emptyOlderDay({ loadedPastDays: [T4, T3], emptyPastDays: [T3, T4] })).toBe(T4);
+  });
+
+  it('goes quiet once a later (older) day loads WITH rows, even if an earlier one was empty', () => {
+    expect(emptyOlderDay({ loadedPastDays: [T3, T4], emptyPastDays: [T3] })).toBeNull();
+  });
+
+  it('is null when nothing is loaded, when the loaded day had rows, or with no lists at all', () => {
+    expect(emptyOlderDay({ loadedPastDays: [], emptyPastDays: [] })).toBeNull();
+    expect(emptyOlderDay({ loadedPastDays: [T3], emptyPastDays: [] })).toBeNull();
+    expect(emptyOlderDay({})).toBeNull();
+  });
+
+  it('ignores an empty day that is not among the loaded ones', () => {
+    expect(emptyOlderDay({ loadedPastDays: [T3], emptyPastDays: [T4] })).toBeNull();
   });
 });

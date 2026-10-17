@@ -136,7 +136,8 @@ function readValidCache(cacheKey) {
  * past day ({@code GET /api/forecast?date=}), keeps the raw rows in hook state and merges them into
  * {@code locations} on every render, so a refresh keeps them. Never written to the SWR cache (that
  * payload is the list endpoint's, revalidated as a whole; an older day is re-fetched next session). An
- * empty answer is a loaded-empty entry and still counts as loaded. A failed fetch leaves the roster
+ * empty answer is a loaded-empty entry, still counts as loaded, and is named in {@code emptyPastDays}
+ * (so the Map tab can say the day has no stored forecast, §4 #15 as amended 2026-10-17). A failed fetch leaves the roster
  * unchanged and reports through {@code error}. It stands down under an admin rewind.
  *
  * @returns {{
@@ -146,7 +147,8 @@ function readValidCache(cacheKey) {
  *   refresh: function,
  *   loadOlderDay: function(string): Promise<void>,
  *   olderDayLoading: string|null,
- *   loadedPastDays: string[]
+ *   loadedPastDays: string[],
+ *   emptyPastDays: string[]
  * }}
  */
 export function useForecasts() {
@@ -242,6 +244,12 @@ export function useForecasts() {
 
   const locations = useMemo(() => mergeOlderDays(baseLocations, olderDays), [baseLocations, olderDays]);
   const loadedPastDays = useMemo(() => [...olderDays.keys()].sort(), [olderDays]);
+  // The loaded days that came back with no rows at all — a subset of `loadedPastDays`, read off the same
+  // state rather than re-derived from `allDates` (a day with no rows never reaches that list).
+  const emptyPastDays = useMemo(
+    () => [...olderDays].filter(([, rows]) => rows.length === 0).map(([date]) => date).sort(),
+    [olderDays],
+  );
 
   useEffect(() => {
     // Invoke via an inline async function so the synchronous setState calls at
@@ -254,6 +262,6 @@ export function useForecasts() {
   }, [load]);
 
   return {
-    locations, loading, error, refresh, loadOlderDay, olderDayLoading, loadedPastDays,
+    locations, loading, error, refresh, loadOlderDay, olderDayLoading, loadedPastDays, emptyPastDays,
   };
 }

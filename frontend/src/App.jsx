@@ -255,7 +255,7 @@ function AppInner() {
   const isMapTabActive = activePlanTab === 'map';
   const {
     locations, loading: forecastsLoading, error: forecastsError, refresh,
-    loadOlderDay, olderDayLoading, loadedPastDays,
+    loadOlderDay, olderDayLoading, loadedPastDays, emptyPastDays,
   } = useForecasts();
   // Defer the two long-lived SSE streams until after first paint so they don't compete with the
   // critical forecast/briefing fetches during boot.
@@ -954,6 +954,7 @@ function AppInner() {
                     onLoadOlderDay={loadOlderDay}
                     olderDayLoading={olderDayLoading}
                     loadedPastDays={loadedPastDays}
+                    emptyPastDays={emptyPastDays}
                     seasonalFeatures={seasonalFeatures}
                     homeCoords={homeCoords}
                     mapColourScale={mapColourScale}

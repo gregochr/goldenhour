@@ -8,7 +8,8 @@
  * observed, no effusive thanks.
  *
  * <h2>Plan-introduced strings</h2>
- * <p>None among the rating block's own strings. The plan's four (`docs/engineering/outcome-rating-plan.md`
+ * <p>None among the rating block's own strings, except the one at the very end of this module: the older-day
+ * line, added 2026-10-17 with §4 #15's reversal, which the window control and the phone sheet share. The plan's four (`docs/engineering/outcome-rating-plan.md`
  * §4 #17 — the admin footer's no-run and minutes variants, the `‹` stepper's `Load {Dow} {d}` name, the
  * `Loading …` state) are split: the window control's (O3b) live in `WindowControl`; the admin list's
  * (O5a) sit BELOW a header of their own at the end of this module, with the list's own two additions
@@ -171,3 +172,18 @@ export const ADMIN_LOAD_FAILED = 'Couldn\'t load ratings.';
 
 /** Plan-introduced: the line while the first fetch is out. */
 export const ADMIN_LOADING = 'Loading …';
+
+// ── The window control: a string this PLAN introduced (§4 #15 as amended 2026-10-17), not the spec's ──
+
+/**
+ * Plan-introduced: the quiet line, and the status announcement, for an older day that loaded with no
+ * rows — {@code No stored forecast for Fri 16}. Drawn in the Load row's place by both menus and spoken
+ * through the window control's one {@code role="status"} region. The day is the calendar form, never
+ * "yesterday" (the sentence must stay true tomorrow).
+ *
+ * @param {string} dayLabel the day as {@code Dow d}
+ * @returns {string}
+ */
+export function noStoredForecast(dayLabel) {
+  return `No stored forecast for ${dayLabel}`;
+}
