@@ -16,6 +16,9 @@ function homeFieldsOf(settings) {
     homeLongitude: settings?.homeLongitude ?? null,
     homePlaceName: settings?.homePlaceName ?? null,
     driveTimesCalculatedAt: settings?.driveTimesCalculatedAt ?? null,
+    // STRICT: only a literal `true` from the server prompts. A response without the field (an older
+    // server, a mock) never does, so nothing that predates the flag changes behaviour.
+    postcodePromptDue: settings?.postcodePromptDue === true,
   };
 }
 
@@ -73,7 +76,12 @@ export function recordReducer(record, action) {
   if (!moved && next.homePlaceName == null) next.homePlaceName = prev.homePlaceName;
   const drivesChanged = prev === undefined
     || !sameStamp(prev.driveTimesCalculatedAt, next.driveTimesCalculatedAt);
-  if (!moved && !drivesChanged && prev.homePlaceName === next.homePlaceName) return record;
+  // The prompt flag is part of the record too: a dismissal's answer changes nothing else (same home,
+  // same stamp, no place name), so without this test the early return would drop it.
+  const promptChanged = prev !== undefined && prev.postcodePromptDue !== next.postcodePromptDue;
+  if (!moved && !drivesChanged && !promptChanged && prev.homePlaceName === next.homePlaceName) {
+    return record;
+  }
   return {
     settings: next,
     homeSettingsVersion: record.homeSettingsVersion + (moved ? 1 : 0),
@@ -152,8 +160,14 @@ export function recordReducer(record, action) {
  * can only ever mean the LATEST choice failed; the line still guarantees the newest queued choice
  * is the one sent.
  *
+ * <p><b>The postcode prompt's flag</b> ({@code postcodePromptDue}, the server's own computation:
+ * no postcode AND no dismissal) rides the same record and the same answer path, strictly
+ * ({@code === true}). The page's mount read raises it; the prompt's Save ({@code homeSaved}) and Not
+ * now ({@code startSettingsRead}'s reporter, fed the dismissal's response) lower it. ⚠️ A dismissal's
+ * response carries no place name, which the reducer already keeps from the record for the same home.
+ *
  * @returns {{homePlace: (?string|undefined), homeCoords: (?{lat: number, lon: number}|undefined),
- *           comingUpLastSeenDate: (?string|undefined), setComingUpLastSeenDate: function,
+ *           postcodePromptDue: boolean, comingUpLastSeenDate: (?string|undefined), setComingUpLastSeenDate: function,
  *           homeSettingsVersion: number, driveTimesVersion: number, mapColourScale: string,
  *           colourScaleDefaulted: boolean, startSettingsRead: function, homeSaved: function,
  *           driveTimesRecalculated: function, colourSaved: function,
@@ -333,12 +347,17 @@ export default function useReaderSettings() {
     return lat != null && lon != null ? { lat, lon } : null;
   }, [known, lat, lon]);
   const homePlace = known ? (settings.homePlaceName || settings.homePostcode || null) : undefined;
+  // True only while the server says this reader has neither a postcode nor a dismissal on record.
+  // Unknown (the mount read unanswered or failed) is false: a prompt is raised on an answer, never
+  // on silence.
+  const postcodePromptDue = known && settings.postcodePromptDue === true;
 
   return {
     homePlace,
     homeCoords,
     comingUpLastSeenDate,
     setComingUpLastSeenDate,
+    postcodePromptDue,
     homeSettingsVersion: record.homeSettingsVersion,
     driveTimesVersion: record.driveTimesVersion,
     mapColourScale,

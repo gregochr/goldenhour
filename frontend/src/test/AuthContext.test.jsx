@@ -39,10 +39,13 @@ function SessionActions({ data }) {
   const {
     registrationPending, signInWithTokens, completeRegistration, finishRegistration, changePassword,
     logout, token, mustChangePassword, role, sessionExpired,
+    postcodePromptSuppressed, suppressPostcodePrompt,
   } = useAuth();
   return (
     <div>
       <span data-testid="pending">{String(registrationPending)}</span>
+      <span data-testid="suppressed">{String(postcodePromptSuppressed)}</span>
+      <button data-testid="suppress" onClick={suppressPostcodePrompt}>suppress</button>
       <span data-testid="expired">{String(sessionExpired)}</span>
       <span data-testid="token">{token ?? 'null'}</span>
       <span data-testid="role">{role ?? 'null'}</span>
@@ -307,6 +310,56 @@ describe('AuthContext', () => {
 
       expect(screen.getByTestId('pending')).toHaveTextContent('false');
       expect(screen.getByTestId('token')).toHaveTextContent('null');
+    });
+
+    describe('postcodePromptSuppressed (login-registration-plan.md §2 #2, §5 #3)', () => {
+      it('is false until suppressPostcodePrompt is called, and signing in does not set it', () => {
+        renderActions();
+        expect(screen.getByTestId('suppressed')).toHaveTextContent('false');
+
+        act(() => { fireEvent.click(screen.getByTestId('complete')); });
+        expect(screen.getByTestId('suppressed')).toHaveTextContent('false');
+
+        act(() => { fireEvent.click(screen.getByTestId('suppress')); });
+        expect(screen.getByTestId('suppressed')).toHaveTextContent('true');
+      });
+
+      it('survives finishRegistration — the app that mounts next must still honour it', () => {
+        renderActions();
+        act(() => { fireEvent.click(screen.getByTestId('complete')); });
+        act(() => { fireEvent.click(screen.getByTestId('suppress')); });
+
+        act(() => { fireEvent.click(screen.getByTestId('finish')); });
+
+        expect(screen.getByTestId('suppressed')).toHaveTextContent('true');
+      });
+
+      it('is memory only: nothing is written to storage', () => {
+        renderActions();
+        const before = Object.keys(localStorage).length;
+
+        act(() => { fireEvent.click(screen.getByTestId('suppress')); });
+
+        expect(Object.keys(localStorage).length).toBe(before);
+      });
+
+      it('logout clears it, so the next account on this browser is prompted', async () => {
+        renderActions();
+        act(() => { fireEvent.click(screen.getByTestId('suppress')); });
+
+        await act(async () => { fireEvent.click(screen.getByTestId('logout')); });
+
+        expect(screen.getByTestId('suppressed')).toHaveTextContent('false');
+      });
+
+      it('the session-expired event clears it too', () => {
+        renderActions();
+        act(() => { fireEvent.click(screen.getByTestId('suppress')); });
+
+        act(() => { window.dispatchEvent(new Event('goldenhour:session-expired')); });
+
+        expect(screen.getByTestId('suppressed')).toHaveTextContent('false');
+      });
     });
 
     it('signInWithTokens ends the expired-session state, so a reset from the expiry screen does not keep it', () => {
