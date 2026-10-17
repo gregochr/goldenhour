@@ -100,7 +100,8 @@ describe('the row and the line', () => {
     const px = (value) => Number.parseInt(value, 10);
     const handle = px(declared('.wf-map-peek-hdl', 'height'));
     const row = px(declared('.wf-map-peek-ask-entry', 'height')) + px(declared('.wf-map-peek-ask-row', 'margin').split(' ')[2]);
-    const line = px(declared('.wf-map-peek-mini', 'min-height'));
+    // The line is a ROW now (the line's button and the Layers door): the wrapper owns the 44px.
+    const line = px(declared('.wf-map-peek-mini-row', 'min-height'));
     // 14 + 52 + 44 = 110, plus the sheet's 1px top border: it fits within the 112 with a pixel to spare.
     expect(handle + row + line + 1).toBeLessThanOrEqual(PEEK_HEIGHT.minimised);
     expect(handle + row + line).toBe(110);
@@ -127,6 +128,52 @@ describe('the row and the line', () => {
   it('the Ask node is a programmatic focus target with no ring — and the entry, the ✕ and the line have one', () => {
     expect(declared('.wf-map-peek-ask:focus', 'outline')).toBe('none');
     expect(CSS).toMatch(/\.wf-map-peek-ask-entry:focus-visible,[\s\S]*?\{[^}]*outline:\s*2px solid/);
+  });
+});
+
+// docs/engineering/phone-pick-callout-plan.md §3 P2: the Layers door beside the minimised line.
+describe('the minimised row and the Layers door', () => {
+  const px = (value) => Number.parseInt(value, 10);
+
+  it('the ROW owns the line\'s 10px side margin and its 44px, and the line\'s button no longer carries either', () => {
+    expect(declared('.wf-map-peek-mini-row', 'margin')).toBe('0 10px');
+    expect(declared('.wf-map-peek-mini-row', 'min-height')).toBe('44px');
+    expect(declared('.wf-map-peek-mini-row', 'display')).toBe('flex');
+    expect(declared('.wf-map-peek-mini', 'margin')).toBe('0');
+    expect(declared('.wf-map-peek-mini', 'min-height')).toBe('44px');
+  });
+
+  it('the line takes the room the door leaves and may shrink below its content, so a long name ellipsises and never pushes the door out', () => {
+    expect(declared('.wf-map-peek-mini', 'flex')).toBe('1');
+    expect(declared('.wf-map-peek-mini', 'min-width')).toBe('0');
+    expect(declared('.wf-map-peek-mini-name', 'min-width')).toBe('0');
+    expect(declared('.wf-map-peek-mini-name', 'text-overflow')).toBe('ellipsis');
+  });
+
+  it('the door is a 58 x 44px, border-box, never-shrinking slot — a full touch target, no taller than the line', () => {
+    expect(declared('.wf-map-peek-mini-lay', 'width')).toBe('58px');
+    expect(declared('.wf-map-peek-mini-lay', 'height')).toBe('44px');
+    expect(declared('.wf-map-peek-mini-lay', 'box-sizing')).toBe('border-box');
+    expect(declared('.wf-map-peek-mini-lay', 'flex')).toBe('none');
+    expect(px(declared('.wf-map-peek-mini-lay', 'height'))).toBeLessThanOrEqual(px(declared('.wf-map-peek-mini-row', 'min-height')));
+  });
+
+  it('the door wears the Ask ✕\'s border and radius, so it reads as a button and not as part of the line', () => {
+    expect(declared('.wf-map-peek-mini-lay', 'border')).toBe(declared('.wf-map-peek-ask-x', 'border'));
+    expect(declared('.wf-map-peek-mini-lay', 'border')).toBe('1px solid var(--color-plex-border-light)');
+    expect(declared('.wf-map-peek-mini-lay', 'border-radius')).toBe(declared('.wf-map-peek-ask-x', 'border-radius'));
+  });
+
+  it('the door\'s focus ring is drawn INSIDE it (the sheet ends at 111 of 112px) and is an outline, which forced-colours keeps', () => {
+    expect(declared('.wf-map-peek-mini-lay:focus-visible', 'outline')).toBe('2px solid var(--color-plex-gold)');
+    expect(declared('.wf-map-peek-mini-lay:focus-visible', 'outline-offset')).toBe('-2px');
+  });
+
+  it('the spot\'s time is hidden below 400px — the pill above already says it — and shown at 400px and up', () => {
+    const hidden = /@media \(max-width: 399px\)\s*\{\s*\.wf-map-peek-mini-when\s*\{\s*display:\s*none;\s*\}\s*\}/;
+    expect(hidden.exec(CSS)).not.toBeNull();
+    // …and nowhere outside that block (`declared` cannot tell a media rule from a bare one).
+    expect(CSS.replace(hidden, '')).not.toMatch(/\.wf-map-peek-mini-when\s*\{[^}]*display\s*:\s*none/);
   });
 });
 

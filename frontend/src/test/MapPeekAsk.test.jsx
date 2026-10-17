@@ -53,20 +53,41 @@ const ask = (over = {}) => ({
 
 /** The entry button's ref, as `MapView` owns it: a plain ref object the part writes into. */
 const entryRef = { current: null };
-/** Mounts the part in a given mode with spies for what it asks of its owner. */
-function Harness({ mode, onOpen, onClose }) {
+/** The minimised line's Layers door, and the sheet's Layers button (a stub of it), as `MapView` owns them. */
+const doorRef = { current: null };
+const layersRef = { current: null };
+/**
+ * Mounts the part in a given mode with spies for what it asks of its owner. The stub Layers button is a
+ * later sibling, as the real one is (the sheet draws the buttons AFTER the Ask row), and is drawn in the
+ * modes where the sheet draws it — which is what makes the door's focus hand-off observable here.
+ */
+function Harness({
+  mode, onOpen, onClose, onOpenLayers,
+}) {
   return (
     <div>
       <button type="button" data-testid="elsewhere">elsewhere</button>
-      <MapPeekAsk mode={mode} onOpen={onOpen} onClose={onClose} entryRef={entryRef} />
+      <MapPeekAsk
+        mode={mode}
+        onOpen={onOpen}
+        onClose={onClose}
+        onOpenLayers={onOpenLayers}
+        entryRef={entryRef}
+        doorRef={doorRef}
+        layersRef={layersRef}
+      />
+      {(mode === 'section' || mode === 'collapsed') && (
+        <button ref={layersRef} type="button" data-testid="stub-layers">Layers</button>
+      )}
     </div>
   );
 }
 
 let onOpen;
 let onClose;
+let onOpenLayers;
 function draw(mode) {
-  return <Harness mode={mode} onOpen={onOpen} onClose={onClose} />;
+  return <Harness mode={mode} onOpen={onOpen} onClose={onClose} onOpenLayers={onOpenLayers} />;
 }
 let view;
 const mount = (mode) => { view = render(draw(mode)); };
@@ -77,6 +98,7 @@ beforeEach(() => {
   mockAsk = ask();
   onOpen = vi.fn();
   onClose = vi.fn();
+  onOpenLayers = vi.fn();
 });
 
 describe('collapsed — the row is the entry', () => {
@@ -463,5 +485,146 @@ describe('focus never falls to <body>', () => {
     setMode('collapsed');
 
     expect(document.activeElement).toBe(screen.getByTestId('elsewhere'));
+  });
+});
+
+// docs/engineering/phone-pick-callout-plan.md §3 P2: the Layers door beside the minimised line, in all
+// three variants (an answer with picks; "not in the forecast" / a failure; a plain summary).
+describe('the Layers door — a SIBLING of the line, never inside it', () => {
+  const variants = [
+    ['picks', { phase: 'answer', pickCards: [card(1), card(2)], selectedPick: 1, answer: { summary: 's' } }],
+    ['a not-in-the-forecast reply', { phase: 'cant' }],
+    ['a plain summary', { phase: 'answer', answer: { summary: 'A king tide on Thursday.' } }],
+  ];
+
+  it.each(variants)('%s: one row holds the line and the door, and the door is not inside the line', (_name, conversation) => {
+    mockAsk = ask(conversation);
+    mount('minimised');
+
+    const row = screen.getByTestId('wf-map-peek-mini-row');
+    const line = screen.getByTestId('wf-map-peek-mini');
+    const door = screen.getByTestId('wf-map-peek-mini-lay');
+    expect(row).toContainElement(line);
+    expect(row).toContainElement(door);
+    expect(line).not.toContainElement(door);
+    // Valid HTML, and the reason a press cannot fire the expand: the nearest button ancestor is itself.
+    expect(door.closest('button')).toBe(door);
+    expect(line.closest('button')).toBe(line);
+    // …and no button anywhere above it (the row itself being one would nest them and fire both).
+    expect(door.parentElement.closest('button')).toBeNull();
+  });
+
+  it.each(variants)('%s: the door opens Layers and never the answer; the line opens the answer and never Layers', (_name, conversation) => {
+    mockAsk = ask(conversation);
+    mount('minimised');
+
+    fireEvent.click(screen.getByTestId('wf-map-peek-mini-lay'));
+    expect(onOpenLayers).toHaveBeenCalledTimes(1);
+    expect(onOpen).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('wf-map-peek-mini'));
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(onOpenLayers).toHaveBeenCalledTimes(1);
+  });
+
+  it('is the Layers button in miniature: the LAYERS caption over ☰ (both hidden), named "Layers", closed, controlling the body', () => {
+    mockAsk = ask(variants[0][1]);
+    mount('minimised');
+
+    const door = screen.getByTestId('wf-map-peek-mini-lay');
+    expect(door).toHaveAccessibleName('Layers');
+    expect(door).toHaveAttribute('aria-expanded', 'false');
+    expect(door).toHaveAttribute('aria-controls', 'wf-map-peek-body');
+    expect(door).toHaveAttribute('type', 'button');
+    expect(door).toHaveTextContent('LAYERS☰');
+    expect(door.querySelectorAll('[aria-hidden="true"]')).toHaveLength(2);
+  });
+
+  it('the line keeps the name it had, without the door\'s words in it', () => {
+    mockAsk = ask(variants[0][1]);
+    mount('minimised');
+
+    expect(screen.getByTestId('wf-map-peek-mini'))
+      .toHaveAccessibleName('Pick 1, Spot 1, Sat AM 06:12. 2 picks. Show the answer');
+  });
+
+  it('is the same element when the line changes variant (a pick chosen, a plan opened): the door is not remounted', () => {
+    mockAsk = ask(variants[0][1]);
+    mount('minimised');
+    const door = screen.getByTestId('wf-map-peek-mini-lay');
+
+    mockAsk = ask({ ...variants[0][1], selectedPick: 2 });
+    setMode('minimised');
+    mockAsk = ask(variants[1][1]);
+    setMode('minimised');
+
+    expect(screen.getByTestId('wf-map-peek-mini-lay')).toBe(door);
+  });
+
+  it('is drawn in the minimised mode only', () => {
+    mockAsk = ask(variants[0][1]);
+    for (const mode of ['collapsed', 'expanded', 'section']) {
+      mount(mode);
+      expect(screen.queryByTestId('wf-map-peek-mini-lay')).not.toBeInTheDocument();
+      view.unmount();
+    }
+  });
+
+  describe('focus', () => {
+    it('a press hands focus to the Layers button the owner draws in its place', () => {
+      mockAsk = ask(variants[0][1]);
+      mount('minimised');
+      const door = screen.getByTestId('wf-map-peek-mini-lay');
+      door.focus();
+
+      fireEvent.click(door);
+      setMode('section'); // the owner opens Layers: the door unmounts, the Layers button mounts
+
+      expect(screen.queryByTestId('wf-map-peek-mini-lay')).not.toBeInTheDocument();
+      expect(document.activeElement).toBe(screen.getByTestId('stub-layers'));
+    });
+
+    it('a press takes focus onto the door first, so a browser that does not focus a tapped button still hands it on', () => {
+      mockAsk = ask(variants[0][1]);
+      mount('minimised');
+      expect(document.activeElement).toBe(document.body);
+
+      fireEvent.click(screen.getByTestId('wf-map-peek-mini-lay'));
+      setMode('section');
+
+      expect(document.activeElement).toBe(screen.getByTestId('stub-layers'));
+    });
+
+    it('a door removed while the reader holds focus elsewhere takes nothing from where it is', () => {
+      mockAsk = ask(variants[0][1]);
+      mount('minimised');
+      screen.getByTestId('elsewhere').focus();
+
+      setMode('section');
+
+      expect(document.activeElement).toBe(screen.getByTestId('elsewhere'));
+    });
+
+    it('a door unmounted by a question going busy hands focus to the Ask entry, not to <body>', () => {
+      mockAsk = ask(variants[0][1]);
+      mount('minimised');
+      screen.getByTestId('wf-map-peek-mini-lay').focus();
+
+      mockAsk = ask({ phase: 'busy' });
+      setMode('collapsed');
+
+      expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask-entry'));
+    });
+
+    it('the line (not the door) unmounting while focused is the expand effect\'s business, not the door\'s', () => {
+      mockAsk = ask(variants[0][1]);
+      mount('minimised');
+      screen.getByTestId('wf-map-peek-mini').focus();
+
+      act(() => { screen.getByTestId('wf-map-peek-mini').blur(); });
+      setMode('expanded');
+
+      expect(document.activeElement).toBe(screen.getByTestId('wf-map-peek-ask'));
+    });
   });
 });

@@ -1,5 +1,5 @@
 import {
-  useCallback, useEffect, useId, useRef, useState,
+  useCallback, useEffect, useId, useLayoutEffect, useRef, useState,
 } from 'react';
 import PropTypes from 'prop-types';
 import { useAsk } from '../../context/AskContext.jsx';
@@ -41,8 +41,9 @@ const picksWord = (n) => (n === 1 ? '1 pick' : `${n} picks`);
  * since clearing then would drop a charged answer (the rule {@code AskClearAnswer} keeps).
  *
  * <h2>Focus never falls to {@code <body>}</h2>
- * <p>Three controls here unmount when pressed — the entry button and the minimised line (the field
- * takes their place) and the field and ✕ (the entry button takes theirs) — and the map's Escape rule,
+ * <p>Four controls here unmount when pressed — the entry button and the minimised line (the field
+ * takes their place), the field and ✕ (the entry button takes theirs) and the minimised line's Layers
+ * door (the Layers section's own buttons take its place) — and the map's Escape rule,
  * which runs only while focus is inside the pane, goes quiet once focus is on {@code <body>}: the
  * defect the Map's panels had five times. So: opening focuses the field when there is nothing to read
  * and the pane's own node ({@code tabIndex -1}, a programmatic-only target) when there is, only when
@@ -52,6 +53,12 @@ const picksWord = (n) => (n === 1 ? '1 pick' : `${n} picks`);
  * button once the button exists. Escape parks through a native listener, which runs before the pane's
  * own handler closes the section.
  *
+ * <p>The door is the one control whose focus goes ELSEWHERE than here: pressed, it hands focus to the
+ * Layers peek button (the section's own button, mounted in the same commit — a later sibling, so its ref
+ * is not yet attached when this component's LAYOUT effects run, hence a passive effect), and a door
+ * unmounted by anything else while it held focus (a typed question going busy) hands it to the entry
+ * button. Both only when focus has actually been lost.
+ *
  * <p>The field is mounted only while the section is open, so a typed draft does not outlive it — the
  * sheet's and the dock's rule too.
  *
@@ -59,6 +66,12 @@ const picksWord = (n) => (n === 1 ? '1 pick' : `${n} picks`);
  * @param {'collapsed'|'expanded'|'minimised'|'section'} props.mode {@code askPeekMode}'s answer
  * @param {function(): void} props.onOpen opens the Ask section
  * @param {function(): void} props.onClose closes it (the answer, if any, is kept: minimised)
+ * @param {function(): void} props.onOpenLayers the minimised line's Layers door: opens the Layers section
+ *        with the answer kept ({@code MapView} clears a standing callout first, as the Layers button does)
+ * @param {{current: ?HTMLElement}} props.doorRef the door's node — where focus returns when Layers,
+ *        Regions or Filters close back onto the minimised line
+ * @param {{current: ?HTMLElement}} props.layersRef the Layers peek button's node — where focus goes when
+ *        the door is pressed
  * @param {{current: ?HTMLElement}} props.entryRef the entry button's node — the sheet's other
  *        focus-return routes (the Regions and Filters sheets, which close back onto the Layers button
  *        and find it gone while an answer has replaced the buttons) fall back to it
@@ -67,7 +80,7 @@ const picksWord = (n) => (n === 1 ? '1 pick' : `${n} picks`);
  *        pane's reach. "Open in Plan ›" moves the tab, so the pane goes hidden and the section closes
  */
 export default function MapPeekAsk({
-  mode, onOpen, onClose, entryRef, planActions = undefined,
+  mode, onOpen, onClose, onOpenLayers, entryRef, doorRef, layersRef, planActions = undefined,
 }) {
   const ask = useAsk();
   const wrapRef = useRef(null);
@@ -110,6 +123,23 @@ export default function MapPeekAsk({
     // `phase`/`typedDisabled` are read at the moment of opening only; the transition is the trigger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expanded]);
+
+  // The door unmounts when pressed (the line becomes the Layers section) and when a typed question goes
+  // busy; it reports, from its layout-effect cleanup, that it held focus. Acted on after the commit that
+  // removed it, and only if focus was truly lost: Layers when the section is what replaced the line, the
+  // door again if the line is back (a remount), the entry row otherwise.
+  const doorLostFocus = useRef(false);
+  const reportDoorLost = useCallback(() => { doorLostFocus.current = true; }, []);
+  useEffect(() => {
+    if (!doorLostFocus.current) return;
+    doorLostFocus.current = false;
+    const active = document.activeElement;
+    if (active && active !== document.body) return;
+    let target = entryRef;
+    if (mode === 'section') target = layersRef;
+    else if (mode === 'minimised') target = doorRef;
+    target.current?.focus({ preventScroll: true });
+  });
 
   // A native listener, not a React prop: the a11y lint refuses key handlers on a non-interactive node,
   // and a native one runs before React's own root listener, i.e. before `MapView`'s pane handler has
@@ -196,7 +226,15 @@ export default function MapPeekAsk({
           />
         </div>
       )}
-      {mode === 'minimised' && <MinimisedLine ask={ask} onOpen={onOpen} />}
+      {mode === 'minimised' && (
+        <MinimisedLine
+          ask={ask}
+          onOpen={onOpen}
+          onOpenLayers={onOpenLayers}
+          doorRef={doorRef}
+          onDoorUnmountWithFocus={reportDoorLost}
+        />
+      )}
       {/* The refusal's sentence, said once: while the section is open the conversation's own region
           carries it (and a sentence it showed is not said again here), so this one holds only a refusal
           that arrived while the section was closed. Mounted empty and always, so a fill is a change. */}
@@ -211,27 +249,54 @@ MapPeekAsk.propTypes = {
   mode: PropTypes.oneOf(['collapsed', 'expanded', 'minimised', 'section']).isRequired,
   onOpen: PropTypes.func.isRequired,
   onClose: PropTypes.func.isRequired,
+  onOpenLayers: PropTypes.func.isRequired,
   entryRef: objectRefShape.isRequired,
+  doorRef: objectRefShape.isRequired,
+  layersRef: objectRefShape.isRequired,
   planActions: planActionsShape,
 };
 
 /**
  * The 112px state's one line (design State 6): the chosen pick's rank, spot and time and "N picks ▴"
  * — or, for an answer with no picks, the not-in-the-forecast reply or the failure, in a line of their
- * own words. A button: tapping it opens the answer. Every word is read off the cards the conversation
- * already holds (served facts, joined by {@code buildPickCards}); nothing is derived here.
+ * own words. Every word is read off the cards the conversation already holds (served facts, joined by
+ * {@code buildPickCards}); nothing is derived here.
+ *
+ * <p>A ROW of two sibling buttons (`phone-pick-callout-plan.md` §3 P2), in all three variants: the line
+ * itself, which opens the answer, and the Layers door, which opens the peek sheet's Layers section with
+ * the answer kept (Show, Regions, Filters, Tide mode — an answer replaces the Other windows · Tide ·
+ * Layers buttons, so without the door the filters are reachable only through the window pill). The door is
+ * a SIBLING, never a child: a button inside a button is invalid HTML and its press would also fire the
+ * expand. It is the Layers peek button in miniature (the {@code LAYERS} caption over {@code ☰}, the same
+ * accessible name and {@code aria-controls}), 58 x 44px with the Ask-✕'s border and radius. One row
+ * wrapper owns the line's 10px side margin and 44px height, so the sheet stays 112px. The wrapper is the
+ * same element in every variant, so a variant change (a pick selected, a plan opened) does not remount
+ * the door.
+ *
+ * <p>The door unmounts under its own press; {@code onDoorUnmountWithFocus} reports that it held focus
+ * (from a layout-effect cleanup, while the focused node is still {@code document.activeElement}) so
+ * {@code MapPeekAsk} can hand focus on.
  */
-function MinimisedLine({ ask, onOpen }) {
+function MinimisedLine({
+  ask, onOpen, onOpenLayers, doorRef, onDoorUnmountWithFocus,
+}) {
   const {
     phase, pickCards, selectedPick, planPick, answer, error,
   } = ask;
+  const report = useRef(onDoorUnmountWithFocus);
+  useEffect(() => { report.current = onDoorUnmountWithFocus; });
+  useLayoutEffect(() => () => {
+    if (document.activeElement?.classList?.contains('wf-map-peek-mini-lay')) report.current?.();
+  }, []);
+
+  let line;
   if ((phase === 'answer' || phase === 'plan') && pickCards.length > 0) {
     const shown = phase === 'plan' ? planPick : selectedPick;
     const card = pickCards.find((c) => c.rank === shown) ?? pickCards[0];
     const when = [card.shortWindow, card.eventTime].filter(Boolean).join(' ');
     // In the plan view the line says what the reader was doing, not how many picks there are (F5).
     const count = phase === 'plan' ? 'Plan this' : picksWord(pickCards.length);
-    return (
+    line = (
       <button
         type="button"
         className="wf-map-peek-mini"
@@ -246,22 +311,47 @@ function MinimisedLine({ ask, onOpen }) {
         <span className="wf-map-peek-mini-n" aria-hidden="true">{`${count} ▴`}</span>
       </button>
     );
+  } else {
+    let text = 'Answer';
+    if (phase === 'cant') text = 'Not in the forecast';
+    else if (phase === 'error') text = error.message;
+    else if (typeof answer?.summary === 'string' && answer.summary !== '') text = answer.summary;
+    line = (
+      <button
+        type="button"
+        className="wf-map-peek-mini"
+        data-testid="wf-map-peek-mini"
+        aria-expanded="false"
+        onClick={onOpen}
+      >
+        <span className="wf-map-peek-mini-name wf-map-peek-mini-text">{text}</span>
+        <span className="wf-map-peek-mini-n" aria-hidden="true">▴</span>
+      </button>
+    );
   }
-  let text = 'Answer';
-  if (phase === 'cant') text = 'Not in the forecast';
-  else if (phase === 'error') text = error.message;
-  else if (typeof answer?.summary === 'string' && answer.summary !== '') text = answer.summary;
   return (
-    <button
-      type="button"
-      className="wf-map-peek-mini"
-      data-testid="wf-map-peek-mini"
-      aria-expanded="false"
-      onClick={onOpen}
-    >
-      <span className="wf-map-peek-mini-name wf-map-peek-mini-text">{text}</span>
-      <span className="wf-map-peek-mini-n" aria-hidden="true">▴</span>
-    </button>
+    <div className="wf-map-peek-mini-row" data-testid="wf-map-peek-mini-row">
+      {line}
+      <button
+        ref={doorRef}
+        type="button"
+        className="wf-map-peek-mini-lay"
+        data-testid="wf-map-peek-mini-lay"
+        aria-label="Layers"
+        aria-expanded="false"
+        aria-controls="wf-map-peek-body"
+        onClick={(event) => {
+          // Safari (and iOS) do not focus a button a pointer pressed, and focus that was never on the door
+          // cannot be reported lost when the door unmounts: take it, so the hand-off to the Layers button
+          // runs for a tap as it does for a key.
+          event.currentTarget.focus({ preventScroll: true });
+          onOpenLayers();
+        }}
+      >
+        <span className="wf-map-peek-k" aria-hidden="true">LAYERS</span>
+        <span className="wf-map-peek-mini-lay-g" aria-hidden="true">&#9776;</span>
+      </button>
+    </div>
   );
 }
 
@@ -275,4 +365,7 @@ MinimisedLine.propTypes = {
     error: PropTypes.object,
   }).isRequired,
   onOpen: PropTypes.func.isRequired,
+  onOpenLayers: PropTypes.func.isRequired,
+  doorRef: objectRefShape.isRequired,
+  onDoorUnmountWithFocus: PropTypes.func.isRequired,
 };
