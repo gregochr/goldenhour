@@ -282,10 +282,10 @@ describe('the Settings dialog uses status tokens, not raw colours', () => {
     expect(withoutBadges.match(/bg-plex-ok/g).length).toBeGreaterThanOrEqual(2);
   });
 
-  it('draws the danger zone\'s error line and destructive button from .btn-danger', () => {
+  it('draws the danger zone\'s error line from the error token and its Delete button from .btn-danger', () => {
     // R5b: the 403/409/429 line and the Delete button, beside the five lines R4c converted.
     expect(withoutBadges).toMatch(/className="text-sm text-plex-error -mt-1"/);
-    expect(withoutBadges).toMatch(/className="btn-danger /);
+    expect(withoutBadges).toMatch(/className=\{`btn-danger /);
   });
 
   it('carries no per-file outline utility: .field owns the focus ring', () => {

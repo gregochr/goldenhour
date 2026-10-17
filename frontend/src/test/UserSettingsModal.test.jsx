@@ -2123,6 +2123,8 @@ describe('UserSettingsModal — danger zone', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getSettings.mockResolvedValue(PRO_SETTINGS);
+    // clearAllMocks keeps implementations: a stale rejection from the last test must not answer this one.
+    deleteAccount.mockReset();
   });
 
   /** An axios-shaped refusal: the status and the sentence the server put under `error`. */
@@ -2321,6 +2323,55 @@ describe('UserSettingsModal — danger zone', () => {
     expect(confirmButton()).not.toHaveAttribute('aria-disabled');
   });
 
+  it.each([
+    [429, 'Too many attempts. Please wait a few minutes and try again.'],
+    [409, 'Admin accounts are deleted by another admin'],
+  ])('on a %i with no sentence in the body, says the plan\'s own', async (status, sentence) => {
+    deleteAccount.mockRejectedValue(refusal(status));
+    const { user } = await openRegion();
+    await user.type(passwordField(), 'pw');
+    await user.click(confirmButton());
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(new RegExp(`^${sentence}$`));
+  });
+
+  it('drops a refusal the moment the password is edited, since it was about the one that was sent', async () => {
+    deleteAccount.mockRejectedValue(refusal(403, 'Password is incorrect'));
+    const { user } = await openRegion();
+    await user.type(passwordField(), 'bad');
+    await user.click(confirmButton());
+    await screen.findByRole('alert');
+
+    await user.type(passwordField(), 'x');
+
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(passwordField()).not.toHaveAttribute('aria-invalid');
+    expect(passwordField()).not.toHaveAttribute('aria-describedby');
+  });
+
+  it('refuses the dialog\'s own × and backdrop while the request is out, and allows them again after a refusal', async () => {
+    const out = deferred();
+    deleteAccount.mockReturnValue(out.promise);
+    const { user, onClose } = await openRegion();
+    await user.type(passwordField(), 'pw');
+    await user.click(confirmButton());
+
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+    await user.click(screen.getByTestId('settings-modal-backdrop'));
+    expect(onClose).not.toHaveBeenCalled();
+
+    await land(() => out.reject(refusal(403, 'Password is incorrect')));
+    await user.click(screen.getByRole('button', { name: 'Close' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets the panel scroll on a short screen: capped to the frame, not clipped at both ends', async () => {
+    renderModal();
+    await screen.findByTestId('settings-delete-open');
+    const panel = screen.getByRole('dialog', { name: 'Settings' }).lastElementChild;
+    expect(panel.className.split(/\s+/)).toEqual(expect.arrayContaining(['max-h-full', 'overflow-y-auto']));
+  });
+
   it('on a 401 (the credentials changed under this session) signs out and shows no error', async () => {
     deleteAccount.mockRejectedValue(refusal(401, 'Your session has changed. Sign in again.'));
     const { user, onSignOut } = await openRegion();
@@ -2408,14 +2459,23 @@ describe('UserSettingsModal — danger zone', () => {
     expect(screen.getByRole('button', { name: 'Hide password' })).toBeInTheDocument();
   });
 
-  it('is quiet about it when no onSignOut is given: a 204 changes nothing and throws nothing', async () => {
+  it('is quiet about it when no onSignOut is given: a 204 shows no error and throws nothing', async () => {
     deleteAccount.mockResolvedValue(undefined);
     const user = userEvent.setup();
-    renderModal();
-    await user.click(await screen.findByTestId('settings-delete-open'));
-    await user.type(passwordField(), 'pw');
-    await user.click(confirmButton());
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    try {
+      renderModal();
+      await user.click(await screen.findByTestId('settings-delete-open'));
+      await user.type(passwordField(), 'pw');
+      await user.click(confirmButton());
+      await act(async () => { await new Promise((resolve) => { setTimeout(resolve, 0); }); });
 
-    await waitFor(() => expect(deleteAccount).toHaveBeenCalledTimes(1));
+      expect(deleteAccount).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole('alert')).toBeNull();
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off('unhandledRejection', unhandled);
+    }
   });
 });

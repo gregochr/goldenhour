@@ -11,7 +11,7 @@ import {
 import { resolveMode } from '../utils/scoreRamp.js';
 import { formatRelativeAge } from '../utils/relativeTime.js';
 import { apiErrorMessage } from '../utils/apiError.js';
-import { BUSY_BUTTON } from '../utils/busyButton.js';
+import { BUSY_BUTTON, BUSY_BUTTON_DANGER } from '../utils/busyButton.js';
 import useGeolocationPostcode from '../hooks/useGeolocationPostcode.js';
 import { colourAfterRead, createColourSaveQueue, saveColourInTurn } from '../utils/colourSaveQueue.js';
 
@@ -38,7 +38,7 @@ const DELETE_REFUSAL_FALLBACKS = {
 };
 
 /** Anything else the delete can fail with — a 400, a 5xx, a lost connection. */
-const DELETE_FAILED = "Couldn't delete your account. Try again.";
+const DELETE_FAILED = 'Couldn’t delete your account. Try again.';
 
 /**
  * The lines this dialog moves focus ONTO — the new home, the refresh's status line, its "last
@@ -504,6 +504,15 @@ export default function UserSettingsModal({
   };
 
   /**
+   * The × and the backdrop, refused while a delete is out: closing then would drop a 403, 409 or
+   * 429 on the floor with nobody to read it, and the reader would not know whether the account
+   * had gone. (A 204 signs out whether or not the dialog is open.)
+   */
+  const closeUnlessDeleting = () => {
+    if (!deleting) onClose();
+  };
+
+  /**
    * Sends the delete. `aria-disabled`, not `disabled`, while it is out (BUSY_BUTTON's reason): the
    * reader has just pressed this button, and a button that becomes `disabled` under focus drops it
    * on `<body>` — where a refused password would leave them. So a second press, or Enter in the
@@ -621,13 +630,18 @@ export default function UserSettingsModal({
   return (
     <Modal
       label="Settings"
-      onClose={onClose}
+      onClose={closeUnlessDeleting}
+      // The dialog is already four sections tall and the open danger zone adds a field, an error
+      // line and two buttons: on a short or keyboard-shortened phone the centred panel would clip
+      // at both ends with no way to scroll. `Modal`'s root is a definite-height flex box, so
+      // `max-h-full` caps the panel and `overflow-y-auto` scrolls the rest.
+      className="max-h-full overflow-y-auto"
       restoreFocusFallback={restoreFocusFallback}
       data-testid="settings-modal"
     >
       <div key="settings" ref={viewRef} className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-plex-text">Settings</h2>
-        <button onClick={onClose} className="text-plex-text-muted hover:text-plex-text text-lg" aria-label="Close">&times;</button>
+        <button onClick={closeUnlessDeleting} className="text-plex-text-muted hover:text-plex-text text-lg" aria-label="Close">&times;</button>
       </div>
 
       {loading ? (
@@ -981,7 +995,11 @@ export default function UserSettingsModal({
                     autoComplete="current-password"
                     required={false}
                     value={deletePassword}
-                    onChange={(e) => setDeletePassword(e.target.value)}
+                    onChange={(e) => {
+                      setDeletePassword(e.target.value);
+                      // A refusal is about the password that was sent; once it changes the line is stale.
+                      if (deleteError) setDeleteError(null);
+                    }}
                     inputRef={deletePasswordRef}
                     describedBy={deleteError ? deleteErrorId : undefined}
                     invalid={Boolean(deleteError?.passwordRefused)}
@@ -999,7 +1017,7 @@ export default function UserSettingsModal({
                   <div className="flex items-center gap-3">
                     <button
                       type="submit"
-                      className="btn-danger aria-disabled:opacity-40 aria-disabled:cursor-not-allowed aria-disabled:hover:opacity-40"
+                      className={`btn-danger ${BUSY_BUTTON_DANGER}`}
                       // Truly disabled only while the field is empty — the reader cannot be on this
                       // button then. In flight it is `aria-disabled` (see `handleDelete`).
                       disabled={!deletePassword}
