@@ -151,6 +151,46 @@ describe('useGeolocationPostcode', () => {
     expect(result.current.error).toBeNull();
   });
 
+  it('gives up on a browser that answers neither callback, so Locating… cannot stay up for ever', async () => {
+    vi.useFakeTimers();
+    try {
+      installGeolocation(vi.fn()); // Firefox, permission prompt dismissed: no callback, ever
+      const { result } = renderHook(() => useGeolocationPostcode());
+      let pending;
+      act(() => { pending = result.current.locate(); });
+      expect(result.current.locating).toBe(true);
+
+      await act(async () => { vi.advanceTimersByTime(14999); });
+      expect(result.current.locating).toBe(true);
+
+      await act(async () => { vi.advanceTimersByTime(2); await pending; });
+      expect(result.current.locating).toBe(false);
+      expect(result.current.error).toBe(LOCATION_FAILED);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a late answer after giving up changes nothing', async () => {
+    vi.useFakeTimers();
+    try {
+      let deliver;
+      installGeolocation(vi.fn((ok) => { deliver = ok; }));
+      reverseLookupPostcode.mockResolvedValue(DURHAM);
+      const { result } = renderHook(() => useGeolocationPostcode());
+      let pending;
+      act(() => { pending = result.current.locate(); });
+      await act(async () => { vi.advanceTimersByTime(15001); await pending; });
+
+      await act(async () => { deliver({ coords: { latitude: 1, longitude: 2 } }); });
+
+      expect(result.current.error).toBe(LOCATION_FAILED);
+      expect(await pending).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('reports itself available only where the browser has geolocation', () => {
     expect(isGeolocationAvailable()).toBe(false);
     expect(renderHook(() => useGeolocationPostcode()).result.current.available).toBe(false);

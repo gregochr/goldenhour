@@ -180,6 +180,8 @@ describe('PostcodeCapture', () => {
       expect(screen.queryByTestId('home-lookup')).toBeNull();
       expect(screen.getByTestId('home-primary')).toBeEnabled();
       expect(screen.getByRole('group', { name: 'Home postcode' })).toBe(found);
+      // The primary is described by the confirmation, so a screen reader landing on it hears the place.
+      expect(screen.getByTestId('home-primary')).toHaveAttribute('aria-describedby', 'home-found');
     });
 
     it('Enter in the field runs the lookup, and a second Enter while it is out starts no second one', async () => {
@@ -247,6 +249,7 @@ describe('PostcodeCapture', () => {
       expect(input).toHaveAttribute('aria-invalid', 'true');
       expect(input).toHaveAttribute('aria-describedby', 'home-error');
       expect(input).toHaveValue('NE61 9ZZ');
+      expect(input).toHaveFocus(); // the Look up button the reader pressed was disabled for the request
       expect(screen.getByTestId('home-primary')).toBeDisabled();
       expect(screen.getByTestId('home-lookup')).toBeEnabled();
     });
@@ -352,6 +355,7 @@ describe('PostcodeCapture', () => {
       expect(failure).toHaveAttribute('role', 'alert');
       expect(screen.getByTestId('home-found')).toBeInTheDocument();
       expect(screen.getByTestId('home-primary')).toBeEnabled();
+      expect(screen.getByTestId('home-primary')).toHaveFocus();
       expect(onSaved).not.toHaveBeenCalled();
 
       await user.click(screen.getByTestId('home-primary'));
@@ -472,20 +476,56 @@ describe('PostcodeCapture', () => {
       expect(saveHome).toHaveBeenCalledWith('DH1 3SS', 54.776, -1.575, null);
     });
 
-    it('reads Locating… while out, and holds Look up and itself', async () => {
+    it('reads Locating… while out and holds itself — but not Look up or Skip, so a silent browser cannot trap the reader', async () => {
       const user = userEvent.setup();
       installGeolocation(vi.fn()); // never answers
-      mount();
+      const { onSkip } = mount();
       await user.type(screen.getByTestId('home-input'), 'NE61 1AA');
 
       await user.click(screen.getByTestId('home-use-location'));
 
       expect(screen.getByTestId('home-use-location')).toHaveTextContent('Locating…');
       expect(screen.getByTestId('home-use-location')).toBeDisabled();
-      expect(screen.getByTestId('home-lookup')).toBeDisabled();
+      expect(screen.getByTestId('home-lookup')).toBeEnabled();
+      expect(screen.getByTestId('home-secondary')).toBeEnabled();
+
+      await user.click(screen.getByTestId('home-secondary'));
+      expect(onSkip).toHaveBeenCalledTimes(1);
     });
 
-    it('a refused permission shows its sentence IN PLACE of the error line, with the field marked', async () => {
+    it('a typed lookup started while locating supersedes it: the late location result is dropped', async () => {
+      const user = userEvent.setup();
+      let deliver;
+      installGeolocation(vi.fn((ok) => { deliver = ok; }));
+      reverseLookupPostcode.mockResolvedValue(DURHAM);
+      lookupPostcode.mockResolvedValue(MORPETH);
+      mount();
+      await user.click(screen.getByTestId('home-use-location'));
+      await user.type(screen.getByTestId('home-input'), 'NE61 1AA');
+      await user.click(screen.getByTestId('home-lookup'));
+      await screen.findByTestId('home-found');
+
+      await act(async () => { deliver({ coords: { latitude: 54.776, longitude: -1.575 } }); });
+
+      expect(screen.getByTestId('home-place')).toHaveTextContent('Morpeth, Northumberland');
+    });
+
+    it('a location error does NOT mark the field invalid — nothing the reader typed was wrong', async () => {
+      const user = userEvent.setup();
+      installGeolocation(vi.fn((_ok, fail) => fail({ code: 1 })));
+      mount();
+
+      await user.click(screen.getByTestId('home-use-location'));
+
+      await screen.findByTestId('home-error');
+      const input = screen.getByTestId('home-input');
+      expect(input).not.toHaveClass('field-error');
+      expect(input).not.toHaveAttribute('aria-invalid');
+      expect(input).toHaveAttribute('aria-describedby', 'home-error');
+      expect(input).toHaveFocus();
+    });
+
+    it('a refused permission shows its sentence IN PLACE of the error line, and the field is no longer marked', async () => {
       const user = userEvent.setup();
       installGeolocation(vi.fn((_ok, fail) => fail({ code: 1 })));
       lookupPostcode.mockRejectedValue(new Error('no'));
@@ -498,7 +538,7 @@ describe('PostcodeCapture', () => {
       const error = await screen.findByTestId('home-error');
       expect(error).toHaveTextContent('Location access is off. Enter your postcode instead.');
       expect(screen.queryByText('Invalid postcode')).toBeNull();
-      expect(screen.getByTestId('home-input')).toHaveClass('field-error');
+      expect(screen.getByTestId('home-input')).not.toHaveClass('field-error');
     });
 
     it('a typed lookup after a location error clears the location sentence', async () => {

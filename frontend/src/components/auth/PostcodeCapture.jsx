@@ -65,7 +65,12 @@ export default function PostcodeCapture({
 
   const tid = (name) => `${testIdPrefix}-${name}`;
   const error = locateError || lookupError;
-  const busy = lookingUp || locating || saving || skipping;
+  // Skip is held only by the two writes. A location request the browser never answers (Firefox, when
+  // its permission prompt is dismissed) or a lookup that hangs must never trap the reader on this
+  // screen, so neither of them holds the secondary action.
+  const writing = saving || skipping;
+  // A newer typed lookup supersedes a location request still out: its result is then dropped.
+  const lookupSeq = useRef(0);
 
   useEffect(() => {
     if (autoFocus && hasFinePointer()) inputRef.current?.focus();
@@ -88,8 +93,14 @@ export default function PostcodeCapture({
     }
   }, [result]);
 
+  // A failed save: the Save button was disabled for the request, which dropped focus; put it back.
+  useEffect(() => {
+    if (saveError) primaryRef.current?.focus();
+  }, [saveError]);
+
   async function handleLookup() {
-    if (!postcode.trim() || busy) return;
+    if (!postcode.trim() || lookingUp || writing) return;
+    lookupSeq.current += 1;
     clearError();
     setLookupError(null);
     setSaveError(false);
@@ -99,24 +110,31 @@ export default function PostcodeCapture({
     } catch {
       setResult(null);
       setLookupError(INVALID_POSTCODE);
+      // The Look up button the reader pressed was disabled for the request.
+      inputRef.current?.focus();
     } finally {
       setLookingUp(false);
     }
   }
 
   async function handleLocate() {
-    if (busy) return;
+    if (locating || lookingUp || writing) return;
     setLookupError(null);
     setSaveError(false);
+    const seq = lookupSeq.current;
     const found = await locate();
+    if (seq !== lookupSeq.current) return;
     if (found) {
       setPostcode(found.postcode);
       setResult(found);
+    } else {
+      // The link the reader pressed was disabled while locating.
+      inputRef.current?.focus();
     }
   }
 
   async function handleSave() {
-    if (!result || busy) return;
+    if (!result || writing) return;
     setSaving(true);
     setSaveError(false);
     try {
@@ -131,7 +149,7 @@ export default function PostcodeCapture({
   }
 
   async function handleSkip() {
-    if (busy) return;
+    if (writing) return;
     setSkipping(true);
     try {
       await onSkip();
@@ -196,7 +214,7 @@ export default function PostcodeCapture({
               id={tid('input')}
               type="text"
               data-testid={tid('input')}
-              className={`field flex-1 min-w-0 ${error ? 'field-error' : ''}`}
+              className={`field flex-1 min-w-0 ${lookupError ? 'field-error' : ''}`}
               placeholder="Enter UK postcode"
               value={postcode}
               onChange={(e) => setPostcode(e.target.value)}
@@ -207,7 +225,7 @@ export default function PostcodeCapture({
               spellCheck={false}
               inputMode="text"
               enterKeyHint="search"
-              aria-invalid={error ? 'true' : undefined}
+              aria-invalid={lookupError ? 'true' : undefined}
               aria-describedby={error ? tid('error') : undefined}
               disabled={saving || skipping}
             />
@@ -215,7 +233,7 @@ export default function PostcodeCapture({
               type="button"
               className="btn-secondary shrink-0"
               onClick={handleLookup}
-              disabled={!postcode.trim() || busy}
+              disabled={!postcode.trim() || lookingUp || writing}
               data-testid={tid('lookup')}
             >
               {lookingUp ? 'Looking up…' : 'Look up'}
@@ -233,7 +251,7 @@ export default function PostcodeCapture({
               type="button"
               className="text-xs text-plex-gold hover:underline disabled:opacity-40 py-1.5 -my-1.5"
               onClick={handleLocate}
-              disabled={busy}
+              disabled={locating || lookingUp || writing}
               data-testid={tid('use-location')}
             >
               {locating ? 'Locating…' : 'Use my location'}
@@ -256,7 +274,8 @@ export default function PostcodeCapture({
           type="button"
           className="btn-primary w-full"
           onClick={handleSave}
-          disabled={!result || saving || skipping}
+          disabled={!result || writing}
+          aria-describedby={result ? tid('found') : undefined}
           data-testid={tid('primary')}
         >
           {primaryLabel}
@@ -270,7 +289,7 @@ export default function PostcodeCapture({
           type="button"
           className="text-xs text-plex-text-secondary hover:text-plex-text text-center py-1.5 -my-1.5"
           onClick={handleSkip}
-          disabled={saving || skipping}
+          disabled={writing}
           data-testid={tid('secondary')}
         >
           {secondaryLabel}

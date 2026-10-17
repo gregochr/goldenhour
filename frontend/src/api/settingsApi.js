@@ -146,6 +146,7 @@ export async function getReach() {
  * @returns {Promise<Object>} UserSettingsResponse, with `postcodePromptDue` now false
  */
 export async function markPostcodePromptDismissed() {
-  const response = await apiClient.put(`${BASE_URL}/postcode-prompt-dismissed`);
+  // Bounded: the prompt that awaits this holds the app inert, and axios has no default timeout.
+  const response = await apiClient.put(`${BASE_URL}/postcode-prompt-dismissed`, undefined, { timeout: 10000 });
   return response.data;
 }

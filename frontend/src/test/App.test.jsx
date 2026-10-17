@@ -2278,6 +2278,31 @@ describe('App — the one-time postcode prompt', () => {
       expect(markPostcodePromptDismissed).toHaveBeenCalledTimes(1);
     });
 
+    it.each([
+      ['succeeded', () => markPostcodePromptDismissed.mockResolvedValue({ ...SETTINGS_NO_HOME, postcodePromptDue: false })],
+      ['REJECTED', () => markPostcodePromptDismissed.mockRejectedValue(new Error('503'))],
+    ])('after a Not now whose dismissal %s, an app REMOUNT (clearing a rewind) does not raise it again', async (_name, arrange) => {
+      // `promptDone` lives for one mount of AppInner; the auth context's in-memory suppression is the
+      // only thing that outlives a remount, and the server still answers due here (the mock is static).
+      const user = userEvent.setup();
+      arrange();
+      getSettings.mockResolvedValue(DUE);
+      renderApp({ role: 'ADMIN' });
+      await screen.findByTestId('postcode-prompt');
+      await user.click(screen.getByTestId('prompt-secondary'));
+      await waitFor(() => expect(screen.queryByTestId('postcode-prompt')).not.toBeInTheDocument());
+      const readsBefore = getSettings.mock.calls.length;
+
+      act(() => setRewind(REWIND_TO));
+      act(() => setRewind(null));
+      await screen.findByTestId('window-first-shell');
+      await waitFor(() => expect(getSettings.mock.calls.length).toBeGreaterThan(readsBefore));
+      await settle();
+
+      expect(screen.queryByTestId('postcode-prompt')).not.toBeInTheDocument();
+      expect(appContainer()).not.toHaveAttribute('inert');
+    });
+
     it('hands focus back into the app, not to <body>', async () => {
       const user = userEvent.setup();
       getSettings.mockResolvedValue(DUE);

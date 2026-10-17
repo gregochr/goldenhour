@@ -11,6 +11,9 @@ export const LOCATION_FAILED = "Couldn't get your location. Enter your postcode 
 /** `getCurrentPosition`'s options: a coarse, cached fix is plenty for a postcode. */
 const POSITION_OPTIONS = { enableHighAccuracy: false, timeout: 10000, maximumAge: 600000 };
 
+/** How long to wait for a browser that answers neither callback: past the request's 10 s timeout. */
+const GIVE_UP_MS = 15000;
+
 /** Whether this browser can be asked for a position at all. The "Use my location" link hides when not. */
 export function isGeolocationAvailable() {
   return typeof navigator !== 'undefined' && navigator.geolocation != null;
@@ -41,7 +44,15 @@ export default function useGeolocationPostcode() {
   const locate = useCallback(() => new Promise((resolve) => {
     setError(null);
     setLocating(true);
+    let done = false;
+    // Some browsers never call either callback (Firefox, when the permission prompt is dismissed
+    // rather than answered, and the browser's own timeout only starts once permission is granted),
+    // which would leave "Locating…" up for ever. Give up a little after the request's own timeout.
+    const giveUp = setTimeout(() => finish(null, LOCATION_FAILED), GIVE_UP_MS);
     const finish = (result, message) => {
+      if (done) return;
+      done = true;
+      clearTimeout(giveUp);
       setLocating(false);
       setError(message);
       resolve(result);

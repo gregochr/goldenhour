@@ -206,12 +206,16 @@ describe('RegisterPage HOME step (R4b)', () => {
     expect(await screen.findByTestId('success-step')).toBeInTheDocument();
   });
 
-  it('a double press on Skip records one dismissal', async () => {
+  it('a double press on Skip while the dismissal is out records one dismissal', async () => {
     const user = userEvent.setup();
+    let release;
+    SettingsApi.markPostcodePromptDismissed.mockReturnValue(new Promise((resolve) => { release = resolve; }));
     await toHome(user);
 
     await user.dblClick(screen.getByTestId('home-secondary'));
 
+    expect(SettingsApi.markPostcodePromptDismissed).toHaveBeenCalledTimes(1);
+    await act(async () => { release({}); });
     expect(await screen.findByTestId('success-step')).toBeInTheDocument();
     expect(SettingsApi.markPostcodePromptDismissed).toHaveBeenCalledTimes(1);
   });
