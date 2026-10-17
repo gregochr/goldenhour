@@ -52,6 +52,13 @@ export function AuthProvider({ children }) {
   // masthead's postcode nudge picks them up. `AuthGate` reads it from R4b onward (login-registration
   // plan §2 #2).
   const [registrationPending, setRegistrationPending] = useState(false);
+  // True once the reader has said "not now" to the postcode prompt in this page session — by
+  // skipping the registration `HOME` step, or by pressing the overlay's Not now. The overlay's mount
+  // condition reads it so a dismissal whose PUT FAILED cannot bring the prompt back over the
+  // Welcome or the app (the server flag stays due; the retry is the reader's next page load, the
+  // safe direction). In memory like `registrationPending`, and for the same reason: a second account
+  // on this browser must never inherit it (login-registration plan §2 #2, §5 #3).
+  const [postcodePromptSuppressed, setPostcodePromptSuppressed] = useState(false);
 
   const login = useCallback(async (username, password, turnstileToken) => {
     const data = await apiLogin(username, password, turnstileToken);
@@ -98,6 +105,7 @@ export function AuthProvider({ children }) {
     setRefreshExpiresAt(null);
     setMarketingEmailOptIn(true);
     setRegistrationPending(false);
+    setPostcodePromptSuppressed(false);
   }, []);
 
   /**
@@ -148,6 +156,10 @@ export function AuthProvider({ children }) {
     setRegistrationPending(false);
   }, []);
 
+  const suppressPostcodePrompt = useCallback(() => {
+    setPostcodePromptSuppressed(true);
+  }, []);
+
   const refreshSession = useCallback(async () => {
     const stored = readStorage(REFRESH_KEY);
     if (!stored) return;
@@ -188,6 +200,7 @@ export function AuthProvider({ children }) {
       setRefreshExpiresAt(null);
       setMarketingEmailOptIn(true);
       setRegistrationPending(false);
+      setPostcodePromptSuppressed(false);
       setSessionExpired(true);
     };
     window.addEventListener('goldenhour:session-expired', handleExpired);
@@ -214,15 +227,17 @@ export function AuthProvider({ children }) {
     marketingEmailOptIn,
     sessionExpired,
     registrationPending,
+    postcodePromptSuppressed,
     login,
     logout,
     changePassword,
     signInWithTokens,
     completeRegistration,
     finishRegistration,
+    suppressPostcodePrompt,
     refreshSession,
     isAdmin: role === 'ADMIN',
-  }), [token, refreshToken, role, username, mustChangePassword, sessionDaysRemaining, marketingEmailOptIn, sessionExpired, registrationPending, login, logout, changePassword, signInWithTokens, completeRegistration, finishRegistration, refreshSession]);
+  }), [token, refreshToken, role, username, mustChangePassword, sessionDaysRemaining, marketingEmailOptIn, sessionExpired, registrationPending, postcodePromptSuppressed, login, logout, changePassword, signInWithTokens, completeRegistration, finishRegistration, suppressPostcodePrompt, refreshSession]);
 
   return (
     <AuthContext.Provider value={value}>

@@ -8,9 +8,10 @@ import PropTypes from 'prop-types';
  * five — and no colour prop: coral is confined to the logo lockup and a verdict colour would claim
  * a forecast meaning, so the heading is always `text-plex-text`.
  */
-export default function AuthHeading({ children, testId = undefined }) {
+export default function AuthHeading({ children, testId = undefined, id = undefined }) {
   return (
     <h2
+      id={id}
       className="font-serif font-semibold text-[22px] leading-tight tracking-[-0.015em] text-plex-text"
       data-testid={testId}
     >
@@ -22,4 +23,5 @@ export default function AuthHeading({ children, testId = undefined }) {
 AuthHeading.propTypes = {
   children: PropTypes.node.isRequired,
   testId: PropTypes.string,
+  id: PropTypes.string,
 };

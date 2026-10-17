@@ -1,7 +1,7 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
-  act, render, screen, waitFor, fireEvent, within,
+  act, cleanup, render, screen, waitFor, fireEvent, within,
 } from '@testing-library/react';
 import App from '../App.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
@@ -47,6 +47,8 @@ vi.mock('../api/settingsApi.js', () => ({
   saveMapColourPreferences: vi.fn(),
   saveMapTideMode: vi.fn(),
   markComingUpSeen: vi.fn(),
+  reverseLookupPostcode: vi.fn(),
+  markPostcodePromptDismissed: vi.fn(),
 }));
 vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn() }));
 // The Map pane, stubbed so the date `App` resolves for it can be read. Every other test in this
@@ -113,7 +115,7 @@ import { getDailyBriefing } from '../api/briefingApi.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
 import {
   getSettings, getReach, getDriveTimes, lookupPostcode, saveHome, saveMapColourPreferences,
-  refreshDriveTimes, markComingUpSeen,
+  refreshDriveTimes, markComingUpSeen, markPostcodePromptDismissed,
 } from '../api/settingsApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { getAuroraForecastResults, getAuroraLocations, getAuroraStatus } from '../api/auroraApi.js';
@@ -122,7 +124,10 @@ import { getAstroConditions } from '../api/astroApi.js';
 import { getAlmanac } from '../api/almanacApi.js';
 import { subscribeToRunNotifications } from '../api/runProgressApi.js';
 import { getTodaysLight } from '../api/lightApi.js';
-import { verifyEmail, requestPasswordReset, resetPassword } from '../api/authApi.js';
+import {
+  verifyEmail, requestPasswordReset, resetPassword, setPasswordForNewUser,
+} from '../api/authApi.js';
+import { setRewind } from '../utils/rewind.js';
 import userEvent from '@testing-library/user-event';
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
@@ -1925,5 +1930,440 @@ describe('App — the auth gate', () => {
     expect(await screen.findByTestId('forgot-done-message'))
       .toHaveTextContent("If that email has an account, we've sent a reset link.");
     expect(requestPasswordReset).toHaveBeenCalledWith('chris@example.com', 'ts');
+  });
+});
+
+// ── Registration keeps the gate on RegisterPage through HOME and the Welcome (R4b) ────────────────
+//
+// ⚠️ The MUTATION PIN of login-registration-plan.md §2 #2. `RegisterPage.test.jsx` renders the page
+// without the gate, so it cannot see this: `completeRegistration` stores the session, and unless
+// `AuthGate` also reads `registrationPending` — in BOTH of its tests, the `!token ||` entry and the
+// `verifyToken ||` pick — the gate swaps to the app the instant the token exists and the HOME step
+// and the Welcome never render. This test fails with `|| registrationPending` removed from either.
+
+describe('App — registration stays on RegisterPage through HOME and the Welcome', () => {
+  const PASSWORD = 'Abcdef1!';
+
+  beforeEach(() => {
+    verifyEmail.mockReset().mockResolvedValue(undefined);
+    setPasswordForNewUser.mockReset().mockResolvedValue(RESET_SESSION);
+    markPostcodePromptDismissed.mockReset().mockResolvedValue({ postcodePromptDue: false });
+  });
+
+  afterEach(() => {
+    window.history.pushState({}, '', '/');
+  });
+
+  /** Opens the emailed link, sets the password, and waits for the HOME step. */
+  async function toHome(user) {
+    openLink('/verify?token=vtok');
+    render(<App />);
+    await user.type(await screen.findByTestId('sp-password'), PASSWORD);
+    await user.type(screen.getByTestId('sp-confirm'), PASSWORD);
+    await user.click(screen.getByTestId('sp-submit'));
+    await screen.findByRole('heading', { level: 2, name: "Where's home?" });
+  }
+
+  /** Fires the Welcome's two-second timer by hand, inside act, and returns whether it was there. */
+  function fireWelcomeTimer(timers) {
+    const welcome = timers.mock.calls.find(([, ms]) => ms === 2000);
+    if (!welcome) return false;
+    act(() => { welcome[0](); });
+    return true;
+  }
+
+  it('Set password -> HOME (no app) -> Skip -> Welcome (no app) -> two seconds -> the app', async () => {
+    const user = userEvent.setup();
+
+    await toHome(user);
+
+    // Signed in already, and still not in the app.
+    expect(localStorage.getItem('goldenhour_token')).toBe('reset-access');
+    expect(screen.queryByTestId('window-first-shell')).not.toBeInTheDocument();
+    expect(screen.getByTestId('home-step')).toBeInTheDocument();
+
+    await user.click(screen.getByTestId('home-secondary'));
+
+    expect(await screen.findByTestId('success-step')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Welcome to PhotoCast!' })).toBeInTheDocument();
+    expect(screen.queryByTestId('window-first-shell')).not.toBeInTheDocument();
+    expect(markPostcodePromptDismissed).toHaveBeenCalledTimes(1);
+  });
+
+  it('the Welcome ends the pending registration after two seconds and the app mounts, no reload', async () => {
+    const user = userEvent.setup();
+    const timers = vi.spyOn(globalThis, 'setTimeout');
+    await toHome(user);
+    await user.click(screen.getByTestId('home-secondary'));
+    await screen.findByTestId('success-step');
+    expect(screen.queryByTestId('window-first-shell')).not.toBeInTheDocument();
+
+    expect(fireWelcomeTimer(timers)).toBe(true);
+
+    expect(await screen.findByTestId('window-first-shell')).toBeInTheDocument();
+    expect(screen.queryByTestId('success-step')).not.toBeInTheDocument();
+    expect(window.location.pathname).toBe('/');
+    expect(window.location.search).toBe('');
+    timers.mockRestore();
+  });
+
+  it('Save from HOME also reaches the Welcome and then the app', async () => {
+    const user = userEvent.setup();
+    lookupPostcode.mockReset().mockResolvedValue(LOOKUP_MORPETH);
+    saveHome.mockReset().mockResolvedValue({ ...SETTINGS_MORPETH, homePlaceName: null, postcodePromptDue: false });
+    const timers = vi.spyOn(globalThis, 'setTimeout');
+    await toHome(user);
+
+    await user.type(screen.getByTestId('home-input'), 'NE61 1AA');
+    await user.click(screen.getByTestId('home-lookup'));
+    await user.click(await screen.findByTestId('home-primary'));
+
+    expect(await screen.findByTestId('success-step')).toBeInTheDocument();
+    expect(saveHome).toHaveBeenCalledWith('NE61 1AA', 55.17, -1.69, null);
+    expect(markPostcodePromptDismissed).not.toHaveBeenCalled();
+    expect(fireWelcomeTimer(timers)).toBe(true);
+    expect(await screen.findByTestId('window-first-shell')).toBeInTheDocument();
+    timers.mockRestore();
+  });
+
+  it('a Skip whose dismissal FAILED keeps the prompt out of the app that mounts next', async () => {
+    const user = userEvent.setup();
+    markPostcodePromptDismissed.mockRejectedValue(new Error('503'));
+    // The server still says due — the PUT never landed — which is exactly what the in-memory
+    // suppression exists to override for this page session.
+    getSettings.mockResolvedValue({ ...SETTINGS_NO_HOME, postcodePromptDue: true });
+    const providerSpy = vi.spyOn(briefingContext, 'WindowFirstBriefingProvider');
+    const timers = vi.spyOn(globalThis, 'setTimeout');
+    await toHome(user);
+    await user.click(screen.getByTestId('home-secondary'));
+    await screen.findByTestId('success-step');
+
+    expect(fireWelcomeTimer(timers)).toBe(true);
+    await screen.findByTestId('window-first-shell');
+    // The settings answered (the home is KNOWN to be none) ...
+    await waitFor(() => expect(providerProps(providerSpy).homePlace).toBeNull());
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+
+    // ... and said due, and nothing was raised.
+    expect(getSettings).toHaveBeenCalled();
+    expect(screen.queryByTestId('postcode-prompt')).not.toBeInTheDocument();
+    timers.mockRestore();
+  });
+});
+
+// ── The one-time postcode prompt (R4b) ───────────────────────────────────────────────────────────
+
+describe('App — the one-time postcode prompt', () => {
+  const DUE = { ...SETTINGS_NO_HOME, postcodePromptDue: true };
+  const REWIND_TO = new Date(Date.now() - 3 * 3600 * 1000).toISOString();
+
+  /** The child of <body> holding the app: what the prompt makes inert. */
+  const appContainer = () => {
+    let node = screen.getByTestId('window-first-shell');
+    while (node.parentElement && node.parentElement !== document.body) node = node.parentElement;
+    return node;
+  };
+
+  /** Lets every microtask and 0 ms timer the mount read caused run, inside an awaited act. */
+  const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+
+  /** A dialog the shell or Ask would own: invisible to `App`'s state, visible to the DOM. */
+  const addForeignDialog = () => {
+    const node = document.createElement('div');
+    node.setAttribute('role', 'dialog');
+    node.setAttribute('aria-modal', 'true');
+    node.setAttribute('data-testid', 'foreign-dialog');
+    document.body.appendChild(node);
+    return node;
+  };
+
+  beforeEach(() => {
+    lookupPostcode.mockReset().mockResolvedValue(LOOKUP_MORPETH);
+    saveHome.mockReset();
+    markPostcodePromptDismissed.mockReset().mockResolvedValue({ ...SETTINGS_NO_HOME, postcodePromptDue: false });
+  });
+
+  afterEach(() => {
+    // Unmount first: clearing a rewind with the app still mounted remounts the whole tree, whose
+    // fetches then land outside any act.
+    cleanup();
+    setRewind(null);
+    document.querySelectorAll('[data-testid="foreign-dialog"]').forEach((n) => n.remove());
+  });
+
+  describe('when it is raised', () => {
+    it('is raised over the app when the mount read answers due, with no read of its own', async () => {
+      getSettings.mockResolvedValue(DUE);
+      renderApp();
+
+      const dialog = await screen.findByTestId('postcode-prompt');
+
+      expect(dialog).toHaveAttribute('aria-modal', 'true');
+      expect(dialog.parentElement).toBe(document.body);
+      expect(screen.getByRole('heading', { level: 2, name: 'Set your home postcode' })).toBeInTheDocument();
+      expect(getSettings).toHaveBeenCalledTimes(1);
+      // And it is still there once the modal observer and the effects have run: it does not unmount
+      // itself by counting its own dialog as a foreign one.
+      await settle();
+      expect(screen.getByTestId('postcode-prompt')).toBeInTheDocument();
+    });
+
+    it('makes the app container inert while it shows, and not itself', async () => {
+      getSettings.mockResolvedValue(DUE);
+      renderApp();
+
+      const dialog = await screen.findByTestId('postcode-prompt');
+
+      expect(appContainer()).toHaveAttribute('inert');
+      expect(dialog.closest('[inert]')).toBeNull();
+    });
+
+    it('is raised for a LITE reader as for a Pro one — the postcode serves every account', async () => {
+      getSettings.mockResolvedValue(DUE);
+      renderApp({ role: 'LITE_USER' });
+
+      expect(await screen.findByTestId('postcode-prompt')).toBeInTheDocument();
+    });
+
+    it.each([
+      ['an answer with no such field', SETTINGS_NO_HOME],
+      ['false', { ...SETTINGS_NO_HOME, postcodePromptDue: false }],
+      ['null', { ...SETTINGS_NO_HOME, postcodePromptDue: null }],
+      ['the string "true"', { ...SETTINGS_NO_HOME, postcodePromptDue: 'true' }],
+      ['the number 1', { ...SETTINGS_NO_HOME, postcodePromptDue: 1 }],
+      ['an empty answer', {}],
+    ])('is NOT raised for %s — only a literal true prompts', async (_name, answer) => {
+      getSettings.mockResolvedValue(answer);
+      const { providerSpy } = renderApp();
+      await screen.findByTestId('window-first-shell');
+      await waitFor(() => expect(getSettings).toHaveBeenCalled());
+      await settle();
+
+      expect(screen.queryByTestId('postcode-prompt')).not.toBeInTheDocument();
+      expect(appContainer()).not.toHaveAttribute('inert');
+      expect(providerSpy).toHaveBeenCalled();
+    });
+
+    it('is NOT raised when the mount read fails — silence never prompts', async () => {
+      getSettings.mockRejectedValue(new Error('offline'));
+      renderApp();
+      await screen.findByTestId('window-first-shell');
+      await settle();
+
+      expect(screen.queryByTestId('postcode-prompt')).not.toBeInTheDocument();
+    });
+
+    it('is absent under an admin\'s rewind — a rewind is a read of the past, not a sign-in', async () => {
+      getSettings.mockResolvedValue(DUE);
+      act(() => setRewind(REWIND_TO));
+      renderApp({ role: 'ADMIN' });
+      await screen.findByTestId('window-first-shell');
+      await waitFor(() => expect(getSettings).toHaveBeenCalled());
+      await settle();
+
+      expect(screen.queryByTestId('postcode-prompt')).not.toBeInTheDocument();
+      expect(appContainer()).not.toHaveAttribute('inert');
+    });
+  });
+
+  describe('it waits for any other modal, because two modals must never be claimed at once', () => {
+    it('with the settings dialog open when the answer lands: not raised until the dialog closes', async () => {
+      const mountRead = deferred();
+      getSettings.mockReturnValueOnce(mountRead.promise).mockResolvedValue(DUE);
+      renderApp();
+      const dialog = await openSettings();
+
+      await land(() => mountRead.resolve(DUE));
+      await settle();
+
+      expect(screen.queryByTestId('postcode-prompt')).not.toBeInTheDocument();
+      expect(screen.getByTestId('settings-modal')).toBeInTheDocument();
+
+      closeSettings(dialog);
+
+      expect(await screen.findByTestId('postcode-prompt')).toBeInTheDocument();
+      expect(screen.queryByTestId('settings-modal')).not.toBeInTheDocument();
+    });
+
+    it('with the aurora map overlay open when the answer lands: not raised until it closes', async () => {
+      const mountRead = deferred();
+      getSettings.mockReturnValueOnce(mountRead.promise).mockResolvedValue(DUE);
+      getAuroraStatus.mockResolvedValue({
+        level: 'MODERATE', kpIndex: 6, currentNightDate: ukDateStrOffset(0), simulated: false,
+      });
+      renderApp();
+      const banner = await screen.findByTestId('aurora-banner');
+      await act(async () => { fireEvent.click(banner); });
+      const overlay = await screen.findByRole('dialog', { name: 'Aurora tonight' });
+      await within(overlay).findByTestId('overlay-map-stub');
+
+      await land(() => mountRead.resolve(DUE));
+      await settle();
+
+      expect(screen.queryByTestId('postcode-prompt')).not.toBeInTheDocument();
+
+      fireEvent.click(within(overlay).getByTestId('map-overlay-close'));
+
+      expect(await screen.findByTestId('postcode-prompt')).toBeInTheDocument();
+    });
+
+    it('with a dialog the shell or Ask owns (only the DOM can see it): not raised until it goes', async () => {
+      const mountRead = deferred();
+      getSettings.mockReturnValue(mountRead.promise);
+      renderApp();
+      await screen.findByTestId('window-first-shell');
+      const foreign = addForeignDialog();
+
+      await land(() => mountRead.resolve(DUE));
+      await settle();
+      expect(screen.queryByTestId('postcode-prompt')).not.toBeInTheDocument();
+
+      await act(async () => { foreign.remove(); });
+
+      expect(await screen.findByTestId('postcode-prompt')).toBeInTheDocument();
+    });
+
+    it('once it is up, a foreign dialog appearing does NOT unmount it (the latch)', async () => {
+      getSettings.mockResolvedValue(DUE);
+      renderApp();
+      await screen.findByTestId('postcode-prompt');
+
+      // Held inside the act long enough for the observer's microtask to land in it.
+      await act(async () => {
+        addForeignDialog();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      await settle();
+
+      expect(screen.getByTestId('postcode-prompt')).toBeInTheDocument();
+    });
+  });
+
+  describe('Not now', () => {
+    it('records the dismissal once, goes, lifts inert, and asks for nothing else', async () => {
+      const user = userEvent.setup();
+      getSettings.mockResolvedValue(DUE);
+      const { providerSpy } = renderApp();
+      await screen.findByTestId('postcode-prompt');
+
+      await user.click(screen.getByTestId('prompt-secondary'));
+
+      await waitFor(() => expect(screen.queryByTestId('postcode-prompt')).not.toBeInTheDocument());
+      expect(markPostcodePromptDismissed).toHaveBeenCalledTimes(1);
+      expect(markPostcodePromptDismissed).toHaveBeenCalledWith();
+      expect(saveHome).not.toHaveBeenCalled();
+      expect(appContainer()).not.toHaveAttribute('inert');
+      expect(getSettings).toHaveBeenCalledTimes(1);
+      expect(providerProps(providerSpy).homePlace).toBeNull();
+      expect(providerProps(providerSpy).homeSettingsVersion).toBe(0);
+    });
+
+    it('goes even when the dismissal REJECTS, and the prompt does not come back this page session', async () => {
+      const user = userEvent.setup();
+      markPostcodePromptDismissed.mockRejectedValue(new Error('503'));
+      getSettings.mockResolvedValue(DUE);
+      renderApp();
+      await screen.findByTestId('postcode-prompt');
+
+      await user.click(screen.getByTestId('prompt-secondary'));
+
+      await waitFor(() => expect(screen.queryByTestId('postcode-prompt')).not.toBeInTheDocument());
+      expect(appContainer()).not.toHaveAttribute('inert');
+      // Opening and closing Settings re-reads the server, which still says due.
+      const dialog = await openSettings();
+      closeSettings(dialog);
+      await settle();
+      expect(screen.queryByTestId('postcode-prompt')).not.toBeInTheDocument();
+      expect(markPostcodePromptDismissed).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ['succeeded', () => markPostcodePromptDismissed.mockResolvedValue({ ...SETTINGS_NO_HOME, postcodePromptDue: false })],
+      ['REJECTED', () => markPostcodePromptDismissed.mockRejectedValue(new Error('503'))],
+    ])('after a Not now whose dismissal %s, an app REMOUNT (clearing a rewind) does not raise it again', async (_name, arrange) => {
+      // `promptDone` lives for one mount of AppInner; the auth context's in-memory suppression is the
+      // only thing that outlives a remount, and the server still answers due here (the mock is static).
+      const user = userEvent.setup();
+      arrange();
+      getSettings.mockResolvedValue(DUE);
+      renderApp({ role: 'ADMIN' });
+      await screen.findByTestId('postcode-prompt');
+      await user.click(screen.getByTestId('prompt-secondary'));
+      await waitFor(() => expect(screen.queryByTestId('postcode-prompt')).not.toBeInTheDocument());
+      const readsBefore = getSettings.mock.calls.length;
+
+      act(() => setRewind(REWIND_TO));
+      act(() => setRewind(null));
+      await screen.findByTestId('window-first-shell');
+      await waitFor(() => expect(getSettings.mock.calls.length).toBeGreaterThan(readsBefore));
+      await settle();
+
+      expect(screen.queryByTestId('postcode-prompt')).not.toBeInTheDocument();
+      expect(appContainer()).not.toHaveAttribute('inert');
+    });
+
+    it('hands focus back into the app, not to <body>', async () => {
+      const user = userEvent.setup();
+      getSettings.mockResolvedValue(DUE);
+      renderApp();
+      await screen.findByTestId('postcode-prompt');
+
+      await user.click(screen.getByTestId('prompt-secondary'));
+
+      await waitFor(() => expect(screen.queryByTestId('postcode-prompt')).not.toBeInTheDocument());
+      expect(document.activeElement).not.toBe(document.body);
+      expect(appContainer().contains(document.activeElement)).toBe(true);
+    });
+  });
+
+  describe('Save', () => {
+    it('saves the postcode, hands the response to the settings record, names the place, and goes', async () => {
+      const user = userEvent.setup();
+      getSettings.mockResolvedValue(DUE);
+      // PUT /home does not geocode: no place name, flag down, the postcode now saved.
+      saveHome.mockResolvedValue({ ...SETTINGS_MORPETH, homePlaceName: null, postcodePromptDue: false });
+      const { providerSpy } = renderApp();
+      await screen.findByTestId('postcode-prompt');
+      await mountReadsSettled();
+      expect(providerProps(providerSpy).homePlace).toBeNull();
+
+      await user.type(screen.getByTestId('prompt-input'), 'NE61 1AA');
+      await user.click(screen.getByTestId('prompt-lookup'));
+      await user.click(await screen.findByTestId('prompt-primary'));
+
+      await waitFor(() => expect(screen.queryByTestId('postcode-prompt')).not.toBeInTheDocument());
+      expect(saveHome).toHaveBeenCalledTimes(1);
+      expect(saveHome).toHaveBeenCalledWith('NE61 1AA', 55.17, -1.69, null);
+      expect(markPostcodePromptDismissed).not.toHaveBeenCalled();
+      // The masthead's place name changed, from the save's own response and the lookup's name.
+      expect(providerProps(providerSpy).homePlace).toBe('Morpeth');
+      expect(providerProps(providerSpy).homeSettingsVersion).toBe(1);
+      expect(appContainer()).not.toHaveAttribute('inert');
+      expect(getSettings).toHaveBeenCalledTimes(1);
+      expect(document.activeElement).not.toBe(document.body);
+    });
+
+    it('a failed save keeps the prompt up with its line, and a retry can still finish', async () => {
+      const user = userEvent.setup();
+      getSettings.mockResolvedValue(DUE);
+      saveHome.mockRejectedValueOnce(new Error('503'))
+        .mockResolvedValueOnce({ ...SETTINGS_MORPETH, homePlaceName: null, postcodePromptDue: false });
+      renderApp();
+      await screen.findByTestId('postcode-prompt');
+
+      await user.type(screen.getByTestId('prompt-input'), 'NE61 1AA');
+      await user.click(screen.getByTestId('prompt-lookup'));
+      await user.click(await screen.findByTestId('prompt-primary'));
+
+      expect(await screen.findByTestId('prompt-save-error')).toHaveTextContent("Couldn't save. Try again.");
+      expect(screen.getByTestId('postcode-prompt')).toBeInTheDocument();
+      expect(appContainer()).toHaveAttribute('inert');
+
+      await user.click(screen.getByTestId('prompt-primary'));
+
+      await waitFor(() => expect(screen.queryByTestId('postcode-prompt')).not.toBeInTheDocument());
+      expect(saveHome).toHaveBeenCalledTimes(2);
+    });
   });
 });

@@ -7,13 +7,22 @@ import AuthShell from './auth/AuthShell.jsx';
 import AuthHeading from './auth/AuthHeading.jsx';
 import PasswordInput from './auth/PasswordInput.jsx';
 import PasswordChecklist from './auth/PasswordChecklist.jsx';
-const STEPS = { REGISTER: 'REGISTER', CHECK_EMAIL: 'CHECK_EMAIL', VERIFY: 'VERIFY', SET_PASSWORD: 'SET_PASSWORD', SUCCESS: 'SUCCESS', WAITLIST: 'WAITLIST' };
+import PostcodeCapture from './auth/PostcodeCapture.jsx';
+import { markPostcodePromptDismissed } from '../api/settingsApi.js';
+const STEPS = { REGISTER: 'REGISTER', CHECK_EMAIL: 'CHECK_EMAIL', VERIFY: 'VERIFY', SET_PASSWORD: 'SET_PASSWORD', HOME: 'HOME', SUCCESS: 'SUCCESS', WAITLIST: 'WAITLIST' };
 
 /**
  * Multi-step self-registration component with internal state machine.
+ *
+ * <p>The password step signs the new account in ({@code completeRegistration}) and the flow carries
+ * on with a token in place: {@code HOME} (the postcode, through {@code PostcodeCapture}), then the
+ * Welcome step, whose two seconds end in {@code finishRegistration()} — no page reload. The page
+ * stays mounted through those steps only because {@code AuthGate} reads {@code registrationPending}
+ * (login-registration plan §2 #2); {@code RegisterPage} rendered alone cannot show that, which is why
+ * the gate has its own test.
  */
 export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
-  const { completeRegistration } = useAuth();
+  const { completeRegistration, finishRegistration, suppressPostcodePrompt } = useAuth();
   const [step, setStep] = useState(verifyToken ? STEPS.VERIFY : STEPS.REGISTER);
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -138,7 +147,7 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
     try {
       const data = await setPasswordForNewUser(verifiedToken, password);
       completeRegistration(data);
-      setStep(STEPS.SUCCESS);
+      setStep(STEPS.HOME);
     } catch (err) {
       setError(err?.response?.data?.error ?? 'Failed to set password. Please try again.');
     } finally {
@@ -160,14 +169,29 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
     }
   }
 
-  // Clear verification token from URL and auto-reload after success
+  // "Skip for now" IS the reader's dismissal of the postcode prompt. Suppressed first, in memory, so
+  // a PUT that fails cannot bring the prompt overlay back over the Welcome or the app this session
+  // (the server flag stays due and the next page load asks again — the safe direction); then the
+  // dismissal is recorded, a failure ignored, and the Welcome shows.
+  async function handleSkipHome() {
+    suppressPostcodePrompt();
+    try {
+      await markPostcodePromptDismissed();
+    } catch {
+      // The reader is signed in and skipping; nothing here is worth stopping them for.
+    }
+    setStep(STEPS.SUCCESS);
+  }
+
+  // Clear the verification token from the URL, and end the pending registration two seconds after the
+  // Welcome shows. The gate then mounts the app on the session that is already stored — no reload.
   useEffect(() => {
     if (step === STEPS.SUCCESS) {
       window.history.replaceState({}, '', window.location.pathname);
-      const timer = setTimeout(() => window.location.reload(), 2000);
+      const timer = setTimeout(finishRegistration, 2000);
       return () => clearTimeout(timer);
     }
-  }, [step]);
+  }, [step, finishRegistration]);
 
   return (
     <AuthShell>
@@ -417,6 +441,25 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
               {loading ? 'Setting up…' : 'Complete registration'}
             </button>
           </form>
+        )}
+
+        {/* HOME step — the account exists and is signed in; the postcode is optional */}
+        {step === STEPS.HOME && (
+          <div className="card" data-testid="home-step">
+            <PostcodeCapture
+              heading="Where's home?"
+              sub="Your postcode sets the sunrise and sunset times shown at the top of the app."
+              primaryLabel="Save and continue"
+              secondaryLabel="Skip for now"
+              onSaved={() => setStep(STEPS.SUCCESS)}
+              onSkip={handleSkipHome}
+              // A component prop, not the DOM attribute: PostcodeCapture honours it only under a fine pointer
+              // (plan §5 #10), which is the very hazard the rule exists for.
+              // eslint-disable-next-line jsx-a11y/no-autofocus
+              autoFocus
+              testIdPrefix="home"
+            />
+          </div>
         )}
 
         {/* WAITLIST step */}
