@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { compile } from 'tailwindcss';
 
 /**
- * The focus rules of the shared `.btn`, `.btn-primary` and `.btn-secondary` classes — every
+ * The focus rules of the shared `.btn`, `.btn-primary`, `.btn-secondary` and `.btn-danger` classes — every
  * `.btn*` in the app, so a regression here reaches the admin views, the sign-in, registration and
  * change-password pages, the settings dialog and `ConfirmDialog`, among others.
  *
@@ -33,11 +33,11 @@ import { compile } from 'tailwindcss';
 const pathOf = (rel) => fileURLToPath(new URL(rel, import.meta.url));
 const read = (rel) => readFileSync(pathOf(rel), 'utf8');
 
-const CLASSES = ['.btn', '.btn-primary', '.btn-secondary'];
+const CLASSES = ['.btn', '.btn-primary', '.btn-secondary', '.btn-danger'];
 /** A `.btn*` class in a selector, and not a longer class that merely starts the same way. */
-const BTN_SELECTOR = /\.btn(-primary|-secondary)?(?![\w-])/;
+const BTN_SELECTOR = /\.btn(-primary|-secondary|-danger)?(?![\w-])/;
 /** A `.btn*` class name in a class list. */
-const BTN_CLASS = /^btn(-primary|-secondary)?$/;
+const BTN_CLASS = /^btn(-primary|-secondary|-danger)?$/;
 /** Any Tailwind outline or ring utility, under any variant. */
 const OUTLINE_OR_RING_UTILITY = /(^|:)(outline|ring)(-|$)/;
 
@@ -176,6 +176,13 @@ describe('the shared button classes — their focus utilities as written', () =>
     expect(appliedUtilities(tree, selector)).toContain('focus-visible:ring-plex-gold');
   });
 
+  it('.btn-danger rings in the error colour, from the token and not a raw red', () => {
+    const applied = appliedUtilities(tree, '.btn-danger');
+    expect(applied).toContain('focus-visible:ring-plex-error');
+    expect(applied).toEqual(expect.arrayContaining(['bg-plex-error', 'text-plex-bg']));
+    expect(applied.filter((u) => /(?:red|rose)-\d{2,3}/.test(u))).toEqual([]);
+  });
+
   it('no other rule in index.css gives these classes an outline or a box-shadow', () => {
     const touching = allBlocks(tree)
       .filter((block) => BTN_SELECTOR.test(block.prelude) && !CLASSES.includes(block.prelude))
@@ -232,7 +239,7 @@ describe('the shared button classes — their call sites', () => {
     // class after its own `className=` is one site the walk must also find; the walk also finds the
     // ones that break across lines, so it may find more, never fewer.
     const sameLine = sources.flatMap(({ source }) => source.split('\n'))
-      .filter((line) => /\bclassName=.*(?<![\w-])btn(-primary|-secondary)?(?![\w-])/.test(line));
+      .filter((line) => /\bclassName=.*(?<![\w-])btn(-primary|-secondary|-danger)?(?![\w-])/.test(line));
     expect(sameLine.length).toBeGreaterThan(0);
     expect(sites.length).toBeGreaterThanOrEqual(sameLine.length);
     expect(sites.map((site) => site.form)).toEqual(expect.arrayContaining(['string', 'expression']));

@@ -449,6 +449,19 @@
     @apply px-3 py-1.5 rounded-lg text-sm font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-plex-bg bg-plex-surface-light hover:bg-plex-border text-plex-text focus-visible:ring-plex-gold disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-plex-surface-light;
   }
 
+  /* The destructive button — the Settings danger zone's "Delete account" (login-registration R5b),
+     and nothing else yet. Filled from `--color-plex-error`, the token the form errors already use,
+     never a raw `red-*`: the label is `plex-bg` on it, 6.77:1 (the page-background figure
+     `authTokens.test.js` pins; contrast is symmetric). Its focus rules are the other two buttons'
+     — `focus-visible:` only, `outline-hidden` for forced colours, a 2px ring at a 2px offset —
+     with the ring in the error colour (6.77:1 on the page) where theirs is gold, and they live HERE
+     rather than as utilities on the call site because a ring utility beside a `.btn*` class wins
+     from a later layer (`buttonFocusRules.test.js` fails on it). A busy button is `aria-disabled`,
+     not `disabled` (BUSY_BUTTON's reason), so its dimming is the call site's. */
+  .btn-danger {
+    @apply px-3 py-1.5 rounded-lg text-sm font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-plex-bg bg-plex-error hover:opacity-90 text-plex-bg focus-visible:ring-plex-error disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:opacity-40;
+  }
+
   /* The ONE text-input style for the auth screens (and, from R4c, Settings).
 
      ⚠️ `.field` REPLACES an input's class string; it does not sit beside the old one. Tailwind 4's
