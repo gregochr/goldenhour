@@ -354,6 +354,15 @@ describe('selectPick numbers every choice', () => {
     expect(ctx.selectionCallout).toBe(false);
   });
 
+  it('tolerates a null options argument: no callout, and no throw', async () => {
+    await answered();
+
+    act(() => ctx.selectPick(1, null));
+
+    expect(ctx.selectedPick).toBe(1);
+    expect(ctx.selectionCallout).toBe(false);
+  });
+
   it('a rank with no card changes nothing, nonce and callout included', async () => {
     await answered();
     act(() => ctx.selectPick(1, { callout: true }));

@@ -5,7 +5,7 @@
  * other, and only Leaflet, the heat canvas and the network replaced. `AskPeekStateTable` proves each cell
  * of the table at the `MapView` level against a stand-in conversation; this file proves the joins — the
  * Ready list in the expanded sheet, an answer that lands while the sheet is open, a map touch that
- * minimises it, a chip that expands it, a ✕ that clears it — and that the camera is told what the sheet
+ * minimises it, a chip that opens the pick's callout over the line, a ✕ that clears it — and that the camera is told what the sheet
  * covers, at each step.
  */
 import React, { useEffect, useState } from 'react';
@@ -476,6 +476,27 @@ describe('an answer, from landing to clearing', () => {
     await act(async () => { fireEvent.click(screen.getByTestId('wf-map-peek-mini')); });
     expect(screen.getByTestId('ask-pick-2')).toHaveAttribute('data-selected', 'true');
     expect(screen.queryByTestId('map-callout')).not.toBeInTheDocument();
+  });
+
+  it('the callout\'s ✕ hands focus back to the pick chip it came from — never <body> — and Escape fired there still reaches the pane', async () => {
+    await renderMap();
+    await openAsk();
+    await typeQuestion();
+    await dragMap();
+    // This file's fake Leaflet container lives on <body>; the real one sits INSIDE the pane, where the
+    // ✕'s focus hand-off looks for the ringed chip. Put it where the real one is.
+    screen.getByTestId('wf-map-pane').appendChild(fakeMap.container);
+    const chip = pickChips().find((c) => c.dataset.askRank === '2');
+    await act(async () => { fireEvent.click(chip); });
+    fireEvent.click(await screen.findByTestId('map-callout-close'));
+
+    expect(screen.queryByTestId('map-callout')).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(pickChips().find((c) => c.dataset.askRank === '2'));
+    // The ladder is alive from there: with the Windows section open, Escape closes it.
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    expect(mode()).toBe('section');
+    fireEvent.keyDown(document.activeElement, { key: 'Escape' });
+    expect(mode()).toBe('minimised');
   });
 
   it('a CARD chosen in the expanded answer opens no callout: the chip is the only route that asks for one', async () => {

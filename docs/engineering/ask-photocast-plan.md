@@ -1996,7 +1996,7 @@ callout do not overlap (measured rects).
   away while an answer is minimised; `--psh` steps instantly while the sheet animates (a 14px step).
 - **For F5:** (1) `'plan'` is already in `PEEK_SETTLED_PHASES` and `MinimisedLine` treats it like an answer; F5 must
   give the line a plan text and decide that choosing a pick during `plan` returns the conversation to `answer`
-  (`handleSelectAskPick` expands whatever the phase). `AskClearAnswer`'s own list is untouched and must stay so until
+  (`handleSelectAskPick` expands whatever the phase) *(superseded 2026-10-17: a phone chip minimises and opens a callout)*. `AskClearAnswer`'s own list is untouched and must stay so until
   F5 gives it its seam. (2) `MapView.handleOpenLocationSheet(inPlan, spot)` reads the date and event from
   `activeMapEvent`, not the pick: "Plan this ›" / "Open in Plan ›" on a card the Map has not followed yet need an
   explicit window argument. (3) The peek sheet passes no `pickActions` and the shell's `askPickActions` is out of the
@@ -2383,7 +2383,7 @@ Tick each; a defect found here is a new fix, not an edit to the sessions' notes.
 - [ ] Accepted: a short Plan column scrolls ~170px under the 100dvh dock; the dock is not `inert` under the map overlay; no skip link past the dock; Escape discards an unsent draft; four tabs collapse under ~751px viewport on a tablet for an admin.
 
 **F3 — map linkage**
-- [ ] Numbered picks with their own window and rating, everything else at `.25`, the heat dimmer next to the REAL coastline stroke; the camera fits on a real dock open/close; choosing a pick flies to about zoom 10.5 and opens no callout.
+- [ ] Numbered picks with their own window and rating, everything else at `.25`, the heat dimmer next to the REAL coastline stroke; the camera fits on a real dock open/close; choosing a pick flies to about zoom 10.5 and opens no callout (off the phone; on a phone a chip opens the pick's callout and the camera stays put — phone-pick-callout-plan.md P1).
 - [ ] The bare rank circle under a label squeeze and the forced dot; the 25px compact circle; the chosen chip's focus ring; reduced motion; forced colours; the tablet sheet holding and releasing the fit.
 - [ ] Accepted: an aurora window draws no chips (the camera still fits); a typed question in flight clears the numbering for its duration; a stale selection at the pane's first mount can win over a Plan door.
 

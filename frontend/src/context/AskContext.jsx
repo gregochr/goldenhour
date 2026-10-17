@@ -419,7 +419,7 @@ export function AskProvider({ children }) {
     [conv.answer, days, reachById, nights, isPro, todayStr, tomorrowStr],
   );
 
-  const selectPick = useCallback((rank, { callout = false } = {}) => {
+  const selectPick = useCallback((rank, options) => {
     if (rank === null) {
       dispatch({ type: ACTION.PICK_SELECTED, rank: null });
       return;
@@ -427,7 +427,7 @@ export function AskProvider({ children }) {
     if (!pickCards.some((card) => card.rank === rank)) return;
     selectionSeq.current += 1;
     dispatch({
-      type: ACTION.PICK_SELECTED, rank, nonce: selectionSeq.current, callout: callout === true,
+      type: ACTION.PICK_SELECTED, rank, nonce: selectionSeq.current, callout: options?.callout === true,
     });
   }, [pickCards]);
 

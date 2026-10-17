@@ -236,6 +236,14 @@ with a provider step; the mutant-killing tests; the docs list; changelog entries
 page for the width check instead of the label-obstacle harness. Considered and not adopted: a polite
 live-region announcement for a pick callout (an ordinary chip's callout has none; recorded in §6).
 
+**P1 review round (2026-10-17, after the headless-Chromium check).** Added: a chip choice does not fly the select
+camera (`askSelection.still`; at 320×568 the flight landed the chip at y≈216–245 under its own 221px card);
+the pick chip and pin focus themselves on press (Safari/iOS, and no expand route rescues focus now); a
+deferred night choice skips its callout when the answer was reopened or another place selected meanwhile; the
+callout's ✕ returns focus to the ringed chip, else the pane (`tabIndex -1`); `selectPick` tolerates a null
+options argument. A phone chip whose row the map lacks therefore opens no callout and no longer flies either
+(§6's "the camera flies" is superseded).
+
 ## 9. Owner's check on a real phone (no session can sign in)
 
 1. Ask a question with picks on the Map; tap a numbered chip from the minimised line and from the

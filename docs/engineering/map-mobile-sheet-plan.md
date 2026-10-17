@@ -222,9 +222,9 @@ moves the verdict, so it cannot be dropped. §4 #5 adds the row.
 
 `MapTideStrip` publishes `--tsh` and `wf-tide-strip-on` on the pane through a `ResizeObserver`, and
 `onHeightChange` feeds `MapCallout`'s placement band. On phone the strip goes; the sheet is the new
-obstacle. Because **every** route that opens the callout is a map tap, and every map tap collapses
-the sheet (rule 4) *(since 2026-10-17 there is one more route, an Ask pick chip's window-follow effect, which
-collapses the sheet in its own handler — `phone-pick-callout-plan.md` P1; D-7 below)*, the callout only ever has to clear the collapsed 74 px — so the sheet publishes
+obstacle. Because every route but one that opens the callout is a map tap, and every map tap collapses
+the sheet (rule 4), and the one exception — an Ask pick chip's window-follow effect (since 2026-10-17,
+`phone-pick-callout-plan.md` P1; D-7 below) — collapses the sheet in its own handler, the callout only ever has to clear the collapsed 74 px — so the sheet publishes
 one fixed `--psh` (peek sheet height) and never a live-measured one (§5 D-7).
 
 ### 16. The map is not the phone's first tab

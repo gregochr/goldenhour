@@ -563,7 +563,9 @@ describe('picks on the map', () => {
       });
 
       const [chip] = askSpots();
-      expect(cameraCalls.at(-1).selection).toEqual({ lat: chip.lat, lng: chip.lng, nonce: 4 });
+      expect(cameraCalls.at(-1).selection).toEqual({
+        lat: chip.lat, lng: chip.lng, nonce: 4, still: false,
+      });
     });
 
     it('does not disturb another place\'s single pick, which keeps its plain shape', async () => {
@@ -658,7 +660,9 @@ describe('the camera is handed the picks and the choice', () => {
       askPicks: TWO, askAnswerId: 5, askSelectedRank: 2, askWindow: { date: TODAY, eventType: 'SUNRISE', nonce: 9 },
     });
 
-    expect(cameraCalls.at(-1).selection).toEqual({ lat: 54.45, lng: -3.0, nonce: 9 });
+    expect(cameraCalls.at(-1).selection).toEqual({
+      lat: 54.45, lng: -3.0, nonce: 9, still: false,
+    });
   });
 
   it('has no selection when a pick is selected but no choice was made (a rank with no nonce)', async () => {

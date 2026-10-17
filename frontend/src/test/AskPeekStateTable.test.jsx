@@ -130,6 +130,8 @@ vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
 vi.mock('../components/AuroraViewlineOverlay.jsx', () => ({ default: () => null }));
 
 import MapView from '../components/MapView.jsx';
+import { getAstroAvailableDates } from '../api/astroApi.js';
+import { deferred } from './askFixtures.js';
 
 const TODAY = '2026-01-15';
 
@@ -231,7 +233,7 @@ let view;
 /** What the pick-chip tests hand `MapView`, and the provider-simulated choice counter (see providerChooses). */
 let pickOver = {};
 let askNonce = 0;
-const props =(over = {}) => ({
+const props = (over = {}) => ({
   locations: [NEAR],
   date: TODAY,
   autoEventType: 'SUNSET',
@@ -679,6 +681,18 @@ describe('§2.7 table — row: pick chip press (phone, P1)', () => {
     expect(after.every((bottom) => bottom === 112)).toBe(true);
   });
 
+  // An ordinary chip tap never moves the camera: the chip was on screen to be tapped, and a flight would put
+  // it above the frame centre, where the card fits neither side of it and covers the ring just tapped.
+  it('a chip choice does not ask the camera to fly to the pick; a CARD choice still does', async () => {
+    await mountPicks('answer');
+
+    await chipChosen(1);
+    expect(cameraCalls.at(-1).selection).toMatchObject({ nonce: 1, still: true });
+
+    await providerChooses(2, { callout: false });
+    expect(cameraCalls.at(-1).selection).toMatchObject({ nonce: 2, still: false });
+  });
+
   // A `1·2` place is one chip for two windows (ask-thread-plan): each press steps the rank, follows that
   // rank's window and keeps the callout on the place — the callout is not torn down and rebuilt.
   it('a re-tap of a place picked at two windows keeps ONE callout mounted, and follows the second window', async () => {
@@ -704,6 +718,88 @@ describe('§2.7 table — row: pick chip press (phone, P1)', () => {
 
     expect(screen.queryByTestId('mock-callout')).not.toBeInTheDocument();
     expect(mode()).toBe('minimised');
+  });
+
+  // The pick names a place the roster no longer lists under that id: the callout falls back to the pick's name.
+  it('opens the callout under the pick\'s NAME when its locationId is not among the locations', async () => {
+    const RENAMED = CARDS.map((c) => ({ ...c, locationId: 99, name: 'Near' }));
+    await mountPicks('answer', { cards: RENAMED });
+
+    await chipChosen(1, { cards: RENAMED });
+
+    expect(screen.getByTestId('mock-callout')).toHaveTextContent('Near');
+  });
+
+  // The callout's ✕ unmounts with the callout; focus must not fall to <body>, or the pane's Escape rule
+  // (it fires only while focus is inside the pane) goes quiet.
+  it('the callout\'s ✕ leaves focus inside the pane, and Escape fired AT the active element still reaches it', async () => {
+    await mountPicks('answer');
+    await chipChosen(1);
+    expect(screen.getByTestId('mock-callout')).toBeInTheDocument();
+
+    await act(async () => { calloutCalls.at(-1).onClose(); });
+
+    expect(screen.queryByTestId('mock-callout')).not.toBeInTheDocument();
+    expect(document.activeElement).not.toBe(document.body);
+    expect(screen.getByTestId('wf-map-pane')).toContainElement(document.activeElement);
+    // Escape reaches the pane's ladder from there: it closes an open section.
+    pressPill();
+    expect(mode()).toBe('section');
+    fireEvent.keyDown(document.activeElement, { key: 'Escape' });
+    expect(mode()).toBe('minimised');
+  });
+
+  describe('a DEFERRED night choice (its row has not arrived yet)', () => {
+    const NIGHT_CARDS = CARDS.map((c) => ({ ...c, targetType: 'ASTRO' }));
+    const OTHER = { ...NEAR, id: 2, name: 'Other' };
+    let gate;
+    beforeEach(() => {
+      gate = deferred();
+      getAstroAvailableDates.mockReturnValue(gate.promise);
+    });
+    afterEach(() => {
+      getAstroAvailableDates.mockReset();
+      getAstroAvailableDates.mockResolvedValue([]);
+    });
+    const rowArrives = () => act(async () => { gate.resolve([TODAY]); await gate.promise; });
+
+    // The plan's headline reason for carrying the intent ON the choice.
+    it('opens its callout when the row arrives, and the answer is still minimised', async () => {
+      await mountPicks('answer', { cards: NIGHT_CARDS });
+      await chipChosen(1, { cards: NIGHT_CARDS });
+      expect(screen.queryByTestId('mock-callout')).not.toBeInTheDocument();
+
+      await rowArrives();
+
+      expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/astro/i);
+      expect(screen.getByTestId('mock-callout')).toHaveTextContent('Near');
+      expect(mode()).toBe('minimised');
+    });
+
+    it('does NOT open when the reader has reopened the answer meanwhile', async () => {
+      await mountPicks('answer', { cards: NIGHT_CARDS });
+      await chipChosen(1, { cards: NIGHT_CARDS });
+      expandMinimised();
+      expect(mode()).toBe('expanded');
+
+      await rowArrives();
+
+      expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/astro/i);
+      expect(screen.queryByTestId('mock-callout')).not.toBeInTheDocument();
+      expect(mode()).toBe('expanded');
+    });
+
+    it('does NOT displace a place the reader has selected meanwhile', async () => {
+      await mountPicks('answer', { cards: NIGHT_CARDS, locations: [NEAR, OTHER] });
+      await chipChosen(1, { cards: NIGHT_CARDS });
+      await act(async () => { lastLabels().onSelect('Other'); });
+      expect(screen.getByTestId('mock-callout')).toHaveTextContent('Other');
+
+      await rowArrives();
+
+      expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/astro/i);
+      expect(screen.getByTestId('mock-callout')).toHaveTextContent('Other');
+    });
   });
 
   describe('a card, or a choice that never arrived, never inherits a chip\'s callout', () => {
@@ -758,6 +854,8 @@ describe('§2.7 table — row: pick chip press (tablet and desktop, unchanged)',
     await providerChooses(2, { callout: true });
 
     expect(screen.queryByTestId('mock-callout')).not.toBeInTheDocument();
+    // And the camera flies for it as it always did: no callout opened, so nothing is in the way.
+    expect(cameraCalls.at(-1).selection).toMatchObject({ nonce: 1, still: false });
   });
 });
 
