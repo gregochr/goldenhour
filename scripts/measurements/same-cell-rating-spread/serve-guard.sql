@@ -83,6 +83,10 @@ CROSS JOIN LATERAL (SELECT
        AND NOT (s.skip_at IS NOT NULL AND s.skip_at > r.written)) AS row_ok) AS ok
 CROSS JOIN LATERAL (SELECT ok.cache_ok AND (NOT ok.row_ok OR c.written IS NULL OR c.written >= r.written) AS c_live) AS w
 WHERE (ok.cache_ok OR ok.row_ok)
+  -- the place still takes this event (LocationEntity.supportsTargetType: none, ALLDAY, or the type)
+  AND (NOT EXISTS (SELECT 1 FROM location_solar_event_type z WHERE z.location_id = k.id)
+       OR EXISTS (SELECT 1 FROM location_solar_event_type z WHERE z.location_id = k.id
+                  AND z.solar_event_type IN ('ALLDAY', k.t)))
   AND (CASE WHEN c_live THEN c.rating ELSE r.rating END) IS NOT NULL;
 
 -- One statement with MATERIALIZED stages, so the merge runs once (as views, the correlated counts

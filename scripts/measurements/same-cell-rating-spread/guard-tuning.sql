@@ -29,7 +29,11 @@ FROM forecast_evaluation e
 JOIN guard_loc g ON g.id = e.location_id
 WHERE e.rating IS NOT NULL
   AND e.target_type IN ('SUNRISE', 'SUNSET')
-  AND e.forecast_run_at >= :'since';
+  AND e.forecast_run_at >= :'since'
+  -- the place still takes this event (LocationEntity.supportsTargetType: none, ALLDAY, or the type)
+  AND (NOT EXISTS (SELECT 1 FROM location_solar_event_type z WHERE z.location_id = e.location_id)
+       OR EXISTS (SELECT 1 FROM location_solar_event_type z WHERE z.location_id = e.location_id
+                  AND z.solar_event_type IN ('ALLDAY', e.target_type)));
 
 CREATE TEMP VIEW near_pair AS
 SELECT a.location_id, a.target_date, a.target_type, a.run_hour, a.evaluation_model, a.days_ahead,
