@@ -113,7 +113,7 @@ class ForecastPromptStoreTest {
     }
 
     @Test
-    @DisplayName("V179: stamps one statement per distinct hash with that hash's row ids")
+    @DisplayName("V182: stamps one statement per distinct hash with that hash's row ids")
     void stampsOneStatementPerHash() {
         Map<String, List<Long>> byHash = new LinkedHashMap<>();
         byHash.put("inland", List.of(11L, 12L));
@@ -127,7 +127,7 @@ class ForecastPromptStoreTest {
     }
 
     @Test
-    @DisplayName("V179: an empty or null map, or a hash with no rows, stamps nothing")
+    @DisplayName("V182: an empty or null map, or a hash with no rows, stamps nothing")
     void stampsNothingWhenNothingToStamp() {
         store.stampPromptHashes(Map.of());
         store.stampPromptHashes(null);
@@ -137,7 +137,7 @@ class ForecastPromptStoreTest {
     }
 
     @Test
-    @DisplayName("V179: a failed stamp is swallowed, logged at WARN, and does not stop the next hash")
+    @DisplayName("V182: a failed stamp is swallowed, logged at WARN, and does not stop the next hash")
     void failedStampIsSwallowedAndNextHashStillStamps() {
         Map<String, List<Long>> byHash = new LinkedHashMap<>();
         byHash.put("inland", List.of(11L, 12L));

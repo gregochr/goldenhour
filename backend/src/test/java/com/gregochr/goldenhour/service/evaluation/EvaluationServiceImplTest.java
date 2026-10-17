@@ -264,7 +264,7 @@ class EvaluationServiceImplTest {
     }
 
     @Test
-    @DisplayName("V179: submit stamps each pending row with the hash of the prompt its request carried; "
+    @DisplayName("V182: submit stamps each pending row with the hash of the prompt its request carried; "
             + "a task with no evalRowId stamps nothing")
     void submit_skyTasks_stampPromptHashPerEvalRow() {
         EvaluationTask.Forecast withRow = forecastTaskWithRow(42L, "Castlerigg", 901L);
@@ -296,7 +296,7 @@ class EvaluationServiceImplTest {
     }
 
     @Test
-    @DisplayName("V179: the hashes are stamped BEFORE the batch is submitted, so a fast-completing or "
+    @DisplayName("V182: the hashes are stamped BEFORE the batch is submitted, so a fast-completing or "
             + "adopted batch can never be scored against an unstamped row")
     void submit_stampsPromptHashesBeforeSubmittingTheBatch() {
         EvaluationTask.Forecast withRow = forecastTaskWithRow(42L, "Castlerigg", 901L);

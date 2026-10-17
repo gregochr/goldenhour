@@ -65,7 +65,7 @@ public class ForecastPromptStore {
     }
 
     /**
-     * Stamps {@code forecast_evaluation.prompt_hash} (V179) on each pending row whose request is
+     * Stamps {@code forecast_evaluation.prompt_hash} (V182) on each pending row whose request is
      * about to be submitted (before the batch exists, so a scorer can never load an unstamped row),
      * one statement per distinct hash (at most two exist at a time: inland and coastal).
      * Best-effort like {@link #store}: a failure is logged and never reaches the

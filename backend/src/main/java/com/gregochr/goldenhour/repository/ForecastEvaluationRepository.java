@@ -364,7 +364,7 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
             @Param("from") LocalDate from, @Param("to") LocalDate to);
 
     /**
-     * Stamps the system-prompt fingerprint on rows whose batch request carried it (V179). One
+     * Stamps the system-prompt fingerprint on rows whose batch request carried it (V182). One
      * statement per distinct prompt, never a load-modify-save, so it cannot rewrite any other column
      * of a row a result handler is scoring.
      *

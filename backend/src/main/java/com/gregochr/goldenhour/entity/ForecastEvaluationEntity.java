@@ -269,19 +269,19 @@ public class ForecastEvaluationEntity {
     private Instant scoredAt;
 
     /**
-     * The release ({@code APP_VERSION}, V179) running when this row got its rating or triage reason,
+     * The release ({@code APP_VERSION}, V182) running when this row got its rating or triage reason,
      * stamped beside {@link #scoredAt} at the same two seams. {@code null} for a row not yet scored
-     * and for every row written before V179. The calibration report buckets by it.
+     * and for every row written before V182. The calibration report buckets by it.
      */
     @Column(name = "app_build", length = 40)
     private String appBuild;
 
     /**
-     * SHA-256 (hex) of the SKY system prompt this row's batch request carried (V179), stamped when
+     * SHA-256 (hex) of the SKY system prompt this row's batch request carried (V182), stamped when
      * the batch is submitted. The system prompt rather than the whole user message, because the user
      * message embeds the slot's own weather and would differ on every row. {@code null} for a row
      * with no batch request behind it (the synchronous engine, a triage row, a comfort row), for a
-     * woodland or bluebell request and for every row written before V179.
+     * woodland or bluebell request and for every row written before V182.
      */
     @Column(name = "prompt_hash", length = 64)
     private String promptHash;

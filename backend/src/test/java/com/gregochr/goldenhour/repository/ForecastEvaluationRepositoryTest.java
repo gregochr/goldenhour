@@ -852,10 +852,10 @@ class ForecastEvaluationRepositoryTest {
                 .containsExactly("outcome:" + outcome.getId());
     }
 
-    // --- V179: build and prompt provenance ---
+    // --- V182: build and prompt provenance ---
 
     @Test
-    @DisplayName("V179: findCalibrationPairs carries the forecast row's build and prompt hash")
+    @DisplayName("V182: findCalibrationPairs carries the forecast row's build and prompt hash")
     void findCalibrationPairs_projectsBuildAndPromptHash() {
         LocalDate date = LocalDate.of(2026, 5, 10);
         ForecastEvaluationEntity row = buildHaikuEvaluation(
@@ -872,7 +872,7 @@ class ForecastEvaluationRepositoryTest {
     }
 
     @Test
-    @DisplayName("V179: findCalibrationPairsFromRatings carries the forecast row's build and prompt hash,"
+    @DisplayName("V182: findCalibrationPairsFromRatings carries the forecast row's build and prompt hash,"
             + " and null for a row from before they were recorded")
     void findCalibrationPairsFromRatings_projectsBuildAndPromptHash() {
         LocalDate date = LocalDate.of(2026, 5, 10);
@@ -900,7 +900,7 @@ class ForecastEvaluationRepositoryTest {
     }
 
     @Test
-    @DisplayName("V179: stampPromptHash stamps the named rows only and touches no other column")
+    @DisplayName("V182: stampPromptHash stamps the named rows only and touches no other column")
     void stampPromptHash_stampsOnlyTheNamedRows() {
         LocalDate date = LocalDate.of(2026, 5, 10);
         Long first = repository.save(buildHaikuEvaluation(

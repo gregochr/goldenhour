@@ -35,10 +35,10 @@ import java.time.LocalDateTime;
  * @param outcomeKey          which outcome this pair scores: {@code "outcome:" + id} for an
  *                            {@code actual_outcome} row, {@code "rating:" + userId} for a reader's
  *                            {@code outcome_rating}; it keeps two outcomes of one slot apart
- * @param appBuild            the release that scored the forecast row (V179), or {@code null} for a
+ * @param appBuild            the release that scored the forecast row (V182), or {@code null} for a
  *                            row written before it was recorded
  * @param promptHash          the system-prompt fingerprint the forecast row's request carried
- *                            (V179), or {@code null} when none was recorded
+ *                            (V182), or {@code null} when none was recorded
  */
 public record CalibrationPair(
         String locationName,

@@ -138,7 +138,7 @@ class ForecastCalibrationServiceTest {
     }
 
     @Test
-    @DisplayName("V179: report() buckets by the build that scored the forecast, readers' ratings included, "
+    @DisplayName("V182: report() buckets by the build that scored the forecast, readers' ratings included, "
             + "and labels a row from before builds were recorded UNKNOWN")
     void report_groupsByBuild() {
         when(forecastEvaluationRepository.findCalibrationPairs(FROM, TO)).thenReturn(List.of(
@@ -165,7 +165,7 @@ class ForecastCalibrationServiceTest {
     }
 
     @Test
-    @DisplayName("V179: report() buckets by prompt fingerprint so an edit to the prompt shows as its own bucket")
+    @DisplayName("V182: report() buckets by prompt fingerprint so an edit to the prompt shows as its own bucket")
     void report_groupsByPromptHash() {
         String before = "a".repeat(64);
         String after = "b".repeat(64);
@@ -186,7 +186,7 @@ class ForecastCalibrationServiceTest {
     }
 
     @Test
-    @DisplayName("V179: a blank build or prompt hash is UNKNOWN, never an empty-named bucket")
+    @DisplayName("V182: a blank build or prompt hash is UNKNOWN, never an empty-named bucket")
     void report_blankBuildIsUnknown() {
         when(forecastEvaluationRepository.findCalibrationPairs(FROM, TO)).thenReturn(List.of(
                 stamped(0, 3, 3, 1L, " ", ""),

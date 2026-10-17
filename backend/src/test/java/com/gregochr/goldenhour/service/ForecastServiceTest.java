@@ -128,7 +128,7 @@ class ForecastServiceTest {
     @Spy
     private Clock clock = Clock.fixed(Instant.parse("2026-08-11T12:00:00Z"), java.time.ZoneOffset.UTC);
 
-    /** The release every stamped row is expected to carry (V179). */
+    /** The release every stamped row is expected to carry (V182). */
     private static final String BUILD = "v2.28.0";
 
     @Spy

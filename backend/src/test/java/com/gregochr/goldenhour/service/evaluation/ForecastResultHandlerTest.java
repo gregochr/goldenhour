@@ -251,7 +251,7 @@ class ForecastResultHandlerTest {
         assertThat(saved.getForecastRunAt()).isEqualTo(submittedAt);
         // V178: the AVAILABILITY instant is the clock reading at scoring, not the submission instant.
         assertThat(saved.getScoredAt()).isEqualTo(NOW);
-        // V179: stamped with the same instant, from the same guard, by the build that scored it.
+        // V182: stamped with the same instant, from the same guard, by the build that scored it.
         assertThat(saved.getAppBuild()).isEqualTo(BUILD);
         // LITE-tier and inversion fields, absent from BriefingEvaluationResult, must still land.
         assertThat(saved.getBasicFierySkyPotential()).isEqualTo(55);

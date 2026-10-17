@@ -29,7 +29,7 @@ import java.time.LocalDate;
  * around {@link #upsert} breaks it silently.
  *
  * <p>Two dependencies (the repository and the build identity), so a test builds the real store over
- * the real repository and races it. Every write stamps {@code app_build} (V179) with the running
+ * the real repository and races it. Every write stamps {@code app_build} (V182) with the running
  * release — on an update too, because the rating itself was made again by this build.
  */
 @Service

@@ -7,7 +7,7 @@ import java.util.HexFormat;
 
 /**
  * SHA-256 fingerprints of prompt text, as lower-case hex, for {@code forecast_evaluation.prompt_hash}
- * (V179).
+ * (V182).
  *
  * <p>The fingerprinted text is the SKY <i>system</i> prompt a request carries, never the user
  * message: the user message embeds the slot's own weather, so its hash would differ on every row and

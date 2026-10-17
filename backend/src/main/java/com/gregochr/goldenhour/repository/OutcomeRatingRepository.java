@@ -67,7 +67,7 @@ public interface OutcomeRatingRepository extends JpaRepository<OutcomeRatingEnti
      * @param forecastRunAt        the served forecast's submission instant, or null
      * @param forecastEvaluationId the resolved {@code forecast_evaluation} row, or null
      * @param forecastRating       the star the reader saw, or null
-     * @param appBuild             the release writing the row (V179), or null
+     * @param appBuild             the release writing the row (V182), or null
      * @param now                  stamped as both {@code created_at} and {@code updated_at}
      * @return rows inserted (1)
      */
@@ -101,7 +101,7 @@ public interface OutcomeRatingRepository extends JpaRepository<OutcomeRatingEnti
      * @param forecastRunAt        the served forecast's submission instant, or null
      * @param forecastEvaluationId the resolved {@code forecast_evaluation} row, or null
      * @param forecastRating       the star the reader saw, or null
-     * @param appBuild             the release writing the row (V179), replacing the earlier one
+     * @param appBuild             the release writing the row (V182), replacing the earlier one
      * @param now                  the new {@code updated_at}
      * @return 1 when the row was updated; 0 when there is no such row
      */

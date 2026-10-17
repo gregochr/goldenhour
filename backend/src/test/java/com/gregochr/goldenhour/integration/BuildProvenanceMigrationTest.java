@@ -13,7 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Proves V179 against a real Postgres: {@code forecast_evaluation} gains the nullable
+ * Proves V182 against a real Postgres: {@code forecast_evaluation} gains the nullable
  * {@code app_build VARCHAR(40)} and {@code prompt_hash VARCHAR(64)}, {@code outcome_rating} gains the
  * nullable {@code app_build VARCHAR(40)}, and a row written without them reads NULL (no backfill, no
  * default).
@@ -65,7 +65,7 @@ class BuildProvenanceMigrationTest extends IntegrationTestBase {
     @DisplayName("a forecast row written without them reads NULL, and the columns hold what is stamped")
     void freshRowReadsNullAndStampedRowKeepsValues() {
         Long location = jdbc.queryForObject(
-                "INSERT INTO locations (name, lat, lon) VALUES ('V179 Test Hill', 55.0, -1.5) RETURNING id",
+                "INSERT INTO locations (name, lat, lon) VALUES ('V182 Test Hill', 55.0, -1.5) RETURNING id",
                 Long.class);
         Long bare = jdbc.queryForObject(
                 "INSERT INTO forecast_evaluation (location_id, location_lat, location_lon, target_date, "
@@ -92,7 +92,7 @@ class BuildProvenanceMigrationTest extends IntegrationTestBase {
     @DisplayName("a value wider than the column is refused, which is why AppBuild cuts to 40 first")
     void overWideValueIsRefused() {
         Long location = jdbc.queryForObject(
-                "INSERT INTO locations (name, lat, lon) VALUES ('V179 Wide Hill', 55.0, -1.5) RETURNING id",
+                "INSERT INTO locations (name, lat, lon) VALUES ('V182 Wide Hill', 55.0, -1.5) RETURNING id",
                 Long.class);
 
         assertThatThrownBy(() -> jdbc.update(

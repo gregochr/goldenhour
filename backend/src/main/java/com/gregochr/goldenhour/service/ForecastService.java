@@ -112,7 +112,7 @@ public class ForecastService {
      * @param clock                   supplies "today" for the {@code daysAhead} horizon, resolved in
      *                                {@code Europe/London} by {@link ForecastHorizon}
      * @param appBuild                the running build, stamped on every row that gets a rating or a
-     *                                triage reason (V179)
+     *                                triage reason (V182)
      */
     public ForecastService(SolarService solarService, OpenMeteoService openMeteoService,
             ForecastDataAugmentor augmentor, EvaluationService evaluationService,
@@ -794,7 +794,7 @@ public class ForecastService {
 
     /**
      * Marks an unsaved row as a stand-down: attaches the triage reason and stamps {@code scoredAt}
-     * (V178) and the running build (V179), because a triage reason is something to say — the reader
+     * (V178) and the running build (V182), because a triage reason is something to say — the reader
      * saw it as the slot's decision — and the row is saved with it, never without. The three triage
      * sites and the sentinel skip all go through here so none can forget the stamp.
      */

@@ -85,7 +85,7 @@ class OutcomeRatingStoreTest {
         assertThat(row.getForecastRunAt()).isEqualTo(RUN_AT);
         assertThat(row.getForecastEvaluationId()).isEqualTo(99L);
         assertThat(row.getForecastRating()).isEqualTo(4);
-        assertThat(row.getAppBuild()).as("V179: the release that wrote the rating").isEqualTo(BUILD);
+        assertThat(row.getAppBuild()).as("V182: the release that wrote the rating").isEqualTo(BUILD);
         assertThat(row.getCreatedAt()).isEqualTo(T1);
         assertThat(row.getUpdatedAt()).isEqualTo(T1);
     }

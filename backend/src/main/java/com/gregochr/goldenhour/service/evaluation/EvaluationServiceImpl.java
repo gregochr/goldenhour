@@ -169,7 +169,7 @@ public class EvaluationServiceImpl implements EvaluationService {
         List<BatchCreateParams.Request> requests = new ArrayList<>(tasks.size());
         // evalRowId -> the sky user message that went into that row's request (batch SKY lane only).
         Map<Long, String> skyPrompts = new java.util.LinkedHashMap<>();
-        // system-prompt hash -> the evalRowIds whose request carried that prompt (V179).
+        // system-prompt hash -> the evalRowIds whose request carried that prompt (V182).
         Map<String, List<Long>> skyPromptHashes = new java.util.LinkedHashMap<>();
         for (EvaluationTask.Forecast task : tasks) {
             Long locationId = task.location().getId();
@@ -202,7 +202,7 @@ public class EvaluationServiceImpl implements EvaluationService {
                 }
             }
         }
-        // V179: stamped BEFORE the batch exists. submit() publishes its SUBMITTED row before it
+        // V182: stamped BEFORE the batch exists. submit() publishes its SUBMITTED row before it
         // returns, so a batch that completes quickly (or an adopted one that already has) can be
         // polled and its row scored by ForecastResultHandler (a full-entity save) before any
         // post-submit stamp ran, which would then write the stale null back. A submission that then

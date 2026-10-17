@@ -89,7 +89,7 @@ class OutcomeRatingRepositoryTest {
     }
 
     @Test
-    @DisplayName("V179: insertRow stores the build, a null build stores NULL, and updateRow replaces it")
+    @DisplayName("V182: insertRow stores the build, a null build stores NULL, and updateRow replaces it")
     void appBuild_isStoredAndReplaced() {
         Instant at = Instant.parse("2026-10-14T08:00:00Z");
         insert(alice, LOCATION, DAY, TargetType.SUNRISE, 4, at);

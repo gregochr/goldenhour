@@ -157,7 +157,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      * @param clock                     stamps {@code forecast_evaluation.scored_at} (V178) when a
      *                                  {@code PENDING} row is scored in place
      * @param appBuild                  the running build, stamped as
-     *                                  {@code forecast_evaluation.app_build} (V179) with the same
+     *                                  {@code forecast_evaluation.app_build} (V182) with the same
      *                                  instant
      */
     public ForecastResultHandler(BriefingEvaluationService briefingEvaluationService,
@@ -744,7 +744,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             // batch, a restart's recovery) must not move a row that was available before an event to
             // after it.
             entity.setScoredAt(clock.instant());
-            // V179: the build that scored the row, stamped with the same instant and guard so a
+            // V182: the build that scored the row, stamped with the same instant and guard so a
             // re-processed result keeps the build that first made the row available.
             entity.setAppBuild(appBuild.value());
         }
