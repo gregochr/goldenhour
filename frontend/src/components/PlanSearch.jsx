@@ -351,6 +351,7 @@ export default function PlanSearch({
                     {row.figure && (
                       <span className="wf-search-fig">
                         <b className="wf-search-fig-v">{row.figure.value}</b>
+                        {row.figure.reason && <span className="sr-only">{row.figure.reason}</span>}
                         <span className="wf-search-fig-c">{row.figure.caption}</span>
                       </span>
                     )}
