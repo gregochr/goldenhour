@@ -173,8 +173,12 @@ the guard.
 - `AskSnapshot.Slot` gains `boolean neighbourOutlier` (a 9-argument constructor stays, passing
   false); `AskSnapshotBuilder.toSlot` reads `Boolean.TRUE.equals(slot.neighbourOutlier())`.
 - `isPickEligible` adds `!slot.neighbourOutlier()`.
-- `AskSnapshot.Window` (or `windowInfo`) reports `bestRating` as the highest rating among the window's
-  pick-eligible slots, null when there are none.
+- `windowInfo`'s `bestRating` is the window's existing maximum (the population
+  `PlanWindowProjector.bestRating` uses today: every non-canopy regioned slot's usable rating, any
+  region, any rating) with only the neighbour outliers left out, so it differs from the served figure
+  only when an outlier was the best. It is NOT derived from `isPickEligible`, which would also drop
+  verdict-ineligible regions, sub-3★ slots and all-canopy windows and could turn a valid figure into
+  null. `AskSnapshot.Window` carries the adjusted figure; nothing else reads it.
 - **Wording.** An earlier thread pick that is now an outlier re-joins with its own line, "· held back:
   rated well above the places beside it", tested before the generic not-eligible branch in
   `AskThreadContext`'s pick line (its rating has not fallen, so "no longer rated well enough to pick"
@@ -298,16 +302,25 @@ missed by the same-cell rule, which finds no neighbour for it. Elevation is set 
 enabled sky places (min 40 m, max 815 m; 45 at 200 m or more), all ten Hadrian's Wall sites among
 them.
 
-**The served cache** (`serve-guard.sql`, the rule applied to `cached_evaluation` as the app serves it:
-one result per place per window, whatever run or model wrote it, across regions), 18 windows from
-10 to 18 October: every rated sky slot carried a `skyRating` (100% coverage). With one neighbour
-allowed, 0–2 flags a window (Berwick-upon-Tweed and Cocklawburn 3 against Spittal 1, Egton Lone Tree 4
-against 2, Ullswater South Shore 4 against Aira Force 2, Newbiggin 3 against Cambois 1: each with
-exactly one neighbour). **Under the plan's rule, 0.** The served cache by then held the re-scored
-Sonnet ratings for the Caw Gap window.
+**The served ratings** (`serve-guard.sql`, the rule applied to what the app serves: for each place and
+window, the cached result or the newer stored row by the app's own precedence, each dropped when a
+later stability skip retracts it, one result per place per window whatever run or model wrote it,
+across regions; the honesty filter is not modelled, and it only removes places). A first version read
+the raw cache alone; Codex's review of the plan PR pointed out that the guard sees the merged result,
+and the numbers below are the merged ones. They describe the stored data as it stands on 17 October
+(each window's latest state), not each window as it was served on the day. 18 windows from
+10 to 18 October: every rated sky slot carried a `skyRating` once a row-served result passes its
+`sky_rating` through (G1a). **Under the plan's rule, 0 flags; with one witness allowed, also 0.** The
+measure is not blind: with the margin loosened to 1 it flags 0–6 places a window (Saltwick Bay and
+Sandsend 3 against 2, Ingleton Waterfalls 4 against 3, …). Read on the raw cache alone (the first
+version), one-witness flags were 0–2 a window (Berwick-upon-Tweed, Cocklawburn, Egton Lone Tree,
+Ullswater South Shore, Newbiggin, each with exactly one neighbour), which the merge resolves: a newer
+row or a retraction had replaced each one. The served data by then held the re-scored Sonnet ratings
+for the Caw Gap window.
 
 So at the defaults the guard raised 6 flags in 16 Haiku FAR runs (about one every two or three
-nights) and none in 36 Sonnet runs or 18 served windows. The stored-row proxy groups by run hour, model and horizon, which the served cache does not;
+nights) on the stored rows, and none in 36 Sonnet runs or in the 18 served windows. It will be quiet
+on Sonnet-rated windows and catch the occasional Haiku FAR outlier, which is the job. The stored-row proxy groups by run hour, model and horizon, which the served cache does not;
 the served-cache measure is the one the defaults rest on.
 
 ## 8. Known limits
@@ -333,8 +346,8 @@ The draft was reviewed by three read-only agents (code seams; product behaviour;
 measurement). Adopted: a minimum of two neighbours and an elevation test, made asymmetric in a second round
 (one-neighbour flags carry no evidence of which rating is wrong; a nearby place supports a high
 rating at any height, but only places at a similar height may count against it, so a fell top above
-an inversion is not outvoted by the valley); a serve-time measurement over
-`cached_evaluation` in place of the stored-row proxy alone; the "no clear pick" state (the draft's
+an inversion is not outvoted by the valley); a serve-time measurement of the merged served ratings (cache or newer row, with retraction; the
+raw-cache version was corrected after Codex's review) beside the stored-row proxy; the "no clear pick" state (the draft's
 fall-through would have printed "not scored yet" over rated bars); the popup header, search figure
 and dawn-race fallback; a rating floor after a `topSlot` skip; Ask's `bestRating` and its held-back
 wording; the new wither and the wither-preservation test; `GeoUtils` with a prefilter instead of a

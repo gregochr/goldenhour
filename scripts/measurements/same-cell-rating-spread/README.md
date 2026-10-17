@@ -46,7 +46,7 @@ cat $D/serve-guard.sql                         | ssh dockermacmini "$R -v since=
 | `guard-candidates.sql` | a rated row with at least one near-twin | how many 3★+ ratings sit 2+ stars above every near-twin (what a neighbour guard would flag) |
 | `far-cost.sql` | a successful batch sky call (`custom_id` `fc-…`) in `api_call_log` | calls a day and cost a call, by model × horizon |
 | `guard-tuning.sql` | a rated row with a `sky_rating` | how many the neighbour guard would flag at each radius (and same cell), and at 5 km with at least two neighbours |
-| `serve-guard.sql` | a SERVED result in `cached_evaluation` (one per place per window, any run or model, across regions) | the guard's rule as the app would apply it: rated slots, `skyRating` coverage, flags with one and with two neighbours, and which places |
+| `serve-guard.sql` | a SERVED result: the cached result or the newer stored row by the app's precedence, each dropped when a later stability skip retracts it (one per place per window, any run or model, across regions) | the guard's rule as the app would apply it: rated slots, `skyRating` coverage, flags with one and with two witnesses, and which places |
 
 ## Definitions that matter
 
