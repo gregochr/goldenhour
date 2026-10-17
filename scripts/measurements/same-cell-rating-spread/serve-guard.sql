@@ -39,8 +39,10 @@ JOIN sky_place p ON p.name = r ->> 'locationName'
 JOIN regions g ON g.id = p.region_id AND g.name = c.region_name
 WHERE c.evaluation_date >= CAST(:'since' AS DATE) AND c.target_type IN ('SUNRISE', 'SUNSET');
 
--- The latest non-PENDING row per slot, exactly ONE: the app keeps the first of tied rows in the
--- query's order, which the query does not fix within a tie, so this takes the lowest id.
+-- The latest non-PENDING row per slot, exactly ONE. On a tie (two rows with the same forecast_run_at)
+-- the app keeps whichever the database returns first, which its query does not fix, so no script can
+-- mirror it exactly; this takes the lowest id. Ties do not occur in practice: over 17 Aug - 17 Oct 2026
+-- no SUNRISE/SUNSET slot had two latest rows (checked 2026-10-17), so the choice changes no count.
 CREATE TEMP VIEW row_src AS
 SELECT id, d, t, rating, sky, triage_reason, written FROM (
   SELECT e.location_id AS id, e.target_date AS d, e.target_type AS t, e.rating, e.sky_rating AS sky,
