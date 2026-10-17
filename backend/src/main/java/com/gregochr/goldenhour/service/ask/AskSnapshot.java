@@ -110,7 +110,8 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
      * @param targetType SUNRISE or SUNSET
      * @param eventTime  the window's served event time (UTC), or null
      * @param verdict    the window's served verdict
-     * @param bestRating the window's served best rating, or null
+     * @param bestRating the window's served best rating with any neighbour outlier left out (the very
+     *                   figure when none is marked), or null
      * @param pick       the window's served forecast-wide pick (BEST BET or ALSO GOOD), or null
      * @param regions    the window's regions
      */

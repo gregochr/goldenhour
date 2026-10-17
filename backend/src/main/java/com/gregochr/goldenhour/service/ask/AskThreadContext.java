@@ -142,7 +142,6 @@ final class AskThreadContext {
         }
         // A pick named twice is offered if it is offered at all: nothing is both.
         dropped.removeAll(offered);
-        heldBack.removeAll(offered);
         ThreadFact fact = new ThreadFact(offered, dropped, new LinkedHashSet<>(live.values()), turnedDownIds,
                 heldBack);
         return new AskThreadContext(thread, fact, live, snapshot, scope, tools, names, canSeeAurora);

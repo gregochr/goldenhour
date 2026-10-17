@@ -40,7 +40,7 @@ class AskNeighbourOutlierTest {
 
     private static final String SUNSET_TODAY = "2026-10-05_sunset";
     private static final String GONE_MISSING = "those places are no longer in the forecast";
-    private static final String HELD_BACK_MISSING = "those places rate well above their neighbours";
+    private static final String HELD_BACK_MISSING = "a trustworthy rating for those places";
     private static final AskUserContext PRO = new AskUserContext(7L, UserRole.PRO_USER, true);
 
     private final ObjectMapper mapper = new ObjectMapper();
@@ -163,11 +163,84 @@ class AskNeighbourOutlierTest {
     }
 
     @Test
-    @DisplayName("the thread rules tell the model a held-back place is never to be described as rated low")
+    @DisplayName("the thread rules permit one explanation of a held-back place and forbid calling it low, "
+            + "poor or unreliable or quoting its star - and a fresh question's prompt never carries them")
     void promptRule_namesHeldBack() {
-        assertThat(AskPromptBuilder.THREAD_RULES)
-                .contains("held back")
-                .contains("never describe it as rated low");
+        String rules = AskPromptBuilder.THREAD_RULES.replaceAll("\\s+", " ");
+        AskPromptBuilder builder = new AskPromptBuilder();
+
+        assertThat(rules)
+                .contains("say only that a held-back place is not being suggested because its rating is "
+                        + "out of line with the places beside it")
+                .contains("never call it low, poor or unreliable, and do not quote its star");
+        assertThat(builder.systemPrompt(TODAY, AskScope.ALL, null, true, false))
+                .doesNotContain("held back").doesNotContain("held-back");
+        assertThat(builder.systemPrompt(TODAY, AskScope.ALL, null, true, true))
+                .endsWith(AskPromptBuilder.THREAD_RULES);
+    }
+
+    @Test
+    @DisplayName("a marked pick whose window has passed reads as gone, not held back")
+    void thread_markedButWindowGone_readsAsGone() {
+        AskThread passed = new AskThread(List.of(new ThreadExchange("anything?", "Caw Gap.",
+                List.of(new PickRef(1L, "2026-10-04_sunset")), List.of(), GENERATED_AT, false)));
+
+        AskThreadContext context = context(passed, snapshotOf(wall(true)));
+
+        assertThat(context.exchanges().getFirst().pickLines())
+                .containsExactly("1. a place no longer listed · no longer in the forecast");
+        assertThat(context.fact().heldBack()).isEmpty();
+        assertThat(context.fact().droppedPicks()).containsExactly(new Pair(1L, "2026-10-04_sunset"));
+    }
+
+    // -- the rank_spots note ----------------------------------------------------------------
+
+    private AskToolResult<AskTools.RankSpotsResult> rank(AskTools tools, String... regionNames) {
+        return tools.rankSpots(new AskTools.RankSpotsArgs(null, regionNames.length == 0 ? null
+                : List.of(regionNames), null, null, null, 8));
+    }
+
+    @Test
+    @DisplayName("rank_spots says how many places the guard withheld - never which: no name, id or star")
+    void rankSpots_notesTheCountNotTheNames() {
+        AskToolResult<AskTools.RankSpotsResult> result = rank(tools(snapshotOf(wall(true))));
+
+        assertThat(result.payload().note()).isEqualTo(
+                "1 place in these windows is rated well above the places beside it and is not offered.");
+        assertThat(result.content()).doesNotContain("Caw Gap").doesNotContain("\"locationId\":1,");
+    }
+
+    @Test
+    @DisplayName("the count is of distinct places, pluralised, and absent when the guard withheld nothing")
+    void rankSpots_noteCountAndAbsence() {
+        BriefingRegion two = AskFixtures.region("Wall", true,
+                AskFixtures.outlier(AskFixtures.slot(1L, "Caw Gap", 4)),
+                AskFixtures.outlier(AskFixtures.slot(5L, "Peel Crags", 4)),
+                AskFixtures.slot(4L, "Housesteads", 3));
+        BriefingRegion none = AskFixtures.region("Wall", true, AskFixtures.slot(4L, "Housesteads", 3));
+
+        assertThat(rank(tools(snapshotOf(two))).payload().note()).isEqualTo(
+                "2 places in these windows are rated well above the places beside them and are not offered.");
+        assertThat(rank(tools(snapshotOf(none))).payload().note()).isNull();
+    }
+
+    @Test
+    @DisplayName("the note is added to the empty-list note, and only for places in the scope and regions "
+            + "searched")
+    void rankSpots_noteRespectsScopeAndRegions() {
+        BriefingRegion onlyMarked = AskFixtures.region("Wall", true,
+                AskFixtures.outlier(AskFixtures.slot(1L, "Caw Gap", 4)));
+        BriefingRegion hills = AskFixtures.region("Hills", true, AskFixtures.slot(9L, "Hill Top", 3));
+        AskSnapshot snapshot = snapshotOf(onlyMarked, hills);
+
+        assertThat(rank(tools(snapshotOf(onlyMarked))).payload().note()).isEqualTo(
+                "Nothing rated 3★ or better in scope. 1 place in these windows is rated well above the "
+                        + "places beside it and is not offered.");
+        assertThat(rank(new AskTools(snapshot, AskUserContext.userLess(), TestScopes.of("Hills"), driveTimes,
+                mapper)).payload().note()).as("the marked place is outside the scope").isNull();
+        assertThat(rank(tools(snapshot), "Hills").payload().note())
+                .as("the marked place is outside the regions asked for").isNull();
+        assertThat(rank(tools(snapshot), "Wall").payload().note()).isNotNull();
     }
 
     // -- the stale-thread can't-answer ------------------------------------------------------
@@ -188,7 +261,7 @@ class AskNeighbourOutlierTest {
         assertThat(result.answer().answerable()).isFalse();
         assertThat(result.answer().missing()).isEqualTo(HELD_BACK_MISSING);
         assertThat(result.answer().summary()).isEqualTo("The places from your earlier answers are rated well "
-                + "above the places beside them, so none can be suggested.");
+                + "above the places beside them, so PhotoCast is not suggesting them.");
     }
 
     @Test
@@ -201,7 +274,7 @@ class AskNeighbourOutlierTest {
         Result mixedResult = staleResult(mixed, 1L, 7L);
         Result noneResult = staleResult(none, 1L, 7L);
 
-        assertThat(mixedResult.answer().missing()).isEqualTo("those places can no longer be picked");
+        assertThat(mixedResult.answer().missing()).isEqualTo("those places as suggestions");
         assertThat(mixedResult.answer().summary())
                 .isEqualTo("The places from your earlier answers can no longer be suggested.");
         assertThat(noneResult.answer().missing()).isEqualTo(GONE_MISSING);

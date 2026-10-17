@@ -71,16 +71,22 @@ public class AskAnswerValidator {
     static final String STALE_THREAD_SUMMARY =
             "The places from your earlier answers are no longer in the forecast.";
 
-    /** The {@code missing} phrase when every earlier place is held back by the neighbour guard (7 words). */
-    static final String HELD_BACK_MISSING = "those places rate well above their neighbours";
+    /**
+     * The {@code missing} phrase when every earlier place is held back by the neighbour guard (6 words).
+     * The client reads it after "PhotoCast doesn't have:", so it is a noun phrase.
+     */
+    static final String HELD_BACK_MISSING = "a trustworthy rating for those places";
 
     /** The summary of that can't-answer: ours, and true, since the places are still in the forecast. */
     static final String HELD_BACK_SUMMARY =
             "The places from your earlier answers are rated well above the places beside them, "
-                    + "so none can be suggested.";
+                    + "so PhotoCast is not suggesting them.";
 
-    /** The {@code missing} phrase when some earlier places are held back and some are gone (7 words). */
-    static final String MIXED_STALE_MISSING = "those places can no longer be picked";
+    /**
+     * The {@code missing} phrase when some earlier places are held back and some are gone (4 words); a
+     * noun phrase for the client's "PhotoCast doesn't have:" frame.
+     */
+    static final String MIXED_STALE_MISSING = "those places as suggestions";
 
     /** The summary of that can't-answer: ours, true of both reasons. */
     static final String MIXED_STALE_SUMMARY =
