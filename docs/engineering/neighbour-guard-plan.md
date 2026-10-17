@@ -73,7 +73,7 @@ Every surface that NAMES one place as the best:
 |---|---|---|
 | Ask pick eligibility (`AskSnapshot.isPickEligible`), and through it `rank_spots`, the answer validator, the thread re-join, the Ready freshness re-check, `ReadyRelevance`, `ReadyQuestion`'s anchors and the stub | rating ≥ 3 in a verdict-eligible region | also not a neighbour outlier |
 | Ask's `list_windows` (`AskTools.windowInfo`) `bestRating` | the window's served best, which includes the outlier | the same figure over the same slots with neighbour outliers left out (verdict-ineligible regions still count, as today), so the model is never told "up to 4★" beside a 3★ list |
-| The served BEST BET / ALSO GOOD destination (`PlanWindowProjector.topSlot`), and through it the pick dialog's "Open <name> on map", `GET /api/briefing/digest`'s window pick and Ask's `windowInfo` pick | the region's highest-rated slot | the highest-rated slot that is not an outlier; if the top slot WAS an outlier, the next must be rated ≥ `min-rating`, else the pick names the region only (destination null, which every consumer already handles) |
+| The served BEST BET / ALSO GOOD destination (`PlanWindowProjector.topSlot`), and through it the pick dialog's "Open <name> on map", `GET /api/briefing/digest`'s window pick and Ask's `windowInfo` pick | the region's highest-rated slot | the highest-rated slot that is not an outlier; if the top slot WAS an outlier, the next must be rated at least the fixed **named floor** of 3 (§4), else the pick names the region only (destination null, which every consumer already handles) |
 | The Plan card's best-reachable line (`windowFirstCards.js` `bestReach`), its popup header "best N★ within reach", the search row's figure (`planSearch.js`) and the strip thumbnail copy (`windowFirstStrip.js`) | the head of the reach pool | the first pool member that is not an outlier; if an outlier was skipped and that member is rated below 3, or none is rated, a new **"no clear pick"** state (§4 G3) |
 | The dawn-race caption (`WindowSheetDialog.jsx`, `raceSpot`) | `bestReach`, else `spots[0]` | `bestReach`, else the first spot that is not an outlier |
 
@@ -143,8 +143,12 @@ the guard.
   roster read per serve. At most one extra query a minute; it sits outside CLAUDE.md's
   scoped re-enrichment query counts, which stay as they are, and the BUILD count (8) is unchanged.
   A location moved or disabled within the minute is judged on its old point once.
-- **`PlanWindowProjector.topSlot`** skips an outlier; if it skipped one, the next must be rated ≥
-  `min-rating`, else null. `BriefingWindow.Pick.locationName`'s javadoc ("must match the slot the
+- **`PlanWindowProjector.topSlot`** skips an outlier; if it skipped one, the next must be rated at
+  least the **named floor**, else null. The named floor is a fixed constant, 3 (Ask's
+  `MIN_PICK_RATING`, the least rating any surface will name as a pick), and deliberately NOT the
+  configurable `min-rating`: the client applies the same floor in G3, and a configurable server floor
+  would let the BEST BET pick and the best-reachable line disagree about the same window. It lives in
+  one Java constant, mirrored by one client constant with a comment naming its twin. `BriefingWindow.Pick.locationName`'s javadoc ("must match the slot the
   header star came from", "or null when none is rated"), `topSlot`'s, and `WindowPickDialog.jsx`'s
   comment ("Omitted… when the region has nothing rated") are updated: the destination is the best
   slot that is not an outlier, and a null destination now happens on ordinary windows. Every
@@ -196,7 +200,8 @@ the guard.
 
 - `windowFirstSpots.buildWindowSpots` copies `neighbourOutlier` (true or absent) onto each spot.
 - `windowFirstCards` picks `bestReach` as the first spot of the reach pool that has a rating and is
-  not an outlier; if an outlier was skipped and that spot is rated below 3, `bestReach` is null and
+  not an outlier; if an outlier was skipped and that spot is rated below the named floor (3, the same
+constant as the server's `topSlot`), `bestReach` is null and
   the card carries `bestReachWithheld: true`. The pool, the histogram and every count are unchanged.
   A filter over a served flag: the already-licensed filter/map/select class of CLAUDE.md's
   Backend-heavy bullet.

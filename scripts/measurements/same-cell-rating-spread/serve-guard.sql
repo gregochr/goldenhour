@@ -13,16 +13,17 @@
 -- and either untyped (the app briefs an untyped place as an ordinary sky place) or with an open-sky
 -- type. A place whose types are only WOODLAND, BLUEBELL or WILDLIFE stands in for a canopy slot.
 CREATE TEMP VIEW sky_place AS
-SELECT l.id, l.name, l.lat, l.lon, l.elevation_m AS elev
+SELECT l.id, l.name, l.lat, l.lon, l.elevation_m AS elev, l.region_id
 FROM locations l
 WHERE l.enabled AND l.region_id IS NOT NULL
   AND (NOT EXISTS (SELECT 1 FROM location_location_type t WHERE t.location_id = l.id)
        OR EXISTS (SELECT 1 FROM location_location_type t WHERE t.location_id = l.id
                   AND t.location_type IN ('LANDSCAPE', 'SEASCAPE', 'WATERFALL')));
 
--- One cached result per place and window. The app reads a place under its CURRENT region only; a
--- place that changed region can leave an entry under the old one, so this keeps the newest entry.
-CREATE TEMP VIEW cache_all AS
+-- One cached result per place and window, read under the place's CURRENT region only, as
+-- EvaluationViewService builds its cache key: an entry left under an old or renamed region is never
+-- read by the app, so it is never read here.
+CREATE TEMP VIEW cache_src AS
 SELECT p.id, c.evaluation_date AS d, c.target_type AS t,
        CAST(r ->> 'rating' AS INTEGER) AS rating, CAST(r ->> 'skyRating' AS INTEGER) AS sky,
        -- evaluatedAt is written by the Jackson 2 mapper as epoch seconds; an ISO string is read too.
@@ -35,12 +36,8 @@ SELECT p.id, c.evaluation_date AS d, c.target_type AS t,
 FROM cached_evaluation c
 CROSS JOIN LATERAL json_array_elements(CAST(c.results_json AS json)) AS r
 JOIN sky_place p ON p.name = r ->> 'locationName'
+JOIN regions g ON g.id = p.region_id AND g.name = c.region_name
 WHERE c.evaluation_date >= CAST(:'since' AS DATE) AND c.target_type IN ('SUNRISE', 'SUNSET');
-
-CREATE TEMP VIEW cache_src AS
-SELECT id, d, t, rating, sky, written FROM (
-  SELECT a.*, ROW_NUMBER() OVER (PARTITION BY id, d, t ORDER BY written DESC) AS rn FROM cache_all a) x
-WHERE rn = 1;
 
 -- The latest non-PENDING row per slot, exactly ONE: the app keeps the first of tied rows in the
 -- query's order, which the query does not fix within a tie, so this takes the lowest id.
@@ -83,29 +80,34 @@ CROSS JOIN LATERAL (SELECT ok.cache_ok AND (NOT ok.row_ok OR c.written IS NULL O
 WHERE (ok.cache_ok OR ok.row_ok)
   AND (CASE WHEN c_live THEN c.rating ELSE r.rating END) IS NOT NULL;
 
+-- One statement with MATERIALIZED stages, so the merge runs once (as views, the correlated counts
+-- re-ran it per window and the query took minutes on production).
 -- nb_hi: the highest neighbour at ANY height (a supporter can stand anywhere); nb: neighbours at a
 -- similar height (both elevations unknown, or both known and within 150 m), the possible witnesses.
-CREATE TEMP VIEW served_hi AS
-SELECT a.d, a.t, a.id, a.name, a.sky, MAX(b.sky) AS nb_hi,
-       SUM(CASE WHEN (a.elev IS NULL AND b.elev IS NULL)
-                  OR (a.elev IS NOT NULL AND b.elev IS NOT NULL AND ABS(a.elev - b.elev) <= 150)
-                THEN 1 ELSE 0 END) AS nb
-FROM served a
-JOIN served b
-  ON b.d = a.d AND b.t = a.t AND b.id <> a.id AND b.sky IS NOT NULL
- AND 111.32 * SQRT((a.lat - b.lat) ^ 2 + ((a.lon - b.lon) * COS(RADIANS((a.lat + b.lat) / 2))) ^ 2)
-     <= CAST(:'km' AS DOUBLE PRECISION)
-WHERE a.sky IS NOT NULL
-GROUP BY a.d, a.t, a.id, a.name, a.sky;
-
+WITH sv AS MATERIALIZED (SELECT * FROM served),
+hi AS MATERIALIZED (
+  SELECT a.d, a.t, a.id, a.name, a.sky, MAX(b.sky) AS nb_hi,
+         SUM(CASE WHEN (a.elev IS NULL AND b.elev IS NULL)
+                    OR (a.elev IS NOT NULL AND b.elev IS NOT NULL AND ABS(a.elev - b.elev) <= 150)
+                  THEN 1 ELSE 0 END) AS nb
+  FROM sv a
+  JOIN sv b
+    ON b.d = a.d AND b.t = a.t AND b.id <> a.id AND b.sky IS NOT NULL
+   AND ABS(a.lat - b.lat) < 0.1 AND ABS(a.lon - b.lon) < 0.2
+   AND 111.32 * SQRT((a.lat - b.lat) ^ 2 + ((a.lon - b.lon) * COS(RADIANS((a.lat + b.lat) / 2))) ^ 2)
+       <= CAST(:'km' AS DOUBLE PRECISION)
+  WHERE a.sky IS NOT NULL
+  GROUP BY a.d, a.t, a.id, a.name, a.sky),
+flags AS (
+  SELECT d, t,
+         SUM(CASE WHEN sky >= 3 AND nb >= 1 AND sky - nb_hi >= 2 THEN 1 ELSE 0 END) AS flagged_1w,
+         SUM(CASE WHEN sky >= 3 AND nb >= 2 AND sky - nb_hi >= 2 THEN 1 ELSE 0 END) AS flagged,
+         STRING_AGG(CASE WHEN sky >= 3 AND nb >= 1 AND sky - nb_hi >= 2
+                         THEN name || ' ' || sky || ' vs ' || nb_hi || ' (' || nb || ')' END, '; ') AS which
+  FROM hi GROUP BY d, t)
 SELECT s.d, s.t, COUNT(*) AS rated, COUNT(s.sky) AS with_sky,
-       (SELECT COUNT(*) FROM served_hi h WHERE h.d = s.d AND h.t = s.t
-          AND h.sky >= 3 AND h.nb >= 1 AND h.sky - h.nb_hi >= 2) AS flagged_1w,
-       (SELECT COUNT(*) FROM served_hi h WHERE h.d = s.d AND h.t = s.t
-          AND h.sky >= 3 AND h.nb >= 2 AND h.sky - h.nb_hi >= 2) AS flagged,
-       (SELECT STRING_AGG(h.name || ' ' || h.sky || ' vs ' || h.nb_hi || ' (' || h.nb || ')', '; ' ORDER BY h.name)
-          FROM served_hi h WHERE h.d = s.d AND h.t = s.t
-          AND h.sky >= 3 AND h.nb >= 1 AND h.sky - h.nb_hi >= 2) AS which
-FROM served s
+       COALESCE(MAX(f.flagged_1w), 0) AS flagged_1w, COALESCE(MAX(f.flagged), 0) AS flagged,
+       MAX(f.which) AS which
+FROM sv s LEFT JOIN flags f ON f.d = s.d AND f.t = s.t
 GROUP BY s.d, s.t
 ORDER BY s.d, s.t;
