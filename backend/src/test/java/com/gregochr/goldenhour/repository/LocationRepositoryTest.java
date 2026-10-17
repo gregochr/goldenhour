@@ -364,6 +364,26 @@ class LocationRepositoryTest {
                 .getConsecutiveFailures()).isEqualTo(2);
     }
 
+    @Test
+    @DisplayName("findEnabledPoints projects id, coordinates and elevation of enabled locations only")
+    void findEnabledPoints_returnsEnabledLocationsOnly() {
+        LocationEntity fell = buildLocation("Latrigg", 54.6, -3.12);
+        fell.setElevationMetres(368);
+        LocationEntity fellSaved = repository.save(fell);
+        LocationEntity beachSaved = repository.save(buildLocation("Bamburgh", 55.609, -1.71));
+        LocationEntity disabled = buildLocation("Retired", 55.0, -2.0);
+        disabled.setEnabled(false);
+        repository.save(disabled);
+        entityManager.flush();
+        entityManager.clear();
+
+        List<LocationPoint> points = repository.findEnabledPoints();
+
+        assertThat(points).containsExactlyInAnyOrder(
+                new LocationPoint(fellSaved.getId(), 54.6, -3.12, 368),
+                new LocationPoint(beachSaved.getId(), 55.609, -1.71, null));
+    }
+
     private LocationEntity buildLocation(String name, double lat, double lon) {
         return LocationEntity.builder()
                 .name(name)

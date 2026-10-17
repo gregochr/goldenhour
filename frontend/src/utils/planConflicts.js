@@ -91,7 +91,14 @@ function helpfulTier(cards, tierId) {
   return null;
 }
 
-/** The window this plan's best reachable rating is in, and the spot that carries it. */
+/**
+ * The plan's best reachable rating, the window it is in, and the place that carries it.
+ *
+ * <p>The FIGURE is the forecast and counts every pooled spot, outliers included. The NAME is a
+ * recommendation, so it goes to the first spot (card order, pool order) that carries the figure and
+ * is not a served {@code neighbourOutlier} (neighbour-guard-plan.md §3); {@code spot} is null when
+ * only outliers carry it, and the window is then the first one that does.
+ */
 function ceilingOf(cards) {
   let best = null;
   for (const card of cards) {
@@ -100,7 +107,14 @@ function ceilingOf(cards) {
       if (best === null || spot.rating > best.rating) best = { rating: spot.rating, spot, card };
     }
   }
-  return best;
+  if (best === null || best.spot.neighbourOutlier !== true) return best;
+  for (const card of cards) {
+    const named = (card?.pool || []).find(
+      (spot) => spot?.rating === best.rating && spot.neighbourOutlier !== true,
+    );
+    if (named) return { rating: best.rating, spot: named, card };
+  }
+  return { rating: best.rating, spot: null, card: best.card };
 }
 
 /** `Tomorrow sunset 20:41` → the phrase a body line can end on, lower-cased where it should be. */
@@ -229,7 +243,7 @@ export function buildPlanConflict({
     id: 'rating',
     headline: `Nothing at ${floorLabel} anywhere in ${scopeName(origin)} this week.`,
     body: ceiling
-      ? `The best on offer${gatingTierLabel && limitMinutes != null ? ` within ${gatingTierLabel.toLowerCase()}` : ''} is ${ceiling.rating}★ — ${ceiling.spot.locationName}, ${windowPhrase(ceiling.card)}.`
+      ? `The best on offer${gatingTierLabel && limitMinutes != null ? ` within ${gatingTierLabel.toLowerCase()}` : ''} is ${ceiling.rating}★ — ${ceiling.spot ? `${ceiling.spot.locationName}, ` : ''}${windowPhrase(ceiling.card)}${ceiling.spot ? '' : ', with no one place named'}.`
       // Not "none good enough" — nothing has been scored at all, which is the ordinary state on a
       // far-horizon plan and a different fact from a low ceiling. The distinction
       // `windowLensEmpty.js` drew per card, kept here. The reach word only where reach acted.

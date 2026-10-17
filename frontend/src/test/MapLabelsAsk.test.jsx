@@ -276,6 +276,19 @@ describe('choosing a pick from the map', () => {
     expect(onSelectAskPick).not.toHaveBeenCalled();
   });
 
+  it('⚠️ takes focus itself on a press that did not give it (Safari, iOS), so Escape still reaches the pane', async () => {
+    restoreMeasure = withMeasuredLabels(60, 14);
+    currentMap = makeMap();
+    await mount({ spots: [{ ...WHITBY, askPick: PICK(1) }], onSelectAskPick: vi.fn() });
+    const chip = chips().find((c) => c.dataset.askRank === '1');
+    chip.blur();
+    expect(document.activeElement).not.toBe(chip);
+
+    fireEvent.click(chip);
+
+    expect(document.activeElement).toBe(chip);
+  });
+
   it('⚠️ focus stays on the pick chip across the press and the selection it causes — never <body>', async () => {
     restoreMeasure = withMeasuredLabels(60, 14);
     currentMap = makeMap();

@@ -1,0 +1,3 @@
+### Added — "Use my location" under the Settings postcode field
+
+The home postcode field in Settings gains the same "Use my location" link as registration and the sign-in prompt, for every role. It asks the browser for a position, then the server for the postcode there, and lands the answer in the field and the confirmation row exactly as a typed lookup does (nothing is saved until Save). A refused permission, a position the browser cannot give, a place with no UK postcode and an unreachable lookup each say so in the same line a typed "Invalid postcode" uses; a newer typed lookup wins over a location request still out. The link is hidden where the browser has no geolocation.

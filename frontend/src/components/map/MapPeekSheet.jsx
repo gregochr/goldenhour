@@ -97,7 +97,9 @@ import { KindChip, RatedCell } from './WindowControl.jsx';
  * @param {React.ReactNode} [props.ask] `MapPeekAsk` — the entry row, the Ask section's body and the
  *        minimised line, in one node, since the three share focus handling.
  * @param {?{current: ?HTMLElement}} [props.fallbackFocusRef] where focus goes when the button row is
- *        removed while one of its buttons holds it (the Ask row's entry button) — see `PeekButtonRow`.
+ *        removed while one of its buttons — or, when the section closes, a control inside the open body —
+ *        holds it: the minimised line's Layers door when the answer is minimised (`MapView` chooses), the
+ *        Ask row's entry button otherwise — see `PeekButtonRow` and `PeekBody`.
  */
 export default function MapPeekSheet({
   section, onPressWindows, onPressLayers, onPressTide = null, tideVisible = false,
@@ -184,11 +186,11 @@ export default function MapPeekSheet({
           what makes a section swap tear the PREVIOUS section's content down rather than leaving two
           panes stacked in the DOM. */}
       {open && (
-        <div id="wf-map-peek-body" data-testid="wf-map-peek-body" className="wf-map-peek-body">
+        <PeekBody onUnmountWithFocus={() => { focusLostRef.current = true; }}>
           {section === 'win' && windowsBody}
           {section === 'tide' && tideBody}
           {section === 'lay' && layersBody}
-        </div>
+        </PeekBody>
       )}
     </section>
   );
@@ -201,8 +203,9 @@ export default function MapPeekSheet({
  * while focus is inside the pane — goes quiet: the defect this tab's panels have had five times. So the
  * row reports, from its layout-effect CLEANUP (which runs before the DOM is removed, while the focused
  * button is still {@code document.activeElement}; no blur event is reliable for a removed node), that
- * it held focus, and {@code MapPeekSheet} hands focus to {@code fallbackFocusRef} — the Ask row's entry
- * button, which exists in every mode the row can vanish into — once the commit has landed.
+ * it held focus, and {@code MapPeekSheet} hands focus to {@code fallbackFocusRef} — the minimised
+ * line's Layers door, or the Ask row's entry button in every other mode the row can vanish into — once
+ * the commit has landed.
  *
  * <p>The row's own class is the test for "was focus inside me", so it needs no ref (a ref is already
  * detached by the time a cleanup could read it) and no listener.
@@ -215,6 +218,33 @@ function PeekButtonRow({ onUnmountWithFocus, children }) {
   }, []);
   return <div className="wf-map-peek-row">{children}</div>;
 }
+
+/**
+ * The open section's body, which is UNMOUNTED whenever the section closes (Escape, a map touch, the
+ * section's own button). A control inside it that held focus — Tide mode, Heat / Pins, a window row —
+ * takes focus to {@code <body>} with it, and the pane's Escape rule goes quiet; the button row's report
+ * above does not see it (focus is not inside the row). Same mechanism: report from the layout-effect
+ * cleanup, while the focused node is still {@code document.activeElement}, and {@code MapPeekSheet}
+ * hands focus to {@code fallbackFocusRef} once the commit has landed — the minimised line's Layers door
+ * with an answer standing, the Ask row's entry button otherwise.
+ */
+function PeekBody({ onUnmountWithFocus, children }) {
+  const report = useRef(onUnmountWithFocus);
+  useEffect(() => { report.current = onUnmountWithFocus; });
+  useLayoutEffect(() => () => {
+    if (document.activeElement?.closest?.('.wf-map-peek-body')) report.current?.();
+  }, []);
+  return (
+    <div id="wf-map-peek-body" data-testid="wf-map-peek-body" className="wf-map-peek-body">
+      {children}
+    </div>
+  );
+}
+
+PeekBody.propTypes = {
+  onUnmountWithFocus: PropTypes.func.isRequired,
+  children: PropTypes.node,
+};
 
 PeekButtonRow.propTypes = {
   onUnmountWithFocus: PropTypes.func.isRequired,
@@ -250,7 +280,8 @@ MapPeekSheet.propTypes = {
   onTideButtonBlur: PropTypes.func,
   askMode: PropTypes.oneOf(['off', 'collapsed', 'expanded', 'minimised', 'section']),
   ask: PropTypes.node,
-  /** Where focus goes when the buttons unmount while holding it — the Ask row's entry button. */
+  /** Where focus goes when the buttons unmount while holding it — the minimised line's Layers door
+   * (answer minimised) or the Ask row's entry button. */
   fallbackFocusRef: PropTypes.shape({ current: PropTypes.any }),
 };
 

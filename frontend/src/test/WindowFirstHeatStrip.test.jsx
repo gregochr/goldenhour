@@ -2239,6 +2239,23 @@ describe('WindowFirstHeatStrip — a window nobody rated', () => {
       .toBeInTheDocument();
   });
 
+  it('⚠️ speaks "no clear pick" and its reason for a withheld window, never "not scored"', async () => {
+    // `stripCard`, not `ratedCard`: `ratedCard` coalesces `bestReach: null` to `pool[0]`, which
+    // would name the very outlier the guard withheld. The pool holds rated spots, so a suppression
+    // keyed on a zero rated count must not swallow this clause either.
+    const pool = [poolSpot({ rating: 4, neighbourOutlier: true }), poolSpot({ rating: 2 })];
+    await renderStrip({
+      cards: [stripCard({
+        reachLimitMinutes: 45, pool, bestReach: null, bestReachWithheld: true,
+      })],
+    });
+    const name = screen.getByTestId('wf-heat-card').getAttribute('aria-label')
+      ?? screen.getByTestId('wf-heat-card').textContent;
+    expect(name).toContain('Best, no clear pick: the top rating within reach is well above the places around it');
+    expect(name).not.toMatch(/not scored/);
+    expect(screen.getByTestId('wf-heat-best')).toHaveTextContent('no clear pick');
+  });
+
   it('keeps the "nothing in reach" clause on an unscored window whose pool is empty too', async () => {
     // Both suppressions could fire at once, and then the card face said "Best — nothing in reach"
     // while its name said only "not scored". Two different claims; the reader who cannot see the

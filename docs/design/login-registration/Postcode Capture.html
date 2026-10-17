@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="design_doc_mode" content="canvas">
+<title>Postcode Capture</title>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,600;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--gold:#F2E7D3;--gold-l:#FBF4E6;--bg:#181210;--surface:#221A15;--surface-l:#2A2019;--border:#3A2C23;--border-l:#4A3A2E;--text:#F2E7D3;--text-2:rgba(242,231,211,.66);--text-m:rgba(242,231,211,.42);--coral:#E8593F;--go:#8AAE72;--red:#f87171;--sans:'IBM Plex Sans',system-ui,sans-serif;--serif:'Newsreader',Georgia,serif;--mono:'IBM Plex Mono',ui-monospace,monospace}
+*{box-sizing:border-box}
+a{color:var(--gold);text-decoration:none}a:hover{text-decoration:underline}
+.lbl{position:absolute;font:500 13px/1.3 var(--sans);color:#333;width:440px}
+.lbl b{display:block;font-size:15px;color:#111;margin-bottom:2px}
+.frame{position:absolute;width:440px;height:760px;background:var(--bg);color:var(--text);font-family:var(--sans);display:flex;align-items:center;justify-content:center;padding:0 28px;border-radius:6px;overflow:hidden}
+.wrap{width:100%;max-width:384px}
+.lock{position:relative;padding-left:26px;margin-bottom:32px}
+.lock .spine{position:absolute;left:0;top:0;bottom:0;width:11px;border-right:1px solid var(--border);background:repeating-linear-gradient(180deg,var(--border-l) 0 7px,transparent 7px 15px)}
+.lock .k{font:10px var(--mono);text-transform:uppercase;letter-spacing:.2em;color:var(--coral);margin:0}
+.lock h1{font:600 34px/1 var(--serif);letter-spacing:-.025em;margin:7px 0 0}
+.lock .t{font:italic 16px var(--serif);color:var(--text-2);margin:7px 0 0}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:16px}
+.h{font-size:14px;font-weight:600;margin:0}
+.sub{font-size:12px;color:var(--text-2);margin:4px 0 0;line-height:1.5;text-wrap:pretty}
+.fl{display:block;font-size:12px;color:var(--text-2);margin-bottom:4px}
+.row{display:flex;gap:8px}
+.in{flex:1;min-width:0;background:var(--surface-l);border:1px solid var(--border);border-radius:4px;padding:8px 12px;font:14px var(--sans);color:var(--text)}
+.in.ph{color:var(--text-m)}.in.err{border-color:#b91c1c}.in.focus{box-shadow:0 0 0 1px var(--gold)}
+.hint{font-size:12px;color:var(--text-m);margin:4px 0 0}.hint.err{color:var(--red)}
+.btn{border:0;border-radius:8px;padding:6px 12px;font:500 14px var(--sans);cursor:pointer;white-space:nowrap}
+.bp{background:var(--gold);color:#111827}.bp:hover{background:var(--gold-l)}.bp[disabled]{opacity:.4;cursor:not-allowed}
+.bs{background:var(--surface-l);color:var(--text)}.bs:hover{background:var(--border)}
+.lnk{background:none;border:0;font:12px var(--sans);color:var(--text-m);cursor:pointer;text-align:center;padding:0}.lnk:hover{color:var(--text)}
+.found{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--surface-l);border:1px solid var(--border);border-radius:4px;padding:8px 12px}
+.found .p{font-size:14px}.found .p span{display:block;font:11px var(--mono);color:var(--text-m);letter-spacing:.06em;margin-top:2px}
+.ok{color:var(--go);margin-right:6px}
+.pro{display:flex;gap:8px;align-items:baseline;font-size:12px;color:var(--text-2);line-height:1.5}
+.pro .tag{font:500 10px var(--mono);letter-spacing:.12em;text-transform:uppercase;border:1px solid var(--border-l);border-radius:3px;padding:1px 5px;color:var(--text);flex:none}
+.acts{display:flex;flex-direction:column;gap:10px}
+.note{position:absolute;width:440px;font:13px/1.5 var(--sans);color:#444}
+.note code{font:12px var(--mono);background:#e8e4dc;padding:1px 4px;border-radius:3px}
+</style>
+</head>
+<body>
+<div class="lbl" style="left:0;top:0"><b>1 · Registration — new "Home" step</b>After Set password, before Welcome. Empty.</div>
+<div class="frame" style="left:0;top:48px" data-screen-label="01 Reg empty"><div class="wrap">
+<div class="lock"><span class="spine"></span><p class="k">For landscape photographers</p><h1>PhotoCast</h1><p class="t">Golden hour, forecast and ranked by AI</p></div>
+<div class="card">
+<div><p class="h">Where's home?</p><p class="sub">Your postcode sets the sunrise and sunset times shown at the top of the app.</p></div>
+<div><label class="fl">Home postcode</label><div class="row"><div class="in ph focus">Enter UK postcode</div><button class="btn bs" disabled style="opacity:.4">Look up</button></div></div>
+<div class="pro"><span class="tag">Pro</span><span>Also gives you drive times from home to every location.</span></div>
+<div class="acts"><button class="btn bp" disabled>Save and continue</button><button class="lnk">Skip for now</button></div>
+</div></div></div>
+
+<div class="lbl" style="left:500px;top:0"><b>2 · Registration — looked up</b>postcodes.io resolved it; user confirms.</div>
+<div class="frame" style="left:500px;top:48px" data-screen-label="02 Reg found"><div class="wrap">
+<div class="lock"><span class="spine"></span><p class="k">For landscape photographers</p><h1>PhotoCast</h1><p class="t">Golden hour, forecast and ranked by AI</p></div>
+<div class="card">
+<div><p class="h">Where's home?</p><p class="sub">Your postcode sets the sunrise and sunset times shown at the top of the app.</p></div>
+<div><label class="fl">Home postcode</label><div class="found"><div class="p"><span class="ok">✓</span>Morpeth, Northumberland<span>NE61 1AA</span></div><button class="lnk" style="color:var(--text-2)">Change</button></div></div>
+<div class="pro"><span class="tag">Pro</span><span>Also gives you drive times from home to every location.</span></div>
+<div class="acts"><button class="btn bp">Save and continue</button><button class="lnk">Skip for now</button></div>
+</div></div></div>
+
+<div class="lbl" style="left:1000px;top:0"><b>3 · Registration — invalid</b>Same error copy as Settings.</div>
+<div class="frame" style="left:1000px;top:48px" data-screen-label="03 Reg invalid"><div class="wrap">
+<div class="lock"><span class="spine"></span><p class="k">For landscape photographers</p><h1>PhotoCast</h1><p class="t">Golden hour, forecast and ranked by AI</p></div>
+<div class="card">
+<div><p class="h">Where's home?</p><p class="sub">Your postcode sets the sunrise and sunset times shown at the top of the app.</p></div>
+<div><label class="fl">Home postcode</label><div class="row"><div class="in err">NE61 9ZZ</div><button class="btn bs">Look up</button></div><p class="hint err">Invalid postcode</p></div>
+<div class="pro"><span class="tag">Pro</span><span>Also gives you drive times from home to every location.</span></div>
+<div class="acts"><button class="btn bp" disabled>Save and continue</button><button class="lnk">Skip for now</button></div>
+</div></div></div>
+
+<div class="lbl" style="left:1500px;top:0"><b>4 · First sign-in with no postcode</b>Shown once after login, before the app.</div>
+<div class="frame" style="left:1500px;top:48px" data-screen-label="04 Login prompt"><div class="wrap">
+<div class="lock"><span class="spine"></span><p class="k">For landscape photographers</p><h1>PhotoCast</h1><p class="t">Golden hour, forecast and ranked by AI</p></div>
+<div class="card">
+<div><p class="h">Set your home postcode</p><p class="sub">You haven't saved one yet. It sets your light times, and you can change it any time in Settings.</p></div>
+<div><label class="fl">Home postcode</label><div class="row"><div class="in ph focus">Enter UK postcode</div><button class="btn bs" disabled style="opacity:.4">Look up</button></div></div>
+<div class="pro"><span class="tag">Pro</span><span>Also gives you drive times from home to every location.</span></div>
+<div class="acts"><button class="btn bp" disabled>Save</button><button class="lnk">Not now</button></div>
+</div></div></div>
+
+<div class="note" style="left:0;top:840px"><b>Registration.</b> A new <code>HOME</code> step between <code>SET_PASSWORD</code> and <code>SUCCESS</code>. The user is already authenticated at that point, so it reuses the existing <code>POST /home/lookup</code> and <code>PUT /home</code> calls. No backend change is needed and the register API stays as it is.</div>
+<div class="note" style="left:500px;top:840px"><b>Skip.</b> Goes straight to Welcome. The "Set a postcode" link in the app's top bar, next to the light times, still covers anyone who skips.</div>
+<div class="note" style="left:1000px;top:840px"><b>Pro line.</b> Shown to every role, because new accounts are LITE by default. For a Pro or Admin user the line could read "Drive times from home to every location are worked out after you save."</div>
+<div class="note" style="left:1500px;top:840px"><b>Ask once.</b> Shown when <code>homePostcode</code> is null and the prompt hasn't been dismissed. "Not now" records the dismissal, either in a new user setting or in localStorage. Existing users without a postcode would see it once.</div>
+<div class="lbl" style="left:0;top:1000px;width:1940px"><b>5 · Suggested tweaks to the existing screens</b>Current code on the left of each pair, suggested version on the right. Notes underneath.</div>
+<div class="lbl" style="left:0;top:1060px"><b>Register: current</b></div>
+<div class="frame" style="left:0;top:1100px" data-screen-label="05 Register now"><div class="wrap">
+<div class="lock"><span class="spine"></span><p class="k">For landscape photographers</p><h1>PhotoCast</h1><p class="t">Golden hour, forecast and ranked by AI</p></div>
+<div class="card">
+<p class="h">Create an account</p>
+<div><label class="fl">Username</label><div class="in"></div><p class="hint">3-30 characters, letters, numbers, hyphens, or underscores</p></div>
+<div><label class="fl">Email</label><div class="in"></div></div>
+<div><label class="fl">Confirm email</label><div class="in"></div></div>
+<div class="pro" style="gap:8px"><span>☐</span><span>I agree to the <a href="#">Terms &amp; Conditions</a> and <a href="#">Privacy Policy</a></span></div>
+<div class="pro" style="gap:8px"><span>☑</span><span>Send me occasional emails about new features and photography tips</span></div>
+<div class="in ph" style="height:65px;display:flex;align-items:center;justify-content:center;font:11px var(--mono)">TURNSTILE</div>
+<button class="btn bp" disabled>Create account</button>
+<button class="lnk">Already have an account? Sign in</button>
+</div></div></div>
+<div class="lbl" style="left:500px;top:1060px"><b>Register: suggested</b></div>
+<div class="frame" style="left:500px;top:1100px" data-screen-label="06 Register suggested"><div class="wrap">
+<div class="lock"><span class="spine"></span><p class="k">For landscape photographers</p><h1>PhotoCast</h1><p class="t">Golden hour, forecast and ranked by AI</p></div>
+<div class="card">
+<p class="h">Create an account</p>
+<div><label class="fl">Email</label><div class="in"></div><p class="hint" style="color:var(--text-2)">We'll send a link to confirm it.</p></div>
+<div><label class="fl">Username</label><div class="in"></div><p class="hint" style="color:var(--text-2)">3–30 letters, numbers, - or _</p></div>
+<div class="pro" style="gap:8px"><span>☐</span><span>I agree to the <a href="#">Terms &amp; Conditions</a> and <a href="#">Privacy Policy</a></span></div>
+<div class="pro" style="gap:8px"><span>☐</span><span>Send me occasional emails about new features and photography tips</span></div>
+<div class="in ph" style="height:65px;display:flex;align-items:center;justify-content:center;font:11px var(--mono)">TURNSTILE</div>
+<button class="btn bp" disabled>Create account</button>
+<p class="hint" style="margin:-8px 0 0;text-align:center;color:var(--text-2)">Agree to the terms to continue</p>
+<button class="lnk">Already have an account? Sign in</button>
+</div></div></div>
+<div class="lbl" style="left:1000px;top:1060px"><b>Sign in: current</b></div>
+<div class="frame" style="left:1000px;top:1100px" data-screen-label="07 Login now"><div class="wrap">
+<div class="lock"><span class="spine"></span><p class="k">For landscape photographers</p><h1>PhotoCast</h1><p class="t">Golden hour, forecast and ranked by AI</p></div>
+<div class="card">
+<p class="h">Sign in</p>
+<div><label class="fl">Username</label><div class="in"></div></div>
+<div><label class="fl">Password</label><div class="in"></div></div>
+<div class="in ph" style="height:65px;display:flex;align-items:center;justify-content:center;font:11px var(--mono)">TURNSTILE</div>
+<button class="btn bp" disabled>Sign in</button>
+<button class="lnk">Don't have an account? Create one</button>
+</div></div></div>
+<div class="lbl" style="left:1500px;top:1060px"><b>Sign in: suggested</b></div>
+<div class="frame" style="left:1500px;top:1100px" data-screen-label="08 Login suggested"><div class="wrap">
+<div class="lock"><span class="spine"></span><p class="k">For landscape photographers</p><h1>PhotoCast</h1><p class="t">Golden hour, forecast and ranked by AI</p></div>
+<div class="card">
+<p class="h">Sign in</p>
+<div><label class="fl">Username or email</label><div class="in"></div></div>
+<div><div style="display:flex;justify-content:space-between;align-items:baseline"><label class="fl">Password</label><a href="#" style="font-size:12px">Forgot password?</a></div><div class="in"></div></div>
+<div class="in ph" style="height:65px;display:flex;align-items:center;justify-content:center;font:11px var(--mono)">TURNSTILE</div>
+<button class="btn bp" disabled>Sign in</button>
+<button class="lnk">Don't have an account? Create one</button>
+</div></div></div>
+<div class="note" style="left:0;top:1900px;width:940px"><b>Registration</b><br>1. <b>Untick marketing by default.</b> It currently defaults to <code>true</code>. Under UK PECR/GDPR, marketing consent has to be an active opt-in, so this is the one change I'd treat as required.<br>2. <b>Drop "Confirm email".</b> The verification link already proves the address, so a typo is caught there and the user can resend.<br>3. <b>Put email first.</b> It's what people expect, and the username can then be pre-filled from the email if you want.<br>4. <b>Say why the button is disabled.</b> Create account stays greyed out until terms are ticked, with nothing on screen saying so.<br>5. <b>Remove the second Turnstile</b> on Set password. The emailed token already proves a real person.<br>6. <b>Hint contrast.</b> Hints use <code>text-plex-text-muted</code> (42% ink) at 12px, which is around or below 4.5:1 on the card. <code>text-secondary</code> is safer. The password checklist also uses Tailwind <code>green-400</code>; <code>verdict-go</code> would match the palette.</div>
+<div class="note" style="left:1000px;top:1900px;width:940px"><b>Sign in</b><br>1. <b>No password reset.</b> <code>LoginPage</code> has no forgot-password route. If there isn't one elsewhere, this is the biggest gap: a locked-out user can't recover their account.<br>2. <b>Accept username or email.</b> People forget usernames more often than emails. This needs a backend lookup, because <code>login()</code> takes a username today.<br>3. <b>Session-expired message.</b> It's centred amber text above a left-aligned lockup and card. Left-aligning it inside the card would read better.<br>4. <b>After sign-in,</b> the postcode prompt (frame 4) slots in here.</div>
+</body>
+</html>

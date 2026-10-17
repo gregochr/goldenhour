@@ -5,11 +5,15 @@ import { buildMapOverlay, normalizeMapTrigger } from './utils/mapOverlay.js';
 import LoginPage from './components/LoginPage.jsx';
 import RegisterPage from './components/RegisterPage.jsx';
 import ChangePasswordPage from './components/ChangePasswordPage.jsx';
+import ForgotPasswordPage from './components/auth/ForgotPasswordPage.jsx';
+import ResetPasswordPage from './components/auth/ResetPasswordPage.jsx';
 import SessionExpiryBanner from './components/SessionExpiryBanner.jsx';
 import AuroraBanner from './components/AuroraBanner.jsx';
 import NlcSightingBanner from './components/NlcSightingBanner.jsx';
 import HealthIndicator from './components/HealthIndicator.jsx';
 import UserSettingsModal from './components/UserSettingsModal.jsx';
+import PostcodePromptOverlay from './components/auth/PostcodePromptOverlay.jsx';
+import { markPostcodePromptDismissed } from './api/settingsApi.js';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { AuroraStatusProvider } from './context/AuroraStatusContext.jsx';
 import { useAuroraStatus } from './hooks/useAuroraStatus.js';
@@ -21,6 +25,7 @@ import RunCompleteBanner from './components/RunCompleteBanner.jsx';
 import useAfterFirstPaint from './hooks/useAfterFirstPaint.js';
 import useTodaysLight from './hooks/useTodaysLight.js';
 import useReaderSettings from './hooks/useReaderSettings.js';
+import useModalPresent from './hooks/useModalPresent.js';
 import { createColourSaveQueue, keepColourSaveLineOpen } from './utils/colourSaveQueue.js';
 import { resolveInitialTab } from './utils/initialTab.js';
 import { appNow } from './utils/rewind.js';
@@ -56,24 +61,48 @@ function ViewFallback() {
 }
 
 /**
+ * Reads the {@code ?token=} of the page's URL, or null.
+ *
+ * @returns {string|null}
+ */
+function urlToken() {
+  return new URLSearchParams(window.location.search).get('token') || null;
+}
+
+/**
  * Auth gate — renders {@link LoginPage} when no token is present,
  * or the main app otherwise. This keeps hooks out of the unauthenticated path.
+ *
+ * <p>Two emailed links arrive here with a {@code ?token=}, and they must not share state. A link
+ * on {@code /reset} is a password reset ({@code resetToken}); a token on any other path
+ * ({@code /verify}, or the legacy {@code /}) is an email verification ({@code verifyToken}). The
+ * reset page is chosen BEFORE the token test, so a reader already signed in on this browser — the
+ * usual case, the link is opened on the phone the account lives on — still gets it. The cleanup
+ * effect below belongs to the verification token alone: the reset page clears its own token and
+ * the URL itself, because an effect that cleared both whenever a stored token coexists with a URL
+ * token would unmount the reset page before the reader could submit.
  */
 function AuthGate() {
-  const { token, mustChangePassword } = useAuth();
+  const { token, mustChangePassword, registrationPending } = useAuth();
   const [showRegister, setShowRegister] = useState(false);
+  const [showForgot, setShowForgot] = useState(false);
 
-  // Check URL for ?token= param (email verification link) and clear it once consumed
-  const [verifyToken, setVerifyToken] = useState(() => {
-    const params = new URLSearchParams(window.location.search);
-    return params.get('token') || null;
-  });
+  // /reset?token= is a reset link; read once, from the pathname it was opened on.
+  const [resetToken, setResetToken] = useState(() => (
+    window.location.pathname === '/reset' ? urlToken() : null
+  ));
+
+  // Any other path with ?token= (the /verify link, or the legacy /?token=) is email verification;
+  // cleared once consumed.
+  const [verifyToken, setVerifyToken] = useState(() => (
+    window.location.pathname === '/reset' ? null : urlToken()
+  ));
 
   // Once authenticated, clear any leftover verify token from URL and state.
   // RegisterPage unmounts before its own cleanup can run, so we handle it here.
   useEffect(() => {
     if (token && verifyToken) {
-      window.history.replaceState({}, '', window.location.pathname);
+      window.history.replaceState({}, '', '/');
       // One-time cleanup coupled to the history side effect above: clear the
       // consumed verify token so RegisterPage stops rendering in verify mode.
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -81,14 +110,39 @@ function AuthGate() {
     }
   }, [token, verifyToken]);
 
-  if (!token) {
+  if (resetToken) {
+    return (
+      <ResetPasswordPage
+        token={resetToken}
+        onDone={() => setResetToken(null)}
+        onRequestNewLink={() => {
+          setResetToken(null);
+          setShowForgot(true);
+        }}
+      />
+    );
+  }
+
+  // Also ahead of the token test: "Request a new link" on a dead link must reach this page for a
+  // reader who is signed in on this browser too. Its "Back to sign in" then lands them in the app.
+  if (showForgot) {
+    return <ForgotPasswordPage onBackToLogin={() => setShowForgot(false)} />;
+  }
+
+  // `registrationPending` keeps registration on screen after `completeRegistration` has stored the
+  // new session: the `HOME` and Welcome steps run with a token already in place, and without it the
+  // gate would swap to the app the moment the token appeared (login-registration plan §2 #2). Both
+  // tests need it — the first to enter this branch, the second to pick the SAME `<RegisterPage>`
+  // element (same type, same position, no key) so React keeps its instance and its `step` state
+  // when `verifyToken` has been cleared by the effect above.
+  if (!token || registrationPending) {
     // If there's a verification token in the URL, show RegisterPage in verify mode
-    if (verifyToken) {
+    if (verifyToken || registrationPending) {
       return (
         <RegisterPage
           verifyToken={verifyToken}
           onBackToLogin={() => {
-            window.history.replaceState({}, '', window.location.pathname);
+            window.history.replaceState({}, '', '/');
             setVerifyToken(null);
             setShowRegister(false);
           }}
@@ -98,7 +152,12 @@ function AuthGate() {
     if (showRegister) {
       return <RegisterPage onBackToLogin={() => setShowRegister(false)} />;
     }
-    return <LoginPage onRegister={() => setShowRegister(true)} />;
+    return (
+      <LoginPage
+        onRegister={() => setShowRegister(true)}
+        onForgotPassword={() => setShowForgot(true)}
+      />
+    );
   }
   if (mustChangePassword) {
     return <ChangePasswordPage />;
@@ -155,7 +214,7 @@ AskWhenLive.propTypes = {
  * Inner app component — only rendered when the user is authenticated.
  */
 function AppInner() {
-  const { isAdmin, logout, token } = useAuth();
+  const { isAdmin, logout, token, postcodePromptSuppressed, suppressPostcodePrompt } = useAuth();
   // The admin's rewind, if any. Read ONCE per mount for the two seeds below (`RewindGate` remounts
   // this component on every change, so a mount always sees the rewind it was mounted for) and
   // live for the pill.
@@ -242,13 +301,55 @@ function AppInner() {
    * its readers depend on server-side state this component never sees. See the hook.
    */
   const {
-    homePlace, homeCoords, comingUpLastSeenDate, setComingUpLastSeenDate,
+    homePlace, homeCoords, comingUpLastSeenDate, setComingUpLastSeenDate, postcodePromptDue,
     homeSettingsVersion, driveTimesVersion, mapColourScale, colourScaleDefaulted,
     startSettingsRead, homeSaved, driveTimesRecalculated, colourSaved,
     // Threaded to the Map pane on the same route as `mapColourScale` (map-mobile-sheet-plan.md
     // M4) — unread by any UI until M5, which is why nothing here calls `saveTideMode` yet.
     mapTideMode, saveTideMode,
   } = useReaderSettings();
+  /**
+   * The one-time "set your home postcode" prompt (login-registration plan §2 #3). Raised by the
+   * server's {@code postcodePromptDue} on the mount read, as an overlay over the app that is already
+   * mounted — never a gate — and only when nothing else is claiming to be the modal: a slow first
+   * read lets the reader open Settings, the map overlay, a Plan dialog or Ask first, and a late
+   * answer must not put a second {@code aria-modal} over (and the app {@code inert} under) any of
+   * them. {@code useModalPresent} reads the DOM because the shell's and Ask's dialogs are not
+   * {@code App} state; the prompt waits for the last one to close.
+   *
+   * <p>{@code promptDone} is set by Save and Not now and lives for one mount of this component (the
+   * server's flag, and a reload, are the only durable state — never {@code localStorage}, so a second
+   * account on this browser cannot inherit a dismissal). {@code postcodePromptSuppressed} is the
+   * auth context's in-memory "said not now this page session", which also covers a registration
+   * Skip whose PUT failed. A rewound admin is never prompted: a rewind is a read of the past, not a
+   * sign-in. {@code promptShown} latches on the first mount so a condition that flips while the
+   * prompt is up (the mount expression alone does not latch) cannot unmount it mid-lookup.
+   */
+  const modalPresent = useModalPresent();
+  const [promptDone, setPromptDone] = useState(false);
+  const [promptShown, setPromptShown] = useState(false);
+  const promptEligible = postcodePromptDue && !promptDone && !postcodePromptSuppressed
+    && !modalPresent && !rewind;
+  if (promptEligible && !promptShown) setPromptShown(true);
+  const showPostcodePrompt = !promptDone && (promptShown || promptEligible);
+  const handlePromptSaved = useCallback((updated) => {
+    homeSaved(updated);
+    setPromptDone(true);
+  }, [homeSaved]);
+  const handlePromptNotNow = useCallback(async () => {
+    // Before the request: a dismissal whose PUT fails must still keep the prompt away this session.
+    suppressPostcodePrompt();
+    // Numbered as asked, so the dismissal's answer is dropped if a newer one (the Settings dialog's
+    // read, a saved home) has been applied by the time it lands.
+    const report = startSettingsRead();
+    try {
+      report(await markPostcodePromptDismissed());
+    } catch {
+      // The app must open either way. A failed dismissal means one more prompt at the reader's
+      // next page load — the safe direction.
+    }
+    setPromptDone(true);
+  }, [startSettingsRead, suppressPostcodePrompt]);
   /**
    * Where the settings dialog puts focus on close if the element that opened it has gone — a
    * function returning that element, or null. Only the masthead's "set a postcode" nudge supplies
@@ -934,7 +1035,13 @@ function AppInner() {
           onColourSaved={colourSaved}
           colourSaveQueue={colourSaveQueue}
           onDriveTimesRefreshed={refresh}
+          // Account deletion (the dialog's danger zone) ends the session through the same sign-out.
+          onSignOut={logout}
         />
+      )}
+
+      {showPostcodePrompt && (
+        <PostcodePromptOverlay onSaved={handlePromptSaved} onNotNow={handlePromptNotNow} />
       )}
 
       {mapOverlay && (

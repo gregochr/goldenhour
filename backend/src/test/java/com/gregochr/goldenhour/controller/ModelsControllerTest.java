@@ -1,11 +1,13 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.OptimisationStrategyEntity;
 import com.gregochr.goldenhour.entity.OptimisationStrategyType;
 import com.gregochr.goldenhour.entity.RunType;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.service.JwtService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,6 +16,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.LocalDateTime;
 import java.util.EnumMap;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
@@ -39,6 +42,21 @@ class ModelsControllerTest extends AbstractControllerTest {
 
     @Autowired
     private JwtService jwtService;
+
+    /**
+     * The tokens these tests mint name accounts; the JWT filter authenticates a token only against the
+     * account row it names (login-registration plan §2 #13), so the rows must exist.
+     */
+    @BeforeEach
+    void accountsTheTokensNameExist() {
+        when(userRepository.findByUsername("user")).thenReturn(Optional.of(account(2L, "user", UserRole.LITE_USER)));
+        when(userRepository.findByUsername("admin")).thenReturn(Optional.of(account(1L, "admin", UserRole.ADMIN)));
+    }
+
+    private static AppUserEntity account(long id, String username, UserRole role) {
+        return AppUserEntity.builder().id(id).username(username).password("hash").role(role).enabled(true)
+                .createdAt(LocalDateTime.now()).build();
+    }
 
     private Map<RunType, EvaluationModel> buildDefaultConfigs() {
         Map<RunType, EvaluationModel> configs = new EnumMap<>(RunType.class);

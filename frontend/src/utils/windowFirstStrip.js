@@ -165,6 +165,9 @@ export function buildHeatStripCards(
       // `reachMeasured`, for the H2 "region · beyond 45 min" line (plan-card-verdict-honesty-plan.md).
       reachLimitMinutes: card?.reachLimitMinutes ?? null,
       bestReach: card?.bestReach ?? null,
+      // Folded beside `bestReach` (the fold passes no unknown field through): a neighbour outlier
+      // was skipped and nothing clears the named floor, so the line says "no clear pick".
+      bestReachWithheld: card?.bestReachWithheld === true,
       // The payload's own list, unfiltered, so the matrix names every topic on the night — the
       // design's "nothing is collapsed behind a +2". ⚠️ There WAS a post-promotion `card.badges`
       // beside it, and this comment used to point at it; the snow-row promotion and that remainder

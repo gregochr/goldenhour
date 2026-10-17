@@ -4,12 +4,18 @@ import jakarta.mail.internet.MimeMessage;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.thymeleaf.TemplateEngine;
+import org.thymeleaf.spring6.SpringTemplateEngine;
+import org.thymeleaf.context.Context;
 import org.thymeleaf.context.IContext;
+import org.thymeleaf.templateresolver.ClassLoaderTemplateResolver;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -99,10 +105,125 @@ class UserEmailServiceTest {
         service.sendWelcomeEmail("alice@example.com", "alice", "TempPass1!");
     }
 
+    private UserEmailService serviceWithBaseUrl(String baseUrl) {
+        UserEmailService service = new UserEmailService(mailSender, templateEngine);
+        ReflectionTestUtils.setField(service, "frontendBaseUrl", baseUrl);
+        return service;
+    }
+
+    /** Sends one mail and returns the Thymeleaf context the template was rendered with. */
+    private Context renderedContext(String template, Runnable send) throws Exception {
+        MimeMessage mimeMessage = mock(MimeMessage.class);
+        when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
+        when(templateEngine.process(eq(template), any(IContext.class))).thenReturn("<html></html>");
+
+        send.run();
+
+        ArgumentCaptor<IContext> captor = ArgumentCaptor.forClass(IContext.class);
+        verify(templateEngine).process(eq(template), captor.capture());
+        return (Context) captor.getValue();
+    }
+
+    @Test
+    @DisplayName("sendVerificationEmail links to /verify?token= on the app origin")
+    void sendVerificationEmail_linksToTheVerifyPath() throws Exception {
+        UserEmailService service = serviceWithBaseUrl("https://app.photocast.online");
+
+        Context context = renderedContext("verification-email",
+                () -> service.sendVerificationEmail("alice@example.com", "alice", "raw-token-uuid"));
+
+        assertThat(context.getVariable("verificationUrl"))
+                .isEqualTo("https://app.photocast.online/verify?token=raw-token-uuid");
+        assertThat(context.getVariable("username")).isEqualTo("alice");
+    }
+
+    @Test
+    @DisplayName("a base URL configured with a trailing slash does not produce a double slash")
+    void links_toleratesATrailingSlashOnTheBaseUrl() throws Exception {
+        UserEmailService service = serviceWithBaseUrl("https://app.photocast.online/");
+
+        Context context = renderedContext("verification-email",
+                () -> service.sendVerificationEmail("alice@example.com", "alice", "tok"));
+
+        assertThat(context.getVariable("verificationUrl"))
+                .isEqualTo("https://app.photocast.online/verify?token=tok");
+    }
+
+    @Test
+    @DisplayName("sendPasswordResetLinkEmail links to /reset?token=, names the user and mails the given address "
+            + "with the agreed subject")
+    void sendPasswordResetLinkEmail_linksToTheResetPath() throws Exception {
+        UserEmailService service = serviceWithBaseUrl("https://app.photocast.online");
+        MimeMessage mimeMessage = mock(MimeMessage.class);
+        when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
+        when(templateEngine.process(eq("password-reset-link-email"), any(IContext.class)))
+                .thenReturn("<html>Reset link</html>");
+
+        service.sendPasswordResetLinkEmail("Alice@Example.com", "alice", "reset-raw-token");
+
+        ArgumentCaptor<IContext> captor = ArgumentCaptor.forClass(IContext.class);
+        verify(templateEngine).process(eq("password-reset-link-email"), captor.capture());
+        Context context = (Context) captor.getValue();
+        assertThat(context.getVariable("resetUrl"))
+                .isEqualTo("https://app.photocast.online/reset?token=reset-raw-token");
+        assertThat(context.getVariable("username")).isEqualTo("alice");
+        verify(mimeMessage).setSubject("Reset your PhotoCast password", "UTF-8");
+        verify(mailSender).send(mimeMessage);
+    }
+
+    @Test
+    @DisplayName("sendPasswordResetLinkEmail skips silently when mailSender is null or the address blank")
+    void sendPasswordResetLinkEmail_skipsWhenItCannotSend() {
+        new UserEmailService(null, templateEngine)
+                .sendPasswordResetLinkEmail("alice@example.com", "alice", "tok");
+        new UserEmailService(mailSender, templateEngine).sendPasswordResetLinkEmail(" ", "alice", "tok");
+
+        verify(templateEngine, never()).process(any(String.class), any(IContext.class));
+        verify(mailSender, never()).send(any(MimeMessage.class));
+    }
+
+    @Test
+    @DisplayName("sendPasswordResetLinkEmail catches and logs a send failure without propagating")
+    void sendPasswordResetLinkEmail_sendFails_doesNotPropagate() {
+        UserEmailService service = serviceWithBaseUrl("https://app.photocast.online");
+        when(mailSender.createMimeMessage()).thenThrow(new RuntimeException("SMTP down"));
+        when(templateEngine.process(eq("password-reset-link-email"), any(IContext.class)))
+                .thenReturn("<html></html>");
+
+        service.sendPasswordResetLinkEmail("alice@example.com", "alice", "tok");
+    }
+
+    @Test
+    @DisplayName("the reset email template carries the agreed copy, the username and the link, "
+            + "and escapes a hostile username")
+    void resetTemplate_rendersTheAgreedCopy() {
+        ClassLoaderTemplateResolver resolver = new ClassLoaderTemplateResolver();
+        resolver.setPrefix("templates/");
+        resolver.setSuffix(".html");
+        resolver.setTemplateMode("HTML");
+        resolver.setCharacterEncoding("UTF-8");
+        SpringTemplateEngine real = new SpringTemplateEngine();
+        real.setTemplateResolver(resolver);
+        Context context = new Context();
+        context.setVariable("username", "<b>alice</b>");
+        context.setVariable("resetUrl", "https://app.photocast.online/reset?token=abc");
+
+        String html = real.process("password-reset-link-email", context);
+
+        assertThat(html)
+                .contains("Someone asked to reset the password for")
+                .contains("If that was you, use the link below within the next hour.")
+                .contains("If it wasn't, you can ignore this email")
+                .contains("your password hasn't changed.")
+                .contains("href=\"https://app.photocast.online/reset?token=abc\"")
+                .contains("&lt;b&gt;alice&lt;/b&gt;")
+                .doesNotContain("<b>alice</b>");
+    }
+
     @Test
     @DisplayName("sendVerificationEmail renders template and sends HTML email")
     void sendVerificationEmail_validInput_sendsEmail() {
-        UserEmailService service = new UserEmailService(mailSender, templateEngine);
+        UserEmailService service = serviceWithBaseUrl("https://app.photocast.online");
         MimeMessage mimeMessage = mock(MimeMessage.class);
         when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
         when(templateEngine.process(eq("verification-email"), any(IContext.class)))

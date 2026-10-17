@@ -186,6 +186,44 @@ describe('safe areas', () => {
     });
   });
 
+  describe('the auth page wrapper', () => {
+    // `.auth-shell` is the one page wrapper for sign-in, registration and the first-login change,
+    // so it is the one place those screens meet the notch and the home indicator. Same rule as
+    // `.app-safe-modal`: each side is resolved with max() against the shared vars, never a raw
+    // env() (which would skip the 0px fallback the invariant above demands) and never a sum.
+    it('resolves every side with max() against the shared vars, with one rule per side', () => {
+      const block = rule('.auth-shell');
+
+      expect(block).toMatch(/padding-top: max\(3rem, var\(--safe-t\)\)/);
+      expect(block).toMatch(/padding-right: max\(1rem, var\(--safe-r\)\)/);
+      expect(block).toMatch(/padding-bottom: max\(1\.5rem, var\(--safe-b\)\)/);
+      expect(block).toMatch(/padding-left: max\(1rem, var\(--safe-l\)\)/);
+      expect(block).not.toMatch(/env\(/);
+      expect(block).not.toMatch(/calc\(/);
+      ['top', 'right', 'bottom', 'left'].forEach((side) => {
+        expect(block.match(new RegExp(`padding-${side}:`, 'g')), side).toHaveLength(1);
+      });
+    });
+
+    it('uses the dynamic viewport height, falling back to vh, and is top-aligned on a phone', () => {
+      const block = rule('.auth-shell');
+
+      expect(block).toMatch(/min-height: 100vh;\s*min-height: 100dvh;/);
+      expect(block).toMatch(/align-items: flex-start/);
+    });
+
+    it('from 640px it centres and the top padding is the inset alone', () => {
+      const css = decls(read('../index.css'));
+      const media = css.indexOf('@media (min-width: 640px)', css.indexOf('.auth-shell {'));
+      expect(media, 'the 640px override must follow the base rule').toBeGreaterThan(-1);
+      const inner = css.slice(css.indexOf('.auth-shell {', media), css.indexOf('}', css.indexOf('.auth-shell {', media)));
+
+      expect(inner).toMatch(/align-items: center/);
+      expect(inner).toMatch(/padding-top: var\(--safe-t\);/);
+      expect(inner).not.toMatch(/max\(/);
+    });
+  });
+
   describe('the classes reach the elements', () => {
     it('the bottom sheet carries app-safe-sheet and no longer pins its own left/right', () => {
       render(<BottomSheet open onClose={() => {}} label="Sheet"><p>Content</p></BottomSheet>);

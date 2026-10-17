@@ -91,7 +91,8 @@ class RecordWitherPreservationTest {
             Wither.of(BriefingEventSummary.class, "withWindow", "window"),
             Wither.of(BriefingWindow.Pick.class, "withKind", "kind"),
             Wither.of(BriefingSlot.class, "withTide", "tide"),
-            Wither.of(BriefingSlot.class, "withEclipse", "eclipse"));
+            Wither.of(BriefingSlot.class, "withEclipse", "eclipse"),
+            Wither.of(BriefingSlot.class, "withNeighbourOutlier", "neighbourOutlier"));
 
     /**
      * Withers deliberately outside the table: {@code BriefingSlot.withClaudeScores} is overloaded

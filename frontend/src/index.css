@@ -86,6 +86,20 @@
      under the entire window-first subtree, and nothing fails loudly when it does. */
   --color-plex-panel: #1E1712;
 
+  /* Status colours for the auth screens and Settings — error and success INK, nothing else. They
+     are their own tokens and deliberately not --color-verdict-standdown / --color-verdict-go: the
+     verdict colours mean a FORECAST verdict everywhere they appear, and a rejected password or a
+     met rule is not a forecast. `plex-ok` happens to share --color-verdict-go's value and must stay
+     a separate declaration, so a later retune of the verdict green does not drag the form text with
+     it. Contrast, measured at plan time: #F07A62 is 6.25:1 on --color-plex-surface (#221A15) and
+     6.77:1 on --color-plex-bg (#181210); #8AAE72 is 6.83:1 on #221A15 — all above the 4.5:1 that
+     12px text needs (authTokens.test.js recomputes them). They sit in this block so they
+     are declared whether or not a scanned file happens to name them yet — the --color-plex-panel
+     lesson — and `.field-error` below reaches `plex-error` through an @apply, not a class a file
+     mentions. */
+  --color-plex-error: #F07A62;
+  --color-plex-ok: #8AAE72;
+
   /* Condition channels — objective, independent of the sky verdict, and each its own hue so a
      tide, a noctilucent display and lying snow never read as three grades of one thing.
      (--color-tide is the third member and already lives above, where it is in use today.) */
@@ -433,6 +447,63 @@
      correct at 15.1:1. */
   .btn-secondary {
     @apply px-3 py-1.5 rounded-lg text-sm font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-plex-bg bg-plex-surface-light hover:bg-plex-border text-plex-text focus-visible:ring-plex-gold disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-plex-surface-light;
+  }
+
+  /* The destructive button — the Settings danger zone's "Delete account" (login-registration R5b),
+     and nothing else yet. Filled from `--color-plex-error`, the token the form errors already use,
+     never a raw `red-*`: the label is `plex-bg` on it, 6.77:1 (the page-background figure
+     `authTokens.test.js` pins; contrast is symmetric). Its focus rules are the other two buttons'
+     — `focus-visible:` only, `outline-hidden` for forced colours, a 2px ring at a 2px offset —
+     with the ring in the error colour (6.77:1 on the page) where theirs is gold, and they live HERE
+     rather than as utilities on the call site because a ring utility beside a `.btn*` class wins
+     from a later layer (`buttonFocusRules.test.js` fails on it). A busy button is `aria-disabled`,
+     not `disabled` (BUSY_BUTTON's reason), so its dimming is the call site's. */
+  .btn-danger {
+    @apply px-3 py-1.5 rounded-lg text-sm font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-plex-bg bg-plex-error hover:opacity-90 text-plex-bg focus-visible:ring-plex-error disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:opacity-40;
+  }
+
+  /* The ONE text-input style for the auth screens (and, from R4c, Settings).
+
+     ⚠️ `.field` REPLACES an input's class string; it does not sit beside the old one. Tailwind 4's
+     `utilities` layer outranks this `components` layer, so a `text-sm` or `bg-plex-surface-light`
+     left on the same element WINS — and `text-base sm:text-sm` below is the iOS Safari zoom fix
+     (a focused input under 16px makes the whole page zoom), so a leftover `text-sm` silently puts
+     the bug back. Only layout utilities (`pr-10`, `flex-1`) may accompany it; `fieldClass.test.jsx`
+     fails on `text-sm`, `bg-plex-surface-light` or a bare `rounded` on any auth input.
+     `focus:outline-hidden` for the reason `.btn` records: forced-colours mode repaints it. */
+  .field {
+    @apply w-full bg-plex-bg border border-plex-border rounded-lg px-3 py-2 text-base sm:text-sm text-plex-text placeholder:text-plex-text-muted focus:outline-hidden focus:ring-1 focus:ring-plex-gold;
+  }
+
+  /* After `.field` on purpose: equal specificity, so source order is what makes the error border win. */
+  .field-error {
+    @apply border-plex-error;
+  }
+
+  /* The auth page wrapper (AuthShell). One padding rule per side, each resolved with `max()` against
+     the safe-area vars declared once on :root — the `.app-safe-modal` precedent, and never a raw
+     `env()`, which `safeAreas.test.jsx` forbids without a 0px fallback and which would double-count
+     with the vars. Below 640px the card sits at the top with 3rem of air so the keyboard cannot
+     cover the buttons (`dvh` follows the keyboard-aware viewport where `vh` does not); from 640px
+     it is centred and the top padding is the inset alone. The bottom and sides keep a gutter. */
+  .auth-shell {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    min-height: 100vh;
+    min-height: 100dvh;
+    background-color: var(--color-plex-bg);
+    padding-top: max(3rem, var(--safe-t));
+    padding-right: max(1rem, var(--safe-r));
+    padding-bottom: max(1.5rem, var(--safe-b));
+    padding-left: max(1rem, var(--safe-l));
+  }
+
+  @media (min-width: 640px) {
+    .auth-shell {
+      align-items: center;
+      padding-top: var(--safe-t);
+    }
   }
 }
 
@@ -13557,6 +13628,8 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
 /* The pane's own node is a programmatic-only focus target (`tabIndex -1`): focus parks here when a
    control that held it unmounts, and moves on to the entry button. It needs no ring. */
 .wf-map-peek-ask:focus { outline: none; }
+/* The pane's own node is a programmatic focus target (the callout's ✕ hands focus to it): not a control, no ring. */
+.wf-map-tab:focus { outline: none; }
 .wf-map-peek[data-ask='expanded'] .wf-map-peek-ask { flex: 1 1 auto; }
 .wf-map-peek-ask-row {
   flex: none;
@@ -13664,14 +13737,25 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
   padding: 8px 14px 14px;
   border-top: 1px solid var(--color-plex-border);
 }
-/* THE MINIMISED LINE — one 44px button: rank, spot, time, "N picks ▴". */
-.wf-map-peek-mini {
+/* THE MINIMISED LINE — a 44px ROW (`phone-pick-callout-plan.md` §3 P2): the line's button (rank, spot,
+   time, "N picks ▴") and, beside it, the Layers door. The row owns the line's 10px side margin and its
+   44px; the sheet's budget is unchanged (14 handle + 52 ask row + 44 + 1 border = 111 of 112px). */
+.wf-map-peek-mini-row {
   flex: none;
-  min-height: 44px;
   display: flex;
   align-items: center;
   gap: 8px;
   margin: 0 10px;
+  min-height: 44px;
+}
+.wf-map-peek-mini {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
   padding: 0 4px;
   background: none;
   border: 0;
@@ -13713,6 +13797,39 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
   margin-left: auto;
   font-family: var(--font-mono);
   font-size: 11px;
+}
+/* THE LAYERS DOOR — the Layers peek button in miniature (`.wf-map-peek-btn-lay`: the LAYERS caption over
+   ☰), 58 x 44px, with the Ask ✕'s 1px border and radius so it reads as a button and not as part of the line. */
+.wf-map-peek-mini-lay {
+  flex: none;
+  box-sizing: border-box;
+  width: 58px;
+  height: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: none;
+  border: 1px solid var(--color-plex-border-light);
+  color: var(--color-plex-text-secondary);
+  cursor: pointer;
+}
+.wf-map-peek-mini-lay-g {
+  font-size: 13px;
+  line-height: 1;
+}
+.wf-map-peek-mini-lay:hover { color: var(--color-plex-text); }
+/* Inset like the line's, for the same reason (the door ends the sheet's 111 of 112px), and an `outline` so
+   forced-colours keeps it. */
+.wf-map-peek-mini-lay:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: -2px;
+}
+/* Below 400px the window pill above usually already says it (the map follows the chosen pick); the spot's
+   name needs the room (measured at 320px). */
+@media (max-width: 399px) {
+  .wf-map-peek-mini-when { display: none; }
 }
 
 /* ── PLAN THIS, AND THE PLAN-CARD HIGHLIGHT (F5, `docs/engineering/ask-photocast-plan.md` §2.8) ────────

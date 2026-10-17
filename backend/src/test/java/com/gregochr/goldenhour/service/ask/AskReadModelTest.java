@@ -25,6 +25,10 @@ class AskReadModelTest {
         return new AskSnapshot.Slot(id, "Spot", rating, null, null, canopy, null, false, null);
     }
 
+    private static AskSnapshot.Slot outlier(Long id, Integer rating) {
+        return new AskSnapshot.Slot(id, "Spot", rating, null, null, false, null, false, null, true);
+    }
+
     @Test
     @DisplayName("pick eligibility: every clause is necessary, and none is waived by a high rating")
     void isPickEligible_everyClauseIsNecessary() {
@@ -40,6 +44,23 @@ class AskReadModelTest {
         assertThat(AskSnapshot.isPickEligible(region(false), slot(1L, 5, false)))
                 .as("a region the Plan tab would refuse a verdict, however high the rating")
                 .isFalse();
+        assertThat(AskSnapshot.isPickEligible(region(true), outlier(1L, 5)))
+                .as("a neighbour outlier, however high the rating, in an eligible region").isFalse();
+    }
+
+    @Test
+    @DisplayName("held back means refused for the neighbour mark ALONE: any other refusal keeps the "
+            + "generic wording")
+    void isHeldBack_isTheMarkAlone() {
+        assertThat(AskSnapshot.isHeldBack(region(true), outlier(1L, 4))).isTrue();
+        assertThat(AskSnapshot.isHeldBack(region(true), slot(1L, 4, false)))
+                .as("an unmarked eligible slot is a pick, not held back").isFalse();
+        assertThat(AskSnapshot.isHeldBack(region(true), outlier(1L, 2)))
+                .as("marked but under the floor: rated down, not held back").isFalse();
+        assertThat(AskSnapshot.isHeldBack(region(false), outlier(1L, 4)))
+                .as("marked in a region with no verdict: refused anyway").isFalse();
+        assertThat(AskSnapshot.isHeldBack(region(true), outlier(null, 4)))
+                .as("marked with no location id").isFalse();
     }
 
     @Test

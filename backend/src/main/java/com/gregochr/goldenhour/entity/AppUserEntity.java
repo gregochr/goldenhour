@@ -29,12 +29,13 @@ import java.util.List;
  * <p>Implements {@link UserDetails} so Spring Security can load and authenticate users
  * directly from the database. Passwords are stored as BCrypt hashes.
  *
- * <p><strong>The eight settings columns are {@code updatable = false}, deliberately.</strong> The
+ * <p><strong>The nine settings columns are {@code updatable = false}, deliberately.</strong> The
  * home postcode and coordinates, the local radius, the drive-time stamp, the map colour scale, the
- * map tide mode and the Coming-up last-seen instant are written only by the column-scoped updates on
- * {@link com.gregochr.goldenhour.repository.AppUserRepository}, never by {@code save()} on this
- * entity. It carries neither {@code @Version} nor {@code @DynamicUpdate}, so a whole-entity save
- * writes every updatable column from whatever copy it holds, and several callers hold a copy across
+ * map tide mode, the Coming-up last-seen instant and the postcode-prompt dismissal are written only
+ * by the column-scoped updates on {@link com.gregochr.goldenhour.repository.AppUserRepository},
+ * never by {@code save()} on this entity. It carries neither {@code @Version} nor
+ * {@code @DynamicUpdate}, so a whole-entity save writes every updatable column from whatever copy
+ * it holds, and several callers hold a copy across
  * a gap: the JWT filter's hourly last-active write, login's (a BCrypt check wide), a password
  * change, the marketing opt-in and the admin paths. Any of them could write back a home, a colour or
  * a stamp read before a concurrent settings save committed, and silently undo it. Taking the
@@ -44,6 +45,15 @@ import java.util.List;
  *
  * <p>⚠️ The consequence to know: setting one of these fields on an existing row and calling
  * {@code save()} writes nothing to that column. Inserts are unaffected, and so is reading.
+ *
+ * <p><strong>The credential and authority columns follow the same rule</strong> (login-registration
+ * plan §2 #13): {@code password}, {@code enabled}, {@code passwordChangeRequired}, {@code role},
+ * {@code credentialsChangedAt} and {@code credentialsVersion} are {@code updatable = false} too. The
+ * first three and the two credential columns are written only by
+ * {@link com.gregochr.goldenhour.service.CredentialChangeWriter} (and {@code updateEnabled} for a
+ * re-enable), the role only by {@code AppUserRepository#updateRole}. A stale entity saved after a
+ * credential change or a demotion committed would otherwise write the old hash, the old enabled flag or
+ * the old role back over it — and a filter that trusts the row would then keep an old token alive.
  */
 @Entity
 @Table(name = "app_user")
@@ -67,16 +77,16 @@ public class AppUserEntity implements UserDetails {
     private String username;
 
     /** BCrypt-hashed password. */
-    @Column(nullable = false)
+    @Column(nullable = false, updatable = false)
     private String password;
 
     /** Application role — ADMIN, PRO_USER, or LITE_USER. */
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 20)
+    @Column(nullable = false, length = 20, updatable = false)
     private UserRole role;
 
     /** Whether this account may log in. */
-    @Column(nullable = false)
+    @Column(nullable = false, updatable = false)
     private boolean enabled;
 
     /** When the account was created. */
@@ -88,7 +98,7 @@ public class AppUserEntity implements UserDetails {
     private String email;
 
     /** Whether the user must change their password before accessing the app. */
-    @Column(nullable = false, columnDefinition = "BOOLEAN NOT NULL DEFAULT FALSE")
+    @Column(nullable = false, updatable = false, columnDefinition = "BOOLEAN NOT NULL DEFAULT FALSE")
     private boolean passwordChangeRequired;
 
     /** Whether the user has opted in to marketing emails (feature updates, photography tips). */
@@ -194,6 +204,20 @@ public class AppUserEntity implements UserDetails {
     @Column(name = "coming_up_last_seen_at", updatable = false)
     private Instant comingUpLastSeenAt;
 
+    /**
+     * When this user dismissed the one-time sign-in postcode prompt ("Not now"), or {@code null}
+     * when they never have (V181, login-registration plan §2 #3).
+     *
+     * <p>The prompt is due while the account has neither a home postcode nor this instant, which
+     * {@code UserSettingsService} computes and serves as {@code postcodePromptDue}. Null is "never
+     * dismissed" — there is no backfill, so an existing account without a postcode is asked once.
+     *
+     * <p>Not updatable through the entity — see the class Javadoc. Written by
+     * {@code AppUserRepository.updatePostcodePromptDismissedAtByUsername}.
+     */
+    @Column(name = "postcode_prompt_dismissed_at", updatable = false)
+    private Instant postcodePromptDismissedAt;
+
     /** When the user accepted the Terms &amp; Conditions. */
     @Column(name = "terms_accepted_at")
     private Instant termsAcceptedAt;
@@ -201,6 +225,26 @@ public class AppUserEntity implements UserDetails {
     /** The version of the Terms &amp; Conditions the user accepted (e.g. "April 2026"). */
     @Column(name = "terms_version", length = 20)
     private String termsVersion;
+
+    /**
+     * When the account's credentials last changed (a password change or reset, an admin temporary
+     * password, activation, a disable), or its creation. Null on a row that has never changed since the
+     * column existed. Kept beside {@link #credentialsVersion} as the human-readable stamp and as the
+     * input of the JWT filter's rule for tokens issued before the counter existed.
+     */
+    @Column(name = "credentials_changed_at", updatable = false)
+    private Instant credentialsChangedAt;
+
+    /**
+     * The account's credential version: a monotonic counter bumped by exactly one, in the same
+     * statement that stamps {@link #credentialsChangedAt}, by every credential change. The access token
+     * carries it as its {@code cv} claim and the JWT filter requires the claim to EQUAL this value.
+     * A primitive with a column default, never a boxed {@code Long} whose null would be sent on insert
+     * and defeat the database default.
+     */
+    @Column(name = "credentials_version", nullable = false, updatable = false,
+            columnDefinition = "BIGINT NOT NULL DEFAULT 0")
+    private long credentialsVersion;
 
     /**
      * Returns a single {@link GrantedAuthority} derived from {@link #role}.
