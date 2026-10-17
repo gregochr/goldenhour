@@ -3,7 +3,8 @@
 -- sky_rating, flag it when its sky_rating is 3+ and at least 2 above EVERY sky-rated neighbour in
 -- the same run, window, model and horizon within r km, for r = 3, 5, 8, 12, and in the same
 -- grid cell. A row with no neighbour inside r is never flagged at that r. Witnesses are counted as
--- DISTINCT neighbour places: a retry can leave two rows for one slot in the same run hour. flag_5km_2nb also
+-- DISTINCT neighbour places: a retry can leave two rows for one slot in the same run hour. Each
+-- candidate ROW is counted on its own (row_id), since the unit of the counts is a rated row. flag_5km_2nb also
 -- requires at least two neighbours inside 5 km (the plan's min-neighbours rule). flag_plan is the
 -- plan's full default rule: no neighbour within 5 km rated within 1 star of it (any elevation), and at
 -- least two neighbours within 5 km that are at a similar height (both elevations unknown, or both known
@@ -22,7 +23,7 @@ WHERE l.enabled AND l.region_id IS NOT NULL
                   AND t.location_type IN ('LANDSCAPE', 'SEASCAPE', 'WATERFALL')));
 
 CREATE TEMP VIEW rated AS
-SELECT e.location_id, g.lat, g.lon, g.elevation_m, g.grid_lat, g.grid_lng, e.target_date, e.target_type,
+SELECT e.id AS row_id, e.location_id, g.lat, g.lon, g.elevation_m, g.grid_lat, g.grid_lng, e.target_date, e.target_type,
        e.evaluation_model, e.days_ahead, e.sky_rating,
        SUBSTR(CAST(e.forecast_run_at AS VARCHAR(40)), 1, 13) AS run_hour
 FROM forecast_evaluation e
@@ -36,7 +37,7 @@ WHERE e.rating IS NOT NULL
                   AND z.solar_event_type IN ('ALLDAY', e.target_type)));
 
 CREATE TEMP VIEW near_pair AS
-SELECT a.location_id, a.target_date, a.target_type, a.run_hour, a.evaluation_model, a.days_ahead,
+SELECT a.row_id, a.location_id, a.target_date, a.target_type, a.run_hour, a.evaluation_model, a.days_ahead,
        a.sky_rating AS sky, b.location_id AS nb_loc, b.sky_rating AS nb_sky,
        CASE WHEN a.grid_lat = b.grid_lat AND a.grid_lng = b.grid_lng THEN 1 ELSE 0 END AS same_cell,
        CASE WHEN (a.elevation_m IS NULL AND b.elevation_m IS NULL)
@@ -54,7 +55,7 @@ WHERE a.sky_rating IS NOT NULL AND b.sky_rating IS NOT NULL
   AND ABS(a.lat - b.lat) < 0.12 AND ABS(a.lon - b.lon) < 0.2;
 
 CREATE TEMP VIEW row_hi AS
-SELECT location_id, target_date, target_type, run_hour, evaluation_model, days_ahead, sky,
+SELECT row_id, location_id, target_date, target_type, run_hour, evaluation_model, days_ahead, sky,
        MAX(CASE WHEN same_cell = 1 THEN nb_sky END) AS hi_cell,
        MAX(CASE WHEN km <= 3 THEN nb_sky END) AS hi3,
        MAX(CASE WHEN km <= 5 THEN nb_sky END) AS hi5,
@@ -63,7 +64,7 @@ SELECT location_id, target_date, target_type, run_hour, evaluation_model, days_a
        COUNT(DISTINCT CASE WHEN km <= 5 THEN nb_loc END) AS n5,
        COUNT(DISTINCT CASE WHEN km <= 5 AND elev_ok = 1 THEN nb_loc END) AS n5e
 FROM near_pair
-GROUP BY location_id, target_date, target_type, run_hour, evaluation_model, days_ahead, sky;
+GROUP BY row_id, location_id, target_date, target_type, run_hour, evaluation_model, days_ahead, sky;
 
 SELECT evaluation_model AS model, days_ahead AS t, COUNT(DISTINCT run_hour) AS runs,
        SUM(CASE WHEN hi12 IS NOT NULL THEN 1 ELSE 0 END) AS rows_12km,
