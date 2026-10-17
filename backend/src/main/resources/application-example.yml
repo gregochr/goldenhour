@@ -256,6 +256,23 @@ photocast:
   #                                 # 400 INVALID (the POST /api/ask body cap follows it: 8 KiB + 10 KiB each)
   #     log:
   #       retention-days: 90        # ask_log rows kept, 1-3650
+  # Neighbour guard (docs/engineering/neighbour-guard-plan.md §4). A sky rating far above SEVERAL nearby
+  # places that see the same sky is far more likely model noise than a real local difference, so the
+  # guard marks such a slot and no surface NAMES it as the single best place (it keeps its star).
+  # In this phase the guard affects only the Plan window pick (the BEST BET / ALSO GOOD destination);
+  # do not enable it before the Ask and client phases land. Every key is optional; each default is
+  # shown. Uncomment to change one. A value outside its stated range fails startup.
+  #   neighbour-guard:
+  #     enabled: false              # OFF until the Ask and client phases land; with it off nothing is
+  #                                 # flagged and no coordinates are read. Rollback is this flag + a restart
+  #     radius-km: 5.0              # how near counts as "the same sky", 1-20
+  #     min-neighbours: 2           # similar-height nearby places rated `margin` or more below the slot
+  #                                 # that are needed to flag it, 1-5. Any nearby place, at any height,
+  #                                 # rated less than `margin` below it (or higher) clears the slot
+  #     margin: 2                   # stars below the slot that count as disagreement, 2-4
+  #     min-rating: 3               # lowest sky rating that can be flagged, 3-5 (a floor below 3 is
+  #                                 # unreachable at margin 2); raise it to guard only 4-star claims
+  #     max-elevation-gap-m: 150    # two places closer in height than this are "at a similar height", 0-1000
   tide-run:
     preferred-anchor: "St. Mary's Lighthouse"  # location NAME the spring/king tide run's 24-hour
                             # chart is drawn for. Blank restores pure biggest-range selection.

@@ -48,6 +48,18 @@ public interface LocationRepository extends JpaRepository<LocationEntity, Long> 
     List<LocationEntity> findAllByEnabledTrueOrderByNameAsc();
 
     /**
+     * Returns the id, coordinates and elevation of every enabled location, in no particular order.
+     *
+     * <p>The neighbour guard's read: a projection, so the serve path pays one narrow query (memoised
+     * for a minute by {@code LocationPointProvider}) rather than hydrating entities.
+     *
+     * @return one {@link LocationPoint} per enabled location
+     */
+    @Query("SELECT new com.gregochr.goldenhour.repository.LocationPoint("
+            + "l.id, l.lat, l.lon, l.elevationMetres) FROM LocationEntity l WHERE l.enabled = true")
+    List<LocationPoint> findEnabledPoints();
+
+    /**
      * Returns every location missing an Open-Meteo grid cell, in name order.
      *
      * <p>Either column being null is enough. They are only ever written as a pair, so a row with

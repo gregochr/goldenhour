@@ -592,18 +592,35 @@ public final class PlanWindowProjector {
     }
 
     /**
-     * The region's highest-rated slot, read from the same population the header star was taken
-     * from — returned whole so the Pick's id and name come from one value rather than two lookups.
+     * The region's highest-rated slot that is not a neighbour outlier, read from the same population
+     * the header star was taken from — returned whole so the Pick's id and name come from one value
+     * rather than two lookups.
      *
      * <p>An all-canopy region inside a mixed window resolves to nothing rather than to its wood:
      * the header refused that slot, and a card whose star and destination disagree sends someone
      * to a place chosen by the opposite measure of a good morning.
+     *
+     * <p><b>A neighbour outlier is never named</b> (docs/engineering/neighbour-guard-plan.md §3): a
+     * slot the serve-time guard marked as rated far above the places beside it is skipped, and the
+     * next slot is named instead. If one was skipped, that next slot must itself be rated at least
+     * {@link NeighbourOutlierGuard#NAMED_FLOOR} (a fixed 3, not the guard's configurable floor, so
+     * the client's twin constant can match it), or the result is null and the Pick names the region
+     * only. A region with no outlier is unchanged, so with the guard off this is exactly the
+     * highest-rated slot.
      */
     private static BriefingSlot topSlot(BriefingRegion region, boolean canopyCounts) {
-        return region.slots().stream()
+        boolean skipped = false;
+        for (BriefingSlot slot : region.slots().stream()
                 .filter(s -> (canopyCounts || !s.canopy()) && usableRating(s))
-                .min(BY_SLOT_RATING)
-                .orElse(null);
+                .sorted(BY_SLOT_RATING)
+                .toList()) {
+            if (Boolean.TRUE.equals(slot.neighbourOutlier())) {
+                skipped = true;
+                continue;
+            }
+            return skipped && slot.claudeRating() < NeighbourOutlierGuard.NAMED_FLOOR ? null : slot;
+        }
+        return null;
     }
 
     /**
