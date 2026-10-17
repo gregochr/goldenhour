@@ -13615,6 +13615,8 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
 /* The pane's own node is a programmatic-only focus target (`tabIndex -1`): focus parks here when a
    control that held it unmounts, and moves on to the entry button. It needs no ring. */
 .wf-map-peek-ask:focus { outline: none; }
+/* The pane's own node is a programmatic focus target (the callout's ✕ hands focus to it): not a control, no ring. */
+.wf-map-tab:focus { outline: none; }
 .wf-map-peek[data-ask='expanded'] .wf-map-peek-ask { flex: 1 1 auto; }
 .wf-map-peek-ask-row {
   flex: none;
@@ -13722,14 +13724,25 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
   padding: 8px 14px 14px;
   border-top: 1px solid var(--color-plex-border);
 }
-/* THE MINIMISED LINE — one 44px button: rank, spot, time, "N picks ▴". */
-.wf-map-peek-mini {
+/* THE MINIMISED LINE — a 44px ROW (`phone-pick-callout-plan.md` §3 P2): the line's button (rank, spot,
+   time, "N picks ▴") and, beside it, the Layers door. The row owns the line's 10px side margin and its
+   44px; the sheet's budget is unchanged (14 handle + 52 ask row + 44 + 1 border = 111 of 112px). */
+.wf-map-peek-mini-row {
   flex: none;
-  min-height: 44px;
   display: flex;
   align-items: center;
   gap: 8px;
   margin: 0 10px;
+  min-height: 44px;
+}
+.wf-map-peek-mini {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
   padding: 0 4px;
   background: none;
   border: 0;
@@ -13771,6 +13784,39 @@ html:has(.wf-ask-bar-on) { scroll-padding-bottom: calc(var(--safe-b) + 58px + 8p
   margin-left: auto;
   font-family: var(--font-mono);
   font-size: 11px;
+}
+/* THE LAYERS DOOR — the Layers peek button in miniature (`.wf-map-peek-btn-lay`: the LAYERS caption over
+   ☰), 58 x 44px, with the Ask ✕'s 1px border and radius so it reads as a button and not as part of the line. */
+.wf-map-peek-mini-lay {
+  flex: none;
+  box-sizing: border-box;
+  width: 58px;
+  height: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: none;
+  border: 1px solid var(--color-plex-border-light);
+  color: var(--color-plex-text-secondary);
+  cursor: pointer;
+}
+.wf-map-peek-mini-lay-g {
+  font-size: 13px;
+  line-height: 1;
+}
+.wf-map-peek-mini-lay:hover { color: var(--color-plex-text); }
+/* Inset like the line's, for the same reason (the door ends the sheet's 111 of 112px), and an `outline` so
+   forced-colours keeps it. */
+.wf-map-peek-mini-lay:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: -2px;
+}
+/* Below 400px the window pill above usually already says it (the map follows the chosen pick); the spot's
+   name needs the room (measured at 320px). */
+@media (max-width: 399px) {
+  .wf-map-peek-mini-when { display: none; }
 }
 
 /* ── PLAN THIS, AND THE PLAN-CARD HIGHLIGHT (F5, `docs/engineering/ask-photocast-plan.md` §2.8) ────────

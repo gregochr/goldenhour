@@ -1,11 +1,14 @@
 package com.gregochr.goldenhour.client.contract;
 
+import com.gregochr.goldenhour.client.PostcodeLookupException;
+import com.gregochr.goldenhour.client.PostcodeLookupUnavailableException;
 import com.gregochr.goldenhour.client.PostcodesIoClient;
 import com.gregochr.goldenhour.model.PostcodeLookupResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
@@ -15,16 +18,19 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.fail;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 /**
- * Outbound contract test for {@link PostcodesIoClient} — the only client in the tree that uses the
- * {@code uri(String, Object...)} template overload with a path variable.
+ * Outbound contract test for {@link PostcodesIoClient} — the client in the tree that uses the
+ * {@code uri(String, Object...)} template overload with a path variable ({@code lookup}) and with query
+ * variables ({@code reverseLookup}).
  *
  * <p><strong>Why this exists.</strong> {@code PostcodesIoClientTest} stubs through
  * {@code RestClientMocks}, which matches {@code uri(anyString(), any(Object[].class))} — both the
@@ -37,10 +43,12 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
  * plausible, and up to ~10 km wrong. That feeds user home locations and therefore every drive time.
  * There are no units and no enums here, so the exact-URL assertion is the whole contract.
  *
- * <p><strong>Fail-open caveat.</strong> {@code lookup} wraps <em>every</em> exception into
- * {@code PostcodeLookupException}, so an unmatched-URL assertion error from
- * {@link MockRestServiceServer} is swallowed and resurfaces with the wrong cause. Each test
- * therefore ends with {@code server.verify()} rather than relying on the call to throw.
+ * <p><strong>Fail-open caveat.</strong> Both lookups catch <em>every</em> {@code Exception} and rethrow
+ * a {@code PostcodeLookupException} or {@code PostcodeLookupUnavailableException}, so a failure that is an
+ * exception (a wrongly-shaped body, say) resurfaces with the wrong cause. {@link MockRestServiceServer}'s
+ * own unmatched-URL failure is an {@code AssertionError}, which that catch does not swallow, but a
+ * stubbed request that is never made is only caught by {@code server.verify()}. Each test therefore ends
+ * with {@code server.verify()} rather than relying on the call to throw.
  */
 class PostcodesIoClientContractTest {
 
@@ -117,6 +125,149 @@ class PostcodesIoClientContractTest {
         // Signed and asymmetric on purpose: a lat/lon swap cannot satisfy both.
         assertThat(result.latitude()).isEqualTo(54.7679);
         assertThat(result.longitude()).isEqualTo(-1.5719);
+        server.verify();
+    }
+
+    /**
+     * The wire fields are snake_case ({@code admin_district}); the record components are camelCase.
+     * Until R4a nothing bound them, so every place name was the bare postcode — a unit test that
+     * builds the record directly (as {@code PostcodesIoClientTest} does) cannot see that.
+     */
+    @Test
+    @DisplayName("lookup builds the place name from the wire's admin_district / parish, not the postcode")
+    void lookupBuildsThePlaceNameFromTheWireFields() {
+        server.expect(requestTo("https://api.postcodes.io/postcodes/DH13LE"))
+                .andRespond(withSuccess(fixture, MediaType.APPLICATION_JSON));
+
+        PostcodeLookupResult result = client.lookup("DH1 3LE");
+
+        assertThat(result.placeName()).isEqualTo("Durham, unparished area, County Durham");
+        server.verify();
+    }
+
+    // ---- reverseLookup (login-registration plan §2 #5) ----
+
+    /**
+     * The exact URL is the whole contract. {@code lat}/{@code lon} swapped, a wrong path
+     * ({@code /postcodes/lon/{lon}/lat/{lat}} is the older, deprecated form) or the API's default
+     * 100 m radius would each return a plausible-looking answer — or none, for most rural homes — and
+     * nothing else in the suite would notice.
+     */
+    @Test
+    @DisplayName("reverseLookup GETs exactly /postcodes?lon=&lat=&limit=1&radius=2000 — longitude first "
+            + "in the query, the 2000 m maximum radius")
+    void reverseLookupSendsTheExactUrl() {
+        server.expect(requestTo(
+                        "https://api.postcodes.io/postcodes?lon=-1.575&lat=54.776&limit=1&radius=2000"))
+                .andExpect(method(HttpMethod.GET))
+                .andRespond(withSuccess(readFixture("reverse-response.json"), MediaType.APPLICATION_JSON));
+
+        PostcodeLookupResult result = client.reverseLookup(54.776, -1.575);
+
+        assertThat(result.postcode()).isEqualTo("DH1 3LE");
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("A reverse body maps the first result's latitude and longitude without transposition")
+    void reverseLookupMapsCoordinatesInOrder() {
+        server.expect(requestTo(
+                        "https://api.postcodes.io/postcodes?lon=-1.575&lat=54.776&limit=1&radius=2000"))
+                .andRespond(withSuccess(readFixture("reverse-response.json"), MediaType.APPLICATION_JSON));
+
+        PostcodeLookupResult result = client.reverseLookup(54.776, -1.575);
+
+        // Signed and asymmetric on purpose: a lat/lon swap cannot satisfy both.
+        assertThat(result.latitude()).isEqualTo(54.7679);
+        assertThat(result.longitude()).isEqualTo(-1.5719);
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("The place name is built from the response's snake_case admin_district / parish "
+            + "fields, so a reverse hit never falls back to the bare postcode")
+    void reverseLookupBuildsThePlaceNameFromTheWireFields() {
+        server.expect(requestTo(
+                        "https://api.postcodes.io/postcodes?lon=-1.575&lat=54.776&limit=1&radius=2000"))
+                .andRespond(withSuccess(readFixture("reverse-response.json"), MediaType.APPLICATION_JSON));
+
+        PostcodeLookupResult result = client.reverseLookup(54.776, -1.575);
+
+        assertThat(result.placeName()).isEqualTo("Durham, unparished area, County Durham");
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("A real 404 from the upstream is 'not found'; a real 500, 429 and a dropped connection "
+            + "are 'unavailable' — classified from the status, not guessed")
+    void upstreamStatusesAreClassified() {
+        String url = "https://api.postcodes.io/postcodes?lon=-1.575&lat=54.776&limit=1&radius=2000";
+        server.expect(requestTo(url)).andRespond(withStatus(HttpStatus.NOT_FOUND));
+        server.expect(requestTo(url)).andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR));
+        server.expect(requestTo(url)).andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS));
+        server.expect(requestTo(url)).andRespond(request -> {
+            throw new IOException("Connection reset by peer: internal.example:5432");
+        });
+
+        assertThatThrownBy(() -> client.reverseLookup(54.776, -1.575))
+                .isInstanceOf(PostcodeLookupException.class)
+                .hasMessage("No UK postcode found for that location");
+        assertThatThrownBy(() -> client.reverseLookup(54.776, -1.575))
+                .isInstanceOf(PostcodeLookupUnavailableException.class)
+                .hasMessage("Postcode lookup is unavailable right now");
+        assertThatThrownBy(() -> client.reverseLookup(54.776, -1.575))
+                .isInstanceOf(PostcodeLookupUnavailableException.class);
+        // Neither the I/O error's text nor the upstream's reaches the exception.
+        assertThatThrownBy(() -> client.reverseLookup(54.776, -1.575))
+                .isInstanceOf(PostcodeLookupUnavailableException.class)
+                .hasMessageNotContaining("internal.example");
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("An upstream 400 (its answer for a malformed postcode or coordinates) is 'not found' on "
+            + "both lookups, never 'try again later'")
+    void upstream400IsNotFound() {
+        server.expect(requestTo("https://api.postcodes.io/postcodes/NOTAPOSTCODE"))
+                .andRespond(withStatus(HttpStatus.BAD_REQUEST));
+        server.expect(requestTo(
+                        "https://api.postcodes.io/postcodes?lon=-1.575&lat=54.776&limit=1&radius=2000"))
+                .andRespond(withStatus(HttpStatus.BAD_REQUEST));
+
+        assertThatThrownBy(() -> client.lookup("NOTAPOSTCODE"))
+                .isInstanceOf(PostcodeLookupException.class)
+                .hasMessage("Invalid postcode");
+        assertThatThrownBy(() -> client.reverseLookup(54.776, -1.575))
+                .isInstanceOf(PostcodeLookupException.class)
+                .hasMessage("No UK postcode found for that location");
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("A 200 with a null or empty result is 'not found', not 'unavailable'")
+    void emptyReverseResultIsNotFound() {
+        String url = "https://api.postcodes.io/postcodes?lon=-1.575&lat=54.776&limit=1&radius=2000";
+        server.expect(requestTo(url)).andRespond(
+                withSuccess("{\"status\":200,\"result\":null}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo(url)).andRespond(
+                withSuccess("{\"status\":200,\"result\":[]}", MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> client.reverseLookup(54.776, -1.575))
+                .isInstanceOf(PostcodeLookupException.class);
+        assertThatThrownBy(() -> client.reverseLookup(54.776, -1.575))
+                .isInstanceOf(PostcodeLookupException.class);
+        server.verify();
+    }
+
+    @Test
+    @DisplayName("A coordinate near zero is sent as plain decimal text, never scientific notation")
+    void reverseLookupNeverSendsScientificNotation() {
+        server.expect(requestTo(
+                        "https://api.postcodes.io/postcodes?lon=0.00001&lat=0.00002&limit=1&radius=2000"))
+                .andRespond(withSuccess(readFixture("reverse-response.json"), MediaType.APPLICATION_JSON));
+
+        client.reverseLookup(0.00002, 0.00001);
+
         server.verify();
     }
 

@@ -250,7 +250,7 @@ export default function WindowSheetDialog({
    */
   const hasLunarEclipseRow = topicRows.some((row) => row.badge?.type === 'LUNAR_ECLIPSE');
   const raceSpot = hasLunarEclipseRow
-    ? (card.bestReach || (card.spots && card.spots[0]) || null)
+    ? (card.bestReach || (card.spots && card.spots.find((spot) => !spot.neighbourOutlier)) || null)
     : null;
   const raceSight = raceSpot && eclipseIndex
     ? lookupForWindow(eclipseIndex, raceSpot.locationId, raceSpot.locationName, card.date, card.targetType)
@@ -507,6 +507,16 @@ export default function WindowSheetDialog({
                     <span aria-hidden="true">★</span>
                     <span className="sr-only">{bestReach.rating === 1 ? ' star' : ' stars'}</span>
                     {reachMeasured ? ' within reach' : ''}
+                  </>
+                ) : card.bestReachWithheld === true ? (
+                  // The neighbour guard declined to name a place (neighbour-guard-plan.md §4 G3):
+                  // rated spots exist, so "nothing rated yet" would be false. "Within reach" only
+                  // with a measured drive, like every other sentence here.
+                  <>
+                    {`no clear pick${reachMeasured ? ' within reach' : ''}`}
+                    <span className="sr-only">
+                      {`: the top rating ${reachMeasured ? 'within reach' : 'here'} is well above the places around it`}
+                    </span>
                   </>
                 ) : (
                   // Two different absences and two different sentences — the card face draws the
@@ -767,6 +777,7 @@ WindowSheetDialog.propTypes = {
     }),
     pool: PropTypes.array,
     bestReach: PropTypes.object,
+    bestReachWithheld: PropTypes.bool,
     reachTotal: PropTypes.number,
     withinReachCount: PropTypes.number,
     rows: PropTypes.array,

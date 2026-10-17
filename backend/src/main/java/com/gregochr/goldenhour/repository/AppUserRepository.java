@@ -20,7 +20,7 @@ import java.util.Optional;
  * Spring Data repository for {@link AppUserEntity}.
  *
  * <p><strong>Every settings write is a column-scoped update here, never a {@code save()}.</strong>
- * The entity marks its eight settings columns {@code updatable = false} (its class Javadoc records
+ * The entity marks its nine settings columns {@code updatable = false} (its class Javadoc records
  * why), so a whole-entity save cannot write them at all; these updates are the only way in. Each
  * writes exactly the columns its own request changes, so two settings saves in two tabs, or a
  * settings save and the nightly drive-time job, can no longer discard one another's change.
@@ -541,4 +541,60 @@ public interface AppUserRepository extends JpaRepository<AppUserEntity, Long> {
             + "WHERE u.id = :id AND u.homeLatitude = :latitude AND u.homeLongitude = :longitude")
     int clearDriveTimesCalculatedAtIfHomeIs(@Param("id") Long id, @Param("latitude") double latitude,
             @Param("longitude") double longitude);
+
+    /**
+     * Records that the caller dismissed the one-time sign-in postcode prompt (V181,
+     * login-registration plan §2 #3) — the {@link #updateComingUpLastSeenAtByUsername} shape, for the
+     * same reasons: a column-scoped bulk update that writes this one column, so dismissing the prompt
+     * can never overwrite a concurrent home save, and a whole-entity {@code save()} can never write it
+     * (the column is {@code updatable = false}).
+     *
+     * <p>Idempotent: a second dismissal overwrites the instant. {@code clearAutomatically} evicts the
+     * persistence context so the caller's read-back sees this write.
+     *
+     * @param username    the caller's username
+     * @param dismissedAt the instant to record
+     * @return the number of rows updated — 1, or 0 if the username no longer matches a row
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("UPDATE AppUserEntity u SET u.postcodePromptDismissedAt = :dismissedAt "
+            + "WHERE u.username = :username")
+    int updatePostcodePromptDismissedAtByUsername(@Param("username") String username,
+            @Param("dismissedAt") Instant dismissedAt);
+
+    /**
+     * Deletes the account, but only while it is still the one the caller authenticated and verified: a
+     * compare-and-set whose ROW COUNT is the answer (login-registration plan §2 #14 rule 1(a), §2 #7).
+     * It holds the stored hash to the one the caller's BCrypt check matched, the credential version to the
+     * caller's session ({@code credentials_version = :cv}), and the role to anything but ADMIN — a role
+     * change does not move the version, and the sole administrator must never be deletable this way. A
+     * count of 0 makes the caller throw, which rolls its purge of the dependent rows back.
+     *
+     * @param id    the user's primary key
+     * @param hash  the stored password hash the caller verified
+     * @param cv    the credential version the caller's session carries
+     * @param admin the ADMIN role, bound as a parameter so no enum literal is spelled in the query
+     * @return 1 if the account was deleted; 0 if the password, the version or the role no longer matches
+     *         (or the account is gone)
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("DELETE FROM AppUserEntity u WHERE u.id = :id AND u.password = :hash "
+            + "AND u.credentialsVersion = :cv AND u.role <> :admin")
+    int deleteOwnAccountIfUnchanged(@Param("id") Long id, @Param("hash") String hash, @Param("cv") long cv,
+            @Param("admin") UserRole admin);
+
+    /**
+     * Deletes an account by id with one statement and reports whether a row went. The admin path's delete
+     * (it holds the row lock and has already purged the dependent rows); the row count, not a re-read
+     * entity, says whether the account was there.
+     *
+     * @param id the user's primary key
+     * @return 1 if the account was deleted; 0 if no such account exists
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("DELETE FROM AppUserEntity u WHERE u.id = :id")
+    int deleteAccountById(@Param("id") Long id);
 }

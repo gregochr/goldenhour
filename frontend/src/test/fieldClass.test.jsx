@@ -8,10 +8,22 @@ import RegisterPage from '../components/RegisterPage.jsx';
 import ChangePasswordPage from '../components/ChangePasswordPage.jsx';
 import ForgotPasswordPage from '../components/auth/ForgotPasswordPage.jsx';
 import ResetPasswordPage from '../components/auth/ResetPasswordPage.jsx';
+import PostcodeCapture from '../components/auth/PostcodeCapture.jsx';
+import UserSettingsModal from '../components/UserSettingsModal.jsx';
 import { AuthProvider } from '../context/AuthContext.jsx';
 import * as AuthApi from '../api/authApi.js';
+import { getSettings } from '../api/settingsApi.js';
 
 vi.mock('../api/authApi.js');
+// Only the Settings test below reads the API; PostcodeCapture and the auth pages never call it here.
+vi.mock('../api/settingsApi.js', () => ({
+  getSettings: vi.fn(),
+  lookupPostcode: vi.fn(),
+  saveHome: vi.fn(),
+  refreshDriveTimes: vi.fn(),
+  saveMapColourPreferences: vi.fn(),
+  reverseLookupPostcode: vi.fn(),
+}));
 
 const here = (rel) => fileURLToPath(new URL(rel, import.meta.url));
 const read = (rel) => readFileSync(here(rel), 'utf8');
@@ -98,6 +110,39 @@ describe('every auth input carries the shared .field style and nothing that outr
     inputs.forEach((i) => expect(i.className).toContain('pr-10'));
   });
 
+  it('the postcode capture: its field shares a row with a button, so flex-1 and min-w-0 are the only extras', () => {
+    const { container } = renderAuth(
+      <PostcodeCapture
+        heading="Where's home?" sub="x" primaryLabel="Save" secondaryLabel="Skip"
+        onSaved={vi.fn()} onSkip={vi.fn()}
+      />,
+    );
+
+    const inputs = textInputs(container);
+    expect(inputs.map((i) => i.id)).toEqual(['postcode-input']);
+    const classes = inputs[0].className.split(/\s+/).filter(Boolean);
+    expect(classes).toContain('field');
+    expect(classes).not.toContain('text-sm');
+    expect(classes).not.toContain('bg-plex-surface-light');
+    expect(classes).not.toContain('rounded');
+    classes.forEach((c) => expect(['field', 'field-error', 'flex-1', 'min-w-0']).toContain(c));
+  });
+
+  it('settings: the home postcode field shares a row with Look up, so flex-1 and min-w-0 are the only extras', async () => {
+    getSettings.mockResolvedValue({
+      username: 'alice', role: 'LITE_USER', homePostcode: null, homePlaceName: null, driveTimesCalculatedAt: null,
+    });
+    render(<UserSettingsModal onClose={vi.fn()} />);
+
+    const input = await screen.findByTestId('settings-postcode-input');
+    const classes = input.className.split(/\s+/).filter(Boolean);
+    expect(classes).toContain('field');
+    expect(classes).not.toContain('text-sm');
+    expect(classes).not.toContain('bg-plex-surface-light');
+    expect(classes).not.toContain('rounded');
+    classes.forEach((c) => expect(['field', 'field-error', 'flex-1', 'min-w-0']).toContain(c));
+  });
+
   it('register: the form step, with and without the error state', async () => {
     const user = userEvent.setup();
     const { container } = renderAuth(<RegisterPage onBackToLogin={vi.fn()} />);
@@ -180,7 +225,15 @@ describe('the auth screens use status tokens, not raw colours', () => {
   it.each(sources)('%s names no raw red, green or amber utility and no muted hint ink', (file) => {
     const text = read(file);
     expect(text).not.toMatch(/\b(?:text|border|bg)-(?:red|green|amber)-\d{3}\b/);
-    expect(text).not.toMatch(/text-plex-text-muted/);
+    if (file.endsWith('/PostcodeCapture.jsx')) {
+      // The one deliberate exception (login-registration plan §2 #6): the postcode printed beneath
+      // the place name in the confirmation row is mono 11px in muted ink, as the spec draws it. It is
+      // a value, not helper text; every hint in the file is secondary ink.
+      expect(text.match(/text-plex-text-muted/g)).toHaveLength(1);
+      expect(text).toMatch(/font-mono text-\[11px\] tracking-\[0\.06em\] text-plex-text-muted/);
+    } else {
+      expect(text).not.toMatch(/text-plex-text-muted/);
+    }
     expect(text).not.toMatch(/placeholder-plex/);
   });
 
@@ -191,7 +244,32 @@ describe('the auth screens use status tokens, not raw colours', () => {
       '../components/auth/ForgotPasswordPage.jsx',
       '../components/auth/PasswordChecklist.jsx',
       '../components/auth/PasswordInput.jsx',
+      '../components/auth/PostcodeCapture.jsx',
+      '../components/auth/PostcodePromptOverlay.jsx',
+      '../components/auth/ProTag.jsx',
       '../components/auth/ResetPasswordPage.jsx',
     ]);
+  });
+});
+
+describe('the Settings dialog uses status tokens, not raw colours', () => {
+  const text = read('../components/UserSettingsModal.jsx');
+  // The role badges keep their own palette on purpose (README task 13: "leave the role badges"),
+  // so the one const that holds them is cut out before the scan rather than the scan loosened.
+  const withoutBadges = text.replace(/const ROLE_LABELS = \{[\s\S]*?\n\};/, '');
+
+  it('the badge const is still the only place a raw red, green, amber or sky utility appears', () => {
+    expect(text).toMatch(/(?:text|border|bg)-(?:red|amber|sky)-\d{3}/);
+    expect(withoutBadges).not.toMatch(/\b(?:text|border|bg)-(?:red|green|amber|sky|emerald)-\d{2,3}\b/);
+  });
+
+  it('names the error and ok tokens where the raw colours were', () => {
+    // At least the five error lines and two dots R4c converted; a later section may add more.
+    expect(withoutBadges.match(/text-plex-error/g).length).toBeGreaterThanOrEqual(5);
+    expect(withoutBadges.match(/bg-plex-ok/g).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('carries no per-file outline utility: .field owns the focus ring', () => {
+    expect(withoutBadges).not.toMatch(/outline-(none|hidden)/);
   });
 });

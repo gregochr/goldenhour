@@ -309,7 +309,7 @@ export default function WindowFirstMapPane({
   // exactly what it did before.
   const ask = useAsk();
   const {
-    pickCards, selectedPick, selectionNonce, answer: askAnswer, selectPick: selectAskPick,
+    pickCards, selectedPick, selectionNonce, selectionCallout, answer: askAnswer, selectPick: selectAskPick,
     registerMapContext, availability: askAvailability, phase: askPhase,
   } = ask;
   /**
@@ -344,11 +344,20 @@ export default function WindowFirstMapPane({
   const chosenCard = pickCards.find((card) => card.rank === selectedPick) ?? null;
   const chosenDate = chosenCard?.date ?? null;
   const chosenType = chosenCard?.targetType ?? null;
+  const chosenLocationId = chosenCard?.locationId ?? null;
+  // `callout` and `locationId` ride the nonce (docs/engineering/phone-pick-callout-plan.md §3 P1): the
+  // intent belongs to the choice that made it, so a card choice (callout false) can never inherit a chip's.
   const askWindow = useMemo(
     () => (chosenDate && chosenType && selectionNonce > 0
-      ? { date: chosenDate, eventType: chosenType, nonce: selectionNonce }
+      ? {
+        date: chosenDate,
+        eventType: chosenType,
+        nonce: selectionNonce,
+        callout: selectionCallout === true,
+        locationId: chosenLocationId,
+      }
       : null),
-    [chosenDate, chosenType, selectionNonce],
+    [chosenDate, chosenType, selectionNonce, selectionCallout, chosenLocationId],
   );
   /** The camera fits once per answer that has picks on the map. */
   const askAnswerId = pickCards.length > 0 ? (askAnswer?.id ?? null) : null;

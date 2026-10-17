@@ -61,6 +61,11 @@ final class AskFixtures {
         return slotWith(id, name, rating, false, BriefingSlot.TideInfo.NONE, null);
     }
 
+    /** The slot as the neighbour guard serves it when it marks it an outlier: same star, never a pick. */
+    static BriefingSlot outlier(BriefingSlot base) {
+        return base.withNeighbourOutlier(Boolean.TRUE);
+    }
+
     /** A wood: its rating means the opposite of a sky rating. */
     static BriefingSlot wood(Long id, String name, Integer rating) {
         return slotWith(id, name, rating, true, BriefingSlot.TideInfo.NONE, null);

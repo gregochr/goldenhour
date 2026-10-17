@@ -458,7 +458,12 @@ export default function PinsLayer({
                 color: pickInk,
                 boxShadow: `0 2px 0 -1px ${darkenHex(pickFill, 0.5)}, 0 5px 12px rgba(0,0,0,.5)`,
               }}
-              onClick={() => {
+              onClick={(pressEvent) => {
+                // ⚠️ Focuses itself first: macOS and iOS Safari do not focus a tapped <button>, and on
+                // the phone a pick press no longer expands the Ask section (whose `park()` used to
+                // rescue focus), so without this focus is on <body> and the pane's Escape rule never
+                // fires. The `MapCallout` pattern. `preventScroll`: the map frame must not jump.
+                pressEvent.currentTarget.focus({ preventScroll: true });
                 if (onSelectAskPick) onSelectAskPick(rankOnPress(pick));
                 else onSelect?.(spot.name);
               }}

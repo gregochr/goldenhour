@@ -256,6 +256,10 @@ export function buildWindowSpots(eventSummary, reachById, farOverMinutes = null)
         // than a shape the payload has ever had.
         solarEventTime: slot.solarEventTime ?? null,
         rating: usableRating(slot.claudeRating) ? slot.claudeRating : null,
+        // The server's neighbour guard (neighbour-guard-plan.md): a served `true` or absent, copied
+        // verbatim so a spot never carries `false`. The star stays on the spot; only the "best
+        // reachable" naming reads this.
+        ...(slot.neighbourOutlier === true ? { neighbourOutlier: true } : {}),
         driveMinutes,
         distanceMiles: reach?.distanceMiles ?? null,
         far: isFarSpot(driveMinutes, farOverMinutes),

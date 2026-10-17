@@ -1406,6 +1406,14 @@ public class EvaluationViewService {
      * persists it on the sole write path), so dropping it would discard prose that exists rather
      * than represent an absence. Whichever store wins the gate supplies all three fields together.
      *
+     * <p>The row's {@code sky_rating} (V164) rides along too, so a row-served slot carries the
+     * sky component exactly as a cache-served one does and the tide-fit block can say
+     * "&middot; sky N&#9733;" where it applies. It is written together with {@code rating}
+     * from the same result ({@code ForecastResultHandler.scoreEvaluationRow}), so it is never from
+     * another run; a rated row with no {@code sky_rating} (pre-V164, the synchronous engine)
+     * carries null, as before. {@code evaluatedAt} stays null, and the triage branch carries no
+     * sky rating.
+     *
      * @param locationName the location this row is about
      * @param row          the row, or null
      * @return the result, or null when the row says nothing usable
@@ -1418,7 +1426,7 @@ public class EvaluationViewService {
         if (row.getRating() != null) {
             return new BriefingEvaluationResult(locationName, row.getRating(),
                     row.getFierySkyPotential(), row.getGoldenHourPotential(), row.getSummary(),
-                    null, null, row.getHeadline());
+                    null, null, row.getHeadline(), null, row.getSkyRating());
         }
         return new BriefingEvaluationResult(locationName, null, null, null, null,
                 row.getTriage().getReason(), row.getTriage().getMessage());

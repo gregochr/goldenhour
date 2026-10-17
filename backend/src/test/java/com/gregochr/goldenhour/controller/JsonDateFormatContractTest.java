@@ -90,11 +90,27 @@ class JsonDateFormatContractTest extends AbstractControllerTest {
         when(settingsService.getSettings(any())).thenReturn(new UserSettingsResponse(
                 "testuser", "test@example.com", "PRO_USER",
                 "DH1 3LE", 54.7761, -1.5733, "Durham, County Durham",
-                null, Instant.parse("2026-04-16T10:15:30Z"), null, null, null));
+                null, Instant.parse("2026-04-16T10:15:30Z"), null, null, null, null, false));
 
         mockMvc.perform(get("/api/user/settings"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.driveTimesCalculatedAt").value("2026-04-16T10:15:30Z"));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/user/settings renders postcodePromptDismissedAt in the pinned Instant "
+            + "format and carries postcodePromptDue as a JSON boolean (R4a)")
+    void getSettings_pinsPostcodePromptDismissedAtFormat() throws Exception {
+        when(settingsService.getSettings(any())).thenReturn(new UserSettingsResponse(
+                "testuser", "test@example.com", "PRO_USER",
+                null, null, null, null,
+                null, null, null, null, null, Instant.parse("2026-10-17T08:05:09Z"), false));
+
+        mockMvc.perform(get("/api/user/settings"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.postcodePromptDismissedAt").value("2026-10-17T08:05:09Z"))
+                .andExpect(jsonPath("$.postcodePromptDue").value(false));
     }
 
     @Test

@@ -95,8 +95,9 @@ public class AskPromptBuilder {
      * Added, last, when the question follows earlier ones (plan {@code ask-thread-plan.md} §2.3). The
      * first two sentences are the plan's rule word for word; the emoji line is there because the
      * summary of this answer may be sent back as the next question's earlier answer, which refuses
-     * an emoji; the last sentence tells the model what the "no longer in the forecast" lines of the
-     * user message mean.
+     * an emoji; the last two sentences tell the model what the "no longer in the forecast" and "held
+     * back" lines of the user message mean (a held-back place is one the neighbour guard withholds: its
+     * rating has not fallen, so the model may say only that it is not being suggested).
      */
     static final String THREAD_RULES = """
             Earlier picks are real candidates: you may rank, compare, or exclude them. Resolve \
@@ -109,7 +110,10 @@ public class AskPromptBuilder {
             to rank earlier options, submit them as the picks, best first, as many as three.
             Never use emoji or symbols other than ★ in the summary.
             An earlier place the message lists as no longer in the forecast, or outside the area, \
-            cannot be a pick: say so in the summary when it bears on the question.
+            cannot be a pick: say so in the summary when it bears on the question. An earlier \
+            place the message lists as held back is not offered: if it bears on the question, say only \
+            that a held-back place is not being suggested because its rating is out of line with the \
+            places beside it; never call it low, poor or unreliable, and do not quote its star.
             """;
 
     /**

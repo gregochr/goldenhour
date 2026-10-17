@@ -81,6 +81,15 @@ import java.util.List;
  *                            {@code daily_briefing_cache} reason as {@link #claudeHeadline}: a
  *                            payload written before this field existed deserialises with a null
  *                            here, never a fabricated one
+ * @param neighbourOutlier    {@code TRUE} when the neighbour guard marked this slot as rated far
+ *                            above every nearby place that sees the same sky (see
+ *                            {@code NeighbourOutlierGuard}), otherwise null — never {@code FALSE}
+ *                            when the guard set it, so an unflagged payload serialises exactly as
+ *                            it did before the field existed. <b>Serve-time only:</b> set by
+ *                            {@code ServedBriefingAssembler.assembleForPlan} after enrichment and
+ *                            never at build time, so {@code daily_briefing_cache} never carries it.
+ *                            The slot keeps its star; the flag only withholds its NAME as a single
+ *                            best place
  */
 public record BriefingSlot(
         @JsonInclude(JsonInclude.Include.NON_NULL) Long locationId,
@@ -99,7 +108,8 @@ public record BriefingSlot(
         DisplayVerdict displayVerdict,
         @JsonInclude(JsonInclude.Include.NON_NULL) String claudeHeadline,
         boolean canopy,
-        @JsonInclude(JsonInclude.Include.NON_NULL) EclipseSight eclipse) {
+        @JsonInclude(JsonInclude.Include.NON_NULL) EclipseSight eclipse,
+        @JsonInclude(JsonInclude.Include.NON_NULL) Boolean neighbourOutlier) {
 
     /**
      * Canonical constructor: takes an immutable copy of {@code flags}, so a caller's later changes
@@ -111,16 +121,54 @@ public record BriefingSlot(
     }
 
     /**
+     * Legacy 17-argument constructor, retained so every call site that predates
+     * {@link #neighbourOutlier} keeps compiling unchanged. Defaults {@link #neighbourOutlier} to
+     * null, the "absent, not fabricated" convention for a field added after this record's first
+     * release.
+     *
+     * <p><b>Not used by the withers</b> — they must thread {@link #neighbourOutlier} through from
+     * {@code this}, or a flagged slot would silently lose its flag (the same "positional rebuild
+     * drops a field" defect {@link BriefingEventSummary#withWindow}'s own javadoc warns about).
+     * They call the 18-argument canonical form directly instead.
+     *
+     * @param locationId          database id of the location, or null
+     * @param locationName        human-readable location name
+     * @param solarEventTime      UTC time of the sunrise or sunset
+     * @param verdict             GO, MARGINAL, or STANDDOWN
+     * @param weather             weather conditions at the observer point
+     * @param tide                tide data for coastal locations
+     * @param flags               human-readable flag strings
+     * @param standdownReason     primary reason for STANDDOWN verdict, null for GO/MARGINAL
+     * @param claudeRating        cached Claude 1-5 star rating, or null
+     * @param skyRating           the sky visitor's own component score, or null
+     * @param fierySkyPotential   cached Claude fiery sky score 0-100, or null
+     * @param goldenHourPotential cached Claude golden hour score 0-100, or null
+     * @param claudeSummary       cached Claude prose summary, or null
+     * @param displayVerdict      unified colour/label signal
+     * @param claudeHeadline      4-9 word Claude-authored card header, or null
+     * @param canopy              true when this slot came from the woodland evaluator
+     * @param eclipse             the lunar eclipse sight, or null
+     */
+    public BriefingSlot(Long locationId, String locationName, LocalDateTime solarEventTime,
+            Verdict verdict, WeatherConditions weather, TideInfo tide, List<String> flags,
+            String standdownReason, Integer claudeRating, Integer skyRating,
+            Integer fierySkyPotential, Integer goldenHourPotential, String claudeSummary,
+            DisplayVerdict displayVerdict, String claudeHeadline, boolean canopy,
+            EclipseSight eclipse) {
+        this(locationId, locationName, solarEventTime, verdict, weather, tide, flags,
+                standdownReason, claudeRating, skyRating, fierySkyPotential, goldenHourPotential,
+                claudeSummary, displayVerdict, claudeHeadline, canopy, eclipse, null);
+    }
+
+    /**
      * Legacy 16-argument constructor, retained so every existing production and test call site
      * that predates {@link #eclipse} — the many convenience constructors in this class, and every
      * direct canonical-constructor call in the test tree — keeps compiling unchanged. Defaults
-     * {@link #eclipse} to null, the "absent, not fabricated" convention for a field added after
-     * this record's first release.
+     * {@link #eclipse} (and {@link #neighbourOutlier}) to null, the "absent, not fabricated"
+     * convention for a field added after this record's first release.
      *
-     * <p><b>Not used by the withers</b> — they must thread {@link #eclipse} through from
-     * {@code this}, or a slot that already carries an eclipse sight would silently lose it (the
-     * same "positional rebuild drops a field" defect {@link BriefingEventSummary#withWindow}'s own
-     * javadoc warns about). They call the 17-argument canonical form directly instead.
+     * <p><b>Not used by the withers</b> — they must thread every later component through from
+     * {@code this}. They call the canonical form directly instead.
      *
      * @param locationId          database id of the location, or null
      * @param locationName        human-readable location name
@@ -146,7 +194,7 @@ public record BriefingSlot(
             DisplayVerdict displayVerdict, String claudeHeadline, boolean canopy) {
         this(locationId, locationName, solarEventTime, verdict, weather, tide, flags,
                 standdownReason, claudeRating, skyRating, fierySkyPotential, goldenHourPotential,
-                claudeSummary, displayVerdict, claudeHeadline, canopy, null);
+                claudeSummary, displayVerdict, claudeHeadline, canopy, null, null);
     }
 
     /**
@@ -180,7 +228,7 @@ public record BriefingSlot(
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, newTide,
                 flags, standdownReason, claudeRating, skyRating, fierySkyPotential,
                 goldenHourPotential, claudeSummary, displayVerdict, claudeHeadline, canopy,
-                eclipse);
+                eclipse, neighbourOutlier);
     }
 
     /**
@@ -199,7 +247,22 @@ public record BriefingSlot(
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, tide,
                 flags, standdownReason, claudeRating, skyRating, fierySkyPotential,
                 goldenHourPotential, claudeSummary, displayVerdict, claudeHeadline, canopy,
-                eclipse);
+                eclipse, neighbourOutlier);
+    }
+
+    /**
+     * Returns a copy of this slot carrying the given neighbour-outlier mark, every other field
+     * unchanged. The value is stored verbatim; the guard passes {@code TRUE} or null, never
+     * {@code FALSE}.
+     *
+     * @param neighbourOutlier {@code TRUE} to mark the slot, or null to carry no mark
+     * @return a new slot, every other field unchanged
+     */
+    public BriefingSlot withNeighbourOutlier(Boolean neighbourOutlier) {
+        return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, tide,
+                flags, standdownReason, claudeRating, skyRating, fierySkyPotential,
+                goldenHourPotential, claudeSummary, displayVerdict, claudeHeadline, canopy,
+                eclipse, neighbourOutlier);
     }
 
     /**
@@ -321,7 +384,7 @@ public record BriefingSlot(
             List<String> flags, String standdownReason) {
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather,
                 TideInfo.NONE, flags, standdownReason, null, null, null, null, null,
-                DisplayVerdict.resolve(null, verdict), null, true, null);
+                DisplayVerdict.resolve(null, verdict), null, true, null, null);
     }
 
     /**
@@ -375,7 +438,7 @@ public record BriefingSlot(
         return new BriefingSlot(locationId, locationName, solarEventTime, verdict, weather, tide,
                 flags, standdownReason, rating, skyRating, fierySky, goldenHour, summary,
                 DisplayVerdict.resolve(rating, verdict), headline, canopy,
-                eclipse);
+                eclipse, neighbourOutlier);
     }
 
     /**

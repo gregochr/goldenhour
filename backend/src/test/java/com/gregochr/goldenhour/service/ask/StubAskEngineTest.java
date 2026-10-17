@@ -95,6 +95,21 @@ class StubAskEngineTest {
                 "Whitby.", List.of(picks), List.of(), java.time.LocalDateTime.of(2026, 10, 5, 12, 0), false))));
     }
 
+    @Test
+    @DisplayName("a place the neighbour guard marked is not offered by the stub, though it is the best-rated")
+    void markedPlaceIsNotOffered() {
+        BriefingRegion marked = AskFixtures.region("Coast", true,
+                AskFixtures.outlier(AskFixtures.coastal(1L, "Whitby", 5, "HIGH", true)),
+                AskFixtures.slot(3L, "Inland Edge", 4));
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(
+                List.of(AskFixtures.sunsetDay(TODAY, null, marked)), List.of()));
+
+        AskRun run = engine.run(question("Where is the best spot?"), snapshot, USER, AskRunOptions.none());
+
+        assertThat(run.outcome().status()).isEqualTo(AskOutcome.Status.OK);
+        assertThat(names(run)).containsExactly("Inland Edge");
+    }
+
     // -- the thread -------------------------------------------------------------------------
 
     @Test

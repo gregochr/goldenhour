@@ -85,6 +85,10 @@ public class UserSettingsService {
     /** Minimum interval between drive time refreshes (30 minutes). */
     private static final long REFRESH_COOLDOWN_MINUTES = 30;
 
+    /** The bounds a WGS84 latitude and longitude may take. */
+    private static final double MAX_LATITUDE = 90.0;
+    private static final double MAX_LONGITUDE = 180.0;
+
     private final AppUserRepository userRepository;
     private final PostcodesIoClient postcodesIoClient;
     private final DriveDurationService driveDurationService;
@@ -238,7 +242,9 @@ public class UserSettingsService {
      *
      * @param postcode the postcode to look up
      * @return the lookup result with coordinates and place name
-     * @throws PostcodeLookupException if the postcode is invalid
+     * @throws PostcodeLookupException if the postcode is invalid (a 400)
+     * @throws com.gregochr.goldenhour.client.PostcodeLookupUnavailableException if postcodes.io
+     *         failed (a 502)
      */
     public PostcodeLookupResult lookupPostcode(String postcode) {
         return postcodesIoClient.lookup(postcode);
@@ -609,6 +615,57 @@ public class UserSettingsService {
     }
 
     /**
+     * Records that the caller dismissed the one-time sign-in postcode prompt ("Not now"; V181,
+     * login-registration plan §2 #3), and answers the settings with {@code postcodePromptDue} now
+     * false.
+     *
+     * <p>The {@link #markComingUpSeen} shape throughout: its own endpoint's write (a partial
+     * {@code /home} body would wipe a saved postcode), no request body ("now" is the server's
+     * clock), a column-scoped update rather than a whole-entity save, and a fresh re-read for the
+     * response. Idempotent — a second dismissal overwrites the instant. A caller who has since saved
+     * a postcode is dismissed too; the flag is false either way.
+     *
+     * @param auth the authenticated user
+     * @return the updated user settings response
+     */
+    @Transactional
+    public UserSettingsResponse markPostcodePromptDismissed(Authentication auth) {
+        userRepository.updatePostcodePromptDismissedAtByUsername(auth.getName(), clock.instant());
+        AppUserEntity user = getUser(auth);
+        // null place name, matching markComingUpSeen: this write does not geocode.
+        return mapToResponse(user, null);
+    }
+
+    /**
+     * Finds the nearest UK postcode to a point — the "Use my location" lookup. Persists nothing.
+     *
+     * <p>Validates before the upstream is touched: both values present, finite, and in range. The
+     * messages are fixed text; neither the value nor the upstream's reply is echoed.
+     *
+     * @param latitude  WGS84 latitude, −90 to 90
+     * @param longitude WGS84 longitude, −180 to 180
+     * @return the nearest postcode with its coordinates and place name
+     * @throws IllegalArgumentException                                    for a missing, non-finite or
+     *                                                                     out-of-range value (a 400)
+     * @throws PostcodeLookupException                                     if no postcode is near the
+     *                                                                     point (a 400)
+     * @throws com.gregochr.goldenhour.client.PostcodeLookupUnavailableException if postcodes.io
+     *                                                                     failed (a 502)
+     */
+    public PostcodeLookupResult reverseLookupPostcode(Double latitude, Double longitude) {
+        if (latitude == null || longitude == null) {
+            throw new IllegalArgumentException("latitude and longitude are required");
+        }
+        if (!Double.isFinite(latitude) || latitude < -MAX_LATITUDE || latitude > MAX_LATITUDE) {
+            throw new IllegalArgumentException("latitude must be between -90 and 90");
+        }
+        if (!Double.isFinite(longitude) || longitude < -MAX_LONGITUDE || longitude > MAX_LONGITUDE) {
+            throw new IllegalArgumentException("longitude must be between -180 and 180");
+        }
+        return postcodesIoClient.reverseLookup(latitude, longitude);
+    }
+
+    /**
      * Resolves the authenticated user's database ID.
      *
      * @param auth the authentication context
@@ -655,6 +712,10 @@ public class UserSettingsService {
                 // The London civil date, derived here so the client compares two ISO date strings
                 // and no timezone rule reaches the browser (plan D3). The instant stays stored.
                 ForecastHorizon.civilDate(user.getComingUpLastSeenAt()),
-                user.getMapTideMode());
+                user.getMapTideMode(),
+                user.getPostcodePromptDismissedAt(),
+                // The one place the flag is decided, on every response this service builds: no
+                // postcode and never dismissed (plan §2 #3). A postcode saved anywhere ends it.
+                user.getHomePostcode() == null && user.getPostcodePromptDismissedAt() == null);
     }
 }

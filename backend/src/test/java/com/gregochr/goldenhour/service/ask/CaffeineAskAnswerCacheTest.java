@@ -99,6 +99,19 @@ class CaffeineAskAnswerCacheTest {
                 base.comingUp());
     }
 
+    @Test
+    @DisplayName("a stored answer whose pick has since been marked a neighbour outlier is a miss, not a hit")
+    void pickBecameANeighbourOutlier_isAMiss() {
+        cache.store(question("best spot saturday sunset"), live(), ALICE, ok(false));
+        BriefingRegion marked = AskFixtures.region("Northumberland", true,
+                AskFixtures.outlier(AskFixtures.coastal(1L, "Bamburgh", 5, "HIGH", true)),
+                AskFixtures.slot(2L, "Cheviot Edge", 4));
+
+        assertThat(cache.lookup(question("best spot saturday sunset"), live(), ALICE))
+                .as("control: unmarked").isPresent();
+        assertThat(cache.lookup(question("best spot saturday sunset"), live(marked), ALICE)).isEmpty();
+    }
+
     // -- hit, miss, and what a hit is --------------------------------------------------------------
 
     @Test
