@@ -8,6 +8,7 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
@@ -99,7 +100,24 @@ public class NlcSightingClient {
     private volatile LocalDate lastSkipLogDate;
 
     /**
-     * Constructs the client.
+     * Constructs the client for production, on the real system clock.
+     *
+     * <p>Deliberately NOT the application's rewind-aware {@code Clock} bean: the scrape URL and the
+     * shared cache are global, so a rewound admin request near a month boundary would otherwise
+     * fetch the previous month's page and leave it in the cache, stamped fresh, for every reader.
+     *
+     * @param restClient shared outbound HTTP client
+     * @param properties NLC configuration (sightings URL, cache TTL)
+     * @param clarityService owner of the NLC season definition, shared with the hot topic
+     */
+    @Autowired
+    public NlcSightingClient(RestClient restClient, NlcProperties properties,
+            NlcClarityService clarityService) {
+        this(restClient, properties, clarityService, Clock.system(LONDON));
+    }
+
+    /**
+     * Constructs the client with an explicit clock (tests).
      *
      * @param restClient shared outbound HTTP client
      * @param properties NLC configuration (sightings URL, cache TTL)

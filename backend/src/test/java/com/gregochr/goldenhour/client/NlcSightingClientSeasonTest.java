@@ -158,6 +158,17 @@ class NlcSightingClientSeasonTest {
     }
 
     @Test
+    @DisplayName("the production constructor reads the real UK date, never a rewound clock")
+    void productionConstructor_usesRealDate() {
+        com.gregochr.goldenhour.service.NlcClarityService season = NlcTestSeason.withSeason(false);
+        NlcSightingClient c = new NlcSightingClient(mock(RestClient.class), new NlcProperties(), season);
+
+        c.refresh();
+
+        verify(season).isNlcSeason(java.time.LocalDate.now(java.time.ZoneId.of("Europe/London")));
+    }
+
+    @Test
     @DisplayName("truncate keeps short messages, cuts long ones and tolerates null")
     void truncate_behaviour() {
         assertThat(NlcSightingClient.truncate(null)).isNull();
