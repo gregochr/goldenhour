@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.client;
 
 import com.gregochr.goldenhour.config.NlcProperties;
 import com.gregochr.goldenhour.model.NlcSightingReport;
+import com.gregochr.goldenhour.util.LogSanitizer;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -132,7 +133,8 @@ public class NlcSightingClient {
             LOG.debug("NLC sighting scrape parsed {} report(s) from {}", reports.size(), url);
             return reports;
         } catch (Exception e) {
-            LOG.warn("NLC sighting scrape failed for {} (retaining cached): {}", url, e.getMessage());
+            LOG.warn("NLC sighting scrape failed for {} (retaining cached): {}", url,
+                    LogSanitizer.sanitize(e.getMessage()));
             return current != null ? current.reports() : List.of();
         }
     }
