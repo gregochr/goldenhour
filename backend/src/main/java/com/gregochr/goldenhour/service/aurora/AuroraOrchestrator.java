@@ -493,7 +493,13 @@ public class AuroraOrchestrator {
         WeatherTriageService.TriageResult triage = weatherTriage.triage(candidates);
         stateCache.updateLocationCounts(candidates.size(), triage.viable().size());
 
-        // Auto-assign 1★ to overcast-rejected locations
+        // Auto-assign 1★ to overcast-rejected locations. Unsampled places (cloud forecast fetch
+        // failed) are deliberately NOT scored: a 1★ would read as a measurement, and nothing was
+        // measured. They are absent from the cached scores, i.e. "not assessed".
+        if (!triage.unsampled().isEmpty()) {
+            LOG.warn("Aurora scoring: {} of {} location(s) not assessed — cloud forecast unavailable",
+                    triage.unsampled().size(), candidates.size());
+        }
         List<AuroraForecastScore> allScores = new ArrayList<>();
         for (LocationEntity rejected : triage.rejected()) {
             int cloud = triage.cloudByLocation().getOrDefault(rejected, 100);

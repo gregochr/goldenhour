@@ -390,6 +390,13 @@ public class AuroraForecastRunService {
                     ? weatherTriage.triage(candidates)
                     : buildFutureNightTriage(candidates);
 
+            // Unsampled places (cloud forecast fetch failed) get no result row at all: no cloud was
+            // read, so neither a 1★ template nor a Claude score would be true.
+            if (!triage.unsampled().isEmpty()) {
+                LOG.warn("Aurora forecast {}: {} location(s) not assessed — cloud forecast unavailable",
+                        date, triage.unsampled().size());
+            }
+
             // Collect triage-rejected locations as 1★ template results
             List<AuroraForecastResultEntity> nightResults = new ArrayList<>();
             for (LocationEntity rejected : triage.rejected()) {

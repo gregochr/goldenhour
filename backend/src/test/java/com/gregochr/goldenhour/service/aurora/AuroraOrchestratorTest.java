@@ -790,6 +790,27 @@ class AuroraOrchestratorTest {
     }
 
     @Test
+    @DisplayName("a NOTIFY caches no score at all for an unsampled location — not a measured 1★")
+    void runNightPoll_notifyUnsampled_cachesNoScoreForIt() {
+        when(noaaClient.fetchAll()).thenReturn(afterTheStorm(35.0));
+        when(stateCache.evaluate(AlertLevel.MODERATE))
+                .thenReturn(evaluation(AuroraStateCache.Action.NOTIFY, AlertLevel.MODERATE));
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(
+                properties.getBortleThreshold().getModerate()))
+                .thenReturn(List.of(kielder));
+        when(weatherTriage.triage(List.of(kielder))).thenReturn(new WeatherTriageService.TriageResult(
+                List.of(), List.of(), Map.of(), List.of(kielder)));
+
+        orchestrator.runNightPoll(TONIGHT, utc("2027-01-14T22:00"));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<AuroraForecastScore>> scores = ArgumentCaptor.forClass(List.class);
+        verify(stateCache).updateScores(scores.capture());
+        assertThat(scores.getValue()).isEmpty();
+        verifyNoInteractions(evaluationService);
+    }
+
+    @Test
     @DisplayName("a failed Claude call still caches the overcast 1★ scores and the NOTIFY stands")
     void runNightPoll_claudeErrored_cachesOnlyTheRejected() {
         LocationEntity cloudy = LocationEntity.builder()
