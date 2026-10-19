@@ -88,6 +88,12 @@ public class ComingUpAssembler {
     private static final String MARK_FULL_MOON = "full moon";
     private static final String SEPARATOR = " · ";
 
+    /**
+     * The separator inside an event-water row: the dot is bound to the word before it by a
+     * non-breaking space, so a wrapped row can never begin with a bare {@code ·}.
+     */
+    private static final String EVENT_SEPARATOR = "\u00a0· ";
+
     /** Within this many minutes a high water reads "at sunrise/sunset" (TideWording's rounding). */
     private static final long EVENT_COINCIDENT_MINUTES = 5;
 
@@ -431,7 +437,7 @@ public class ComingUpAssembler {
                 "Show coastal spots for " + DATE_LABEL.format(actionDate) + " →",
                 "coastal-spots", actionDate);
         // range → metric, and read by tideFacts() whenever present, so dropping it is safe exactly
-        // when it was present at all. location and the nine sunrise/sunset high-water keys +
+        // when it was present at all. location and the eight sunrise/sunset high-water keys +
         // eventWaterPartial → read by tideFacts() unconditionally too, so they are stripped from the
         // served meta (the old alignment/alignmentDate/noAlignment keys are no longer written at
         // all). peakDate/figuresFrom → action.date, computed unconditionally above. partialCoverage
@@ -680,9 +686,7 @@ public class ComingUpAssembler {
             }
             facts.add(new ComingUpFact(segs));
         }
-        boolean partial = "true".equals(meta.get("eventWaterPartial"));
-        eventWaterFact("sunrise", "sunriseHw", partial, meta).ifPresent(facts::add);
-        eventWaterFact("sunset", "sunsetHw", partial, meta).ifPresent(facts::add);
+        facts.addAll(eventWaterFacts(event));
         if ("true".equals(meta.get("partialCoverage"))) {
             facts.add(new ComingUpFact(List.of(new ComingUpFact.Segment(
                     "figures cover only part of this run", "base"))));
@@ -692,9 +696,23 @@ public class ComingUpAssembler {
     }
 
     /**
+     * The sunrise and sunset high-water rows of a tide run, in that order, each present only when the
+     * run has a measured high water for the event. Used by the tide-hosted card and, from the tide
+     * topic's own event, by a supermoon-hosted merged card.
+     */
+    private static List<ComingUpFact> eventWaterFacts(AlmanacEvent tideEvent) {
+        Map<String, String> meta = tideEvent.meta();
+        boolean partial = "true".equals(meta.get("eventWaterPartial"));
+        List<ComingUpFact> rows = new ArrayList<>();
+        eventWaterFact("sunrise", "sunriseHw", partial, meta).ifPresent(rows::add);
+        eventWaterFact("sunset", "sunsetHw", partial, meta).ifPresent(rows::add);
+        return rows;
+    }
+
+    /**
      * One event row: {@code sunrise · HW 07:40, 10m before · Wed 28} when the high water is inside the
-     * alignment window, else {@code sunrise · no high water within the hour · nearest HW 05:30,
-     * 2h20 before, Wed 28}. Empty when the run has no measured high water for the event. On a run
+     * alignment window, else {@code sunrise · no high water within an hour of sunrise · nearest
+     * HW 05:30, 2h20 before · Wed 28}. Empty when the run has no measured high water for the event. On a run
      * only partly measured the miss is qualified {@code on the days measured}. Figures carry
      * non-breaking spaces so a phone wraps only around the separators.
      */
@@ -711,13 +729,13 @@ public class ComingUpAssembler {
         String day = nb(DAY_LABEL.format(date));
         List<ComingUpFact.Segment> segs = new ArrayList<>();
         if ("true".equals(meta.get(key + "Aligned"))) {
-            segs.add(new ComingUpFact.Segment(word + SEPARATOR, "base"));
+            segs.add(new ComingUpFact.Segment(word + EVENT_SEPARATOR, "base"));
             segs.add(new ComingUpFact.Segment(water + ", " + offset, "accent"));
-            segs.add(new ComingUpFact.Segment(SEPARATOR + day, "base"));
+            segs.add(new ComingUpFact.Segment(EVENT_SEPARATOR + day, "base"));
         } else {
-            segs.add(new ComingUpFact.Segment(word + SEPARATOR + "no high water within the hour"
-                    + (partial ? " on the days measured" : "") + SEPARATOR + "nearest " + water
-                    + ", " + nb(eventOffset(gap, null)) + ", " + day, "base"));
+            segs.add(new ComingUpFact.Segment(word + EVENT_SEPARATOR + "no high water within an hour of "
+                    + word + (partial ? " on the days measured" : "") + EVENT_SEPARATOR + "nearest "
+                    + water + ", " + nb(eventOffset(gap, null)) + EVENT_SEPARATOR + day, "base"));
         }
         return Optional.of(new ComingUpFact(segs));
     }
@@ -973,6 +991,9 @@ public class ComingUpAssembler {
         } else {
             host.facts = new ArrayList<>();
             regionScopeFact(host.event).ifPresent(host.facts::add);
+            // The run's high-water rows still ride the merged card, read from the TIDE topic's own
+            // event (never the host's); the range-style and "peaks" facts stay dropped.
+            host.facts.addAll(eventWaterFacts(tide.event));
         }
         return host;
     }

@@ -46,7 +46,7 @@ vocabulary (mark word, line facts, join note) lives in small per-type helpers, n
 
 ### 2.0 Reading the source facts — ⚠️ from `event.meta()`, never `Staged.meta`
 
-`enrichTide` strips `range`, `location`, `peakDate`, `figuresFrom` (and, since tide-both-lights W1, the nine `sunriseHw…`/`sunsetHw…` keys and `eventWaterPartial`; the old `alignment`/`alignmentDate`/`noAlignment` are no longer written at all) from `s.meta`, and
+`enrichTide` strips `range`, `location`, `peakDate`, `figuresFrom` (and, since tide-both-lights W1, the eight `sunriseHw…`/`sunsetHw…` keys and `eventWaterPartial`; the old `alignment`/`alignmentDate`/`noAlignment` are no longer written at all) from `s.meta`, and
 `enrichSupermoon` strips `peakDate`. Every merge helper reads **`staged.event.meta()`**. Definitions:
 
 - **T** (tide true peak) = `event.meta().get("peakDate")` parsed defensively; **null = no true peak**.

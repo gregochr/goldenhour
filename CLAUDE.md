@@ -1234,12 +1234,17 @@ label, since a perigean spring is the event the copy describes while P95 is a si
 nothing about the moon. King is **not** assumed to imply spring: the two thresholds come from one
 sample but neither is defined in terms of the other. Beyond the stored-extremes window the entry
 keeps its dates and carries no numbers (`AlmanacEvent.metaOf` drops anything null or blank, so the
-degrade rule is mechanical rather than per-caller). Never synthesise. **Alignment is a question about
-the run, and is asked of a different day from the figures** — `pickAligned` takes the day whose
-`TideRunDay.alignmentPhrase` is non-null (peak day preferred, else the first that aligns) and
-publishes `alignment` + `alignmentDate`; when no day aligns it publishes the `noAlignment` flag, and
-the row says so rather than going quiet, because silence is indistinguishable from the empty-meta
-degrade. ⚠️ **Never publish `verdict` under an "alignment" label again** — the verdict has an
+degrade rule is mechanical rather than per-caller). Never synthesise. **The light is a question about
+the run, asked per event and of a different day from the figures** (tide-both-lights W1,
+`docs/engineering/tide-both-lights-plan.md`, owner decision 2026-10-19): `TideRunBuilder
+.buildWithEventWaters` returns, from the same extremes fetch and as a separate output (`TideRunDay`
+is persisted and not grown), each derivable day's HIGH water nearest sunrise and nearest sunset, and
+`TideAlmanacSource` picks one day per event — the true peak day when its water is aligned (within 60
+minutes), else the day with the smallest |gap|, ties to the earliest — writing `sunriseHw`,
+`sunriseHwGap`, `sunriseHwDate`, `sunriseHwAligned` and the four `sunsetHw…` twins, plus
+`eventWaterPartial` when a run date was not derivable. High water only: a low water at the light is
+no longer named on the card, and an event with no measured high water has no row at all. The old
+`alignment`/`alignmentDate`/`noAlignment` meta are no longer written. ⚠️ **Never publish `verdict` under an "alignment" label again** — the verdict has an
 *unaligned* form, so reading it always finds a sentence: taken from the biggest day it printed
 `alignment  peak range · LW 2h12 after sunset`, claiming an alignment for a low water two hours into
 the dark and restating a range already chipped above it. `alignmentPhrase` is built beside the

@@ -1365,6 +1365,15 @@ class TideRunBuilderTest {
                 List.of(seaham()), false).eventWaters().get(DAY_1);
 
         assertThat(waters.sunrise()).isEqualTo(new TideRunBuilder.EventWater(492, 2, true));
+        // Exactly an hour from the event is still inside the window (08:10 - 60 = 07:10).
+        stubExtremes(day(ID_SEAHAM, DAY_1, low("02:00", 0.4), high("07:10", 5.0), low("14:20", 0.4)));
+        TideRunBuilder.EventWater edge = builder.buildWithEventWaters(List.of(DAY_1),
+                List.of(seaham()), false).eventWaters().get(DAY_1).sunrise();
+        assertThat(edge.gapMinutes()).isEqualTo(-60);
+        assertThat(edge.aligned()).isTrue();
+        stubExtremes(day(ID_SEAHAM, DAY_1, low("02:00", 0.4), high("07:09", 5.0), low("14:20", 0.4)));
+        assertThat(builder.buildWithEventWaters(List.of(DAY_1), List.of(seaham()), false)
+                .eventWaters().get(DAY_1).sunrise().aligned()).isFalse();
         assertThat(waters.sunset()).isEqualTo(new TideRunBuilder.EventWater(960, -30, true));
     }
 

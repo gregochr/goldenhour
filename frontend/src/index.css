@@ -9999,6 +9999,15 @@ button.wf-hc.also.on:hover {
    84×24 against a 104×24 viewBox (the design's own figures), stretched by `preserveAspectRatio=
    "none"` on the SVG itself — unlike `.wf-mini` (`WindowTideSparkline`'s 1:1 box), which must NOT
    stretch because it plots a day-shape whose circular marker `none` would turn into an ellipse. */
+/* A tide-run card's facts (`.wf-facts-rows`, keyed on the entry's tide-run type): the sunrise and
+   sunset high-water rows are ROWS, not chips. Every fact after the first takes its own line (the
+   range stays beside the sparkline), and each fact is running text, so a row wraps at its own
+   spaces — the non-breaking spaces and the dot's NBSP keep each figure and the separator whole —
+   instead of at segment edges. Other card types keep the chip layout above. */
+.wf-cu-card .wf-facts-rows { row-gap: 4px; }
+.wf-cu-card .wf-facts-rows > .wf-cu-fact { display: block; min-width: 0; }
+.wf-cu-card .wf-facts-rows > .wf-cu-fact ~ .wf-cu-fact { flex-basis: 100%; }
+.wf-cu-card .wf-facts-rows > .wf-cu-fact > span { display: inline; }
 .wf-cu-card .wf-facts > .wf-cu-spark {
   /* Not the bare `.wf-cu-spark` selector: `.wf-facts > span { gap: 2px 4px }` (index.css above)
      matches this element too at equal specificity (0,1,1) and wins on source order, so an

@@ -246,7 +246,7 @@ public class TideAlmanacSource implements AlmanacSource {
 
     private AlmanacEvent toEvent(Run run, List<LocationEntity> coastal) {
         TideRunBuilder.RunBuild built = coastal.isEmpty()
-                ? new TideRunBuilder.RunBuild(Map.of(), Map.of())
+                ? TideRunBuilder.RunBuild.empty()
                 : tideRunBuilder.buildWithEventWaters(run.dates(), coastal, run.king());
         Map<LocalDate, TideRunDay> enriched = built.days();
 
@@ -275,7 +275,7 @@ public class TideAlmanacSource implements AlmanacSource {
         // plan): clock, signed gap in minutes from the event, the date it falls on, and an
         // "…Aligned" flag when it is inside the alignment window. They are absent when no measured
         // day has a high water that day. "eventWaterPartial" says some run date was not derivable,
-        // so a "no high water within the hour" finding holds only for the days measured.
+        // so a "no high water within an hour of the event" finding holds only for the days measured.
         Map<String, String> meta = peak == null
                 ? Map.of()
                 : AlmanacEvent.metaOf(
