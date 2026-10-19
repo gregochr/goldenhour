@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.client;
 
 import com.gregochr.goldenhour.config.NlcProperties;
 import com.gregochr.goldenhour.model.NlcSightingReport;
+import com.gregochr.goldenhour.util.NlcTestSeason;
 import com.gregochr.goldenhour.util.RestClientMocks;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -12,6 +13,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -29,7 +31,8 @@ import static org.mockito.Mockito.mock;
 class NlcSightingClientTest {
 
     private final NlcSightingClient client =
-            new NlcSightingClient(mock(org.springframework.web.client.RestClient.class), new NlcProperties());
+            new NlcSightingClient(mock(RestClient.class), new NlcProperties(), NlcTestSeason.inSeason(),
+                Clock.systemUTC());
 
     private static String page(String... captions) {
         StringBuilder sb = new StringBuilder("<html><body>");
@@ -117,7 +120,8 @@ class NlcSightingClientTest {
     private static NlcSightingClient clientReturning(String html) {
         RestClient rest = mock(RestClient.class);
         RestClientMocks.stubGet(rest, String.class, html);
-        return new NlcSightingClient(rest, new NlcProperties());
+        return new NlcSightingClient(rest, new NlcProperties(), NlcTestSeason.inSeason(),
+                Clock.systemUTC());
     }
 
     @Test
@@ -143,7 +147,8 @@ class NlcSightingClientTest {
     void refresh_httpError_failsOpen() {
         RestClient rest = mock(RestClient.class);
         RestClientMocks.stubGetThrows(rest, String.class, new RuntimeException("network down"));
-        NlcSightingClient c = new NlcSightingClient(rest, new NlcProperties());
+        NlcSightingClient c = new NlcSightingClient(rest, new NlcProperties(), NlcTestSeason.inSeason(),
+                Clock.systemUTC());
 
         assertThat(c.refresh()).isEmpty();
         assertThat(c.getReports()).isEmpty();
@@ -319,7 +324,8 @@ class NlcSightingClientTest {
     void resolveUrl_substitutesYearAndMonth() {
         NlcProperties props = new NlcProperties();
         props.setSightingsUrl("https://ed-co.net/nlcnet/{year}-{month}");
-        NlcSightingClient c = new NlcSightingClient(mock(RestClient.class), props);
+        NlcSightingClient c = new NlcSightingClient(mock(RestClient.class), props, NlcTestSeason.inSeason(),
+                Clock.systemUTC());
 
         assertThat(c.resolveUrl(LocalDate.of(2026, 7, 6)))
                 .isEqualTo("https://ed-co.net/nlcnet/2026-july");
@@ -332,7 +338,8 @@ class NlcSightingClientTest {
     void resolveUrl_noPlaceholders_unchanged() {
         NlcProperties props = new NlcProperties();
         props.setSightingsUrl("https://ed-co.net/nlcnet/");
-        NlcSightingClient c = new NlcSightingClient(mock(RestClient.class), props);
+        NlcSightingClient c = new NlcSightingClient(mock(RestClient.class), props, NlcTestSeason.inSeason(),
+                Clock.systemUTC());
 
         assertThat(c.resolveUrl(LocalDate.of(2026, 7, 6)))
                 .isEqualTo("https://ed-co.net/nlcnet/");
