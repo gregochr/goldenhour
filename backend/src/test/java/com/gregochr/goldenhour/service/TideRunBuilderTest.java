@@ -1318,4 +1318,79 @@ class TideRunBuilderTest {
         assertThat(result.aligned()).isTrue();
         assertThat(result.phrase()).isEqualTo(TideRunBuilder.LOW_WATER_PHRASE);
     }
+
+    // ── high water at each event (tide-both-lights W1) ──────────────────────────
+
+    @Test
+    @DisplayName("the sunset high water is measured to SUNSET even when it lies nearer sunrise")
+    void eventWaters_measureToTheNamedEventNotTheNearerOne() {
+        // The only high water of the day is 09:20: 70m after sunrise (08:10) and 430m before sunset
+        // (16:30). The old nearer-event helpers would word it "after sunrise" for both rows.
+        stubSolar();
+        stubExtremes(day(ID_SEAHAM, DAY_1, low("03:00", 0.4), high("09:20", 5.0), low("15:30", 0.4)));
+
+        TideRunBuilder.RunBuild built = builder.buildWithEventWaters(List.of(DAY_1),
+                List.of(seaham()), false);
+
+        TideRunBuilder.EventWaters waters = built.eventWaters().get(DAY_1);
+        assertThat(waters.sunrise()).isEqualTo(new TideRunBuilder.EventWater(560, 70, false));
+        assertThat(waters.sunset()).isEqualTo(new TideRunBuilder.EventWater(560, -430, false));
+        assertThat(built.days()).containsKey(DAY_1);
+    }
+
+    @Test
+    @DisplayName("a low water at sunrise is never named: the sunrise row reports the high water miss")
+    void eventWaters_aLowWaterAtSunriseDoesNotAnswerTheHighWaterRow() {
+        // 08:15 low water is the extremum nearest either event (5 min), so the old phrase said so;
+        // the only high water is 14:20, 370m after sunrise and 130m before sunset.
+        stubSolar();
+        stubExtremes(day(ID_SEAHAM, DAY_1, low("08:15", 0.4), high("14:20", 5.0), low("20:40", 0.4)));
+
+        TideRunBuilder.EventWaters waters = builder.buildWithEventWaters(List.of(DAY_1),
+                List.of(seaham()), false).eventWaters().get(DAY_1);
+
+        assertThat(waters.sunrise()).isEqualTo(new TideRunBuilder.EventWater(860, 370, false));
+        assertThat(waters.sunset()).isEqualTo(new TideRunBuilder.EventWater(860, -130, false));
+    }
+
+    @Test
+    @DisplayName("a high water inside the hour is aligned, with a signed gap, and one within five "
+            + "minutes keeps its exact gap for the 'at sunrise' wording")
+    void eventWaters_alignedWithinTheWindow() {
+        stubSolar();
+        stubExtremes(day(ID_SEAHAM, DAY_1, low("02:00", 0.4), high("08:12", 5.0), low("14:20", 0.4),
+                high("16:00", 4.9)));
+
+        TideRunBuilder.EventWaters waters = builder.buildWithEventWaters(List.of(DAY_1),
+                List.of(seaham()), false).eventWaters().get(DAY_1);
+
+        assertThat(waters.sunrise()).isEqualTo(new TideRunBuilder.EventWater(492, 2, true));
+        assertThat(waters.sunset()).isEqualTo(new TideRunBuilder.EventWater(960, -30, true));
+    }
+
+    @Test
+    @DisplayName("of two high waters in the day the one nearer the event wins, the earlier on a tie")
+    void eventWaters_nearestHighWaterThenEarlier() {
+        stubSolar();
+        // Sunrise 490: 07:10 (430, gap -60) vs 09:10 (550, gap +60) tie -> the earlier.
+        stubExtremes(day(ID_SEAHAM, DAY_1, low("01:00", 0.4), high("07:10", 5.0), low("13:00", 0.4),
+                high("09:10", 4.9)));
+
+        TideRunBuilder.EventWaters waters = builder.buildWithEventWaters(List.of(DAY_1),
+                List.of(seaham()), false).eventWaters().get(DAY_1);
+
+        assertThat(waters.sunrise().minutes()).isEqualTo(430);
+    }
+
+    @Test
+    @DisplayName("build() and buildWithEventWaters() return the same days")
+    void build_delegatesToTheEventWatersBuild() {
+        stubSolar();
+        stubExtremes(day(ID_SEAHAM, DAY_1, low("03:00", 0.4), high("09:20", 5.0), low("15:30", 0.4)));
+
+        assertThat(builder.build(List.of(DAY_1), List.of(seaham()), false))
+                .isEqualTo(builder.buildWithEventWaters(List.of(DAY_1), List.of(seaham()), false).days());
+        assertThat(builder.buildWithEventWaters(List.of(), List.of(seaham()), false).eventWaters())
+                .isEmpty();
+    }
 }

@@ -329,7 +329,7 @@ class TideAlmanacSourceTest {
             // the read moved ahead of the decision it used to sit behind. The expensive half is
             // still skipped: no run means no curve to draw and no extremes to fetch for one.
             verify(locationRepository).findCoastalLocations();
-            verify(tideRunBuilder, never()).build(anyList(), anyList(), anyBoolean());
+            verify(tideRunBuilder, never()).buildWithEventWaters(anyList(), anyList(), anyBoolean());
         }
     }
 
@@ -344,7 +344,8 @@ class TideAlmanacSourceTest {
             classify(Map.of(0, LunarTideType.SPRING_TIDE, 1, LunarTideType.SPRING_TIDE), 2);
             when(locationRepository.findCoastalLocations()).thenReturn(List.of(coastal()));
             // Exactly what TideRunBuilder returns past the fetch horizon: nothing derivable.
-            when(tideRunBuilder.build(anyList(), anyList(), eq(false))).thenReturn(Map.of());
+            when(tideRunBuilder.buildWithEventWaters(anyList(), anyList(), eq(false)))
+                    .thenReturn(built(Map.of(), Map.of()));
 
             List<AlmanacEvent> events = source().events(MONDAY, MONDAY.plusDays(1));
 
@@ -359,96 +360,173 @@ class TideAlmanacSourceTest {
         }
 
         @Test
-        @DisplayName("within the window the run carries the peak day's range and an alignment")
+        @DisplayName("within the window the run carries the peak day's range and the event waters")
         void insideTheWindowTheFiguresAreCarried() {
-            indexCannotMeasure();
-            classify(Map.of(0, LunarTideType.SPRING_TIDE, 1, LunarTideType.SPRING_TIDE), 2);
-            when(locationRepository.findCoastalLocations()).thenReturn(List.of(coastal()));
-            when(tideRunBuilder.build(anyList(), anyList(), eq(false))).thenReturn(Map.of(
-                    MONDAY, runDay("3.9 m", false),
-                    MONDAY.plusDays(1), runDay("4.6 m", true)));
+            runOfTwoDays();
+            when(tideRunBuilder.buildWithEventWaters(anyList(), anyList(), eq(false)))
+                    .thenReturn(built(
+                    Map.of(MONDAY, runDay("3.9 m", false), TUESDAY, runDay("4.6 m", true)),
+                    Map.of(TUESDAY, new TideRunBuilder.EventWaters(
+                            hw(460, -10), hw(1200, 26)))));
 
-            AlmanacEvent event = source().events(MONDAY, MONDAY.plusDays(1)).getFirst();
+            AlmanacEvent event = source().events(MONDAY, TUESDAY).getFirst();
 
             assertThat(event.isDatesOnly()).isFalse();
             assertThat(event.meta())
                     .containsEntry("range", "4.6 m")
-                    .containsEntry("alignment", "LW 06:54 · 34m after sunrise")
                     .containsEntry("location", "Bamburgh Beach")
-                    .containsEntry("peakDate", MONDAY.plusDays(1).toString())
-                    .doesNotContainKey("noAlignment");
-            // The verdict is never republished under an alignment label. It has an unaligned form
-            // that always reads as a sentence — "peak range · LW 2h12 after sunset" — which is how
-            // a low water two hours into the dark came to be printed as this run's alignment.
-            assertThat(event.meta()).doesNotContainKey("verdict");
-            assertThat(event.meta().values()).noneMatch(v -> v.contains("peak range"));
+                    .containsEntry("peakDate", TUESDAY.toString())
+                    .containsEntry("sunriseHw", "07:40")
+                    .containsEntry("sunriseHwGap", "-10")
+                    .containsEntry("sunriseHwDate", TUESDAY.toString())
+                    .containsEntry("sunriseHwAligned", "true")
+                    .containsEntry("sunsetHw", "20:00")
+                    .containsEntry("sunsetHwGap", "26")
+                    .containsEntry("sunsetHwDate", TUESDAY.toString())
+                    .containsEntry("sunsetHwAligned", "true");
+            // The old single-extremum alignment is no longer written at all.
+            assertThat(event.meta()).doesNotContainKeys("alignment", "alignmentDate", "noAlignment",
+                    "verdict");
         }
 
         @Test
-        @DisplayName("a run where no day lands the water in the light says so, rather than "
-                + "promoting the biggest day's unaligned verdict")
-        void anUnalignedRunSaysSo() {
-            indexCannotMeasure();
-            classify(Map.of(0, LunarTideType.SPRING_TIDE, 1, LunarTideType.SPRING_TIDE), 2);
-            when(locationRepository.findCoastalLocations()).thenReturn(List.of(coastal()));
-            when(tideRunBuilder.build(anyList(), anyList(), eq(false))).thenReturn(Map.of(
-                    MONDAY, runDay("3.9 m", false, null),
-                    MONDAY.plusDays(1), runDay("4.6 m", true, null)));
+        @DisplayName("an unaligned event keeps its nearest high water, with no aligned flag")
+        void anUnalignedEventStillCarriesItsNearestWater() {
+            runOfTwoDays();
+            when(tideRunBuilder.buildWithEventWaters(anyList(), anyList(), eq(false)))
+                    .thenReturn(built(
+                    Map.of(MONDAY, runDay("3.9 m", false), TUESDAY, runDay("4.6 m", true)),
+                    Map.of(TUESDAY, new TideRunBuilder.EventWaters(hw(330, -140), null))));
 
-            AlmanacEvent event = source().events(MONDAY, MONDAY.plusDays(1)).getFirst();
+            AlmanacEvent event = source().events(MONDAY, TUESDAY).getFirst();
 
-            // A finding, not an absence: the figures are here, every day was examined, and none of
-            // them works. Silence would be indistinguishable from "no curve could be derived",
-            // which is the state the empty-meta degrade rule already reports.
             assertThat(event.meta())
-                    .containsEntry("range", "4.6 m")
-                    .containsEntry("noAlignment", "true")
-                    .doesNotContainKey("alignment")
-                    .doesNotContainKey("alignmentDate");
+                    .containsEntry("sunriseHw", "05:30")
+                    .containsEntry("sunriseHwGap", "-140")
+                    .doesNotContainKey("sunriseHwAligned")
+                    .doesNotContainKey("sunsetHw");
         }
 
         @Test
-        @DisplayName("the alignment comes from the day that has one, even when that is not the "
-                + "run's biggest day — and names which day it is")
-        void alignmentIsTakenFromTheAlignedDayNotThePeak() {
-            indexCannotMeasure();
-            classify(Map.of(0, LunarTideType.SPRING_TIDE, 1, LunarTideType.SPRING_TIDE), 2);
-            when(locationRepository.findCoastalLocations()).thenReturn(List.of(coastal()));
-            // The biggest water of the run misses the light; the smaller first day catches it.
-            // Reading the peak day would report the run as unaligned and hide the one morning in
-            // it worth driving to — the failure this split exists to prevent.
-            when(tideRunBuilder.build(anyList(), anyList(), eq(false))).thenReturn(Map.of(
-                    MONDAY, runDay("3.9 m", false, "HW 07:02 · 42m after sunrise"),
-                    MONDAY.plusDays(1), runDay("4.6 m", true, null)));
+        @DisplayName("the peak day wins an event when its water is aligned, even against a closer "
+                + "aligned day")
+        void thePeakDayWinsWhenAligned() {
+            runOfTwoDays();
+            // Sunset: the peak day (Tue) is aligned at 26m, Monday is aligned and closer at 23m.
+            when(tideRunBuilder.buildWithEventWaters(anyList(), anyList(), eq(false)))
+                    .thenReturn(built(
+                    Map.of(MONDAY, runDay("3.9 m", false), TUESDAY, runDay("4.6 m", true)),
+                    Map.of(MONDAY, new TideRunBuilder.EventWaters(null, hw(1197, 23)),
+                            TUESDAY, new TideRunBuilder.EventWaters(null, hw(1200, 26)))));
 
-            AlmanacEvent event = source().events(MONDAY, MONDAY.plusDays(1)).getFirst();
+            AlmanacEvent event = source().events(MONDAY, TUESDAY).getFirst();
 
             assertThat(event.meta())
-                    // Figures still describe the biggest day — the two questions are separate.
-                    .containsEntry("range", "4.6 m")
-                    .containsEntry("peakDate", MONDAY.plusDays(1).toString())
-                    .containsEntry("alignment", "HW 07:02 · 42m after sunrise")
-                    .containsEntry("alignmentDate", MONDAY.toString())
-                    .doesNotContainKey("noAlignment");
+                    .containsEntry("sunsetHwDate", TUESDAY.toString())
+                    .containsEntry("sunsetHwGap", "26")
+                    .containsEntry("peakDate", TUESDAY.toString());
         }
 
         @Test
-        @DisplayName("the run's biggest day wins the alignment when it has one too")
-        void theBiggestAlignedDayIsPreferred() {
+        @DisplayName("an unaligned peak day loses to the day with the smallest gap; a gap tie goes "
+                + "to the earliest day")
+        void smallestGapThenEarliestWhenThePeakIsNotAligned() {
+            runOfThreeDays();
+            when(tideRunBuilder.buildWithEventWaters(anyList(), anyList(), eq(false)))
+                    .thenReturn(built(
+                    Map.of(MONDAY, runDay("3.9 m", false), TUESDAY, runDay("4.6 m", true),
+                            WEDNESDAY, runDay("4.1 m", false)),
+                    Map.of(MONDAY, new TideRunBuilder.EventWaters(hw(450, -20), null),
+                            TUESDAY, new TideRunBuilder.EventWaters(hw(300, -160), null),
+                            WEDNESDAY, new TideRunBuilder.EventWaters(hw(470, 0), null))));
+
+            AlmanacEvent smallest = source().events(MONDAY, WEDNESDAY).getFirst();
+            assertThat(smallest.meta()).containsEntry("sunriseHwDate", WEDNESDAY.toString());
+
+            when(tideRunBuilder.buildWithEventWaters(anyList(), anyList(), eq(false)))
+
+                    .thenReturn(built(
+                    Map.of(MONDAY, runDay("3.9 m", false), TUESDAY, runDay("4.6 m", true),
+                            WEDNESDAY, runDay("4.1 m", false)),
+                    Map.of(MONDAY, new TideRunBuilder.EventWaters(hw(450, -30), null),
+                            TUESDAY, new TideRunBuilder.EventWaters(hw(300, -160), null),
+                            WEDNESDAY, new TideRunBuilder.EventWaters(hw(510, 30), null))));
+
+            AlmanacEvent tied = source().events(MONDAY, WEDNESDAY).getFirst();
+            assertThat(tied.meta()).containsEntry("sunriseHwDate", MONDAY.toString());
+        }
+
+        @Test
+        @DisplayName("a tie between the peak day and an earlier day goes to the aligned peak day")
+        void aTieWithThePeakGoesToThePeak() {
+            runOfTwoDays();
+            when(tideRunBuilder.buildWithEventWaters(anyList(), anyList(), eq(false)))
+                    .thenReturn(built(
+                    Map.of(MONDAY, runDay("3.9 m", false), TUESDAY, runDay("4.6 m", true)),
+                    Map.of(MONDAY, new TideRunBuilder.EventWaters(hw(460, -20), null),
+                            TUESDAY, new TideRunBuilder.EventWaters(hw(460, 20), null))));
+
+            AlmanacEvent event = source().events(MONDAY, TUESDAY).getFirst();
+
+            assertThat(event.meta()).containsEntry("sunriseHwDate", TUESDAY.toString());
+        }
+
+        @Test
+        @DisplayName("a partly measured run is flagged eventWaterPartial; a fully measured one is not")
+        void aPartialRunIsFlagged() {
+            runOfTwoDays();
+            when(tideRunBuilder.buildWithEventWaters(anyList(), anyList(), eq(false)))
+                    .thenReturn(built(
+                    Map.of(MONDAY, runDay("3.9 m", false)),
+                    Map.of(MONDAY, new TideRunBuilder.EventWaters(hw(460, -10), null))));
+            assertThat(source().events(MONDAY, TUESDAY).getFirst().meta())
+                    .containsEntry("eventWaterPartial", "true");
+
+            when(tideRunBuilder.buildWithEventWaters(anyList(), anyList(), eq(false)))
+
+                    .thenReturn(built(
+                    Map.of(MONDAY, runDay("3.9 m", false), TUESDAY, runDay("4.6 m", true)),
+                    Map.of(MONDAY, new TideRunBuilder.EventWaters(hw(460, -10), null))));
+            assertThat(source().events(MONDAY, TUESDAY).getFirst().meta())
+                    .doesNotContainKey("eventWaterPartial");
+        }
+
+        @Test
+        @DisplayName("days with no high water for an event are skipped; none at all omits the keys")
+        void daysWithoutAHighWaterAreSkipped() {
+            runOfTwoDays();
+            when(tideRunBuilder.buildWithEventWaters(anyList(), anyList(), eq(false)))
+                    .thenReturn(built(
+                    Map.of(MONDAY, runDay("3.9 m", false), TUESDAY, runDay("4.6 m", true)),
+                    Map.of(MONDAY, new TideRunBuilder.EventWaters(null, hw(1200, 0)),
+                            TUESDAY, new TideRunBuilder.EventWaters(null, null))));
+
+            AlmanacEvent event = source().events(MONDAY, TUESDAY).getFirst();
+
+            assertThat(event.meta()).doesNotContainKeys("sunriseHw", "sunriseHwGap", "sunriseHwDate",
+                    "sunriseHwAligned");
+            assertThat(event.meta()).containsEntry("sunsetHwDate", MONDAY.toString());
+        }
+
+        @Test
+        @DisplayName("a one-day run (no peak flag) still picks its day by smallest gap")
+        void aOneDayRunPicksItsOnlyDay() {
             indexCannotMeasure();
-            classify(Map.of(0, LunarTideType.SPRING_TIDE, 1, LunarTideType.SPRING_TIDE), 2);
+            classify(Map.of(0, LunarTideType.SPRING_TIDE), 1);
             when(locationRepository.findCoastalLocations()).thenReturn(List.of(coastal()));
-            when(tideRunBuilder.build(anyList(), anyList(), eq(false))).thenReturn(Map.of(
-                    MONDAY, runDay("3.9 m", false, "HW 07:02 · 42m after sunrise"),
-                    MONDAY.plusDays(1), runDay("4.6 m", true, "HW 07:48 · 12m after sunrise")));
+            when(tideRunBuilder.buildWithEventWaters(anyList(), anyList(), eq(false)))
+                    .thenReturn(built(
+                    Map.of(MONDAY, runDay("3.9 m", false)),
+                    Map.of(MONDAY, new TideRunBuilder.EventWaters(hw(462, 2), hw(1100, -100)))));
 
-            AlmanacEvent event = source().events(MONDAY, MONDAY.plusDays(1)).getFirst();
+            AlmanacEvent event = source().events(MONDAY, MONDAY).getFirst();
 
-            // Largest water and usable light on one morning is the day to name, and it is the day
-            // the range chip and the "Biggest" note are already about.
             assertThat(event.meta())
-                    .containsEntry("alignment", "HW 07:48 · 12m after sunrise")
-                    .containsEntry("alignmentDate", MONDAY.plusDays(1).toString());
+                    .containsEntry("sunriseHwDate", MONDAY.toString())
+                    .containsEntry("sunriseHwAligned", "true")
+                    .containsEntry("sunsetHwDate", MONDAY.toString())
+                    .doesNotContainKey("sunsetHwAligned")
+                    .doesNotContainKey("eventWaterPartial");
         }
 
         @Test
@@ -460,8 +538,8 @@ class TideAlmanacSourceTest {
             when(locationRepository.findCoastalLocations()).thenReturn(List.of(coastal()));
             // The run straddles the edge of the stored window: day one derivable, day two not,
             // and neither is flagged as the run's peak.
-            when(tideRunBuilder.build(anyList(), anyList(), eq(false)))
-                    .thenReturn(Map.of(MONDAY, runDay("3.9 m", false)));
+            when(tideRunBuilder.buildWithEventWaters(anyList(), anyList(), eq(false)))
+                    .thenReturn(built(Map.of(MONDAY, runDay("3.9 m", false)), Map.of()));
 
             AlmanacEvent event = source().events(MONDAY, MONDAY.plusDays(1)).getFirst();
 
@@ -479,9 +557,10 @@ class TideAlmanacSourceTest {
             indexCannotMeasure();
             classify(Map.of(0, LunarTideType.SPRING_TIDE, 1, LunarTideType.SPRING_TIDE), 2);
             when(locationRepository.findCoastalLocations()).thenReturn(List.of(coastal()));
-            when(tideRunBuilder.build(anyList(), anyList(), eq(false))).thenReturn(Map.of(
-                    MONDAY, runDay("3.9 m", false),
-                    MONDAY.plusDays(1), runDay("4.6 m", true)));
+            when(tideRunBuilder.buildWithEventWaters(anyList(), anyList(), eq(false)))
+                    .thenReturn(built(
+                    Map.of(MONDAY, runDay("3.9 m", false), MONDAY.plusDays(1), runDay("4.6 m", true)),
+                    Map.of()));
 
             AlmanacEvent event = source().events(MONDAY, MONDAY.plusDays(1)).getFirst();
 
@@ -496,7 +575,8 @@ class TideAlmanacSourceTest {
             indexCannotMeasure();
             classify(Map.of(0, LunarTideType.SPRING_TIDE), 1);
             when(locationRepository.findCoastalLocations()).thenReturn(List.of(coastal()));
-            when(tideRunBuilder.build(anyList(), anyList(), eq(false))).thenReturn(Map.of());
+            when(tideRunBuilder.buildWithEventWaters(anyList(), anyList(), eq(false)))
+                    .thenReturn(built(Map.of(), Map.of()));
 
             AlmanacEvent event = source().events(MONDAY, MONDAY).getFirst();
 
@@ -520,7 +600,7 @@ class TideAlmanacSourceTest {
             assertThat(events.getFirst().type()).isEqualTo(TideAlmanacSource.TYPE_KING);
             assertThat(events.getFirst().isDatesOnly()).isTrue();
             // No roster means nothing to draw a run for — the builder must not be asked.
-            verify(tideRunBuilder, never()).build(anyList(), anyList(), anyBoolean());
+            verify(tideRunBuilder, never()).buildWithEventWaters(anyList(), anyList(), anyBoolean());
         }
 
         @Test
@@ -529,14 +609,15 @@ class TideAlmanacSourceTest {
             indexCannotMeasure();
             classify(Map.of(0, LunarTideType.KING_TIDE), 1);
             when(locationRepository.findCoastalLocations()).thenReturn(List.of(coastal()));
-            when(tideRunBuilder.build(anyList(), anyList(), eq(true))).thenReturn(Map.of());
+            when(tideRunBuilder.buildWithEventWaters(anyList(), anyList(), eq(true)))
+                    .thenReturn(built(Map.of(), Map.of()));
 
             AlmanacEvent event = source().events(MONDAY, MONDAY).getFirst();
 
             assertThat(event.type()).isEqualTo("king-tide");
             assertThat(event.title()).isEqualTo("King tide run");
             assertThat(event.detail()).contains("closest approach");
-            verify(tideRunBuilder).build(anyList(), anyList(), eq(true));
+            verify(tideRunBuilder).buildWithEventWaters(anyList(), anyList(), eq(true));
         }
 
         @Test
@@ -545,7 +626,7 @@ class TideAlmanacSourceTest {
             indexCannotMeasure();
             classify(Map.of(0, LunarTideType.SPRING_TIDE), 1);
             when(locationRepository.findCoastalLocations()).thenReturn(List.of(coastal()));
-            when(tideRunBuilder.build(anyList(), anyList(), anyBoolean()))
+            when(tideRunBuilder.buildWithEventWaters(anyList(), anyList(), anyBoolean()))
                     .thenThrow(new IllegalStateException("db down"));
 
             // AlmanacService owns the isolation policy; a source that caught its own errors would
@@ -555,6 +636,32 @@ class TideAlmanacSourceTest {
             assertThat(org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
                     () -> source.events(day, day))).hasMessage("db down");
         }
+    }
+
+    private static final LocalDate TUESDAY = MONDAY.plusDays(1);
+    private static final LocalDate WEDNESDAY = MONDAY.plusDays(2);
+
+    private void runOfTwoDays() {
+        indexCannotMeasure();
+        classify(Map.of(0, LunarTideType.SPRING_TIDE, 1, LunarTideType.SPRING_TIDE), 2);
+        when(locationRepository.findCoastalLocations()).thenReturn(List.of(coastal()));
+    }
+
+    private void runOfThreeDays() {
+        indexCannotMeasure();
+        classify(Map.of(0, LunarTideType.SPRING_TIDE, 1, LunarTideType.SPRING_TIDE,
+                2, LunarTideType.SPRING_TIDE), 3);
+        when(locationRepository.findCoastalLocations()).thenReturn(List.of(coastal()));
+    }
+
+    private static TideRunBuilder.RunBuild built(Map<LocalDate, TideRunDay> days,
+            Map<LocalDate, TideRunBuilder.EventWaters> waters) {
+        return new TideRunBuilder.RunBuild(days, waters);
+    }
+
+    /** A high water at the given minute, {@code gap} minutes from its event, aligned within the hour. */
+    private static TideRunBuilder.EventWater hw(int minutes, long gap) {
+        return new TideRunBuilder.EventWater(minutes, gap, Math.abs(gap) <= 60);
     }
 
     private static LocationEntity coastal() {
@@ -610,7 +717,8 @@ class TideAlmanacSourceTest {
                 2, LunarTideType.SPRING_TIDE,
                 4, LunarTideType.SPRING_TIDE), 5);
         when(locationRepository.findCoastalLocations()).thenReturn(List.of(coastal()));
-        when(tideRunBuilder.build(anyList(), anyList(), any(Boolean.class))).thenReturn(Map.of());
+        when(tideRunBuilder.buildWithEventWaters(anyList(), anyList(), any(Boolean.class)))
+                .thenReturn(built(Map.of(), Map.of()));
 
         List<AlmanacEvent> events = source().events(MONDAY, MONDAY.plusDays(4));
 

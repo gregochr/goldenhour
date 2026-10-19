@@ -35,7 +35,7 @@ the dates, title, family, door or chip row.
 | R5 | **Every topic gets a coincidence line with its own dates, host first.** None is reduced to a bare facts label. |
 | R6 | **Every topic marks its own day(s)** in a new served `dayMarks`. A date may carry several marks; order = by date, then host's marks before the other's. |
 | R7 | **Join note** names each topic's own date(s); same-day wording when they coincide. |
-| R8 | The generic `peaks <date>` fact never appears on a merged entry; when the RUN hosts its tide alignment fact gains ` on the <ordinal>` (from `alignmentDate`). |
+| R8 | The generic `peaks <date>` fact never appears on a merged entry; when the RUN hosts its tide alignment fact gains ` on the <ordinal>` (from `alignmentDate`). **SUPERSEDED 2026-10-19 (tide-both-lights W1):** the single alignment fact is replaced by a sunrise and a sunset high-water row that each always carry their own date, merged or not; there is no ` on the <ordinal>` suffix and `tideFacts` has no `merged` parameter. |
 | R9 | `id` = `<host type>:<union start>:<union end>` (`spring-tide:2026-10-25:2026-10-30`). |
 | R10 | Score provenance stays with the bits WINNER, copied onto the host explicitly: `bits = max(both)`, `interim = winner.interim`, `enteredWindow = winner.enteredWindow` (so a run that wins and clears announce still arrives on the day IT entered the window, as today — never the union start, which would back-date the arrival and swallow the badge). `prose` follows `markFirstOfType`, which runs after the merge on the host's type: a run-hosted card keeps the run's first-of-type prose and the supermoon's prose moves to the next standalone supermoon. Accepted. |
 
@@ -46,7 +46,7 @@ vocabulary (mark word, line facts, join note) lives in small per-type helpers, n
 
 ### 2.0 Reading the source facts — ⚠️ from `event.meta()`, never `Staged.meta`
 
-`enrichTide` strips `range`, `alignment`, `location`, `peakDate`, `figuresFrom` from `s.meta`, and
+`enrichTide` strips `range`, `location`, `peakDate`, `figuresFrom` (and, since tide-both-lights W1, the nine `sunriseHw…`/`sunsetHw…` keys and `eventWaterPartial`; the old `alignment`/`alignmentDate`/`noAlignment` are no longer written at all) from `s.meta`, and
 `enrichSupermoon` strips `peakDate`. Every merge helper reads **`staged.event.meta()`**. Definitions:
 
 - **T** (tide true peak) = `event.meta().get("peakDate")` parsed defensively; **null = no true peak**.
@@ -55,7 +55,7 @@ vocabulary (mark word, line facts, join note) lives in small per-type helpers, n
   (`TideRunBuilder.buildDay`: `peak = dayCount > 1 && …`), so it serves `figuresFrom` +
   `partialCoverage` (existing behaviour, unchanged).
 - **F** (figures day) = `event.meta().get("figuresFrom")`, only when T is null.
-- **A** = `event.meta().get("alignmentDate")`, **HW** = the leading two tokens of
+- (Superseded by tide-both-lights W1: the coincidence clock now reads the aligned `sunsetHw` row, else `sunriseHw`, dated on the true peak.) **A** = `event.meta().get("alignmentDate")`, **HW** = the leading two tokens of
   `event.meta().get("alignment")` (`HW 15:48`), shape `TideRunBuilder` writes at ~:633–643.
 - **M** (supermoon night) = `peakDateOf(supermoon.event)` — the span night nearest perigee.
 - **Moon nights** = every date of the supermoon span.
@@ -130,7 +130,7 @@ The `range … at <location>` fact is **kept** (the mock drops it): it is the on
 the port the range, bars and moonrise are measured at; `4.9 m` then appears twice — accepted. The
 alignment fact keeps its existing `tide ` prefix (every tide card says `tide`; the mock and the
 reference bundle say `alignment`) and appends ` on the <ordinal>` on a run-hosted merged entry only.
-Both are recorded as deliberate divergences in coming-up-plan §11 (S1).
+Both are recorded as deliberate divergences in coming-up-plan §11 (S1). **Superseded 2026-10-19 (tide-both-lights W1):** the `tide ` alignment fact and its ordinal suffix are gone, replaced by the two dated high-water rows.
 
 ## 3. Wire changes (`ComingUpEntry`, additive; no migration — the feed is built in memory)
 
@@ -236,7 +236,7 @@ and that it was not seen in a browser.
   host.enteredWindow = winner.enteredWindow; coincidence = [line(host), line(other)] via a per-type
   `coincidenceFacts(Staged, representative)`; dayMarks via a per-type `dayMarksOf(Staged)` merged in
   R6 order; joinNote via `perigeeJoinNote(supermoon, tide)`. Delete `loserFactsLabel`.
-- Facts by construction, not text surgery: `tideFacts(event, boolean merged)` appends ` on the <A ord>`
+- (Superseded by tide-both-lights W1: `tideFacts(event)` takes no `merged` flag.) Facts by construction, not text surgery: `tideFacts(event, boolean merged)` appends ` on the <A ord>`
   to the alignment value when `merged` and A is present; the merge rebuilds the hosting run's facts with
   `merged = true`; a hosting supermoon's facts are rebuilt without the `peaks` fact (only the region
   scope fact, if any). Never match on segment text.
@@ -386,7 +386,7 @@ and that it was not seen in a browser.
 - Pairing beyond tide + supermoon; ranking, bits, bands and the badge logic.
 - An unmerged supermoon (single dark-sky chip) and an unmerged tide run's facts, title and door — only
   S2/S4's bars reach unmerged tide cards.
-- The alignment date on UNMERGED tide cards (same ambiguity; follow-up if wanted). Unmerged
+- The alignment date on UNMERGED tide cards (same ambiguity; follow-up if wanted — done by tide-both-lights W1, whose rows are always dated). Unmerged
   partial-coverage runs still print "peak" on their `figuresFrom` chip today — a pre-existing
   falsehood, named here as a follow-up, not fixed.
 - Bold dates in the coincidence lines and join note (plain strings on the wire); `tide` not
