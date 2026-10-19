@@ -220,20 +220,81 @@ public class TideRunBuilder {
      */
     public Map<LocalDate, TideRunDay> build(List<LocalDate> dates,
             List<LocationEntity> coastalLocations, boolean king) {
+        return buildWithEventWaters(dates, coastalLocations, king).days();
+    }
+
+    /**
+     * The high water at each solar event on one day of a run, at the run's representative.
+     *
+     * <p>Deliberately <b>not</b> a field of {@link TideRunDay}: that record is {@code HotTopic.tideRun},
+     * persisted in {@code daily_briefing_cache} and compared by value on every serve, so growing it
+     * would touch every constructor site and invite the "recomputed live" trap. Only the Coming up
+     * almanac source reads this.
+     *
+     * @param sunrise the high water nearest sunrise that day, or null when the day has no high water
+     * @param sunset  the high water nearest sunset that day, or null when the day has no high water
+     */
+    public record EventWaters(EventWater sunrise, EventWater sunset) {
+    }
+
+    /**
+     * One day's high water nearest one solar event.
+     *
+     * <p>"Nearest" means nearest <em>within that Europe/London civil day</em> — a summer 04:30
+     * sunrise's true nearest high water may be the previous evening's, which belongs to the previous
+     * day's row. Accepted and stated here rather than reached for across midnight.
+     *
+     * @param minutes    the high water, minutes past local midnight
+     * @param gapMinutes minutes from the event to the water — positive when the water comes after
+     *                   the event; never wrapped across midnight
+     * @param aligned    true when {@code |gapMinutes|} is within {@link #ALIGNED_WINDOW_MINUTES}
+     */
+    public record EventWater(int minutes, long gapMinutes, boolean aligned) {
+    }
+
+    /**
+     * A run built with its per-event high waters, both from the same extremes fetch and the same
+     * per-day geometry pass.
+     *
+     * @param days        the run days keyed by date, exactly as {@link #build} returns them
+     * @param eventWaters each derivable day's high water at sunrise and at sunset, keyed by date
+     */
+    public record RunBuild(Map<LocalDate, TideRunDay> days, Map<LocalDate, EventWaters> eventWaters) {
+
+        /** An empty build — no day could be derived. */
+        static RunBuild empty() {
+            return new RunBuild(Map.of(), Map.of());
+        }
+    }
+
+    /**
+     * Builds the run rows and, from the same fetch, each day's high water at sunrise and at sunset.
+     *
+     * <p>{@link #build} delegates here, so its callers are unchanged. The event waters are a separate
+     * output because {@link TideRunDay} is persisted and compared by value (see {@link EventWaters}).
+     *
+     * @param dates            the run's dates, ascending; one topic exists per date
+     * @param coastalLocations the enabled coastal locations to choose a representative from
+     * @param king             true for a perigean (king) run, false for an ordinary spring run
+     * @return the run days and event waters keyed by date — a date is absent when its tide could not
+     *         be derived
+     */
+    public RunBuild buildWithEventWaters(List<LocalDate> dates,
+            List<LocationEntity> coastalLocations, boolean king) {
         if (dates == null || dates.isEmpty() || coastalLocations == null
                 || coastalLocations.isEmpty()) {
-            return Map.of();
+            return RunBuild.empty();
         }
         List<LocalDate> ordered = dates.stream().sorted().distinct().toList();
         Map<Long, List<TideExtremeEntity>> byLocation = fetchExtremes(coastalLocations, ordered);
         if (byLocation.isEmpty()) {
-            return Map.of();
+            return RunBuild.empty();
         }
 
         LocationEntity representative = representativeSelector.select(
                 coastalLocations, byLocation, ordered, TideRunBuilder::rangeOn);
         if (representative == null) {
-            return Map.of();
+            return RunBuild.empty();
         }
 
         Map<LocalDate, DayTides> perDay = new LinkedHashMap<>();
@@ -244,7 +305,7 @@ public class TideRunBuilder {
             }
         }
         if (perDay.isEmpty()) {
-            return Map.of();
+            return RunBuild.empty();
         }
 
         double peakRange = perDay.values().stream()
@@ -270,7 +331,50 @@ public class TideRunBuilder {
                     geometry.get(entry.getKey()), dayNumber++, perDay.size(), peakRange, stats,
                     king, roster.get(entry.getKey()), entry.getKey().equals(bestAligned)));
         }
-        return result;
+
+        Map<LocalDate, EventWaters> eventWaters = new LinkedHashMap<>();
+        for (Map.Entry<LocalDate, DayTides> entry : perDay.entrySet()) {
+            DayGeometry geo = geometry.get(entry.getKey());
+            eventWaters.put(entry.getKey(), new EventWaters(
+                    highWaterAt(entry.getValue().points(), geo.sunriseMinutes()),
+                    highWaterAt(entry.getValue().points(), geo.sunsetMinutes())));
+        }
+        return new RunBuild(result, eventWaters);
+    }
+
+    /**
+     * The day's high water nearest ONE named solar event, or null when the day has no high water.
+     *
+     * <p>Its own helper, measuring to the one event it is given. {@link #nearestSolar} and
+     * {@link #signedGap} measure to the <em>nearer</em> of the two events, so a midday water that is
+     * nearest sunset but nearer sunrise would be worded against the wrong event; reusing them here
+     * would print that. Ties go to the earlier water ({@code points} is sorted by clock time and the
+     * comparison is strict).
+     */
+    private static EventWater highWaterAt(List<Point> points, int eventMinutes) {
+        Point best = null;
+        for (Point point : points) {
+            if (point.type() != TideExtremeType.HIGH) {
+                continue;
+            }
+            if (best == null || Math.abs(eventGap(point.minutes(), eventMinutes))
+                    < Math.abs(eventGap(best.minutes(), eventMinutes))) {
+                best = point;
+            }
+        }
+        if (best == null) {
+            return null;
+        }
+        long gap = eventGap(best.minutes(), eventMinutes);
+        return new EventWater(best.minutes(), gap, Math.abs(gap) <= ALIGNED_WINDOW_MINUTES);
+    }
+
+    /**
+     * Minutes from one named solar event to a water — positive when the water comes after the event.
+     * Does not wrap midnight, for the same reason {@link #signedGap} does not.
+     */
+    private static long eventGap(int minutes, int eventMinutes) {
+        return (long) minutes - eventMinutes;
     }
 
     /**
