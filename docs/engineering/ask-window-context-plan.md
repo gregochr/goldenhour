@@ -328,11 +328,17 @@ forecast's pick." Neither names a home. (What the validator does about 3★ is �
 
 **The hint (into `RULES`, immediately after the criteria):**
 
-> A good investigation usually runs: list_windows; if every window in scope is stay-home, say so
-> and stop; if one is broadly game on, rank_spots there; if there are pockets, rank_spots in those
-> regions, and for a coastal pocket read tideState and tideAligned and check get_hot_topics for a
-> spring or king tide; then pick. Questions this does not fit — one place, one tide, one event, the
-> night — need none of it.
+> A good investigation usually runs: list_windows; if no window in scope holds a game-on place, say
+> so and stop; if one is broadly game on, rank_spots there; if there are pockets — even a couple of
+> exceptions on a stay-home window — rank_spots in those regions, and for a coastal pocket read
+> tideState and tideAligned and check get_hot_topics for a spring or king tide; then pick, naming an
+> exception as one. Questions this does not fit — one place, one tide, one event, the night — need
+> none of it.
+
+⚠️ The stop condition is "no game-on place anywhere", never "every window is stay-home": the owner's
+weekend is stay-home AND has exceptions, and a hint that stopped on the first would leave a Ready
+`BEST_*` answer with no pick while `gameOnCandidates` is non-empty, which the anchor and
+`ReadyRelevance` then discard (Codex's round-two review of #1223).
 
 **The thread.** `THREAD_RULES` gains one sentence: "A follow-up about the windows themselves ('so is
 it a stay-home weekend?', 'how does Sunday look?') calls list_windows again." Without it the
@@ -430,9 +436,12 @@ not. The thread does NOT echo it — `exchangeOf` reduces an exchange to ids and
 fact, before `threadForWire` sends it.
 
 **Freshness (W2).** `AskReadyFreshness.recheck` gains `spreadMoved`: a stored answer is withheld whole
-when, for any carried window that has not passed, the live `Spread` is not EQUAL to the stored one —
-record equality over every field, pockets included, so no figure the prompt lets the model quote can
-drift unchecked — the same all-or-nothing rule as a pick whose rating moved, in the one shared code
+when, for ANY carried window, the live `Spread` is not EQUAL to the stored one — record equality
+over every field, pockets included, so no figure the prompt lets the model quote can drift unchecked
+— and **a carried window that is no longer in the live window set is stale, not skipped**: a
+Friday-built `BEST_WEEKEND` answer that quotes Saturday's spread while its one surviving pick is on
+Sunday must go when Saturday passes, because the Saturday prose can no longer be verified (Codex's
+round-two review of #1223; the first revision skipped passed windows) — the same all-or-nothing rule as a pick whose rating moved, in the one shared code
 path the typed cache's re-check also uses (`CaffeineAskAnswerCache.lookup` calls `recheck`), so a
 cached typed answer is withheld on the same test. (`Spread` is a record of ints, strings and lists,
 so `equals` is the comparison and no tolerance exists to tune.) A row with no figures (written before W2) is
@@ -623,7 +632,7 @@ label the model then has to explain.
 |---|---|---|---|---|
 | **W0** | this plan + `scripts/measurements/ask-window-context/measure.py`; CLAUDE.md's *Ask — the engine* bullet gains one sentence pointing here; `ask-photocast-plan.md` §2.2's table gains the spread column | XS | — | nothing |
 | **W1** backend spread + prompt | `AskSnapshot.Spread` (pure record + fold, per region in `AskSnapshotBuilder`, summed per scope in `AskTools.listWindows`, with `over`); `WindowInfo.spread`; `AskSnapshot.gameOnCandidates`; the no-pick acceptance (`AskAnswerValidator` anchor + `ReadyRelevance`) keyed on it; `RESULT_CHAR_CAP` 6,000 → 9,000; `AskToolSchemas` (list_windows description, `submit_answer` "Up to three"); `AskPromptBuilder` (criteria, hint, no-fill rule, the `USER_LESS`/`WITH_USER` sentences, the `THREAD_RULES` sentence); `@JsonIgnoreProperties` on `AskAnswer` (the W2 rollback guard); `StubAskEngine` reads `Spread` straight off the snapshot (no tool call: its path already runs two `rank_spots`), fills picks with game-on places only and words the asked windows stay-home / game on / stood down from the figures, so local dev and the dry-run show the shape | M | `AskSpreadTest` (pure: region kinds from the served tree, canopy out, held-back out and counted, thin region's 4★ not in `gameOn`, bands, derived fields, pocket order and cap, scope sums, `over` for one / several / all regions, an all-stood-down window); `AskToolsTest` (list_windows per scope, the busy-day mock under half the cap, the cap literal); `AskAnswerValidatorTest` + `ReadyRelevanceTest` (no-pick BEST accepted iff no game-on candidate; anchored otherwise, byte-identical to today); `AskPromptBuilderTest` (`contains`; the thread prompt differs only by the shared change); `AskToolSchemasTest`; `StubAskEngineTest`; mutation on the fold and the set test | every test that pins a `list_windows` JSON or a trace `chars` figure (`AskToolsTest`, `ClaudeAskEngineTest`; `AskAdminControllerTest` mocks the engine and does not move); `AskToolsTest`'s 6,000 literal; the stub's summaries and pick counts (fewer picks on a poor fixture); `AskPromptRegressionTest` is re-run, not edited |
-| **W2** carried figures + freshness + client line | `AskAnswer.windows` (every window `list_windows` returned, the picks' and the offer's; the whole `Spread` each) built by the validator and threaded through every `new AskAnswer(` (nine sites, `ReadyRelevance.relevantPart` and `recheck`'s rebuild among them); `ask_ready_answer.answer_json` carries it (no migration); `AskReadyFreshness.spreadMoved`; `AskReadyResponse`/`AskResponse` wire; `askConversation.js` `normaliseAnswer` keeps it, `threadForWire` does not; `AskConversation` draws the line if Q4 says so, `askCss.test.js` pins it outside every role gate | M | validator (windows from the live snapshot, never the model); every rebuild site (a stored Ready answer carries `windows`, mutants per site); freshness (withheld on ANY difference in a carried `Spread` — a 5★ → 4★ move with `gameOn` unchanged, a 2★ → 3★ move, a pocket mean — passed windows skipped, an unpicked window carried, legacy row served); client join and copy | the Ready and typed wire shapes (additive); a row from before W2 carries no figures and is served as today |
+| **W2** carried figures + freshness + client line | `AskAnswer.windows` (every window `list_windows` returned, the picks' and the offer's; the whole `Spread` each) built by the validator and threaded through every `new AskAnswer(` (nine sites, `ReadyRelevance.relevantPart` and `recheck`'s rebuild among them); `ask_ready_answer.answer_json` carries it (no migration); `AskReadyFreshness.spreadMoved`; `AskReadyResponse`/`AskResponse` wire; `askConversation.js` `normaliseAnswer` keeps it, `threadForWire` does not; `AskConversation` draws the line if Q4 says so, `askCss.test.js` pins it outside every role gate | M | validator (windows from the live snapshot, never the model); every rebuild site (a stored Ready answer carries `windows`, mutants per site); freshness (withheld on ANY difference in a carried `Spread` — a 5★ → 4★ move with `gameOn` unchanged, a 2★ → 3★ move, a pocket mean — a carried window that has passed or vanished withholds, an unpicked window carried, legacy row served); client join and copy | the Ready and typed wire shapes (additive); a row from before W2 carries no figures and is served as today |
 | **W3** regression | `AskWindowContextRegressionTest` + two fixtures + the synthetic-band fixture builder | S/M | the class itself (owner-run) | nothing; excluded from `verify` |
 | **W4** §2.5 | whichever of B–D the owner chooses (A is in W1) | L (B) / S (C) / M (D) | per option | per option: B and C change which picks exist, so the Ready catalogue's stored answers turn over at the next precompute; B touches `candidates`, the offer and the anchor |
 | **R1** sub-region measurement | `scripts/measurements/sub-region-stability/` + results | M | the SQL checked on sqlite against a hand-worked fixture, as the same-cell recipe was | nothing (read-only) |
@@ -750,6 +759,10 @@ measurement), ~60 charges, of which these changed the plan rather than a sentenc
   the picks' windows (an unpicked window's figures could go stale while a pick kept the answer live) and
   the freshness test compared only `rated` and `gameOn` (a 5★ → 4★ move was invisible). Both fixed by
   carrying the whole `Spread` of every window the conversation saw and comparing it by equality.
+- **Codex's round two (406c67b)** added two more P1s: the hint's stop condition ("every window is
+  stay-home") stopped before the pocket branch on exactly the owner's weekend, discarding the Ready
+  answer; and the freshness rule skipped a carried window that had passed, serving prose about it
+  unverified. Both fixed in §2.3 and §2.4.
 - The night regression already asserts wording; the thread needs one sentence; `heldBack` now uses
   `isHeldBack`; the research recipe measures the combined rating, part-against-rest, with a random
   partition as the null; the "6–11%" became 6–12% of inland near-twin pairs.
