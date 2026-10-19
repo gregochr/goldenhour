@@ -149,8 +149,20 @@ honesty filter served (fact 2) and the sample gate (`verdictEligible`):
 |---|---|---|
 | **counted** | has slots and `verdictEligible` | its slots enter the bands and the pockets |
 | **thin** | has slots, not `verdictEligible` (the Plan tab refuses it a verdict: fewer than 5 rated, or under half examined — the REAL `VerdictSampleGate`, over the pipeline's dispositions) | `regions.thin` — its slots are NOT in the bands |
-| **stood down** | no slots, verdict `STAND_DOWN` (the filter's weather stand-down) | `regions.stoodDown` |
-| **not scored** | no slots, verdict `AWAITING` (away, not attempted, failed) | `regions.notScored` |
+| **stood down** | no slots, and the filter's reason was `STOOD_DOWN` — a real weather stand-down | `regions.stoodDown` |
+| **not scored** | no slots, and the reason was anything else: `AWAITING` (not attempted, failed) **or the `UNKNOWN` the filter also words as `STAND_DOWN`** | `regions.notScored` |
+
+⚠️ **The served verdict word is not enough to tell the two slotless kinds apart**: `fullRewrite`
+words `CoverageReason.UNKNOWN` — no disposition record, a tie, an unparseable category, a renamed
+location, a failed lookup — as `STAND_DOWN` exactly like a weather stand-down (fact 2), and
+`CoverageReasons` answers `UNKNOWN` whenever the record cannot settle the cause. Reading that word as
+"poor everywhere" would present missing evidence as bad weather during a partial disposition lookup
+(Codex's round six). So the filter's reason rides the served region: `BriefingRegion.coverageReason`
+(nullable, NON_NULL-serialised, set only by `BriefingHonestyFilter.fullRewrite` on the API path, so
+it is never persisted and a legacy payload reads null), copied onto `AskSnapshot.Region`, and only
+`STOOD_DOWN` counts as stood down. A null reason on a slotless `STAND_DOWN` region (a payload from
+before the field) is not scored — unknown is never "poor", the safe direction. The Plan tab ignores
+the field.
 
 Why thin regions are out of the bands: `rank_spots` returns only pick-eligible slots, which require
 `region.verdictEligible()`, so counting a thin region's 4★ in `gameOn` would tell the model "2 are
@@ -394,8 +406,12 @@ the reader's drive; a drive filter is rank_spots' alone." Per question:
 answer cannot exist: the hint says "say so and stop", the model submits no pick, the anchor discards
 it, `ReadyRelevance` refuses a pick question with no pick, and every scope pays for a conversation
 and stores nothing, every cycle. This plan lets the honest answer through on one crisp condition:
-`AskSnapshot.gameOnCandidates(windowIds, scope)` — pick-eligible slots rated ≥ 4 on the question's
-windows — **is empty**. Then the anchor is not applied (there is nothing to lead with) and
+`AskSnapshot.gameOnCandidates(windowIds, scope, predicate)` — pick-eligible slots rated ≥ 4 on the
+question's windows **that the question itself admits** — **is empty**. The predicate is the
+question's own `ReadyRelevance.admitsSlot` (a `COASTAL_HIGH` answer may carry only a high-water
+coastal pick, so a 4★ inland place must not count as "game on" for it and discard its honest no-pick
+answer, nor withhold a stored one when such a place appears later — Codex's round six); for a
+`BEST_*` or `AM_OR_PM` question and for a typed question it is every slot. Then the anchor is not applied (there is nothing to lead with) and
 `ReadyRelevance` admits the no-pick answer, which is stored with its carried figures (§2.4) and
 served. ⚠️ **The admission is ONE predicate, `AskSnapshot.hasGameOn(windowIds, scope)`, consulted
 directly by every site that decides whether a no-pick answer stands — never inferred from the anchor
@@ -658,7 +674,7 @@ label the model then has to explain.
 | phase | what | size | tests | what it breaks |
 |---|---|---|---|---|
 | **W0** | this plan + `scripts/measurements/ask-window-context/measure.py`; CLAUDE.md's *Ask — the engine* bullet gains one sentence pointing here; `ask-photocast-plan.md` §2.2's table gains the spread column | XS | — | nothing |
-| **W1** backend spread + prompt | `AskSnapshot.Spread` (pure record + fold, per region in `AskSnapshotBuilder`, summed per scope in `AskTools.listWindows`, with `over`); `WindowInfo.spread`; `AskSnapshot.gameOnCandidates`; `AskSnapshot.hasGameOn`, the no-pick admission consulted directly by the validator's anchor rule, `ReadyRelevance.violation` and `AskReadyFreshness.check`'s anchor test (`anchoredWindow` unchanged); `RESULT_CHAR_CAP` 6,000 → 9,000; `AskToolSchemas` (list_windows description, `submit_answer` "Up to three"); `AskPromptBuilder` (criteria, hint, no-fill rule, the `USER_LESS`/`WITH_USER` sentences, the `THREAD_RULES` sentence, and a Ready conversation's "The question is about these windows: …" line from the offer's `windowIds`); `@JsonIgnoreProperties` on `AskAnswer` (the W2 rollback guard); `StubAskEngine` reads `Spread` straight off the snapshot (no tool call: its path already runs two `rank_spots`), fills picks with game-on places only and words the asked windows stay-home / game on / stood down from the figures, so local dev and the dry-run show the shape | M | `AskSpreadTest` (pure: region kinds from the served tree, canopy out, held-back out and counted, thin region's 4★ not in `gameOn`, bands, derived fields, pocket order and cap, scope sums, `over` for one / several / all regions, an all-stood-down window); `AskToolsTest` (list_windows per scope, the busy-day mock under half the cap, the cap literal); `AskAnswerValidatorTest` + `ReadyRelevanceTest` + `AskReadyFreshnessTest` (no-pick BEST accepted, stored AND served iff no game-on candidate; withheld as stale once one appears; a region scope whose crown lies elsewhere but holds a 4★ is REFUSED a no-pick answer; anchored otherwise, byte-identical to today); `AskPromptBuilderTest` (`contains`; the thread prompt differs only by the shared change); `AskToolSchemasTest`; `StubAskEngineTest`; mutation on the fold and the set test | every test that pins a `list_windows` JSON or a trace `chars` figure (`AskToolsTest`, `ClaudeAskEngineTest`; `AskAdminControllerTest` mocks the engine and does not move); `AskToolsTest`'s 6,000 literal; the stub's summaries and pick counts (fewer picks on a poor fixture); `AskPromptRegressionTest` is re-run, not edited |
+| **W1** backend spread + prompt | `AskSnapshot.Spread` (pure record + fold, per region in `AskSnapshotBuilder`, summed per scope in `AskTools.listWindows`, with `over`); `WindowInfo.spread`; `BriefingRegion.coverageReason` set by `BriefingHonestyFilter.fullRewrite` and copied onto `AskSnapshot.Region`; `AskSnapshot.gameOnCandidates(windowIds, scope, predicate)`; `AskSnapshot.hasGameOn`, the no-pick admission consulted directly by the validator's anchor rule, `ReadyRelevance.violation` and `AskReadyFreshness.check`'s anchor test, with the question's own `admitsSlot` as the predicate (`anchoredWindow` unchanged); `RESULT_CHAR_CAP` 6,000 → 9,000; `AskToolSchemas` (list_windows description, `submit_answer` "Up to three"); `AskPromptBuilder` (criteria, hint, no-fill rule, the `USER_LESS`/`WITH_USER` sentences, the `THREAD_RULES` sentence, and a Ready conversation's "The question is about these windows: …" line from the offer's `windowIds`); `@JsonIgnoreProperties` on `AskAnswer` (the W2 rollback guard); `StubAskEngine` reads `Spread` straight off the snapshot (no tool call: its path already runs two `rank_spots`), fills picks with game-on places only and words the asked windows stay-home / game on / stood down from the figures, so local dev and the dry-run show the shape | M | `AskSpreadTest` (pure: region kinds from the served tree, canopy out, held-back out and counted, thin region's 4★ not in `gameOn`, bands, derived fields, pocket order and cap, scope sums, `over` for one / several / all regions, an all-stood-down window, a slotless `STAND_DOWN` region with reason `UNKNOWN` or null counted as not scored); `BriefingHonestyFilterTest` (the reason rides the rewritten region and nothing else changes); `AskToolsTest` (list_windows per scope, the busy-day mock under half the cap, the cap literal); `AskAnswerValidatorTest` + `ReadyRelevanceTest` + `AskReadyFreshnessTest` (no-pick BEST accepted, stored AND served iff no game-on candidate; withheld as stale once one appears; a region scope whose crown lies elsewhere but holds a 4★ is REFUSED a no-pick answer; a `COASTAL_HIGH` no-pick answer stands beside a 4★ inland place and falls to a 4★ high-water coastal one; anchored otherwise, byte-identical to today); `AskPromptBuilderTest` (`contains`; the thread prompt differs only by the shared change); `AskToolSchemasTest`; `StubAskEngineTest`; mutation on the fold and the set test | every test that pins a `list_windows` JSON or a trace `chars` figure (`AskToolsTest`, `ClaudeAskEngineTest`; `AskAdminControllerTest` mocks the engine and does not move); `AskToolsTest`'s 6,000 literal; the stub's summaries and pick counts (fewer picks on a poor fixture); `AskPromptRegressionTest` is re-run, not edited |
 | **W2** carried figures + freshness + client line | `AskAnswer.windows` (every window `list_windows` returned, the picks' and the offer's; the whole `Spread` each) built by the validator and threaded through every `new AskAnswer(` (nine sites, `ReadyRelevance.relevantPart` and `recheck`'s rebuild among them); `ask_ready_answer.answer_json` carries it (no migration); `AskReadyFreshness.spreadMoved`; `AskReadyResponse`/`AskResponse` wire; `askConversation.js` `normaliseAnswer` keeps it, `threadForWire` does not; `AskConversation` draws the line if Q4 says so, `askCss.test.js` pins it outside every role gate | M | validator (windows from the live snapshot, never the model); every rebuild site (a stored Ready answer carries `windows`, mutants per site); freshness (withheld on ANY difference in a carried `Spread` — a 5★ → 4★ move with `gameOn` unchanged, a 2★ → 3★ move, a pocket mean — a carried window that has passed or vanished withholds, an unpicked window carried, legacy row served); client join and copy | the Ready and typed wire shapes (additive); a row from before W2 carries no figures and is served as today |
 | **W3** regression | `AskWindowContextRegressionTest` + two fixtures + the synthetic-band fixture builder | S/M | the class itself (owner-run) | nothing; excluded from `verify` |
 | **W4** §2.5 | whichever of B–D the owner chooses (A is in W1) | L (B) / S (C) / M (D) | per option | per option: B and C change which picks exist, so the Ready catalogue's stored answers turn over at the next precompute; B touches `candidates`, the offer and the anchor |
@@ -803,6 +819,11 @@ measurement), ~60 charges, of which these changed the plan rather than a sentenc
   windows the question is about", which a Ready prompt names; and the no-pick admission was limited
   to `BEST_*` while `AM_OR_PM` and `COASTAL_HIGH` are pick questions the same hint stops — it now
   covers every solar pick question.
+- **Codex's round six (89b2bd67)**: `hasGameOn` counted every 4★ on the offered windows, so a
+  `COASTAL_HIGH` question's honest no-pick answer was discarded beside a 4★ inland place — the
+  predicate is now the question's own `admitsSlot`; and a slotless `STAND_DOWN` region was read as a
+  weather stand-down although the filter words `UNKNOWN` the same way — the filter's reason now rides
+  the served region and only `STOOD_DOWN` counts as stood down.
 - The night regression already asserts wording; the thread needs one sentence; `heldBack` now uses
   `isHeldBack`; the research recipe measures the combined rating, part-against-rest, with a random
   partition as the null; the "6–11%" became 6–12% of inland near-twin pairs.
