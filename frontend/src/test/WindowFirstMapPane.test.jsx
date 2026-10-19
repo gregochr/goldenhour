@@ -297,6 +297,33 @@ describe('WindowFirstMapPane', () => {
       expect(MapStub.lastProps.olderDayDate).toBeNull();
     });
 
+    it('hands MapView the most recently loaded day only when it came back empty (the line in the Load row\'s place)', () => {
+      withToday();
+      renderPane(props({ loadedPastDays: ['2026-08-08'], emptyPastDays: ['2026-08-08'] }));
+      expect(MapStub.lastProps.emptyOlderDayDate).toBe('2026-08-08');
+
+      renderPane(props({ loadedPastDays: ['2026-08-08', '2026-08-07'], emptyPastDays: ['2026-08-08'] }));
+      expect(MapStub.lastProps.emptyOlderDayDate).toBeNull();
+
+      renderPane(props({ loadedPastDays: ['2026-08-08'] }));
+      expect(MapStub.lastProps.emptyOlderDayDate).toBeNull();
+    });
+
+    it('keeps the empty day at the T-4 floor, where no Load row follows it', () => {
+      withToday();
+      renderPane(props({
+        loadedPastDays: ['2026-08-08', '2026-08-07'], emptyPastDays: ['2026-08-08', '2026-08-07'],
+      }));
+      expect(MapStub.lastProps.canLoadOlder).toBe(false);
+      expect(MapStub.lastProps.emptyOlderDayDate).toBe('2026-08-07');
+    });
+
+    it('names no empty day without a loader', () => {
+      withToday();
+      renderPane(props({ onLoadOlderDay: null, loadedPastDays: ['2026-08-08'], emptyPastDays: ['2026-08-08'] }));
+      expect(MapStub.lastProps.emptyOlderDayDate).toBeNull();
+    });
+
     it('never asks for anything older than T-4', () => {
       withToday();
       renderPane(props({ dates: ['2026-08-07', ...DATES] }));

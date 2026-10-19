@@ -70,6 +70,7 @@ vi.mock('../api/settingsApi.js', () => ({
   markComingUpSeen: vi.fn(),
 }));
 vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn() }));
+vi.mock('../api/accountApi.js', () => ({ deleteAccount: vi.fn() }));
 vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ viewline: null }) }));
 // The banner asks for per-location scores whenever a real alert is up (aurora-banner-plan.md B2);
 // empty answers keep it on its pending slot, which is all this suite needs of it.
@@ -136,6 +137,7 @@ import { getDailyBriefing } from '../api/briefingApi.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
 import { getSettings, getReach, getDriveTimes } from '../api/settingsApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
+import { deleteAccount } from '../api/accountApi.js';
 import { getAuroraStatus } from '../api/auroraApi.js';
 import { getNlcSighting } from '../api/nlcApi.js';
 import { getAstroConditions } from '../api/astroApi.js';
@@ -713,5 +715,45 @@ describe('App — every route into settings takes down the dialog it would open 
 
       expect(screen.getByTestId('aurora-banner')).toHaveFocus();
     });
+  });
+});
+
+// ── Account deletion ─────────────────────────────────────────────────────────
+
+describe('App — deleting the account from the real settings dialog (R5b)', () => {
+  it('a 204 signs the reader out through App\'s own logout: the session is cleared and the dialog is gone', async () => {
+    // The wiring `UserSettingsModal.test.jsx` cannot see: `App` must hand the dialog its sign-out.
+    deleteAccount.mockReset().mockResolvedValue(undefined);
+    renderApp();
+    await screen.findByTestId('wf-heat-strip');
+    await press(screen.getByRole('button', { name: 'Settings' }));
+    const dialog = await settingsSettled();
+    expect(localStorage.getItem('goldenhour_token')).toBe('test-token');
+
+    await press(within(dialog).getByTestId('settings-delete-open'));
+    fireEvent.change(within(dialog).getByTestId('settings-delete-password'), { target: { value: 'pw-123' } });
+    await press(within(dialog).getByTestId('settings-delete-confirm'));
+
+    await waitFor(() => expect(localStorage.getItem('goldenhour_token')).toBeNull());
+    expect(deleteAccount).toHaveBeenCalledTimes(1);
+    expect(deleteAccount).toHaveBeenCalledWith('pw-123');
+    await waitFor(() => expect(screen.queryByTestId('settings-modal')).toBeNull());
+    expect(localStorage.getItem('goldenhour_role')).toBeNull();
+  });
+
+  it('a refusal leaves the reader signed in with the dialog open', async () => {
+    deleteAccount.mockReset().mockRejectedValue({ response: { status: 403, data: { error: 'Password is incorrect' } } });
+    renderApp();
+    await screen.findByTestId('wf-heat-strip');
+    await press(screen.getByRole('button', { name: 'Settings' }));
+    const dialog = await settingsSettled();
+
+    await press(within(dialog).getByTestId('settings-delete-open'));
+    fireEvent.change(within(dialog).getByTestId('settings-delete-password'), { target: { value: 'nope' } });
+    await press(within(dialog).getByTestId('settings-delete-confirm'));
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('Password is incorrect');
+    expect(localStorage.getItem('goldenhour_token')).toBe('test-token');
+    expect(screen.getByTestId('settings-modal')).toBeInTheDocument();
   });
 });

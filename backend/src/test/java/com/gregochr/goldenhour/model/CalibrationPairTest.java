@@ -20,12 +20,12 @@ class CalibrationPairTest {
 
     private CalibrationPair oldTable(long outcomeId) {
         return new CalibrationPair("Durham", DATE, TargetType.SUNSET, 1, RUN, EvaluationModel.HAIKU,
-                3, 50, 60, 4, 70, 80, true, outcomeId);
+                3, 50, 60, 4, 70, 80, true, outcomeId, null, null);
     }
 
     private CalibrationPair rating(long userId) {
         return new CalibrationPair("Durham", DATE, TargetType.SUNSET, 1, RUN, EvaluationModel.HAIKU,
-                3, 50, 60, 4, userId);
+                3, 50, 60, 4, userId, null, null);
     }
 
     @Test
@@ -58,7 +58,7 @@ class CalibrationPairTest {
         assertThat(oldTable(7L).slotHorizonKey()).isNotEqualTo(oldTable(8L).slotHorizonKey());
         // Same outcome, a later run of the same forecast: the same key, so the newest wins.
         CalibrationPair laterRun = new CalibrationPair("Durham", DATE, TargetType.SUNSET, 1,
-                RUN.plusHours(12), EvaluationModel.HAIKU, 5, null, null, 4, 11L);
+                RUN.plusHours(12), EvaluationModel.HAIKU, 5, null, null, 4, 11L, null, null);
         assertThat(laterRun.slotHorizonKey()).isEqualTo(rating(11L).slotHorizonKey());
     }
 }

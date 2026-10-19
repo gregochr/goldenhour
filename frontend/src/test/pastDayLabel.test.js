@@ -4,7 +4,7 @@
  * Pinned in UTC here (the suite default); `pastDayLabelAbroad.test.js` pins it under a non-UK zone.
  */
 import { describe, it, expect } from 'vitest';
-import { pastDayLabel, dayLabelFor } from '../utils/windowFirstCards.js';
+import { pastDayLabel, dayLabelFor, dowDayLabel } from '../utils/windowFirstCards.js';
 
 const TODAY = '2026-10-15'; // a Thursday
 
@@ -41,5 +41,13 @@ describe('pastDayLabel', () => {
   it('is a different vocabulary from dayLabelFor: no "Tomorrow", a short weekday not a long one', () => {
     expect(dayLabelFor('2026-10-13', TODAY, '2026-10-16')).toBe('Tuesday');
     expect(pastDayLabel('2026-10-13', TODAY)).toBe('Tue 13');
+  });
+});
+
+describe('dowDayLabel', () => {
+  it('is the calendar form for any date, yesterday and today included (a sentence about one day)', () => {
+    expect(dowDayLabel('2026-10-14')).toBe('Wed 14');
+    expect(dowDayLabel(TODAY)).toBe('Thu 15');
+    expect(dowDayLabel('2026-10-01')).toBe('Thu 1');
   });
 });

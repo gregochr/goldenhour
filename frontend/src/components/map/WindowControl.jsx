@@ -9,6 +9,7 @@ import { verdictRegionLabel } from '../../utils/mapVerdict.js';
 import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js';
 import { useRowFocusRescue } from '../../hooks/useRowFocusRescue.js';
 import { useFitToFrame } from '../../hooks/useFitToFrame.js';
+import { noStoredForecast } from './outcomeRatingCopy.js';
 
 /** Breathing room kept above/below the active row when the opened menu scrolls it into view. */
 const MENU_SCROLL_PAD_PX = 6;
@@ -53,7 +54,7 @@ export default function WindowControl({
   verdicts = null, scopeIsArea = true, landingLabel = '', onReopenLanding = null,
   onOpenWindowPanel = null, pillRef: pillRefProp = null, pillOverride = null,
   canLoadOlder = false, olderDayLabel = null, olderDayLoadingLabel = null, onLoadOlderDay = null,
-  ratedCounts = null,
+  emptyOlderDayLabel = null, ratedCounts = null,
 }) {
   const isControlled = openProp !== undefined;
   const [openState, setOpenState] = useState(false);
@@ -208,7 +209,9 @@ export default function WindowControl({
   }, [events]);
   const earlierDates = new Set(earlierGroups.map((group) => group.date));
   // The EARLIER header is drawn when there is anything under it: a past row, or a day to fetch.
-  const showEarlier = earlierGroups.length > 0 || loadable;
+  // So does a day that loaded empty: its line is the group's content when nothing else is (the T-4 floor).
+  const noStoredLine = emptyOlderDayLabel ? noStoredForecast(emptyOlderDayLabel) : null;
+  const showEarlier = earlierGroups.length > 0 || loadable || Boolean(noStoredLine);
 
   function selectRow(row) {
     setOpen(false);
@@ -285,9 +288,10 @@ export default function WindowControl({
     >
       {/* The fetch's one announcement. The pill keeps focus while its text changes to `Loading …`, and a
           content change under focus is not reliably spoken, so this region (mounted ALWAYS, since a
-          live region must exist before its text changes) says it. */}
-      <span role="status" className="sr-only" data-testid="wf-win-status">
-        {loading ? `Loading ${olderDayLoadingLabel}\u2026` : ''}
+          live region must exist before its text changes) says it. It also says an older day that loaded
+          with no rows (`No stored forecast for Fri 16`), the one other thing the press does. */}
+      <span role="status" id="wf-win-status" className="sr-only" data-testid="wf-win-status">
+        {loading ? `Loading ${olderDayLoadingLabel}\u2026` : (noStoredLine ?? '')}
       </span>
       <button
         type="button"
@@ -296,6 +300,9 @@ export default function WindowControl({
            is what it will fetch, not "Previous event" (outcome-rating-plan.md §2 #2, §4 #17). */
         aria-label={prevLoads ? `Load ${olderDayLabel}` : stepName('Previous event', activeIndex - 1, atStart)}
         className="wf-win-step"
+        /* At the T-4 floor the disabled `‹` is explained by the status line (the same sentence the menu
+           shows), so a reader who lands on it with the menu closed is told why. */
+        aria-describedby={atStart && noStoredLine && !loading ? 'wf-win-status' : undefined}
         disabled={atStart}
         onClick={() => step(-1)}
       >
@@ -464,6 +471,9 @@ export default function WindowControl({
               EARLIER
               <span className="wf-win-earlier-hint">rate how it went</span>
             </div>
+          )}
+          {noStoredLine && (
+            <div data-testid="wf-win-none" className="wf-win-none">{noStoredLine}</div>
           )}
           {showEarlier && loadable && (
             <button
@@ -659,6 +669,13 @@ WindowControl.propTypes = {
   olderDayLabel: PropTypes.string,
   /** The day being fetched right now ({@code Thu 13}), or null. Non-null puts the control in its loading state. */
   olderDayLoadingLabel: PropTypes.string,
+  /**
+   * The most recently loaded older day, as {@code Fri 16}, when it came back with no rows
+   * (outcome-rating-plan.md §4 #15, amended 2026-10-17). Draws the quiet `No stored forecast for …` line
+   * in the Load row's place and has the status region say it. It stays at the T-4 floor, where no Load
+   * row follows, so the disabled `‹` is explained.
+   */
+  emptyOlderDayLabel: PropTypes.string,
   /** Fetches the next older day. The caller owns the fetch and what selection does when it lands. */
   onLoadOlderDay: PropTypes.func,
   /**

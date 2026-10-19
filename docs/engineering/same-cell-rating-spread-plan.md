@@ -1,6 +1,8 @@
 # Same-cell rating spread — measurement and guard options
 
-**Status:** measured 2026-10-16; awaiting the owner's choice. No prompt or pipeline behaviour has
+**Status:** measured 2026-10-16. Option (b) was chosen by the owner on 2026-10-17 and built and merged as
+`docs/engineering/neighbour-guard-plan.md` (G1a–G4, on by default); option (a), the FAR bucket on
+Sonnet 5.5, remains the owner's Models-screen call. No prompt or pipeline behaviour has
 changed. The instrument is `scripts/measurements/same-cell-rating-spread/` and its numbers are in
 that directory's `results.md`.
 

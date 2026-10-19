@@ -449,6 +449,19 @@
     @apply px-3 py-1.5 rounded-lg text-sm font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-plex-bg bg-plex-surface-light hover:bg-plex-border text-plex-text focus-visible:ring-plex-gold disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-plex-surface-light;
   }
 
+  /* The destructive button — the Settings danger zone's "Delete account" (login-registration R5b),
+     and nothing else yet. Filled from `--color-plex-error`, the token the form errors already use,
+     never a raw `red-*`: the label is `plex-bg` on it, 6.77:1 (the page-background figure
+     `authTokens.test.js` pins; contrast is symmetric). Its focus rules are the other two buttons'
+     — `focus-visible:` only, `outline-hidden` for forced colours, a 2px ring at a 2px offset —
+     with the ring in the error colour (6.77:1 on the page) where theirs is gold, and they live HERE
+     rather than as utilities on the call site because a ring utility beside a `.btn*` class wins
+     from a later layer (`buttonFocusRules.test.js` fails on it). A busy button is `aria-disabled`,
+     not `disabled` (BUSY_BUTTON's reason), so its dimming is the call site's. */
+  .btn-danger {
+    @apply px-3 py-1.5 rounded-lg text-sm font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-plex-bg bg-plex-error hover:opacity-90 text-plex-bg focus-visible:ring-plex-error disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:opacity-40;
+  }
+
   /* The ONE text-input style for the auth screens (and, from R4c, Settings).
 
      ⚠️ `.field` REPLACES an input's class string; it does not sit beside the old one. Tailwind 4's
@@ -2275,10 +2288,11 @@ button.wf-hc.on:hover {
   cursor: help;
 }
 /* One COLUMN per bar (spread-row-plan.md §2 #3): the bar over its count, bottom-aligned so every
-   bar's foot lands on one line whatever its height. The width is the CARD's own, `--cw`, set inline
-   from `spreadCountLayout` (one value for all six columns, so the bars stay evenly spaced whatever
-   the longest count is). The column is one flex item of the well, so the well's 2px `gap` is the
-   spacing between bands. (0,2,0) — `.wf-hc-hist i` below is (0,1,1) and these are different elements,
+   bar's foot lands on one line whatever its height. The width is the STRIP's, `--cw`, set inline
+   from `spreadCountLayoutAcross` (one value for all six columns of every card, so the bars stay
+   evenly spaced and neighbouring wells line up whatever the longest count is; the design bundle
+   sized it per card, spread-row-plan.md §4 #15). The column is one flex item of the well, so the
+   well's 2px `gap` is the spacing between bands. (0,2,0) — `.wf-hc-hist i` below is (0,1,1) and these are different elements,
    but the habit of this block is one specificity per property across a rule family. */
 .wf-hc-hist .wf-hc-hb {
   display: flex;
@@ -4770,6 +4784,14 @@ button.wf-hc.also.on:hover {
    wrapper of their own, so each day's last row would lose it too. Put it back. */
 .wf-map-peek-wlist > div > .wf-map-peek-wr:last-child { border-bottom: 1px solid var(--color-plex-border); }
 .wf-map-peek-load:disabled { opacity: 0.35; cursor: default; }
+/* The same line on the phone sheet (`.wf-win-none` at the sheet's gutter). */
+.wf-map-peek-none {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--color-plex-text-muted);
+  line-height: 1.35;
+  padding: 6px 4px;
+}
 .wf-map-peek-load-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .wf-map-peek-drilldown {
   color: var(--color-plex-text-secondary);
@@ -6410,6 +6432,15 @@ button.wf-hc.also.on:hover {
 }
 .wf-win-load:disabled { opacity: 0.35; cursor: default; }
 .wf-win-load:disabled:hover { background: transparent; }
+/* An older day that loaded with no rows (§4 #15, amended 2026-10-17): a quiet, non-interactive line in
+   the Load row's place — the sub-line's own mono 9.5px and muted ink. */
+.wf-win-none {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--color-plex-text-muted);
+  line-height: 1.35;
+  padding: 6px 12px;
+}
 /* The pill while an older day is fetched. */
 .wf-win-loading { color: var(--color-plex-text-secondary); font-weight: 500; }
 

@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.config.AppBuild;
 import com.gregochr.goldenhour.entity.OutcomeRatingEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.repository.OutcomeRatingRepository;
@@ -50,6 +51,7 @@ class OutcomeRatingStoreTest {
     private static final Instant T2 = Instant.parse("2026-10-14T10:00:00Z");
     private static final Instant RUN_AT = Instant.parse("2026-10-14T01:05:00Z");
     private static final RatedRun RUN = new RatedRun(7L, RUN_AT, 99L, 4);
+    private static final String BUILD = "v2.28.0";
     private static final long USER = 11L;
     private static final long LOCATION = 22L;
 
@@ -57,7 +59,7 @@ class OutcomeRatingStoreTest {
     private OutcomeRatingRepository repository;
 
     private OutcomeRatingStore store() {
-        return new OutcomeRatingStore(repository);
+        return new OutcomeRatingStore(repository, new AppBuild(BUILD));
     }
 
     @AfterEach
@@ -83,6 +85,7 @@ class OutcomeRatingStoreTest {
         assertThat(row.getForecastRunAt()).isEqualTo(RUN_AT);
         assertThat(row.getForecastEvaluationId()).isEqualTo(99L);
         assertThat(row.getForecastRating()).isEqualTo(4);
+        assertThat(row.getAppBuild()).as("V182: the release that wrote the rating").isEqualTo(BUILD);
         assertThat(row.getCreatedAt()).isEqualTo(T1);
         assertThat(row.getUpdatedAt()).isEqualTo(T1);
     }
@@ -99,6 +102,8 @@ class OutcomeRatingStoreTest {
         assertThat(row.getForecastEvaluationId()).isNull();
         assertThat(row.getForecastRating()).isNull();
         assertThat(row.getEventTime()).isEqualTo(EVENT);
+        assertThat(row.getAppBuild()).as("a rating with no forecast still records its own build")
+                .isEqualTo(BUILD);
     }
 
     @Test
@@ -107,8 +112,8 @@ class OutcomeRatingStoreTest {
     void secondRating_replacesInPlace() {
         store().upsert(USER, LOCATION, DAY, TargetType.SUNRISE, 4, EVENT, RUN, T1);
 
-        store().upsert(USER, LOCATION, DAY, TargetType.SUNRISE, null, EVENT.plusSeconds(60),
-                RatedRun.NONE, T2);
+        new OutcomeRatingStore(repository, new AppBuild("v2.29.0")).upsert(USER, LOCATION, DAY,
+                TargetType.SUNRISE, null, EVENT.plusSeconds(60), RatedRun.NONE, T2);
 
         assertThat(repository.count()).isEqualTo(1);
         OutcomeRatingEntity row = repository.findAll().getFirst();
@@ -117,6 +122,8 @@ class OutcomeRatingStoreTest {
         assertThat(row.getPipelineRunId()).isNull();
         assertThat(row.getForecastEvaluationId()).isNull();
         assertThat(row.getForecastRating()).isNull();
+        assertThat(row.getAppBuild()).as("the rating was made again, so by the build now running")
+                .isEqualTo("v2.29.0");
         assertThat(row.getCreatedAt()).isEqualTo(T1);
         assertThat(row.getUpdatedAt()).isEqualTo(T2);
     }
@@ -168,13 +175,13 @@ class OutcomeRatingStoreTest {
                 .thenReturn(false);
         DataIntegrityViolationException fk = new DataIntegrityViolationException("foreign key");
         when(mocked.insertRow(anyLong(), anyLong(), any(), any(), any(), any(), any(), any(), any(),
-                any(), any())).thenThrow(fk);
+                any(), any(), any())).thenThrow(fk);
 
-        assertThatThrownBy(() -> new OutcomeRatingStore(mocked)
+        assertThatThrownBy(() -> new OutcomeRatingStore(mocked, new AppBuild(BUILD))
                 .upsert(USER, LOCATION, DAY, TargetType.SUNRISE, 3, EVENT, RUN, T1))
                 .isSameAs(fk);
         verify(mocked, never()).updateRow(anyLong(), anyLong(), any(), any(), any(), any(), any(), any(),
-                any(), any(), any());
+                any(), any(), any(), any());
     }
 
     @Test
@@ -184,14 +191,15 @@ class OutcomeRatingStoreTest {
         when(mocked.existsByUserIdAndLocationIdAndEventDateAndEventType(anyLong(), anyLong(), any(), any()))
                 .thenReturn(false, true);
         when(mocked.insertRow(anyLong(), anyLong(), any(), any(), any(), any(), any(), any(), any(),
-                any(), any())).thenThrow(new DataIntegrityViolationException("uq_outcome_rating_slot"));
+                any(), any(), any())).thenThrow(new DataIntegrityViolationException("uq_outcome_rating_slot"));
         when(mocked.updateRow(anyLong(), anyLong(), any(), any(), any(), any(), any(), any(), any(),
-                any(), any())).thenReturn(1);
+                any(), any(), any())).thenReturn(1);
 
-        new OutcomeRatingStore(mocked).upsert(USER, LOCATION, DAY, TargetType.SUNRISE, 3, EVENT, RUN, T1);
+        new OutcomeRatingStore(mocked, new AppBuild(BUILD))
+                .upsert(USER, LOCATION, DAY, TargetType.SUNRISE, 3, EVENT, RUN, T1);
 
         verify(mocked, times(1)).updateRow(USER, LOCATION, DAY, TargetType.SUNRISE, 3, EVENT, 7L, RUN_AT,
-                99L, 4, T1);
+                99L, 4, BUILD, T1);
     }
 
     @Test
@@ -201,9 +209,9 @@ class OutcomeRatingStoreTest {
         when(mocked.existsByUserIdAndLocationIdAndEventDateAndEventType(anyLong(), anyLong(), any(), any()))
                 .thenReturn(true);
         when(mocked.updateRow(anyLong(), anyLong(), any(), any(), any(), any(), any(), any(), any(),
-                any(), any())).thenReturn(0);
+                any(), any(), any())).thenReturn(0);
 
-        assertThatThrownBy(() -> new OutcomeRatingStore(mocked)
+        assertThatThrownBy(() -> new OutcomeRatingStore(mocked, new AppBuild(BUILD))
                 .upsert(USER, LOCATION, DAY, TargetType.SUNRISE, 3, EVENT, RUN, T1))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("rating of location 22");

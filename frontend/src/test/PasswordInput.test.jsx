@@ -16,6 +16,26 @@ describe('PasswordInput', () => {
     expect(input.className).toBe('field pr-10');
   });
 
+  it('hands its input to inputRef, and carries describedBy and invalid onto it only when given', () => {
+    const inputRef = { current: null };
+    const { rerender } = render(
+      <PasswordInput id="pw" testId="pw-input" autoComplete="current-password" inputRef={inputRef} />,
+    );
+    const input = screen.getByTestId('pw-input');
+    expect(inputRef.current).toBe(input);
+    expect(input).not.toHaveAttribute('aria-describedby');
+    expect(input).not.toHaveAttribute('aria-invalid');
+
+    rerender(
+      <PasswordInput
+        id="pw" testId="pw-input" autoComplete="current-password" inputRef={inputRef}
+        describedBy="pw-error" invalid
+      />,
+    );
+    expect(input).toHaveAttribute('aria-describedby', 'pw-error');
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+  });
+
   it('toggles type and the aria-label with the eye, both ways', () => {
     render(<PasswordInput id="pw" testId="pw-input" autoComplete="new-password" />);
     const input = screen.getByTestId('pw-input');

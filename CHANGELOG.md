@@ -5,6 +5,490 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.29.0] - 2026-10-17
+
+### Docs — valley mist plan: the morning PhotoCast cannot see
+
+`docs/engineering/valley-mist-plan.md` records why a riverside radiation-mist sunrise under a clear sky is
+stood down by weather triage's 5 km visibility rule before Claude ever sees it, and why no surface names
+it the night before: mist is modelled from above (the inversion calculator), from inside a wood (the canopy
+lane) and as a haze modifier in the sky prompt, never as a subject from beside it. The plan proposes a
+`mist_prone` location attribute, a `ValleyMistCalculator` recorded on `slot_atmosphere` with a `MIST` hot
+topic and Coming up condition (M1, no Claude cost), a triage routing exemption plus a prompt block and
+Claude echo for flagged sites (M2), a `seen` tag on the outcome rating and an ERA5 saturation proxy for
+verification (M3), and a UKV 2 km side-fetch only if the measurement phase justifies it (M4). The
+measurement SQL is `docs/engineering/valley-mist-phase0.sql`. Six owner decisions are listed; nothing is
+built.
+
+### Fixed — a row-served slot now carries its sky rating
+
+When a `forecast_evaluation` row won the precedence over the briefing cache,
+`EvaluationViewService.toEnrichmentResult` built the enrichment result without the row's
+`sky_rating` (V164), so that slot's `skyRating` was null although the column held it. The row's
+`sky_rating` is now passed through. A row-served slot shows the tide-fit block's "· sky N★" clause
+where it applies, exactly as a cache-served slot already did, and the briefing build persists that
+`skyRating` into `daily_briefing_cache`. A rated row with no `sky_rating` (written before V164, or by
+the synchronous engine) still serves null, and a triage row still carries none. No migration. This
+is phase G1a of `docs/engineering/neighbour-guard-plan.md`: the guard compares sky ratings, so a
+row-served slot must carry one.
+
+### Changed — phone Map: tapping an Ask pick opens its callout and leaves the answer minimised
+
+On a phone, tapping a numbered pick chip (or its pin) on the Map now opens that place's normal callout,
+for the pick's own window, and leaves the Ask answer on its one-line strip. Before, it expanded the answer
+to full height and opened no callout. An expanded answer is minimised by the tap (a callout and an expanded
+sheet never show together); tap the strip to get the cards back. An open Windows, Tide or Layers section
+closes the same way, while an open region drilldown stays, as it does under an ordinary chip. Choosing a
+pick from its card in the answer is unchanged, and so is everything on tablet and desktop.
+
+### Docs — phone Map: a pick opens its callout, and a Layers door — the plan
+
+`docs/engineering/phone-pick-callout-plan.md` plans two owner-requested phone changes on the Map tab.
+Tapping an Ask pick on the map opens that place's callout for the pick's own window and leaves the
+Ask answer minimised, instead of expanding it. The minimised answer line gains a LAYERS door that
+opens the sheet's Layers section (and so the filters) with the answer kept. Tablet and desktop are
+unchanged. The plan was reviewed adversarially before merge; §8 lists what that changed.
+
+### Changed — phone Map: a Layers door on the minimised Ask answer
+
+On a phone, with an Ask answer on its one-line strip, the strip now has a small `LAYERS ☰` button beside it.
+It opens the Layers section (Heat or Pins, Regions, Filters, Tide mode) with the answer kept; closing Layers
+puts you back on the strip. Before, an answer replaced the Other windows, Tide and Layers buttons, so the map
+filters were reachable only through the window pill. On phones under 400px wide (most iPhones) the strip drops
+the spot's time to give its name the room. Tablet and desktop are unchanged.
+
+### Fixed — Map: windows scored before the last release can be rated again
+
+Wednesday's and Thursday's sunrises and sunsets could not be rated, and stepping back with `‹` stopped at
+Friday. The release that added "How was it?" records when each forecast row became available, and treated every
+row scored before that release as unknown, so those passed windows had no forecast to show and no row to rate.
+One migration now gives those rows (the ones with a rating or a stand-down reason) the time they were
+submitted as that availability time. For a forecast that came back from the batch service after its sunrise or
+sunset, the submission time is earlier than the true one, so an older window can occasionally show a forecast
+slightly earlier than the one the reader actually saw. Only about a week of rows is affected, and they leave the
+rating window by mid-November. Rows scored after the release are untouched.
+
+### Fixed — Map: an earlier day with no stored forecast now says so
+
+Stepping back past the oldest window loads the day before it. When that day had no stored forecast, nothing
+happened: the menu showed no sign of it, and after three such days `‹` went grey with no explanation. The
+window list (and the phone sheet's Windows section) now shows a quiet line, "No stored forecast for Thu 15",
+where that day's Load row was, announces it to screen readers, and keeps it at the four-day limit so the
+disabled `‹` is explained. The Load row for the next older day still follows it.
+
+### Changed — the neighbour guard is on by default
+
+A sky rating that stands two or more stars above every place within 5 km, when at least two of those places are at a similar height, is no longer named as a destination. Ask no longer offers it as a pick, the BEST BET / ALSO GOOD window pick no longer names it, and the Plan card's best-reachable line and popup header skip it (naming the region only when nothing else is rated 3 or better). Its star is unchanged everywhere it appears: the map, the location sheet and the window's best figure still show it.
+
+Production uses the code default, so no host config change is needed. To roll back, set `photocast.neighbour-guard.enabled: false` and restart; nothing is then flagged and no location coordinates are read.
+
+### Changed — the Plan card no longer names a lone high sky rating as the best place within reach
+
+The neighbour guard's server flag (`neighbourOutlier` on a served slot) now reaches the Plan tab.
+A card's "Best" line, the popup header's "best N★ within reach" and the search box's figure skip a
+flagged place and name the next rated one; if that place is rated below 3 stars, or nothing else is
+rated, the line reads a muted "no clear pick" (its tooltip and its spoken form say no place is
+named because the top rating is well above the places around it, and say "within reach" only when
+a drive time was measured). The lunar-eclipse dawn-race caption skips a flagged place too, and the
+"nothing at N★+ this week" message keeps its best-rating figure but names no flagged place. The flagged place keeps its star everywhere a
+star is shown: the spread histogram, the pool counts, the ranked spot strip and the map. With the
+guard off on the server (the default until its final phase) nothing changes.
+
+### Added — the neighbour guard: a lone high sky rating is no longer named as the pick (off by default)
+
+A sky rating far above several places that see the same sky is far more likely model noise than a
+real local difference, and the harm is when the Plan tab names that one place as where to go (Caw
+Gap's lone 4★ over Cawfields 1★ and Steel Rigg 2★, 2.3 km away). `NeighbourOutlierGuard` now marks
+such a slot at serve time: a regioned sky slot whose `skyRating` is at least 3 and which no other
+sky slot in the same window within 5 km rates within one star of, while at least two nearby places
+at a similar height (or both without an elevation) sit two stars or more below it. A nearby place
+that agrees clears the slot at any height, so a fell top above an inversion is not outvoted by the
+valley. The mark rides the served slot as `neighbourOutlier: true`, never `false`, and is never
+written to `daily_briefing_cache`; the slot keeps its star on every surface.
+
+Its one effect in this release is `PlanWindowProjector.topSlot`: a marked slot is never the BEST
+BET / ALSO GOOD destination, and after one is skipped the next slot must be rated at least 3 or the
+pick names the region only. Coordinates come from `LocationPointProvider` (one projection query a
+minute at most); a failed read serves the briefing unmarked. `NeighbourGuardLog` writes one INFO
+line per first-flagged place and one summary per briefing. Everything is behind
+`photocast.neighbour-guard.enabled`, which defaults to **false** until Ask and the Plan card follow
+(documented with its bounds in `application-example.yml`); with it off nothing is marked and no
+coordinates are read.
+
+### Changed — Ask no longer offers a place the neighbour guard marked as an outlier
+
+When `photocast.neighbour-guard.enabled` is on, a slot marked `neighbourOutlier` (a rating far above
+every nearby place that sees the same sky) keeps its star but is no longer a pick in Ask:
+`AskSnapshot.isPickEligible` refuses it, so `rank_spots`, the answer validator, the thread re-join, the
+Ready and typed-cache freshness re-check (a stored answer naming it is withheld whole), the Ready anchors
+and the stub all leave it out. `list_windows` no longer reports it in a window's `bestRating` (the
+existing maximum with only the outliers left out, so a verdict-ineligible region's star, a sub-3★ best
+and an all-canopy window are unchanged).
+
+`rank_spots` now adds a note, only when the guard withheld places from the windows and regions it
+searched, saying how many ("1 place in these windows is rated well above the places beside it and is not
+offered.") and never which, so a question about a withheld place is not answered as if it were missing
+from the forecast. A follow-up whose earlier pick became an outlier is told it is "held back: rated well
+above the places beside it" rather than that its rating fell; the thread rules allow the answer to say
+only that such a place is not being suggested because its rating is out of line with the places beside
+it, and never to call it low, poor or unreliable or quote its star. A follow-up resting only on
+held-back places answers "PhotoCast doesn't have: a trustworthy rating for those places" (or "those
+places as suggestions" when the reasons are mixed). Nothing changes while the guard is off, which is its
+default.
+
+### Docs — the login and registration series is written up, and the privacy documents say what the code does
+
+New `docs/app-store-privacy.md` inventories every kind of personal data the server and web client hold (email, username,
+the optional home postcode and its coordinates, ratings, Ask questions, usage), which third parties receive what (postcodes.io,
+OpenRouteService, Cloudflare Turnstile, the mail provider, Esri, Anthropic), what in-app account deletion removes and what it
+keeps (the Ask question log survives unlinked for up to 90 days; server logs for 30), and the retention periods that exist in
+code. `landing/privacy.html` is brought into line — it named SendGrid, omitted OpenRouteService and said nothing about deleting
+an account — and `landing/faq.html` stops describing the postcode as a drive-time feature alone. The landing site is redeployed
+by hand (`landing/README.md`), so neither page is live until then. `CLAUDE.md` (Auth, endpoints, roles, nine settings columns,
+V179–V181, the integration-test count, the nginx check and the AASA path) and `docs/engineering/login-registration-plan.md`
+(the status table, the build phases' deliberate disagreements, the Codex review log and the owner questions answered by what
+shipped) are updated from the merged PRs.
+
+### Fixed — the postcode-unavailable handler no longer ignores its exception
+
+`GlobalExceptionHandler`'s 502 handler for `PostcodeLookupUnavailableException` took its exception and used nothing from it
+(CodeQL alert 233, "useless parameter"). It now logs the exception's fixed message at DEBUG through the class's logger; the
+response is unchanged — a 502 with the fixed "Postcode lookup is unavailable right now" sentence — and no upstream text reaches
+the log or the body.
+
+### Added — delete your account from Settings
+
+A "Danger zone" at the foot of the Settings dialog lets any signed-in account delete itself, as the App Store requires. "Delete account" opens a confirmation inside the dialog (not a second dialog): it says what goes — your account, your home postcode and drive times, your Ask history and your ratings — and that it cannot be undone, asks for your password and takes focus to it. The red Delete button is disabled until a password is typed and refuses a second press while the request is out; Cancel closes the region and returns focus to the button that opened it. A wrong password, an administrator account or too many attempts is answered in the server's words inside the region, which stays open; on success you are signed out and returned to the sign-in page. Calls `DELETE /api/user/account`.
+
+### Added — `DELETE /api/user/account`: a signed-in reader can delete their own account (backend only)
+
+`DELETE /api/user/account` with `{"password": "…"}` deletes the caller's own account, for every role. It answers
+400 `Password is required` for a missing or empty password, 403 `Password is incorrect` for a mismatch, 409
+`Admin accounts are deleted by another admin` for an administrator (the existing self-delete refusal, extended:
+it keeps the sole admin from locking the instance out — another admin deletes an admin), 429 once five attempts
+in fifteen minutes have been counted on `AuthAttemptLimiter` under `delete:<username>` (counted before the
+password is compared), 401 `Your session has changed. Sign in again.` when the account's credentials moved while
+the password was being checked, and 204 on success. The password is checked by BCrypt outside any transaction;
+`UserService.deleteOwnAccount` then locks the user row FIRST, reads the account as a scalar projection under the
+lock (never the entity the request's persistence context holds from before the hash — Open Session In View is
+on), refuses unless the stored hash is still the one that was verified, the credential version still equals the
+session's `cv` (or, for a token with none, is still 0) and the role is still not ADMIN, purges the account's
+drive times, and deletes by a compare-and-set whose row count must be one — zero rolls the purge back. A stolen
+session that finished its BCrypt just before the owner's password change committed therefore deletes nothing,
+and an administrator who promoted the account meanwhile wins. The account's email claim is released if no other
+account still uses the address, and the access token dies with the row (the JWT filter authenticates only live
+rows). No Settings control yet: that is the next phase.
+
+`AccountDeletionIntegrationTest` (CI-only, Postgres + Flyway) deletes a user holding a row in every table that
+references `app_user` and shows that a delete without the purge is refused by the foreign key, that with it the
+cascades fire, and that the `ask_log` row survives with a null user.
+
+### Fixed — an admin could not delete a user who had drive times; the "account removed" email went out before the delete committed
+
+`user_drive_time.user_id` (V67) has no `ON DELETE` rule, so on Postgres `DELETE /api/users/{id}` of any user who
+had calculated drive times violated the foreign key and failed (H2, which the tests run on, has no such key, so it
+never showed). Both deletion paths — the admin one and the new self-service one — now purge the account's drive
+times in the deleting transaction, after the user row is locked and before it is deleted, through one
+`purgeUserRows` step. The admin delete also locks the row first and reads the name and stored address from the
+locked row, releases the account's email claim, and no longer sends the confirmation email from inside the
+transaction: `UserService.deleteUser` returns the name and address and the controller sends the email after the
+transaction has committed, so a delete that fails at commit no longer mails "your account was removed".
+
+### Added — "Use my location" under the Settings postcode field
+
+The home postcode field in Settings gains the same "Use my location" link as registration and the sign-in prompt, for every role. It asks the browser for a position, then the server for the postcode there, and lands the answer in the field and the confirmation row exactly as a typed lookup does (nothing is saved until Save). A refused permission, a position the browser cannot give, a place with no UK postcode and an unreachable lookup each say so in the same line a typed "Invalid postcode" uses; a newer typed lookup wins over a location request still out. The link is hidden where the browser has no geolocation.
+
+### Changed — Settings postcode field: shared input style, mobile attributes, status tokens, Pro copy
+
+The Settings postcode input takes the shared `.field` style (16px text below 640px, so iOS Safari no longer zooms into it on focus) and the mobile attributes the sign-in screens have (postal-code autofill, upper-case keyboard, no autocorrect or spellcheck, a Search key). Its error, the drive-time and radius and colour errors and the "failed to load" line move from raw red to the error token, and the two saved-place dots from raw green to the ok token. The line shown to a Lite account now reads "Your postcode sets your light times. Pro accounts also get drive times from home." instead of pointing at an upgrade, which the App Store does not allow.
+
+### Added — home postcode asked at registration and once at sign-in, with "Use my location"
+
+Registration gains a "Where's home?" step between Set password and Welcome (look up a postcode or use the device's location, confirm the place, Save and continue or Skip for now), and an account with no postcode and no dismissal on record sees a one-time "Set your home postcode" prompt over the app (Save or Not now; it waits for any other open dialog and makes the app inert while it shows). Skipping either one records the dismissal on the server, so it is asked once across devices. The Welcome step now ends by mounting the app on the session already stored, with no page reload.
+
+### Fixed — an unknown postcode answered 500, and a looked-up postcode never carried its place name
+
+`POST /api/user/settings/home/lookup` answered **500** for a postcode postcodes.io does not know (the
+exception fell through to the catch-all). It now answers 400 for "no such postcode" and 502 with a fixed
+"Postcode lookup is unavailable right now" for a transport failure, a 5xx or a rate limit, never echoing
+the upstream's message; the client tells the two apart from the upstream status (only a 400 or 404 is
+"not found"). The Settings dialog still shows "Invalid postcode" for any failure, as before.
+
+postcodes.io's `admin_district` and `admin_ward` fields were never bound to the client's camelCase
+record, so every place name fell back to the bare postcode ("DH1 3LE" where "Durham, County Durham"
+was meant) in the Settings dialog and the masthead's place line; the fields are now annotated and a
+contract test builds the name from the real wire shape.
+
+### Added — the one-time sign-in postcode prompt's server side, and "Use my location"'s reverse lookup
+
+`GET /api/user/settings` now carries `postcodePromptDismissedAt` and a server-computed
+`postcodePromptDue` — true exactly when the account has no home postcode and has never dismissed the
+prompt — on every response the settings service builds (V181 `app_user.postcode_prompt_dismissed_at`,
+nullable, no backfill, so an existing account without a postcode is asked once). `PUT
+/api/user/settings/postcode-prompt-dismissed` (no body, any role, idempotent) records "Not now" with
+the server's clock through a column-scoped update and answers the settings with the flag false.
+`POST /api/user/settings/home/reverse` `{latitude, longitude}` finds the nearest UK postcode within
+postcodes.io's 2000 m maximum radius (its default of 100 m misses most rural homes): 400 for a missing,
+non-finite or out-of-range value and for a point with no postcode near it, 502 when postcodes.io is
+down, any role, never cached. No client uses either endpoint yet; the prompt and the button follow.
+
+### Docs — same-cell rating spread: measurement and guard options
+
+`scripts/measurements/same-cell-rating-spread/` measures how often the batch pipeline gives places
+that see the same sky stars two or more apart in the same run, by model and horizon, over
+production's `forecast_evaluation` (read-only SQL, run over ssh; results of 2026-10-16 in its
+`results.md`). Haiku 4.5 disagrees on 3–8% of inland same-cell groups and 6–11% of near-twin pairs;
+Sonnet 5.5 on about 0.3%. `docs/engineering/same-cell-rating-spread-plan.md` costs three responses
+(the FAR bucket on Sonnet 5.5 at about $0.36 a day more, a serve-time neighbour guard, one prompt per
+grid cell) and recommends the first. No prompt or pipeline behaviour changed.
+
+### Docs — login and registration enhancements: the port plan
+
+`docs/engineering/login-registration-plan.md` plans the owner's "PhotoCast Registration" design
+bundle (vendored verbatim at `docs/design/login-registration/`): a `HOME` postcode step in
+registration and a one-time sign-in prompt for accounts with no postcode, both with "Use my
+location"; the auth screens made to work on phones and to match the rest of the app; marketing
+consent opt-in; "Confirm email" and the second Turnstile removed; sign-in by username or email, a
+forgot-password flow and a backend fallback for a Turnstile that cannot load; in-app account
+deletion; and the native-app prep (`apple-app-site-association`, clean `/verify` and `/reset`
+links, a privacy inventory). §1 answers the bundle's five "check first" questions (no reset flow
+exists; deletion is admin-only and `user_drive_time` has no cascade; set-password verifies
+Turnstile; the login fallback has no backend at all; emails are unique but case-sensitive) and §3
+cuts the work into thirteen Sonnet phases; §5a records the plan-time review (four lenses, 60 charges) and what it changed. No code.
+
+### Changed — nginx: geolocation for the page itself, the Apple association file, and a syntax check in CI
+
+`nginx.conf` now sends `Permissions-Policy: geolocation=(self), …` on every response that sets it
+(it read `geolocation=()`, under which `navigator.geolocation` rejects in the document, so the
+registration and sign-in prompt's "Use my location" could never work), and serves
+`/.well-known/apple-app-site-association` as `application/json` from an exact-match location that
+repeats the security headers. The file itself (`frontend/public/.well-known/`) names the four
+`/verify` and `/reset` link shapes with the literal `TEAMID.BUNDLEID` placeholder until the owner
+has the Apple team and bundle ids. The frontend CI job gains an `nginx -t` step (pinned
+`nginx:1.27-alpine`, the compose-only upstream stubbed to `127.0.0.1:8082`), because until now
+nothing checked the file's syntax before a deploy recreated the container with it. Two Vitest files
+pin the AASA content and the nginx directives. An installed PWA picks the header up with its next
+`index.html` revision.
+
+### Added — a password change, reset, disable or deletion now ends the account's access tokens at their next request
+
+Access tokens used to authenticate from their own claims alone, so a deleted or disabled account's token kept
+working for up to 24 hours, a password reset signed other devices out only when their token expired, and a
+demoted admin's old token kept admin rights. Each account now has a credential version (`credentials_version`,
+with `credentials_changed_at` beside it; V180), a counter bumped by every credential change, and every access
+token carries the account's id (`uid`) and the version it was issued at (`cv`). The JWT filter loads the
+account once per request and authenticates a token only when the row exists and is enabled, the `uid` is the
+row's id and the `cv` equals the row's current version; the authority comes from the ROW's role, so a demotion
+takes effect at the next request. A token issued before this release (no `uid`/`cv`) is accepted by name for
+its remaining lifetime unless it predates the account's last credential change. Changing a password through
+`POST /api/auth/change-password` now answers with fresh tokens for the device that made the change (the same
+body as `/login` plus `message`), so that device stays signed in while every other session is signed out; a
+request from a session that was superseded while the new password was being hashed is refused with 401 "Your
+session has changed. Sign in again." and changes nothing. One transactional writer
+(`CredentialChangeWriter`) now applies every credential change — change-password, a redeemed reset link, an
+admin's temporary password, activation, an admin's disable — so the password, the version bump, the first-login
+flag, the enabled flag, the revocation of every refresh token and the deletion of the account's unused reset
+links commit together or not at all.
+
+### Fixed — the response to a replayed refresh token rolled back with the refusal; a rotation could deadlock a credential change
+
+When a revoked (or concurrently consumed) refresh token was presented, `refresh` revoked the user's whole token
+family and then threw its 401 from the same transaction, so Spring rolled the revocation back with the
+exception and the replacement token stayed usable. `refresh` is now a non-transactional orchestrator over a
+transactional rotation that returns an outcome; the family revocation runs in its own transaction after the
+rotation has ended and commits before the refusal is thrown. A refresh token that a credential change revoked is
+now told apart from a replayed one (its issue instant is older than the account's last credential change) and is
+refused without revoking the family: otherwise another device presenting its dead token after you changed your
+password would sign out the device you just changed it on. The rotation also takes the account row lock before
+the compare-and-set on the refresh row, the order every credential path uses; the reverse deadlocked against a
+concurrent password change. Token issuance re-reads the stored password hash, credential version and enabled
+flag under the same lock, so a login whose BCrypt check straddled a password change or a disable issues nothing
+instead of a token for the new credentials or a refresh row after the revocation.
+
+### Changed — admin disable, email edit, resend and create now void what they should; credential columns are written only by scoped updates
+
+An admin's disable now ends every session at once (version bump, refresh tokens revoked, unused reset links and
+every verification link deleted) and re-enabling revives none of it. An admin's email edit now locks the
+account row, claims the new address in the reservation table (a case variant of another account's address is
+a 409 "Email already registered"), releases the old reservation if no account still uses it, and deletes the
+account's unused reset links and verification links, so a link mailed to the old mailbox cannot be used after
+the move; for a pending registration the response says to resend verification. Both resend-verification routes
+(the reader's and the admin's) now go through one issuer (the admin's route answers 400 "Account is not awaiting
+email verification" for an account that is no longer pending, where it used to send a link to anyone) that locks the account row and mails the STORED
+address, so a resend that raced an email edit can no longer mail the old mailbox. The admin's temporary-password
+reset is mailed to the address read under the lock after the change. Admin user creation and email edit now
+refuse a non-ASCII address, as registration does (the reservation key is lower-cased in Java, the database's
+`LOWER()` may fold such characters differently). Registration's activation hashes the password before the one
+transaction that consumes the token and activates the account, re-checking under the row lock that the account
+is still pending, so two verification links cannot overwrite each other's password. The `password`, `enabled`,
+`passwordChangeRequired` and `role` columns, and the two new credential columns, are no longer written by a
+whole-entity `save()`: login's and the JWT filter's last-active stamps, the marketing opt-in, the admin role
+and enabled changes are now column-scoped updates, so a stale copy of the row can no longer write an old hash,
+flag or role back over a change that committed meanwhile.
+
+### Added — forgot-password and reset-password pages, sign-in by username or email
+
+The sign-in page now reads "Username or email", with a "Forgot password?" link on the password label's row.
+The link opens a "Reset your password" page: an email field, the Turnstile check (with the same
+"Security check unavailable" fallback as sign-in when the script cannot load) and, for every accepted
+request, the one sentence "If that email has an account, we've sent a reset link." The link in the email
+opens `/reset?token=` on a "Set a new password" page — signed in or not, so a link opened on the phone the
+account is already signed in on still works — which shows the password checklist, sends nothing until the
+reader submits, signs them in on success and leaves the address bar at `/`. A used, expired or unrecognised
+link shows the server's sentence and a "Request a new link" button. The reset token is held apart from the
+email-verification token, whose cleanup would otherwise remove the page before it could be submitted, and a
+verification link on any other path (`/verify?token=`, or the older `/?token=`) still opens registration.
+`AuthContext` gains `signInWithTokens`, `registrationPending` and `finishRegistration` (the flag is set by
+`completeRegistration`, cleared by sign-out and session expiry; nothing reads it yet), and `changePassword`
+now stores the fresh tokens when the response carries them. The password field's show/hide eye takes an
+`eyeLabel` so the reset page's two eyes are told apart ("Show new password" / "Show password confirmation").
+
+### Added — "forgot my password": an emailed one-hour reset link, redeemed for a new password
+
+`POST /api/auth/forgot-password` takes `{email, turnstileToken?}` through the same Turnstile gate and bounded
+fallback as sign-in, and answers the identical 200 "If that email has an account, we've sent a reset link."
+for every well-formed address — known, unknown, rate-limited or failing inside — because any difference
+would say the account exists. A known, active account (enabled, holding a password, exactly one match for
+the address) is issued a link under its row lock: its earlier unused links are deleted, a token is stored
+as a SHA-256 hash in the new `password_reset_token` table (V179) and expires in one hour, and the mail
+(`password-reset-link-email`, subject "Reset your PhotoCast password") goes to the account's STORED address,
+never the request's text. Each account gets three requests per 15 minutes; a fourth is dropped silently.
+`POST /api/auth/reset-password` takes `{token, password}`, runs the password complexity check, and then, in
+one transaction after the password has been hashed, locks the account, refuses a disabled or pending one,
+consumes the token by compare-and-set, sets the password, clears the first-login gate and revokes every
+active refresh token; the caller is signed in on the device that reset, with the same body as `/login`.
+An unknown, used or expired link is a 400 with its own sentence; three bounds (a global hourly ceiling, the
+client address, the token) answer 429 like set-password. Other devices' access tokens still run out at
+their 24 hours until token invalidation (R3c) lands. The older admin temporary-password reset is untouched.
+
+### Fixed — the verification-resend limit could never trip; emails differing only by case could both register
+
+`resendVerification` counted the user's recent tokens and then deleted every unverified one before inserting
+a new one, so the count was never above one and the "3 in 5 minutes" limit never fired. Resend now also
+takes three per pending account per 15 minutes from the in-memory attempt limiter (the database count stays
+as a second check), and finds the pending account with an indexed lookup instead of loading every user and
+comparing with Java `equalsIgnoreCase` — which folded `ı` to `I` and then mailed the TYPED address, so a
+confusable address could receive another person's verification link; the mail now goes to the stored
+address. Email uniqueness was case-sensitive (`Foo@x` and `foo@x` could both register through sign-up or admin create): a new
+`app_user_email_claim` reservation table (V179, backfilled from the existing addresses, one reservation for
+a legacy case-duplicate pair) is claimed in the same transaction as every new account, so the database
+refuses the second claimant (an admin's email EDIT does not claim yet — that joins in a later phase). A retried sign-up for an abandoned pending registration now locks the old row
+and deletes it only if it is still pending, so it can no longer erase an account that was activated in the
+meantime.
+
+### Changed — sign-in accepts an email address; the verification link is /verify; sign-ups refuse non-ASCII addresses
+
+`POST /api/auth/login` still takes the field as `username`, but an identifier containing `@` is now matched
+against both the account of that username and the active account whose email it is (exact match first, then
+an ASCII case-insensitive match that must find exactly one), the password is checked against the username
+account first and then the email account, and the first that verifies signs in. A comparison against a fixed
+dummy hash runs when nothing matches, so the response time does not say whether an address exists. An
+account on the Turnstile fallback spends its five-attempt budget whichever of its names was typed. The
+verification email now links to `/verify?token=` on the app origin (the bare `?token=` form keeps working in
+the app for links already sent). `POST /api/auth/register` refuses an email address with non-ASCII characters
+("Please use an email address without accented or non-Latin characters"): a confusable address is the one
+input the recovery flows cannot make safe by comparison alone; existing accounts that registered one keep
+signing in and recovering by typing it exactly as registered, and admin-created accounts are unchanged. Admin
+user creation refuses a username containing `@`. A lost race on a username or an email address now answers
+409 ("Username already taken" / "Email already registered") on register, admin create and admin email change
+instead of a 500.
+
+### Changed — the registration form: email first, no "Confirm email", marketing opt-in, one security check
+
+Create account now asks for Email first (hint "We'll send a link to confirm it.") and then Username
+(hint "3–30 letters, numbers, - or _"); the "Confirm email" field, its state and its mismatch error are
+gone, since the verification link already proves the address. The marketing-emails box is unticked by
+default, so consent is an active opt-in (UK PECR/GDPR) — the register request now sends
+`marketingEmailOptIn: "false"` unless the reader ticks it. While the terms box is unticked the disabled
+button says why, in 12px secondary ink under it: "Agree to the terms to continue". The Set password step
+no longer mounts a second Turnstile widget and `setPasswordForNewUser(token, password)` sends no
+`turnstileToken` — the single-use emailed token is the proof of a real person, and the backend stopped
+verifying one in R2a. If the Turnstile script cannot load, the register form unmounts the widget and says
+"Security check couldn't load. Try another browser, or turn off your ad-blocker for this page." with
+Create account still disabled: registration has no server-side fallback by design.
+
+### Fixed — the first-login password change no longer dead-ends when Turnstile cannot load
+
+`ChangePasswordPage` mounted a `TurnstileWidget` with no load-failure handler, so a browser that blocks
+the script left "Set new password" disabled for ever — and a user whose `passwordChangeRequired` flag is
+set cannot reach the app until they pass that screen. It now takes sign-in's pattern: on a load failure
+the widget unmounts, the page says "Security check unavailable — we'll verify your sign-in another way."
+and submit is enabled with an empty token, which the server's bounded fallback (R2a) accepts. A refused
+fallback answers 429 and the server's own sentence ("Too many attempts. Please wait a few minutes and try
+again.") appears in the form's error slot.
+
+### Added — a bounded fallback when Turnstile cannot load, on sign-in and change-password
+
+Sign-in and the first-login password change used to answer 400 "CAPTCHA verification failed" to a
+browser where the Turnstile script never loaded, although the sign-in page promised "we'll verify your
+sign-in another way" — nothing did. `TurnstileGate` now decides: a token that verifies proceeds as
+before; a token that fails is still a 400 and is never a fallback; a request with no token at all is
+admitted only inside three in-memory bounds (`AuthAttemptLimiter`, Caffeine, fixed windows from the first
+attempt), checked outermost first — an hourly ceiling per endpoint (sign-in 60, change-password 20), the
+client address (20 per 15 minutes, read as `CF-Connecting-IP`, else the first `X-Forwarded-For` hop, else
+the connection address) and the identifier (5 per 15 minutes) — plus the account's own five attempts per
+15 minutes once the username resolves to a user. Any bound reached answers 429 "Too many attempts. Please
+wait a few minutes and try again." Registration deliberately has no fallback: it cannot tell a blocked
+browser from a bot that omits the token, and each sign-up counts against the early-access cap. With no
+Turnstile secret configured (local development) nothing changes and no counter is touched. Counters
+live in memory, so a restart forgets them.
+
+### Fixed — an unauthenticated call is no longer the user "anonymousUser" on the password and marketing endpoints
+
+`/api/auth/**` is public and anonymous authentication is on, so an unauthenticated call to
+`POST /api/auth/change-password` or `PUT /api/auth/marketing-emails` arrived with a principal named
+`anonymousUser` and ran as a user of that name. Both now answer 401 for the anonymous principal, and
+`POST /api/auth/register` refuses the username `anonymousUser` (any case) with 409 "Username already
+exists", so registration can no longer create an account that answers to that name.
+
+### Changed — setting a first password takes no CAPTCHA; marketing email is opt-in on the server
+
+`POST /api/auth/set-password` no longer verifies a Turnstile token (the verification token it is
+called with is a 122-bit random value, so the CAPTCHA protected nothing, and it was the one step a
+blocked browser could not complete). A `turnstileToken` still sent by an older page is ignored. In its
+place the endpoint takes three bounds, outermost first, any one of which answers 429 with the same
+sentence as sign-in: 200 requests an hour across everyone, 20 per 15 minutes per client address, and 10
+per 15 minutes per token (keyed on the first 16 characters of its hash, never the token). Separately,
+`POST /api/auth/register` now reads an absent or unrecognised `marketingEmailOptIn` as "no": consent is
+only ever an explicit `"true"`, which matters because the iOS app will call this endpoint too.
+
+### Changed — sign-in, registration and first-login screens: phone-safe layout, one input style, status tokens
+
+The three full-page auth screens now share one wrapper, one heading, one password field and one
+checklist (`components/auth/`), and read as part of the app instead of beside it. Inputs are 16px
+below 640px (iOS Safari stopped zooming into them) through a single `.field` class that replaces
+the three hand-written class strings; the page uses the dynamic viewport height, sits at the top
+with 3rem of air on a phone so the keyboard does not cover the buttons, centres from 640px, and
+resolves its padding against the safe-area vars with `max()`. Card headings are Newsreader 22px
+`<h2>`s under the lockup's `<h1>`; errors and met rules use two new tokens, `--color-plex-error`
+(`#F07A62`) and `--color-plex-ok` (`#8AAE72`), declared in the `@theme static` block and measured
+at 6.25:1 and 6.83:1 on the card; an unmet password rule is a hollow ○ in secondary ink rather than
+a ✗ in muted ink; hints and text buttons use secondary ink for 4.5:1; the session-expired line and
+the Turnstile fallback line move out of amber into secondary ink, the former inside the card above
+the heading; and the Check your email, Verify, Waitlist and Success cards are left-aligned like
+the logo. No field, order, copy or test id changed, and the Settings dialog is untouched (it takes
+`.field` in a later phase).
+
+The Plan-tab overlay's two `Upgrade to Pro` anchors (`/upgrade` is not a route, and the App Store
+forbids a link to a web purchase) are now plain text — "Pro accounts get Fiery Sky & Golden Hour
+scores, storm surge analysis, and full AI analysis" — in the secondary ink the sentence needs.
+
+### Added — build and prompt provenance on forecasts and ratings, and per-build and per-prompt calibration
+
+The calibration gate could pin a drift in how readers' ratings compare with the forecast to a model, but not to a
+release or to a prompt edit: the model is recorded per forecast row, the app build was recorded nowhere on one, and nothing
+identified the prompt a row was sent with. V182 adds three nullable columns, with no backfill: `forecast_evaluation.app_build`,
+`forecast_evaluation.prompt_hash` and `outcome_rating.app_build`.
+
+`app_build` is the release the deploy workflow bakes in from the git tag (the same value `job_run.app_version` already records),
+stamped where a forecast row gets its rating or triage reason and where a reader's rating is written. `prompt_hash` is the
+SHA-256 of the sky system prompt a batch request carried, stamped when the batch is submitted. It is the system prompt and not
+the user message because the user message holds each slot's weather and would differ on every row.
+
+`GET /api/admin/calibration` gains `bucketsByBuild` and `bucketsByPromptHash` beside the existing per-horizon and per-model
+buckets. A forecast row from before V182 reads `UNKNOWN`. A reader's rating is bucketed by the build and prompt of the forecast
+it was shown.
+
 ## [v2.28.0] - 2026-10-16
 
 ### Docs — the outcome-rating series is written down, and a dead export goes

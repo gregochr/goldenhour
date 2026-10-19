@@ -2,14 +2,14 @@
 -- sky locations. Read-only. :since is a psql variable (ISO date); see README.md.
 -- Portable: no DISTINCT ON, no date_trunc, no intervals (validated on sqlite3 3.43 too).
 CREATE TEMP VIEW sky_loc AS
-SELECT l.id, l.lat, l.lon, l.grid_lat, l.grid_lng, l.is_coastal_tidal
+SELECT l.id, l.lat, l.lon, l.elevation_m, l.grid_lat, l.grid_lng, l.is_coastal_tidal
 FROM locations l
 WHERE l.grid_lat IS NOT NULL
   AND NOT EXISTS (SELECT 1 FROM location_location_type t
                   WHERE t.location_id = l.id AND t.location_type IN ('WOODLAND', 'BLUEBELL', 'WILDLIFE'));
 
 CREATE TEMP VIEW rated AS
-SELECT e.location_id, s.lat, s.lon, s.grid_lat, s.grid_lng, s.is_coastal_tidal, e.target_date, e.target_type,
+SELECT e.location_id, s.lat, s.lon, s.elevation_m, s.grid_lat, s.grid_lng, s.is_coastal_tidal, e.target_date, e.target_type,
        e.evaluation_model, e.days_ahead, e.rating, e.sky_rating,
        e.solar_low_cloud, e.solar_mid_cloud, e.solar_high_cloud, e.far_solar_low_cloud,
        SUBSTR(CAST(e.forecast_run_at AS VARCHAR(40)), 1, 13) AS run_hour

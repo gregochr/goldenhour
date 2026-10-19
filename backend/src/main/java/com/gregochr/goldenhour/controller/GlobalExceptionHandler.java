@@ -114,6 +114,8 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(PostcodeLookupUnavailableException.class)
     @ResponseStatus(HttpStatus.BAD_GATEWAY)
     public ErrorResponse handlePostcodeUnavailable(PostcodeLookupUnavailableException ex) {
+        // The exception's message is the fixed text above by contract, so logging it carries no upstream text.
+        LOG.debug("Postcode lookup unavailable: {}", ex.getMessage());
         return new ErrorResponse(PostcodeLookupUnavailableException.MESSAGE);
     }
 

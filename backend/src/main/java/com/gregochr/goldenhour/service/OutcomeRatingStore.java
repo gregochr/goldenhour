@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.gregochr.goldenhour.config.AppBuild;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.repository.OutcomeRatingRepository;
 import org.slf4j.Logger;
@@ -27,8 +28,9 @@ import java.time.LocalDate;
  * Postgres. {@code AskUsageStore} is the precedent (plan §1 #8); a caller that adds a transaction
  * around {@link #upsert} breaks it silently.
  *
- * <p>One dependency (the repository), so a test builds the real store over the real repository and
- * races it.
+ * <p>Two dependencies (the repository and the build identity), so a test builds the real store over
+ * the real repository and races it. Every write stamps {@code app_build} (V182) with the running
+ * release — on an update too, because the rating itself was made again by this build.
  */
 @Service
 public class OutcomeRatingStore {
@@ -36,14 +38,17 @@ public class OutcomeRatingStore {
     private static final Logger LOG = LoggerFactory.getLogger(OutcomeRatingStore.class);
 
     private final OutcomeRatingRepository repository;
+    private final AppBuild appBuild;
 
     /**
      * Creates the store.
      *
      * @param repository the {@code outcome_rating} table
+     * @param appBuild   the running build, stamped as {@code app_build} on every write
      */
-    public OutcomeRatingStore(OutcomeRatingRepository repository) {
+    public OutcomeRatingStore(OutcomeRatingRepository repository, AppBuild appBuild) {
         this.repository = repository;
+        this.appBuild = appBuild;
     }
 
     /**
@@ -82,7 +87,7 @@ public class OutcomeRatingStore {
             try {
                 repository.insertRow(userId, locationId, date, type.name(), rating, eventTime,
                         run.pipelineRunId(), run.forecastRunAt(), run.forecastEvaluationId(),
-                        run.forecastRating(), now);
+                        run.forecastRating(), appBuild.value(), now);
                 return;
             } catch (DataIntegrityViolationException e) {
                 if (!repository.existsByUserIdAndLocationIdAndEventDateAndEventType(
@@ -95,7 +100,7 @@ public class OutcomeRatingStore {
         }
         int updated = repository.updateRow(userId, locationId, date, type, rating, eventTime,
                 run.pipelineRunId(), run.forecastRunAt(), run.forecastEvaluationId(),
-                run.forecastRating(), now);
+                run.forecastRating(), appBuild.value(), now);
         if (updated != 1) {
             throw new IllegalStateException("Could not store user " + userId + "'s rating of location "
                     + locationId + " " + date + " " + type);

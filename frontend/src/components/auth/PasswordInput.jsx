@@ -17,6 +17,9 @@ import PropTypes from 'prop-types';
  * {@code Hide <eyeLabel>}); the default {@code password} is every single-field form's. A form with
  * two password fields passes a distinct one to each so a screen reader can tell the eyes apart.
  *
+ * <p>{@code inputRef}, {@code describedBy} and {@code invalid} are for a caller that moves focus onto
+ * the field or reports a refusal against it; none changes what an existing caller renders.
+ *
  * <p>{@code testId} lands on the input (the existing tests' handle); the eye gets
  * {@code <testId>-toggle}.
  */
@@ -30,6 +33,9 @@ export default function PasswordInput({
   required = true,
   testId = undefined,
   eyeLabel = 'password',
+  inputRef = undefined,
+  describedBy = undefined,
+  invalid = false,
 }) {
   const [show, setShow] = useState(false);
   const controlled = value !== undefined;
@@ -37,7 +43,10 @@ export default function PasswordInput({
     <div className="relative">
       <input
         id={id}
+        ref={inputRef}
         name={name}
+        aria-describedby={describedBy}
+        aria-invalid={invalid ? 'true' : undefined}
         type={show ? 'text' : 'password'}
         data-testid={testId}
         autoComplete={autoComplete}
@@ -78,4 +87,10 @@ PasswordInput.propTypes = {
   required: PropTypes.bool,
   testId: PropTypes.string,
   eyeLabel: PropTypes.string,
+  /** A ref to the input itself, for a caller that moves focus onto it (the Settings danger zone). */
+  inputRef: PropTypes.oneOfType([PropTypes.func, PropTypes.shape({ current: PropTypes.any })]),
+  /** The id of a line that describes the field — an error sentence, say. */
+  describedBy: PropTypes.string,
+  /** Marks the field invalid (`aria-invalid`); the caller owns when. */
+  invalid: PropTypes.bool,
 };

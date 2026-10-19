@@ -256,7 +256,9 @@ public class ForecastEvaluationEntity {
      * ForecastService} for a row inserted with a rating or a triage reason (the synchronous engine,
      * a triage or sentinel row), and {@code ForecastResultHandler#scoreEvaluationRow} for a batch's
      * {@code PENDING} row scored in place. A row still {@code PENDING} or {@code ABANDONED}, an
-     * {@code HOURLY} comfort row and every row written before V178 keep {@code null}.
+     * {@code HOURLY} comfort row keep {@code null}, and so does a row written before V178 that had
+     * nothing to say; one that had a rating or a triage reason was stamped once, with its
+     * {@link #forecastRunAt}, by V183 (a deliberate, bounded backfill, outcome-rating plan §0 O7).
      *
      * <p>⚠️ <b>Not {@link #forecastRunAt}.</b> That is a SUBMISSION instant (a batch row is stamped
      * when built, before its batch's own submit time is known, and the Batch API may land the result
@@ -267,6 +269,24 @@ public class ForecastEvaluationEntity {
      */
     @Column(name = "scored_at")
     private Instant scoredAt;
+
+    /**
+     * The release ({@code APP_VERSION}, V182) running when this row got its rating or triage reason,
+     * stamped beside {@link #scoredAt} at the same two seams. {@code null} for a row not yet scored
+     * and for every row written before V182. The calibration report buckets by it.
+     */
+    @Column(name = "app_build", length = 40)
+    private String appBuild;
+
+    /**
+     * SHA-256 (hex) of the SKY system prompt this row's batch request carried (V182), stamped when
+     * the batch is submitted. The system prompt rather than the whole user message, because the user
+     * message embeds the slot's own weather and would differ on every row. {@code null} for a row
+     * with no batch request behind it (the synchronous engine, a triage row, a comfort row), for a
+     * woodland or bluebell request and for every row written before V182.
+     */
+    @Column(name = "prompt_hash", length = 64)
+    private String promptHash;
 
     /**
      * Convenience accessor for the owning location's name.

@@ -140,8 +140,11 @@ public class BatchRequestFactory {
      *
      * @param request     the batch request, ready for submission
      * @param userMessage the very string passed to {@code addUserMessage} for {@code request}
+     * @param promptHash  {@link PromptHash#sha256Hex} of the system prompt the request carries (the
+     *                    inland or the coastal one), for {@code forecast_evaluation.prompt_hash}
      */
-    public record ForecastRequest(BatchCreateParams.Request request, String userMessage) {
+    public record ForecastRequest(BatchCreateParams.Request request, String userMessage,
+            String promptHash) {
     }
 
     /**
@@ -271,6 +274,7 @@ public class BatchRequestFactory {
 
         PromptBuilder builder = selectBuilder(data);
         String userMessage = buildUserMessage(builder, data);
+        String systemPrompt = builder.getSystemPrompt();
 
         BatchCreateParams.Request.Params.Builder params = ModelRequestSupport.withThinkingSetting(
                 BatchCreateParams.Request.Params.builder()
@@ -278,7 +282,7 @@ public class BatchRequestFactory {
                 .maxTokens(maxTokens)
                 .systemOfTextBlockParams(List.of(
                         TextBlockParam.builder()
-                                .text(builder.getSystemPrompt())
+                                .text(systemPrompt)
                                 .cacheControl(skyCacheControl(longLivedCache))
                                 .build()))
                 .outputConfig(ModelRequestSupport.withEffort(
@@ -291,7 +295,7 @@ public class BatchRequestFactory {
                 .customId(customId)
                 .params(params.build())
                 .build();
-        return new ForecastRequest(request, userMessage);
+        return new ForecastRequest(request, userMessage, PromptHash.sha256Hex(systemPrompt));
     }
 
     /**
