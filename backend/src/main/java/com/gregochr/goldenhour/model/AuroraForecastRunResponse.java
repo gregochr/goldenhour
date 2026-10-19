@@ -27,6 +27,7 @@ public record AuroraForecastRunResponse(
      * @param date              the calendar date this night covers
      * @param status            one of: "scored" (Claude ran for some locations),
      *                          "all_triaged" (all locations overcast — no Claude call),
+     *                          "unassessed" (no cloud forecast for any location — no Claude call),
      *                          "no_eligible_locations" (Bortle filter excluded all locations),
      *                          "no_activity" (Kp too low to warrant a forecast)
      * @param locationsScored   number of locations scored by Claude

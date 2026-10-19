@@ -12,7 +12,6 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -64,15 +63,23 @@ public class WeatherTriageService {
      */
     public TriageResult triage(List<LocationEntity> candidates) {
         List<String> hourKeys = buildWindowHourKeys();
-        Map<LocationEntity, int[]> cloudByLocationHours = transectSampler.sample(
+        Map<LocationEntity, int[]> cloudByLocationHours = transectSampler.sampleMeasured(
                 candidates, hourKeys, NorthwardTransectSampler.LayerCombiner.SUM_CAPPED);
 
         List<LocationEntity> viable = new ArrayList<>();
         List<LocationEntity> rejected = new ArrayList<>();
+        List<LocationEntity> unsampled = new ArrayList<>();
         Map<LocationEntity, Integer> cloudByLocation = new HashMap<>();
 
         for (LocationEntity loc : candidates) {
-            int[] hourly = cloudByLocationHours.getOrDefault(loc, defaultWindow());
+            int[] hourly = cloudByLocationHours.get(loc);
+            if (hourly == null) {
+                // No cloud was ever read for this place (its forecast fetch failed): that is no
+                // decision against it, so it is neither viable nor "overcast".
+                unsampled.add(loc);
+                LOG.debug("Triage could not sample {} — cloud forecast unavailable", loc.getName());
+                continue;
+            }
             int avgCloud = averageCloud(hourly);
             cloudByLocation.put(loc, avgCloud);
 
@@ -85,8 +92,10 @@ public class WeatherTriageService {
             }
         }
 
-        LOG.info("Aurora weather triage: {}/{} locations viable", viable.size(), candidates.size());
-        return new TriageResult(viable, rejected, cloudByLocation);
+        LOG.info("Aurora weather triage: {}/{} locations viable, {} rejected, {} unsampled "
+                        + "(cloud forecast unavailable)",
+                viable.size(), candidates.size(), rejected.size(), unsampled.size());
+        return new TriageResult(viable, rejected, cloudByLocation, unsampled);
     }
 
     /**
@@ -128,22 +137,32 @@ public class WeatherTriageService {
         return sum / hourlyCloud.length;
     }
 
-    private int[] defaultWindow() {
-        int[] arr = new int[TRIAGE_LOOKAHEAD_HOURS + 1];
-        Arrays.fill(arr, CloudScoringRules.OVERCAST_PERCENT);
-        return arr;
-    }
-
     /**
      * Result of the weather triage pass.
      *
      * @param viable          locations that passed triage and should be sent to Claude
      * @param rejected         locations rejected (completely overcast) — auto-assign 1★
-     * @param cloudByLocation  average transect cloud cover per location (0–100)
+     * @param cloudByLocation  average transect cloud cover per location (0–100); sampled places only
+     * @param unsampled        locations whose cloud forecast could not be fetched — not assessed:
+     *                         neither viable nor rejected, and never given a star rating
      */
     public record TriageResult(
             List<LocationEntity> viable,
             List<LocationEntity> rejected,
-            Map<LocationEntity, Integer> cloudByLocation) {}
+            Map<LocationEntity, Integer> cloudByLocation,
+            List<LocationEntity> unsampled) {
+
+        /**
+         * Convenience constructor for a triage with every location sampled.
+         *
+         * @param viable          locations that passed triage
+         * @param rejected        locations rejected as overcast
+         * @param cloudByLocation average transect cloud per location
+         */
+        public TriageResult(List<LocationEntity> viable, List<LocationEntity> rejected,
+                Map<LocationEntity, Integer> cloudByLocation) {
+            this(viable, rejected, cloudByLocation, List.of());
+        }
+    }
 
 }

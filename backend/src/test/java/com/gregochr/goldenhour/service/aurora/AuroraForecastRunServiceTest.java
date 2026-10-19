@@ -786,6 +786,45 @@ class AuroraForecastRunServiceTest {
     }
 
     @Test
+    @DisplayName("every candidate unsampled → status unassessed, not all_triaged")
+    void runForecast_skipsClaudeWhenAllTriaged_unsampledIsUnassessed() {
+        LocalDate tonight = TODAY;
+        ZoneId utc = ZoneId.of("UTC");
+        ZonedDateTime dusk = tonight.atTime(20, 35).atZone(utc);
+        ZonedDateTime dawn = tonight.plusDays(1).atTime(3, 25).atZone(utc);
+
+        SpaceWeatherData data = new SpaceWeatherData(
+                List.of(),
+                List.of(new KpForecast(dusk, dawn, 6.0)),
+                null, List.of(), List.of());
+
+        LocationEntity overcastLoc = LocationEntity.builder()
+                .id(1L).name("Overcast").lat(55.0).lon(-1.5).bortleClass(2).build();
+
+        when(noaaClient.fetchAll()).thenReturn(data);
+
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(anyInt()))
+                .thenReturn(List.of(overcastLoc));
+        when(weatherTriage.triage(any())).thenReturn(
+                new WeatherTriageService.TriageResult(
+                        List.of(), List.of(), Map.of(), List.of(overcastLoc)));
+
+        AuroraForecastRunResponse response = service.runForecast(
+                new AuroraForecastRunRequest(List.of(tonight)));
+
+        verify(claudeInterpreter, never()).interpret(any(), any(), any(), any(), any(), any());
+        assertThat(response.nights().get(0).status()).isEqualTo("unassessed");
+        assertThat(response.totalClaudeCalls()).isZero();
+
+        // The night's stored results are replaced, with no row for the unassessed place
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<AuroraForecastResultEntity>> writtenCaptor =
+                ArgumentCaptor.forClass(List.class);
+        verify(resultWriter).replaceNightResults(eq(tonight), writtenCaptor.capture(), eq(false));
+        assertThat(writtenCaptor.getValue()).isEmpty();
+    }
+
+    @Test
     @DisplayName("runForecast clears stored results when no Bortle-eligible locations exist")
     void runForecast_noEligibleLocations_clearsStoredResults() {
         LocalDate tonight = TODAY;
