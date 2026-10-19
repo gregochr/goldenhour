@@ -60,7 +60,8 @@ verbatim. The row also names its pool and prints its counts (2026-10-15,
 `(within 2h30)` / `(any drive)`, derived from `REACH_TIERS[].shortLabel` — over the bars and the
 below-gate text alike, silent under a finite tier when any spot in the pool lacks a measured drive
 (the pool-wide `facts.withinReach`, not `card.reachMeasured` alone), and a count under every bar, the
-hatched one's included; below a 205px card content width a container query (`@container wf-card`) stacks the
+hatched one's included, in one column width (`--cw`) per STRIP, not per card — `spreadCountLayoutAcross` takes the
+longest printed count on any card that draws bars, so neighbours line up (`spread-row-plan.md` §4 #15); below a 205px card content width a container query (`@container wf-card`) stacks the
 histogram on its own line under the label. The spoken sentence names the same tier ("within 45 min",
 "any drive") and the non-zero bands (`spokenPoolPhrase`, `spreadBandsSpoken`), while the tooltip keeps
 "within reach" (plan §2 #5–#6, §4); the helpers are filter/map/select over that same pool (the

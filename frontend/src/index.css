@@ -2288,10 +2288,11 @@ button.wf-hc.on:hover {
   cursor: help;
 }
 /* One COLUMN per bar (spread-row-plan.md §2 #3): the bar over its count, bottom-aligned so every
-   bar's foot lands on one line whatever its height. The width is the CARD's own, `--cw`, set inline
-   from `spreadCountLayout` (one value for all six columns, so the bars stay evenly spaced whatever
-   the longest count is). The column is one flex item of the well, so the well's 2px `gap` is the
-   spacing between bands. (0,2,0) — `.wf-hc-hist i` below is (0,1,1) and these are different elements,
+   bar's foot lands on one line whatever its height. The width is the STRIP's, `--cw`, set inline
+   from `spreadCountLayoutAcross` (one value for all six columns of every card, so the bars stay
+   evenly spaced and neighbouring wells line up whatever the longest count is; the design bundle
+   sized it per card, spread-row-plan.md §4 #15). The column is one flex item of the well, so the
+   well's 2px `gap` is the spacing between bands. (0,2,0) — `.wf-hc-hist i` below is (0,1,1) and these are different elements,
    but the habit of this block is one specificity per property across a rule family. */
 .wf-hc-hist .wf-hc-hb {
   display: flex;

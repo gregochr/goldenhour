@@ -19,7 +19,7 @@ import { topMovers } from '../utils/movement.js';
 import { buildWindowMatrix, MATRIX_ROW } from '../utils/windowFirstMatrix.js';
 import {
   buildSpread, formatSpreadCount, poolWithinReach, spokenPoolPhrase, spreadBandsSpoken,
-  spreadBars, spreadCountLayout, spreadQualifier, spreadRowState, spreadTitle, unratedBar,
+  spreadBars, spreadCountLayout, spreadCountLayoutAcross, spreadQualifier, spreadRowState, spreadTitle, unratedBar,
   unratedPhrase,
 } from '../utils/windowFirstSpread.js';
 import { buildTopicIndex, chipClock, windowTopics } from '../utils/windowFirstTopics.js';
@@ -758,16 +758,25 @@ export default function WindowFirstHeatStrip({
         // is null under "Any" (`buildHeatStripCards` folds it so); an `undefined` is an unresolved
         // lens and the helper keeps it silent.
         qualifier: spreadQualifier({ reachLimitMinutes: card.reachLimitMinutes, withinReach }),
-        // The count columns' per-card width and type size, from the bars that are actually DRAWN:
-        // the hatched bar's count takes part only when the row is in bars mode, because below the
-        // minimum-sample gate `unratedBar` is non-null for a real remainder and nothing is drawn
-        // for it (the `unratedBar` note above). Null `unrated` makes it count for nothing.
-        countLayout: spreadCountLayout(bars, state.bars ? unrated : null),
+        // This card's OWN count layout, from the bars that are actually DRAWN: the hatched bar's
+        // count takes part only when the row is in bars mode, because below the minimum-sample
+        // gate `unratedBar` is non-null for a real remainder and nothing is drawn for it (the
+        // `unratedBar` note above), and a text-state card draws no bars at all, so it is null and
+        // contributes nothing. It is NOT what the card renders: the pass after this loop replaces
+        // it with the strip-wide layout (spread-row-plan.md §4 #15).
+        countLayout: state.bars ? spreadCountLayout(bars, unrated) : null,
         best: bestReachLine(card),
         topics: windowTopics(card.key, card.badges, topicIndex, scopeNames),
         tideChip,
       });
     }
+    // One count-column width for the whole strip: neighbours in a row make the SAME decision, so
+    // their wells line up (`spreadCountLayoutAcross` records why). The entries are this pass's own
+    // objects, so overwriting the field is not a mutation anyone else can see.
+    const stripLayout = spreadCountLayoutAcross([...byKey.values()].map((facts) => facts.countLayout));
+    byKey.forEach((facts) => {
+      facts.countLayout = stripLayout;
+    });
     return byKey;
   }, [cards, topicIndex, scopeNames, run]);
 

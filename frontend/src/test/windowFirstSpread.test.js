@@ -4,6 +4,7 @@ import {
   SPREAD_UNRATED_BAR_MIN_PX,
   buildSpread, formatSpreadCount, hasSpreadSample, poolPhrase, poolWithinReach, spokenPoolPhrase,
   spreadBandsSpoken, spreadBars, spreadColumnWidthPx, spreadCountLayout,
+  spreadCountLayoutAcross,
   spreadQualifier, spreadRowState, spreadTitle, unratedBar, unratedPhrase,
 } from '../utils/windowFirstSpread.js';
 import { REACH_TIERS } from '../utils/reachLens.js';
@@ -625,5 +626,28 @@ describe('spreadBandsSpoken — the visible counts, in words', () => {
       .join(', ');
     expect(fromTooltip).not.toBe('');
     expect(spreadBandsSpoken(spread)).toBe(fromTooltip);
+  });
+});
+
+describe('spreadCountLayoutAcross — neighbours in a row share one column width', () => {
+  const layout = (chars) => ({ chars, widthPx: spreadColumnWidthPx(chars), small: chars > 3 });
+
+  it('answers the one-character floor for no cards at all', () => {
+    expect(spreadCountLayoutAcross([])).toEqual({ chars: 1, widthPx: 9, small: false });
+    expect(spreadCountLayoutAcross(undefined)).toEqual({ chars: 1, widthPx: 9, small: false });
+  });
+
+  it('takes the widest card: 91 beside 125 is 15.6px for both', () => {
+    expect(spreadCountLayoutAcross([layout(2), layout(3)])).toEqual({ chars: 3, widthPx: 15.6, small: false });
+  });
+
+  it('flips every card to the smaller type when one card has a 1.2k count', () => {
+    expect(spreadCountLayoutAcross([layout(1), layout(4), layout(2)]))
+      .toEqual({ chars: 4, widthPx: 17, small: true });
+  });
+
+  it('lets cards that draw no bars (null) contribute nothing', () => {
+    expect(spreadCountLayoutAcross([null, layout(2), undefined])).toEqual({ chars: 2, widthPx: 10.4, small: false });
+    expect(spreadCountLayoutAcross([null, null])).toEqual({ chars: 1, widthPx: 9, small: false });
   });
 });

@@ -1132,6 +1132,48 @@ describe('WindowFirstHeatStrip — the Spread row names its pool and prints its 
       expect(hist().style.getPropertyValue('--cw')).toBe('15.6px');
     });
 
+    describe('one column width across the whole strip', () => {
+      const SUNRISE_KEY = `${TODAY}:SUNRISE`;
+      const hists = () => screen.getAllByTestId('wf-heat-spread');
+      const widths = () => hists().map((el) => el.style.getPropertyValue('--cw'));
+
+      it('draws a 91 card and a 125 card at the same 15.6px, so neighbouring wells line up', async () => {
+        await renderStrip({
+          cards: [
+            ratedCard({ key: SUNRISE_KEY, targetType: 'SUNRISE', pool: many(91, 3) }),
+            ratedCard({ pool: many(125, 3) }),
+          ],
+        });
+        expect(widths()).toEqual(['15.6px', '15.6px']);
+      });
+
+      it('lets one four-character count widen and shrink the type on every card', async () => {
+        await renderStrip({
+          cards: [
+            ratedCard({ key: SUNRISE_KEY, targetType: 'SUNRISE', pool: pool(5, 5, 5, 5, 5) }),
+            ratedCard({ pool: many(1200, 3) }),
+          ],
+        });
+        expect(widths()).toEqual(['17px', '17px']);
+        hists().forEach((el) => expect(el).toHaveClass('sm'));
+      });
+
+      it('is not widened by a below-gate card, which draws no bars', async () => {
+        // 120 rated 3★ in a pool of 1,120: below the gate's half-rated coverage, so it prints text even
+        // though its band count ("120", three characters) would have widened the strip if counted.
+        await renderStrip({
+          cards: [
+            ratedCard({ key: SUNRISE_KEY, targetType: 'SUNRISE', pool: pool(5, 5, 5, 5, 5) }),
+            ratedCard({ pool: pool(...Array.from({ length: 120 }, () => 3), ...Array.from({ length: 1000 }, () => null)) }),
+          ],
+        });
+        const [drawn, text] = hists();
+        expect(drawn.style.getPropertyValue('--cw')).toBe('9px');
+        expect(drawn).not.toHaveClass('sm');
+        expect(text).not.toHaveAttribute('style');
+      });
+    });
+
     it('prints no counts, no column width and no small type in the below-gate text state', async () => {
       await renderStrip({ cards: [ratedCard({ pool: pool(4, null, null, null) })] });
       expect(screen.queryByTestId('wf-heat-spread-count')).toBeNull();
