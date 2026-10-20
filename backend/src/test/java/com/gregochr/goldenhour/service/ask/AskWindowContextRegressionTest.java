@@ -85,6 +85,15 @@ class AskWindowContextRegressionTest {
             "stay(ing)? (at )?home|not (a |the )?(weekend|window|morning|evening|day|night|one) (worth|to go)",
             Pattern.CASE_INSENSITIVE);
 
+    /**
+     * The mixed weekend's wording rule (plan §2.6, added at the owner's request on 2026-10-20): the summary must
+     * not read the weekend as simply good, so it either calls Saturday poor or stood down in so many words, or
+     * says "mixed". It may instead match {@link #STAY_HOME}. Pending the owner's approval, like every assertion
+     * here; never run.
+     */
+    private static final Pattern MIXED = Pattern.compile(
+            "saturday[^.]*(stay|poor|not worth|nothing|stood down|stand down)|mixed", Pattern.CASE_INSENSITIVE);
+
     private static final String SAT_SUNSET = "2026-10-17_sunset";
     private static final String SUN_SUNRISE = "2026-10-18_sunrise";
     private static final String SUN_SUNSET = "2026-10-18_sunset";
@@ -240,6 +249,10 @@ class AskWindowContextRegressionTest {
                         .forEach(p -> faults.add("a pick on a window that is not Sunday's: " + p.windowId()));
                 if (!Pattern.compile("saturday", Pattern.CASE_INSENSITIVE).matcher(answer.summary()).find()) {
                     faults.add("the summary does not name Saturday: " + answer.summary());
+                }
+                if (!MIXED.matcher(answer.summary()).find() && !STAY_HOME.matcher(answer.summary()).find()) {
+                    faults.add("the summary does not read the weekend as mixed (Saturday poor, Sunday on): "
+                            + answer.summary());
                 }
             }
             return faults;
