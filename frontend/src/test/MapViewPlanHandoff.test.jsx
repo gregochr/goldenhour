@@ -1257,13 +1257,16 @@ describe('MapView — night: select the night\'s row, but not until the row exis
     expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/sunset/i);
   });
 
-  it('a map-sourced handoff never follows a night either (it carries none)', async () => {
+  it('⚠️ a map-sourced handoff follows the night it names (the aurora banner pressed ON the Map tab, C4) and imports no lens', async () => {
     getAstroAvailableDates.mockResolvedValue([TODAY]);
     const onSelectDate = vi.fn();
     await renderTab({
       onSelectDate,
       planHandoff: { ...NIGHT_DOOR, source: 'map' },
     });
-    expect(onSelectDate).not.toHaveBeenCalledWith(TODAY, { isNight: true });
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/astro/i);
+    expect(onSelectDate).toHaveBeenCalledWith(TODAY, { isNight: true });
+    // A map-sourced handoff is a window change and nothing more: no breadcrumb, no lens.
+    expect(screen.queryByTestId('wf-map-breadcrumb')).toBeNull();
   });
 });

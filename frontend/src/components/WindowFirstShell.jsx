@@ -28,6 +28,7 @@ import {
 } from '../utils/locationSheet.js';
 import { buildRegionGlossIndex } from '../utils/regionGloss.js';
 import { openMapDoor } from '../utils/mapDoors.js';
+import { normalizeMapTrigger } from '../utils/mapDoor.js';
 import { foreignDialogOpen } from '../utils/shellForeignDialog.js';
 import { deriveBadge } from '../utils/comingUpArrivals.js';
 import { markComingUpSeen } from '../api/settingsApi.js';
@@ -35,6 +36,14 @@ import useAskSurface from '../hooks/useAskSurface.js';
 import useComingUpFeed from '../hooks/useComingUpFeed.js';
 import useLensReserve from '../hooks/useLensReserve.js';
 import useStuckSentinel from '../hooks/useStuckSentinel.js';
+
+/**
+ * The Coming up pane's `onShowOnMap` when the shell was handed no Map door (no forecast to map). The
+ * pane requires a function, and it already withholds every map door it cannot honour (the entry's
+ * `forecastDates` test), so this is never reached from a rendered control.
+ */
+const NO_MAP_DOOR = () => {};
+
 
 /**
  * The heat strip, behind a lazy boundary for chunk hygiene.
@@ -379,7 +388,7 @@ const panelDomId = (id) => `window-first-panel-${id}`;
  *        ⌂ does, which is why `WindowFirstMapPane` and `MapView` take the prop bare.
  */
 export default function WindowFirstShell({
-  onOpenSettings, onSignOut, contentDisabled, onShowOnMap, onEvaluationScoresChange,
+  onOpenSettings, onSignOut, contentDisabled, onEvaluationScoresChange,
   onSeasonalFeaturesChange, locations, mapPane, operationsPane, tabRequest, healthPill,
   light, onSetPostcode, mapColourScale = null, homeCoords = null, onTabChange = null,
   locationSheetHandoff = null, onOpenMapTab = null, settingsOpen = false, initialTab = null,
@@ -953,12 +962,9 @@ export default function WindowFirstShell({
    * caller. D3 is its first caller (the location sheet's own `onShowOnMap` prop, below); D4 (the
    * popup field's new button) is the second, in its own later phase.
    *
-   * <p>⚠️ Close-then-move matches the sheet's own `onShowOnMap` wiring below — but NOT
-   * `WindowPickDialog`'s `onShowRegion`/`onShowLocation`, which call `onShowOnMap` FIRST and close
-   * SECOND (an earlier draft of this comment claimed all three routes agreed; they do not — those
-   * two routes are untouched by this plan and their own ordering is unaffected either way, since
-   * React batches the state updates regardless of source order, but the claim itself was wrong and
-   * is corrected here rather than left to mislead the next reader).
+   * <p>Since overlay convergence C4 EVERY Plan-tab map producer goes through here (via
+   * {@link showOnMap} below), so close-then-move is one rule for all of them, the pick dialog's two
+   * actions included - they used to open the overlay first and close second.
    */
   const openMapTab = useCallback((door) => openMapDoor({
     openOverPopup,
@@ -973,6 +979,27 @@ export default function WindowFirstShell({
     // the pure function because only the shell knows which tab is in force.
     door: { ...door, inPlace: effectiveTab === 'map' },
   }), [openOverPopup, openWindow, onOpenMapTab, ratingLens, reachLens, effectiveTab]);
+  /**
+   * The Plan tab's "show this on the map" producers' ONE entry (overlay convergence C4,
+   * `docs/engineering/overlay-convergence-plan.md` section 3 C4): the Regional planner's drill-down
+   * pin and its location names, the spot sheet's rows, the pick dialog's two actions and the
+   * Coming up cards and day chips. Each used to hand `App` a trigger that opened the frozen map
+   * overlay; they now take the SAME structured door the location sheet footer takes -
+   * {@link normalizeMapTrigger} turns whatever the producer sends into the one trigger shape and
+   * {@link openMapTab} closes the Plan dialogs FIRST, merges the Plan's live lens (rating floor and
+   * reach tier) and hands it to `App.openMapTabFromPlan`, which resolves the window, region,
+   * location and spot-set lens and moves the tab. `undefined` when `App` offers no Map door (no
+   * forecast), so each producer's own `onShowOnMap && ...` gate withholds its control.
+   *
+   * @param {*}       dateOrHandoff either a plain date string or a handoff object naming its `kind`
+   * @param {?string} eventType     SUNRISE/SUNSET for the plain-date call shapes
+   * @param {?string} locationName  a specific location, for the location call shape
+   */
+  const showOnMap = useMemo(() => (onOpenMapTab
+    ? (dateOrHandoff, eventType, locationName = null) => openMapTab(
+      normalizeMapTrigger(dateOrHandoff, eventType, locationName),
+    )
+    : undefined), [onOpenMapTab, openMapTab]);
   /**
    * A tab asked for from OUTSIDE the bar — currently the map overlay's "open the full map" hatch.
    *
@@ -1755,7 +1782,7 @@ export default function WindowFirstShell({
   // region and was the retired rail's region chip; nothing on this pane names a region until P3's
   // rail lands, so it has no caller here.
   const handleSpot = (card, spot) => (
-    onShowOnMap?.(card.date, card.targetType, spot.locationName)
+    showOnMap?.(card.date, card.targetType, spot.locationName)
   );
   /**
    * {@code /} moves to Ask — at 1024px and up, on Plan, Coming up and the Map (plan §6 Q1, decided).
@@ -2359,7 +2386,7 @@ export default function WindowFirstShell({
         todayStr={todayStr}
         onRetry={comingUp.retry}
         onGoToPlan={goToPlan}
-        onShowOnMap={onShowOnMap}
+        onShowOnMap={showOnMap ?? NO_MAP_DOOR}
         comingUpLastSeenDate={comingUpLastSeenDate}
         forecastDates={forecastDates}
         onMarkSeen={markSeen}
@@ -2507,7 +2534,7 @@ export default function WindowFirstShell({
 
         {/* The two doors, at the foot of the pane where the design puts them and inside the greyed
             region: they open forecast content, which is exactly what that treatment marks. */}
-        <WindowFirstDoors locations={locations} onShowOnMap={onShowOnMap} />
+        <WindowFirstDoors locations={locations} onShowOnMap={showOnMap} />
       </div>
 
       {/* The slotted panes. Each renders its panel ELEMENT unconditionally — `aria-controls` must
@@ -2725,17 +2752,12 @@ export default function WindowFirstShell({
           // derives `stacked` from it, and those two must never come apart.
           escapeEnabled={searchSeed == null}
           onClose={() => openOverPopup(null)}
-          // Closes FIRST, exactly as the strip dismisses its peek before the same handoff. The map
-          // overlay is itself an `aria-modal` dialog: leaving the sheet mounted underneath puts two
-          // on the page at once, gives Escape two listeners to satisfy, and leaves the reader's
-          // place in a list they have navigated away from. The sheet is a browsing surface and the
-          // map is a destination — arriving at the destination ends the browsing.
-          // ⚠️ `openWindow(null)` as well as the sheet, and M4 is where that became load-bearing.
-          // `MapOverlay` is itself an `aria-modal` dialog with its own unconditional document
-          // Escape listener, and the window popup underneath re-arms its own the moment nothing is
-          // stacked on it — so leaving it mounted puts two dialogs on the page and makes one press
-          // close both, the very thing this arm's Escape order exists to prevent. The reader has
-          // arrived at a destination, which ends the browsing.
+          // Closes FIRST, and so does `openMapTab` behind `showOnMap` (overlay convergence C4): a
+          // sheet or popup left mounted under the destination would be a second `aria-modal` dialog
+          // on the page with its own Escape listener, and the window popup underneath re-arms its
+          // own the moment nothing is stacked on it. The sheet is a browsing surface and the Map tab
+          // is a destination - arriving at it ends the browsing. The explicit closes also cover the
+          // no-map-door case (`showOnMap` undefined), where the press still ends the browsing.
           onOpenSpot={(spot) => { openOverPopup(null); openWindow(null); handleSpot(sheetCard, spot); }}
         />
       )}
@@ -2913,26 +2935,18 @@ export default function WindowFirstShell({
           time={openPick.time}
           escapeEnabled={searchSeed == null}
           onClose={() => openOverPopup(null)}
-          // ⚠️ `openWindow(null)` TOO, and this is the third of the three routes to the map — the
-          // two sheets got it at M4 and this one was missed. `MapOverlay` is itself an `aria-modal`
-          // dialog with an unconditional document Escape listener and it is NOT a `Modal`, so it
-          // takes no `stacked` opt-in; and the instant `openPick` clears, `stackedOverPopup` goes
-          // false and the popup re-arms its own listener and re-takes `aria-modal`. Leaving it
-          // mounted therefore puts two modals on the page with the lower one fully tab-reachable
-          // under the overlay, and makes one press close both — the whole of what M5's stacking
-          // work exists to prevent, defeated on a pointer route. The reader has arrived at a
-          // destination, which ends the browsing.
+          // Both actions go through `showOnMap` -> `openMapTab`, which closes the pick dialog AND the
+          // window popup under it BEFORE it moves the tab (C4). The popup must not survive: the
+          // instant `openPick` clears, `stackedOverPopup` goes false and the popup re-arms its own
+          // Escape listener and re-takes `aria-modal`, which would put a modal under the Map tab's
+          // arrival. These used to open the retired overlay first and close second.
           onShowRegion={() => {
-            onShowOnMap?.({
+            showOnMap?.({
               region: openPick.pick.regionName, date: openPick.date, eventType: openPick.targetType,
             });
-            openOverPopup(null);
-            openWindow(null);
           }}
           onShowLocation={() => {
-            onShowOnMap?.(openPick.date, openPick.targetType, openPick.pick.locationName);
-            openOverPopup(null);
-            openWindow(null);
+            showOnMap?.(openPick.date, openPick.targetType, openPick.pick.locationName);
           }}
         />
       )}
@@ -2965,7 +2979,6 @@ WindowFirstShell.propTypes = {
   settingsOpen: PropTypes.bool,
   onSignOut: PropTypes.func.isRequired,
   contentDisabled: PropTypes.bool,
-  onShowOnMap: PropTypes.func,
   onEvaluationScoresChange: PropTypes.func,
   /** Lifts `briefing.seasonalFeatures` to App, which the map overlay reads. Optional-called, so
       every existing test renders without it. */

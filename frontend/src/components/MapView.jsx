@@ -4225,7 +4225,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * a night by `openMapTabFromPlan`, and {@code followWindowRow} says so again with the ROW's kind.
    */
   useEffect(() => {
-    if (!planHandoff?.night || planHandoff.source === 'map') return;
+    // A map-sourced handoff may name a night too: the aurora banner pressed on the Map tab itself (C4).
+    if (!planHandoff?.night) return;
     if (appliedPlanNightNonce.current === planHandoff.nonce || !planNightRowFound) return;
     appliedPlanNightNonce.current = planHandoff.nonce;
     (async () => {

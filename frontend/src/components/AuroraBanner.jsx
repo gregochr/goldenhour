@@ -423,6 +423,24 @@ function spokenViewline(summary) {
 }
 
 /**
+ * The call to action's words, or null when the banner has nowhere honest to go (overlay convergence
+ * C4: a control that opens nothing is banned, so a banner with no door is a statement, not a button).
+ * A real alert's door is the Map tab; a SIMULATED alert's is Operations for an admin, and a plain
+ * "test alert" word for anyone else, because a simulation has no map and no scores to show.
+ *
+ * @param {object}    m             the presentation model
+ * @param {?function} onActivate    the banner's door, or null
+ * @param {string}    simulatedDoor the words when a simulated alert has a door
+ * @param {string}    realDoor      the words when a real alert has a door
+ * @param {string}    simulatedNoDoor the words for a simulated alert with none
+ * @returns {?string}
+ */
+function ctaText(m, onActivate, simulatedDoor, realDoor, simulatedNoDoor) {
+  if (m.simulated) return onActivate ? simulatedDoor : simulatedNoDoor;
+  return onActivate ? realDoor : null;
+}
+
+/**
  * Whether a key press on the root should activate the surface. The dismiss button sits inside the
  * root and its Enter/Space bubbles here — without the target check a keyboard dismiss ALSO opened
  * the Map tab.
@@ -436,7 +454,7 @@ function activates(e) {
  *
  * @param {object} props
  * @param {object} props.m the presentation model from {@link deriveModel}
- * @param {function} props.onActivate opens the Map tab (or, simulated, the admin hash)
+ * @param {function} props.onActivate the banner's door (the Map tab, or Operations for a simulated alert), or null when it has none
  * @param {function} props.onDismiss dismisses the banner at its current level
  * @param {?object} props.field the planning area's rated field ({@link areaField}), or null while
  *   the slot is pending
@@ -447,7 +465,7 @@ function activates(e) {
  *   whether the line is on its canvas
  */
 function AuroraCard({
-  m, field = null, viewline = null, viewlineSummary = null, onViewlineDrawn = null, onActivate, onDismiss,
+  m, field = null, viewline = null, viewlineSummary = null, onViewlineDrawn = null, onActivate = null, onDismiss,
 }) {
   const parts = [];
   if (m.best) {
@@ -475,6 +493,7 @@ function AuroraCard({
   if (m.bzText) {
     parts.push(<span key="bz">Bz <b>{m.bzText} nT</b></span>);
   }
+  const cta = ctaText(m, onActivate, 'Generate scores →', 'View on map →', 'Test alert');
   const whenLabel = m.simulated ? 'Simulated' : m.forecast ? 'Forecast · tonight' : 'Active now';
 
   return (
@@ -490,13 +509,14 @@ function AuroraCard({
           m.simulated && 'wf-aurora-simulated',
           m.breathing && 'wf-aurora-breathe',
         ].filter(Boolean).join(' ')}
-        onClick={onActivate}
-        onKeyDown={(e) => {
+        onClick={onActivate ?? undefined}
+        onKeyDown={onActivate ? (e) => {
           if (!activates(e)) return;
           e.preventDefault();
           onActivate();
-        }}
-        tabIndex={0}
+        } : undefined}
+        tabIndex={onActivate ? 0 : undefined}
+        data-actionable={onActivate ? 'true' : 'false'}
       >
         {/* eslint-enable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */}
         <div className="wf-aurora-thumb" data-testid="aurora-banner-thumb">
@@ -546,7 +566,7 @@ function AuroraCard({
               {spokenViewline(viewlineSummary)}
             </span>
           )}
-          <span className="wf-aurora-cta">{m.simulated ? 'Generate scores →' : 'View on map →'}</span>
+          {cta && <span className="wf-aurora-cta" data-testid="aurora-banner-cta">{cta}</span>}
         </div>
         <button
           type="button"
@@ -568,7 +588,7 @@ AuroraCard.propTypes = {
   viewline: PropTypes.object,
   viewlineSummary: PropTypes.string,
   onViewlineDrawn: PropTypes.func,
-  onActivate: PropTypes.func.isRequired,
+  onActivate: PropTypes.func,
   onDismiss: PropTypes.func.isRequired,
 };
 
@@ -577,10 +597,10 @@ AuroraCard.propTypes = {
  *
  * @param {object} props
  * @param {object} props.m the presentation model from {@link deriveModel}
- * @param {function} props.onActivate opens the Map tab (or, simulated, the admin hash)
+ * @param {function} props.onActivate the banner's door (the Map tab, or Operations for a simulated alert), or null when it has none
  * @param {function} props.onDismiss dismisses the banner at its current level
  */
-function AuroraStrip({ m, onActivate, onDismiss }) {
+function AuroraStrip({ m, onActivate = null, onDismiss }) {
   // The best site gets its own markup (a name that ellipsises and a rating that never does); every
   // other form is one text run.
   const showBest = !m.allOvercast && m.best;
@@ -590,6 +610,7 @@ function AuroraStrip({ m, onActivate, onDismiss }) {
   } else if (!showBest && m.siteCount != null) {
     detail = `${m.siteCount} dark ${siteNoun(m.siteCount)}${m.sitesClear ? ' clear' : ''}`;
   }
+  const cta = ctaText(m, onActivate, 'Scores →', 'Map →', 'Test');
   const headline = m.simulated ? 'Aurora simulated' : m.forecast ? 'Aurora tonight' : 'Aurora active now';
 
   return (
@@ -605,13 +626,14 @@ function AuroraStrip({ m, onActivate, onDismiss }) {
           m.simulated && 'wf-aurora-simulated',
           m.breathing && 'wf-aurora-breathe',
         ].filter(Boolean).join(' ')}
-        onClick={onActivate}
-        onKeyDown={(e) => {
+        onClick={onActivate ?? undefined}
+        onKeyDown={onActivate ? (e) => {
           if (!activates(e)) return;
           e.preventDefault();
           onActivate();
-        }}
-        tabIndex={0}
+        } : undefined}
+        tabIndex={onActivate ? 0 : undefined}
+        data-actionable={onActivate ? 'true' : 'false'}
       >
         {/* eslint-enable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */}
         <span className="wf-aurora-glyph" aria-hidden="true">
@@ -644,7 +666,7 @@ function AuroraStrip({ m, onActivate, onDismiss }) {
             </p>
           )}
         </div>
-        <span className="wf-aurora-strip-cta">{m.simulated ? 'Scores →' : 'Map →'}</span>
+        {cta && <span className="wf-aurora-strip-cta" data-testid="aurora-banner-cta">{cta}</span>}
         <button
           type="button"
           onClick={onDismiss}
@@ -661,7 +683,7 @@ function AuroraStrip({ m, onActivate, onDismiss }) {
 
 AuroraStrip.propTypes = {
   m: MODEL_SHAPE,
-  onActivate: PropTypes.func.isRequired,
+  onActivate: PropTypes.func,
   onDismiss: PropTypes.func.isRequired,
 };
 
@@ -683,11 +705,13 @@ AuroraStrip.propTypes = {
  * - Dismissible per session; re-appears if the level escalates
  *
  * @param {object} props
- * @param {function} [props.onViewOnMap] - Called when the banner is activated for a
- *   live/forecast alert; the parent switches to the Map tab with the Aurora event
- *   pre-selected. When omitted, falls back to a plain hash navigation to the map.
+ * @param {function} [props.onViewOnMap] - Called, with the Plan's live lens
+ *   (`{minRating, limitMinutes}`), when the banner is activated for a live/forecast alert; the parent
+ *   opens the Map tab on the aurora night. When omitted the banner has no door and no call to action.
+ * @param {function} [props.onOpenSimulated] - Called when a SIMULATED alert's banner is activated (the
+ *   admin's Operations tab). When omitted a simulated banner is a statement, not a button.
  */
-export default function AuroraBanner({ onViewOnMap = null }) {
+export default function AuroraBanner({ onViewOnMap = null, onOpenSimulated = null }) {
   const { status } = useAuroraStatus();
   const isMobile = useIsMobile();
   const [dismissedLevel, setDismissedLevel] = useState(null);
@@ -704,7 +728,7 @@ export default function AuroraBanner({ onViewOnMap = null }) {
   // to the hook); an escalation changes the level and asks again.
   const dismissed = Boolean(status) && dismissedLevel === status.level;
   const scores = useAuroraScores(dismissed ? null : status);
-  const { heatSpots, reachById, origin } = useWindowFirstBriefing();
+  const { heatSpots, reachById, origin, reachLens, ratingLens } = useWindowFirstBriefing();
   const field = useMemo(
     () => (status?.simulated === true ? null : areaField(scores.spots, heatSpots, reachById, origin)),
     [status?.simulated, scores.spots, heatSpots, reachById, origin],
@@ -739,19 +763,19 @@ export default function AuroraBanner({ onViewOnMap = null }) {
     setDismissedLevel(status.level);
   }
 
-  // A real alert hands off to the Map tab with the Aurora event pre-selected (via
-  // onViewOnMap). Simulated alerts, and a real alert with no handler supplied, fall back to a
-  // bare hash write — a no-op today (v1 retirement D1 removed the app-level hashchange
-  // listener this once drove); kept and named rather than fixed, docs/engineering/
-  // v1-retirement-plan.md §8.11.
-  function handleActivate() {
-    if (m.simulated) {
-      window.location.hash = 'manage';
-    } else if (onViewOnMap) {
-      onViewOnMap();
-    } else {
-      window.location.hash = 'map';
-    }
+  // The banner's door, or null when it has none (overlay convergence C4). A REAL alert hands the Plan's
+  // live lens (rating floor, reach tier) to `onViewOnMap`, which opens the Map tab on the aurora night;
+  // a SIMULATED alert has no map (no scores, no stored run - `utils/auroraTab.js`), so its door is the
+  // admin's Operations tab (`onOpenSimulated`, withheld from everyone else). With no handler the banner
+  // is a statement: no press, no tab stop, no call to action - never the dead hash write it once made.
+  let handleActivate = null;
+  if (m.simulated) {
+    handleActivate = onOpenSimulated ? () => onOpenSimulated() : null;
+  } else if (onViewOnMap) {
+    handleActivate = () => onViewOnMap({
+      minRating: ratingLens?.minRating ?? null,
+      limitMinutes: reachLens?.tier?.limitMinutes ?? null,
+    });
   }
 
   // The line is spoken exactly when it is drawn: the thumbnail says a line is on its canvas
@@ -780,4 +804,5 @@ export default function AuroraBanner({ onViewOnMap = null }) {
 
 AuroraBanner.propTypes = {
   onViewOnMap: PropTypes.func,
+  onOpenSimulated: PropTypes.func,
 };

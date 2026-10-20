@@ -145,7 +145,7 @@ const renderShell = (overrides = {}, extraProps = {}) => {
   const props = {
     onOpenSettings: vi.fn(),
     onSignOut: vi.fn(),
-    onShowOnMap: vi.fn(),
+    onOpenMapTab: vi.fn(),
     locations: LOCATIONS,
     ...extraProps,
   };
@@ -741,11 +741,13 @@ describe('WindowFirstShell — the drill-down', () => {
   });
 
   it('opens the map on the spot clicked inside the sheet, not on its region', async () => {
-    const { onShowOnMap } = renderShell();
+    const { onOpenMapTab } = renderShell();
     await openSheet();
     fireEvent.click(within(screen.getByTestId('window-spot-sheet-list')).getAllByTestId('window-spot')[0]);
-    // The POSITIONAL form, which centres one location — the object form opens a whole region.
-    expect(onShowOnMap).toHaveBeenCalledWith(TODAY, 'SUNSET', 'Bamburgh Beach');
+    // The `location` trigger, which centres one location - a `region` trigger opens a whole region.
+    expect(onOpenMapTab).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      kind: 'location', locationName: 'Bamburgh Beach', date: TODAY, eventType: 'SUNSET', inPlace: false,
+    }));
   });
 
   it('⚠️ takes the WINDOW POPUP down with it, not just this sheet', async () => {

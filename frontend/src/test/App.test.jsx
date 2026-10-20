@@ -22,8 +22,7 @@ import { ukDateStrOffset } from '../utils/mapDates.js';
  * rendered consumer yet — the heat field's surfaces arrive at P2/P4 — so it is observed with a
  * PASSTHROUGH spy on the provider export (the real provider still runs; the spy stubs nothing).
  * When a P2 surface renders from `heatPointSets`, that assertion can move onto the DOM. Both maps
- * App mounts are stubbed — the Map tab's pane and the overlay's `MapView`, each for the reason
- * beside its mock — and `useAuroraViewline` is mocked to answer no line, a harmless guard now that
+ * App mounts is stubbed - the Map tab's pane, for the reason beside its mock - and `useAuroraViewline` is mocked to answer no line, a harmless guard now that
  * the aurora banner makes no viewline read (it returns in the banner's B3, behind a flag).
  */
 
@@ -60,15 +59,6 @@ vi.mock('../components/WindowFirstMapPane.jsx', () => ({
     mapPaneProps.last = props;
     return <div data-testid="map-pane-stub" />;
   },
-}));
-// The map inside the overlay the aurora banner opens, stubbed too — but unlike the pane above it
-// records nothing: no assertion in this file reads that map, and `MapView`'s own suites mount it,
-// with Leaflet stubbed. Kept real, it would have this file mock the map's own reads and fixture its
-// aurora-mode rules, and it would put Leaflet's first load inside `pressAuroraBanner`'s wait, which
-// then took 2.8–3.8 s against its 4 s ceiling under the suite's load reproduction. See "Do not open
-// a lazy subtree" in `docs/engineering/frontend-test-standards.md`.
-vi.mock('../components/MapView.jsx', () => ({
-  default: () => <div data-testid="overlay-map-stub" />,
 }));
 vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ viewline: null }) }));
 // The banner's lazy field thumbnail pulls the heat kernel and a canvas jsdom does not have; this file
@@ -981,30 +971,15 @@ describe('App — panes handed to WindowFirstShell', () => {
     };
 
     /**
-     * Presses the aurora banner, and waits for the map overlay it opens and the map inside it.
-     *
-     * <p>⚠️ The wait is what keeps these tests off whatever the tests before them loaded. The
-     * banner opens `MapOverlay` framing `MapView`, both behind `React.lazy` in `App.jsx`; a lazy
-     * chunk stays loaded for the rest of the file, and `MapView`'s is requested only when
-     * `MapOverlay` renders. A banner test that asserted and ended straight after its press
-     * therefore left the overlay on its fallback — unless an earlier banner test had still been
-     * mounted when `MapOverlay` loaded, and `MapView` had loaded since, in which case the real map
-     * mounted inside the press and threw on a read this file never mocked. The default order never
-     * did that; a shuffle could, and whether it did was a race.
-     *
-     * <p>With the map stubbed, deleting this wait fails nothing. Keep it: it runs every order
-     * through the same code, and it is what makes deleting the stub fail both banner tests in every
-     * order, naming the map's first unmocked read, rather than in some orders only.
+     * Presses the aurora banner, and waits for the Map pane to be handed the night door it sends
+     * (overlay convergence C4: the banner takes the structured door, never the retired overlay).
      */
     const pressAuroraBanner = async () => {
       // The banner's whole body is the activation surface (a click handler + `tabIndex`, not a
       // nested button), so the click goes on the banner element itself.
       const banner = await screen.findByTestId('aurora-banner');
       await act(async () => { fireEvent.click(banner); });
-      // The map inside the dialog as well as the dialog: they share one Suspense boundary today,
-      // and a boundary of the map's own would let the dialog show before the map had mounted.
-      const dialog = await screen.findByRole('dialog', { name: 'Aurora tonight' });
-      await within(dialog).findByTestId('overlay-map-stub');
+      await waitFor(() => expect(mapPaneProps.last.handoff?.night).toBeTruthy());
     };
 
     it('defaults to a today-forward date, never a past one', async () => {
@@ -2183,28 +2158,6 @@ describe('App — the one-time postcode prompt', () => {
 
       expect(await screen.findByTestId('postcode-prompt')).toBeInTheDocument();
       expect(screen.queryByTestId('settings-modal')).not.toBeInTheDocument();
-    });
-
-    it('with the aurora map overlay open when the answer lands: not raised until it closes', async () => {
-      const mountRead = deferred();
-      getSettings.mockReturnValueOnce(mountRead.promise).mockResolvedValue(DUE);
-      getAuroraStatus.mockResolvedValue({
-        level: 'MODERATE', kpIndex: 6, currentNightDate: ukDateStrOffset(0), simulated: false,
-      });
-      renderApp();
-      const banner = await screen.findByTestId('aurora-banner');
-      await act(async () => { fireEvent.click(banner); });
-      const overlay = await screen.findByRole('dialog', { name: 'Aurora tonight' });
-      await within(overlay).findByTestId('overlay-map-stub');
-
-      await land(() => mountRead.resolve(DUE));
-      await settle();
-
-      expect(screen.queryByTestId('postcode-prompt')).not.toBeInTheDocument();
-
-      fireEvent.click(within(overlay).getByTestId('map-overlay-close'));
-
-      expect(await screen.findByTestId('postcode-prompt')).toBeInTheDocument();
     });
 
     it('with a dialog the shell or Ask owns (only the DOM can see it): not raised until it goes', async () => {

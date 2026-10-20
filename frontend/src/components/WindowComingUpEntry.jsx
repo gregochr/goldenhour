@@ -66,7 +66,7 @@ function DayChips({ entry, onShowOnMap }) {
     kind: 'coming-up',
     filterAction: coastal ? 'SEASCAPE' : null,
     darkSky,
-    // Names the day picked, so the overlay's title says which day's map it is.
+    // Names the day picked, so the crumb's headline says which day's map it is.
     label: `${entry.title} · ${chip.dateLabel}`,
     date: chip.date,
   });
@@ -409,7 +409,7 @@ DayChips.propTypes = {
  * @param {object}   props
  * @param {object}   props.entry       a view from {@code buildEntryView}
  * @param {function} props.onGoToPlan  switches to the Plan tab and moves focus there, given a date
- * @param {function} props.onShowOnMap opens the map overlay for a `kind:'coming-up'` handoff object
+ * @param {function} props.onShowOnMap opens the Map tab (the structured door) for a `kind:'coming-up'` handoff object
  *                                     (D8) — the `coastal-spots`/`dark-sky-spots` destinations
  */
 export default function WindowComingUpEntry({ entry, onGoToPlan, onShowOnMap }) {

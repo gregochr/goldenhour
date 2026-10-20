@@ -1,7 +1,6 @@
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { computeAutoSelection, colourForecastDates } from './utils/conversions.js';
-import { buildMapOverlay } from './utils/mapOverlay.js';
 import { normalizeMapTrigger, doorFromTrigger } from './utils/mapDoor.js';
 import LoginPage from './components/LoginPage.jsx';
 import RegisterPage from './components/RegisterPage.jsx';
@@ -48,9 +47,7 @@ import { AskProvider } from './context/AskContext.jsx';
 // tablet/desktop the fallback below covers the fetch — see `WindowFirstShell.jsx`'s own note on the
 // Map pane not existing until `hasForecastData` for why that fetch cannot simply be moved
 // earlier.
-const MapView = lazy(() => import('./components/MapView.jsx'));
 const WindowFirstMapPane = lazy(() => import('./components/WindowFirstMapPane.jsx'));
-const MapOverlay = lazy(() => import('./components/MapOverlay.jsx'));
 const ManageView = lazy(() => import('./components/ManageView.jsx'));
 
 /** Lightweight fallback shown while a lazily-loaded view chunk is fetched. */
@@ -270,8 +267,6 @@ function AppInner() {
   const { lastCompletedRun } = useRunNotifications(!!token && streamsReady);
   const [showRunBanner, setShowRunBanner] = useState(false);
 
-  /** Map overlay opened over the Plan tab (null = closed). Reuses the same handoff/date as the Map tab. */
-  const [mapOverlay, setMapOverlay] = useState(null);
   /** Monotonic counter so repeat taps on the same location re-trigger the handoff. */
   // Nonce -1 is reserved for the rewind seed `mapTabHandoff` below is initialised with, so the
   // first live handoff (nonce 0) can never repeat the seed's nonce and be swallowed by the keyed
@@ -507,45 +502,30 @@ function AppInner() {
   }) ?? (hasForecastData ? todayStr : auroraTabOn ? auroraNightStr : null);
 
   /**
-   * Called from any Plan-tab recommendation (Best Bet, Hot Topic, region row, grid cell, strip
-   * pill). Opens the map as an *overlay* over the Plan tab — focused on what was tapped — instead
-   * of a full tab switch, so the user keeps their place. The same handoff + date feed the Map tab,
-   * so "Open the full Map tab →" lands exactly where the overlay was focused.
-   */
-  const handleShowOnMap = (dateOrHandoff, eventType, locationName = null) => {
-    // The branch-selection logic (and its ordering — the part that actually matters, D8) lives in
-    // `normalizeMapTrigger`, tested directly there rather than only indirectly through this handler.
-    const trigger = normalizeMapTrigger(dateOrHandoff, eventType, locationName);
-
-    const nonce = handoffNonce.current++;
-    const overlay = buildMapOverlay(trigger, {
-      locations: visibleLocations, briefingScores, todayStr, tomorrowStr, nonce,
-    });
-    // `kind: 'aurora'` is the only night-naming trigger `normalizeMapTrigger` produces — see
-    // `selectedDateIsNight` above for why the flag rides along rather than being inferred later.
-    if (trigger.date) selectDate(trigger.date, { isNight: trigger.kind === 'aurora' });
-    setMapOverlay({ ...overlay, nonce, date: trigger.date });
-  };
-
-  /**
-   * Aurora banner "View on map".
+   * Aurora banner "View on map" (overlay convergence C4, `docs/engineering/overlay-convergence-plan.md`
+   * section 3 C4 and section 4 #4): the banner is mounted above `<main>` on EVERY tab, so it takes the
+   * structured door like every Plan producer - an `aurora` trigger from {@link normalizeMapTrigger},
+   * resolved by {@link openMapTabFromPlan} into a `night` door for {@link resolveAuroraNight}'s night.
    *
-   * <p>The window-first Plan has no Map tab, so the banner reaches the map through the same overlay
-   * every plan card uses.
+   * <p>The banner hands over the Plan's live lens (it reads it from the briefing context it already
+   * sits in), so the door imports the reader's rating floor and reach tier exactly as a Plan card's
+   * does and does not silently reset them.
    *
-   * <p>⚠️ Setting the date here (rather than leaving it to `effectiveDate`'s default) is what keeps
-   * the viewline gate and the destination on the same night. The gate is keyed on the night in
-   * progress, not the calendar date — pressed at 02:00 with a live alert and no stored run for that
-   * night, `effectiveDate`'s default lands on today while the night is yesterday, and `MapView`'s
-   * jump cannot help — it is gated on stored aurora RESULTS, which a live NOAA alert does not imply.
-   * Left to the default, the banner would take the reader to the map with the viewline missing, for
-   * up to seven hours a night in midwinter. Found by review; the two conditions are genuinely
-   * independent.
+   * <p>⚠️ <b>On the Map tab itself the press is a window change and nothing more</b>: `inPlace`
+   * takes {@link openMapTabFromPlan}'s `source: 'map'` branch (no lens, scope or camera write, no
+   * tab request), which now carries the night so `MapView` selects the aurora row. Pressed on any
+   * other tab it moves to the Map tab. Only offered when the Map tab is.
+   *
+   * @param {{minRating: ?number, limitMinutes: ?number}} [lens] the Plan's live lens, from the banner
    */
-  const handleAuroraViewOnMap = () => {
-    // The night in progress, not today. Pressed at 02:00 this used to open the map on a date the
-    // run that produced the banner's own alert never scored.
-    handleShowOnMap({ kind: 'aurora', date: auroraNightStr });
+  const handleAuroraViewOnMap = ({ minRating = null, limitMinutes = null } = {}) => {
+    const trigger = {
+      ...normalizeMapTrigger({ kind: 'aurora', date: auroraNightStr }),
+      minRating,
+      limitMinutes,
+      ...(isMapTabActive ? { inPlace: true } : {}),
+    };
+    openMapTabFromPlan(trigger);
   };
 
   /**
@@ -583,21 +563,8 @@ function AppInner() {
   } : null));
 
   /**
-   * Close the overlay and hand off to the full Map tab, landing where the overlay was focused.
-   */
-  const openFullMapTab = () => {
-    // Read before the overlay is cleared — this is what "landing where the overlay was focused"
-    // actually means, and it is the only handoff the Map tab ever receives.
-    const focus = mapOverlay?.handoff ?? null;
-    setMapOverlay(null);
-    tabRequestNonce.current += 1;
-    if (focus) setMapTabHandoff({ ...focus, nonce: handoffNonce.current++ });
-    setTabRequest({ id: 'map', nonce: tabRequestNonce.current });
-  };
-
-  /**
    * The location a four-day sheet should be opened for, asked for from the Map tab's selection
-   * callout (map-tab-v2-plan.md §3 P9) — `openFullMapTab`'s shape, in reverse. Kept SEPARATE from
+   * callout (map-tab-v2-plan.md §3 P9) — the Map door's shape, in reverse. Kept SEPARATE from
    * `tabRequest` for the identical reason `mapTabHandoff` is kept separate from it in the forward
    * direction: the Plan tab's body is `hidden` rather than unmounted while another tab is active
    * (`WindowFirstShell.jsx`'s own sticky-pane idiom), so a handoff that arrived on some OTHER
@@ -636,11 +603,11 @@ function AppInner() {
    * locationName: ?string}`, already carrying the Plan's own lens values (read at the moment of the
    * tap by `WindowFirstShell`'s internal `openMapTab`, never re-read here).
    *
-   * <p>Reuses the SAME `mapTabHandoff`/`tabRequest` channel `openFullMapTab` uses, not a second
+   * <p>Reuses the SAME `mapTabHandoff`/`tabRequest` channel the overlay's retired hatch used, not a second
    * one — `App.jsx:307–318`'s own ⚠️ about that channel applies unchanged: the Map pane is never
    * unmounted, so a handoff on it must only ever arrive when the reader explicitly asked to be
    * taken there, which a door tap is. The two are told apart downstream by `source: 'plan'`, which
-   * `openFullMapTab`'s own handoff never carries.
+   * the retired hatch's own handoff never carried.
    *
    * <p><b>Origin is deliberately NOT in the payload</b> (plan §2, §4 #1) — it is shared state the
    * Map tab already reads from the SAME `WindowFirstBriefingContext` the Plan tab does, so sending
@@ -660,7 +627,7 @@ function AppInner() {
       })
       : doorOrTrigger;
     // A night door names a night, which `App.resolveMapDate` refuses as a solar date once past -
-    // the same `isNight` provenance `handleShowOnMap` records for the aurora trigger. Absent for
+    // the `isNight` provenance every night selection records. Absent for
     // every solar door, so their call is unchanged.
     if (door.night) selectDate(door.date, { isNight: true });
     else selectDate(door.date);
@@ -692,6 +659,9 @@ function AppInner() {
         eventType: door.targetType,
         date: door.date,
         locationName: door.locationName ?? null,
+        // The aurora banner pressed on the Map tab itself (overlay convergence C4) names a NIGHT:
+        // `MapView` follows its row, and still writes no lens, scope or camera.
+        ...(door.night ? { night: door.night } : {}),
         nonce: handoffNonce.current++,
       });
       return;
@@ -729,6 +699,16 @@ function AppInner() {
     setTabRequest({ id: 'plan', nonce: tabRequestNonce.current });
   };
 
+  /**
+   * The Operations tab, asked for from the aurora banner: a SIMULATED alert has no map to show (it
+   * has no scores and no stored run - `utils/auroraTab.js`), and the place it is made and its scores
+   * generated is Operations -> Aurora. ADMIN only, because the pane is withheld from everyone else.
+   */
+  const openOperations = () => {
+    tabRequestNonce.current += 1;
+    setTabRequest({ id: 'operations', nonce: tabRequestNonce.current });
+  };
+
   // Show banner when a run completes, auto-dismiss after 15 seconds
   useEffect(() => {
     if (!lastCompletedRun) return;
@@ -749,27 +729,6 @@ function AppInner() {
    * dialogs down in the same commit.
    */
   const settingsOpen = Boolean(showSettings || settingsFocus);
-  /**
-   * …and `App` takes down its OWN other dialog, the map overlay, in the same commit — the shell's
-   * edge cannot, because the overlay is state here.
-   *
-   * <p>⚠️ The overlay is `aria-modal` and deliberately no trap, and it paints over settings
-   * (`zIndex: 200` against `Modal`'s `z-50`): a reader who Tabbed out of it and pressed ⚙ or the
-   * nudge — or the ⌂, with the overlay opened over the Map tab — got settings UNDER it, holding
-   * focus in a dialog they could not see. Settings is not a destination, and closing the overlay
-   * loses only what its own ✕ does. During render on the rising edge, as the shell's is, so no
-   * commit holds both; an effect's close would land a commit later.
-   *
-   * <p>What is still NOT the only modal under settings, named rather than implied: an
-   * Operations-tab admin `Modal` (left open — it can hold data a close would lose) and any dialog
-   * opened behind settings after it opened (the reverse route).
-   */
-  const [settingsWasOpen, setSettingsWasOpen] = useState(settingsOpen);
-  if (settingsOpen !== settingsWasOpen) {
-    setSettingsWasOpen(settingsOpen);
-    if (settingsOpen) setMapOverlay(null);
-  }
-
   return (
     // Recast as a flex column on the Map tab (map-tab-v2-plan.md §3 P7's full-frame owner,
     // rebuilt after the `calc(100dvh - …)` chain above proved to be chasing terms rather than
@@ -819,7 +778,13 @@ function AppInner() {
         <SessionExpiryBanner />
         {isAdmin && rewind && <RewindPill rewind={rewind} />}
         <div className="max-w-4xl mx-auto px-4 mt-4">
-          <AuroraBanner onViewOnMap={handleAuroraViewOnMap} />
+          {/* The banner's two doors, each WITHHELD when it would lead nowhere (the dead-control ban): the
+              Map tab when it is offered at all (a forecast, or a real alert - `auroraTabOn`), and
+              Operations for a SIMULATED alert, which has no map (`utils/auroraTab.js`), for an admin. */}
+          <AuroraBanner
+            onViewOnMap={hasForecastData || auroraTabOn ? handleAuroraViewOnMap : undefined}
+            onOpenSimulated={isAdmin ? openOperations : undefined}
+          />
           <div className="mt-2">
             {/* Inert: the window-first Plan has no Map tab to switch to and no route to give it. */}
             <NlcSightingBanner />
@@ -930,7 +895,6 @@ function AppInner() {
                 setSettingsFocus('postcode');
               }}
               contentDisabled={isDown}
-              onShowOnMap={handleShowOnMap}
               // The map doors (D2) — withheld under the identical rule that withholds `mapPane`
               // and `onOpenFullMap` below: a door onto no map is what §6 of the matrix plan bans.
               // No door UI ships in this phase (D3/D4 add the buttons), but the shell's own
@@ -1073,55 +1037,6 @@ function AppInner() {
         <PostcodePromptOverlay onSaved={handlePromptSaved} onNotNow={handlePromptNotNow} />
       )}
 
-      {mapOverlay && (
-        <Suspense fallback={<ViewFallback />}>
-          <MapOverlay
-            title={mapOverlay.title}
-            subLine={mapOverlay.subLine}
-            caption={mapOverlay.caption}
-            narrative={mapOverlay.narrative}
-            narrativeHead={mapOverlay.narrativeHead}
-            narrativeTone={mapOverlay.narrativeTone}
-            onClose={() => setMapOverlay(null)}
-            // Withheld when there is no Map tab to reach (no forecast data), because MapOverlay
-            // drops the button when no handler arrives and a button onto nothing is what §6 bans.
-            onOpenFullMap={hasForecastData ? openFullMapTab : undefined}
-          >
-            <MapView
-              locations={visibleLocations}
-              date={mapOverlay.date ?? effectiveDate}
-              // Deliberately NO onSelectDate, and the omission IS the mechanism — `MapView` checks
-              // for the handler and asks for nothing without one. Do not "fix" that by adding one
-              // on the assumption the overlay would ignore it: the date below falls through to
-              // `effectiveDate` whenever the trigger carried none, and `effectiveDate` is driven by
-              // `selectedDate`, so a handler here would move the Plan tab under the reader and
-              // could move the overlay itself. The aurora path in already opens on the right night
-              // — `handleAuroraViewOnMap` targets it directly.
-              //
-              // Deliberately NO `heat`: this map opens focused on one spot from a card that already
-              // answered the question; `MapView` keys the field on the prop's presence
-              // (`heatOffered`), so the omission IS the mechanism — do not add one.
-              autoEventType={autoSelection?.eventType ?? null}
-              handoffEventType={mapOverlay.handoff.eventType ?? null}
-              handoffFilterAction={mapOverlay.handoff.filterAction ?? null}
-              handoffDarkSky={mapOverlay.handoff.darkSky ?? null}
-              handoffLocationName={mapOverlay.handoff.locationName ?? null}
-              handoffRegion={mapOverlay.handoff.region ?? null}
-              handoffNonce={mapOverlay.nonce}
-              focus={mapOverlay.focus}
-              emphasiseLocationName={mapOverlay.handoff.locationName ?? null}
-              briefingScores={briefingScores}
-              onForecastRun={refresh}
-              seasonalFeatures={seasonalFeatures}
-              colourScaleDefaulted={colourScaleDefaulted}
-              // This map arrived from a plan card, which already chose the location and the solar
-              // event — so it opens with the filters folded behind a one-line context bar and
-              // spends the reclaimed height on the map. The Map tab keeps the full rail.
-              overlayMode
-            />
-          </MapOverlay>
-        </Suspense>
-      )}
     </div>
   );
 }
