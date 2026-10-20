@@ -1,9 +1,13 @@
 # Ask PhotoCast — the window's rating distribution (`list_windows` spread)
 
 **Status (2026-10-20): the owner accepted every recommendation of §6 (recorded there). W1 (the backend spread,
-the prompt, the carried figures and their freshness) and W3 (the regression class and its fixtures) are
-built; W2 (the client line, Q4), W4 (§2.5, Q1 chosen option A: nothing to build) and R1 are not. No
-migration. The W3 regression's assertions are pending the owner's approval and it has never been run.**
+the prompt, the carried figures and their freshness), W3 (the regression class and its fixtures) and W2 (the
+client line, Q4: `AskWindowSpread` over `utils/askSpread.js`, one line per carried rated window under the
+summary, on every surface and for every role — the rules are in §2.4's client paragraph) are built; W4 (§2.5,
+Q1 chosen option A: nothing to build) and R1 are not. No migration. The W3 regression's assertions are pending
+the owner's approval and it has never been run. ⚠️ W2 has been seen only as a static harness of the built
+stylesheet at 320/360px (the exact markup, not the app): the live line has never been seen signed-in — the
+owner's browser check is owed (the stub engine shows it locally).**
 
 Written 2026-10-17 from the owner's reading of the Plan tab's spread histograms for the weekend of
 Sat 17 / Sun 18 October 2026, the day the neighbour guard went on by default (#1220), and reviewed
@@ -505,7 +509,19 @@ word is a criterion in a prompt, not served copy) — so the server's figure sta
 sentence. Deliberately not the Plan card's five-bar histogram: that one is reach-gated per reader,
 and two histograms with two pools on one screen would read as a contradiction; a labelled line does
 not. The thread does NOT echo it — `exchangeOf` reduces an exchange to ids and words, never a card
-fact, before `threadForWire` sends it.
+fact, before `threadForWire` sends it. **As built (W2, 2026-10-20; the owner's rules for the line):**
+the line reads `rated`, `gameOn`, `go` and `over` off each window's record and sums nothing across
+windows; `· N at 5★` only when `go` > 0 and `none at 4★+` when `gameOn` is 0; a region scope reads `in
+<names>` (the server's own joined `over`). While any carried window is rated, a window with `rated` 0
+draws no line (the line stands beside a count the prose may quote; beside a rated window a second,
+countless line is better silent). When NO carried window is rated, every drawable window gets its own
+line — `Sat sunset · nothing rated across every region` — carrying that window's served tallies,
+`· N regions stood down` and `· N not scored`, read verbatim off `spread.regions`, so the owner's
+all-blue stood-down window (§2.1) never reads like one nobody scored (an adversarial-review finding
+against the first cut, which collapsed every unrated case to one "Nothing rated" line). An answer with
+no `windows` draws nothing. The visible text is `aria-hidden`; a spoken twin voices the long weekday and
+the counts in words ("Saturday sunset: 180 rated across every region, 2 at 4 stars or more"), the first
+one led by "Rated places, by window." because a live region reads inserted text, not a list's label.
 
 **Freshness (W1, with the carried figures).** `AskReadyFreshness.recheck` gains `spreadMoved`: a stored answer is withheld whole
 when, for ANY carried window, the live `Spread` is not EQUAL to the stored one — record equality
@@ -772,7 +788,7 @@ The owner accepted every recommendation below on 2026-10-20. What each decision 
 - **Q3 — the wording assertion** (§2.6): **keep the stay-home regex**, owner-approvable with the rest of the
   assertions.
 - **Q4 — the client line** (§2.4, W2): **it is W2, not part of W1/W3.** The server carries and serves the
-  figures from W1; whether a quiet line draws them is built next.
+  figures from W1; the quiet line that draws them is W2, built 2026-10-20 (§2.4 "As built").
 - **Q5 — sub-regions** (§3): **no sub-regions now.** R1 (the measurement) stays independent and unscheduled;
   FAR-to-Sonnet is `same-cell-rating-spread-plan.md`'s question. **Update, 2026-10-20 (from the session
   that wrote this plan's brief):** the owner has since switched the FAR bucket (`BATCH_FAR_TERM`, T+2/T+3) to
