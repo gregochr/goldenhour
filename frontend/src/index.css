@@ -12777,6 +12777,18 @@ button.wf-mchip:hover {
   font-weight: 600;
   color: var(--acc-ink);
 }
+/* A banner with no door (overlay convergence C4: a simulated alert for a non-admin, a real alert with
+   no Map tab to reach) is a statement, not a button: no pointer, and a call-to-action word that does
+   not carry the accent weight an actionable one does. */
+.wf-aurora-card[data-actionable='false'],
+.wf-aurora-strip[data-actionable='false'] {
+  cursor: default;
+}
+.wf-aurora-card[data-actionable='false'] .wf-aurora-cta,
+.wf-aurora-strip[data-actionable='false'] .wf-aurora-strip-cta {
+  font-weight: 400;
+  color: var(--color-plex-text-secondary);
+}
 /* ── end Aurora alert banner ── */
 
 /* ══ Ask PhotoCast — the conversation (docs/engineering/ask-photocast-plan.md §2.6, F1a) ══════════

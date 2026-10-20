@@ -15,7 +15,7 @@ import { ukDateStrOffset } from '../utils/mapDates.js';
  * `stackedOverPopup` cannot see it, and it takes no `stacked` opt-in. It cannot be ordered against a
  * shell dialog — it can only be arrived at with none of them open. "At most one dialog may claim to
  * be the modal" is held route by route (v1-retirement §4.3), and M5 closed the cog's. This file
- * holds the other two routes into the same dialog, and `App`'s own map overlay, through the real
+ * holds the other two routes into the same dialog, through the real
  * `App`, so the count is taken against the real settings dialog rather than against a handler that
  * was merely called:
  *
@@ -27,8 +27,6 @@ import { ukDateStrOffset } from '../utils/mapDates.js';
  *       than through the shell at all — reachable by Tab from the four-day sheet the callout's
  *       `Four days here ›` opens OVER the map (map-tab-v2-plan.md O-18; the Tab-out itself is O-20
  *       arm A).</li>
- *   <li>`App`'s map overlay, which the shell cannot close at all: it is `App` state, `aria-modal`,
- *       no trap, and painted over settings (`zIndex: 200` against `Modal`'s `z-50`).</li>
  * </ul>
  *
  * <p>⚠️ <b>Not "the only modal on the page", and the file does not claim it.</b> An Operations-tab
@@ -49,7 +47,6 @@ import { ukDateStrOffset } from '../utils/mapDates.js';
  * open. The Map pane is a stub carrying the two controls this file needs from it — the real ⌂'s
  * own rule (it calls `onOpenSettings` only while there is no home and no origin) is
  * `MapViewCentreOnHome.test.jsx`'s to pin; what is App's, and this file's, is where that call goes.
- * The map inside the overlay is stubbed for `App.test.jsx`'s reasons, given beside the mock.
  */
 
 vi.mock('../api/forecastApi.js', () => ({
@@ -100,14 +97,10 @@ vi.mock('../api/authApi.js', () => ({
 vi.mock('../components/WindowFirstDoors.jsx', () => ({
   default: () => <div data-testid="stub-doors" />,
 }));
-// The map inside the overlay the aurora banner opens, stubbed as `App.test.jsx` stubs it and for
-// the same reasons: no assertion here reads that map, `MapView`'s own suites mount it, and kept real
-// it would put Leaflet's first load inside `openOverlay`'s wait. See "Do not open a lazy subtree" in
-// `docs/engineering/frontend-test-standards.md`.
-vi.mock('../components/MapView.jsx', () => ({
-  default: () => <div data-testid="overlay-map-stub" />,
-}));
-
+// Plan-first, as `App.test.jsx` pins it: jsdom's `matchMedia` answers "no match", which the real
+// `resolveInitialTab()` reads as a desktop and opens on Map, and the banner's door is judged by the
+// tab in force when it is pressed.
+vi.mock('../utils/initialTab.js', () => ({ resolveInitialTab: () => 'plan' }));
 /** What the callout's `Four days here ›` hands `App` — the peek, which does not move the tab. */
 const PEEK = {
   id: 1, name: 'Derwentwater', regionName: 'Lake District',
@@ -120,8 +113,10 @@ const PEEK = {
  * stand-ins.
  */
 vi.mock('../components/WindowFirstMapPane.jsx', () => ({
-  default: ({ onOpenSettings, onOpenLocationSheet }) => (
+  default: ({ onOpenSettings, onOpenLocationSheet, handoff }) => (
     <div data-testid="map-pane-stub">
+      {/* What `App` handed the pane as its door, so a test reads the payload straight off it. */}
+      <output data-testid="stub-handoff">{handoff ? JSON.stringify(handoff) : ''}</output>
       <button type="button" data-testid="stub-four-days" onClick={() => onOpenLocationSheet?.(PEEK)}>
         Four days here
       </button>
@@ -168,9 +163,9 @@ const SETTINGS_NO_HOME = {
   comingUpLastSeenDate: null,
 };
 
-/** A live alert the banner shows, so it can open the map overlay. */
+/** A live alert the banner shows, so its Map door can be pressed. */
 const AURORA_ALERT = {
-  level: 'MODERATE', kpIndex: 6, currentNightDate: TOMORROW, simulated: false,
+  level: 'MODERATE', kpIndex: 6, active: true, currentNightDate: TOMORROW, simulated: false,
 };
 
 const CARD = {
@@ -337,18 +332,6 @@ async function openMapTab() {
 async function openPeek() {
   await press(screen.getByTestId('stub-four-days'));
   return tookFocus(await screen.findByTestId('location-sheet'));
-}
-
-/**
- * Presses the aurora banner and waits for the overlay it opens AND the map inside it — the wait
- * `App.test.jsx`'s `pressAuroraBanner` keeps, for the reason recorded there: both are behind
- * `React.lazy`, and a test that left before they mounted would run whatever earlier tests loaded.
- */
-async function openOverlay() {
-  await press(await screen.findByTestId('aurora-banner'));
-  const overlay = await screen.findByRole('dialog', { name: 'Aurora tonight' });
-  await within(overlay).findByTestId('overlay-map-stub');
-  return overlay;
 }
 
 /** Closes the settings dialog from its own ×, and lets a frame pass so nothing is still pending. */
@@ -662,58 +645,64 @@ describe('App — every route into settings takes down the dialog it would open 
     });
   });
 
-  describe('App\'s own map overlay', () => {
+  describe('the aurora banner\'s Map door, through the REAL shell (C4)', () => {
     beforeEach(() => {
       getAuroraStatus.mockResolvedValue(AURORA_ALERT);
     });
 
-    it('⚠️ the cog over the map overlay: the overlay is gone in the render settings opens in, not painted over it', async () => {
-      // The overlay is `aria-modal`, no trap, and `zIndex: 200` against settings' `z-50`: before the
-      // fix a reader who Tabbed out of it onto ⚙ got settings UNDER the overlay, holding focus in a
-      // dialog they could not see, and the overlay's Escape listener still armed. The shell cannot
-      // close it — it is `App` state — so `App` does, on the same edge.
+    const handoff = () => JSON.parse(screen.getByTestId('stub-handoff').textContent || 'null');
+
+    it('opens no dialog of its own, so settings is the only modal after the cog', async () => {
       renderApp();
       await screen.findByTestId('wf-heat-strip');
-      await openOverlay();
+      await press(await screen.findByTestId('aurora-banner'));
+      expect(modals()).toHaveLength(0);
+      expect(screen.queryByRole('dialog', { name: 'Aurora tonight' })).toBeNull();
 
       await press(screen.getByRole('button', { name: 'Settings' }));
       await settingsSettled();
 
       expect(modals()).toHaveLength(1);
       expect(modals()[0]).toHaveAccessibleName('Settings');
-      expect(screen.queryByRole('dialog', { name: 'Aurora tonight' })).toBeNull();
     });
 
-    it('⚠️ over the map overlay a SECOND time: `App`\'s close re-arms when settings closes', async () => {
-      // `App`'s edge, like the shell's, has to reset when settings closes, and a test that opens
-      // settings once cannot see it latch. Closing settings returns the reader to the banner, one
-      // press from the overlay again.
+    it('over an open window popup: the popup is gone, the Map tab is in force and the pane holds the night door', async () => {
       renderApp();
-      await screen.findByTestId('wf-heat-strip');
-      await openOverlay();
-      await press(screen.getByRole('button', { name: 'Settings' }));
-      await closeSettings(await settingsSettled());
+      await openPopup();
 
-      await openOverlay();
-      await press(screen.getByRole('button', { name: 'Settings' }));
-      await settingsSettled();
+      await press(await screen.findByTestId('aurora-banner'));
 
-      expect(modals()).toHaveLength(1);
-      expect(modals()[0]).toHaveAccessibleName('Settings');
-      expect(screen.queryByRole('dialog', { name: 'Aurora tonight' })).toBeNull();
+      await waitFor(() => expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true'));
+      expect(screen.queryByTestId('window-sheet')).toBeNull();
+      expect(modals()).toHaveLength(0);
+      await waitFor(() => expect(handoff()).toMatchObject({
+        source: 'plan', eventType: 'AURORA', night: { kind: 'aurora', date: TOMORROW }, from: 'plan',
+      }));
     });
 
-    it('the cog over the map overlay: closing settings lands on the control the overlay was opened from', async () => {
-      // The overlay's own recorded opener — the banner — by the same one-commit swap the Plan's
-      // dialogs make, and with the same limits.
+    it('focus lands on the Map tab button on arrival (not <body>)', async () => {
       renderApp();
       await screen.findByTestId('wf-heat-strip');
-      await openOverlay();
 
-      await press(screen.getByRole('button', { name: 'Settings' }));
-      await closeSettings(await settingsSettled());
+      await press(await screen.findByTestId('aurora-banner'));
 
-      expect(screen.getByTestId('aurora-banner')).toHaveFocus();
+      await waitFor(() => expect(screen.getByRole('tab', { name: 'Map' })).toHaveFocus());
+    });
+
+    it('⚠️ pressed ON the Map tab with the Map-hosted four-day sheet open: the sheet closes FIRST, then the window changes in place', async () => {
+      renderApp();
+      await openMapTab();
+      await openPeek();
+      expect(screen.getByTestId('location-sheet')).toBeInTheDocument();
+
+      await press(await screen.findByTestId('aurora-banner'));
+
+      await waitFor(() => expect(screen.queryByTestId('location-sheet')).toBeNull());
+      expect(modals()).toHaveLength(0);
+      expect(handoff()).toMatchObject({ source: 'map', night: { kind: 'aurora', date: TOMORROW } });
+      // Nothing else moved: still the Map tab, no lens carried.
+      expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
+      expect(handoff()).not.toHaveProperty('minRating');
     });
   });
 });

@@ -3,6 +3,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
+import { openMapDoor } from '../utils/mapDoors.js';
+
+// A passthrough spy over the door's close-then-move entry, so one press can be run with the door's
+// own closes neutralised and the handler's EXPLICIT closes proven to be what ends the browsing.
+vi.mock('../utils/mapDoors.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, openMapDoor: vi.fn(actual.openMapDoor) };
+});
 
 /**
  * The drill-down's wiring, which lives in the shell and nowhere else.
@@ -145,7 +153,7 @@ const renderShell = (overrides = {}, extraProps = {}) => {
   const props = {
     onOpenSettings: vi.fn(),
     onSignOut: vi.fn(),
-    onShowOnMap: vi.fn(),
+    onOpenMapTab: vi.fn(),
     locations: LOCATIONS,
     ...extraProps,
   };
@@ -741,11 +749,13 @@ describe('WindowFirstShell — the drill-down', () => {
   });
 
   it('opens the map on the spot clicked inside the sheet, not on its region', async () => {
-    const { onShowOnMap } = renderShell();
+    const { onOpenMapTab } = renderShell();
     await openSheet();
     fireEvent.click(within(screen.getByTestId('window-spot-sheet-list')).getAllByTestId('window-spot')[0]);
-    // The POSITIONAL form, which centres one location — the object form opens a whole region.
-    expect(onShowOnMap).toHaveBeenCalledWith(TODAY, 'SUNSET', 'Bamburgh Beach');
+    // The `location` trigger, which centres one location - a `region` trigger opens a whole region.
+    expect(onOpenMapTab).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      kind: 'location', locationName: 'Bamburgh Beach', date: TODAY, eventType: 'SUNSET', inPlace: false,
+    }));
   });
 
   it('⚠️ takes the WINDOW POPUP down with it, not just this sheet', async () => {
@@ -759,6 +769,35 @@ describe('WindowFirstShell — the drill-down', () => {
     fireEvent.click(within(screen.getByTestId('window-spot-sheet-list')).getAllByTestId('window-spot')[0]);
     expect(screen.queryByTestId('window-spot-sheet')).toBeNull();
     expect(screen.queryByTestId('window-sheet')).toBeNull();
+  });
+
+  it('⚠️ closes the sheet AND the popup itself even when the door did not (the explicit closes are load-bearing)', async () => {
+    const { onOpenMapTab } = renderShell();
+    await openSheet();
+    openMapDoor.mockImplementationOnce(() => {});
+
+    fireEvent.click(within(screen.getByTestId('window-spot-sheet-list')).getAllByTestId('window-spot')[0]);
+
+    expect(onOpenMapTab).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('window-spot-sheet')).toBeNull();
+    expect(screen.queryByTestId('window-sheet')).toBeNull();
+  });
+
+  it('registers a closer with App that takes every dialog the shell owns down, and unregisters on unmount', async () => {
+    const registerCloseDialogs = vi.fn();
+    const { unmount } = renderShell({}, { registerCloseDialogs });
+    await openSheet();
+    expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
+    const closer = registerCloseDialogs.mock.calls.at(-1)[0];
+    expect(typeof closer).toBe('function');
+
+    act(() => { closer(); });
+
+    expect(screen.queryByTestId('window-spot-sheet')).toBeNull();
+    expect(screen.queryByTestId('window-sheet')).toBeNull();
+
+    unmount();
+    expect(registerCloseDialogs).toHaveBeenLastCalledWith(null);
   });
 
   it('keeps naming the MAP on its own cards, which is what the caller opt-in is for', async () => {

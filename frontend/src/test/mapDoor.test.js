@@ -396,13 +396,28 @@ describe('doorFromTrigger (the overlay\'s seven triggers as one structured door)
     );
   });
 
-  it('single region: lands on the top-rated spot, as the overlay does', () => {
+  it('single region: lands on the top-rated spot AND keeps the region, so the map frames it (C4)', () => {
     const door = doorFromTrigger(
       { kind: 'region', region: 'Tyne and Wear', date: DATE, eventType: 'SUNSET' },
       ctx([loc('Low', 'Tyne and Wear', 2), loc('Top', 'Tyne and Wear', 4)]),
     );
     expect(door.locationName).toBe('Top');
+    expect(door.region).toBe('Tyne and Wear');
+  });
+
+  it('a location or event trigger never invents a region', () => {
+    const door = doorFromTrigger(
+      { kind: 'location', locationName: 'Top', date: DATE, eventType: 'SUNSET' },
+      ctx([loc('Top', 'Tyne and Wear', 4)]),
+    );
     expect(door.region).toBeNull();
+  });
+
+  it('carries the tab the door was pressed on (`from`) and nothing when it names none', () => {
+    const c = ctx([loc('Top', 'Tyne and Wear', 4)]);
+    const base = { kind: 'location', locationName: 'Top', date: DATE, eventType: 'SUNSET' };
+    expect(doorFromTrigger({ ...base, from: 'coming-up' }, c).from).toBe('coming-up');
+    expect(doorFromTrigger(base, c)).not.toHaveProperty('from');
   });
 
   it('several regions: fits the pins (focusPoints) and restricts nothing (no focusNames)', () => {

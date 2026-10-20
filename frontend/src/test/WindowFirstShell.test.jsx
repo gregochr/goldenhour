@@ -4,6 +4,14 @@ import React from 'react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 import { buildPaneItems } from '../utils/windowFirstAway.js';
+import { openMapDoor } from '../utils/mapDoors.js';
+
+// A passthrough spy over the door's close-then-move entry, so a test can neutralise it for ONE press
+// and prove the handler's OWN closes (not the door's) are what end the browsing.
+vi.mock('../utils/mapDoors.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, openMapDoor: vi.fn(actual.openMapDoor) };
+});
 
 describe('WindowFirstShell', () => {
   const renderShell = (props = {}) => {
@@ -287,7 +295,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
   const renderWithBriefing = (ctx, props = {}) => {
     vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx);
     const handlers = {
-      onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(), ...props,
+      onOpenSettings: vi.fn(), onSignOut: vi.fn(), onOpenMapTab: vi.fn(), ...props,
     };
     render(<WindowFirstShell {...handlers} />);
     return handlers;
@@ -775,7 +783,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
     // Every control left in that dialog navigates off the Plan screen, so a cancel-less dialog
     // forces an unwanted map handoff. `onClose` was wired but nothing pinned it: replacing it with
     // a no-op left the whole suite green.
-    const { onShowOnMap } = renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
+    const { onOpenMapTab } = renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
     await openPopup();
     fireEvent.click(screen.getByTestId('window-sheet-pick'));
 
@@ -784,7 +792,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
     // underneath it, which is the same rule Escape follows.
     expect(screen.queryByTestId('window-pick-dialog')).toBeNull();
     expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
-    expect(onShowOnMap).not.toHaveBeenCalled();
+    expect(onOpenMapTab).not.toHaveBeenCalled();
   });
 
   it('hands the dialog the window it belongs to, in the right order', async () => {
@@ -798,16 +806,19 @@ describe('WindowFirstShell — the strip it hosts', () => {
   });
 
   it('opens the pick dialog from the popup and routes both of its destinations', async () => {
-    const { onShowOnMap } = renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
+    const { onOpenMapTab } = renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
     await openPopup();
 
     fireEvent.click(screen.getByTestId('window-sheet-pick'));
     expect(screen.getByTestId('window-pick-dialog')).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('window-pick-dialog-region'));
-    expect(onShowOnMap).toHaveBeenCalledWith({
-      region: 'Northumberland & Tyneside', date: '2026-08-04', eventType: 'SUNSET',
-    });
+    // The structured door (overlay convergence C4): a normalised `region` trigger, carrying the
+    // Plan's live lens and `inPlace: false` (the pick dialog is a Plan dialog), not the overlay hatch.
+    expect(onOpenMapTab).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      kind: 'region', region: 'Northumberland & Tyneside', date: '2026-08-04', eventType: 'SUNSET',
+      inPlace: false, minRating: null, limitMinutes: 45,
+    }));
     // Opening a destination closes the dialog — leaving it over the map it just opened would hide
     // the thing the user asked to see.
     expect(screen.queryByTestId('window-pick-dialog')).toBeNull();
@@ -825,15 +836,54 @@ describe('WindowFirstShell — the strip it hosts', () => {
   it('routes the pick\'s location as a location, not as a region', async () => {
     // The two calls take different shapes and open different things: a positional
     // (date, eventType, locationName) focuses one spot, an object focuses a region.
-    const { onShowOnMap } = renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
+    const { onOpenMapTab } = renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
     await openPopup();
 
     fireEvent.click(screen.getByTestId('window-sheet-pick'));
     fireEvent.click(screen.getByTestId('window-pick-dialog-location-action'));
 
-    expect(onShowOnMap).toHaveBeenCalledWith('2026-08-04', 'SUNSET', 'Bamburgh Beach');
+    expect(onOpenMapTab).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      kind: 'location', locationName: 'Bamburgh Beach', date: '2026-08-04', eventType: 'SUNSET',
+      inPlace: false,
+    }));
     // The same close-everything rule as the region route above — see its note for why the popup
     // may not survive a handoff to the map.
+    expect(screen.queryByTestId('window-pick-dialog')).toBeNull();
+    expect(screen.queryByTestId('window-sheet')).toBeNull();
+  });
+
+  it('⚠️ withholds BOTH pick-dialog actions when the shell has no map door (a button that opens nothing is banned)', async () => {
+    renderWithBriefing(briefingWith('2026-08-04T12:00:00'), { onOpenMapTab: undefined });
+    await openPopup();
+    fireEvent.click(screen.getByTestId('window-sheet-pick'));
+
+    expect(screen.getByTestId('window-pick-dialog')).toBeInTheDocument();
+    expect(screen.queryByTestId('window-pick-dialog-region')).toBeNull();
+    expect(screen.queryByTestId('window-pick-dialog-location-action')).toBeNull();
+  });
+
+  it('⚠️ the region action closes the dialog AND the popup itself, even if the door did not (the explicit closes are load-bearing)', async () => {
+    const { onOpenMapTab } = renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
+    await openPopup();
+    fireEvent.click(screen.getByTestId('window-sheet-pick'));
+    openMapDoor.mockImplementationOnce(() => {});
+
+    fireEvent.click(screen.getByTestId('window-pick-dialog-region'));
+
+    expect(onOpenMapTab).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('window-pick-dialog')).toBeNull();
+    expect(screen.queryByTestId('window-sheet')).toBeNull();
+  });
+
+  it('⚠️ the location action closes the dialog AND the popup itself, even if the door did not', async () => {
+    const { onOpenMapTab } = renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
+    await openPopup();
+    fireEvent.click(screen.getByTestId('window-sheet-pick'));
+    openMapDoor.mockImplementationOnce(() => {});
+
+    fireEvent.click(screen.getByTestId('window-pick-dialog-location-action'));
+
+    expect(onOpenMapTab).not.toHaveBeenCalled();
     expect(screen.queryByTestId('window-pick-dialog')).toBeNull();
     expect(screen.queryByTestId('window-sheet')).toBeNull();
   });
@@ -843,7 +893,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
     // rule at the seam was "arriving at a destination ends the browsing". A sheet is not a
     // destination — it is one place's four days, opened from the window still being read — so the
     // popup stays underneath and the map moves one tap further, into the sheet's own footer.
-    const { onShowOnMap } = renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
+    const { onOpenMapTab } = renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
     await openPopup();
 
     fireEvent.click(screen.getByTestId('window-spot'));
@@ -853,7 +903,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
     // The window popup is STILL THERE. This is the whole point of the retarget and the reason the
     // Escape order has three rungs.
     expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
-    expect(onShowOnMap).not.toHaveBeenCalled();
+    expect(onOpenMapTab).not.toHaveBeenCalled();
   });
 
   it('says so plainly when there are no windows', () => {

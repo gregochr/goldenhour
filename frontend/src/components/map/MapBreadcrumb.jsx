@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { DRIVE_TIME_TIERS } from './FiltersPopover.jsx';
 import { watchDeparture } from '../../utils/watchDeparture.js';
@@ -14,6 +14,13 @@ const KIND_WORD = {
   ASTRO: 'astro',
   AURORA: 'aurora',
 };
+
+/**
+ * The words for the tab a door was pressed on, for the return control. ABSENT `from` is Plan, as
+ * every door was before the return learned to go back to where the reader came from (overlay
+ * convergence C4, an extension of the doors plan's D2).
+ */
+const RETURN_LABEL = { plan: 'Plan', 'coming-up': 'Coming up', operations: 'Operations' };
 
 /**
  * A door's landing strip (doors D2, `plan-to-map-doors-plan.md` §3 D2 task 3) — mounted by
@@ -142,7 +149,8 @@ const KIND_WORD = {
  *        compared against `carried.limitMinutes`
  * @param {?string} props.regionInForce the name of the region the map's own jump-fit override is
  *        CURRENTLY framing (`MapView`'s `jumpFitOverride.regionName`), or null when no jump stands
- * @param {Function} props.onBack `← Plan` — `App.jsx`'s `returnToPlan`
+ * @param {Function} props.onBack `← Plan` (or `← Coming up`, `← Operations`: `carried.from`) -
+ *        `App.jsx`'s `returnToPlan`
  * @param {Function} props.onClearRating resets the floor to the map's own default
  * @param {Function} props.onClearReach resets the reach tier to Any
  * @param {Function} props.onClearScope resets scope to My area (`MapView.resetToMyArea`)
@@ -177,6 +185,8 @@ export default function MapBreadcrumb({
     if (nowhere) stripRef.current?.focus();
   });
 
+  const returnLabel = RETURN_LABEL[carried.from] ?? RETURN_LABEL.plan;
+
   const clauses = [];
   if (origin) clauses.push(`drive times from ${origin.baseName}`);
   if (carried.minRating != null && minStars === carried.minRating) {
@@ -198,6 +208,23 @@ export default function MapBreadcrumb({
   // A plain door carries neither and the strip is exactly what it was.
   const headline = [carried.title, carried.caption].filter(Boolean).join(' · ');
 
+  // The arrival, announced once per DOOR (the overlay's title was the screen reader's announcement;
+  // this strip is a plain <nav>, so on its own the arrival would be silent). A visually-hidden
+  // `role="status"` whose text is set when the door's nonce changes and left alone by every other
+  // render - a floor moved, a window stepped - so a live region speaks once, not on each commit.
+  // The text is read through a ref at that moment: the window clause may arrive a render later than
+  // the door, and re-announcing for it would be the very repetition this avoids.
+  const arrivalText = [headline, activeRow
+    ? `${activeRow.dayLabel} ${KIND_WORD[activeRow.eventType] ?? activeRow.eventType?.toLowerCase() ?? ''}`.trim()
+    : null].filter(Boolean).join('. ');
+  const arrivalRef = useRef(arrivalText);
+  useEffect(() => { arrivalRef.current = arrivalText; });
+  const [announcement, setAnnouncement] = useState('');
+  useEffect(() => {
+    // The announcement IS the effect's purpose: a live region speaks on a change of its text.
+    setAnnouncement(arrivalRef.current);
+  }, [carried.nonce]);
+
   function handleClear() {
     onClearRating();
     onClearReach();
@@ -207,6 +234,7 @@ export default function MapBreadcrumb({
   }
 
   return (
+    <>
     <nav
       ref={stripRef}
       // Focusable, never a Tab stop: the landing for a focused `clear` that takes itself away.
@@ -222,7 +250,7 @@ export default function MapBreadcrumb({
         data-testid="wf-map-breadcrumb-back"
       >
         <span aria-hidden="true">{'← '}</span>
-        Plan
+        {returnLabel}
       </button>
       {headline && (
         <>
@@ -266,6 +294,13 @@ export default function MapBreadcrumb({
         </>
       )}
     </nav>
+    {/* The arrival announcement: a SIBLING of the strip, not a child, so the strip's own text (and the
+        `textContent` the spacing tests read) is exactly what it was; visually hidden, spoken once
+        per door. */}
+    <span className="sr-only" role="status" data-testid="wf-map-breadcrumb-announce">
+      {announcement}
+    </span>
+    </>
   );
 }
 
@@ -276,6 +311,8 @@ MapBreadcrumb.propTypes = {
     limitMinutes: PropTypes.number,
     title: PropTypes.string,
     caption: PropTypes.string,
+    from: PropTypes.string,
+    nonce: PropTypes.number,
   }).isRequired,
   activeRow: PropTypes.shape({
     dayLabel: PropTypes.string,

@@ -232,7 +232,7 @@ describe('WindowFirstShell — Door 1 (the popup field’s "Open in map")', () =
     // that imports the Plan's lens onto the map (`App.openMapTabFromPlan`'s two branches).
     expect(onOpenMapTab).toHaveBeenCalledWith({
       date: TODAY, targetType: 'SUNSET', region: null, minRating: null, limitMinutes: 45,
-      inPlace: false,
+      inPlace: false, from: 'plan',
     });
   });
 

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, fireEvent, within } from '@testing-library/react';
@@ -427,13 +429,23 @@ describe('AuroraBanner', () => {
       });
     });
 
-    it('offers "View on map →" for a real alert and "Generate scores →" for a simulated one', () => {
-      const real = renderBanner({ ...MODERATE });
+    it('offers "View on map →" for a real alert and "Operations →" for a simulated one', () => {
+      const doors = { onViewOnMap: vi.fn(), onOpenSimulated: vi.fn() };
+      const real = renderBanner({ ...MODERATE }, doors);
       expect(screen.getByText('View on map →')).toBeInTheDocument();
       real.unmount();
-      renderBanner({ ...MODERATE, simulated: true });
-      expect(screen.getByText('Generate scores →')).toBeInTheDocument();
+      renderBanner({ ...MODERATE, simulated: true }, doors);
+      expect(screen.getByText('Operations →')).toBeInTheDocument();
       expect(screen.queryByText('View on map →')).not.toBeInTheDocument();
+    });
+
+    it('withholds the call to action when the door is withheld, and words a simulation plainly (C4)', () => {
+      const real = renderBanner({ ...MODERATE });
+      expect(screen.queryByText('View on map →')).not.toBeInTheDocument();
+      real.unmount();
+      renderBanner({ ...MODERATE, simulated: true }, { onViewOnMap: vi.fn() });
+      expect(screen.getByTestId('aurora-banner-cta').textContent).toBe('Test alert');
+      expect(screen.queryByText('Operations →')).not.toBeInTheDocument();
     });
   });
 
@@ -599,13 +611,22 @@ describe('AuroraBanner', () => {
       expect(screen.queryByTestId('aurora-banner-viewline')).not.toBeInTheDocument();
     });
 
-    it('offers "Map →", and "Scores →" for a simulated alert whose door is not the map', () => {
-      const real = renderBanner({ ...MODERATE });
+    it('offers "Map →", and "Operations →" for a simulated alert whose door is not the map', () => {
+      const doors = { onViewOnMap: vi.fn(), onOpenSimulated: vi.fn() };
+      const real = renderBanner({ ...MODERATE }, doors);
       expect(screen.getByText('Map →')).toBeInTheDocument();
       real.unmount();
-      renderBanner({ ...MODERATE, simulated: true });
-      expect(screen.getByText('Scores →')).toBeInTheDocument();
+      renderBanner({ ...MODERATE, simulated: true }, doors);
+      expect(screen.getByText('Operations →')).toBeInTheDocument();
       expect(screen.queryByText('Map →')).not.toBeInTheDocument();
+    });
+
+    it('withholds the call to action when the door is withheld, and words a simulation plainly (C4)', () => {
+      const real = renderBanner({ ...MODERATE });
+      expect(screen.queryByText('Map →')).not.toBeInTheDocument();
+      real.unmount();
+      renderBanner({ ...MODERATE, simulated: true }, { onViewOnMap: vi.fn() });
+      expect(screen.getByTestId('aurora-banner-cta').textContent).toBe('Test');
     });
   });
 
@@ -737,22 +758,126 @@ describe('AuroraBanner', () => {
       expect(onViewOnMap).not.toHaveBeenCalled();
     });
 
-    it('falls back to a hash jump to the map when no onViewOnMap is supplied', () => {
-      renderBanner({ ...MODERATE });
+    it('hands the Plan\'s live lens to onViewOnMap (C4)', () => {
+      mockBriefing = {
+        ...mockBriefing, ratingLens: { minRating: 4 }, reachLens: { tier: { limitMinutes: 60 } },
+      };
+      const onViewOnMap = vi.fn();
+      renderBanner({ ...MODERATE }, { onViewOnMap });
 
       fireEvent.click(screen.getByTestId('aurora-banner'));
 
-      expect(window.location.hash).toBe('#map');
+      expect(onViewOnMap).toHaveBeenCalledExactlyOnceWith({ minRating: 4, limitMinutes: 60 });
     });
 
-    it('a simulated alert goes to the manage hash and never calls onViewOnMap', () => {
+    it('hands null lens values when the briefing holds no lens (the degrade path)', () => {
+      const onViewOnMap = vi.fn();
+      renderBanner({ ...MODERATE }, { onViewOnMap });
+
+      fireEvent.click(screen.getByTestId('aurora-banner'));
+
+      expect(onViewOnMap).toHaveBeenCalledExactlyOnceWith({ minRating: null, limitMinutes: null });
+    });
+
+    it('with no onViewOnMap a real alert has no door: nothing happens and the hash is untouched', () => {
+      renderBanner({ ...MODERATE });
+
+      fireEvent.click(screen.getByTestId('aurora-banner'));
+      fireEvent.keyDown(screen.getByTestId('aurora-banner'), { key: 'Enter' });
+
+      expect(window.location.hash).toBe('');
+    });
+
+    it('a simulated alert calls onOpenSimulated and never onViewOnMap or the hash', () => {
+      const onViewOnMap = vi.fn();
+      const onOpenSimulated = vi.fn();
+      renderBanner({ ...MODERATE, simulated: true }, { onViewOnMap, onOpenSimulated });
+
+      fireEvent.click(screen.getByTestId('aurora-banner'));
+
+      expect(onViewOnMap).not.toHaveBeenCalled();
+      expect(onOpenSimulated).toHaveBeenCalledTimes(1);
+      expect(window.location.hash).toBe('');
+    });
+
+    it('a simulated alert with no onOpenSimulated has no door (a non-admin)', () => {
       const onViewOnMap = vi.fn();
       renderBanner({ ...MODERATE, simulated: true }, { onViewOnMap });
 
       fireEvent.click(screen.getByTestId('aurora-banner'));
 
       expect(onViewOnMap).not.toHaveBeenCalled();
-      expect(window.location.hash).toBe('#manage');
+      expect(screen.getByTestId('aurora-banner')).toHaveAttribute('data-actionable', 'false');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // The Map door needs a night row to select (overlay convergence C4 review)
+  // ---------------------------------------------------------------------------
+
+  describe('the Map door is offered only when the Map tab has a night row for it', () => {
+    // `ready` is all the door reads. No spots: a rated field would mount the lazy thumbnail chunk and
+    // leave it loaded for the file, breaking the test that asserts its pending slot.
+    it('is offered for a live night (active, real, not over)', () => {
+      renderBanner({ ...MODERATE, currentNightEndsAt: '2026-01-16T05:00:00Z' }, { onViewOnMap: vi.fn() });
+      expect(screen.getByTestId('aurora-banner')).toHaveAttribute('data-actionable', 'true');
+    });
+
+    it('is withheld when the status is alert-worthy but NOT active, with no rated run to select', () => {
+      renderBanner({ ...MODERATE, active: false }, { onViewOnMap: vi.fn() });
+      expect(screen.getByTestId('aurora-banner')).toHaveAttribute('data-actionable', 'false');
+      expect(screen.queryByTestId('aurora-banner-cta')).toBeNull();
+    });
+
+    it('is withheld when the status\' night has ENDED (the stale-night-with-a-forecast case)', () => {
+      renderBanner(
+        { ...MODERATE, currentNightEndsAt: '2026-01-15T05:00:00Z' },
+        { onViewOnMap: vi.fn() },
+      );
+      expect(screen.getByTestId('aurora-banner')).toHaveAttribute('data-actionable', 'false');
+    });
+
+    it('is kept for an inactive (forecast) alert when a rated run exists for the night to select', () => {
+      useAuroraScores.mockReturnValue({ ready: true, spots: [] });
+      const onViewOnMap = vi.fn();
+      renderBanner({ ...MODERATE, active: false }, { onViewOnMap });
+      fireEvent.click(screen.getByTestId('aurora-banner'));
+      expect(onViewOnMap).toHaveBeenCalledTimes(1);
+    });
+
+    it('a withheld door never calls onViewOnMap', () => {
+      const onViewOnMap = vi.fn();
+      renderBanner({ ...MODERATE, active: false }, { onViewOnMap });
+      fireEvent.click(screen.getByTestId('aurora-banner'));
+      fireEvent.keyDown(screen.getByTestId('aurora-banner'), { key: 'Enter' });
+      expect(onViewOnMap).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('a banner with no door looks like a statement (C4 CSS)', () => {
+    const css = readFileSync(resolve(__dirname, '../index.css'), 'utf8');
+    const rule = (selectorStart) => {
+      const at = css.indexOf(selectorStart);
+      expect(at, `${selectorStart} rule`).toBeGreaterThan(-1);
+      return css.slice(at, css.indexOf('}', at));
+    };
+
+    it('drops the pointer cursor on both layouts when data-actionable is false', () => {
+      const body = rule(".wf-aurora-card[data-actionable='false'],");
+      expect(body).toContain(".wf-aurora-strip[data-actionable='false']");
+      expect(body).toMatch(/cursor:\s*default/);
+    });
+
+    it('keeps its call-to-action word off the accent weight', () => {
+      const body = rule(".wf-aurora-card[data-actionable='false'] .wf-aurora-cta,");
+      expect(body).toContain(".wf-aurora-strip[data-actionable='false'] .wf-aurora-strip-cta");
+      expect(body).toMatch(/font-weight:\s*400/);
+      expect(body).not.toMatch(/--acc-ink/);
+    });
+
+    it('the markup carries the attribute the rules key on', () => {
+      renderBanner({ ...MODERATE });
+      expect(screen.getByTestId('aurora-banner')).toHaveAttribute('data-actionable', 'false');
     });
   });
 
@@ -823,11 +948,19 @@ describe('AuroraBanner', () => {
       mockIsMobile = mobile;
     });
 
-    it('is a focusable role="alert"', () => {
-      renderBanner({ ...MODERATE });
+    it('is a focusable role="alert" while it has a door', () => {
+      renderBanner({ ...MODERATE }, { onViewOnMap: vi.fn() });
       const alert = screen.getByRole('alert');
       expect(alert).toBe(screen.getByTestId('aurora-banner'));
       expect(alert).toHaveAttribute('tabindex', '0');
+    });
+
+    it('is a role="alert" with NO tab stop and no call to action when it has no door (C4)', () => {
+      renderBanner({ ...MODERATE });
+      const alert = screen.getByRole('alert');
+      expect(alert).not.toHaveAttribute('tabindex');
+      expect(alert).toHaveAttribute('data-actionable', 'false');
+      expect(screen.queryByTestId('aurora-banner-cta')).not.toBeInTheDocument();
     });
 
     it('has a dismiss button with an accessible name, that is a real button', () => {
@@ -1047,7 +1180,7 @@ describe('AuroraBanner', () => {
         it('reads between the best line and the call to action', () => {
           useAuroraViewline.mockReturnValue({ viewline: SPOKEN, source: 'live' });
           scored(rated(1, 'Kielder', 5));
-          renderBanner(FORECAST);
+          renderBanner(FORECAST, { onViewOnMap: vi.fn() });
           const best = screen.getByTestId('aurora-banner-best');
           const cta = screen.getByText('View on map →');
           expect(best.compareDocumentPosition(sentence()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();

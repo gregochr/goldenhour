@@ -344,6 +344,41 @@ describe('App — openMapTabFromPlan with a normalised trigger (overlay converge
     expect(handoff).not.toHaveProperty('darkSky');
   });
 
+  it('C4: a kind:\'region\' trigger (the pick dialog\'s Show region) opens the region\'s top spot on its window, headlined by the region', async () => {
+    const handoff = await press({
+      kind: 'region', region: 'Northumberland', date: TOMORROW, eventType: 'SUNSET',
+      locationNames: null, label: null, filterAction: null,
+      minRating: 3, limitMinutes: 45, inPlace: false,
+    });
+    // The overlay's own resolution is kept (C1 reads it, never re-decides it): a region with rated
+    // spots lands on its TOP spot's callout, the crumb headline naming the region.
+    expect(handoff).toMatchObject({
+      source: 'plan', locationName: 'Bamburgh', eventType: 'SUNSET', date: TOMORROW,
+      minRating: 3, limitMinutes: 45, title: 'Northumberland',
+    });
+    expect(handoff).not.toHaveProperty('night');
+    expect(ShellStub.lastProps.tabRequest).toMatchObject({ id: 'map' });
+  });
+
+  it('C4: a kind:\'event\' trigger (the planner\'s drill-down pin) names its window and the Plan lens', async () => {
+    const handoff = await press({
+      kind: 'event', date: TOMORROW, eventType: 'SUNRISE', minRating: 4, limitMinutes: 90, inPlace: false,
+    });
+    expect(handoff).toMatchObject({
+      source: 'plan', eventType: 'SUNRISE', date: TOMORROW, minRating: 4, limitMinutes: 90,
+    });
+    expect(handoff).not.toHaveProperty('night');
+  });
+
+  it('C4: a dark-sky coming-up trigger carries the dark-sky lens and the card\'s headline, no subject filter', async () => {
+    const handoff = await press({
+      kind: 'coming-up', darkSky: true, filterAction: null, label: 'Meteor shower', date: TOMORROW,
+      minRating: null, limitMinutes: null, inPlace: false,
+    });
+    expect(handoff).toMatchObject({ source: 'plan', darkSky: true, title: 'Meteor shower' });
+    expect(handoff).not.toHaveProperty('filterAction');
+  });
+
   it('a kind:\'aurora\' trigger names its night, its AURORA event and its headline, and moves the date', async () => {
     const handoff = await press({ kind: 'aurora', date: TOMORROW });
     expect(handoff).toMatchObject({
@@ -399,6 +434,8 @@ describe('App — a door never gives the Plan tab a date (plan 4 #7)', () => {
       kind: 'coming-up', filterAction: 'SEASCAPE', darkSky: false, label: 'Coastal', date: TOMORROW,
     },
     'an aurora trigger': { kind: 'aurora', date: TOMORROW },
+    'a region trigger': { kind: 'region', region: 'Northumberland', date: TOMORROW, eventType: 'SUNSET' },
+    'an event trigger': { kind: 'event', date: TOMORROW, eventType: 'SUNSET' },
   };
 
   for (const [name, arg] of Object.entries(KINDS)) {

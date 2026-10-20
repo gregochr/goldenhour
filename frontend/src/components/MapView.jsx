@@ -1667,6 +1667,21 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   const [focusLensNames, setFocusLensNames] = useState(null);
   /**
+   * The last PLAN-sourced door, held apart from the latest handoff (overlay convergence C4, scope
+   * call S1). A map-sourced handoff - the aurora banner pressed ON this tab, the four-day sheet's
+   * footer - is "a window change and nothing more": it must not unmount the breadcrumb or end the
+   * lens the last door applied while the floor, reach tier, scope and origin that door named stay in
+   * force. So the breadcrumb, its clauses and the lens's lifetime follow THIS, and a new plan door
+   * replaces it. Set during render (the nonce is the trigger) so the strip mounts in the commit the
+   * door arrives in, as it did when it read `planHandoff` directly.
+   */
+  const [planDoor, setPlanDoor] = useState(null);
+  if (planHandoff?.source === 'plan' && planHandoff.nonce !== planDoor?.nonce) {
+    setPlanDoor(planHandoff);
+  } else if (planHandoff == null && planDoor != null) {
+    setPlanDoor(null);
+  }
+  /**
    * The door's subject / dark-sky lens, as the bookkeeping that undoes it exactly: `active` (a door
    * switched either on), `before` (the READER's subject filters and dark-sky toggle at the moment the
    * door applied it) and `doorTypes` / `doorDark` (what the door itself switched on). Undoing is
@@ -2559,7 +2574,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         );
         if (loc) {
           setSelectedLocationName(loc.name);
-          setFlyTarget({ lat: loc.lat, lon: loc.lon });
+          // A REGION door frames the region (`jumpToRegion` above, which also switches an away
+          // region's scope) AND selects its spot, so the camera is the region's fit, not a fly to the
+          // one place: the two would race, and the callout needs the spot in the frame either way.
+          // Only when the jump actually framed something (a region the heat catalogue holds spots for).
+          const regionFramed = planHandoff.source !== 'map' && planHandoff.region
+            && (heat?.spots || EMPTY_POINTS).some((sp) => sp?.regionName === planHandoff.region);
+          if (!regionFramed) setFlyTarget({ lat: loc.lat, lon: loc.lon });
         }
       }
     })();
@@ -2569,14 +2590,15 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }, [planHandoff?.nonce]);
 
   /**
-   * A lens's lifetime is its plan door's. The breadcrumb that names the lenses mounts only for a
-   * `source: 'plan'` handoff, so ANY other state of the handoff - a `source: 'map'` one (the
-   * four-day sheet's footer pressed over the map), a source-less one (the overlay hatch, which the
-   * pane withholds, so `planHandoff` goes null) - removes the breadcrumb and with it the only way to
-   * lift the lens. Left standing it would be the silent narrowing plan 4 #3 forbids, so it ends here.
+   * A lens's lifetime is its plan door's. The breadcrumb that names the lenses follows the last
+   * `source: 'plan'` door (`planDoor`), so a `source: 'map'` handoff (the four-day sheet's footer, the
+   * aurora banner pressed on this tab) leaves both the strip and the lens standing - it is a window
+   * change only. What ends the lens is the handoff WITHDRAWN (the pane hands none, so `planHandoff`
+   * goes null): the strip is gone with it and so is the only way to lift the lens, and left standing
+   * it would be the silent narrowing plan 4 #3 forbids.
    */
   useEffect(() => {
-    if (planHandoff?.source === 'plan') return;
+    if (planHandoff?.source === 'plan' || planHandoff?.source === 'map') return;
     if (!focusLensNames && !appliedDoorLens.current.active) return;
     (async () => clearDoorLens())();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3664,7 +3686,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // location list, keeping marker identities stable for react-leaflet.
   const visibleLocations = useMemo(() => {
     const ratingFiltered = typeFiltered.filter((loc) => {
-      if (isStandDownLocation(loc)) return showStandDown;
+      // A spot the door NAMED (`focusLensNames`, a Coming up card's exact set) is exempt from the
+      // unrated / stand-down WITHHOLDING - it draws as an unscored pin rather than vanishing, so a
+      // card beyond the rated horizon does not open on an empty map - but never from the reader's own
+      // filters (floor, reach, subject, dark sky), which still apply below (C4 review).
+      const named = focusLensNames?.has(loc.name) === true;
+      if (isStandDownLocation(loc)) return showStandDown || named;
       // Tide-window increment (T4, tide-window-plan.md §3 T4 item 1): a coastal slot with a
       // served tide fact — aligned or not, or RATED (the weather-stood-down-then-rated
       // path, §1 #3, which can land a real 1–2★) — passes the rating stage WHATEVER that rating
@@ -3701,7 +3728,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         // Wildlife has no sky rating by design, so the sky-quality threshold must not
         // hide it. Other unrated (not-yet-evaluated) locations stay admin-gated behind
         // the "unknown" toggle, so the default 3★+ map reads quality-first.
-        return isPureWildlife || showUnrated;
+        return isPureWildlife || showUnrated || named;
       }
       return rating >= minStars;
     });
@@ -4225,7 +4252,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * a night by `openMapTabFromPlan`, and {@code followWindowRow} says so again with the ROW's kind.
    */
   useEffect(() => {
-    if (!planHandoff?.night || planHandoff.source === 'map') return;
+    // A map-sourced handoff may name a night too: the aurora banner pressed on the Map tab itself (C4).
+    if (!planHandoff?.night) return;
     if (appliedPlanNightNonce.current === planHandoff.nonce || !planNightRowFound) return;
     appliedPlanNightNonce.current = planHandoff.nonce;
     (async () => {
@@ -5242,14 +5270,29 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * spots" cannot outrun the reader's other filters.
    */
   const doorLensClauses = [];
-  if (planHandoff?.source === 'plan') {
+  if (planDoor) {
     if (focusLensNames) {
-      doorLensClauses.push(`showing ${visibleLocations.length} ${visibleLocations.length === 1 ? 'spot' : 'spots'}`);
+      const shown = visibleLocations.length;
+      const named = focusLensNames.size;
+      if (shown > 0) {
+        doorLensClauses.push(`showing ${shown} ${shown === 1 ? 'spot' : 'spots'}`);
+      } else {
+        // Never "showing 0 spots": say WHY the named set draws nothing - none of it is rated for the
+        // window on screen, or some is and the reader's own filters hold it back.
+        const anyRated = locations.some((l) => focusLensNames.has(l.name) && getRatingForLocation(l) != null);
+        if (named === 1) {
+          doorLensClauses.push(anyRated ? 'the named spot is hidden by your filters' : 'the named spot is not rated for this day');
+        } else {
+          doorLensClauses.push(anyRated
+            ? `none of the ${named} named spots passes your filters`
+            : `none of the ${named} named spots is rated for this day`);
+        }
+      }
     }
-    if (planHandoff.darkSky && darkSkyFilter) doorLensClauses.push('dark-sky spots');
-    if (planHandoff.filterAction && activeTypeFilters.has(planHandoff.filterAction)) {
+    if (planDoor.darkSky && darkSkyFilter) doorLensClauses.push('dark-sky spots');
+    if (planDoor.filterAction && activeTypeFilters.has(planDoor.filterAction)) {
       doorLensClauses.push(
-        planHandoff.filterAction === 'SEASCAPE' ? 'coastal spots' : `${planHandoff.filterAction.toLowerCase()} spots`,
+        planDoor.filterAction === 'SEASCAPE' ? 'coastal spots' : `${planDoor.filterAction.toLowerCase()} spots`,
       );
     }
   }
@@ -6411,15 +6454,15 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       {/* ⚠️ Door-sourced only. The strip's own accessible name is "Where you came from" and its back
           control reads `← Plan`; a map-sourced handoff came from THIS tab, so both would be false —
           and its lens clauses describe a carry that never happened. */}
-      {!overlayMode && planHandoff && planHandoff.source !== 'map' && (
+      {!overlayMode && planDoor && (
         <MapBreadcrumb
-          carried={planHandoff}
+          carried={planDoor}
           activeRow={activeMapEvent}
           origin={origin}
           minStars={minStars}
           driveTimeFilter={driveTimeFilter}
           regionInForce={jumpFitOverride?.regionName ?? null}
-          onBack={() => onReturnToPlan?.()}
+          onBack={() => onReturnToPlan?.(planDoor.from ?? 'plan')}
           onClearRating={() => {
             setMinStars(DEFAULT_MIN_STARS);
             clearMapFilter('mapFilterMinStars');
