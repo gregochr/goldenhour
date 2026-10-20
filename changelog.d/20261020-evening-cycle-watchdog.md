@@ -1,0 +1,3 @@
+### Added — the forecast-cycle watchdog watches the evening sunrise refresh
+
+`SolarForecastJobs` is now `ForecastCycleJobs`, a registry of the three scheduled forecast cycles (nightly, intraday, evening) of which the first two are solar-capable. The watchdog walks all three. For the evening refresh, which serves no solar event, it alerts when the fire was missed, when the run was failed by the safety timeout, or when a forecast batch is still outstanding after the evening budget (`photocast.pipeline.evening-safety-timeout`); a run still building its briefing after its batches finished is not an alert. The two main cycles' checks are unchanged. The evening job stays paused until the owner resumes it.
