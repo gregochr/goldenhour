@@ -449,7 +449,9 @@ returned figure, but a rule that polices prose for figures is the fitted curve o
 What keeps a figure honest is that **the reader can see the served figure beside the prose** and
 that **a figure that has moved withdraws the answer**.
 
-**Carried, not quoted (W2).** `AskAnswer` gains `windows: [{windowId, spread}]` — the WHOLE
+**Carried, not quoted (W1 — moved in from W2 after Codex's round seven: a prompt that quotes figures
+cannot ship a release before the figures are carried and rechecked, or a refused precompute leaves a
+stale count in a stored answer whose picks are unchanged).** `AskAnswer` gains `windows: [{windowId, spread}]` — the WHOLE
 `AskSnapshot.Spread` of §2.1 (`over`, `rated`, `bands`, `gameOn`, `gameOnPct`, `go`, `below4`,
 `stars1to2`, the tallies, the pockets with their means), not a hand-picked subset, for **every window
 whose spread the model could have quoted**: every solar window `list_windows` returned in that
@@ -465,7 +467,7 @@ The rule is now: carry everything the prose may quote, compare everything carrie
 ⚠️ **It must be threaded through every rebuild of `AskAnswer`** — the review counted nine `new
 AskAnswer(` sites in main code, among them `ReadyRelevance.relevantPart` (what the precompute
 actually stores) and `AskReadyFreshness.recheck`'s own rebuild; a field dropped at either is a stored
-row with no figures, read as "unknown, not stale", and no test fails. W2's test is therefore "a
+row with no figures, read as "unknown, not stale", and no test fails. W1's test is therefore "a
 stored Ready answer carries `windows`", with a mutant on each site. Stored in
 `ask_ready_answer.answer_json` beside the picks (no migration — a JSON property, the `astroVersion`
 precedent) and re-joined live on serve. The client (`askConversation.js`'s `normaliseAnswer`, which
@@ -478,7 +480,7 @@ and two histograms with two pools on one screen would read as a contradiction; a
 not. The thread does NOT echo it — `exchangeOf` reduces an exchange to ids and words, never a card
 fact, before `threadForWire` sends it.
 
-**Freshness (W2).** `AskReadyFreshness.recheck` gains `spreadMoved`: a stored answer is withheld whole
+**Freshness (W1, with the carried figures).** `AskReadyFreshness.recheck` gains `spreadMoved`: a stored answer is withheld whole
 when, for ANY carried window, the live `Spread` is not EQUAL to the stored one — record equality
 over every field, pockets included, so no figure the prompt lets the model quote can drift unchecked
 — and **a carried window that is no longer in the live window set is stale, not skipped**: a
@@ -487,7 +489,7 @@ Sunday must go when Saturday passes, because the Saturday prose can no longer be
 round-two review of #1223; the first revision skipped passed windows) — the same all-or-nothing rule as a pick whose rating moved, in the one shared code
 path the typed cache's re-check also uses (`CaffeineAskAnswerCache.lookup` calls `recheck`), so a
 cached typed answer is withheld on the same test. (`Spread` is a record of ints, strings and lists,
-so `equals` is the comparison and no tolerance exists to tune.) A row with no figures (written before W2) is
+so `equals` is the comparison and no tolerance exists to tune.) A row with no figures (written before W1) is
 "unknown, not stale" — the `forced`/`submittedAt` convention. **How often it fires is not "rarely"**:
 the `ALL` scope's spread moves whenever any slot anywhere gains, loses or changes a rating or a mark, and a
 precompute that is refused or discarded leaves the earlier row standing, so between a cycle that
@@ -499,9 +501,11 @@ measured in §7 before it is tuned.
 **Rollback truth.** `AskReadyStore.decode` uses a plain `new ObjectMapper()` (unknown properties
 throw) and reads `astroVersion` by removing it explicitly before `treeToValue`; a stored `windows`
 read by a server that does not know it is caught and the row is dropped (`Optional.empty()`) until
-the next precompute rewrites it — invisible, not ignored. **W1 therefore ships the tolerance
+the next precompute rewrites it — invisible, not ignored. **W1 ships the tolerance
 (`@JsonIgnoreProperties(ignoreUnknown = true)` on `AskAnswer`, or the `astroVersion` treatment for
-`windows`) ahead of W2**, so a rollback from W2 to W1 keeps every row.
+`windows`) in the same release as the field**, so any LATER field is read fail-soft by a W1 server;
+a rollback from W1 to the release before it drops every W1-written row until the next precompute
+(no earlier build has the tolerance) — one cycle of an empty Ready list, stated as the cost.
 
 **The thread.** A Ready-origin exchange is exempt from the `generatedAt` reset because its picks
 re-join live (`AskThread`); a summary that quotes spread figures is verbatim prose that can go stale
@@ -674,13 +678,13 @@ label the model then has to explain.
 | phase | what | size | tests | what it breaks |
 |---|---|---|---|---|
 | **W0** | this plan + `scripts/measurements/ask-window-context/measure.py`; CLAUDE.md's *Ask — the engine* bullet gains one sentence pointing here; `ask-photocast-plan.md` §2.2's table gains the spread column | XS | — | nothing |
-| **W1** backend spread + prompt | `AskSnapshot.Spread` (pure record + fold, per region in `AskSnapshotBuilder`, summed per scope in `AskTools.listWindows`, with `over`); `WindowInfo.spread`; `BriefingRegion.coverageReason` set by `BriefingHonestyFilter.fullRewrite` and copied onto `AskSnapshot.Region`; `AskSnapshot.gameOnCandidates(windowIds, scope, predicate)`; `AskSnapshot.hasGameOn`, the no-pick admission consulted directly by the validator's anchor rule, `ReadyRelevance.violation` and `AskReadyFreshness.check`'s anchor test, with the question's own `admitsSlot` as the predicate (`anchoredWindow` unchanged); `RESULT_CHAR_CAP` 6,000 → 9,000; `AskToolSchemas` (list_windows description, `submit_answer` "Up to three"); `AskPromptBuilder` (criteria, hint, no-fill rule, the `USER_LESS`/`WITH_USER` sentences, the `THREAD_RULES` sentence, and a Ready conversation's "The question is about these windows: …" line from the offer's `windowIds`); `@JsonIgnoreProperties` on `AskAnswer` (the W2 rollback guard); `StubAskEngine` reads `Spread` straight off the snapshot (no tool call: its path already runs two `rank_spots`), fills picks with game-on places only and words the asked windows stay-home / game on / stood down from the figures, so local dev and the dry-run show the shape | M | `AskSpreadTest` (pure: region kinds from the served tree, canopy out, held-back out and counted, thin region's 4★ not in `gameOn`, bands, derived fields, pocket order and cap, scope sums, `over` for one / several / all regions, an all-stood-down window, a slotless `STAND_DOWN` region with reason `UNKNOWN` or null counted as not scored); `BriefingHonestyFilterTest` (the reason rides the rewritten region and nothing else changes); `AskToolsTest` (list_windows per scope, the busy-day mock under half the cap, the cap literal); `AskAnswerValidatorTest` + `ReadyRelevanceTest` + `AskReadyFreshnessTest` (no-pick BEST accepted, stored AND served iff no game-on candidate; withheld as stale once one appears; a region scope whose crown lies elsewhere but holds a 4★ is REFUSED a no-pick answer; a `COASTAL_HIGH` no-pick answer stands beside a 4★ inland place and falls to a 4★ high-water coastal one; anchored otherwise, byte-identical to today); `AskPromptBuilderTest` (`contains`; the thread prompt differs only by the shared change); `AskToolSchemasTest`; `StubAskEngineTest`; mutation on the fold and the set test | every test that pins a `list_windows` JSON or a trace `chars` figure (`AskToolsTest`, `ClaudeAskEngineTest`; `AskAdminControllerTest` mocks the engine and does not move); `AskToolsTest`'s 6,000 literal; the stub's summaries and pick counts (fewer picks on a poor fixture); `AskPromptRegressionTest` is re-run, not edited |
-| **W2** carried figures + freshness + client line | `AskAnswer.windows` (every window `list_windows` returned, the picks' and the offer's; the whole `Spread` each) built by the validator and threaded through every `new AskAnswer(` (nine sites, `ReadyRelevance.relevantPart` and `recheck`'s rebuild among them); `ask_ready_answer.answer_json` carries it (no migration); `AskReadyFreshness.spreadMoved`; `AskReadyResponse`/`AskResponse` wire; `askConversation.js` `normaliseAnswer` keeps it, `threadForWire` does not; `AskConversation` draws the line if Q4 says so, `askCss.test.js` pins it outside every role gate | M | validator (windows from the live snapshot, never the model); every rebuild site (a stored Ready answer carries `windows`, mutants per site); freshness (withheld on ANY difference in a carried `Spread` — a 5★ → 4★ move with `gameOn` unchanged, a 2★ → 3★ move, a pocket mean — a carried window that has passed or vanished withholds, an unpicked window carried, legacy row served); client join and copy | the Ready and typed wire shapes (additive); a row from before W2 carries no figures and is served as today |
+| **W1** backend spread + prompt | `AskSnapshot.Spread` (pure record + fold, per region in `AskSnapshotBuilder`, summed per scope in `AskTools.listWindows`, with `over`); `WindowInfo.spread`; `BriefingRegion.coverageReason` set by `BriefingHonestyFilter.fullRewrite` and copied onto `AskSnapshot.Region`; `AskSnapshot.gameOnCandidates(windowIds, scope, predicate)`; `AskSnapshot.hasGameOn`, the no-pick admission consulted directly by the validator's anchor rule, `ReadyRelevance.violation` and `AskReadyFreshness.check`'s anchor test, with the question's own `admitsSlot` as the predicate (`anchoredWindow` unchanged); `RESULT_CHAR_CAP` 6,000 → 9,000; `AskToolSchemas` (list_windows description, `submit_answer` "Up to three"); `AskPromptBuilder` (criteria, hint, no-fill rule, the `USER_LESS`/`WITH_USER` sentences, the `THREAD_RULES` sentence, and a Ready conversation's "The question is about these windows: …" line from the offer's `windowIds`); **the carried figures and their freshness** — `AskAnswer.windows` (every window `list_windows` returned, the picks' and the offer's; the whole `Spread` each) built by the validator and threaded through every `new AskAnswer(` (nine sites, `ReadyRelevance.relevantPart` and `recheck`'s rebuild among them), `ask_ready_answer.answer_json` carrying it (no migration), `AskReadyFreshness.spreadMoved`, the `AskReadyResponse`/`AskResponse` wire, and `@JsonIgnoreProperties` on `AskAnswer` (in the same release, because a prompt that quotes figures must not ship before they are carried and rechecked — Codex's round seven); `StubAskEngine` reads `Spread` straight off the snapshot (no tool call: its path already runs two `rank_spots`), fills picks with game-on places only and words the asked windows stay-home / game on / stood down from the figures, so local dev and the dry-run show the shape | M | `AskSpreadTest` (pure: region kinds from the served tree, canopy out, held-back out and counted, thin region's 4★ not in `gameOn`, bands, derived fields, pocket order and cap, scope sums, `over` for one / several / all regions, an all-stood-down window, a slotless `STAND_DOWN` region with reason `UNKNOWN` or null counted as not scored); `BriefingHonestyFilterTest` (the reason rides the rewritten region and nothing else changes); `AskToolsTest` (list_windows per scope, the busy-day mock under half the cap, the cap literal); `AskAnswerValidatorTest` + `ReadyRelevanceTest` + `AskReadyFreshnessTest` (no-pick BEST accepted, stored AND served iff no game-on candidate; withheld as stale once one appears; a region scope whose crown lies elsewhere but holds a 4★ is REFUSED a no-pick answer; a `COASTAL_HIGH` no-pick answer stands beside a 4★ inland place and falls to a 4★ high-water coastal one; anchored otherwise, byte-identical to today); `AskPromptBuilderTest` (`contains`; the thread prompt differs only by the shared change); `AskToolSchemasTest`; `StubAskEngineTest`; the carried figures (windows from the live snapshot, never the model; every rebuild site — a stored Ready answer carries `windows`, mutants per site); freshness (withheld on ANY difference in a carried `Spread` — a 5★ → 4★ move with `gameOn` unchanged, a 2★ → 3★ move, a pocket mean — a carried window that has passed or vanished withholds, an unpicked window carried, legacy row served); mutation on the fold and the set test | every test that pins a `list_windows` JSON or a trace `chars` figure (`AskToolsTest`, `ClaudeAskEngineTest`; `AskAdminControllerTest` mocks the engine and does not move); `AskToolsTest`'s 6,000 literal; the stub's summaries and pick counts (fewer picks on a poor fixture); `AskPromptRegressionTest` is re-run, not edited |
+| **W2** the client line (Q4) | `askConversation.js` `normaliseAnswer` keeps `windows` (served since W1), `threadForWire` does not; `AskConversation` draws one line per window if Q4 says so, `askCss.test.js` pins it outside every role gate | S | client join and copy; the line absent when `windows` is absent | nothing on the server |
 | **W3** regression | `AskWindowContextRegressionTest` + two fixtures + the synthetic-band fixture builder | S/M | the class itself (owner-run) | nothing; excluded from `verify` |
 | **W4** §2.5 | whichever of B–D the owner chooses (A is in W1) | L (B) / S (C) / M (D) | per option | per option: B and C change which picks exist, so the Ready catalogue's stored answers turn over at the next precompute; B touches `candidates`, the offer and the anchor |
 | **R1** sub-region measurement | `scripts/measurements/sub-region-stability/` + results | M | the SQL checked on sqlite against a hand-worked fixture, as the same-cell recipe was | nothing (read-only) |
 
-**Order:** W1 → W3 (so the prompt is measured before W2 spends on the wire) → W2 → W4 once Q1 is
+**Order:** W1 → W3 (so the prompt is measured before the client line is drawn) → W2 (Q4) → W4 once Q1 is
 decided → R1 whenever, independently. Each phase its own branch, the local gate
 (`./mvnw clean verify -Dtest='!**/integration/**' -DfailIfNoSpecifiedTests=false`, the frontend's
 lint/test/audit/build for W2), an adversarial review of the diff, a changelog.d entry. No migration
@@ -691,9 +695,9 @@ question on the owner's weekend and on a good day; ≈ −$0.003 and one round t
 window; a few pence per regression run.
 
 **Rollback:** W1 is one commit with no data; reverting it restores today's `list_windows` and prompt
-byte for byte (the typed cache is in-memory Caffeine and dies with the restart a deploy is). A W2
-row read by a W1 server is kept because W1 carries the unknown-property tolerance; read by a
-pre-W1 server it is dropped until the next precompute (§2.4, "rollback truth").
+byte for byte (the typed cache is in-memory Caffeine and dies with the restart a deploy is), but a
+W1-written Ready row read by the release before W1 is dropped until the next precompute, because no
+earlier build tolerates the `windows` property (§2.4, "rollback truth"); W2 touches no stored row.
 
 ## §5 Decisions taken in this plan (challenge in review, not in code)
 
@@ -727,7 +731,7 @@ pre-W1 server it is dropped until the next precompute (§2.4, "rollback truth").
   on screen (freshness alone).
 - **Q5 — sub-regions** (§3): run R1 now, later, or not; and whether FAR moves to Sonnet 5.5 first.
 - **Q6 — build at all.** W1 + W3 is the smallest thing that answers the complaint and can be
-  measured; W2 is what makes a quoted figure visible and withdrawable.
+  measured, and it already makes a quoted figure withdrawable; W2 is only what makes it visible.
 - **Q7 — "must not lead with a 4★ pick"** (§0): the framing reading (exceptions carried as picks,
   the summary says stay home) or the literal one (no picks on a stay-home window; the exceptions
   named in prose). The regression flips on one line.
@@ -824,6 +828,10 @@ measurement), ~60 charges, of which these changed the plan rather than a sentenc
   predicate is now the question's own `admitsSlot`; and a slotless `STAND_DOWN` region was read as a
   weather stand-down although the filter words `UNKNOWN` the same way — the filter's reason now rides
   the served region and only `STOOD_DOWN` counts as stood down.
+- **Codex's round seven (3a8837e9)**: the carried figures and `spreadMoved` sat in W2 while W1's
+  prompt already told the model to quote figures, so the advertised W1 + W3 minimum could serve a
+  stale count from a row a refused precompute left standing. Both moved into W1; W2 is the client
+  line alone.
 - The night regression already asserts wording; the thread needs one sentence; `heldBack` now uses
   `isHeldBack`; the research recipe measures the combined rating, part-against-rest, with a random
   partition as the null; the "6–11%" became 6–12% of inland near-twin pairs.
