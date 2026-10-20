@@ -582,6 +582,64 @@ class ForecastCycleWatchdogTest {
         verify(alerts, never()).sendForecastCycleWatchdogAlert(anyString(), anyString(), anyString());
     }
 
+    private ForecastCycleWatchdog watchdogWithEveningBudget(Duration budget) {
+        return new ForecastCycleWatchdog(configs, runs, batches, factory, alerts, scheduler, clock, budget);
+    }
+
+    @Test
+    @DisplayName("a summer evening run whose PT3H30M budget ends after UK midnight is still found, "
+            + "and alerts once while its batch is polling")
+    void evening_batchPollingAfterUkMidnight_alertsOnce() {
+        evening();
+        Duration budget = Duration.ofMinutes(210);
+        PipelineRunEntity run = run(40, CycleType.EVENING, Instant.parse("2026-07-15T20:00:05Z"),
+                PipelineRunStatus.RUNNING);
+        runStarted(run);
+        when(batches.findByPipelineRunId(40L)).thenReturn(List.of(
+                eveningBatch(BatchStatus.SUBMITTED, "2026-07-15T20:00:30Z")));
+        clock.set(Instant.parse("2026-07-15T23:40:00Z")); // 00:40 BST on the 16th
+
+        ForecastCycleWatchdog wd = watchdogWithEveningBudget(budget);
+        wd.check();
+        wd.check();
+
+        verifyAlertedOnce(EVENING, "did not finish");
+        // lower bound is now - budget - 1h, earlier than the UK day start (15 Jul 23:00Z)
+        verify(runs, times(2)).findByCycleTypeAndTriggerTimeGreaterThanEqualOrderByTriggerTimeAsc(
+                CycleType.EVENING, Instant.parse("2026-07-15T19:10:00Z"));
+    }
+
+    @Test
+    @DisplayName("a timeout-FAILED evening run seen after UK midnight alerts once")
+    void evening_timedOutSeenAfterUkMidnight_alertsOnce() {
+        evening();
+        PipelineRunEntity failed = run(41, CycleType.EVENING, Instant.parse("2026-07-15T20:00:05Z"),
+                PipelineRunStatus.FAILED);
+        failed.setFailureReason("Safety timeout: Batch set did not reach terminal status within PT3H30M");
+        runStarted(failed);
+        clock.set(Instant.parse("2026-07-15T23:45:00Z"));
+
+        ForecastCycleWatchdog wd = watchdogWithEveningBudget(Duration.ofMinutes(210));
+        wd.check();
+        wd.check();
+
+        verifyAlertedOnce(EVENING, "did not finish");
+    }
+
+    @Test
+    @DisplayName("the evening look-back never reaches a run from two evenings ago")
+    void evening_lookBackExcludesTwoEveningsAgo() {
+        evening();
+        clock.set(Instant.parse("2026-07-16T12:00:00Z"));
+
+        watchdogWithEveningBudget(Duration.ofMinutes(210)).check();
+
+        // now - 3h30 - 1h = 07:30Z on the 16th (the UK day start, 15 Jul 23:00Z, is earlier here),
+        // so the 14 Jul 20:00Z run is outside the query either way
+        verify(runs).findByCycleTypeAndTriggerTimeGreaterThanEqualOrderByTriggerTimeAsc(
+                CycleType.EVENING, Instant.parse("2026-07-15T23:00:00Z"));
+    }
+
     @Test
     @DisplayName("with no batch submitted the budget runs from the trigger time")
     void evening_noBatch_budgetFromTrigger() {

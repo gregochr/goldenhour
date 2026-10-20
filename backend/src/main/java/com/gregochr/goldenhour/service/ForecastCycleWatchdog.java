@@ -31,6 +31,7 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -263,9 +264,14 @@ public class ForecastCycleWatchdog {
      */
     private void checkEveningFinished(SchedulerJobConfigEntity config, CycleType cycle, Instant now,
             LocalDate today) {
+        // The evening fires at 20:00 UTC, so its deadline (and a timeout failure) can fall after UK
+        // midnight: look back far enough to include any run whose deadline is recent. The extra hour
+        // covers first-submit lag and several watchdog passes; the latch prevents repeats.
         Instant dayStart = today.atStartOfDay(LONDON).toInstant();
+        Instant lowerBound = Collections.min(List.of(dayStart,
+                now.minus(eveningBudget).minus(Duration.ofHours(1))));
         List<PipelineRunEntity> runs = pipelineRunRepository
-                .findByCycleTypeAndTriggerTimeGreaterThanEqualOrderByTriggerTimeAsc(cycle, dayStart);
+                .findByCycleTypeAndTriggerTimeGreaterThanEqualOrderByTriggerTimeAsc(cycle, lowerBound);
         for (PipelineRunEntity run : runs) {
             String missing = eveningUnfinished(run, now);
             if (missing != null && firstTime("finish:" + config.getJobKey() + ":" + run.getId())) {
