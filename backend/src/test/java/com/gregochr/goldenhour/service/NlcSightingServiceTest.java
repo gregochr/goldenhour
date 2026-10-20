@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.model.NlcNightClarity;
 import com.gregochr.goldenhour.model.NlcSightingReport;
 import com.gregochr.goldenhour.model.NlcSightingResponse;
 import com.gregochr.goldenhour.model.NlcWindow;
+import com.gregochr.goldenhour.util.NlcTestSeason;
 import com.gregochr.goldenhour.util.RestClientMocks;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -231,7 +232,8 @@ class NlcSightingServiceTest {
         LocalDate today = LocalDate.of(2026, 7, 3);
         RestClient rest = mock(RestClient.class);
         RestClientMocks.stubGet(rest, String.class, liveTableSnapshot());
-        NlcSightingClient realClient = new NlcSightingClient(rest, new NlcProperties());
+        NlcSightingClient realClient = new NlcSightingClient(rest, new NlcProperties(), NlcTestSeason.inSeason(),
+                Clock.systemUTC());
         when(clarityService.isNlcSeason(today)).thenReturn(true);
         when(clarityService.getCached()).thenReturn(new NlcNightClarity(List.of(
                 new NlcNightClarity.ClearNight(
@@ -254,7 +256,8 @@ class NlcSightingServiceTest {
         LocalDate today = LocalDate.of(2026, 7, 10);
         RestClient rest = mock(RestClient.class);
         RestClientMocks.stubGet(rest, String.class, liveTableSnapshot());
-        NlcSightingClient realClient = new NlcSightingClient(rest, new NlcProperties());
+        NlcSightingClient realClient = new NlcSightingClient(rest, new NlcProperties(), NlcTestSeason.inSeason(),
+                Clock.systemUTC());
         when(clarityService.isNlcSeason(today)).thenReturn(true);
         NlcSightingService liveService = new NlcSightingService(
                 realClient, clarityService, new NlcProperties(), schedulerService, clock);

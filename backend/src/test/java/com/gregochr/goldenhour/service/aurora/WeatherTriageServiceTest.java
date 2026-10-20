@@ -47,28 +47,42 @@ class WeatherTriageServiceTest {
     // -------------------------------------------------------------------------
 
     @Test
-    @DisplayName("null batch entries use defaultCloud — location treated as overcast and rejected")
-    void triage_nullEntryInBatch_treatedAsDefaultCloud() {
-        // One location → 3 northward transect points → batch has exactly 3 coords.
-        // All 3 batch entries are null → defaultCloud (75%) for every transect point
-        // → averagedHourly all 75% → no viable hour → rejected.
+    @DisplayName("a candidate whose chunk failed (even after retry) is unsampled — not viable, not overcast")
+    void triage_nullEntryInBatch_isUnsampled() {
         LocationEntity loc = buildLocation(11L, "Loc A", 55.0, -2.0, 2);
 
-        when(openMeteoClient.fetchCloudOnlyBatch(
-                org.mockito.ArgumentMatchers.argThat(
-                        (java.util.List<double[]> coords) -> coords.size() == 3)))
+        when(openMeteoClient.fetchCloudOnlyBatch(any()))
                 .thenReturn(java.util.Arrays.asList(null, null, null));
 
         WeatherTriageService.TriageResult result = service.triage(List.of(loc));
 
-        assertThat(result.rejected()).containsExactly(loc);
+        assertThat(result.unsampled()).containsExactly(loc);
+        assertThat(result.rejected()).isEmpty();
         assertThat(result.viable()).isEmpty();
-        assertThat(result.cloudByLocation().get(loc)).isEqualTo(75);
+        assertThat(result.cloudByLocation()).doesNotContainKey(loc);
+        // first attempt plus exactly one bounded retry
+        org.mockito.Mockito.verify(openMeteoClient, org.mockito.Mockito.times(2))
+                .fetchCloudOnlyBatch(any());
     }
 
     @Test
-    @DisplayName("triage rejects location when batch fetch throws exception")
-    void triage_httpException_locationRejected() {
+    @DisplayName("a failed point recovered by the retry is measured normally")
+    void triage_retryRecoversFailedPoints() {
+        LocationEntity loc = buildLocation(12L, "Loc B", 55.0, -2.0, 2);
+        OpenMeteoForecastResponse clear = buildCloudResponse(new int[]{10, 10, 10, 10, 10, 10, 10});
+        when(openMeteoClient.fetchCloudOnlyBatch(any()))
+                .thenReturn(java.util.Arrays.asList(null, null, null))
+                .thenReturn(List.of(clear, clear, clear));
+
+        WeatherTriageService.TriageResult result = service.triage(List.of(loc));
+
+        assertThat(result.viable()).containsExactly(loc);
+        assertThat(result.unsampled()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("triage leaves a location unsampled when the batch fetch throws")
+    void triage_httpException_locationUnsampled() {
         when(openMeteoClient.fetchCloudOnlyBatch(any()))
                 .thenThrow(new RuntimeException("timeout"));
 
@@ -77,14 +91,9 @@ class WeatherTriageServiceTest {
         WeatherTriageService.TriageResult result = service.triage(List.of(loc));
 
         assertThat(result.viable()).isEmpty();
-        assertThat(result.rejected()).containsExactly(loc);
-        assertThat(result.cloudByLocation()).containsKey(loc);
-        assertThat(result.cloudByLocation().get(loc)).isEqualTo(75);
+        assertThat(result.rejected()).isEmpty();
+        assertThat(result.unsampled()).containsExactly(loc);
     }
-
-    // -------------------------------------------------------------------------
-    // Viable vs rejected discrimination
-    // -------------------------------------------------------------------------
 
     @Test
     @DisplayName("triage passes location when at least one hour has cloud < 75%")

@@ -28,8 +28,13 @@ const view = (over = {}) => ({
 });
 
 const FACTS = [
-  { segments: [{ text: 'range ', tone: 'base' }, { text: '4.6 m', tone: 'strong' }] },
-  { segments: [{ text: 'tide ', tone: 'base' }, { text: 'HW 05:44 · 34m before sunrise', tone: 'accent' }] },
+  { segments: [{ text: 'range', tone: 'base' }, { text: '4.6 m', tone: 'strong' }] },
+  {
+    segments: [
+      { text: 'sunrise ·', tone: 'base' },
+      { text: 'HW 05:44, 34m before', tone: 'accent' },
+    ],
+  },
 ];
 
 const renderEntry = (over, onGoToPlan = vi.fn(), onShowOnMap = vi.fn()) => {
@@ -116,7 +121,7 @@ describe('WindowComingUpEntry — the card', () => {
     const chips = within(screen.getByTestId('coming-up-facts')).getAllByTestId('coming-up-fact');
     expect(chips).toHaveLength(2);
     expect(chips[0]).toHaveTextContent('range 4.6 m');
-    expect(chips[1]).toHaveTextContent('tide HW 05:44 · 34m before sunrise');
+    expect(chips[1]).toHaveTextContent('sunrise · HW 05:44, 34m before');
   });
 
   it('renders all three tones — base, strong and accent — from the served segments', () => {
@@ -126,6 +131,49 @@ describe('WindowComingUpEntry — the card', () => {
     const tonesOf = (chip) => within(chip).getAllByText(/./).map((el) => el.getAttribute('data-tone'));
     expect(tonesOf(chip1)).toEqual(['base', 'strong']);
     expect(tonesOf(chip2)).toEqual(['base', 'accent']);
+  });
+
+  describe('tide-run event rows (tide-both-lights W1)', () => {
+    const NB = '\u00a0';
+    const ROW = {
+      segments: [
+        { text: `sunrise${NB}· `, tone: 'base' },
+        { text: `HW${NB}07:40, 10m${NB}before`, tone: 'accent' },
+        { text: `${NB}· Wed${NB}28`, tone: 'base' },
+      ],
+    };
+
+    it('renders an aligned row with one space before the dot and its NBSPs intact', () => {
+      renderEntry({ facts: [FACTS[0], ROW] });
+      const chip = within(screen.getByTestId('coming-up-facts')).getAllByTestId('coming-up-fact')[1];
+      expect(chip.textContent).toBe(
+        `sunrise${NB}· HW${NB}07:40, 10m${NB}before${NB}· Wed${NB}28`,
+      );
+      expect(chip.textContent).not.toMatch(/ {2}/);
+    });
+
+    it('marks a tide-run card, and a supermoon-hosted card that absorbed one, as rows', () => {
+      renderEntry({ facts: [FACTS[0], ROW] });
+      expect(screen.getByTestId('coming-up-facts')).toHaveClass('wf-facts-rows');
+      cleanup();
+      renderEntry({
+        type: 'supermoon',
+        coincidence: [{ family: 'sun-moon', type: 'supermoon' }, { family: 'coastal', type: 'spring-tide' }],
+        facts: [ROW],
+      });
+      expect(screen.getByTestId('coming-up-facts')).toHaveClass('wf-facts-rows');
+    });
+
+    it('leaves every other card type on the chip layout, its text unchanged', () => {
+      renderEntry({
+        type: 'meteor-shower',
+        family: 'night-sky',
+        facts: [{ segments: [{ text: 'radiates from the ', tone: 'base' }, { text: 'Gemini', tone: 'strong' }] }],
+      });
+      const facts = screen.getByTestId('coming-up-facts');
+      expect(facts).not.toHaveClass('wf-facts-rows');
+      expect(facts).toHaveTextContent('radiates from the Gemini');
+    });
   });
 
   it('renders no aside slot when the server sent none (L5, plan §2.8)', () => {
@@ -702,8 +750,8 @@ describe('WindowComingUpEntry — the click seam (plan §11.5, D8)', () => {
       interactive: true,
     });
     expect(screen.getByRole('button')).toHaveAccessibleName(
-      'Spring tide run Almanac biggest until November range 4.6 m tide HW 05:44 · 34m before '
-      + 'sunrise The other 2 runs in this window ranged 4.1–4.9 m. See the plan for 2 Sept →',
+      'Spring tide run Almanac biggest until November range 4.6 m sunrise · HW 05:44, 34m before '
+      + 'The other 2 runs in this window ranged 4.1–4.9 m. See the plan for 2 Sept →',
     );
   });
 

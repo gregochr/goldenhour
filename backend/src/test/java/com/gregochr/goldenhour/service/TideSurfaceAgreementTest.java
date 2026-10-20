@@ -227,8 +227,9 @@ class TideSurfaceAgreementTest {
         // figures are covered elsewhere), stubbed only enough that a real run detected from the
         // height alone survives to a `spring-tide` AlmanacEvent, which is the fact this class exists
         // to pin — not the numeric range that ComingUpConditionsBuilderTest already covers.
-        when(tideRunBuilder.build(anyList(), anyList(), org.mockito.ArgumentMatchers.anyBoolean()))
-                .thenReturn(java.util.Map.of());
+        when(tideRunBuilder.buildWithEventWaters(anyList(), anyList(),
+                org.mockito.ArgumentMatchers.anyBoolean()))
+                .thenReturn(new TideRunBuilder.RunBuild(java.util.Map.of(), java.util.Map.of()));
         TideAlmanacSource chronologySource =
                 new TideAlmanacSource(lunarPhaseService, tideRunBuilder, locationRepository, feed);
 

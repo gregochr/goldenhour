@@ -17,15 +17,15 @@ the light on this run`. A run whose aligned water is at sunset says nothing abou
 
 ## 2. What the reader gets
 
-On every tide-run Coming up card (merged or not) the single `tide …` row becomes TWO rows, sunrise first,
+On every tide-run Coming up card (merged or not, whichever of the run or a supermoon hosts the merge) the single `tide …` row becomes TWO rows, sunrise first,
 each about HIGH water only, each always dated:
 
 | state | row |
 |---|---|
 | aligned | `sunrise · ` **`HW 07:40, 10m before`** ` · Wed 28` |
 | within 5 min | `sunrise · ` **`HW 07:42, at sunrise`** ` · Wed 28` |
-| none within the hour | `sunrise · no high water within the hour · nearest HW 05:30, 2h20 before, Wed 28` |
-| ditto, run only partly measured | `sunrise · no high water within the hour on the days measured · nearest …` |
+| none within the hour | `sunrise · no high water within an hour of sunrise · nearest HW 05:30, 2h20 before · Wed 28` |
+| ditto, run only partly measured | `sunrise · no high water within an hour of sunrise on the days measured · nearest …` |
 | no measured day has a high water that day | row omitted (never synthesised) |
 
 The event word is the row's own label, so the clock clause never repeats it except "at sunrise/sunset". The
@@ -82,7 +82,7 @@ per-location tide fit still covers the reader's own spots' wanted water.
 ## 5. W1 — backend (one PR)
 
 - `TideRunBuilder` per-day high water per event (§3) with its own per-event helpers; `TideAlmanacSource`
-  per-run pick and the nine meta keys; `ComingUpAssembler.tideFacts` the two rows (§2) as segments
+  per-run pick and the eight meta keys plus `eventWaterPartial`; `ComingUpAssembler.tideFacts` the two rows (§2) as segments
   (`base` label, `accent` clock clause when aligned / `base` when not, `base` date) with NBSPs introduced into
   facts (`HW 07:40`, `10m`, `2h20`, `Wed 28`) — `tideFacts` has no `nb()` today, add it; the §4 moves.
 - **Tests that cannot pass on the old code**: (a) a day where the sunset row's HW lies NEARER sunrise

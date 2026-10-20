@@ -532,8 +532,11 @@ class ComingUpAssemblerTest {
         when(tideRunPeakHistory.peakRanges(eq(SEAHAM), eq(COASTAL_ROSTER), eq(DAY), eq(DAY)))
                 .thenReturn(history);
         AlmanacEvent run = event(DAY, DAY.plusDays(3), "spring-tide", "Spring tide run",
-                AlmanacEvent.metaOf("range", "5.2 m", "alignment", "HW 09:08 · 58m after sunrise",
-                        "rangeAnomaly", "+1.9", "location", "Seaham"));
+                AlmanacEvent.metaOf("range", "5.2 m", "sunriseHw", "09:08", "sunriseHwGap", "58",
+                        "sunriseHwDate", DAY.toString(), "sunriseHwAligned", "true",
+                        "sunsetHw", "19:50", "sunsetHwGap", "-20", "sunsetHwDate", DAY.toString(),
+                        "sunsetHwAligned", "true",
+                        "eventWaterPartial", "true", "rangeAnomaly", "+1.9", "location", "Seaham"));
 
         ComingUpResponse response = assembler.assemble(DAY, List.of(run));
 
@@ -545,22 +548,25 @@ class ComingUpAssemblerTest {
         assertThat(entry.interim()).isFalse();
         // Every one of these is now represented elsewhere in the payload (tide.range/delta,
         // metric, or facts), so — unlike the no-tide-field case above — dropping them all is safe.
-        assertThat(entry.meta()).doesNotContainKeys("range", "alignment", "rangeAnomaly", "location");
+        assertThat(entry.meta()).doesNotContainKeys("range", "rangeAnomaly", "location", "sunriseHw",
+                "sunriseHwGap", "sunriseHwDate", "sunriseHwAligned", "sunsetHw", "sunsetHwGap",
+                "sunsetHwDate", "sunsetHwAligned", "eventWaterPartial");
     }
 
     @Test
-    @DisplayName("the tide's phase is LW when the entry's own alignment fact names low water")
-    void tidePhaseFollowsTheAlignmentFact() {
+    @DisplayName("the tide's phase is always HW: the card's rows name high water only")
+    void tidePhaseIsAlwaysHighWater() {
         when(tideRunBuilder.peakRange(anyList(), eq(COASTAL_ROSTER)))
                 .thenReturn(Optional.of(new TideRunBuilder.RunPeak(SEAHAM, 3.6)));
         when(tideService.getTideStats(SEAHAM.getId())).thenReturn(Optional.of(stats("3.3")));
         when(tideRunPeakHistory.peakRanges(any(), any(), any(), any())).thenReturn(List.of());
         AlmanacEvent run = event(DAY, DAY, "spring-tide", "Spring tide run",
+                // The retired single-extremum key, LW-shaped: the old phaseOf read it and said "LW".
                 AlmanacEvent.metaOf("range", "3.6 m", "alignment", "LW 05:44 · 34m after sunrise"));
 
         ComingUpResponse response = assembler.assemble(DAY, List.of(run));
 
-        assertThat(response.entries().getFirst().tide().phase()).isEqualTo("LW");
+        assertThat(response.entries().getFirst().tide().phase()).isEqualTo("HW");
     }
 
     @Test
@@ -724,8 +730,11 @@ class ComingUpAssemblerTest {
 
     /** A run's meta as TideAlmanacSource writes it for a run with a true peak. */
     private static Map<String, String> runMeta(LocalDate peak, LocalDate alignedOn) {
-        return AlmanacEvent.metaOf("range", "4.9 m", "alignment", "HW 15:48 · 52m before sunset",
-                "alignmentDate", alignedOn == null ? null : alignedOn.toString(),
+        return AlmanacEvent.metaOf("range", "4.9 m",
+                "sunsetHw", alignedOn == null ? null : "15:48",
+                "sunsetHwGap", alignedOn == null ? null : "-52",
+                "sunsetHwDate", alignedOn == null ? null : alignedOn.toString(),
+                "sunsetHwAligned", alignedOn == null ? null : "true",
                 "peakDate", peak.toString(), "location", "Seaham");
     }
 
@@ -758,6 +767,12 @@ class ComingUpAssemblerTest {
         return new ComingUpAssembler(locationRepository, tideRunBuilder, tideRunPeakHistory,
                 dailyRangeHistory, tideService, new ComingUpScoringProperties(), calculator);
     }
+
+    private static final String NBSP = "\u00a0";
+
+    /** The sunset row of {@link #runMeta} on Tue 27 Oct, aligned, with its non-breaking spaces. */
+    private static final String SUNSET_ROW_ON_27 =
+            "sunset\u00a0· HW" + NBSP + "15:48, 52m" + NBSP + "before\u00a0· Tue" + NBSP + "27";
 
     private static List<String> factTexts(ComingUpEntry entry) {
         return entry.facts().stream()
@@ -810,9 +825,10 @@ class ComingUpAssemblerTest {
         assertThat(merged.dayMarks()).containsExactly(
                 new ComingUpDayMark(oct(26), "full moon", "sun-moon"),
                 new ComingUpDayMark(oct(27), "peak", "coastal"));
-        // The run's range/alignment facts stay (alignment gains its day); the supermoon's "peaks" does not.
+        // The run's range and event rows stay (each row carries its own date); the supermoon's
+        // "peaks" does not.
         assertThat(factTexts(merged)).containsExactly("range 4.9 m at Seaham",
-                "tide HW 15:48 · 52m before sunset on the 27th");
+                SUNSET_ROW_ON_27);
         assertThat(merged.joinNote()).doesNotContain("bits");
     }
 
@@ -969,7 +985,182 @@ class ComingUpAssemblerTest {
 
         assertThat(merged.coincidence().getFirst().factsLabel())
                 .isEqualTo(nb("Sun 25 – Fri 30 Oct · biggest Tue 27 · 4.9 m"));
-        assertThat(factTexts(merged)).contains("tide HW 15:48 · 52m before sunset on the 28th");
+        assertThat(factTexts(merged)).contains(
+                "sunset\u00a0· HW" + NBSP + "15:48, 52m" + NBSP + "before\u00a0· Wed" + NBSP + "28");
+    }
+
+    /** A run's meta with explicit sunrise and sunset high-water keys (null args are omitted). */
+    private static Map<String, String> eventMeta(String sunriseClock, String sunriseGap,
+            LocalDate sunriseDate, boolean sunriseAligned, String sunsetClock, String sunsetGap,
+            LocalDate sunsetDate, boolean sunsetAligned, boolean partial) {
+        return AlmanacEvent.metaOf("range", "4.9 m", "peakDate", oct(27).toString(),
+                "location", "Seaham",
+                "sunriseHw", sunriseClock, "sunriseHwGap", sunriseGap,
+                "sunriseHwDate", sunriseDate == null ? null : sunriseDate.toString(),
+                "sunriseHwAligned", sunriseAligned ? "true" : null,
+                "sunsetHw", sunsetClock, "sunsetHwGap", sunsetGap,
+                "sunsetHwDate", sunsetDate == null ? null : sunsetDate.toString(),
+                "sunsetHwAligned", sunsetAligned ? "true" : null,
+                "eventWaterPartial", partial ? "true" : null);
+    }
+
+    private List<String> runFacts(Map<String, String> meta) {
+        stubRunAtSeaham();
+        AlmanacEvent run = event(oct(25), oct(30), "spring-tide", "Spring tide run", meta);
+        return factTexts(assembler.assemble(BUILT, List.of(run)).entries().getFirst());
+    }
+
+    @Test
+    @DisplayName("W1: both event rows are always dated; aligned rows say how far, sunrise first")
+    void bothEventRowsAreDated() {
+        List<String> facts = runFacts(eventMeta("07:40", "-10", oct(28), true,
+                "15:48", "-52", oct(27), true, false));
+
+        assertThat(facts).containsExactly("range 4.9 m at Seaham",
+                "sunrise\u00a0· HW" + NBSP + "07:40, 10m" + NBSP + "before\u00a0· Wed" + NBSP + "28",
+                SUNSET_ROW_ON_27);
+        // The old single "tide ..." row and the no-alignment row are gone.
+        assertThat(facts).noneMatch(f -> f.startsWith("tide ") || f.contains("no water lands"));
+        assertThat(facts.get(1)).contains(" ");
+    }
+
+    @Test
+    @DisplayName("W1: a high water within five minutes of the event reads 'at sunrise'")
+    void atTheEvent() {
+        List<String> facts = runFacts(eventMeta("07:42", "3", oct(28), true, null, null, null,
+                false, false));
+
+        assertThat(facts).contains(
+                "sunrise\u00a0· HW" + NBSP + "07:42, at" + NBSP + "sunrise\u00a0· Wed" + NBSP + "28");
+    }
+
+    @Test
+    @DisplayName("W1: no high water within the hour names the nearest one; partial runs say 'on the "
+            + "days measured'; an event with no high water has no row")
+    void missRowsAndOmission() {
+        List<String> facts = runFacts(eventMeta("05:30", "-140", oct(28), false,
+                null, null, null, false, false));
+        assertThat(facts).contains("sunrise\u00a0· no high water within an hour of sunrise\u00a0· nearest HW"
+                + NBSP + "05:30, 2h20" + NBSP + "before\u00a0· Wed" + NBSP + "28");
+        assertThat(facts).noneMatch(f -> f.startsWith("sunset"));
+
+        List<String> partial = runFacts(eventMeta("05:30", "-140", oct(28), false,
+                "19:00", "130", oct(29), false, true));
+        assertThat(partial).contains("sunrise\u00a0· no high water within an hour of sunrise on the days"
+                + " measured\u00a0· nearest HW" + NBSP + "05:30, 2h20" + NBSP + "before\u00a0· Wed" + NBSP + "28");
+        assertThat(partial).contains("sunset\u00a0· no high water within an hour of sunset on the days"
+                + " measured\u00a0· nearest HW" + NBSP + "19:00, 2h10" + NBSP + "after\u00a0· Thu" + NBSP + "29");
+    }
+
+    @Test
+    @DisplayName("W1: the aligned row's clock clause is the accent segment; a miss row has none")
+    void segmentTones() {
+        stubRunAtSeaham();
+        AlmanacEvent aligned = event(oct(25), oct(30), "spring-tide", "Spring tide run",
+                eventMeta("07:40", "-10", oct(28), true, null, null, null, false, false));
+        AlmanacEvent miss = event(oct(25), oct(30), "spring-tide", "Spring tide run",
+                eventMeta("05:30", "-140", oct(28), false, null, null, null, false, false));
+
+        List<ComingUpFact> alignedFacts = assembler.assemble(BUILT, List.of(aligned)).entries()
+                .getFirst().facts();
+        List<ComingUpFact> missFacts = assembler.assemble(BUILT, List.of(miss)).entries()
+                .getFirst().facts();
+
+        assertThat(alignedFacts.get(1).segments())
+                .extracting(ComingUpFact.Segment::text, ComingUpFact.Segment::tone)
+                .containsExactly(
+                        org.assertj.core.api.Assertions.tuple("sunrise\u00a0· ", "base"),
+                        org.assertj.core.api.Assertions.tuple(
+                                "HW" + NBSP + "07:40, 10m" + NBSP + "before", "accent"),
+                        org.assertj.core.api.Assertions.tuple(NBSP + "· Wed" + NBSP + "28", "base"));
+        assertThat(missFacts.get(1).segments())
+                .extracting(ComingUpFact.Segment::tone).containsOnly("base");
+    }
+
+    @Test
+    @DisplayName("W1: a supermoon-hosted merged card (longer moon span) still shows both dated rows, "
+            + "in order, and not the range fact")
+    void supermoonHostedCardKeepsTheEventRows() {
+        stubRunAtSeaham();
+        AlmanacEvent run = event(oct(26), oct(27), "spring-tide", "Spring tide run",
+                eventMeta("07:40", "-10", oct(28), true, "15:48", "-52", oct(27), true, false));
+
+        ComingUpEntry merged = assembler.assemble(BUILT,
+                List.of(run, supermoon(oct(24), oct(30), oct(26)))).entries().getFirst();
+
+        assertThat(merged.type()).isEqualTo("supermoon");
+        assertThat(factTexts(merged)).containsExactly(
+                "sunrise · HW" + NBSP + "07:40, 10m" + NBSP + "before · Wed" + NBSP + "28",
+                SUNSET_ROW_ON_27);
+    }
+
+    @Test
+    @DisplayName("W1: a supermoon that wins a span tie hosts and still shows both dated rows")
+    void supermoonWinningASpanTieKeepsTheEventRows() {
+        stubRunAtSeaham();
+        Map<String, String> meta = new java.util.HashMap<>(eventMeta("07:40", "-10", oct(26), true,
+                "15:48", "-52", oct(26), true, false));
+        meta.remove("peakDate");
+        meta.put("figuresFrom", oct(26).toString());
+        AlmanacEvent run = event(oct(26), oct(26), "spring-tide", "Spring tide run", meta);
+
+        ComingUpEntry merged = assembler.assemble(BUILT,
+                List.of(run, supermoon(oct(26), oct(26), oct(26)))).entries().getFirst();
+
+        assertThat(merged.type()).isEqualTo("supermoon");
+        assertThat(factTexts(merged)).containsExactly(
+                "sunrise · HW" + NBSP + "07:40, 10m" + NBSP + "before · Mon" + NBSP + "26",
+                "sunset · HW" + NBSP + "15:48, 52m" + NBSP + "before · Mon" + NBSP + "26");
+    }
+
+    @Test
+    @DisplayName("W1: exactly five minutes reads 'at sunrise'; exactly an hour reads '1h00 before'")
+    void offsetBoundaries() {
+        assertThat(runFacts(eventMeta("07:45", "5", oct(28), true, null, null, null, false, false)))
+                .contains("sunrise\u00a0· HW" + NBSP + "07:45, at" + NBSP + "sunrise\u00a0· Wed" + NBSP + "28");
+        assertThat(runFacts(eventMeta("06:45", "-60", oct(28), true, null, null, null, false, false)))
+                .contains("sunrise\u00a0· HW" + NBSP + "06:45, 1h00" + NBSP + "before\u00a0· Wed" + NBSP + "28");
+        assertThat(runFacts(eventMeta("07:46", "6", oct(28), true, null, null, null, false, false)))
+                .contains("sunrise\u00a0· HW" + NBSP + "07:46, 6m" + NBSP + "after\u00a0· Wed" + NBSP + "28");
+    }
+
+    @Test
+    @DisplayName("W1: the event rows are identical on a merged card (no ' on the <ordinal>' suffix)")
+    void mergedAndUnmergedShowTheSameRows() {
+        stubRunAtSeaham();
+        AlmanacEvent run = event(oct(25), oct(30), "spring-tide", "Spring tide run",
+                eventMeta("07:40", "-10", oct(28), true, "15:48", "-52", oct(27), true, false));
+
+        ComingUpEntry merged = assembler.assemble(BUILT,
+                List.of(run, supermoon(oct(26), oct(26), oct(26)))).entries().getFirst();
+        ComingUpEntry alone = assembler.assemble(BUILT, List.of(run)).entries().getFirst();
+
+        assertThat(factTexts(merged)).isEqualTo(factTexts(alone));
+        assertThat(factTexts(merged)).noneMatch(f -> f.contains(" on the "));
+    }
+
+    @Test
+    @DisplayName("W1: the coincidence clock reads the aligned sunset row on the peak day, else the "
+            + "sunrise row, else none")
+    void coincidenceClockReadsTheEventRows() {
+        stubRunAtSeaham();
+        AlmanacEvent bothOnPeak = event(oct(25), oct(30), "spring-tide", "Spring tide run",
+                eventMeta("07:40", "-10", oct(27), true, "15:48", "-52", oct(27), true, false));
+        AlmanacEvent sunriseOnly = event(oct(25), oct(30), "spring-tide", "Spring tide run",
+                eventMeta("07:40", "-10", oct(27), true, "15:48", "-52", oct(28), true, false));
+        AlmanacEvent neither = event(oct(25), oct(30), "spring-tide", "Spring tide run",
+                eventMeta("07:40", "-10", oct(27), false, "15:48", "-52", oct(28), true, false));
+        AlmanacEvent moon = supermoon(oct(26), oct(26), oct(26));
+
+        assertThat(assembler.assemble(BUILT, List.of(bothOnPeak, moon)).entries().getFirst()
+                .coincidence().getFirst().factsLabel())
+                .isEqualTo(nb("Sun 25 – Fri 30 Oct · biggest Tue 27 · 4.9 m · HW 15:48"));
+        assertThat(assembler.assemble(BUILT, List.of(sunriseOnly, moon)).entries().getFirst()
+                .coincidence().getFirst().factsLabel())
+                .isEqualTo(nb("Sun 25 – Fri 30 Oct · biggest Tue 27 · 4.9 m · HW 07:40"));
+        assertThat(assembler.assemble(BUILT, List.of(neither, moon)).entries().getFirst()
+                .coincidence().getFirst().factsLabel())
+                .isEqualTo(nb("Sun 25 – Fri 30 Oct · biggest Tue 27 · 4.9 m"));
     }
 
     @Test
@@ -1224,9 +1415,8 @@ class ComingUpAssemblerTest {
         assertThat(runEntry.coincidence()).isEmpty();
         assertThat(runEntry.dayMarks()).isEmpty();
         assertThat(runEntry.joinNote()).isNull();
-        // Unmerged: the alignment fact carries no "on the" suffix.
-        assertThat(factTexts(runEntry)).containsExactly("range 4.9 m at Seaham",
-                "tide HW 15:48 · 52m before sunset");
+        // Unmerged or merged, the event row carries its date.
+        assertThat(factTexts(runEntry)).containsExactly("range 4.9 m at Seaham", SUNSET_ROW_ON_27);
 
         ComingUpEntry moonEntry = response.entries().get(1);
         assertThat(moonEntry.title()).isEqualTo("Supermoon");
