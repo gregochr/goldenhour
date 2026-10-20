@@ -7730,6 +7730,17 @@ button.wf-hc.also.on:hover {
   line-height: 1.4;
   color: var(--color-plex-text-secondary);
 }
+/* Overlay convergence C2 — a one-line fact under the verdict row (the aurora alert level, the
+   travel-day notice). Same register as `.wf-callout-hide`; `overflow-wrap` so a long notice wraps
+   inside the phone card's 266px rather than pushing it wide. */
+.wf-callout-note {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--color-plex-text-secondary);
+  overflow-wrap: anywhere;
+}
 .wf-callout-comfort {
   display: block;
   width: 100%;
@@ -11314,6 +11325,80 @@ button.wf-cond-oc:focus-visible {
   font-family: var(--font-mono);
   font-style: normal;
   font-size: 10.5px;
+}
+/* Overlay convergence C2 — the forecast detail the overlay popup showed, below a window row's prose:
+   conditions badges, wind and comfort rows, the generated-at footer. The sheet's own vocabulary
+   (mono, 10.5px, `--color-plex-text-secondary` — `.wf-loc-light`'s measured ink), never the popup's
+   inline pills. `.wf-loc-why` carries no bottom margin, so the block owns the gap above itself.
+   The badge tones are the popup's own hues, as borders and a faint wash with the INK left at the
+   secondary token: a tone is a colour on the edge, never the only carrier of the fact — the text is
+   the whole message, so no tone has to clear 4.5:1 on its own. */
+.wf-loc-facts {
+  margin-top: 8px;
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-loc-facts-skeleton {
+  height: 14px;
+  width: 70%;
+  margin-bottom: 6px;
+  border-radius: 4px;
+  background: var(--color-plex-surface-light);
+}
+.wf-loc-fact-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 0 6px;
+  padding: 0;
+  list-style: none;
+}
+.wf-loc-fact {
+  max-width: 100%;
+  padding: 2px 8px;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 999px;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--color-plex-text-secondary);
+  overflow-wrap: anywhere;
+}
+.wf-loc-fact[data-tone='amber'] { border-color: rgba(245, 158, 11, 0.45); background: rgba(245, 158, 11, 0.1); }
+.wf-loc-fact[data-tone='violet'] { border-color: rgba(171, 71, 188, 0.5); background: rgba(123, 31, 162, 0.14); }
+.wf-loc-fact[data-tone='blue'] { border-color: rgba(25, 118, 210, 0.5); background: rgba(25, 118, 210, 0.14); }
+.wf-loc-fact[data-tone='indigo'] { border-color: rgba(99, 102, 241, 0.3); background: rgba(99, 102, 241, 0.08); }
+.wf-loc-fact[data-tone='indigo-strong'] { border-color: rgba(99, 102, 241, 0.5); background: rgba(99, 102, 241, 0.15); }
+.wf-loc-fact[data-tone='sea'] { border-color: rgba(111, 168, 176, 0.45); background: rgba(111, 168, 176, 0.12); }
+/* The role-gating pattern for a PRO fact shown to LITE (CLAUDE.md, *Role gating — UI pattern*). */
+/* A locked (Pro) fact for a LITE reader. CLAUDE.md's greyed pattern (opacity .45, no pointer events) is
+   applied to the CONTAINER'S edge and wash, not to the text: .45 on 10.5px ink drops it under AA, and the
+   words ("Upgrade to Pro") are the whole point. The item is non-interactive, so pointer-events is moot. */
+.wf-loc-fact[data-locked='true'] {
+  border-style: dashed;
+  border-color: rgba(99, 102, 241, 0.2);
+  background: transparent;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .wf-loc-facts-skeleton { animation: none; }
+}
+.wf-loc-comfort {
+  margin: 0 0 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--color-plex-border);
+  line-height: 1.8;
+}
+.wf-loc-comfort-row {
+  display: flex;
+  align-items: center;
+}
+.wf-loc-generated {
+  margin: 0;
+  padding-top: 6px;
+  border-top: 1px solid var(--color-plex-border);
+  font-size: 10px;
+  /* The popup's footer used the MUTED token; at 10px mono it is 3.53:1 over the surface, under AA. */
+  color: var(--color-plex-text-secondary);
 }
 /* Borrowed prose names its owner. A REGION's sky gloss shown under a location's name is labelled
    with a mono kicker in the prose's own colour — non-italic, so it reads as a label on the prose

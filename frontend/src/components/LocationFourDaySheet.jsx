@@ -5,6 +5,7 @@ import ProvisionalMark from './shared/ProvisionalMark.jsx';
 import ScoreBar from './ScoreBar.jsx';
 import TideFitBlock from './map/TideFitBlock.jsx';
 import EclipseSpotLine from './map/EclipseSpotLine.jsx';
+import LocationSheetFacts from './map/LocationSheetFacts.jsx';
 import { confidenceTreatment } from '../utils/confidenceUtils.js';
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
 import { buildLocationSheet, lookupForWindow } from '../utils/locationSheet.js';
@@ -129,13 +130,15 @@ const DIM_AT_OR_BELOW = 2;
  *        Plan ›" (F5) is the caller: pressed inside Ask's sheet, whose own close leaves the page with
  *        nowhere focused, so the opener this sheet captures is {@code <body>}. Omitted, the close is
  *        exactly what it was
+ * @param {boolean} [props.isPro] true for PRO and ADMIN readers (a boolean, never the role) — read
+ *        only by the C2 forecast-detail block's gating, which mirrors the overlay popup's
  */
 export default function LocationFourDaySheet({
   spot, windows, scoreIndex = null, slotIndex = null, scoresKnown = false, reachById = null,
   scopeRegionNames = null, origin = null, originLabel = null, todayStr = '', onClose, onShowOnMap,
   planFrom = null, onPlanFrom = null, escapeEnabled = true, location = null,
   focusWindowKey = null, regionGlossIndex = null, tideAlignmentIndex = null, eclipseIndex = null,
-  restoreFocusFallback = null,
+  restoreFocusFallback = null, isPro = false,
 }) {
   const sheet = useMemo(
     () => buildLocationSheet(spot, windows, {
@@ -486,6 +489,13 @@ export default function LocationFourDaySheet({
             const eclipseSight = row.away
               ? null
               : lookupForWindow(eclipseIndex, spot?.id, spot?.name, row.date, row.targetType);
+            // The window's slim forecast row, for the C2 detail block (conditions badges, wind and
+            // comfort rows, the generated-at footer). Read off the roster record's own per-date map,
+            // exactly as the overlay popup was handed it; null on an away day, with no record, or
+            // with no row for the window, and the block then draws nothing at all.
+            const forecastRow = row.away
+              ? null
+              : (location?.forecastsByDate?.get(row.date)?.[row.targetType.toLowerCase()] ?? null);
             return (
               <div key={row.key} className="wf-loc-row" data-testid="location-sheet-row"
                 data-window={row.key} data-best={row.key === sheet.bestKey ? 'true' : undefined}
@@ -710,6 +720,17 @@ export default function LocationFourDaySheet({
                           : 'Ratings are still loading.')}
                     </p>
                   )}
+                  {/* Overlay convergence C2: the forecast detail the overlay popup showed. Mounted
+                      only while the row is open, so its lazy detail fetch happens when a reader
+                      opens a window and never for rows nobody looked at. */}
+                  {expanded && forecastRow && (
+                    <LocationSheetFacts
+                      forecast={forecastRow}
+                      eventType={row.targetType}
+                      isPro={isPro}
+                      triageSuperseded={row.rating != null}
+                    />
+                  )}
                 </div>
               </div>
             );
@@ -853,4 +874,10 @@ LocationFourDaySheet.propTypes = {
    * (L7, `docs/engineering/lunar-eclipse-plan.md`).
    */
   eclipseIndex: PropTypes.object,
+  /**
+   * True for PRO and ADMIN readers — a boolean, never the role (plan §5c). Read only by the C2
+   * forecast-detail block, whose gating mirrors the overlay popup's: a LITE reader gets the plain
+   * aerosol wording, no inversion badge and a locked bluebell badge. Defaults to the LITE reading.
+   */
+  isPro: PropTypes.bool,
 };

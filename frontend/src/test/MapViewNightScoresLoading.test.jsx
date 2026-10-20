@@ -1243,3 +1243,51 @@ describe('the callout on the aurora night in progress', () => {
     expect(headline()).not.toHaveTextContent('Couldn’t load');
   });
 });
+
+describe('the callout\'s aurora alert level (overlay convergence C2)', () => {
+  const level = () => screen.queryByTestId('map-callout-aurora-level');
+
+  it('names the level the stored aurora row serves for the selected place', async () => {
+    KINDS[1].arrange([NIGHT_A]);
+    await renderOn(NIGHT_A, 'AURORA');
+    await land(() => nth(sent.aurora, NIGHT_A, 0).resolve([
+      { locationName: SELECTED, stars: 4, alertLevel: 'STRONG' },
+    ]));
+    // The control: the callout is up on this night and reads the row's stars.
+    expect(headline()).toHaveTextContent('4★');
+    expect(level()).toHaveTextContent('Alert level: Strong');
+  });
+
+  it('names the LIVE level when the night on screen is the live alert\'s night (live wins over the stored request)', async () => {
+    KINDS[1].arrange([NIGHT_A]);
+    // The live alert's night IS the night on screen, so `liveAuroraOnScreen` is true.
+    auroraStatusRef.current = {
+      level: 'MODERATE', kpIndex: 6, currentNightDate: NIGHT_A, active: true,
+    };
+    getAuroraLocations.mockResolvedValue([
+      { location: { name: SELECTED, lat: 55.23, lon: -2.58 }, stars: 5, summary: 'Live', alertLevel: 'STRONG' },
+    ]);
+    await renderOn(NIGHT_A, 'AURORA');
+    // The stored request is left unanswered on purpose: only the live row can supply the level.
+    expect(headline()).toHaveTextContent('5★');
+    expect(level()).toHaveTextContent('Alert level: Strong');
+  });
+
+  it('draws no level line when the row serves none', async () => {
+    KINDS[1].arrange([NIGHT_A]);
+    await renderOn(NIGHT_A, 'AURORA');
+    await land(() => nth(sent.aurora, NIGHT_A, 0).resolve([{ locationName: SELECTED, stars: 4 }]));
+    expect(headline()).toHaveTextContent('4★');
+    expect(level()).not.toBeInTheDocument();
+  });
+
+  it('draws none on an astro night, whatever its rows carry', async () => {
+    KINDS[0].arrange([NIGHT_A]);
+    await renderOn(NIGHT_A, 'ASTRO');
+    await land(() => nth(sent.astro, NIGHT_A, 0).resolve([
+      { locationName: SELECTED, stars: 4, alertLevel: 'STRONG' },
+    ]));
+    expect(headline()).toHaveTextContent('4★');
+    expect(level()).not.toBeInTheDocument();
+  });
+});
