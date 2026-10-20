@@ -108,6 +108,29 @@ class BriefingCandidateCollectorCacheGateBypassTest {
     }
 
     @Test
+    @DisplayName("the evening's strategy evaluates tomorrow's sunrise for a region with a fresh "
+            + "cached entry, where the intraday strategy skips the same slot as cached")
+    void eveningEvaluatesWhatIntradaySkips() {
+        when(briefingEvaluationService.hasFreshEvaluation(anyString(), any())).thenReturn(true);
+        LocationEntity bamburgh = new LocationEntity();
+        bamburgh.setName("Bamburgh");
+        bamburgh.setId(42L);
+        lenient().when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+
+        BriefingCandidateCollector.Result intraday = collector.collectForecastCandidates(
+                tomorrowsSunrise(), new IntradayCandidateCollectionStrategy(CLOCK));
+        BriefingCandidateCollector.Result evening = collector.collectForecastCandidates(
+                tomorrowsSunrise(), new EveningCandidateCollectionStrategy(CLOCK));
+
+        assertThat(intraday.candidates()).isEmpty();
+        assertThat(intraday.dispositions()).singleElement().satisfies(d ->
+                assertThat(d.category().name()).isEqualTo("SKIPPED_CACHED"));
+        assertThat(evening.candidates()).singleElement().satisfies(c ->
+                assertThat(c.location().getName()).isEqualTo("Bamburgh"));
+        assertThat(evening.dispositions()).isEmpty();
+    }
+
+    @Test
     @DisplayName("a strategy that bypasses the cache gate evaluates a region with a fresh cached entry")
     void bypassSkipsNoCachedRegion() {
         // Lenient: the bypass must never consult the cache, so this stub goes unused. Were the gate

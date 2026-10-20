@@ -104,7 +104,7 @@ public class AdminAlertService {
      * is the one case where the app keeps serving traffic while quietly stale).
      *
      * @param runId          the degraded pipeline run's id
-     * @param cycleType      NIGHTLY or INTRADAY
+     * @param cycleType      NIGHTLY, INTRADAY or EVENING
      * @param triggerTime    when the cycle started (UTC)
      * @param failureSummary the same detail string recorded on the run's {@code failureReason} —
      *                       e.g. {@code "3 of 3 forecast batch submissions failed (510 requests
@@ -136,7 +136,7 @@ public class AdminAlertService {
      * Plan and map is exactly what an admin must hear about.
      *
      * @param runId       the pipeline run whose settle disabled the places
-     * @param cycleType   NIGHTLY or INTRADAY
+     * @param cycleType   NIGHTLY, INTRADAY or EVENING
      * @param triggerTime when the cycle started (UTC)
      * @param disabled    the places disabled this cycle, each with its stored reason
      */
@@ -163,7 +163,7 @@ public class AdminAlertService {
      * instead of finding the roster silently emptied or silently untouched.
      *
      * @param runId       the pipeline run whose settle hit the cap
-     * @param cycleType   NIGHTLY or INTRADAY
+     * @param cycleType   NIGHTLY, INTRADAY or EVENING
      * @param triggerTime when the cycle started (UTC)
      * @param names       every place that qualified for disabling this cycle
      * @param cap         the per-cycle disable cap that was exceeded

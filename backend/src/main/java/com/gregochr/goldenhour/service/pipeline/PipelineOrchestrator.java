@@ -19,6 +19,8 @@ import com.gregochr.goldenhour.service.batch.BatchSubmissionSummary;
 import com.gregochr.goldenhour.service.batch.CandidateCollectionStrategy;
 import com.gregochr.goldenhour.service.batch.EligibilityPolicy;
 import com.gregochr.goldenhour.service.batch.ForecastBatchSubmissionOutcome;
+import com.gregochr.goldenhour.service.batch.EveningCandidateCollectionStrategy;
+import com.gregochr.goldenhour.service.batch.EveningEligibilityPolicy;
 import com.gregochr.goldenhour.service.batch.IntradayCandidateCollectionStrategy;
 import com.gregochr.goldenhour.service.batch.IntradayEligibilityPolicy;
 import com.gregochr.goldenhour.service.batch.BatchRetryService;
@@ -130,6 +132,12 @@ public class PipelineOrchestrator {
      */
     static final Duration MIN_RETRY_BUDGET = Duration.ofMinutes(10);
 
+    /** Least value {@code photocast.pipeline.evening-safety-timeout} may take (startup fails below). */
+    static final Duration MIN_EVENING_SAFETY_TIMEOUT = Duration.ofMinutes(30);
+
+    /** Greatest value {@code photocast.pipeline.evening-safety-timeout} may take (startup fails above). */
+    static final Duration MAX_EVENING_SAFETY_TIMEOUT = DEFAULT_SAFETY_TIMEOUT;
+
     private final PipelineRunService pipelineRunService;
     private final ScheduledBatchEvaluationService scheduledBatchEvaluationService;
     private final BriefingService briefingService;
@@ -171,6 +179,11 @@ public class PipelineOrchestrator {
      *                                        cycle's run is finished
      * @param almanacService                  rebuilds the "Coming up" feed's cache once the cycle's
      *                                        run is finished
+     * @param eveningSafetyTimeout            wait budget of the evening cycle
+     *                                        ({@code photocast.pipeline.evening-safety-timeout},
+     *                                        default PT2H); must lie within
+     *                                        {@code MIN_EVENING_SAFETY_TIMEOUT} and
+     *                                        {@code MAX_EVENING_SAFETY_TIMEOUT} or startup fails
      */
     @Autowired
     public PipelineOrchestrator(PipelineRunService pipelineRunService,
@@ -185,13 +198,15 @@ public class PipelineOrchestrator {
             AdminAlertService adminAlertService,
             LocationFailureService locationFailureService,
             AskReadyPrecompute askReadyPrecompute,
-            AlmanacService almanacService) {
+            AlmanacService almanacService,
+            @Value("${photocast.pipeline.evening-safety-timeout:PT2H}") Duration eveningSafetyTimeout) {
         this(pipelineRunService, scheduledBatchEvaluationService, briefingService,
                 forecastBatchRepository, clock,
                 Executors.newVirtualThreadPerTaskExecutor(),
                 DEFAULT_POLL_INTERVAL, safetyTimeout,
                 dynamicSchedulerService, pipelineRunPickService, batchRetryService,
-                adminAlertService, locationFailureService, askReadyPrecompute, almanacService);
+                adminAlertService, locationFailureService, askReadyPrecompute, almanacService,
+                budgetsFrom(safetyTimeout, eveningSafetyTimeout));
     }
 
     /**
@@ -374,6 +389,22 @@ public class PipelineOrchestrator {
         this.almanacService = almanacService;
     }
 
+    /**
+     * The per-type budgets with the evening's own, validated: an out-of-range value fails startup.
+     */
+    static Map<CycleType, Duration> budgetsFrom(Duration safetyTimeout, Duration eveningSafetyTimeout) {
+        if (eveningSafetyTimeout == null
+                || eveningSafetyTimeout.compareTo(MIN_EVENING_SAFETY_TIMEOUT) < 0
+                || eveningSafetyTimeout.compareTo(MAX_EVENING_SAFETY_TIMEOUT) > 0) {
+            throw new IllegalStateException("photocast.pipeline.evening-safety-timeout must be between "
+                    + MIN_EVENING_SAFETY_TIMEOUT + " and " + MAX_EVENING_SAFETY_TIMEOUT
+                    + " but was " + eveningSafetyTimeout);
+        }
+        Map<CycleType, Duration> budgets = budgetsFrom(safetyTimeout);
+        budgets.put(CycleType.EVENING, eveningSafetyTimeout);
+        return budgets;
+    }
+
     private static Map<CycleType, Duration> budgetsFrom(Duration safetyTimeout) {
         Map<CycleType, Duration> budgets = new EnumMap<>(CycleType.class);
         for (CycleType type : CycleType.values()) {
@@ -405,6 +436,8 @@ public class PipelineOrchestrator {
                     "near_term_batch_evaluation", this::runNightlyCycle);
             dynamicSchedulerService.registerJobTarget(
                     "intraday_forecast_refresh", this::runIntradayCycle);
+            dynamicSchedulerService.registerJobTarget(
+                    "evening_sunrise_refresh", this::runEveningCycle);
         }
     }
 
@@ -445,6 +478,19 @@ public class PipelineOrchestrator {
         runCycle(CycleType.INTRADAY,
                 new IntradayCandidateCollectionStrategy(clock),
                 IntradayEligibilityPolicy.INSTANCE);
+    }
+
+    /**
+     * Evening refresh entry point: one look at tomorrow's sunrise at about 20:00 UTC, so the bedtime
+     * decision rests on a forecast hours fresher than the afternoon's. Bound to the
+     * {@code evening_sunrise_refresh} schedule (seeded PAUSED). It differs from the other cycles in
+     * its strategy (tomorrow's sunrise alone, bypassing the cache gate), its policy (every stability),
+     * its own wait budget and in giving no failure evidence ({@link CycleType#EVENING}).
+     */
+    public void runEveningCycle() {
+        runCycle(CycleType.EVENING,
+                new EveningCandidateCollectionStrategy(clock),
+                EveningEligibilityPolicy.INSTANCE);
     }
 
     /**
