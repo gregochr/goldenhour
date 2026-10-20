@@ -152,8 +152,8 @@ const PREFERRED_TAB_GRACE_MS = 1500;
  * rule this file has always stated — "a tab that renders nothing is a demo control and §6 bans
  * those, so each tab lands with its pane" — now enforced by construction rather than by keeping the
  * list short. It is also how the admin gate works: {@code App} holds {@code isAdmin} and simply
- * does not pass {@code operationsPane}. Nothing role-shaped crosses this boundary — no role, no
- * {@code isAdmin} boolean, no prop the arm would then have to explain — which is what plan §5c
+ * does not pass {@code operationsPane}. No role and no
+ * {@code isAdmin} crosses this boundary (derived booleans such as {@code reachLocked} and {@code isPro} are allowed) — which is what plan §5c
  * exists to protect, and it is a stronger guarantee than a gate the shell could get wrong.
  *
  * <p>The glyph is decorative and {@code aria-hidden}, so the accessible name stays the bare word.
@@ -236,7 +236,7 @@ const panelDomId = (id) => `window-first-panel-${id}`;
  *
  * <p>So it returns as {@code healthPill}, a NODE the caller supplies, on the same idiom as
  * {@code operationsPane}: {@code App} holds {@code isAdmin} and withholds the node, so a pilot user
- * still sees no pill and nothing role-shaped crosses this boundary (plan §5c). The unconditional
+ * still sees no pill and no role and no isAdmin crosses this boundary; derived booleans such as reachLocked and isPro are allowed (plan §5c). The unconditional
  * pill the design draws is still not what ships — the design has no roles in it.
  *
  * <h2>The tab bar carries Plan and Coming up, and still not Map or Manage</h2>
@@ -390,7 +390,7 @@ export default function WindowFirstShell({
     windowCards, paneItems, loading, briefing, evaluationScores, scoresLoaded,
     scoreIndex, scoreRows, todayStr, reachLens, ratingLens, homePlace,
     origin, setOrigin, regions, effectiveReachById,
-    comingUpLastSeenDate, setComingUpLastSeenAt,
+    comingUpLastSeenDate, setComingUpLastSeenAt, isPro,
   } = useWindowFirstBriefing();
   /**
    * Whether the first fetch has been running long enough that the pending line should admit it is
@@ -2824,6 +2824,8 @@ export default function WindowFirstShell({
             tideAlignmentIndex={sheetTideAlignmentIndex}
             // The eclipse spot line, per solar row (L7).
             eclipseIndex={sheetEclipseIndex}
+            // The C2 forecast-detail block's tier gating (a boolean, never the role — plan §5c).
+            isPro={isPro}
             // Where the close lands when the sheet was opened from Ask's sheet (F5); null for every
             // other opening, which keeps its restore exactly as it was.
             restoreFocusFallback={askSheetFallback}

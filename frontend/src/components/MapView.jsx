@@ -6862,6 +6862,15 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               // lives in `MapCallout`: a past window, this place's own passed event time, a sky place.
               userRole={role}
               ratings={outcomeRatings}
+              // Overlay convergence C2: the aurora result row's served alert level for the place on
+              // screen — the SAME live-or-stored row the popup's aurora block read — and the travel-day
+              // flag the popup's notice read. The callout draws each on its own window kind only.
+              auroraAlertLevel={isAuroraMode
+                ? ((liveAuroraOnScreen
+                  ? auroraScores[selectedLoc.name]
+                  : storedAuroraResults[selectedLoc.name])?.alertLevel ?? null)
+                : null}
+              travelDay={isTravelDate(activeMapEvent?.date ?? date, travelRanges)}
               onSelectEv={selectEvRow}
               onOpenSheet={() => handleOpenLocationSheet(false)}
               onOpenInPlan={() => handleOpenLocationSheet(true)}
