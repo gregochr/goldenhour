@@ -35,4 +35,14 @@ public interface CandidateCollectionStrategy {
      * @return whether the cycle should evaluate this slot
      */
     boolean includes(LocalDate date, TargetType targetType);
+
+    /**
+     * Whether this cycle ignores the fresh-cached-evaluation skip, evaluating a region even when
+     * its cached evaluation is still within its freshness window.
+     *
+     * @return {@code true} to bypass the CACHED gate; {@code false} (the default) honours it
+     */
+    default boolean bypassesCacheGate() {
+        return false;
+    }
 }

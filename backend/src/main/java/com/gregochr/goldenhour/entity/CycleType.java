@@ -21,5 +21,48 @@ public enum CycleType {
     NIGHTLY,
 
     /** Intraday refresh cycle — decision-window events on the skip-settled cost gate. */
-    INTRADAY
+    INTRADAY;
+
+    /** What a cycle's results tell {@code LocationFailureService} about a place. */
+    public enum FailureEvidence {
+        /** The cycle's failures and successes count towards a place's consecutive failures. */
+        COUNTED,
+        /** The cycle takes no part in failure counting. */
+        NONE
+    }
+
+    /**
+     * Whether the cycle publishes the stability snapshot (non-ephemeral submit).
+     *
+     * @return {@code true} for the nightly cycle only
+     */
+    public boolean publishesStabilitySnapshot() {
+        return switch (this) {
+            case NIGHTLY -> true;
+            case INTRADAY -> false;
+        };
+    }
+
+    /**
+     * Whether the cycle records a STABILITY_RECLASSIFY phase ahead of the submit phase.
+     *
+     * @return {@code true} for the intraday cycle
+     */
+    public boolean recordsReclassifyPhase() {
+        return switch (this) {
+            case NIGHTLY -> false;
+            case INTRADAY -> true;
+        };
+    }
+
+    /**
+     * Whether the cycle's outcomes count as evidence for per-place failure counting.
+     *
+     * @return the evidence this cycle type gives
+     */
+    public FailureEvidence failureEvidence() {
+        return switch (this) {
+            case NIGHTLY, INTRADAY -> FailureEvidence.COUNTED;
+        };
+    }
 }

@@ -32,6 +32,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -1056,6 +1057,31 @@ class PipelineOrchestratorTest {
             // And it reaches briefing through the identical tail.
             verify(briefingService).refreshBriefing();
             verify(pipelineRunService).completeRun(RUN_ID);
+        }
+
+        @Test
+        @Timeout(10)
+        @DisplayName("an INTRADAY run waits on INTRADAY's own budget, not the nightly one: 30 min "
+                + "in, a 10 min INTRADAY budget is spent while the 1 h nightly budget is not")
+        void intraday_wait_uses_the_intraday_budget() {
+            Clock thirtyMinutesIn = Clock.fixed(T0.plus(Duration.ofMinutes(30)), ZoneOffset.UTC);
+            PipelineOrchestrator budgeted = new PipelineOrchestrator(
+                    pipelineRunService, scheduledBatchEvaluationService, briefingService,
+                    forecastBatchRepository, thirtyMinutesIn, directExecutor,
+                    Duration.ofMillis(1), Duration.ofHours(1), null, pipelineRunPickService,
+                    batchRetryService, adminAlertService, locationFailureService, null, null,
+                    java.util.Map.of(CycleType.NIGHTLY, Duration.ofHours(1),
+                            CycleType.INTRADAY, Duration.ofMinutes(10)));
+            when(pipelineRunService.startRun(CycleType.INTRADAY)).thenReturn(newIntradayRun());
+            when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newIntradayRun()));
+            when(forecastBatchRepository.findByPipelineRunId(RUN_ID))
+                    .thenReturn(List.of(batch(BatchStatus.SUBMITTED)));
+
+            budgeted.runIntradayCycle();
+
+            verify(pipelineRunService).failRun(eq(RUN_ID),
+                    org.mockito.ArgumentMatchers.contains("within PT10M"));
+            verify(briefingService, never()).refreshBriefing();
         }
 
         @Test

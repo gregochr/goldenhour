@@ -199,7 +199,8 @@ public final class BriefingCandidateCollector {
                     Duration freshness = freshnessResolver.maxAgeFor(daysAhead, regionStability);
                     int regionSlots = region.slots() != null ? region.slots().size() : 0;
                     eligibleByStability.get(regionStability)[0] += regionSlots;
-                    if (briefingEvaluationService.hasFreshEvaluation(cacheKey, freshness)) {
+                    if (!candidateStrategy.bypassesCacheGate()
+                            && briefingEvaluationService.hasFreshEvaluation(cacheKey, freshness)) {
                         LOG.warn("[BATCH DIAG] SKIP region {} | reason=CACHED "
                                         + "(T+{}, stability={}, threshold={}h, {} slots skipped)",
                                 cacheKey, daysAhead, regionStability,
