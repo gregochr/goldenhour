@@ -99,6 +99,11 @@ const LEAFLET_CORNER_SELECTOR = '.leaflet-bottom.leaflet-right';
 /** `pendingNightRowIds`' default — one shared empty set rather than a fresh one per render. */
 const NO_PENDING_ROWS = new Set();
 
+/** The served geomagnetic alert levels, as the words the callout prints. */
+const ALERT_LEVEL_WORDS = {
+  QUIET: 'Quiet', MINOR: 'Minor', MODERATE: 'Moderate', STRONG: 'Strong',
+};
+
 /**
  * The peek sheet's own collapsed height with NO Ask row, in px — the fallback for {@code --psh} when
  * the CSS custom property cannot be read (a test harness with no real stylesheet, mainly). Matches
@@ -307,6 +312,15 @@ function kindShort(event) {
  *        time, and never for a place with no row or no time — the server's per-place check would
  *        refuse the rating (§4 #4). There is no timer: the block appears at the next render after
  *        that instant, like the window going past
+ * @param {?string} [props.auroraAlertLevel] the SERVED geomagnetic alert level for THIS place on the
+ *        aurora night on screen (`QUIET | MINOR | MODERATE | STRONG` — the aurora result row's
+ *        `alertLevel`, the same row `MarkerPopupContent` read it from; overlay convergence C2). Drawn
+ *        as one "Alert level" line under the verdict on an aurora window only; null or any other
+ *        window draws nothing. The callout showed the stars alone before
+ * @param {boolean} [props.travelDay] true when the window's date falls in one of the operator's travel
+ *        ranges (overlay convergence C2): the overnight batch skips Claude forecasts on those days,
+ *        so a solar window says why it has no rating rather than reading as a pipeline gap. Honoured
+ *        on a SOLAR window only. The sheet's own away rows say the same in its vocabulary
  */
 export default function MapCallout({
   location, rating = null, event = null, driveMinutes = null, distanceMiles = null,
@@ -316,7 +330,7 @@ export default function MapCallout({
   astroConditionsByDate = null, auroraResultsByDate = null, pendingNightRowIds = NO_PENDING_ROWS,
   tideStripHeight = null, bandKey = null, hourlyRows = null, now = null, dayMode = false,
   onSelectEv = null, onOpenSheet = null, onOpenInPlan = null, onClose = null,
-  userRole = null, ratings = null,
+  userRole = null, ratings = null, auroraAlertLevel = null, travelDay = false,
 }) {
   const map = useMap();
   const isMobile = useIsMobile();
@@ -544,6 +558,13 @@ export default function MapCallout({
   // here moving. They are folded into one string because the rows and `loading` live in a hook this
   // component calls, not in the block, where the card could not see them.
   //
+  // ⚠️ And `travelDay` / `auroraAlertLevel` (overlay convergence C2): each adds or removes a whole
+  // line under the verdict row, and both arrive from fetches that can land with the card already
+  // open — `fetchTravelDayRanges` resolves after the map mounts, the live aurora scoring after the
+  // alert's night is on screen — with `event?.id` and everything else here unmoved. Without them the
+  // card kept its old height until an unrelated pan/zoom re-measured, and on a phone the grown card
+  // could overlap the peek sheet.
+  //
   // ⚠️ And `hourlyRows` — a wildlife hide's comfort summary is 2–5 lines of text whose number and
   // height depend on which readings are served for the window's date, and the forecast refresh that
   // lands them can arrive with the card already open. Stable between ordinary renders (the caller
@@ -553,7 +574,7 @@ export default function MapCallout({
   useEffect(() => { repaintNow(); }, [
     paint, stripOpen, event?.id, event?.past, rating, ratingKnown, ratingRetrying,
     tideAlignmentIndex, tideStripHeight, bandKey, hourlyRows, ratingLayout, changing, adminOpen,
-    adminLayout, repaintNow,
+    adminLayout, travelDay, auroraAlertLevel, repaintNow,
   ]);
 
   // "On open": bring the point into view — ONCE per new selection, never on every paint (README §7
@@ -650,6 +671,9 @@ export default function MapCallout({
   // rating never reaches this catalogue in practice (`utils/verdictWord.js`'s own note), but
   // rounding before classifying is what keeps "4★ Maybe" from ever being printable if one ever did.
   const word = verdictWord(ratingRounded);
+  // The aurora alert level as the one word the line prints ('STRONG' → 'Strong'); an unknown value is
+  // not guessed at, it is not drawn.
+  const alertWord = ALERT_LEVEL_WORDS[auroraAlertLevel] ?? null;
   // The kind chip beside this already reads SUNRISE/SUNSET — `dayLabel`, never `event.label`
   // (kind-chip dedup). Falls back to `label` for a caller that predates the field (e.g. a fixture
   // built before `utils/mapEvents.js` started emitting it).
@@ -909,6 +933,25 @@ export default function MapCallout({
             </span>
           )}
         </div>
+        )}
+        {/* Overlay convergence C2 — the aurora alert level, the one word the popup's aurora block
+            carried that the callout's stars did not. Its own line UNDER the verdict row rather than
+            another chip IN it: that row already holds the kind word, the window label and the
+            rating badge, and a fourth item would wrap or push the badge off the 266px phone card.
+            `'aur'` matches this file's existing literal kind tests (`'solar'`, `'astro'`); the value
+            is pinned against `mapEvents.EVENT_KIND.AURORA` by a test. */}
+        {!isDay && event?.kind === 'aur' && alertWord && (
+          <p className="wf-callout-note" data-testid="map-callout-aurora-level">
+            {`Alert level: ${alertWord}`}
+          </p>
+        )}
+        {/* C2 — why a solar window has no rating on a travel day (the popup's notice, in this
+            card's vocabulary). Solar only: a night window is not skipped by the travel rule. */}
+        {!isDay && event?.kind === 'solar' && travelDay && (
+          <p className="wf-callout-note" data-testid="map-callout-travel-day">
+            <span aria-hidden="true">✈️ </span>
+            Forecast not run — you&apos;re away (travel day).
+          </p>
         )}
         {/* ⚠️ No status region here, deliberately: the failure line is announced by `MapView`'s
             own (`statusLine`). A region inside this card would be mounted by the selection, so a
@@ -1280,6 +1323,10 @@ MapCallout.propTypes = {
   onClose: PropTypes.func,
   /** The reader's role — read only by the rating block; see the JSDoc above. */
   userRole: PropTypes.string,
+  /** The served alert level for this place on the aurora night on screen — see the JSDoc above. */
+  auroraAlertLevel: PropTypes.string,
+  /** True on a travel day — see the JSDoc above. */
+  travelDay: PropTypes.bool,
   /** `useOutcomeRatings`'s return value, or null — see the JSDoc above. */
   ratings: PropTypes.shape({
     loaded: PropTypes.bool,

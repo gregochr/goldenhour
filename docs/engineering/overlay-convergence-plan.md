@@ -39,15 +39,14 @@ into every review agent's prompt.
 
 ## §0 Status
 
-**Status: C1 MERGED (#1246); C2 in PR #1248; C3 BUILT 2026-10-20 on `feature/overlay-c3-aurora-only-tab` (PR pending); C4–C6 not started. §5 D1–D6 TAKEN by the owner 2026-10-20 (every
-recommendation confirmed; D2 follows from D1).** Phase log (each phase appends its own row in
+**Status (2026-10-20): C1 MERGED (#1246); C2 MERGED (#1248, `dca621cc`); C3 BUILT on `feature/overlay-c3-aurora-only-tab` (PR pending); C4–C6 not started.** §5 D1–D6 were TAKEN by the owner 2026-10-20 (every recommendation confirmed; D2 follows from D1). Phase log (each phase appends its own row in
 the same commit as its code; the `PR` column names the PR, not a SHA — the repo squash-merges):
 
 | phase | what | PR | notes |
 |---|---|---|---|
 | C0 | this plan | | |
 | C1 | the handoff contract: `source:'plan'` carries everything the overlay's seven triggers carry | #1246 | no door moves yet. Built 2026-10-20: `utils/mapDoor.js` (`normalizeMapTrigger`, `doorHeadline`, `doorFromTrigger`); `night`/`focusNames`/`focusPoints`/`filterAction`/`darkSky`/`title`/`caption` on the handoff; `MapBreadcrumb` headline + lens clauses + `clear`. The `focusNames` lens is an INTERSECTION with the reader's filters (not the overlay's override), so "showing N spots" counts the pool actually drawn. `filterAction`/`darkSky` no longer open the Filters popover (the crumb names them). A `focusPoints` door leaves scope alone (a scope reset would race the fit). `MapView`'s `askWindow` row-following was extracted to `followWindowRow` and is shared with the new night-follow effect |
-| C2 | detail parity: the popup's facts the tab lacks, on the location sheet (and callout where cheap) | | owner list, D3 |
+| C2 | detail parity: the popup's facts the tab lacks, on the location sheet (and callout where cheap) | #1248 | built 2026-10-20 on `feature/overlay-c2-detail`; (a), (b), (g), (h) on the sheet, (c)'s level word and (f) on the callout, (e) and the light line already there; **(c)'s `detail` text and (d) have no home** — the sheet has no night rows (see §3 C2 note) |
 | C3 | a Map tab with no solar forecast: offered on an aurora alert; a live-night aurora row | pending | D4. Built 2026-10-20, revised after review: `utils/auroraTab.js` (`auroraTabOffered`: PRO/ADMIN AND `active` AND `isRealAlert` (MODERATE/STRONG, never simulated) AND the status's night not ended (`isStillCurrent`, the test `resolveAuroraNight` applies)) read by `App` (pane offered; with no forecast the pane's date is the night IN PROGRESS, which pre-dawn is yesterday's date; with forecast data, even hides-only, the date is today as before) and `MapView` (the live night's row from `auroraScores`, added only once the stored-dates list has ANSWERED (`auroraDatesLoaded`) and no stored result names that night; memoised; a stored run's row takes its best from the selected-night answer when the preview, bounded to the solar horizon, did not ask). The **aurora-only tab** (a real alert, NO forecast row anywhere — derived in `MapView` from empty `forecastsByDate`, so a hides-only forecast is not it) enters AURORA when its only rows are night rows, live OR stored, until the reader chooses; `hideDayCard`/`hidesOnlyForecast` test "no SOLAR event", so a night row never evicts a hide's comfort card. The shell selects Plan explicitly and focuses the Plan tab when the Map tab is withdrawn while in force (alert cleared). A night-only pill carries an accessible name (kind, night, time if known, best star), the single-window steppers point at an "Only one window" reason, and the phone Windows section falls back to the first row's label as its heading. **Simulated-alert decision: a simulated alert (the status carries `simulated`) offers neither the tab nor the row** — it has no scores and no stored run, and `aurora-banner-plan.md` D9 ("a simulated alert asks for nothing") and the simulation-isolation rule keep it off user-facing surfaces; the banner still shows it with its 🧪. **Deviations from the prompt**: (1) the tab is offered on MODERATE+ (not any `active` alert) because scores are fetched only from MODERATE; (2) the live row is also appended on a tab that HAS a forecast (the D-14 gap is the same; it lands after that date's sunset exactly as a stored night's row does; every solar row and its order is unchanged, pinned). **Known limit (accepted):** a live night that gains a stored run mid-session is not converted (the dates list is read once per role). The landing card needs no change (`landingRows` is solar-only). Browser check owed |
 | C4 | move the seven doors; delete `App`'s overlay state | | one PR per door group is fine |
 | C5 | delete the overlay: `MapView` branches, `MapOverlay`, `mapOverlay.js`, `ForecastTypeSelector`, CSS, tests | | the big one |
@@ -149,6 +148,29 @@ the tide the sheet shows and a second live tide fetch was the overlay's own dupl
 **O-7**, its own small admin phase on the callout's actions row, not this series. The owner strikes
 or adds before C2 starts (D3). Map-tab-v2 §4.9 #11's rule stands: each is added to the callout/sheet
 *deliberately*, never by porting `MarkerPopupContent` across.
+
+**C2 as built (2026-10-20).** *Sheet, per expanded window row* (`components/map/LocationSheetFacts.jsx`,
+`utils/forecastDetailFacts.js`, `hooks/useForecastDetail.js` — a copy of the popup's private hook, so
+`MarkerPopupContent` stays untouched until C5): **(a)** dust / inversion / bluebell badges, **(b)**
+sea state, surge and the rising-tide warning, **(g)** wind and comfort rows (slim row, no fetch) and
+**(h)** the generated-at footer. The detail row is fetched only for an OPENED row. Gating mirrors the
+popup section by section: LITE gets "High aerosols", no inversion, a locked bluebell. **(e)** the
+Fiery Sky / Golden Hour `ScoreBar`s and **(g)**'s golden/blue-hour line were ALREADY on the sheet (the
+location-sheet superset plan, Phases 1–2), so C2 changed nothing there. *Callout*: **(c)**'s
+`alertLevel` word as one "Alert level" line under the verdict row (aurora window only, from the same
+live-or-stored row the popup read) and **(f)** the travel-day notice (solar window only). Two
+thresholds the popup applied client-side — the dust test and the ±90-minute rising-tide window — were
+MOVED unchanged, not invented; their exit is a served boolean on the detail DTO, and they die with the
+popup's last non-admin mount in C5.
+
+> **Dated note, 2026-10-20 — (c)'s `detail` text and (d) the astro explanations are NOT built.**
+> D3 puts them on the sheet "where it shows a night row", and `LocationFourDaySheet` shows only SOLAR
+> windows (`buildLocationSheet` rows are the place's own sunrises and sunsets; its Javadoc and tide
+> block say so). Inventing night rows was out of C2's scope. They need an owner call: night rows on
+> the sheet (a bigger change than a parity phase), or a callout expansion carrying them (which D3
+> and map-tab-v2 §4 #11 keep to the level word). Until then the aurora `detail` prose and the astro
+> cloud / visibility / moon / phase lines stay overlay-only and are LOST at C5 unless that call is made
+> first. Recorded here so C4's door move does not silently drop them.
 
 ### C3 — a Map tab without a solar forecast (D4)
 

@@ -2,6 +2,7 @@ import PropTypes from 'prop-types';
 import AskAnswerFoot from './AskAnswerFoot.jsx';
 import AskEventCard from './AskEventCard.jsx';
 import AskPickCard from './AskPickCard.jsx';
+import AskWindowSpread from './AskWindowSpread.jsx';
 
 /**
  * "Plan this ›" — a control in a pick card's own row (`.pk .act button`), on every surface. Every card has
@@ -36,6 +37,7 @@ export default function AskAnswer({ ask, pickActions, onPlan }) {
   return (
     <>
       <p className="wf-ask-sum" data-testid="ask-summary">{answer.summary}</p>
+      <AskWindowSpread windows={answer.windows} />
       {answer.events.length > 0 && (
         <div className="wf-ask-cards" data-testid="ask-events">
           {answer.events.map((event) => (
