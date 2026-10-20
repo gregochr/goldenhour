@@ -1,6 +1,6 @@
 # Plan: an evening refresh of tomorrow's sunrise
 
-**Status: DRAFT, 2026-10-20, not started. Owner decisions E-D1 to E-D7 (§4) are open, each with a
+**Status: DRAFT, 2026-10-20, not started; §9 (added the same day) cuts the build into Sonnet-delegable briefs. Owner decisions E-D1 to E-D7 (§4) are open, each with a
 proposed default.** Written against `main` at `214a49ed`, with both forecast cycles already on their
 sun-relative schedules (`docs/engineering/solar-relative-refresh-plan.md`, released v2.27.0; the
 afternoon switched 2026-10-13, the overnight 2026-10-20).
@@ -234,3 +234,153 @@ touches. Findings that shaped the design, with citations:
 Not examined: what the evening's results change on the Map tab beyond what the briefing rebuild
 already does; the Ask Ready questions' text at 21:00 (whether "this morning"/"tomorrow" wording reads
 right then); and real production costs, which §5 measures.
+
+## 9. Delegation: one Sonnet agent per build phase
+
+Added 2026-10-20 against `main` at `dca621cc`. §6's phases are kept; E1–E3 are re-cut so that each
+build piece is one brief a Sonnet agent can finish alone, in its own worktree, without reading this
+conversation. The orchestrating session (Opus) writes each brief from the template below, launches the
+agent (`isolation: "worktree"`, `model: "sonnet"`), then does the parts a builder should not mark itself:
+the adversarial review, the gates re-run from a clean checkout, the PR, and Codex. Agents commit to their
+own branch and never push.
+
+### 9.1 What changed from §6, and why
+
+- **Every consumer is wired in E1, not E2.** All five §3.1 properties get their consumer in E1, each
+  answering for NIGHTLY and INTRADAY exactly what the code does today. E2 then only adds a constant and
+  its answers. This keeps E1 the one risky refactor (proven by "no existing test changed"), and makes E2
+  small enough that its tests are about the evening and nothing else.
+- **E3 splits into backend (E3a) and frontend (E3b)**, which share no files and can run at once.
+- **A docs sweep (E3c)** runs last, because CLAUDE.md's *Dynamic scheduler*, *Command pattern* and
+  `CycleType` facts change in three PRs and one pass is cheaper than three conflicting ones.
+
+### 9.2 Order and parallelism
+
+```
+E0 (owner: §5 queries, E-D1..E-D6)   ─┐
+E1 (cycle-type properties, refactor) ─┴─► E2 (evening cycle, PAUSED) ─┬─► E3a (registry + watchdog) ─┬─► E3c (docs) ─► E4 (owner)
+                                                                      └─► E3b (scheduler UI copy)  ──┘
+```
+
+- **E0 and E1 run together.** E1 changes no behaviour and depends on no decision.
+- **E2 waits for E0.** It encodes E-D2 to E-D5. If the owner has not answered, E2 builds the proposed
+  defaults and the PR says so in its first line.
+- **E3a and E3b run together** after E2 merges (both need the job key and `CycleType.EVENING` on main).
+- Everything in the backend chain is sequential because every piece hangs off one enum; do not try to
+  parallelise E1/E2 by stubbing it.
+
+### 9.3 The brief template (every phase)
+
+Each brief carries, in this order: the goal in two sentences; the base (`main` at the merge commit of
+the phase before); the files it may touch (anything else is a stop-and-report); the must-nots; the tests
+by name; the gate; what to hand back. Standing lines for every brief:
+
+- Read `CLAUDE.md` and `docs/engineering/test-improvement-standards.md` (backend) or
+  `frontend-test-standards.md` (frontend) before writing a test. Minimise `any()`/`lenient()`.
+- Backend gate, exit code only:
+  `cd backend && ./mvnw clean verify --batch-mode --no-transfer-progress -Dtest='!**/integration/**' -DfailIfNoSpecifiedTests=false >/tmp/v.log 2>&1; echo "exit: $?"`
+  (no Docker here; integration classes and the migration run in CI only).
+- Frontend gate: `npm run lint && npm test && npm audit --audit-level=high && npm run build`.
+- One changelog file, `changelog.d/YYYYMMDD-<slug>.md`. Never `CHANGELOG.md`.
+- Never push, tag, or `git add -A`; never `git checkout --` a file you did not change.
+- Hand back: branch, commit hash, gate exit codes, the test count delta, and every place the brief was
+  wrong or ambiguous.
+
+### 9.4 The briefs
+
+**E1 — Cycle-type properties, every consumer wired, no behaviour change.**
+- Add to `CycleType` five methods, each an exhaustive `switch` (no `default`):
+  `publishesStabilitySnapshot()` (NIGHTLY true), `recordsReclassifyPhase()` (INTRADAY true),
+  `countsLocationFailures()` (both true), `bypassesCacheGate()` (both false),
+  `safetyBudget(Duration configured)` (both return `configured`).
+- Consumers:
+  - `PipelineOrchestrator.submitPhase` (the `boolean intraday` at ~547): first phase and the
+    between-steps hook from `recordsReclassifyPhase()`, the `ephemeral` argument to
+    `ScheduledBatchEvaluationService.submitForecastBatchForPipelineRun` from
+    `!publishesStabilitySnapshot()`. The local `intraday` disappears.
+  - `PipelineOrchestrator`'s budget (`budgetDeadline`, `remainingBudget`, the fallback deadline and
+    the RETRY_FAILED skip message, all reading the `safetyTimeout` field): read the run's own
+    `cycleType.safetyBudget(safetyTimeout)`. The run's cycle type is on `pipeline_run`; load it once
+    per wait, not once per poll.
+  - `LocationFailureService`'s mode choice (~415–427): a run whose cycle type does not count failures
+    settles `RESETS_ONLY` with the reason "this cycle type never counts failures", checked before the
+    trigger-order rule. Unreachable for both existing types.
+  - `BriefingCandidateCollector`'s CACHED skip (~202): skipped when the cycle bypasses the gate. Thread
+    the cycle type (or the one boolean) through the existing `ScheduledBatchEvaluationService` →
+    collector path; do not read it from a static.
+- Tests: one per property per constant; `PipelineOrchestratorTest` asserting both cycles' phase lists
+  and `ephemeral` values are what they were; a budget test per cycle; the settle and cache-gate tests
+  for NIGHTLY and INTRADAY unchanged.
+- **Stop-point:** if any existing test's assertion has to change, stop and report it. A changed
+  constructor or method signature in test setup is fine; a changed expectation is not.
+
+**E2 — The evening cycle, dormant.** (After E0, or on the defaults.)
+- `CycleType.EVENING` with its answers: snapshot false, reclassify true, failures false (E-D5),
+  cache bypass true (E-D3), budget = a new `photocast.pipeline.evening-safety-timeout` (ISO-8601,
+  default PT2H, E-D4). The compiler finds every `switch`; answer each.
+- `EveningCandidateCollectionStrategy` in `service/batch/`, the shape of
+  `IntradayCandidateCollectionStrategy` (built with the orchestrator's `Clock`, `today` the UK civil
+  date fixed at construction): `date.equals(today.plusDays(1)) && targetType == SUNRISE`.
+- `EveningEligibilityPolicy`: include every stability on the near-term model (E-D2), with a javadoc
+  saying why. Do not reuse `IntradayEligibilityPolicy`: it happens to give the same answer for this
+  slot, but its rationale ("tomorrow's sunrise has only the next morning's look") is exactly what the
+  evening makes false, and E5 will edit it.
+- `PipelineOrchestrator.runEveningCycle()`, registered as `evening_sunrise_refresh` beside the other
+  two in `registerJobTarget()`.
+- Migration `V184__seed_evening_sunrise_refresh.sql` (re-read the latest number on main first): one
+  `scheduler_job_config` row, CRON `0 0 20 * * *`, **PAUSED**, description naming tomorrow's sunrise.
+  Copy V172's column list. Testcontainers test `EveningSunriseRefreshSeedMigrationTest`.
+- `LocalH2EnumWidener`'s `TARGETS` gains `pipeline_run.cycle_type`.
+- `application-example.yml` lists the new property with its range.
+- Tests (from §6 E2): the strategy admits exactly one (date, type) and is stable across midnight;
+  the policy includes all three stabilities; the evening's collection does not skip a slot whose cache
+  entry is 1 h old while an INTRADAY collection does; the evening never publishes a snapshot; its
+  settle is RESETS_ONLY even when it is the newest cycle with failures; its wait gives up at 2 h from
+  first submit; `PipelineRunComparisonService` returns nothing for it.
+- Must not: touch `SolarForecastJobs`, the watchdog or the frontend (E3); resume the job anywhere.
+
+**E3a — Registry and watchdog (backend).**
+- Rename `SolarForecastJobs` → `ForecastCycleJobs`: one record per job (key, `CycleType`, served
+  event, event day offset 0/0/+1, `solarCapable`). Keep the existing static answers for the two solar
+  jobs byte for byte; `allowed`/`proposedRule` return nothing for the evening.
+- `ForecastCycleWatchdog`: walk all three. *Did not start* unchanged in shape (the evening's last fire
+  from its UTC cron). *Did not finish* for the evening: RUNNING, or a FORECAST batch outside
+  `TERMINAL`, once `EVENING.safetyBudget(...)` from its trigger has passed; one mail per (job, run).
+  The two existing jobs' checks unchanged.
+- `SolarCatchUpPolicy` and `SolarSchedulePreviewService` iterate solar-capable jobs only. The
+  `PUT …/schedule-type` endpoint refuses the evening with the existing 400.
+- Tests: watchdog cases for the evening (on time; not started; overran; batch left polling), and the
+  existing watchdog tests unchanged; the preview lists two jobs; switching the evening to solar is 400.
+
+**E3b — Scheduler UI (frontend).** Runs beside E3a.
+- `schedulerSolar.js`: keep `FORECAST_CYCLE_JOBS` as the solar-capable list (the evening stays out, so
+  it renders as a plain CRON row with no switch); add a test that `evening_sunrise_refresh` gets no
+  CRON ↔ SOLAR control.
+- `SolarSchedulePanel.jsx` ~242: reword "two forecast cycles can never be running at once" to the
+  E-D4 truth (no two cycles at once except a possible short summer overlap of afternoon and evening).
+  The panel's fixed text comes from this plan; quote §4 E-D4, do not invent figures.
+- `schedulerApi.js`'s "two forecast cycles" comment.
+- UI review cadence applies (CLAUDE.md *UI Work*): the orchestrator runs the review, not the builder.
+
+**E3c — Docs sweep.** CLAUDE.md: the `CycleType`/orchestrator facts, the *Dynamic scheduler* bullet
+(the evening job, PAUSED, CRON-only, its watchdog checks, its budget property), *Job metrics*
+(EVENING never counts failures), *Ask PhotoCast* (a fourth scheduled precompute against the ceiling of
+6, if E-D6 is yes), and the *Configuration* line for `evening-safety-timeout`. This plan's status line
+and §6. No code.
+
+### 9.5 What the orchestrator does between phases
+
+1. Before launching: confirm the previous phase is on `main`, re-read the latest migration number,
+   and correct the brief's line numbers against the tree.
+2. After the agent hands back: read the diff whole; re-run the gate from a fresh checkout of the branch
+   (an agent's own "exit 0" is a claim); run an adversarial review (three lenses for backend — runtime
+   behaviour, the two existing cycles unchanged, test quality — plus accessibility and CSS for E3b),
+   read-only, mutation probes only in their own worktree.
+3. Fix or send back what survives; open the PR; read CI's Backend job (the migration's only proof);
+   wait for Codex before any merge.
+
+### 9.6 Model choice
+
+Sonnet builds E1, E2, E3a, E3b and E3c. Keep E1 on Sonnet only with the stop-point enforced: it is
+the one phase where a "small" test edit can hide a behaviour change, and the review's second lens
+exists for it. If E1's agent reports a stop, the orchestrator decides, not a second agent.
