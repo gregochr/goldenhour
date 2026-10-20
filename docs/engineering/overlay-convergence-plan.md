@@ -39,14 +39,14 @@ into every review agent's prompt.
 
 ## §0 Status
 
-**Status: PLANNED 2026-10-19 — nothing built. §5 D1–D6 TAKEN by the owner 2026-10-20 (every
-recommendation confirmed; D2 follows from D1); C1 may start once this plan is merged.** Phase log (each phase appends its own row in
+**Status: C1 BUILT 2026-10-20 (PR pending); C2–C6 not started. §5 D1–D6 TAKEN by the owner 2026-10-20 (every
+recommendation confirmed; D2 follows from D1).** Phase log (each phase appends its own row in
 the same commit as its code; the `PR` column names the PR, not a SHA — the repo squash-merges):
 
 | phase | what | PR | notes |
 |---|---|---|---|
 | C0 | this plan | | |
-| C1 | the handoff contract: `source:'plan'` carries everything the overlay's seven triggers carry | | no door moves yet |
+| C1 | the handoff contract: `source:'plan'` carries everything the overlay's seven triggers carry | pending | no door moves yet. Built 2026-10-20: `utils/mapDoor.js` (`normalizeMapTrigger`, `doorHeadline`, `doorFromTrigger`); `night`/`focusNames`/`focusPoints`/`filterAction`/`darkSky`/`title`/`caption` on the handoff; `MapBreadcrumb` headline + lens clauses + `clear`. The `focusNames` lens is an INTERSECTION with the reader's filters (not the overlay's override), so "showing N spots" counts the pool actually drawn. `filterAction`/`darkSky` no longer open the Filters popover (the crumb names them). A `focusPoints` door leaves scope alone (a scope reset would race the fit). `MapView`'s `askWindow` row-following was extracted to `followWindowRow` and is shared with the new night-follow effect |
 | C2 | detail parity: the popup's facts the tab lacks, on the location sheet (and callout where cheap) | | owner list, D3 |
 | C3 | a Map tab with no solar forecast: offered on an aurora alert; a live-night aurora row | | D4 |
 | C4 | move the seven doors; delete `App`'s overlay state | | one PR per door group is fine |

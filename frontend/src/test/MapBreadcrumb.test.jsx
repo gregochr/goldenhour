@@ -230,6 +230,68 @@ describe('MapBreadcrumb — clear', () => {
   });
 });
 
+describe('MapBreadcrumb — the door\'s headline and temporary lenses (overlay convergence C1)', () => {
+  it('prints the door\'s title and caption as "title · caption", after ← Plan', () => {
+    renderCrumb({ carried: { title: 'Aurora tonight', caption: 'Today · 21:49' } });
+    expect(screen.getByTestId('wf-map-breadcrumb-title')).toHaveTextContent('Aurora tonight · Today · 21:49');
+    expect(screen.getByTestId('wf-map-breadcrumb').textContent).toMatch(/Plan \/ Aurora tonight/);
+  });
+
+  it('prints a title with no caption alone - no dangling separator', () => {
+    renderCrumb({ carried: { title: 'Aurora tonight' } });
+    expect(screen.getByTestId('wf-map-breadcrumb-title').textContent).toBe('Aurora tonight');
+  });
+
+  it('draws no headline at all for a plain door (no title, no caption) - the strip is unchanged', () => {
+    renderCrumb({ carried: { minRating: 4 }, minStars: 4 });
+    expect(screen.queryByTestId('wf-map-breadcrumb-title')).toBeNull();
+    expect(screen.getByTestId('wf-map-breadcrumb').textContent).toMatch(/^← ?Plan carrying 4★\+ clear$/);
+  });
+
+  it('names every active lens in the carrying group, after the carried clauses', () => {
+    renderCrumb({
+      carried: { minRating: 4 },
+      minStars: 4,
+      lensClauses: ['showing 6 spots', 'coastal spots'],
+    });
+    expect(screen.getByTestId('wf-map-breadcrumb-carrying')).toHaveTextContent(
+      'carrying 4★+ · showing 6 spots · coastal spots clear',
+    );
+  });
+
+  it('a lens alone is enough to show the carrying group - and its clear', () => {
+    renderCrumb({ lensClauses: ['showing 1 spot'] });
+    expect(screen.getByTestId('wf-map-breadcrumb-carrying')).toHaveTextContent('carrying showing 1 spot clear');
+    expect(screen.getByRole('button', { name: 'clear' })).toBeInTheDocument();
+  });
+
+  it('with no lens clause the group is absent, exactly as before', () => {
+    renderCrumb({ lensClauses: [] });
+    expect(screen.queryByTestId('wf-map-breadcrumb-carrying')).toBeNull();
+  });
+
+  it('clear removes the lens AFTER the four resets - the origin and the lens go together', () => {
+    const order = [];
+    renderCrumb({
+      origin: ORIGIN,
+      lensClauses: ['showing 2 spots'],
+      onClearRating: () => order.push('rating'),
+      onClearReach: () => order.push('reach'),
+      onClearScope: () => order.push('scope'),
+      onClearOrigin: () => order.push('origin'),
+      onClearLens: () => order.push('lens'),
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+    expect(order).toEqual(['rating', 'reach', 'scope', 'origin', 'lens']);
+  });
+
+  it('clear still works with no onClearLens wired (an older caller)', () => {
+    const { onClearOrigin } = renderCrumb({ origin: ORIGIN });
+    fireEvent.click(screen.getByRole('button', { name: 'clear' }));
+    expect(onClearOrigin).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('MapBreadcrumb — clear hands the reader\'s focus to the strip when it takes itself away', () => {
   // One live clause, the carried 4★ floor. `clear` resets the map's floor to its 3★ default, which
   // ends the clause — so the render `MapView` comes back with after the press is `minStars={3}`.

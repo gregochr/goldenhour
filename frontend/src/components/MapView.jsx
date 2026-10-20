@@ -1656,6 +1656,29 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   useEffect(() => { fetchTravelDayRanges().then(setTravelRanges).catch(() => {}); }, []);
   const [darkSkyFilter, setDarkSkyFilter] = useState(false);
   /**
+   * The door's TEMPORARY spot-set lens (overlay convergence C1, `planHandoff.focusNames`): the exact
+   * spots a Coming up card named, as a Set of location names, or null. ⚠️ A NAMED lens, never a
+   * hidden filter bypass (plan §4 #3): it narrows the pins, labels, counts AND the heat field to
+   * those spots, the breadcrumb says "showing N spots", and its `clear` removes it so the field is
+   * whole again. It is an INTERSECTION with the reader's other filters, not an override of them
+   * (the overlay's `focus.names` override ignored every filter, which is the thing this replaces).
+   * Tab-only by construction: the overlay never carries a `planHandoff`.
+   */
+  const [focusLensNames, setFocusLensNames] = useState(null);
+  /**
+   * The door's subject / dark-sky lens, as the bookkeeping that undoes it exactly: `active` (a door
+   * switched either on), `before` (the READER's subject filters and dark-sky toggle at the moment the
+   * door applied it) and `doorTypes` / `doorDark` (what the door itself switched on). Undoing is
+   * (before UNION whatever the reader added since) minus the door's own - never a blanket reset, so
+   * a filter the reader set themselves comes back as they left it. A ref: bookkeeping for the door
+   * effect and two handlers, not something a render reads.
+   */
+  const appliedDoorLens = useRef({
+    active: false, before: { types: new Set(), dark: false }, doorTypes: new Set(), doorDark: false,
+  });
+  /** The last `planHandoff` night this map followed - see the night-follow effect below. */
+  const appliedPlanNightNonce = useRef(null);
+  /**
    * The Map tab's two heat controls, and the nonce that re-frames the camera.
    *
    * <p>Both are local to this mount, so the Plan tab's open row and this tab cannot pull each other
@@ -2389,9 +2412,23 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    *       only, {@code showUnrated} untouched) is exactly the map's 1★+ with {@code showUnrated}
    *       left alone — so this effect never touches {@code showUnrated}/{@code showStandDown}.</li>
    *   <li><b>Tier</b> — {@code limitMinutes ?? 0} (Any).</li>
-   *   <li><b>Region</b> — {@code jumpToRegion}/{@code resetToMyArea}, the tab's own scope-flip
-   *       semantics, NEVER {@code FitBoundsController} (the overlay-era {@code handoffRegion}
-   *       effect above, which only fits bounds and never touches scope).</li>
+   *   <li><b>Region</b> — {@code jumpToRegion}, or {@code resetToMyArea} for a door with no region,
+   *       the tab's own scope-flip semantics, NEVER {@code FitBoundsController} for the region (the
+   *       overlay-era {@code handoffRegion} effect above, which only fits bounds and never touches
+   *       scope). A THIRD branch, overlay convergence C1: a door carrying {@code focusPoints} and no
+   *       region drops any standing jump ({@code setJumpFitOverride(null)}) and leaves scope alone,
+   *       because a scope reset refits the camera and would race the points' fit.</li>
+   *   <li><b>focusPoints</b> — fit the camera to those pins through {@code FitBoundsController}
+   *       (key {@code door:<nonce>}).</li>
+   *   <li><b>Night</b> — {@code night: {kind, date}} sets NO event here and does not mark the window
+   *       the reader's own: the night-follow effect applies it ({@code followWindowRow}) once the
+   *       night's row exists, and only then is the choice explicit.</li>
+   *   <li><b>Lens</b> — {@code focusNames} (a named spot set, an intersection with the reader's
+   *       filters), {@code filterAction} and {@code darkSky}, all absent unless the door asked. The
+   *       reader's own subject/dark-sky filters are snapshotted first and restored, with anything
+   *       they added since, by the next door and by {@code clear}. A lens lives exactly as long as
+   *       its plan door: any handoff that is not a {@code source: 'plan'} one ends it (the effect
+   *       after this one).</li>
    *   <li><b>Location</b> — resolved off the FULL roster, exactly like the {@code handoffLocationName}
    *       effect above: a location the carried floor would filter out of the visible pool still
    *       gets its callout, because this is a direct state write, not a filtered lookup.</li>
@@ -2409,9 +2446,19 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   useEffect(() => {
     if (!planHandoff) return;
     (async () => {
-      setEventType(planHandoff.eventType);
-      setUserHasOverriddenEvent(true);
-      setLocalNightDate(null);
+      // ⚠️ A NIGHT door (`planHandoff.night`) does not set its event here: its row may not exist yet
+      // (the astro/aurora rows come from fetches still in flight on a freshly mounted Map), and
+      // setting `AURORA` first would point the map at a night with no row. The night-follow effect
+      // below applies it once the row exists, exactly as the `askWindow` effect does. Every solar
+      // door - and any door that names an event - is applied here as before.
+      if (!planHandoff.night && planHandoff.eventType) {
+        setEventType(planHandoff.eventType);
+        setLocalNightDate(null);
+      }
+      // A night door marks the window as the reader's own only once its row is actually followed
+      // (`followWindowRow`): marking it here, before the row exists, would suppress the
+      // auto-selection that corrects the interim window while the night's rows are still loading.
+      if (!planHandoff.night) setUserHasOverriddenEvent(true);
       // ⚠️ EVERYTHING BELOW IS THE DOOR'S, and a map-sourced handoff takes none of it. `source:
       // 'map'` is the four-day sheet's own footer pressed while that sheet is already OVER the map
       // — the reader never left, so there is no lens to import and nothing was carried: applying
@@ -2430,8 +2477,40 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         setMinStars(nextMinStars);
         writeMapFilter('mapFilterMinStars', String(nextMinStars));
         setDriveTimeFilter(planHandoff.limitMinutes ?? 0);
+        // `focusPoints` is the multi-pin door's camera: it fits those pins through the same
+        // `FitBoundsController` the overlay's `focus.points` used, so a scope reset (which refits
+        // to the planning area) would race it for the camera. A standing region jump is dropped
+        // without a refit; the reader's scope segment is otherwise left as it was.
+        const fitsPoints = planHandoff.focusPoints?.length > 0;
         if (planHandoff.region) jumpToRegion(planHandoff.region);
+        else if (fitsPoints) setJumpFitOverride(null);
         else resetToMyArea();
+        if (fitsPoints) {
+          setFitBoundsTarget({
+            points: planHandoff.focusPoints, key: fitBoundsKey('door', planHandoff.nonce),
+          });
+        }
+        // The door's temporary lens: a spot set (`focusNames`), the subject filter
+        // (`filterAction`) and the dark-sky toggle. Each is ABSENT unless the door asked, and the
+        // previous door's filter lens is undone first (never a filter the reader set themselves),
+        // so a plain door after a coastal one lands on the field whole and the breadcrumb never
+        // names less than is in force. ⚠️ The legacy path also opened the Filters popover to show
+        // what it had set; the breadcrumb names the lens now, and a popover over the landing
+        // callout would hide the thing the door was for.
+        const nextDark = planHandoff.darkSky === true;
+        const nextAction = planHandoff.filterAction ?? null;
+        // The previous door's lens is undone to what the reader had, and THAT is the base this
+        // door's own lens (if any) goes on top of and is snapshotted against.
+        const base = restoredDoorFilters() ?? { types: activeTypeFilters, dark: darkSkyFilter };
+        setActiveTypeFilters(nextAction ? new Set([nextAction]) : base.types);
+        setDarkSkyFilter(nextDark ? true : base.dark);
+        appliedDoorLens.current = {
+          active: nextDark || nextAction != null,
+          before: base,
+          doorTypes: nextAction ? new Set([nextAction]) : new Set(),
+          doorDark: nextDark,
+        };
+        setFocusLensNames(planHandoff.focusNames?.length ? new Set(planHandoff.focusNames) : null);
       }
       if (planHandoff.locationName) {
         const loc = locations.find(
@@ -2447,6 +2526,20 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // (see the location/region handoffs above for the identical reasoning).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planHandoff?.nonce]);
+
+  /**
+   * A lens's lifetime is its plan door's. The breadcrumb that names the lenses mounts only for a
+   * `source: 'plan'` handoff, so ANY other state of the handoff - a `source: 'map'` one (the
+   * four-day sheet's footer pressed over the map), a source-less one (the overlay hatch, which the
+   * pane withholds, so `planHandoff` goes null) - removes the breadcrumb and with it the only way to
+   * lift the lens. Left standing it would be the silent narrowing plan 4 #3 forbids, so it ends here.
+   */
+  useEffect(() => {
+    if (planHandoff?.source === 'plan') return;
+    if (!focusLensNames && !appliedDoorLens.current.active) return;
+    (async () => clearDoorLens())();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planHandoff?.source, planHandoff?.nonce]);
 
   // Map-overlay focus: fit the map to an arbitrary set of pins (a multi-region event or a hot
   // topic's flagged locations). Re-fits when the focus nonce changes; a no-op on the Map tab.
@@ -3113,7 +3206,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * entry (no served window key), and its roster is dark-sky-enriched by construction, so the
    * dark-sky pool this join exists to apply would be a no-op filter over an already-narrower set.
    */
-  const heatPoints = useMemo(() => {
+  const heatPointsUnlensed = useMemo(() => {
     if (isAstroMode) return astroHeatPoints;
     if (isAuroraMode) {
       // The dark-sky toggle narrows the aurora field exactly as it narrows a solar one (the chips
@@ -3129,6 +3222,17 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     const allowed = new Set(heatSpotPool.map(heatSpotKey));
     return points.filter((p) => allowed.has(heatSpotKey(p)));
   }, [isAstroMode, astroHeatPoints, isAuroraMode, auroraHeatPoints, heatOn, heatWindow, heat, heatSpotPool]);
+
+  /**
+   * The field's points after the door's named spot-set lens (`focusLensNames`), if one stands: the
+   * field paints ONLY those spots while it does, and is whole again the moment `clear` removes it
+   * (this is a filter of the same array, not a second store, so there is nothing to restore).
+   */
+  const heatPoints = useMemo(() => (
+    focusLensNames
+      ? heatPointsUnlensed.filter((p) => focusLensNames.has(p.name))
+      : heatPointsUnlensed
+  ), [heatPointsUnlensed, focusLensNames]);
 
   /**
    * Whether the payload says nothing in the selected window is rated — the Plan tab's mark, adapted
@@ -3578,15 +3682,16 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // markers — exactly the locations that made the topic fire (coastal / dark-sky / elevated / …) —
     // overriding the map's own type/rating filters so nothing worth showing is hidden.
     const focusNames = focus?.names?.length ? new Set(focus.names) : null;
-    return focusNames
-      ? locations.filter((loc) => focusNames.has(loc.name))
-      : isAstroMode
-        ? darkSkyFiltered.filter((loc) => loc.bortleClass != null)
-        : darkSkyFiltered;
+    if (focusNames) return locations.filter((loc) => focusNames.has(loc.name));
+    const pool = isAstroMode
+      ? darkSkyFiltered.filter((loc) => loc.bortleClass != null)
+      : darkSkyFiltered;
+    // The tab door's named spot-set lens (`focusLensNames`): an intersection, applied last.
+    return focusLensNames ? pool.filter((loc) => focusLensNames.has(loc.name)) : pool;
   }, [
     typeFiltered, locations, isStandDownLocation, getRatingForLocation, getTideOnLightForLocation,
     showStandDown, showUnrated, minStars, driveTimeFilter, driveMinutesFor,
-    darkSkyFilter, focus, isAstroMode,
+    darkSkyFilter, focus, isAstroMode, focusLensNames,
   ]);
 
   /**
@@ -3945,26 +4050,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     (async () => {
       if (!calloutStale) setSelectedLocationName(null);
       const row = mapEvents[findEvIndex(mapEvents, askWindow.eventType, askWindow.date)];
-      if (!row) return;
-      const forwardable = isForwardableRow(row, { todayStr: mapTodayStr, currentNightDate: auroraNight });
-      const night = row.kind !== EVENT_KIND.SOLAR;
-      if (!night && !forwardable) return;
-      setEventType(row.eventType);
-      setUserHasOverriddenEvent(true);
-      if (forwardable) {
-        setLocalNightDate(null);
-        if (row.date !== date) forwardedDateRef.current = row.date;
-        // ⚠️ `isNight` is the ROW's kind, not a constant: `selectEvRow` and the aurora auto-jump both say a
-        // night's provenance, and `App.resolveMapDate` refuses a night passed as a solar date once it is past —
-        // which is every pick of the night in progress before nautical dawn, when `currentNightDate` is
-        // YESTERDAY (`docs/engineering/ask-night-plan.md` §2.1). The third `onSelectDate` site to need it.
-        // A past row is forwardable now (`isForwardableRow`) and `App` refuses its date without the flag.
-        onSelectDate?.(row.date, { isNight: night, ...(row.past === true ? { isPast: true } : {}) });
-      } else {
-        // A night `App` would refuse (beyond the forecast's own dates, or the one on screen once it has
-        // ended) is kept local, exactly as `selectEvRow` keeps it, so the fetches and the viewline gate land on it.
-        setLocalNightDate(row.date);
-      }
+      if (!followWindowRow(row)) return;
       if (wantsCallout && !calloutStale && place != null) setSelectedLocationName(place);
     })();
     // The nonce IS the trigger (every other handoff effect here reasons the same way), the pane
@@ -3972,6 +4058,76 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // moment it fires.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [askWindow?.nonce, paneVisible, askRowFound]);
+
+  /**
+   * Follows one EV row as an explicit choice that touches NOTHING but the window: the event, the
+   * "reader chose" flag and the date forwarded to the parent. Shared by the `askWindow` effect above
+   * and the night-follow effect below, which is where the rules it carries were first written down.
+   * Returns false, having changed nothing, for a missing row or a solar row {@code App} would refuse.
+   *
+   * <p>The row goes through the same forwarding rule {@code selectEvRow} applies ({@code
+   * isForwardableRow}), so the map and its parent can never name two different days. The rating-floor
+   * reset {@code selectEvRow} makes on a change of event kind is deliberately NOT made: whoever calls
+   * this has not asked for the reader's floor back at the default. A plain function (not a hook), like
+   * {@code selectEvRow}: it reads this render's {@code mapEvents} at run time.
+   *
+   * @param {?object} row an EV row from {@code mapEvents}
+   * @returns {boolean} whether the row was followed
+   */
+  function followWindowRow(row) {
+    if (!row) return false;
+    const forwardable = isForwardableRow(row, { todayStr: mapTodayStr, currentNightDate: auroraNight });
+    const night = row.kind !== EVENT_KIND.SOLAR;
+    if (!night && !forwardable) return false;
+    setEventType(row.eventType);
+    setUserHasOverriddenEvent(true);
+    if (forwardable) {
+      setLocalNightDate(null);
+      if (row.date !== date) forwardedDateRef.current = row.date;
+      // ⚠️ `isNight` is the ROW's kind, not a constant: `selectEvRow` and the aurora auto-jump both say a
+      // night's provenance, and `App.resolveMapDate` refuses a night passed as a solar date once it is past —
+      // which is every pick of the night in progress before nautical dawn, when `currentNightDate` is
+      // YESTERDAY (`docs/engineering/ask-night-plan.md` §2.1). The third `onSelectDate` site to need it.
+      // A past row is forwardable now (`isForwardableRow`) and `App` refuses its date without the flag.
+      onSelectDate?.(row.date, { isNight: night, ...(row.past === true ? { isPast: true } : {}) });
+    } else {
+      // A night `App` would refuse (beyond the forecast's own dates, or the one on screen once it has
+      // ended) is kept local, exactly as `selectEvRow` keeps it, so the fetches and the viewline gate land on it.
+      setLocalNightDate(row.date);
+    }
+    return true;
+  }
+
+  /**
+   * Whether the EV list holds the night row a door named - by (date, kind), the `askRowFound` rule.
+   * A plain value read at render so the night-follow effect below can WAIT for the row and run the
+   * moment it arrives.
+   */
+  const planNightType = planHandoff?.night ? planHandoff.night.kind.toUpperCase() : null;
+  const planNightRowFound = planNightType != null
+    && findEvIndex(mapEvents, planNightType, planHandoff.night.date) >= 0;
+
+  /**
+   * A door that names a NIGHT (`planHandoff.night`, overlay convergence C1): select its row, the way
+   * the `askWindow` effect does. ⚠️ Not spent until the row exists - the astro and aurora rows come
+   * from fetches of their own, so on a Map that has only just mounted (a door is exactly that) the
+   * row is not there when the handoff fires; marking the nonce applied first consumed the door with
+   * nothing to apply it to. Re-runs on `planNightRowFound`, the moment the row appears. A night the
+   * list never carries stays pending until the next handoff supersedes it (the nonce moves) or the
+   * reader chooses a window of their own ({@code selectEvRow} spends it), so a late-arriving row can
+   * never yank a reader away from the window they picked. The date reaches `App` already flagged as
+   * a night by `openMapTabFromPlan`, and {@code followWindowRow} says so again with the ROW's kind.
+   */
+  useEffect(() => {
+    if (!planHandoff?.night || planHandoff.source === 'map') return;
+    if (appliedPlanNightNonce.current === planHandoff.nonce || !planNightRowFound) return;
+    appliedPlanNightNonce.current = planHandoff.nonce;
+    (async () => {
+      followWindowRow(mapEvents[findEvIndex(mapEvents, planNightType, planHandoff.night.date)]);
+    })();
+    // The nonce IS the trigger and the row's arrival the other; the rest are read when it fires.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planHandoff?.nonce, planNightRowFound]);
 
   /**
    * The older-day fetch's selection landing (outcome-rating-plan.md §2 #2, §4 #11): when a day the
@@ -4878,6 +5034,58 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     setHeatFitNonce((n) => n + 1);
   }
   /**
+   * The breadcrumb's `clear` for the door's TEMPORARY lenses (overlay convergence C1): the named
+   * spot set, and the subject filter / dark-sky toggle the door switched on - exactly those, never a
+   * filter the reader set themselves (`appliedDoorLens` records what the door applied). With the
+   * rating, reach, scope and origin resets the breadcrumb already makes, this is what restores the
+   * field whole.
+   */
+  function clearDoorLens() {
+    setFocusLensNames(null);
+    const restored = restoredDoorFilters();
+    if (restored) {
+      setActiveTypeFilters(restored.types);
+      setDarkSkyFilter(restored.dark);
+    }
+    appliedDoorLens.current = {
+      active: false, before: { types: new Set(), dark: false }, doorTypes: new Set(), doorDark: false,
+    };
+  }
+  /**
+   * The reader's subject filters and dark-sky toggle with the standing door's lens taken off, or
+   * null when no door lens is standing. Subjects: what the reader had before the door, plus
+   * anything they added since, minus the door's own. Dark sky: put back to what it was, if the door
+   * is what switched it on. A plain function reading this render's state, like {@code clearDoorLens}.
+   */
+  function restoredDoorFilters() {
+    const applied = appliedDoorLens.current;
+    if (!applied.active) return null;
+    const types = new Set(applied.before.types);
+    activeTypeFilters.forEach((t) => { if (!applied.doorTypes.has(t)) types.add(t); });
+    return {
+      types: applied.doorTypes.size > 0 ? types : activeTypeFilters,
+      dark: applied.doorDark ? applied.before.dark : darkSkyFilter,
+    };
+  }
+  /**
+   * The breadcrumb's lens clauses for the door's temporary lenses - LIVE claims, recomputed from the
+   * state in force (the breadcrumb's own rule: move the filter after landing and its clause goes).
+   * The spot count is the pool actually drawn, not the size of the set the door named, so "showing 4
+   * spots" cannot outrun the reader's other filters.
+   */
+  const doorLensClauses = [];
+  if (planHandoff?.source === 'plan') {
+    if (focusLensNames) {
+      doorLensClauses.push(`showing ${visibleLocations.length} ${visibleLocations.length === 1 ? 'spot' : 'spots'}`);
+    }
+    if (planHandoff.darkSky && darkSkyFilter) doorLensClauses.push('dark-sky spots');
+    if (planHandoff.filterAction && activeTypeFilters.has(planHandoff.filterAction)) {
+      doorLensClauses.push(
+        planHandoff.filterAction === 'SEASCAPE' ? 'coastal spots' : `${planHandoff.filterAction.toLowerCase()} spots`,
+      );
+    }
+  }
+  /**
    * Selecting a jump row (README §2: "Selecting a row fits the map to that region's bounds.
    * If the region lies outside 'My area', it switches scope to Whole catalogue automatically" —
    * "a jump is honest; a no-op is not"). `heat.areaSpots` is read directly for the "is this region
@@ -5129,6 +5337,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   function selectEvRow(row) {
     const typeChanged = row.eventType !== eventType;
+    // A window the reader chose themselves spends any door night still waiting for its row.
+    if (planHandoff) appliedPlanNightNonce.current = planHandoff.nonce;
     setUserHasOverriddenEvent(true);
     setEventType(row.eventType);
     if (typeChanged) {
@@ -6048,6 +6258,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           onClearReach={() => setDriveTimeFilter(0)}
           onClearScope={resetToMyArea}
           onClearOrigin={() => onClearOrigin?.()}
+          lensClauses={doorLensClauses}
+          onClearLens={clearDoorLens}
         />
       )}
 
@@ -7633,6 +7845,21 @@ MapView.propTypes = {
     minRating: PropTypes.number,
     limitMinutes: PropTypes.number,
     locationName: PropTypes.string,
+    // Overlay convergence C1 - each ABSENT unless the door asked; see the planHandoff effects.
+    // (The payload: source, eventType, date, region, minRating, limitMinutes, locationName, night,
+    // focusNames, focusPoints, filterAction, darkSky, title, caption, nonce.)
+    /** A night to select ({kind, date}); applied once its row exists. */
+    night: PropTypes.shape({ kind: PropTypes.oneOf(['aurora', 'astro']), date: PropTypes.string }),
+    /** A temporary, named spot-set lens (the breadcrumb says so; `clear` removes it). */
+    focusNames: PropTypes.arrayOf(PropTypes.string),
+    /** Pins to fit the camera to. */
+    focusPoints: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.number)),
+    /** The subject filter and dark-sky toggle the door switches on (promoted from the legacy props). */
+    filterAction: PropTypes.string,
+    darkSky: PropTypes.bool,
+    /** The breadcrumb's headline, printed `title · caption`. */
+    title: PropTypes.string,
+    caption: PropTypes.string,
     nonce: PropTypes.number,
   }),
   /**

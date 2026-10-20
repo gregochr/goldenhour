@@ -4203,6 +4203,12 @@ button.wf-hc.also.on:hover {
   color: var(--color-plex-text);
   font-weight: 600;
 }
+/* The door's own headline (overlay convergence C1): "Aurora tonight", "Tomorrow sunrise · 06:12".
+   Primary text, like the window clause's day word - it is the thing the reader came for. */
+.wf-map-breadcrumb-title {
+  color: var(--color-plex-text);
+  font-weight: 600;
+}
 /* The prototype's `.cf{margin-left:auto}` — pushed to the row's far end on desktop; the phone
    media query below cancels that and wraps it onto its own line instead. */
 .wf-map-breadcrumb-carrying {

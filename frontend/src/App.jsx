@@ -1,7 +1,8 @@
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { computeAutoSelection, colourForecastDates } from './utils/conversions.js';
-import { buildMapOverlay, normalizeMapTrigger } from './utils/mapOverlay.js';
+import { buildMapOverlay } from './utils/mapOverlay.js';
+import { normalizeMapTrigger, doorFromTrigger } from './utils/mapDoor.js';
 import LoginPage from './components/LoginPage.jsx';
 import RegisterPage from './components/RegisterPage.jsx';
 import ChangePasswordPage from './components/ChangePasswordPage.jsx';
@@ -643,8 +644,20 @@ function AppInner() {
    * <p>⚠️ <b>`door.inPlace` is not a door at all</b> — it is the same footer pressed from a sheet
    * that is already OVER the map, and it takes the other branch below for the reasons stated there.
    */
-  const openMapTabFromPlan = (door) => {
-    selectDate(door.date);
+  const openMapTabFromPlan = (doorOrTrigger) => {
+    // Overlay convergence C1: a NORMALISED TRIGGER (`utils/mapDoor.normalizeMapTrigger`, the
+    // overlay's seven shapes - it names its `kind`) is turned into the structured door here, by
+    // the same resolution the overlay uses; a plain door (no `kind`) passes through untouched.
+    const door = doorOrTrigger?.kind
+      ? doorFromTrigger(doorOrTrigger, {
+        locations: visibleLocations, briefingScores, todayStr, tomorrowStr,
+      })
+      : doorOrTrigger;
+    // A night door names a night, which `App.resolveMapDate` refuses as a solar date once past -
+    // the same `isNight` provenance `handleShowOnMap` records for the aurora trigger. Absent for
+    // every solar door, so their call is unchanged.
+    if (door.night) selectDate(door.date, { isNight: true });
+    else selectDate(door.date);
     if (door.inPlace) {
       // ⚠️ The reader is ALREADY on the Map tab — the four-day sheet was opened over it by the
       // callout's `Four days here ›` peek, and this is its footer's `Show on map → <window>`. A
@@ -686,6 +699,15 @@ function AppInner() {
       minRating: door.minRating ?? null,
       limitMinutes: door.limitMinutes ?? null,
       locationName: door.locationName ?? null,
+      // The overlay-convergence fields (C1). ABSENT, not null, when the door carries none, so a
+      // plain door's payload is exactly what it was and `MapView` reads absence as "not asked".
+      ...(door.night ? { night: door.night } : {}),
+      ...(door.focusNames?.length ? { focusNames: door.focusNames } : {}),
+      ...(door.focusPoints?.length ? { focusPoints: door.focusPoints } : {}),
+      ...(door.filterAction ? { filterAction: door.filterAction } : {}),
+      ...(door.darkSky ? { darkSky: true } : {}),
+      ...(door.title ? { title: door.title } : {}),
+      ...(door.caption ? { caption: door.caption } : {}),
       nonce: handoffNonce.current++,
     });
     setTabRequest({ id: 'map', nonce: tabRequestNonce.current });

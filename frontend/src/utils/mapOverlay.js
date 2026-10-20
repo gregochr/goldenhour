@@ -4,66 +4,8 @@
 // location, fit-to-pins for several) and preserves the region's Claude gloss as a footer band —
 // all derived from data already on the client (locations, forecasts, briefing scores). No new data.
 
-/**
- * Turns whatever `onShowOnMap` was called with into a normalised trigger object for
- * {@link buildMapOverlay}. Extracted from `App.jsx`'s `handleShowOnMap` (found untested by
- * adversarial review, P3b) so the branch ORDER — the part that actually matters — is a unit,
- * not inline glue nobody can reach with a fixture.
- *
- * <h2>Order is the whole point</h2>
- *
- * <p>Every `else if` here is checked against the shape of `dateOrHandoff`, and it used to matter
- * that the `kind:'coming-up'` check (D8's map channel) ran BEFORE the generic `filterAction`-bearing
- * check that used to become `kind:'topic'` — both objects carried a `filterAction`, and getting the
- * order wrong would have silently turned a coastal/dark-sky action into a `kind:'topic'` trigger
- * instead. P6 (`docs/engineering/coming-up-plan.md` D7) deleted `kind:'topic'` and its only caller,
- * `HotTopicStrip`, along with it, so that hazard is gone rather than merely ordered around — the
- * history is kept here because the next new trigger kind should reason about ordering the same way.
- *
- * @param {*}        dateOrHandoff either a plain date string, or a handoff object naming its own
- *                                 `kind`/`filterAction`/`region`
- * @param {?string}  eventType    SUNRISE/SUNSET, for the plain-date-string call shapes
- * @param {?string}  locationName a specific location, for the location-drilldown call shape
- * @returns {object} a trigger for {@link buildMapOverlay}
- */
-export function normalizeMapTrigger(dateOrHandoff, eventType, locationName = null) {
-  // First, because it is the one caller that names its own kind. Without this branch the object
-  // falls past `filterAction` and `region` into the final `else` and becomes an `event` trigger
-  // whose `date` is the whole object — an overlay for a night that does not exist.
-  if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.kind === 'aurora') {
-    return { kind: 'aurora', date: dateOrHandoff.date };
-  }
-  if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.kind === 'coming-up') {
-    // The Coming up chronology's own map channel (D8) — named explicitly. It used to be checked
-    // ahead of a generic `filterAction` branch that became `kind:'topic'`, since both shapes carried
-    // a `filterAction`; P6 deleted that branch and its only caller (`HotTopicStrip`), so `coming-up`
-    // is now the sole producer of a bare `filterAction` handoff.
-    return {
-      kind: 'coming-up',
-      filterAction: dateOrHandoff.filterAction ?? null,
-      darkSky: !!dateOrHandoff.darkSky,
-      label: dateOrHandoff.label ?? null,
-      date: dateOrHandoff.date,
-    };
-  }
-  if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.region) {
-    // A region trigger, optionally carrying a hot topic's qualifying locations + label so the
-    // overlay opens to just those pins (elevated inversion spots, coastal tide spots, …).
-    return {
-      kind: 'region',
-      region: dateOrHandoff.region,
-      date: dateOrHandoff.date,
-      eventType: dateOrHandoff.eventType,
-      locationNames: dateOrHandoff.locationNames ?? null,
-      label: dateOrHandoff.label ?? null,
-      filterAction: dateOrHandoff.filterAction ?? null,
-    };
-  }
-  if (locationName) {
-    return { kind: 'location', locationName, date: dateOrHandoff, eventType };
-  }
-  return { kind: 'event', date: dateOrHandoff, eventType };
-}
+// `normalizeMapTrigger` lives in `utils/mapDoor.js` (overlay convergence, C1), the structured
+// Plan->Map door's producer side; this file keeps `buildMapOverlay` until C5 deletes it.
 
 /** Formats an ISO datetime's clock time as "HH:MM" (local London), or '' when absent. */
 function formatClock(iso) {
