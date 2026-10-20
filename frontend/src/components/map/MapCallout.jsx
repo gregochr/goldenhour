@@ -558,6 +558,13 @@ export default function MapCallout({
   // here moving. They are folded into one string because the rows and `loading` live in a hook this
   // component calls, not in the block, where the card could not see them.
   //
+  // ⚠️ And `travelDay` / `auroraAlertLevel` (overlay convergence C2): each adds or removes a whole
+  // line under the verdict row, and both arrive from fetches that can land with the card already
+  // open — `fetchTravelDayRanges` resolves after the map mounts, the live aurora scoring after the
+  // alert's night is on screen — with `event?.id` and everything else here unmoved. Without them the
+  // card kept its old height until an unrelated pan/zoom re-measured, and on a phone the grown card
+  // could overlap the peek sheet.
+  //
   // ⚠️ And `hourlyRows` — a wildlife hide's comfort summary is 2–5 lines of text whose number and
   // height depend on which readings are served for the window's date, and the forecast refresh that
   // lands them can arrive with the card already open. Stable between ordinary renders (the caller
@@ -567,7 +574,7 @@ export default function MapCallout({
   useEffect(() => { repaintNow(); }, [
     paint, stripOpen, event?.id, event?.past, rating, ratingKnown, ratingRetrying,
     tideAlignmentIndex, tideStripHeight, bandKey, hourlyRows, ratingLayout, changing, adminOpen,
-    adminLayout, repaintNow,
+    adminLayout, travelDay, auroraAlertLevel, repaintNow,
   ]);
 
   // "On open": bring the point into view — ONCE per new selection, never on every paint (README §7

@@ -157,6 +157,45 @@ describe('MapCallout — both lines on the 266px phone card', () => {
   });
 });
 
+describe('MapCallout — both lines re-measure the card when they arrive with it open', () => {
+  // The travel-day ranges and the live aurora scoring are fetches that can land after the card is
+  // up, adding a whole line with nothing else in the repaint dependency list moving. The repaint
+  // path is observed through the map projection every `paint()` reads.
+  const projectionCalls = () => {
+    const spy = vi.fn(currentMap.latLngToContainerPoint);
+    currentMap.latLngToContainerPoint = spy;
+    return spy;
+  };
+  const rerender = async (view, props) => {
+    await act(async () => {
+      view.rerender(<MapCallout location={LOCATION} event={SOLAR} rating={4} {...props} />);
+    });
+  };
+
+  it('repaints when travelDay flips on', async () => {
+    const view = await mount({ travelDay: false });
+    const spy = projectionCalls();
+    await rerender(view, { travelDay: false });
+    const before = spy.mock.calls.length;
+    await rerender(view, { travelDay: true });
+    expect(spy.mock.calls.length).toBeGreaterThan(before);
+  });
+
+  it('repaints when auroraAlertLevel arrives', async () => {
+    const view = await mount({ event: AURORA, auroraAlertLevel: null });
+    const spy = projectionCalls();
+    const again = async (props) => {
+      await act(async () => {
+        view.rerender(<MapCallout location={LOCATION} event={AURORA} rating={4} {...props} />);
+      });
+    };
+    await again({ auroraAlertLevel: null });
+    const before = spy.mock.calls.length;
+    await again({ auroraAlertLevel: 'STRONG' });
+    expect(spy.mock.calls.length).toBeGreaterThan(before);
+  });
+});
+
 describe('MapCallout — the aurora kind literal', () => {
   it("the callout's 'aur' literal is mapEvents.EVENT_KIND.AURORA", () => {
     expect(EVENT_KIND.AURORA).toBe('aur');
