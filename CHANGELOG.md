@@ -5,6 +5,61 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.29.2] - 2026-10-20
+
+### Added — the Plan→Map door carries every overlay trigger (overlay convergence, C1)
+
+First phase of retiring the Plan tab's map overlay onto the Map tab (`docs/engineering/overlay-convergence-plan.md`, O-6). The structured `source: 'plan'` door now carries everything the overlay's seven triggers carry, so a later phase can move each producer onto it. No door moves in this change and nothing about the overlay itself changes: it still opens, looks and behaves as before.
+
+`normalizeMapTrigger` moved into a new `utils/mapDoor.js` (the overlay's `buildMapOverlay` stays in `utils/mapOverlay.js`), which also gains `doorHeadline` and `doorFromTrigger` so one normalised trigger becomes one door. `App.openMapTabFromPlan` accepts either a door or a normalised trigger. The handoff gains `night` (select a night's row — held until that row has loaded, and spent if the reader picks a window of their own first), `focusNames` (a named, temporary spot-set lens on the pins, labels, counts and the heat field), `focusPoints` (fit several pins), `filterAction` / `darkSky` (promoted from the legacy `handoff*` props, which are not extended), and `title` / `caption`. Every field is absent unless the door asked for it.
+
+`MapBreadcrumb` prints the door's `title · caption`, names each active lens ("showing 6 spots", "coastal spots", "dark-sky spots" — live claims, gone when the reader changes the filter), and its `clear` removes the temporary lenses together with the rating, reach, scope and origin resets, restoring the field whole. A later door undoes the previous door's filter lens, and `clear` the current one, handing back the reader's own subject and dark-sky filters as they were; a lens also ends with its door, so a map-sourced or overlay handoff never leaves a spot set standing with nothing to name it. One door-only change in behaviour: a door carrying `filterAction` or `darkSky` no longer opens the Filters popover (the breadcrumb names the lens instead).
+
+### Added — Ask PhotoCast reads each window's rating distribution, and says stay home when it is
+
+`list_windows` now serves, for every solar window, the spread of its ratings over the question's scope:
+how many rated places sit at each star, how many are 4★ or better ("game on"), the regions holding a
+game-on place with their means (at most four), and how many regions were stood down whole, not scored or
+too thin for the Plan tab to give a verdict. A wood and a place the neighbour guard withholds are out of
+the counts. The system prompt carries the owner's scale (1–2★ stay home, 3★ marginal, 4★ game on, 5★ go),
+tells the model to read the spread before the best rating and to call a window of almost all 3★ with a
+handful of 4★ a stay-home window with exceptions, and replaces "give 2 or 3 picks" with "up to three, never
+fill the list with marginal places". The result cap rises from 6,000 to 9,000 characters.
+
+A shared Ready answer for "Best spot this weekend?" (and the other solar pick questions) may now honestly
+say there is nothing worth going out for when no covered window holds a game-on place the question admits,
+and is withheld the moment one appears. A Ready answer carries the whole spread of every window its prose
+may have quoted and is withheld whole when any of those figures has moved, or a window it covered has
+passed or been added. `StubAskEngine` reads the same figures, so local runs show the shape.
+`BriefingRegion.coverageReason` (serve path only, never persisted) tells a real weather stand-down from
+the "no record" the honesty filter words the same way. No migration; the client line that draws the
+figures is a later change.
+
+### Added — the server's figures beside Ask PhotoCast's answer
+
+Under an Ask answer's summary, one quiet line per window the answer may have quoted now shows the
+served rating distribution the model was reading — `Sat sunset · 180 rated across every region ·
+2 at 4★+`, with `· N at 5★` when any place is, `none at 4★+` when none is, and the scope's region
+names in place of "every region" for a question about an area — so a count the model states can be
+checked against the server's own figure on the same screen. While any window is rated, a window
+nobody has rated draws no line; when none is, each window says "nothing rated" with what the server
+recorded for it (`4 regions stood down`, `2 not scored`), so a weekend the weather stood down never
+reads like one nobody looked at. An answer that carries no windows (every Ready answer stored before
+the spread was served, and every can't-answer) is drawn exactly as before. It is on every surface (the
+phone sheet, the tablet sheet, the dock and the phone Map peek), for every role, and is deliberately
+not the Plan card's reach-gated histogram. The figures are never echoed on a follow-up's thread. No
+backend change. Seen in a static harness of the built stylesheet only; not yet seen in the live app.
+
+### Added — Ask window-context prompt regression (owner-run, never run)
+
+`AskWindowContextRegressionTest` (tagged `prompt-regression`, skipped without an API key, excluded from
+`verify`) runs the real engine against three weekends built from JSON fixtures: the owner's stay-home
+weekend of 17–18 October 2026 (Saturday sunset 56 / 122 / 2 at 2 / 3 / 4★, and the other two windows),
+a broadly game-on weekend, and a mixed weekend with an all-blue Saturday. Each script is run ten times and
+must pass nine. Its assertions are pending the owner's approval and it has not been run. A synthetic-band
+fixture builder expands a band count into named filler places, and an ordinary unit test checks that the
+three fixtures say what their names claim, so a wrong fixture is found without spending anything.
+
 ## [v2.29.1] - 2026-10-20
 
 ### Changed — Coming up tide-run miss row names the event once
