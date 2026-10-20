@@ -9,6 +9,7 @@ import { auroraRampHex } from '../utils/auroraRamp.js';
 import { ALERT_WORTHY, areaField, isRealAlert } from '../utils/auroraBannerScores.js';
 import { formatInstantUk, parseUtcInstant } from '../utils/conversions.js';
 import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
+import { auroraNightLive } from '../utils/auroraTab.js';
 
 // ⚠️ Lazy on purpose: the field thumbnail imports the heat kernel (d3-geo and the land chunk), and
 // this banner is imported by App on every tab. A static import would put the kernel in the entry
@@ -493,7 +494,7 @@ function AuroraCard({
   if (m.bzText) {
     parts.push(<span key="bz">Bz <b>{m.bzText} nT</b></span>);
   }
-  const cta = ctaText(m, onActivate, 'Generate scores →', 'View on map →', 'Test alert');
+  const cta = ctaText(m, onActivate, 'Operations →', 'View on map →', 'Test alert');
   const whenLabel = m.simulated ? 'Simulated' : m.forecast ? 'Forecast · tonight' : 'Active now';
 
   return (
@@ -610,7 +611,7 @@ function AuroraStrip({ m, onActivate = null, onDismiss }) {
   } else if (!showBest && m.siteCount != null) {
     detail = `${m.siteCount} dark ${siteNoun(m.siteCount)}${m.sitesClear ? ' clear' : ''}`;
   }
-  const cta = ctaText(m, onActivate, 'Scores →', 'Map →', 'Test');
+  const cta = ctaText(m, onActivate, 'Operations →', 'Map →', 'Test');
   const headline = m.simulated ? 'Aurora simulated' : m.forecast ? 'Aurora tonight' : 'Aurora active now';
 
   return (
@@ -768,10 +769,17 @@ export default function AuroraBanner({ onViewOnMap = null, onOpenSimulated = nul
   // a SIMULATED alert has no map (no scores, no stored run - `utils/auroraTab.js`), so its door is the
   // admin's Operations tab (`onOpenSimulated`, withheld from everyone else). With no handler the banner
   // is a statement: no press, no tab stop, no call to action - never the dead hash write it once made.
+  //
+  // A real alert's door also needs the Map tab to HAVE a night row for it (overlay convergence C4
+  // review): either the live night the Map tab's own offer tests (`auroraNightLive` - active, real,
+  // its night not over) or a rated run to select (`scores.ready`, the stored run for the night in
+  // progress or the live field). A stale or inactive status with a forecast on screen has neither, and
+  // the press would leave the map on a solar window.
+  const nightRowAvailable = auroraNightLive(status) || scores.ready;
   let handleActivate = null;
   if (m.simulated) {
     handleActivate = onOpenSimulated ? () => onOpenSimulated() : null;
-  } else if (onViewOnMap) {
+  } else if (onViewOnMap && nightRowAvailable) {
     handleActivate = () => onViewOnMap({
       minRating: ratingLens?.minRating ?? null,
       limitMinutes: reachLens?.tier?.limitMinutes ?? null,

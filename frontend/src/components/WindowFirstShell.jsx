@@ -39,11 +39,13 @@ import useStuckSentinel from '../hooks/useStuckSentinel.js';
 
 /**
  * The Coming up pane's `onShowOnMap` when the shell was handed no Map door (no forecast to map). The
- * pane requires a function, and it already withholds every map door it cannot honour (the entry's
- * `forecastDates` test), so this is never reached from a rendered control.
+ * pane REQUIRES a function, so this fills the prop; it is never called, because the shell then hands
+ * the pane `forecastDates={[]}` ("known empty"), which withholds every map door the pane would draw
+ * (a card becomes a plain card, a chip is dimmed) - a control that opens nothing is banned.
  */
 const NO_MAP_DOOR = () => {};
-
+/** "Known empty": the Coming up pane's way of withholding every map door. */
+const NO_FORECAST_DATES = Object.freeze([]);
 
 /**
  * The heat strip, behind a lazy boundary for chunk hygiene.
@@ -392,7 +394,7 @@ export default function WindowFirstShell({
   onSeasonalFeaturesChange, locations, mapPane, operationsPane, tabRequest, healthPill,
   light, onSetPostcode, mapColourScale = null, homeCoords = null, onTabChange = null,
   locationSheetHandoff = null, onOpenMapTab = null, settingsOpen = false, initialTab = null,
-  forecastDates = null,
+  forecastDates = null, registerCloseDialogs = null,
 }) {
   const {
     heatStripCards, heatPointSets, heatSpots, reachById, regionSeries,
@@ -977,7 +979,14 @@ export default function WindowFirstShell({
     // in-place branch explains what a full door payload would silently undo there (the map's own
     // rating floor, its reach tier, its scope and its camera). It is answered here rather than in
     // the pure function because only the shell knows which tab is in force.
-    door: { ...door, inPlace: effectiveTab === 'map' },
+    //
+    // ⚠️ `from` - the tab the press came from (C4, an extension of plan section 5 D2): the breadcrumb
+    // names it and returns there. Absent for an in-place press, which never left the Map tab.
+    door: {
+      ...door,
+      inPlace: effectiveTab === 'map',
+      ...(effectiveTab === 'map' ? {} : { from: effectiveTab }),
+    },
   }), [openOverPopup, openWindow, onOpenMapTab, ratingLens, reachLens, effectiveTab]);
   /**
    * The Plan tab's "show this on the map" producers' ONE entry (overlay convergence C4,
@@ -1001,7 +1010,8 @@ export default function WindowFirstShell({
     )
     : undefined), [onOpenMapTab, openMapTab]);
   /**
-   * A tab asked for from OUTSIDE the bar — currently the map overlay's "open the full map" hatch.
+   * A tab asked for from OUTSIDE the bar — the breadcrumb's return, and the aurora banner's door to
+   * Operations for a simulated alert.
    *
    * <p>Keyed on a NONCE rather than on the id, because the same destination can be asked for twice
    * running and the second ask must still land. That is the idiom {@code App} already uses for map
@@ -1019,6 +1029,7 @@ export default function WindowFirstShell({
    */
   const requestedNonce = tabRequest?.nonce ?? null;
   const requestedId = tabRequest?.id ?? null;
+  const requestedOpener = tabRequest?.opener ?? null;
   // Seeded with whatever nonce is already in flight at MOUNT, not with null. `App` holds
   // `tabRequest` and never clears it, and it outlives this component — so a null seed on any
   // remount would replay the last request rather than treating it as already handled, which
@@ -1040,20 +1051,48 @@ export default function WindowFirstShell({
     // Focus follows the request, and only a request. A CLICK leaves focus on the tab the pointer or
     // the keyboard already put it on, so the bar needs nothing; an external ask arrives with focus
     // wherever the CALLER left it — and the caller here is a dialog that closes on the same press.
-    // Measured on the running app: after the overlay's "open the full map" hatch, `activeElement`
-    // was the document root, i.e. a keyboard reader was dropped at the top of the page having just
-    // asked to be taken somewhere specific. Deferred a frame because the tab it names may be
+    // Measured on the running app (when an overlay's "open the full map" hatch was the caller):
+    // `activeElement` was the document root, i.e. a keyboard reader was dropped at the top of the
+    // page having just asked to be taken somewhere specific. Deferred a frame because the tab it names may be
     // rendering for the first time on this very commit.
     // Reached by id rather than through `tabRefs`, which is index-based: the index depends on which
     // panes were handed over, so it is the one thing that moves when a tab appears or disappears —
     // exactly the case this effect exists for. The id is the component's own and is already what
     // `aria-controls` resolves against.
+    //
+    // A request may carry the control that was pressed to come away (the breadcrumb's return does:
+    // `tabRequest.opener`). It is focused when it is still mounted and now focusable - a Coming up
+    // card, whose pane merely hid while the Map was up - and otherwise the tab's own button takes
+    // the focus, as above (a Plan dialog's button is gone with its dialog).
     const domId = tabDomId(requestedId);
-    requestAnimationFrame(() => document.getElementById(domId)?.focus());
+    const opener = requestedOpener;
+    requestAnimationFrame(() => {
+      if (opener?.isConnected) {
+        opener.focus?.();
+        if (document.activeElement === opener) return;
+      }
+      document.getElementById(domId)?.focus();
+    });
     // `selectTab` is deliberately absent from the list. It is rebuilt every render, so listing it
     // would re-run this on every render with the nonce guard as the only thing stopping it. The
     // nonce IS the trigger, and it is in the list.
-  }, [requestedNonce, requestedId, mapPane, operationsPane]);
+  }, [requestedNonce, requestedId, requestedOpener, mapPane, operationsPane]);
+
+  /**
+   * Registers a "close the dialogs this shell owns" callback with `App` (overlay convergence C4).
+   * The aurora banner sits OUTSIDE the shell and, pressed on the Map tab, changes no tab - so nothing
+   * would take a Map-hosted four-day sheet down before the window changed under it. The closer is
+   * `selectTab` naming the tab already in force, the shell's one list of what a dialog is. Kept in a
+   * ref refreshed every commit (it closes over this render's `effectiveTab`), and registered once.
+   */
+  const closeOwnDialogs = useRef(null);
+  useEffect(() => {
+    closeOwnDialogs.current = () => selectTab(effectiveTab);
+  });
+  useEffect(() => {
+    registerCloseDialogs?.(() => closeOwnDialogs.current?.());
+    return () => registerCloseDialogs?.(null);
+  }, [registerCloseDialogs]);
 
   /**
    * The Map tab callout's four-day-sheet handoff (map-tab-v2-plan.md §3 P9) — `openFullMapTab`'s
@@ -1295,9 +1334,8 @@ export default function WindowFirstShell({
   }, [openCard, heatSpots, heatPointSets, heatStripCards, regionSeries, reachById,
     eventSummariesByKey, fieldLens, focusedRegion, origin, homeCoords]);
 
-  // Lifted to App for the map overlay. Without this a tile handed to the map opens an overlay with
-  // no narrative over a map that has filtered out every unrated pin — see the provider's note on
-  // why this arm fetches them at all.
+  // Lifted to App for the Map tab's doors. Without this a tile handed to the map lands on a map that
+  // has filtered out every unrated pin - see the provider's note on why this arm fetches them at all.
   useEffect(() => {
     onEvaluationScoresChange?.(evaluationScores);
   }, [evaluationScores, onEvaluationScoresChange]);
@@ -1412,7 +1450,7 @@ export default function WindowFirstShell({
   /**
    * Opens the sheet. The entry is {@code disabled} (a real attribute, so no press reaches this) while
    * one of THIS shell's dialogs or settings stands; what that flag cannot see is a dialog this shell
-   * does not own — the map overlay — so it is found the way {@code /} finds it (any
+   * does not own (the settings dialog, the postcode prompt) — so it is found the way {@code /} finds it (any
    * {@code role="dialog"} outside this root), at press time, and refused with nothing taken down.
    */
   const openAskSheet = () => {
@@ -1519,7 +1557,7 @@ export default function WindowFirstShell({
    * so the location sheet is the single modal on the tablet and the phone. The DOCK is not a layer and is
    * not on that list: it stays open beside the plan the reader asked to see, and turns {@code inert}
    * for as long as the sheet is up ({@code askDialogOpen} reads {@code sheetSpot} through
-   * {@code stackedOverPopup}). A dialog this shell does not own (the map overlay) refuses the press, as
+   * {@code stackedOverPopup}). A dialog this shell does not own (settings, the postcode prompt) refuses the press, as
    * {@code openAskSheet} does — a second {@code aria-modal} over it is the thing the rule is for.
    *
    * <p>The sheet is the Plan tab's own, with the window the handoff effect above gives the map's callout:
@@ -1810,7 +1848,7 @@ export default function WindowFirstShell({
       if (event.key !== '/' || event.metaKey || event.ctrlKey || event.altKey) return;
       if (askDisabled) return;
       // ⚠️ A dialog this shell does not own still refuses, which is a DIFFERENT question from the flag
-      // above: `UserSettingsModal` and the map overlay are siblings of the shell in `App`, invisible to
+      // above: `UserSettingsModal` and the postcode prompt are siblings of the shell in `App`, invisible to
       // its state. Containment answers it — see `foreignDialogOpen`.
       if (foreignDialogOpen(shellRef.current)) return;
       const el = event.target;
@@ -2051,9 +2089,8 @@ export default function WindowFirstShell({
                 leaves the tab order under it and the cog does not. It now closes through
                 `selectTab` naming the tab in force, the shell's one list, which carries search;
                 the tick line's nudge below does the same, and `App`'s `settingsOpen` edge covers
-                the map's ⌂. None of them reaches a dialog this shell does not own: `App` closes its
-                map overlay on that edge itself, and an Operations-tab admin `Modal` is left open
-                under settings, since what it holds (a generated password, say) a close would lose. */}
+                the map's ⌂. None of them reaches a dialog this shell does not own: an
+                Operations-tab admin `Modal` is left open under settings, since what it holds (a generated password, say) a close would lose. */}
             <button
               type="button"
               onClick={() => { selectTab(effectiveTab); onOpenSettings?.(); }}
@@ -2388,7 +2425,7 @@ export default function WindowFirstShell({
         onGoToPlan={goToPlan}
         onShowOnMap={showOnMap ?? NO_MAP_DOOR}
         comingUpLastSeenDate={comingUpLastSeenDate}
-        forecastDates={forecastDates}
+        forecastDates={showOnMap ? forecastDates : NO_FORECAST_DATES}
         onMarkSeen={markSeen}
       />
 
@@ -2902,14 +2939,12 @@ export default function WindowFirstShell({
               }
               : undefined}
             onClose={() => openOverPopup(null)}
-            // Door 2 (doors D3, `plan-to-map-doors-plan.md` §3 D3 task 1) — re-pointed from the
-            // frozen overlay to the Map tab. `openMapTab` (the `openMapDoor` wrapper above) does its
-            // OWN close-then-move: `openOverPopup(null)` then `openWindow(null)` before it reads the
-            // live lens and hands the door to `onOpenMapTab`, so nothing here repeats that ordering —
-            // repeating it would just be two callers racing to close the same two pieces of state.
-            // `region: null` because this door names a LOCATION, never a region (the popup's own
-            // region routes — `WindowPickDialog`'s two actions below — are untouched: they stay on
-            // the overlay, D3 re-points only the sheet footer, O-6 is not this phase).
+            // Door 2 (doors D3, `plan-to-map-doors-plan.md` §3 D3 task 1). `openMapTab` (the
+            // `openMapDoor` wrapper above) does its OWN close-then-move: `openOverPopup(null)` then
+            // `openWindow(null)` before it reads the live lens and hands the door to `onOpenMapTab`, so
+            // nothing here repeats that ordering — repeating it would just be two callers racing to
+            // close the same two pieces of state. `region: null` because this door names a LOCATION,
+            // never a region (the pick dialog's two actions below take the same door since C4).
             //
             // ⚠️ WITHHELD, not just unwired, when there is no map door: `App` hands this shell
             // `undefined` for `onOpenMapTab` whenever there is nothing to map
@@ -2940,14 +2975,22 @@ export default function WindowFirstShell({
           // instant `openPick` clears, `stackedOverPopup` goes false and the popup re-arms its own
           // Escape listener and re-takes `aria-modal`, which would put a modal under the Map tab's
           // arrival. These used to open the retired overlay first and close second.
-          onShowRegion={() => {
-            showOnMap?.({
+          // Both actions are WITHHELD when the shell has no map door (`showOnMap` undefined): the
+          // dialog draws a button only for a handler it was given. With a door, `openMapTab` closes
+          // the dialog and the popup itself, and the explicit closes after the call keep that true
+          // whatever the door does (C4 review: they had been deleted and the actions went dead).
+          onShowRegion={showOnMap ? () => {
+            showOnMap({
               region: openPick.pick.regionName, date: openPick.date, eventType: openPick.targetType,
             });
-          }}
-          onShowLocation={() => {
-            showOnMap?.(openPick.date, openPick.targetType, openPick.pick.locationName);
-          }}
+            openOverPopup(null);
+            openWindow(null);
+          } : undefined}
+          onShowLocation={showOnMap ? () => {
+            showOnMap(openPick.date, openPick.targetType, openPick.pick.locationName);
+            openOverPopup(null);
+            openWindow(null);
+          } : undefined}
         />
       )}
     </div>
@@ -2980,7 +3023,7 @@ WindowFirstShell.propTypes = {
   onSignOut: PropTypes.func.isRequired,
   contentDisabled: PropTypes.bool,
   onEvaluationScoresChange: PropTypes.func,
-  /** Lifts `briefing.seasonalFeatures` to App, which the map overlay reads. Optional-called, so
+  /** Lifts `briefing.seasonalFeatures` to App. Optional-called, so
       every existing test renders without it. */
   onSeasonalFeaturesChange: PropTypes.func,
   locations: PropTypes.array,
@@ -2991,7 +3034,18 @@ WindowFirstShell.propTypes = {
    * it fire, so the same tab can be requested twice running. A request naming a tab this shell has
    * no pane for is ignored rather than obeyed.
    */
-  tabRequest: PropTypes.shape({ id: PropTypes.string, nonce: PropTypes.number }),
+  tabRequest: PropTypes.shape({
+    id: PropTypes.string,
+    nonce: PropTypes.number,
+    // The control a door was pressed on, carried by the breadcrumb's return: focused if still mounted.
+    opener: PropTypes.object,
+  }),
+  /**
+   * Registers a "close my dialogs" callback with `App` (called with the closer, and with null on
+   * unmount) - the aurora banner sits outside the shell and must be able to take a Map-hosted
+   * four-day sheet down before it changes the window under it.
+   */
+  registerCloseDialogs: PropTypes.func,
   /** The Map tab callout's four-day-sheet handoff (map-tab-v2-plan.md §3 P9) — `App.jsx`'s
    * `openLocationSheet`, `openFullMapTab`'s shape in reverse. `inPlan` is the destination: true
    * moves to the Plan tab (the callout's `Open in Plan` button), false/absent leaves the reader on
@@ -3010,8 +3064,8 @@ WindowFirstShell.propTypes = {
    * The map doors' shared entry (doors D2, `plan-to-map-doors-plan.md` §3) — `App.jsx`'s
    * `openMapTabFromPlan`, called by the shell's own `openMapTab(door)` wrapper (which closes the
    * popup/window sheet first and merges in the live lens values). Absent whenever there is nothing
-   * to map (`App`'s own `hasForecastData` gate) — no door renders without it, mirroring
-   * `onOpenFullMap`'s identical withholding rule on the overlay's own hatch.
+   * to map (`App`'s own `hasForecastData` gate) — no door renders without it: a control that opens
+   * nothing is banned, so every producer's control is withheld with it.
    */
   onOpenMapTab: PropTypes.func,
   /**

@@ -4,6 +4,14 @@ import React from 'react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 import { buildPaneItems } from '../utils/windowFirstAway.js';
+import { openMapDoor } from '../utils/mapDoors.js';
+
+// A passthrough spy over the door's close-then-move entry, so a test can neutralise it for ONE press
+// and prove the handler's OWN closes (not the door's) are what end the browsing.
+vi.mock('../utils/mapDoors.js', async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, openMapDoor: vi.fn(actual.openMapDoor) };
+});
 
 describe('WindowFirstShell', () => {
   const renderShell = (props = {}) => {
@@ -840,6 +848,42 @@ describe('WindowFirstShell — the strip it hosts', () => {
     }));
     // The same close-everything rule as the region route above — see its note for why the popup
     // may not survive a handoff to the map.
+    expect(screen.queryByTestId('window-pick-dialog')).toBeNull();
+    expect(screen.queryByTestId('window-sheet')).toBeNull();
+  });
+
+  it('⚠️ withholds BOTH pick-dialog actions when the shell has no map door (a button that opens nothing is banned)', async () => {
+    renderWithBriefing(briefingWith('2026-08-04T12:00:00'), { onOpenMapTab: undefined });
+    await openPopup();
+    fireEvent.click(screen.getByTestId('window-sheet-pick'));
+
+    expect(screen.getByTestId('window-pick-dialog')).toBeInTheDocument();
+    expect(screen.queryByTestId('window-pick-dialog-region')).toBeNull();
+    expect(screen.queryByTestId('window-pick-dialog-location-action')).toBeNull();
+  });
+
+  it('⚠️ the region action closes the dialog AND the popup itself, even if the door did not (the explicit closes are load-bearing)', async () => {
+    const { onOpenMapTab } = renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
+    await openPopup();
+    fireEvent.click(screen.getByTestId('window-sheet-pick'));
+    openMapDoor.mockImplementationOnce(() => {});
+
+    fireEvent.click(screen.getByTestId('window-pick-dialog-region'));
+
+    expect(onOpenMapTab).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('window-pick-dialog')).toBeNull();
+    expect(screen.queryByTestId('window-sheet')).toBeNull();
+  });
+
+  it('⚠️ the location action closes the dialog AND the popup itself, even if the door did not', async () => {
+    const { onOpenMapTab } = renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
+    await openPopup();
+    fireEvent.click(screen.getByTestId('window-sheet-pick'));
+    openMapDoor.mockImplementationOnce(() => {});
+
+    fireEvent.click(screen.getByTestId('window-pick-dialog-location-action'));
+
+    expect(onOpenMapTab).not.toHaveBeenCalled();
     expect(screen.queryByTestId('window-pick-dialog')).toBeNull();
     expect(screen.queryByTestId('window-sheet')).toBeNull();
   });

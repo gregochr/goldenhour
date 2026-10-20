@@ -19,7 +19,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 import App from '../App.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
-import { ukDateStrOffset } from '../utils/mapDates.js';
 
 vi.mock('../api/forecastApi.js', () => ({
   fetchForecasts: vi.fn(),
@@ -95,8 +94,13 @@ import { getAlmanac } from '../api/almanacApi.js';
 import { subscribeToRunNotifications } from '../api/runProgressApi.js';
 import { getTodaysLight } from '../api/lightApi.js';
 
-const TODAY = ukDateStrOffset(0);
-const TOMORROW = ukDateStrOffset(1);
+// Pinned: the dates below are fixed strings and the clock is held on them (`beforeEach`), so nothing
+// here depends on the wall clock the suite happens to run on (the fixtures used to read it at module
+// load, and a run across UK midnight would have disagreed with itself).
+const NOW = '2026-01-15T12:00:00Z';
+const TODAY = '2026-01-15';
+const YESTERDAY = '2026-01-14';
+const TOMORROW = '2026-01-16';
 
 const LOCATION_META = [
   {
@@ -112,7 +116,8 @@ const forecastRow = (targetType) => ({
 
 /** A live MODERATE alert whose night is `night`. */
 const alert = (extra = {}) => ({
-  level: 'MODERATE', kpIndex: 6, active: true, simulated: false, currentNightDate: TODAY, ...extra,
+  level: 'MODERATE', kpIndex: 6, active: true, simulated: false, currentNightDate: TODAY,
+  currentNightEndsAt: '2026-01-16T06:00:00Z', ...extra,
 });
 
 /** The Plan's live lens, as the banner reads it from the briefing context. */
@@ -138,6 +143,8 @@ const pressBanner = async () => {
 };
 
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date(NOW));
   localStorage.clear();
   window.location.hash = '';
   ShellStub.lastProps = null;
@@ -165,6 +172,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   delete window.requestIdleCallback;
   delete window.cancelIdleCallback;
@@ -196,8 +204,10 @@ describe('App — the aurora banner takes the structured Map door (overlay conve
   });
 
   it('names the running night, not the civil date, when the night began yesterday', async () => {
-    const yesterday = ukDateStrOffset(-1);
-    getAuroraStatus.mockResolvedValue(alert({ currentNightDate: yesterday }));
+    const yesterday = YESTERDAY;
+    getAuroraStatus.mockResolvedValue(alert({
+      currentNightDate: yesterday, currentNightEndsAt: '2026-01-15T14:00:00Z',
+    }));
     renderApp();
 
     await pressBanner();
@@ -234,7 +244,7 @@ describe('App — the aurora banner takes the structured Map door (overlay conve
 
     await waitFor(() => expect(ShellStub.lastProps.tabRequest).toMatchObject({ id: 'operations' }));
     expect(MapPaneStub.lastProps?.handoff ?? null).toBeNull();
-    expect(window.location.hash).toBe('');
+    expect(window.location.hash).toBe('#manage/metrics');
   });
 
   it('a SIMULATED alert for a non-admin has no door: no call to action, no tab request, no handoff', async () => {
@@ -277,5 +287,144 @@ describe('App — the aurora banner takes the structured Map door (overlay conve
     await waitFor(() => expect(screen.getByTestId('stub-shell')).toBeInTheDocument());
 
     expect(screen.queryByTestId('aurora-banner')).toBeNull();
+  });
+
+  it('⚠️ a SIMULATED alert with a FORECAST on screen still offers no Map door (admin: Operations; others: a statement)', async () => {
+    getAuroraStatus.mockResolvedValue(alert({ simulated: true }));
+    renderApp('PRO_USER');
+
+    const banner = await screen.findByTestId('aurora-banner');
+    await act(async () => { fireEvent.click(banner); });
+
+    expect(banner).toHaveAttribute('data-actionable', 'false');
+    expect(MapPaneStub.lastProps?.handoff ?? null).toBeNull();
+    expect(ShellStub.lastProps.tabRequest ?? null).toBeNull();
+  });
+
+  it('⚠️ a stale night WITH a forecast on screen has no door: no call to action, and a press changes nothing', async () => {
+    // The Map tab IS offered (a forecast), but the status' night has ended: there is no night row, so
+    // a door would leave the map on a solar window.
+    getAuroraStatus.mockResolvedValue(alert({ currentNightEndsAt: '2026-01-15T05:00:00Z' }));
+    renderApp();
+
+    const banner = await screen.findByTestId('aurora-banner');
+    await act(async () => { fireEvent.click(banner); });
+
+    expect(banner).toHaveAttribute('data-actionable', 'false');
+    expect(screen.queryByTestId('aurora-banner-cta')).toBeNull();
+    expect(MapPaneStub.lastProps?.handoff ?? null).toBeNull();
+  });
+
+  it('an inactive alert-worthy status WITH a forecast on screen has no door either', async () => {
+    getAuroraStatus.mockResolvedValue(alert({ active: false }));
+    renderApp();
+
+    const banner = await screen.findByTestId('aurora-banner');
+
+    expect(banner).toHaveAttribute('data-actionable', 'false');
+  });
+
+  it('a door pressed from the COMING UP tab names it as where the reader came from', async () => {
+    renderApp();
+    await screen.findByTestId('aurora-banner');
+    // The shell reports the tab in force; the stub's button reports "map"; stand in for Coming up.
+    await act(async () => { ShellStub.lastProps.onTabChange('coming-up'); });
+
+    await pressBanner();
+
+    await waitFor(() => expect(MapPaneStub.lastProps.handoff?.night).toBeTruthy());
+    expect(MapPaneStub.lastProps.handoff).toMatchObject({ source: 'plan', from: 'coming-up' });
+  });
+
+  it('a Plan press says it came from Plan', async () => {
+    renderApp();
+
+    await pressBanner();
+
+    await waitFor(() => expect(MapPaneStub.lastProps.handoff?.night).toBeTruthy());
+    expect(MapPaneStub.lastProps.handoff.from).toBe('plan');
+  });
+
+  it('registers the shell\'s dialog closer and calls it before an in-place (Map tab) press, and not before an ordinary one', async () => {
+    renderApp();
+    await screen.findByTestId('aurora-banner');
+    const closer = vi.fn();
+    await act(async () => { ShellStub.lastProps.registerCloseDialogs(closer); });
+
+    await pressBanner();
+    expect(closer).not.toHaveBeenCalled();
+
+    await act(async () => { fireEvent.click(screen.getByTestId('on-map-tab')); });
+    await pressBanner();
+    expect(closer).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('App — the breadcrumb\'s return (doors D2, extended by C4)', () => {
+  const doorThenReturn = async (from, opener) => {
+    renderApp();
+    await screen.findByTestId('stub-shell');
+    if (from) await act(async () => { ShellStub.lastProps.onTabChange(from); });
+    if (opener) opener.focus();
+    await pressBanner();
+    await waitFor(() => expect(MapPaneStub.lastProps.handoff?.night).toBeTruthy());
+    await act(async () => { MapPaneStub.lastProps.onReturnToPlan(from ?? 'plan'); });
+  };
+
+  it.each([
+    ['plan', 'plan'],
+    ['coming-up', 'coming-up'],
+    ['operations', 'operations'],
+  ])('a door from %s returns to %s', async (from, id) => {
+    await doorThenReturn(from);
+    expect(ShellStub.lastProps.tabRequest).toMatchObject({ id });
+  });
+
+  it('anything that is not a tab a door can come from returns to Plan', async () => {
+    renderApp();
+    await screen.findByTestId('stub-shell');
+    await pressBanner();
+    await waitFor(() => expect(MapPaneStub.lastProps.handoff?.night).toBeTruthy());
+    await act(async () => { MapPaneStub.lastProps.onReturnToPlan('nowhere'); });
+    expect(ShellStub.lastProps.tabRequest).toMatchObject({ id: 'plan' });
+    await act(async () => { MapPaneStub.lastProps.onReturnToPlan(); });
+    expect(ShellStub.lastProps.tabRequest).toMatchObject({ id: 'plan' });
+  });
+
+  it('carries the control that was pressed, once, and none when nothing held focus', async () => {
+    const opener = document.createElement('button');
+    document.body.appendChild(opener);
+    await doorThenReturn('coming-up', opener);
+    expect(ShellStub.lastProps.tabRequest.opener).toBe(opener);
+
+    // Spent: a second return from the same door has no stale opener to focus.
+    await act(async () => { MapPaneStub.lastProps.onReturnToPlan('coming-up'); });
+    expect(ShellStub.lastProps.tabRequest).not.toHaveProperty('opener');
+    opener.remove();
+  });
+
+  it('the request is nonce\'d: two returns in a row both land', async () => {
+    await doorThenReturn('plan');
+    const first = ShellStub.lastProps.tabRequest.nonce;
+    await act(async () => { MapPaneStub.lastProps.onReturnToPlan('plan'); });
+    expect(ShellStub.lastProps.tabRequest.nonce).not.toBe(first);
+  });
+});
+
+describe('App — a simulated alert\'s banner opens Operations (C4, S3)', () => {
+  it('asks for Operations with a fresh nonce on every press, and aims the hash at Job Runs', async () => {
+    getAuroraStatus.mockResolvedValue(alert({ simulated: true }));
+    renderApp('ADMIN');
+
+    await pressBanner();
+    await waitFor(() => expect(ShellStub.lastProps.tabRequest).toMatchObject({ id: 'operations' }));
+    const first = ShellStub.lastProps.tabRequest.nonce;
+    expect(window.location.hash).toBe('#manage/metrics');
+    expect(screen.getByTestId('aurora-banner-cta').textContent).toBe('Operations →');
+
+    // Navigate away (the shell stub reports Plan), then press again: a second request must land.
+    await act(async () => { ShellStub.lastProps.onTabChange('plan'); });
+    await pressBanner();
+    expect(ShellStub.lastProps.tabRequest.nonce).toBeGreaterThan(first);
   });
 });

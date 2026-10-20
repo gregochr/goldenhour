@@ -34,8 +34,22 @@ import { appNow } from './rewind.js';
  * @returns {boolean}
  */
 export function auroraTabOffered(status, role, now = appNow()) {
-  return (role === 'PRO_USER' || role === 'ADMIN')
-    && status?.active === true
+  return (role === 'PRO_USER' || role === 'ADMIN') && auroraNightLive(status, now);
+}
+
+/**
+ * Whether the status describes a live, REAL alert whose night has not ended - {@link auroraTabOffered}
+ * without the role test, so the aurora banner (which has no role, only a status that a LITE account
+ * never receives) asks the SAME question the Map pane's offer does rather than a second predicate.
+ * A live night is what gives the window control its live aurora row (overlay convergence C3); a
+ * stale or inactive status has none, and a banner door onto it would open the map on a solar window.
+ *
+ * @param {?object} status the shared aurora status
+ * @param {Date} [now] the instant to judge the night's end by
+ * @returns {boolean}
+ */
+export function auroraNightLive(status, now = appNow()) {
+  return status?.active === true
     && isRealAlert(status)
     && isStillCurrent(status.currentNightEndsAt, now);
 }

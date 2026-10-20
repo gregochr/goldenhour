@@ -996,7 +996,7 @@ describe('App — panes handed to WindowFirstShell', () => {
       // A live alert whose night is yesterday — the small-hours case. The banner's "view on map"
       // sets it as the selected date; `App` must hand that through rather than clamp it away.
       getAuroraStatus.mockResolvedValue({
-        level: 'MODERATE', kpIndex: 6, currentNightDate: YESTERDAY, simulated: false,
+        level: 'MODERATE', active: true, kpIndex: 6, currentNightDate: YESTERDAY, simulated: false,
       });
       fetchForecasts.mockResolvedValue(pastAndFutureForecasts());
       renderApp();
@@ -1035,7 +1035,7 @@ describe('App — panes handed to WindowFirstShell', () => {
       // the banner borrow the licence the banner earned. The pair is written through one setter
       // precisely so the flag cannot outlive the date it describes.
       getAuroraStatus.mockResolvedValue({
-        level: 'MODERATE', kpIndex: 6, currentNightDate: YESTERDAY, simulated: false,
+        level: 'MODERATE', active: true, kpIndex: 6, currentNightDate: YESTERDAY, simulated: false,
       });
       fetchForecasts.mockResolvedValue(pastAndFutureForecasts());
       renderApp();

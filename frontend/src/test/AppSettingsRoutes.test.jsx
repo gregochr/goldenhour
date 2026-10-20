@@ -97,6 +97,10 @@ vi.mock('../api/authApi.js', () => ({
 vi.mock('../components/WindowFirstDoors.jsx', () => ({
   default: () => <div data-testid="stub-doors" />,
 }));
+// Plan-first, as `App.test.jsx` pins it: jsdom's `matchMedia` answers "no match", which the real
+// `resolveInitialTab()` reads as a desktop and opens on Map, and the banner's door is judged by the
+// tab in force when it is pressed.
+vi.mock('../utils/initialTab.js', () => ({ resolveInitialTab: () => 'plan' }));
 /** What the callout's `Four days here ›` hands `App` — the peek, which does not move the tab. */
 const PEEK = {
   id: 1, name: 'Derwentwater', regionName: 'Lake District',
@@ -109,8 +113,10 @@ const PEEK = {
  * stand-ins.
  */
 vi.mock('../components/WindowFirstMapPane.jsx', () => ({
-  default: ({ onOpenSettings, onOpenLocationSheet }) => (
+  default: ({ onOpenSettings, onOpenLocationSheet, handoff }) => (
     <div data-testid="map-pane-stub">
+      {/* What `App` handed the pane as its door, so a test reads the payload straight off it. */}
+      <output data-testid="stub-handoff">{handoff ? JSON.stringify(handoff) : ''}</output>
       <button type="button" data-testid="stub-four-days" onClick={() => onOpenLocationSheet?.(PEEK)}>
         Four days here
       </button>
@@ -159,7 +165,7 @@ const SETTINGS_NO_HOME = {
 
 /** A live alert the banner shows, so its Map door can be pressed. */
 const AURORA_ALERT = {
-  level: 'MODERATE', kpIndex: 6, currentNightDate: TOMORROW, simulated: false,
+  level: 'MODERATE', kpIndex: 6, active: true, currentNightDate: TOMORROW, simulated: false,
 };
 
 const CARD = {
@@ -639,10 +645,12 @@ describe('App — every route into settings takes down the dialog it would open 
     });
   });
 
-  describe('the aurora banner\'s Map door (the overlay it used to open is retired, C4)', () => {
+  describe('the aurora banner\'s Map door, through the REAL shell (C4)', () => {
     beforeEach(() => {
       getAuroraStatus.mockResolvedValue(AURORA_ALERT);
     });
+
+    const handoff = () => JSON.parse(screen.getByTestId('stub-handoff').textContent || 'null');
 
     it('opens no dialog of its own, so settings is the only modal after the cog', async () => {
       renderApp();
@@ -656,6 +664,45 @@ describe('App — every route into settings takes down the dialog it would open 
 
       expect(modals()).toHaveLength(1);
       expect(modals()[0]).toHaveAccessibleName('Settings');
+    });
+
+    it('over an open window popup: the popup is gone, the Map tab is in force and the pane holds the night door', async () => {
+      renderApp();
+      await openPopup();
+
+      await press(await screen.findByTestId('aurora-banner'));
+
+      await waitFor(() => expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true'));
+      expect(screen.queryByTestId('window-sheet')).toBeNull();
+      expect(modals()).toHaveLength(0);
+      await waitFor(() => expect(handoff()).toMatchObject({
+        source: 'plan', eventType: 'AURORA', night: { kind: 'aurora', date: TOMORROW }, from: 'plan',
+      }));
+    });
+
+    it('focus lands on the Map tab button on arrival (not <body>)', async () => {
+      renderApp();
+      await screen.findByTestId('wf-heat-strip');
+
+      await press(await screen.findByTestId('aurora-banner'));
+
+      await waitFor(() => expect(screen.getByRole('tab', { name: 'Map' })).toHaveFocus());
+    });
+
+    it('⚠️ pressed ON the Map tab with the Map-hosted four-day sheet open: the sheet closes FIRST, then the window changes in place', async () => {
+      renderApp();
+      await openMapTab();
+      await openPeek();
+      expect(screen.getByTestId('location-sheet')).toBeInTheDocument();
+
+      await press(await screen.findByTestId('aurora-banner'));
+
+      await waitFor(() => expect(screen.queryByTestId('location-sheet')).toBeNull());
+      expect(modals()).toHaveLength(0);
+      expect(handoff()).toMatchObject({ source: 'map', night: { kind: 'aurora', date: TOMORROW } });
+      // Nothing else moved: still the Map tab, no lens carried.
+      expect(screen.getByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
+      expect(handoff()).not.toHaveProperty('minRating');
     });
   });
 });

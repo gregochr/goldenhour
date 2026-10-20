@@ -49,6 +49,68 @@ describe('MapBreadcrumb — the ← Plan control', () => {
   });
 });
 
+describe('MapBreadcrumb — the return names the tab the door came from (C4, an extension of D2)', () => {
+  it.each([
+    ['coming-up', 'Coming up'],
+    ['operations', 'Operations'],
+    ['plan', 'Plan'],
+    [undefined, 'Plan'],
+    ['nowhere', 'Plan'],
+  ])('from %s reads "%s" and is pressed as the same single control', (from, label) => {
+    const { onBack } = renderCrumb({ carried: { from } });
+    const back = screen.getByRole('button', { name: label });
+    fireEvent.click(back);
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('MapBreadcrumb — the arrival is announced once per door (C4)', () => {
+  const announce = () => screen.getByTestId('wf-map-breadcrumb-announce');
+
+  it('is a visually hidden status region, a sibling of the strip so the strip\'s own text is untouched', () => {
+    renderCrumb({ carried: { title: 'Aurora tonight', nonce: 1 }, activeRow: ACTIVE_ROW });
+    expect(announce()).toHaveAttribute('role', 'status');
+    expect(announce()).toHaveClass('sr-only');
+    expect(screen.getByTestId('wf-map-breadcrumb')).not.toContainElement(announce());
+  });
+
+  it('speaks the headline and the window', async () => {
+    renderCrumb({ carried: { title: 'Aurora tonight', caption: 'Active now', nonce: 1 }, activeRow: ACTIVE_ROW });
+    await screen.findByText('Aurora tonight · Active now. Tonight sunset');
+    expect(announce()).toHaveTextContent('Aurora tonight · Active now. Tonight sunset');
+  });
+
+  it('speaks just the window for a plain door that carries no headline', () => {
+    renderCrumb({ carried: { nonce: 1 }, activeRow: ACTIVE_ROW });
+    expect(announce()).toHaveTextContent(/^Tonight sunset$/);
+  });
+
+  it('does not speak again for a re-render of the same door; speaks again for the next door', () => {
+    const handlers = {
+      onBack: vi.fn(), onClearRating: vi.fn(), onClearReach: vi.fn(), onClearScope: vi.fn(), onClearOrigin: vi.fn(),
+    };
+    const crumb = (props) => (
+      <MapBreadcrumb minStars={3} driveTimeFilter={0} {...handlers} {...props} />
+    );
+    const { rerender } = render(crumb({ carried: { title: 'First', nonce: 1 }, activeRow: ACTIVE_ROW }));
+    const observer = new MutationObserver(() => {});
+    observer.observe(announce(), { childList: true, characterData: true, subtree: true });
+    expect(announce()).toHaveTextContent('First. Tonight sunset');
+
+    // A floor moved, a window stepped: every other commit leaves the region alone.
+    rerender(crumb({ carried: { title: 'First', nonce: 1 }, activeRow: { dayLabel: 'Tomorrow', eventType: 'SUNRISE' }, minStars: 4 }));
+    rerender(crumb({ carried: { title: 'First', nonce: 1 }, activeRow: { dayLabel: 'Tomorrow', eventType: 'SUNRISE' }, minStars: 4 }));
+    expect(observer.takeRecords()).toHaveLength(0);
+    expect(announce()).toHaveTextContent('First. Tonight sunset');
+
+    // The next door (a new nonce) is announced afresh, with the window in force at that moment.
+    rerender(crumb({ carried: { title: 'Second', nonce: 2 }, activeRow: { dayLabel: 'Tomorrow', eventType: 'SUNRISE' } }));
+    expect(announce()).toHaveTextContent('Second. Tomorrow sunrise');
+    expect(observer.takeRecords().length).toBeGreaterThan(0);
+    observer.disconnect();
+  });
+});
+
 describe('MapBreadcrumb — the window clause', () => {
   it('names the active row\'s day and kind word when one is showing', () => {
     renderCrumb({ activeRow: ACTIVE_ROW });

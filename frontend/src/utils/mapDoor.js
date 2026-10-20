@@ -101,7 +101,10 @@ export function doorFromTrigger(trigger, ctx) {
   const door = {
     date: trigger.date,
     targetType: h.eventType ?? null,
-    region: h.region ?? null,
+    // A REGION door keeps its region even when the overlay's resolution found a top spot to
+    // open (`handoff` then carries only `locationName`): the Map tab frames the region AND selects
+    // the spot, so an away region is not stranded outside scope behind one callout (C4).
+    region: h.region ?? (trigger.kind === 'region' ? trigger.region ?? null : null),
     locationName: h.locationName ?? null,
     title,
     caption,
@@ -117,7 +120,8 @@ export function doorFromTrigger(trigger, ctx) {
   // `openMapDoor` spreads the Plan's rating floor and reach tier, and `inPlace`, onto whatever it is
   // handed, a trigger included): this function resolves the overlay's own fields and adds nothing of
   // its own to the lens. Copied when the trigger carries the key at all, otherwise ABSENT.
-  ['minRating', 'limitMinutes', 'inPlace'].forEach((key) => {
+  // `from` (C4): the tab the door was pressed on, for the breadcrumb's return.
+  ['minRating', 'limitMinutes', 'inPlace', 'from'].forEach((key) => {
     if (trigger[key] !== undefined) door[key] = trigger[key];
   });
   return door;

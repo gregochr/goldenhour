@@ -61,12 +61,15 @@ vi.mock('react-leaflet', () => ({
     getZoom: () => 9,
     once: () => {},
     off: () => {},
-    flyTo: () => {},
+    flyTo: (...args) => { flyToCalls.push(args); },
     fitBounds: (bounds) => { fitBoundsCalls.push(bounds); },
     addControl: () => {},
     _corner: cornerEl,
   }),
 }));
+
+/** Every `map.flyTo` call - the camera a LOCATION door flies, read off the map. */
+const flyToCalls = [];
 
 /** Every `map.fitBounds` call - what the `focusPoints` door's camera does, read off the map. */
 const fitBoundsCalls = [];
@@ -221,6 +224,7 @@ beforeEach(() => {
   filtersPopoverCalls.length = 0;
   heatLayerCalls.length = 0;
   fitBoundsCalls.length = 0;
+  flyToCalls.length = 0;
   cornerEl = document.createElement('div');
   cornerEl.className = 'leaflet-bottom leaflet-right';
   document.body.appendChild(cornerEl);
@@ -777,9 +781,7 @@ describe('MapView — focusNames: a TEMPORARY, NAMED spot-set lens, restored who
     expect(screen.queryByText(/showing/)).toBeNull();
   });
 
-  it('⚠️ a lens ends with its plan door: a map-sourced handoff (the sheet footer over the map) lifts it', async () => {
-    // The breadcrumb that names the lens unmounts on this handoff, so a lens left standing would be
-    // a silent narrowing with no way to lift it (plan 4 #3).
+  it('⚠️ a map-sourced handoff (the banner or the sheet footer, over the map) is a window change only: the lens and its breadcrumb STAND (C4, S1)', async () => {
     const { rerender } = await renderTab({
       heat: HEAT_WITH_POINTS,
       planHandoff: { ...DOOR_BASE, focusNames: ['Near'], nonce: 1 },
@@ -790,7 +792,25 @@ describe('MapView — focusNames: a TEMPORARY, NAMED spot-set lens, restored who
       planHandoff: { source: 'map', eventType: 'SUNSET', date: TODAY, locationName: null, nonce: 2 },
     });
 
-    expect(screen.queryByTestId('wf-map-breadcrumb')).toBeNull();
+    // The strip is still mounted, still naming the lens, and the field is still the named spot's.
+    expect(screen.getByTestId('wf-map-breadcrumb')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-map-breadcrumb-carrying')).toHaveTextContent('showing 1 spot');
+    expect(heatLayerCalls.at(-1).points).toHaveLength(1);
+  });
+
+  it('a NEW plan door after a map-sourced one replaces the lens and the strip\'s door', async () => {
+    const { rerender } = await renderTab({
+      heat: HEAT_WITH_POINTS,
+      planHandoff: { ...DOOR_BASE, focusNames: ['Near'], title: 'First', nonce: 1 },
+    });
+    await rerenderWith(rerender, {
+      planHandoff: { source: 'map', eventType: 'SUNSET', date: TODAY, locationName: null, nonce: 2 },
+    });
+    await rerenderWith(rerender, {
+      planHandoff: { ...DOOR_BASE, title: 'Second', nonce: 3 },
+    });
+
+    expect(screen.getByTestId('wf-map-breadcrumb-title')).toHaveTextContent('Second');
     expect(heatLayerCalls.at(-1).points).toHaveLength(4);
   });
 
@@ -803,7 +823,7 @@ describe('MapView — focusNames: a TEMPORARY, NAMED spot-set lens, restored who
     expect(heatLayerCalls.at(-1).points).toHaveLength(4);
   });
 
-  it('a map-sourced handoff also hands back the reader\'s filters the door had replaced', async () => {
+  it('a map-sourced handoff leaves the door\'s subject filter standing; the handoff going away hands the reader\'s filters back', async () => {
     const { rerender } = await renderTab({ planHandoff: null });
     await act(async () => { filtersPopoverCalls.at(-1).onToggleType('LANDSCAPE'); });
     await rerenderWith(rerender, {
@@ -815,8 +835,158 @@ describe('MapView — focusNames: a TEMPORARY, NAMED spot-set lens, restored who
       heat: HEAT,
       planHandoff: { source: 'map', eventType: 'SUNSET', date: TODAY, locationName: null, nonce: 2 },
     });
+    expect([...filtersPopoverCalls.at(-1).activeTypeFilters]).toEqual(['SEASCAPE']);
 
+    await rerenderWith(rerender, { heat: HEAT, planHandoff: null });
     expect([...filtersPopoverCalls.at(-1).activeTypeFilters]).toEqual(['LANDSCAPE']);
+  });
+});
+
+describe('MapView — a REGION door frames the region AND selects its top spot (C4)', () => {
+  it('an AWAY region with a spot: scope flips to the catalogue, the crumb names the region, the callout opens on the spot', async () => {
+    await renderTab({
+      planHandoff: { ...DOOR_BASE, region: 'Lake District', locationName: 'Far', nonce: 1 },
+    });
+    expect(filtersPopoverCalls.at(-1).heatArea).toBe(false);
+    expect(screen.getByTestId('wf-map-breadcrumb-carrying')).toHaveTextContent('Lake District');
+    expect(screen.getByTestId('probe-callout-name')).toHaveTextContent('Far');
+    expect(mapLabelsCalls.at(-1).spots.some((sp) => sp.name === 'Far')).toBe(true);
+  });
+
+  it('...and without the region the same door would strand it out of scope (the defect the region carry fixes)', async () => {
+    await renderTab({ planHandoff: { ...DOOR_BASE, region: null, locationName: 'Far', nonce: 1 } });
+    // resetToMyArea: scope back to the area, where `Far`'s region is not.
+    expect(filtersPopoverCalls.at(-1).heatArea).toBe(true);
+  });
+
+  it('the camera is the REGION\'s fit, not a fly to the one spot (the two would race)', async () => {
+    await renderTab({
+      planHandoff: { ...DOOR_BASE, region: 'Lake District', locationName: 'Far', nonce: 1 },
+    });
+    expect(flyToCalls).toHaveLength(0);
+  });
+
+  it('a plain location door (no region) still flies to the spot', async () => {
+    await renderTab({ planHandoff: { ...DOOR_BASE, locationName: 'Near', nonce: 1 } });
+    // (The mock's `useMap` is a fresh object each render, so the controller's effect may re-fire.)
+    expect(flyToCalls.length).toBeGreaterThan(0);
+    expect(flyToCalls.every(([target]) => target[0] === NEAR.lat && target[1] === NEAR.lon)).toBe(true);
+  });
+
+  it('a region the catalogue holds no spots for falls back to flying to the spot', async () => {
+    await renderTab({
+      planHandoff: { ...DOOR_BASE, region: 'Nowhere', locationName: 'Near', nonce: 1 },
+    });
+    expect(flyToCalls.length).toBeGreaterThan(0);
+  });
+
+  it('a region already in My area keeps scope and still selects the spot', async () => {
+    await renderTab({
+      planHandoff: { ...DOOR_BASE, region: 'North East', locationName: 'Near', nonce: 1 },
+    });
+    expect(filtersPopoverCalls.at(-1).heatArea).toBe(true);
+    expect(screen.getByTestId('probe-callout-name')).toHaveTextContent('Near');
+  });
+});
+
+describe('MapView — a NAMED spot is exempt from the unrated withholding, not from the reader\'s filters (C4)', () => {
+  const UNRATED_A = {
+    id: 5, name: 'Unrated A', lat: 55.64, lon: -1.74, regionName: 'North East', locationType: ['LANDSCAPE'],
+    forecastsByDate: new Map(),
+  };
+  const UNRATED_B = {
+    id: 6, name: 'Unrated B', lat: 55.65, lon: -1.75, regionName: 'North East', locationType: ['LANDSCAPE'],
+    forecastsByDate: new Map(),
+  };
+  const WITH_UNRATED = [...ALL_LOCATIONS, UNRATED_A, UNRATED_B];
+
+  it('an unrated named spot is DRAWN (not withheld), so the card does not open on an empty map', async () => {
+    await renderTab({
+      locations: WITH_UNRATED,
+      planHandoff: { ...DOOR_BASE, focusNames: ['Unrated A', 'Unrated B'], nonce: 1 },
+    });
+    expect(screen.getByTestId('wf-map-breadcrumb-carrying')).toHaveTextContent('showing 2 spots');
+  });
+
+  it('a STOOD-DOWN named spot is drawn too, and an unnamed stood-down one is not', async () => {
+    const stood = (id, name) => ({
+      id, name, lat: 55.7, lon: -1.8, regionName: 'North East', locationType: ['LANDSCAPE'],
+      forecastsByDate: new Map([[TODAY, { sunset: { rating: null, triageReason: 'HIGH_CLOUD' } }]]),
+    });
+    await renderTab({
+      locations: [...ALL_LOCATIONS, stood(7, 'Stood A'), stood(8, 'Stood B')],
+      planHandoff: { ...DOOR_BASE, focusNames: ['Stood A', 'Near'], nonce: 1 },
+    });
+    expect(screen.getByTestId('wf-map-breadcrumb-carrying')).toHaveTextContent('showing 2 spots');
+    expect(mapLabelsCalls.at(-1).spots.map((sp) => sp.name)).not.toContain('Stood B');
+  });
+
+  it('an unrated spot that is NOT named is still withheld (the exemption is the named set\'s alone)', async () => {
+    await renderTab({
+      locations: WITH_UNRATED,
+      planHandoff: { ...DOOR_BASE, focusNames: ['Unrated A', 'Near'], nonce: 1 },
+    });
+    expect(screen.getByTestId('wf-map-breadcrumb-carrying')).toHaveTextContent('showing 2 spots');
+    expect(mapLabelsCalls.at(-1).spots.map((sp) => sp.name)).not.toContain('Unrated B');
+  });
+
+  it('the reader\'s own filters still apply to it: a reach tier with no drive time drops it, and the crumb says WHY, never "showing 0"', async () => {
+    await renderTab({
+      locations: WITH_UNRATED,
+      planHandoff: {
+        ...DOOR_BASE, limitMinutes: 45, focusNames: ['Unrated A', 'Unrated B'], nonce: 1,
+      },
+    });
+    const carrying = screen.getByTestId('wf-map-breadcrumb-carrying');
+    expect(carrying).toHaveTextContent('none of the 2 named spots is rated for this day');
+    expect(carrying).not.toHaveTextContent(/showing 0/);
+  });
+
+  it('...singular for one named spot', async () => {
+    await renderTab({
+      locations: WITH_UNRATED,
+      planHandoff: { ...DOOR_BASE, limitMinutes: 45, focusNames: ['Unrated A'], nonce: 1 },
+    });
+    expect(screen.getByTestId('wf-map-breadcrumb-carrying'))
+      .toHaveTextContent('the named spot is not rated for this day');
+  });
+
+  it('when the named spots ARE rated but the reader\'s filters hold them back, it says so instead', async () => {
+    await renderTab({
+      heat: HEAT_WITH_POINTS,
+      planHandoff: { ...DOOR_BASE, minRating: 4, focusNames: ['Excluded Unselected', 'Filtered Out'], nonce: 1 },
+    });
+    expect(screen.getByTestId('wf-map-breadcrumb-carrying'))
+      .toHaveTextContent('none of the 2 named spots passes your filters');
+  });
+});
+
+describe('MapView — the breadcrumb\'s return names the tab the door came from (C4, S2)', () => {
+  it.each([
+    ['coming-up', 'Coming up'],
+    ['operations', 'Operations'],
+    [undefined, 'Plan'],
+  ])('a door from %s returns there', async (from, label) => {
+    const onReturnToPlan = vi.fn();
+    await renderTab({
+      onReturnToPlan,
+      planHandoff: { ...DOOR_BASE, ...(from ? { from } : {}), nonce: 1 },
+    });
+    fireEvent.click(screen.getByRole('button', { name: label }));
+    expect(onReturnToPlan).toHaveBeenCalledExactlyOnceWith(from ?? 'plan');
+  });
+
+  it('keeps naming the door\'s tab after a map-sourced handoff arrives (the return is the last PLAN door\'s)', async () => {
+    const onReturnToPlan = vi.fn();
+    const { rerender } = await renderTab({
+      onReturnToPlan, planHandoff: { ...DOOR_BASE, from: 'coming-up', nonce: 1 },
+    });
+    await rerenderWith(rerender, {
+      onReturnToPlan,
+      planHandoff: { source: 'map', eventType: 'SUNSET', date: TODAY, locationName: null, nonce: 2 },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Coming up' }));
+    expect(onReturnToPlan).toHaveBeenCalledExactlyOnceWith('coming-up');
   });
 });
 

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, fireEvent, within } from '@testing-library/react';
@@ -427,13 +429,13 @@ describe('AuroraBanner', () => {
       });
     });
 
-    it('offers "View on map →" for a real alert and "Generate scores →" for a simulated one', () => {
+    it('offers "View on map →" for a real alert and "Operations →" for a simulated one', () => {
       const doors = { onViewOnMap: vi.fn(), onOpenSimulated: vi.fn() };
       const real = renderBanner({ ...MODERATE }, doors);
       expect(screen.getByText('View on map →')).toBeInTheDocument();
       real.unmount();
       renderBanner({ ...MODERATE, simulated: true }, doors);
-      expect(screen.getByText('Generate scores →')).toBeInTheDocument();
+      expect(screen.getByText('Operations →')).toBeInTheDocument();
       expect(screen.queryByText('View on map →')).not.toBeInTheDocument();
     });
 
@@ -443,7 +445,7 @@ describe('AuroraBanner', () => {
       real.unmount();
       renderBanner({ ...MODERATE, simulated: true }, { onViewOnMap: vi.fn() });
       expect(screen.getByTestId('aurora-banner-cta').textContent).toBe('Test alert');
-      expect(screen.queryByText('Generate scores →')).not.toBeInTheDocument();
+      expect(screen.queryByText('Operations →')).not.toBeInTheDocument();
     });
   });
 
@@ -609,13 +611,13 @@ describe('AuroraBanner', () => {
       expect(screen.queryByTestId('aurora-banner-viewline')).not.toBeInTheDocument();
     });
 
-    it('offers "Map →", and "Scores →" for a simulated alert whose door is not the map', () => {
+    it('offers "Map →", and "Operations →" for a simulated alert whose door is not the map', () => {
       const doors = { onViewOnMap: vi.fn(), onOpenSimulated: vi.fn() };
       const real = renderBanner({ ...MODERATE }, doors);
       expect(screen.getByText('Map →')).toBeInTheDocument();
       real.unmount();
       renderBanner({ ...MODERATE, simulated: true }, doors);
-      expect(screen.getByText('Scores →')).toBeInTheDocument();
+      expect(screen.getByText('Operations →')).toBeInTheDocument();
       expect(screen.queryByText('Map →')).not.toBeInTheDocument();
     });
 
@@ -805,6 +807,76 @@ describe('AuroraBanner', () => {
       fireEvent.click(screen.getByTestId('aurora-banner'));
 
       expect(onViewOnMap).not.toHaveBeenCalled();
+      expect(screen.getByTestId('aurora-banner')).toHaveAttribute('data-actionable', 'false');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // The Map door needs a night row to select (overlay convergence C4 review)
+  // ---------------------------------------------------------------------------
+
+  describe('the Map door is offered only when the Map tab has a night row for it', () => {
+    // `ready` is all the door reads. No spots: a rated field would mount the lazy thumbnail chunk and
+    // leave it loaded for the file, breaking the test that asserts its pending slot.
+    it('is offered for a live night (active, real, not over)', () => {
+      renderBanner({ ...MODERATE, currentNightEndsAt: '2026-01-16T05:00:00Z' }, { onViewOnMap: vi.fn() });
+      expect(screen.getByTestId('aurora-banner')).toHaveAttribute('data-actionable', 'true');
+    });
+
+    it('is withheld when the status is alert-worthy but NOT active, with no rated run to select', () => {
+      renderBanner({ ...MODERATE, active: false }, { onViewOnMap: vi.fn() });
+      expect(screen.getByTestId('aurora-banner')).toHaveAttribute('data-actionable', 'false');
+      expect(screen.queryByTestId('aurora-banner-cta')).toBeNull();
+    });
+
+    it('is withheld when the status\' night has ENDED (the stale-night-with-a-forecast case)', () => {
+      renderBanner(
+        { ...MODERATE, currentNightEndsAt: '2026-01-15T05:00:00Z' },
+        { onViewOnMap: vi.fn() },
+      );
+      expect(screen.getByTestId('aurora-banner')).toHaveAttribute('data-actionable', 'false');
+    });
+
+    it('is kept for an inactive (forecast) alert when a rated run exists for the night to select', () => {
+      useAuroraScores.mockReturnValue({ ready: true, spots: [] });
+      const onViewOnMap = vi.fn();
+      renderBanner({ ...MODERATE, active: false }, { onViewOnMap });
+      fireEvent.click(screen.getByTestId('aurora-banner'));
+      expect(onViewOnMap).toHaveBeenCalledTimes(1);
+    });
+
+    it('a withheld door never calls onViewOnMap', () => {
+      const onViewOnMap = vi.fn();
+      renderBanner({ ...MODERATE, active: false }, { onViewOnMap });
+      fireEvent.click(screen.getByTestId('aurora-banner'));
+      fireEvent.keyDown(screen.getByTestId('aurora-banner'), { key: 'Enter' });
+      expect(onViewOnMap).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('a banner with no door looks like a statement (C4 CSS)', () => {
+    const css = readFileSync(resolve(__dirname, '../index.css'), 'utf8');
+    const rule = (selectorStart) => {
+      const at = css.indexOf(selectorStart);
+      expect(at, `${selectorStart} rule`).toBeGreaterThan(-1);
+      return css.slice(at, css.indexOf('}', at));
+    };
+
+    it('drops the pointer cursor on both layouts when data-actionable is false', () => {
+      const body = rule(".wf-aurora-card[data-actionable='false'],");
+      expect(body).toContain(".wf-aurora-strip[data-actionable='false']");
+      expect(body).toMatch(/cursor:\s*default/);
+    });
+
+    it('keeps its call-to-action word off the accent weight', () => {
+      const body = rule(".wf-aurora-card[data-actionable='false'] .wf-aurora-cta,");
+      expect(body).toContain(".wf-aurora-strip[data-actionable='false'] .wf-aurora-strip-cta");
+      expect(body).toMatch(/font-weight:\s*400/);
+      expect(body).not.toMatch(/--acc-ink/);
+    });
+
+    it('the markup carries the attribute the rules key on', () => {
+      renderBanner({ ...MODERATE });
       expect(screen.getByTestId('aurora-banner')).toHaveAttribute('data-actionable', 'false');
     });
   });

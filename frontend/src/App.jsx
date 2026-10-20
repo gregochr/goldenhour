@@ -309,7 +309,7 @@ function AppInner() {
    * The one-time "set your home postcode" prompt (login-registration plan §2 #3). Raised by the
    * server's {@code postcodePromptDue} on the mount read, as an overlay over the app that is already
    * mounted — never a gate — and only when nothing else is claiming to be the modal: a slow first
-   * read lets the reader open Settings, the map overlay, a Plan dialog or Ask first, and a late
+   * read lets the reader open Settings, a Plan dialog or Ask first, and a late
    * answer must not put a second {@code aria-modal} over (and the app {@code inert} under) any of
    * them. {@code useModalPresent} reads the DOM because the shell's and Ask's dialogs are not
    * {@code App} state; the prompt waits for the last one to close.
@@ -502,19 +502,32 @@ function AppInner() {
   }) ?? (hasForecastData ? todayStr : auroraTabOn ? auroraNightStr : null);
 
   /**
+   * The dialogs the Plan shell owns, closed on request. The shell registers its closer here
+   * (`registerCloseDialogs`) because the aurora banner sits OUTSIDE the shell and a press on the Map
+   * tab never changes tab, so nothing else would take a Map-hosted four-day sheet down before the
+   * window changes under it.
+   */
+  const closeShellDialogs = useRef(null);
+  const registerCloseDialogs = useCallback((closer) => { closeShellDialogs.current = closer; }, []);
+
+  /**
    * Aurora banner "View on map" (overlay convergence C4, `docs/engineering/overlay-convergence-plan.md`
-   * section 3 C4 and section 4 #4): the banner is mounted above `<main>` on EVERY tab, so it takes the
-   * structured door like every Plan producer - an `aurora` trigger from {@link normalizeMapTrigger},
-   * resolved by {@link openMapTabFromPlan} into a `night` door for {@link resolveAuroraNight}'s night.
+   * section 3 C4 and section 4 #4) - kept and rewritten rather than deleted: the banner is mounted
+   * above `<main>` on EVERY tab, so it takes the structured door like every Plan producer - an
+   * `aurora` trigger from {@link normalizeMapTrigger}, resolved by {@link openMapTabFromPlan} into a
+   * `night` door for {@link resolveAuroraNight}'s night.
    *
    * <p>The banner hands over the Plan's live lens (it reads it from the briefing context it already
    * sits in), so the door imports the reader's rating floor and reach tier exactly as a Plan card's
-   * does and does not silently reset them.
+   * does and does not silently reset them, and `from` names the tab the press came from so the
+   * breadcrumb's return goes back there (an extension of section 5 D2, not a reversal).
    *
    * <p>⚠️ <b>On the Map tab itself the press is a window change and nothing more</b>: `inPlace`
    * takes {@link openMapTabFromPlan}'s `source: 'map'` branch (no lens, scope or camera write, no
-   * tab request), which now carries the night so `MapView` selects the aurora row. Pressed on any
-   * other tab it moves to the Map tab. Only offered when the Map tab is.
+   * tab request), which carries the night so `MapView` selects the aurora row and leaves any
+   * standing door lens and its breadcrumb alone. The shell's own dialogs (a Map-hosted four-day
+   * sheet) are closed first, through the closer the shell registered. Pressed on any other tab it
+   * moves to the Map tab. Only offered when the Map tab is.
    *
    * @param {{minRating: ?number, limitMinutes: ?number}} [lens] the Plan's live lens, from the banner
    */
@@ -523,32 +536,37 @@ function AppInner() {
       ...normalizeMapTrigger({ kind: 'aurora', date: auroraNightStr }),
       minRating,
       limitMinutes,
-      ...(isMapTabActive ? { inPlace: true } : {}),
     };
-    openMapTabFromPlan(trigger);
+    if (isMapTabActive) {
+      closeShellDialogs.current?.();
+      openMapTabFromPlan({ ...trigger, inPlace: true });
+    } else {
+      openMapTabFromPlan({ ...trigger, from: activePlanTab });
+    }
   };
 
   /**
    * A tab the window-first shell should select, asked for from out here. Nonce'd for the same
-   * reason map handoffs are: the reader can open the overlay and press the hatch twice running, and
-   * the second press has to land even though the destination has not changed.
+   * reason map handoffs are: the reader can press a door (or the breadcrumb's return) twice running,
+   * and the second press has to land even though the destination has not changed.
    */
   const [tabRequest, setTabRequest] = useState(null);
   const tabRequestNonce = useRef(0);
+  /** The control a door was pressed on, for the breadcrumb's return focus. */
+  const doorOpener = useRef(null);
 
   /**
-   * The handoff the MAP TAB should act on, which is deliberately not App's overlay handoff.
+   * The handoff the MAP TAB should act on.
    *
-   * <p>⚠️ Found by review and reproduced at 390px. The shell mounts a pane once and then hides it
-   * rather than unmounting it, so once the Map tab has been visited its `MapView` is alive for the
-   * rest of the session — and it was being handed App's overlay handoff, which every plan-card tap
-   * sets. On a phone `MapView` answers a location handoff with a `BottomSheet`, which is
-   * `createPortal(…, document.body)` at `z-index: 10000`, so `display: none` on the panel cannot
-   * suppress it: tapping "Open on map" on the PLAN tab raised **two** stacked sheets — one from the
-   * overlay the reader asked for, one from a map that is not on screen — and locked body scroll.
+   * <p>⚠️ Found by review and reproduced at 390px (when plan-card taps still opened an overlay). The
+   * shell mounts a pane once and then hides it rather than unmounting it, so once the Map tab has
+   * been visited its `MapView` is alive for the rest of the session. On a phone `MapView` answers a
+   * location handoff with a `BottomSheet`, which is `createPortal(…, document.body)` at
+   * `z-index: 10000`, so `display: none` on the panel cannot suppress it: a handoff the reader did
+   * not ask for would raise a sheet from a map that is not on screen and lock body scroll.
    *
-   * <p>So the tab is handed a handoff only when the reader explicitly asks to be taken to it, which
-   * is the hatch below and nothing else. Every other handoff belongs to the overlay.
+   * <p>So the tab is handed a handoff only when the reader explicitly asks to be taken to it - a
+   * door (`openMapTabFromPlan`) and nothing else.
    */
   const [mapTabHandoff, setMapTabHandoff] = useState(() => (rewind?.focus ? {
     // The rewind's window, as a map-sourced handoff: `source: 'map'` is the one shape that selects
@@ -603,11 +621,10 @@ function AppInner() {
    * locationName: ?string}`, already carrying the Plan's own lens values (read at the moment of the
    * tap by `WindowFirstShell`'s internal `openMapTab`, never re-read here).
    *
-   * <p>Reuses the SAME `mapTabHandoff`/`tabRequest` channel the overlay's retired hatch used, not a second
-   * one — `App.jsx:307–318`'s own ⚠️ about that channel applies unchanged: the Map pane is never
+   * <p>Rides the `mapTabHandoff`/`tabRequest` channel documented above: the Map pane is never
    * unmounted, so a handoff on it must only ever arrive when the reader explicitly asked to be
-   * taken there, which a door tap is. The two are told apart downstream by `source: 'plan'`, which
-   * the retired hatch's own handoff never carried.
+   * taken there, which a door tap is. A door is told apart from a window change made in place by
+   * `source: 'plan'` against `source: 'map'`.
    *
    * <p><b>Origin is deliberately NOT in the payload</b> (plan §2, §4 #1) — it is shared state the
    * Map tab already reads from the SAME `WindowFirstBriefingContext` the Plan tab does, so sending
@@ -618,9 +635,9 @@ function AppInner() {
    * that is already OVER the map, and it takes the other branch below for the reasons stated there.
    */
   const openMapTabFromPlan = (doorOrTrigger) => {
-    // Overlay convergence C1: a NORMALISED TRIGGER (`utils/mapDoor.normalizeMapTrigger`, the
-    // overlay's seven shapes - it names its `kind`) is turned into the structured door here, by
-    // the same resolution the overlay uses; a plain door (no `kind`) passes through untouched.
+    // Overlay convergence C1: a NORMALISED TRIGGER (`utils/mapDoor.normalizeMapTrigger`, the seven
+    // producer shapes - it names its `kind`) is turned into the structured door here
+    // (`utils/mapDoor.doorFromTrigger`); a plain door (no `kind`) passes through untouched.
     const door = doorOrTrigger?.kind
       ? doorFromTrigger(doorOrTrigger, {
         locations: visibleLocations, briefingScores, todayStr, tomorrowStr,
@@ -667,6 +684,10 @@ function AppInner() {
       return;
     }
     tabRequestNonce.current += 1;
+    // The control the reader pressed, kept for the breadcrumb's return (focus goes back to it when it
+    // is still mounted - a Coming up card - else to the tab's own button).
+    const pressed = document.activeElement;
+    doorOpener.current = pressed && pressed !== document.body ? pressed : null;
     setMapTabHandoff({
       source: 'plan',
       eventType: door.targetType,
@@ -675,7 +696,7 @@ function AppInner() {
       minRating: door.minRating ?? null,
       limitMinutes: door.limitMinutes ?? null,
       locationName: door.locationName ?? null,
-      // The overlay-convergence fields (C1). ABSENT, not null, when the door carries none, so a
+      // The overlay-convergence fields (C1, C4). ABSENT, not null, when the door carries none, so a
       // plain door's payload is exactly what it was and `MapView` reads absence as "not asked".
       ...(door.night ? { night: door.night } : {}),
       ...(door.focusNames?.length ? { focusNames: door.focusNames } : {}),
@@ -684,27 +705,43 @@ function AppInner() {
       ...(door.darkSky ? { darkSky: true } : {}),
       ...(door.title ? { title: door.title } : {}),
       ...(door.caption ? { caption: door.caption } : {}),
+      // The tab the door was pressed on (a Plan, Coming up or Operations press), so the breadcrumb's
+      // return names and goes back to it. ABSENT means Plan, as every door was before.
+      ...(door.from && door.from !== 'map' ? { from: door.from } : {}),
       nonce: handoffNonce.current++,
     });
     setTabRequest({ id: 'map', nonce: tabRequestNonce.current });
   };
 
   /**
-   * The breadcrumb's `← Plan` (doors D2) — lands on the plan itself, no dialog reopened, no window
-   * key carried (plan §6 Q2, decided). The shell's existing `tabRequest` effect already selects the
-   * tab and moves focus there; this needs no new channel of its own.
+   * The breadcrumb's return (doors D2, extended in overlay convergence C4): lands on the tab the door
+   * was pressed on - Plan by default, Coming up or Operations when it came from there - with no
+   * dialog reopened and no window key carried (plan §6 Q2, decided). The shell's existing
+   * `tabRequest` effect selects the tab and moves focus; the request also carries the pressed
+   * control, which the shell focuses if it is still mounted and otherwise falls back to the tab's
+   * own button.
+   *
+   * @param {string} [from] the tab to return to; anything but a tab a door can come from is Plan
    */
-  const returnToPlan = () => {
+  const returnToPlan = (from = 'plan') => {
+    const id = from === 'coming-up' || from === 'operations' ? from : 'plan';
     tabRequestNonce.current += 1;
-    setTabRequest({ id: 'plan', nonce: tabRequestNonce.current });
+    const opener = doorOpener.current;
+    doorOpener.current = null;
+    setTabRequest({ id, nonce: tabRequestNonce.current, ...(opener ? { opener } : {}) });
   };
 
   /**
    * The Operations tab, asked for from the aurora banner: a SIMULATED alert has no map to show (it
    * has no scores and no stored run - `utils/auroraTab.js`), and the place it is made and its scores
-   * generated is Operations -> Aurora. ADMIN only, because the pane is withheld from everyone else.
+   * generated is Operations -> Job Runs. ADMIN only, because the pane is withheld from everyone else.
+   *
+   * <p>The `#manage/metrics` hash is read by `ManageView` ONCE, at mount, so it lands on Job Runs only
+   * when the Operations pane is opened for the first time this session; with it already mounted the
+   * reader arrives on whichever sub-tab they left (nothing listens for the hash to move it).
    */
   const openOperations = () => {
+    window.location.hash = 'manage/metrics';
     tabRequestNonce.current += 1;
     setTabRequest({ id: 'operations', nonce: tabRequestNonce.current });
   };
@@ -900,6 +937,7 @@ function AppInner() {
               // No door UI ships in this phase (D3/D4 add the buttons), but the shell's own
               // `openMapTab` reads this prop already, so the wiring is live from here on.
               onOpenMapTab={hasForecastData ? openMapTabFromPlan : undefined}
+              registerCloseDialogs={registerCloseDialogs}
               // The same admin gate the Operations pane uses, and for the same reason: the role
               // stays here, and the shell renders whatever node it is handed. Withheld for a
               // pilot user, who has no use for a build id or a WorldTides latency. The pill is

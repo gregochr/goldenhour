@@ -535,7 +535,7 @@ describe('WindowFirstShell — the four-day location sheet', () => {
     // `WindowFirstShellLocationSheetHandoff.test.jsx`.
     expect(view.props.onOpenMapTab).toHaveBeenCalledWith({
       date: '2026-08-14', targetType: 'SUNSET', locationName: 'Bamburgh Beach', region: null,
-      minRating: null, limitMinutes: 45, inPlace: false,
+      minRating: null, limitMinutes: 45, inPlace: false, from: 'plan',
     });
     // Never the retired route — a re-pointing must not also ring the old bell, or the overlay would
     // open silently behind the Map tab.
@@ -721,7 +721,7 @@ describe('WindowFirstShell — the four-day location sheet', () => {
       fireEvent.click(screen.getByTestId('location-sheet-map'));
       expect(view.props.onOpenMapTab).toHaveBeenCalledWith({
         date: '2026-08-14', targetType: 'SUNSET', locationName: 'Derwentwater', region: null,
-        minRating: null, limitMinutes: 45, inPlace: false,
+        minRating: null, limitMinutes: 45, inPlace: false, from: 'plan',
       });
       expect(view.props.onShowOnMap).not.toHaveBeenCalled();
       expect(screen.queryByTestId('location-sheet')).toBeNull();
