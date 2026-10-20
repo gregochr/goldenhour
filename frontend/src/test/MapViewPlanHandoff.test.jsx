@@ -947,6 +947,28 @@ describe('MapView — night: select the night\'s row, but not until the row exis
     expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/sunrise/i);
   });
 
+  it('⚠️ a pending night door is superseded by a window Ask chose: the row arriving later does not yank the map back', async () => {
+    const gate = deferred();
+    getAuroraForecastAvailableDates.mockReturnValue(gate.promise);
+    const AURORA_DOOR = {
+      ...DOOR_BASE, eventType: 'AURORA', night: { kind: 'aurora', date: TODAY }, nonce: 1,
+    };
+    const { rerender } = await renderTab({ planHandoff: AURORA_DOOR });
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/sunset/i);
+
+    // Ask follows a SOLAR window while the aurora row is still on its way.
+    await rerenderWith(rerender, {
+      planHandoff: AURORA_DOOR,
+      askWindow: { date: TODAY, eventType: 'SUNRISE', nonce: 1 },
+    });
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/sunrise/i);
+
+    await act(async () => { gate.resolve([TODAY]); await gate.promise; });
+
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/sunrise/i);
+    expect(screen.getByTestId('wf-win-pill')).not.toHaveTextContent(/aurora/i);
+  });
+
   it('⚠️ an AURORA night waits for the AURORA row (the aurora fetch, not the astro one)', async () => {
     // `doorFromTrigger` sends kind:'aurora'; its rows come from the aurora availability fetch. A
     // kind that was always looked up as ASTRO would find no row here and never follow it.

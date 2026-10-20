@@ -372,6 +372,41 @@ describe('App — openMapTabFromPlan with a normalised trigger (overlay converge
   });
 });
 
+describe('App — a door never gives the Plan tab a date (plan 4 #7)', () => {
+  // `App`'s `selectedDate` is the MAP's window (only `MapView` and the pane read it; the shell and the
+  // Plan matrix have no selected date at all), so a door writing it moves the Map's window - which is
+  // the point of a door - and nothing the Plan shows. These pin the two halves of that: the Plan
+  // side is handed no date, and `← Plan` carries none back.
+  const KINDS = {
+    'a plain door': DOOR,
+    'a location trigger': { kind: 'location', locationName: 'Bamburgh', date: TOMORROW, eventType: 'SUNSET' },
+    'a coming-up trigger': {
+      kind: 'coming-up', filterAction: 'SEASCAPE', darkSky: false, label: 'Coastal', date: TOMORROW,
+    },
+    'an aurora trigger': { kind: 'aurora', date: TOMORROW },
+  };
+
+  for (const [name, arg] of Object.entries(KINDS)) {
+    it(`${name}: the shell is given no selected date before or after, and ← Plan asks for the tab alone`, async () => {
+      renderApp();
+      await screen.findByTestId('stub-map-pane');
+      const planKeys = () => Object.keys(ShellStub.lastProps).filter((k) => /date/i.test(k));
+      const before = planKeys();
+      expect(before).not.toContain('selectedDate');
+
+      await act(async () => { ShellStub.lastProps.onOpenMapTab(arg); });
+      // The Map shows the door's window...
+      expect(MapPaneStub.lastProps.selectedDate).toBe(TOMORROW);
+      // ...and the Plan side learned of no date.
+      expect(planKeys()).toEqual(before);
+
+      await act(async () => { MapPaneStub.lastProps.onReturnToPlan(); });
+      expect(Object.keys(ShellStub.lastProps.tabRequest).sort()).toEqual(['id', 'nonce']);
+      expect(ShellStub.lastProps.tabRequest.id).toBe('plan');
+    });
+  }
+});
+
 describe('App — returnToPlan (the breadcrumb\'s ← Plan, doors D2)', () => {
   it('requests the plan tab, with no window key carried (plan §6 Q2, decided)', async () => {
     renderApp();

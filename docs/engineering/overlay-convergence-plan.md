@@ -220,6 +220,13 @@ plan.md` §8 item 9; `heat-field-plan.md`/`map-landing-plan.md` overlay mentions
    debt.
 7. **A door no longer moves the Plan tab's selected date.** `handleShowOnMap`'s `selectDate` side
    effect was the overlay's; a door to another tab has no business moving the tab it left.
+   *Settled in C1 (Codex review of #1246):* `App.selectedDate` is the **Map's** window - only `MapView` and
+   `WindowFirstMapPane` read it; the shell and the Plan matrix hold no selected date. So the rule that
+   holds is: a door writes the Map's date (it must, the Map shows the door's window, exactly as picking
+   a window-control row does), the Plan side is handed no date, and `← Plan` carries none back
+   (`AppOpenMapTabFromPlan.test.jsx` pins both for every door kind). The overlay-era wording "moves the
+   Plan tab's date" described `handleShowOnMap` writing that shared Map date while the overlay sat over
+   the Plan; it was never a Plan-side state.
 8. **O-7 (admin Run forecast from the map) is a separate phase after this series**, on the callout's
    actions row for ADMIN only — not smuggled into C2.
 

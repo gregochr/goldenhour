@@ -4079,6 +4079,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     const forwardable = isForwardableRow(row, { todayStr: mapTodayStr, currentNightDate: auroraNight });
     const night = row.kind !== EVENT_KIND.SOLAR;
     if (!night && !forwardable) return false;
+    // A window followed on purpose, from ANY route (Ask, or the door's own night-follow), supersedes
+    // a door night still waiting for its row: the row arriving later must not yank the map back.
+    if (planHandoff) appliedPlanNightNonce.current = planHandoff.nonce;
     setEventType(row.eventType);
     setUserHasOverriddenEvent(true);
     if (forwardable) {
