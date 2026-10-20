@@ -20,6 +20,14 @@ class CycleTypeTest {
     }
 
     @Test
+    @DisplayName("EVENING publishes no snapshot, records the reclassify phase, gives no failure evidence")
+    void eveningProperties() {
+        assertThat(CycleType.EVENING.publishesStabilitySnapshot()).isFalse();
+        assertThat(CycleType.EVENING.recordsReclassifyPhase()).isTrue();
+        assertThat(CycleType.EVENING.failureEvidence()).isEqualTo(FailureEvidence.NONE);
+    }
+
+    @Test
     @DisplayName("INTRADAY publishes no snapshot, records the reclassify phase, counts failures")
     void intradayProperties() {
         assertThat(CycleType.INTRADAY.publishesStabilitySnapshot()).isFalse();

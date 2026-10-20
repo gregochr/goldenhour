@@ -131,6 +131,11 @@ import java.util.stream.Collectors;
  *       results that land later could never reset a counter. Such a run is deferred (INFO, naming
  *       the batch) and left unclaimed for a later sweep once its batches are terminal. AURORA
  *       batches are ignored: {@code CycleLocationOutcomeResolver} reads only FORECAST batches.</li>
+ *   <li><b>A cycle that gives no failure evidence takes no part.</b> A cycle type whose
+ *       {@code failureEvidence()} is {@code NONE} (the evening) is claimed with nothing applied, no
+ *       count and no reset, and never deferred, even with a forecast batch still polling. It is never
+ *       an unresolved older cycle for a newer tail, and its settle does not move the newest-settled
+ *       trigger time.</li>
  *   <li><b>No FULL tail over any older unsettled cycle.</b> A deferred, failed-to-settle or still
  *       RUNNING older run (the nightly in WAIT while an intraday Run now finishes first) is
  *       invisible to the newest-settled-trigger test, so a newer tail could count a place
@@ -339,14 +344,14 @@ public class LocationFailureService {
                         status -> settleClaimed(unsettledRun, false, null, new ArrayList<>()));
                 if (claim == Claim.SETTLED) {
                     settled++;
-                } else if (claim == Claim.DEFERRED && isOlder(unsettledRun, tailTrigger)) {
+                } else if (claim == Claim.DEFERRED && countsAsBlocker(unsettledRun, tailTrigger)) {
                     unresolvedOlder.add(label(unsettledRun));
                 }
             } catch (RuntimeException e) {
                 LOG.error("Location failure sweep: pipeline run {} could not be settled, left "
                         + "unclaimed for the next sweep: {}", unsettledRun.getId(),
                         LogSanitizer.sanitize(e.getMessage()), e);
-                if (isOlder(unsettledRun, tailTrigger)) {
+                if (countsAsBlocker(unsettledRun, tailTrigger)) {
                     unresolvedOlder.add(label(unsettledRun));
                 }
             }
@@ -359,7 +364,7 @@ public class LocationFailureService {
                 for (PipelineRunEntity running : pipelineRunRepository
                         .findUnsettledSinceWithStatus(since, PipelineRunStatus.RUNNING)) {
                     if (!(exceptRunId != null && exceptRunId.equals(running.getId()))
-                            && isOlder(running, tailTrigger)) {
+                            && countsAsBlocker(running, tailTrigger)) {
                         unresolvedOlder.add(label(running));
                     }
                 }
@@ -370,6 +375,28 @@ public class LocationFailureService {
             }
         }
         return new Sweep(settled, unresolvedOlder, false);
+    }
+
+    /**
+     * Whether an unresolved run stops the tail counting failures: it must be older than the tail and
+     * a cycle type that gives failure evidence. A cycle that gives none (the evening) can never
+     * later reset or count anything, so leaving it unresolved costs nobody a count.
+     */
+    private static boolean countsAsBlocker(PipelineRunEntity run, Instant tailTrigger) {
+        return givesFailureEvidence(run) && isOlder(run, tailTrigger);
+    }
+
+    /** Whether the run's cycle type takes part in failure counting at all. */
+    private static boolean givesFailureEvidence(PipelineRunEntity run) {
+        return run.getCycleType() == null
+                || run.getCycleType().failureEvidence() != CycleType.FailureEvidence.NONE;
+    }
+
+    /** The cycle types whose settles count: those that give failure evidence. */
+    private static List<CycleType> evidenceGivingTypes() {
+        return java.util.Arrays.stream(CycleType.values())
+                .filter(type -> type.failureEvidence() != CycleType.FailureEvidence.NONE)
+                .toList();
     }
 
     private static String label(PipelineRunEntity run) {
@@ -391,6 +418,18 @@ public class LocationFailureService {
             List<Runnable> alerts) {
         Long runId = run.getId();
         Instant trigger = run.getTriggerTime();
+        if (!givesFailureEvidence(run)) {
+            // Nothing the cycle could still learn would be applied, so it is claimed at once, even
+            // with a forecast batch still polling, and takes no part in ordering (see class javadoc).
+            if (pipelineRunRepository.claimFailureSettle(runId, clock.instant()) == 0) {
+                LOG.info("Pipeline run {}: location failures already settled, not counting again",
+                        runId);
+                return Claim.ALREADY_CLAIMED;
+            }
+            LOG.info("Pipeline run {} (triggered {}): cycle type {} gives no failure evidence, "
+                    + "claimed with nothing applied", runId, trigger, run.getCycleType());
+            return Claim.SETTLED;
+        }
         List<ForecastBatchEntity> polling = forecastBatchRepository
                 .findByPipelineRunIdAndBatchTypeAndStatusNotIn(runId,
                         ForecastBatchEntity.BatchType.FORECAST,
@@ -402,7 +441,7 @@ public class LocationFailureService {
                     polling.get(0).getStatus());
             return Claim.DEFERRED;
         }
-        Instant newestSettled = pipelineRunRepository.findNewestSettledTriggerTime();
+        Instant newestSettled = pipelineRunRepository.findNewestSettledTriggerTime(evidenceGivingTypes());
         if (pipelineRunRepository.claimFailureSettle(runId, clock.instant()) == 0) {
             LOG.info("Pipeline run {}: location failures already settled, not counting again",
                     runId);

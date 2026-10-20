@@ -185,10 +185,13 @@ public interface PipelineRunRepository extends JpaRepository<PipelineRunEntity, 
      * Returns the trigger time of the newest cycle whose failures have been settled, used to refuse
      * an older cycle after a newer one.
      *
-     * @return the newest settled trigger time, or null if no cycle has been settled
+     * @param cycleTypes the cycle types whose settles count (those that give failure evidence); a
+     *                   settled cycle of any other type does not move the result
+     * @return the newest settled trigger time, or null if no such cycle has been settled
      */
-    @Query("SELECT MAX(p.triggerTime) FROM PipelineRunEntity p WHERE p.failuresSettledAt IS NOT NULL")
-    Instant findNewestSettledTriggerTime();
+    @Query("SELECT MAX(p.triggerTime) FROM PipelineRunEntity p WHERE p.failuresSettledAt IS NOT NULL "
+            + "AND p.cycleType IN :cycleTypes")
+    Instant findNewestSettledTriggerTime(@Param("cycleTypes") Collection<CycleType> cycleTypes);
 
     /**
      * Returns the pipeline runs whose location-failure settle has not been claimed, triggered at or

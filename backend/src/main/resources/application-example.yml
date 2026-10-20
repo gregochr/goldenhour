@@ -343,6 +343,11 @@ photocast:
                              # in minutes, but afternoon (peak load) batches were observed taking
                              # up to ~3h (slowest of 49 cycles: 181 min). 3h30 clears that while
                              # staying under the shortest gap between two cycles (6.4 h).
+    evening-safety-timeout: PT2H  # the same budget for the evening sunrise refresh cycle only
+                                  # (evening_sunrise_refresh, seeded PAUSED). Range PT30M..PT3H30M;
+                                  # a value outside it fails startup. After about two hours the
+                                  # bedtime decision has passed, and later results still go live
+                                  # through the late-batch briefing rebuild.
   freshness:
     settled-hours: 36              # blocking highs — once-daily refresh rhythm
     transitional-hours: 12         # half synoptic cycle — catches frontal transitions

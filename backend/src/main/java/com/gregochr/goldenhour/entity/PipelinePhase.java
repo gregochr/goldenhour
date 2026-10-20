@@ -15,6 +15,8 @@ package com.gregochr.goldenhour.entity;
  *       morning's snapshot) is surfaced as its own phase precisely because the
  *       cost-gate decision lives there: without it, "why did intraday evaluate
  *       few or many locations today?" is invisible.</li>
+ *   <li>{@link CycleType#EVENING}: the same phases as INTRADAY (STABILITY_RECLASSIFY, ephemeral
+ *       submit), over tomorrow's sunrise alone.</li>
  * </ul>
  *
  * <p>The orchestrator advances through the cycle's phases in order. Each phase
