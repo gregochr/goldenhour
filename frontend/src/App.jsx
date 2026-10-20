@@ -19,6 +19,7 @@ import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { AuroraStatusProvider } from './context/AuroraStatusContext.jsx';
 import { useAuroraStatus } from './hooks/useAuroraStatus.js';
 import { ukDateStr, ukDateStrOffset, resolveAuroraNight, resolveMapDate } from './utils/mapDates.js';
+import { auroraTabOffered } from './utils/auroraTab.js';
 import { useForecasts } from './hooks/useForecasts.js';
 import { useHealthStatus } from './hooks/useHealthStatus.js';
 import { useRunNotifications } from './hooks/useRunNotifications.js';
@@ -215,7 +216,7 @@ AskWhenLive.propTypes = {
  * Inner app component — only rendered when the user is authenticated.
  */
 function AppInner() {
-  const { isAdmin, logout, token, postcodePromptSuppressed, suppressPostcodePrompt } = useAuth();
+  const { isAdmin, role, logout, token, postcodePromptSuppressed, suppressPostcodePrompt } = useAuth();
   // The admin's rewind, if any. Read ONCE per mount for the two seeds below (`RewindGate` remounts
   // this component on every change, so a mount always sees the rewind it was mounted for) and
   // live for the pill.
@@ -478,6 +479,11 @@ function AppInner() {
   // landscape photographer wants today's sunrise, not last night's sunset.
   const { status: auroraStatus } = useAuroraStatus();
   const auroraNightStr = resolveAuroraNight(auroraStatus);
+  // C3 (overlay convergence): a REAL MODERATE/STRONG alert offers the Map tab even with no sunrise or
+  // sunset forecast, so the aurora banner's door never has to land on nothing. Never LITE, never a
+  // simulation (`utils/auroraTab.js` states why). With forecast data the tab was offered anyway, so
+  // this changes nothing for any reader who had one (the pane, and a date that falls through to today, both test `hasForecastData` first).
+  const auroraTabOn = auroraTabOffered(auroraStatus, role);
 
   // ⚠️ Never a PAST date on ANY branch — `resolveMapDate` owns the whole precedence and records
   // what the old shape cost, the same way `normalizeMapTrigger` owns the handoff branch selection
@@ -498,7 +504,7 @@ function AppInner() {
     // The one "past" date an explicit choice may name — see `handleAuroraViewOnMap` below, which
     // sets it deliberately, and `resolveMapDate`'s own note on the regression this prevents.
     nightDate: auroraNightStr,
-  }) ?? (hasForecastData ? todayStr : null);
+  }) ?? (hasForecastData ? todayStr : auroraTabOn ? auroraNightStr : null);
 
   /**
    * Called from any Plan-tab recommendation (Best Bet, Hot Topic, region row, grid cell, strip
@@ -957,7 +963,7 @@ function AppInner() {
               // whenever `GET /api/forecast` returned no rows for a visible location, and a Map tab
               // onto no data would be a tab onto a blank. (`allDates` can be empty while this is
               // true — a hides-only forecast — and then the pane draws chips and no window.)
-              mapPane={hasForecastData ? (
+              mapPane={hasForecastData || auroraTabOn ? (
                 <Suspense fallback={<ViewFallback />}>
                   <WindowFirstMapPane
                     locations={visibleLocations}

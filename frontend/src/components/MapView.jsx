@@ -21,6 +21,7 @@ import { buildBriefingScoreIndex, lookupBriefingScore } from '../utils/briefingS
 import { lookupForWindow } from '../utils/locationSheet.js';
 import { resolveStandDown } from '../utils/standDown.js';
 import { isNightOver, resolveAuroraNight, ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
+import { auroraTabOffered } from '../utils/auroraTab.js';
 import { appNow } from '../utils/rewind.js';
 import {
   LOCATION_TYPE_META, DISPLAY_TYPES, locationTypeLabel, isWildlifeOnly,
@@ -2180,6 +2181,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // untagged, the old night's failure would speak for the new one in that frame.
   const [storedAuroraRetry, setStoredAuroraRetry] = useState(null);
   const [auroraAvailableDates, setAuroraAvailableDates] = useState([]); // ISO date strings
+  // Whether that list has been ASKED FOR AND ANSWERED (or failed) at least once. The list starts empty,
+  // so "the night is not in it" is only a fact once this is true; the live night's row reads it so it is
+  // never offered for a night that is about to turn out to have a stored run (C3).
+  const [auroraDatesLoaded, setAuroraDatesLoaded] = useState(false);
   // The astro twins of `storedAuroraAnswer` (from which `astroScores` is derived) and of
   // `storedAuroraRetry`.
   const [astroAnswer, setAstroAnswer] = useState(null);
@@ -2714,8 +2719,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   useEffect(() => {
     if (role === 'LITE_USER') return;
     getAuroraForecastAvailableDates()
-      .then(setAuroraAvailableDates)
-      .catch(() => {});
+      .then((dates) => { setAuroraAvailableDates(dates); setAuroraDatesLoaded(true); })
+      .catch(() => { setAuroraDatesLoaded(true); });
   }, [role]);
 
   // Fetch stored aurora results when in Aurora mode and the selected NIGHT changes — `nightDate`,
@@ -3861,6 +3866,48 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     : EMPTY_POINTS;
   const regionsInScope = regionNamesOf(verdictScopePool);
 
+  // ⚠️ The LIVE night's row (overlay convergence C3). The window control's night rows come from STORED
+  // results only (D-14), so a real alert whose scoring run has not stored anything yet had a live field
+  // and no row to select it by — and on a map with no sunrise or sunset forecast, no row at all. A real
+  // MODERATE/STRONG alert (`auroraTabOffered`: PRO/ADMIN only, never a simulation, never past its night's
+  // end) therefore adds the night in progress when no stored result names it, its rows the live
+  // `auroraScores`, so `bestOfNight` states the same best the field paints. It waits for the stored-dates
+  // list to have ANSWERED (`auroraDatesLoaded`): that list starts empty, and offering the live row before
+  // it lands would flash a row for a night that then turns out to have a stored one. A night with stored
+  // results is left exactly as it was (the stored row wins and nothing here touches it), and with no live
+  // alert the inputs below are the original arrays, so a solar window's row is built from the same values
+  // it always was. ⚠️ A live night that later gains a stored run is not converted mid-session: the dates
+  // list is read once per role (accepted limit).
+  const realAlert = !overlayMode && auroraTabOffered(auroraStatus, role);
+  const liveNightOffered = realAlert && auroraDatesLoaded && !auroraAvailableDates.includes(auroraNight);
+  const liveNightRows = useMemo(() => (liveNightOffered
+    ? Object.values(auroraScores).map((score) => ({
+      locationName: score?.location?.name, stars: score?.stars, nightStart: null,
+    }))
+    : null), [liveNightOffered, auroraScores]);
+  // A night that HAS a stored run but sits outside the preview (a map with no solar dates has an empty
+  // horizon, so the preview asks about nothing) takes its row from the answer the selected-night fetch
+  // already holds, once that has landed, so its one row states the best the field paints rather than "—".
+  // Only on a real alert, only for the night in progress, only when the preview has not answered it.
+  const storedNightRows = useMemo(() => (realAlert
+    && auroraAvailableDates.includes(auroraNight) && !auroraResultsByDate.has(auroraNight)
+    && storedAuroraAnswer?.night === auroraNight
+    ? Object.values(storedAuroraAnswer.byName) : null),
+  [realAlert, auroraAvailableDates, auroraNight, auroraResultsByDate, storedAuroraAnswer]);
+  // The map the window control, the Regions jump list and the callout's every-window strip all read:
+  // the stored nights, plus the live (or the selected-night-answer) one. Otherwise the state's own Map.
+  // Memoised, so the callout and `buildNightRegionBest` are not handed a new identity each render.
+  const auroraNightRows = useMemo(() => {
+    const extra = liveNightRows ?? storedNightRows;
+    return extra ? new Map([...auroraResultsByDate, [auroraNight, extra]]) : auroraResultsByDate;
+  }, [liveNightRows, storedNightRows, auroraResultsByDate, auroraNight]);
+  // Whether NO location holds any forecast row at all — the aurora-only tab's state (`App` offers the
+  // pane then on a real alert alone). A hides-only forecast has hourly rows, so it is NOT this state.
+  const noForecastAtAll = useMemo(
+    () => locations.every((loc) => !(loc.forecastsByDate?.size > 0)),
+    [locations],
+  );
+
   /**
    * The Map tab's single chronological event list — map-tab-v2-plan.md §3 P6, replacing the
    * date strip, the event pills and the in-map window select on the TAB only (the overlay keeps
@@ -3892,8 +3939,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     nightOnScreen: (isAstroMode || isAuroraMode) ? { eventType, date: nightDate } : null,
     astroAvailableDates,
     astroConditionsByDate,
-    auroraAvailableDates,
-    auroraResultsByDate,
+    auroraAvailableDates: liveNightOffered ? [...auroraAvailableDates, auroraNight] : auroraAvailableDates,
+    auroraResultsByDate: auroraNightRows,
     isLite: role === 'LITE_USER',
     formatTimeUk: formatEventTimeUk,
   });
@@ -3985,6 +4032,25 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   /** The row `MapCallout`'s verdict block and "every window" strip treat as "now showing" — the
    * SAME row the pill/tooltip above already read off `activeEvIndex`, never a second lookup. */
   const activeMapEvent = mapEvents[activeEvIndex] ?? null;
+
+  /**
+   * A map with NO solar row opens on the live aurora night (overlay convergence C3, plan §3 C3).
+   * `hideDayCard` is the precedent for a tab that stands with no event; this is the same tab with
+   * one night to offer — the night's row LIVE or STORED (a stored run is selected for the same reason:
+   * the selected-night fetch that gives its row a best is made only in aurora mode). ⚠️ Only on the
+   * aurora-only tab: a real alert, NO forecast row anywhere (`noForecastAtAll` — derived from the
+   * locations, so a hides-only forecast, whose comfort card must stay, never enters aurora), no solar
+   * row and no event named by the forecast (`autoEventType`). A map that has any solar window opens
+   * exactly as it always did, and only until the reader makes a choice (`userHasOverriddenEvent`). The
+   * effect runs on the row's arrival, not on mount: the night's row appears once the alert is known.
+   */
+  const liveNightOnlyRow = realAlert && noForecastAtAll && !autoEventType
+    && !mapEvents.some((row) => row.kind === EVENT_KIND.SOLAR)
+    && mapEvents.some((row) => row.kind === EVENT_KIND.AURORA && row.date === auroraNight);
+  useEffect(() => {
+    if (!liveNightOnlyRow || userHasOverriddenEvent || eventType === 'AURORA') return;
+    (async () => setEventType('AURORA'))();
+  }, [liveNightOnlyRow, userHasOverriddenEvent, eventType]);
 
   /**
    * What a question asked from this tab is sent with (F3, plan §2.6 "Scope follows the Map's scope,
@@ -5005,9 +5071,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * </ul>
    * Not a synthetic event: nothing here invents a window, a verdict or a sunset.
    */
-  const hideDayCard = mapEvents.length === 0 && selectedLoc != null
+  // "No SOLAR event", not "no event": a night row (a real alert's) must never evict a hide's comfort card.
+  const noSolarEvent = !mapEvents.some((row) => row.kind === EVENT_KIND.SOLAR);
+  const hideDayCard = noSolarEvent && selectedLoc != null
     && isWildlifeOnly(selectedLoc.locationType);
-  const hidesOnlyForecast = mapEvents.length === 0 && locations.some((loc) => (
+  const hidesOnlyForecast = noSolarEvent && locations.some((loc) => (
     isWildlifeOnly(loc.locationType)
     && Array.from(loc.forecastsByDate.values()).some((entry) => entry?.hourly?.length > 0)
   ));
@@ -5050,7 +5118,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     if (!activeMapEvent || activeMapEvent.kind === EVENT_KIND.SOLAR) return null;
     return activeMapEvent.kind === EVENT_KIND.ASTRO
       ? astroConditionsByDate.get(activeMapEvent.date)
-      : auroraResultsByDate.get(activeMapEvent.date);
+      : auroraNightRows.get(activeMapEvent.date);
   })();
   const nightRegionBest = activeNightRows
     ? buildNightRegionBest(activeNightRows, heat?.spots || EMPTY_POINTS)
@@ -6840,7 +6908,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               regionGlossIndex={regionGlossIndex}
               evRows={mapEvents}
               astroConditionsByDate={astroConditionsByDate}
-              auroraResultsByDate={auroraResultsByDate}
+              auroraResultsByDate={auroraNightRows}
               pendingNightRowIds={pendingNightRowIds}
               tideStripHeight={tideStripHeight}
               // The phone sheet's resting height (74 / 126 / 112 — `--psh`): a callout may stand over
@@ -7295,7 +7363,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                   )}
                   windowsBody={(
                     <MapPeekWindowsSection
-                      heading={landingModel.header}
+                      // A night-only list (the aurora-only tab) has no solar rows for the landing header to
+                      // name, which left an empty heading: fall back to the first row's own label ("Tonight").
+                      heading={landingModel.header || (noSolarEvent ? (mapEvents[0]?.label ?? '') : '')}
                       rows={mapEvents}
                       verdicts={evVerdicts}
                       activeId={activeMapEvent?.id ?? null}

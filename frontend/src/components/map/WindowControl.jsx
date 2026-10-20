@@ -121,6 +121,26 @@ export default function WindowControl({
   const loading = Boolean(olderDayLoadingLabel);
   const atStart = !active || loading || (activeIndex <= 0 && !loadable);
   const atEnd = !active || loading || activeIndex >= events.length - 1;
+  /**
+   * One window and nothing to load: both steppers are disabled, and a disabled button says nothing
+   * about WHY. They point at a shared sr-only reason (C3: the aurora-only tab holds exactly one row,
+   * so its two dead steppers would otherwise be unexplained).
+   */
+  const onlyOneWindow = events.length === 1 && !loadable && !loading;
+  /**
+   * A NIGHT row's accessible name. The pill's content gives a solar row its name (kind, day, time,
+   * verdict), but a night row has no verdict cell, so by content alone it reads "Aurora Tonight" with
+   * neither a star nor a time - and on the aurora-only tab this is the only control there is. So a
+   * night row states its best star (or that it is not scored) and its time when one is known. Solar
+   * rows keep the name computed from their content, untouched.
+   */
+  function nightPillName(row) {
+    if (!row || row.kind === 'solar' || row.past === true) return undefined;
+    const kind = KIND_TEXT[row.eventType] || row.eventType;
+    const best = Number.isFinite(row.bestRating)
+      ? `best ${row.bestRating} star${row.bestRating === 1 ? '' : 's'}` : 'not scored yet';
+    return [kind, row.dayLabel ?? row.label, row.time || null, best].filter(Boolean).join(', ');
+  }
   /** `‹` on the oldest window fetches the next older day instead of stepping. */
   const prevLoads = loadable && !loading && Boolean(active) && activeIndex <= 0;
 
@@ -293,6 +313,9 @@ export default function WindowControl({
       <span role="status" id="wf-win-status" className="sr-only" data-testid="wf-win-status">
         {loading ? `Loading ${olderDayLoadingLabel}\u2026` : (noStoredLine ?? '')}
       </span>
+      {onlyOneWindow && (
+        <span id="wf-win-only" className="sr-only" data-testid="wf-win-only">Only one window</span>
+      )}
       <button
         type="button"
         data-testid="wf-win-prev"
@@ -302,7 +325,8 @@ export default function WindowControl({
         className="wf-win-step"
         /* At the T-4 floor the disabled `‹` is explained by the status line (the same sentence the menu
            shows), so a reader who lands on it with the menu closed is told why. */
-        aria-describedby={atStart && noStoredLine && !loading ? 'wf-win-status' : undefined}
+        aria-describedby={atStart && noStoredLine && !loading
+          ? 'wf-win-status' : (onlyOneWindow ? 'wf-win-only' : undefined)}
         disabled={atStart}
         onClick={() => step(-1)}
       >
@@ -318,6 +342,7 @@ export default function WindowControl({
            an unscored one both carry no tier and so no tint, which is the design's own rule. */
         data-tier={activeVerdict?.tier || undefined}
         className="wf-win-pill"
+        aria-label={loading ? undefined : nightPillName(active)}
         title={active?.rosterNote || undefined}
         /* The older-day fetch in flight: the pill says so (below) and is the one busy element. */
         aria-busy={loading || undefined}
@@ -402,6 +427,7 @@ export default function WindowControl({
         data-testid="wf-win-next"
         aria-label={stepName('Next event', activeIndex + 1, atEnd)}
         className="wf-win-step"
+        aria-describedby={onlyOneWindow ? 'wf-win-only' : undefined}
         disabled={atEnd}
         onClick={() => step(1)}
       >

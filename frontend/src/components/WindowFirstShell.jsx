@@ -653,6 +653,28 @@ export default function WindowFirstShell({
    * left with focus on an element that has just become unreachable.
    */
   const tabRefs = useRef([]);
+  /**
+   * A Map tab WITHDRAWN while it is the tab in force (overlay convergence C3): the aurora-only tab
+   * stands on a live alert, and when the alert clears the pane is handed over as null. `effectiveTab`
+   * then falls back to Plan by itself, but silently — focus was inside the pane that just unmounted so
+   * it drops to {@code <body>}, and `activeTab` would stay `'map'`, so the NEXT alert would snap the
+   * reader back to a tab they had been moved off. So the withdrawal is made an explicit selection of
+   * Plan and focus goes to the Plan tab button, the tab bar's roving entry point. Focus is moved only
+   * when it has been lost (on {@code <body>}); a reader already typing elsewhere keeps it. No new live
+   * region: the existing ones belong to the Plan pane's own data states, and the selected tab changing
+   * under a focused tab button is announced by the tab pattern itself.
+   */
+  const mapInForceRef = useRef(false);
+  useEffect(() => {
+    const withdrawn = mapInForceRef.current && !hasMapPane;
+    mapInForceRef.current = effectiveTab === 'map';
+    if (!withdrawn) return;
+    (async () => setActiveTab('plan'))();
+    const active = document.activeElement;
+    if (!active || active === document.body) {
+      tabRefs.current[tabs.findIndex((t) => t.id === 'plan')]?.focus();
+    }
+  }, [hasMapPane, effectiveTab, tabs]);
   // `true`, unconditionally — the tab badge (plan D3/D4/D13) needs to know about arrivals whether
   // or not the reader ever opens this pane, so the fetch fires after first paint for every reader
   // rather than gating on the tab. See useComingUpFeed.js's own class doc for the reversal.

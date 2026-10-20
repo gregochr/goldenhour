@@ -279,6 +279,10 @@ describe('the 🏆 best-location card — dismissal (aurora heat A4)', () => {
   });
 
   it('with no window pill, skips disabled, aria-hidden and tabindex=-1 controls and lands on the next real one', async () => {
+    // Since overlay convergence C3 a REAL live alert always gets its own window row, so a map with live
+    // scores and NO pill needs an alert that offers no row: a SIMULATED one, which is still `active`
+    // (aurora mode stands) and still has its live scores fetched by level, but is isolated from the row.
+    auroraStatusRef.current = { ...auroraStatusRef.current, simulated: true };
     const { container } = await renderOn(THE_NIGHT);
     await screen.findByTestId('aurora-best-location-card');
     expect(screen.queryByTestId('wf-win-pill')).not.toBeInTheDocument();
