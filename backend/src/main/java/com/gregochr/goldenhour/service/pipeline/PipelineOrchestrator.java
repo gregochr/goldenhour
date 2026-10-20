@@ -13,6 +13,7 @@ import com.gregochr.goldenhour.repository.ForecastBatchRepository;
 import com.gregochr.goldenhour.service.AlmanacService;
 import com.gregochr.goldenhour.service.BriefingService;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
+import com.gregochr.goldenhour.service.ForecastCycleJobs;
 import com.gregochr.goldenhour.service.LocationFailureService;
 import com.gregochr.goldenhour.service.ask.AskReadyPrecompute;
 import com.gregochr.goldenhour.service.batch.BatchSubmissionSummary;
@@ -437,7 +438,7 @@ public class PipelineOrchestrator {
             dynamicSchedulerService.registerJobTarget(
                     "intraday_forecast_refresh", this::runIntradayCycle);
             dynamicSchedulerService.registerJobTarget(
-                    "evening_sunrise_refresh", this::runEveningCycle);
+                    ForecastCycleJobs.EVENING_JOB, this::runEveningCycle);
         }
     }
 

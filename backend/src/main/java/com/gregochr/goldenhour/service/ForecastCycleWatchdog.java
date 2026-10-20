@@ -18,6 +18,7 @@ import com.gregochr.goldenhour.util.ForecastHorizon;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.support.CronExpression;
 import org.springframework.stereotype.Service;
 
@@ -30,10 +31,13 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -42,8 +46,9 @@ import java.util.Optional;
  *
  * <p>No forecast is the worst outcome this application can have, and nothing used to say so: a cycle
  * that never fired, or one still waiting on Anthropic as the light arrives, was found by whoever
- * opened the app. For each of the two forecast cycle jobs ({@link SolarForecastJobs}) it checks two
- * things and mails the admins once per occurrence:
+ * opened the app. For each forecast cycle job ({@link ForecastCycleJobs#allCycleJobs()}: the two
+ * solar-capable main cycles and the evening sunrise refresh) it checks two things and mails the
+ * admins once per occurrence:
  * <ul>
  *   <li><b>Did not start.</b> The job is ACTIVE, its most recent scheduled fire time F is more than
  *       {@value #START_GRACE_MINUTES} minutes ago, and no {@code pipeline_run} of its cycle type has
@@ -52,7 +57,12 @@ import java.util.Optional;
  *       has a FORECAST batch outside {@link BatchStatus#TERMINAL}, when the event it serves
  *       (nightly: today's sunrise; intraday: today's sunset, at the scheduler's reference point) is
  *       {@value #FINISH_LEAD_MINUTES} minutes away or closer, and until
- *       {@value #FINISH_TAIL_MINUTES} minutes after it.</li>
+ *       {@value #FINISH_TAIL_MINUTES} minutes after it. <b>The evening refresh has no served
+ *       event</b> (it is a CRON job with no solar rule), so its check is different: its run ended
+ *       FAILED by the safety timeout, or a FORECAST batch of the run is still outside
+ *       {@link BatchStatus#TERMINAL} once {@code min(forecast_batch.submitted_at)} plus the evening
+ *       budget has passed (the trigger time when no batch was submitted). A run still RUNNING past
+ *       its budget with every batch finished is in its briefing build and is not an alert.</li>
  * </ul>
  *
  * <p><b>Finding F.</b> {@link CronExpression} has no "previous fire", so for a {@code CRON} job the
@@ -98,6 +108,9 @@ public class ForecastCycleWatchdog {
     /** The most cron fires the watchdog will step through in the look-back. */
     static final int MAX_CRON_STEPS = 500;
 
+    /** The failure-reason prefix {@code PipelineOrchestrator} records when the wait budget is spent. */
+    static final String SAFETY_TIMEOUT_PREFIX = "Safety timeout:";
+
     /** How many alert keys are remembered. */
     static final int LATCH_CAPACITY = 64;
 
@@ -114,6 +127,7 @@ public class ForecastCycleWatchdog {
     private final AdminAlertService adminAlertService;
     private final DynamicSchedulerService dynamicSchedulerService;
     private final Clock clock;
+    private final Duration eveningBudget;
     private final Map<String, Boolean> alerted = new LinkedHashMap<>() {
         @Override
         protected boolean removeEldestEntry(Map.Entry<String, Boolean> eldest) {
@@ -131,12 +145,15 @@ public class ForecastCycleWatchdog {
      * @param adminAlertService       mails the admins
      * @param dynamicSchedulerService scheduler to register the job target against
      * @param clock                   the application clock
+     * @param eveningBudget           the evening cycle's wait budget
+     *                                ({@code photocast.pipeline.evening-safety-timeout})
      */
     public ForecastCycleWatchdog(SchedulerJobConfigRepository configRepository,
             PipelineRunRepository pipelineRunRepository,
             ForecastBatchRepository forecastBatchRepository, SolarTriggerFactory triggerFactory,
             AdminAlertService adminAlertService, DynamicSchedulerService dynamicSchedulerService,
-            Clock clock) {
+            Clock clock,
+            @Value("${photocast.pipeline.evening-safety-timeout:PT2H}") Duration eveningBudget) {
         this.configRepository = configRepository;
         this.pipelineRunRepository = pipelineRunRepository;
         this.forecastBatchRepository = forecastBatchRepository;
@@ -144,6 +161,7 @@ public class ForecastCycleWatchdog {
         this.adminAlertService = adminAlertService;
         this.dynamicSchedulerService = dynamicSchedulerService;
         this.clock = clock;
+        this.eveningBudget = eveningBudget;
     }
 
     /** Registers the check with the dynamic scheduler, resolving the migration-seeded row. */
@@ -153,31 +171,36 @@ public class ForecastCycleWatchdog {
     }
 
     /**
-     * Runs both checks for both forecast cycle jobs. Never throws.
+     * Runs both checks for every forecast cycle job. Never throws.
      */
     public void check() {
-        for (String jobKey : SolarForecastJobs.keys()) {
+        for (ForecastCycleJobs.Job job : ForecastCycleJobs.allCycleJobs()) {
             try {
-                checkJob(jobKey);
+                checkJob(job);
             } catch (RuntimeException e) {
-                LOG.warn("Forecast-cycle watchdog: check of {} failed: {}", jobKey, e.getMessage(), e);
+                LOG.warn("Forecast-cycle watchdog: check of {} failed: {}", job.key(), e.getMessage(), e);
             }
         }
     }
 
-    private void checkJob(String jobKey) {
-        Optional<SchedulerJobConfigEntity> found = configRepository.findByJobKey(jobKey);
+    private void checkJob(ForecastCycleJobs.Job job) {
+        Optional<SchedulerJobConfigEntity> found = configRepository.findByJobKey(job.key());
         if (found.isEmpty() || found.get().getStatus() != SchedulerJobStatus.ACTIVE) {
             return;
         }
         SchedulerJobConfigEntity config = found.get();
-        CycleType cycle = SolarForecastJobs.cycleOf(jobKey);
+        CycleType cycle = job.cycleType();
         Instant now = clock.instant();
         LocalDate today = ForecastHorizon.civilDate(now);
-        Instant event = eventInstant(config, today);
+        // A job with no solar rule (the evening) serves no event: never ask the calculator for one.
+        Instant event = job.rule() == null ? null : eventInstant(config, job.rule(), today);
 
         lastFire(config, now, today).ifPresent(fire -> checkStarted(config, cycle, now, fire, event));
-        checkFinished(config, cycle, now, today, event);
+        if (job.rule() == null) {
+            checkEveningFinished(config, cycle, now, today);
+        } else {
+            checkFinished(config, cycle, now, today, event);
+        }
     }
 
     private void checkStarted(SchedulerJobConfigEntity config, CycleType cycle, Instant now,
@@ -234,6 +257,59 @@ public class ForecastCycleWatchdog {
         }
     }
 
+    /**
+     * The evening refresh's "did not finish": the run was failed by the safety timeout, or a forecast
+     * batch is still outstanding after the budget (measured from the first batch submit, else the
+     * trigger). A RUNNING run with every batch finished is building its briefing: not an alert.
+     */
+    private void checkEveningFinished(SchedulerJobConfigEntity config, CycleType cycle, Instant now,
+            LocalDate today) {
+        // The evening fires at 20:00 UTC, so its deadline (and a timeout failure) can fall after UK
+        // midnight: look back far enough to include any run whose deadline is recent. The extra hour
+        // covers first-submit lag and several watchdog passes; the latch prevents repeats.
+        Instant dayStart = today.atStartOfDay(LONDON).toInstant();
+        Instant lowerBound = Collections.min(List.of(dayStart,
+                now.minus(eveningBudget).minus(Duration.ofHours(1))));
+        List<PipelineRunEntity> runs = pipelineRunRepository
+                .findByCycleTypeAndTriggerTimeGreaterThanEqualOrderByTriggerTimeAsc(cycle, lowerBound);
+        for (PipelineRunEntity run : runs) {
+            String missing = eveningUnfinished(run, now);
+            if (missing != null && firstTime("finish:" + config.getJobKey() + ":" + run.getId())) {
+                String detail = "The " + cycle + " forecast cycle (" + config.getJobKey() + ") run "
+                        + run.getId() + ", triggered " + UK_TIME.format(run.getTriggerTime())
+                        + " UK time, did not finish within its " + eveningBudget.toMinutes()
+                        + "-minute budget, so tomorrow morning's sunrise may not carry the evening look."
+                        + "\n\nMissing: " + missing;
+                LOG.error("Forecast-cycle watchdog: {} run {} did not finish: {}",
+                        config.getJobKey(), run.getId(), missing);
+                adminAlertService.sendForecastCycleWatchdogAlert(
+                        config.getJobKey(), "did not finish", detail);
+            }
+        }
+    }
+
+    /** What the evening run is still owed, or null when it is within budget or finished. */
+    private String eveningUnfinished(PipelineRunEntity run, Instant now) {
+        if (run.getStatus() == PipelineRunStatus.FAILED && run.getFailureReason() != null
+                && run.getFailureReason().startsWith(SAFETY_TIMEOUT_PREFIX)) {
+            return "the run was failed by the safety timeout (" + run.getFailureReason() + ")";
+        }
+        List<ForecastBatchEntity> batches = forecastBatchRepository.findByPipelineRunId(run.getId())
+                .stream()
+                .filter(b -> b.getBatchType() == BatchType.FORECAST)
+                .toList();
+        Instant start = batches.stream().map(ForecastBatchEntity::getSubmittedAt)
+                .filter(Objects::nonNull).min(Comparator.naturalOrder())
+                .orElse(run.getTriggerTime());
+        if (now.isBefore(start.plus(eveningBudget))) {
+            return null;
+        }
+        long pending = batches.stream().filter(b -> !BatchStatus.TERMINAL.contains(b.getStatus())).count();
+        return pending == 0 ? null
+                : pending + " forecast batch(es) still not finished at Anthropic after the "
+                        + eveningBudget.toMinutes() + "-minute budget";
+    }
+
     /** What is still outstanding for a run, or null when it is finished. */
     private String unfinished(PipelineRunEntity run) {
         List<String> parts = new ArrayList<>();
@@ -256,8 +332,9 @@ public class ForecastCycleWatchdog {
      * does not occur (the calculator's midnight sentinel). Timed with a zero offset, so only the
      * event itself is read; the trigger's own sane-fire-range rules are deliberately not applied.
      */
-    private Instant eventInstant(SchedulerJobConfigEntity config, LocalDate today) {
-        SolarEvent event = SolarForecastJobs.proposedRule(config.getJobKey()).event();
+    private Instant eventInstant(SchedulerJobConfigEntity config, ForecastCycleJobs.Rule rule,
+            LocalDate today) {
+        SolarEvent event = rule.event();
         Instant at = triggerFactory.create(config.getJobKey(), event, 0, config.getCronExpression())
                 .fireFor(today).eventInstant();
         return at == null || at.equals(today.atStartOfDay(ZoneOffset.UTC).toInstant()) ? null : at;
@@ -320,7 +397,7 @@ public class ForecastCycleWatchdog {
     }
 
     private static String servedEventPhrase(SchedulerJobConfigEntity config, Instant event) {
-        String name = SolarForecastJobs.proposedRule(config.getJobKey()).event()
+        String name = ForecastCycleJobs.proposedRule(config.getJobKey()).event()
                 .name().toLowerCase(Locale.ROOT);
         return "today's " + name + " at " + UK_TIME.format(event) + " UK";
     }
