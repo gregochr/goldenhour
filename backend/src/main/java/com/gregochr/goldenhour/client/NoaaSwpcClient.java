@@ -12,6 +12,7 @@ import com.gregochr.goldenhour.model.SpaceWeatherAlert;
 import com.gregochr.goldenhour.model.SpaceWeatherData;
 import com.gregochr.goldenhour.model.SolarWindReading;
 import com.gregochr.goldenhour.service.aurora.AuroraViewlineRule;
+import com.gregochr.goldenhour.util.LogSanitizer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -57,6 +58,9 @@ public class NoaaSwpcClient {
     private static final int KP_TTL_MINUTES = 15;
     private static final int OVATION_TTL_MINUTES = 5;
     private static final int SOLAR_WIND_TTL_MINUTES = 1;
+
+    /** Length of {@code yyyy-MM-ddTHH:mm}, the key solar wind rows are merged on. */
+    private static final int MINUTE_KEY_LENGTH = 16;
     private static final int ALERTS_TTL_MINUTES = 5;
 
     /** NOAA sentinel value meaning "no data" in numeric fields. */
@@ -153,7 +157,7 @@ public class NoaaSwpcClient {
             cachedKp = new CachedResult<>(readings, ZonedDateTime.now(clock));
             return readings;
         } catch (Exception e) {
-            LOG.warn("NOAA Kp fetch failed (retaining cached): {}", e.getMessage());
+            LOG.warn("NOAA Kp fetch failed (retaining cached): {}", LogSanitizer.sanitize(e.getMessage()));
             return cache != null ? cache.data() : List.of();
         }
     }
@@ -177,7 +181,8 @@ public class NoaaSwpcClient {
             cachedKpForecast = new CachedResult<>(forecasts, ZonedDateTime.now(clock));
             return forecasts;
         } catch (Exception e) {
-            LOG.warn("NOAA Kp forecast fetch failed (retaining cached): {}", e.getMessage());
+            LOG.warn("NOAA Kp forecast fetch failed (retaining cached): {}",
+                    LogSanitizer.sanitize(e.getMessage()));
             return cache != null ? cache.data() : List.of();
         }
     }
@@ -226,7 +231,8 @@ public class NoaaSwpcClient {
             cachedOvation = new CachedResult<>(reading, ZonedDateTime.now(clock));
             return reading;
         } catch (Exception e) {
-            LOG.warn("NOAA OVATION fetch failed (retaining cached): {}", e.getMessage());
+            LOG.warn("NOAA OVATION fetch failed (retaining cached): {}",
+                    LogSanitizer.sanitize(e.getMessage()));
             return cache != null ? cache.data() : null;
         }
     }
@@ -234,8 +240,8 @@ public class NoaaSwpcClient {
     /**
      * Returns recent solar wind readings (1-minute cadence), cached for 1 minute.
      *
-     * <p>Combines magnetic field (Bz) from {@code mag-1-day.json} and plasma data
-     * (speed, density) from {@code plasma-1-day.json}, merging rows by timestamp.
+     * <p>Combines magnetic field (Bz) from {@code rtsw_mag_1m.json} and plasma data
+     * (speed, density) from {@code rtsw_wind_1m.json}, merging rows by minute.
      * Returns up to 60 readings (the most recent hour of data).
      *
      * @return list of solar wind readings (oldest first), or empty on first-call failure
@@ -258,7 +264,8 @@ public class NoaaSwpcClient {
             cachedSolarWind = new CachedResult<>(readings, ZonedDateTime.now(clock));
             return readings;
         } catch (Exception e) {
-            LOG.warn("NOAA solar wind fetch failed (retaining cached): {}", e.getMessage());
+            LOG.warn("NOAA solar wind fetch failed (retaining cached): {}",
+                    LogSanitizer.sanitize(e.getMessage()));
             return cache != null ? cache.data() : List.of();
         }
     }
@@ -282,7 +289,8 @@ public class NoaaSwpcClient {
             cachedAlerts = new CachedResult<>(alerts, ZonedDateTime.now(clock));
             return alerts;
         } catch (Exception e) {
-            LOG.warn("NOAA alerts fetch failed (retaining cached): {}", e.getMessage());
+            LOG.warn("NOAA alerts fetch failed (retaining cached): {}",
+                    LogSanitizer.sanitize(e.getMessage()));
             return cache != null ? cache.data() : List.of();
         }
     }
@@ -320,7 +328,8 @@ public class NoaaSwpcClient {
             cachedViewline = new CachedResult<>(parsed, ZonedDateTime.now(clock));
             return parsed;
         } catch (Exception e) {
-            LOG.warn("NOAA viewline fetch failed (retaining cached): {}", e.getMessage());
+            LOG.warn("NOAA viewline fetch failed (retaining cached): {}",
+                    LogSanitizer.sanitize(e.getMessage()));
             if (cache != null) {
                 return cache.data();
             }
@@ -460,68 +469,54 @@ public class NoaaSwpcClient {
     }
 
     /**
-     * Parses and merges magnetic field and plasma solar wind data.
+     * Parses and merges magnetic field and plasma solar wind data from NOAA's real-time solar wind
+     * ({@code rtsw}) feeds.
      *
-     * <p>Mag format: {@code ["time_tag", "bx_gsm", "by_gsm", "bz_gsm", "lon_gsm", "lat_gsm", "bt"]}
-     * Plasma format: {@code ["time_tag", "density", "speed", "temperature"]}
+     * <p>Both feeds are JSON arrays of objects, newest first, with one row per minute per
+     * spacecraft. Mag rows carry {@code bz_gsm}; wind rows carry {@code proton_speed} and
+     * {@code proton_density}. Each row has an {@code active} flag marking the spacecraft NOAA is
+     * currently using; inactive rows (a second spacecraft reporting the same minute) are ignored
+     * unless a feed has no active row at all.
      *
-     * <p>Rows are merged by exact timestamp match. Returns the most recent 60 readings.
+     * <p>Rows are merged by minute (the seconds differ between spacecraft). Returns the most recent
+     * 60 readings.
      *
-     * @param magJson    raw JSON from the NOAA mag-1-day endpoint
-     * @param plasmaJson raw JSON from the NOAA plasma-1-day endpoint
+     * @param magJson    raw JSON from the NOAA {@code rtsw_mag_1m} endpoint
+     * @param plasmaJson raw JSON from the NOAA {@code rtsw_wind_1m} endpoint
      * @return list of solar wind readings (oldest first, at most 60 entries)
      * @throws Exception if JSON parsing fails
      */
     List<SolarWindReading> parseSolarWind(String magJson, String plasmaJson) throws Exception {
-        // Parse mag: time -> bz
-        Map<String, Double> bzByTime = new HashMap<>();
-        JsonNode magRoot = mapper.readTree(magJson);
-        boolean isHeader = true;
-        for (JsonNode row : magRoot) {
-            if (isHeader) {
-                isHeader = false;
-                continue;
-            }
-            if (row.size() < 4) {
-                continue;
-            }
-            String timeTag = row.get(0).asString();
-            double bz = parseDouble(row.get(3));
-            if (!Double.isNaN(bz)) {
-                bzByTime.put(timeTag, bz);
+        // Parse mag: minute -> bz
+        Map<String, Double> bzByMinute = new HashMap<>();
+        for (JsonNode row : preferActive(mapper.readTree(magJson))) {
+            double bz = parseDouble(row.get("bz_gsm"));
+            String minute = minuteKey(row);
+            if (minute != null && !Double.isNaN(bz)) {
+                bzByMinute.putIfAbsent(minute, bz);
             }
         }
 
-        // Parse plasma: time -> [speed, density]
-        Map<String, double[]> plasmaByTime = new HashMap<>();
-        JsonNode plasmaRoot = mapper.readTree(plasmaJson);
-        isHeader = true;
-        for (JsonNode row : plasmaRoot) {
-            if (isHeader) {
-                isHeader = false;
-                continue;
-            }
-            if (row.size() < 3) {
-                continue;
-            }
-            String timeTag = row.get(0).asString();
-            double density = parseDouble(row.get(1));
-            double speed = parseDouble(row.get(2));
-            if (!Double.isNaN(density) || !Double.isNaN(speed)) {
-                plasmaByTime.put(timeTag, new double[]{
+        // Parse wind: minute -> [speed, density]
+        Map<String, double[]> plasmaByMinute = new HashMap<>();
+        for (JsonNode row : preferActive(mapper.readTree(plasmaJson))) {
+            double speed = parseDouble(row.get("proton_speed"));
+            double density = parseDouble(row.get("proton_density"));
+            String minute = minuteKey(row);
+            if (minute != null && (!Double.isNaN(density) || !Double.isNaN(speed))) {
+                plasmaByMinute.putIfAbsent(minute, new double[]{
                         Double.isNaN(speed) ? 0.0 : speed,
                         Double.isNaN(density) ? 0.0 : density
                 });
             }
         }
 
-        // Merge by timestamp — emit a reading only when we have at least bz
+        // Merge by minute — emit a reading only when we have at least bz
         List<SolarWindReading> result = new ArrayList<>();
-        for (Map.Entry<String, Double> entry : bzByTime.entrySet()) {
-            String timeTag = entry.getKey();
+        for (Map.Entry<String, Double> entry : bzByMinute.entrySet()) {
             double bz = entry.getValue();
-            double[] plasma = plasmaByTime.getOrDefault(timeTag, new double[]{0.0, 0.0});
-            parseUtcDateTime(timeTag).ifPresent(ts ->
+            double[] plasma = plasmaByMinute.getOrDefault(entry.getKey(), new double[]{0.0, 0.0});
+            parseUtcDateTime(entry.getKey() + ":00").ifPresent(ts ->
                     result.add(new SolarWindReading(ts, bz, plasma[0], plasma[1])));
         }
 
@@ -529,6 +524,32 @@ public class NoaaSwpcClient {
         result.sort((a, b) -> a.timestamp().compareTo(b.timestamp()));
         int from = Math.max(0, result.size() - 60);
         return result.subList(from, result.size());
+    }
+
+    /**
+     * Selects the rows of an {@code rtsw} feed to read: those flagged {@code active}, or every row
+     * when none is (so a feed that drops or renames the flag still yields readings).
+     */
+    private List<JsonNode> preferActive(JsonNode root) {
+        List<JsonNode> all = new ArrayList<>();
+        List<JsonNode> active = new ArrayList<>();
+        for (JsonNode row : root) {
+            if (!row.isObject()) {
+                continue;
+            }
+            all.add(row);
+            if (row.path("active").asBoolean(false)) {
+                active.add(row);
+            }
+        }
+        return active.isEmpty() ? all : active;
+    }
+
+    /** Truncates a row's {@code time_tag} to the minute ({@code yyyy-MM-ddTHH:mm}), or null. */
+    private String minuteKey(JsonNode row) {
+        String timeTag = row.path("time_tag").asString("");
+        String normalised = timeTag.trim().replace(' ', 'T');
+        return normalised.length() >= MINUTE_KEY_LENGTH ? normalised.substring(0, MINUTE_KEY_LENGTH) : null;
     }
 
     /**

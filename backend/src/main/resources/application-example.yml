@@ -123,8 +123,8 @@ aurora:
     kp-url: https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json
     kp-forecast-url: https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json
     ovation-url: https://services.swpc.noaa.gov/json/ovation_aurora_latest.json
-    solar-wind-url: https://services.swpc.noaa.gov/products/solar-wind/mag-1-day.json
-    solar-wind-plasma-url: https://services.swpc.noaa.gov/products/solar-wind/plasma-1-day.json
+    solar-wind-url: https://services.swpc.noaa.gov/json/rtsw/rtsw_mag_1m.json
+    solar-wind-plasma-url: https://services.swpc.noaa.gov/json/rtsw/rtsw_wind_1m.json
     alerts-url: https://services.swpc.noaa.gov/products/alerts.json
   triggers:
     kp-threshold: 5.0

@@ -1,5 +1,9 @@
 package com.gregochr.goldenhour.client.contract;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.gregochr.goldenhour.client.NoaaSwpcClient;
 import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.model.KpForecast;
@@ -10,7 +14,9 @@ import com.gregochr.goldenhour.model.SpaceWeatherAlert;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.ExpectedCount;
 import org.springframework.test.web.client.MockRestServiceServer;
@@ -29,6 +35,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.fail;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 /**
@@ -44,7 +51,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
  *
  * <p><strong>The highest-value assertion here is the mag/plasma pair.</strong>
  * {@code fetchSolarWind} issues two sequential GETs and merges them by timestamp:
- * {@code mag-1-day.json} carries Bz, {@code plasma-1-day.json} carries speed and density. Swapping
+ * {@code rtsw_mag_1m.json} carries Bz, {@code rtsw_wind_1m.json} carries speed and density. Swapping
  * the two URLs yields two well-formed NOAA array-of-arrays payloads that parse without error and
  * produce a nonsense Bz — and the Bz sign is a dual-signal input to
  * {@code AuroraOrchestrator.deriveAlertLevel()}. Expectation order is therefore deliberately left
@@ -67,9 +74,9 @@ class NoaaSwpcClientContractTest {
     private static final String OVATION_URL =
             "https://services.swpc.noaa.gov/json/ovation_aurora_latest.json";
     private static final String SOLAR_WIND_MAG_URL =
-            "https://services.swpc.noaa.gov/products/solar-wind/mag-1-day.json";
+            "https://services.swpc.noaa.gov/json/rtsw/rtsw_mag_1m.json";
     private static final String SOLAR_WIND_PLASMA_URL =
-            "https://services.swpc.noaa.gov/products/solar-wind/plasma-1-day.json";
+            "https://services.swpc.noaa.gov/json/rtsw/rtsw_wind_1m.json";
     private static final String ALERTS_URL =
             "https://services.swpc.noaa.gov/products/alerts.json";
 
@@ -170,11 +177,15 @@ class NoaaSwpcClientContractTest {
     }
 
     /**
-     * The order of the two solar-wind GETs is the contract. Bz comes from {@code mag-1-day.json}
-     * (column 3) and speed/density from {@code plasma-1-day.json} (columns 2 and 1); both payloads
-     * are NOAA array-of-arrays, so a swap parses cleanly and silently mis-assigns every field.
-     * The fixtures use values no other column could produce, so the content assertions below fail
-     * independently of the ordered expectations if the two URLs are ever transposed.
+     * The order of the two solar-wind GETs is the contract. Bz comes from {@code rtsw_mag_1m.json}
+     * ({@code bz_gsm}) and speed/density from {@code rtsw_wind_1m.json} ({@code proton_speed},
+     * {@code proton_density}). The fixtures are real samples of the live feeds (trimmed to two
+     * minutes), including the inactive IMAP and ACE rows that sit beside the active SOLAR1 row, so
+     * the content assertions fail if the parser ever reads a spacecraft NOAA is not using.
+     *
+     * <p>History: the first version of this test used array-of-arrays fixtures recorded from
+     * {@code products/solar-wind/mag-1-day.json}, which NOAA withdrew (404) without anything here
+     * noticing. Re-record these fixtures from the live feed if the shape changes again.
      */
     @Test
     @DisplayName("fetchSolarWind GETs mag before plasma, and takes Bz from mag / speed+density from plasma")
@@ -191,11 +202,17 @@ class NoaaSwpcClientContractTest {
 
         List<SolarWindReading> readings = client.fetchSolarWind();
 
-        assertThat(readings).hasSize(1);
+        // Active SOLAR1 rows only, oldest first; the IMAP/ACE rows (3.29, 359.85 ...) are ignored.
+        assertThat(readings).hasSize(2);
         SolarWindReading reading = readings.get(0);
-        assertThat(reading.bzNanoTesla()).isEqualTo(-8.5);
-        assertThat(reading.speedKmPerSec()).isEqualTo(520.0);
-        assertThat(reading.densityPerCm3()).isEqualTo(4.5);
+        assertThat(reading.timestamp().toString()).isEqualTo("2026-10-19T21:51Z");
+        assertThat(reading.bzNanoTesla()).isEqualTo(2.78);
+        assertThat(reading.speedKmPerSec()).isEqualTo(357.3);
+        assertThat(reading.densityPerCm3()).isEqualTo(2.67);
+        SolarWindReading latest = readings.get(1);
+        assertThat(latest.bzNanoTesla()).isEqualTo(2.78);
+        assertThat(latest.speedKmPerSec()).isEqualTo(356.9);
+        assertThat(latest.densityPerCm3()).isEqualTo(2.85);
         server.verify();
     }
 
@@ -242,6 +259,39 @@ class NoaaSwpcClientContractTest {
 
         assertThat(second).isEqualTo(first);
         server.verify();
+    }
+
+    /**
+     * A 404 from NOAA arrives with its whole HTML error page in {@code getMessage()}. It was logged
+     * in full, every five minutes, until 2026-10-19. The WARN must carry the failure, bounded.
+     */
+    @Test
+    @DisplayName("A failed fetch logs the status but bounds a large error body to a single short line")
+    void failedFetchLogsBoundedMessage() {
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        NoaaSwpcClient client = client();
+        server.expect(requestTo(SOLAR_WIND_MAG_URL))
+                .andRespond(withStatus(HttpStatus.NOT_FOUND)
+                        .contentType(MediaType.TEXT_HTML)
+                        .body("<html>" + "x".repeat(5_000) + "\nsecond line</html>"));
+
+        Logger logger = (Logger) LoggerFactory.getLogger(NoaaSwpcClient.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            assertThat(client.fetchSolarWind()).isEmpty();
+        } finally {
+            logger.detachAppender(appender);
+        }
+
+        List<ILoggingEvent> warnings = appender.list.stream()
+                .filter(e -> e.getLevel() == Level.WARN).toList();
+        assertThat(warnings).hasSize(1);
+        String message = warnings.get(0).getFormattedMessage();
+        assertThat(message).contains("solar wind fetch failed").contains("404");
+        assertThat(message.length()).isLessThan(300);
+        assertThat(message).doesNotContain("\n");
     }
 
     // -- Helpers -------------------------------------------------------------

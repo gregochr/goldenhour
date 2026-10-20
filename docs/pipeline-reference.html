@@ -956,8 +956,8 @@ Examples: "High cirrus canvas — good colour potential",
               <tr><td><code>noaa-planetary-k-index.json</code></td><td>Recent Kp readings (3-hourly)</td><td>15 min</td><td>Retain cache</td></tr>
               <tr><td><code>noaa-planetary-k-index-forecast.json</code></td><td>3-day Kp forecast</td><td>15 min</td><td>Retain cache</td></tr>
               <tr><td><code>ovation_aurora_latest.json</code></td><td>Aurora probability grid (~900 KB)</td><td>5 min</td><td>Retain cache</td></tr>
-              <tr><td><code>solar-wind/mag-1-day.json</code></td><td>Magnetic field Bz (1-min)</td><td>1 min</td><td>Retain cache</td></tr>
-              <tr><td><code>solar-wind/plasma-1-day.json</code></td><td>Speed, density (1-min)</td><td>1 min</td><td>Retain cache</td></tr>
+              <tr><td><code>json/rtsw/rtsw_mag_1m.json</code></td><td>Magnetic field Bz (1-min)</td><td>1 min</td><td>Retain cache</td></tr>
+              <tr><td><code>json/rtsw/rtsw_wind_1m.json</code></td><td>Speed, density (1-min)</td><td>1 min</td><td>Retain cache</td></tr>
               <tr><td><code>alerts.json</code></td><td>Active G-scale watches/warnings</td><td>5 min</td><td>Retain cache</td></tr>
             </table>
             <p><strong>Met Office Space Weather:</strong> Scraped hourly via <code>MetOfficeSpaceWeatherScraper</code> (Jsoup). Extracts narrative text, truncated to 2000 chars. Retained on failure. Passed to Claude as qualitative context.</p>

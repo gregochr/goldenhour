@@ -64,11 +64,11 @@ public class AuroraProperties {
 
         /** Real-time solar wind magnetic field (Bz) endpoint. */
         private String solarWindUrl =
-                "https://services.swpc.noaa.gov/products/solar-wind/mag-1-day.json";
+                "https://services.swpc.noaa.gov/json/rtsw/rtsw_mag_1m.json";
 
         /** Real-time solar wind plasma (speed and density) endpoint. */
         private String solarWindPlasmaUrl =
-                "https://services.swpc.noaa.gov/products/solar-wind/plasma-1-day.json";
+                "https://services.swpc.noaa.gov/json/rtsw/rtsw_wind_1m.json";
 
         /** Active G-scale watches/warnings/alerts endpoint. */
         private String alertsUrl =
