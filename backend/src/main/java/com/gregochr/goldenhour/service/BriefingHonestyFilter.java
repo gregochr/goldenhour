@@ -394,6 +394,13 @@ final class BriefingHonestyFilter {
                 verdict,
                 0,
                 label,
-                false);
+                false,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                reason);
     }
 }

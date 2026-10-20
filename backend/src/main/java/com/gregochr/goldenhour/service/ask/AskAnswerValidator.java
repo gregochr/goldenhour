@@ -163,6 +163,18 @@ public class AskAnswerValidator {
     }
 
     /**
+     * What a Ready conversation answers, for the rules that depend on the question and not only on its
+     * anchor: the windows it COVERS (never the candidate-bearing {@code windowIds} alone, which leave an
+     * all-blue Saturday out of "this weekend") decide whether a no-pick answer stands
+     * ({@link ReadyRelevance#mayHaveNoPick}) and whose spreads the answer carries.
+     *
+     * @param question the Ready question
+     * @param offer    what it is asked under
+     */
+    public record ReadyBasis(ReadyQuestion question, ReadyQuestion.Offer offer) {
+    }
+
+    /**
      * The verdict on a submitted answer.
      *
      * @param answer the validated answer, or null when the answer was discarded
@@ -211,6 +223,29 @@ public class AskAnswerValidator {
      */
     public Result validate(Raw raw, AskSnapshot snapshot, AskEvidence evidence,
             AskScope scope, BestAnchor anchor, ReadyQuestion eventsQuestion, boolean canSeeAurora) {
+        return validate(raw, snapshot, evidence, scope, anchor, eventsQuestion, canSeeAurora, null);
+    }
+
+    /**
+     * Validates an answer given the Ready question behind it (ask-window-context plan §2.3, §2.4).
+     * Everything {@link #validate(Raw, AskSnapshot, AskEvidence, AskScope, BestAnchor, ReadyQuestion,
+     * boolean)} does, plus: a Ready solar pick question whose covered windows hold no game-on candidate
+     * the question admits may be answered with no pick (the anchor then has nothing to lead with), and an
+     * accepted answer carries the spread of every window it may have quoted.
+     *
+     * @param raw      the model's submitted answer
+     * @param snapshot the snapshot the conversation ran against
+     * @param evidence what the conversation's tools returned
+     * @param scope    the regions the question is about
+     * @param anchor   the Ready {@code BEST_*} rule, or null
+     * @param eventsQuestion which events question this is, or null
+     * @param canSeeAurora whether the asker's role may see aurora figures
+     * @param basis    the Ready question and offer, or null for a typed question
+     * @return the validated answer, or the reason it was discarded
+     */
+    public Result validate(Raw raw, AskSnapshot snapshot, AskEvidence evidence,
+            AskScope scope, BestAnchor anchor, ReadyQuestion eventsQuestion, boolean canSeeAurora,
+            ReadyBasis basis) {
         // Strip what a follow-up would refuse the summary for, THEN the word cap and the code-point bound, so
         // every summary served is accepted back verbatim as an earlier exchange.
         String summary = boundCodePoints(
@@ -267,12 +302,36 @@ public class AskAnswerValidator {
         }
         if (anchor != null) {
             Optional<AskSnapshot.Window> lead = anchoredWindow(snapshot, anchor, scope);
-            if (lead.isPresent()
+            // A no-pick answer stands when the covered windows hold no game-on place at all: there is then
+            // nothing to lead with. Read from the one predicate, never inferred from the lead's absence.
+            boolean noPickStands = picks.isEmpty() && basis != null
+                    && ReadyRelevance.mayHaveNoPick(basis.question(), basis.offer(), snapshot, scope);
+            if (lead.isPresent() && !noPickStands
                     && (picks.isEmpty() || !picks.getFirst().windowId().equals(lead.get().id()))) {
                 return discard("pick 1 is not on the BEST BET window " + lead.get().id());
             }
         }
-        return new Result(new AskAnswer(true, summary, picks, events, null), null, turnedDownDropped[0]);
+        return new Result(new AskAnswer(true, summary, picks, events, null,
+                carriedWindows(snapshot, evidence, scope, picks, basis)), null, turnedDownDropped[0]);
+    }
+
+    /**
+     * The windows an answer carries the spread of: every solar window {@code list_windows} returned in
+     * the conversation, each pick's solar window and, for a Ready question, every window it covers, in
+     * window order. Joined from the live snapshot, never from the model, so what is carried is what was
+     * served. A night window has no spread and is skipped.
+     */
+    private static List<AskAnswer.WindowSpread> carriedWindows(AskSnapshot snapshot, AskEvidence evidence,
+            AskScope scope, List<AskPick> picks, ReadyBasis basis) {
+        Set<String> ids = new HashSet<>(evidence.listedWindows());
+        picks.stream().filter(p -> !p.targetType().isNight()).forEach(p -> ids.add(p.windowId()));
+        if (basis != null) {
+            ids.addAll(basis.offer().coveredWindowIds());
+        }
+        return snapshot.windows().stream()
+                .filter(w -> ids.contains(w.id()))
+                .map(w -> new AskAnswer.WindowSpread(w.id(), AskSnapshot.Spread.of(w, scope)))
+                .toList();
     }
 
     /**

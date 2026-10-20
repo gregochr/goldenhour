@@ -652,4 +652,18 @@ class AskSnapshotBuilderTest {
             return now;
         }
     }
+
+    @Test
+    @DisplayName("the filter's coverage reason is copied onto the snapshot's region, and a region with none "
+            + "carries none")
+    void copiesTheCoverageReason() {
+        AskSnapshot snapshot = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(AskFixtures.sunsetDay(TODAY, null,
+                AskFixtures.blankedRegion("Coast", com.gregochr.goldenhour.model.CoverageReason.STOOD_DOWN),
+                AskFixtures.blankedRegion("Hills", com.gregochr.goldenhour.model.CoverageReason.UNKNOWN),
+                AskFixtures.region("Dales", true, AskFixtures.slot(1L, "A", 4)))), List.of()));
+
+        assertThat(snapshot.windows().getFirst().regions()).extracting(AskSnapshot.Region::coverageReason)
+                .containsExactly(com.gregochr.goldenhour.model.CoverageReason.STOOD_DOWN,
+                        com.gregochr.goldenhour.model.CoverageReason.UNKNOWN, null);
+    }
 }

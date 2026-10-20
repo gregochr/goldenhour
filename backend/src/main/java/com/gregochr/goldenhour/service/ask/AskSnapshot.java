@@ -1,7 +1,10 @@
 package com.gregochr.goldenhour.service.ask;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BriefingWindow;
+import com.gregochr.goldenhour.model.CoverageReason;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.service.evaluation.RatingValidator;
@@ -10,10 +13,12 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.TreeSet;
+import java.util.function.Predicate;
 
 /**
  * A read-only picture of the served briefing, for Ask's tools and validator (plan §2.2).
@@ -134,13 +139,31 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
      * @param verdictEligible whether the Plan tab would let this region carry a verdict
      *                        ({@code BriefingRegion.verdictEligible()})
      * @param slots           the region's slots
+     * @param coverageReason  why the honesty filter blanked the region (the served
+     *                        {@code BriefingRegion.coverageReason}), or null when it did not or the
+     *                        payload predates the field; only {@link CoverageReason#STOOD_DOWN} is a
+     *                        real weather stand-down
      */
     public record Region(String name, DisplayVerdict displayVerdict, Double meanRating,
-            boolean verdictEligible, List<Slot> slots) {
+            boolean verdictEligible, List<Slot> slots, CoverageReason coverageReason) {
 
         /** Canonical constructor: takes an immutable copy of {@code slots}. */
         public Region {
             slots = slots == null ? List.of() : List.copyOf(slots);
+        }
+
+        /**
+         * A region the honesty filter did not blank (or whose reason is not known).
+         *
+         * @param name            the region name
+         * @param displayVerdict  the region's served verdict
+         * @param meanRating      the region's served mean rating, or null
+         * @param verdictEligible whether the Plan tab would let this region carry a verdict
+         * @param slots           the region's slots
+         */
+        public Region(String name, DisplayVerdict displayVerdict, Double meanRating,
+                boolean verdictEligible, List<Slot> slots) {
+            this(name, displayVerdict, meanRating, verdictEligible, slots, null);
         }
     }
 
@@ -327,6 +350,235 @@ public record AskSnapshot(LocalDateTime generatedAt, String runLabel, LocalDate 
                 String detail, String safetyNote) {
             this(type, title, startDate, endDate, detail, safetyNote, List.of());
         }
+    }
+
+    /**
+     * A window's rating distribution over a scope, the figures {@code list_windows} serves and the
+     * answers carry (ask-window-context plan §2.1): counts, never a fitted curve, so the model can say
+     * "of 180 rated places, 2 are 4★" from a number a tool returned instead of doing the arithmetic.
+     *
+     * <p><b>Population.</b> Every in-scope region of the window is one of four kinds, read off what the
+     * honesty filter served: <em>counted</em> (has slots and {@code verdictEligible}: its slots enter
+     * the bands and the pockets), <em>thin</em> (has slots but the Plan tab refuses it a verdict: its
+     * slots are not in the bands, so a 4★ {@code rank_spots} would never return is never a
+     * {@code gameOn}), <em>stood down</em> (no slots and the filter's reason was
+     * {@link CoverageReason#STOOD_DOWN}) and <em>not scored</em> (no slots for any other reason,
+     * including the {@link CoverageReason#UNKNOWN} the filter words as a stand-down too, and a reason
+     * that is not known). Within a counted region a slot is out when it is a wood, or held back by the
+     * neighbour guard (counted in {@code heldBack}); a slot without a rating on Claude's 1-5 scale is
+     * {@code unrated} (and, with the served verdict {@code STAND_DOWN}, also counted in the
+     * informational {@code stoodDown}). The rating is the combined served one, the star every other
+     * Ask figure is on.
+     *
+     * <p>A record of ints, strings and lists, so {@code equals} is the freshness comparison and no
+     * tolerance exists to tune. Serialised NON_NULL; the optional tallies are omitted when zero.
+     *
+     * @param over       the population's name for the prose: {@code every region}, or the scope's names
+     * @param rated      how many places in the counted regions carry a rating
+     * @param bands      the rated places at 1, 2, 3, 4 and 5★ (five integers)
+     * @param gameOn     rated 4★ or better
+     * @param gameOnPct  {@code gameOn} as a rounded percentage of {@code rated}; 0 when none is rated
+     * @param go         rated 5★
+     * @param below4     rated 3★ or lower
+     * @param stars1to2  rated 1★ or 2★
+     * @param unrated    places in the counted regions with no rating; null when none
+     * @param stoodDown  of those, places the briefing's own weather verdict stood down; null when none
+     * @param heldBack   places the neighbour guard withholds; null when none
+     * @param regions    the in-scope regions by kind
+     * @param pockets    the counted regions holding a game-on place, most game-on places first, at most
+     *                   {@value #MAX_POCKETS}
+     * @param morePockets how many pockets were cut; null when none was
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Spread(String over, int rated, List<Integer> bands, int gameOn, int gameOnPct, int go,
+            int below4, int stars1to2, Integer unrated, Integer stoodDown, Integer heldBack,
+            Regions regions, List<Pocket> pockets, Integer morePockets) {
+
+        /** The name of the population when the scope is every region. */
+        public static final String EVERY_REGION = "every region";
+
+        /** The most pockets a spread lists. */
+        public static final int MAX_POCKETS = 4;
+
+        /** The lowest star the owner's scale calls "game on". */
+        public static final int GAME_ON_FROM = 4;
+
+        private static final int STARS = 5;
+
+        /** Canonical constructor: immutable copies; a null list reads as empty. */
+        public Spread {
+            bands = bands == null ? List.of() : List.copyOf(bands);
+            pockets = pockets == null ? List.of() : List.copyOf(pockets);
+        }
+
+        /**
+         * The in-scope regions of a window by kind. The tallies other than {@code counted} are omitted
+         * when zero.
+         *
+         * @param counted   regions whose slots are in the bands
+         * @param thin      regions with slots the Plan tab refuses a verdict
+         * @param stoodDown regions the briefing stood down whole by weather
+         * @param notScored regions with no slots for any other reason
+         */
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        public record Regions(int counted, Integer thin, Integer stoodDown, Integer notScored) {
+        }
+
+        /**
+         * A region holding at least one game-on place.
+         *
+         * @param region the region name
+         * @param gameOn how many rated places in it are 4★ or better
+         * @param mean   the region's mean rating over the spread's population, to one decimal
+         */
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        public record Pocket(String region, int gameOn, double mean) {
+        }
+
+        /**
+         * Folds a window's regions that the scope contains into a spread.
+         *
+         * @param window the window
+         * @param scope  the regions the question is about
+         * @return the spread; its {@code rated} is 0 and its bands empty when no counted region is rated
+         */
+        public static Spread of(Window window, AskScope scope) {
+            int[] bands = new int[STARS];
+            int unrated = 0;
+            int slotsStoodDown = 0;
+            int heldBack = 0;
+            int counted = 0;
+            int thin = 0;
+            int regionsStoodDown = 0;
+            int notScored = 0;
+            List<Pocket> pockets = new ArrayList<>();
+            for (Region region : window.regions()) {
+                if (!scope.contains(region.name())) {
+                    continue;
+                }
+                if (region.slots().isEmpty()) {
+                    if (region.coverageReason() == CoverageReason.STOOD_DOWN) {
+                        regionsStoodDown++;
+                    } else {
+                        notScored++;
+                    }
+                    continue;
+                }
+                if (!region.verdictEligible()) {
+                    thin++;
+                    continue;
+                }
+                counted++;
+                int regionRated = 0;
+                int regionGameOn = 0;
+                int regionSum = 0;
+                for (Slot slot : region.slots()) {
+                    if (slot.canopy()) {
+                        continue;
+                    }
+                    if (isHeldBack(region, slot)) {
+                        heldBack++;
+                    } else if (RatingValidator.isInRange(slot.rating())) {
+                        bands[slot.rating() - 1]++;
+                        regionRated++;
+                        regionSum += slot.rating();
+                        regionGameOn += slot.rating() >= GAME_ON_FROM ? 1 : 0;
+                    } else {
+                        unrated++;
+                        slotsStoodDown += slot.verdict() == DisplayVerdict.STAND_DOWN ? 1 : 0;
+                    }
+                }
+                if (regionGameOn > 0) {
+                    pockets.add(new Pocket(region.name(), regionGameOn,
+                            Math.round(regionSum * 10.0 / regionRated) / 10.0));
+                }
+            }
+            pockets.sort(Comparator.comparingInt(Pocket::gameOn).reversed()
+                    .thenComparing(Comparator.comparingDouble(Pocket::mean).reversed())
+                    .thenComparing(Pocket::region));
+            int rated = 0;
+            for (int n : bands) {
+                rated += n;
+            }
+            int gameOn = bands[GAME_ON_FROM - 1] + bands[STARS - 1];
+            List<Integer> bandList = new ArrayList<>(STARS);
+            for (int n : bands) {
+                bandList.add(n);
+            }
+            return new Spread(overName(scope), rated, bandList, gameOn,
+                    rated == 0 ? 0 : (int) Math.round(100.0 * gameOn / rated), bands[STARS - 1],
+                    rated - gameOn, bands[0] + bands[1], orNull(unrated), orNull(slotsStoodDown),
+                    orNull(heldBack),
+                    new Regions(counted, orNull(thin), orNull(regionsStoodDown), orNull(notScored)),
+                    pockets.size() > MAX_POCKETS ? pockets.subList(0, MAX_POCKETS) : pockets,
+                    pockets.size() > MAX_POCKETS ? pockets.size() - MAX_POCKETS : null);
+        }
+
+        private static Integer orNull(int count) {
+            return count == 0 ? null : count;
+        }
+
+        /** {@code every region}, or the scope's names: {@code A}, {@code A and B}, {@code A, B and C}. */
+        private static String overName(AskScope scope) {
+            if (scope.isEverywhere() || scope.names().isEmpty()) {
+                return EVERY_REGION;
+            }
+            List<String> names = List.copyOf(scope.names());
+            if (names.size() == 1) {
+                return names.getFirst();
+            }
+            return String.join(", ", names.subList(0, names.size() - 1)) + " and " + names.getLast();
+        }
+    }
+
+    /**
+     * The spread of one solar window over a scope.
+     *
+     * @param windowId a solar window id
+     * @param scope    the regions the question is about
+     * @return the spread, or empty when the window is not in the window set (a night has none)
+     */
+    public Optional<Spread> spread(String windowId, AskScope scope) {
+        return window(windowId).map(w -> Spread.of(w, scope));
+    }
+
+    /**
+     * The game-on candidates of the given windows: pick-eligible slots in scope rated
+     * {@value Spread#GAME_ON_FROM}★ or better that {@code admits} accepts. The set test behind the
+     * honest "nothing worth going out for" answer (ask-window-context plan §2.3): a question whose
+     * covered windows hold none may be answered with no pick. A window id the snapshot does not hold
+     * contributes nothing.
+     *
+     * @param windowIds the windows the question covers
+     * @param scope     the regions the question is about
+     * @param admits    the question's own slot predicate ({@code ReadyRelevance.admitsSlot}); every
+     *                  slot for a question with no extra requirement
+     * @return the candidates, in window order; never null
+     */
+    public List<Candidate> gameOnCandidates(Collection<String> windowIds, AskScope scope,
+            Predicate<Slot> admits) {
+        return windows.stream()
+                .filter(w -> windowIds.contains(w.id()))
+                .flatMap(w -> candidates(w, scope).stream())
+                .filter(c -> c.slot().rating() >= Spread.GAME_ON_FROM && admits.test(c.slot()))
+                .toList();
+    }
+
+    /**
+     * Whether any of the given windows holds a game-on candidate the question admits: the ONE predicate
+     * every site that decides whether a no-pick answer stands consults (the validator's anchor rule,
+     * {@code ReadyRelevance.violation} and the Ready freshness check). Never inferred from the BEST BET
+     * anchor lookup, which is empty for other reasons too.
+     *
+     * @param windowIds the windows the question covers
+     * @param scope     the regions the question is about
+     * @param admits    the question's own slot predicate
+     * @return true when at least one game-on candidate exists
+     */
+    public boolean hasGameOn(Collection<String> windowIds, AskScope scope, Predicate<Slot> admits) {
+        return !gameOnCandidates(windowIds, scope, admits).isEmpty();
     }
 
     /**

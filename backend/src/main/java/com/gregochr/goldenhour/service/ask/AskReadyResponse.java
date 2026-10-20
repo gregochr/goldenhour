@@ -64,10 +64,34 @@ public record AskReadyResponse(String scope, List<Question> questions) {
      * @param missing    always null for a stored Ready answer
      * @param tryThese   up to two other fresh Ready questions for the scope, chosen by the server,
      *                   serialised as {@code try}
+     * @param windows    the rating distribution of every window the summary may have quoted, as the
+     *                   server holds it ({@link AskAnswer#windows()}); omitted from the wire when empty
      */
     public record Answer(boolean answerable, String kind, String summary, List<Pick> picks,
             List<AskEvent> events, @JsonInclude(JsonInclude.Include.ALWAYS) String missing,
-            @JsonProperty("try") List<Suggestion> tryThese) {
+            @JsonProperty("try") List<Suggestion> tryThese,
+            @JsonInclude(JsonInclude.Include.NON_EMPTY) List<AskAnswer.WindowSpread> windows) {
+
+        /** Canonical constructor: a null list reads as empty. */
+        public Answer {
+            windows = windows == null ? List.of() : List.copyOf(windows);
+        }
+
+        /**
+         * An answer that carries no window figures.
+         *
+         * @param answerable always true for a stored Ready answer
+         * @param kind       always {@code ready}
+         * @param summary    the cleaned, word-capped summary
+         * @param picks      the picks, ranked
+         * @param events     the event cards
+         * @param missing    always null for a stored Ready answer
+         * @param tryThese   up to two other fresh Ready questions
+         */
+        public Answer(boolean answerable, String kind, String summary, List<Pick> picks,
+                List<AskEvent> events, String missing, List<Suggestion> tryThese) {
+            this(answerable, kind, summary, picks, events, missing, tryThese, List.of());
+        }
     }
 
     /**

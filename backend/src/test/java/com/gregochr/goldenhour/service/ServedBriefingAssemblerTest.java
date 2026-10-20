@@ -328,6 +328,47 @@ class ServedBriefingAssemblerTest {
         assertThat(es.window().verdict()).isEqualTo(DisplayVerdict.STAND_DOWN);
     }
 
+    // ── The coverage reason survives every step after the filter (ask-window-context plan §2.1) ────
+
+    @Test
+    @DisplayName("the filter's coverage reason is on the region of the ASSEMBLED payload, after movement and "
+            + "the slot-tide strip rebuilt it: a stand-down, away, not attempted, failed and unknown")
+    void coverageReasonSurvivesTheAssembledPayload() {
+        // A previous build with a basis, so the movement step's wither runs on every region too.
+        when(regionSnapshotService.previousBuild(any())).thenReturn(
+                new BriefingRegionSnapshotService.PreviousBuild(LocalDateTime.of(2026, 10, 8, 0, 0),
+                        Map.of("some other key", 3.0)));
+
+        serveDispositions(T_PLUS_2, TargetType.SUNRISE, DispositionCategory.SKIPPED_TRIAGED, "Durham", "Hawes");
+        assertThat(servedReason(T_PLUS_2)).isEqualTo(com.gregochr.goldenhour.model.CoverageReason.STOOD_DOWN);
+
+        serveDispositions(D, TargetType.SUNRISE, DispositionCategory.SKIPPED_TRAVEL_DAY, "Durham", "Hawes");
+        assertThat(servedReason(D)).isEqualTo(com.gregochr.goldenhour.model.CoverageReason.AWAY);
+
+        serveDispositions(T_PLUS_4, TargetType.SUNRISE, DispositionCategory.SKIPPED_STABILITY, "Durham", "Hawes");
+        assertThat(servedReason(T_PLUS_4)).isEqualTo(com.gregochr.goldenhour.model.CoverageReason.NOT_ATTEMPTED);
+
+        serveDispositions(T_PLUS_2, TargetType.SUNRISE, DispositionCategory.SUBMISSION_FAILED, "Durham", "Hawes");
+        assertThat(servedReason(T_PLUS_2)).isEqualTo(com.gregochr.goldenhour.model.CoverageReason.FAILED);
+
+        when(evaluationViewService.loadServeTriage(any(), any(), any()))
+                .thenReturn(EvaluationViewService.ServeTriage.EMPTY);
+        assertThat(servedReason(T_PLUS_2)).isEqualTo(com.gregochr.goldenhour.model.CoverageReason.UNKNOWN);
+    }
+
+    private com.gregochr.goldenhour.model.CoverageReason servedReason(LocalDate date) {
+        return serveOneRegion(date).days().get(0).eventSummaries().get(0).regions().get(0).coverageReason();
+    }
+
+    @Test
+    @DisplayName("a region the filter did not blank serves no coverage reason")
+    void aScoredRegionServesNoCoverageReason() {
+        DailyBriefingResponse served = assembler.assembleForPlan(scoredSnapshot(), 0.5);
+
+        assertThat(served.days().get(0).eventSummaries().get(0).regions())
+                .extracting(BriefingRegion::coverageReason).containsOnlyNulls();
+    }
+
     @Test
     @DisplayName("a serve reads the dispositions once, through loadServeTriage, never the "
             + "separate triaged-names method")
