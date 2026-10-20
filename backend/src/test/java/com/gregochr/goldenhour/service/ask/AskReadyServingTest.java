@@ -252,4 +252,23 @@ class AskReadyServingTest {
         assertThat(service.serve(AskScope.ALL).questions()).isEmpty();
         verifyNoInteractions(store);
     }
+
+    @Test
+    @DisplayName("a served Ready answer carries the window figures it was stored with, on the wire answer")
+    void serveCarriesTheWindowFigures() {
+        ReadyQuestion.Offer offer = ReadyQuestion.BEST_WEEKEND.offer(snapshot, AskScope.ALL).orElseThrow();
+        List<AskAnswer.WindowSpread> windows = offer.coveredWindowIds().stream()
+                .map(id -> new AskAnswer.WindowSpread(id, snapshot.spread(id, AskScope.ALL).orElseThrow()))
+                .toList();
+        AskReadyStore.Stored base = saturdayBest(BUILT, 5);
+        AskReadyStore.Stored withFigures = new AskReadyStore.Stored("ALL", base.questionId(), base.questionText(),
+                base.windowIds(), BUILT, base.answer().withWindows(windows), null, offer.coveredWindowIds());
+        when(snapshotBuilder.current()).thenReturn(Optional.of(snapshot));
+        when(store.findScope("ALL")).thenReturn(List.of(withFigures));
+
+        AskReadyResponse response = service.serve(AskScope.ALL);
+
+        assertThat(response.questions()).singleElement().satisfies(q ->
+                assertThat(q.answer().windows()).isEqualTo(windows).isNotEmpty());
+    }
 }

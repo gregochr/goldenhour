@@ -418,7 +418,8 @@ public class AskSnapshotBuilder {
     private static AskSnapshot.Region toRegion(BriefingRegion region, Map<String, LocationTideFact> facts) {
         return new AskSnapshot.Region(region.regionName(), region.displayVerdict(),
                 region.meanRating(), region.verdictEligible(),
-                region.slots().stream().map(slot -> toSlot(slot, facts)).toList());
+                region.slots().stream().map(slot -> toSlot(slot, facts)).toList(),
+                region.coverageReason());
     }
 
     /**

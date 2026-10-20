@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.BriefingWindow;
+import com.gregochr.goldenhour.model.CoverageReason;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.HotTopic;
@@ -66,6 +67,13 @@ final class AskFixtures {
         return base.withNeighbourOutlier(Boolean.TRUE);
     }
 
+    /** A slot the briefing's own weather screen stood down, with no rating. */
+    static BriefingSlot standDownSlot(Long id, String name) {
+        return new BriefingSlot(id, name, NOW.plusHours(6), Verdict.STANDDOWN, null,
+                BriefingSlot.TideInfo.NONE, List.of(), null, null, null, null, null, null,
+                DisplayVerdict.STAND_DOWN, null, false, null);
+    }
+
     /** A wood: its rating means the opposite of a sky rating. */
     static BriefingSlot wood(Long id, String name, Integer rating) {
         return slotWith(id, name, rating, true, BriefingSlot.TideInfo.NONE, null);
@@ -121,6 +129,37 @@ final class AskFixtures {
         return new BriefingRegion(name, Verdict.GO, "summary", List.of(), List.of(slots), null,
                 null, null, null, "Gloss headline", "Gloss detail", DisplayVerdict.WORTH_IT,
                 slots.length, null, false, null, 4.0, 4, null, eligible, null);
+    }
+
+    /**
+     * A region the honesty filter blanked, as the serve path hands it to Ask: no slots, a stand-down or
+     * awaiting word, and the filter's reason.
+     */
+    static BriefingRegion blankedRegion(String name, CoverageReason reason) {
+        boolean weather = reason == CoverageReason.STOOD_DOWN || reason == CoverageReason.UNKNOWN;
+        return new BriefingRegion(name, Verdict.STANDDOWN, "summary", List.of(), List.of(), null, null,
+                null, null, null, "detail", weather ? DisplayVerdict.STAND_DOWN : DisplayVerdict.AWAITING, 0,
+                "label", false, null, null, null, null, null, null, reason);
+    }
+
+    /**
+     * A verdict-eligible region whose slots are given by band: {@code bands[i]} sky slots rated
+     * {@code i + 1}, named {@code "<region> <rating>-<n>"} with ids counting up from {@code firstId}.
+     */
+    static BriefingRegion bandedRegion(String name, long firstId, int... bands) {
+        return bandedRegion(name, true, firstId, bands);
+    }
+
+    /** As {@link #bandedRegion(String, long, int...)} with the sample gate's verdict given. */
+    static BriefingRegion bandedRegion(String name, boolean eligible, long firstId, int... bands) {
+        List<BriefingSlot> slots = new ArrayList<>();
+        long id = firstId;
+        for (int i = 0; i < bands.length; i++) {
+            for (int n = 0; n < bands[i]; n++) {
+                slots.add(slot(id++, name + " " + (i + 1) + "-" + n, i + 1));
+            }
+        }
+        return region(name, eligible, slots.toArray(BriefingSlot[]::new));
     }
 
     static BriefingWindow window(LocalDateTime eventTime, DisplayVerdict verdict, Integer best,

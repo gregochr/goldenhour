@@ -128,7 +128,7 @@ public class AskReadyServing {
         AskAnswer answer = self.answer();
         AskReadyResponse.Answer wire = new AskReadyResponse.Answer(true, "ready", answer.summary(),
                 answer.picks().stream().map(AskReadyResponse.Pick::of).toList(), answer.events(),
-                null, suggestions);
+                null, suggestions, answer.windows());
         // Each question carries its own build time and label: rows of one scope can come from
         // different precomputes (a question whose run failed keeps its earlier answer).
         return new AskReadyResponse.Question(self.question().name(), self.stored().questionText(),

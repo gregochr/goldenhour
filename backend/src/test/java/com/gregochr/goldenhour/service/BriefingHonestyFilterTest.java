@@ -734,6 +734,42 @@ class BriefingHonestyFilterTest {
     }
 
     @Test
+    @DisplayName("The filter's reason rides the blanked region (the Ask window spread tells a real stand-down "
+            + "from the UNKNOWN the filter words the same way); a region it did not blank carries none")
+    void blankedRegionCarriesItsCoverageReason() {
+        assertThat(firstRegion(blanked(DispositionCategory.SKIPPED_TRIAGED, false, T_PLUS_0)).coverageReason())
+                .isEqualTo(com.gregochr.goldenhour.model.CoverageReason.STOOD_DOWN);
+        assertThat(firstRegion(blanked(DispositionCategory.SKIPPED_TRAVEL_DAY, false, T_PLUS_0)).coverageReason())
+                .isEqualTo(com.gregochr.goldenhour.model.CoverageReason.AWAY);
+        assertThat(firstRegion(blanked(DispositionCategory.SKIPPED_STABILITY, false, T_PLUS_4)).coverageReason())
+                .isEqualTo(com.gregochr.goldenhour.model.CoverageReason.NOT_ATTEMPTED);
+        assertThat(firstRegion(blanked(DispositionCategory.SUBMISSION_FAILED, false, T_PLUS_0)).coverageReason())
+                .isEqualTo(com.gregochr.goldenhour.model.CoverageReason.FAILED);
+        DailyBriefingResponse in = responseWith(TargetType.SUNSET, zeroCoverageRegion("Northumberland"), List.of());
+        assertThat(firstRegion(BriefingHonestyFilter.apply(in, 0.5)).coverageReason())
+                .as("no lookup is UNKNOWN, worded as a stand-down but never mistaken for one")
+                .isEqualTo(com.gregochr.goldenhour.model.CoverageReason.UNKNOWN);
+        assertThat(firstRegion(BriefingHonestyFilter.apply(in, 0.5, Map.of(), T_PLUS_0)).coverageReason())
+                .isEqualTo(com.gregochr.goldenhour.model.CoverageReason.UNKNOWN);
+    }
+
+    @Test
+    @DisplayName("A region the filter did not blank (scored, or only lightly evaluated) carries no reason")
+    void aRegionNotBlankedCarriesNoCoverageReason() {
+        DailyBriefingResponse scored = responseWith(TargetType.SUNSET,
+                regionWith("Northumberland", Verdict.GO, "Clear at 10 of 10", DisplayVerdict.WORTH_IT, 10,
+                        goSlots(10)), List.of());
+        DailyBriefingResponse light = responseWith(TargetType.SUNSET,
+                regionWith("Northumberland", Verdict.GO, "Clear at 1 of 10", DisplayVerdict.WORTH_IT, 1,
+                        goSlots(10)), List.of());
+
+        assertThat(firstRegion(BriefingHonestyFilter.apply(scored, 0.5)).coverageReason()).isNull();
+        BriefingRegion lightly = firstRegion(BriefingHonestyFilter.apply(light, 0.5));
+        assertThat(lightly.lightlyEvaluated()).isTrue();
+        assertThat(lightly.coverageReason()).isNull();
+    }
+
+    @Test
     @DisplayName("fullRewrite carries exactly the fields it always did and nulls the rest, for "
             + "every reason")
     void fullRewriteCarriesAndNullsTheSameFields() {

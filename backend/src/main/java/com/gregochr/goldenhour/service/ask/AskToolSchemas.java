@@ -66,7 +66,10 @@ public final class AskToolSchemas {
     private static Tool listWindows() {
         return tool(LIST_WINDOWS,
                 "Lists the upcoming sunrise and sunset windows, with the forecast's verdict, best "
-                        + "rating and its own BEST BET / ALSO GOOD pick for each, then the night windows "
+                        + "rating, the spread of its ratings (rated count, the count at each star, how "
+                        + "many are game on, the regions holding a game-on place, and the regions "
+                        + "stood down or not scored) and its own BEST BET / ALSO GOOD pick for each, "
+                        + "then the night windows "
                         + "(tonight's and tomorrow night's astro, and aurora where the reader may see it). "
                         + "Call this first for any question about when to go.",
                 m(), List.of());
@@ -185,12 +188,12 @@ public final class AskToolSchemas {
                 "description", "One or two plain sentences that answer the question directly."));
         props.put("picks", withThread
                 ? m("type", "array", "items", pick, "maxItems", AskAnswerValidator.MAX_RANKED_PICKS,
-                        "description", "Two or three different spots, best first, for where/when "
-                                + "questions. When ranking the reader's earlier options, up to four "
-                                + "(a place may appear at two windows).")
+                        "description", "Up to three different spots, best first, for where/when "
+                                + "questions; fewer is fine. When ranking the reader's earlier "
+                                + "options, up to four (a place may appear at two windows).")
                 : m("type", "array", "items", pick, "maxItems", AskAnswerValidator.MAX_PICKS,
-                        "description", "Two or three different spots, best first, for where/when "
-                                + "questions."));
+                        "description", "Up to three different spots, best first, for where/when "
+                                + "questions; fewer is fine, and none when nothing is worth going for."));
         props.put("events", m("type", "array", "items", event, "maxItems", AskAnswerValidator.MAX_PICKS,
                 "description", "Only events a tool returned that bear on the question."));
         props.put("missing", m("type", "string",

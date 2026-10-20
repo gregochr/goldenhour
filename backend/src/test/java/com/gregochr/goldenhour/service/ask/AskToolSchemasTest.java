@@ -217,4 +217,22 @@ class AskToolSchemasTest {
         assertThat(coming).contains("almanac").contains("live forecast").contains("meteor showers")
                 .contains(AskToolSchemas.GET_HOT_TOPICS);
     }
+
+    @Test
+    @DisplayName("list_windows names the spread it returns, and submit_answer asks for up to three picks, "
+            + "fewer being fine (never 'two or three')")
+    void listWindowsDescribesTheSpreadAndPicksAreUpToThree() {
+        for (boolean thread : new boolean[] {false, true}) {
+            List<Tool> tools = AskToolSchemas.tools(true, thread);
+            String list = tool(tools, AskToolSchemas.LIST_WINDOWS).description().orElseThrow();
+            String picks = property(tool(tools, AskToolSchemas.SUBMIT_ANSWER), "picks").get("description")
+                    .asText();
+
+            assertThat(list).contains("spread of its ratings").contains("the count at each star")
+                    .contains("how many are game on").contains("regions holding a game-on place")
+                    .contains("stood down or not scored").contains("BEST BET / ALSO GOOD");
+            assertThat(picks).startsWith("Up to three different spots").contains("fewer is fine")
+                    .doesNotContain("Two or three");
+        }
+    }
 }
