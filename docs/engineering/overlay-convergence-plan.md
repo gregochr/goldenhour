@@ -46,9 +46,9 @@ the same commit as its code; the `PR` column names the PR, not a SHA — the rep
 | phase | what | PR | notes |
 |---|---|---|---|
 | C0 | this plan | | |
-| C1 | the handoff contract: `source:'plan'` carries everything the overlay's seven triggers carry | pending | no door moves yet. Built 2026-10-20: `utils/mapDoor.js` (`normalizeMapTrigger`, `doorHeadline`, `doorFromTrigger`); `night`/`focusNames`/`focusPoints`/`filterAction`/`darkSky`/`title`/`caption` on the handoff; `MapBreadcrumb` headline + lens clauses + `clear`. The `focusNames` lens is an INTERSECTION with the reader's filters (not the overlay's override), so "showing N spots" counts the pool actually drawn. `filterAction`/`darkSky` no longer open the Filters popover (the crumb names them). A `focusPoints` door leaves scope alone (a scope reset would race the fit). `MapView`'s `askWindow` row-following was extracted to `followWindowRow` and is shared with the new night-follow effect |
+| C1 | the handoff contract: `source:'plan'` carries everything the overlay's seven triggers carry | #1246 | no door moves yet. Built 2026-10-20: `utils/mapDoor.js` (`normalizeMapTrigger`, `doorHeadline`, `doorFromTrigger`); `night`/`focusNames`/`focusPoints`/`filterAction`/`darkSky`/`title`/`caption` on the handoff; `MapBreadcrumb` headline + lens clauses + `clear`. The `focusNames` lens is an INTERSECTION with the reader's filters (not the overlay's override), so "showing N spots" counts the pool actually drawn. `filterAction`/`darkSky` no longer open the Filters popover (the crumb names them). A `focusPoints` door leaves scope alone (a scope reset would race the fit). `MapView`'s `askWindow` row-following was extracted to `followWindowRow` and is shared with the new night-follow effect |
 | C2 | detail parity: the popup's facts the tab lacks, on the location sheet (and callout where cheap) | | owner list, D3 |
-| C3 | a Map tab with no solar forecast: offered on an aurora alert; a live-night aurora row | pending | D4. Built 2026-10-20: `utils/auroraTab.js` (`auroraTabOffered`: `active` AND `isRealAlert` — MODERATE/STRONG, never simulated — AND not LITE) read by `App` (pane offered; with no forecast the pane's date is the night in progress) and `MapView` (the live night's row from `auroraScores`, added only when no stored result names that night; the stored-run preview also covers the night in progress on a map with no solar dates; a map with no solar row and no `autoEventType` enters AURORA until the reader chooses). **Simulated-alert decision: a simulated alert (the status carries `simulated`) offers neither the tab nor the row** — it has no scores and no stored run, and plan §4 D9 / the simulation-isolation rule keep it off user-facing surfaces; the banner still shows it. **Deviations from the prompt**: the tab is offered on MODERATE+ (not any `active` alert) because scores are fetched only from MODERATE; the live row is also added on a tab that HAS a forecast (the gap is the same), solar rows untouched. The landing card needs no change (`landingRows` is solar-only; no briefing, no stamp). `MapViewAuroraLiveNight`'s "no window pill" focus-walk test now disables the pill instead of expecting none (a live alert now always has a pill). Browser check owed |
+| C3 | a Map tab with no solar forecast: offered on an aurora alert; a live-night aurora row | pending | D4. Built 2026-10-20, revised after review: `utils/auroraTab.js` (`auroraTabOffered`: PRO/ADMIN AND `active` AND `isRealAlert` (MODERATE/STRONG, never simulated) AND the status's night not ended (`isStillCurrent`, the test `resolveAuroraNight` applies)) read by `App` (pane offered; with no forecast the pane's date is the night IN PROGRESS, which pre-dawn is yesterday's date; with forecast data, even hides-only, the date is today as before) and `MapView` (the live night's row from `auroraScores`, added only once the stored-dates list has ANSWERED (`auroraDatesLoaded`) and no stored result names that night; memoised; a stored run's row takes its best from the selected-night answer when the preview, bounded to the solar horizon, did not ask). The **aurora-only tab** (a real alert, NO forecast row anywhere — derived in `MapView` from empty `forecastsByDate`, so a hides-only forecast is not it) enters AURORA when its only rows are night rows, live OR stored, until the reader chooses; `hideDayCard`/`hidesOnlyForecast` test "no SOLAR event", so a night row never evicts a hide's comfort card. The shell selects Plan explicitly and focuses the Plan tab when the Map tab is withdrawn while in force (alert cleared). A night-only pill carries an accessible name (kind, night, time if known, best star), the single-window steppers point at an "Only one window" reason, and the phone Windows section falls back to the first row's label as its heading. **Simulated-alert decision: a simulated alert (the status carries `simulated`) offers neither the tab nor the row** — it has no scores and no stored run, and `aurora-banner-plan.md` D9 ("a simulated alert asks for nothing") and the simulation-isolation rule keep it off user-facing surfaces; the banner still shows it with its 🧪. **Deviations from the prompt**: (1) the tab is offered on MODERATE+ (not any `active` alert) because scores are fetched only from MODERATE; (2) the live row is also appended on a tab that HAS a forecast (the D-14 gap is the same; it lands after that date's sunset exactly as a stored night's row does; every solar row and its order is unchanged, pinned). **Known limit (accepted):** a live night that gains a stored run mid-session is not converted (the dates list is read once per role). The landing card needs no change (`landingRows` is solar-only). Browser check owed |
 | C4 | move the seven doors; delete `App`'s overlay state | | one PR per door group is fine |
 | C5 | delete the overlay: `MapView` branches, `MapOverlay`, `mapOverlay.js`, `ForecastTypeSelector`, CSS, tests | | the big one |
 | C6 | docs sweep: CLAUDE.md, four plans, memory | | |
@@ -153,14 +153,20 @@ or adds before C2 starts (D3). Map-tab-v2 §4.9 #11's rule stands: each is added
 ### C3 — a Map tab without a solar forecast (D4)
 
 Today `App` withholds the whole Map pane when `hasForecastData` is false, and the aurora banner —
-which shows on every tab — then needs the overlay to reach a map at all. After C3: the Map tab is
-offered when `hasForecastData || auroraStatus.active`; with no solar rows `WindowControl` holds the
-night row(s) alone; a **live** alert with no stored results gets a live-night aurora row (today
+which shows on every tab — then needs the overlay to reach a map at all. After C3 the Map tab is
+offered when `hasForecastData`, or when a **real** aurora alert stands (`auroraTabOffered`:
+PRO/ADMIN, `active`, level **MODERATE or STRONG** because per-location scores are fetched only from
+MODERATE, **not simulated** (`aurora-banner-plan.md` D9), and the status's night not yet ended).
+With no solar rows `WindowControl` holds the night row alone and the tab opens on it in aurora mode
+(only when no forecast row exists anywhere; a hides-only forecast keeps its comfort card and stays out
+of aurora). A **live** alert with no stored results gets a live-night aurora row (today
 `auroraAvailable = status.active || hasStoredAuroraResults` admits the mode but D-14's row needs
 stored results — close that gap: a live row whose `bestRating` is `bestOfNight` over the live
 `auroraScores`); the viewline, the field (A2) and the callout all work on it. `hideDayCard` is the
-precedent for a tab with no event. Pin: LITE still sees no aurora row; a banner press on a LITE
-account with no forecast goes nowhere honest (the banner's door is PRO/ADMIN already — check).
+precedent for a tab with no event. **Deviation, stated:** the live row is also appended on a tab that
+HAS a forecast — the gap is the same, it lands after that date's sunset exactly as a stored night's
+row does, and solar rows are untouched. Pin: LITE still sees no aurora row. A banner press on a
+simulated alert has no tab to reach (§4 #4).
 
 ### C4 — move the doors
 
@@ -212,7 +218,10 @@ plan.md` §8 item 9; `heat-field-plan.md`/`map-landing-plan.md` overlay mentions
    `focus.names` override silently ignored every filter; on the tab a reader must see "showing 6
    coastal spots" in the breadcrumb and be able to clear it.
 4. **The aurora banner's door needs C3 first.** Moving it before the tab can stand without solar
-   data would send a reader to nothing on a quiet-forecast storm night.
+   data would send a reader to nothing on a quiet-forecast storm night. ⚠️ **A simulated alert gets the
+   banner's 🧪 and NO tab** (C3: a simulation has no scores and no stored run, `aurora-banner-plan.md`
+   D9), so in C4 the banner's door must be disabled or honest under simulation — never a press that
+   lands on a tab that is not there.
 5. **The legacy `handoff*` props are not extended** — C1 promotes their last two fields
    (`filterAction`, `darkSky`) into the structured door, and C5 deletes them.
 6. **The popup's live `TideIndicator` is not ported.** `window.tideFacts` is the one source of
@@ -270,13 +279,14 @@ the region panel (`MapRegionPanel`) already shows the served narrative, so proba
 - The stale `handoffEventType`-era comments in `App.jsx`/`WindowFirstMapPane.jsx` that C5 deletes
   with their props.
 - `fetchTravelDayRanges` on the tab (a wasted fetch today) — resolved by C2 (f) or deleted by C5.
+- **Open owner question: a local rehearsal route for the aurora-only tab.** It stands only on a REAL alert, and a simulated one deliberately offers nothing, so it cannot be rehearsed locally with Simulate STRONG; a rehearsal would need a seeded real-shaped status or a dev-only switch.
 
 ## §8 Browser verification recipe
 
 Backend `./mvnw -Plocal-dev spring-boot:run -Dspring-boot.run.profiles=local` (port 8083; 8093 if
 held), `npm run dev`, the **owner** signs in. For doors: Plan tab → a card → *Show {region} on map* /
 *Open {location} on map*; the Regional planner's 🗺; Coming up → a coastal card; the aurora banner
-(Operations → Aurora → Simulate STRONG first). Expect: the Map tab opens on the right window with
+(Operations → Aurora → Simulate STRONG shows the banner's 🧪 and, by design, NO aurora-only tab — that tab can only be seen on a REAL MODERATE/STRONG alert with no solar forecast; see §7's open question on a local route). Expect: the Map tab opens on the right window with
 the breadcrumb naming the door, the callout up for a location door, the field intact, **← Plan**
 returning to the Plan tab with its dialogs closed and its date unmoved; no overlay anywhere; 390px
 for the phone doors. State seen vs tested.

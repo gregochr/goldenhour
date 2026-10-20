@@ -482,8 +482,8 @@ function AppInner() {
   // C3 (overlay convergence): a REAL MODERATE/STRONG alert offers the Map tab even with no sunrise or
   // sunset forecast, so the aurora banner's door never has to land on nothing. Never LITE, never a
   // simulation (`utils/auroraTab.js` states why). With forecast data the tab was offered anyway, so
-  // this changes nothing for any reader who had one.
-  const auroraOnlyTab = !hasForecastData && auroraTabOffered(auroraStatus, role);
+  // this changes nothing for any reader who had one (the pane, and a date that falls through to today, both test `hasForecastData` first).
+  const auroraTabOn = auroraTabOffered(auroraStatus, role);
 
   // ⚠️ Never a PAST date on ANY branch — `resolveMapDate` owns the whole precedence and records
   // what the old shape cost, the same way `normalizeMapTrigger` owns the handoff branch selection
@@ -504,7 +504,7 @@ function AppInner() {
     // The one "past" date an explicit choice may name — see `handleAuroraViewOnMap` below, which
     // sets it deliberately, and `resolveMapDate`'s own note on the regression this prevents.
     nightDate: auroraNightStr,
-  }) ?? (hasForecastData ? todayStr : auroraOnlyTab ? auroraNightStr : null);
+  }) ?? (hasForecastData ? todayStr : auroraTabOn ? auroraNightStr : null);
 
   /**
    * Called from any Plan-tab recommendation (Best Bet, Hot Topic, region row, grid cell, strip
@@ -963,7 +963,7 @@ function AppInner() {
               // whenever `GET /api/forecast` returned no rows for a visible location, and a Map tab
               // onto no data would be a tab onto a blank. (`allDates` can be empty while this is
               // true — a hides-only forecast — and then the pane draws chips and no window.)
-              mapPane={hasForecastData || auroraOnlyTab ? (
+              mapPane={hasForecastData || auroraTabOn ? (
                 <Suspense fallback={<ViewFallback />}>
                   <WindowFirstMapPane
                     locations={visibleLocations}

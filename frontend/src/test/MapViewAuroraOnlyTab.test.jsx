@@ -94,6 +94,14 @@ const withSolar = () => [{
   }]]),
 }];
 
+const hidesOnly = () => [{
+  name: LOC, lat: 55.0, lon: -1.7, locationType: ['WILDLIFE'],
+  forecastsByDate: new Map([[THE_NIGHT, {
+    sunrise: null, sunset: null,
+    hourly: [{ solarEventTime: `${THE_NIGHT}T09:00:00`, temperatureCelsius: 8 }],
+  }]]),
+}];
+
 const REAL = { level: 'STRONG', kpIndex: 7, currentNightDate: THE_NIGHT, active: true };
 
 async function mount(extra = {}) {
@@ -176,13 +184,67 @@ describe('a real live alert, no solar forecast and no stored run', () => {
     expect(screen.queryByTestId('wf-land')).not.toBeInTheDocument();
   });
 
-  it('leaves the reader\'s own choice alone: a chosen event is not pulled back to aurora', async () => {
-    await mount({ handoffEventType: 'SUNSET' });
-    await act(async () => { await Promise.resolve(); });
-    // A handoff names SUNSET; with no solar row the pane has nothing for it. The point of the pin is
-    // that the live-row effect only ever fills an UNCHOSEN pane: the pill is still reachable.
-    expect(await screen.findByTestId('wf-win-pill')).toBeInTheDocument();
+  it('gives the only control a name that says what it is: kind, night and best star', async () => {
+    await mount();
+    const pill = await screen.findByTestId('wf-win-pill');
+    await waitFor(() => expect(pill).toHaveAccessibleName(/^Aurora, Tonight.*best 5 stars$/));
   });
+
+  it('says why both steppers are dead: there is one window', async () => {
+    await mount();
+    const prev = await screen.findByTestId('wf-win-prev');
+    const next = screen.getByTestId('wf-win-next');
+    expect(prev).toBeDisabled();
+    expect(next).toBeDisabled();
+    expect(prev).toHaveAccessibleDescription('Only one window');
+    expect(next).toHaveAccessibleDescription('Only one window');
+  });
+
+  it('does not enter aurora when the forecast named an event of its own and no solar row exists', async () => {
+    // No solar rows, but `autoEventType` SUNSET: the pane stays in SUNSET (the pill has no match for it)
+    // rather than being pulled into aurora - the live row is there to be chosen, not imposed.
+    await mount({ autoEventType: 'SUNSET' });
+    await screen.findByTestId('wf-win-pill');
+    await settled();
+    expect(screen.getByTestId('wf-win-no-match')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-win-pill')).not.toHaveTextContent('Aurora');
+  });
+
+  it('keeps a hides-only forecast out of aurora: the comfort sentence stands, a night row does not evict it', async () => {
+    await mount({ locations: hidesOnly() });
+    await screen.findByTestId('wf-win-pill');
+    await settled();
+    // Not entered: the pill has no match for the unchosen SUNSET.
+    expect(screen.getByTestId('wf-win-no-match')).toBeInTheDocument();
+    // `hidesOnlyForecast` tests "no SOLAR event", so the live night row does not turn it off.
+    expect(screen.getByText(/Wildlife hides still carry a comfort forecast/)).toBeInTheDocument();
+  });
+
+  it('does not flash the live row for a night whose stored run is still on its way', async () => {
+    let resolveDates;
+    getAuroraForecastAvailableDates.mockReturnValue(new Promise((r) => { resolveDates = r; }));
+    getAuroraForecastResults.mockResolvedValue([
+      { locationName: LOC, stars: 3, nightStart: `${THE_NIGHT}T21:30:00` },
+    ]);
+    await mount();
+    await settled();
+    // The dates list has not answered: no row yet, so no live row for a night about to have a stored one.
+    expect(screen.queryByTestId('wf-win-pill')).not.toBeInTheDocument();
+    await act(async () => { resolveDates([THE_NIGHT]); });
+    await settled();
+    const rows = await openRows();
+    expect(rows).toHaveLength(1);
+    await waitFor(() => expect(rows[0]).toHaveTextContent('3★'));
+  });
+
+  it('on a phone the Windows section has a heading even with no solar rows to name one', async () => {
+    mobileRef.current = true;
+    await mount();
+    fireEvent.click(await screen.findByTestId('wf-map-peek-btn-win'));
+    const section = await screen.findByTestId('wf-map-peek-windows');
+    expect(within(section).getByRole('heading')).toHaveTextContent('Tonight');
+  });
+
 });
 
 describe('where the live row must NOT appear', () => {
@@ -216,6 +278,11 @@ describe('where the live row must NOT appear', () => {
     const rows = await openRows();
     const auroraRows = rows.filter((r) => r.getAttribute('data-ev-id') === `aur:${THE_NIGHT}:AURORA`);
     expect(auroraRows).toHaveLength(1);
+    // A STORED run opens the aurora-only tab in aurora mode too (the selected-night fetch that gives the
+    // row its best is made only in aurora mode), and the pill's name carries the time the row knows.
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent('Aurora');
+    await waitFor(() => expect(screen.getByTestId('wf-win-pill'))
+      .toHaveAccessibleName(/^Aurora, Tonight, \d{2}:\d{2}, best 3 stars$/));
     await waitFor(() => expect(auroraRows[0]).toHaveTextContent('3★'));
     expect(auroraRows[0]).not.toHaveTextContent('5★');
   });
@@ -231,9 +298,10 @@ describe('with solar windows present, nothing about them moves', () => {
     expect(ids).toEqual(expect.arrayContaining([
       `solar:${THE_NIGHT}:SUNRISE`, `solar:${THE_NIGHT}:SUNSET`, `aur:${THE_NIGHT}:AURORA`,
     ]));
-    // The solar rows keep their order and their ids; the night follows the day's sunset.
-    expect(ids.filter((id) => id.startsWith('solar:'))).toEqual([
-      `solar:${THE_NIGHT}:SUNRISE`, `solar:${THE_NIGHT}:SUNSET`,
+    // The solar rows keep their order and their ids, and the aurora row is APPENDED on its night date,
+    // after that date's sunset - exactly where a stored night's row already goes.
+    expect(ids).toEqual([
+      `solar:${THE_NIGHT}:SUNRISE`, `solar:${THE_NIGHT}:SUNSET`, `aur:${THE_NIGHT}:AURORA`,
     ]);
   });
 

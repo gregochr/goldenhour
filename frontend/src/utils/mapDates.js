@@ -261,7 +261,7 @@ export function resolveAuroraNight(auroraStatus, now = appNow()) {
  * @param {Date} now
  * @returns {boolean}
  */
-function isStillCurrent(endsAt, now) {
+export function isStillCurrent(endsAt, now) {
   return endsAt == null || now.getTime() < Date.parse(endsAt);
 }
 

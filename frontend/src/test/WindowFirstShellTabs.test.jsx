@@ -972,6 +972,71 @@ describe('WindowFirstShell — when the feed is fetched', () => {
       expect(screen.queryByTestId('map-pane')).toBeNull();
     });
 
+    describe('a Map tab withdrawn while it is the tab in force (overlay convergence C3)', () => {
+      // The aurora-only tab stands on a live alert; when the alert clears `App` hands over a null pane.
+      const mapWithControl = <button type="button" data-testid="map-control">map control</button>;
+      const base = {
+        onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(), locations: [],
+      };
+
+      const openMapWithFocus = () => {
+        vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
+        const view = render(<WindowFirstShell {...base} mapPane={mapWithControl} />);
+        act(() => view.rerender(
+          <WindowFirstShell {...base} mapPane={mapWithControl} tabRequest={{ id: 'map', nonce: 1 }} />,
+        ));
+        act(() => screen.getByTestId('map-control').focus());
+        expect(document.activeElement).toBe(screen.getByTestId('map-control'));
+        return view;
+      };
+
+      it('selects Plan explicitly and moves focus to the Plan tab button, which then drives the bar', () => {
+        const view = openMapWithFocus();
+        act(() => view.rerender(
+          <WindowFirstShell {...base} mapPane={null} tabRequest={{ id: 'map', nonce: 1 }} />,
+        ));
+        expect(screen.queryByRole('tab', { name: 'Map' })).toBeNull();
+        expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+        // Focus did not drop to <body>: it is on the bar's roving entry point.
+        expect(document.activeElement).toBe(tab('Plan'));
+        // And the key goes to the element focus is on (the bar still answers a keyboard).
+        act(() => { fireEvent.keyDown(document.activeElement, { key: 'ArrowRight' }); });
+        expect(tab('Coming up')).toHaveAttribute('aria-selected', 'true');
+      });
+
+      it('does not snap the reader back when the next alert offers the Map tab again', () => {
+        const view = openMapWithFocus();
+        act(() => view.rerender(<WindowFirstShell {...base} mapPane={null} />));
+        expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+        act(() => view.rerender(<WindowFirstShell {...base} mapPane={mapWithControl} />));
+        expect(tab('Map')).toHaveAttribute('aria-selected', 'false');
+        expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+      });
+
+      it('leaves focus alone when it was not lost (a reader elsewhere keeps their place)', () => {
+        vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
+        const outside = document.createElement('button');
+        document.body.appendChild(outside);
+        const view = render(<WindowFirstShell {...base} mapPane={mapWithControl} />);
+        act(() => view.rerender(
+          <WindowFirstShell {...base} mapPane={mapWithControl} tabRequest={{ id: 'map', nonce: 1 }} />,
+        ));
+        act(() => outside.focus());
+        act(() => view.rerender(<WindowFirstShell {...base} mapPane={null} />));
+        expect(document.activeElement).toBe(outside);
+        outside.remove();
+      });
+
+      it('does nothing for a Plan reader when a Map pane that was never in force goes away', () => {
+        vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
+        const view = render(<WindowFirstShell {...base} mapPane={mapWithControl} />);
+        const before = document.activeElement;
+        act(() => view.rerender(<WindowFirstShell {...base} mapPane={null} />));
+        expect(document.activeElement).toBe(before);
+        expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+      });
+    });
+
     it('does not replay a request that was already in flight when it mounted', () => {
       // `App` holds `tabRequest` and never clears it, and it outlives this component. With the
       // handled-nonce seeded to null, remounting this shell would replay the last request and
