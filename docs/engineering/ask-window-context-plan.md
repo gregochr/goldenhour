@@ -774,7 +774,11 @@ The owner accepted every recommendation below on 2026-10-20. What each decision 
 - **Q4 — the client line** (§2.4, W2): **it is W2, not part of W1/W3.** The server carries and serves the
   figures from W1; whether a quiet line draws them is built next.
 - **Q5 — sub-regions** (§3): **no sub-regions now.** R1 (the measurement) stays independent and unscheduled;
-  FAR-to-Sonnet is `same-cell-rating-spread-plan.md`'s question.
+  FAR-to-Sonnet is `same-cell-rating-spread-plan.md`'s question. **Update, 2026-10-20 (from the session
+  that wrote this plan's brief):** the owner has since switched the FAR bucket (`BATCH_FAR_TERM`, T+2/T+3) to
+  Sonnet 5.5 on the Models screen, so Q5's precondition for R1 is met. R1 itself still waits for enough
+  Sonnet-rated FAR runs to accumulate: its SQL reads the last 60 days of `forecast_evaluation`, and the Haiku
+  rows from before today must be excluded by `evaluation_model`.
 - **Q6 — build at all:** yes; W1 + W3 first.
 - **Q7 — "must not lead with a 4★ pick"** (§0): **(a) the framing reading.** The summary must call the
   weekend what it is; the 4★ exceptions may still be carried as picks, named as exceptions. W3's assertions
