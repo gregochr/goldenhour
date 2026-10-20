@@ -1,0 +1,192 @@
+{
+  "now": "2026-10-16T12:00:00",
+  "windows": [
+    {
+      "date": "2026-10-17",
+      "type": "SUNSET",
+      "time": "16:50",
+      "verdict": "STAND_DOWN"
+    },
+    {
+      "date": "2026-10-18",
+      "type": "SUNRISE",
+      "time": "06:25",
+      "verdict": "WORTH_IT",
+      "best": 4
+    },
+    {
+      "date": "2026-10-18",
+      "type": "SUNSET",
+      "time": "16:48",
+      "verdict": "WORTH_IT",
+      "best": 5,
+      "bestBet": {
+        "region": "Northumberland",
+        "location": "Bamburgh",
+        "locationId": 1
+      }
+    }
+  ],
+  "regions": [
+    {
+      "name": "Northumberland",
+      "named": [
+        {
+          "locationId": 1,
+          "name": "Bamburgh",
+          "headline": "Low cloud clear to the east, broken mid cloud overhead to catch the colour",
+          "ratings": {
+            "2026-10-18_sunset": 5
+          },
+          "tideState": "HIGH",
+          "tideAligned": true
+        },
+        {
+          "locationId": 2,
+          "name": "Seahouses",
+          "headline": "Low cloud clear to the east, broken mid cloud overhead to catch the colour",
+          "ratings": {
+            "2026-10-18_sunset": 4
+          },
+          "tideState": "HIGH",
+          "tideAligned": true
+        }
+      ],
+      "synthetic": {
+        "2026-10-18_sunrise": {
+          "bands": [
+            0,
+            3,
+            30,
+            20,
+            4
+          ],
+          "unrated": 0
+        },
+        "2026-10-18_sunset": {
+          "bands": [
+            0,
+            3,
+            20,
+            30,
+            8
+          ],
+          "unrated": 0
+        }
+      },
+      "stoodDown": [
+        "2026-10-17_sunset"
+      ]
+    },
+    {
+      "name": "North York Moors & Coast",
+      "named": [
+        {
+          "locationId": 3,
+          "name": "Saltwick Bay",
+          "headline": "Low cloud clear to the east, broken mid cloud overhead to catch the colour",
+          "ratings": {
+            "2026-10-18_sunrise": 4,
+            "2026-10-18_sunset": 4
+          },
+          "tideState": "MID",
+          "tideAligned": true
+        },
+        {
+          "locationId": 4,
+          "name": "Whitby",
+          "headline": "Low cloud clear to the east, broken mid cloud overhead to catch the colour",
+          "ratings": {
+            "2026-10-18_sunrise": 4,
+            "2026-10-18_sunset": 4
+          },
+          "tideState": "MID",
+          "tideAligned": true
+        }
+      ],
+      "synthetic": {
+        "2026-10-18_sunrise": {
+          "bands": [
+            0,
+            3,
+            30,
+            20,
+            4
+          ],
+          "unrated": 0
+        },
+        "2026-10-18_sunset": {
+          "bands": [
+            0,
+            3,
+            20,
+            30,
+            8
+          ],
+          "unrated": 0
+        }
+      },
+      "stoodDown": [
+        "2026-10-17_sunset"
+      ]
+    },
+    {
+      "name": "Lake District",
+      "named": [],
+      "synthetic": {
+        "2026-10-18_sunrise": {
+          "bands": [
+            0,
+            3,
+            30,
+            20,
+            3
+          ],
+          "unrated": 0
+        },
+        "2026-10-18_sunset": {
+          "bands": [
+            0,
+            3,
+            20,
+            30,
+            7
+          ],
+          "unrated": 0
+        }
+      },
+      "stoodDown": [
+        "2026-10-17_sunset"
+      ]
+    },
+    {
+      "name": "Yorkshire Dales",
+      "named": [],
+      "synthetic": {
+        "2026-10-18_sunrise": {
+          "bands": [
+            0,
+            3,
+            30,
+            20,
+            3
+          ],
+          "unrated": 0
+        },
+        "2026-10-18_sunset": {
+          "bands": [
+            0,
+            3,
+            20,
+            30,
+            7
+          ],
+          "unrated": 0
+        }
+      },
+      "stoodDown": [
+        "2026-10-17_sunset"
+      ]
+    }
+  ]
+}
