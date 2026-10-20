@@ -240,6 +240,14 @@ describe('SchedulerView - switching a forecast cycle between fixed and sun-relat
     expect(screen.queryByTestId('switch-btn-tide_refresh')).not.toBeInTheDocument();
   });
 
+  it('offers no switch on the evening sunrise refresh', async () => {
+    mount([job(), job({ id: 3, jobKey: 'evening_sunrise_refresh', displayName: 'Evening refresh' })]);
+
+    await screen.findByTestId(`switch-btn-${NIGHTLY}`);
+    expect(screen.getByText('Evening refresh')).toBeInTheDocument();
+    expect(screen.queryByTestId('switch-btn-evening_sunrise_refresh')).not.toBeInTheDocument();
+  });
+
   it('asks for confirmation, quotes before and after, and sends nothing until confirmed', async () => {
     mount([job()]);
 
