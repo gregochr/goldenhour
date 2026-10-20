@@ -2511,6 +2511,25 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           doorDark: nextDark,
         };
         setFocusLensNames(planHandoff.focusNames?.length ? new Set(planHandoff.focusNames) : null);
+        // A selection outside the incoming lens is cleared: `selectedLoc` resolves off the FULL roster
+        // and `labelSpots` re-appends the selection, so a location selected before the door would
+        // otherwise stay as a pin, a label and an open callout while the breadcrumb and the field
+        // describe only the focused set. A selection INSIDE the lens survives. Cleared the way every
+        // other deselect here is (`setSelectedLocationName(null)`, as the background click and the
+        // `askWindow` effect do), so the callout leaves by its existing route. The door's own
+        // `locationName`, applied below, then selects afresh. A wider pool (the lens cleared) cannot
+        // orphan a selection, so `clear` needs no such rule.
+        const lensNames = planHandoff.focusNames?.length ? new Set(planHandoff.focusNames) : null;
+        const lensPoints = !lensNames && planHandoff.focusPoints?.length ? planHandoff.focusPoints : null;
+        if (lensNames || lensPoints) {
+          setSelectedLocationName((prev) => {
+            if (prev == null) return prev;
+            if (lensNames) return lensNames.has(prev) ? prev : null;
+            const sel = locations.find((l) => l.name === prev);
+            const inFit = sel && lensPoints.some(([lat, lon]) => lat === sel.lat && lon === sel.lon);
+            return inFit ? prev : null;
+          });
+        }
       }
       if (planHandoff.locationName) {
         const loc = locations.find(

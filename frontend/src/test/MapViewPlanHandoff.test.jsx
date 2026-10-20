@@ -709,6 +709,55 @@ describe('MapView — focusNames: a TEMPORARY, NAMED spot-set lens, restored who
     expect(screen.getByTestId('wf-map-breadcrumb-carrying')).not.toHaveTextContent('showing 1 spots');
   });
 
+  it('⚠️ clears a selection OUTSIDE the incoming lens: no callout, no label for it, and the count matches the drawn pool', async () => {
+    // `selectedLoc` resolves off the full roster and `labelSpots` re-appends the selection, so
+    // without the clear the old selection outlives a lens that describes only the focused set.
+    const { rerender } = await renderTab({
+      heat: HEAT_WITH_POINTS,
+      planHandoff: { ...DOOR_BASE, locationName: 'Far', minRating: 1, nonce: 1 },
+    });
+    expect(screen.getByTestId('probe-callout-name')).toHaveTextContent('Far');
+
+    await rerenderWith(rerender, {
+      planHandoff: { ...DOOR_BASE, focusNames: ['Near'], nonce: 2 },
+    });
+
+    expect(screen.queryByTestId('probe-callout')).toBeNull();
+    expect(mapLabelsCalls.at(-1).spots.map((s) => s.name)).not.toContain('Far');
+    expect(screen.getByTestId('wf-map-breadcrumb-carrying')).toHaveTextContent('showing 1 spot');
+  });
+
+  it('...but a selection INSIDE the lens survives it', async () => {
+    const { rerender } = await renderTab({
+      heat: HEAT_WITH_POINTS,
+      planHandoff: { ...DOOR_BASE, locationName: 'Near', nonce: 1 },
+    });
+    await rerenderWith(rerender, {
+      planHandoff: { ...DOOR_BASE, focusNames: ['Near', 'Far'], nonce: 2 },
+    });
+    expect(screen.getByTestId('probe-callout-name')).toHaveTextContent('Near');
+  });
+
+  it('a focusPoints fit clears a selection that is not one of its pins, and keeps one that is', async () => {
+    const { rerender } = await renderTab({
+      heat: HEAT_WITH_POINTS,
+      planHandoff: { ...DOOR_BASE, locationName: 'Far', nonce: 1 },
+    });
+    await rerenderWith(rerender, {
+      planHandoff: { ...DOOR_BASE, focusPoints: [[55.61, -1.71], [55.62, -1.72]], nonce: 2 },
+    });
+    expect(screen.queryByTestId('probe-callout')).toBeNull();
+
+    await rerenderWith(rerender, {
+      planHandoff: { ...DOOR_BASE, locationName: 'Near', nonce: 3 },
+    });
+    expect(screen.getByTestId('probe-callout-name')).toHaveTextContent('Near');
+    await rerenderWith(rerender, {
+      planHandoff: { ...DOOR_BASE, focusPoints: [[55.61, -1.71], [55.62, -1.72]], nonce: 4 },
+    });
+    expect(screen.getByTestId('probe-callout-name')).toHaveTextContent('Near');
+  });
+
   it('is ignored when absent: no narrowing, no clause', async () => {
     await renderTab({ heat: HEAT_WITH_POINTS, planHandoff: { ...DOOR_BASE, nonce: 1 } });
     expect(heatLayerCalls.at(-1).points).toHaveLength(4);
