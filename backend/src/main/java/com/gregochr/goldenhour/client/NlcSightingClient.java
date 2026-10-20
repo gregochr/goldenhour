@@ -2,14 +2,18 @@ package com.gregochr.goldenhour.client;
 
 import com.gregochr.goldenhour.config.NlcProperties;
 import com.gregochr.goldenhour.model.NlcSightingReport;
+import com.gregochr.goldenhour.service.NlcClarityService;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -79,20 +83,53 @@ public class NlcSightingClient {
     /** UK local zone — the season page URL is resolved against the local date. */
     private static final ZoneId LONDON = ZoneId.of("Europe/London");
 
+    /** Longest slice of an upstream error message written to the log (a 404 carries a whole HTML page). */
+    private static final int MAX_LOGGED_ERROR_CHARS = 200;
+
     private final RestClient restClient;
     private final NlcProperties properties;
+    private final NlcClarityService clarityService;
+    private final Clock clock;
 
     private volatile CachedReports cache;
 
+    /** URL that answered 404 and the UK date on which it did; not retried again that day. */
+    private volatile NotFound notFound;
+
+    /** UK date on which the out-of-season skip was last logged (one INFO line a day). */
+    private volatile LocalDate lastSkipLogDate;
+
     /**
-     * Constructs the client.
+     * Constructs the client for production, on the real system clock.
+     *
+     * <p>Deliberately NOT the application's rewind-aware {@code Clock} bean: the scrape URL and the
+     * shared cache are global, so a rewound admin request near a month boundary would otherwise
+     * fetch the previous month's page and leave it in the cache, stamped fresh, for every reader.
      *
      * @param restClient shared outbound HTTP client
      * @param properties NLC configuration (sightings URL, cache TTL)
+     * @param clarityService owner of the NLC season definition, shared with the hot topic
      */
-    public NlcSightingClient(RestClient restClient, NlcProperties properties) {
+    @Autowired
+    public NlcSightingClient(RestClient restClient, NlcProperties properties,
+            NlcClarityService clarityService) {
+        this(restClient, properties, clarityService, Clock.system(LONDON));
+    }
+
+    /**
+     * Constructs the client with an explicit clock (tests).
+     *
+     * @param restClient shared outbound HTTP client
+     * @param properties NLC configuration (sightings URL, cache TTL)
+     * @param clarityService owner of the NLC season definition, shared with the hot topic
+     * @param clock source of the current UK date
+     */
+    public NlcSightingClient(RestClient restClient, NlcProperties properties,
+            NlcClarityService clarityService, Clock clock) {
         this.restClient = restClient;
         this.properties = properties;
+        this.clarityService = clarityService;
+        this.clock = clock;
     }
 
     /**
@@ -121,7 +158,23 @@ public class NlcSightingClient {
      */
     public List<NlcSightingReport> refresh() {
         CachedReports current = cache;
-        String url = resolveUrl(LocalDate.now(LONDON));
+        LocalDate today = LocalDate.now(clock.withZone(LONDON));
+        String configured = properties.getSightingsUrl();
+        boolean monthPage = configured != null
+                && (configured.contains("{year}") || configured.contains("{month}"));
+        if (monthPage && !clarityService.isNlcSeason(today)) {
+            if (!today.equals(lastSkipLogDate)) {
+                lastSkipLogDate = today;
+                LOG.info("NLC sighting scrape skipped: outside the NLC season (the month pages only exist in it)");
+            }
+            return List.of();
+        }
+        String url = resolveUrl(today);
+        NotFound missing = notFound;
+        if (missing != null && missing.date().equals(today) && missing.url().equals(url)) {
+            LOG.debug("NLC sighting scrape skipped: {} answered 404 earlier today", url);
+            return current != null ? current.reports() : List.of();
+        }
         try {
             String html = restClient.get()
                     .uri(url)
@@ -131,8 +184,13 @@ public class NlcSightingClient {
             cache = new CachedReports(reports, ZonedDateTime.now(ZoneOffset.UTC));
             LOG.debug("NLC sighting scrape parsed {} report(s) from {}", reports.size(), url);
             return reports;
+        } catch (HttpClientErrorException.NotFound e) {
+            notFound = new NotFound(url, today);
+            LOG.warn("NLC sighting page not found at {}; not retrying until tomorrow (retaining cached)", url);
+            return current != null ? current.reports() : List.of();
         } catch (Exception e) {
-            LOG.warn("NLC sighting scrape failed for {} (retaining cached): {}", url, e.getMessage());
+            LOG.warn("NLC sighting scrape failed for {} (retaining cached): {}", url,
+                    truncate(e.getMessage()));
             return current != null ? current.reports() : List.of();
         }
     }
@@ -325,10 +383,22 @@ public class NlcSightingClient {
         }
     }
 
+    /** Cuts an upstream error message to {@link #MAX_LOGGED_ERROR_CHARS} characters. */
+    static String truncate(String message) {
+        if (message == null || message.length() <= MAX_LOGGED_ERROR_CHARS) {
+            return message;
+        }
+        return message.substring(0, MAX_LOGGED_ERROR_CHARS) + "... [truncated]";
+    }
+
     private boolean isFresh(CachedReports cached) {
         return cached != null
                 && ZonedDateTime.now(ZoneOffset.UTC)
                         .isBefore(cached.fetchedAt().plusMinutes(properties.getCacheTtlMinutes()));
+    }
+
+    /** A URL that answered 404, and the UK date it did so. */
+    private record NotFound(String url, LocalDate date) {
     }
 
     /** Immutable cache entry pairing the parsed reports with their fetch time. */

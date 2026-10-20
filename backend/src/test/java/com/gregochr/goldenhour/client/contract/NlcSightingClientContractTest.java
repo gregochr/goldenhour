@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.client.contract;
 
 import com.gregochr.goldenhour.client.NlcSightingClient;
 import com.gregochr.goldenhour.config.NlcProperties;
+import com.gregochr.goldenhour.util.NlcTestSeason;
 import com.gregochr.goldenhour.model.NlcSightingReport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -14,6 +15,7 @@ import org.springframework.web.client.RestClient;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
@@ -91,7 +93,8 @@ class NlcSightingClientContractTest {
                 .andRespond(withSuccess(fixture(), MediaType.TEXT_HTML));
 
         // The production default is the placeholder template — assert against it, unmodified.
-        new NlcSightingClient(builder.build(), properties).refresh();
+        new NlcSightingClient(builder.build(), properties, NlcTestSeason.inSeason(),
+                Clock.systemUTC()).refresh();
 
         server.verify();
     }
@@ -111,7 +114,8 @@ class NlcSightingClientContractTest {
                 .andExpect(method(HttpMethod.GET))
                 .andRespond(withSuccess(fixture(), MediaType.TEXT_HTML));
 
-        new NlcSightingClient(builder.build(), properties).refresh();
+        new NlcSightingClient(builder.build(), properties, NlcTestSeason.inSeason(),
+                Clock.systemUTC()).refresh();
 
         server.verify();
     }
@@ -125,7 +129,8 @@ class NlcSightingClientContractTest {
         server.expect(requestTo("https://ed-co.net/nlcnet/"))
                 .andRespond(withSuccess(fixture(), MediaType.TEXT_HTML));
 
-        List<NlcSightingReport> reports = new NlcSightingClient(builder.build(), properties).refresh();
+        List<NlcSightingReport> reports = new NlcSightingClient(builder.build(), properties, NlcTestSeason.inSeason(),
+                Clock.systemUTC()).refresh();
 
         assertThat(reports).hasSize(1);
         assertThat(reports.get(0).location()).isEqualTo("Durham, Scotland");
@@ -148,7 +153,8 @@ class NlcSightingClientContractTest {
                 .andRespond(org.springframework.test.web.client.response.MockRestResponseCreators.withStatus(
                         org.springframework.http.HttpStatus.NOT_FOUND));
 
-        List<NlcSightingReport> reports = new NlcSightingClient(builder.build(), properties).refresh();
+        List<NlcSightingReport> reports = new NlcSightingClient(builder.build(), properties, NlcTestSeason.inSeason(),
+                Clock.systemUTC()).refresh();
 
         assertThat(reports).isEmpty();
         server.verify();
