@@ -2301,6 +2301,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   useEffect(() => {
     if (handoffFilterAction) {
       (async () => {
+        endDoorFilterLens();
         setActiveTypeFilters(new Set([handoffFilterAction]));
         if (overlayMode) setAdvancedOpen(true);
         else setOpenMapMenu('filters');
@@ -2345,6 +2346,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   useEffect(() => {
     if (handoffDarkSky == null) return;
     (async () => {
+      endDoorFilterLens();
       setDarkSkyFilter(!!handoffDarkSky);
       setActiveTypeFilters(handoffFilterAction ? new Set([handoffFilterAction]) : new Set());
       // Re-targeted onto the popover for the Map tab (map-tab-v2-plan.md §3 P7) — see the
@@ -2988,6 +2990,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const lineKm = lineKmForZoom(zoom);
 
   function toggleTypeFilter(type) {
+    if (activeTypeFilters.has(type)) forgetDoorFilters({ types: [type] });
     setActiveTypeFilters((prev) => {
       const next = new Set(prev);
       if (next.has(type)) {
@@ -4676,9 +4679,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // unioned back in by the breadcrumb's `clear` or by the next door, resurrecting a filter the
     // reader explicitly cleared. The spot-set lens (`focusLensNames`) is the breadcrumb's, not a
     // reader filter, and stays.
-    appliedDoorLens.current = {
-      active: false, before: { types: new Set(), dark: false }, doorTypes: new Set(), doorDark: false,
-    };
+    endDoorFilterLens();
   }
 
   /**
@@ -5080,6 +5081,50 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     appliedDoorLens.current = {
       active: false, before: { types: new Set(), dark: false }, doorTypes: new Set(), doorDark: false,
     };
+  }
+  /**
+   * The rule the door's filter lens keeps: <b>a door's lens is undone by removing only what the door
+   * itself added; nothing a reader did under the door is ever undone.</b> This is its one home, and
+   * every mutator of {@code activeTypeFilters} / {@code darkSkyFilter} reports here (or ends the lens):
+   * <ul>
+   *   <li>a reader REMOVING subject {@code types} or switching dark sky off ({@code dark}) forgets them
+   *       in the snapshot ({@code before}) AND in the door's own set ({@code doorTypes} /
+   *       {@code doorDark}), so a later restore can neither bring them back nor take them off again;
+   *       a lens left with nothing the door added is inactive;</li>
+   *   <li>a reader ADDING a filter or switching dark sky on needs nothing: the restore already keeps
+   *       whatever the reader added since ({@code restoredDoorFilters});</li>
+   *   <li>"Clear all" and a legacy handoff replace the whole filter state, so they END the lens
+   *       ({@code endDoorFilterLens}); the door effect and {@code clearDoorLens} re-seed or reset it
+   *       themselves.</li>
+   * </ul>
+   * Copies, never mutates, the sets: {@code before.types} can be the very Set React holds as state.
+   *
+   * @param {{types?: string[], dark?: boolean}} removed what the reader just took off
+   */
+  function forgetDoorFilters({ types = [], dark = false }) {
+    const applied = appliedDoorLens.current;
+    if (!applied.active) return;
+    const beforeTypes = new Set(applied.before.types);
+    const doorTypes = new Set(applied.doorTypes);
+    types.forEach((t) => { beforeTypes.delete(t); doorTypes.delete(t); });
+    const doorDark = dark ? false : applied.doorDark;
+    appliedDoorLens.current = {
+      active: doorTypes.size > 0 || doorDark,
+      before: { types: beforeTypes, dark: dark ? false : applied.before.dark },
+      doorTypes,
+      doorDark,
+    };
+  }
+  /** Ends the door's filter lens outright: nothing of the snapshot is ever restored afterwards. */
+  function endDoorFilterLens() {
+    appliedDoorLens.current = {
+      active: false, before: { types: new Set(), dark: false }, doorTypes: new Set(), doorDark: false,
+    };
+  }
+  /** The dark-sky toggle every surface shares, reporting a switch-OFF to {@link forgetDoorFilters}. */
+  function toggleDarkSky() {
+    if (darkSkyFilter) forgetDoorFilters({ dark: true });
+    setDarkSkyFilter((v) => !v);
   }
   /**
    * The reader's subject filters and dark-sky toggle with the standing door's lens taken off, or
@@ -5695,7 +5740,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     driveTimeFilter,
     onSelectDriveTime: setDriveTimeFilter,
     darkSkyFilter,
-    onToggleDarkSky: () => setDarkSkyFilter((v) => !v),
+    onToggleDarkSky: toggleDarkSky,
     darkSkyThreshold: DARK_SKY_THRESHOLD,
     hasHome: Boolean(heat?.hasHome),
     heatArea,
@@ -6184,7 +6229,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               {!isAuroraMode && !isAstroMode && (
                 <>
                   <button
-                    onClick={() => setDarkSkyFilter((v) => !v)}
+                    onClick={toggleDarkSky}
                     data-testid="dark-sky-filter-toggle"
                     title={`Show only locations with a light pollution rating of ${DARK_SKY_THRESHOLD} or lower — suitable for aurora, astrophotography, and stargazing.`}
                     className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
@@ -6207,6 +6252,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                     setShowStandDown(false);
                     setDriveTimeFilter(0);
                     setDarkSkyFilter(false);
+                    endDoorFilterLens();
                     clearMapFilter('mapFilterMinStars');
                     clearMapFilter('mapFilterShowStandDown');
                   }}

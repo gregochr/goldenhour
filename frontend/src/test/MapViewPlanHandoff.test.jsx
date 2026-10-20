@@ -969,6 +969,44 @@ describe('MapView — filterAction / darkSky: the door\'s subject and dark-sky l
     expect(filtersPopoverCalls.at(-1).activeTypeFilters.size).toBe(0);
   });
 
+  it('⚠️ SEASCAPE on before a coastal door, switched off under it: the breadcrumb\'s clear leaves it off', async () => {
+    const { rerender } = await renderTab({ planHandoff: null });
+    await act(async () => { filtersPopoverCalls.at(-1).onToggleType('SEASCAPE'); });
+    await rerenderWith(rerender, {
+      heat: HEAT, planHandoff: { ...DOOR_BASE, filterAction: 'SEASCAPE', darkSky: true, nonce: 1 },
+    });
+    await act(async () => { filtersPopoverCalls.at(-1).onToggleType('SEASCAPE'); });
+    expect(filtersPopoverCalls.at(-1).activeTypeFilters.has('SEASCAPE')).toBe(false);
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'clear' })); });
+
+    expect(filtersPopoverCalls.at(-1).activeTypeFilters.has('SEASCAPE')).toBe(false);
+  });
+
+  it('⚠️ dark sky on before a dark-sky door, switched off under it: the next door leaves it off', async () => {
+    const { rerender } = await renderTab({ planHandoff: null });
+    await act(async () => { filtersPopoverCalls.at(-1).onToggleDarkSky(); });
+    await rerenderWith(rerender, {
+      heat: HEAT, planHandoff: { ...DOOR_BASE, darkSky: true, nonce: 1 },
+    });
+    await act(async () => { filtersPopoverCalls.at(-1).onToggleDarkSky(); });
+    expect(filtersPopoverCalls.at(-1).darkSkyFilter).toBe(false);
+
+    await rerenderWith(rerender, { heat: HEAT, planHandoff: { ...DOOR_BASE, nonce: 2 } });
+
+    expect(filtersPopoverCalls.at(-1).darkSkyFilter).toBe(false);
+  });
+
+  it('control: LANDSCAPE on before a coastal door, untouched under it: the breadcrumb\'s clear restores it', async () => {
+    const { rerender } = await renderTab({ planHandoff: null });
+    await act(async () => { filtersPopoverCalls.at(-1).onToggleType('LANDSCAPE'); });
+    await rerenderWith(rerender, {
+      heat: HEAT, planHandoff: { ...DOOR_BASE, filterAction: 'SEASCAPE', nonce: 1 },
+    });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'clear' })); });
+    expect([...filtersPopoverCalls.at(-1).activeTypeFilters]).toEqual(['LANDSCAPE']);
+  });
+
   it('the clause goes when the reader turns the carried filter off themselves (a live claim)', async () => {
     await renderTab({ planHandoff: { ...DOOR_BASE, darkSky: true, nonce: 1 } });
     await act(async () => { filtersPopoverCalls.at(-1).onToggleDarkSky(); });
