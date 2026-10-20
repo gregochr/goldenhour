@@ -464,9 +464,12 @@ stale count in a stored answer whose picks are unchanged).** `AskAnswer` gains `
 `stars1to2`, the tallies, the pockets with their means), not a hand-picked subset, for **every window
 whose spread the model could have quoted**: every solar window `list_windows` returned in that
 conversation (the tools record it, as they record every offered pair), plus the picks' windows and,
-for a Ready question, the offer's `windowIds` — at most the six rendered events, ≈ 150 characters
-each. Built by the validator from the live snapshot the way every card fact is (never from
-`submit_answer`, which has no such field). A typed no-pick answer carries them on the wire only (it
+for a Ready question, **the offer's `coveredWindowIds`** — the temporal set the prompt named, never
+the candidate-bearing `windowIds` alone, so a described all-blue Saturday is carried and rechecked
+even when no pick is on it — at most the six rendered events, ≈ 150 characters each. Built by the
+validator from the live snapshot the way every card fact is (never from `submit_answer`, which has
+no such field), for the stub's answers exactly as for Claude's: the stub makes no `list_windows`
+call, so for it the carried set is the covered windows plus the picks' (Codex's round nine). A typed no-pick answer carries them on the wire only (it
 is never cached). ⚠️ Codex's review of the first cut (#1223) found both halves of this: carrying
 only the picks' windows let an unpicked Sunday's figures go stale in the prose while a Saturday pick
 kept the answer live, and carrying only `rated` and `gameOn` left a 5★ → 4★ move (same `rated`, same
@@ -849,6 +852,9 @@ measurement), ~60 charges, of which these changed the plan rather than a sentenc
   `windowIds`, which `windowsWithCandidates` builds from candidate-bearing windows only, so an
   all-blue Saturday vanished from "this weekend" and a mixed weekend read as good. `Offer` gains the
   covered (temporal) set for the prompt and `hasGameOn`; a third regression fixture covers the case.
+- **Codex's round nine (03777451)**: the carried set named the offer's candidate-bearing
+  `windowIds`, so a stub Ready answer describing an all-blue Saturday did not carry it; the carried
+  set is now the covered windows plus the picks', for the stub as for Claude.
 - The night regression already asserts wording; the thread needs one sentence; `heldBack` now uses
   `isHeldBack`; the research recipe measures the combined rating, part-against-rest, with a random
   partition as the null; the "6–11%" became 6–12% of inland near-twin pairs.
