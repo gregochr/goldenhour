@@ -18,14 +18,31 @@ import java.util.Set;
  * @param events    the events {@code get_hot_topics} and {@code get_coming_up} returned
  * @param toolCalls how many tool calls the conversation made (errors included)
  * @param thread    what the thread offered; null reads as nothing
+ * @param listedWindows the solar window ids {@code list_windows} returned in this conversation, whose
+ *                  spreads the answer may have quoted and so must carry; a result the character cap
+ *                  refused lists nothing
  */
-public record AskEvidence(Set<Pair> pairs, Set<EventFact> events, int toolCalls, ThreadFact thread) {
+public record AskEvidence(Set<Pair> pairs, Set<EventFact> events, int toolCalls, ThreadFact thread,
+        Set<String> listedWindows) {
 
     /** Canonical constructor: takes immutable copies; a null set reads as empty. */
     public AskEvidence {
         pairs = pairs == null ? Set.of() : Set.copyOf(pairs);
         events = events == null ? Set.of() : Set.copyOf(events);
         thread = thread == null ? ThreadFact.NONE : thread;
+        listedWindows = listedWindows == null ? Set.of() : Set.copyOf(listedWindows);
+    }
+
+    /**
+     * Evidence that lists no window.
+     *
+     * @param pairs     the (location, window) pairs {@code rank_spots} or {@code rank_night_spots} returned
+     * @param events    the events the event tools returned
+     * @param toolCalls how many tool calls the conversation made
+     * @param thread    what the thread offered
+     */
+    public AskEvidence(Set<Pair> pairs, Set<EventFact> events, int toolCalls, ThreadFact thread) {
+        this(pairs, events, toolCalls, thread, Set.of());
     }
 
     /**
@@ -46,7 +63,7 @@ public record AskEvidence(Set<Pair> pairs, Set<EventFact> events, int toolCalls,
      * @return the combined evidence
      */
     public AskEvidence withThread(ThreadFact offered) {
-        return new AskEvidence(pairs, events, toolCalls, offered);
+        return new AskEvidence(pairs, events, toolCalls, offered, listedWindows);
     }
 
     /**

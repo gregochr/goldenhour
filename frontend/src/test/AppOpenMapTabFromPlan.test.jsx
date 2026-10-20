@@ -267,6 +267,161 @@ describe('App — openMapTabFromPlan (doors D2)', () => {
   });
 });
 
+describe('App — openMapTabFromPlan with a normalised trigger (overlay convergence C1)', () => {
+  /** Opens the door with `arg` and returns the handoff the Map pane received. */
+  async function press(arg) {
+    renderApp();
+    await screen.findByTestId('stub-map-pane');
+    await act(async () => { ShellStub.lastProps.onOpenMapTab(arg); });
+    return MapPaneStub.lastProps.handoff;
+  }
+
+  it('a plain door\'s payload carries NONE of the new fields - absent, not null', async () => {
+    const handoff = await press(DOOR);
+    for (const key of ['night', 'focusNames', 'focusPoints', 'filterAction', 'darkSky', 'title', 'caption']) {
+      expect(handoff).not.toHaveProperty(key);
+    }
+  });
+
+  it('a door that already names its fields passes them through to the handoff', async () => {
+    const handoff = await press({
+      ...DOOR,
+      focusNames: ['Bamburgh'],
+      focusPoints: [[55.608, -1.719]],
+      filterAction: 'SEASCAPE',
+      darkSky: true,
+      title: 'Coastal',
+      caption: 'Tomorrow sunset',
+    });
+    expect(handoff).toMatchObject({
+      source: 'plan',
+      focusNames: ['Bamburgh'],
+      focusPoints: [[55.608, -1.719]],
+      filterAction: 'SEASCAPE',
+      darkSky: true,
+      title: 'Coastal',
+      caption: 'Tomorrow sunset',
+    });
+  });
+
+  it('a kind:\'location\' trigger resolves to the same door the location sheet sends', async () => {
+    const handoff = await press({
+      kind: 'location', locationName: 'Bamburgh', date: TOMORROW, eventType: 'SUNSET',
+    });
+    expect(handoff).toMatchObject({
+      source: 'plan', eventType: 'SUNSET', date: TOMORROW, locationName: 'Bamburgh', region: null,
+    });
+    expect(MapPaneStub.lastProps.selectedDate).toBe(TOMORROW);
+    expect(handoff.title).toBe('Bamburgh');
+  });
+
+  it('a trigger carrying the Plan lens lands in the handoff with it, not as nulls', async () => {
+    const handoff = await press({
+      kind: 'location', locationName: 'Bamburgh', date: TOMORROW, eventType: 'SUNSET', minRating: 4, limitMinutes: 90,
+    });
+    expect(handoff.minRating).toBe(4);
+    expect(handoff.limitMinutes).toBe(90);
+  });
+
+  it('a trigger carrying inPlace takes the in-place branch: source map, no lens', async () => {
+    const handoff = await press({
+      kind: 'location', locationName: 'Bamburgh', date: TOMORROW, eventType: 'SUNSET', inPlace: true,
+    });
+    expect(handoff.source).toBe('map');
+  });
+
+  it('a kind:\'coming-up\' trigger carries the exact spot set, the subject filter and its headline', async () => {
+    const handoff = await press({
+      kind: 'coming-up', filterAction: 'SEASCAPE', darkSky: false, label: 'Spring tide run', date: TOMORROW,
+    });
+    expect(handoff.source).toBe('plan');
+    expect(handoff.focusNames).toEqual(['Bamburgh']);
+    expect(handoff.focusPoints).toHaveLength(1);
+    expect(handoff.filterAction).toBe('SEASCAPE');
+    expect(handoff.title).toBe('Spring tide run');
+    // A coming-up card names no solar event: the handoff carries none rather than inventing one.
+    expect(handoff.eventType).toBeNull();
+    expect(handoff).not.toHaveProperty('darkSky');
+  });
+
+  it('a kind:\'aurora\' trigger names its night, its AURORA event and its headline, and moves the date', async () => {
+    const handoff = await press({ kind: 'aurora', date: TOMORROW });
+    expect(handoff).toMatchObject({
+      source: 'plan',
+      eventType: 'AURORA',
+      date: TOMORROW,
+      night: { kind: 'aurora', date: TOMORROW },
+      title: 'Aurora tonight',
+    });
+    expect(MapPaneStub.lastProps.selectedDate).toBe(TOMORROW);
+  });
+
+  it('⚠️ a night door is handed up AS A NIGHT: the running night, dated before today, survives the date resolver', async () => {
+    // The reason the `isNight` flag exists: `resolveMapDate` refuses a date before today as a SOLAR
+    // date, so without the flag `selectDate(door.date)` would silently land the map on a different
+    // day. Only the night in progress (yesterday's date until dawn) is let through, and only when
+    // it was chosen as a night.
+    const YESTERDAY = ukDateStrOffset(-1);
+    fetchForecasts.mockResolvedValue([
+      ...FORECASTS,
+      { ...forecastRow(LOCATION_META[0], 'SUNSET'), targetDate: YESTERDAY },
+    ]);
+    getAuroraStatus.mockResolvedValue({ currentNightDate: YESTERDAY, currentNightEndsAt: null });
+    renderApp();
+    await screen.findByTestId('stub-map-pane');
+    await act(async () => {});
+
+    await act(async () => { ShellStub.lastProps.onOpenMapTab({ kind: 'aurora', date: YESTERDAY }); });
+
+    expect(MapPaneStub.lastProps.selectedDate).toBe(YESTERDAY);
+    // And the same date as a SOLAR door is refused, which is what makes the assertion above mean something.
+    await act(async () => {
+      ShellStub.lastProps.onOpenMapTab({ date: YESTERDAY, targetType: 'SUNSET' });
+    });
+    expect(MapPaneStub.lastProps.selectedDate).not.toBe(YESTERDAY);
+  });
+
+  it('a trigger still asks for the Map tab, with its own nonce', async () => {
+    await press({ kind: 'aurora', date: TOMORROW });
+    expect(ShellStub.lastProps.tabRequest.id).toBe('map');
+  });
+});
+
+describe('App — a door never gives the Plan tab a date (plan 4 #7)', () => {
+  // `App`'s `selectedDate` is the MAP's window (only `MapView` and the pane read it; the shell and the
+  // Plan matrix have no selected date at all), so a door writing it moves the Map's window - which is
+  // the point of a door - and nothing the Plan shows. These pin the two halves of that: the Plan
+  // side is handed no date, and `← Plan` carries none back.
+  const KINDS = {
+    'a plain door': DOOR,
+    'a location trigger': { kind: 'location', locationName: 'Bamburgh', date: TOMORROW, eventType: 'SUNSET' },
+    'a coming-up trigger': {
+      kind: 'coming-up', filterAction: 'SEASCAPE', darkSky: false, label: 'Coastal', date: TOMORROW,
+    },
+    'an aurora trigger': { kind: 'aurora', date: TOMORROW },
+  };
+
+  for (const [name, arg] of Object.entries(KINDS)) {
+    it(`${name}: the shell is given no selected date before or after, and ← Plan asks for the tab alone`, async () => {
+      renderApp();
+      await screen.findByTestId('stub-map-pane');
+      const planKeys = () => Object.keys(ShellStub.lastProps).filter((k) => /date/i.test(k));
+      const before = planKeys();
+      expect(before).not.toContain('selectedDate');
+
+      await act(async () => { ShellStub.lastProps.onOpenMapTab(arg); });
+      // The Map shows the door's window...
+      expect(MapPaneStub.lastProps.selectedDate).toBe(TOMORROW);
+      // ...and the Plan side learned of no date.
+      expect(planKeys()).toEqual(before);
+
+      await act(async () => { MapPaneStub.lastProps.onReturnToPlan(); });
+      expect(Object.keys(ShellStub.lastProps.tabRequest).sort()).toEqual(['id', 'nonce']);
+      expect(ShellStub.lastProps.tabRequest.id).toBe('plan');
+    });
+  }
+});
+
 describe('App — returnToPlan (the breadcrumb\'s ← Plan, doors D2)', () => {
   it('requests the plan tab, with no window key carried (plan §6 Q2, decided)', async () => {
     renderApp();

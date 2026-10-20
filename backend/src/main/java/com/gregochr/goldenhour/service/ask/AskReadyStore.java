@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -34,6 +35,13 @@ public class AskReadyStore {
 
     /** The property of {@code answer_json} that carries a night-bound answer's night version. */
     static final String ASTRO_VERSION = "astroVersion";
+
+    /**
+     * The property of {@code answer_json} that carries the windows a solar pick question COVERED when its
+     * answer was written ({@link ReadyQuestion.Offer#coveredWindowIds}): stripped before the answer is
+     * decoded, like {@link #ASTRO_VERSION}, and absent on a row written before it existed.
+     */
+    static final String COVERED_WINDOW_IDS = "coveredWindowIds";
 
     private static final String WINDOW_SEPARATOR = ",";
 
@@ -65,10 +73,30 @@ public class AskReadyStore {
      * @param answer              the answer, each pick carrying its rating and verdict at answer time
      * @param astroVersion        the night version ({@link AskNightVersion}) a night-bound answer was
      *                            written under, or null for any other answer
+     * @param coveredWindowIds    the windows the question covered when the answer was written, or null on
+     *                            a row that records none (an older row, or a question with no solar
+     *                            windows); the freshness check compares it to the live offer's
      */
     public record Stored(String scopeKey, String questionId, String questionText,
             List<String> windowIds, LocalDateTime briefingGeneratedAt, AskAnswer answer,
-            String astroVersion) {
+            String astroVersion, List<String> coveredWindowIds) {
+
+        /**
+         * A stored answer that records no covered windows.
+         *
+         * @param scopeKey            {@code ALL} or a region id as text
+         * @param questionId          the Ready question's name
+         * @param questionText        the text the answer was written for
+         * @param windowIds           the windows the question was asked about
+         * @param briefingGeneratedAt when the briefing it was built from was generated (UTC)
+         * @param answer              the answer
+         * @param astroVersion        the night version, or null
+         */
+        public Stored(String scopeKey, String questionId, String questionText, List<String> windowIds,
+                LocalDateTime briefingGeneratedAt, AskAnswer answer, String astroVersion) {
+            this(scopeKey, questionId, questionText, windowIds, briefingGeneratedAt, answer, astroVersion,
+                    null);
+        }
 
         /**
          * A stored answer that is not night-bound.
@@ -129,7 +157,7 @@ public class AskReadyStore {
         row.setWindowIds(String.join(WINDOW_SEPARATOR, offer.windowIds()));
         row.setBriefingGeneratedAt(briefingGeneratedAt);
         row.setPipelineRunId(pipelineRunId);
-        row.setAnswerJson(toJson(answer, astroVersion));
+        row.setAnswerJson(toJson(answer, astroVersion, question, offer));
         row.setCreatedAt(clock.instant());
         repository.save(row);
     }
@@ -154,22 +182,36 @@ public class AskReadyStore {
         try {
             JsonNode tree = mapper.readTree(row.getAnswerJson());
             String astroVersion = tree.hasNonNull(ASTRO_VERSION) ? tree.get(ASTRO_VERSION).asText() : null;
+            List<String> covered = null;
+            if (tree.hasNonNull(COVERED_WINDOW_IDS)) {
+                covered = new ArrayList<>();
+                for (JsonNode id : tree.get(COVERED_WINDOW_IDS)) {
+                    covered.add(id.asText());
+                }
+            }
             ((ObjectNode) tree).remove(ASTRO_VERSION);
+            ((ObjectNode) tree).remove(COVERED_WINDOW_IDS);
             AskAnswer answer = mapper.treeToValue(tree, AskAnswer.class);
             List<String> windows = row.getWindowIds() == null || row.getWindowIds().isBlank()
                     ? List.of() : List.of(row.getWindowIds().split(WINDOW_SEPARATOR));
             return Optional.of(new Stored(row.getScopeKey(), row.getQuestionId(),
-                    row.getQuestionText(), windows, row.getBriefingGeneratedAt(), answer, astroVersion));
+                    row.getQuestionText(), windows, row.getBriefingGeneratedAt(), answer, astroVersion, covered));
         } catch (JsonProcessingException | RuntimeException e) {
             return Optional.empty();
         }
     }
 
-    private String toJson(AskAnswer answer, String astroVersion) {
+    private String toJson(AskAnswer answer, String astroVersion, ReadyQuestion question,
+            ReadyQuestion.Offer offer) {
         try {
             ObjectNode tree = mapper.valueToTree(answer);
             if (astroVersion != null) {
                 tree.put(ASTRO_VERSION, astroVersion);
+            }
+            // Only a solar pick question has covered windows to compare at serve time; a night-bound
+            // question is judged on its night version and an events question names no window.
+            if (question.picks() && !question.nightBound()) {
+                offer.coveredWindowIds().forEach(id -> tree.withArray(COVERED_WINDOW_IDS).add(id));
             }
             return mapper.writeValueAsString(tree);
         } catch (JsonProcessingException | IllegalArgumentException e) {

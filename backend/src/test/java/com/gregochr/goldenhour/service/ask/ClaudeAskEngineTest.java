@@ -565,7 +565,7 @@ class ClaudeAskEngineTest {
             + "the question counted failed: nothing escapes the engine")
     void unexpectedErrorIsFailed() {
         AskAnswerValidator broken = mock(AskAnswerValidator.class);
-        when(broken.validate(any(), any(), any(), any(), any(), any(), anyBoolean()))
+        when(broken.validate(any(), any(), any(), any(), any(), any(), anyBoolean(), any()))
                 .thenThrow(new IllegalStateException("boom"));
         engine = new ClaudeAskEngine(client, properties, jobRuns, driveTimes, broken,
                 new AskPromptBuilder(), new ObjectMapper(), clock, AskLocationNames.NONE);
@@ -1270,5 +1270,34 @@ class ClaudeAskEngineTest {
             count++;
         }
         return count;
+    }
+
+    @Test
+    @DisplayName("a Ready conversation's system prompt names the windows its question covers; a typed one, and a "
+            + "night-bound Ready one, do not")
+    void readyPromptNamesTheCoveredWindows() {
+        ReadyQuestion.Offer offer = new ReadyQuestion.Offer("Best spot this weekend?", List.of(WINDOW), null,
+                List.of(WINDOW, "2026-10-06_sunrise"));
+        when(client.createAskMessage(any(), any(), any())).thenReturn(submit(answer(pick(1, WINDOW))));
+
+        engine.run(question(), snapshot(null), AskUserContext.userLess(), AskRunOptions.ready(READY_RUN_ID,
+                ReadyQuestion.BEST_WEEKEND, offer));
+
+        assertThat(systemText(sentParams().getFirst()))
+                .contains("The question is about these windows: " + WINDOW + ", 2026-10-06_sunrise.");
+    }
+
+    @Test
+    @DisplayName("the night-bound Ready question names no covered windows: a night has no spread to read")
+    void nightReadyPromptNamesNoWindows() {
+        ReadyQuestion.Offer offer = new ReadyQuestion.Offer("Anything for the night sky tonight?",
+                List.of("2026-10-05_astro"), null);
+        when(client.createAskMessage(any(), any(), any())).thenReturn(submit(Map.of("answerable", false,
+                "summary", "Can't say.")));
+
+        engine.run(question(), snapshot(null), AskUserContext.userLess(), AskRunOptions.ready(READY_RUN_ID,
+                ReadyQuestion.NIGHT_SKY, offer));
+
+        assertThat(systemText(sentParams().getFirst())).doesNotContain("The question is about these windows");
     }
 }

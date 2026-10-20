@@ -856,4 +856,63 @@ class AskReadyPrecomputeTest {
         verify(jobRunService).startRun(RunType.ASK_READY, true, properties.getModel());
         assertThat(service.precompute(null, Set.of()).written()).isZero();
     }
+
+    // -- the window figures and the honest no-pick answer (ask-window-context plan §2.3, §2.4) ------------
+
+    @Test
+    @DisplayName("what the precompute stores carries the answer's window figures: relevantPart does not "
+            + "drop them, so a stored row can be rechecked against live data")
+    void storedAnswerCarriesItsWindows() {
+        model = call -> {
+            AskRun good = goodModel(call, snapshot);
+            AskAnswer answer = good.outcome().answer();
+            if (!"Best spot this weekend?".equals(call.question().sanitised())) {
+                return good;
+            }
+            List<AskAnswer.WindowSpread> windows = snapshot.windows().stream()
+                    .map(w -> new AskAnswer.WindowSpread(w.id(),
+                            AskSnapshot.Spread.of(w, call.question().scope())))
+                    .toList();
+            return ok(answer.withWindows(windows));
+        };
+
+        service.precompute(1L);
+
+        AskAnswer stored = storedAnswer("ALL", ReadyQuestion.BEST_WEEKEND);
+        assertThat(stored.windows()).isNotEmpty();
+        assertThat(stored.windows().getFirst().spread().over()).isEqualTo("every region");
+    }
+
+    @Test
+    @DisplayName("on a weekend with nothing game on, a no-pick BEST_WEEKEND answer is stored, not counted as a "
+            + "failure: the question was offered (a 3★ is a candidate) and the honest answer is admitted")
+    void aStayHomeWeekendStoresTheNoPickAnswer() {
+        com.gregochr.goldenhour.model.BriefingRegion stayHome =
+                AskFixtures.bandedRegion("Northumberland", 1L, 0, 5, 10, 0, 0);
+        snapshot = ReadyFixtures.at(ReadyFixtures.FRIDAY_NOON,
+                ReadyFixtures.day(ReadyFixtures.oct(10), true, true, null, stayHome),
+                ReadyFixtures.day(ReadyFixtures.oct(11), true, true, null, stayHome));
+        when(snapshotBuilder.build()).thenReturn(Optional.of(snapshot));
+        model = call -> "Best spot this weekend?".equals(call.question().sanitised())
+                ? ok(new AskAnswer(true, "Not a weekend to go out for.", List.of(), List.of(), null))
+                : failed("not under test");
+
+        service.precompute(1L);
+
+        assertThat(storedKeys()).contains("ALL/BEST_WEEKEND");
+        assertThat(storedAnswer("ALL", ReadyQuestion.BEST_WEEKEND).picks()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("the options handed to the engine carry the offer, so the prompt, the validator and the "
+            + "freshness check judge the same covered windows")
+    void theEngineIsHandedTheOffer() {
+        service.precompute(1L);
+
+        AskRunOptions weekend = callFor("Best spot this weekend?", List.of()).options();
+        assertThat(weekend.readyBasis().question()).isEqualTo(ReadyQuestion.BEST_WEEKEND);
+        assertThat(weekend.readyBasis().offer().coveredWindowIds()).isNotEmpty();
+        assertThat(callFor("Best coastal spot at high tide?", List.of()).options().readyBasis().question())
+                .isEqualTo(ReadyQuestion.COASTAL_HIGH);
+    }
 }

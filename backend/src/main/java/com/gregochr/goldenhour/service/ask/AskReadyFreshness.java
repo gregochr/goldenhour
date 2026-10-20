@@ -6,6 +6,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * The serve-time freshness check of a Ready answer (plan §2.4, D-5), made against <b>live</b> data.
@@ -27,7 +28,11 @@ import java.util.Optional;
  *   <li>the answer would no longer pass the same checks it was stored under (every pick still
  *       within the question's windows; a coastal-high question's picks still at high water);</li>
  *   <li>for the night-bound {@code NIGHT_SKY}, the night's astro generation is no longer the one the
- *       answer was written from, or the night has passed ({@code nightMoved}).</li>
+ *       answer was written from, or the night has passed ({@code nightMoved});</li>
+ *   <li>the rating distribution the answer carries for any window it may have quoted is no longer the
+ *       live one (equal records, no tolerance), or such a window has left the window set, or the
+ *       windows the question covers are no longer the set the answer was built over
+ *       ({@code spreadMoved}, ask-window-context plan §2.4).</li>
  * </ol>
  * Rules 1, 3, 4 and 5 are the plan's; rules 2, 6 and 7 are the same test applied to the rest of what
  * the answer claims, so a day word, a supersession or a moved BEST BET cannot slip past the plan's
@@ -87,6 +92,12 @@ final class AskReadyFreshness {
                 return Verdict.stale(moved.get());
             }
         }
+        // A row with no covered set (written before it existed, or a question with no solar windows) is
+        // unknown, not stale; one with a set must still describe the same windows.
+        if (stored.coveredWindowIds() != null
+                && !Set.copyOf(stored.coveredWindowIds()).equals(Set.copyOf(offer.get().coveredWindowIds()))) {
+            return Verdict.stale("the windows the question covers have changed");
+        }
         // A Ready answer is shared by every reader, so it is re-checked as one who may not see aurora.
         Verdict rechecked = recheck(stored.answer(), live, scope, false);
         if (!rechecked.fresh()) {
@@ -97,7 +108,11 @@ final class AskReadyFreshness {
         if (question.anchored()) {
             Optional<AskSnapshot.Window> lead = AskAnswerValidator.anchoredWindow(live,
                     question.anchor(offer.get()), scope);
-            if (lead.isPresent()
+            // A stored no-pick answer stands only while the covered windows still hold no game-on place:
+            // the very predicate it was admitted under (ReadyRelevance.mayHaveNoPick).
+            boolean noPickStands = picks.isEmpty()
+                    && ReadyRelevance.mayHaveNoPick(question, offer.get(), live, scope);
+            if (lead.isPresent() && !noPickStands
                     && (picks.isEmpty() || !picks.getFirst().windowId().equals(lead.get().id()))) {
                 return Verdict.stale("the BEST BET is now on " + lead.get().id());
             }
@@ -183,8 +198,35 @@ final class AskReadyFreshness {
             events.add(new AskEvent(AskEventType.key(event.type()), topic.get().label(), event.date(), event.why(),
                     topic.get().safetyNote()));
         }
+        Optional<String> spreadMoved = spreadMoved(answer, live, scope);
+        if (spreadMoved.isPresent()) {
+            return Verdict.stale(spreadMoved.get());
+        }
         return new Verdict(new AskAnswer(answer.answerable(), answer.summary(), picks, events,
-                answer.missing()), null);
+                answer.missing(), answer.windows()), null);
+    }
+
+    /**
+     * Why an answer's carried rating distributions no longer hold, or empty when they all do (or it
+     * carries none: a row from before the figures existed is unknown, not stale). Every carried window
+     * must still be in the window set and its live {@link AskSnapshot.Spread} must EQUAL the carried one:
+     * record equality over every field, the pockets and their means included, so no figure the prompt
+     * lets the model quote can drift unchecked. A window that has passed or left the set is stale, not
+     * skipped: the prose about it can no longer be verified, and it must not outlive a surviving pick on
+     * another window.
+     */
+    private static Optional<String> spreadMoved(AskAnswer answer, AskSnapshot live, AskScope scope) {
+        for (AskAnswer.WindowSpread carried : answer.windows()) {
+            Optional<AskSnapshot.Spread> now = live.spread(carried.windowId(), scope);
+            if (now.isEmpty()) {
+                return Optional.of("window " + carried.windowId() + ", whose rating spread the answer carries, "
+                        + "is no longer in the forecast");
+            }
+            if (!now.get().equals(carried.spread())) {
+                return Optional.of("the rating spread of " + carried.windowId() + " has moved");
+            }
+        }
+        return Optional.empty();
     }
 
     /** What a live topic or entry contributes to an event card. */

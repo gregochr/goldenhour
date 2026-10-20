@@ -96,6 +96,27 @@ final class ReadyRelevance {
     }
 
     /**
+     * Whether a solar pick question may honestly be answered with no pick: the windows it covers hold no
+     * game-on candidate the question itself admits ({@link AskSnapshot#hasGameOn}, with {@link #admitsSlot}
+     * as the predicate, so a {@code COASTAL_HIGH} answer is not forced to carry a 4★ inland place). A set
+     * test with no threshold. The one predicate the validator's anchor rule, this class's {@link #violation}
+     * and {@link AskReadyFreshness#check} all consult, at store and at serve, so a stored "nothing worth
+     * going out for" answer is withheld as soon as a game-on place appears. A night-bound question is never
+     * covered: a night's eligibility is its own and its offer already guarantees a candidate.
+     *
+     * @param question the question
+     * @param offer    what the question is asked under
+     * @param snapshot the snapshot to read the live slots from
+     * @param scope    the question's scope
+     * @return true when a no-pick answer stands
+     */
+    static boolean mayHaveNoPick(ReadyQuestion question, ReadyQuestion.Offer offer, AskSnapshot snapshot,
+            AskScope scope) {
+        return question.picks() && !question.nightBound()
+                && !snapshot.hasGameOn(offer.coveredWindowIds(), scope, slot -> admitsSlot(question, slot));
+    }
+
+    /**
      * Whether a night pick is relevant to a night-bound question: an ASTRO night's spot that is
      * pick-eligible within the scope for a reader who may NOT see aurora. A Ready answer is shared by
      * every reader, so an aurora pick is refused outright, whatever its figure and whoever asked the
@@ -122,7 +143,7 @@ final class ReadyRelevance {
     static AskAnswer relevantPart(ReadyQuestion question, AskAnswer answer) {
         List<AskEvent> events = answer.events().stream().filter(e -> admitsEvent(question, e.type())).toList();
         return new AskAnswer(answer.answerable(), answer.summary(),
-                question.picks() ? answer.picks() : List.of(), events, answer.missing());
+                question.picks() ? answer.picks() : List.of(), events, answer.missing(), answer.windows());
     }
 
     /**
@@ -154,7 +175,7 @@ final class ReadyRelevance {
      */
     static Optional<String> violation(ReadyQuestion question, AskAnswer answer, ReadyQuestion.Offer offer,
             AskSnapshot snapshot, AskScope scope) {
-        if (question.picks() && answer.picks().isEmpty()) {
+        if (question.picks() && answer.picks().isEmpty() && !mayHaveNoPick(question, offer, snapshot, scope)) {
             return Optional.of("a pick question with no pick");
         }
         if (!question.picks() && answer.events().isEmpty()) {

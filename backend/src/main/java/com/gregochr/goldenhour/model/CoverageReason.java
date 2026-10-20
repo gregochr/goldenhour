@@ -3,7 +3,9 @@ package com.gregochr.goldenhour.model;
 /**
  * Why a region has no per-location forecast for a window, as far as the pipeline's own record can
  * say. Chosen at serve time by the honesty filter's fold over the region's scoreable slots (see
- * {@code CoverageReasons}); it picks the wording of the blanked region and is never serialised.
+ * {@code CoverageReasons}); it picks the wording of the blanked region. Since the Ask window spread it
+ * also rides the blanked region as {@code BriefingRegion.coverageReason} (serve path only, never
+ * persisted), so a reader can tell a real stand-down from the "no record" the filter words the same way.
  *
  * <p>Only {@link #STOOD_DOWN} and {@link #UNKNOWN} keep the "too unsettled" verdict. The other
  * three say nothing about the weather: nothing was attempted, the day is a travel day, or the run

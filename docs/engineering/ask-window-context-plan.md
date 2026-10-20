@@ -1,6 +1,9 @@
 # Ask PhotoCast — the window's rating distribution (`list_windows` spread)
 
-**Status: a plan for the owner to judge. Nothing is built. No code, no migration, no prompt has changed.**
+**Status (2026-10-20): the owner accepted every recommendation of §6 (recorded there). W1 (the backend spread,
+the prompt, the carried figures and their freshness) and W3 (the regression class and its fixtures) are
+built; W2 (the client line, Q4), W4 (§2.5, Q1 chosen option A: nothing to build) and R1 are not. No
+migration. The W3 regression's assertions are pending the owner's approval and it has never been run.**
 
 Written 2026-10-17 from the owner's reading of the Plan tab's spread histograms for the weekend of
 Sat 17 / Sun 18 October 2026, the day the neighbour guard went on by default (#1220), and reviewed
@@ -753,23 +756,33 @@ earlier build tolerates the `windows` property (§2.4, "rollback truth"); W2 tou
 9. **A new regression class, not new cases in the old one** (§2.6).
 10. **Option A is inside W1** (§2.5): it is words and costs nothing; B–D wait for Q1.
 
-## §6 Owner decisions (open)
+## §6 Owner decisions (decided 2026-10-20)
 
-- **Q1 — 3★ at a distance** (§2.5): A now (in W1); then B, C or D, or stay at A. **Q1b**: the
-  owner's own number for "close" (miles, or minutes of drive) if B is chosen.
-- **Q2 — `BEST_*` on a stay-home weekend** (§2.3): keep it offered, anchored on the forecast's
-  crown, carrying the exceptions, with a no-pick answer admitted when nothing is game on (this
-  plan); relax the anchor to the window with the most game-on places (Ask and the Plan card may then
-  disagree); or offer it only when a weekend window has a game-on candidate.
-- **Q3 — the wording assertion** (§2.6): keep the stay-home regex, or strike it.
-- **Q4 — the client line** (§2.4, W2): one served line per window under the summary, or nothing
-  on screen (freshness alone).
-- **Q5 — sub-regions** (§3): run R1 now, later, or not; and whether FAR moves to Sonnet 5.5 first.
-- **Q6 — build at all.** W1 + W3 is the smallest thing that answers the complaint and can be
-  measured, and it already makes a quoted figure withdrawable; W2 is only what makes it visible.
-- **Q7 — "must not lead with a 4★ pick"** (§0): the framing reading (exceptions carried as picks,
-  the summary says stay home) or the literal one (no picks on a stay-home window; the exceptions
-  named in prose). The regression flips on one line.
+The owner accepted every recommendation below on 2026-10-20. What each decision means for the build:
+
+- **Q1 — 3★ at a distance** (§2.5): **option A, words only.** The criteria and the no-fill rule are the whole
+  of it (W1); the validator's floor (`MIN_PICK_RATING` 3) does not change and no distance machinery is
+  built. W4 (B, C or D) is therefore not scheduled; it is reopened only if W3's measurement shows the model
+  offering a 3★ two hours away when nothing better exists. **Q1b** (the owner's own number for "close") is
+  moot while A stands.
+- **Q2 — `BEST_*` on a stay-home weekend** (§2.3): **(a) keep it offered and anchored** on the forecast's
+  crown; the exceptions are carried as picks; a no-pick answer is admitted on the set test
+  (`AskSnapshot.hasGameOn`, no threshold) when nothing game on is covered. Not relaxed to "the window with
+  the most game-on places", and not withheld from the catalogue.
+- **Q3 — the wording assertion** (§2.6): **keep the stay-home regex**, owner-approvable with the rest of the
+  assertions.
+- **Q4 — the client line** (§2.4, W2): **it is W2, not part of W1/W3.** The server carries and serves the
+  figures from W1; whether a quiet line draws them is built next.
+- **Q5 — sub-regions** (§3): **no sub-regions now.** R1 (the measurement) stays independent and unscheduled;
+  FAR-to-Sonnet is `same-cell-rating-spread-plan.md`'s question. **Update, 2026-10-20 (from the session
+  that wrote this plan's brief):** the owner has since switched the FAR bucket (`BATCH_FAR_TERM`, T+2/T+3) to
+  Sonnet 5.5 on the Models screen, so Q5's precondition for R1 is met. R1 itself still waits for enough
+  Sonnet-rated FAR runs to accumulate: its SQL reads the last 60 days of `forecast_evaluation`, and the Haiku
+  rows from before today must be excluded by `evaluation_model`.
+- **Q6 — build at all:** yes; W1 + W3 first.
+- **Q7 — "must not lead with a 4★ pick"** (§0): **(a) the framing reading.** The summary must call the
+  weekend what it is; the 4★ exceptions may still be carried as picks, named as exceptions. W3's assertions
+  are written under this reading and flip to "no picks" by one line (`gameOnPicksOnly`).
 
 ## §7 Verify by measurement
 

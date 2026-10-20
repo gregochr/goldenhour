@@ -335,7 +335,7 @@ public class AskReadyPrecompute {
         AskRun run;
         try {
             run = engine.run(question, snapshot, AskUserContext.userLess(),
-                    AskRunOptions.ready(jobRunId, task.question().anchor(task.offer())));
+                    AskRunOptions.ready(jobRunId, task.question(), task.offer()));
         } catch (RuntimeException e) {
             LOG.warn("[ASK] Ready {} threw: {}", label, e.toString());
             counts.failed++;

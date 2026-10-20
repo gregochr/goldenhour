@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { buildMapOverlay, normalizeMapTrigger } from '../utils/mapOverlay.js';
+// `normalizeMapTrigger` lives in `mapDoor.js` since overlay convergence C1; the `buildMapOverlay`
+// cases stay in this file because the door's headline and field resolution are read off its output.
+import { buildMapOverlay } from '../utils/mapOverlay.js';
+import { normalizeMapTrigger, doorHeadline, doorFromTrigger } from '../utils/mapDoor.js';
 
 const DATE = '2026-07-04';
 
@@ -328,5 +331,166 @@ describe('normalizeMapTrigger (extracted from App.jsx\'s handleShowOnMap, D8)', 
   it('a bare date with no location name normalises to kind:\'event\'', () => {
     const trigger = normalizeMapTrigger(DATE, 'SUNSET');
     expect(trigger).toEqual({ kind: 'event', date: DATE, eventType: 'SUNSET' });
+  });
+});
+
+describe('doorHeadline (the breadcrumb\'s title · caption, overlay convergence C1)', () => {
+  it('names the aurora door "Aurora tonight" with no caption', () => {
+    expect(doorHeadline({ kind: 'aurora', date: DATE }, ctx([]))).toEqual({
+      title: 'Aurora tonight', caption: null,
+    });
+  });
+
+  it('names a region door by region, with the day, event and clock as its caption', () => {
+    const locations = [loc('Top', 'Tyne and Wear', 4)];
+    const headline = doorHeadline(
+      { kind: 'region', region: 'Tyne and Wear', date: DATE, eventType: 'SUNSET' },
+      ctx(locations),
+    );
+    expect(headline.title).toBe('Tyne and Wear');
+    expect(headline.caption).toBe('Today sunset · 21:49');
+  });
+
+  it('names a coming-up door by its label, with the region count as its caption', () => {
+    const locations = [
+      loc('Bamburgh', 'Northumberland', 3, { types: ['SEASCAPE'] }),
+      loc('Whitby', 'Yorkshire', 3, { types: ['SEASCAPE'] }),
+    ];
+    expect(doorHeadline(
+      { kind: 'coming-up', filterAction: 'SEASCAPE', label: 'Spring tide run', date: DATE },
+      ctx(locations),
+    )).toEqual({ title: 'Spring tide run', caption: '2 regions' });
+  });
+
+  it('never borrows the overlay\'s "tap a pin" prompt as a caption', () => {
+    const locations = [loc('A', 'North', 3, { lat: 55 }), loc('B', 'South', 3, { lat: 51 })];
+    const headline = doorHeadline({ kind: 'event', date: DATE, eventType: 'SUNSET' }, ctx(locations));
+    expect(headline.caption).not.toMatch(/tap a pin/i);
+  });
+});
+
+describe('doorFromTrigger (the overlay\'s seven triggers as one structured door)', () => {
+  it('aurora: names the night, the AURORA event and its headline; no lens fields at all', () => {
+    const door = doorFromTrigger({ kind: 'aurora', date: DATE }, ctx([]));
+    expect(door).toEqual({
+      date: DATE,
+      targetType: 'AURORA',
+      region: null,
+      locationName: null,
+      title: 'Aurora tonight',
+      caption: null,
+      night: { kind: 'aurora', date: DATE },
+    });
+    expect(door).not.toHaveProperty('focusNames');
+    expect(door).not.toHaveProperty('focusPoints');
+  });
+
+  it('location: a plain door onto the spot - no lens, no night', () => {
+    const door = doorFromTrigger(
+      { kind: 'location', locationName: 'Top', date: DATE, eventType: 'SUNSET' },
+      ctx([loc('Top', 'Tyne and Wear', 4)]),
+    );
+    expect(door).toMatchObject({ date: DATE, targetType: 'SUNSET', locationName: 'Top', region: null });
+    expect(Object.keys(door).sort()).toEqual(
+      ['caption', 'date', 'locationName', 'region', 'targetType', 'title'],
+    );
+  });
+
+  it('single region: lands on the top-rated spot, as the overlay does', () => {
+    const door = doorFromTrigger(
+      { kind: 'region', region: 'Tyne and Wear', date: DATE, eventType: 'SUNSET' },
+      ctx([loc('Low', 'Tyne and Wear', 2), loc('Top', 'Tyne and Wear', 4)]),
+    );
+    expect(door.locationName).toBe('Top');
+    expect(door.region).toBeNull();
+  });
+
+  it('several regions: fits the pins (focusPoints) and restricts nothing (no focusNames)', () => {
+    const door = doorFromTrigger(
+      { kind: 'event', date: DATE, eventType: 'SUNSET' },
+      ctx([loc('A', 'North', 3, { lat: 55 }), loc('B', 'South', 4, { lat: 51 })]),
+    );
+    expect(door.focusPoints).toHaveLength(2);
+    expect(door).not.toHaveProperty('focusNames');
+  });
+
+  it('coming-up by subject: names the exact spots, the points and the subject filter', () => {
+    const door = doorFromTrigger(
+      { kind: 'coming-up', filterAction: 'SEASCAPE', label: 'Spring tide run', date: DATE },
+      ctx([
+        loc('Bamburgh', 'Northumberland', 3, { types: ['SEASCAPE'] }),
+        loc('Whitby', 'Yorkshire', 3, { types: ['SEASCAPE'] }),
+        loc('Elsewhere', 'Yorkshire', 3, { types: ['LANDSCAPE'] }),
+      ]),
+    );
+    expect(door.focusNames).toEqual(['Bamburgh', 'Whitby']);
+    expect(door.focusPoints).toHaveLength(2);
+    expect(door.filterAction).toBe('SEASCAPE');
+    expect(door).not.toHaveProperty('darkSky');
+    expect(door.title).toBe('Spring tide run');
+    expect(door.targetType).toBeNull();
+  });
+
+  it('coming-up dark sky: carries darkSky and no filterAction', () => {
+    const door = doorFromTrigger(
+      { kind: 'coming-up', darkSky: true, filterAction: null, label: null, date: DATE },
+      ctx([loc('Dark', 'Northumberland', 3, { bortleClass: 2 }), loc('Bright', 'Tyne', 3, { bortleClass: 7 })]),
+    );
+    expect(door.darkSky).toBe(true);
+    expect(door).not.toHaveProperty('filterAction');
+    expect(door.focusNames).toEqual(['Dark']);
+  });
+
+  it('coming-up with no subject (a plan chip): fits every pin and names no spot set', () => {
+    const door = doorFromTrigger(
+      { kind: 'coming-up', filterAction: null, darkSky: false, label: null, date: DATE },
+      ctx([loc('A', 'North', 3), loc('B', 'South', 3)]),
+    );
+    expect(door.focusPoints).toHaveLength(2);
+    expect(door).not.toHaveProperty('focusNames');
+  });
+
+  it('the wrapper-supplied lens (minRating, limitMinutes) rides through to the door', () => {
+    const door = doorFromTrigger(
+      {
+        kind: 'location', locationName: 'Top', date: DATE, eventType: 'SUNSET', minRating: 4, limitMinutes: 90,
+      },
+      ctx([loc('Top', 'Tyne and Wear', 4)]),
+    );
+    expect(door.minRating).toBe(4);
+    expect(door.limitMinutes).toBe(90);
+  });
+
+  it('a trigger without a lens yields a door with neither key - absent, not null', () => {
+    const door = doorFromTrigger(
+      { kind: 'location', locationName: 'Top', date: DATE, eventType: 'SUNSET' },
+      ctx([loc('Top', 'Tyne and Wear', 4)]),
+    );
+    expect('minRating' in door).toBe(false);
+    expect('limitMinutes' in door).toBe(false);
+    expect('inPlace' in door).toBe(false);
+  });
+
+  it('inPlace survives conversion, so the in-place branch in App is not skipped', () => {
+    const door = doorFromTrigger(
+      { kind: 'location', locationName: 'Top', date: DATE, eventType: 'SUNSET', inPlace: true },
+      ctx([loc('Top', 'Tyne and Wear', 4)]),
+    );
+    expect(door.inPlace).toBe(true);
+  });
+
+  it('region with qualifying locationNames: the spot set rides focusNames', () => {
+    const door = doorFromTrigger(
+      {
+        kind: 'region', region: 'The Lake District', date: DATE, eventType: 'SUNSET',
+        locationNames: ['Wood A', 'Wood B'], label: 'Bluebell conditions', filterAction: 'BLUEBELL',
+      },
+      ctx([
+        loc('Wood A', 'The Lake District', 3, { lat: 54.0, lon: -3.0, types: ['BLUEBELL'] }),
+        loc('Wood B', 'The Lake District', 3, { lat: 54.5, lon: -3.2, types: ['BLUEBELL'] }),
+      ]),
+    );
+    expect(door.focusNames).toEqual(['Wood A', 'Wood B']);
+    expect(door.filterAction).toBe('BLUEBELL');
   });
 });

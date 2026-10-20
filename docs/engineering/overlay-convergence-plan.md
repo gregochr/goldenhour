@@ -39,14 +39,14 @@ into every review agent's prompt.
 
 ## §0 Status
 
-**Status (2026-10-20): C1 is in PR #1246; C2 is built on `feature/overlay-c2-detail`, PR pending; C3–C6 not started.** §5 D1–D6 were TAKEN by the owner 2026-10-20 (every recommendation confirmed; D2 follows from D1). Phase log (each phase appends its own row in
+**Status (2026-10-20): C1 MERGED (PR #1246); C2 is in PR #1248; C3–C6 not started.** §5 D1–D6 were TAKEN by the owner 2026-10-20 (every recommendation confirmed; D2 follows from D1). Phase log (each phase appends its own row in
 the same commit as its code; the `PR` column names the PR, not a SHA — the repo squash-merges):
 
 | phase | what | PR | notes |
 |---|---|---|---|
 | C0 | this plan | | |
-| C1 | the handoff contract: `source:'plan'` carries everything the overlay's seven triggers carry | | no door moves yet |
-| C2 | detail parity: the popup's facts the tab lacks, on the location sheet (and callout where cheap) | pending | built 2026-10-20 on `feature/overlay-c2-detail`; (a), (b), (g), (h) on the sheet, (c)'s level word and (f) on the callout, (e) and the light line already there; **(c)'s `detail` text and (d) have no home** — the sheet has no night rows (see §3 C2 note) |
+| C1 | the handoff contract: `source:'plan'` carries everything the overlay's seven triggers carry | #1246 | no door moves yet. Built 2026-10-20: `utils/mapDoor.js` (`normalizeMapTrigger`, `doorHeadline`, `doorFromTrigger`); `night`/`focusNames`/`focusPoints`/`filterAction`/`darkSky`/`title`/`caption` on the handoff; `MapBreadcrumb` headline + lens clauses + `clear`. The `focusNames` lens is an INTERSECTION with the reader's filters (not the overlay's override), so "showing N spots" counts the pool actually drawn. `filterAction`/`darkSky` no longer open the Filters popover (the crumb names them). A `focusPoints` door leaves scope alone (a scope reset would race the fit). `MapView`'s `askWindow` row-following was extracted to `followWindowRow` and is shared with the new night-follow effect. Codex review took eight rounds: seven real P1s fixed (a pending night door yields to an Ask window; a focus lens clears a selection outside it; Filters→Clear all, individual toggles and hidden filters under a door lens — one rule beside `restoredDoorFilters()`: a door's lens is undone by removing only what the door added; `doorFromTrigger` carries the wrapper's `minRating`/`limitMinutes`/`inPlace`; a door naming no event hands the window to auto-selection) and one refuted (doors never touch a Plan date) |
+| C2 | detail parity: the popup's facts the tab lacks, on the location sheet (and callout where cheap) | #1248 | built 2026-10-20 on `feature/overlay-c2-detail`; (a), (b), (g), (h) on the sheet, (c)'s level word and (f) on the callout, (e) and the light line already there; **(c)'s `detail` text and (d) have no home** — the sheet has no night rows (see §3 C2 note) |
 | C3 | a Map tab with no solar forecast: offered on an aurora alert; a live-night aurora row | | D4 |
 | C4 | move the seven doors; delete `App`'s overlay state | | one PR per door group is fine |
 | C5 | delete the overlay: `MapView` branches, `MapOverlay`, `mapOverlay.js`, `ForecastTypeSelector`, CSS, tests | | the big one |
@@ -242,6 +242,13 @@ plan.md` §8 item 9; `heat-field-plan.md`/`map-landing-plan.md` overlay mentions
    debt.
 7. **A door no longer moves the Plan tab's selected date.** `handleShowOnMap`'s `selectDate` side
    effect was the overlay's; a door to another tab has no business moving the tab it left.
+   *Settled in C1 (Codex review of #1246):* `App.selectedDate` is the **Map's** window - only `MapView` and
+   `WindowFirstMapPane` read it; the shell and the Plan matrix hold no selected date. So the rule that
+   holds is: a door writes the Map's date (it must, the Map shows the door's window, exactly as picking
+   a window-control row does), the Plan side is handed no date, and `← Plan` carries none back
+   (`AppOpenMapTabFromPlan.test.jsx` pins both for every door kind). The overlay-era wording "moves the
+   Plan tab's date" described `handleShowOnMap` writing that shared Map date while the overlay sat over
+   the Plan; it was never a Plan-side state.
 8. **O-7 (admin Run forecast from the map) is a separate phase after this series**, on the callout's
    actions row for ADMIN only — not smuggled into C2.
 

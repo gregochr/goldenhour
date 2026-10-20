@@ -153,4 +153,44 @@ class BriefingRegionSerializationTest {
         assertThat(mapper.readValue(json, BriefingRegion.class).displayVerdict())
                 .isEqualTo(DisplayVerdict.UNRATED);
     }
+
+    // -- coverageReason (Ask window spread, ask-window-context plan §2.1) ---------------------------
+
+    private static BriefingRegion blanked(CoverageReason reason) {
+        return new BriefingRegion("North East", Verdict.GO, "Clear skies", List.of(), List.of(), 10.0, 9.0, 3.0, 1,
+                null, null, DisplayVerdict.STAND_DOWN, 0, null, false, null, null, null, null, null, null, reason);
+    }
+
+    @Test
+    void coverageReasonIsServedByNameAndOmittedWhenNull() throws Exception {
+        assertThat(mapper.readTree(mapper.writeValueAsString(blanked(CoverageReason.STOOD_DOWN)))
+                .get("coverageReason").asText()).isEqualTo("STOOD_DOWN");
+        assertThat(mapper.readTree(mapper.writeValueAsString(blanked(null))).has("coverageReason"))
+                .as("NON_NULL: a region the filter did not blank serves no key").isFalse();
+    }
+
+    @Test
+    void aLegacyPayloadWithoutCoverageReasonReadsNull() throws Exception {
+        ObjectNode node = (ObjectNode) mapper.readTree(mapper.writeValueAsString(blanked(CoverageReason.AWAY)));
+        node.remove("coverageReason");
+
+        assertThat(mapper.treeToValue(node, BriefingRegion.class).coverageReason()).isNull();
+        assertThat(mapper.readValue(mapper.writeValueAsString(blanked(CoverageReason.AWAY)), BriefingRegion.class)
+                .coverageReason()).isEqualTo(CoverageReason.AWAY);
+    }
+
+    @Test
+    void everyWitherCarriesTheCoverageReason() {
+        BriefingRegion r = blanked(CoverageReason.STOOD_DOWN);
+
+        assertThat(r.withMeanRating(3.0).coverageReason()).isEqualTo(CoverageReason.STOOD_DOWN);
+        assertThat(r.withBestRating(4).coverageReason()).isEqualTo(CoverageReason.STOOD_DOWN);
+        assertThat(r.withMeanRatingDelta(0.5).coverageReason()).isEqualTo(CoverageReason.STOOD_DOWN);
+        assertThat(r.withSampleSufficient(true).coverageReason()).isEqualTo(CoverageReason.STOOD_DOWN);
+        assertThat(r.withForcedSample(true).coverageReason()).isEqualTo(CoverageReason.STOOD_DOWN);
+        assertThat(r.withLightlyEvaluated().coverageReason()).isEqualTo(CoverageReason.STOOD_DOWN);
+        assertThat(r.withConfidence(Confidence.LOW).coverageReason()).isEqualTo(CoverageReason.STOOD_DOWN);
+        assertThat(r.withGloss("h", "d").coverageReason()).isEqualTo(CoverageReason.STOOD_DOWN);
+        assertThat(r.withSlots(List.of()).coverageReason()).isEqualTo(CoverageReason.STOOD_DOWN);
+    }
 }

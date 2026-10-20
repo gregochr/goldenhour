@@ -660,8 +660,8 @@ class AskToolsTest {
     }
 
     @Test
-    @DisplayName("tool output is capped at 6,000 characters a conversation; past it a tool errors and returns nothing")
-    void resultCap_refusesPastSixThousandCharacters() {
+    @DisplayName("tool output is capped at 9,000 characters a conversation; past it a tool errors and returns nothing")
+    void resultCap_refusesPastNineThousandCharacters() {
         List<BriefingSlot> slots = new ArrayList<>();
         for (long i = 1; i <= 8; i++) {
             slots.add(AskFixtures.withHeadline(AskFixtures.slot(i, "Spot number " + i, 4),
@@ -1067,7 +1067,7 @@ class AskToolsTest {
     }
 
     @Test
-    @DisplayName("the 6,000-character cap: exactly 6,000 is allowed, 5,999 is allowed, 6,001 is refused")
+    @DisplayName("the 9,000-character cap: exactly 9,000 is allowed, 8,999 is allowed, 9,001 is refused")
     void resultCap_boundary() {
         int base = topicToolWithNoteOfLength(1).getHotTopics(null).content().length() - 1;
         int exact = AskTools.RESULT_CHAR_CAP - base;
@@ -1080,9 +1080,9 @@ class AskToolsTest {
         AskToolResult refused = oneOver.getHotTopics(null);
 
         assertThat(ok.error()).isFalse();
-        assertThat(atCap.charsUsed()).isEqualTo(6_000);
+        assertThat(atCap.charsUsed()).isEqualTo(9_000);
         assertThat(underOk.error()).isFalse();
-        assertThat(oneUnder.charsUsed()).isEqualTo(5_999);
+        assertThat(oneUnder.charsUsed()).isEqualTo(8_999);
         assertThat(refused.error()).isTrue();
         assertThat(oneOver.charsUsed()).isZero();
         assertThat(oneOver.evidence().events()).as("a refused result is not evidence").isEmpty();
@@ -1214,5 +1214,125 @@ class AskToolsTest {
         assertThat(snapshot.slotAt("2026-10-05_sunset", 3L)).isPresent();
         assertThat(snapshot.slotAt("2026-10-05_sunset", 9L)).isEmpty();
         assertThat(snapshot.slotAt("2026-10-04_sunset", 1L)).isEmpty();
+    }
+    // -- list_windows' spread (ask-window-context plan §2.1, §2.2) ---------------------------
+
+    private static final String SATURDAY_SUNSET = "2026-10-10_sunset";
+
+    private static AskSnapshot weekendSnapshot() {
+        LocalDate saturday = LocalDate.of(2026, 10, 10);
+        BriefingRegion[] regions = {
+            AskFixtures.bandedRegion("Northumberland", 1L, 0, 20, 60, 2, 0),
+            AskFixtures.bandedRegion("Lake District", 500L, 0, 36, 62, 0, 0),
+        };
+        return AskFixtures.snapshotOf(AskFixtures.briefing(
+                List.of(AskFixtures.sunsetDay(saturday, null, regions)), List.of()));
+    }
+
+    @Test
+    @DisplayName("list_windows serves each solar window's spread over the question's scope, beside the "
+            + "window-wide best rating")
+    void listWindows_carriesTheSpread() {
+        AskToolResult result = tools(weekendSnapshot()).listWindows();
+
+        AskTools.WindowInfo info = ((ListWindowsResult) result.payload()).windows().getFirst();
+        assertThat(info.spread().over()).isEqualTo("every region");
+        assertThat(info.spread().rated()).isEqualTo(180);
+        assertThat(info.spread().bands()).containsExactly(0, 56, 122, 2, 0);
+        assertThat(info.spread().pockets()).singleElement()
+                .extracting(AskSnapshot.Spread.Pocket::region).isEqualTo("Northumberland");
+        assertThat(result.content()).contains("\"spread\":{\"over\":\"every region\",\"rated\":180");
+    }
+
+    @Test
+    @DisplayName("the spread follows the scope while bestRating stays the one window-wide served figure")
+    void listWindows_spreadFollowsScope() {
+        AskSnapshot snapshot = weekendSnapshot();
+
+        AskTools.WindowInfo coast = ((ListWindowsResult) tools(snapshot, USER, TestScopes.of("Lake District"))
+                .listWindows().payload()).windows().getFirst();
+        AskTools.WindowInfo both = ((ListWindowsResult) tools(snapshot, USER,
+                TestScopes.of("Lake District", "Northumberland")).listWindows().payload()).windows().getFirst();
+
+        assertThat(coast.spread().over()).isEqualTo("Lake District");
+        assertThat(coast.spread().rated()).isEqualTo(98);
+        assertThat(coast.spread().gameOn()).isZero();
+        assertThat(coast.spread().pockets()).isEmpty();
+        assertThat(both.spread().over()).isEqualTo("Lake District and Northumberland");
+        assertThat(both.spread().rated()).isEqualTo(180);
+        assertThat(coast.bestRating()).as("window-wide: the one figure that ignores the scope")
+                .isEqualTo(both.bestRating()).isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("a night row carries no spread: the figures come only from rank_night_spots")
+    void listWindows_nightRowHasNoSpread() {
+        LocalDate tonight = TODAY;
+        AskSnapshot solar = AskFixtures.snapshotOf(AskFixtures.briefing(List.of(AskFixtures.sunsetDay(TODAY, null,
+                AskFixtures.bandedRegion("Coast", 1L, 0, 0, 3, 1, 0))), List.of()));
+        AskSnapshot.Night night = new AskSnapshot.Night("2026-10-05_astro", tonight, AskWindowKind.ASTRO,
+                tonight.atTime(19, 0), tonight.plusDays(1).atTime(5, 0), null, List.of(new AskSnapshot.NightSpot(
+                        9L, "Kielder", "Coast", 55.2, -2.5, false, 2, 21.5, 4, "Clear", "Clear skies", null,
+                        null, null, null, null, null, false, null, null, null)));
+        AskSnapshot withNight = new AskSnapshot(solar.generatedAt(), solar.runLabel(), solar.today(),
+                solar.windows(), solar.hotTopics(), solar.comingUp(), false,
+                new AskSnapshot.Nights(tonight, List.of(night), null));
+
+        List<AskTools.WindowInfo> windows = ((ListWindowsResult) tools(withNight).listWindows().payload()).windows();
+
+        assertThat(windows).extracting(AskTools.WindowInfo::event).containsExactly("sunset", "astro");
+        assertThat(windows.get(0).spread()).isNotNull();
+        assertThat(windows.get(1).spread()).isNull();
+    }
+
+    /** A busy four-region day: six windows, every region holding game-on places. */
+    private static AskSnapshot busyDaySnapshot() {
+        List<com.gregochr.goldenhour.model.BriefingDay> days = new ArrayList<>();
+        for (int d = 0; d < 6; d++) {
+            LocalDate date = TODAY.plusDays(d);
+            BriefingRegion[] regions = new BriefingRegion[4];
+            String[] names = {"Northumberland", "North York Moors & Coast", "Lake District", "Yorkshire Dales"};
+            for (int r = 0; r < 4; r++) {
+                regions[r] = AskFixtures.bandedRegion(names[r], 1_000L * (d * 4 + r + 1), 2, 8, 20, 25 + r, 6);
+            }
+            days.add(AskFixtures.sunsetDay(date, null, regions));
+        }
+        return AskFixtures.snapshotOf(AskFixtures.briefing(days, List.of()));
+    }
+
+    @Test
+    @DisplayName("the busy-day list_windows (six windows, four regions, every one a pocket) fits well under "
+            + "half the cap, and with a five-spot rank_spots still fits the conversation")
+    void listWindows_busyDayStaysUnderHalfTheCap() {
+        AskTools tools = tools(busyDaySnapshot());
+
+        AskToolResult listed = tools.listWindows();
+        AskToolResult ranked = tools.rankSpots(rank(5));
+
+        assertThat(listed.error()).isFalse();
+        assertThat(listed.content().length()).isLessThan(AskTools.RESULT_CHAR_CAP / 2);
+        assertThat(ranked.error()).as("the second look the owner wants on a busy day").isFalse();
+        assertThat(tools.charsUsed()).isLessThan(AskTools.RESULT_CHAR_CAP);
+    }
+
+    @Test
+    @DisplayName("every solar window an ACCEPTED list_windows returned is recorded as listed; one the cap "
+            + "refused lists nothing")
+    void listWindows_recordsWhatTheModelWasShown() {
+        AskTools accepted = tools(weekendSnapshot());
+        accepted.listWindows();
+
+        AskSnapshot busy = busyDaySnapshot();
+        AskSnapshot withBigNote = new AskSnapshot(busy.generatedAt(), busy.runLabel(), busy.today(),
+                busy.windows(), List.of(new AskSnapshot.Topic("ECLIPSE", "Eclipse", "d", TODAY, List.of(),
+                        "n".repeat(AskTools.RESULT_CHAR_CAP - 1_000))), busy.comingUp());
+        AskTools capped = tools(withBigNote);
+        assertThat(capped.getHotTopics(null).error()).isFalse();
+        AskToolResult late = capped.listWindows();
+
+        assertThat(accepted.evidence().listedWindows()).containsExactly(SATURDAY_SUNSET);
+        assertThat(late.error()).as("the cap refused it").isTrue();
+        assertThat(capped.evidence().listedWindows()).as("a result the model never saw is not carried").isEmpty();
+        assertThat(tools(weekendSnapshot()).evidence().listedWindows()).as("not called").isEmpty();
     }
 }
