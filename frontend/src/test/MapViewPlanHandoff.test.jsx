@@ -997,6 +997,50 @@ describe('MapView — filterAction / darkSky: the door\'s subject and dark-sky l
     expect(filtersPopoverCalls.at(-1).darkSkyFilter).toBe(false);
   });
 
+  it('⚠️ LANDSCAPE + SEASCAPE on, coastal door, SEASCAPE switched off: the breadcrumb\'s clear brings LANDSCAPE back', async () => {
+    const { rerender } = await renderTab({ planHandoff: null });
+    await act(async () => { filtersPopoverCalls.at(-1).onToggleType('LANDSCAPE'); });
+    await act(async () => { filtersPopoverCalls.at(-1).onToggleType('SEASCAPE'); });
+    await rerenderWith(rerender, {
+      heat: HEAT, planHandoff: { ...DOOR_BASE, filterAction: 'SEASCAPE', focusNames: ['Near'], nonce: 1 },
+    });
+    expect([...filtersPopoverCalls.at(-1).activeTypeFilters]).toEqual(['SEASCAPE']);
+    await act(async () => { filtersPopoverCalls.at(-1).onToggleType('SEASCAPE'); });
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'clear' })); });
+
+    expect([...filtersPopoverCalls.at(-1).activeTypeFilters]).toEqual(['LANDSCAPE']);
+  });
+
+  it('...and a second plain door starts from {LANDSCAPE} too', async () => {
+    const { rerender } = await renderTab({ planHandoff: null });
+    await act(async () => { filtersPopoverCalls.at(-1).onToggleType('LANDSCAPE'); });
+    await act(async () => { filtersPopoverCalls.at(-1).onToggleType('SEASCAPE'); });
+    await rerenderWith(rerender, {
+      heat: HEAT, planHandoff: { ...DOOR_BASE, filterAction: 'SEASCAPE', nonce: 1 },
+    });
+    await act(async () => { filtersPopoverCalls.at(-1).onToggleType('SEASCAPE'); });
+
+    await rerenderWith(rerender, { heat: HEAT, planHandoff: { ...DOOR_BASE, nonce: 2 } });
+
+    expect([...filtersPopoverCalls.at(-1).activeTypeFilters]).toEqual(['LANDSCAPE']);
+  });
+
+  it('a dark-only door with LANDSCAPE visible: the reader removes LANDSCAPE, clear leaves it off and dark back to before', async () => {
+    const { rerender } = await renderTab({ planHandoff: null });
+    await act(async () => { filtersPopoverCalls.at(-1).onToggleType('LANDSCAPE'); });
+    await rerenderWith(rerender, {
+      heat: HEAT, planHandoff: { ...DOOR_BASE, darkSky: true, nonce: 1 },
+    });
+    expect(filtersPopoverCalls.at(-1).darkSkyFilter).toBe(true);
+    await act(async () => { filtersPopoverCalls.at(-1).onToggleType('LANDSCAPE'); });
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'clear' })); });
+
+    expect(filtersPopoverCalls.at(-1).activeTypeFilters.size).toBe(0);
+    expect(filtersPopoverCalls.at(-1).darkSkyFilter).toBe(false);
+  });
+
   it('control: LANDSCAPE on before a coastal door, untouched under it: the breadcrumb\'s clear restores it', async () => {
     const { rerender } = await renderTab({ planHandoff: null });
     await act(async () => { filtersPopoverCalls.at(-1).onToggleType('LANDSCAPE'); });

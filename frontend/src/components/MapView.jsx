@@ -5104,8 +5104,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * <ul>
    *   <li>a reader REMOVING subject {@code types} or switching dark sky off ({@code dark}) forgets them
    *       in the snapshot ({@code before}) AND in the door's own set ({@code doorTypes} /
-   *       {@code doorDark}), so a later restore can neither bring them back nor take them off again;
-   *       a lens left with nothing the door added is inactive;</li>
+   *       {@code doorDark}), so a later restore can neither bring them back nor take them off again.
+   *       It NEVER deactivates the lens: the door may have hidden filters the reader never touched
+   *       (the snapshot's other subjects), and those must still come back. Only the door effect
+   *       re-seeding, {@code clearDoorLens} or {@code endDoorFilterLens} ends it. A type the door
+   *       hid cannot be removed by the reader (it is not on screen), so a removal is always of a
+   *       type that was visible, and is forgotten from the snapshot as well;</li>
    *   <li>a reader ADDING a filter or switching dark sky on needs nothing: the restore already keeps
    *       whatever the reader added since ({@code restoredDoorFilters});</li>
    *   <li>"Clear all" and a legacy handoff replace the whole filter state, so they END the lens
@@ -5124,7 +5128,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     types.forEach((t) => { beforeTypes.delete(t); doorTypes.delete(t); });
     const doorDark = dark ? false : applied.doorDark;
     appliedDoorLens.current = {
-      active: doorTypes.size > 0 || doorDark,
+      active: true,
       before: { types: beforeTypes, dark: dark ? false : applied.before.dark },
       doorTypes,
       doorDark,
@@ -5150,10 +5154,16 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   function restoredDoorFilters() {
     const applied = appliedDoorLens.current;
     if (!applied.active) return null;
+    // Always (snapshot UNION what is on screen minus the door's own): every reader removal under the
+    // lens is already forgotten from the snapshot and every reader addition is on screen. States:
+    // the door added a type the reader lacked (dropped), one they had (kept), the reader removed a
+    // door type while other reader types stayed hidden (the hidden ones return), the reader added
+    // one (kept), and a dark-only door with subjects visible (no door types, so the union is the
+    // snapshot plus the screen, with no duplicates, since it is a Set).
     const types = new Set(applied.before.types);
     activeTypeFilters.forEach((t) => { if (!applied.doorTypes.has(t)) types.add(t); });
     return {
-      types: applied.doorTypes.size > 0 ? types : activeTypeFilters,
+      types,
       dark: applied.doorDark ? applied.before.dark : darkSkyFilter,
     };
   }
