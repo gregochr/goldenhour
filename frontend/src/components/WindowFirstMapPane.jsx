@@ -909,6 +909,12 @@ WindowFirstMapPane.propTypes = {
     minRating: PropTypes.number,
     limitMinutes: PropTypes.number,
     date: PropTypes.string,
+    // Overlay convergence C1 - the structured door's extra fields; see `MapView`'s `planHandoff`.
+    night: PropTypes.shape({ kind: PropTypes.oneOf(['aurora', 'astro']), date: PropTypes.string }),
+    focusNames: PropTypes.arrayOf(PropTypes.string),
+    focusPoints: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.number)),
+    title: PropTypes.string,
+    caption: PropTypes.string,
     nonce: PropTypes.number,
   }),
   autoEventType: PropTypes.string,

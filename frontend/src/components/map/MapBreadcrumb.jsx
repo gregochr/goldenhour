@@ -35,13 +35,16 @@ const KIND_WORD = {
  * never carries an origin at all (§2: origin is shared state, not copied), so its only test is
  * "is one in force right now", regardless of which one.
  *
- * <h2>`clear` is four separate resets, not one</h2>
+ * <h2>`clear` is five separate resets, not one</h2>
  *
- * <p>Four callback props rather than one `onClear`, so the caller's own tests can pin the ORDER —
- * rating, then reach, then scope, then origin, mirroring the prototype's `crumbclr`
- * (`map-tab-v2.js:526`) exactly. Subjects and dark-sky are deliberately absent: the prototype never
- * clears them and this door never carried them (plan §5 decision 1 names only rating/reach/region/
- * location as carried facts).
+ * <p>Five callback props rather than one `onClear`, so the caller's own tests can pin the ORDER —
+ * rating, then reach, then scope, then origin (mirroring the prototype's `crumbclr`,
+ * `map-tab-v2.js:526`), then the door's temporary lenses (`onClearLens`, overlay convergence C1).
+ * The lenses are a door's named spot set, subject filter and dark-sky toggle: each is a live clause
+ * (`lensClauses`, derived by the caller from the state in force, like every clause above), so it is
+ * never silent, and `clear` removes exactly what the door applied, handing back the reader's own
+ * filters as they were. The prototype never cleared subjects or dark-sky because no door carried
+ * them; doors now can, so `clear` must.
  *
  * <h2>⚠️ `clear` takes itself away, so it hands the reader's focus to the strip</h2>
  *
@@ -148,6 +151,7 @@ const KIND_WORD = {
 export default function MapBreadcrumb({
   carried, activeRow = null, origin = null, minStars, driveTimeFilter, regionInForce = null,
   onBack, onClearRating, onClearReach, onClearScope, onClearOrigin,
+  lensClauses = [], onClearLens = null,
 }) {
   // The strip, where `clear` hands the reader's focus when it takes itself away (class comment).
   const stripRef = useRef(null);
@@ -185,12 +189,21 @@ export default function MapBreadcrumb({
   if (carried.region && regionInForce === carried.region) {
     clauses.push(carried.region);
   }
+  // The door's temporary lenses (overlay convergence C1: a named spot set, the subject filter, the
+  // dark-sky toggle). The caller derives them from the state in force, like every clause above, and
+  // they are named here so a lens is never silent.
+  clauses.push(...lensClauses);
+
+  // The door's own headline (`title · caption`, e.g. "Aurora tonight", "Tomorrow sunrise · 06:12").
+  // A plain door carries neither and the strip is exactly what it was.
+  const headline = [carried.title, carried.caption].filter(Boolean).join(' · ');
 
   function handleClear() {
     onClearRating();
     onClearReach();
     onClearScope();
     onClearOrigin();
+    onClearLens?.();
   }
 
   return (
@@ -211,6 +224,16 @@ export default function MapBreadcrumb({
         <span aria-hidden="true">{'← '}</span>
         Plan
       </button>
+      {headline && (
+        <>
+          {' '}
+          <span className="wf-map-breadcrumb-sep">/</span>
+          {' '}
+          <span className="wf-map-breadcrumb-title" data-testid="wf-map-breadcrumb-title">
+            {headline}
+          </span>
+        </>
+      )}
       {activeRow && (
         <>
           {' '}
@@ -251,6 +274,8 @@ MapBreadcrumb.propTypes = {
     region: PropTypes.string,
     minRating: PropTypes.number,
     limitMinutes: PropTypes.number,
+    title: PropTypes.string,
+    caption: PropTypes.string,
   }).isRequired,
   activeRow: PropTypes.shape({
     dayLabel: PropTypes.string,
@@ -267,4 +292,6 @@ MapBreadcrumb.propTypes = {
   onClearReach: PropTypes.func.isRequired,
   onClearScope: PropTypes.func.isRequired,
   onClearOrigin: PropTypes.func.isRequired,
+  lensClauses: PropTypes.arrayOf(PropTypes.string),
+  onClearLens: PropTypes.func,
 };
