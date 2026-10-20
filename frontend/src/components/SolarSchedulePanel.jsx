@@ -238,13 +238,14 @@ export default function SolarSchedulePanel({ preview = null, failed = false, dis
           trigger.
         </li>
         <li>
-          Safety budget: waiting for batches and retrying failures share a budget from the
-          cycle&apos;s first batch submit. Each cycle&apos;s budget runs from its first batch submit:
-          3 h 30 min for the overnight and afternoon cycles, 2 h for the evening sunrise refresh.
-          From late May to late July the afternoon cycle can still be finishing when the evening one
-          starts; their briefing builds then run one after the other. This is the plan&apos;s
-          figure; the live setting is{' '}
-          <span className="font-mono break-all">photocast.pipeline.safety-timeout</span> and is not read here.
+          Safety budget: waiting for batches and retrying failures share one budget, which runs
+          from the cycle&apos;s first batch submit: 3 h 30 min for the overnight and afternoon
+          cycles, 2 h for the evening sunrise refresh. From late May to late July the afternoon
+          cycle can still be finishing when the evening one starts; their briefing builds then run
+          one after the other. These are the plan&apos;s figures; the live settings are{' '}
+          <span className="font-mono break-all">photocast.pipeline.safety-timeout</span> and{' '}
+          <span className="font-mono break-all">photocast.pipeline.evening-safety-timeout</span>,
+          and neither is read here.
         </li>
         <li>
           Accepted: in midsummer the morning cycle fires shortly after midnight UK and the afternoon
