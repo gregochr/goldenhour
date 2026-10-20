@@ -67,11 +67,12 @@ describe('spreadLines — one line per rated window, in the order carried', () =
     expect(line.windowId).toBe(SAT_PM);
   });
 
-  it('speaks the same figures as counts, never as a star glyph', () => {
+  it('speaks the same figures as counts and the day in full, never a star glyph or "Sat"', () => {
     const [line] = spreadLines([{ windowId: SAT_PM, spread: spread({ go: 1 }) }]);
 
-    expect(line.spoken).toBe('Sat sunset: 180 rated across every region, 2 at 4 stars or more, 1 at 5 stars');
+    expect(line.spoken).toBe('Saturday sunset: 180 rated across every region, 2 at 4 stars or more, 1 at 5 stars');
     expect(line.spoken).not.toContain('★');
+    expect(spreadLines([{ windowId: SUN_AM, spread: spread() }])[0].spoken).toMatch(/^Sunday sunrise: /);
   });
 
   it('names a scope of one region and of several as the server joined them', () => {
@@ -123,29 +124,66 @@ describe('spreadLines — one line per rated window, in the order carried', () =
 });
 
 describe('spreadLines — a window nobody has rated', () => {
+  const unrated = (over = {}) => spread({
+    rated: 0, bands: [0, 0, 0, 0, 0], gameOn: 0, gameOnPct: 0, go: 0, below4: 0, stars1to2: 0, pockets: [], ...over,
+  });
+
   it('draws no line for a rated-0 window beside a rated one', () => {
     const lines = spreadLines([
       { windowId: SAT_PM, spread: spread() },
-      { windowId: SUN_AM, spread: spread({ rated: 0, bands: [0, 0, 0, 0, 0], gameOn: 0, go: 0 }) },
+      { windowId: SUN_AM, spread: unrated() },
     ]);
 
     expect(lines).toHaveLength(1);
     expect(lines[0].windowId).toBe(SAT_PM);
   });
 
-  it('says "nothing rated" once, with the population, when windows are carried and none is rated', () => {
+  it('when no carried window is rated, says so for EACH window, with the population', () => {
     const lines = spreadLines([
-      { windowId: SAT_PM, spread: spread({ rated: 0, bands: [], gameOn: 0, go: 0 }) },
-      { windowId: SUN_AM, spread: spread({ rated: 0, bands: [], gameOn: 0, go: 0 }) },
+      { windowId: SAT_PM, spread: unrated({ regions: { counted: 2 } }) },
+      { windowId: SUN_AM, spread: unrated({ regions: { counted: 2 } }) },
     ]);
 
-    expect(lines).toEqual([{ windowId: null, text: 'Nothing rated across every region', spoken: 'Nothing rated across every region' }]);
+    expect(lines).toEqual([
+      { windowId: SAT_PM, text: 'Sat sunset · nothing rated across every region', spoken: 'Saturday sunset: nothing rated across every region' },
+      { windowId: SUN_AM, text: 'Sun sunrise · nothing rated across every region', spoken: 'Sunday sunrise: nothing rated across every region' },
+    ]);
   });
 
-  it('names the scope in that line too', () => {
-    const lines = spreadLines([{ windowId: SAT_PM, spread: spread({ over: 'Northumberland', rated: 0, gameOn: 0 }) }]);
+  it('⚠️ tells a window the weather stood down from one nobody scored, off the served tallies', () => {
+    const blue = spreadLines([{ windowId: SAT_PM, spread: unrated({ regions: { counted: 0, stoodDown: 4 } }) }]);
+    const unknown = spreadLines([{ windowId: SUN_AM, spread: unrated({ regions: { counted: 0, notScored: 4 } }) }]);
+    const mixed = spreadLines([{ windowId: SAT_PM, spread: unrated({ regions: { counted: 1, stoodDown: 2, notScored: 1 } }) }]);
 
-    expect(lines[0].text).toBe('Nothing rated in Northumberland');
+    expect(blue[0].text).toBe('Sat sunset · nothing rated across every region · 4 regions stood down');
+    expect(blue[0].spoken).toBe('Saturday sunset: nothing rated across every region, 4 regions stood down');
+    expect(unknown[0].text).toBe('Sun sunrise · nothing rated across every region · 4 not scored');
+    expect(mixed[0].text).toBe('Sat sunset · nothing rated across every region · 2 regions stood down · 1 not scored');
+    expect(blue[0].text).not.toBe(unknown[0].text.replace('Sun sunrise', 'Sat sunset'));
+  });
+
+  it('says "1 region stood down" for one', () => {
+    expect(spreadLines([{ windowId: SAT_PM, spread: unrated({ regions: { counted: 0, stoodDown: 1 } }) }])[0].text)
+      .toBe('Sat sunset · nothing rated across every region · 1 region stood down');
+  });
+
+  it('names the scope in that line too, and copes with no regions record at all', () => {
+    const scoped = spreadLines([{ windowId: SAT_PM, spread: unrated({ over: 'Northumberland' }) }]);
+    const bare = spreadLines([{ windowId: SAT_PM, spread: unrated({ regions: undefined }) }]);
+
+    expect(scoped[0].text).toBe('Sat sunset · nothing rated in Northumberland');
+    expect(bare[0].text).toBe('Sat sunset · nothing rated across every region');
+  });
+
+  it('reads a tally that is not a whole number as absent, never as a figure', () => {
+    expect(spreadLines([{ windowId: SAT_PM, spread: unrated({ regions: { stoodDown: '4', notScored: -1 } }) }])[0].text)
+      .toBe('Sat sunset · nothing rated across every region');
+  });
+
+  it('never adds the tallies to a RATED window’s line: the counts are the figures there', () => {
+    const [line] = spreadLines([{ windowId: SAT_PM, spread: spread({ regions: { counted: 2, stoodDown: 4, notScored: 1 } }) }]);
+
+    expect(line.text).toBe('Sat sunset · 180 rated across every region · 2 at 4★+');
   });
 });
 
@@ -166,6 +204,11 @@ describe('spreadLines — nothing carried, nothing said', () => {
   it('does not let an undrawable window turn into a "nothing rated" claim', () => {
     // Nothing drawable at all: no line, rather than a sentence about windows that were never named.
     expect(spreadLines([{ windowId: '2026-10-17_astro', spread: spread({ rated: 0 }) }])).toEqual([]);
+    // And beside a drawable unrated window, the undrawable one still gets no line of its own.
+    expect(spreadLines([
+      { windowId: '2026-10-17_astro', spread: spread({ rated: 0 }) },
+      { windowId: SAT_PM, spread: spread({ rated: 0, gameOn: 0, go: 0 }) },
+    ]).map((l) => l.windowId)).toEqual([SAT_PM]);
   });
 
   it('reads a 4★+ or 5★ count that is not a whole number as zero, never as a figure', () => {

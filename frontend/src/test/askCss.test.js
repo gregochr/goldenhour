@@ -214,6 +214,22 @@ describe('the Ask stylesheet — the thread (T4)', () => {
 });
 
 describe('the Ask stylesheet — the window spread line (ask-window-context plan §2.4, W2)', () => {
+  /**
+   * EVERY rule in the Ask block whose selector list mentions `token` anywhere — not only a rule whose
+   * selector IS the token (`ruleBody`'s first match), so a later duplicate rule or a surface-scoped one
+   * (`[data-ask-surface] .wf-ask-spread-l`, `.app-safe-sheet .wf-ask-spread`) is seen too.
+   */
+  function rulesMentioning(token) {
+    const rule = /([^{}]+)\{([^{}]*)\}/g;
+    const found = [];
+    let m = rule.exec(askBlock);
+    while (m !== null) {
+      if (m[1].includes(token)) found.push({ selector: m[1].trim(), body: m[2] });
+      m = rule.exec(askBlock);
+    }
+    return found;
+  }
+
   it('styles both the list and its lines, in no media, supports or container query: no width drops it', () => {
     expect(ruleBody('.wf-ask-spread')).not.toBeNull();
     expect(ruleBody('.wf-ask-spread-l')).not.toBeNull();
@@ -221,18 +237,16 @@ describe('the Ask stylesheet — the window spread line (ask-window-context plan
     expect(naming).toEqual([]);
   });
 
-  it('never hides or clips a line, and the stylesheet gates it on no role', () => {
-    for (const selector of ['.wf-ask-spread', '.wf-ask-spread-l']) {
-      const body = ruleBody(selector);
+  it('is hidden or clipped by NO rule that names it, on any surface — every rule, not only the first', () => {
+    const rules = rulesMentioning('wf-ask-spread');
+    expect(rules.length).toBeGreaterThanOrEqual(2);
+    for (const { selector, body } of rules) {
       expect(body, selector).not.toMatch(/display:\s*none|visibility:\s*hidden|opacity:\s*0\b/);
       expect(body, selector).not.toMatch(/max-height|overflow:\s*hidden|line-clamp|white-space:\s*nowrap/);
     }
-    // No selector in the Ask block ties the line to a role attribute or class.
-    expect(askBlock).not.toMatch(/\[data-role[^\]]*\][^{]*wf-ask-spread|wf-ask-spread[^{]*\[data-role/);
-    expect(askBlock).not.toMatch(/is-lite[^{]*wf-ask-spread|wf-ask-spread[^{]*is-lite/);
   });
 
-  it('wraps a long line at 320px rather than overflowing: overflow-wrap anywhere on the line', () => {
+  it('lets a line wrap: overflow-wrap anywhere, so a long region scope cannot overflow a narrow sheet', () => {
     expect(ruleBody('.wf-ask-spread-l')).toMatch(/overflow-wrap:\s*anywhere/);
   });
 

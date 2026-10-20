@@ -15,7 +15,7 @@ import {
   installAskConversationMocks, removeAskConversationMocks,
 } from './askConversationHarness.jsx';
 import { ownResponse, readyResponse } from './askFixtures.js';
-import AskWindowSpread from '../components/ask/AskWindowSpread.jsx';
+import AskWindowSpread, { SPOKEN_LEAD } from '../components/ask/AskWindowSpread.jsx';
 
 vi.mock('../api/briefingApi.js', () => ({ getDailyBriefing: vi.fn() }));
 vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn() }));
@@ -65,23 +65,46 @@ describe('AskWindowSpread — on a typed answer', () => {
 
     const live = screen.getByTestId('ask-live');
     const list = within(live).getByRole('list', { name: 'Rated places, by window' });
-    const lines = within(list).getAllByTestId('ask-spread-line');
-    expect(lines.map((li) => li.querySelector('[aria-hidden="true"]').textContent)).toEqual([SAT_LINE, SUN_LINE]);
+    expect(within(list).getAllByTestId('ask-spread-text').map((el) => el.textContent)).toEqual([SAT_LINE, SUN_LINE]);
     // Under the summary, above the events and picks: the figure stands beside the sentence it qualifies.
     const summary = within(live).getByTestId('ask-summary');
-    expect(summary.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(Boolean(summary.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
     const events = within(live).getByTestId('ask-events');
-    expect(list.compareDocumentPosition(events) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(Boolean(list.compareDocumentPosition(events) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
   });
 
-  it('speaks the figures as counts: the glyph is hidden and the spoken twin has no star', () => {
-    render(<AskWindowSpread windows={[WINDOWS[0]]} />);
+  it('hides the drawn glyph line from assistive technology and speaks a twin, the first one led so the live region frames it', () => {
+    render(<AskWindowSpread windows={WINDOWS} />);
 
-    const line = screen.getByTestId('ask-spread-line');
-    expect(line.querySelector('[aria-hidden="true"]')).toHaveTextContent(SAT_LINE);
-    expect(line.querySelector('.sr-only')).toHaveTextContent('Sat sunset: 180 rated across every region, 2 at 4 stars or more');
-    expect(line.querySelector('.sr-only').textContent).not.toContain('★');
-    expect(line).toHaveAttribute('data-window', '2026-10-17_sunset');
+    const [sat, sun] = screen.getAllByTestId('ask-spread-line');
+    expect(within(sat).getByTestId('ask-spread-text')).toHaveAttribute('aria-hidden', 'true');
+    expect(within(sat).getByTestId('ask-spread-text').textContent).toBe(SAT_LINE);
+    const spokenSat = within(sat).getByTestId('ask-spread-spoken');
+    expect(spokenSat).toHaveClass('sr-only');
+    expect(spokenSat.textContent).toBe(`${SPOKEN_LEAD} Saturday sunset: 180 rated across every region, 2 at 4 stars or more`);
+    expect(within(sun).getByTestId('ask-spread-spoken').textContent).toBe('Sunday sunrise: 150 rated across every region, none at 4 stars or more');
+    expect(sat).toHaveAttribute('data-window', '2026-10-17_sunset');
+    expect(sun).toHaveAttribute('data-window', '2026-10-18_sunrise');
+    expect(SPOKEN_LEAD).toBe('Rated places, by window.');
+  });
+
+  it('draws each window’s own "nothing rated" line, with its tallies, when none is rated', async () => {
+    ask.mockResolvedValue(ownResponse({
+      picks: [],
+      events: [],
+      windows: [
+        { windowId: '2026-10-17_sunset', spread: { over: 'every region', rated: 0, bands: [0, 0, 0, 0, 0], gameOn: 0, gameOnPct: 0, go: 0, below4: 0, stars1to2: 0, regions: { counted: 0, stoodDown: 6 }, pockets: [] } },
+        { windowId: '2026-10-18_sunrise', spread: { over: 'every region', rated: 0, bands: [0, 0, 0, 0, 0], gameOn: 0, gameOnPct: 0, go: 0, below4: 0, stars1to2: 0, regions: { counted: 0, notScored: 6 }, pockets: [] } },
+      ],
+    }));
+    await renderAsk();
+
+    await askTyped('Best spot this weekend?', { view: 'plan' });
+
+    const lines = screen.getAllByTestId('ask-spread-line');
+    expect(within(lines[0]).getByTestId('ask-spread-text').textContent).toBe('Sat sunset · nothing rated across every region · 6 regions stood down');
+    expect(within(lines[1]).getByTestId('ask-spread-text').textContent).toBe('Sun sunrise · nothing rated across every region · 6 not scored');
+    expect(lines[0]).toHaveAttribute('data-window', '2026-10-17_sunset');
   });
 
   it('draws nothing for an answer that carries no windows — every answer stored before W1', async () => {
@@ -94,7 +117,7 @@ describe('AskWindowSpread — on a typed answer', () => {
     expect(screen.queryByTestId('ask-spread')).toBeNull();
   });
 
-  it('draws nothing for a can’t-answer, which the server never gives windows', async () => {
+  it('draws nothing under a can’t-answer even when the body carries windows: the figures qualify an answer, not a refusal', async () => {
     ask.mockResolvedValue({
       answerable: false, kind: 'cant', summary: 'No car park information.', picks: [], events: [],
       missing: 'car park information', try: [], allowanceLeft: 3, allowanceLimit: 3, charged: false,
@@ -132,7 +155,7 @@ describe('AskWindowSpread — on a Ready answer', () => {
 
     expect(await screen.findByTestId('ask-summary')).toHaveTextContent('Whitby is the best of tonight');
     const list = within(screen.getByTestId('ask-live')).getByTestId('ask-spread');
-    expect(within(list).getByTestId('ask-spread-line').querySelector('[aria-hidden="true"]')).toHaveTextContent(SAT_LINE);
+    expect(within(list).getByTestId('ask-spread-text').textContent).toBe(SAT_LINE);
     expect(ask).not.toHaveBeenCalled();
   });
 
