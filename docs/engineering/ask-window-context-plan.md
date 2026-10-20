@@ -1,9 +1,10 @@
 # Ask PhotoCast — the window's rating distribution (`list_windows` spread)
 
 **Status (2026-10-20): the owner accepted every recommendation of §6 (recorded there). W1 (the backend spread,
-the prompt, the carried figures and their freshness) and W3 (the regression class and its fixtures) are
-built; W2 (the client line, Q4), W4 (§2.5, Q1 chosen option A: nothing to build) and R1 are not. No
-migration. The W3 regression's assertions are pending the owner's approval and it has never been run.**
+the prompt, the carried figures and their freshness), W3 (the regression class and its fixtures) and W2 (the
+client line, Q4: `AskWindowSpread` over `utils/askSpread.js`, one line per carried window under the summary,
+on every surface and for every role) are built; W4 (§2.5, Q1 chosen option A: nothing to build) and R1 are
+not. No migration. The W3 regression's assertions are pending the owner's approval and it has never been run.**
 
 Written 2026-10-17 from the owner's reading of the Plan tab's spread histograms for the weekend of
 Sat 17 / Sun 18 October 2026, the day the neighbour guard went on by default (#1220), and reviewed
