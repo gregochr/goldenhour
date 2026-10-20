@@ -87,7 +87,8 @@ export function doorHeadline(trigger, ctx) {
  * region, the exact spot set of a coming-up card), read off its `handoff`/`focus` rather than
  * re-decided here. A night trigger names its night (`night`), a spot-set trigger its names
  * (`focusNames`, a TEMPORARY named lens on the tab) and its points (`focusPoints`, to fit).
- * Fields that do not apply are ABSENT, not null, so a plain door's payload is unchanged.
+ * Fields that do not apply are ABSENT, not null, so a plain door's payload is unchanged. The
+ * wrapper-supplied lens fields (`minRating`, `limitMinutes`) and `inPlace` ride through untouched.
  *
  * @param {object} trigger a normalised trigger ({@link normalizeMapTrigger})
  * @param {object} ctx     `buildMapOverlay`'s context
@@ -112,5 +113,12 @@ export function doorFromTrigger(trigger, ctx) {
   if (h.darkSky) door.darkSky = true;
   if (overlay.focus?.names?.length) door.focusNames = overlay.focus.names;
   if (overlay.focus?.points?.length) door.focusPoints = overlay.focus.points;
+  // The wrapper-supplied lens fields ride through untouched (`WindowFirstShell.openMapTab` ->
+  // `openMapDoor` spreads the Plan's rating floor and reach tier, and `inPlace`, onto whatever it is
+  // handed, a trigger included): this function resolves the overlay's own fields and adds nothing of
+  // its own to the lens. Copied when the trigger carries the key at all, otherwise ABSENT.
+  ['minRating', 'limitMinutes', 'inPlace'].forEach((key) => {
+    if (trigger[key] !== undefined) door[key] = trigger[key];
+  });
   return door;
 }

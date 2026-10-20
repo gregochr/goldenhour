@@ -450,6 +450,35 @@ describe('doorFromTrigger (the overlay\'s seven triggers as one structured door)
     expect(door).not.toHaveProperty('focusNames');
   });
 
+  it('the wrapper-supplied lens (minRating, limitMinutes) rides through to the door', () => {
+    const door = doorFromTrigger(
+      {
+        kind: 'location', locationName: 'Top', date: DATE, eventType: 'SUNSET', minRating: 4, limitMinutes: 90,
+      },
+      ctx([loc('Top', 'Tyne and Wear', 4)]),
+    );
+    expect(door.minRating).toBe(4);
+    expect(door.limitMinutes).toBe(90);
+  });
+
+  it('a trigger without a lens yields a door with neither key - absent, not null', () => {
+    const door = doorFromTrigger(
+      { kind: 'location', locationName: 'Top', date: DATE, eventType: 'SUNSET' },
+      ctx([loc('Top', 'Tyne and Wear', 4)]),
+    );
+    expect('minRating' in door).toBe(false);
+    expect('limitMinutes' in door).toBe(false);
+    expect('inPlace' in door).toBe(false);
+  });
+
+  it('inPlace survives conversion, so the in-place branch in App is not skipped', () => {
+    const door = doorFromTrigger(
+      { kind: 'location', locationName: 'Top', date: DATE, eventType: 'SUNSET', inPlace: true },
+      ctx([loc('Top', 'Tyne and Wear', 4)]),
+    );
+    expect(door.inPlace).toBe(true);
+  });
+
   it('region with qualifying locationNames: the spot set rides focusNames', () => {
     const door = doorFromTrigger(
       {

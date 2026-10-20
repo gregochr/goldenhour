@@ -315,6 +315,21 @@ describe('App — openMapTabFromPlan with a normalised trigger (overlay converge
     expect(handoff.title).toBe('Bamburgh');
   });
 
+  it('a trigger carrying the Plan lens lands in the handoff with it, not as nulls', async () => {
+    const handoff = await press({
+      kind: 'location', locationName: 'Bamburgh', date: TOMORROW, eventType: 'SUNSET', minRating: 4, limitMinutes: 90,
+    });
+    expect(handoff.minRating).toBe(4);
+    expect(handoff.limitMinutes).toBe(90);
+  });
+
+  it('a trigger carrying inPlace takes the in-place branch: source map, no lens', async () => {
+    const handoff = await press({
+      kind: 'location', locationName: 'Bamburgh', date: TOMORROW, eventType: 'SUNSET', inPlace: true,
+    });
+    expect(handoff.source).toBe('map');
+  });
+
   it('a kind:\'coming-up\' trigger carries the exact spot set, the subject filter and its headline', async () => {
     const handoff = await press({
       kind: 'coming-up', filterAction: 'SEASCAPE', darkSky: false, label: 'Spring tide run', date: TOMORROW,
