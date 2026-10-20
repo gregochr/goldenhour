@@ -1040,15 +1040,15 @@ class ComingUpAssemblerTest {
     void missRowsAndOmission() {
         List<String> facts = runFacts(eventMeta("05:30", "-140", oct(28), false,
                 null, null, null, false, false));
-        assertThat(facts).contains("sunrise\u00a0· no high water within an hour of sunrise\u00a0· nearest HW"
+        assertThat(facts).contains("sunrise\u00a0· no high water within an hour\u00a0· nearest HW"
                 + NBSP + "05:30, 2h20" + NBSP + "before\u00a0· Wed" + NBSP + "28");
         assertThat(facts).noneMatch(f -> f.startsWith("sunset"));
 
         List<String> partial = runFacts(eventMeta("05:30", "-140", oct(28), false,
                 "19:00", "130", oct(29), false, true));
-        assertThat(partial).contains("sunrise\u00a0· no high water within an hour of sunrise on the days"
+        assertThat(partial).contains("sunrise\u00a0· no high water within an hour on the days"
                 + " measured\u00a0· nearest HW" + NBSP + "05:30, 2h20" + NBSP + "before\u00a0· Wed" + NBSP + "28");
-        assertThat(partial).contains("sunset\u00a0· no high water within an hour of sunset on the days"
+        assertThat(partial).contains("sunset\u00a0· no high water within an hour on the days"
                 + " measured\u00a0· nearest HW" + NBSP + "19:00, 2h10" + NBSP + "after\u00a0· Thu" + NBSP + "29");
     }
 

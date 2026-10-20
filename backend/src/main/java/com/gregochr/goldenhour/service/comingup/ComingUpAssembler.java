@@ -711,7 +711,7 @@ public class ComingUpAssembler {
 
     /**
      * One event row: {@code sunrise · HW 07:40, 10m before · Wed 28} when the high water is inside the
-     * alignment window, else {@code sunrise · no high water within an hour of sunrise · nearest
+     * alignment window, else {@code sunrise · no high water within an hour · nearest
      * HW 05:30, 2h20 before · Wed 28}. Empty when the run has no measured high water for the event. On a run
      * only partly measured the miss is qualified {@code on the days measured}. Figures carry
      * non-breaking spaces so a phone wraps only around the separators.
@@ -733,8 +733,8 @@ public class ComingUpAssembler {
             segs.add(new ComingUpFact.Segment(water + ", " + offset, "accent"));
             segs.add(new ComingUpFact.Segment(EVENT_SEPARATOR + day, "base"));
         } else {
-            segs.add(new ComingUpFact.Segment(word + EVENT_SEPARATOR + "no high water within an hour of "
-                    + word + (partial ? " on the days measured" : "") + EVENT_SEPARATOR + "nearest "
+            segs.add(new ComingUpFact.Segment(word + EVENT_SEPARATOR + "no high water within an hour"
+                    + (partial ? " on the days measured" : "") + EVENT_SEPARATOR + "nearest "
                     + water + ", " + nb(eventOffset(gap, null)) + EVENT_SEPARATOR + day, "base"));
         }
         return Optional.of(new ComingUpFact(segs));

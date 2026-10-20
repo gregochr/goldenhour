@@ -24,8 +24,8 @@ each about HIGH water only, each always dated:
 |---|---|
 | aligned | `sunrise · ` **`HW 07:40, 10m before`** ` · Wed 28` |
 | within 5 min | `sunrise · ` **`HW 07:42, at sunrise`** ` · Wed 28` |
-| none within the hour | `sunrise · no high water within an hour of sunrise · nearest HW 05:30, 2h20 before · Wed 28` |
-| ditto, run only partly measured | `sunrise · no high water within an hour of sunrise on the days measured · nearest …` |
+| none within the hour | `sunrise · no high water within an hour · nearest HW 05:30, 2h20 before · Wed 28` |
+| ditto, run only partly measured | `sunrise · no high water within an hour on the days measured · nearest …` |
 | no measured day has a high water that day | row omitted (never synthesised) |
 
 The event word is the row's own label, so the clock clause never repeats it except "at sunrise/sunset". The
