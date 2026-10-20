@@ -5,6 +5,118 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.29.1] - 2026-10-20
+
+### Changed — Coming up tide-run miss row names the event once
+
+The "no high water" row on tide-run cards no longer repeats the event word:
+`sunrise · no high water within an hour · nearest HW 05:30, 2h20 before · Wed 28`
+(and `… within an hour on the days measured · …` for a partly measured run). Same for sunset.
+
+### Docs — plan the Plan-tab map overlay's retirement onto the Map tab (O-6)
+
+`docs/engineering/overlay-convergence-plan.md` plans map-tab-v2's open decision O-6 as a
+retirement, not a re-skin: the "Aurora tonight" / "Sunrise tomorrow" overlay — the pre-v2 map kept
+behind `MapView`'s `overlayMode` gate (medallions, the Leaflet popup, its own EVENT/QUALITY/
+LOGISTICS drawer and `/drive-times` fetch) — is deleted and its seven producers open the real Map
+tab through the structured `source:'plan'` door, as the location sheet's *Show on map* already
+does. Six phases: C1 extends the door with everything the overlay's triggers carry (a night, a
+named clearable spot lens, a multi-pin fit, the coming-up filters, a breadcrumb title); C2 gives the
+location sheet and callout the popup's facts the tab lacks (badges, surge and sea state, the
+aurora and astro detail, score bars, the travel-day notice); C3 lets the Map tab open on an aurora
+alert before any solar forecast exists; C4 moves the doors and closes the overlay-over-a-Plan-
+dialog route; C5 deletes ~700 lines of `MapView.jsx`, `MapOverlay`, `utils/mapOverlay.js`,
+`ForecastTypeSelector` and ~50 overlay tests; C6 sweeps the docs. §5 lists six owner decisions,
+recommended but not yet taken. `overlay-convergence-prompts.md` carries one Sonnet kickoff prompt
+per phase.
+
+### Fixed — NOAA solar wind (Bz, speed, density) read from the live `rtsw` feeds
+
+NOAA withdrew `products/solar-wind/mag-1-day.json` and `plasma-1-day.json` (both now 404), so every
+aurora poll logged `NOAA solar wind fetch failed` and the Bz / speed / density readings were empty.
+The defaults now point at `json/rtsw/rtsw_mag_1m.json` and `json/rtsw/rtsw_wind_1m.json`, and the parser
+reads their shape (an array of objects, newest first, one row per spacecraft per minute): `bz_gsm`,
+`proton_speed` and `proton_density` from the spacecraft flagged `active`, merged by minute. If no row
+is flagged active every row is used. `application-prod.yml` and `application-example.yml` set the
+URLs explicitly, so both are updated; a hand-edited production file that still names the old
+`products/solar-wind/…` URLs overrides the new default and must be changed
+(`aurora.noaa.solar-wind-url` and `aurora.noaa.solar-wind-plasma-url`). The contract fixtures are now real
+samples of the new feeds.
+
+A failed fetch's WARN no longer carries the whole error body: NOAA and light-pollution client failures
+(the NLC scraper was fixed separately) log through `LogSanitizer`, which flattens the message to one line of at most 200
+characters.
+
+### Fix — NLC sighting scraper no longer hammers a 404 page out of season
+
+`NlcSightingClient` fetched `…/nlcnet/2026-october` every 10 minutes all year, logging the whole ~30 KB 404 HTML page each time (NLCNET only publishes May–August). It now skips the fetch outside the NLC season (`NlcClarityService.isNlcSeason`, the hot topic's own definition; one INFO line a day), stops retrying a URL that answered 404 until the next UK day, and truncates any other logged error message to 200 characters. A pinned, placeholder-free archive URL is unaffected by the season gate.
+
+### Added — Coming up tide-run cards name the high water at sunrise and at sunset
+
+Every tide-run card now shows two dated rows, sunrise first, in place of the single `tide …` alignment row:
+`sunrise · HW 07:40, 10m before · Wed 28` (or `no high water within an hour · nearest HW …`, qualified
+"on the days measured" for a partly measured run). The rows name HIGH water only: a low water at sunrise or sunset
+is no longer named on the card. The run's day is the true peak day when its water is aligned for that event,
+otherwise the closest day. The rows also ride a supermoon-hosted merged card. The old `alignment`/`alignmentDate`/
+`noAlignment` meta are no longer written, the merged-card ` on the <ordinal>` suffix is gone (both rows are always
+dated), the coincidence line's HW clock reads the new rows, and the sparkline's `tide.phase` is always `HW`. On a tide
+card each row takes its own line and wraps without leaving a bare `·` at a line start.
+
+### Fix — aurora triage no longer calls a failed cloud fetch "completely overcast"
+
+When Open-Meteo failed some batch chunks, `WeatherTriageService` filled the affected candidates with an all-overcast window and stood them down with a 1★ "Completely overcast" score, though no cloud had been read (2026-10-19: about 80 of 220 candidates). `NorthwardTransectSampler.sampleMeasured` now treats a failed point as unknown (after one bounded retry of just the failed points), and `TriageResult` gains an `unsampled` list. Unsampled places get no score or result row — "not assessed", neither viable nor rejected — and the log names how many. `sample()` (NLC) is unchanged.
+
+### Changed — Plan card Spread row: one histogram width across the strip
+
+The Spread row's count columns were sized per card, from that card's longest count, so two cards
+side by side with longest counts of 91 and 125 drew histograms of different widths. The width and
+the smaller count type are now decided once for the whole strip, from the longest count on any card
+that draws bars, so neighbouring cards line up. A card that prints text instead of bars (below the
+minimum-sample gate) or an away cell contributes nothing, so it cannot widen the others.
+
+### Docs — neighbour guard: the plan
+
+`docs/engineering/neighbour-guard-plan.md` plans a serve-time guard that stops a place from being
+named as the single best place (an Ask pick, the BEST BET destination, the Plan card's
+best-reachable line) when its sky rating sits at least 2 stars above every place within 5 km in the
+same window, and at least two of those places are at a similar height. The star itself stays on the
+map and in every mean. Two read-only measurements back the defaults: `guard-tuning.sql` over stored
+rows and `serve-guard.sql` over the served cache. At the defaults the rule flagged no place in 18
+served windows and none in Sonnet 5.5's 36 runs, while Haiku's FAR bucket raised 6 in 16 runs, the
+Caw Gap 4★ among them.
+Phases G1a–G4 follow; G1b ships switched off until the Ask and client phases land.
+
+### Docs — CLAUDE.md records how an admin aurora simulation ends
+
+The Aurora API notes listed `POST /api/aurora/admin/simulate` and `POST /api/aurora/admin/simulate/clear`
+without saying what either does to the state machine. The guess a reader would make — that Clear is
+`POST /reset` under another name — was true until the simulation-lifecycle fix and is not now, so the
+notes now say what the code does, read from `AuroraStateCache` and `AuroraOrchestrator` rather than
+from their javadoc:
+
+- A simulation ends on the next real reading that reaches `evaluate()` — a quiet one clears it, an
+  alert-worthy one replaces it with a new real alert — or on `simulate/clear`, whichever is first.
+- A night poll that would CLEAR holds instead while a block's NOAA reading is still due, and
+  `wouldClear` counts a simulated alert, so a simulation can outlive the next poll.
+- `simulate/clear` calls `endSimulation()`, which acts only while a simulation stands; with none
+  running it changes nothing and still answers 200, the status saying nothing was cleared. `POST /reset`
+  is the call that wipes the machine, a real alert included.
+
+No code changed.
+
+### Docs — a plan for giving Ask PhotoCast each window's rating distribution
+
+`docs/engineering/ask-window-context-plan.md` sets out, for the owner to judge, how `list_windows`
+would carry each window's spread (the count at each star, how many places are game on at 4★ or
+better, the regions holding one, and how many regions were stood down whole or not scored), so that
+Ask reads a window the way the owner reads the heat map and says plainly when a weekend is not worth
+going out for instead of presenting a thin 4★ tail as a recommendation. It gives the population
+(server-side, user-less, the combined rating, no fitted curve), the prompt's criteria and workflow
+hint, how a quoted figure stays honest, the 3★-at-a-distance options for the owner to decide, two
+real-API regression cases pending the owner's assertions, a read-only sub-region research recipe,
+and the delivery phases. `scripts/measurements/ask-window-context/measure.py` is the token-cost
+mock behind its figures. No prompt, tool or pipeline behaviour changed.
+
 ## [v2.29.0] - 2026-10-17
 
 ### Docs — valley mist plan: the morning PhotoCast cannot see

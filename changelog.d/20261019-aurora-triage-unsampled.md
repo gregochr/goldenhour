@@ -1,3 +1,0 @@
-### Fix — aurora triage no longer calls a failed cloud fetch "completely overcast"
-
-When Open-Meteo failed some batch chunks, `WeatherTriageService` filled the affected candidates with an all-overcast window and stood them down with a 1★ "Completely overcast" score, though no cloud had been read (2026-10-19: about 80 of 220 candidates). `NorthwardTransectSampler.sampleMeasured` now treats a failed point as unknown (after one bounded retry of just the failed points), and `TriageResult` gains an `unsampled` list. Unsampled places get no score or result row — "not assessed", neither viable nor rejected — and the log names how many. `sample()` (NLC) is unchanged.
