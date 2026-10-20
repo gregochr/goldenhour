@@ -11,6 +11,6 @@ URLs explicitly, so both are updated; a hand-edited production file that still n
 (`aurora.noaa.solar-wind-url` and `aurora.noaa.solar-wind-plasma-url`). The contract fixtures are now real
 samples of the new feeds.
 
-A failed fetch's WARN no longer carries the whole error body: NOAA, NLC sighting and light-pollution
-client failures log through `LogSanitizer`, which flattens the message to one line of at most 200
+A failed fetch's WARN no longer carries the whole error body: NOAA and light-pollution client failures
+(the NLC scraper was fixed separately) log through `LogSanitizer`, which flattens the message to one line of at most 200
 characters.
