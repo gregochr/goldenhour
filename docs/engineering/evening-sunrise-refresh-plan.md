@@ -1,6 +1,6 @@
 # Plan: an evening refresh of tomorrow's sunrise
 
-**Status: DRAFT, 2026-10-20, not started.** Written against `main` at `214a49ed`; revised the same day
+**Status: E1–E3 BUILT 2026-10-20** (E1 #1254, E2 #1255, E3a #1256, E3b #1257, E3c this docs sweep); the job ships PAUSED and **E4, the switch-on, is the owner's**. E5 was widened by the owner the same day (§4 E-D7). Written against `main` at `214a49ed`; revised the same day
 against `dca621cc` after an adversarial review of the plan (§8), which changed the failure-counting
 design (E-D5), added a decision the first draft missed (E-D8), corrected the timing figures, and
 rewrote the build briefs (§9) so each phase can be handed to a Sonnet agent. The owner accepted the
@@ -184,9 +184,14 @@ endpoint, catch-up). The watchdog walks all three:
 - **E-D6 — Ask Ready after the evening.** **Proposed: yes.** It is 4 scheduled precomputes a UK day
   against a ceiling of 6, about 35 Haiku conversations, and makes "best spot tomorrow morning?" answer
   from the evening's forecast instead of the afternoon's.
-- **E-D7 — Later: drop tomorrow's sunrise from the afternoon?** Once the evening has run cleanly for a
-  fortnight the afternoon's tomorrow-sunrise evaluations largely duplicate it, more so in winter (the
-  evening is 8 h fresher) than summer (3 h). **Proposed: decide after measuring §5**, perhaps seasonally.
+- **E-D7 — Later: the afternoon evaluates today's sunset only. Widened by the owner, 2026-10-20.** Once
+  the evening has run cleanly, drop BOTH of the afternoon's tomorrow slots. Tomorrow's sunrise moves to
+  the evening, which re-pays it, so that is a shift, not a saving. Tomorrow's sunset is the real saving:
+  the next overnight and the next afternoon still cover it. Gate it on E4 (a fortnight of clean evenings;
+  never while the evening is PAUSED, or tomorrow's sunrise would rest on an overnight look about 18 h
+  old) and on §5's figures. Side benefits: the evening's cache bypass (E-D3 (a)) becomes unnecessary, the
+  June afternoon/evening overlap (E-D4) mostly goes, and Open-Meteo use falls. The change is the intraday
+  strategy plus `IntradayEligibilityPolicy`'s tomorrow rule. Perhaps seasonal.
 - **E-D8 — The summer overnight skips tomorrow's sunrise (§2 #3). Owner accepted 2026-10-20: accept it.**
   From roughly May to August an evening result landing after about 21:13 UTC is under the overnight's
   2 h T+0 cap, so the overnight marks that slot `SKIPPED_CACHED` and the morning look *is* the evening's.
@@ -210,6 +215,12 @@ What those calls cost (batch sky calls for tomorrow's sunrise, per afternoon cyc
 
 ```bash
 docker exec -i goldenhour-db psql -U goldenhour -d goldenhour -c "SELECT p.id, to_char(p.trigger_time,'DD Mon') AS day, count(*) AS calls, round(sum(a.cost_micro_dollars)/1e6, 3) AS usd FROM pipeline_run p JOIN forecast_batch b ON b.pipeline_run_id = p.id JOIN api_call_log a ON a.batch_id = b.anthropic_batch_id WHERE p.cycle_type='INTRADAY' AND p.trigger_time > now() - interval '7 days' AND a.target_type='SUNRISE' AND a.target_date = (p.trigger_time AT TIME ZONE 'Europe/London')::date + 1 GROUP BY 1,2 ORDER BY 1;"
+```
+
+Tomorrow's sunset, the second half of E5 (the first query with `d.event_type='SUNSET'`):
+
+```bash
+docker exec -i goldenhour-db psql -U goldenhour -d goldenhour -c "SELECT p.id, to_char(p.trigger_time,'DD Mon') AS day, count(*) FILTER (WHERE d.disposition='EVALUATED' AND d.event_type='SUNSET' AND d.days_ahead=1) AS t1_sunset, count(*) FILTER (WHERE d.disposition='EVALUATED') AS all_evaluated FROM pipeline_run p JOIN forecast_run_disposition d ON d.job_run_id = p.disposition_job_run_id WHERE p.cycle_type='INTRADAY' AND p.trigger_time > now() - interval '7 days' GROUP BY 1,2 ORDER BY 1;"
 ```
 
 The per-cycle overheads every cycle pays on top (briefing rebuild, Ask Ready precompute):
@@ -241,8 +252,9 @@ Each phase is one PR from `main`. §9 holds the brief for each build phase.
   cleanly. Watch three evenings: one `EVENING` run at 20:00 UTC, completed well inside 2 h, the Plan
   tab's tomorrow-sunrise card updated after it, no watchdog mail, and the next overnight's failure settle
   FULL.
-- **E5 — Optional (E-D7).** Drop tomorrow's sunrise from the afternoon, after a fortnight of E4 and the
-  §5 figures.
+- **E5 — Optional (E-D7).** The afternoon evaluates today's sunset only: drop tomorrow's sunrise (moved
+  to the evening) and tomorrow's sunset (the saving), after a fortnight of clean evenings (E4) and the §5
+  figures. Never while the evening is paused.
 
 Rollback at every stage after E2: pause the job. Nothing else depends on it.
 
@@ -251,7 +263,7 @@ Rollback at every stage after E2: pause the job. Nothing else depends on it.
 - E2 ships the job PAUSED; only the owner resumes it.
 - E1 must change no behaviour; if an existing test's expected value has to change, stop and report.
 - Migrations are proven only in CI.
-- E5 is a product decision, not part of this build.
+- E5 (the afternoon evaluates today's sunset only) is a product decision gated on E4, not part of this build.
 
 ## 8. Review record
 
