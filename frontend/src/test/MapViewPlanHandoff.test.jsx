@@ -1015,6 +1015,61 @@ describe('MapView — filterAction / darkSky: the door\'s subject and dark-sky l
   });
 });
 
+describe('MapView — a door locks the window it NAMES; one that names none hands the choice back to auto-selection', () => {
+  const NO_EVENT = { ...DOOR_BASE, eventType: null, nonce: 1 };
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(`${TODAY}T10:00:00Z`));
+    getAstroAvailableDates.mockResolvedValue([TODAY]);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    getAstroAvailableDates.mockReset();
+    getAstroAvailableDates.mockResolvedValue([]);
+  });
+
+  it('⚠️ a door naming no event does not leave the map on a stale night: it lands on the date\'s own solar event', async () => {
+    const { rerender } = await renderTab({ autoEventType: 'SUNSET', planHandoff: null });
+    // Put the map on the astro night by the reader's own choice (the window control's next/prev).
+    for (let i = 0; i < 4 && !/astro/i.test(screen.getByTestId('wf-win-pill').textContent); i += 1) {
+      await act(async () => { fireEvent.click(screen.getByTestId('wf-win-next')); });
+    }
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/astro/i);
+
+    await rerenderWith(rerender, { autoEventType: 'SUNSET', planHandoff: NO_EVENT });
+
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/sunset/i);
+    expect(screen.getByTestId('wf-win-pill')).not.toHaveTextContent(/astro/i);
+  });
+
+  it('control: a door NAMING sunrise lands on sunrise and keeps it when auto-selection would prefer sunset', async () => {
+    const { rerender } = await renderTab({ autoEventType: 'SUNSET', planHandoff: null });
+    await rerenderWith(rerender, {
+      autoEventType: 'SUNSET', planHandoff: { ...DOOR_BASE, eventType: 'SUNRISE', nonce: 1 },
+    });
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/sunrise/i);
+
+    await rerenderWith(rerender, {
+      autoEventType: 'SUNRISE', planHandoff: { ...DOOR_BASE, eventType: 'SUNRISE', nonce: 1 },
+    });
+    await rerenderWith(rerender, {
+      autoEventType: 'SUNSET', planHandoff: { ...DOOR_BASE, eventType: 'SUNRISE', nonce: 1 },
+    });
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/sunrise/i);
+  });
+
+  it('a door naming no event leaves the window unlocked: a later autoEventType change moves it', async () => {
+    const { rerender } = await renderTab({ autoEventType: 'SUNSET', planHandoff: NO_EVENT });
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/sunset/i);
+
+    await rerenderWith(rerender, { autoEventType: 'SUNRISE', planHandoff: NO_EVENT });
+
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/sunrise/i);
+  });
+});
+
 describe('MapView — night: select the night\'s row, but not until the row exists', () => {
   const NIGHT_DOOR = {
     ...DOOR_BASE, eventType: 'ASTRO', night: { kind: 'astro', date: TODAY }, nonce: 1,

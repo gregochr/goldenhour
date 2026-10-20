@@ -2453,14 +2453,29 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       // setting `AURORA` first would point the map at a night with no row. The night-follow effect
       // below applies it once the row exists, exactly as the `askWindow` effect does. Every solar
       // door - and any door that names an event - is applied here as before.
-      if (!planHandoff.night && planHandoff.eventType) {
-        setEventType(planHandoff.eventType);
-        setLocalNightDate(null);
+      //
+      // ⚠️ THE RULE: a door locks the window it NAMES; a door that names none hands the choice back to
+      // auto-selection for its date. A solar door that names an event (the structured door the
+      // contract was built for) sets it and locks it as the reader's own choice, so the auto effect
+      // cannot replace it a tick later. One that names NONE (a Coming up card never named a window,
+      // and neither did the overlay's) must not lock whatever stale window the persistent map was
+      // left on (a night row, or the other solar event): it clears any kept-local night, unlocks, and
+      // applies the auto-selected event directly (flipping the flag alone would do nothing when it
+      // was already false, since the auto effect re-runs only when a dependency changes).
+      if (!planHandoff.night) {
+        if (planHandoff.eventType) {
+          setEventType(planHandoff.eventType);
+          setLocalNightDate(null);
+          setUserHasOverriddenEvent(true);
+        } else {
+          setLocalNightDate(null);
+          setUserHasOverriddenEvent(false);
+          if (autoEventType) setEventType(autoEventType);
+        }
       }
       // A night door marks the window as the reader's own only once its row is actually followed
       // (`followWindowRow`): marking it here, before the row exists, would suppress the
       // auto-selection that corrects the interim window while the night's rows are still loading.
-      if (!planHandoff.night) setUserHasOverriddenEvent(true);
       // ⚠️ EVERYTHING BELOW IS THE DOOR'S, and a map-sourced handoff takes none of it. `source:
       // 'map'` is the four-day sheet's own footer pressed while that sheet is already OVER the map
       // — the reader never left, so there is no lens to import and nothing was carried: applying
