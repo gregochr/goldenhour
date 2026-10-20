@@ -940,6 +940,35 @@ describe('MapView — filterAction / darkSky: the door\'s subject and dark-sky l
     expect([...filtersPopoverCalls.at(-1).activeTypeFilters]).toEqual(['LANDSCAPE']);
   });
 
+  it('⚠️ Clear all ends the door\'s filter lens: the breadcrumb\'s clear does not resurrect a filter the reader cleared', async () => {
+    const { rerender } = await renderTab({ planHandoff: null });
+    await act(async () => { filtersPopoverCalls.at(-1).onToggleType('LANDSCAPE'); });
+    await act(async () => { filtersPopoverCalls.at(-1).onToggleDarkSky(); });
+    await rerenderWith(rerender, {
+      heat: HEAT, planHandoff: { ...DOOR_BASE, filterAction: 'SEASCAPE', focusNames: ['Near'], nonce: 1 },
+    });
+    await act(async () => { filtersPopoverCalls.at(-1).onClearAll(); });
+    expect(filtersPopoverCalls.at(-1).activeTypeFilters.size).toBe(0);
+
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'clear' })); });
+
+    expect(filtersPopoverCalls.at(-1).activeTypeFilters.size).toBe(0);
+    expect(filtersPopoverCalls.at(-1).darkSkyFilter).toBe(false);
+  });
+
+  it('...and the NEXT door starts from an empty base, not the pre-door snapshot', async () => {
+    const { rerender } = await renderTab({ planHandoff: null });
+    await act(async () => { filtersPopoverCalls.at(-1).onToggleType('LANDSCAPE'); });
+    await rerenderWith(rerender, {
+      heat: HEAT, planHandoff: { ...DOOR_BASE, filterAction: 'SEASCAPE', nonce: 1 },
+    });
+    await act(async () => { filtersPopoverCalls.at(-1).onClearAll(); });
+
+    await rerenderWith(rerender, { heat: HEAT, planHandoff: { ...DOOR_BASE, nonce: 2 } });
+
+    expect(filtersPopoverCalls.at(-1).activeTypeFilters.size).toBe(0);
+  });
+
   it('the clause goes when the reader turns the carried filter off themselves (a live claim)', async () => {
     await renderTab({ planHandoff: { ...DOOR_BASE, darkSky: true, nonce: 1 } });
     await act(async () => { filtersPopoverCalls.at(-1).onToggleDarkSky(); });

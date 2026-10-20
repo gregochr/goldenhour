@@ -4671,6 +4671,14 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     setDriveTimeFilter(0);
     setDarkSkyFilter(false);
     clearMapFilter('mapFilterMinStars');
+    // "Clear all" leaves nothing of the reader's filters to hand back, and the door's own filter is
+    // gone with them, so the door's filter lens ends here: a stale snapshot would otherwise be
+    // unioned back in by the breadcrumb's `clear` or by the next door, resurrecting a filter the
+    // reader explicitly cleared. The spot-set lens (`focusLensNames`) is the breadcrumb's, not a
+    // reader filter, and stays.
+    appliedDoorLens.current = {
+      active: false, before: { types: new Set(), dark: false }, doorTypes: new Set(), doorDark: false,
+    };
   }
 
   /**
