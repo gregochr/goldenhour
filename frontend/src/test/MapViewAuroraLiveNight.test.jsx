@@ -281,7 +281,11 @@ describe('the 🏆 best-location card — dismissal (aurora heat A4)', () => {
   it('with no window pill, skips disabled, aria-hidden and tabindex=-1 controls and lands on the next real one', async () => {
     const { container } = await renderOn(THE_NIGHT);
     await screen.findByTestId('aurora-best-location-card');
-    expect(screen.queryByTestId('wf-win-pill')).not.toBeInTheDocument();
+    // This test used to stand on a map with no window pill at all. Since overlay convergence C3 a real
+    // live alert with no stored run gets its own aurora row, so the pill exists here; the property under
+    // test is the focus walk when the pill CANNOT take focus, which a disabled pill reproduces (a
+    // disabled button never accepts focus and is skipped by the walk's own candidate query).
+    screen.getByTestId('wf-win-pill').setAttribute('disabled', '');
     const pane = container.querySelector('.wf-map-tab');
     const make = (testid, attrs) => {
       const el = document.createElement('button');

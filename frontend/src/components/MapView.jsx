@@ -21,6 +21,7 @@ import { buildBriefingScoreIndex, lookupBriefingScore } from '../utils/briefingS
 import { lookupForWindow } from '../utils/locationSheet.js';
 import { resolveStandDown } from '../utils/standDown.js';
 import { isNightOver, resolveAuroraNight, ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
+import { auroraTabOffered } from '../utils/auroraTab.js';
 import { appNow } from '../utils/rewind.js';
 import {
   LOCATION_TYPE_META, DISPLAY_TYPES, locationTypeLabel, isWildlifeOnly,
@@ -3861,6 +3862,38 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     : EMPTY_POINTS;
   const regionsInScope = regionNamesOf(verdictScopePool);
 
+  // ⚠️ The LIVE night's row (overlay convergence C3). The window control's night rows come from STORED
+  // results only (D-14), so a real alert whose scoring run has not stored anything yet had a live field
+  // and no row to select it by — and on a map with no sunrise or sunset forecast, no row at all. A real
+  // MODERATE/STRONG alert (`auroraTabOffered`: never LITE, never a simulation) therefore adds the night in
+  // progress when no stored result names it, its rows the live `auroraScores`, so `bestOfNight` states the
+  // same best the field paints. A night with stored results is left exactly as it was (the stored row wins
+  // and nothing here touches it), and with no live alert the inputs below are the original arrays, so a
+  // solar window's row is built from the same values it always was.
+  const liveNightOffered = !overlayMode && auroraTabOffered(auroraStatus, role)
+    && !auroraAvailableDates.includes(auroraNight);
+  const liveNightRows = liveNightOffered
+    ? Object.values(auroraScores).map((score) => ({
+      locationName: score?.location?.name, stars: score?.stars, nightStart: null,
+    }))
+    : null;
+  // The map the window control, the Regions jump list and the callout's every-window strip all read:
+  // the stored nights, plus the live one when `liveNightOffered`. Otherwise the state's own Map.
+  //
+  // A night that HAS a stored run but sits outside the preview (a map with no solar dates has an empty
+  // horizon, so the preview asks about nothing) takes its row from the answer the selected-night fetch
+  // already holds, once that has landed, so its one row states the best the field paints rather than "—".
+  // Only on a real alert, only for the night in progress, only when the preview has not answered it.
+  const storedNightRows = !overlayMode && auroraTabOffered(auroraStatus, role)
+    && auroraAvailableDates.includes(auroraNight) && !auroraResultsByDate.has(auroraNight)
+    && storedAuroraAnswer?.night === auroraNight
+    ? Object.values(storedAuroraAnswer.byName) : null;
+  const auroraNightRows = liveNightOffered
+    ? new Map([...auroraResultsByDate, [auroraNight, liveNightRows]])
+    : storedNightRows
+      ? new Map([...auroraResultsByDate, [auroraNight, storedNightRows]])
+      : auroraResultsByDate;
+
   /**
    * The Map tab's single chronological event list — map-tab-v2-plan.md §3 P6, replacing the
    * date strip, the event pills and the in-map window select on the TAB only (the overlay keeps
@@ -3892,8 +3925,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     nightOnScreen: (isAstroMode || isAuroraMode) ? { eventType, date: nightDate } : null,
     astroAvailableDates,
     astroConditionsByDate,
-    auroraAvailableDates,
-    auroraResultsByDate,
+    auroraAvailableDates: liveNightOffered ? [...auroraAvailableDates, auroraNight] : auroraAvailableDates,
+    auroraResultsByDate: auroraNightRows,
     isLite: role === 'LITE_USER',
     formatTimeUk: formatEventTimeUk,
   });
@@ -3985,6 +4018,22 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   /** The row `MapCallout`'s verdict block and "every window" strip treat as "now showing" — the
    * SAME row the pill/tooltip above already read off `activeEvIndex`, never a second lookup. */
   const activeMapEvent = mapEvents[activeEvIndex] ?? null;
+
+  /**
+   * A map with NO solar row opens on the live aurora night (overlay convergence C3, plan §3 C3).
+   * `hideDayCard` is the precedent for a tab that stands with no event; this is the same tab with
+   * one night to offer. ⚠️ Only when the list holds no solar row at all and the forecast has not
+   * named an event of its own (`autoEventType`), so a map that has any solar window opens exactly as
+   * it always did, and only until the reader makes a choice (`userHasOverriddenEvent`). The effect
+   * runs on the row's arrival, not on mount: the live night appears once the alert is known.
+   */
+  const liveNightOnlyRow = liveNightOffered && !autoEventType
+    && !mapEvents.some((row) => row.kind === EVENT_KIND.SOLAR)
+    && mapEvents.some((row) => row.kind === EVENT_KIND.AURORA && row.date === auroraNight);
+  useEffect(() => {
+    if (!liveNightOnlyRow || userHasOverriddenEvent || eventType === 'AURORA') return;
+    (async () => setEventType('AURORA'))();
+  }, [liveNightOnlyRow, userHasOverriddenEvent, eventType]);
 
   /**
    * What a question asked from this tab is sent with (F3, plan §2.6 "Scope follows the Map's scope,
@@ -5050,7 +5099,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     if (!activeMapEvent || activeMapEvent.kind === EVENT_KIND.SOLAR) return null;
     return activeMapEvent.kind === EVENT_KIND.ASTRO
       ? astroConditionsByDate.get(activeMapEvent.date)
-      : auroraResultsByDate.get(activeMapEvent.date);
+      : auroraNightRows.get(activeMapEvent.date);
   })();
   const nightRegionBest = activeNightRows
     ? buildNightRegionBest(activeNightRows, heat?.spots || EMPTY_POINTS)
@@ -6840,7 +6889,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               regionGlossIndex={regionGlossIndex}
               evRows={mapEvents}
               astroConditionsByDate={astroConditionsByDate}
-              auroraResultsByDate={auroraResultsByDate}
+              auroraResultsByDate={auroraNightRows}
               pendingNightRowIds={pendingNightRowIds}
               tideStripHeight={tideStripHeight}
               // The phone sheet's resting height (74 / 126 / 112 — `--psh`): a callout may stand over
