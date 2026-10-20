@@ -3202,15 +3202,6 @@ button.wf-hc.also.on:hover {
   .wf-hstrip .wf-hc-sun { letter-spacing: 0.04em; padding: 2px 4px; }
 }
 
-/* Map overlay panel — rises in on open */
-@keyframes map-overlay-rise {
-  from { transform: translateY(14px) scale(0.99); opacity: 0; }
-  to { transform: none; opacity: 1; }
-}
-.map-overlay-panel {
-  animation: map-overlay-rise 0.2s cubic-bezier(0.2, 0.7, 0.2, 1);
-}
-
 /* ── "Centre on home" map control ──
    Its own container in Leaflet's bottom-right corner, under the zoom bar, which
    `ZoomControlPositioner` moves there after the ⌂ has added itself (map-tab-v2-plan.md §3 P7).
@@ -3281,58 +3272,6 @@ button.wf-hc.also.on:hover {
 .map-home-control button[data-disabled]:hover {
   background: transparent;
   color: var(--color-close-to-home);
-}
-
-/* ── Map overlay context bar ──
-   The read-only receipt that replaced five rows of filter controls. Chips are stated, not
-   operated: arriving from a plan card IS a filter action, so the bar's job is to show what was
-   inherited, and the one control on it is the disclosure that gets the controls back. */
-.map-ctx-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 500;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.045);
-  border: 1px solid var(--color-plex-border-light);
-  color: var(--color-plex-text-secondary);
-  white-space: nowrap;
-}
-/* The lead chip is the event, which is the fact the user actually chose on the way in. */
-.map-ctx-chip--lead {
-  background: rgba(224, 165, 66, 0.14);
-  border-color: rgba(224, 165, 66, 0.38);
-  color: #f0cd8a;
-}
-/* Same visual weight as the modal's ✕ — a disclosure, not a panel. */
-.map-ctx-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--color-plex-text-secondary);
-  border: 1px solid var(--color-plex-border);
-  background: transparent;
-  border-radius: 7px;
-  padding: 5px 11px;
-  transition: border-color 0.14s ease, color 0.14s ease;
-}
-.map-ctx-btn:hover {
-  border-color: var(--color-plex-border-light);
-  color: var(--color-plex-text);
-}
-.map-ctx-caret {
-  transition: transform 0.18s ease;
-}
-.map-ctx-caret[data-open] {
-  transform: rotate(180deg);
-}
-@media (prefers-reduced-motion: reduce) {
-  .map-ctx-caret { transition: none; }
 }
 
 /* Bottom sheet slide-up animation */
@@ -3745,25 +3684,6 @@ button.wf-hc.also.on:hover {
 
    `--color-plex-panel` is opaque, which matters here and does not on the Plan bar: this control
    floats over map tiles, and a translucent ground would put a coastline through the words. */
-.wf-map-toolbar {
-  /* Leaflet's zoom control owns the top-left corner and paints above anything below z-index 1100;
-     `CentreOnHomeControl` stacks under it in the same column. 60px clears both. */
-  position: absolute;
-  top: 8px;
-  left: 60px;
-  z-index: 1100;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  /* On a phone the three controls wrap, and the right edge is what gives, never the map. */
-  max-width: calc(100% - 68px);
-  /* ⚠️ The container is transparent to the pointer and its CONTROLS are not. A wrapped toolbar's
-     box spans the union of its rows, so on a 390px screen a plain div would swallow every drag that
-     started in the empty half of a short row — a dead strip across the top of a map whose whole job
-     is panning. */
-  pointer-events: none;
-}
 .wf-map-toolbar-row,
 .wf-map-key {
   pointer-events: auto;

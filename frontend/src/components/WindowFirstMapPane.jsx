@@ -139,31 +139,25 @@ function subscribeForeignModalDom(onChange) {
  * <h2>A hidden pane must not act on a handoff nobody sent it</h2>
  *
  * <p>⚠️ The sharpest thing here, found by review and reproduced at 390px. Because the shell keeps
- * this pane mounted, its {@code MapView} is alive for the rest of the session after one visit — and
- * handing it App's overlay handoff, which <em>every</em> plan-card tap sets, meant a map that is not
- * on screen still answered. On a phone {@code MapView} answers a location handoff with a
- * {@code BottomSheet}, and that is {@code createPortal(…, document.body)} at
- * {@code z-index: 10000}, so {@code display: none} on the panel cannot suppress it: tapping
- * "Open on map" on the <b>Plan</b> tab raised two stacked sheets and locked body scroll.
- *
- * <p>So {@code handoff} here is not App's overlay handoff. It is set only when the reader explicitly
- * asks to be taken to this tab — the overlay's hatch — and every other handoff belongs to the
- * overlay. The general rule, worth carrying to the next slotted pane: <b>a pane that is never
- * unmounted must not be wired to state that changes while it is hidden</b>, unless acting on it
- * while hidden is genuinely what you want.
+ * this pane mounted, its {@code MapView} is alive for the rest of the session after one visit - so
+ * a handoff that changes while the pane is hidden would be answered by a map that is not on screen.
+ * On a phone {@code MapView} used to answer a location handoff with a {@code BottomSheet}, a
+ * {@code createPortal(…, document.body)} at {@code z-index: 10000} that {@code display: none} on the
+ * panel cannot suppress. Hence {@code handoff} here is set only when the reader explicitly asks to
+ * be taken to this tab (a door), never by state that changes while the tab is hidden. The general
+ * rule, worth carrying to the next slotted pane: <b>a pane that is never unmounted must not be wired
+ * to state that changes while it is hidden</b>, unless acting on it while hidden is genuinely what
+ * you want.
  *
  * @param {object}   props
  * @param {Array}    props.locations       the enabled locations the map draws
  * @param {string[]} props.dates           every date with a sunrise or sunset forecast (`colourForecastDates` — NOT hourly-only dates)
  * @param {string}   props.selectedDate    the date the map is showing
  * @param {Function} props.onSelectDate    hands a new date back to {@code App}
- * @param {object}   [props.handoff]       a handoff the reader ASKED to land on, from the overlay's
- *                                         hatch — never App's overlay handoff, which every plan-card
- *                                         tap sets and which this pane must not act on while it is
- *                                         hidden
+ * @param {object}   [props.handoff]       a handoff the reader ASKED to land on (a door), which this
+ *                                         pane must not act on while it is hidden
  * @param {string}   [props.autoEventType] the auto-selected event type
  * @param {Map}      [props.briefingScores]
- * @param {Function} [props.onForecastRun]
  * @param {Array}    [props.seasonalFeatures]
  * @param {object}   [props.homeCoords]    the home; null with no postcode, `undefined` while not
  *                                         known — no default, see its PropTypes note
@@ -195,7 +189,7 @@ function subscribeForeignModalDom(onChange) {
 export default function WindowFirstMapPane({
   locations, dates, selectedDate, onSelectDate, handoff = null, autoEventType = null,
   briefingScores = new Map(),
-  onForecastRun = null, seasonalFeatures = [], homeCoords,
+  seasonalFeatures = [], homeCoords,
   mapColourScale = null, colourScaleDefaulted = false, mapTideMode = 'auto', saveTideMode = null,
   onOpenSettings = null, onOpenLocationSheet = null, onReturnToPlan = null,
   onLoadOlderDay = null, olderDayLoading = null, loadedPastDays = NO_LOADED_DAYS,
@@ -375,24 +369,19 @@ export default function WindowFirstMapPane({
   // dock must not go on quoting a scope that no longer exists.
   useEffect(() => () => registerMapContext(null), [registerMapContext]);
   /**
-   * A STRUCTURED handoff, distinguished from the overlay hatch's on the SAME `handoff` channel
-   * (doors D2, `plan-to-map-doors-plan.md` §3 D2 task 2) — all of them arrive as `App.jsx`'s
-   * `mapTabHandoff`, but a structured payload names its `source` and the hatch's never has that
-   * field at all, so they are told apart by that one field rather than by a second channel.
-   * Forwarded to `MapView` as ONE `planHandoff` prop; the hatch's own five `handoff*` props below
-   * are withheld whenever a structured handoff is the one in flight, so the OLD per-field effects
-   * (`handoffRegion`'s `FitBoundsController` fit, in particular) can never double-apply a door's
-   * own region alongside the new nonce-keyed effect's `jumpToRegion`/`resetToMyArea`.
+   * A STRUCTURED handoff (doors D2, `plan-to-map-doors-plan.md` §3 D2 task 2) - it arrives as
+   * `App.jsx`'s `mapTabHandoff` and names its `source`. Forwarded to `MapView` as ONE `planHandoff`
+   * prop. (Until overlay convergence C5 the same channel also carried the overlay hatch's source-less
+   * payload on five per-field `handoff*` props; both are gone, so a payload with no `source` is
+   * simply not a handoff and is dropped.)
    *
    * <p>⚠️ <b>TWO sources ride it, and the prop's name only covers one of them.</b> `'plan'` is a
    * door (the reader is arriving from the Plan tab, carrying its lens); `'map'` is the four-day
    * sheet's own footer pressed while that sheet is already OVER the map, which moves the window and
    * the selection and nothing else. `MapView` branches on `source` for the lens/scope/camera block
-   * and for the landing strip. They share this channel rather than getting one each because the
-   * effect behind it is the only one that treats the handed-over event as an EXPLICIT selection
-   * (`setUserHasOverriddenEvent(true)`); the hatch's own event arm sets that flag FALSE, and a
-   * map-sourced payload sent down it had its window silently replaced by `autoEventType` a tick
-   * later (Codex review, P1 against the first cut of this route).
+   * and for the landing strip. They share this channel because the effect behind it treats the handed-over event as an
+   * EXPLICIT selection (`setUserHasOverriddenEvent(true)`), so `autoEventType` cannot replace the
+   * window a tick later.
    */
   const isStructuredHandoff = handoff?.source === 'plan' || handoff?.source === 'map';
   const planHandoff = isStructuredHandoff ? handoff : null;
@@ -820,31 +809,16 @@ export default function WindowFirstMapPane({
         olderDayLoading={olderDayLoading}
         onLoadOlderDay={onLoadOlderDay}
         autoEventType={autoEventType}
-        // Withheld outright for a structured handoff (`isStructuredHandoff`) — see this component's
-        // own `planHandoff` doc note just above: a structured payload's region/location/event ride
-        // the ONE `planHandoff` prop below and must never ALSO reach these older per-field effects,
-        // which apply a region via `FitBoundsController` rather than the door's own `jumpToRegion`/
-        // `resetToMyArea` scope-flip semantics — and whose event arm sets `userHasOverriddenEvent`
-        // to FALSE, which is what made a map-sourced payload lose its window to `autoEventType`.
-        handoffEventType={isStructuredHandoff ? null : (handoff?.eventType ?? null)}
-        handoffFilterAction={isStructuredHandoff ? null : (handoff?.filterAction ?? null)}
-        handoffDarkSky={isStructuredHandoff ? null : (handoff?.darkSky ?? null)}
-        handoffLocationName={isStructuredHandoff ? null : (handoff?.locationName ?? null)}
-        handoffRegion={isStructuredHandoff ? null : (handoff?.region ?? null)}
-        handoffNonce={isStructuredHandoff ? null : (handoff?.nonce ?? null)}
-        // A structured handoff — the ONE prop a `source`-bearing handoff reaches `MapView` through;
-        // null whenever `handoff` is the overlay hatch's own (or there is no handoff at all).
+        // A structured handoff - the ONE prop a handoff reaches `MapView` through (overlay
+        // convergence C5 deleted the legacy per-field `handoff*` props with the overlay's hatch).
         planHandoff={planHandoff}
         briefingScores={briefingScores}
-        onForecastRun={onForecastRun}
         seasonalFeatures={seasonalFeatures}
         homeCoords={homeCoords}
         // The origin in force (D1, plan-to-map-doors-plan.md §3) — the context's live value, so
         // this mount can never disagree with the Plan cards about where the reader is planning
         // from. Gates the tab's home geography (HOME marker, reach rings, ring labels, the legend's
-        // rings toggle) onto home-only inside `MapView`; the overlay mount in `App.jsx` never
-        // passes this prop at all (it is frozen and has no origin concept, so it keeps drawing
-        // whatever `homeCoords` it is handed — which is nothing, today).
+        // rings toggle) onto home-only inside `MapView`.
         origin={origin}
         mapColourScale={mapColourScale}
         colourScaleDefaulted={colourScaleDefaulted}
@@ -898,8 +872,7 @@ WindowFirstMapPane.propTypes = {
   selectedDate: PropTypes.string,
   onSelectDate: PropTypes.func.isRequired,
   handoff: PropTypes.shape({
-    // 'plan' for a door handoff (D2); absent/undefined for the overlay hatch's own — see
-    // `isStructuredHandoff`'s own doc note above for how the two are told apart on one channel.
+    // 'plan' for a door handoff (D2), 'map' for the sheet footer pressed over the map.
     source: PropTypes.string,
     eventType: PropTypes.string,
     filterAction: PropTypes.string,
@@ -919,7 +892,6 @@ WindowFirstMapPane.propTypes = {
   }),
   autoEventType: PropTypes.string,
   briefingScores: PropTypes.instanceOf(Map),
-  onForecastRun: PropTypes.func,
   seasonalFeatures: PropTypes.array,
   /**
    * The home: an object, `null` when no postcode is saved, or `undefined` while that is not known

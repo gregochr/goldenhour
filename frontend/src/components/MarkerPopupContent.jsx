@@ -1,16 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import PropTypes from 'prop-types';
 import {
   formatEventTimeUk,
   formatGeneratedAtFull,
   mpsToMph,
 } from '../utils/conversions.js';
-import {
-  getForecastDetail,
-  peekForecastDetail,
-  cacheForecastDetail,
-  runForecast,
-} from '../api/forecastApi.js';
+import { runForecast } from '../api/forecastApi.js';
+import useForecastDetail from '../hooks/useForecastDetail.js';
+import { TRIAGE_REASON_LABELS, isDustEnhanced, risingTideOf } from '../utils/forecastDetailFacts.js';
 import createEventSource from '../utils/createEventSource.js';
 import {
   completedWithFailures, failedOutright, failureMessage, stoppedEarly,
@@ -28,69 +25,6 @@ import { resolveStandDown } from '../utils/standDown.js';
 import { LOCATION_TYPE_META, DISPLAY_TYPES } from '../utils/locationTypes.js';
 import { apiErrorMessage } from '../utils/apiError.js';
 import { modelLabel } from '../utils/modelLabels.js';
-
-/**
- * Resolves the full detail object for a (slim) forecast slot with the precedence:
- *   1. object already carries full detail (`lowCloud !== undefined`, e.g. the
- *      admin PromptTestView pass-through) → use it as-is, never fetch;
- *   2. rich slim row (`id != null`) → fetch (and cache, in `forecastApi`) the
- *      detail row; render a skeleton while in flight;
- *   3. sparse cached-only row (`id == null`) → its summary/triageMessage are
- *      inline, so use the slot itself, never fetch.
- *
- * The cache lives in `forecastApi` (cleared on logout) so a broken/failed fetch
- * is memoised as null and degrades to a header-only popup without refetching.
- *
- * @param {object|null} forecast - The slim forecast slot, or null.
- * @returns {{detail: object|null, detailLoading: boolean}} Resolved detail and load state.
- */
-function useForecastDetail(forecast) {
-  const hasInlineDetail = forecast != null && forecast.lowCloud !== undefined;
-  const id = forecast != null ? forecast.id : null;
-  const needsFetch = !hasInlineDetail && id != null;
-
-  // Re-render trigger only; detail is derived from the cache during render so it
-  // always tracks the current id (no stale carry-over when the slot changes).
-  const [, setTick] = useState(0);
-
-  useEffect(() => {
-    if (!needsFetch) return undefined;
-    // A fetch — this instance's (cancelled by an id flip) or a concurrent popup's — may have
-    // populated the cache in the commit→effect gap, after this render already committed a skeleton.
-    // Force one re-read so the skeleton can't strand until some unrelated re-render. This can't
-    // loop: a tick-only re-render leaves the effect deps [needsFetch, id] unchanged.
-    if (peekForecastDetail(id).cached) {
-      // Inline async wrapper defers the setState off the effect body
-      // (react-hooks/set-state-in-effect), matching the codebase's pattern elsewhere.
-      (async () => setTick((n) => n + 1))();
-      return undefined;
-    }
-    let cancelled = false;
-    getForecastDetail(id)
-      .then((data) => cacheForecastDetail(id, data))
-      // Cache the miss as null so a failed fetch renders gracefully (header only)
-      // and does not refetch on every re-render.
-      .catch(() => cacheForecastDetail(id, null))
-      .finally(() => { if (!cancelled) setTick((n) => n + 1); });
-    return () => { cancelled = true; };
-  }, [needsFetch, id]);
-
-  if (hasInlineDetail) return { detail: forecast, detailLoading: false };
-  if (!needsFetch) return { detail: forecast, detailLoading: false };
-  const { cached, detail } = peekForecastDetail(id);
-  return cached ? { detail, detailLoading: false } : { detail: null, detailLoading: true };
-}
-
-/**
- * User-facing label for each TriageReason enum value.
- */
-const TRIAGE_REASON_LABELS = {
-  HIGH_CLOUD: 'heavy low cloud at the solar horizon',
-  PRECIPITATION: 'active precipitation forecast at event time',
-  LOW_VISIBILITY: 'visibility too low (fog or heavy haze)',
-  TIDE_MISALIGNED: 'tide not aligned with location preference',
-  GENERIC: 'regional conditions predicted poor',
-};
 
 /**
  * Builds the "Forecast generated" footer text. For triaged forecasts,
@@ -159,61 +93,6 @@ const POPUP_TIDE_META = {
   MID:  'Mid tide',
   LOW:  'Low tide',
 };
-
-/**
- * Returns the number of minutes between two ISO datetime strings.
- *
- * @param {string} a - ISO datetime string.
- * @param {string} b - ISO datetime string.
- * @returns {number} Minutes from a to b (positive if b is after a).
- */
-function minutesBetween(a, b) {
-  return (new Date(b) - new Date(a)) / 60000;
-}
-
-/**
- * Returns rising tide warning info when a HIGH tide falls within ±90 min of the
- * solar event (covering the full blue+golden hour window) AND the tide is incoming
- * is after the solar event for sunrise, or before for sunset).
- *
- * @param {object} f - Forecast evaluation row with solarEventTime and nextHighTideTime.
- * @param {string} eventType - 'SUNRISE' or 'SUNSET'.
- * @returns {{minutesAway: number, highTideTime: string}|null} Info if warning applies, null otherwise.
- */
-function getRisingTideWarning(f, eventType) {
-  if (!f || !f.solarEventTime || !f.nextHighTideTime) return null;
-
-  const diffMins = minutesBetween(f.solarEventTime, f.nextHighTideTime);
-
-  if (eventType === 'SUNRISE') {
-    // Sunrise: tide is rising if high tide is up to 90 min AFTER sunrise (golden hour+)
-    // Also warn if high tide is up to 90 min BEFORE sunrise (tide rushing in during blue hour)
-    if (diffMins >= -90 && diffMins <= 90) {
-      return { minutesAway: Math.round(diffMins), highTideTime: f.nextHighTideTime };
-    }
-  } else {
-    // Sunset: tide is rising if high tide is up to 90 min AFTER sunset (blue hour+)
-    // Also warn if high tide is up to 90 min BEFORE sunset (golden hour)
-    if (diffMins >= -90 && diffMins <= 90) {
-      return { minutesAway: Math.round(diffMins), highTideTime: f.nextHighTideTime };
-    }
-  }
-  return null;
-}
-
-/**
- * Returns true when aerosol data suggests elevated mineral dust likely to
- * enhance warm tones (high AOD/dust with low PM2.5 rules out smoke/haze).
- *
- * @param {object} f - Forecast evaluation row.
- * @returns {boolean} True if dust is elevated and PM2.5 is low.
- */
-function isDustEnhanced(f) {
-  const aodHigh  = f.aerosolOpticalDepth != null && f.aerosolOpticalDepth > 0.3;
-  const dustHigh = f.dust != null && f.dust > 50;
-  const pm25Low  = f.pm25 == null || f.pm25 < 35;
-  return (aodHigh || dustHigh) && pm25Low;
-}
 
 const SCORE_TOOLTIPS = {
   'Fiery Sky': 'Dramatic colour from clouds catching light',
@@ -361,7 +240,7 @@ export default function MarkerPopupContent({
   const isSunrise = eventType === 'SUNRISE';
   // The rising-tide warning and golden/blue-hour pills are detail-derived
   // (nextHighTideTime + golden/blue-hour times are not in the slim payload).
-  const risingTide = detail ? getRisingTideWarning(detail, eventType) : null;
+  const risingTide = detail ? risingTideOf(detail) : null;
   const eventTime  = forecast ? formatEventTimeUk(forecast.solarEventTime) : null;
   const goldenStart = detail ? formatEventTimeUk(detail.goldenHourStart) : null;
   const goldenEnd   = detail ? formatEventTimeUk(detail.goldenHourEnd) : null;

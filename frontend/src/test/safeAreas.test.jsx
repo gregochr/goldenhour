@@ -260,15 +260,5 @@ describe('safe areas', () => {
       expect(root[0]).toMatch(/h-\[100dvh\]/);
       expect(root[0]).toMatch(/min-h-screen/);
     });
-
-    it('MapOverlay resolves its own gutter against the insets, being inline-styled', () => {
-      // The fifth full-viewport `fixed; inset: 0` layer, and the one no stylesheet rule can reach.
-      // Its 24px gutter is smaller than every landscape side inset, so without this its panel sat
-      // inside the sensor housing. Missed by the first cut of the audit.
-      const src = read('../components/MapOverlay.jsx');
-
-      expect(src).toMatch(/padding: 'max\(24px, var\(--safe-t\)\)/);
-      expect(src).toMatch(/max\(24px, var\(--safe-b\)\)/);
-    });
   });
 });

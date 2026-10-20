@@ -10,19 +10,18 @@
  * saved floor. Every reader of the floor went wrong:
  *
  * <ul>
- *   <li>the overlay's context bar drew an EMPTY chip (`STAR_THRESHOLD_LABELS[null]`), keyed
- *       `undefined`, which React reported as a missing key;</li>
- *   <li>every star button in the overlay's drawer and the tab's popover read pressed
- *       (`star >= null`), and the drawer's hint read "showing ★ and above";</li>
- *   <li>the Filters counts took it for a filter, so the overlay offered a Clear and the tab's chip
- *       read "Filters (1)" for a floor the reader never chose;</li>
+ *   <li>(on the Plan-tab overlay, retired in overlay convergence C5) the context bar drew an empty
+ *       chip and the drawer's stars all read pressed;</li>
+ *   <li>every star button in the tab's popover read pressed (`star >= null`);</li>
+ *   <li>the Filters counts took it for a filter, so the tab's chip read "Filters (1)" for a floor
+ *       the reader never chose;</li>
  *   <li>the pins ignored the floor altogether: `rating >= null` holds for every rating;</li>
  *   <li>and the next visit opened on the 3★+ default, whatever floor the reader had saved.</li>
  * </ul>
  *
  * <p>No reader asks for that change of event, so the owner decided it touches nothing the reader set:
  * the floor keeps its value and its saved copy. (An explicit kind change still resets it —
- * `MapViewStarFilter.test.jsx` and `MapViewOverlayContext.test.jsx` pin those.)
+ * `MapViewStarFilter.test.jsx` pins that.)
  *
  * <h2>The route</h2>
  *
@@ -31,10 +30,8 @@
  * `{ level: 'QUIET', active: false }`. The list names every night that currently holds a real
  * (non-simulated) stored result, but a map asks for it once, when it mounts — and the Map tab's map
  * stays mounted once visited — so it is empty when no night held one as that map asked, when that
- * request failed, and until it answers. Three routes lead here: the overlay the aurora banner opens
- * ("View on map →"); the 🌌 Aurora button in any overlay's Filters drawer, pressed while an alert is
- * live; and the Map tab, through that banner overlay's `Open the full Map tab →` hatch, which hands
- * it the banner's aurora handoff.
+ * request failed, and until it answers. The route that leads here is the aurora banner's door to the
+ * Map tab, which hands it the banner's aurora night.
  *
  * <h2>Why the real provider</h2>
  *
@@ -169,9 +166,6 @@ async function endAlert() {
   await act(async () => { window.dispatchEvent(new Event('focus')); });
 }
 
-/** The overlay's context-bar chips, in order. */
-const chips = () => screen.getAllByTestId('map-context-chip').map((c) => c.textContent);
-
 const STAR_NAMES = { 1: '1★+', 2: '2★+', 3: '3★+', 4: '4★+', 5: '5★' };
 
 /**
@@ -209,179 +203,6 @@ afterEach(() => {
   localStorage.clear();
 });
 
-describe('the Plan-tab overlay, when the alert ends while it is in aurora mode', () => {
-  // An aurora handoff into overlay mode, as the banner route delivers one — not App's whole mount.
-  // App also hands it its auto-selection as `autoEventType`; on a fresh overlay that effect runs
-  // before the handoff's, which overrides it, so null changes nothing here.
-  const overlay = (props = {}) => (
-    <MapView
-      locations={LOCATIONS}
-      date={THE_NIGHT}
-      autoEventType={null}
-      handoffEventType="AURORA"
-      overlayMode
-      {...props}
-    />
-  );
-
-  /** Opens the overlay in aurora mode and proves it is there, with `expectedChips`, before the alert ends. */
-  async function openInAurora(expectedChips) {
-    const result = await openMap(overlay());
-    expect(screen.getByTestId('map-context-event')).toHaveTextContent('Aurora');
-    expect(chips()).toEqual(expectedChips);
-    return result;
-  }
-
-  /** Ends the alert, opens the drawer, and proves the map left aurora mode because aurora is unavailable. */
-  async function endAlertAndOpenDrawer() {
-    await endAlert();
-    const toggle = screen.getByRole('button', { name: 'Filters' });
-    fireEvent.click(toggle);
-    expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByTestId('map-context-event')).toHaveTextContent('Sunset');
-    expect(screen.getByRole('button', { name: '🌌 Aurora' })).toBeDisabled();
-  }
-
-  describe('on a saved 4★+ floor', () => {
-    beforeEach(() => { localStorage.setItem('mapFilterMinStars', SAVED_FLOOR); });
-
-    it('keeps 4★+ on the context bar', async () => {
-      await openInAurora(['4★+']);
-
-      await endAlertAndOpenDrawer();
-
-      // Broken, the one chip was `STAR_THRESHOLD_LABELS[null]`: empty, and keyed `undefined`.
-      expect(chips()).toEqual(['4★+']);
-    });
-
-    it('keeps 4★+ pressed in the drawer', async () => {
-      await openInAurora(['4★+']);
-
-      await endAlertAndOpenDrawer();
-
-      // Broken, `star >= null` pressed all five, so 3★+ read pressed.
-      expectFloorPressed(screen.getByRole('group', { name: 'Minimum quality threshold' }), 4);
-    });
-
-    it('keeps the drawer\'s hint on 4★', async () => {
-      await openInAurora(['4★+']);
-
-      await endAlertAndOpenDrawer();
-
-      // Broken, "showing ★ and above".
-      expect(screen.getByTestId('quality-hint')).toHaveTextContent('showing 4★ and above · saved');
-    });
-
-    it('keeps offering Clear for the saved floor', async () => {
-      await openInAurora(['4★+']);
-
-      await endAlertAndOpenDrawer();
-
-      // Reset to the default instead, there would be nothing for a Clear to undo.
-      expect(screen.getByRole('button', { name: 'Clear' })).toBeInTheDocument();
-    });
-
-    it('applies 4★+ to the pins', async () => {
-      await openInAurora(['4★+']);
-      expect(screen.getAllByTestId('marker')).toHaveLength(1);
-
-      await endAlertAndOpenDrawer();
-
-      // Two pins: Hexham (4★) and Alnmouth (5★). Broken, all four — `rating >= null` let Kielder's
-      // 2★ and Cheviot's 3★ through; reset to the default, three.
-      expect(screen.getAllByTestId('marker')).toHaveLength(2);
-      expect(screen.getByTestId('map-context-count')).toHaveTextContent('2 pins in view');
-    });
-
-    it('keeps 4★+ saved, so the next map opens on it', async () => {
-      const { unmount } = await openInAurora(['4★+']);
-
-      await endAlertAndOpenDrawer();
-      expect(localStorage.getItem('mapFilterMinStars')).toBe(SAVED_FLOOR);
-
-      // The next visit: a fresh overlay on THE_NIGHT's sunset, with no aurora handoff to leave.
-      unmount();
-      await openMap(overlay({ handoffEventType: null }));
-
-      // Broken, the saved floor was cleared, and this map opened on the 3★+ default.
-      expect(chips()).toEqual(['4★+']);
-    });
-  });
-
-  describe('on no saved floor', () => {
-    it('stays on the 3★+ default', async () => {
-      await openInAurora(['3★+']);
-
-      await endAlertAndOpenDrawer();
-
-      // Broken, an empty chip.
-      expect(chips()).toEqual(['3★+']);
-    });
-
-    it('offers no Clear', async () => {
-      await openInAurora(['3★+']);
-
-      await endAlertAndOpenDrawer();
-
-      // Broken, a Clear offered for the null floor.
-      expect(screen.queryByRole('button', { name: 'Clear' })).toBeNull();
-
-      // Control for the negative above: a floor the reader does choose brings the Clear, under that
-      // name, so the query cannot pass for a button that was renamed.
-      fireEvent.click(within(screen.getByRole('group', { name: 'Minimum quality threshold' }))
-        .getByRole('button', { name: '4★+' }));
-      expect(screen.getByRole('button', { name: 'Clear' })).toBeInTheDocument();
-    });
-
-    it('saves no floor', async () => {
-      await openInAurora(['3★+']);
-
-      await endAlertAndOpenDrawer();
-
-      expect(localStorage.getItem('mapFilterMinStars')).toBeNull();
-    });
-  });
-
-  describe('with the stand-down lens saved', () => {
-    // The same rule as the floor's, for the other filter a reader saves: the explicit kind changes
-    // turn it off and clear it, and this change, which no reader asked for, leaves it alone.
-    beforeEach(() => { localStorage.setItem('mapFilterShowStandDown', '1'); });
-
-    it('keeps the stand-down lens on the context bar', async () => {
-      await openInAurora(['3★+', '+ stand-down']);
-
-      await endAlertAndOpenDrawer();
-
-      expect(chips()).toEqual(['3★+', '+ stand-down']);
-    });
-
-    it('keeps the stand-down lens saved', async () => {
-      await openInAurora(['3★+', '+ stand-down']);
-
-      await endAlertAndOpenDrawer();
-
-      expect(localStorage.getItem('mapFilterShowStandDown')).toBe('1');
-    });
-  });
-
-  describe('with a drive-time filter chosen in aurora mode', () => {
-    it('keeps the drive-time filter on the context bar', async () => {
-      // A filter the reader sets for this visit only, never saved: it stands like the saved ones.
-      await openInAurora(['3★+']);
-      const toggle = screen.getByRole('button', { name: 'Filters' });
-      fireEvent.click(toggle);
-      fireEvent.change(screen.getByRole('combobox', { name: 'Filter by drive time from home' }),
-        { target: { value: '45' } });
-      fireEvent.click(toggle);
-      expect(chips()).toEqual(['3★+', '≤45m']);
-
-      await endAlertAndOpenDrawer();
-
-      expect(chips()).toEqual(['3★+', '≤45m']);
-    });
-  });
-});
-
 describe('the Map tab, when the alert ends while it is in aurora mode', () => {
   // An aurora handoff into the tab, as the banner overlay's hatch hands one over — not the pane's
   // whole mount. There is no `heat`, and `autoEventType` is null where the pane passes App's
@@ -396,8 +217,7 @@ describe('the Map tab, when the alert ends while it is in aurora mode', () => {
       locations={LOCATIONS}
       date={THE_NIGHT}
       forecastDates={FORECAST_DATES}
-      autoEventType={null}
-      handoffEventType="AURORA"
+      autoEventType="AURORA"
       {...props}
     />
   );
@@ -470,7 +290,7 @@ describe('the Map tab, when the alert ends while it is in aurora mode', () => {
     beforeEach(() => { mockRole = 'ADMIN'; });
 
     it('turns the "unknown" lens off', async () => {
-      const { rerender } = await openMap(tab({ locations: WITH_UNSCORED, handoffEventType: null }));
+      const { rerender } = await openMap(tab({ locations: WITH_UNSCORED, autoEventType: null }));
       fireEvent.click(screen.getByTestId('wf-filters-chip'));
       // Control: Cheviot, Hexham and Alnmouth clear the 3★+ default, and unscored Rothbury joins them
       // once the lens is on.

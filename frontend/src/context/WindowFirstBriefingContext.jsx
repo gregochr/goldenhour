@@ -513,8 +513,7 @@ export function WindowFirstBriefingProvider({
    *
    * <p><b>Not for this arm's own rendering — for the map it hands off to.</b> P4c wires
    * `onShowOnMap` into the v2 arm for the first time, and everything downstream of that handoff
-   * reads these scores: `buildMapOverlay` takes the overlay's narrative from the top location's
-   * summary, and `MapView` decides which pins are even *visible* from the rating (`resolveStandDown`
+   * reads these scores: `MapView` decides which pins are even *visible* from the rating (`resolveStandDown`
    * treats a location with no rating and a triage row as stood down, and `forecast_evaluation` is
    * in practice a triage table — three quarters of its rows carry a null rating). Without them a
    * user clicking a tile that says "Worth it" gets an overlay with no prose over a map with almost

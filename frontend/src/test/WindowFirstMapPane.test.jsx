@@ -353,13 +353,9 @@ describe('WindowFirstMapPane', () => {
   });
 
   describe('what the map is handed', () => {
-    it('passes the selected date and the handoff through', () => {
-      const handoff = { eventType: 'AURORA', region: 'Northumberland & Tyneside', nonce: 7 };
-      renderPane({ handoff });
+    it('passes the selected date through', () => {
+      renderPane();
       expect(MapStub.lastProps.date).toBe(DATES[0]);
-      expect(MapStub.lastProps.handoffEventType).toBe('AURORA');
-      expect(MapStub.lastProps.handoffRegion).toBe('Northumberland & Tyneside');
-      expect(MapStub.lastProps.handoffNonce).toBe(7);
     });
 
     it('gives the map the same date setter the strip above it uses', () => {
@@ -374,18 +370,6 @@ describe('WindowFirstMapPane', () => {
       renderPane({ onSelectDate });
 
       expect(MapStub.lastProps.onSelectDate).toBe(onSelectDate);
-    });
-
-    it('nulls every handoff field when there is no handoff, rather than passing undefined', () => {
-      // `MapView` defaults these to null and branches on null; `undefined` would reach the same
-      // place by luck. Asserted because the pane spreads from a possibly-absent object.
-      renderPane();
-      expect(MapStub.lastProps.handoffEventType).toBeNull();
-      expect(MapStub.lastProps.handoffFilterAction).toBeNull();
-      expect(MapStub.lastProps.handoffDarkSky).toBeNull();
-      expect(MapStub.lastProps.handoffLocationName).toBeNull();
-      expect(MapStub.lastProps.handoffRegion).toBeNull();
-      expect(MapStub.lastProps.handoffNonce).toBeNull();
     });
 
     it('hands the home down as given — unknown stays unknown, never "no postcode"', () => {
@@ -431,12 +415,6 @@ describe('WindowFirstMapPane', () => {
       );
       expect(MapStub.lastProps.mapTideMode).toBe('off');
     });
-
-    it('forwards a darkSky handoff (D8, plan §6b) — the Coming up dark-sky-spots action', () => {
-      renderPane({ handoff: { darkSky: true, nonce: 3 } });
-      expect(MapStub.lastProps.handoffDarkSky).toBe(true);
-      expect(MapStub.lastProps.handoffNonce).toBe(3);
-    });
   });
 
   describe('the door handoff (D2, plan-to-map-doors-plan.md §3 D2 task 2)', () => {
@@ -450,51 +428,18 @@ describe('WindowFirstMapPane', () => {
       expect(MapStub.lastProps.planHandoff).toEqual(PLAN_HANDOFF);
     });
 
-    it('a source:\'plan\' handoff nulls out every OLD per-field handoff* prop — a door\'s region '
-        + 'must never ALSO reach the FitBoundsController-driven handoffRegion effect', () => {
-      renderPane({ handoff: PLAN_HANDOFF });
-      expect(MapStub.lastProps.handoffEventType).toBeNull();
-      expect(MapStub.lastProps.handoffFilterAction).toBeNull();
-      expect(MapStub.lastProps.handoffDarkSky).toBeNull();
-      expect(MapStub.lastProps.handoffLocationName).toBeNull();
-      expect(MapStub.lastProps.handoffRegion).toBeNull();
-      expect(MapStub.lastProps.handoffNonce).toBeNull();
-    });
-
-    it('a source:\'map\' handoff rides the SAME structured prop, not the hatch\'s per-field ones', () => {
-      // ⚠️ The four-day sheet's footer, pressed while that sheet is already over the map. It MUST
-      // NOT go down the hatch: the hatch's own event effect sets `userHasOverriddenEvent` FALSE,
-      // which re-runs `MapView`'s auto-selection effect and replaces the named window with
-      // `autoEventType` a tick later — so "Show on map → Monday sunrise" landed on tonight's sunset
-      // (Codex review, P1 against the first cut, which emitted no `source` at all).
+    it('a source:\'map\' handoff rides the SAME structured prop', () => {
+      // ⚠️ The four-day sheet's footer, pressed while that sheet is already over the map.
       const IN_PLACE = {
         source: 'map', eventType: 'SUNRISE', date: DATES[0], locationName: 'Keswick View', nonce: 11,
       };
       renderPane({ handoff: IN_PLACE });
       expect(MapStub.lastProps.planHandoff).toEqual(IN_PLACE);
-      expect(MapStub.lastProps.handoffEventType).toBeNull();
-      expect(MapStub.lastProps.handoffLocationName).toBeNull();
-      expect(MapStub.lastProps.handoffNonce).toBeNull();
     });
 
-    it('a hatch handoff (no source field) reaches MapView through the OLD per-field props, exactly '
-        + 'as before — and planHandoff stays null', () => {
-      // Every one of the six OLD fields, not just three of them — proving the `isPlanHandoff`
-      // ternary genuinely FORWARDS a truthy/real value per field for a non-plan handoff, not just
-      // that it happens to null a plan one. A mutation collapsing any single field's ternary to
-      // an unconditional `null` (permanently disabling that field, doors or not) is caught here.
-      const hatch = {
-        eventType: 'AURORA', filterAction: 'BLUEBELL', darkSky: true,
-        locationName: 'Bamburgh Beach', region: 'Northumberland & Tyneside', nonce: 7,
-      };
-      renderPane({ handoff: hatch });
+    it('a handoff with no source is not a handoff - the legacy per-field hatch is gone (overlay convergence C5)', () => {
+      renderPane({ handoff: { eventType: 'AURORA', locationName: 'Bamburgh Beach', nonce: 7 } });
       expect(MapStub.lastProps.planHandoff).toBeNull();
-      expect(MapStub.lastProps.handoffEventType).toBe('AURORA');
-      expect(MapStub.lastProps.handoffFilterAction).toBe('BLUEBELL');
-      expect(MapStub.lastProps.handoffDarkSky).toBe(true);
-      expect(MapStub.lastProps.handoffLocationName).toBe('Bamburgh Beach');
-      expect(MapStub.lastProps.handoffRegion).toBe('Northumberland & Tyneside');
-      expect(MapStub.lastProps.handoffNonce).toBe(7);
     });
 
     it('planHandoff is null when there is no handoff at all', () => {

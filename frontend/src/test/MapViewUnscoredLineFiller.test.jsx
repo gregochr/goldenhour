@@ -220,7 +220,7 @@ describe('MapView — "not scored yet" answers whether the forecast rated anythi
       { locationName: SPOTS[0].name, stars: 4 },
       { locationName: SPOTS[1].name, stars: 3 },
     ]);
-    await renderMap({ heat: { ...heatProp(), spots: [] }, handoffEventType: 'ASTRO' });
+    await renderMap({ heat: { ...heatProp(), spots: [] }, autoEventType: 'ASTRO' });
     expect(await screen.findByTestId(LINE)).toHaveTextContent('This event is not scored yet');
     expect(screen.queryByTestId(KEY)).toBeNull();
   });

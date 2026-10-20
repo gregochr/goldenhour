@@ -77,7 +77,6 @@ const mockDates = { older: '' };
 vi.mock('../components/WindowFirstMapPane.jsx', () => ({
   default: ({
     selectedDate, onSelectDate, dates, onLoadOlderDay, olderDayLoading, loadedPastDays, emptyPastDays,
-    onForecastRun,
   }) => (
     <div data-testid="map-pane-stub" data-selected-date={selectedDate ?? ''}>
       <span data-testid="map-pane-dates">{(dates ?? []).join(',')}</span>
@@ -86,7 +85,6 @@ vi.mock('../components/WindowFirstMapPane.jsx', () => ({
       <span data-testid="map-pane-empty">{(emptyPastDays ?? []).join(',')}</span>
       <span data-testid="map-pane-has-loader">{typeof onLoadOlderDay === 'function' ? 'yes' : 'no'}</span>
       <button type="button" onClick={() => onLoadOlderDay(mockDates.older)}>load older day</button>
-      <button type="button" onClick={() => onForecastRun()}>refresh forecasts</button>
       <button type="button" onClick={() => onSelectDate(mockDates.older, { isNight: false, isPast: true })}>
         pick the older day
       </button>
@@ -212,20 +210,6 @@ describe('App — the Map pane\'s older-day fetch', () => {
     await press('load older day');
     await press('pick the older day');
     expect(pane).toHaveAttribute('data-selected-date', OLDER);
-  });
-
-  it('KEEPS the fetched day through a refresh that rebuilds the list payload', async () => {
-    await openMapTab();
-    await press('load older day');
-    expect(screen.getByTestId('map-pane-dates')).toHaveTextContent(OLDER);
-
-    // A forecast run's reload: the list payload knows nothing of the older day.
-    fetchForecasts.mockResolvedValue(FORECASTS);
-    await press('refresh forecasts');
-
-    expect(fetchForecasts).toHaveBeenCalledTimes(2);
-    expect(screen.getByTestId('map-pane-dates')).toHaveTextContent(`${OLDER},${YESTERDAY},${TOMORROW}`);
-    expect(screen.getByTestId('map-pane-loaded')).toHaveTextContent(OLDER);
   });
 
   it('counts an EMPTY answer as loaded without adding a date', async () => {

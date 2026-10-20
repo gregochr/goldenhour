@@ -1,4 +1,3 @@
-// TODO(C5): a copy of MarkerPopupContent's private hook; deleted with the popup's last non-admin mount.
 import { useEffect, useState } from 'react';
 import { getForecastDetail, peekForecastDetail, cacheForecastDetail } from '../api/forecastApi.js';
 
@@ -10,10 +9,11 @@ import { getForecastDetail, peekForecastDetail, cacheForecastDetail } from '../a
  *      row; report {@code detailLoading} while in flight;
  *   3. sparse cached-only row ({@code id == null}) → nothing to fetch, use the slot itself.
  *
- * <p>The same resolution `MarkerPopupContent` carries privately; it lives here for the location
- * sheet (overlay convergence C2) so the popup can be left untouched until it is deleted in C5. The
- * cache is `forecastApi`'s — cleared on logout. UNLIKE the popup's copy a FAILED fetch is not memoised (it is remembered for this mount only, so the next mount retries) — so a sheet opened
- * after a popup (or twice) paints from it with no second request.
+ * <p>The one resolution the location sheet (overlay convergence C2) and `MarkerPopupContent` (the
+ * admin `PromptTestView`'s mount, which passes inline detail and so never fetches) share. The cache
+ * is `forecastApi`'s — cleared on logout — so a second surface paints from it with no second
+ * request. A FAILED fetch is not memoised (it is remembered for this mount only, so the next mount
+ * retries).
  *
  * @param {?object} forecast the slim forecast slot, or null
  * @returns {{detail: ?object, detailLoading: boolean}} the resolved detail and its load state

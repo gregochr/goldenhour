@@ -3,7 +3,7 @@ import { windowTail } from './windowKeys.js';
 import { formatDriveDuration, formatTime } from './briefingDisplay.js';
 import { GLANCE_MINUTES } from './planningArea.js';
 import { leaveByParts } from './leaveBy.js';
-import { DARK_SKY_THRESHOLD } from './mapOverlay.js';
+import { DARK_SKY_THRESHOLD } from './darkSky.js';
 import { subjectWordsOf } from './locationTypes.js';
 import { filterCalloutTopics } from './windowFirstTopics.js';
 

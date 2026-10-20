@@ -179,15 +179,6 @@ describe('MapView — a press on the map closes no panel (map-landing-plan.md §
       expect(handlers.mousedown).toBeUndefined();
     }
   });
-
-  it('never registers on the Plan-tab overlay — nothing there for it to close', async () => {
-    await renderMap({ overlayMode: true });
-    // Only `ZoomTracker` (and, on the overlay, `BoundsTracker`) register — neither carries `click`.
-    expect(mapEventHandlers.length).toBeGreaterThan(0);
-    for (const handlers of mapEventHandlers) {
-      expect(handlers.click).toBeUndefined();
-    }
-  });
 });
 
 describe('the other half of the rule — the panels\' own document listeners', () => {

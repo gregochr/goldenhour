@@ -978,7 +978,6 @@ function AppInner() {
                     autoEventType={autoSelection?.eventType ?? null}
                     handoff={mapTabHandoff}
                     briefingScores={briefingScores}
-                    onForecastRun={refresh}
                     // The Map tab's older-day fetch (outcome-rating-plan.md §2 #2): `useForecasts` owns
                     // the fetch and merges the day into `locations`, so `allDates` above widens by itself.
                     onLoadOlderDay={loadOlderDay}

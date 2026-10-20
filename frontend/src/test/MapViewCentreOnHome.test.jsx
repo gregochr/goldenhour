@@ -331,12 +331,6 @@ describe('centre on home', () => {
     expect(removedControls.length).toBe(0);
   });
 
-  it('is absent from the Plan tab overlay, which is already framed on its spot', () => {
-    renderMap({ homeCoords: HOME, overlayMode: true });
-
-    expect(screen.queryByTestId('centre-on-home')).not.toBeInTheDocument();
-  });
-
   it('takes its control off the map on unmount', () => {
     const { unmount } = renderMap({ homeCoords: HOME });
     expect(corner.querySelectorAll('.map-home-control')).toHaveLength(1);
@@ -425,7 +419,7 @@ describe('centre on home — ⌂ resets scope to My area and refits (map-tab-v2-
 describe('centre on home — the camera controller stays mounted through aurora mode (PR #740 review)', () => {
   it('⌂ still resets scope and refits during an aurora window', async () => {
     auroraStatus = { active: true, level: 'QUIET' };
-    await renderHeatMap({ homeCoords: HOME, heat: heatProp(), handoffEventType: 'AURORA' });
+    await renderHeatMap({ homeCoords: HOME, heat: heatProp(), autoEventType: 'AURORA' });
     // (The toolbar's absence used to be this test's proxy for "in aurora mode"; aurora heat A2
     // offers the toolbar there, so the proxy is gone. The handoff prop is the premise.)
     openFilters();
@@ -440,7 +434,7 @@ describe('centre on home — the camera controller stays mounted through aurora 
 
   it('selecting a jump row still fits the map during an aurora window', async () => {
     auroraStatus = { active: true, level: 'QUIET' };
-    await renderHeatMap({ homeCoords: HOME, heat: heatProp(), handoffEventType: 'AURORA' });
+    await renderHeatMap({ homeCoords: HOME, heat: heatProp(), autoEventType: 'AURORA' });
     mapStub.fitBounds.mockClear();
 
     fireEvent.click(screen.getByTestId('wf-jump-chip'));
@@ -461,13 +455,13 @@ describe('centre on home — the camera controller stays mounted through aurora 
     // (`!overlayMode`, never `heatOffered`, which excluded aurora when this was written), it never unmounts on an aurora↔solar switch, so there is
     // no remount to lose the pending fit to — asserted here by proving the fit actually happens.
     //
-    // The switch itself goes through a fresh `handoffEventType` rather than `WindowControl` — this
+    // The switch itself goes through a fresh `autoEventType` rather than `WindowControl` — this
     // file's `heatProp()` carries no served windows (`windows: []`), so `WindowControl` itself
     // renders nothing at all here (`events.length === 0` → `null`); the handoff is MapView's own,
     // independent route into a solar event type and exercises the exact same `eventType`/
     // `isAuroraMode`/`heatOffered` transition.
     auroraStatus = { active: true, level: 'QUIET' };
-    const { rerender } = await renderHeatMap({ homeCoords: HOME, heat: heatProp(), handoffEventType: 'AURORA' });
+    const { rerender } = await renderHeatMap({ homeCoords: HOME, heat: heatProp(), autoEventType: 'AURORA' });
 
     fireEvent.click(screen.getByTestId('wf-jump-chip'));
     fireEvent.click(screen.getAllByTestId('wf-jump-row').find((r) => r.textContent.includes('The Borders')));
@@ -492,10 +486,9 @@ describe('centre on home — the camera controller stays mounted through aurora 
             }]]),
           }]}
           date={TODAY}
-          autoEventType={null}
           homeCoords={HOME}
           heat={heatProp()}
-          handoffEventType="SUNSET"
+          autoEventType="SUNSET"
         />,
       );
     });

@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
-// `normalizeMapTrigger` lives in `mapDoor.js` since overlay convergence C1; the `buildMapOverlay`
-// cases stay in this file because the door's headline and field resolution are read off its output.
-import { buildMapOverlay } from '../utils/mapOverlay.js';
-import { normalizeMapTrigger, doorHeadline, doorFromTrigger } from '../utils/mapDoor.js';
+// `resolveDoor` is the pure resolution the retired overlay's builder became (overlay convergence C5):
+// the door's headline and field resolution are read off its output.
+import {
+  normalizeMapTrigger, resolveDoor, doorHeadline, doorFromTrigger,
+} from '../utils/mapDoor.js';
 
 const DATE = '2026-07-04';
 
@@ -24,52 +25,34 @@ const ctx = (locations, briefingScores = new Map()) => ({
   briefingScores,
   todayStr: DATE,
   tomorrowStr: '2026-07-05',
-  nonce: 7,
 });
 
-describe('buildMapOverlay', () => {
-  it('region trigger → single region, flies to the top-rated location, no caption', () => {
+describe('resolveDoor', () => {
+  it('region trigger → single region, flies to the top-rated location', () => {
     const locations = [
       loc('Low', 'Tyne and Wear', 2),
       loc('Top', 'Tyne and Wear', 4),
     ];
-    const ov = buildMapOverlay(
+    const ov = resolveDoor(
       { kind: 'region', region: 'Tyne and Wear', date: DATE, eventType: 'SUNSET' },
       ctx(locations),
     );
     expect(ov.title).toBe('Tyne and Wear');
     expect(ov.subLine).toContain('Today sunset');
     expect(ov.subLine).toContain('21:49'); // 20:49Z → 21:49 BST
-    expect(ov.caption).toBeNull();
     expect(ov.focus).toBeNull();
     expect(ov.handoff.locationName).toBe('Top');
   });
 
-  it('uses the briefing-score summary as the narrative when present', () => {
-    const locations = [loc('Top', 'Tyne and Wear', 4)];
-    const scores = new Map([
-      ['Tyne and Wear|2026-07-04|SUNSET|Top', { rating: 4, summary: 'A high-cloud canvas.' }],
-    ]);
-    const ov = buildMapOverlay(
-      { kind: 'region', region: 'Tyne and Wear', date: DATE, eventType: 'SUNSET' },
-      ctx(locations, scores),
-    );
-    expect(ov.narrative).toBe('A high-cloud canvas.');
-    expect(ov.narrativeTone).toBe('go');
-    expect(ov.narrativeHead).toContain('Tyne and Wear');
-  });
-
-  it('event trigger spanning >1 region → fits to pins with a caption and no auto-open', () => {
+  it('event trigger spanning >1 region → fits to pins with no spot opened', () => {
     const locations = [
       loc('A', 'Region One', 4, { lat: 54.1, lon: -1.1 }),
       loc('B', 'Region Two', 3, { lat: 55.2, lon: -2.2 }),
     ];
-    const ov = buildMapOverlay({ kind: 'event', date: DATE, eventType: 'SUNSET' }, ctx(locations));
-    expect(ov.caption).toContain('2 regions');
+    const ov = resolveDoor({ kind: 'event', date: DATE, eventType: 'SUNSET' }, ctx(locations));
+    expect(ov.subLine).toContain('2 regions');
     expect(ov.focus.points).toHaveLength(2);
-    expect(ov.focus.nonce).toBe(7);
     expect(ov.handoff.locationName).toBeUndefined();
-    expect(ov.narrative).toMatch(/Tap a pin/);
   });
 
   it('event trigger with a single rated region behaves like a region trigger', () => {
@@ -77,15 +60,15 @@ describe('buildMapOverlay', () => {
       loc('A', 'Only Region', 4),
       loc('B', 'Only Region', 2),
     ];
-    const ov = buildMapOverlay({ kind: 'event', date: DATE, eventType: 'SUNSET' }, ctx(locations));
+    const ov = resolveDoor({ kind: 'event', date: DATE, eventType: 'SUNSET' }, ctx(locations));
     expect(ov.focus).toBeNull();
     expect(ov.handoff.locationName).toBe('A');
     expect(ov.title).toBe('Only Region');
   });
 
-  it('location trigger → flies to that location and opens its popup', () => {
+  it('location trigger → lands on that location', () => {
     const locations = [loc('Simonside', 'Tyne and Wear', 4)];
-    const ov = buildMapOverlay(
+    const ov = resolveDoor(
       { kind: 'location', locationName: 'Simonside', date: DATE, eventType: 'SUNSET' },
       ctx(locations),
     );
@@ -99,7 +82,7 @@ describe('buildMapOverlay', () => {
       loc('Buttermere', 'The Lake District', 4),
       loc('Other', 'The Lake District', 3),
     ];
-    const ov = buildMapOverlay(
+    const ov = resolveDoor(
       { kind: 'region', region: 'The Lake District', date: DATE, eventType: 'SUNSET', locationNames: ['Buttermere'], label: 'Cloud inversion' },
       ctx(locations),
     );
@@ -110,19 +93,18 @@ describe('buildMapOverlay', () => {
     expect(ov.subLine).toContain('Cloud inversion');
   });
 
-  it('region trigger with several qualifying spots fits to them with a caption', () => {
+  it('region trigger with several qualifying spots fits to them', () => {
     const locations = [
       loc('A', 'The Lake District', 4, { lat: 54.0, lon: -3.0 }),
       loc('B', 'The Lake District', 3, { lat: 54.5, lon: -3.2 }),
       loc('C', 'The Lake District', 2, { lat: 54.7, lon: -3.1 }),
     ];
-    const ov = buildMapOverlay(
+    const ov = resolveDoor(
       { kind: 'region', region: 'The Lake District', date: DATE, eventType: 'SUNSET', locationNames: ['A', 'B'], label: 'Cloud inversion' },
       ctx(locations),
     );
     expect(ov.focus.points).toHaveLength(2);
     expect(ov.focus.names).toEqual(['A', 'B']); // markers restricted to just the qualifying spots
-    expect(ov.caption).toContain('2 spots');
     expect(ov.title).toBe('The Lake District');
   });
 
@@ -131,7 +113,7 @@ describe('buildMapOverlay', () => {
       loc('Wood A', 'The Lake District', 3, { lat: 54.0, lon: -3.0, types: ['BLUEBELL'] }),
       loc('Wood B', 'The Lake District', 3, { lat: 54.5, lon: -3.2, types: ['BLUEBELL'] }),
     ];
-    const ov = buildMapOverlay(
+    const ov = resolveDoor(
       { kind: 'region', region: 'The Lake District', date: DATE, eventType: 'SUNSET', locationNames: ['Wood A', 'Wood B'], label: 'Bluebell conditions', filterAction: 'BLUEBELL' },
       ctx(locations),
     );
@@ -141,7 +123,7 @@ describe('buildMapOverlay', () => {
 
   it('a topic without a location type carries a null filterAction', () => {
     const locations = [loc('Buttermere', 'The Lake District', 4)];
-    const ov = buildMapOverlay(
+    const ov = resolveDoor(
       { kind: 'region', region: 'The Lake District', date: DATE, eventType: 'SUNSET', locationNames: ['Buttermere'], label: 'Cloud inversion', filterAction: null },
       ctx(locations),
     );
@@ -149,13 +131,13 @@ describe('buildMapOverlay', () => {
   });
 
   describe('the coming-up trigger (D8, plan §6b)', () => {
-    it('coastal-spots → filters and fits to the matching pins with a caption', () => {
+    it('coastal-spots → filters and fits to the matching pins', () => {
       const locations = [
         loc('Bamburgh', 'Northumberland', 3, { types: ['SEASCAPE'] }),
         loc('Whitby', 'Yorkshire', 3, { types: ['SEASCAPE'] }),
         loc('Elsewhere', 'Yorkshire', 3, { types: ['LANDSCAPE'] }),
       ];
-      const ov = buildMapOverlay(
+      const ov = resolveDoor(
         { kind: 'coming-up', filterAction: 'SEASCAPE', label: 'Spring tide run', date: DATE },
         ctx(locations),
       );
@@ -164,11 +146,6 @@ describe('buildMapOverlay', () => {
       expect(ov.handoff.darkSky).toBe(false);
       expect(ov.handoff.date).toBe(DATE);
       expect(ov.focus.points).toHaveLength(2);
-      expect(ov.caption).toContain('2 locations');
-      // Never dresses a T+90 chronology date as a rating claim — claims nothing about ratings,
-      // matching the `topic` branch it is modelled on (D8).
-      expect(ov.narrativeTone).toBe('standdown');
-      expect(ov.narrativeHead).toBeNull();
     });
 
     it('dark-sky-spots → filters by Bortle class, never by locationType', () => {
@@ -177,7 +154,7 @@ describe('buildMapOverlay', () => {
         loc('Thick Sky', 'Northumberland', 3, { bortleClass: 7 }),
         loc('Unmeasured', 'Northumberland', 3, { bortleClass: null }),
       ];
-      const ov = buildMapOverlay(
+      const ov = resolveDoor(
         { kind: 'coming-up', darkSky: true, label: 'Perseids', date: DATE },
         ctx(locations),
       );
@@ -195,18 +172,17 @@ describe('buildMapOverlay', () => {
         loc('Thick Sky', 'Yorkshire', 3, { lat: 54.3, lon: -0.9, types: ['LANDSCAPE'], bortleClass: 7 }),
         { ...loc('Switched Off', 'Yorkshire', 3, { lat: 50.0, lon: -5.0, types: ['LANDSCAPE'] }), enabled: false },
       ];
-      const ov = buildMapOverlay(
+      const ov = resolveDoor(
         { kind: 'coming-up', filterAction: null, darkSky: false, label: 'Winter solstice · Sun 21 Dec', date: DATE },
         ctx(locations),
       );
       expect(ov.title).toBe('Winter solstice · Sun 21 Dec');
-      // No `names`: that would make MapView replace its own filtered list with exactly these pins,
-      // bypassing the overlay's rating floor, stand-down and drive filters. Points only — the fit.
+      // No `names`: that would narrow the map to exactly these pins as a named lens. "Every spot" is
+      // not a selection. Points only — the fit.
       expect(ov.focus.names).toBeUndefined();
       expect(ov.focus).not.toHaveProperty('names');
       // Every enabled location's point, in order; the disabled one (50.0, -5.0) is not in the fit.
       expect(ov.focus.points).toEqual([[55.6, -1.7], [55.2, -2.6], [54.3, -0.9]]);
-      expect(ov.caption).toContain('3 locations');
       expect(ov.subLine).toBe('2 regions');
       expect(ov.handoff.filterAction).toBeNull();
       expect(ov.handoff.darkSky).toBe(false);
@@ -214,7 +190,7 @@ describe('buildMapOverlay', () => {
     });
 
     it('a plan chip with no label falls back to a generic title rather than a type name', () => {
-      const ov = buildMapOverlay(
+      const ov = resolveDoor(
         { kind: 'coming-up', filterAction: null, darkSky: false, date: DATE },
         ctx([loc('Bamburgh', 'Northumberland', 3, { types: ['SEASCAPE'] })]),
       );
@@ -222,27 +198,26 @@ describe('buildMapOverlay', () => {
     });
 
     it('carries the trigger date, unlike the aurora branch — no rating is ever claimed for it', () => {
-      const ov = buildMapOverlay(
+      const ov = resolveDoor(
         { kind: 'coming-up', filterAction: 'SEASCAPE', date: '2026-11-26' },
         ctx([loc('Bamburgh', 'Northumberland', 3, { types: ['SEASCAPE'] })]),
       );
       expect(ov.handoff.date).toBe('2026-11-26');
     });
 
-    it('falls back to a null-safe title and caption when nothing matches', () => {
-      const ov = buildMapOverlay(
+    it('falls back to a null-safe title when nothing matches', () => {
+      const ov = resolveDoor(
         { kind: 'coming-up', darkSky: true, date: DATE },
         ctx([loc('Nowhere Dark', 'Northumberland', 3, { bortleClass: 8 })]),
       );
       expect(ov.title).toBe('Dark-sky spots');
-      expect(ov.caption).toBeNull();
       expect(ov.focus).toBeNull();
     });
   });
 
   describe('the aurora trigger', () => {
     it('hands the map the aurora event for the night in question', () => {
-      const ov = buildMapOverlay({ kind: 'aurora', date: DATE }, ctx([loc('Kielder', 'Northumberland', 4)]));
+      const ov = resolveDoor({ kind: 'aurora', date: DATE }, ctx([loc('Kielder', 'Northumberland', 4)]));
       expect(ov.handoff.eventType).toBe('AURORA');
       expect(ov.handoff.date).toBe(DATE);
       expect(ov.title).toBe('Aurora tonight');
@@ -255,15 +230,13 @@ describe('buildMapOverlay', () => {
     // fails loudly if a later change starts reaching for them. (21:49, not the fixture's
     // 20:49: the overlay prints Europe/London local time, which the control below pins.)
     it('claims no rating, no clock time and no count of our own locations', () => {
-      const ov = buildMapOverlay({ kind: 'aurora', date: DATE }, ctx([
+      const ov = resolveDoor({ kind: 'aurora', date: DATE }, ctx([
         loc('Kielder', 'Northumberland', 4),
         loc('Derwent', 'Durham', 5),
       ]));
-      expect(ov.caption).toBeNull();
       expect(ov.subLine).toBeNull();
       expect(ov.focus).toBeNull();
-      expect(ov.narrativeTone).not.toBe('go');
-      const printed = `${ov.title} ${ov.subLine ?? ''} ${ov.caption ?? ''} ${ov.narrative ?? ''} ${ov.narrativeHead ?? ''}`;
+      const printed = `${ov.title} ${ov.subLine ?? ''}`;
       expect(printed).not.toMatch(/21:49/);
       expect(printed).not.toMatch(/\d\u2605|\bbest\b/i);
       expect(printed).not.toMatch(/\b2 locations\b/);
@@ -272,10 +245,10 @@ describe('buildMapOverlay', () => {
     // The positive control for the assertion above: the ordinary event path DOES print the time,
     // so "no 20:49" is a fact about the aurora branch rather than about the fixture.
     it('is a departure from the event trigger, which does print the solar time', () => {
-      const ov = buildMapOverlay({ kind: 'event', date: DATE, eventType: 'SUNSET' }, ctx([
+      const ov = resolveDoor({ kind: 'event', date: DATE, eventType: 'SUNSET' }, ctx([
         loc('Kielder', 'Northumberland', 4),
       ]));
-      const printed = `${ov.title} ${ov.subLine ?? ''} ${ov.caption ?? ''}`;
+      const printed = `${ov.title} ${ov.subLine ?? ''}`;
       expect(printed).toMatch(/21:49/);
     });
   });

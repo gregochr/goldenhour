@@ -41,7 +41,7 @@ describe('foreignModalOver — containment, not "is any modal open"', () => {
   };
 
   it('⚠️ names the map TAB\'s own root — the node MapView\'s mapPaneRef points at', () => {
-    // `MapView` renders `className={overlayMode ? … : '… wf-map-tab'}` on the element carrying
+    // `MapView` renders `className="… wf-map-tab"` on the element carrying
     // `ref={mapPaneRef}` and `onKeyDown={handleMapPaneKeyDown}`. If these two drift apart, every
     // consumer silently falls into the null branch and stands down for any modal anywhere.
     expect(MAP_PANE_SELECTOR).toBe('.wf-map-tab');

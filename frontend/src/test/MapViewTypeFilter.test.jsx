@@ -63,11 +63,6 @@ vi.mock('../components/BottomSheet.jsx', () => ({ default: ({ children }) => <di
 vi.mock('../components/MarkerPopupContent.jsx', () => ({
   default: () => <div data-testid="popup-content" />,
 }));
-vi.mock('../components/ForecastTypeSelector.jsx', () => ({
-  default: ({ onChange }) => (
-    <button data-testid="type-sunrise" onClick={() => onChange('SUNRISE')}>Sunrise</button>
-  ),
-}));
 vi.mock('../components/InfoTip.jsx', () => ({ default: () => null }));
 vi.mock('../components/markerUtils.js', () => ({
   buildMarkerSvg: () => '<svg></svg>',
@@ -164,21 +159,5 @@ describe('MapView Subject filter — WOODLAND', () => {
     fireEvent.click(screen.getByRole('button', { name: /Seascape/ }));
     fireEvent.click(screen.getByRole('button', { name: /Woodland/ }));
     expect(visibleCount()).toBe(2);
-  });
-});
-
-describe('MapView Subject filter — the standalone handoffFilterAction effect opens the popover', () => {
-  // A Hot Topic pill tap (e.g. BLUEBELL) drives `handoffFilterAction` alone, WITHOUT
-  // `handoffDarkSky` — a genuinely different effect from the combined one
-  // `MapViewDarkSkyHandoff.test.jsx` covers, so its own re-target onto `FiltersPopover`
-  // (map-tab-v2-plan.md §3 P7) needs its own proof rather than inheriting that file's.
-  it('opens the filters popover with the type filter already applied', () => {
-    render(
-      <MapView locations={LOCATIONS} date={TODAY} forecastDates={[TODAY]} autoEventType={null} handoffFilterAction="SEASCAPE" />,
-    );
-    expect(screen.getByTestId('wf-filters-chip')).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByTestId('wf-filters-panel')).toBeInTheDocument();
-    // Wooded Clifftop is the only SEASCAPE site — the filter took, not merely the popover opened.
-    expect(visibleCount()).toBe(1);
   });
 });

@@ -113,8 +113,7 @@ async function renderOn(nightOnScreen, extra = {}) {
       <MapView
         locations={locations()}
         date={nightOnScreen}
-        autoEventType={null}
-        handoffEventType="AURORA"
+        autoEventType="AURORA"
         {...extra}
       />,
     );
@@ -182,7 +181,7 @@ describe('the 🏆 best-location card — dismissal (aurora heat A4)', () => {
     getAuroraLocations.mockResolvedValue(scores);
     await act(async () => {
       view.rerender(
-        <MapView locations={locations()} date={night} autoEventType={null} handoffEventType="AURORA" />,
+        <MapView locations={locations()} date={night} autoEventType="AURORA" />,
       );
     });
     await act(async () => { await Promise.resolve(); });
@@ -253,8 +252,7 @@ describe('the 🏆 best-location card — dismissal (aurora heat A4)', () => {
           locations={locations()}
           date={THE_NIGHT}
           forecastDates={[THE_NIGHT]}
-          autoEventType={null}
-          handoffEventType="AURORA"
+          autoEventType="AURORA"
         />,
       );
     });
@@ -334,36 +332,6 @@ describe('the aurora medallions', () => {
   });
 });
 
-describe('the overlay\'s aurora popup', () => {
-  it('is handed the live score on the night in progress', async () => {
-    await renderOn(THE_NIGHT, { overlayMode: true, handoffLocationName: null });
-    await waitFor(() => expect(popupAuroraScores.some((s) => s?.stars === 5)).toBe(true));
-  });
-
-  it('is handed THAT night\'s stored result on another night — not tonight\'s, and not nothing', async () => {
-    // ⚠️ This test asserted `null` here in its first form, and that encoded the defect Codex then
-    // found (#814). `MarkerPopupContent` reads a null aurora score as "Not suitable for aurora
-    // photography", so withholding tonight's live score swapped wrong data for a false NEGATIVE —
-    // a medallion wearing that night's stored 4★ opened a popup denying the night outright. The
-    // claim that matters is that the popup and the medallion it opens from agree.
-    //
-    // That night HAS a stored run, which is also the precondition: a popup renders only inside a
-    // visible marker, and with nothing rated there is no marker to host one.
-    getAuroraForecastResults.mockImplementation((night) => Promise.resolve(
-      night === ANOTHER_NIGHT ? [{ locationName: LOC, stars: 4, alertLevel: 'MINOR' }] : [],
-    ));
-    await renderOn(ANOTHER_NIGHT, { overlayMode: true });
-    // The precondition, asserted: a popup really was rendered and handed something.
-    await waitFor(() => expect(popupAuroraScores.length).toBeGreaterThan(0));
-    // It carries THAT night's stored 4 — the same figure the medallion shows...
-    expect(popupAuroraScores.some((sc) => sc?.stars === 4)).toBe(true);
-    // ...never tonight's live 5...
-    expect(popupAuroraScores.some((sc) => sc?.stars === 5)).toBe(false);
-    // ...and never nothing, which the popup would render as "Not suitable".
-    expect(popupAuroraScores.every((sc) => sc != null)).toBe(true);
-  });
-});
-
 describe('the night on screen is `nightDate`, not `date`', () => {
   it('keeps the live state on the night in progress when the window control kept it LOCAL', async () => {
     // ⚠️ The case that makes `nightDate` load-bearing, and no other test reaches it: in every
@@ -436,7 +404,7 @@ describe('stored results answer for the night they were fetched for (Codex, #814
     let result;
     await act(async () => {
       result = render(
-        <MapView locations={locations()} date={night} autoEventType={null} handoffEventType="AURORA" />,
+        <MapView locations={locations()} date={night} autoEventType="AURORA" />,
       );
     });
     return result;
@@ -445,7 +413,7 @@ describe('stored results answer for the night they were fetched for (Codex, #814
   const rerenderNight = async (result, night) => {
     await act(async () => {
       result.rerender(
-        <MapView locations={locations()} date={night} autoEventType={null} handoffEventType="AURORA" />,
+        <MapView locations={locations()} date={night} autoEventType="AURORA" />,
       );
     });
   };

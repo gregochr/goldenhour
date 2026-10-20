@@ -1,12 +1,14 @@
 /**
- * Parity between the location sheet's forecast-detail facts and the overlay popup's, rendered from
- * the SAME forecast row (overlay convergence C2). The markup differs by design (the sheet never
- * imports the popup or its inline styles), so what is compared is every badge's rendered text,
+ * Parity between the location sheet's forecast-detail facts and `MarkerPopupContent`'s, rendered
+ * from the SAME forecast row (overlay convergence C2). The markup differs by design (the sheet never
+ * imports the popup's inline styles), so what is compared is every badge's rendered text,
  * whitespace-normalised, in the popup's order, for both tiers.
  *
- * What breaks if this fails: a fact reads differently on the sheet than it did on the popup it
- * replaces, or a badge the popup showed (or hid) for a tier is shown (or hidden) on the sheet.
- * The popup dies in C5 and this file goes with it.
+ * What breaks if this fails: a fact reads differently on the sheet than on the popup, or a badge
+ * the popup shows (or hides) for a tier is hidden (or shown) on the sheet. Kept after the overlay's
+ * deletion (C5) because the popup survives as the admin `PromptTestView`'s renderer, so the two
+ * surfaces still exist to disagree; the thresholds and labels now come from one module, which makes
+ * this a rendering check rather than a logic one.
  */
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';

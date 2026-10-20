@@ -51,7 +51,7 @@ const NO_FORECAST_DATES = Object.freeze([]);
  * The heat strip, behind a lazy boundary for chunk hygiene.
  *
  * <p>{@code App} imports this shell STATICALLY (unlike `MapView`, `WindowFirstMapPane`,
- * `MapOverlay` and `ManageView`, which are all `lazy()`), so a static import here would put the
+ * and `ManageView`, which are all `lazy()`), so a static import here would put the
  * strip — and through it `heatField.js`'s `d3-geo` and `topojson-client` — in the entry chunk for
  * every reader. Measured: a 24.14 KB / 9.19 KB-gzip `geo` chunk, fetched render-blocking on first
  * paint, for a strip that always renders below the fold. Lazy keeps that chunk out of the entry.
@@ -2716,7 +2716,7 @@ export default function WindowFirstShell({
             onOpenPick={(pick) => openOverPopup({ pick })}
             // ⚠️ M4 (D-3) RETARGETS both of these from the map to the location sheet, and the
             // popup deliberately stays open underneath. Until this phase a spot card opened the
-            // map, and the rule at this seam was "closes FIRST" because `MapOverlay` is itself
+            // map, and the rule at this seam was "closes FIRST" because the overlay it opened was itself
             // `aria-modal` and the reader had arrived at a destination. A sheet is not a
             // destination: it is one place's own four days, opened from the window the reader is
             // still reading, and closing the popup would throw that window away to answer a
