@@ -2131,6 +2131,21 @@ button.wf-hc.on:hover {
   font-variant-numeric: tabular-nums;
   color: var(--color-plex-text-secondary);
 }
+/* `unsettled` beside a blanked STAND_DOWN "Poor" (plan-card-verdict-honesty-plan.md H4): the mean's
+   own slot, ink and size, so no new colour. Unlike the figure it is TEXT: 9 characters at 10px is
+   54.0px, and what is left of the value column once "Poor" (4 x 0.6 x 11px = 26.4px) and the 4px
+   gap are taken off is 39.9px at a 320px viewport (column 70.3px), 59.9px at 360 (90.3), 67.4px at
+   375 (97.8) and 48.9px at 640 (79.3). So it fits from about 360px and clips below that, and at
+   640px. It is the part that gives way when it does not fit: it shrinks and ellipsises, and the
+   verdict word beside it does not ("Poor" is the claim being qualified). The full phrase, "too
+   unsettled to forecast", is the element's title and the card's spoken sentence. */
+.wf-hc-mean.wf-hc-note {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wf-hc-pv:has(.wf-hc-note) .wf-hc-vd { flex: none; }
 /* "Too few 3.6★" — the UNRATED card's verdict row (unrated-verdict-plan.md U2, review F2). The mean
    is the honest half of the card here: the region has ratings, the sample gate withheld a verdict
    from them, and the word and the figure say so together.
@@ -11653,6 +11668,11 @@ button.wf-mchip:hover {
   font-family: var(--font-mono);
   font-size: 13px;
   font-weight: 600;
+  color: var(--color-plex-text-secondary);
+}
+.wf-wsh-vnote {
+  font-size: 10px;
+  white-space: nowrap;
   color: var(--color-plex-text-secondary);
 }
 .wf-wsh-bdg {

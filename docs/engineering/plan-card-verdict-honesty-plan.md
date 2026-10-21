@@ -11,7 +11,7 @@ nothing rated was in reach, so the card read "none rated yet" / "not scored yet"
 that belonged to a region beyond the ring. Both surfaces were right about their data; three things
 let the card say more than the data did.
 
-## 2. The three fixes — each its own phase, each its own agent
+## 2. The four fixes — each its own phase, each its own agent
 
 ### H1 — The card shows the mean behind the verdict word
 
@@ -61,6 +61,34 @@ unrated, filler with ratings, filler without.
 
 Known limit, recorded not fixed: the heat FIELD is not painted on a filler row at all, even where
 ratings exist — `buildHeatSpots` scores each spot per rendered event only. A follow-up, not this.
+
+### H4 — A blanked stand-down says the weather called it (2026-10-21)
+
+(Numbered H4 because H3 above is the Map's `windowUnscored` fix; this is the third Plan-card
+change of the series.)
+
+State: the window's word is `STAND_DOWN` ("Poor") and the region it came from is BLANKED by the
+honesty filter, i.e. its served `slots` are empty. Since the UNKNOWN-reason fix the filter words an
+unknown cause AWAITING, so a blanked STAND_DOWN can only be weather triage. The card nonetheless drew
+"Poor" over an all-hatched field with nothing beside it (the mean is deliberately silent beside a
+stand-down), and on 2026-10-19 the owner read a T+3 sunrise as a rating.
+
+The rule: `card.verdictBlanked` is true exactly when `verdict === 'STAND_DOWN'` and the word's own
+region has an empty `slots` array. "The word's region" is `verdictMeanOf`'s selection (the origin's
+region when scoped, else `topRegion`); with no mean anywhere to rank by it falls to the projector's
+own order among mean-less regions (a region with slots ahead of a blanked one, a blanked real
+stand-down ahead of a blanked AWAITING, then the name). Where it holds, the card prints
+`unsettled` in the mean's own cell, ink and size, and its sentence reads "Poor, too unsettled to
+forecast" (the honesty filter's own label, so the card and the popup's region rail speak one
+vocabulary). The popup head prints the same note beside its badge and in its live message.
+
+Deliberately NOT done: no new backend field (the served `slots` and `displayVerdict` are the
+server's statement), no change to the word, the tint, the spread row or the best-reachable line, no
+qualifier for a stand-down region that still has slots, and none for AWAITING or UNRATED. The note is
+text, not a figure: `unsettled` is 54px at 10px, and what is left of the value column after "Poor"
+(26.4px) and the 4px gap is 39.9px at a 320px viewport, 59.9px at 360, 67.4px at 375 and 48.9px at
+640. It fits from about 360px and ellipsises below that and at 640px (the word does not give way);
+the full phrase, "too unsettled to forecast", is its title and the card's spoken sentence.
 
 ## 3. Process
 

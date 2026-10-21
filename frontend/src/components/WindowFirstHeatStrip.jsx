@@ -8,7 +8,13 @@ import {
 import { useHeatCanvas } from '../hooks/useHeatCanvas.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
-import { badgeChannel, formatRegionMean, shortVerdictLabel } from '../utils/windowFirstCards.js';
+import {
+  badgeChannel,
+  BLANKED_STAND_DOWN_SPOKEN,
+  BLANKED_STAND_DOWN_VISIBLE,
+  formatRegionMean,
+  shortVerdictLabel,
+} from '../utils/windowFirstCards.js';
 import { beyondRegions, GLANCE_MINUTES } from '../utils/planningArea.js';
 import { placeWithNudges } from '../utils/labelPlacement.js';
 import { scopeRegions, scopeSpots } from '../utils/planOrigin.js';
@@ -1226,7 +1232,11 @@ export default function WindowFirstHeatStrip({
     // triage-fallback verdict, an unrated window, an away cell — is SILENCE in both the face and the
     // sentence: no mean standing behind a word is itself the disclosure that no rating does.
     const regionMean = card.away ? null : formatRegionMean(card.verdictMean);
+    // H4: a STAND_DOWN word over a region the honesty filter blanked is the weather's call, not a
+    // rating. The mean is null there (never both), so the qualifier takes the mean's own slot.
+    const blankedNote = !card.away && card.verdictBlanked === true && !regionMean;
     const accessibleName = [card.label, card.time, card.verdictLabel]
+      .concat(blankedNote ? [BLANKED_STAND_DOWN_SPOKEN] : [])
       .concat(regionMean ? [`${regionMean} star average`] : [])
       .filter(Boolean)
       .concat(notScored ? ['not scored'] : [])
@@ -1380,6 +1390,15 @@ export default function WindowFirstHeatStrip({
                 `aria-hidden`; the same figure is voiced in the card's sentence above. */}
             {regionMean && (
               <span data-testid="wf-heat-mean" className="wf-hc-mean">{regionMean}★</span>
+            )}
+            {blankedNote && (
+              <span
+                data-testid="wf-heat-blanked"
+                className="wf-hc-mean wf-hc-note"
+                title={BLANKED_STAND_DOWN_SPOKEN}
+              >
+                {BLANKED_STAND_DOWN_VISIBLE}
+              </span>
             )}
           </span>
           {/* An away window draws none of the three derived rows: there is no card behind it, so
@@ -2019,6 +2038,7 @@ WindowFirstHeatStrip.propTypes = {
      * tier" line, all of which claim a RATING stands behind the word.
      */
     verdictMean: PropTypes.number,
+    verdictBlanked: PropTypes.bool,
     /** The active reach tier's threshold in minutes; null under "Any" (H2). */
     reachLimitMinutes: PropTypes.number,
     /** Whether a drive time exists for the tier to have gated on (H2 requires it). */

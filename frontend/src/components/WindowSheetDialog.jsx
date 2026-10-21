@@ -15,7 +15,13 @@ import {
 } from '../utils/windowFirstRegions.js';
 import { windowTopics } from '../utils/windowFirstTopics.js';
 import { lookupForWindow } from '../utils/locationSheet.js';
-import { badgeChannel, CONFIDENCE_VERDICTS, eventWord } from '../utils/windowFirstCards.js';
+import {
+  badgeChannel,
+  BLANKED_STAND_DOWN_SPOKEN,
+  BLANKED_STAND_DOWN_VISIBLE,
+  CONFIDENCE_VERDICTS,
+  eventWord,
+} from '../utils/windowFirstCards.js';
 import {
   confidenceTreatment, daysOut, resolveConfidence, scaleRgbaAlpha,
 } from '../utils/confidenceUtils.js';
@@ -350,11 +356,13 @@ export default function WindowSheetDialog({
    */
   const liveMessage = useMemo(() => {
     const where = `${windowLabel}, ${index + 1} of ${total}`;
-    const verdict = card.verdictLabel ? `, ${card.verdictLabel}` : '';
+    const verdict = card.verdictLabel
+      ? `, ${card.verdictLabel}${card.verdictBlanked === true ? `, ${BLANKED_STAND_DOWN_SPOKEN}` : ''}`
+      : '';
     if (!field.selectedRegion) return `${where}${verdict}`;
     const shown = shownSpots.length;
     return `${where}${verdict}, showing ${field.selectedRegion}, ${shown} location${shown === 1 ? '' : 's'}`;
-  }, [windowLabel, index, total, card.verdictLabel, field.selectedRegion, shownSpots.length]);
+  }, [windowLabel, index, total, card.verdictLabel, card.verdictBlanked, field.selectedRegion, shownSpots.length]);
 
   const emptyLine = useMemo(() => {
     if (shownSpots.length > 0) return null;
@@ -460,6 +468,17 @@ export default function WindowSheetDialog({
                 )}
                 {card.verdictLabel}
               </span>
+              {/* H4: the same quiet qualifier the matrix card prints — "Poor" over a blanked region is
+                  the weather's call, not a rating. Secondary ink, no badge chrome. */}
+              {card.verdictBlanked === true && (
+                <span
+                  data-testid="window-sheet-verdict-note"
+                  className="wf-wsh-vnote font-mono"
+                  title={BLANKED_STAND_DOWN_SPOKEN}
+                >
+                  {BLANKED_STAND_DOWN_VISIBLE}
+                </span>
+              )}
               {card.pick && (
                 <button
                   type="button"
@@ -755,6 +774,7 @@ WindowSheetDialog.propTypes = {
     lead: PropTypes.bool,
     verdict: PropTypes.string.isRequired,
     verdictLabel: PropTypes.string.isRequired,
+    verdictBlanked: PropTypes.bool,
     bestRating: PropTypes.number,
     confidence: PropTypes.string,
     movement: PropTypes.object,
